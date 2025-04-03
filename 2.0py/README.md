@@ -55,7 +55,7 @@
 
 1. 运行程序：
    ```
-   python main.py
+   python eel_app.py
    ```
 2. 输入手机号码（GoodHR注册手机号）
 3. 选择招聘平台
