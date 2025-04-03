@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>GoodHR 助手</title>
+    <style>
+        body {
+            width: 300px;
+            height: 600px;
+            padding: 0;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+        }
+
+        .container {
+
+            background: #fff;
+            /* 白色背景 */
+            border-radius: 12px;
+            margin: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #1a73e8;
+            padding: 10px;
+            color: white;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .filter-group {
+            padding: 6px;
+            border-bottom: 1px solid #eef0f2;
+        }
+
+        .filter-group:last-child {
+            border-bottom: none;
+        }
+
+        .filter-group label.title {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #1a73e8;
+            font-size: 13px;
+        }
+
+        .keyword-input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .keyword-input {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid #e0e3e7;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: border-color 0.2s;
+        }
+
+        .keyword-btn {
+            padding: 6px 16px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .keyword-btn:hover {
+            background: #1557b0;
+        }
+
+        .keyword-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+
+        }
+
+        .keyword-tag {
+            background: #e8f0fe;
+            border: 1px solid #1a73e8;
+            padding: 2px 4px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #1a73e8;
+        }
+
+        .keyword-tag button {
+            background: none;
+            border: none;
+            color: #1a73e8;
+            cursor: pointer;
+            padding: 0;
+            font-size: 16px;
+            line-height: 1;
+            opacity: 0.7;
+        }
+
+        .keyword-tag button:hover {
+            opacity: 1;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+            padding: 4px 0;
+        }
+
+        .checkbox-wrapper input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            margin: 0;
+        }
+
+        .checkbox-label {
+            user-select: none;
+            cursor: pointer;
+        }
+
+        /* 确保底部控制按钮样式正确 */
+        .control-buttons {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+        }
+
+        .control-buttons .btn {
+            flex: 1;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .start-btn {
+            background: #00c853;
+            color: white;
+        }
+
+        .stop-btn {
+            background: #ff4444;
+            color: white;
+        }
+
+        /* 添加图标 */
+        .icon {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+
+        .input-wrapper {
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        .number-input {
+            width: 60px;
+            padding: 4px 8px;
+            border: 1px solid #e0e3e7;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .input-label {
+            user-select: none;
+        }
+
+        input-con {
+            font-size: 12px !important;
+            color: #ed7878 !important;
+
+        }
+
+        .position-input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .position-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            /* margin-bottom: 8px; */
+            padding: 2px;
+            /* min-height: 32px; */
+            border: 1px dashed #e0e3e7;
+            border-radius: 6px;
+        }
+
+        .position-tag {
+            background: #f0f2f5;
+            border: 1px solid #e0e3e7;
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .position-tag:hover {
+            background: #e8f0fe;
+            border-color: #1a73e8;
+            color: #1a73e8;
+        }
+
+        .position-tag.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1557b0;
+        }
+
+        .position-tag .remove-btn {
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            padding: 0 2px;
+            font-size: 14px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .position-tag .remove-btn:hover {
+            opacity: 1;
+        }
+
+        .position-tag.active .remove-btn {
+            color: white;
+        }
+
+        .bottom-controls {
+            padding: 12px;
+            background: #fff;
+        }
+
+        .initial-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .primary-btn {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .primary-btn:hover {
+            background: #1557b0;
+        }
+
+        .danger-btn {
+            background: #dc3545;
+            color: white;
+            width: 100%;
+        }
+
+        .danger-btn:hover {
+            background: #bb2d3b;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* 添加按钮切换动画 */
+        .initial-buttons,
+        .stop-buttons {
+            transition: opacity 0.3s ease;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 添加排行榜样式 */
+        .ranking-list {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+
+        .ranking-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-bottom: 4px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .ranking-number {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #1a73e8;
+            color: white;
+            border-radius: 50%;
+            margin-right: 8px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .ranking-info {
+            flex: 1;
+        }
+
+        .ranking-name {
+            font-weight: 600;
+            color: #1a73e8;
+            margin-bottom: 2px;
+        }
+
+        .ranking-desc {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .ranking-price {
+            color: #f44336;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        /* 前三名特殊样式 */
+        .ranking-item:nth-child(1) .ranking-number {
+            background: #ffd700;
+        }
+
+        .ranking-item:nth-child(2) .ranking-number {
+            background: #c0c0c0;
+        }
+
+        .ranking-item:nth-child(3) .ranking-number {
+            background: #cd7f32;
+        }
+    </style>
+
+
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Good!HR 助手<span id="version"></span></h1>
+            <span>免费的HR助手，帮你打招呼</span>
+        </div>
+
+
+
+        <div style="height: 330px; overflow-y: scroll;">
+            <div class="filter-group">
+                <label class="title">账号绑定</label>
+                <div class="position-input-group">
+                    <input type="text" id="phone-input" class="keyword-input" placeholder="输入手机号以同步配置">
+                    <button id="bind-phone" class="keyword-btn">绑定</button>
+                </div>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    * 绑定手机号后可以从服务器同步你的配置(关键词等等)(无需验证)
+                </div>
+            </div>
+            <!-- height: 200px; /* 您想要的固定高度 */
+            overflow-y: scroll; /* 垂直滚动条 */ -->
+
+
+            <div class="filter-group">
+                <label class="title">岗位管理</label>
+                <div class="position-input-group">
+                    <input type="text" id="position-input" class="keyword-input" placeholder="添加岗位(关键词分组,回车键添加)">
+                    <button id="add-position" class="keyword-btn">添加</button>
+                </div>
+                <div class="position-tags" id="position-list"></div>
+            </div>
+
+
+            <div class="filter-group">
+                <div style="margin-bottom: 8px;">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="keywords-and-mode">
+                        <span class="checkbox-label">全部关键词都必须匹配</span>
+                    </label>
+                </div>
+                <div class="keyword-input-group">
+                    <div>
+                        <input type="text" id="keyword-input" class="keyword-input" placeholder="输入关键词"
+                            style="width: 100px;">
+                    </div>
+
+                    <div style="display: flex;flex: 1;gap: 5px;">
+                        <button id="add-exclude-keyword" class="keyword-btn" style="background: #ff4444;">排除</button>
+                        <button id="add-keyword" class="keyword-btn">添加</button>
+                    </div>
+                </div>
+                <div class="keyword-list" id="keyword-list"></div>
+                <div class="keyword-list" id="exclude-keyword-list"></div>
+            </div>
+
+
+
+
+            <div class="filter-group">
+                <!-- <label class="title">
+                    <span class="checkbox-label">匹配成功暂停数量：</span>
+                    <label class="input-wrapper">
+                        <div>
+                            <input type="number" id="match-limit" class="number-input" min="1" value="200">
+
+                        </div>
+                        <span class="input-label">* 打招呼成功多少后停止</span>
+
+                    </label>
+                </label> -->
+
+
+                <div style="margin-bottom: 8px;">
+                    <span class="input-label">打招呼暂停数</span>
+
+                    <label class="input-wrapper">
+                        <div>
+                            <input type="number" id="match-limit" class="number-input" min="1" value="200">
+
+                        </div>
+                        <span class="input-label">* 打招呼成功多少后停止</span>
+
+                    </label>
+                </div>
+
+
+                <div style="margin-bottom: 8px;">
+                    <span class="input-label">随机延迟秒数</span>
+
+                    <label class="input-wrapper">
+                        <div style="gap: 5px;display: flex;">
+                            <input type="number" id="delay-min" class="number-input" min="1" value="3" max="9">到<input
+                                type="number" id="delay-max" class="number-input" min="1" value="5" max="10">
+                        </div>
+                        <span class="input-label">* 随机模拟停止的时间段 0-10秒，默认3-5</span>
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                    <span class="input-label">点击候选人频率</span>
+                    <label class="input-wrapper">
+                        <div>
+                            <input type="number" id="click-frequency" class="number-input" min="0" max="10" value="7">
+                        </div>
+                        <span class="input-label">* 每浏览10个候选人中随机点击查看的数量(填10 就每个都查看)</span>
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                    <label class="input-wrapper">
+                        <span class="input-label">启用提示音</span>
+                        <input type="checkbox" id="enable-sound" checked>
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                    <span class="input-label">浏览器UI高度</span>
+                    <label class="input-wrapper">
+                        <div>
+                            <input type="number" id="browser-ui-height" class="number-input" min="0" max="200"
+                                value="110">
+                        </div>
+                        <span class="input-label">* 如果点击位置不准确，请调整此值</span>
+                    </label>
+                </div>
+
+                <!-- 添加打赏排行榜 -->
+
+            </div>
+            <div class="filter-group">
+                <label class="title">使用说明</label>
+                <label class="checkbox-wrapper">
+                    <span class="checkbox-label">
+                        <p>案例： 招聘一个英语老师、本科、英语4级、40岁以下、女</p>
+                        <p>1. 在平台比如boos 推荐牛人页面 的筛选功能中 现在筛选好 基本信息。40岁以下、女、本科、等等</p>
+                        <p>2. 打开插件 。添加岗位"英语老师"(回车键添加)，关键词"英语老师"，排除关键词(回车键添加)</p>
+                        <p>3. 点击打招呼，开始打招呼 请在运行时注意观察一下。及时调整关键词</p>
+                        <p>4. 刷新浏览器可以暂停</p>
+                    </span>
+                </label>
+
+            </div>
+
+            <div class="filter-group">
+                <label class="title">打赏记录</label>
+                <div id="ranking-list" class="ranking-list">
+                    <!-- 排行榜数据将在这里动态显示 -->
+                </div>
+            </div>
+
+
+
+
+        </div>
+
+    </div>
+
+
+    </div>
+
+    <div
+        style="position: fixed; bottom: 0; left: 0; right: 0; background: white; box-shadow: 0 -2px 10px rgba(0,0,0,0.1);">
+        <div style="text-align: center;margin-top: 4px;">
+            <a href="http://58it.cn" style="color: #1a73e8;" target="_blank">联系我</a>
+            <a href="http://58it.cn" style="color: #1a73e8;" target="_blank">打赏我</a>
+            <a style="margin-left: 10px;color: #1a73e8;" href="http://goodhr.58it.cn" target="_blank">前往官网</a>
+            <a style="margin-left: 10px;color: #e81a1a;" href="http://goodhr.58it.cn" target="_blank">分享给另一个HR</a>
+        </div>
+        <div class="bottom-controls">
+            <!-- 初始状态的按钮组 -->
+            <div class="initial-buttons" id="initialButtons">
+                <button id="scrollButton" class="btn primary-btn">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                    </svg>
+                    打招呼
+                </button>
+                <button id="downloadButton" class="btn primary-btn">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M19 9h-4V3H9v6H5l7 7 7-7z" />
+                    </svg>
+                    下载简历
+                </button>
+            </div>
+
+            <!-- 停止按钮（初始隐藏） -->
+            <div class="stop-buttons hidden" id="stopButtons">
+                <button id="stopButton" class="btn danger-btn">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M6 6h12v12H6z" />
+                    </svg>
+                    停止
+                </button>
+            </div>
+        </div>
+
+        <div style="background: #1e1e1e; color: #00ff00; font-family: 'Consolas', monospace; padding: 8px; height: 100px; overflow-y: auto; font-size: 12px; line-height: 1.5;
+        border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+            <div id="log-container" style="display: flex; flex-direction: column;">
+                <div class="log-entry" style="display: flex;">
+                    <span style="color: #666; margin-right: 8px;">></span>
+                    <span>系统就绪，等待开始...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div style="height: 160px;"></div>
+
+    <script src="index.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 30px;
+        }
+
+        /* 按钮组样式 */
+        .action-btns {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #4CAF50;
+            color: white;
+        }
+
+        button:hover {
+            filter: brightness(1.1);
+            transform: translateY(-2px);
+        }
+
+        /* 信息输出区域 */
+        #infoBox {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            border-radius: 8px;
+            max-width: 300px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="action-btns">
+        <button onclick="handleClick(this, 'A')">按钮 A</button>
+        <button onclick="handleClick(this, 'B')">按钮 B</button>
+        <button onclick="handleClick(this, 'C')">按钮 C</button>
+    </div>
+
+    <div id="infoBox">点击任意按钮查看信息</div>
+
+    <script>
+        // 统一处理点击事件
+        function handleClick(btn, type) {
+            // 点击效果
+            btn.style.background = `hsl(${Math.random()*360}, 70%, 50%)`;
+            
+            // 获取元素信息
+            const rect = btn.getBoundingClientRect();
+            const info = {
+                按钮类型: type,
+                屏幕X: Math.round(rect.left + window.scrollX),
+                屏幕Y: Math.round(rect.top + window.scrollY),
+                视口X: Math.round(rect.left),
+                视口Y: Math.round(rect.top),
+                宽度: Math.round(rect.width),
+                高度: Math.round(rect.height)
+            };
+
+            // 显示信息
+            const infoBox = document.getElementById('infoBox');
+            infoBox.innerHTML = `
+                <strong>${type} 按钮信息：</strong><br>
+                屏幕坐标：(${info.屏幕X}, ${info.屏幕Y})<br>
+                视口坐标：(${info.视口X}, ${info.视口Y})<br>
+                尺寸：${info.宽度}px × ${info.高度}px
+            `;
+
+            // 自动3秒后恢复颜色
+            setTimeout(() => {
+                btn.style.background = '#4CAF50';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

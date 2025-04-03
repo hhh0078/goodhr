@@ -1,0 +1,12 @@
+{
+    "api_key": "sk-9b5caac0500843068cb8731d777c029f",
+    "api_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "model": "deepseek-v3",
+    "temperature": 0.1,
+    "max_tokens": 10,
+    "prompt_template": "请分析以下候选人简历是否符合岗位要求。\n\n岗位要求：\n{job_description}\n\n候选人简历：\n{candidate_text}\n\n请仅回复'是'或'否'，表示是否建议与该候选人联系。",
+    "enterprise": {
+        "used_quota": 1,
+        "total_tokens_used": 95
+    }
+}

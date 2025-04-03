@@ -1,0 +1,192 @@
+{
+    "api": {
+        "description": "API接口配置",
+        "check_candidate": {
+            "description": "检查候选人接口",
+            "url": "http://127.0.0.1:7000/opsli-boot/api/v1/candidate/check",
+            "method": "POST"
+        }
+    },
+    "BOSS直聘": {
+        "description": "BOSS直聘平台配置",
+        "url": "https://www.zhipin.com/web/user/?intent=1&ka=header-boss",
+        "target_url": "https://www.zhipin.com/web/geek/job",
+        "page_elements": {
+            "candidate_list": {
+                "description": "候选人列表",
+                "selector": ".candidate-list-item",
+                "list_operations": {
+                    "view_detail": {
+                        "description": "查看详情按钮",
+                        "selector": ".btn-view-detail"
+                    }
+                }
+            },
+            "candidate_dialog": {
+                "description": "候选人详情弹窗",
+                "selector": ".dialog-container",
+                "dialog_elements": {
+                    "resume_text": {
+                        "description": "简历文本内容",
+                        "selector": ".resume-content"
+                    },
+                    "greet_button": {
+                        "description": "打招呼按钮",
+                        "selector": ".btn-greet"
+                    },
+                    "close_button": {
+                        "description": "关闭按钮",
+                        "selector": ".btn-close"
+                    },
+                    "greet_ok_is_close": false
+                },
+                "wait_time": {
+                    "description": "操作等待时间（毫秒）",
+                    "after_open": 1000,
+                    "after_action": 1000,
+                    "after_close": 1000
+                }
+            }
+        }
+    },
+    "智联招聘": {
+        "description": "智联招聘平台配置",
+        "url": "https://passport.zhaopin.com/org/login",
+        "target_url": "https://rd6.zhaopin.com/app/recommend",
+        "page_elements": {
+            "candidate_list": {
+                "description": "候选人列表",
+                "selector": "recommend-item__inner-content",
+                "selector_type": "class",
+                "list_operations": {
+                    "view_detail": {
+                        "description": "查看详情按钮",
+                        "selector": "recommend-item__inner-content",
+                        "selector_type": "class"
+                    }
+                }
+            },
+            "candidate_dialog": {
+                "description": "候选人详情弹窗",
+                "selector": "new-shortcut-resume__inner",
+                "dialog_elements": {
+                    "resume_text": {
+                        "description": "简历文本内容",
+                        "selector": "new-resume-detail--inner",
+                        "selector_type": "class"
+                    },
+                    "greet_button": {
+                        "description": "打招呼按钮",
+                        "selector": "resume-btn__inner",
+                        "selector_type": "class"
+                    },
+                    "close_button": {
+                        "description": "关闭按钮",
+                        "selector": "km-icon sati sati-times-circle-s",
+                        "selector_type": "class"
+                    },
+                    "greet_ok_is_close": false
+                },
+                "wait_time": {
+                    "description": "操作等待时间（毫秒）",
+                    "after_open": 1000,
+                    "after_action": 1000,
+                    "after_close": 1000
+                }
+            }
+        }
+    },
+    "前程无忧": {
+        "description": "前程无忧平台配置",
+        "url": "https://www.51job.com/",
+        "target_url": "https://i.51job.com/userset/my_51job.php",
+        "page_elements": {
+            "candidate_list": {
+                "description": "候选人列表",
+                "selector": "resume-item__content resume-card-exp",
+                "selector_type": "class",
+                "list_operations": {
+                    "view_detail": {
+                        "description": "查看详情按钮",
+                        "selector": ".view-detail",
+                        "selector_type": "class"
+                    }
+                }
+            },
+            "candidate_dialog": {
+                "description": "候选人详情弹窗",
+                "selector": "#resumeDialog",
+                "dialog_elements": {
+                    "resume_text": {
+                        "description": "简历文本内容",
+                        "selector": ".resume-text",
+                        "selector_type": "class"
+                    },
+                    "greet_button": {
+                        "description": "打招呼按钮",
+                        "selector": ".greet-candidate",
+                        "selector_type": "class"
+                    },
+                    "close_button": {
+                        "description": "关闭按钮",
+                        "selector": ".close-dialog",
+                        "selector_type": "class"
+                    },
+                    "greet_ok_is_close": false
+                },
+                "wait_time": {
+                    "description": "操作等待时间（毫秒）",
+                    "after_open": 1000,
+                    "after_action": 1000,
+                    "after_close": 1000
+                }
+            }
+        }
+    },
+    "猎聘": {
+        "description": "猎聘平台配置",
+        "url": "https://lpt.liepin.com",
+        "target_url": "https://lpt.liepin.com/recommend",
+        "page_elements": {
+            "candidate_list": {
+                "description": "候选人列表",
+                "selector": ".candidate-card",
+                "list_operations": {
+                    "view_detail": {
+                        "description": "查看详情按钮",
+                        "selector": ".view-more",
+                        "selector_type": "class"
+                    }
+                }
+            },
+            "candidate_dialog": {
+                "description": "候选人详情弹窗",
+                "selector": ".resume-detail-modal",
+                "dialog_elements": {
+                    "resume_text": {
+                        "description": "简历文本内容",
+                        "selector": ".resume-content",
+                        "selector_type": "class"
+                    },
+                    "greet_button": {
+                        "description": "打招呼按钮",
+                        "selector": ".send-message",
+                        "selector_type": "class"
+                    },
+                    "close_button": {
+                        "description": "关闭按钮",
+                        "selector": ".modal-close",
+                        "selector_type": "class"
+                    },
+                    "greet_ok_is_close": false
+                },
+                "wait_time": {
+                    "description": "操作等待时间（毫秒）",
+                    "after_open": 1000,
+                    "after_action": 1000,
+                    "after_close": 1000
+                }
+            }
+        }
+    }
+}

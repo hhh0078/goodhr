@@ -1,0 +1,69 @@
+{
+    "username": "17607080935",
+    "version": "enterprise",
+    "platform": "BOSS直聘",
+    "jobsData": [
+        "测试2",
+        "测定1"
+    ],
+    "keywordsData": {
+        "测试2": {
+            "include": [],
+            "exclude": [],
+            "relation": "OR",
+            "description": "小娃是"
+        },
+        "测定1": {
+            "include": [
+                "深圳",
+                "上海",
+                "广州",
+                "杭州",
+                "北京"
+            ],
+            "exclude": [],
+            "relation": "OR",
+            "description": "我要找一招前端工程师"
+        }
+    },
+    "selectedJob": "测定1",
+    "versions": {
+        "free": {
+            "greetCount": 2,
+            "remainingQuota": 98,
+            "expiryDate": "永久有效",
+            "lastResetDate": "2025-03-19",
+            "todayCount": 0,
+            "freeQuota": 100,
+            "tokens_used": 0
+        },
+        "donation": {
+            "greetCount": 0,
+            "remainingQuota": 0,
+            "expiryDate": "2025-03-20",
+            "lastResetDate": "2025-03-19"
+        },
+        "enterprise": {
+            "greetCount": 4,
+            "remainingQuota": 984,
+            "expiryDate": "",
+            "lastResetDate": "2025-03-19",
+            "todayCount": 0,
+            "freeQuota": 100,
+            "tokens_used": 1139
+        }
+    },
+    "created_at": "2025-03-18",
+    "updated_at": "2025-03-19 21:41:22",
+    "phone": "17607080935",
+    "selected_job": "测定1",
+    "delay": {
+        "min": 7,
+        "max": 12
+    },
+    "minDelay": 7,
+    "maxDelay": 12,
+    "browser_path": "C:\\Users\\Administrator\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+    "selected_job_id": "",
+    "userID": ""
+}
