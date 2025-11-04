@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "GoodHR 助手",
-	"version": "2.6.1",
+	"version": "2.7.1",
 	"description": "世界上最漂亮的HR,让我来解放你的双手吧!",
 	"icons": {
 		"16": "icons/16.png",
@@ -21,14 +21,17 @@
 		"*://*.zhaopin.com/*",
 		"*://*.liepin.com/*",
 		"*://*.siliconflow.cn/*",
-		"*://*.58it.cn/*"
+		"*://*.58it.cn/*",
+		"*://*.58.com/*"
 	],
 	"web_accessible_resources": [
 		{
 			"resources": [
 				"content_scripts/sites/*.js",
 				"sounds/*.mp3",
-				"config.js"
+				"config.js",
+				"ads.json",
+				"utils/fp.min.js"
 			],
 			"matches": [
 				"<all_urls>"
@@ -42,6 +45,29 @@
 			],
 			"js": [
 				"content_scripts/sites/boss_injector.js"
+			],
+			"run_at": "document_start",
+			"all_frames": true,
+			"match_about_blank": true
+		},
+			{
+			"matches": [
+				"*://h.liepin.com/*"
+			],
+			"js": [
+				"content_scripts/sites/hliepin_injector.js"
+			],
+			"run_at": "document_start",
+			"all_frames": true,
+			"match_about_blank": true
+		},
+
+		{
+			"matches": [
+				"*://employer.58.com/*"
+			],
+			"js": [
+				"content_scripts/sites/employer58_injector.js"
 			],
 			"run_at": "document_start",
 			"all_frames": true,
@@ -66,7 +92,8 @@
 				"*://*.lagou.com/*",
 				"*://*.zhaopin.com/*",
 				"*://*.liepin.com/*",
-				"*://*.58it.cn/*"
+				"*://*.58it.cn/*",
+				"*://*.58.com/*"
 			],
 			"js": [
 				"config.js",

@@ -775,7 +775,7 @@
                      <div style=" margin-bottom: 10px;display: flex;align-items: center;">
                                             <label class="title" style="margin-bottom:0px">AI状态</label>
 
-                                            <span style="font-size: 11px; color: #666;margin-left: 10px;"> 价格25/月，80元/永久<a href="https://goodhr.58it.cn" target="_blank">咨询购买</a></span>
+                                            <span style="font-size: 11px; color: #666;margin-left: 10px;"> 价格25/月，50元/永久<a href="https://goodhr.58it.cn" target="_blank">咨询购买</a></span>
                         
                     </div>
                     <div class="ai-status">
@@ -854,6 +854,48 @@
 
 
                 <div class="filter-group">
+                    <label class="title">公司信息</label>
+                    <div style="margin-bottom: 8px;">
+                        <textarea id="company-info" class="job-description" placeholder="请输入公司相关信息，包括但不限于：公司名称、公司地址、公司规模、公司行业、公司简介、公司文化/价值观、福利待遇、工作地点、公司官网等"></textarea>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label class="title">岗位额外信息</label>
+                    <div style="margin-bottom: 8px;">
+                        <textarea id="job-extra-info" class="job-description" placeholder="请输入岗位额外信息，包括但不限于：岗位职责、任职要求、薪资范围、工作时间、是否加班、岗位福利、晋升空间、团队介绍、工作环境描述等"></textarea>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label class="title">沟通处理设置</label>
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="collect-phone" class="checkbox-input" checked>
+                        <span class="checkbox-label">收集手机号</span>
+                    </label>
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="collect-wechat" class="checkbox-input" checked>
+                        <span class="checkbox-label">收集微信号</span>
+                    </label>
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="collect-resume" class="checkbox-input" checked>
+                        <span class="checkbox-label">收集简历附件</span>
+                    </label>
+                </div>
+
+                <div class="filter-group">
+                    <label class="title">设备指纹</label>
+                    <div style="margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                            <span style="font-size: 12px; color: #666; margin-right: 8px;">当前设备指纹:</span>
+                            <button id="refresh-fingerprint" style="font-size: 11px; background: #1a73e8; color: white; border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer;">刷新</button>
+                        </div>
+                        <div id="fingerprint-display" style="font-family: monospace; font-size: 11px; background: #f5f5f5; padding: 5px; border-radius: 4px; word-break: break-all; color: #333; min-height: 20px;">加载中...</div>
+                        <div id="fingerprint-status" style="font-size: 11px; color: #666; margin-top: 5px;">状态检查中...</div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
                     <label class="title">使用说明</label>
                     <label class="checkbox-wrapper">
                         <span class="checkbox-label">
@@ -884,26 +926,30 @@
             <button class="close-btn" id="ai-config-close">&times;</button>
             <h3>AI配置</h3>
 
-            <label>轨迹流动Token:</label>
-            <input type="text" id="ai-token" placeholder="请输入您的轨迹流动Token">
-            <div style="font-size: 11px; color: #666; margin-bottom: 10px;">
-                * 获取Token请访问：<a href="https://cloud.siliconflow.cn/" target="_blank">轨迹流动官网</a>
+            <!-- 轨迹流动配置 -->
+            <div id="siliconflow-config">
+                <label>轨迹流动Token:</label>
+                <input type="text" id="ai-token" placeholder="请输入您的轨迹流动Token">
+                <div style="font-size: 11px; color: #666; margin-bottom: 10px;">
+                    * 获取Token请访问：<a href="https://cloud.siliconflow.cn/" target="_blank">轨迹流动官网</a>
+                </div>
+
+                <label>模型名称:</label>
+                <select id="ai-model">
+                    <option value="deepseek-ai/DeepSeek-V3">DeepSeek-V3(快贵)</option>
+                    <option value="Qwen/Qwen2.5-7B-Instruct">Qwen/Qwen2.5-7B-Instruct(免费推荐)</option>
+                    <option value="THUDM/GLM-4.1V-9B-Thinking">THUDM/GLM-4.1V-9B-Thinking </option>
+                    <option value="Qwen/Qwen3-8B">Qwen/Qwen3-8B(便宜)</option>
+                    <option value="deepseek-ai/DeepSeek-R1">DeepSeek-R1(慢贵准)</option>
+                    <option value="custom">自定义模型</option>
+                </select>
+
+                <input type="text" id="ai-custom-model" placeholder="自定义模型名称" style="display: none;">
+                <div>
+                    默认使用免费的模型。速度快。但是效果一般。 如果你对精度有要求。建议使用DeepSeek-V3(快贵)。需要先前往轨迹流动充值。
+                </div>
             </div>
 
-            <label>模型名称:</label>
-            <select id="ai-model">
-                <option value="deepseek-ai/DeepSeek-V3">DeepSeek-V3(快贵)</option>
-                <option value="Qwen/Qwen2.5-7B-Instruct">Qwen/Qwen2.5-7B-Instruct(免费推荐)</option>
-                <option value="THUDM/GLM-4.1V-9B-Thinking">THUDM/GLM-4.1V-9B-Thinking </option>
-                <option value="Qwen/Qwen3-8B">Qwen/Qwen3-8B(便宜)</option>
-                <option value="deepseek-ai/DeepSeek-R1">DeepSeek-R1(慢贵准)</option>
-                <option value="custom">自定义模型</option>
-            </select>
-
-            <input type="text" id="ai-custom-model" placeholder="自定义模型名称" style="display: none;">
-            <div>
-                默认使用免费的模型。速度快。但是效果一般。 如果你对精度有要求。建议使用DeepSeek-V3(快贵)。需要先前往轨迹流动充值。
-            </div>
             <button class="save-btn" id="ai-config-save2">保存配置</button>
 
         </div>
@@ -918,13 +964,25 @@
             <a style="margin-left: 10px;color: #e81a1a;" href="http://goodhr.58it.cn" target="_blank">分享给另一个HR</a>
         </div>
         <div class="bottom-controls">
+            <!-- 功能选择勾选框 -->
+            <!-- <div style="display: flex; justify-content: center; padding: 8px 0;">
+                <label style="margin: 0 10px; display: flex; align-items: center;">
+                    <input type="checkbox" id="greeting-checkbox" checked style="margin-right: 4px;">
+                    打招呼
+                </label>
+                <label style="margin: 0 10px; display: flex; align-items: center;">
+                    <input type="checkbox" id="communication-checkbox" checked style="margin-right: 4px;">
+                    处理沟通
+                </label>
+            </div> -->
+            
             <!-- 初始状态的按钮组 -->
             <div class="initial-buttons" id="initialButtons">
                 <button id="scrollButton" class="btn primary-btn">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M8 5v14l11-7z" />
                     </svg>
-                    打招呼
+                    开始
                 </button>
                 <button id="downloadButton" class="btn primary-btn">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -958,6 +1016,7 @@
 
     <div style="height: 160px;"></div>
 
+    <script src="../utils/fingerprint-device.js"></script>
     <script src="../config.js"></script>
     <script src="index.js"></script>
 </body>

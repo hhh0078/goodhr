@@ -1,5 +1,4 @@
 
-
 let currentParser = null;
 let scrollInterval = null;
 let lastProcessedPosition = 0;
@@ -91,13 +90,25 @@ async function initializeParser() {
             currentParser = new LagouParser();
             // showNotification('拉勾网初始化完成-GoodHR', 'status');
             createDraggablePrompt();
-        } else if (url.includes('liepin.com')) {
+        } else if (url.includes('lpt.liepin.com')) {
             ParserName = 'liepin'
             const { LiepinParser } = await import(extensionUrl + 'content_scripts/sites/liepin.js');
             currentParser = new LiepinParser();
             // showNotification('猎聘网初始化完成，请前往推荐人才页面使用-GoodHR', 'status');
             createDraggablePrompt();
-        } else if (url.includes('zhaopin.com')) {
+        } else if (url.includes('h.liepin.com')) {
+            ParserName = 'hliepin'
+            const { HLiepinParser } = await import(extensionUrl + 'content_scripts/sites/hliepin.js');
+            currentParser = new HLiepinParser();
+            // showNotification('猎聘网初始化完成，请前往推荐人才页面使用-GoodHR', 'status');
+            createDraggablePrompt();
+        }else if (url.includes('employer.58.com')) {
+            ParserName = 'employer58'
+            const { Employer58Parser } = await import(extensionUrl + 'content_scripts/sites/employer58.js');
+            currentParser = new Employer58Parser();
+            // showNotification('58同城初始化完成，请前往推荐人才页面使用-GoodHR', 'status');
+            createDraggablePrompt();
+        }  else if (url.includes('zhaopin.com')) {
 
             ParserName = 'zhilian'
             const { ZhilianParser } = await import(extensionUrl + 'content_scripts/sites/zhilian.js');
@@ -370,7 +381,26 @@ async function executeScroll() {
                     return;
                 }
             } else {
-                // 如果没找到未处理的元素，向下滚动一段距离
+                // 如果没找到未处理的元素，检查是否需要翻页
+                if (ParserName === 'hliepin' && currentParser && typeof currentParser.shouldNavigateToNextPage === 'function') {
+                    const shouldNavigate = currentParser.shouldNavigateToNextPage(elements);
+                    
+                    if (shouldNavigate) {
+                        console.log('准备翻页');
+                        await currentParser.clickNextPageButton();
+                        // 翻页后等待页面加载
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                        // 重新加载解析器设置
+                        await currentParser.loadSettings();
+                        // 重置滚动位置
+                        window.scrollTo(0, 0);
+                        lastProcessedPosition = 0;
+                        executeScroll();
+                        return;
+                    }
+                }
+                
+                // 默认行为：向下滚动一段距离
                 window.scrollBy({
                     top: 200,
                     behavior: 'smooth'
@@ -521,11 +551,10 @@ async function processElement(element, doc) {
 
                 if (currentParser.aiMode) {
                     // AI模式：基于简单信息决定是否查看详细信息
-
-
                     let { isok, msg } = await performAIClickDecision(simpleCandidateInfo);
                     AiMsg = msg
                     clickCandidate = isok;
+
                     if (clickCandidate) {
                     addHighlightReason(targetElement, '已打招呼(' + AiMsg + ')', '#4caf50');
 
@@ -543,7 +572,14 @@ async function processElement(element, doc) {
                     // 检查是否有打开的候选人页面
                     //关闭候选人弹框
 
-                    const clicked = await currentParser.clickCandidateDetail(element);
+                    let clicked = await currentParser.clickCandidateDetail(element);
+
+                    if (ParserName === 'employer58') {
+                        clicked = false
+                        shouldContact =true
+                                                await randomDelay(`查看候选人详细信息: ${candidate.name}`);
+                    }
+
                     if (clicked) {
                         shouldSkipDelay = true;
                         await randomDelay(`查看候选人详细信息: ${candidate.name}`);
@@ -561,10 +597,10 @@ async function processElement(element, doc) {
 
                         try {
                             //第二次组装信息
-                            let data2 = currentParser.extractCandidates2(candidate);
-                            if (data2 != null) {
+                            let data2 = await currentParser.extractCandidates2(candidate);
+                            if(data2){
                                 simpleCandidateInfo = data2
-                                
+
                             }
                         } catch (error) {
                             console.error('第二次组装信息失败:', error);
@@ -596,6 +632,9 @@ async function processElement(element, doc) {
                         } else {
                             // 免费模式：使用关键词筛选
                             shouldContact = currentParser.filterCandidate(simpleCandidateInfo);
+                            if(ParserName === 'employer58'){
+                                shouldContact = true
+                            }
                         }
 
                         // 确保详情页完全关闭
@@ -613,6 +652,9 @@ async function processElement(element, doc) {
                         // console.log('使用关键词筛选候选人:', candidate.name);
 
                         shouldContact = currentParser.filterCandidate(simpleCandidateInfo);
+                         if(ParserName === 'employer58'){
+                                shouldContact = true
+                            }
                     }
                 }
 
@@ -627,13 +669,22 @@ async function processElement(element, doc) {
 
                     addHighlightReason(targetElement, '已打招呼(' + AiMsg + ')', '#4caf50');
 
-                    const clicked = currentParser.clickMatchedItem(element);
+                    const clicked = await currentParser.clickMatchedItem(element);
                     if (clicked) {
                         matchCount++;
                         console.log(`打招呼成功，当前计数: ${matchCount}/${matchLimit}`);
                         //播放提示音
 
                         playNotificationSound()
+                        
+                        // 调用处理沟通功能
+                        try {
+                            if (currentParser.processCommunication && typeof currentParser.processCommunication === 'function') {
+                                await currentParser.processCommunication(candidate);
+                            }
+                        } catch (error) {
+                            console.error('处理沟通功能时出错:', error);
+                        }
                     }
 
                     await sendMessage({
@@ -727,6 +778,9 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 break;
             case 'START_AI_SCROLL':
 
+            // console.log('收到开始AI滚动消息:', message);
+            
+
                 // 检查解析器是否已初始化
                 if (!currentParser) {
                     console.error('解析器未初始化，无法启动AI滚动');
@@ -748,9 +802,54 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     aiConfig: message.data.aiConfig,
                     matchLimit: message.data.matchLimit,
                     scrollDelayMin: message.data.scrollDelayMin,
-                    scrollDelayMax: message.data.scrollDelayMax,
-                    enableSound: message.data.enableSound
+                    scrollDelayMax: message.data.scrollDelayMax
                 };
+
+                // 直接使用原有的滚动逻辑
+                await startAutoScroll();
+                sendResponse({ status: 'success' });
+                                break;
+            case 'SHOW_ADS':
+                // 检查广告配置是否已加载
+                if (adConfig) {
+                    // 检查AI是否过期
+                    chrome.storage.local.get(['ai_expire_time'], function(result) {
+                        let isAIExpired = false;
+                        if (result.ai_expire_time) {
+
+                            const now = new Date();
+                            let expireDate = null;
+                            try {
+                                 expireDate = new Date(result.ai_expire_time + 'T00:00:00');
+                                                             isAIExpired = now > expireDate;
+
+                            //         console.log('AI到期时间:', expireDate);
+                            // console.log('当前时间:', now);
+                            // console.log('是否过期:', isAIExpired);
+                            } catch (error) {
+                                console.error('解析AI到期时间失败:', error);
+                                sendResponse({ status: 'error', message: '解析AI到期时间失败' });
+                                isAIExpired = true;
+                            }     
+                           
+
+                        }
+                        
+                        // 广告显示条件：AI未过期（或无到期时间）
+                        // const shouldShowAd = vip_show|| ;
+                        
+                        // if (isAIExpired ) {
+                            // 显示广告
+                            displayAds(isAIExpired);
+                            // 标记广告已显示
+                            chrome.storage.local.set({adDisplayed: true});
+                        // }
+                        sendResponse({ status: 'success' });
+                    });
+                } else {
+                    sendResponse({ status: 'error', message: '广告配置未加载' });
+                }
+                return true; // 异步发送响应
 
                 enableSound = currentParser.aiSettings.enableSound
 
@@ -760,13 +859,15 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 //     aiSettings: currentParser.aiSettings
                 // });
 
-                // 直接使用原有的滚动逻辑
-                await startAutoScroll();
-                sendResponse({ status: 'success' });
                 break;
             case 'STOP_SCROLL':
                 stopAutoScroll();
                 sendResponse({ status: 'stopped' });
+                break;
+            case 'REMOVE_ADS':
+                // 移除所有广告元素
+                removeAds();
+                sendResponse({ status: 'success' });
                 break;
             case 'UPDATE_KEYWORDS':
                 if (currentParser) {
@@ -787,6 +888,28 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     sendResponse({ status: 'ok' });
                 } else {
                     console.error('解析器未初始化');
+                    sendResponse({ status: 'error', message: '解析器未初始化' });
+                }
+                break;
+            case 'COMMUNICATION_PROCESS':
+                // 处理沟通功能
+                if (currentParser) {
+                    // 将沟通处理数据传递给解析器
+                    if (message.data.companyInfo) {
+                        currentParser.companyInfo = message.data.companyInfo;
+                    }
+                    if (message.data.jobInfo) {
+                        currentParser.jobInfo = message.data.jobInfo;
+                    }
+                    if (message.data.communicationConfig) {
+                        currentParser.communicationConfig = message.data.communicationConfig;
+                    }
+                    if (message.data.runModeConfig) {
+                        currentParser.runModeConfig = message.data.runModeConfig;
+                    }
+                    
+                    sendResponse({ status: 'success' });
+                } else {
                     sendResponse({ status: 'error', message: '解析器未初始化' });
                 }
                 break;
@@ -828,6 +951,24 @@ function stopAutoScroll() {
         }
     } catch (error) {
         console.error('停止失败:', error);
+    }
+}
+
+// 移除所有广告元素
+function removeAds() {
+    try {
+        // 移除页面中的所有广告元素
+        const adElements = document.querySelectorAll('.ad-container, .draggable-ad-container');
+        adElements.forEach(adElement => {
+            adElement.remove();
+        });
+        
+        // 清除广告显示状态
+        chrome.storage.local.remove(['adDisplayed']);
+        
+        console.log('广告已移除');
+    } catch (error) {
+        console.error('移除广告失败:', error);
     }
 }
 
@@ -946,6 +1087,12 @@ function checkAIExpiration() {
 // 第一个AI决策点：决定是否查看候选人详细信息
 async function performAIClickDecision(simpleCandidateInfo) {
     try {
+
+//如果是58 就不查看详细信息
+                    if (ParserName === 'employer58') {
+                        return { isok: true, msg: "58无法筛选" };
+                    }
+
         // 检查AI是否过期
         const isExpired = await checkAIExpiration();
         if (isExpired) {
@@ -1462,6 +1609,12 @@ function createDraggablePrompt() {
 
 // 初始化
 try {
+    // 检查是否在iframe中
+    const isInIframe = window !== window.top;
+    
+    // 只加载广告配置，不在这里显示广告
+    loadAdConfig();
+
     initializeParser().then(() => {
         // createDraggablePrompt();
     });
@@ -1489,6 +1642,12 @@ document.addEventListener('visibilitychange', function () {
         // 窗口变为可见
         // console.log('窗口状态变为可见');
     }
+});
+
+// 监听页面卸载事件，清除广告显示状态
+window.addEventListener('beforeunload', function() {
+    // 清除广告显示状态，以便下次访问页面时广告可以再次显示
+    chrome.storage.local.remove(['adDisplayed']);
 });
 
 // 处理窗口最小化的函数
@@ -1520,3 +1679,314 @@ function handleWindowMinimized() {
 
 // 初始化连接
 initializeConnection();
+// 在文件顶部添加广告配置变量定义
+let adConfig = null;
+
+// 在文件中添加广告相关函数
+// 加载广告配置
+async function loadAdConfig() {
+    try {
+        // 从服务器加载广告配置，与popup中的实现保持一致
+        const API_BASE = window.GOODHR_CONFIG ? window.GOODHR_CONFIG.API_BASE : 'https://goodhr.58it.cn';
+        const response = await fetch(`${API_BASE}/ads.json?t=${Date.now()}`);
+        if (response.ok) {
+            adConfig = await response.json();
+            if (adConfig.success) {
+            } else {
+                console.warn('广告配置加载失败');
+                adConfig = null;
+            }
+        } else {
+            console.warn('无法获取广告配置');
+            adConfig = null;
+        }
+    } catch (error) {
+        console.error('加载广告配置失败:', error);
+        adConfig = null;
+    }
+}
+
+// 创建广告元素
+function createAdElement(adData, position) {
+    if (!adData) {
+        return null;
+    }
+
+    const adElement = document.createElement('div');
+    adElement.className = `ad-container ad-${position}`;
+    adElement.setAttribute('data-ad-id', adData.id);
+
+    // 应用样式
+    if (adData.style) {
+        Object.assign(adElement.style, {
+            background: adData.style.background || '#f8f9fa',
+            color: adData.style.color || '#333333',
+            border: adData.style.border || '1px solid #e9ecef',
+            padding: '8px',
+            margin: '8px 0',
+            borderRadius: '6px',
+            fontSize: '12px',
+            cursor: adData.link ? 'pointer' : 'default',
+            position: 'relative'
+        });
+    }
+
+    // 创建内容
+    let content = `<div class="ad-title" style="font-weight: 600; margin-bottom: 4px;">${adData.title}</div>`;
+    content += `<div class="ad-content">${adData.content}</div>`;
+
+    if (adData.image) {
+        content = `<img src="${adData.image}" style="max-width: 100%; height: auto; margin-bottom: 4px;">` + content;
+    }
+
+    // 添加关闭按钮
+    if (adConfig && adConfig.config && adConfig.config.show_close_button) {
+        content += `<button class="ad-close-btn" style="position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; font-size: 12px; cursor: pointer; line-height: 1;">&times;</button>`;
+    }
+
+    adElement.innerHTML = content;
+
+    // 添加点击事件
+    if (adData.link) {
+        adElement.addEventListener('click', (e) => {
+            if (e.target.classList.contains('ad-close-btn')) {
+                return; // 不处理关闭按钮的点击
+            }
+            if (adConfig && adConfig.config && adConfig.config.click_tracking) {
+                console.log('广告点击:', adData.id);
+            }
+            window.open(adData.link, '_blank');
+        });
+    }
+
+    // 添加关闭按钮事件
+    const closeBtn = adElement.querySelector('.ad-close-btn');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            adElement.remove();
+        });
+    }
+
+    return adElement;
+}
+
+// 创建可拖拽的广告元素
+function createDraggableAdElement(adData) {
+    if (!adData) {
+        return null;
+    }
+
+    const adElement = document.createElement('div');
+    adElement.className = 'draggable-ad-container';
+    adElement.setAttribute('data-ad-id', adData.id);
+    
+    // 设置广告的初始位置和尺寸
+    Object.assign(adElement.style, {
+        position: 'fixed',
+        left: adData.x ? adData.x + 'px' : '100px',
+        top: adData.y ? adData.y + 'px' : '100px',
+        width: adData.width ? adData.width + 'px' : '300px',
+        height: adData.height ? adData.height + 'px' : '200px',
+        background: adData.style.background || '#f8f9fa',
+        color: adData.style.color || '#333333',
+        border: adData.style.border || '1px solid #e9ecef',
+        borderRadius: '6px',
+        fontSize: '12px',
+        cursor: 'move',
+        zIndex: '10000',
+        boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+        overflow: 'hidden'
+    });
+
+    // 创建内容
+    let content = `<div class="ad-header" style="padding: 0px 8px; background: rgba(0,0,0,0.05); cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center;">`;
+    content += `<div class="ad-title" style="font-weight: 600;">${adData.title}</div>`;
+    if (adConfig && adConfig.config && adConfig.config.show_close_button) {
+        content += `<button class="ad-close-btn" style="background: rgba(0,0,0,0.2); border: none; color: white; width: 20px; height: 20px; border-radius: 50%; font-size: 12px; cursor: pointer; line-height: 1;">&times;</button>`;
+    }
+    content += `</div>`;
+    content += `<div class="ad-content" style="padding: 0px 8px;  overflow-y: auto;cursor: pointer; ">${adData.content}</div>`;
+    
+    console.log(adData);
+    
+    // 添加底部文字（如果有）
+    if (adData.bottom_content) {
+        content += `<div class="ad-bottom-content" style="line-height: 1.4;padding: 0px 2px; font-size: 10px; color: #666; border-top: 1px solid #eee; background: rgba(0,0,0,0.02);">${adData.bottom_content||'免费版运行时无法关闭该广告(可拖拽)、如需关闭 请刷新浏览器或停止运行或升级AI版'}</div>`;
+    }
+
+    if (adData.image) {
+        content = `<img src="${adData.image}" style="max-width: 100%; height: auto; margin-bottom: 4px;">` + content;
+    }
+
+    adElement.innerHTML = content;
+
+    // 添加拖拽功能
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+    let dragStartTime = 0;
+
+    const dragHeader = adElement.querySelector('.ad-header');
+    
+    if (dragHeader) {
+        dragHeader.addEventListener('mousedown', dragStart);
+        document.addEventListener('mouseup', dragEnd);
+        document.addEventListener('mousemove', drag);
+    }
+
+    function dragStart(e) {
+        // 只有在标题栏上点击才开始拖拽
+        if (e.target !== dragHeader && !dragHeader.contains(e.target)) {
+            return;
+        }
+        
+        dragStartTime = Date.now();
+        initialX = e.clientX - xOffset;
+        initialY = e.clientY - yOffset;
+        isDragging = true;
+        e.preventDefault(); // 防止默认行为
+    }
+
+    function dragEnd(e) {
+        // 计算拖拽持续时间
+        const dragDuration = Date.now() - dragStartTime;
+        initialX = currentX;
+        initialY = currentY;
+        isDragging = false;
+        
+        // 如果拖拽时间很短（小于200ms）且移动距离很小，则认为是点击而不是拖拽
+        if (dragDuration < 200) {
+            const moveDistance = Math.sqrt(Math.pow(xOffset, 2) + Math.pow(yOffset, 2));
+            if (moveDistance < 5) {
+                isDragging = false; // 重置拖拽状态
+            }
+        }
+    }
+
+    function drag(e) {
+        if (isDragging) {
+            e.preventDefault();
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+
+            xOffset = currentX;
+            yOffset = currentY;
+
+            setTranslate(currentX, currentY, adElement);
+        }
+    }
+
+    function setTranslate(xPos, yPos, el) {
+        el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+    }
+
+    // 添加点击事件
+    if (adData.link) {
+        adElement.addEventListener('click', (e) => {
+            // 阻止拖拽后的点击事件
+            if (isDragging) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            
+            // 不处理关闭按钮和标题栏的点击
+            if (e.target.classList.contains('ad-close-btn') || 
+                e.target.classList.contains('ad-header') || 
+                (e.target.parentElement && e.target.parentElement.classList.contains('ad-header'))) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            
+            if (adConfig && adConfig.config && adConfig.config.click_tracking) {
+                console.log('广告点击:', adData.id);
+            }
+            window.open(adData.link, '_blank');
+        });
+    }
+
+    // 添加关闭按钮事件
+    const closeBtn = adElement.querySelector('.ad-close-btn');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            adElement.remove();
+        });
+    }
+
+    return adElement;
+}
+
+// 显示广告
+function displayAds(isAIExpired) {
+    // 检查是否在iframe中，如果在iframe中则不显示广告
+    const isInIframe = window !== window.top;
+
+    
+    if (isInIframe) {
+        console.log('在iframe中，跳过广告显示');
+        return;
+    }
+    
+    if (!adConfig || !adConfig.success || !adConfig.ads) {
+        return;
+    }
+
+    // 处理页面广告 (pageAds)
+    if (adConfig.ads.pageAds && Array.isArray(adConfig.ads.pageAds)) {
+        adConfig.ads.pageAds.forEach(adData => {
+            // 根据概率决定是否显示广告
+            console.log('isAIExpired:', isAIExpired, 'vip_show:', adData.vip_show);
+            
+            if (isAIExpired ||(!isAIExpired && adData.vip_show)) {
+                const adElement = createDraggableAdElement(adData);
+                if (adElement) {
+                    document.body.appendChild(adElement);
+                }
+            }
+        });
+    }
+    
+    // 保留原有的广告显示逻辑（用于非页面广告）
+    // 查找页面上的合适位置插入广告
+    // 这里我们假设在页面中查找具有特定类名或属性的元素来插入广告
+    const targetElements = document.querySelectorAll('[class*="list"], [class*="container"], [class*="content"]');
+    
+    if (targetElements.length > 0) {
+        // 插入top广告到第一个目标元素前
+        // if (adConfig.ads.top && shouldShowAd(adConfig.ads.top.show_probability)) {
+        //     const topAd = createAdElement(adConfig.ads.top, 'top');
+        //     if (topAd) {
+        //         targetElements[0].parentNode.insertBefore(topAd, targetElements[0]);
+        //     }
+        // }
+
+        // // 插入middle广告到中间的目标元素后
+        // if (adConfig.ads.middle && targetElements.length > 1 && shouldShowAd(adConfig.ads.middle.show_probability)) {
+        //     const middleAd = createAdElement(adConfig.ads.middle, 'middle');
+        //     if (middleAd) {
+        //         targetElements[Math.floor(targetElements.length/2)].appendChild(middleAd);
+        //     }
+        // }
+
+        // // 插入bottom广告到最后一个目标元素后
+        // if (adConfig.ads.bottom && shouldShowAd(adConfig.ads.bottom.show_probability)) {
+        //     const bottomAd = createAdElement(adConfig.ads.bottom, 'bottom');
+        //     if (bottomAd) {
+        //         targetElements[targetElements.length-1].appendChild(bottomAd);
+        //     }
+        // }
+    }
+}
+
+// 判断是否显示广告（基于概率）
+function shouldShowAd(probability) {
+    if (probability === undefined) return true;
+    return Math.random() * 100 < probability;
+}

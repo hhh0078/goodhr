@@ -46,7 +46,7 @@ class BossParser extends BaseParser {
         // BOSS特定的选择器
         this.detailSelectors = {
             detailLink: ['card-inner common-wrap', 'card-inner clear-fix', 'candidate-card-wrap', 'card-inner blue-collar-wrap', 'card-container', 'geek-info-card', 'card-inner new-geek-wrap'],
-            closeButton: ['boss-popup__close', 'boss-layer__wrapper', 'resume-custom-close', 'boss-layer__wrapper', 'boss-popup__close'],
+            closeButton: ['boss-popup__close', 'resume-custom-close', 'boss-popup__close','dialog-wrap active'],
             closeButtonXpath: ['//*[@id="boss-dynamic-dialog-1j38fleo5"]/div/div[2]']
         };
 
@@ -173,7 +173,8 @@ class BossParser extends BaseParser {
     }
 
     //第二次组装。无需
-    extractCandidates2(data) {
+    async extractCandidates2(data) {
+        
         return null
     }
 
@@ -312,7 +313,9 @@ class BossParser extends BaseParser {
         return matches ? parseInt(matches[1]) : 0;
     }
 
-    clickMatchedItem(element) {
+    async clickMatchedItem(element) {
+
+
 
         // console.log('打招呼:', element);
         try {
@@ -395,17 +398,27 @@ class BossParser extends BaseParser {
                 alert("Goodhr提醒您: 尝试三次关闭候选人弹框都失败了，请暂停使用并联系作者处理");
                 return false;
             }
+            
 
             // 尝试多种关闭方式
             for (const className of this.detailSelectors.closeButton) {
+                
                 const closeElements = document.getElementsByClassName(className);
                 if (closeElements.length > 0) {
                     closeElements[0].click();
                     // 等待DOM更新
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
-            }
 
+                 const closeElements2 = window.parent.document.getElementsByClassName(className);
+                    if (closeElements2.length > 0) {
+                        closeElements2[0].click();
+                        // 等待DOM更新
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+            }// 检查元素是否在最顶层文档中
+
+         
 
             // 检查是否还有未关闭的弹框
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -420,7 +433,7 @@ class BossParser extends BaseParser {
 
         } catch (error) {
             console.error('关闭详情失败:', error);
-            alert("Goodhr提醒您: 快停止使用插件以免封号。然后联系作者");
+            // alert("Goodhr提醒您: 快停止使用插件以免封号。然后联系作者");
             return false;
         }
     }

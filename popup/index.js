@@ -96,6 +96,33 @@ async function saveSettings() {
 		serverData.scrollDelayMax = parseInt(document.getElementById('delay-max')?.value) || 5;
 		serverData.clickFrequency = parseInt(document.getElementById('click-frequency')?.value) || 7;
 
+		// 保存公司信息
+		if (!serverData.companyInfo) {
+			serverData.companyInfo = {};
+		}
+		serverData.companyInfo.content = document.getElementById('company-info')?.value || '';
+
+		// 保存岗位信息
+		if (!serverData.jobInfo) {
+			serverData.jobInfo = {};
+		}
+		serverData.jobInfo.extraInfo = document.getElementById('job-extra-info')?.value || '';
+
+		// 保存沟通处理配置
+		if (!serverData.communicationConfig) {
+			serverData.communicationConfig = {};
+		}
+		serverData.communicationConfig.collectPhone = document.getElementById('collect-phone')?.checked || true;
+		serverData.communicationConfig.collectWechat = document.getElementById('collect-wechat')?.checked || true;
+		serverData.communicationConfig.collectResume = document.getElementById('collect-resume')?.checked || true;
+
+		// 保存运行模式配置
+		if (!serverData.runModeConfig) {
+			serverData.runModeConfig = {};
+		}
+		serverData.runModeConfig.greetingEnabled = document.getElementById('greeting-checkbox')?.checked !== false; // 默认为true
+		serverData.runModeConfig.communicationEnabled = document.getElementById('communication-checkbox')?.checked !== false; // 默认为true
+
 		// 保存到本地存储
 		await chrome.storage.local.set({
 			'hr_assistant_settings': {
@@ -106,7 +133,11 @@ async function saveSettings() {
 				enableSound: serverData.enableSound,
 				scrollDelayMin: serverData.scrollDelayMin,
 				scrollDelayMax: serverData.scrollDelayMax,
-				clickFrequency: serverData.clickFrequency
+				clickFrequency: serverData.clickFrequency,
+				companyInfo: serverData.companyInfo,
+				jobInfo: serverData.jobInfo,
+				communicationConfig: serverData.communicationConfig,
+				runModeConfig: serverData.runModeConfig
 			},
 			'ai_config': serverData.ai_config,
 			'ai_expire_time': serverData.ai_expire_time
@@ -143,7 +174,11 @@ async function saveSettings() {
 						scrollDelayMax: serverData.scrollDelayMax,
 						clickFrequency: serverData.clickFrequency,
 						keywords: serverData.currentPosition?.keywords || [],
-						excludeKeywords: serverData.currentPosition?.excludeKeywords || []
+						excludeKeywords: serverData.currentPosition?.excludeKeywords || [],
+						companyInfo: serverData.companyInfo,
+						jobInfo: serverData.jobInfo,
+						communicationConfig: serverData.communicationConfig,
+						runModeConfig: serverData.runModeConfig
 					}
 				}, response => {
 					if (chrome.runtime.lastError) {
@@ -219,7 +254,7 @@ function addKeyword() {
 
 // 添加排除关键词的函数
 function addExcludeKeyword() {
-	if (!currentPosition) {
+	if (!serverData.currentPosition) {
 		addLog('⚠️ 请先选择岗位', 'error');
 		return;
 	}
@@ -337,9 +372,101 @@ async function loadState() {
 	}
 }
 
+// 显示设备指纹和状态
+async function displayFingerprint(deviceFingerprint) {
+	try {
+		// 获取设备指纹
+		const fingerprint = deviceFingerprint.getFingerprint();
+		if (!fingerprint) {
+			await deviceFingerprint.generateFingerprint();
+		}
+		
+		// 显示指纹
+		const fingerprintDisplay = document.getElementById('fingerprint-display');
+		const fingerprintStatus = document.getElementById('fingerprint-status');
+		
+		if (fingerprintDisplay) {
+			fingerprintDisplay.textContent = fingerprint || '未生成';
+		}
+		
+		// 检查设备状态
+		if (fingerprintStatus && fingerprint) {
+			fingerprintStatus.textContent = '状态检查中...';
+			
+			try {
+				// 检查设备是否已使用过AI功能
+				const trialStatus = await deviceFingerprint.checkAITrialStatus();
+				
+				if (trialStatus.used) {
+					if (trialStatus.hasAccess) {
+						fingerprintStatus.textContent = '此设备已使用AI功能，试用期有效';
+						fingerprintStatus.style.color = '#4CAF50'; // 绿色
+					} else {
+						fingerprintStatus.textContent = '此设备已使用AI功能，试用期已过';
+						fingerprintStatus.style.color = '#F44336'; // 红色
+					}
+				} else {
+					fingerprintStatus.textContent = '此设备未使用过AI功能';
+					fingerprintStatus.style.color = '#2196F3'; // 蓝色
+				}
+				
+				// 如果有关联的手机号，显示相关信息
+				if (trialStatus.associated_phone) {
+					fingerprintStatus.textContent += ` (关联手机号: ${trialStatus.associated_phone})`;
+				}
+			} catch (error) {
+				console.error('检查设备状态失败:', error);
+				fingerprintStatus.textContent = '状态检查失败: ' + error.message;
+				fingerprintStatus.style.color = '#FF9800'; // 橙色
+			}
+		}
+	} catch (error) {
+		console.error('显示设备指纹失败:', error);
+		const fingerprintDisplay = document.getElementById('fingerprint-display');
+		const fingerprintStatus = document.getElementById('fingerprint-status');
+		
+		if (fingerprintDisplay) {
+			fingerprintDisplay.textContent = '获取失败';
+		}
+		
+		if (fingerprintStatus) {
+			fingerprintStatus.textContent = '错误: ' + error.message;
+		}
+	}
+}
+
 // 将所有按钮事件监听器移到 DOMContentLoaded 事件处理函数中
 document.addEventListener('DOMContentLoaded', async () => {
 	try {
+		// 初始化设备指纹
+		const deviceFingerprint = new DeviceFingerprint();
+		await deviceFingerprint.getFingerprint();
+		
+		// 显示设备指纹
+		await displayFingerprint(deviceFingerprint);
+		
+		// 绑定刷新指纹按钮事件
+		const refreshFingerprintBtn = document.getElementById('refresh-fingerprint');
+		if (refreshFingerprintBtn) {
+			refreshFingerprintBtn.addEventListener('click', async () => {
+				try {
+					// 显示加载状态
+					document.getElementById('fingerprint-display').textContent = '刷新中...';
+					document.getElementById('fingerprint-status').textContent = '状态检查中...';
+					
+					// 重新生成指纹
+					await deviceFingerprint.generateFingerprint();
+					
+					// 更新显示
+					await displayFingerprint(deviceFingerprint);
+				} catch (error) {
+					console.error('刷新设备指纹失败:', error);
+					document.getElementById('fingerprint-display').textContent = '获取失败';
+					document.getElementById('fingerprint-status').textContent = '错误: ' + error.message;
+				}
+			});
+		}
+		
 		// 设置版本号 - 使用配置文件中的版本
 		const version = window.GOODHR_CONFIG ? window.GOODHR_CONFIG.VERSION : chrome.runtime.getManifest().version;
 		document.getElementById('version').textContent = version;
@@ -359,13 +486,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 		// 新的初始化流程：获取服务器数据 → 缓存 → 检查到期日期 → 更新UI
 		await initializeFromServer();
 
-		// 加载AI配置并检查连接状态
-		await loadAIConfig();
+		// 确保AI配置已加载后再检查连接状态
+		if (serverData.ai_config && serverData.ai_config.token) {
+			await loadAIConfig();
+		} else {
+			// 如果没有AI配置，只检查连接状态而不加载配置
+			checkAIConnection();
+		}
 
 		// 绑定选项卡切换事件
 
 		// 初始化时同步选项卡显示状态
 		switchTab(currentTab);
+		
+		// 确保在初始化完成后更新关键词和岗位说明显示
+		if (serverData.currentPosition) {
+			renderKeywords();
+			renderExcludeKeywords();
+			updateJobDescription();
+		}
 		document.querySelectorAll('.tab').forEach(tab => {
 			tab.addEventListener('click', () => {
 				const tabName = tab.getAttribute('data-tab');
@@ -400,6 +539,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 			} else {
 				customModelInput.style.display = 'none';
 			}
+		});
+
+		// 添加平台切换事件监听器
+		const platformRadios = document.querySelectorAll('input[name="ai-platform"]');
+		platformRadios.forEach(radio => {
+			radio.addEventListener('change', function() {
+				togglePlatformConfig(this.value);
+			});
 		});
 
 		// AI提示语自动保存功能
@@ -779,6 +926,34 @@ async function startAutoScroll() {
 		isRunning = true;
 		matchCount = 0;
 		updateUI();
+		
+		// 保存运行状态和AI到期时间到chrome.storage，供广告显示逻辑使用
+		const storageData = {
+			isRunning: true
+		};
+		
+		// 如果有AI到期时间，也保存到storage
+		if (serverData.ai_expire_time) {
+			storageData.ai_expire_time = serverData.ai_expire_time;
+		}
+		
+		await chrome.storage.local.set(storageData);
+		
+		// 通知content script显示广告
+		chrome.tabs.query({
+			active: true,
+			currentWindow: true
+		}, tabs => {
+			if (tabs[0]) {
+				chrome.tabs.sendMessage(tabs[0].id, {
+					action: 'SHOW_ADS'
+				}, response => {
+					if (chrome.runtime.lastError) {
+						console.log('通知显示广告失败:', chrome.runtime.lastError);
+					}
+				});
+			}
+		});
 
 		// 获取统一的设置值（AI模式和免费模式使用相同的设置）
 		const matchLimitInput = document.getElementById('match-limit');
@@ -790,20 +965,26 @@ async function startAutoScroll() {
 
 		// 根据当前模式决定发送的消息类型
 		if (currentTab === 'ai') {
+
+			
 			// AI模式 - 检查到期时间
 			if (!serverData.ai_expire_time) {
 				// 首次使用，先尝试从服务器获取，如果没有再设置新的
 				await initializeAIExpireTime();
-			} else if (checkAIExpiration()) {
+
+			} else if ( checkAIExpiration()) {
+				console.log(serverData.ai_expire_time);
+
 				// AI版本已过期
 				const message = 'AI版本试用期已到期，请前往官网联系作者续费。\n\n官网地址：http://goodhr.58it.cn';
+				
+				addLog('AI版本已过期，无法使用', 'error');
+				isRunning = false;
+				updateUI();
 				if (confirm(message + '\n\n点击确定前往官网')) {
 					// 用户点击确定，跳转到官网
 					chrome.tabs.create({ url: 'http://goodhr.58it.cn' });
 				}
-				addLog('AI版本已过期，无法使用', 'error');
-				isRunning = false;
-				updateUI();
 				return;
 			}
 
@@ -922,10 +1103,22 @@ async function stopAutoScroll() {
 					}
 					console.log('停止响应:', response);
 				});
+				
+				// 通知content script移除广告
+				chrome.tabs.sendMessage(tabs[0].id, {
+					action: 'REMOVE_ADS'
+				}, response => {
+					if (chrome.runtime.lastError) {
+						console.log('通知移除广告失败:', chrome.runtime.lastError);
+					}
+				});
 			}
 		});
 
-		await saveState();  // 保存状态
+		// 保存状态，包括运行状态和AI到期时间
+		await chrome.storage.local.set({
+			isRunning: false
+		});
 	} catch (error) {
 		console.error('停止失败:', error);
 		addLog('停止失败: ' + error.message, 'error');
@@ -1060,7 +1253,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 
 	if (message.action === 'CHECK_AI_EXPIRATION') {
 		// 检查AI到期时间
-		const expired = checkAIExpiration();
+		const expired = await checkAIExpiration();
 		sendResponse({ expired });
 		return true;
 	}
@@ -1091,7 +1284,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 		addLog(logText, 'success');
 
 		// 播放提示音
-		if (enableSound) {
+		if (serverData.enableSound) {
 			const audio = new Audio(chrome.runtime.getURL('sounds/notification2.mp3'));
 			audio.volume = 0.5; // 设置音量
 			audio.play().catch(error => console.error('播放提示音失败:', error));
@@ -1102,7 +1295,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 			stopAutoScroll();
 			addLog(`已达到设定的打招呼数量 ${matchLimit}，自动停止`, 'warning');
 			// 播放特殊的完成提示音
-			if (enableSound) {
+			if (serverData.enableSound) {
 				const audio = new Audio(chrome.runtime.getURL('sounds/error.mp3'));
 				audio.volume = 0.5; // 设置音量
 				audio.play().catch(error => console.error('播放提示音失败:', error));				// 连续播放两次以示区分
@@ -1255,6 +1448,9 @@ function selectPosition(positionName) {
 
 	// 更新岗位说明
 	updateJobDescription();
+	
+	// 保存选择的岗位到本地存储
+	saveSettings();
 }
 
 // 更新岗位说明显示
@@ -1494,17 +1690,84 @@ function renderRankingList(data) {
 	`).join('');
 }
 
+// 检查设备AI试用期状态 - 独立方法
+async function checkDeviceAITrialStatus() {
+	try {
+		console.log('检查设备AI试用期状态...');
+		const deviceFingerprint = new DeviceFingerprint();
+		const trialStatus = await deviceFingerprint.checkAITrialStatus();
+		console.log('设备AI试用期状态:', trialStatus);
+		return trialStatus;
+	} catch (error) {
+		console.error('检查设备AI试用期状态失败:', error);
+		const defaultStatus = {
+			used: false,
+			hasAccess: false,
+			associatedPhone: null
+		};
+		console.log('返回默认状态:', defaultStatus);
+		return defaultStatus;
+	}
+}
+
 // AI到期时间管理函数
-function checkAIExpiration() {
+ function checkAIExpiration() {
 	if (!serverData.ai_expire_time) {
+		console.log('没有设置AI到期时间');
 		return false; // 没有设置到期时间，需要设置
 	}
 
 	const now = new Date();
 	// 将字符串日期转换为Date对象，格式：YYYY-MM-DD
 	const expireDate = new Date(serverData.ai_expire_time + 'T00:00:00');
+	const isExpired = now > expireDate;
 
-	return now > expireDate; // 返回true表示已过期
+	console.log('当前时间:', now);
+	console.log('到期时间:', expireDate);
+	console.log('到期时间字符串:', serverData.ai_expire_time);
+	console.log('是否已过期:', isExpired);
+	
+	// 特殊处理：如果到期时间是2099年或更晚，直接返回未过期
+	const expireYear = expireDate.getFullYear();
+	if (expireYear >= 2099) {
+		console.log('检测到远未来年份，强制返回未过期');
+		return false;
+	}
+	
+	return isExpired; // 返回true表示已过期
+}
+
+// 检查AI功能是否可用 - 综合判断到期时间和设备状态
+async function checkAIAvailability() {
+	// 首先检查是否已过期
+	const isExpired =  checkAIExpiration();
+	console.log('checkAIAvailability - isExpired:', isExpired);
+	
+	// 如果未过期，直接返回可用
+	if (!isExpired) {
+		console.log('AI功能未过期，返回可用');
+		return true;
+	}
+	
+	// 如果已过期，检查设备是否可以使用新的试用期
+	const trialStatus = await checkDeviceAITrialStatus();
+	console.log('checkAIAvailability - trialStatus:', trialStatus);
+	
+	// 如果设备未使用过AI功能，可以使用新的试用期
+	if (!trialStatus.used) {
+		console.log('设备未使用过AI功能，返回可用');
+		return true;
+	}
+	
+	// 如果设备已使用过但仍有访问权限，返回可用
+	if (trialStatus.hasAccess) {
+		console.log('设备已使用过但仍有访问权限，返回可用');
+		return true;
+	}
+	
+	// 其他情况返回不可用
+	console.log('AI功能不可用');
+	return false;
 }
 
 // 初始化AI到期时间 - 永远以服务器为准
@@ -1522,10 +1785,25 @@ async function initializeAIExpireTime() {
 			}
 		}
 
-		// 第二步：服务器没有到期时间，设置新的7天试用期并保存到服务器
+		// 第二步：服务器没有到期时间，检查设备是否已经使用过AI功能
+		const trialStatus = await checkDeviceAITrialStatus();
+		
+		if (trialStatus.used && !trialStatus.hasAccess) {
+			// 设备已经使用过AI功能，但试用期已过
+			addLog('此设备已使用过AI功能，试用期已过，请购买正式版', 'warning');
+			return;
+		}
+		
+		// 第三步：检查设备是否已绑定其他手机号
+		if (trialStatus.used && trialStatus.associatedPhone && trialStatus.associatedPhone !== boundPhone) {
+			addLog(`此设备已绑定手机号 ${trialStatus.associatedPhone}，无法为新手机号设置试用期`, 'warning');
+			return;
+		}
+		
+		// 第四步：设置新的3天试用期并保存到服务器
 		await setAIExpireTime();
 
-		// 第三步：重复第一步，从服务器获取刚保存的到期时间
+		// 第五步：重复第一步，从服务器获取刚保存的到期时间
 		if (boundPhone) {
 			await syncSettingsFromServer();
 			if (serverData.ai_expire_time) {
@@ -1586,11 +1864,43 @@ async function setAIExpireTime() {
 	// 格式化为 YYYY-MM-DD 字符串格式
 	serverData.ai_expire_time = expireDate.toISOString().split('T')[0];
 
-	// 如果绑定了手机号，保存到服务器
+	// 记录设备指纹
+	const deviceFingerprint = new DeviceFingerprint();
+	const fingerprint = await deviceFingerprint.getFingerprint();
+	
+	// 保存设备指纹到服务器
 	if (boundPhone) {
 		try {
+			// 先记录设备指纹
+			const response = await fetch(`${API_BASE}/checkaitrial.php`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					phone: boundPhone,
+					fingerprint: fingerprint,
+					action: 'record' // 记录设备指纹
+				})
+			});
+
+			const result = await response.json();
+			if (result.success) {
+				addLog('设备指纹已记录到服务器', 'success');
+			} else {
+				addLog('记录设备指纹失败: ' + result.message, 'error');
+				// 如果是手机号已绑定其他设备的错误，抛出异常停止执行
+				if (result.message && result.message.includes('此手机号已绑定其他设备')) {
+					throw new Error(result.message);
+				}
+			}
+			
+			// 然后更新服务器数据
 			await updateServerData();
 			addLog('赠送AI版本3天试用期', 'success');
+			
+			// 更新设备指纹显示
+			await displayFingerprint(deviceFingerprint);
 		} catch (error) {
 			addLog('保存AI到期时间到服务器失败: ' + error.message, 'error');
 			throw error; // 重新抛出错误，让调用者知道保存失败
@@ -1631,12 +1941,29 @@ async function bindPhone(phone) {
 			throw new Error('请输入正确的手机号');
 		}
 
+		// 先检查设备是否已绑定其他手机号
+		const deviceFingerprint = new DeviceFingerprint();
+		const checkResult = await deviceFingerprint.checkDeviceUsage(phone);
+		
+		// 如果设备已使用过且绑定了其他手机号，则不允许绑定新手机号
+		if (checkResult.device_used && checkResult.associated_phone && checkResult.associated_phone !== phone) {
+			throw new Error(`此设备已绑定手机号 ${checkResult.associated_phone}，无法绑定新手机号`);
+		}
+		
+		// 检查手机号是否已绑定其他设备
+		if (checkResult.error && checkResult.error.includes('此手机号已绑定其他设备')) {
+			throw new Error(checkResult.error);
+		}
+
 		// 先保存旧的手机号
 		const oldPhone = boundPhone;
 		boundPhone = phone;
 
 		// 保存新手机号到存储
 		await chrome.storage.local.set({ 'hr_assistant_phone': phone });
+
+		// 保存设备指纹与手机号的关联
+		await deviceFingerprint.checkDeviceUsage(phone);
 
 		const hasServerData = await syncSettingsFromServer();
 		if (hasServerData) {
@@ -1649,6 +1976,9 @@ async function bindPhone(phone) {
 		if (!serverData.ai_expire_time) {
 			await initializeAIExpireTime();
 		}
+		
+		// 更新设备指纹显示
+		await displayFingerprint(deviceFingerprint);
 	} catch (error) {
 		addLog(error.message, 'error');
 		throw error;
@@ -1669,8 +1999,13 @@ async function syncSettingsFromServer() {
 		if (data && Object.keys(data).length > 0) {
 			// 使用服务器数据覆盖本地缓存
 			serverData = { ...serverData, ...data };
+			
+			// 记录AI配置加载情况
+			if (data.ai_config) {
+				console.log('已从服务器加载AI配置:', data.ai_config);
+			}
 
-			// 保存到本地存储
+			// 保存到本地存储，包括AI配置
 			await chrome.storage.local.set({
 				'hr_assistant_settings': {
 					positions: serverData.positions,
@@ -1681,6 +2016,7 @@ async function syncSettingsFromServer() {
 					scrollDelayMin: serverData.scrollDelayMin,
 					scrollDelayMax: serverData.scrollDelayMax
 				},
+				'ai_config': serverData.ai_config,
 				'ai_expire_time': serverData.ai_expire_time
 			});
 
@@ -1848,9 +2184,20 @@ async function selectPosition(positionName) {
 // 加载AI配置
 async function loadAIConfig() {
 	try {
+		// 如果serverData中已有AI配置，直接使用
+		if (serverData.ai_config && serverData.ai_config.token) {
+			console.log('使用已加载的AI配置:', serverData.ai_config);
+			updateAIConfigUI();
+			// 检查AI连接状态
+			checkAIConnection();
+			return;
+		}
+		
+		// 否则从本地存储加载
 		const result = await chrome.storage.local.get('ai_config');
 		if (result.ai_config) {
 			serverData.ai_config = { ...serverData.ai_config, ...result.ai_config };
+			console.log('从本地存储加载AI配置:', serverData.ai_config);
 			updateAIConfigUI();
 		}
 
@@ -1863,9 +2210,10 @@ async function loadAIConfig() {
 
 // 更新AI配置UI
 function updateAIConfigUI() {
-	document.getElementById('ai-token').value = serverData.ai_config.token;
+	// 轨迹流动配置
+	document.getElementById('ai-token').value = serverData.ai_config.token || '';
 
-	// 处理模型选择
+	// 处理轨迹流动模型选择
 	const modelSelect = document.getElementById('ai-model');
 	const customModelInput = document.getElementById('ai-custom-model');
 
@@ -1884,7 +2232,7 @@ function updateAIConfigUI() {
 	} else {
 		// 自定义模型
 		modelSelect.value = 'custom';
-		customModelInput.value = serverData.ai_config.model;
+		customModelInput.value = serverData.ai_config.model || '';
 		customModelInput.style.display = 'block';
 	}
 
@@ -1907,9 +2255,24 @@ function hideAIConfigModal() {
 	document.getElementById('ai-config-modal').style.display = 'none';
 }
 
+// 平台切换功能
+function togglePlatformConfig() {
+	// 仅支持轨迹流动配置
+	const siliconflowConfig = document.getElementById('siliconflow-config');
+	const volcengineConfig = document.getElementById('volcengine-config');
+	
+	// 始终显示轨迹流动配置，隐藏火山引擎配置
+	siliconflowConfig.style.display = 'block';
+	volcengineConfig.style.display = 'none';
+}
+
 // 保存AI配置
 async function saveAIConfig() {
 	try {
+		// 设置平台为轨迹流动
+		serverData.ai_config.platform = 'siliconflow';
+		
+		// 轨迹流动配置
 		serverData.ai_config.token = document.getElementById('ai-token').value.trim();
 
 		// 处理模型设置
@@ -1921,9 +2284,6 @@ async function saveAIConfig() {
 		} else {
 			serverData.ai_config.model = modelSelect.value;
 		}
-
-		// 保存提示语
-		serverData.ai_config.clickPrompt = document.getElementById('ai-click-prompt').value.trim();
 
 		// 验证提示语是否包含必要的标记符
 		if (!serverData.ai_config.clickPrompt.includes('${候选人信息}') || !serverData.ai_config.clickPrompt.includes('${岗位信息}')) {
@@ -1940,6 +2300,8 @@ async function saveAIConfig() {
 			throw new Error('请至少输入轨迹流动Token或模型名称');
 		}
 
+		// 保存提示语
+		serverData.ai_config.clickPrompt = document.getElementById('ai-click-prompt').value.trim();
 		serverData.ai_config.contactPrompt = null;
 
 		// 使用统一的saveSettings方法保存所有设置，包括AI配置
@@ -1950,7 +2312,7 @@ async function saveAIConfig() {
 		// 检查AI连接
 		checkAIConnection();
 
-		// 检查余额（如果在AI页面且有token）
+		// 检查余额（如果在AI页面且有必要的认证信息）
 		if (currentTab === 'ai' && serverData.ai_config.token) {
 			handleBalanceCheck();
 		}
@@ -1965,8 +2327,8 @@ async function saveAIConfig() {
 async function checkAIConnection() {
 	const statusIndicator = document.getElementById('ai-status-indicator');
 	const statusText = document.getElementById('ai-status-text');
-
-	// 检查是否有Token或模型名称
+	
+	// 检查是否有必要配置
 	if (!serverData.ai_config.token && !serverData.ai_config.model) {
 		statusIndicator.className = 'ai-status-indicator disconnected';
 		statusText.textContent = '未配置';
@@ -1974,7 +2336,19 @@ async function checkAIConnection() {
 		return;
 	}
 
-	// 如果有Token，尝试连接测试
+	// 检查AI功能是否可用（包括到期时间和设备状态）
+	console.log('检查AI功能是否可用...');
+	const isAIAvailable = await checkAIAvailability();
+	console.log('AI功能是否可用:', isAIAvailable);
+	if (!isAIAvailable) {
+		statusIndicator.className = 'ai-status-indicator disconnected';
+		statusText.textContent = 'AI功能已过期';
+		hideBalanceDisplay(); // 过期时隐藏余额显示
+		console.log('AI功能不可用，显示"AI功能已过期"');
+		return;
+	}
+
+	// 如果有轨迹流动Token，尝试连接测试
 	if (serverData.ai_config.token) {
 		try {
 			statusIndicator.className = 'ai-status-indicator';
@@ -1987,20 +2361,26 @@ async function checkAIConnection() {
 			if (result.success) {
 				statusIndicator.className = 'ai-status-indicator connected';
 				statusText.textContent = '已连接';
+				
+				// 连接成功后检查余额
+				handleBalanceCheck();
 			} else {
 				statusIndicator.className = 'ai-status-indicator disconnected';
 				statusText.textContent = '连接失败: ' + result.error;
+				hideBalanceDisplay(); // 连接失败时隐藏余额显示
 			}
 		} catch (error) {
 			statusIndicator.className = 'ai-status-indicator disconnected';
 			statusText.textContent = '连接失败';
 			console.error('AI连接测试失败:', error);
+			hideBalanceDisplay(); // 异常时隐藏余额显示
 		}
 	} else {
-		// 只有模型名称，没有Token
+		// 缺少认证信息
 		statusIndicator.className = 'ai-status-indicator disconnected';
 		statusText.textContent = '缺少Token(前往官网里查看配置教程(goodhr.58it.cn))';
-		hideBalanceDisplay(); // 没有Token时隐藏余额显示
+		hideBalanceDisplay(); // 没有认证信息时隐藏余额显示
+		console.warn('AI配置缺少Token:', serverData.ai_config);
 	}
 }
 
@@ -2051,13 +2431,16 @@ async function checkSiliconFlowBalance() {
 	}
 }
 
+
+
 // 处理余额检查结果
 async function handleBalanceCheck() {
 	try {
-		addLog('检查API账号余额...', 'info');
+		addLog('检查轨迹流动账号余额...', 'info');
+		
 		const result = await checkSiliconFlowBalance();
 
-		if (result.success) {
+		if (result && result.success) {
 			const balance = result.balance;
 			addLog(`账号余额: ¥${balance.toFixed(2)}`, 'info');
 
@@ -2065,7 +2448,6 @@ async function handleBalanceCheck() {
 			updateBalanceDisplay(balance);
 
 			if (balance < 1) {
-				// 余额不足提示
 				const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(2)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2. 前往轨迹流动充值（首次需要实名认证）\n\n是否前往轨迹流动官网充值？`;
 
 				if (confirm(message)) {
@@ -2078,7 +2460,7 @@ async function handleBalanceCheck() {
 				addLog('余额充足，可正常使用', 'success');
 			}
 		} else {
-			addLog(`余额检查失败: ${result.error}`, 'error');
+			addLog(`余额检查失败: ${result ? result.error : '未知错误'}`, 'error');
 			// 检查失败时隐藏余额显示
 			hideBalanceDisplay();
 		}
@@ -2124,6 +2506,7 @@ async function sendDirectAIRequest(prompt) {
 	try {
 		const model = serverData.ai_config.model;
 
+		// 轨迹流动平台请求
 		const response = await fetch(GUJJI_API_CONFIG.baseUrl, {
 			method: 'POST',
 			headers: {
@@ -2174,7 +2557,8 @@ async function loadAdConfig() {
 		if (response.ok) {
 			adConfig = await response.json();
 			if (adConfig.success) {
-				console.log('广告配置加载成功:', adConfig);
+				// 更新价格显示
+				updatePriceDisplay();
 			} else {
 				console.warn('广告配置加载失败');
 				adConfig = null;
@@ -2186,6 +2570,25 @@ async function loadAdConfig() {
 	} catch (error) {
 		console.error('加载广告配置失败:', error);
 		adConfig = null;
+	}
+}
+
+// 更新价格显示
+function updatePriceDisplay() {
+	console.log(adConfig.config);
+	
+	if (!adConfig || !adConfig.config || !adConfig.config.price) {
+		return;
+	}
+	
+	// 查找价格显示元素 - 使用更精确的选择器
+	const priceElements = document.querySelectorAll('span[style*="margin-left: 10px;"]');
+	for (const element of priceElements) {
+		if (element.textContent.includes('价格') && element.textContent.includes('元')) {
+			// 更新价格文本
+			element.innerHTML = ` 价格${adConfig.config.price}<a href="https://goodhr.58it.cn" target="_blank">咨询购买</a>`;
+			break;
+		}
 	}
 }
 
@@ -2364,6 +2767,18 @@ async function loadSettingsFromLocal() {
 			if (localSettings.enableSound !== undefined) serverData.enableSound = localSettings.enableSound;
 			if (localSettings.scrollDelayMin) serverData.scrollDelayMin = localSettings.scrollDelayMin;
 			if (localSettings.scrollDelayMax) serverData.scrollDelayMax = localSettings.scrollDelayMax;
+			
+			// 加载公司信息
+			if (localSettings.companyInfo) serverData.companyInfo = localSettings.companyInfo;
+			
+			// 加载岗位信息
+			if (localSettings.jobInfo) serverData.jobInfo = localSettings.jobInfo;
+			
+			// 加载沟通处理配置
+			if (localSettings.communicationConfig) serverData.communicationConfig = localSettings.communicationConfig;
+			
+			// 加载运行模式配置
+			if (localSettings.runModeConfig) serverData.runModeConfig = localSettings.runModeConfig;
 		}
 
 		if (result.ai_expire_time) {
@@ -2372,6 +2787,7 @@ async function loadSettingsFromLocal() {
 
 		if (result.ai_config) {
 			serverData.ai_config = { ...serverData.ai_config, ...result.ai_config };
+			console.log('已从本地存储加载AI配置:', serverData.ai_config);
 		}
 
 	} catch (error) {
@@ -2385,6 +2801,16 @@ async function loadSettingsFromLocal() {
 async function checkAndSetAIExpireTime() {
 	// 检查服务器返回的数据是否有到期日期
 	if (!serverData.ai_expire_time) {
+		// 检查设备指纹是否已经使用过AI功能
+		const deviceFingerprint = new DeviceFingerprint();
+		const trialStatus = await deviceFingerprint.checkAITrialStatus();
+		
+		if (trialStatus.used && !trialStatus.hasAccess) {
+			// 设备已经使用过AI功能，但试用期已过
+			addLog('此设备已使用过AI功能，试用期已过，请购买正式版', 'warning');
+			return;
+		}
+		
 		// 如果没有到期日期，设置新的到期日期
 		const expireDate = new Date();
 		expireDate.setDate(expireDate.getDate() + 3);
@@ -2461,6 +2887,13 @@ function updateAllUI() {
 function updatePositionsUI() {
 	// 调用renderPositions来更新岗位数据UI
 	renderPositions();
+	
+	// 如果有选中的岗位，更新关键词和岗位说明显示
+	if (serverData.currentPosition) {
+		renderKeywords();
+		renderExcludeKeywords();
+		updateJobDescription();
+	}
 }
 
 /**
@@ -2489,6 +2922,45 @@ function updateOtherSettingsUI() {
 	if (delayMaxInput && serverData.scrollDelayMax !== undefined) {
 		delayMaxInput.value = serverData.scrollDelayMax;
 	}
+	
+	// 更新公司信息设置
+	const companyInfoElement = document.getElementById('company-info');
+	if (companyInfoElement && serverData.companyInfo && serverData.companyInfo.content !== undefined) {
+		companyInfoElement.value = serverData.companyInfo.content;
+	}
+	
+	// 更新岗位信息设置
+	const jobExtraInfoElement = document.getElementById('job-extra-info');
+	if (jobExtraInfoElement && serverData.jobInfo && serverData.jobInfo.extraInfo !== undefined) {
+		jobExtraInfoElement.value = serverData.jobInfo.extraInfo;
+	}
+	
+	// 更新沟通处理配置
+	const communicationFields = [
+		'collect-contact-methods', 
+		'auto-send-greeting', 'auto-process-resume'
+	];
+	
+	communicationFields.forEach(field => {
+		const element = document.getElementById(field);
+		if (element && serverData.communicationConfig && serverData.communicationConfig[field.replace(/-/g, '')] !== undefined) {
+			if (element.type === 'checkbox') {
+				element.checked = serverData.communicationConfig[field.replace(/-/g, '')];
+			} else {
+				element.value = serverData.communicationConfig[field.replace(/-/g, '')];
+			}
+		}
+	});
+	
+	// 更新运行模式配置
+	const runModeFields = ['greeting-checkbox', 'communication-checkbox'];
+	
+	runModeFields.forEach(field => {
+		const element = document.getElementById(field);
+		if (element && serverData.runModeConfig && serverData.runModeConfig[field.replace('-checkbox', '')] !== undefined) {
+			element.checked = serverData.runModeConfig[field.replace('-checkbox', '')];
+		}
+	});
 }
 
 // AI优化岗位描述函数

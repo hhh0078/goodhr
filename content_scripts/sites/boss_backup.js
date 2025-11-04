@@ -196,7 +196,9 @@ class BossParser extends BaseParser {
         return matches ? parseInt(matches[1]) : 0;
     }
 
-    clickMatchedItem(element) {
+    async clickMatchedItem(element) {
+
+
 
         console.log('打招呼:', element);
         try {

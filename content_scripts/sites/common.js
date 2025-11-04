@@ -52,6 +52,7 @@ class BaseParser {
         const allText = candidate
 
         if (allText == null) {
+            // alert("插件获取候选人文本失败");
             return false;
         }
       
@@ -141,6 +142,7 @@ class BaseParser {
     shouldClickCandidate() {
         if (!this.clickCandidateConfig.enabled) return false;
         let random = Math.random() * 10;
+        // return false;
         return random <= (this.clickCandidateConfig.frequency);
     }
 

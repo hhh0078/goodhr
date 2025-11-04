@@ -1,22 +1,24 @@
 import { BaseParser } from './common.js';
 
-class LiepinParser extends BaseParser {
+class Employer58Parser extends BaseParser {
     constructor() {
         super();
         this.selectors = {
             container: 'recommandResumes--',
-            items: 'newResumeItemWrap--',
-            name: 'nest-resume-personal-name',
-            age: 'personal-detail-age',
-            education: 'personal-detail-edulevel',
-            university: 'resume-university',
-            description: 'resume-description',
-            clickTarget: 'ant-lpt-btn ant-lpt-btn-primary ant-lpt-teno-btn ant-lpt-teno-btn-secondary',
-            extraSelectors: [
-                { prefix: 'nest-resume-personal-skills', type: '技能' },
-                { prefix: 'personal-expect-content', type: '薪资' },
-                { prefix: 'personal-detail-location', type: 'location' },
-            ]
+            items: 'recommend-list recommendList',
+            name: 'trueName mycustomf',
+            age: 'mycustomfontgobp1qai0ai2y2 resumeFont2',
+            education: 'hover-wrapper',
+            university: 'hover-wrapper',
+            description: 'mycustomfont0zfunx8fq907',
+            clickTarget: 'el-button chat-btn el-button--primary',
+            confirmClickTarget: 'ant-btn ant-btn-link ant-btn-lg btn-cancel directly-open-chat-btn',
+            extraSelectors: 'J1lRR',
+            onlineStatus: 'recommend-status',
+            // 分页相关选择器
+            nextPageButton: 'ant-pagination-next',
+            paginationContainer: 'ant-pagination',
+            disabledClass: 'ant-pagination-disabled'
         };
 
         this.urlInfo = {
@@ -26,12 +28,120 @@ class LiepinParser extends BaseParser {
 
         // 添加猎聘特定的详情页选择器
         this.detailSelectors = {
-            detailLink: 'newResumeItem', // 点击姓名打开详情
+            detailLink: 'recommend-list recommendList', // 点击姓名打开详情
             closeButton: 'closeBtn--', // 关闭按钮
             viewButton: '.ant-lpt-btn.ant-lpt-btn-primary' // 查看按钮
         };
     }
-  /**
+
+    // 添加sendMessage函数用于与index.js通信
+    sendMessage(message) {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage(message);
+        }
+    }
+    // 检查是否到达页面底部
+    // isAtBottomOfPage() {
+    //     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    //     const windowHeight = window.innerHeight;
+    //     const documentHeight = document.documentElement.scrollHeight;
+        
+    //     // 距离底部200px内认为到达底部
+    //     const isNearBottom = scrollTop + windowHeight >= documentHeight - 200;
+        
+    //     // 检查是否有加载更多或无更多数据的提示
+    //     const hasNoMoreData = document.querySelector('[class*="no-more"], [class*="no-data"], [class*="end"]');
+        
+    //     // 检查是否有加载中的指示器
+    //     const hasLoadingIndicator = document.querySelector('[class*="loading"], [class*="spinner"]');
+        
+    //     console.log(`页面滚动位置检查: scrollTop=${scrollTop}, windowHeight=${windowHeight}, documentHeight=${documentHeight}`);
+    //     console.log(`是否接近底部: ${isNearBottom}, 是否无更多数据: ${!!hasNoMoreData}, 是否正在加载: ${!!hasLoadingIndicator}`);
+        
+    //     return isNearBottom && !hasLoadingIndicator;
+    // }
+
+    // // 检查是否有下一页按钮且可用
+    // hasNextPageButton() {
+    //     const nextPageButton = document.querySelector(`[class*="${this.selectors.nextPageButton}"]`);
+    //     if (!nextPageButton) {
+    //         return false;
+    //     }
+        
+    //     // 检查按钮是否被禁用
+    //     return !nextPageButton.classList.contains(this.selectors.disabledClass);
+    // }
+
+    // // 点击下一页按钮
+    // async clickNextPageButton() {
+    //     try {
+    //         const nextPageButton = document.querySelector(`[class*="${this.selectors.nextPageButton}"]`);
+    //         if (nextPageButton && !nextPageButton.classList.contains(this.selectors.disabledClass)) {
+    //             console.log('找到下一页按钮，准备点击');
+    //             nextPageButton.click();
+                
+    //             // 等待页面开始加载
+    //             await new Promise(resolve => setTimeout(resolve, 1000));
+                
+    //             // 等待页面加载完成，检查是否有候选人元素出现
+    //             let pageLoaded = false;
+    //             let attempts = 0;
+    //             const maxAttempts = 10; // 最多尝试10次，每次间隔1秒
+                
+    //             while (!pageLoaded && attempts < maxAttempts) {
+    //                 // 检查是否有候选人元素
+    //                 const items = document.querySelectorAll(`[class*="${this.selectors.items}"]`);
+    //                 if (items.length > 0) {
+    //                     console.log(`页面加载完成，找到 ${items.length} 个候选人元素`);
+    //                     pageLoaded = true;
+    //                 } else {
+    //                     console.log(`等待页面加载... 尝试 ${attempts + 1}/${maxAttempts}`);
+    //                     await new Promise(resolve => setTimeout(resolve, 1000));
+    //                     attempts++;
+    //                 }
+    //             }
+                
+    //             if (!pageLoaded) {
+    //                 console.warn('页面加载超时，但继续执行');
+    //             }
+                
+    //             // 重置滚动位置
+    //             window.scrollTo(0, 0);
+                
+    //             // 通过发送消息给index.js来重置lastProcessedPosition
+    //             this.sendMessage({
+    //                 action: 'RESET_POSITION',
+    //                 data: {}
+    //             });
+                
+    //             console.log('已点击下一页按钮，等待新页面加载');
+    //             return true;
+    //         }else{
+    //             console.log("下一页按钮不可用");
+    //         }
+    //         return false;
+    //     } catch (error) {
+    //         console.error('点击下一页按钮失败:', error);
+    //         return false;
+    //     }
+    // }
+
+    // // 检查是否需要翻页
+    // shouldNavigateToNextPage(elements) {
+    //     // 如果没有找到任何元素，或者已经到达页面底部，则可能需要翻页
+    //     // if (elements.length === 0 || this.isAtBottomOfPage()) {
+
+    //     //     if(this.hasNextPageButton()){
+    //     //         this.clickNextPageButton()
+    //     //     }
+    //     //     return this.hasNextPageButton();
+    //     // }
+    //     console.log("检测是否需要分页");
+        
+    //     return true;
+    // }
+
+    /**
      * 查找同事沟通记录
      * @param {*} data
      * @returns
@@ -57,6 +167,10 @@ class LiepinParser extends BaseParser {
      * @returns
      */
     getSimpleCandidateInfo(data) {
+
+        //等待1秒，确保元素加载完成
+        // 等待1秒，确保元素加载完成
+        new Promise(resolve => setTimeout(resolve, 1000));
       
         
         let data2 = ""
@@ -76,22 +190,14 @@ class LiepinParser extends BaseParser {
         return data2;
     }
     async extractCandidates2(data) {
-          // 使用通用查找函数查找元素，尝试多种方法（同步模式）
-        const result = this.findElementsByMultipleMethods(".content--dw5Ml", {
-            includeHidden: false,  // 不包含隐藏元素
-            methods: ['all']  // 尝试所有方法
-        });        
-        // 直接同步处理结果
-        // console.log("元素查找结果:", result);
+        return data
+    }
+    
+    // 通过名字匹配找到正确的响应
+    findMatchingResponse(responses, originalData) {
+        // console.log('候选人信息:', responses[0].data.textContent);
         
-        if (result.elements && result.elements.length > 0) {
-            // console.log("成功找到元素，使用方法:", result.method);
-            
-           return result.elements[0].textContent;
-        } else {
-            // console.log("未能找到目标元素:", result.message);
-            return null;
-        }
+        return responses[0].data.textContent;
     }
 
 
@@ -335,63 +441,22 @@ class LiepinParser extends BaseParser {
 
 
         const candidates = [];
-        let items;
-
-        try {
-            if (elements) {
-                items = elements;
-            } else {
-                items = document.querySelectorAll(`[class^="${this.selectors.items}"], [class*=" ${this.selectors.items}"]`);
-
-                if (items.length === 0) {
-                    console.error('未找到任何候选人元素!');
-                    console.log('当前使用的选择器前缀:', this.selectors.items);
-                    throw new Error('未找到任何候选人元素，请检查选择器是否正确');
-                }
-            }
-
-
-            Array.from(items).forEach((item, index) => {
-                // this.highlightElement(item, 'processing');
-
-                try {
-                    const nameElement = this.getElementByClassPrefix(item, this.selectors.name);
-                    const ageElement = this.getElementByClassPrefix(item, this.selectors.age);
-                    const educationElement = this.getElementByClassPrefix(item, this.selectors.education);
-                    const universityElement = this.getElementByClassPrefix(item, this.selectors.university);
-                    const descriptionElement = this.getElementByClassPrefix(item, this.selectors.description);
-
-                    const extraInfo = this.extractExtraInfo(item, this.selectors.extraSelectors);
-
+      
+          
                     const candidate = {
-                        name: nameElement?.textContent?.trim() || '',
-                        age: parseInt(ageElement?.textContent) || 0,
-                        education: educationElement?.textContent?.trim() || '',
-                        university: universityElement?.textContent?.trim() || '',
-                        description: descriptionElement?.textContent?.trim() || item.textContent?.trim() || '',
-                        extraInfo: extraInfo
+                        name: "1",
+                        age: 1,
+                        education: 1,
+                        university: 1,
+                        description:1,
+                        extraInfo: [
+                            {type: '在线状态', value: 1 || ''},
+                            {type: '求职期望', value: 1 || ''},
+                        ] || [],
                     };
+                                            candidates.push(candidate);
 
-
-                    if (candidate.name) {
-                        candidates.push(candidate);
-                        // this.highlightElement(item, 'matched');
-                    } else {
-                        this.clearHighlight(item);
-                        console.log('未能提取到有效的候选人信息');
-                    }
-                } catch (error) {
-                    console.error(`处理第 ${index + 1} 个候选人时出错:`, error);
-                    this.clearHighlight(item);
-                }
-            });
-
-        } catch (error) {
-            console.error('提取候选人信息失败:', error);
-            throw error;
-        }
-
-        return candidates;
+                                            return candidates;
     }
 
     // 实现点击打招呼按钮
@@ -400,11 +465,24 @@ class LiepinParser extends BaseParser {
             const clickElement = this.getElementByClassPrefix(element, this.selectors.clickTarget);
             if (clickElement) {
                 clickElement.click();
-                return true;
+                // return true;
             } else {
                 console.error('未找到可点击的元素');
                 return false;
             }
+//等待500毫秒
+             await new Promise(resolve => setTimeout(resolve, 1000));
+
+             // 点击确认按钮
+             const confirmClickElement = this.getElementByClassPrefix(document, this.selectors.confirmClickTarget);
+             if (confirmClickElement) {
+                confirmClickElement.click();
+                return true;
+             } else {
+                console.error('未找到确认点击的元素');
+                return false;
+             }
+
         } catch (error) {
             console.error('点击元素时出错:', error);
             return false;
@@ -419,14 +497,6 @@ class LiepinParser extends BaseParser {
 
             if (detailLink) {
                 detailLink.click();
-
-                // 等待查看按钮出现并点击（某些情况下需要）
-                // await new Promise(resolve => setTimeout(resolve, 500));
-                // const viewButton = document.querySelector(this.detailSelectors.viewButton);
-                // if (viewButton) {
-                //     console.log('找到查看按钮，点击');
-                //     viewButton.click();
-                // }
 
                 return true;
             }
@@ -543,4 +613,4 @@ class LiepinParser extends BaseParser {
   
 
 
-export { LiepinParser };
+export { Employer58Parser };
