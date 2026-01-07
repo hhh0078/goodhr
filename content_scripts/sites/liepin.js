@@ -16,7 +16,17 @@ class LiepinParser extends BaseParser {
                 { prefix: 'nest-resume-personal-skills', type: '技能' },
                 { prefix: 'personal-expect-content', type: '薪资' },
                 { prefix: 'personal-detail-location', type: 'location' },
-            ]
+            ],
+            continueButton:['ant-lpt-btn ant-lpt-btn-primary ant-lpt-teno-btn ant-lpt-teno-btn-secondary','ant-lpt-btn ant-lpt-btn-primary ant-lpt-teno-btn ant-lpt-teno-btn-secondary'],
+            //索要手机号
+            phoneButton:'im-ui-action-button action-item action-phone',
+            //索要微信
+            wechatButton:'im-ui-action-button action-item action-wechat',
+            //索要简历
+            resumeButton:'im-ui-action-button action-item action-resume',
+            //确认索要信息
+            confirmSuoIndoButton:'ant-im-btn ant-im-btn-primary',
+    
         };
 
         this.urlInfo = {
@@ -30,6 +40,16 @@ class LiepinParser extends BaseParser {
             closeButton: 'closeBtn--', // 关闭按钮
             viewButton: '.ant-lpt-btn.ant-lpt-btn-primary' // 查看按钮
         };
+    }
+
+
+    /**
+     * 检查是否有消息提示，有就开始处理
+     * @param {*} element 
+     * @returns 
+     */
+    async checkMessageTip(element){
+        return false;
     }
   /**
      * 查找同事沟通记录
@@ -428,6 +448,10 @@ class LiepinParser extends BaseParser {
                 //     viewButton.click();
                 // }
 
+
+
+            
+
                 return true;
             }
 
@@ -438,6 +462,78 @@ class LiepinParser extends BaseParser {
             return false;
         }
     }
+
+    //索要绑定手机号
+    async collectPhoneWechatResume(phone, wechat, resume, candidate,element) {
+        try {
+
+            for(let i=0;i<this.selectors.continueButton.length;i++){
+                //先点击继续沟通
+                const continueButton = this.getElementByClassPrefix(element, this.selectors.continueButton[i]);
+                
+                if (continueButton) {
+                    continueButton.click();
+                } else {
+                    console.error('未找到继续沟通按钮');
+                    return null;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            if(phone){
+            console.log('索要手机号');
+             const phoneButton = this.getElementByClassPrefix(document, this.selectors.phoneButton);
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            if (phoneButton) {
+                phoneButton.click();
+            }
+
+            }
+            if(wechat){
+                console.log('索要微信号');
+                const wechatButton = this.getElementByClassPrefix(document, this.selectors.wechatButton);
+                if (wechatButton) {
+                    wechatButton.click();
+                }
+            }
+            if(resume){
+                console.log('索要简历附件');
+                const resumeButton = this.getElementByClassPrefix(document, this.selectors.resumeButton);
+                if (resumeButton) {
+                    resumeButton.click();
+                }
+            }
+            //等待2秒
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log('等待2秒');
+            
+            // await randomDelay("确认索要信息");
+            //确认索要信息 可能会有多个弹框，需要循环点击确认
+            const confirmButtons = document.querySelectorAll(`[class^="${this.selectors.confirmSuoIndoButton}"]`);
+        if (!confirmButtons) {
+            confirmButtons = document.querySelectorAll(`[class*="${this.selectors.confirmSuoIndoButton}"]`);
+        }
+            console.log('确认按钮数量:', confirmButtons.length);
+            if (confirmButtons.length > 0) {
+                confirmButtons.forEach(button => button.click());
+            }
+
+
+            //点击确认按钮
+            const confirmButton = document.querySelector(`[class^="ant-im-btn ant-im-btn-text ant-im-btn-sm ant-im-btn-icon-only ant-im-teno-btn"]`);
+            if (confirmButton) {
+                confirmButton.click();
+            }
+        } catch (error) {
+            console.error('提取手机号失败:', error);
+            return null;
+        }
+    }
+
+    
+
+
 
     // 实现关闭详情方法
     async closeDetail() {
@@ -468,11 +564,8 @@ class LiepinParser extends BaseParser {
       // 处理沟通功能
     async processCommunication(candidate) {
         try {
-            // 检查是否启用了沟通处理功能
-            if (!this.communicationConfig || !this.communicationConfig.communicationEnabled) {
-                console.log('沟通处理功能未启用');
-                return false;
-            }
+           
+
 
             // 获取候选人详情
             const candidateInfo = this.getSimpleCandidateInfo(candidate);
@@ -510,26 +603,7 @@ class LiepinParser extends BaseParser {
             // 添加候选人信息
             communicationContent += `候选人信息：\n${candidateInfo}\n\n`;
             
-            // 根据配置决定是否自动发送招呼
-            if (this.communicationConfig.autoSendGreeting) {
-                // 这里应该实现自动发送招呼的逻辑
-                console.log('自动发送招呼功能已启用');
-                // TODO: 实现自动发送招呼的具体逻辑
-            }
             
-            // 根据配置决定是否自动处理简历
-            if (this.communicationConfig.autoProcessResume) {
-                // 这里应该实现自动处理简历的逻辑
-                console.log('自动处理简历功能已启用');
-                // TODO: 实现自动处理简历的具体逻辑
-            }
-            
-            // 收集联系方式（如果启用）
-            if (this.communicationConfig.collectContactMethods) {
-                // 这里应该实现收集联系方式的逻辑
-                console.log('收集联系方式功能已启用');
-                // TODO: 实现收集联系方式的具体逻辑
-            }
             
             console.log('沟通处理完成:', communicationContent);
             return true;

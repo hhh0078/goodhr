@@ -19,7 +19,22 @@ class ZhilianParser extends BaseParser {
                 { selector: 'fasdfasdf', type: '经验' },
                 { selector: 'sdfasdf', type: '标签' }
             ],
-            xiangqing: ['new-resume-detail--inner', 'km-scrollbar__view', 'km-scrollbar__wrap']
+            xiangqing: ['new-resume-detail--inner', 'km-scrollbar__view', 'km-scrollbar__wrap'],
+
+            continueButton:[
+                'small-screen-btn is-mr-16 km-button km-control km-ripple-off km-button--light km-button--plain resume-btn-small',
+                // 'large-screen-btn km-button km-control km-ripple-off km-button--primary km-button--filled is-fullwidth',
+                // 'km-button km-control km-ripple-off km-button--primary km-button--plain-plus resume-btn-small__icon',
+                // 'is-width-100'
+            ],
+            //索要手机号
+            phoneButton:'km-button km-control km-ripple-off km-button--light km-button--outlined',
+            //索要微信
+            wechatButton:'im-ui-action-button action-item action-wechat',
+            //索要简历
+            resumeButton:'im-ui-action-button action-item action-resume',
+            //确认索要信息
+            confirmSuoIndoButton:'ant-im-btn ant-im-btn-primary',
         };
 
         this.urlInfo = {
@@ -36,6 +51,146 @@ class ZhilianParser extends BaseParser {
 
 
     }
+
+    getElementByClassPrefix(parent, prefix) {
+        
+
+        let element = parent.querySelector(`[class^="${prefix}"]`);
+        if (!element) {
+            element = parent.querySelector(`[class*="${prefix}"]`);
+        }
+        return element;
+    }
+
+        /**
+         * 检查是否有消息提示，有就开始处理
+         * @param {*} element 
+         * @returns 
+         */
+    async checkMessageTip(element){
+
+
+        return false;
+    }
+  
+         //索要绑定手机号
+    async collectPhoneWechatResume(phone, wechat, resume, candidate,element) {
+        try {
+
+            //等等1秒
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            for(let i=0;i<this.selectors.continueButton.length;i++){
+                //先点击继续沟通
+                const continueButton = element.querySelectorAll(`[class^="${this.selectors.continueButton[i]}"]`);
+                 for(let j=0;j<continueButton.length;j++){
+                    // console.log(continueButton[j].textContent.trim());
+                    // console.log(continueButton[j]);
+                    continueButton[j].click();
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    //  console.log(continueButton[j]);
+                    continueButton[j].click();
+                 }
+
+               
+            }
+            // await randomDelay("索要信息");
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+
+
+            const suoyaolist = document.querySelectorAll(`[class^="${this.selectors.phoneButton}"]`);
+
+            
+            if (!suoyaolist) {
+                console.error('未找到索要信息的按钮');
+                return null;
+            }
+
+            // console.log("索要信息按钮数量:",suoyaolist);
+            
+
+            if (phone) {
+            // console.log("电话按钮",suoyaolist[0]);
+                
+            suoyaolist[0].click();
+             await new Promise(resolve => setTimeout(resolve, 200));
+            const confirmphoneButton = document.querySelector(`[class^="is-ml-0 km-button km-control km-ripple-off km-button--primary km-button--outlined"]`);
+
+           if (confirmphoneButton) {
+            // console.log('确认手机号按钮:', confirmphoneButton);
+            
+                confirmphoneButton.click();
+                // console.log("确认手机号按钮",confirmphoneButton);
+            }
+            }
+            if(wechat){
+                // console.log("微信按钮",suoyaolist[1]);
+
+                suoyaolist[1].click();
+
+                 const confirmphoneButton = document.querySelector(`[class^="is-ml-0 km-button km-control km-ripple-off km-button--primary km-button--outlined"]`);
+
+           if (confirmphoneButton) {
+            // console.log('确认手机号按钮:', confirmphoneButton);
+            
+                confirmphoneButton.click();
+                // console.log("确认手机号按钮",confirmphoneButton);
+            }
+            }
+            if(resume){
+                // console.log("简历按钮",suoyaolist[2]);
+                suoyaolist[2].click();           
+                
+                 const confirmphoneButton = document.querySelector(`[class^="is-ml-0 km-button km-control km-ripple-off km-button--primary km-button--outlined"]`);
+
+           if (confirmphoneButton) {
+            // console.log('确认手机号按钮:', confirmphoneButton);
+            
+                confirmphoneButton.click();
+                // console.log("确认手机号按钮",confirmphoneButton);
+            }
+            }
+            //等待2秒
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // console.log('等待2秒');
+            
+            // await randomDelay("确认索要信息");
+            //确认索要信息 可能会有多个弹框，需要循环点击确认
+            // try{
+            //     const confirmButtons = document.querySelectorAll(`[class^="${this.selectors.confirmSuoIndoButton}"]`);
+            // if (!confirmButtons) {
+            // confirmButtons = document.querySelectorAll(`[class*="${this.selectors.confirmSuoIndoButton}"]`);
+            // }
+            // console.log('确认按钮数量:', confirmButtons.length);
+            // if (confirmButtons.length > 0) {
+            //     confirmButtons.forEach(button => button.click());
+            // }
+            // }catch(error){
+            //     console.error('确认索要信息失败:', error);
+            // }
+           
+
+
+            //点击确认按钮
+            const closeButton = document.querySelector(`[class^="im-widget-session__close"]`);
+            // console.log("关闭按钮",closeButton);
+
+            if (closeButton) {
+                closeButton.click();
+            }
+
+            const closeButton2 = document.querySelector(`[class^="km-icon sati ignore-im-widget-click sati-times"]`);
+            // console.log("关闭按钮2",closeButton2);
+            if (closeButton2) {
+                closeButton2.click();
+            }
+        } catch (error) {
+            console.error('索要手机号失败:', error);
+            return null;
+        }
+    }
+    
 
     // 重写查找元素的方法
     findElements() {
@@ -395,6 +550,15 @@ class ZhilianParser extends BaseParser {
 
             if (greetButton) {
                 greetButton.click();
+
+                try{
+                if(this.filterSettings.communicationConfig.collectPhone||this.filterSettings.communicationConfig.collectWechat||this.filterSettings.communicationConfig.collectResume){     
+                    greetButton.click();
+                }
+                }catch(error){
+                    console.error('点击打招呼按钮失败:', error);
+                }
+                
                 return true;
             }
             return false;

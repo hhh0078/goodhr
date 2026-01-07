@@ -25,6 +25,15 @@ class LagouParser extends BaseParser {
         }
     }
 
+    /**
+     * 检查是否有消息提示，有就开始处理
+     * @param {*} element 
+     * @returns 
+     */
+    async checkMessageTip(element){
+        return false;
+    }
+
     async clickMatchedItem(element) {
         try {
             const clickElement = this.getElementByClassPrefix(element, this.selectors.clickTarget);

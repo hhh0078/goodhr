@@ -141,6 +141,16 @@ class Employer58Parser extends BaseParser {
     //     return true;
     // }
 
+
+    /**
+     * 检查是否有消息提示，有就开始处理
+     * @param {*} element 
+     * @returns 
+     */
+    async checkMessageTip(element){
+        return false;
+    }
+
     /**
      * 查找同事沟通记录
      * @param {*} data

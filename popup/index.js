@@ -37,7 +37,13 @@ let serverData = {
 	enableSound: true,
 	scrollDelayMin: 3,
 	scrollDelayMax: 5,
-	clickFrequency: 7
+	clickFrequency: 7,
+	communicationConfig: {
+		enabled: false,
+		phone: false,
+		wechat: false,
+		resume: false
+	}
 };
 
 // ========== 运行时状态变量 ==========
@@ -112,9 +118,7 @@ async function saveSettings() {
 		if (!serverData.communicationConfig) {
 			serverData.communicationConfig = {};
 		}
-		serverData.communicationConfig.collectPhone = document.getElementById('collect-phone')?.checked || true;
-		serverData.communicationConfig.collectWechat = document.getElementById('collect-wechat')?.checked || true;
-		serverData.communicationConfig.collectResume = document.getElementById('collect-resume')?.checked || true;
+
 
 		// 保存运行模式配置
 		if (!serverData.runModeConfig) {
@@ -122,6 +126,13 @@ async function saveSettings() {
 		}
 		serverData.runModeConfig.greetingEnabled = document.getElementById('greeting-checkbox')?.checked !== false; // 默认为true
 		serverData.runModeConfig.communicationEnabled = document.getElementById('communication-checkbox')?.checked !== false; // 默认为true
+
+		// 索要手机号
+		serverData.communicationConfig.collectPhone = document.querySelector('.collect-phone')?.checked || false;
+		// 索要微信号
+		serverData.communicationConfig.collectWechat = document.querySelector('.collect-wechat')?.checked || false;
+		// 索要简历
+		serverData.communicationConfig.collectResume = document.querySelector('.collect-resume')?.checked || false;
 
 		// 保存到本地存储
 		await chrome.storage.local.set({
@@ -515,6 +526,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		// 绑定AI配置相关事件
 		document.getElementById('ai-config-btn').addEventListener('click', () => {
 			showAIConfigModal();
+
 		});
 
 		document.getElementById('ai-config-close').addEventListener('click', () => {
@@ -603,6 +615,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 		aiBindPhoneBtn.addEventListener('click', async () => {
 			try {
 				await bindPhone(aiPhoneInput.value.trim());
+				saveAIConfig();
 			} catch (error) {
 				console.error('绑定手机号失败:', error);
 			}
@@ -662,6 +675,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const settings = await getSettings();
 		const matchLimitInput = document.getElementById('match-limit');
 		const enableSoundCheckbox = document.getElementById('enable-sound');
+				// 加载延迟设置
+		const delayMinInput = document.getElementById('delay-min');
+		const delayMaxInput = document.getElementById('delay-max');
 
 		// 监听年龄选择变更
 		document.getElementById('ageMin')?.addEventListener('change', saveSettings);
@@ -683,6 +699,41 @@ document.addEventListener('DOMContentLoaded', async () => {
 		const addExcludeKeywordBtn = document.getElementById('add-exclude-keyword');
 		const positionInput = document.getElementById('position-input');
 		const addPositionBtn = document.getElementById('add-position');
+
+
+		//索要绑定点击事件
+		const collectPhoneCheckboxes = document.querySelectorAll('.collect-phone');
+		const collectWechatCheckboxes = document.querySelectorAll('.collect-wechat');
+		const collectResumeCheckboxes = document.querySelectorAll('.collect-resume');
+
+		// 监听索要绑定点击事件
+		collectPhoneCheckboxes.forEach(checkbox => {
+			checkbox.addEventListener('change', (e) => {
+				// 同步所有相同类名的复选框状态
+				document.querySelectorAll('.collect-phone').forEach(cb => {
+					cb.checked = e.target.checked;
+				});
+				saveSettings();
+			});
+		});
+		collectWechatCheckboxes.forEach(checkbox => {
+			checkbox.addEventListener('change', (e) => {
+				// 同步所有相同类名的复选框状态
+				document.querySelectorAll('.collect-wechat').forEach(cb => {
+					cb.checked = e.target.checked;
+				});
+				saveSettings();
+			});
+		});
+		collectResumeCheckboxes.forEach(checkbox => {
+			checkbox.addEventListener('change', (e) => {
+				// 同步所有相同类名的复选框状态
+				document.querySelectorAll('.collect-resume').forEach(cb => {
+					cb.checked = e.target.checked;
+				});
+				saveSettings();
+			});
+		});
 
 		if (!keywordInput || !addKeywordBtn || !addExcludeKeywordBtn || !positionInput || !addPositionBtn) {
 			console.error('找不到关键词或岗位相关元素');
@@ -744,6 +795,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 			matchLimit = settings.matchLimit;
 			matchLimitInput.value = matchLimit;
 		}
+
+
+
+		if (settings.scrollDelayMin !== undefined) {
+			scrollDelayMin = settings.scrollDelayMin;
+			delayMinInput.value = scrollDelayMin;
+		} 
+
+		if (settings.scrollDelayMax !== undefined) {
+			scrollDelayMax = settings.scrollDelayMax;
+			delayMaxInput.value = scrollDelayMax;
+		} 
+
 
 		if (settings.enableSound !== undefined) {
 			enableSound = settings.enableSound;
@@ -841,23 +905,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 		// 加载完成提示
 		addLog('设置加载完成', 'success');
 
-		// 加载延迟设置
-		const delayMinInput = document.getElementById('delay-min');
-		const delayMaxInput = document.getElementById('delay-max');
-
-		if (settings.scrollDelayMin !== undefined) {
-			scrollDelayMin = settings.scrollDelayMin;
-			delayMinInput.value = scrollDelayMin;
-		} else {
-			delayMinInput.value = 3; // 设置默认值
-		}
-
-		if (settings.scrollDelayMax !== undefined) {
-			scrollDelayMax = settings.scrollDelayMax;
-			delayMaxInput.value = scrollDelayMax;
-		} else {
-			delayMaxInput.value = 5; // 设置默认值
-		}
 
 		// 监听延迟输入框变化
 		delayMinInput.addEventListener('change', saveSettings);
@@ -1008,7 +1055,8 @@ async function startAutoScroll() {
 							scrollDelayMin: parseInt(delayMinInput.value) || 3,
 							scrollDelayMax: parseInt(delayMaxInput.value) || 5,
 							clickFrequency: parseInt(clickFrequencyInput.value) || 7,
-							enableSound: enableSoundCheckbox.checked
+							enableSound: enableSoundCheckbox.checked,
+							communicationConfig: serverData.communicationConfig
 						}
 					},
 						response => {
@@ -1054,13 +1102,16 @@ async function startAutoScroll() {
 							scrollDelayMin: parseInt(delayMinInput.value) || 3,
 							scrollDelayMax: parseInt(delayMaxInput.value) || 5,
 							clickFrequency: parseInt(clickFrequencyInput.value) || 7,
+							enableSound: enableSoundCheckbox.checked,
+
+							communicationConfig: serverData.communicationConfig
 						}
 					},
 						response => {
 							if (chrome.runtime.lastError) {
 								console.error('发送消息失败:', chrome.runtime.lastError);
 								addLog('⚠️ 无法连接到页面，请刷新页面', 'error');
-								isRunning = false;
+								// isRunning = false;
 								updateUI();
 								return;
 							}
@@ -2223,7 +2274,9 @@ function updateAIConfigUI() {
 		'THUDM/GLM-4.1V-9B-Thinking',
 		'Qwen/Qwen3-8B',
 		'deepseek-ai/DeepSeek-R1',
-		'deepseek-ai/DeepSeek-V3'
+		'deepseek-ai/DeepSeek-V3',
+		'deepseek-ai/DeepSeek-V3.1-Terminus',
+		'moonshotai/Kimi-K2-Instruct-0905',
 	];
 
 	if (presetModels.includes(serverData.ai_config.model)) {
@@ -2378,7 +2431,7 @@ async function checkAIConnection() {
 	} else {
 		// 缺少认证信息
 		statusIndicator.className = 'ai-status-indicator disconnected';
-		statusText.textContent = '缺少Token(前往官网里查看配置教程(goodhr.58it.cn))';
+		statusText.innerHTML =  '<span >* 获取秘钥请访问：<a href="https://goodhr.58it.cn/describe.html" target="_blank">AI配置教程</a></span>';
 		hideBalanceDisplay(); // 没有认证信息时隐藏余额显示
 		console.warn('AI配置缺少Token:', serverData.ai_config);
 	}
@@ -2448,7 +2501,7 @@ async function handleBalanceCheck() {
 			updateBalanceDisplay(balance);
 
 			if (balance < 1) {
-				const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(2)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2. 前往轨迹流动充值（首次需要实名认证）\n\n是否前往轨迹流动官网充值？`;
+				const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(2)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2.在微信联系作者低价充值(5折)\n3. 前往轨迹流动原价充值（首次需要实名认证）\n\n是否前往轨迹流动官网原价充值？`;
 
 				if (confirm(message)) {
 					// 打开轨迹流动充值页面
@@ -2553,7 +2606,7 @@ async function sendDirectAIRequest(prompt) {
 // 加载广告配置
 async function loadAdConfig() {
 	try {
-		const response = await fetch(`${API_BASE}/ads.json?t=${Date.now()}`);
+		const response = await fetch(`${API_BASE}/ads.json`);
 		if (response.ok) {
 			adConfig = await response.json();
 			if (adConfig.success) {
@@ -2911,6 +2964,39 @@ function updateOtherSettingsUI() {
 	if (enableSoundCheckbox && serverData.enableSound !== undefined) {
 		enableSoundCheckbox.checked = serverData.enableSound;
 	}
+
+	// 更新索要绑定设置
+	const collectPhoneCheckboxes = document.querySelectorAll('.collect-phone');
+	if(!serverData.communicationConfig.collectPhone){
+		serverData.communicationConfig.collectPhone = false;
+	}
+	collectPhoneCheckboxes.forEach(checkbox => {
+		if (checkbox && serverData.communicationConfig && serverData.communicationConfig.collectPhone !== undefined) {
+			checkbox.checked = serverData.communicationConfig.collectPhone;
+		}
+	});
+
+	if(!serverData.communicationConfig.collectWechat){
+		serverData.communicationConfig.collectWechat = false;
+	}
+	const collectWechatCheckboxes = document.querySelectorAll('.collect-wechat');
+	collectWechatCheckboxes.forEach(checkbox => {
+		if (checkbox && serverData.communicationConfig && serverData.communicationConfig.collectWechat !== undefined) {
+			checkbox.checked = serverData.communicationConfig.collectWechat;
+		}
+	});
+
+	if(!serverData.communicationConfig.collectResume){
+		serverData.communicationConfig.collectResume = false;
+	}
+	const collectResumeCheckboxes = document.querySelectorAll('.collect-resume');
+	collectResumeCheckboxes.forEach(checkbox => {
+		if (checkbox && serverData.communicationConfig && serverData.communicationConfig.collectResume !== undefined) {
+			checkbox.checked = serverData.communicationConfig.collectResume;
+		} else {
+			checkbox.checked = false;
+		}
+	});
 
 	// 更新延迟设置
 	const delayMinInput = document.getElementById('delay-min');

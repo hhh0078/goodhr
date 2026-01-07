@@ -285,6 +285,9 @@ async function executeScroll() {
         return;
     }
 
+    
+
+
     try {
 
 
@@ -473,6 +476,20 @@ function addHighlightReason(element, reason, color) {
 // 处理单个元素的函数
 async function processElement(element, doc) {
 
+    if(currentParser.aiSettings==null||currentParser.aiSettings.communicationConfig==null){
+        currentParser.aiSettings={
+            communicationConfig:{
+                collectPhone:false,
+                collectWechat:false,
+                collectResume:false
+            }
+        }
+    }
+    console.log("是否收集手机号:",currentParser.aiSettings.communicationConfig);
+    
+
+    //处理消息提示
+    await currentParser.checkMessageTip(element,currentParser.aiSettings.communicationConfig.collectPhone||false,currentParser.aiSettings.communicationConfig.collectWechat||false,currentParser.aiSettings.communicationConfig.collectResume||false);
 
     try {
         // 发送计数请求到服务器（不等待响应）
@@ -577,7 +594,7 @@ async function processElement(element, doc) {
                     if (ParserName === 'employer58') {
                         clicked = false
                         shouldContact =true
-                                                await randomDelay(`查看候选人详细信息: ${candidate.name}`);
+                        await randomDelay(`查看候选人详细信息: ${candidate.name}`);
                     }
 
                     if (clicked) {
@@ -631,6 +648,7 @@ async function processElement(element, doc) {
 
                         } else {
                             // 免费模式：使用关键词筛选
+
                             shouldContact = currentParser.filterCandidate(simpleCandidateInfo);
                             if(ParserName === 'employer58'){
                                 shouldContact = true
@@ -652,11 +670,17 @@ async function processElement(element, doc) {
                         // console.log('使用关键词筛选候选人:', candidate.name);
 
                         shouldContact = currentParser.filterCandidate(simpleCandidateInfo);
+
+                        
                          if(ParserName === 'employer58'){
                                 shouldContact = true
                             }
                     }
                 }
+
+
+
+                
 
                 if (shouldContact) {
                     // 再次检查是否已达到匹配限制
@@ -671,6 +695,17 @@ async function processElement(element, doc) {
 
                     const clicked = await currentParser.clickMatchedItem(element);
                     if (clicked) {
+                        try {
+                         if (currentParser.aiSettings.communicationConfig.collectPhone||currentParser.aiSettings.communicationConfig.collectWechat||currentParser.aiSettings.communicationConfig.collectResume) {
+                            const phone = await currentParser.collectPhoneWechatResume(currentParser.aiSettings.communicationConfig.collectPhone, currentParser.aiSettings.communicationConfig.collectWechat, currentParser.aiSettings.communicationConfig.collectResume, candidate,element);
+                        }
+                        } catch (error) {
+                            console.error('索要配置异常:', error,currentParser.aiSettings.communicationConfig);
+                            return null;
+                        }
+                        
+                      
+
                         matchCount++;
                         console.log(`打招呼成功，当前计数: ${matchCount}/${matchLimit}`);
                         //播放提示音
@@ -742,7 +777,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     try {
         switch (message.action) {
             case 'START_SCROLL':
-                // console.log('收到开始滚动消息:', message);
 
                 // 检查解析器是否已初始化
                 if (!currentParser) {
@@ -754,7 +788,6 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 // 更新点击频率设置
                 if (message.data.clickFrequency !== undefined) {
                     currentParser.clickCandidateConfig.frequency = message.data.clickFrequency;
-                    // console.log('更新点击频率为:', message.data.clickFrequency);
                 }
                 currentParser.aiMode = false;
 
@@ -767,7 +800,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                         isAndMode: message.data.isAndMode,
                         matchLimit: message.data.matchLimit,
                         scrollDelayMin: message.data.scrollDelayMin,
-                        scrollDelayMax: message.data.scrollDelayMax
+                        scrollDelayMax: message.data.scrollDelayMax,
+                        enableSound: message.data.enableSound,
+                        communicationEnabled: message.data.communicationEnabled,
+                        communicationConfig: message.data.communicationConfig
                     };
                 }
 
@@ -802,7 +838,10 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     aiConfig: message.data.aiConfig,
                     matchLimit: message.data.matchLimit,
                     scrollDelayMin: message.data.scrollDelayMin,
-                    scrollDelayMax: message.data.scrollDelayMax
+                    scrollDelayMax: message.data.scrollDelayMax,
+                    enableSound: message.data.enableSound,
+                    communicationEnabled: message.data.communicationEnabled,
+                    communicationConfig: message.data.communicationConfig
                 };
 
                 // 直接使用原有的滚动逻辑
@@ -810,22 +849,23 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 sendResponse({ status: 'success' });
                                 break;
             case 'SHOW_ADS':
+
+            console.log('收到显示广告消息:', message);
+            
                 // 检查广告配置是否已加载
                 if (adConfig) {
                     // 检查AI是否过期
                     chrome.storage.local.get(['ai_expire_time'], function(result) {
-                        let isAIExpired = false;
+                        let isAIExpired = true;
                         if (result.ai_expire_time) {
 
                             const now = new Date();
                             let expireDate = null;
                             try {
                                  expireDate = new Date(result.ai_expire_time + 'T00:00:00');
-                                                             isAIExpired = now > expireDate;
-
-                            //         console.log('AI到期时间:', expireDate);
-                            // console.log('当前时间:', now);
-                            // console.log('是否过期:', isAIExpired);
+                                if (now > expireDate) {
+                                    isAIExpired = true;
+                                }
                             } catch (error) {
                                 console.error('解析AI到期时间失败:', error);
                                 sendResponse({ status: 'error', message: '解析AI到期时间失败' });
@@ -902,7 +942,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                         currentParser.jobInfo = message.data.jobInfo;
                     }
                     if (message.data.communicationConfig) {
-                        currentParser.communicationConfig = message.data.communicationConfig;
+                        currentParser.aiSettings.communicationConfig = message.data.communicationConfig;
                     }
                     if (message.data.runModeConfig) {
                         currentParser.runModeConfig = message.data.runModeConfig;
@@ -1688,7 +1728,7 @@ async function loadAdConfig() {
     try {
         // 从服务器加载广告配置，与popup中的实现保持一致
         const API_BASE = window.GOODHR_CONFIG ? window.GOODHR_CONFIG.API_BASE : 'https://goodhr.58it.cn';
-        const response = await fetch(`${API_BASE}/ads.json?t=${Date.now()}`);
+        const response = await fetch(`${API_BASE}/ads.json`);
         if (response.ok) {
             adConfig = await response.json();
             if (adConfig.success) {
@@ -1808,7 +1848,6 @@ function createDraggableAdElement(adData) {
     content += `</div>`;
     content += `<div class="ad-content" style="padding: 0px 8px;  overflow-y: auto;cursor: pointer; ">${adData.content}</div>`;
     
-    console.log(adData);
     
     // 添加底部文字（如果有）
     if (adData.bottom_content) {

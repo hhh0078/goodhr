@@ -681,6 +681,32 @@
                     </div>
                     <div class="keyword-list" id="keyword-list"></div>
                     <div class="keyword-list" id="exclude-keyword-list"></div>
+
+                    <!-- //索要手机号 -->
+                     <div style="margin-bottom: 8px;display: flex;gap: 10px;">
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-phone">
+                            <span class="checkbox-label">索要手机号</span>
+                        </label>
+
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-wechat">
+                            <span class="checkbox-label">索要微信号</span>
+                        </label>
+
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-resume">
+                            <span class="checkbox-label">索要简历</span>
+                        </label>
+                    </div>
+                    <!-- //索要微信号 -->
+                    <div style="margin-bottom: 8px;">
+                        
+                    </div>
+                    <!-- //索要简历 -->
+                    <div style="margin-bottom: 8px;">
+                        
+                    </div>
                 </div>
 
                 <div class="filter-group">
@@ -703,7 +729,9 @@
                         <label class="input-wrapper">
                             <div style="gap: 5px;display: flex;">
                                 <input type="number" id="delay-min" class="number-input" min="1" value="3"
-                                    max="9">到<input type="number" id="delay-max" class="number-input" min="1" value="5"
+                                    max="9">
+                                    到
+                                <input type="number" id="delay-max" class="number-input" min="1" value="5"
                                     max="10">
                             </div>
                             <span class="input-label">* 随机模拟停止的时间段 0-10秒，默认3-5</span>
@@ -775,7 +803,7 @@
                      <div style=" margin-bottom: 10px;display: flex;align-items: center;">
                                             <label class="title" style="margin-bottom:0px">AI状态</label>
 
-                                            <span style="font-size: 11px; color: #666;margin-left: 10px;"> 价格25/月，50元/永久<a href="https://goodhr.58it.cn" target="_blank">咨询购买</a></span>
+                                            <span style="font-size: 11px; color: #666;margin-left: 10px;"> 价格25/月，50元/永久<a href="https://goodhr.58it.cn/aidescribe.html" target="_blank">咨询购买</a> <a href="https://goodhr.58it.cn" target="_blank">获取秘钥</a></span>
                         
                     </div>
                     <div class="ai-status">
@@ -785,12 +813,27 @@
                     </div>
                     <div class="ai-balance-info" id="ai-balance-info"
                         style="font-size: 11px; color: #666; margin-top: 5px; display: none;">
-                        <span id="ai-balance-text">轨迹流动余额: --</span>   <span >* 获取Token请访问：<a href="https://goodhr.58it.cn/describe.html" target="_blank">AI配置教程</a></span>
+                        <span id="ai-balance-text">轨迹流动余额: --</span>   <span >充值余额、使用教程：<a href="https://goodhr.58it.cn/describe.html" target="_blank">点我</a></span>
                     </div>
                     <div style="font-size: 11px; color: #666; margin-bottom: 10px;">
                         
                     </div>
-                   
+                   <div style="margin-bottom: 8px;display: flex;gap: 10px;">
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-phone">
+                            <span class="checkbox-label">索要手机号</span>
+                        </label>
+
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-wechat">
+                            <span class="checkbox-label">索要微信号</span>
+                        </label>
+
+                        <label class="checkbox-wrapper">
+                            <input type="checkbox" class="collect-resume">
+                            <span class="checkbox-label">索要简历</span>
+                        </label>
+                    </div>
                 </div>
 
 
@@ -867,21 +910,7 @@
                     </div>
                 </div>
 
-                <div class="filter-group">
-                    <label class="title">沟通处理设置</label>
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" id="collect-phone" class="checkbox-input" checked>
-                        <span class="checkbox-label">收集手机号</span>
-                    </label>
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" id="collect-wechat" class="checkbox-input" checked>
-                        <span class="checkbox-label">收集微信号</span>
-                    </label>
-                    <label class="checkbox-wrapper">
-                        <input type="checkbox" id="collect-resume" class="checkbox-input" checked>
-                        <span class="checkbox-label">收集简历附件</span>
-                    </label>
-                </div>
+                
 
                 <div class="filter-group">
                     <label class="title">设备指纹</label>
@@ -928,10 +957,10 @@
 
             <!-- 轨迹流动配置 -->
             <div id="siliconflow-config">
-                <label>轨迹流动Token:</label>
-                <input type="text" id="ai-token" placeholder="请输入您的轨迹流动Token">
+                <label>轨迹流动秘钥:</label>
+                <input type="text" id="ai-token" placeholder="请输入您的轨迹流动秘钥">
                 <div style="font-size: 11px; color: #666; margin-bottom: 10px;">
-                    * 获取Token请访问：<a href="https://cloud.siliconflow.cn/" target="_blank">轨迹流动官网</a>
+                    * 获取秘钥请访问：<a href="https://cloud.siliconflow.cn/i/cvrt38bU" target="_blank">轨迹流动官网</a>
                 </div>
 
                 <label>模型名称:</label>
@@ -941,6 +970,8 @@
                     <option value="THUDM/GLM-4.1V-9B-Thinking">THUDM/GLM-4.1V-9B-Thinking </option>
                     <option value="Qwen/Qwen3-8B">Qwen/Qwen3-8B(便宜)</option>
                     <option value="deepseek-ai/DeepSeek-R1">DeepSeek-R1(慢贵准)</option>
+                    <option value="deepseek-ai/DeepSeek-V3.1-Terminus">DeepSeek-V3.1-Terminus(快贵准)</option>
+                    <option value="moonshotai/Kimi-K2-Instruct-0905">moonshotai/Kimi-K2-Instruct-0905(快贵准)</option>
                     <option value="custom">自定义模型</option>
                 </select>
 
@@ -976,6 +1007,7 @@
                 </label>
             </div> -->
             
+            
             <!-- 初始状态的按钮组 -->
             <div class="initial-buttons" id="initialButtons">
                 <button id="scrollButton" class="btn primary-btn">
@@ -984,12 +1016,12 @@
                     </svg>
                     开始
                 </button>
-                <button id="downloadButton" class="btn primary-btn">
+                <!-- <button id="downloadButton" class="btn primary-btn">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M19 9h-4V3H9v6H5l7 7 7-7z" />
                     </svg>
                     下载简历
-                </button>
+                </button> -->
             </div>
 
             <!-- 停止按钮（初始隐藏） -->
@@ -1001,6 +1033,8 @@
                     停止
                 </button>
             </div>
+
+             
         </div>
 
         <div style="background: #1e1e1e; color: #00ff00; font-family: 'Consolas', monospace; padding: 8px; height: 100px; overflow-y: auto; font-size: 12px; line-height: 1.5;

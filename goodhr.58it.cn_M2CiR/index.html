@@ -1,0 +1,1081 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="GoodHR招聘助手插件 - 专业的Boss直聘自动打招呼插件和猎聘简历下载工具。支持招聘自动打招呼、批量打招呼、关键词筛选、候选人筛选等功能。免费HR招聘助手插件，提升招聘效率。适用于Boss直聘、猎聘、智联招聘等平台。">
+
+    <meta name="keywords" content="Boss直聘自动打招呼插件,猎聘自动打招呼插件,招聘自动打招呼工具,Boss直聘批量打招呼插件,猎聘批量打招呼工具,招聘网站自动打招呼插件,HR自动打招呼助手,招聘自动化打招呼插件,Boss直聘简历下载插件,猎聘简历下载插件,招聘简历批量下载工具,Boss直聘助手插件,猎聘助手插件,招聘网站助手插件,HR招聘助手插件,招聘自动化工具插件,Boss直聘自动沟通插件,猎聘自动沟通工具,招聘自动沟通插件,HR招聘自动化插件,招聘流程自动化插件,Boss直聘关键词筛选插件,猎聘关键词筛选工具,招聘关键词筛选插件,HR招聘筛选插件,招聘候选人筛选插件,Boss直聘自动打招呼软件,猎聘自动打招呼软件,招聘自动打招呼软件,HR招聘自动化软件,Boss直聘招聘插件,猎聘招聘插件,招聘网站插件,HR招聘工具插件,招聘助手浏览器扩展,Boss直聘辅助插件,猎聘辅助插件,招聘辅助工具插件,HR招聘辅助插件,招聘效率提升插件,Boss直聘效率插件,猎聘效率插件,招聘效率工具插件,HR招聘效率插件,招聘自动化浏览器扩展,Boss直聘浏览器插件,猎聘浏览器插件,招聘浏览器插件,HR招聘浏览器扩展,招聘插件免费下载,猎头自动打招呼插件,猎聘猎头自动打招呼插件,Boss直聘猎头插件,猎头批量打招呼插件,猎头找人插件,猎头挖人插件,猎头助手插件,猎头招聘插件,猎头浏览器扩展,猎头自动沟通插件,猎聘猎头插件,猎头简历下载插件,猎头批量下载插件,猎头候选人筛选插件,猎头关键词筛选插件,猎头自动化插件,猎头招聘工具插件,猎头效率插件,猎头自动化打招呼工具,猎头批量打招呼工具,猎头找人工具,猎头挖人工具,猎头助手工具,猎头招聘工具,猎头浏览器工具,猎头自动沟通工具,猎聘猎头工具,猎头简历下载工具,猎头批量下载工具,猎头候选人筛选工具,猎头关键词筛选工具,猎头自动化工具,猎头招聘工具,猎头效率工具,猎头自动打招呼软件,猎头批量打招呼软件,猎头找人软件,猎头挖人软件,猎头助手软件,猎头招聘软件,猎头浏览器软件,猎头自动沟通软件,猎聘猎头软件,猎头简历下载软件,猎头批量下载软件,猎头候选人筛选软件,猎头关键词筛选软件,猎头自动化软件,猎头招聘软件,猎头效率软件">
+    <meta name="author" content="GoodHR">
+    <meta name="robots" content="index, follow">
+    <!-- Open Graph 标签 -->
+    <meta property="og:title" content="GoodHR招聘助手 - Boss直聘自动打招呼插件 | 猎聘简历下载工具 | HR招聘助手插件">
+    <meta property="og:description" content="专业的Boss直聘自动打招呼插件和猎聘简历下载工具。支持招聘自动打招呼、批量打招呼、关键词筛选、候选人筛选等功能。免费HR招聘助手插件，提升招聘效率。适用于Boss直聘、猎聘、智联招聘等平台。">
+    <meta property="og:image" content="https://goodhr.58it.cn/favicon.ico">
+    <meta property="og:url" content="https://goodhr.58it.cn">
+    <meta name="baidu-site-verification" content="你的百度验证码">
+
+    <!-- Twitter Card 标签 -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="GoodHR招聘助手 - Boss直聘自动打招呼插件 | 猎聘简历下载工具 | HR招聘助手插件">
+    <meta name="twitter:description" content="专业的Boss直聘自动打招呼插件和猎聘简历下载工具。支持招聘自动打招呼、批量打招呼、关键词筛选、候选人筛选等功能。免费HR招聘助手插件，提升招聘效率。适用于Boss直聘、猎聘、智联招聘等平台。">
+    <meta name="twitter:image" content="https://goodhr.58it.cn/favicon.ico">
+    <!-- 链接站点的favicon图标 -->
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<!-- 链接站点的Touch Icon，用于iOS设备 -->
+    <link rel="canonical" href="https://goodhr.58it.cn">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    
+<title>GoodHR招聘助手 - Boss直聘自动打招呼插件 | 猎聘简历下载工具 | HR招聘助手插件 | 免费招聘自动化工具</title>
+
+    <style>
+        :root {
+            --primary-color: #FF85A2;
+            --secondary-color: #FFF0F3;
+            --text-color: #2C3E50;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            color: var(--text-color);
+            line-height: 1.6;
+            /*height: 120vh;*/
+            /*overflow: hidden;*/
+        }
+
+        .hero {
+            /*height: 120vh;*/
+            background: linear-gradient(rgba(255, 240, 243, 0.95), rgba(255, 240, 243, 0.6)), url('screenshot.jpg');
+            background-size: 20%;
+            background-position: center;
+            display: flex;
+            margin: 80px auto 40px;
+            /*flex-direction: column;*/
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            /*padding: 20px 0;*/
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+        }
+
+        .main-content {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .left-section, .right-section {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .feature-grid {
+            display: flex;
+            /*grid-template-columns: repeat(4, 1fr);*/
+            flex-wrap: wrap;
+            gap: 15px;
+            /*margin-bottom: 20px;*/
+        }
+
+        .feature-item {
+            width: auto;
+            display: flex;
+            flex-direction: column;
+            /*justify-content: center;*/
+            transition: transform 0.3s ease;
+        }
+
+        .feature-item:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-item p {
+            margin: 5px 0;
+        }
+
+        .feature-item h3 {
+            font-size: 1.1em;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .installation-steps {
+            /*margin-top: 20px;*/
+        }
+
+        .step {
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        .step h3 {
+            font-size: 1.1em;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .download-btn {
+            display: inline-block;
+            padding: 12px 25px;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            transition: transform 0.3s ease;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #666;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .chat-box {
+            display: flex;
+            /*border: 1px solid #999;*/
+            /*background-color: #fff;*/
+            color: #000;
+            /*height: 150px;*/
+            justify-content:center;
+            /*padding: 10px;*/
+            border-radius: 15px;
+            margin: 10px auto;
+            /*max-width: 600px;*/
+            width: 100%;
+            /*box-shadow: 0 4px 15px rgba(0,0,0,0.1);*/
+        }
+
+        .chat-messagelet {
+            text-align: left;
+            margin-bottom: 10px;
+            padding: 5px;
+            color: #fff;
+            font-size: 1.1em;
+            line-height: 1.6;
+            background-color: #06ad56;
+        }
+        .chat-messager {
+            text-align: right;
+             margin-bottom: 10px;
+            padding: 5px;
+            color: #fff;
+            font-size: 1.1em;
+            line-height: 1.6;
+            background-color: #06ad56;
+        }
+
+        .free-tag {
+            font-size: 2.5em;
+            color: var(--primary-color);
+            margin: 10px 0;
+            animation: pulse 3s infinite;
+            text-shadow: 0 0 10px rgba(255, 133, 162, 0.3);
+            font-weight: bold;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .step p {
+            margin: 3px 0;
+        }
+
+        .step p:last-child {
+            /*color: var(--primary-color);*/
+            /*cursor: pointer;*/
+            /*text-decoration: underline;*/
+        }
+
+        /* 添加弹窗样式 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .modal h3 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+
+        .modal p {
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .modal-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .modal-btn {
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            border: none;
+            transition: transform 0.2s;
+        }
+
+        .modal-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .modal-btn.primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .modal-btn.secondary {
+            background-color: #e0e0e0;
+            color: var(--text-color);
+        }
+        
+        /* 优化容器样式 */
+.container-pay {
+    margin-top: 30px;
+    border-radius: 15px;
+    /*margin-bottom: 50px;*/
+    position: relative;
+    overflow: hidden;
+    width: 500px;
+    height: 300px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    background: white;
+}
+
+.container-pay .text {
+    padding: 20px;
+    text-align: center;
+}
+
+.container-pay .image {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: white;
+}
+
+.qr-code {
+    max-width: 200px;
+    height: auto;
+}
+
+/* 添加明细列表样式 */
+.donation-list {
+    /*min-width: 400px;*/
+    /*margin: 30px auto;*/
+    margin-top: 20px;
+    /*margin-bottom: 100px;*/
+    /*width: 100%;*/
+    padding: 20px;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.donation-list h3 {
+    color: var(--primary-color);
+    text-align: center;
+    padding:20px;
+    background: white;
+    /*margin-bottom: 100px;*/
+    border-radius: 15px;
+}
+
+.donation-records {
+    display: flex;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.donation-item {
+    padding: 15px;
+    border-radius: 10px;
+    background: var(--secondary-color);
+    transition: transform 0.3s ease;
+}
+
+.donation-item:hover {
+    transform: translateY(-3px);
+}
+
+.donation-item .name {
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.donation-item .price {
+    color: #ff6b6b;
+    font-size: 1.1em;
+    margin: 5px 0;
+}
+
+.donation-item .describe {
+    font-size: 0.9em;
+    color: #666;
+}
+        .feature-item-pay{
+            width: auto;
+            display: flex;
+            flex-direction: column;
+            /*justify-content: center;*/
+            transition: transform 0.3s ease;
+        }
+        
+         .feature-item-pay:hover{
+            width: auto;
+            display: flex;
+            flex-direction: column;
+            /*justify-content: center;*/
+            transition: transform 0.3s ease;
+        }
+        
+        
+          .container-pay {
+                  margin-top: 20px;
+    border-radius: 10px;
+    /*margin-bottom: 100px;*/
+            position: relative;
+            overflow: hidden;
+            width: 600px;
+            height: 300px;
+  }
+
+  .container-pay .text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    transition: transform 0.5s ease;
+  }
+
+  .container-pay .image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('pay.png'); /* 替换为你的图片URL */
+    background-size: cover;
+    background-position: center;
+    transition: transform 0.5s ease;
+    transform: translateY(100%);
+  }
+
+  .container-pay:hover .text {
+    transform: translateY(-100%);
+  }
+
+  .container-pay:hover .image {
+    transform: translateY(0);
+  }
+        
+          video {
+   
+    /*width: 200px !important;*/
+    /*min-height: 100%;*/
+    /*width: auto;*/
+    /*height: auto;*/
+    /*z-index: -1;*/
+    /*background: #000;*/
+    /*border-radius: 10px;*/
+    /*loop: true;*/
+    /*autoplay: true;*/
+    /*muted: true;*/
+  }
+  
+  
+  /* 导航栏样式 */
+.site-header {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.main-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  /*max-width: 1200px;*/
+  margin: 0 auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+}
+
+.brand-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.nav-menu {
+  display: flex;
+  gap: 2rem;
+  list-style: none;
+  align-items: center;
+}
+
+.nav-link {
+  color: var(--text-color);
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  background: var(--secondary-color);
+  color: var(--primary-color);
+}
+
+.nav-link.active {
+  background: var(--primary-color);
+  color: white !important;
+}
+
+/* 下拉菜单 */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: white;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  border-radius: 8px;
+  padding: 1rem;
+  min-width: 200px;
+}
+
+.dropdown:hover .dropdown-menu {
+  display: block;
+}
+
+.dropdown-menu li {
+  margin: 0.5rem 0;
+}
+
+.dropdown-menu a {
+  color: var(--text-color);
+  padding: 0.5rem;
+  display: block;
+  border-radius: 6px;
+}
+
+.dropdown-menu a:hover {
+  background: var(--secondary-color);
+}
+
+/* 移动端样式 */
+.hamburger {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.bar {
+  display: block;
+  width: 25px;
+  height: 2px;
+  margin: 5px 0;
+  background: var(--primary-color);
+  transition: all 0.3s ease;
+}
+
+@media (max-width: 768px) {
+  .nav-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    flex-direction: column;
+    padding: 1rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  }
+
+  .nav-menu.active {
+    display: flex;
+  }
+
+  .hamburger {
+    display: block;
+  }
+
+  .hamburger.active .bar:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+
+  .hamburger.active .bar:nth-child(2) {
+    opacity: 0;
+  }
+
+  .hamburger.active .bar:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  .dropdown-menu {
+    position: static;
+    box-shadow: none;
+    padding-left: 1rem;
+  }
+}
+    </style>
+    
+        
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?26c4074a40ece7f18372f6d3fcb753ed";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+</head>
+<body>
+    <!-- 在<body>开头添加 -->
+<header class="site-header">
+  <nav class="main-nav">
+    <!-- Logo -->
+    <a href="/" class="brand">
+      <img src="logo.png" alt="GoodHR助手的logo" class="logo">
+      <span class="brand-name">GoodHR</span>
+      
+      <span id="counter-display" style="font-size: 0.8rem; margin-left: 10px;">
+    <span id="daily-count">今日处理: 0</span> | 
+    <span id="total-count">总计处理: 0</span>
+  </span>
+    </a>
+
+    <!-- 桌面导航 -->
+    <ul class="nav-menu">
+      <li><a href="/" class="nav-link active">首页</a></li>
+      <li><a href="/installation.html" class="nav-link">安装步骤</a></li>
+      <li><a href="/describe.html" class="nav-link">免费版教程</a></li>
+            <li><a href="/aidescribe.html" class="nav-link">ai版教程</a></li>
+      <li><a href="/faq.html" class="nav-link">常见问题</a></li>
+      <li><a href="/updateRecord.html" class="nav-link">更新记录</a></li>
+    </ul>
+
+    <!-- 移动端切换按钮 -->
+    <button class="hamburger">
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+    </button>
+  </nav>
+</header>
+    
+    <main class="hero" style="z-index:2">
+        <div class="container">
+            <div style="display:flex;justify-content:center">
+                <div>
+                
+                  <div class="image">
+        <img src="cad35268a4bee6e841987def74a99602.png" alt="GoodHR官方微信客服" loading="lazy" style="width:200px">
+    </div>
+                </div>
+            
+            <div class="header">
+                <h1 class="free-tag">AI筛选-自动打招呼-完全免费</h1>
+                
+                     <div class="chat-box">
+                        <img src="WechatIMG872.jpg" alt="goodHR的由来" style="border: 1px solid #999;border-radius:10px;width:100%;max-width: 400px;">
+                        <!--<video src="aaa.mp4" muted playsinline autoplay loop></video>-->
+                    <div >
+                       
+                </div>
+                </div>
+               
+                            <!--<div>根据设定的关键词进行自动化打招呼、解放双手</div>-->
+                                                        <div>由于功能越来越多。永久AI高级版明天涨价到100。有需要的赶紧哦</div>
+
+
+               
+<div style="display:flex;justify-content:center;flex-wrap: wrap;gap:10px">
+                    
+                    <!--<div style="  align-items: center;display:flex;font-weight:900;font-size:18px;margin-right:20px">自动匹配关键词,自动打招呼</div>-->
+                    
+                    
+<a href="#" class="download-btn" title="下载GoodHR助手Chrome插件" >立即安装
+
+</a> 
+
+
+
+<a href="https://goodhr.58it.cn/describe.html" class="download-btn"  >使用说明(必看)
+
+</a> 
+<a href="https://58it.cn" class="download-btn"  >作者个人主页
+
+</a> 
+
+<a href="https://gitee.com/xxooxx8/good-hr" class="download-btn"  >代码开源
+
+</a> 
+
+</div>
+    
+            </div>
+            
+            <div class="image">
+                             <img src="/pay.png" alt="GoodHR官方微信客服" loading="lazy" style="width:200px">
+
+
+        <img src="wx1.jpg" alt="GoodHR官方微信客服" loading="lazy" style="width:200px">
+    </div>
+</div>
+            <section class="main-content">
+                <article class="left-section">
+                    <div class="feature-grid">
+                        <div class="feature-item">
+                            <h3>支持多平台</h3>
+                             <p>BOSS直聘</p>
+                             <p>BOSS直聘猎头端</p>
+                            <p>猎聘</p>
+                                                         <p>猎聘猎头端</p>
+
+                            <p>智联</p>
+                             <p>58招聘</p>
+                            <p>支持HR招聘助手插件</p>
+                            <p>支持猎头自动打招呼插件</p>
+                           
+                        </div>
+                       
+                        <div class="feature-item">
+                            <h3>功能</h3>
+                            <p>根据关键词筛选</p>
+                            <p>AI筛选</p>
+                            <p>自动打招呼</p>
+                            <p>批量打招呼</p>
+                            <p>招聘自动化工具</p>
+                            <p>候选人筛选</p>
+                            <del><p>自动下载简历</p></del>
+                        </div>
+                        
+                        <div class="feature-item">
+                            <h3>支持的浏览器</h3>
+                            <p>微软Edge浏览器</p>
+                            <p>谷歌Chrome浏览器</p>
+                            <p>其他Chrome内核的浏览器</p>
+                            <p>Windows就用Edge，Mac就用Chrome</p>
+                            <p>支持招聘浏览器插件</p>
+                            <p>支持猎头浏览器扩展</p>
+                        </div>
+                        
+                        
+                        
+                        
+                        <div class="feature-item">
+                            <h3>问题解答QQ群</h3>
+
+                             <!--<p>正在开发AI版本,完成后会在群里通知</p>-->
+                            <div class="image">
+        <img src="cad35268a4bee6e841987def74a99602.png" alt="GoodHR官方微信客服" loading="lazy" style="width:200px">
+    </div>
+                            
+                        </div>
+                        
+
+                        <div class="feature-item">
+                            <h3>联系我</h3>
+
+                            <p>微信号:</p>
+                             <!--<p>正在开发AI版本,完成后会在群里通知</p>-->
+                            <div class="image">
+        <!--<img src="wx.jpg" alt="GoodHR官方微信客服" loading="lazy" style="width:200px">-->
+    </div>
+                            
+                        </div>
+                        
+                     
+                    </div>
+                </article>
+
+                <article class="right-section">
+                    <div class="installation-steps">
+                        <!--收费版(试用7天，1月5元。季度10 年15 永久20) 扫码支付备注手机号 或者加我微信-->
+                        <h2>安装步骤(免费)</h2>
+                        <div class="step">
+                            <h3>1. 检查浏览器</h3>
+                            <p>确保正在使用Chrome/Edge浏览器打开我(goodhr.58it.cn)。该插件仅适配了谷歌浏览器</p>
+                            
+                        </div>
+                        <div class="step">
+                            <h3>2. 下载安装</h3>
+                            <p>点击上面的立即安装。注意右上角，可能会被阻止下载</p>
+                        </div>
+                         <div class="step">
+                            <h3>3. 解压压缩包</h3>
+                            <p>在右上角的下载里 右击在文件夹中打开,并解压goodHR，你将会得到 goodHR 的文件夹。双击 点我安装更新 的程序就会自动下载插件。如果有提醒 就点击信任。然后输入任意字符再回车。
+                               </p>
+                        </div>
+                        <div class="step">
+                            <h3>4. 导入插件</h3>
+                            <p>1 打开谷歌浏览器 在上面的搜索栏 复制粘贴 
+                            <span style="background-color:#000;color:#fff;padding:3px">chrome://extensions/</span> 并回车。
+                            2 点击左上角或右上角打开开发者模式。
+                            3 点击左上角 《加载已解压的扩展程序》 
+                            4 选择下载里的 goodHR 文件夹。只要看到goodhr 就点进去。直到你看见 你真棒的文件夹时 。此时点击右下角的选择文件夹 就好了<br>
+                            </p>
+                        </div>
+                        <div class="step">
+                            <h3>5. 使用方法</h3>
+                            <p>1 在谷歌浏览器内打开猎聘、boos直聘。
+                            2 打开推荐牛人页面 并在右上角筛选好年龄，学历、等等。
+                            3 点击浏览器右上角(搜索栏右边) 打开goodHR
+                            4 输入手机号、岗位、关键词。就可以开始运行了<br>
+                            </p>
+                        </div>
+                        
+                       
+                        <div class="step">
+                            <h3>7.更新记录<h3>
+                            <a href="/updateRecord.html" target="_blank">更新记录</a>
+                        </div>
+                    </div>
+                </article>
+            </section>
+            
+            
+            
+    <div style="display: flex;margin-bottom:100px;
+    gap: 20px;flex-wrap: wrap;">
+                
+                <div class="feature-item container-pay">
+    <div class="text">
+        <h3>捐赠支持</h3>
+        <p>如果觉得GoodHR对您有帮助</p>
+        <p>欢迎捐赠支持开发者继续维护更新</p>
+        <p>时请备注您想展示的名称</p>
+        <p>支付宝：17607080935</p>
+    </div>
+    <div class="image">
+        
+    </div>
+</div>
+
+
+  
+   
+   <!-- 添加明细列表 -->
+<div class="donation-list">
+     <img src="/pay.png" alt="GoodHR官方微信客服" loading="lazy" style="width:100%">
+</div>
+
+<!-- 添加明细列表 -->
+<div class="donation-list">
+    <h3>感谢以下支持者</h3>
+    <div id="donationRecords" class="donation-records">
+        <!-- 这里将通过JavaScript动态填充数据 -->
+    </div>
+</div>
+            </div>
+            <!-- ... existing code ... -->
+
+        </div>
+        
+        
+
+        <footer class="footer">
+            <p>© <time datetime="2025">2025</time> GoodHR助手 版权所有 |备案号：  <a href="https://beian.miit.gov.cn/" target="_blank">湘ICP备2021016833号-2</a>
+            <a href="http://58it.cn" target="_blank">联系作者：邓云川</a>
+            </p>
+        </footer>
+    </main>
+
+    <div class="modal-overlay">
+        <div class="modal">
+            <h3>浏览器提示</h3>
+            <p id="modal-message"></p>
+            <div class="modal-buttons">
+                <button class="modal-btn primary" id="modalPrimaryBtn">确定</button>
+                <button class="modal-btn secondary" id="modalCloseBtn">取消</button>
+            </div>
+        </div>
+    </div>
+
+      <!-- 添加结构化数据 -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "GoodHR招聘助手",
+        "alternateName": ["Boss直聘自动打招呼插件", "猎聘简历下载工具", "HR招聘助手插件", "招聘自动化工具"],
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Chrome, Edge",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "CNY"
+        },
+        "description": "GoodHR招聘助手是一款专业的Boss直聘自动打招呼插件和猎聘简历下载工具。支持招聘自动打招呼、批量打招呼、关键词筛选、候选人筛选等功能。免费HR招聘助手插件，提升招聘效率。适用于Boss直聘、猎聘、智联招聘等平台。",
+        "softwareVersion": "2.8.1",
+        "screenshot": "https://goodhr.58it.cn/screenshot.jpg",
+        "downloadUrl": "https://goodhr.58it.cn",
+        "author": {
+            "@type": "Person",
+            "name": "邓云川"
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "GoodHR"
+        },
+        "featureList": [
+            "Boss直聘自动打招呼",
+            "猎聘简历批量下载",
+            "招聘自动打招呼",
+            "批量打招呼功能",
+            "关键词筛选",
+            "候选人筛选",
+            "多平台支持",
+            "HR招聘助手",
+            "招聘自动化工具",
+            "免费使用"
+        ],
+        "keywords": "Boss直聘自动打招呼插件,猎聘自动打招呼插件,招聘自动打招呼工具,Boss直聘批量打招呼插件,猎聘批量打招呼工具,招聘网站自动打招呼插件,HR自动打招呼助手,招聘自动化打招呼插件,Boss直聘简历下载插件,猎聘简历下载插件,招聘简历批量下载工具,Boss直聘助手插件,猎聘助手插件,招聘网站助手插件,HR招聘助手插件,招聘自动化工具插件,Boss直聘自动沟通插件,猎聘自动沟通工具,招聘自动沟通插件,HR招聘自动化插件,招聘流程自动化插件,Boss直聘关键词筛选插件,猎聘关键词筛选工具,招聘关键词筛选插件,HR招聘筛选插件,招聘候选人筛选插件,Boss直聘自动打招呼软件,猎聘自动打招呼软件,招聘自动打招呼软件,HR招聘自动化软件,Boss直聘招聘插件,猎聘招聘插件,招聘网站插件,HR招聘工具插件,招聘助手浏览器扩展,Boss直聘辅助插件,猎聘辅助插件,招聘辅助工具插件,HR招聘辅助插件,招聘效率提升插件,Boss直聘效率插件,猎聘效率插件,招聘效率工具插件,HR招聘效率插件,招聘自动化浏览器扩展,Boss直聘浏览器插件,猎聘浏览器插件,招聘浏览器插件,HR招聘浏览器扩展,招聘插件免费下载,猎头自动打招呼插件,猎聘猎头自动打招呼插件,Boss直聘猎头插件,猎头批量打招呼插件,猎头找人插件,猎头挖人插件,猎头助手插件,猎头招聘插件,猎头浏览器扩展,猎头自动沟通插件,猎聘猎头插件,猎头简历下载插件,猎头批量下载插件,猎头候选人筛选插件,猎头关键词筛选插件,猎头自动化插件,猎头招聘工具插件,猎头效率插件,猎头自动化打招呼工具,猎头批量打招呼工具,猎头找人工具,猎头挖人工具,猎头助手工具,猎头招聘工具,猎头浏览器工具,猎头自动沟通工具,猎聘猎头工具,猎头简历下载工具,猎头批量下载工具,猎头候选人筛选工具,猎头关键词筛选工具,猎头自动化工具,猎头招聘工具,猎头效率工具,猎头自动打招呼软件,猎头批量打招呼软件,猎头找人软件,猎头挖人软件,猎头助手软件,猎头招聘软件,猎头浏览器软件,猎头自动沟通软件,猎聘猎头软件,猎头简历下载软件,猎头批量下载软件,猎头候选人筛选软件,猎头关键词筛选软件,猎头自动化软件,猎头招聘软件,猎头效率软件"
+    }
+    </script>
+    
+        <script>
+        
+           // 移动端菜单切换
+    const hamburger = document.querySelector('.hamburger');
+    const navMenu = document.querySelector('.nav-menu');
+
+    hamburger.addEventListener('click', () => {
+        hamburger.classList.toggle('active');
+        navMenu.classList.toggle('active');
+    });
+
+    // 关闭移动菜单
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', () => {
+            hamburger.classList.remove('active');
+            navMenu.classList.remove('active');
+        });
+    });
+    
+    
+    // 添加计数器更新功能
+async function updateCounters() {
+    try {
+        const response = await fetch('counter.json?v=' + Date.now());
+        const data = await response.json();
+        
+        document.getElementById('daily-count').textContent = `今日已打: ${data.daily_count} 个招呼`;
+        document.getElementById('total-count').textContent = `总计: ${data.total_count}`;
+    } catch (error) {
+        console.error('加载计数器数据失败:', error);
+    }
+}
+        
+        // 获取并显示记录
+async function loadDonationRecords() {
+    try {
+        const response = await fetch('dashang.json?v='+ new Date());
+        const records = await response.json();
+        const container = document.getElementById('donationRecords');
+        
+        records.forEach(record => {
+            const item = document.createElement('div');
+            item.className = 'donation-item';
+            item.innerHTML = `
+                <div class="name">${record.name}</div>
+                <div class="price">￥${record.price}</div>
+                <div class="describe">${record.describe}</div>
+            `;
+            container.appendChild(item);
+        });
+    } catch (error) {
+        console.error('加载记录失败:', error);
+    }
+}
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            
+            
+    // 初始化计数器
+    updateCounters();
+    
+    // 每5秒更新一次计数器
+    setInterval(updateCounters, 5000);
+            
+            loadDonationRecords()
+            const downloadBtn = document.querySelector('.download-btn');
+            const modalOverlay = document.querySelector('.modal-overlay');
+            const modalMessage = document.getElementById('modal-message');
+            const modalPrimaryBtn = document.getElementById('modalPrimaryBtn');
+            const modalCloseBtn = document.getElementById('modalCloseBtn');
+            const chromeDownloadStep = document.querySelector('.step p:last-child');
+            
+            // 检查是否为Chrome浏览器
+            function isChrome() {
+                return /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+            }
+
+            // 显示弹窗
+            function showModal(message, primaryBtnText, primaryAction) {
+                modalMessage.textContent = message;
+                modalPrimaryBtn.textContent = primaryBtnText;
+                modalPrimaryBtn.onclick = primaryAction;
+                modalOverlay.style.display = 'flex';
+            }
+
+            // 隐藏弹窗
+            function hideModal() {
+                modalOverlay.style.display = 'none';
+            }
+
+            // 下载Chrome浏览器
+            function downloadChrome() {
+                window.location.href = 'https://www.google.cn/intl/zh-CN_ALL/chrome/fallback/';
+            }
+
+            // 下载插件
+            function downloadPlugin() {
+    // 更全面的Mac设备检测
+    const isMac = /(Mac|iPhone|iPad|iPod)/i.test(navigator.platform) || 
+                 /Macintosh|MacIntel|MacPPC|Mac68K|Mac OS/i.test(navigator.userAgent);
+    
+    // 设置不同平台的下载链接
+    const windowsLink = 'https://goodhr.58it.cn/zip/goodhr安装更新_ndDpa.zip?v=' + Date.now();
+    const macLink = 'https://goodhr.58it.cn/zip/goodHR.zip?v=' + Date.now(); // Mac通常使用.dmg格式
+    
+    // 根据平台选择下载链接
+    const downloadUrl = isMac ? macLink : windowsLink;
+    
+    // 跳转到下载链接
+    window.location.href = downloadUrl;
+    
+    // 可选：添加平台检测提示（仅供调试）
+    console.log(`检测到${isMac ? 'Mac' : 'Windows'}设备，使用下载链接: ${downloadUrl}`);
+}
+            
+            // 点击安装按钮
+            downloadBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!isChrome()) {
+                    showModal(
+                        '检测到您当前未使用Chrome浏览器，GoodHR助手仅支持Chrome浏览器。是否前往下载Chrome？',
+                        '下载Chrome',
+                        downloadChrome
+                    );
+                } else {
+                    showModal(
+                        // '由于害怕承担风险，已关闭下载服务','禁止下载'
+                        '检测到您正在使用Chrome浏览器，可以直接下载插件。',
+                        '下载插件',
+                        downloadPlugin
+                    );
+                }
+            });
+
+            // 点击"如果没有点我下载"
+            chromeDownloadStep.addEventListener('click', function() {
+                if (!isChrome()) {
+                    downloadChrome();
+                } else {
+                    showModal(
+                        '您已经在使用Chrome浏览器了，无需重复下载。',
+                        '知道了',
+                        hideModal
+                    );
+                }
+            });
+
+            // 关闭弹窗
+            modalCloseBtn.addEventListener('click', hideModal);
+            modalOverlay.addEventListener('click', function(e) {
+                if (e.target === modalOverlay) {
+                    hideModal();
+                }
+            });
+        });
+    </script>
+
+
+</body>
+</html>
