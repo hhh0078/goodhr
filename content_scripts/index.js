@@ -1,3 +1,16 @@
+// 加载API工具
+try {
+  import(chrome.runtime.getURL("utils/api.js"))
+    .then((module) => {
+      window.apiRequest = module.apiRequest;
+    })
+    .catch((err) => {
+      console.error("加载API工具失败:", err);
+    });
+} catch (err) {
+  console.error("加载API工具失败:", err);
+}
+
 let currentParser = null;
 let scrollInterval = null;
 let lastProcessedPosition = 0;
@@ -1077,7 +1090,7 @@ async function getCandidateInfo(candidate) {
 const GUJJI_API_CONFIG = window.GOODHR_CONFIG
   ? window.GOODHR_CONFIG.GUJJI_API
   : {
-      baseUrl: "https://api.siliconflow.cn/v1/chat/completions",
+      baseUrl: "https://siliconflow.a.58it.cn/v1/chat/completions",
       maxTokens: 100,
       temperature: 0.1,
     };
@@ -1085,15 +1098,25 @@ const GUJJI_API_CONFIG = window.GOODHR_CONFIG
 // 直接发送AI请求到轨迹流动
 async function sendDirectAIRequest(prompt, aiConfig) {
   try {
+    // 确保API工具已加载
+    if (!window.apiRequest) {
+      throw new Error("API工具未加载，请刷新页面重试");
+    }
+
+    // 获取绑定的手机号
+    const stored = await chrome.storage.local.get("hr_assistant_phone");
+    const boundPhone = stored.hr_assistant_phone;
+
+    if (!boundPhone) {
+      throw new Error("未绑定手机号，无法使用AI功能");
+    }
+
     const model = aiConfig.model;
 
-    const response = await fetch(GUJJI_API_CONFIG.baseUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${aiConfig.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    // 使用API工具发送请求
+    const response = await window.apiRequest.post(
+      GUJJI_API_CONFIG.baseUrl,
+      {
         model: model,
         messages: [
           {
@@ -1103,15 +1126,12 @@ async function sendDirectAIRequest(prompt, aiConfig) {
         ],
         max_tokens: GUJJI_API_CONFIG.maxTokens,
         temperature: GUJJI_API_CONFIG.temperature,
-      }),
-    });
+      },
+      { phone: boundPhone },
+    );
 
-    if (!response.ok) {
-      throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const aiResponse = data.choices?.[0]?.message?.content;
+    // API工具已经处理了错误检查，这里直接返回数据
+    const aiResponse = response.choices?.[0]?.message?.content;
 
     if (!aiResponse) {
       throw new Error("AI响应为空");
