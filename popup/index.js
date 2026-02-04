@@ -1771,35 +1771,33 @@ function handleConnectionError(action) {
               });
             }
           }
-        } else if (domain.includes("zhilian.com")) {
-          if (!urlPath.includes("position.php")) {
-            let isConfirmed = confirm(
-              "⚠️ 插件只能在岗位详情页面使用，是否跳转？",
-            );
+        } else if (domain.includes("zhaopin.com")) {
+          if (!urlPath.includes("app/recommend")) {
+            let isConfirmed = confirm("⚠️ 插件只能在推荐页面使用，是否跳转？");
             if (isConfirmed) {
               chrome.tabs.update(tabs[0].id, {
-                url: "https://hr.tencent.com/position.php",
+                url: "https://rd6.zhaopin.com/app/recommend",
               });
             }
           }
           //询问是否跳转
-        } else if (domain.includes("liepin.com")) {
-          if (!urlPath.includes("position.php")) {
-            if (!confirm("⚠️ 请确认是否跳转至推荐牛人页面？")) {
+        } else if (domain.includes("lpt.liepin.com")) {
+          if (!urlPath.includes("recommend")) {
+            if (!confirm("⚠️ 插件只能在人才推荐页面使用，是否跳转？")) {
               //确认后跳转
               chrome.tabs.update(tabs[0].id, {
-                url: "https://www.liepin.com/",
+                url: "https://lpt.liepin.com/recommend",
               });
               return;
             }
           }
         } else if (domain.includes("h.liepin.com")) {
-          if (!urlPath.includes("position.php")) {
+          if (!urlPath.includes("search/getConditionItem")) {
             //询问是否跳转
-            if (!confirm("⚠️ 请确认是否跳转至推荐牛人页面？")) {
+            if (!confirm("⚠️ 插件只能在找人页面使用，是否跳转？")) {
               //确认后跳转
               chrome.tabs.update(tabs[0].id, {
-                url: "https://hr.58.com/position/",
+                url: "https://h.liepin.com/search/getConditionItem",
               });
               return;
             }
