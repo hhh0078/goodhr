@@ -27,7 +27,8 @@
         "config.js",
         "ads.json",
         "utils/fp.min.js",
-        "utils/api.js"
+        "utils/api.js",
+        "utils/button-injector.js"
       ],
       "matches": ["<all_urls>"]
     }
@@ -75,7 +76,14 @@
         "*://*.58it.cn/*",
         "*://*.58.com/*"
       ],
-      "js": ["config.js", "content_scripts/index.js"],
+      "js": [
+        "config.js",
+        "content_scripts/sites/lagou_injector.js",
+        "content_scripts/sites/zhilian_injector.js",
+        "content_scripts/sites/liepin_injector.js",
+        "content_scripts/sites/58_injector.js",
+        "content_scripts/index.js"
+      ],
       "all_frames": true,
       "match_about_blank": true
     }

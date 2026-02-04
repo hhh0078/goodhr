@@ -1105,6 +1105,7 @@ async function startAutoScroll() {
         },
         (tabs) => {
           if (tabs[0]) {
+            handleConnectionError("START_AI_SCROLL");
             chrome.tabs.sendMessage(
               tabs[0].id,
               {
@@ -1124,9 +1125,14 @@ async function startAutoScroll() {
               (response) => {
                 if (chrome.runtime.lastError) {
                   console.error("发送消息失败:", chrome.runtime.lastError);
-                  addLog("⚠️ 无法连接到页面，请刷新页面", "error");
+                  addLog(
+                    "⚠️ 无法连接到页面，请刷新页面,START_AI_SCROLL",
+                    "error",
+                  );
                   isRunning = false;
+
                   updateUI();
+                  handleConnectionError("START_AI_SCROLL");
                   return;
                 }
                 console.log("收到响应:", response);
@@ -1166,6 +1172,7 @@ async function startAutoScroll() {
         },
         (tabs) => {
           if (tabs[0]) {
+            handleConnectionError("START_SCROLL");
             chrome.tabs.sendMessage(
               tabs[0].id,
               {
@@ -1186,9 +1193,10 @@ async function startAutoScroll() {
               (response) => {
                 if (chrome.runtime.lastError) {
                   console.error("发送消息失败:", chrome.runtime.lastError);
-                  addLog("⚠️ 无法连接到页面，请刷新页面", "error");
+                  addLog("⚠️ 无法连接到页面，请刷新页面,START_SCROLL", "error");
                   // isRunning = false;
                   updateUI();
+                  handleConnectionError("START_SCROLL");
                   return;
                 }
                 console.log("收到响应:", response);
@@ -1738,6 +1746,72 @@ function notifyKeywordsUpdate() {
   );
 }
 
+//无法连接到页面的逻辑
+function handleConnectionError(action) {
+  //获取当前域名
+  chrome.tabs.query(
+    {
+      active: true,
+      currentWindow: true,
+    },
+    (tabs) => {
+      if (tabs[0]) {
+        const currentUrl = tabs[0].url;
+        const domain = new URL(currentUrl).hostname;
+        const urlPath = new URL(currentUrl).pathname;
+
+        if (domain.includes("zhipin.com")) {
+          if (!urlPath.includes("web/chat/recommend")) {
+            let isConfirmed = confirm(
+              "⚠️ 插件只能在推荐牛人页面使用，是否跳转？",
+            );
+            if (isConfirmed) {
+              chrome.tabs.update(tabs[0].id, {
+                url: "https://www.zhipin.com/web/chat/recommend",
+              });
+            }
+          }
+        } else if (domain.includes("zhilian.com")) {
+          if (!urlPath.includes("position.php")) {
+            let isConfirmed = confirm(
+              "⚠️ 插件只能在岗位详情页面使用，是否跳转？",
+            );
+            if (isConfirmed) {
+              chrome.tabs.update(tabs[0].id, {
+                url: "https://hr.tencent.com/position.php",
+              });
+            }
+          }
+          //询问是否跳转
+        } else if (domain.includes("liepin.com")) {
+          if (!urlPath.includes("position.php")) {
+            if (!confirm("⚠️ 请确认是否跳转至推荐牛人页面？")) {
+              //确认后跳转
+              chrome.tabs.update(tabs[0].id, {
+                url: "https://www.liepin.com/",
+              });
+              return;
+            }
+          }
+        } else if (domain.includes("h.liepin.com")) {
+          if (!urlPath.includes("position.php")) {
+            //询问是否跳转
+            if (!confirm("⚠️ 请确认是否跳转至推荐牛人页面？")) {
+              //确认后跳转
+              chrome.tabs.update(tabs[0].id, {
+                url: "https://hr.58.com/position/",
+              });
+              return;
+            }
+          }
+        } else {
+          alert("⚠️ 请打开boss、猎聘、智联、58 任意一个网址后操作");
+        }
+      }
+    },
+  );
+}
+
 // 开始下载简历
 async function startDownload() {
   if (isDownloading) return;
@@ -1754,6 +1828,7 @@ async function startDownload() {
         currentWindow: true,
       },
       (tabs) => {
+        handleConnectionError("START_DOWNLOAD");
         if (tabs[0]) {
           chrome.tabs.sendMessage(
             tabs[0].id,
@@ -1761,9 +1836,10 @@ async function startDownload() {
             (response) => {
               if (chrome.runtime.lastError) {
                 console.error("发送消息失败:", chrome.runtime.lastError);
-                addLog("⚠️ 无法连接到页面，请刷新页面", "error");
+                addLog("⚠️ 无法连接到页面，请刷新页面,START_DOWNLOAD", "error");
                 isDownloading = false;
                 updateUI();
+                handleConnectionError("START_DOWNLOAD");
                 return;
               }
             },
@@ -2254,7 +2330,7 @@ async function switchTab(tabName) {
             <svg class="icon" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
             </svg>
-            AI筛选
+            开始
         `;
     // 更新岗位说明显示状态
     updateJobDescription();
@@ -2297,7 +2373,7 @@ async function switchTab(tabName) {
             <svg class="icon" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
             </svg>
-            打招呼
+            开始
         `;
     // 隐藏岗位说明
     const jobDescriptionGroup = document.getElementById(
@@ -2651,18 +2727,18 @@ async function handleBalanceCheck() {
 
     if (result && result.success) {
       const balance = result.balance;
-      addLog(`账号余额: ¥${balance.toFixed(2)}`, "info");
+      addLog(`账号余额: ¥${balance.toFixed(4)}`, "info");
 
       // 更新UI显示余额
       updateBalanceDisplay(balance);
 
       if (balance < 1) {
-        const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(2)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2.在微信联系作者低价充值(5折)\n3. 前往轨迹流动原价充值（首次需要实名认证）\n\n是否前往轨迹流动官网原价充值？`;
+        const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(4)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2.联系作者充值，充多少送多少。特价活动。是否前往充值页面?`;
 
         if (confirm(message)) {
           // 打开轨迹流动充值页面
           chrome.tabs.create({
-            url: "https://cloud.siliconflow.cn/account/billing",
+            url: "https://siliconflow.a.58it.cn",
           });
         }
 
@@ -2689,7 +2765,7 @@ function updateBalanceDisplay(balance) {
   const balanceText = document.getElementById("ai-balance-text");
 
   if (balanceInfo && balanceText) {
-    balanceText.textContent = `余额: ¥${balance.toFixed(2)}`;
+    balanceText.textContent = `余额: ¥${balance.toFixed(4)}`;
 
     // 根据余额设置颜色
     if (balance < 1) {

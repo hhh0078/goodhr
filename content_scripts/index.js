@@ -214,18 +214,18 @@ async function startAutoScroll() {
   // 检查AI模式的配置要求
   if (currentParser?.aiMode) {
     // AI模式：检查必要的配置
-    if (!currentParser?.aiSettings?.aiConfig?.token) {
-      console.error("AI模式需要配置Token");
-      sendMessage({
-        type: "LOG_MESSAGE",
-        data: {
-          message: "AI模式需要配置Token，请先配置AI设置",
-          type: "error",
-        },
-      });
-      showNotification("⚠️ AI模式需要配置Token", "status");
-      return;
-    }
+    // if (!currentParser?.aiSettings?.aiConfig?.token) {
+    //   console.error("AI模式需要配置Token");
+    //   sendMessage({
+    //     type: "LOG_MESSAGE",
+    //     data: {
+    //       message: "AI模式需要配置Token，请先配置AI设置",
+    //       type: "error",
+    //     },
+    //   });
+    //   showNotification("⚠️ AI模式需要配置Token", "status");
+    //   return;
+    // }
 
     if (
       !currentParser?.aiSettings?.jobDescription ||
@@ -454,7 +454,7 @@ function addHighlightReason(element, reason, color) {
                 background-color: ${color};
                 color: white;
                 padding: 1px 12px;
-                font-size: 12px;
+                font-size: 10px;
                 border-bottom-right-radius: 8px;
                 z-index: 1;
             `;
@@ -591,8 +591,9 @@ async function processElement(element, doc) {
 
         if (currentParser.aiMode) {
           // AI模式：基于简单信息决定是否查看详细信息
-          let { isok, msg } = await performAIClickDecision(simpleCandidateInfo);
-          AiMsg = msg;
+          let { isok, msg, cost } =
+            await performAIClickDecision(simpleCandidateInfo);
+          AiMsg = msg + `(-￥${parseFloat(cost || 0).toFixed(4)})`;
           clickCandidate = isok;
 
           if (clickCandidate) {
@@ -700,6 +701,7 @@ async function processElement(element, doc) {
             }
           }
         }
+        let cost;
 
         if (shouldContact) {
           // 再次检查是否已达到匹配限制
@@ -1099,9 +1101,6 @@ const GUJJI_API_CONFIG = window.GOODHR_CONFIG
 async function sendDirectAIRequest(prompt, aiConfig) {
   try {
     // 确保API工具已加载
-    if (!window.apiRequest) {
-      throw new Error("API工具未加载，请刷新页面重试");
-    }
 
     // 获取绑定的手机号
     const stored = await chrome.storage.local.get("hr_assistant_phone");
@@ -1113,38 +1112,69 @@ async function sendDirectAIRequest(prompt, aiConfig) {
 
     const model = aiConfig.model;
 
-    // 使用API工具发送请求
-    const response = await window.apiRequest.post(
-      GUJJI_API_CONFIG.baseUrl,
+    // 直接使用fetch发送请求
+    const response = await fetch(
+      `${GUJJI_API_CONFIG.baseUrl}?phone=${boundPhone}`,
       {
-        model: model,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        max_tokens: GUJJI_API_CONFIG.maxTokens,
-        temperature: GUJJI_API_CONFIG.temperature,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          max_tokens: GUJJI_API_CONFIG.maxTokens,
+          temperature: GUJJI_API_CONFIG.temperature,
+        }),
       },
-      { phone: boundPhone },
     );
 
-    // API工具已经处理了错误检查，这里直接返回数据
-    const aiResponse = response.choices?.[0]?.message?.content;
+    if (!response.ok) {
+      // 尝试解析错误响应
+      try {
+        const errorData = await response.json();
+        // 直接使用API返回的错误消息
+        throw new Error(
+          errorData.message || `API请求失败，HTTP状态码: ${response.status}`,
+        );
+      } catch (parseError) {
+        throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
+      }
+    }
+
+    const data = await response.json();
+
+    // 检查响应格式
+    if (data.code !== 200) {
+      alert(data.message || "AI请求失败");
+      throw new Error(data.message || "AI请求失败");
+    }
+
+    const aiResponse =
+      data.choices?.[0]?.message?.content +
+      `(-￥${parseFloat(data.cost || 0).toFixed(4)})`;
 
     if (!aiResponse) {
       throw new Error("AI响应为空");
     }
 
+    console.log("AI响应:", data);
+
     return {
       success: true,
       response: aiResponse.trim(),
+      cost: parseFloat(data.cost || 0).toFixed(4),
     };
   } catch (error) {
+    console.error("AI请求失败:", error);
     return {
       success: false,
-      error: error.message,
+      error: error.message || "AI请求失败",
     };
   }
 }
@@ -1198,7 +1228,7 @@ async function performAIClickDecision(simpleCandidateInfo) {
     hideAIDecisionModal();
 
     if (result.success) {
-      const shouldClick = parseAIResponse(result.response);
+      const shouldClick = parseAIResponse(result.response, result.cost);
       return shouldClick;
     } else {
       console.error("AI点击决策失败:", result.error);
@@ -1245,7 +1275,7 @@ ${simpleCandidateInfo}
 }
 
 // 解析AI响应
-function parseAIResponse(response) {
+function parseAIResponse(response, cost) {
   try {
     // 尝试解析JSON格式
     const jsonMatch = response.match(/\{[^}]*"decision"[^}]*\}/);
@@ -1254,20 +1284,20 @@ function parseAIResponse(response) {
       const decision = aiResponse.decision === "是";
       const reason = aiResponse.reason || "未提供原因";
 
-      console.log(`AI决策结果: ${aiResponse.decision}, 原因: ${reason}`);
-
       // 发送日志消息到插件显示
       sendMessage({
         type: "LOG_MESSAGE",
         data: {
-          message: `AI决策: ${aiResponse.decision} (${reason})`,
+          message: `AI决策: ${aiResponse.decision} (${reason})(-￥${cost || 0})`,
           type: decision ? "success" : "info",
         },
       });
+      console.log("cost", cost);
 
       return {
         isok: decision,
         msg: reason,
+        cost: parseFloat(cost || 0).toFixed(4),
       };
     }
   } catch (error) {
@@ -1276,13 +1306,14 @@ function parseAIResponse(response) {
     sendMessage({
       type: "LOG_MESSAGE",
       data: {
-        message: `解析失败 原文: ${response.trim()}`,
+        message: `解析失败 原文: ${response.trim()}(-￥${cost || 0})`,
         type: "error",
       },
     });
     return {
       isok: false,
       msg: "解析失败",
+      cost: parseFloat(cost || 0).toFixed(4),
     };
   }
 
@@ -1293,7 +1324,7 @@ function parseAIResponse(response) {
     sendMessage({
       type: "LOG_MESSAGE",
       data: {
-        message: `AI决策: 是 (旧格式兼容)`,
+        message: `AI决策: 是 (旧格式兼容)(-￥${cost || 0})`,
         type: "success",
       },
     });
@@ -1303,7 +1334,7 @@ function parseAIResponse(response) {
     sendMessage({
       type: "LOG_MESSAGE",
       data: {
-        message: `AI决策: 否 (旧格式兼容)`,
+        message: `AI决策: 否 (旧格式兼容)(-￥${cost || 0})`,
         type: "info",
       },
     });
@@ -1314,7 +1345,7 @@ function parseAIResponse(response) {
     sendMessage({
       type: "LOG_MESSAGE",
       data: {
-        message: `格式异常 原文: ${response.trim()}`,
+        message: `格式异常 原文: ${response.trim()}(-￥${cost || 0})`,
         type: "error",
       },
     });
@@ -2038,9 +2069,8 @@ function displayAds(isAIExpired) {
   if (adConfig.ads.pageAds && Array.isArray(adConfig.ads.pageAds)) {
     adConfig.ads.pageAds.forEach((adData) => {
       // 根据概率决定是否显示广告
-      console.log("isAIExpired:", isAIExpired, "vip_show:", adData.vip_show);
-
-      if (isAIExpired || (!isAIExpired && adData.vip_show)) {
+      //adData.vip_show 为false时，只有在isAIExpired为true时才显示
+      if (adData.vip_show || (!adData.vip_show && isAIExpired)) {
         const adElement = createDraggableAdElement(adData);
         if (adElement) {
           document.body.appendChild(adElement);
