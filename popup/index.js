@@ -1105,7 +1105,6 @@ async function startAutoScroll() {
         },
         (tabs) => {
           if (tabs[0]) {
-            handleConnectionError("START_AI_SCROLL");
             chrome.tabs.sendMessage(
               tabs[0].id,
               {
@@ -1125,19 +1124,16 @@ async function startAutoScroll() {
               (response) => {
                 if (chrome.runtime.lastError) {
                   console.error("发送消息失败:", chrome.runtime.lastError);
-                  addLog(
-                    "⚠️ 无法连接到页面，请刷新页面,START_AI_SCROLL",
-                    "error",
-                  );
+                  addLog("⚠️ 无法连接到页面，请刷新页面，", "error");
                   isRunning = false;
 
                   updateUI();
-                  handleConnectionError("START_AI_SCROLL");
                   return;
                 }
                 console.log("收到响应:", response);
               },
             );
+            handleConnectionError("START_AI_SCROLL");
           }
         },
       );
@@ -1762,9 +1758,12 @@ function handleConnectionError(action) {
 
         if (domain.includes("zhipin.com")) {
           if (!urlPath.includes("web/chat/recommend")) {
+            addLog("⚠️ 插件只能在推荐牛人页面使用", "error");
+
             let isConfirmed = confirm(
               "⚠️ 插件只能在推荐牛人页面使用，是否跳转？",
             );
+
             if (isConfirmed) {
               chrome.tabs.update(tabs[0].id, {
                 url: "https://www.zhipin.com/web/chat/recommend",
@@ -1773,7 +1772,10 @@ function handleConnectionError(action) {
           }
         } else if (domain.includes("zhaopin.com")) {
           if (!urlPath.includes("app/recommend")) {
+            addLog("⚠️ 插件只能在推荐页面使用", "error");
+
             let isConfirmed = confirm("⚠️ 插件只能在推荐页面使用，是否跳转？");
+
             if (isConfirmed) {
               chrome.tabs.update(tabs[0].id, {
                 url: "https://rd6.zhaopin.com/app/recommend",
@@ -1783,6 +1785,8 @@ function handleConnectionError(action) {
           //询问是否跳转
         } else if (domain.includes("lpt.liepin.com")) {
           if (!urlPath.includes("recommend")) {
+            addLog("⚠️ 插件只能在人才推荐页面使用", "error");
+
             if (!confirm("⚠️ 插件只能在人才推荐页面使用，是否跳转？")) {
               //确认后跳转
               chrome.tabs.update(tabs[0].id, {
@@ -1794,7 +1798,10 @@ function handleConnectionError(action) {
         } else if (domain.includes("h.liepin.com")) {
           if (!urlPath.includes("search/getConditionItem")) {
             //询问是否跳转
+            addLog("⚠️ 插件只能在找人页面使用", "error");
+
             if (!confirm("⚠️ 插件只能在找人页面使用，是否跳转？")) {
+              log("跳转至找人页面");
               //确认后跳转
               chrome.tabs.update(tabs[0].id, {
                 url: "https://h.liepin.com/search/getConditionItem",
@@ -1975,11 +1982,6 @@ function checkAIExpiration() {
   // 将字符串日期转换为Date对象，格式：YYYY-MM-DD
   const expireDate = new Date(serverData.ai_expire_time + "T00:00:00");
   const isExpired = now > expireDate;
-
-  console.log("当前时间:", now);
-  console.log("到期时间:", expireDate);
-  console.log("到期时间字符串:", serverData.ai_expire_time);
-  console.log("是否已过期:", isExpired);
 
   // 特殊处理：如果到期时间是2099年或更晚，直接返回未过期
   const expireYear = expireDate.getFullYear();
