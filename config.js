@@ -5,12 +5,12 @@ const CONFIG = {
 
   // 轨迹流动AI配置
   GUJJI_API: {
-    baseUrl: "https://siliconflow.a.58it.cn/v1/chat/completions",
+    baseUrl: "https://api.siliconflow.cn/v1/chat/completions",
     maxTokens: 100,
     temperature: 0.1,
   },
   // 版本信息
-  VERSION: "2.8.2",
+  VERSION: "3.0.0",
 
   // 默认设置
   DEFAULTS: {

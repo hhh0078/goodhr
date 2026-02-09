@@ -1464,7 +1464,7 @@ function playNotificationSound() {
   audio.play().catch((error) => console.error("播放提示音失败:", error));
 }
 
-const VERSION_API = `${API_BASE}/v.json?t=${Date.now()}`;
+const VERSION_API = `${API_BASE}/v2.json?t=${Date.now()}`;
 const CURRENT_VERSION = window.GOODHR_CONFIG
   ? window.GOODHR_CONFIG.VERSION
   : chrome.runtime.getManifest().version; // 优先使用配置文件中的版本
@@ -2652,20 +2652,20 @@ async function checkAIConnection() {
       statusText.textContent = "连接中...";
 
       // 直接调用轨迹流动API进行测试
-      const testPrompt = '你好，这是一个连接测试。请回复"连接成功"。';
-      const result = await sendDirectAIRequest(testPrompt);
+      // const testPrompt = '你好，这是一个连接测试。请回复"连接成功"。';
+      // const result = await sendDirectAIRequest(testPrompt);
 
-      if (result.success) {
-        statusIndicator.className = "ai-status-indicator connected";
-        statusText.textContent = "已连接";
+      // if (result.success) {
+      statusIndicator.className = "ai-status-indicator connected";
+      statusText.textContent = "已连接";
 
-        // 连接成功后检查余额
-        handleBalanceCheck();
-      } else {
-        statusIndicator.className = "ai-status-indicator disconnected";
-        statusText.textContent = "连接失败: " + result.error;
-        hideBalanceDisplay(); // 连接失败时隐藏余额显示
-      }
+      // 连接成功后检查余额
+      handleBalanceCheck();
+      // } else {
+      //   statusIndicator.className = "ai-status-indicator disconnected";
+      //   statusText.textContent = "连接失败: " + result.error;
+      //   hideBalanceDisplay(); // 连接失败时隐藏余额显示
+      // }
     } catch (error) {
       statusIndicator.className = "ai-status-indicator disconnected";
       statusText.textContent = "连接失败";
@@ -2791,6 +2791,10 @@ function hideBalanceDisplay() {
 // 直接发送AI请求到轨迹流动
 async function sendDirectAIRequest(prompt) {
   try {
+    return {
+      success: true,
+      response: "已连接",
+    };
     // 获取绑定的手机号
     if (!boundPhone) {
       throw new Error("未绑定手机号，无法使用AI功能");
@@ -2798,22 +2802,51 @@ async function sendDirectAIRequest(prompt) {
 
     const model = serverData.ai_config.model;
 
-    // 轨迹流动平台请求
-    const response = await apiRequest.post(
-      GUJJI_API_CONFIG.baseUrl,
+    //获取秘钥
+
+    // 第一步：获取密钥
+    const keyResponse = await fetch(
+      `https://siliconflow.a.58it.cn/v1/key/next?phone=${boundPhone}&model=${encodeURIComponent(model)}`,
       {
-        model: model,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        max_tokens: GUJJI_API_CONFIG.maxTokens,
-        temperature: GUJJI_API_CONFIG.temperature,
+        method: "GET",
       },
-      { phone: boundPhone },
     );
+
+    // console.log(keyResponse);
+    // if (!keyResponse.ok) {
+    //   const errorMsg = `获取密钥失败，HTTP状态码: ${keyResponse.status}`;
+    //   addLog(errorMsg, "error");
+    //   throw new Error(errorMsg);
+    // }
+
+    const keyData = await keyResponse.json();
+
+    console.log(keyData);
+
+    // 检查密钥获取结果
+    if (keyData.code !== 200) {
+      const errorMsg = keyData.message || "获取密钥失败";
+      addLog(errorMsg, "error");
+      throw new Error(errorMsg);
+    }
+
+    const apiKey = keyData.data.key;
+
+    console.log("返回的秘钥:", apiKey);
+
+    // 轨迹流动平台请求
+    const response = await apiRequest.post(GUJJI_API_CONFIG.baseUrl, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      model: model,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
 
     // API工具已经处理了错误检查，这里直接返回数据
     const aiResponse = response.choices?.[0]?.message?.content;

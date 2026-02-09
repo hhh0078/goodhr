@@ -27,6 +27,12 @@ let enableSound = false;
 
 let ParserName = null;
 
+// API Key缓存
+let apiKeyCache = null;
+
+//余额
+let balance = 0.111111;
+
 // 显示提示信息
 function showNotification(message, type = "status") {
   if (!isExtensionValid()) {
@@ -1092,15 +1098,68 @@ async function getCandidateInfo(candidate) {
 const GUJJI_API_CONFIG = window.GOODHR_CONFIG
   ? window.GOODHR_CONFIG.GUJJI_API
   : {
-      baseUrl: "https://siliconflow.a.58it.cn/v1/chat/completions",
-      maxTokens: 100,
-      temperature: 0.1,
+      baseUrl: "https://api.siliconflow.cn/v1/chat/completions",
     };
 
-// 直接发送AI请求到轨迹流动
+// 获取API Key（带缓存）
+async function getApiKey(model) {
+  // 检查缓存是否存在
+  if (apiKeyCache) {
+    console.log("使用缓存的API Key");
+    return apiKeyCache;
+  }
+
+  // 获取绑定的手机号
+  const stored = await chrome.storage.local.get("hr_assistant_phone");
+  const boundPhone = stored.hr_assistant_phone;
+
+  if (!boundPhone) {
+    throw new Error("未绑定手机号，无法使用AI功能");
+  }
+
+  // 调用获取key接口
+  const response = await fetch(
+    `https://siliconflow.a.58it.cn/v1/key/assign?phone=${boundPhone}&model=${encodeURIComponent(model)}`,
+    {
+      method: "GET",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`获取密钥失败，HTTP状态码: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // 检查返回格式
+  if (data.code !== 200) {
+    throw new Error(data.message || "获取密钥失败");
+  }
+
+  // 检查是否分配成功
+  if (!data.data.assigned) {
+    throw new Error("API Key未分配成功");
+  }
+
+  // 更新缓存
+  apiKeyCache = data.data.key;
+
+  console.log("获取到新的API Key");
+  return apiKeyCache;
+}
+
+// 直接发送AI请求
 async function sendDirectAIRequest(prompt, aiConfig) {
   try {
-    // 确保API工具已加载
+    // 检查余额是否足够
+    if (parseFloat(balance) < parseFloat(aiConfig.cost || 0.1)) {
+      // 询问用户是否确认使用余额不足的配置
+      if (!confirm(`⚠️ 余额不足，当前余额为 ${balance}，是否前往充值？`)) {
+        //确认后跳转
+        window.location.href = "https://siliconflow.a.58it.cn/";
+        return;
+      }
+    }
 
     // 获取绑定的手机号
     const stored = await chrome.storage.local.get("hr_assistant_phone");
@@ -1112,63 +1171,116 @@ async function sendDirectAIRequest(prompt, aiConfig) {
 
     const model = aiConfig.model;
 
-    // 直接使用fetch发送请求
-    const response = await fetch(
-      `${GUJJI_API_CONFIG.baseUrl}?phone=${boundPhone}`,
+    // 第一步：获取API Key（带缓存）
+    const apiKey = await getApiKey(model);
+
+    // 第二步：使用密钥发送请求到硅基流动
+    const aiResponse = await fetch(`${GUJJI_API_CONFIG.baseUrl}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      // 尝试解析错误响应
+      try {
+        const errorData = await aiResponse.json();
+        // 直接使用API返回的错误消息
+        const errorMsg =
+          errorData.message || `API请求失败，HTTP状态码: ${aiResponse.status}`;
+        sendMessage({
+          type: "LOG_MESSAGE",
+          data: {
+            message: errorMsg,
+            type: "error",
+          },
+        });
+        throw new Error(errorMsg);
+      } catch (parseError) {
+        const errorMsg = `API请求失败，HTTP状态码: ${aiResponse.status}`;
+        sendMessage({
+          type: "LOG_MESSAGE",
+          data: {
+            message: errorMsg,
+            type: "error",
+          },
+        });
+        throw new Error(errorMsg);
+      }
+    }
+
+    const data = await aiResponse.json();
+    let aiResponseContent = null;
+    let errorMsg = null;
+    try {
+      aiResponseContent = data.choices?.[0]?.message?.content;
+    } catch (error) {
+      errorMsg = data;
+      console.error("解析AI响应失败:", error);
+      console.error("AI错误响应内容:", errorMsg);
+
+      throw new Error("AI响应格式错误");
+    }
+
+    if (!aiResponseContent) {
+      throw new Error("AI响应为空");
+    }
+
+    // 第三步：调用扣费接口
+    const usageData = {
+      key: apiKey,
+      phone: boundPhone,
+      input_tokens: data.usage?.prompt_tokens || "100",
+      output_tokens: data.usage?.completion_tokens || "100",
+      model: model,
+    };
+
+    const deductResponse = await fetch(
+      "https://siliconflow.a.58it.cn/v1/usage/deduct",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          max_tokens: GUJJI_API_CONFIG.maxTokens,
-          temperature: GUJJI_API_CONFIG.temperature,
-        }),
+        body: JSON.stringify(usageData),
       },
     );
 
-    if (!response.ok) {
-      // 尝试解析错误响应
-      try {
-        const errorData = await response.json();
-        // 直接使用API返回的错误消息
-        throw new Error(
-          errorData.message || `API请求失败，HTTP状态码: ${response.status}`,
-        );
-      } catch (parseError) {
-        throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
-      }
+    if (!deductResponse.ok) {
+      console.warn("扣费接口调用失败，但不影响AI响应");
     }
 
-    const data = await response.json();
+    let deductResponseData = await deductResponse.json();
 
-    // 检查响应格式
-    if (data.code !== 200) {
-      alert(data.message || "AI请求失败");
-      throw new Error(data.message || "AI请求失败");
+    if (deductResponseData.code !== 200) {
+      alert(deductResponseData.message || "扣费失败");
     }
 
-    const aiResponse =
-      data.choices?.[0]?.message?.content +
-      `(-￥${parseFloat(data.cost || 0).toFixed(4)})`;
-
-    if (!aiResponse) {
-      throw new Error("AI响应为空");
+    try {
+      balance = parseFloat(
+        deductResponseData.data?.remaining_balance || 0,
+      ).toFixed(4);
+    } catch (error) {
+      console.error("更新余额失败:", error);
     }
 
-    console.log("AI响应:", data);
+    console.log(`余额更新为: ${balance}`);
 
     return {
       success: true,
-      response: aiResponse.trim(),
-      cost: parseFloat(data.cost || 0).toFixed(4),
+      response: aiResponseContent.trim(),
+      cost: parseFloat(deductResponseData.data?.cost || 0).toFixed(4),
     };
   } catch (error) {
     console.error("AI请求失败:", error);
