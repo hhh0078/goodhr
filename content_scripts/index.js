@@ -1105,7 +1105,7 @@ const GUJJI_API_CONFIG = window.GOODHR_CONFIG
 async function getApiKey(model) {
   // 检查缓存是否存在
   if (apiKeyCache) {
-    console.log("使用缓存的API Key");
+    console.log("使用缓存的API Key:", apiKeyCache);
     return apiKeyCache;
   }
 
@@ -1143,8 +1143,6 @@ async function getApiKey(model) {
 
   // 更新缓存
   apiKeyCache = data.data.key;
-
-  console.log("获取到新的API Key");
   return apiKeyCache;
 }
 
@@ -1191,96 +1189,74 @@ async function sendDirectAIRequest(prompt, aiConfig) {
         ],
       }),
     });
+    let errorMsg = null;
 
     if (!aiResponse.ok) {
       // 尝试解析错误响应
+      errorMsg = JSON.stringify(await aiResponse.json());
+
       try {
         const errorData = await aiResponse.json();
         // 直接使用API返回的错误消息
-        const errorMsg =
+
+        const errorMsg2 =
           errorData.message || `API请求失败，HTTP状态码: ${aiResponse.status}`;
+
         sendMessage({
           type: "LOG_MESSAGE",
           data: {
-            message: errorMsg,
+            message: errorMsg2,
             type: "error",
           },
         });
-        throw new Error(errorMsg);
+        let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
+        throw new Error(errorMsg2);
       } catch (parseError) {
-        const errorMsg = `API请求失败，HTTP状态码: ${aiResponse.status}`;
+        const errorMsg2 = `API请求失败，HTTP状态码: ${aiResponse.status}`;
         sendMessage({
           type: "LOG_MESSAGE",
           data: {
-            message: errorMsg,
+            message: errorMsg2,
             type: "error",
           },
         });
-        throw new Error(errorMsg);
+        let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
+        throw new Error(errorMsg2);
       }
     }
 
     const data = await aiResponse.json();
     let aiResponseContent = null;
-    let errorMsg = null;
     try {
       aiResponseContent = data.choices?.[0]?.message?.content;
     } catch (error) {
       errorMsg = data;
       console.error("解析AI响应失败:", error);
       console.error("AI错误响应内容:", errorMsg);
+      let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
 
       throw new Error("AI响应格式错误");
     }
 
     if (!aiResponseContent) {
+      let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
+
       throw new Error("AI响应为空");
     }
 
-    // 第三步：调用扣费接口
-    const usageData = {
-      key: apiKey,
-      phone: boundPhone,
-      input_tokens: data.usage?.prompt_tokens || "100",
-      output_tokens: data.usage?.completion_tokens || "100",
-      model: model,
-    };
-
-    const deductResponse = await fetch(
-      "https://siliconflow.a.58it.cn/v1/usage/deduct",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(usageData),
-      },
+    let cost = await deduct(
+      apiKey,
+      boundPhone,
+      data.usage?.prompt_tokens || "0",
+      data.usage?.completion_tokens || "0",
+      model,
+      errorMsg,
     );
-
-    if (!deductResponse.ok) {
-      console.warn("扣费接口调用失败，但不影响AI响应");
-    }
-
-    let deductResponseData = await deductResponse.json();
-
-    if (deductResponseData.code !== 200) {
-      alert(deductResponseData.message || "扣费失败");
-    }
-
-    try {
-      balance = parseFloat(
-        deductResponseData.data?.remaining_balance || 0,
-      ).toFixed(4);
-    } catch (error) {
-      console.error("更新余额失败:", error);
-    }
-
-    console.log(`余额更新为: ${balance}`);
 
     return {
       success: true,
       response: aiResponseContent.trim(),
-      cost: parseFloat(deductResponseData.data?.cost || 0).toFixed(4),
+      cost: cost,
     };
   } catch (error) {
     console.error("AI请求失败:", error);
@@ -1289,6 +1265,78 @@ async function sendDirectAIRequest(prompt, aiConfig) {
       error: error.message || "AI请求失败",
     };
   }
+}
+
+/**
+ * 调用扣费接口
+ * @param {*} apiKey
+ * @param {*} boundPhone
+ * @param {*} data
+ * @param {*} input_tokens 输入token数
+ * @param {*} output_tokens 输出token数
+ * @param {*} model
+ * @param {*} errorMsg
+ */
+async function deduct(
+  apiKey,
+  boundPhone,
+  input_tokens,
+  output_tokens,
+  model,
+  errorMsg,
+) {
+  // 第三步：调用扣费接口
+  const usageData = {
+    key: apiKey,
+    phone: boundPhone,
+    input_tokens: input_tokens || "0",
+    output_tokens: output_tokens || "0",
+    model: model,
+    error_msg: errorMsg,
+  };
+
+  const deductResponse = await fetch(
+    "https://siliconflow.a.58it.cn/v1/usage/deduct",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(usageData),
+    },
+  );
+
+  if (!deductResponse.ok) {
+    console.warn("扣费接口调用失败，但不影响AI响应");
+  }
+
+  let deductResponseData = await deductResponse.json();
+
+  if (deductResponseData.code !== 200) {
+    alert(deductResponseData.message || "扣费失败");
+  }
+
+  //如果有错误信息 那就重新获取秘钥
+  if (errorMsg) {
+    //移除缓存
+    console.log("旧的秘钥:", apiKeyCache);
+    apiKeyCache = null;
+    console.log("重新加载秘钥");
+    apiKeyCache = await getApiKey(model);
+    console.log("新的秘钥:", apiKeyCache);
+  }
+
+  try {
+    balance = parseFloat(
+      deductResponseData.data?.remaining_balance || 0,
+    ).toFixed(4);
+
+    return parseFloat(deductResponseData.data?.cost || 0).toFixed(4);
+  } catch (error) {
+    console.error("更新余额失败:", error);
+  }
+
+  console.log(`余额更新为: ${balance}`);
 }
 
 // 检查AI是否过期
