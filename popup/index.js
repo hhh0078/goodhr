@@ -1070,27 +1070,6 @@ async function startAutoScroll() {
 
     // 根据当前模式决定发送的消息类型
     if (currentTab === "ai") {
-      // AI模式 - 检查到期时间
-      if (!serverData.ai_expire_time) {
-        // 首次使用，先尝试从服务器获取，如果没有再设置新的
-        await initializeAIExpireTime();
-      } else if (checkAIExpiration()) {
-        console.log(serverData.ai_expire_time);
-
-        // AI版本已过期
-        const message =
-          "AI版本试用期已到期，请前往官网联系作者续费。\n\n官网地址：http://goodhr.58it.cn";
-
-        addLog("AI版本已过期，无法使用", "error");
-        isRunning = false;
-        updateUI();
-        if (confirm(message + "\n\n点击确定前往官网")) {
-          // 用户点击确定，跳转到官网
-          chrome.tabs.create({ url: "http://goodhr.58it.cn" });
-        }
-        return;
-      }
-
       addLog("开始AI智能筛选...", "info");
       addLog(`设置打招呼暂停数: ${matchLimit}`, "info");
       addLog(

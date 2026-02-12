@@ -1235,6 +1235,8 @@ async function sendDirectAIRequest(prompt, aiConfig) {
       console.error("AI错误响应内容:", errorMsg);
       let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
 
+      alert("AI响应格式错误,请联系作者处理:" + errorMsg);
+
       throw new Error("AI响应格式错误");
     }
 
@@ -1368,13 +1370,6 @@ async function performAIClickDecision(simpleCandidateInfo) {
     }
 
     // 检查AI是否过期
-    const isExpired = await checkAIExpiration();
-    if (isExpired) {
-      alert(
-        "AI版本试用期已到期，请前往官网联系作者续费。\n\n官网地址：http://goodhr.58it.cn",
-      );
-      return false;
-    }
 
     // 显示AI决策动画
     showAIDecisionModal();
