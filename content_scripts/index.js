@@ -31,7 +31,7 @@ let ParserName = null;
 let apiKeyCache = null;
 
 //余额
-let balance = 0.111111;
+let balance = 0.2;
 
 // 显示提示信息
 function showNotification(message, type = "status") {
@@ -1146,11 +1146,42 @@ async function getApiKey(model) {
   return apiKeyCache;
 }
 
+// 检查轨迹流动账号余额
+async function checkSiliconFlowBalance() {
+  try {
+    const stored = await chrome.storage.local.get("hr_assistant_phone");
+    const boundPhone = stored.hr_assistant_phone;
+
+    if (!boundPhone) {
+      return { success: false, error: "未绑定手机号" };
+    }
+
+    const response = await fetch(
+      `https://siliconflow.a.58it.cn/v1/users/balance?phone=${boundPhone}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    // API工具已经处理了错误检查，这里直接返回数据
+    balance = parseFloat(response.data.balance) || 0;
+  } catch (error) {
+    console.error("检查余额失败:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 // 直接发送AI请求
 async function sendDirectAIRequest(prompt, aiConfig) {
   try {
     // 检查余额是否足够
-    if (parseFloat(balance) < parseFloat(aiConfig.cost || 0.1)) {
+    if (parseFloat(balance) < parseFloat(0.1)) {
       // 询问用户是否确认使用余额不足的配置
       if (!confirm(`⚠️ 余额不足，当前余额为 ${balance}，是否前往充值？`)) {
         //确认后跳转
@@ -1329,6 +1360,12 @@ async function deduct(
   }
 
   try {
+    console.log(
+      "更新余额",
+      balance,
+      parseFloat(deductResponseData.data?.remaining_balance || 0).toFixed(4),
+    );
+
     balance = parseFloat(
       deductResponseData.data?.remaining_balance || 0,
     ).toFixed(4);
@@ -2219,6 +2256,8 @@ function displayAds(isAIExpired) {
   if (!adConfig || !adConfig.success || !adConfig.ads) {
     return;
   }
+
+  console.log("广告配置:", adConfig.ads);
 
   // 处理页面广告 (pageAds)
   if (adConfig.ads.pageAds && Array.isArray(adConfig.ads.pageAds)) {

@@ -2,7 +2,7 @@
 let serverData = {
   // AI配置
   ai_config: {
-    model: "deepseek-ai/DeepSeek-V3",
+    model: "moonshotai/Kimi-K2-Instruct-0905",
     clickPrompt: `你是一个资深的HR专家。请根据候选人的基本信息判断是否值得查看其详细信息。
 
 重要提示：
