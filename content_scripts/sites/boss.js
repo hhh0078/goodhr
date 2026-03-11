@@ -71,6 +71,8 @@ class BossParser extends BaseParser {
         "geek-info-card",
         "card-inner new-geek-wrap",
         "btn btn-greet",
+        "candidate-card-wrap css-type-1",
+        "card-inner common-wrap css-type-1",
       ],
       closeButton: [
         "boss-popup__close",
@@ -383,7 +385,7 @@ class BossParser extends BaseParser {
     if (!cachedData || !candidateName) return null;
 
     for (const candidate of cachedData) {
-      console.log(candidate.geekCard);
+      // console.log(candidate.geekCard);
       if (
         candidate.geekCard &&
         candidate.geekCard.geekName
@@ -614,6 +616,7 @@ class BossParser extends BaseParser {
 
   // 实现点击候选人详情方法
   async clickCandidateDetail(element) {
+    console.log("点击候选人详情:");
     try {
       let detailLink = null;
       //this.detailSelectors.detailLink 是数组

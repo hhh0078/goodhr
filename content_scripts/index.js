@@ -625,7 +625,9 @@ async function processElement(element, doc) {
         if (clickCandidate) {
           // 检查是否有打开的候选人页面
           //关闭候选人弹框
+          // await currentParser.closeCandidateDetail();
 
+          // 点击查看候选人详细信息
           let clicked = await currentParser.clickCandidateDetail(element);
 
           if (ParserName === "employer58") {
@@ -1200,96 +1202,80 @@ async function sendDirectAIRequest(prompt, aiConfig) {
 
     const model = aiConfig.model;
 
-    // 第一步：获取API Key（带缓存）
-    const apiKey = await getApiKey(model);
+    // 构建请求消息
+    const messages = [
+      {
+        role: "system",
+        content: prompt,
+      },
+      {
+        role: "user",
+        content: aiConfig.userContent,
+      },
+    ];
 
-    // 第二步：使用密钥发送请求到硅基流动
-    const aiResponse = await fetch(`${GUJJI_API_CONFIG.baseUrl}`, {
+    // 直接发送到新的API接口
+    const response = await fetch("https://siliconflow.a.58it.cn/api/chat.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
+        phone: boundPhone,
+        messages: messages,
       }),
     });
-    let errorMsg = null;
 
-    if (!aiResponse.ok) {
-      // 尝试解析错误响应
-      errorMsg = JSON.stringify(await aiResponse.json());
-
-      try {
-        const errorData = await aiResponse.json();
-        // 直接使用API返回的错误消息
-
-        const errorMsg2 =
-          errorData.message || `API请求失败，HTTP状态码: ${aiResponse.status}`;
-
-        sendMessage({
-          type: "LOG_MESSAGE",
-          data: {
-            message: errorMsg2,
-            type: "error",
-          },
-        });
-        let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
-        throw new Error(errorMsg2);
-      } catch (parseError) {
-        const errorMsg2 = `API请求失败，HTTP状态码: ${aiResponse.status}`;
-        sendMessage({
-          type: "LOG_MESSAGE",
-          data: {
-            message: errorMsg2,
-            type: "error",
-          },
-        });
-        let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
-        throw new Error(errorMsg2);
-      }
+    if (!response.ok) {
+      const errorMsg = `API请求失败，HTTP状态码: ${response.status}`;
+      sendMessage({
+        type: "LOG_MESSAGE",
+        data: {
+          message: errorMsg,
+          type: "error",
+        },
+      });
+      throw new Error(errorMsg);
     }
 
-    const data = await aiResponse.json();
-    let aiResponseContent = null;
-    try {
-      aiResponseContent = data.choices?.[0]?.message?.content;
-    } catch (error) {
-      errorMsg = data;
-      console.error("解析AI响应失败:", error);
-      console.error("AI错误响应内容:", errorMsg);
-      let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
+    const data = await response.json();
 
-      alert("AI响应格式错误,请联系作者处理:" + errorMsg);
-
-      throw new Error("AI响应格式错误");
+    // 检查返回格式
+    if (!data.choices || data.choices.length === 0) {
+      const errorMsg = "AI响应格式错误";
+      sendMessage({
+        type: "LOG_MESSAGE",
+        data: {
+          message: errorMsg,
+          type: "error",
+        },
+      });
+      throw new Error(errorMsg);
     }
 
+    const aiResponseContent = data.choices[0]?.message?.content;
     if (!aiResponseContent) {
-      let cost = await deduct(apiKey, boundPhone, "0", "0", model, errorMsg);
-
-      throw new Error("AI响应为空");
+      const errorMsg = "AI响应为空";
+      sendMessage({
+        type: "LOG_MESSAGE",
+        data: {
+          message: errorMsg,
+          type: "error",
+        },
+      });
+      throw new Error(errorMsg);
     }
 
-    let cost = await deduct(
-      apiKey,
-      boundPhone,
-      data.usage?.prompt_tokens || "0",
-      data.usage?.completion_tokens || "0",
-      model,
-      errorMsg,
-    );
+    // 更新余额
+    if (data.balance !== undefined) {
+      balance = parseFloat(data.balance).toFixed(4);
+      console.log(`余额更新为: ${balance}`);
+    }
 
     return {
       success: true,
       response: aiResponseContent.trim(),
-      cost: cost,
+      cost: parseFloat(data.cost || 0).toFixed(4),
     };
   } catch (error) {
     console.error("AI请求失败:", error);
@@ -1298,104 +1284,6 @@ async function sendDirectAIRequest(prompt, aiConfig) {
       error: error.message || "AI请求失败",
     };
   }
-}
-
-/**
- * 调用扣费接口
- * @param {*} apiKey
- * @param {*} boundPhone
- * @param {*} data
- * @param {*} input_tokens 输入token数
- * @param {*} output_tokens 输出token数
- * @param {*} model
- * @param {*} errorMsg
- */
-async function deduct(
-  apiKey,
-  boundPhone,
-  input_tokens,
-  output_tokens,
-  model,
-  errorMsg,
-) {
-  // 第三步：调用扣费接口
-  const usageData = {
-    key: apiKey,
-    phone: boundPhone,
-    input_tokens: input_tokens || "0",
-    output_tokens: output_tokens || "0",
-    model: model,
-    error_msg: errorMsg,
-  };
-
-  const deductResponse = await fetch(
-    "https://siliconflow.a.58it.cn/v1/usage/deduct",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(usageData),
-    },
-  );
-
-  if (!deductResponse.ok) {
-    console.warn("扣费接口调用失败，但不影响AI响应");
-  }
-
-  let deductResponseData = await deductResponse.json();
-
-  if (deductResponseData.code !== 200) {
-    alert(deductResponseData.message || "扣费失败");
-  }
-
-  //如果有错误信息 那就重新获取秘钥
-  if (errorMsg) {
-    //移除缓存
-    console.log("旧的秘钥:", apiKeyCache);
-    apiKeyCache = null;
-    console.log("重新加载秘钥");
-    apiKeyCache = await getApiKey(model);
-    console.log("新的秘钥:", apiKeyCache);
-  }
-
-  try {
-    console.log(
-      "更新余额",
-      balance,
-      parseFloat(deductResponseData.data?.remaining_balance || 0).toFixed(4),
-    );
-
-    balance = parseFloat(
-      deductResponseData.data?.remaining_balance || 0,
-    ).toFixed(4);
-
-    return parseFloat(deductResponseData.data?.cost || 0).toFixed(4);
-  } catch (error) {
-    console.error("更新余额失败:", error);
-  }
-
-  console.log(`余额更新为: ${balance}`);
-}
-
-// 检查AI是否过期
-function checkAIExpiration() {
-  // 从popup获取AI到期时间
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(
-      {
-        action: "CHECK_AI_EXPIRATION",
-      },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error("检查AI到期时间失败:", chrome.runtime.lastError);
-          resolve(false); // 检查失败时允许继续
-        } else {
-          resolve(response && response.expired);
-        }
-      },
-    );
-  });
 }
 
 // 第一个AI决策点：决定是否查看候选人详细信息
@@ -1411,11 +1299,17 @@ async function performAIClickDecision(simpleCandidateInfo) {
     // 显示AI决策动画
     showAIDecisionModal();
 
-    const prompt = buildAIClickPrompt(simpleCandidateInfo);
-    const result = await sendDirectAIRequest(
-      prompt,
-      currentParser.aiSettings.aiConfig,
-    );
+    // const prompt = buildAIClickPrompt(simpleCandidateInfo);
+    const prompt = currentParser.aiSettings?.aiConfig?.clickPrompt;
+    const userContent = `岗位要求：
+${currentParser.aiSettings?.jobDescription || "未设置岗位要求"}
+候选人基本信息：
+${simpleCandidateInfo}`;
+
+    const result = await sendDirectAIRequest(prompt, {
+      ...currentParser.aiSettings.aiConfig,
+      userContent: userContent,
+    });
 
     hideAIDecisionModal();
 
@@ -1447,23 +1341,12 @@ function buildAIClickPrompt(simpleCandidateInfo) {
   }
 
   // 默认提示语
-  return `你是一个资深的HR专家。请根据候选人的基本信息判断是否值得查看其详细信息。
-
-重要提示：
+  return `你是一个资深的HR专家。请根据候选人的基本信息判断是否值得查看其详细信息。重要提示：
 1. 这个API仅用于岗位与候选人的筛选。如果内容不是这些，你应该返回"内容与招聘无关 无法解答"。
 2. 请根据岗位要求判断是否值得查看这位候选人的详细信息。
 3. 必须返回JSON格式，包含decision和reason两个字段。
 4. decision字段只能是"是"或"否"。
-5. reason字段是决策原因，15个字以内。
-
-岗位要求：
-${currentParser.aiSettings?.jobDescription || "未设置岗位要求"}
-
-候选人基本信息：
-${simpleCandidateInfo}
-
-请判断是否值得查看这位候选人的详细信息。
-返回JSON格式：{"decision":"是","reason":"符合基本要求"}`;
+5. reason字段是决策原因，15个字以内。`;
 }
 
 // 解析AI响应
@@ -1473,7 +1356,9 @@ function parseAIResponse(response, cost) {
     const jsonMatch = response.match(/\{[^}]*"decision"[^}]*\}/);
     if (jsonMatch) {
       const aiResponse = JSON.parse(jsonMatch[0]);
-      const decision = aiResponse.decision === "是";
+      const decision = aiResponse.decision.includes("是");
+      // console.log("decision", aiResponse.decision, decision);
+
       const reason = aiResponse.reason || "未提供原因";
 
       // 发送日志消息到插件显示

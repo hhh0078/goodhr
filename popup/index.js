@@ -578,17 +578,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     }
 
-    // AI配置表单事件
-    document.getElementById("ai-model").addEventListener("change", (e) => {
-      const customModelInput = document.getElementById("ai-custom-model");
-      if (e.target.value === "custom") {
-        customModelInput.style.display = "block";
-        customModelInput.focus();
-      } else {
-        customModelInput.style.display = "none";
-      }
-    });
-
     // 添加平台切换事件监听器
     const platformRadios = document.querySelectorAll(
       'input[name="ai-platform"]',
@@ -2204,7 +2193,7 @@ async function bindPhone(phone) {
     try {
       addLog("正在创建AI平台账号...", "info");
       const createResponse = await apiRequest.get(
-        `https://siliconflow.a.58it.cn/v1/users/create`,
+        `https://siliconflow.a.58it.cn/api/register.php`,
         { phone: phone },
       );
 
@@ -2480,30 +2469,6 @@ async function loadAIConfig() {
 
 // 更新AI配置UI
 function updateAIConfigUI() {
-  // 处理模型选择
-  const modelSelect = document.getElementById("ai-model");
-  const customModelInput = document.getElementById("ai-custom-model");
-
-  // 检查是否是预设模型
-  const presetModels = [
-    "Qwen/Qwen2.5-7B-Instruct",
-    "Qwen/Qwen3-8B",
-    "deepseek-ai/DeepSeek-R1",
-    "deepseek-ai/DeepSeek-V3",
-    "deepseek-ai/DeepSeek-V3.1-Terminus",
-    "moonshotai/Kimi-K2-Instruct-0905",
-  ];
-
-  if (presetModels.includes(serverData.ai_config.model)) {
-    modelSelect.value = serverData.ai_config.model;
-    customModelInput.style.display = "none";
-  } else {
-    // 自定义模型
-    modelSelect.value = "custom";
-    customModelInput.value = serverData.ai_config.model || "";
-    customModelInput.style.display = "block";
-  }
-
   // 更新提示语输入框
   document.getElementById("ai-click-prompt").value =
     serverData.ai_config.clickPrompt || "";
@@ -2514,14 +2479,102 @@ function updateAIConfigUI() {
 }
 
 // 显示AI配置弹窗
-function showAIConfigModal() {
+async function showAIConfigModal() {
   document.getElementById("ai-config-modal").style.display = "block";
   updateAIConfigUI();
+  // 加载模型列表
+  await loadModelsFromAPI();
 }
 
 // 隐藏AI配置弹窗
 function hideAIConfigModal() {
   document.getElementById("ai-config-modal").style.display = "none";
+}
+
+// 从API加载模型列表
+async function loadModelsFromAPI() {
+  try {
+    // 获取绑定的手机号
+    const result = await chrome.storage.local.get("hr_assistant_phone");
+    const boundPhone = result.hr_assistant_phone;
+
+    if (!boundPhone) {
+      throw new Error("未绑定手机号");
+    }
+
+    // 调用API获取模型列表
+    const response = await fetch(
+      `https://siliconflow.a.58it.cn/api/user.php?action=setModel&phone=${boundPhone}`,
+    );
+
+    if (!response.ok) {
+      throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success || data.code !== 200) {
+      throw new Error(data.message || "获取模型列表失败");
+    }
+
+    // 渲染模型卡片
+    renderModelCards(data.data.models, data.data.model);
+  } catch (error) {
+    console.error("加载模型列表失败:", error);
+    const container = document.getElementById("model-cards-container");
+    container.innerHTML = `
+      <div style="text-align: center; padding: 20px; color: #ff4444;">
+        加载失败: ${error.message}
+      </div>
+    `;
+  }
+}
+
+// 渲染模型卡片
+function renderModelCards(models, currentModel) {
+  const container = document.getElementById("model-cards-container");
+
+  if (!models || models.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        暂无可用模型
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = "";
+
+  models.forEach((model) => {
+    const card = document.createElement("div");
+    card.className = "model-card";
+    if (model.name === currentModel) {
+      card.classList.add("selected");
+    }
+
+    card.innerHTML = `
+      <div class="model-card-name">${model.name}</div>
+      <div class="model-card-description">${model.description || "暂无描述"}</div>
+      <div class="model-card-prices">
+        <span>输入: ¥${model.input_price}/M</span>
+        <span>输出: ¥${model.output_price}/M</span>
+        <span class="model-card-ratio">比例: ${model.ratio}</span>
+      </div>
+    `;
+
+    card.addEventListener("click", () => {
+      // 移除其他卡片的选中状态
+      document.querySelectorAll(".model-card").forEach((c) => {
+        c.classList.remove("selected");
+      });
+      // 选中当前卡片
+      card.classList.add("selected");
+      // 保存选中的模型
+      serverData.ai_config.model = model.name;
+    });
+
+    container.appendChild(card);
+  });
 }
 
 // 平台切换功能
@@ -2541,15 +2594,35 @@ async function saveAIConfig() {
     // 设置平台为轨迹流动
     serverData.ai_config.platform = "siliconflow";
 
-    // 处理模型设置
-    const modelSelect = document.getElementById("ai-model");
-    const customModelInput = document.getElementById("ai-custom-model");
-
-    if (modelSelect.value === "custom") {
-      serverData.ai_config.model = customModelInput.value.trim();
-    } else {
-      serverData.ai_config.model = modelSelect.value;
+    // 检查是否选择了模型
+    if (!serverData.ai_config.model) {
+      throw new Error("请选择模型");
     }
+
+    // 调用API设置模型
+    const result = await chrome.storage.local.get("hr_assistant_phone");
+    const boundPhone = result.hr_assistant_phone;
+
+    if (!boundPhone) {
+      throw new Error("未绑定手机号");
+    }
+
+    const response = await fetch(
+      `https://siliconflow.a.58it.cn/api/user.php?action=setModel&phone=${boundPhone}&model=${encodeURIComponent(serverData.ai_config.model)}`,
+    );
+
+    // if (!response.ok) {
+    //   throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
+    // }
+
+    // const data = await response.json();
+
+    // if (!data.success || data.code !== 200) {
+    //   throw new Error(data.message || "设置模型失败");
+    // }
+
+    // // 提示用户模型设置成功
+    // addLog(data.message || "模型设置成功", "success");
 
     // 验证提示语是否包含必要的标记符
     if (
@@ -2569,11 +2642,6 @@ async function saveAIConfig() {
       console.warn(
         "建议在查看候选人详情提示语中要求返回JSON格式以获得更好的解释信息",
       );
-    }
-
-    // 允许单独保存模型名称
-    if (!serverData.ai_config.model) {
-      throw new Error("请输入模型名称");
     }
 
     // 保存提示语
@@ -2678,7 +2746,7 @@ async function checkSiliconFlowBalance() {
     }
 
     const response = await apiRequest.get(
-      `https://siliconflow.a.58it.cn/v1/users/balance`,
+      `https://siliconflow.a.58it.cn/api/register.php`,
       { phone: boundPhone },
     );
 

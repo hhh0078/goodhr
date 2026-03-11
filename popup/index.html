@@ -110,15 +110,17 @@
         background: white;
         padding: 20px;
         border-radius: 8px;
-        width: 280px;
-
-        overflow-y: auto;
+        width: 250px;
+        max-height: 500px;
+        display: flex;
+        flex-direction: column;
       }
 
       .ai-config-content h3 {
         margin: 0 0 15px 0;
         color: #1a73e8;
         font-size: 16px;
+        flex-shrink: 0;
       }
 
       .ai-config-content label {
@@ -126,6 +128,7 @@
         margin-bottom: 5px;
         font-size: 12px;
         color: #666;
+        flex-shrink: 0;
       }
 
       .ai-config-content input,
@@ -136,6 +139,7 @@
         border-radius: 4px;
         font-size: 12px;
         margin-bottom: 10px;
+        flex-shrink: 0;
       }
 
       .ai-config-content .close-btn {
@@ -147,6 +151,7 @@
         font-size: 18px;
         cursor: pointer;
         color: #666;
+        flex-shrink: 0;
       }
 
       .ai-config-content .save-btn {
@@ -157,10 +162,82 @@
         border-radius: 4px;
         cursor: pointer;
         font-size: 12px;
+        flex-shrink: 0;
+        margin-top: 10px;
       }
 
       .ai-config-content .save-btn:hover {
         background: #1557b0;
+      }
+
+      #siliconflow-config {
+        flex: 1;
+        overflow-y: auto;
+        margin-bottom: 10px;
+      }
+
+      /* 模型卡片样式 */
+      .model-cards-container {
+        max-height: none;
+        overflow-y: auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .model-card {
+        border: 2px solid #e0e3e7;
+        border-radius: 6px;
+        padding: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: white;
+      }
+
+      .model-card:hover {
+        border-color: #1a73e8;
+        box-shadow: 0 2px 6px rgba(26, 115, 232, 0.15);
+      }
+
+      .model-card.selected {
+        border-color: #1a73e8;
+        background: #f0f7ff;
+        box-shadow: 0 2px 6px rgba(26, 115, 232, 0.25);
+      }
+
+      .model-card-name {
+        font-weight: 600;
+        color: #1a73e8;
+        margin-bottom: 6px;
+        font-size: 12px;
+        word-break: break-all;
+      }
+
+      .model-card-description {
+        color: #666;
+        font-size: 10px;
+        margin-bottom: 6px;
+        min-height: 12px;
+        line-height: 1.2;
+      }
+
+      .model-card-prices {
+        display: flex;
+        justify-content: space-between;
+        font-size: 10px;
+        color: #888;
+        gap: 4px;
+      }
+
+      .model-card-prices span {
+        flex: 1;
+        white-space: nowrap;
+      }
+
+      .model-card-ratio {
+        color: #1a73e8;
+        font-weight: 600;
       }
 
       .filter-group {
@@ -1106,28 +1183,14 @@
     <div class="ai-config-modal" id="ai-config-modal">
       <div class="ai-config-content">
         <button class="close-btn" id="ai-config-close">&times;</button>
-        <h3>AI配置</h3>
+        <h3>选择模型</h3>
 
         <!-- AI配置 -->
         <div id="siliconflow-config">
-          <label>模型名称:</label>
-          <select id="ai-model">
-            <option value="moonshotai/Kimi-K2-Instruct-0905">
-              moonshotai/Kimi-K2-Instruct-0905(快贵准)
-            </option>
-            <option value="deepseek-ai/DeepSeek-V3">DeepSeek-V3(快贵)</option>
-            <option value="Qwen/Qwen2.5-7B-Instruct">
-              Qwen/Qwen2.5-7B-Instruct(免费效果一般)
-            </option>
-          
-            <option value="Qwen/Qwen3-8B">Qwen/Qwen3-8B(便宜)</option>
-            <option value="deepseek-ai/DeepSeek-R1">DeepSeek-R1(慢贵准)</option>
-            <option value="deepseek-ai/DeepSeek-V3.1-Terminus">
-              DeepSeek-V3.1-Terminus(快贵准)
-            </option>
-            
-            <option value="custom">自定义模型</option>
-          </select>
+          <label>模型选择:(如果你对价格、效果不满意再换)</label>
+          <div id="model-cards-container" style="margin-top: 10px;">
+            <div style="text-align: center; padding: 20px;">加载中...</div>
+          </div>
 
           <input
             type="text"
@@ -1136,8 +1199,7 @@
             style="display: none"
           />
           <div>
-            默认使用免费的模型。速度快。但是效果一般。
-            如果你对精度有要求。建议使用DeepSeek-V3(快贵)。还有很多模型可以去硅基流动模型广场查询。但是不是所有都支持。建议先联系作者
+            越贵的效果越好。价格看不懂没关系。你选择后 运行时会显示价格。
           </div>
         </div>
 
