@@ -617,7 +617,7 @@
       /* 岗位说明样式 */
       .job-description {
         width: 250px;
-        min-height: 150px;
+        min-height: 190px;
         max-height: 250px;
         padding: 8px;
         border: 1px solid #e0e3e7;
@@ -951,7 +951,7 @@
               <label class="title" style="margin-bottom: 0px">AI状态</label>
 
               <span style="font-size: 11px; color: #666; margin-left: 10px">
-                充多少，送多少。5元起充 <a href="https://siliconflow.a.58it.cn" target="_blank"
+                 <a href="https://siliconflow.a.58it.cn" target="_blank"
                   >余额充值</a
                 >
             </div>
@@ -1032,10 +1032,14 @@
                 AI优化
               </button>
             </div>
+            <div style="font-size: 10px; color: #d90000; margin-bottom: 10px">
+              *
+              你可以把平台的岗位信息复制进来。点击AI优化后。
+            </div>
             <textarea
               id="job-description"
               class="job-description"
-              placeholder="请详细描述岗位要求，包括：&#10;1. 任职要求&#10;2. 技能要求&#10;3. 经验要求&#10;4. 其他要求&#10;&#10;AI将根据这些信息智能判断候选人是否合适&#10;输入岗位要求后点击右上角的AI优化按钮，系统会根据岗位要求优化岗位描述"
+              placeholder="请详细描述岗位要求，比如课程顾问：&#10;1. 3年以上销售经验&#10;2. 有过学科销售经验&#10;3 . 同事没有联系过。最近活跃的。&#10;AI将根据这些信息智能判断候选人是否合适&#10;重点：&#10;1. 学历、年龄、性别等请在平台提前筛选号。AI优化会自动去除，如果你坚持 可以在AI优化完后再加上。&#10;2. 尽量不要写 候选人简历上没有的信息。比如能加班、人品好、爱微笑。这会给AI带来困惑&#10;"
             ></textarea>
           </div>
 
@@ -1074,9 +1078,9 @@
 请判断是否值得查看这位候选人的详细信息，返回JSON格式：{"decision":"是","reason":"符合基本要求"}
                     </textarea
             >
-            <div style="font-size: 11px; color: #666; margin-bottom: 10px">
+            <div style="font-size: 11px; color: #d90000; margin-bottom: 10px">
               *
-              使用${候选人信息}和${岗位信息}作为标记符，系统会自动替换为实际内容
+              使用${候选人信息}和${岗位信息}作为标记符，系统会自动替换为实际内容，如果你不清楚，请不要修改。这里一般也不需要改动。岗位信息请加到岗位要求中。
             </div>
           </div>
 

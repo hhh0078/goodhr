@@ -1,6 +1,6 @@
 // API请求工具类
 class ApiRequest {
-  constructor(baseUrl = '') {
+  constructor(baseUrl = "") {
     this.baseUrl = baseUrl;
   }
 
@@ -15,17 +15,17 @@ class ApiRequest {
       // 构建查询字符串
       const queryString = new URLSearchParams(params).toString();
       const fullUrl = queryString ? `${url}?${queryString}` : url;
-      
+
       const response = await fetch(fullUrl, {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
 
       return await this.handleResponse(response);
     } catch (error) {
-      console.error('GET请求失败:', error);
+      console.error("GET请求失败:", error);
       throw error;
     }
   }
@@ -42,18 +42,18 @@ class ApiRequest {
       // 构建查询字符串
       const queryString = new URLSearchParams(params).toString();
       const fullUrl = queryString ? `${url}?${queryString}` : url;
-      
+
       const response = await fetch(fullUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(data),
       });
 
       return await this.handleResponse(response);
     } catch (error) {
-      console.error('POST请求失败:', error);
+      console.error("POST请求失败:", error);
       throw error;
     }
   }
@@ -73,19 +73,20 @@ class ApiRequest {
     }
 
     // 检查HTTP状态码
-    if (!response.ok) {
-      // 如果API返回了错误信息，使用API的错误信息
-      if (responseData && responseData.message) {
-        throw new Error(responseData.message);
-      } else {
-        throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
-      }
-    }
+    console.log(response.ok);
+    // if (!response.ok) {
+    //   // 如果API返回了错误信息，使用API的错误信息
+    //   if (responseData && responseData.message) {
+    //     throw new Error(responseData.message);
+    //   } else {
+    //     throw new Error(`API请求失败，HTTP状态码: ${response.status}`);
+    //   }
+    // }
 
     // 检查API响应格式
-    if (responseData && responseData.code !== 200) {
-      throw new Error(responseData.message || 'API请求失败');
-    }
+    // if (responseData && responseData.code !== 200) {
+    //   throw new Error(responseData.message || "API请求失败");
+    // }
 
     // 返回成功的数据
     return responseData;
@@ -96,9 +97,9 @@ class ApiRequest {
 const apiRequest = new ApiRequest();
 
 // 导出API请求工具
-if (typeof module !== 'undefined' && module.exports) {
+if (typeof module !== "undefined" && module.exports) {
   module.exports = { ApiRequest, apiRequest };
-} else if (typeof window !== 'undefined') {
+} else if (typeof window !== "undefined") {
   window.ApiRequest = ApiRequest;
   window.apiRequest = apiRequest;
 }

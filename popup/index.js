@@ -1463,6 +1463,13 @@ async function checkForUpdates() {
 
   if (result.needUpdate) {
     if (result.releaseNotes.includes("必须更新")) {
+      alert(
+        `发现新版本！\n\n更新说明：\n${result.releaseNotes || "暂无更新说明"}\n\n版本：` +
+          CURRENT_VERSION +
+          "->" +
+          NEW_VERSION +
+          "\n\n点击确定前往更新",
+      );
       chrome.tabs.create({ url: API_BASE });
     } else {
       const userConfirmed = confirm(
@@ -1470,7 +1477,7 @@ async function checkForUpdates() {
           CURRENT_VERSION +
           "->" +
           NEW_VERSION +
-          "\n\n点击确定前往更新",
+          "\n\n点击确定前往更新，取消忽略此版本",
       );
       if (userConfirmed) {
         chrome.tabs.create({ url: API_BASE });
@@ -2779,7 +2786,7 @@ async function handleBalanceCheck() {
       // 更新UI显示余额
       updateBalanceDisplay(balance);
 
-      if (balance < 1) {
+      if (balance < 0.1) {
         const message = `当前Token对应的账号余额不足1元（当前余额: ¥${balance.toFixed(4)}）。\n\n可能会无法使用部分模型。\n\n你可以选择：\n1. 切换免费模型\n2.联系作者充值，充多少送多少。特价活动。是否前往充值页面?`;
 
         if (confirm(message)) {
@@ -2838,10 +2845,10 @@ function hideBalanceDisplay() {
 // 直接发送AI请求到轨迹流动
 async function sendDirectAIRequest(prompt) {
   try {
-    return {
-      success: true,
-      response: "已连接",
-    };
+    // return {
+    //   success: true,
+    //   response: "已连接",
+    // };
     // 获取绑定的手机号
     if (!boundPhone) {
       throw new Error("未绑定手机号，无法使用AI功能");
@@ -2851,52 +2858,30 @@ async function sendDirectAIRequest(prompt) {
 
     //获取秘钥
 
-    // 第一步：获取密钥
-    const keyResponse = await fetch(
-      `https://siliconflow.a.58it.cn/v1/key/next?phone=${boundPhone}&model=${encodeURIComponent(model)}`,
+    // 轨迹流动平台请求
+    const response = await apiRequest.post(
+      "https://siliconflow.a.58it.cn/api/chat.php",
       {
-        method: "GET",
+        phone: boundPhone,
+
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是一个专业的HR专家，现在你要把用户输入的信息进行优化。仅保留 对候选人的要求。岗位职责、岗位要求 等等都要去除。优化是对候选人的人品、性格、工作能力等进行去除。还有、去除 学历、年龄、性别 信息。总之仅保留对候选的技能要求、经验要求、工作经历.你需要返回纯文本。一点一点的说清楚。请明确说明要求中的与或",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
       },
     );
 
-    // console.log(keyResponse);
-    // if (!keyResponse.ok) {
-    //   const errorMsg = `获取密钥失败，HTTP状态码: ${keyResponse.status}`;
-    //   addLog(errorMsg, "error");
-    //   throw new Error(errorMsg);
-    // }
-
-    const keyData = await keyResponse.json();
-
-    console.log(keyData);
-
-    // 检查密钥获取结果
-    if (keyData.code !== 200) {
-      const errorMsg = keyData.message || "获取密钥失败";
-      addLog(errorMsg, "error");
-      throw new Error(errorMsg);
-    }
-
-    const apiKey = keyData.data.key;
-
-    console.log("返回的秘钥:", apiKey);
-
-    // 轨迹流动平台请求
-    const response = await apiRequest.post(GUJJI_API_CONFIG.baseUrl, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      model: model,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    });
-
     // API工具已经处理了错误检查，这里直接返回数据
-    const aiResponse = response.choices?.[0]?.message?.content;
+    // const aiResponse = response.choices?.[0]?.message?.content;
+    console.log(response);
+    const aiResponse = response?.choices?.[0]?.message?.content;
 
     if (!aiResponse) {
       throw new Error("AI响应为空");
