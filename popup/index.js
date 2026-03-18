@@ -2250,7 +2250,7 @@ async function syncSettingsFromServer() {
 
       // 记录AI配置加载情况
       if (data.ai_config) {
-        console.log("已从服务器加载AI配置:", data.ai_config);
+        console.log("已从服务器加载AI配置:", data);
       }
 
       // 保存到本地存储，包括AI配置
@@ -2267,6 +2267,8 @@ async function syncSettingsFromServer() {
         ai_config: serverData.ai_config,
         ai_expire_time: serverData.ai_expire_time,
       });
+
+      console.log("isAndMode", serverData.isAndMode);
 
       // 更新UI
       updateAllUI();
@@ -2868,7 +2870,7 @@ async function sendDirectAIRequest(prompt) {
           {
             role: "system",
             content:
-              "你是一个专业的HR专家，现在你要把用户输入的信息进行优化。仅保留 对候选人的要求。岗位职责、岗位要求 等等都要去除。优化是对候选人的人品、性格、工作能力等进行去除。还有、去除 学历、年龄、性别 信息。总之仅保留对候选的技能要求、经验要求、工作经历.你需要返回纯文本。一点一点的说清楚。请明确说明要求中的与或",
+              "你是一个专业的HR专家，现在你要把用户输入的信息进行优化。仅保留 对候选人的要求。岗位职责、岗位要求 等等都要去除。优化是对候选人的人品、性格、工作能力等进行去除。还有、去除 学历、年龄、性别 信息。总之仅保留对候选的技能要求、经验要求、工作经历.必须是明确的硬性条件。去除掉岗位的责任。岗位的工作内容。比如保留3年工作经验。去除沟通能力、协作能力、独立解决问题的能力、爱学历爱上进。你需要返回纯文本。一点一点的说清楚。请明确说明要求中的与或",
           },
           {
             role: "user",
@@ -3293,6 +3295,13 @@ function updateOtherSettingsUI() {
   const enableSoundCheckbox = document.getElementById("enable-sound");
   if (enableSoundCheckbox && serverData.enableSound !== undefined) {
     enableSoundCheckbox.checked = serverData.enableSound;
+  }
+
+  // 更新关键词匹配模式设置
+  const andModeCheckbox = document.getElementById("keywords-and-mode");
+  if (serverData.isAndMode !== undefined) {
+    isAndMode = serverData.isAndMode;
+    andModeCheckbox.checked = isAndMode;
   }
 
   // 更新索要绑定设置

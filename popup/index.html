@@ -701,7 +701,7 @@
       <!-- 选项卡 -->
       <div class="tab-container">
         <div class="tab active" data-tab="free">免费版</div>
-        <div class="tab" data-tab="ai">AI版(赠送3元)</div>
+        <div class="tab" data-tab="ai">AI版(赠送1元)</div>
       </div>
 
       <!-- 免费版内容 -->
@@ -928,7 +928,7 @@
             ↓ 可以往下滑动查看更多设置 ↓
           </div>
           <div class="filter-group">
-            <label class="title">账号绑定(新用户赠送3元)</label>
+            <label class="title">账号绑定(新用户赠送1元)</label>
             <div class="position-input-group">
               <input
                 type="text"
@@ -938,14 +938,11 @@
               />
               <button id="ai-bind-phone" class="keyword-btn">绑定</button>
             </div>
-            <div style="font-size: 12px; color: #666; margin-top: 4px">
-              *
-              绑定手机号后可以从服务器同步你的配置(无需验证)
-            </div>
+            <div style="font-size: 12px; color: #666; margin-top: 4px"></div>
           </div>
 
           <div class="filter-group">
-            <div
+            <!-- <div
               style="margin-bottom: 10px; display: flex; align-items: center"
             >
               <label class="title" style="margin-bottom: 0px">AI状态</label>
@@ -954,15 +951,15 @@
                  <a href="https://siliconflow.a.58it.cn" target="_blank"
                   >余额充值</a
                 >
-            </div>
+            </div> -->
             <div class="ai-status">
-              <div class="ai-status-indicator" id="ai-status-indicator">
+              <div class="ai-status-indicator" id="ai-status-indicator"></div>
 
-              </div>
-              
               <span id="ai-status-text">未连接</span>
-                            <span id="ai-balance-text">余额: --</span>
-
+              <span id="ai-balance-text">余额: --</span>
+              <a href="https://siliconflow.a.58it.cn" target="_blank"
+                >余额充值</a
+              >
             </div>
             <div
               class="ai-balance-info"
@@ -973,9 +970,7 @@
                 margin-top: 5px;
                 display: none;
               "
-            >
-              
-            </div>
+            ></div>
             <div
               style="font-size: 11px; color: #666; margin-bottom: 10px"
             ></div>
@@ -1032,9 +1027,8 @@
                 AI优化
               </button>
             </div>
-            <div style="font-size: 10px; color: #d90000; margin-bottom: 10px">
-              *
-              你可以把平台的岗位信息复制进来。点击AI优化后。
+            <div style="font-size: 11px; color: #d90000; margin-bottom: 10px">
+              * 你可以把平台的岗位信息复制进来。点击AI优化后。
             </div>
             <textarea
               id="job-description"
@@ -1192,8 +1186,8 @@
         <!-- AI配置 -->
         <div id="siliconflow-config">
           <label>模型选择:(如果你对价格、效果不满意再换)</label>
-          <div id="model-cards-container" style="margin-top: 10px;">
-            <div style="text-align: center; padding: 20px;">加载中...</div>
+          <div id="model-cards-container" style="margin-top: 10px">
+            <div style="text-align: center; padding: 20px">加载中...</div>
           </div>
 
           <input
