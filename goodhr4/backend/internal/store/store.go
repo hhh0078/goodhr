@@ -43,6 +43,7 @@ type Account struct {
 	AIModel             string          `json:"ai_model"`
 	AIClickPrompt       string          `json:"ai_click_prompt"`
 	AIContactPrompt     *string         `json:"ai_contact_prompt"`
+	APIKey              string          `json:"api_key,omitempty"`
 	Positions           json.RawMessage `json:"positions"`
 	CreatedAt           time.Time       `json:"created_at"`
 	UpdatedAt           time.Time       `json:"updated_at"`
@@ -98,7 +99,7 @@ select
   collect_phone, collect_wechat, collect_resume,
   communication_enabled, greeting_enabled,
   company_info_content, job_extra_info,
-  ai_model, ai_click_prompt, ai_contact_prompt,
+  ai_model, ai_click_prompt, ai_contact_prompt, api_key,
   positions, created_at, updated_at
 from accounts
 where identifier = $1`
@@ -132,6 +133,7 @@ where identifier = $1`
 		&account.AIModel,
 		&account.AIClickPrompt,
 		&account.AIContactPrompt,
+		&account.APIKey,
 		&account.Positions,
 		&account.CreatedAt,
 		&account.UpdatedAt,
@@ -154,7 +156,7 @@ insert into accounts (
   collect_phone, collect_wechat, collect_resume,
   communication_enabled, greeting_enabled,
   company_info_content, job_extra_info,
-  ai_model, ai_click_prompt, ai_contact_prompt, positions
+  ai_model, ai_click_prompt, ai_contact_prompt, api_key, positions
 ) values (
   $1,$2,$3,$4,$5,$6,$7,$8,
   $9,$10,$11,$12,$13,
@@ -162,7 +164,7 @@ insert into accounts (
   $17,$18,$19,
   $20,$21,
   $22,$23,
-  $24,$25,$26,$27
+  $24,$25,$26,$27,$28
 )
 returning
   id, identifier, identity_type, inviter_id, phone, email, balance, status, run_mode,
@@ -171,7 +173,7 @@ returning
   collect_phone, collect_wechat, collect_resume,
   communication_enabled, greeting_enabled,
   company_info_content, job_extra_info,
-  ai_model, ai_click_prompt, ai_contact_prompt,
+  ai_model, ai_click_prompt, ai_contact_prompt, api_key,
   positions, created_at, updated_at`
 
 	return s.queryAccount(ctx, query, account)
@@ -186,7 +188,7 @@ insert into accounts (
   collect_phone, collect_wechat, collect_resume,
   communication_enabled, greeting_enabled,
   company_info_content, job_extra_info,
-  ai_model, ai_click_prompt, ai_contact_prompt, positions
+  ai_model, ai_click_prompt, ai_contact_prompt, api_key, positions
 ) values (
   $1,$2,$3,$4,$5,$6,$7,$8,
   $9,$10,$11,$12,$13,
@@ -194,7 +196,7 @@ insert into accounts (
   $17,$18,$19,
   $20,$21,
   $22,$23,
-  $24,$25,$26,$27
+  $24,$25,$26,$27,$28
 )
 on conflict (identifier) do update set
   identity_type = excluded.identity_type,
@@ -222,6 +224,7 @@ on conflict (identifier) do update set
   ai_model = excluded.ai_model,
   ai_click_prompt = excluded.ai_click_prompt,
   ai_contact_prompt = excluded.ai_contact_prompt,
+  api_key = excluded.api_key,
   positions = excluded.positions,
   updated_at = now()
 returning
@@ -231,7 +234,7 @@ returning
   collect_phone, collect_wechat, collect_resume,
   communication_enabled, greeting_enabled,
   company_info_content, job_extra_info,
-  ai_model, ai_click_prompt, ai_contact_prompt,
+  ai_model, ai_click_prompt, ai_contact_prompt, api_key,
   positions, created_at, updated_at`
 
 	return s.queryAccount(ctx, query, account)
@@ -268,6 +271,7 @@ func (s *Store) queryAccount(ctx context.Context, query string, account Account)
 		account.AIModel,
 		account.AIClickPrompt,
 		account.AIContactPrompt,
+		account.APIKey,
 		account.Positions,
 	).Scan(
 		&result.ID,
@@ -297,6 +301,7 @@ func (s *Store) queryAccount(ctx context.Context, query string, account Account)
 		&result.AIModel,
 		&result.AIClickPrompt,
 		&result.AIContactPrompt,
+		&result.APIKey,
 		&result.Positions,
 		&result.CreatedAt,
 		&result.UpdatedAt,

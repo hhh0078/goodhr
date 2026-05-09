@@ -15,8 +15,6 @@ type Service struct {
 	sessionTTL time.Duration
 }
 
-const defaultAIPlatform = "siliconflow"
-
 type SiteBootstrap struct {
 	Config  map[string]any       `json:"config"`
 	Updates []store.UpdateRecord `json:"updates"`
@@ -36,9 +34,9 @@ type SettingsPayload struct {
 	CompanyInfo         CompanyInfo      `json:"companyInfo"`
 	JobInfo             JobInfo          `json:"jobInfo"`
 	RunModeConfig       RunModeCfg       `json:"runModeConfig"`
-	AIConfig            AIConfig         `json:"ai_config"`
-	AIExpireTime        string           `json:"ai_expire_time"`
-	ExtraSettings       json.RawMessage  `json:"extra_settings,omitempty"`
+	AIConfig            AIConfig         `json:"aiConfig"`
+	AIExpireTime        string           `json:"aiExpireTime"`
+	ExtraSettings       json.RawMessage  `json:"extraSettings,omitempty"`
 }
 
 type CommunicationCfg struct {
@@ -61,11 +59,10 @@ type RunModeCfg struct {
 }
 
 type AIConfig struct {
-	Token         string  `json:"token"`
+	ApiKey        string  `json:"apiKey"`
 	Model         string  `json:"model"`
 	ClickPrompt   string  `json:"clickPrompt"`
 	ContactPrompt *string `json:"contactPrompt"`
-	Platform      string  `json:"platform"`
 }
 
 func New(st *store.Store, sessionTTL time.Duration) *Service {
@@ -88,14 +85,39 @@ func DefaultSettings() SettingsPayload {
 		JobInfo:             JobInfo{ExtraInfo: ""},
 		RunModeConfig:       RunModeCfg{CommunicationEnabled: true, GreetingEnabled: true},
 		AIConfig: AIConfig{
-			Token:       "",
+			ApiKey:      "",
 			Model:       "gpt-5.1-chat",
 			ClickPrompt: "",
-			Platform:    defaultAIPlatform,
 		},
 		AIExpireTime:  "2099-10-30",
 		ExtraSettings: json.RawMessage(`{}`),
 	}
+}
+
+// 获取系统默认的点击查看详情提示语
+func (s *Service) getDefaultClickPrompt(ctx context.Context) (string, error) {
+	cfg, err := s.store.GetSystemConfig(ctx, "frontend.default_click_prompt")
+	if err != nil {
+		return "", err
+	}
+	var prompt string
+	if err := json.Unmarshal(cfg.ConfigValue, &prompt); err != nil {
+		return "", err
+	}
+	return prompt, nil
+}
+
+// 获取系统默认的AI模型
+func (s *Service) getDefaultModel(ctx context.Context) (string, error) {
+	cfg, err := s.store.GetSystemConfig(ctx, "frontend.default_model")
+	if err != nil {
+		return "", err
+	}
+	var model string
+	if err := json.Unmarshal(cfg.ConfigValue, &model); err != nil {
+		return "", err
+	}
+	return model, nil
 }
 
 func (s *Service) Bind(ctx context.Context, identifier string) (store.Account, SettingsPayload, string, bool, error) {
@@ -376,6 +398,7 @@ func buildAccount(identifier string, settings SettingsPayload, balance float64, 
 		AIModel:             settings.AIConfig.Model,
 		AIClickPrompt:       settings.AIConfig.ClickPrompt,
 		AIContactPrompt:     settings.AIConfig.ContactPrompt,
+		APIKey:              settings.AIConfig.ApiKey,
 		Positions:           settings.Positions,
 	}
 }
@@ -404,11 +427,10 @@ func composeSettings(account store.Account) SettingsPayload {
 		JobInfo:       JobInfo{ExtraInfo: account.JobExtraInfo},
 		RunModeConfig: RunModeCfg{CommunicationEnabled: account.CommunicationOn, GreetingEnabled: account.GreetingOn},
 		AIConfig: AIConfig{
-			Token:         "",
+			ApiKey:        account.APIKey,
 			Model:         account.AIModel,
 			ClickPrompt:   account.AIClickPrompt,
 			ContactPrompt: account.AIContactPrompt,
-			Platform:      defaultAIPlatform,
 		},
 		AIExpireTime:  account.AIExpireTime,
 		ExtraSettings: json.RawMessage(`{}`),

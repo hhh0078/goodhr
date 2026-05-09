@@ -1,14 +1,23 @@
 <template>
-  <section class="hero card" style="background-color: var(--primary); color: #fff;">
+  <section
+    class="hero card"
+    style="background-color: var(--primary); color: #fff"
+  >
     <div class="hero-main">
       <div>
-        <h1 style="margin: 0px; margin-bottom: 10px;text-align: center;">goodHR {{ APP_VERSION }}</h1>
-        <div v-for="value in ui.systemConfig.announcement" style="text-align: center;">{{ value }}</div>
+        <h1 style="margin: 0px; margin-bottom: 10px; text-align: center">
+          goodHR {{ APP_VERSION }}
+        </h1>
+        <div
+          v-for="value in ui.systemConfig.announcement"
+          style="text-align: center"
+        >
+          {{ value }}
+        </div>
       </div>
     </div>
-   
   </section>
-  
+
   <main class="app-shell">
     <a
       v-if="topAd"
@@ -21,7 +30,7 @@
       <strong>{{ topAd.title }}</strong>
       <span>{{ topAd.subtitle }}</span>
     </a>
-    
+
     <section class="identity-strip card" @focusout.capture="requestAutoSave">
       <div class="identity-row">
         <div class="identity-inputs">
@@ -31,26 +40,53 @@
             placeholder="输入邮箱或手机号，点击后直接自动注册"
             @keydown.enter.prevent="bindAccount"
           />
-          <button class="btn btn-primary" type="button" :disabled="ui.binding" @click="bindAccount">
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="ui.binding"
+            @click="bindAccount"
+          >
             {{ ui.binding ? "绑定中..." : "绑定" }}
           </button>
         </div>
 
         <div>
-          余额:¥
-          <strong :style="{ color: balanceColor }">{{ settings.aiBalanceText || "--" }}</strong>
+          余额:
+          <strong :style="{ color: balanceColor }">{{
+            settings.aiBalanceText || "--"
+          }}</strong>
           &nbsp;
-                    <a style="border: 1px solid #ccc; padding: 2px 4px; border-radius: 4px; text-decoration: none;color: #000;" href="https://ai.58it.cn" target="_blank" rel="noreferrer noopener">ai充值(58AI)</a>
+          <a
+            style="
+              border: 1px solid #ccc;
+              padding: 2px 4px;
+              border-radius: 4px;
+              text-decoration: none;
+              color: #000;
+            "
+            href="https://ai.58it.cn"
+            target="_blank"
+            rel="noreferrer noopener"
+            >ai充值(GoodAI)</a
+          >
 
           &nbsp;&nbsp;
-          <span style="cursor: pointer; border: 1px solid #ccc; padding: 2px 4px;border-radius: 4px;" @click="showPricingHint" >价格说明</span>
+          <span
+            style="
+              cursor: pointer;
+              border: 1px solid #ccc;
+              padding: 2px 4px;
+              border-radius: 4px;
+            "
+            @click="showPricingHint"
+            >价格说明</span
+          >
         </div>
       </div>
-     
     </section>
 
     <section class="mode-panel">
-       <a
+      <a
         v-if="balanceAd"
         class="ad-card inline-ad"
         :href="balanceAd.url"
@@ -61,7 +97,7 @@
         <strong>{{ balanceAd.title }}</strong>
         <span>{{ balanceAd.subtitle }}</span>
       </a>
-      <div class="tabs" >
+      <div class="tabs">
         <button
           class="tab-btn"
           :class="{ active: settings.runMode === 'free' }"
@@ -80,12 +116,14 @@
         </button>
       </div>
 
-      <div v-if="settings.runMode === 'free'" class="content-grid" @focusout.capture="requestAutoSave">
+      <div
+        v-if="settings.runMode === 'free'"
+        class="content-grid"
+        @focusout.capture="requestAutoSave"
+      >
         <section class="card" :class="ui.running ? 'span-8' : 'span-12'">
           <div class="section-heading">
-            <div style="color: black;margin-bottom: 10px;">
-              岗位与关键词
-            </div>
+            <div style="color: black; margin-bottom: 10px">岗位与关键词</div>
           </div>
 
           <div class="position-toolbar">
@@ -95,21 +133,28 @@
               placeholder="新增岗位名称 例如：销售顾问"
               @keydown.enter.prevent="addPosition"
             />
-            <button class="btn btn-primary" type="button" @click="addPosition">新增岗位</button>
+            <button class="btn btn-primary" type="button" @click="addPosition">
+              新增岗位
+            </button>
           </div>
 
-
-          <div class="position-list" style="margin-top: 10px;">
+          <div class="position-list" style="margin-top: 10px">
             <button
               v-for="position in settings.positions"
               :key="position.name"
               class="position-item"
-              :class="{ active: settings.currentPositionName === position.name }"
+              :class="{
+                active: settings.currentPositionName === position.name,
+              }"
               type="button"
               @click="settings.currentPositionName = position.name"
             >
               <span>{{ position.name }}</span>
-              <span class="position-remove" @click.stop="confirmRemovePosition(position.name)">×</span>
+              <span
+                class="position-remove"
+                @click.stop="confirmRemovePosition(position.name)"
+                >×</span
+              >
             </button>
           </div>
 
@@ -121,14 +166,31 @@
                 placeholder="输入后回车或点击添加"
                 @keydown.enter.prevent="addKeyword('include')"
               />
-              <button class="btn btn-primary" type="button" @click="addKeyword('include')">添加</button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="addKeyword('include')"
+              >
+                添加
+              </button>
             </div>
-            <span class="section-note" >当候选人的所有信息里出现这个关键词就会打招呼</span>
+            <span class="section-note"
+              >当候选人的所有信息里出现这个关键词就会打招呼</span
+            >
 
             <div class="chip-list compact-chips">
-              <span v-for="keyword in currentPosition.keywords" :key="keyword" class="chip include">
+              <span
+                v-for="keyword in currentPosition.keywords"
+                :key="keyword"
+                class="chip include"
+              >
                 {{ keyword }}
-                <button type="button" @click="removeKeyword('include', keyword)">×</button>
+                <button
+                  type="button"
+                  @click="removeKeyword('include', keyword)"
+                >
+                  ×
+                </button>
               </span>
             </div>
 
@@ -139,13 +201,30 @@
                 placeholder="输入后回车或点击排除"
                 @keydown.enter.prevent="addKeyword('exclude')"
               />
-              <button class="btn btn-danger" type="button" @click="addKeyword('exclude')">排除</button>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="addKeyword('exclude')"
+              >
+                排除
+              </button>
             </div>
-            <span class="section-note">当候选人的所有信息里出现这个关键词就会排除</span>
+            <span class="section-note"
+              >当候选人的所有信息里出现这个关键词就会排除</span
+            >
             <div class="chip-list compact-chips">
-              <span v-for="keyword in currentPosition.excludeKeywords" :key="keyword" class="chip exclude">
+              <span
+                v-for="keyword in currentPosition.excludeKeywords"
+                :key="keyword"
+                class="chip exclude"
+              >
                 {{ keyword }}
-                <button type="button" @click="removeKeyword('exclude', keyword)">×</button>
+                <button
+                  type="button"
+                  @click="removeKeyword('exclude', keyword)"
+                >
+                  ×
+                </button>
               </span>
             </div>
           </div>
@@ -159,9 +238,15 @@
             </div>
           </div>
           <div class="log-list short">
-            <div v-for="(entry, index) in logs.slice().reverse()" :key="`${entry.time}-${index}`" class="log-item compact">
+            <div
+              v-for="(entry, index) in logs.slice().reverse()"
+              :key="`${entry.time}-${index}`"
+              class="log-item compact"
+            >
               <span class="log-time">{{ entry.time }}</span>
-              <span class="log-level" :class="entry.type">{{ entry.type }}</span>
+              <span class="log-level" :class="entry.type">{{
+                entry.type
+              }}</span>
               <span class="log-text">{{ entry.message }}</span>
             </div>
           </div>
@@ -183,20 +268,35 @@
               placeholder="新增岗位名称,例如：销售顾问"
               @keydown.enter.prevent="addPosition"
             />
-            <button class="btn btn-secondary" type="button" @click="addPosition">新增岗位</button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              @click="addPosition"
+            >
+              新增岗位
+            </button>
           </div>
 
-          <div class="position-list" style="margin-top: 5px;margin-bottom: 10px;">
+          <div
+            class="position-list"
+            style="margin-top: 5px; margin-bottom: 10px"
+          >
             <button
               v-for="position in settings.positions"
               :key="position.name"
               class="position-item"
-              :class="{ active: settings.currentPositionName === position.name }"
+              :class="{
+                active: settings.currentPositionName === position.name,
+              }"
               type="button"
               @click="settings.currentPositionName = position.name"
             >
               <span>{{ position.name }}</span>
-              <span class="position-remove" @click.stop="confirmRemovePosition(position.name)">x</span>
+              <span
+                class="position-remove"
+                @click.stop="confirmRemovePosition(position.name)"
+                >x</span
+              >
             </button>
           </div>
 
@@ -218,9 +318,15 @@
             </div>
           </div>
           <div class="log-list short">
-            <div v-for="(entry, index) in logs.slice().reverse()" :key="`${entry.time}-${index}`" class="log-item compact">
+            <div
+              v-for="(entry, index) in logs.slice().reverse()"
+              :key="`${entry.time}-${index}`"
+              class="log-item compact"
+            >
               <span class="log-time">{{ entry.time }}</span>
-              <span class="log-level" :class="entry.type">{{ entry.type }}</span>
+              <span class="log-level" :class="entry.type">{{
+                entry.type
+              }}</span>
               <span class="log-text">{{ entry.message }}</span>
             </div>
           </div>
@@ -235,12 +341,18 @@
         @click="ui.configExpanded = !ui.configExpanded"
       >
         <div>
-          <div style="color: black;">运行参数/AI配置</div>
+          <div style="color: black">运行参数/AI配置</div>
         </div>
-        <span class="config-arrow">{{ ui.configExpanded ? "收起" : "展开" }}</span>
+        <span class="config-arrow">{{
+          ui.configExpanded ? "收起" : "展开"
+        }}</span>
       </button>
 
-      <div v-if="ui.configExpanded" class="config-body" @focusout.capture="requestAutoSave">
+      <div
+        v-if="ui.configExpanded"
+        class="config-body"
+        @focusout.capture="requestAutoSave"
+      >
         <div class="tabs small-tabs">
           <button
             class="tab-btn"
@@ -260,37 +372,97 @@
           </button>
         </div>
 
-        <div v-if="ui.configTab === 'runtime'" class="content-grid compact-grid">
+        <div
+          v-if="ui.configTab === 'runtime'"
+          class="content-grid compact-grid"
+        >
           <section class="span-7 field-stack">
             <div class="settings-grid">
               <label class="field-group">
                 <span>打招呼暂停数</span>
-                <input v-model.number="settings.matchLimit" class="text-input" type="number" min="1" />
+                <input
+                  v-model.number="settings.matchLimit"
+                  class="text-input"
+                  type="number"
+                  min="1"
+                />
               </label>
               <label class="field-group">
                 <span>最小延迟秒数</span>
-                <input v-model.number="settings.scrollDelayMin" class="text-input" type="number" min="0" />
+                <input
+                  v-model.number="settings.scrollDelayMin"
+                  class="text-input"
+                  type="number"
+                  min="0"
+                />
               </label>
               <label class="field-group">
                 <span>最大延迟秒数</span>
-                <input v-model.number="settings.scrollDelayMax" class="text-input" type="number" min="0" />
+                <input
+                  v-model.number="settings.scrollDelayMax"
+                  class="text-input"
+                  type="number"
+                  min="0"
+                />
               </label>
               <label class="field-group">
                 <span>点击候选人频率</span>
-                <input v-model.number="settings.clickFrequency" class="text-input" type="number" min="0" max="10" />
+                <input
+                  v-model.number="settings.clickFrequency"
+                  class="text-input"
+                  type="number"
+                  min="0"
+                  max="10"
+                />
               </label>
             </div>
           </section>
 
           <section class="span-5 field-stack">
             <div class="checkbox-grid">
-              <label><input v-model="settings.isAndMode" type="checkbox" /> 全部关键词都要命中</label>
-              <label><input v-model="settings.enableSound" type="checkbox" /> 启用提示音</label>
-              <label><input v-model="settings.runModeConfig.greetingEnabled" type="checkbox" /> 启用打招呼</label>
-              <label><input v-model="settings.runModeConfig.communicationEnabled" type="checkbox" /> 启用沟通处理</label>
-              <label><input v-model="settings.communicationConfig.collectPhone" type="checkbox" /> 索要手机号</label>
-              <label><input v-model="settings.communicationConfig.collectWechat" type="checkbox" /> 索要微信号</label>
-              <label><input v-model="settings.communicationConfig.collectResume" type="checkbox" /> 索要简历</label>
+              <label
+                ><input v-model="settings.isAndMode" type="checkbox" />
+                全部关键词都要命中</label
+              >
+              <label
+                ><input v-model="settings.enableSound" type="checkbox" />
+                启用提示音</label
+              >
+              <label
+                ><input
+                  v-model="settings.runModeConfig.greetingEnabled"
+                  type="checkbox"
+                />
+                启用打招呼</label
+              >
+              <label
+                ><input
+                  v-model="settings.runModeConfig.communicationEnabled"
+                  type="checkbox"
+                />
+                启用沟通处理</label
+              >
+              <label
+                ><input
+                  v-model="settings.communicationConfig.collectPhone"
+                  type="checkbox"
+                />
+                索要手机号</label
+              >
+              <label
+                ><input
+                  v-model="settings.communicationConfig.collectWechat"
+                  type="checkbox"
+                />
+                索要微信号</label
+              >
+              <label
+                ><input
+                  v-model="settings.communicationConfig.collectResume"
+                  type="checkbox"
+                />
+                索要简历</label
+              >
             </div>
           </section>
         </div>
@@ -298,26 +470,95 @@
         <div v-else class="content-grid compact-grid">
           <section class="span-6 field-stack">
             <div class="settings-grid">
+              <label
+                class="field-group"
+                style="
+                  flex-direction: row;
+                  align-items: center;
+                  justify-content: space-between;
+                "
+              >
+                <span style="font-weight: 500">AI平台</span>
+                <a
+                  href="https://www.ai.58it.cn/"
+                  target="_blank"
+                  style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 4px 12px;
+                    border-radius: 8px;
+                    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+                    color: #fff;
+                    font-size: 12px;
+                    font-weight: 600;
+                    text-decoration: none;
+                    white-space: nowrap;
+                    transition: opacity 0.2s;
+                  "
+                >
+                  GoodAI
+                  <svg
+                    style="width: 12px; height: 12px"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path
+                      d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"
+                    />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </a>
+              </label>
               <label class="field-group">
-                <span>平台</span>
-                <select v-model="settings.aiConfig.platform" class="text-input">
-                  <option value="siliconflow">siliconflow</option>
+                <span>模型选择</span>
+                <select v-model="settings.aiConfig.model" class="text-input">
+                  <option value="">
+                    系统默认 ({{ ui.systemConfig.default_model || "未配置" }})
+                  </option>
+                  <option
+                    v-for="model in availableModels"
+                    :key="model.model_id"
+                    :value="model.model_id"
+                  >
+                    {{ model.model_id }} - {{ model.description }}
+                  </option>
                 </select>
-              </label>
-              <label class="field-group">
-                <span>模型</span>
-                <input v-model="settings.aiConfig.model" class="text-input" type="text" />
-              </label>
-              <label class="field-group">
-                <span>主 Token</span>
-                <input v-model="settings.aiConfig.token" class="text-input" type="text" />
               </label>
             </div>
           </section>
 
           <section class="span-6 field-stack">
             <label class="field-group">
-              <span>查看详情 Prompt</span>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                "
+              >
+                <span>查看详情 Prompt</span>
+                <button
+                  type="button"
+                  style="
+                    font-size: 11px;
+                    padding: 1px 8px;
+                    border: 1px solid #ddd;
+                    border-radius: 3px;
+                    background: #f5f5f5;
+                    cursor: pointer;
+                    color: #666;
+                  "
+                  @click.stop.prevent="resetClickPrompt"
+                >
+                  重置
+                </button>
+              </div>
               <textarea
                 v-model="settings.aiConfig.clickPrompt"
                 class="text-area prompt-area"
@@ -327,34 +568,56 @@
                     : '请输入查看详情 Prompt'
                 "
               />
+              <span style="font-size: 10px; color: #999; line-height: 1.4">
+                使用${候选人信息}和${岗位信息}作为标记符，系统会自动替换为实际内容，如果你不清楚，请不要修改。这里一般也不需要改动。
+              </span>
             </label>
           </section>
         </div>
-       
       </div>
     </section>
 
-     <a
-          v-if="configAd"
-          class="ad-card config-ad"
-          :href="configAd.url"
-          :style="adStyle(configAd)"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <strong>{{ configAd.title }}</strong>
-          <span>{{ configAd.subtitle }}</span>
-        </a>
+    <a
+      v-if="configAd"
+      class="ad-card config-ad"
+      :href="configAd.url"
+      :style="adStyle(configAd)"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <strong>{{ configAd.title }}</strong>
+      <span>{{ configAd.subtitle }}</span>
+    </a>
 
     <footer class="action-bar floating-action-bar">
       <div class="site-links footer-links">
-        <a :href="ui.systemConfig.contact_url" target="_blank" rel="noreferrer">联系我</a>
-        <a :href="ui.systemConfig.donate_url" target="_blank" rel="noreferrer">打赏我</a>
-        <a :href="ui.systemConfig.website_url" target="_blank" rel="noreferrer">前往官网</a>
+        <a :href="ui.systemConfig.contact_url" target="_blank" rel="noreferrer"
+          >联系我</a
+        >
+        <a :href="ui.systemConfig.donate_url" target="_blank" rel="noreferrer"
+          >打赏我</a
+        >
+        <a :href="ui.systemConfig.website_url" target="_blank" rel="noreferrer"
+          >前往官网</a
+        >
       </div>
       <div class="header-actions footer-actions">
-        <button v-if="!ui.running" class="btn btn-primary btn-large" type="button" @click="startRun">开始运行</button>
-        <button v-else class="btn btn-danger btn-large" type="button" @click="stopRun">停止运行</button>
+        <button
+          v-if="!ui.running"
+          class="btn btn-primary btn-large"
+          type="button"
+          @click="startRun"
+        >
+          开始运行
+        </button>
+        <button
+          v-else
+          class="btn btn-danger btn-large"
+          type="button"
+          @click="stopRun"
+        >
+          停止运行
+        </button>
       </div>
     </footer>
   </main>
@@ -370,12 +633,14 @@ const {
   ui,
   logs,
   currentPosition,
+  availableModels,
   addPosition,
   removePosition,
   addKeyword,
   removeKeyword,
   bindAccount,
   requestAutoSave,
+  resetClickPrompt,
   startRun,
   stopRun,
 } = usePanelStore();
@@ -384,7 +649,9 @@ const ads = computed(() => {
   if (!Array.isArray(ui.systemConfig.ads)) {
     return [];
   }
-  return ui.systemConfig.ads.filter((item) => item && item.title && item.url).slice(0, 3);
+  return ui.systemConfig.ads
+    .filter((item) => item && item.title && item.url)
+    .slice(0, 3);
 });
 
 const topAd = computed(() => ads.value[0] || null);

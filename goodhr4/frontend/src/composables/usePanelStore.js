@@ -60,8 +60,12 @@ function parseVersionPart(part) {
 }
 
 function compareVersions(a, b) {
-  const left = String(a || "").replace(/^v/i, "").split(".");
-  const right = String(b || "").replace(/^v/i, "").split(".");
+  const left = String(a || "")
+    .replace(/^v/i, "")
+    .split(".");
+  const right = String(b || "")
+    .replace(/^v/i, "")
+    .split(".");
   const length = Math.max(left.length, right.length);
   for (let i = 0; i < length; i += 1) {
     const l = parseVersionPart(left[i]);
@@ -104,13 +108,13 @@ function normalizeSettings(payload) {
       ? payload.currentPosition
       : payload.currentPosition?.name || payload.currentPositionName || "";
 
+  const { ai_config, ai_expire_time, extra_settings, ...rest } = payload;
+
   return {
     ...base,
-    ...payload,
+    ...rest,
     currentPositionName: currentPositionName || base.currentPositionName,
-    positions: sanitizedPositions.length
-      ? sanitizedPositions
-      : base.positions,
+    positions: sanitizedPositions.length ? sanitizedPositions : base.positions,
     communicationConfig: {
       ...base.communicationConfig,
       ...(payload.communicationConfig || {}),
@@ -129,10 +133,25 @@ function normalizeSettings(payload) {
     },
     aiConfig: {
       ...base.aiConfig,
-      ...(payload.ai_config || payload.aiConfig || {}),
+      ...(ai_config || payload.aiConfig || {}),
     },
-    aiExpireTime: payload.ai_expire_time || payload.aiExpireTime || base.aiExpireTime,
+    aiExpireTime: ai_expire_time || payload.aiExpireTime || base.aiExpireTime,
   };
+}
+
+/**
+ * 使用系统默认值填充空的AI配置字段
+ */
+function fillDefaultsFromSystemConfig(settings, systemConfig) {
+  if (
+    !settings.aiConfig.clickPrompt?.trim() &&
+    systemConfig.default_click_prompt
+  ) {
+    settings.aiConfig.clickPrompt = systemConfig.default_click_prompt;
+  }
+  if (!settings.aiConfig.model && systemConfig.default_model) {
+    settings.aiConfig.model = "";
+  }
 }
 
 export function usePanelStore() {
@@ -155,6 +174,8 @@ export function usePanelStore() {
       share_url: "http://goodhr.58it.cn",
       announcement: ["免费版用于关键词筛选，AI版用于岗位说明智能判断。"],
       default_click_prompt: "",
+      default_model: "",
+      models: [],
       ads: [],
       update_info: {
         version: APP_VERSION,
@@ -170,7 +191,9 @@ export function usePanelStore() {
 
   const currentPosition = computed(() => {
     return (
-      settings.positions.find((item) => item.name === settings.currentPositionName) ||
+      settings.positions.find(
+        (item) => item.name === settings.currentPositionName,
+      ) ||
       settings.positions[0] ||
       null
     );
@@ -184,6 +207,32 @@ export function usePanelStore() {
     );
   });
 
+  const effectiveApiKey = computed(() => {
+    return settings.aiConfig.apiKey || "";
+  });
+
+  const effectiveModel = computed(() => {
+    return settings.aiConfig.model || ui.systemConfig.default_model || "";
+  });
+
+  const availableModels = computed(() => {
+    return Array.isArray(ui.systemConfig.models) ? ui.systemConfig.models : [];
+  });
+
+  function resetClickPrompt() {
+    const defaultPrompt = ui.systemConfig.default_click_prompt || "";
+    settings.aiConfig.clickPrompt = defaultPrompt;
+    pushLog("Prompt 已重置为系统默认", "success");
+  }
+
+  function validateClickPrompt(prompt) {
+    const value = (prompt || "").trim();
+    if (!value.includes("${候选人信息}") || !value.includes("${岗位信息}")) {
+      return false;
+    }
+    return true;
+  }
+
   function pushLog(message, type = "info") {
     logs.push({ type, message, time: now() });
     if (logs.length > 120) {
@@ -192,7 +241,8 @@ export function usePanelStore() {
   }
 
   function openUpdatePage() {
-    const url = ui.systemConfig.update_info?.download_url || ui.systemConfig.website_url;
+    const url =
+      ui.systemConfig.update_info?.download_url || ui.systemConfig.website_url;
     if (!url) {
       return;
     }
@@ -245,7 +295,9 @@ export function usePanelStore() {
     }
     if (
       settings.currentPositionName &&
-      settings.positions.some((item) => item.name === settings.currentPositionName)
+      settings.positions.some(
+        (item) => item.name === settings.currentPositionName,
+      )
     ) {
       return;
     }
@@ -271,14 +323,17 @@ export function usePanelStore() {
   }
 
   function removePosition(name) {
-    settings.positions = settings.positions.filter((item) => item.name !== name);
+    settings.positions = settings.positions.filter(
+      (item) => item.name !== name,
+    );
     ensureCurrentPosition();
     pushLog(`已删除岗位 ${name}`, "warning");
   }
 
   function addKeyword(kind) {
     if (!currentPosition.value) return;
-    const draft = kind === "include" ? ui.includeDraft.trim() : ui.excludeDraft.trim();
+    const draft =
+      kind === "include" ? ui.includeDraft.trim() : ui.excludeDraft.trim();
     if (!draft) return;
     const list =
       kind === "include"
@@ -286,7 +341,10 @@ export function usePanelStore() {
         : currentPosition.value.excludeKeywords;
     if (!list.includes(draft)) {
       list.push(draft);
-      pushLog(`已添加${kind === "include" ? "关键词" : "排除词"} ${draft}`, "success");
+      pushLog(
+        `已添加${kind === "include" ? "关键词" : "排除词"} ${draft}`,
+        "success",
+      );
     }
     if (kind === "include") ui.includeDraft = "";
     else ui.excludeDraft = "";
@@ -295,7 +353,9 @@ export function usePanelStore() {
   function removeKeyword(kind, keyword) {
     if (!currentPosition.value) return;
     const key = kind === "include" ? "keywords" : "excludeKeywords";
-    currentPosition.value[key] = currentPosition.value[key].filter((item) => item !== keyword);
+    currentPosition.value[key] = currentPosition.value[key].filter(
+      (item) => item !== keyword,
+    );
   }
 
   async function syncToLocalStorage() {
@@ -321,7 +381,8 @@ export function usePanelStore() {
       ai_expire_time: payload.aiExpireTime,
       selected_tab: payload.runMode,
       hr_assistant_identity: payload.identity,
-      hr_assistant_phone: payload.identityType === "phone" ? payload.identity : "",
+      hr_assistant_phone:
+        payload.identityType === "phone" ? payload.identity : "",
     });
   }
 
@@ -343,7 +404,10 @@ export function usePanelStore() {
       ui.identityInput = response.account.identifier;
       await syncAuthProfile();
       await syncToLocalStorage();
-      pushLog(`绑定成功，已自动${response.created ? "注册" : "同步"}账号`, "success");
+      pushLog(
+        `绑定成功，已自动${response.created ? "注册" : "同步"}账号`,
+        "success",
+      );
     } catch (error) {
       pushLog(error.message, "error");
     } finally {
@@ -365,6 +429,8 @@ export function usePanelStore() {
       await syncToLocalStorage();
       const effectiveSettings = deepClone(settings);
       effectiveSettings.aiConfig.clickPrompt = effectiveClickPrompt.value;
+      effectiveSettings.aiConfig.apiKey = effectiveApiKey.value;
+      effectiveSettings.aiConfig.model = effectiveModel.value;
       await pushSettingsToPage(effectiveSettings, currentPosition.value);
       if (!silent) {
         pushLog("配置已保存到后端", "success");
@@ -405,6 +471,7 @@ export function usePanelStore() {
     try {
       const response = await fetchSystemConfig("frontend");
       Object.assign(ui.systemConfig, response.config?.config_value || {});
+      fillDefaultsFromSystemConfig(settings, ui.systemConfig);
       showNativeUpdatePrompt();
     } catch (error) {
       pushLog(`系统配置加载失败: ${error.message}`, "warning");
@@ -416,17 +483,35 @@ export function usePanelStore() {
       pushLog("请先创建岗位", "error");
       return;
     }
-    if (settings.runMode === "ai" && !currentPosition.value.description.trim()) {
+    if (
+      settings.runMode === "ai" &&
+      !currentPosition.value.description.trim()
+    ) {
       pushLog("AI模式需要填写岗位说明", "error");
+      return;
+    }
+    if (
+      settings.runMode === "ai" &&
+      !validateClickPrompt(effectiveClickPrompt.value)
+    ) {
+      pushLog(
+        "⚠️ Prompt 必须包含 ${候选人信息} 和 ${岗位信息} 标记符，请检查或点击重置",
+        "error",
+      );
       return;
     }
     try {
       await syncToLocalStorage();
       const effectiveSettings = deepClone(settings);
       effectiveSettings.aiConfig.clickPrompt = effectiveClickPrompt.value;
+      effectiveSettings.aiConfig.apiKey = effectiveApiKey.value;
+      effectiveSettings.aiConfig.model = effectiveModel.value;
       await startRunOnPage(effectiveSettings, currentPosition.value);
       ui.running = true;
-      pushLog(`已启动${settings.runMode === "ai" ? "AI" : "关键词"}模式`, "success");
+      pushLog(
+        `已启动${settings.runMode === "ai" ? "AI" : "关键词"}模式`,
+        "success",
+      );
     } catch (error) {
       pushLog(`启动失败: ${error.message}`, "error");
     }
@@ -454,7 +539,7 @@ export function usePanelStore() {
       const authData = await registerAuthUser(email);
       const apiKey = authData.api_key?.key || "";
       if (apiKey) {
-        settings.aiConfig.token = apiKey;
+        settings.aiConfig.apiKey = apiKey;
       }
       const balance =
         authData.cny_balance ??
@@ -484,7 +569,9 @@ export function usePanelStore() {
     }
     settings.version = getManifestVersion();
     settings.identity = stored[IDENTITY_KEY] || settings.identity || "";
-    settings.identityType = settings.identity ? inferIdentityType(settings.identity) : "";
+    settings.identityType = settings.identity
+      ? inferIdentityType(settings.identity)
+      : "";
     ui.identityInput = settings.identity;
     ensureCurrentPosition();
     if (settings.identity) {
@@ -519,6 +606,9 @@ export function usePanelStore() {
     ui,
     logs,
     effectiveClickPrompt,
+    effectiveApiKey,
+    effectiveModel,
+    availableModels,
     currentPosition,
     addPosition,
     removePosition,
@@ -528,6 +618,8 @@ export function usePanelStore() {
     saveRemote,
     requestAutoSave,
     reloadRemote,
+    resetClickPrompt,
+    validateClickPrompt,
     startRun,
     stopRun,
   };

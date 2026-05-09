@@ -55,11 +55,10 @@ export const DEFAULT_SETTINGS = {
     greetingEnabled: true,
   },
   aiConfig: {
-    token: "",
-    model: "gpt-5.1-chat",
+    apiKey: "",
+    model: "",
     clickPrompt: "",
     contactPrompt: null,
-    platform: "siliconflow",
   },
   aiExpireTime: "2099-10-30",
   aiBalance: null,
