@@ -5,6 +5,8 @@ import {
   DEFAULT_LOGS,
   IDENTITY_KEY,
   STORAGE_KEY,
+  LOGS_KEY,
+  MAX_LOGS,
 } from "../constants/defaults.js";
 import {
   bindIdentity,
@@ -163,6 +165,7 @@ export function usePanelStore() {
     saving: false,
     running: false,
     optimizing: false,
+    activeView: "main",
     configTab: "runtime",
     configExpanded: false,
     identityInput: "",
@@ -238,9 +241,10 @@ export function usePanelStore() {
 
   function pushLog(message, type = "info") {
     logs.push({ type, message, time: now() });
-    if (logs.length > 120) {
-      logs.splice(0, logs.length - 120);
+    if (logs.length > MAX_LOGS) {
+      logs.splice(0, logs.length - MAX_LOGS);
     }
+    storageSet({ [LOGS_KEY]: logs.slice() }).catch((e) => console.error("保存日志失败:", e));
   }
 
   function openUpdatePage() {
@@ -511,6 +515,7 @@ export function usePanelStore() {
       effectiveSettings.aiConfig.model = effectiveModel.value;
       await startRunOnPage(effectiveSettings, currentPosition.value);
       ui.running = true;
+      ui.activeView = "logs";
       pushLog(
         `已启动${settings.runMode === "ai" ? "AI" : "关键词"}模式`,
         "success",
@@ -597,10 +602,13 @@ export function usePanelStore() {
   }
 
   onMounted(async () => {
-    const stored = await storageGet([STORAGE_KEY, IDENTITY_KEY]);
+    const stored = await storageGet([STORAGE_KEY, IDENTITY_KEY, LOGS_KEY]);
     await loadSystemConfig();
     if (stored[STORAGE_KEY]) {
       Object.assign(settings, normalizeSettings(stored[STORAGE_KEY]));
+    }
+    if (Array.isArray(stored[LOGS_KEY]) && stored[LOGS_KEY].length) {
+      logs.splice(0, logs.length, ...stored[LOGS_KEY]);
     }
     settings.version = getManifestVersion();
     settings.identity = stored[IDENTITY_KEY] || settings.identity || "";
@@ -664,6 +672,7 @@ export function usePanelStore() {
     resetClickPrompt,
     validateClickPrompt,
     optimizeJobDescription,
+    pushLog,
     startRun,
     stopRun,
   };
