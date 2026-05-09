@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  backend:
+    image: cosmtrek/air:latest
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - go-cache:/root/.cache/go-build
+      - go-pkg-mod:/go/pkg/mod
+    environment:
+      GOODHR4_ADDR: ":8787"
+      GOODHR4_DATABASE_URL: "postgres://postgres:postgres@host.docker.internal:5432/goodhr4?sslmode=disable"
+      GOODHR4_REDIS_ADDR: "host.docker.internal:6379"
+      GOODHR4_ALLOWED_ORIGIN: "*"
+      GOPROXY: "https://proxy.golang.org,direct"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["air", "-c", ".air.toml"]
+    ports:
+      - "8787:8787"
+    restart: unless-stopped
+
+volumes:
+  go-cache:
+  go-pkg-mod:

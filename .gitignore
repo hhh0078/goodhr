@@ -1,0 +1,6 @@
+.DS_Store
+goodhr-sidebar-vue/node_modules/
+goodhr-sidebar-vue/extension/
+goodhr4/frontend/node_modules/
+goodhr4/site/node_modules/
+goodhr4/**/.next/
