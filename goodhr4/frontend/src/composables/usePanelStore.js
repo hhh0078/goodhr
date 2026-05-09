@@ -13,6 +13,7 @@ import {
   registerAuthUser,
   saveSettings,
 } from "../services/api.js";
+import { chatWithAI, configureAI } from "../services/ai.js";
 import {
   attachRuntimeLogListener,
   getManifestVersion,
@@ -161,6 +162,7 @@ export function usePanelStore() {
     binding: false,
     saving: false,
     running: false,
+    optimizing: false,
     configTab: "runtime",
     configExpanded: false,
     identityInput: "",
@@ -175,6 +177,7 @@ export function usePanelStore() {
       announcement: ["免费版用于关键词筛选，AI版用于岗位说明智能判断。"],
       default_click_prompt: "",
       default_model: "",
+      optimize_prompt: "",
       models: [],
       ads: [],
       update_info: {
@@ -527,6 +530,38 @@ export function usePanelStore() {
     pushLog("运行已停止", "warning");
   }
 
+  async function optimizeJobDescription() {
+    if (!currentPosition.value) {
+      pushLog("请先选择岗位", "error");
+      return;
+    }
+    const description = currentPosition.value.description?.trim();
+    if (!description) {
+      pushLog("请先填写岗位说明", "warning");
+      return;
+    }
+
+    ui.optimizing = true;
+    pushLog("正在使用AI优化岗位说明...", "info");
+
+    try {
+      const optimizePrompt = (ui.systemConfig.optimize_prompt || "").replace(
+        /\$\{岗位要求\}/g,
+        description,
+      );
+
+      const messages = [{ role: "user", content: optimizePrompt }];
+
+      const result = await chatWithAI({ messages, temperature: 0.7 });
+      currentPosition.value.description = result.trim();
+      pushLog("岗位说明优化完成", "success");
+    } catch (error) {
+      pushLog(`AI优化失败: ${error.message}`, "error");
+    } finally {
+      ui.optimizing = false;
+    }
+  }
+
   let detachLogs = () => {};
 
   async function syncAuthProfile(options = {}) {
@@ -601,6 +636,14 @@ export function usePanelStore() {
     { deep: true },
   );
 
+  watch(
+    [effectiveApiKey, effectiveModel],
+    ([apiKey, model]) => {
+      configureAI({ apiKey, model });
+    },
+    { immediate: true },
+  );
+
   return {
     settings,
     ui,
@@ -620,6 +663,7 @@ export function usePanelStore() {
     reloadRemote,
     resetClickPrompt,
     validateClickPrompt,
+    optimizeJobDescription,
     startRun,
     stopRun,
   };

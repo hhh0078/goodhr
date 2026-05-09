@@ -6,7 +6,7 @@
     <div class="hero-main">
       <div>
         <h1 style="margin: 0px; margin-bottom: 10px; text-align: center">
-          goodHR {{ APP_VERSION }}
+          GoodHR {{ APP_VERSION }}
         </h1>
         <div
           v-for="value in ui.systemConfig.announcement"
@@ -92,7 +92,7 @@
         @click="ui.configExpanded = !ui.configExpanded"
       >
         <div>
-          <h3>运行参数/AI配置</h3>
+          <h2 style="margin: 0px">运行参数/AI配置</h2>
         </div>
         <span class="config-arrow">{{
           ui.configExpanded ? "收起" : "展开"
@@ -618,7 +618,53 @@
           </div>
 
           <div v-if="currentPosition" class="field-group">
-            <label>岗位说明</label>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+              "
+            >
+              <label style="margin: 0">岗位说明</label>
+              <button
+                type="button"
+                :disabled="ui.optimizing"
+                @click.stop.prevent="optimizeJobDescription"
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 4px;
+                  padding: 3px 10px;
+                  border: 1px solid var(--line-strong);
+                  border-radius: 8px;
+                  background: var(--surface);
+                  color: var(--text);
+                  font-size: 12px;
+                  font-weight: 500;
+                  cursor: pointer;
+                  white-space: nowrap;
+                  transition: opacity 0.2s;
+                "
+                :style="{
+                  opacity: ui.optimizing ? 0.6 : 1,
+                  cursor: ui.optimizing ? 'not-allowed' : 'pointer',
+                }"
+              >
+                <svg
+                  v-if="!ui.optimizing"
+                  style="width: 12px; height: 12px"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+                {{ ui.optimizing ? "AI优化中..." : "AI优化" }}
+              </button>
+            </div>
             <textarea
               v-model="currentPosition.description"
               class="text-area ai-compact"
@@ -715,6 +761,7 @@ const {
   bindAccount,
   requestAutoSave,
   resetClickPrompt,
+  optimizeJobDescription,
   startRun,
   stopRun,
 } = usePanelStore();
