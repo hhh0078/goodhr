@@ -14,8 +14,47 @@
 
 import { sendMessageToActiveTab } from "../services/extension.js";
 import { resolveStrategy } from "./strategies.js";
+import type { Strategy, FilterResult } from "./strategies.js";
+import type { AIConfig } from "../constants/defaults.js";
+
+/** 运行参数 */
+export interface RunData {
+  matchLimit: number;
+  scrollDelayMin: number;
+  scrollDelayMax: number;
+  clickFrequency: number;
+  enableSound: boolean;
+  communicationEnabled?: boolean;
+  communicationConfig?: any;
+  positionName?: string;
+  jobDescription?: string;
+  aiConfig?: AIConfig;
+  keywords?: string[];
+  excludeKeywords?: string[];
+  isAndMode?: boolean;
+}
+
+/** 平台信息 */
+export interface ParserInfo {
+  name: string;
+  [key: string]: any;
+}
+
+/** 日志回调类型 */
+export type LogCallback = (message: string, type: string) => void;
 
 class Orchestrator {
+  isRunning: boolean;
+  strategy: Strategy | null;
+  matchCount: number;
+  matchLimit: number;
+  scrollDelayMin: number;
+  scrollDelayMax: number;
+  enableSound: boolean;
+  onLog: LogCallback | null;
+  aiConfig?: AIConfig;
+  jobDescription?: string;
+
   constructor() {
     this.isRunning = false;
     this.strategy = null;
@@ -29,11 +68,11 @@ class Orchestrator {
 
   /**
    * 启动免费模式
-   * @param {object} data - 运行参数
-   * @param {object} parserInfo - 平台信息 { name }
-   * @param {function} onLog - 日志回调
+   * @param data - 运行参数
+   * @param parserInfo - 平台信息
+   * @param onLog - 日志回调
    */
-  async startFreeMode(data, parserInfo, onLog) {
+  async startFreeMode(data: RunData, parserInfo: ParserInfo, onLog: LogCallback): Promise<void> {
     if (this.isRunning) return;
 
     this.strategy = resolveStrategy(parserInfo.name, false);
@@ -51,11 +90,11 @@ class Orchestrator {
 
   /**
    * 启动AI模式
-   * @param {object} data - 运行参数
-   * @param {object} parserInfo - 平台信息 { name }
-   * @param {function} onLog - 日志回调
+   * @param data - 运行参数
+   * @param parserInfo - 平台信息
+   * @param onLog - 日志回调
    */
-  async startAIMode(data, parserInfo, onLog) {
+  async startAIMode(data: RunData, parserInfo: ParserInfo, onLog: LogCallback): Promise<void> {
     if (this.isRunning) return;
 
     if (!data.jobDescription || !data.jobDescription.trim()) {
@@ -81,7 +120,7 @@ class Orchestrator {
   /**
    * 停止主循环
    */
-  stop() {
+  stop(): void {
     this.isRunning = false;
     this.matchCount = 0;
     this._sendCommand({ action: "STOP_SCROLL" });
@@ -90,22 +129,22 @@ class Orchestrator {
 
   /**
    * 发送日志
-   * @param {string} message - 日志内容
-   * @param {string} type - 日志类型
+   * @param message - 日志内容
+   * @param type - 日志类型
    */
-  _log(message, type = "info") {
+  _log(message: string, type = "info"): void {
     if (this.onLog) this.onLog(message, type);
   }
 
   /**
    * 向注入侧发送指令并等待响应
-   * @param {object} command - 指令对象
-   * @returns {Promise<any>} 注入侧的响应
+   * @param command - 指令对象
+   * @returns 注入侧的响应
    */
-  async _sendCommand(command) {
+  async _sendCommand(command: any): Promise<any> {
     try {
       return await sendMessageToActiveTab(command);
-    } catch (error) {
+    } catch (error: any) {
       this._log(`指令发送失败: ${command.action} - ${error.message}`, "error");
       return null;
     }
@@ -114,7 +153,7 @@ class Orchestrator {
   /**
    * 随机等待（秒级，模拟人类间隔）
    */
-  async _waitRandomDelay() {
+  async _waitRandomDelay(): Promise<void> {
     const delay = Math.floor(
       Math.random() * (this.scrollDelayMax - this.scrollDelayMin + 1) +
         this.scrollDelayMin,
@@ -126,32 +165,22 @@ class Orchestrator {
    * 主循环：每轮完整地走一遍 "被动检测 → 扫描 → 筛选 → 行动"
    * 所有逻辑平铺在一个方法内，按顺序阅读即可理解完整流程
    */
-  async _runLoop() {
+  async _runLoop(): Promise<void> {
     while (this.isRunning) {
       try {
-        // ── 前置检查：是否达到限制 ──
         if (this.matchCount >= this.matchLimit) {
           this._log(`已达到匹配限制 ${this.matchLimit}，自动停止`, "warning");
           this.stop();
           return;
         }
 
-        // ══════════════════════════════════════════
-        // 第一步：检测被动消息（预留，暂不实现）
-        // ══════════════════════════════════════════
         const messageCheck = await this._sendCommand({
           action: "CHECK_NEW_MESSAGE",
         });
         if (messageCheck?.hasMessage) {
-          // TODO: 被动回复流程
-          // 1. 点击消息入口 → 读历史 → AI生成回复 → 发送
-          // 2. 返回候选人列表页
           continue;
         }
 
-        // ══════════════════════════════════════════
-        // 第二步：扫描 — 找下一个候选人
-        // ══════════════════════════════════════════
         const scanResult = await this._sendCommand({
           action: "FIND_NEXT_CANDIDATE",
         });
@@ -162,12 +191,9 @@ class Orchestrator {
         }
 
         const candidate = scanResult.candidate;
-        const strategy = this.strategy;
+        const strategy = this.strategy!;
         const basicInfo = candidate.info || "";
 
-        // ══════════════════════════════════════════
-        // 第三步：粗筛 — 看卡片基本信息，决定是否值得打开详情
-        // ══════════════════════════════════════════
         let shouldGreet = false;
         let greetReason = "";
 
@@ -175,11 +201,10 @@ class Orchestrator {
           const coarse = await strategy.coarseFilter(this, basicInfo);
 
           if (!coarse.pass) {
-            // 粗筛未通过，尝试兜底（如免费模式的关键词匹配）
             let fallbackPass = false;
             try {
               fallbackPass = await strategy.fallbackFilter(this, basicInfo);
-            } catch (error) {
+            } catch (error: any) {
               this._log(`兜底筛选异常: ${error.message}`, "error");
             }
 
@@ -200,9 +225,6 @@ class Orchestrator {
             continue;
           }
 
-          // ══════════════════════════════════════════
-          // 第四步：获取详情 — 粗筛通过后，打开详情页获取完整信息
-          // ══════════════════════════════════════════
           let detailedInfo = basicInfo;
           let detailOpened = false;
 
@@ -218,14 +240,11 @@ class Orchestrator {
                 await this._waitRandomDelay();
                 detailedInfo = detailResponse.detailedInfo || basicInfo;
               }
-            } catch (error) {
+            } catch (error: any) {
               this._log(`打开详情页异常: ${error.message}`, "error");
             }
           }
 
-          // ══════════════════════════════════════════
-          // 第五步：精筛 — 看完整信息，决定是否打招呼
-          // ══════════════════════════════════════════
           try {
             const fine = await strategy.fineFilter(this, detailedInfo);
 
@@ -242,7 +261,7 @@ class Orchestrator {
                 },
               });
             }
-          } catch (error) {
+          } catch (error: any) {
             this._log(`精筛异常: ${error.message}`, "error");
             await this._sendCommand({
               action: "MARK_ELEMENT",
@@ -254,24 +273,18 @@ class Orchestrator {
             });
           }
 
-          // ══════════════════════════════════════════
-          // 第六步：关闭详情页（如果打开过）
-          // ══════════════════════════════════════════
           if (detailOpened) {
             try {
               await this._sendCommand({ action: "CLOSE_DETAIL" });
               await new Promise((resolve) => setTimeout(resolve, 500));
-            } catch (error) {
+            } catch (error: any) {
               this._log(`关闭详情页异常: ${error.message}`, "error");
             }
           }
-        } catch (error) {
+        } catch (error: any) {
           this._log(`筛选流程异常: ${error.message}`, "error");
         }
 
-        // ══════════════════════════════════════════
-        // 第七步：行动 — 打招呼 + 索要联系方式 + 通知
-        // ══════════════════════════════════════════
         if (!shouldGreet) continue;
 
         if (this.matchCount >= this.matchLimit) {
@@ -280,7 +293,6 @@ class Orchestrator {
           return;
         }
 
-        // 标记为已匹配
         await this._sendCommand({
           action: "MARK_ELEMENT",
           data: {
@@ -290,7 +302,6 @@ class Orchestrator {
           },
         });
 
-        // 打招呼
         let greetSuccess = false;
         try {
           const greetResult = await this._sendCommand({
@@ -298,37 +309,34 @@ class Orchestrator {
             data: { elementId: candidate.elementId },
           });
           greetSuccess = greetResult?.clicked || false;
-        } catch (error) {
+        } catch (error: any) {
           this._log(`打招呼异常: ${error.message}`, "error");
         }
 
         if (!greetSuccess) continue;
 
-        // 索要联系方式
         try {
           await this._sendCommand({
             action: "COLLECT_CONTACT",
             data: { elementId: candidate.elementId },
           });
-        } catch (error) {
+        } catch (error: any) {
           this._log(`索要联系方式异常: ${error.message}`, "error");
         }
 
-        // 计数 + 日志
         this.matchCount++;
         this._log(
           `打招呼成功 ${this.matchCount}/${this.matchLimit} - ${candidate.name || "未知"}`,
           "success",
         );
 
-        // 播放提示音
         if (this.enableSound) {
           await this._sendCommand({
             action: "PLAY_SOUND",
             data: { sound: "notification2" },
           });
         }
-      } catch (error) {
+      } catch (error: any) {
         this._log(`主循环异常: ${error.message}`, "error");
       }
     }
@@ -339,28 +347,28 @@ const orchestrator = new Orchestrator();
 
 /**
  * 启动免费模式运行
- * @param {object} data - 运行参数
- * @param {object} parserInfo - 平台信息
- * @param {function} onLog - 日志回调
+ * @param data - 运行参数
+ * @param parserInfo - 平台信息
+ * @param onLog - 日志回调
  */
-export async function startFreeRun(data, parserInfo, onLog) {
+export async function startFreeRun(data: RunData, parserInfo: ParserInfo, onLog: LogCallback): Promise<void> {
   await orchestrator.startFreeMode(data, parserInfo, onLog);
 }
 
 /**
  * 启动AI模式运行
- * @param {object} data - 运行参数
- * @param {object} parserInfo - 平台信息
- * @param {function} onLog - 日志回调
+ * @param data - 运行参数
+ * @param parserInfo - 平台信息
+ * @param onLog - 日志回调
  */
-export async function startAIRun(data, parserInfo, onLog) {
+export async function startAIRun(data: RunData, parserInfo: ParserInfo, onLog: LogCallback): Promise<void> {
   await orchestrator.startAIMode(data, parserInfo, onLog);
 }
 
 /**
  * 停止运行
  */
-export function stopRun() {
+export function stopRun(): void {
   orchestrator.stop();
 }
 

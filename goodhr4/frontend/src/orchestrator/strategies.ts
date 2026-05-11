@@ -12,15 +12,24 @@
 
 import { requestAIDecision } from "./ai.js";
 
-/**
- * 默认策略：标准两阶段筛选（粗筛+精筛都过AI）
- */
-const DEFAULT_STRATEGY = {
+/** 筛选结果 */
+export interface FilterResult {
+  pass: boolean;
+  reason: string;
+}
+
+/** 策略对象接口 */
+export interface Strategy {
+  coarseFilter: (ctx: any, candidateInfo: string) => Promise<FilterResult>;
+  fineFilter: (ctx: any, candidateInfo: string) => Promise<FilterResult>;
+  fallbackFilter: (ctx: any, candidateInfo: string) => Promise<boolean>;
+  needsDetailPage: () => boolean;
+}
+
+/** 默认策略：标准两阶段筛选（粗筛+精筛都过AI） */
+const DEFAULT_STRATEGY: Strategy = {
   /**
    * 粗筛：基于卡片基本信息，决定是否值得打开详情
-   * @param {object} ctx - 流程管理器实例
-   * @param {string} candidateInfo - 候选人基本信息文本
-   * @returns {Promise<{pass: boolean, reason: string}>}
    */
   async coarseFilter(ctx, candidateInfo) {
     const result = await requestAIDecision(ctx, candidateInfo);
@@ -32,9 +41,6 @@ const DEFAULT_STRATEGY = {
 
   /**
    * 精筛：打开详情后，基于完整信息决定是否打招呼
-   * @param {object} ctx - 流程管理器实例
-   * @param {string} candidateInfo - 候选人完整信息文本
-   * @returns {Promise<{pass: boolean, reason: string}>}
    */
   async fineFilter(ctx, candidateInfo) {
     const result = await requestAIDecision(ctx, candidateInfo);
@@ -46,7 +52,6 @@ const DEFAULT_STRATEGY = {
 
   /**
    * 粗筛未通过时的兜底决策
-   * @returns {Promise<boolean>}
    */
   async fallbackFilter() {
     return false;
@@ -54,17 +59,14 @@ const DEFAULT_STRATEGY = {
 
   /**
    * 是否需要打开详情页
-   * @returns {boolean}
    */
   needsDetailPage() {
     return true;
   },
 };
 
-/**
- * 免费模式策略：概率粗筛 + 关键词精筛
- */
-const FREE_STRATEGY = {
+/** 免费模式策略：概率粗筛 + 关键词精筛 */
+const FREE_STRATEGY: Strategy = {
   async coarseFilter(ctx, candidateInfo) {
     const result = await ctx._sendCommand({ action: "SHOULD_CLICK" });
     const pass = result?.shouldClick || false;
@@ -95,11 +97,8 @@ const FREE_STRATEGY = {
   },
 };
 
-/**
- * Boss(AI)策略：AI粗筛后直接打招呼，跳过精筛
- * Boss通过API拦截已获取完整信息，不需要二次AI
- */
-const BOSS_AI_STRATEGY = {
+/** Boss(AI)策略：AI粗筛后直接打招呼，跳过精筛 */
+const BOSS_AI_STRATEGY: Strategy = {
   async coarseFilter(ctx, candidateInfo) {
     const result = await requestAIDecision(ctx, candidateInfo);
     return {
@@ -121,10 +120,8 @@ const BOSS_AI_STRATEGY = {
   },
 };
 
-/**
- * 58同城策略：不做筛选，直接打招呼
- */
-const EMPLOYER58_STRATEGY = {
+/** 58同城策略：不做筛选，直接打招呼 */
+const EMPLOYER58_STRATEGY: Strategy = {
   async coarseFilter() {
     return { pass: true, reason: "58无法筛选" };
   },
@@ -144,11 +141,11 @@ const EMPLOYER58_STRATEGY = {
 
 /**
  * 根据平台名和模式选择策略
- * @param {string} parserName - 平台标识
- * @param {boolean} aiMode - 是否AI模式
- * @returns {object} 策略对象
+ * @param parserName - 平台标识
+ * @param aiMode - 是否AI模式
+ * @returns 策略对象
  */
-export function resolveStrategy(parserName, aiMode) {
+export function resolveStrategy(parserName: string, aiMode: boolean): Strategy {
   if (parserName === "employer58") return EMPLOYER58_STRATEGY;
   if (parserName === "boos" && aiMode) return BOSS_AI_STRATEGY;
   if (aiMode) return DEFAULT_STRATEGY;

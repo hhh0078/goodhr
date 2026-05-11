@@ -10,14 +10,35 @@
 
 import { chatWithAI } from "../services/ai.js";
 
+/** AI 决策结果 */
+export interface AIDecisionResult {
+  isok: boolean;
+  msg: string;
+  cost: string;
+}
+
+/** 流程上下文（Orchestrator 实例的子集） */
+export interface OrchestratorContext {
+  aiConfig: {
+    clickPrompt: string;
+    [key: string]: any;
+  };
+  jobDescription: string;
+  [key: string]: any;
+}
+
 /**
  * 构建 AI 筛选决策的消息列表
- * @param {string} clickPrompt - 粗筛提示词模板
- * @param {string} jobDescription - 岗位说明
- * @param {string} candidateInfo - 候选人信息文本
- * @returns {Array<{role: string, content: string}>} 消息列表
+ * @param clickPrompt - 粗筛提示词模板
+ * @param jobDescription - 岗位说明
+ * @param candidateInfo - 候选人信息文本
+ * @returns 消息列表
  */
-function buildFilterMessages(clickPrompt, jobDescription, candidateInfo) {
+function buildFilterMessages(
+  clickPrompt: string,
+  jobDescription: string,
+  candidateInfo: string,
+): Array<{ role: string; content: string }> {
   const systemPrompt = clickPrompt
     ? clickPrompt.replace(/\$\{岗位要求\}/g, jobDescription)
     : `你是一个专业的HR助手。请根据以下岗位要求判断候选人是否匹配。
@@ -37,10 +58,10 @@ ${jobDescription}
 
 /**
  * 解析 AI 返回的决策结果
- * @param {string} responseText - AI 原始返回文本
- * @returns {{isok: boolean, msg: string, cost: string}}
+ * @param responseText - AI 原始返回文本
+ * @returns 解析后的决策结果
  */
-function parseDecisionResponse(responseText) {
+function parseDecisionResponse(responseText: string): AIDecisionResult {
   try {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
@@ -60,11 +81,11 @@ function parseDecisionResponse(responseText) {
 
 /**
  * 请求 AI 做出筛选决策
- * @param {object} ctx - 流程管理器实例（读取 aiConfig、jobDescription 等）
- * @param {string} candidateInfo - 候选人信息文本
- * @returns {Promise<{isok: boolean, msg: string, cost: string}>}
+ * @param ctx - 流程管理器实例（读取 aiConfig、jobDescription 等）
+ * @param candidateInfo - 候选人信息文本
+ * @returns AI 决策结果
  */
-export async function requestAIDecision(ctx, candidateInfo) {
+export async function requestAIDecision(ctx: OrchestratorContext, candidateInfo: string): Promise<AIDecisionResult> {
   const aiConfig = ctx.aiConfig || {};
   const jobDescription = ctx.jobDescription || "";
 
@@ -81,7 +102,7 @@ export async function requestAIDecision(ctx, candidateInfo) {
     });
 
     return parseDecisionResponse(responseText);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[ai] AI决策异常:", error);
     return { isok: false, msg: `AI决策异常: ${error.message}`, cost: "0" };
   }

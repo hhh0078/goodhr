@@ -1,3 +1,7 @@
+/**
+ * 默认设置和常量定义
+ */
+
 import { deepClone } from "../utils/clone.js";
 import { APP_VERSION } from "./appVersion.js";
 
@@ -27,7 +31,119 @@ export const IDENTITY_KEY = "goodhr4_identity";
 export const LOGS_KEY = "goodhr4_logs";
 export const MAX_LOGS = 100;
 
-export const DEFAULT_SETTINGS = {
+/** 通信配置 */
+export interface CommunicationConfig {
+  collectPhone: boolean;
+  collectWechat: boolean;
+  collectResume: boolean;
+}
+
+/** 公司信息 */
+export interface CompanyInfo {
+  content: string;
+}
+
+/** 职位额外信息 */
+export interface JobInfo {
+  extraInfo: string;
+}
+
+/** 运行模式配置 */
+export interface RunModeConfig {
+  communicationEnabled: boolean;
+  greetingEnabled: boolean;
+}
+
+/** AI配置 */
+export interface AIConfig {
+  apiKey: string;
+  model: string;
+  clickPrompt: string;
+  contactPrompt: string | null;
+}
+
+/** 岗位 */
+export interface Position {
+  name: string;
+  keywords: string[];
+  excludeKeywords: string[];
+  description: string;
+}
+
+/** 系统更新信息 */
+export interface UpdateInfo {
+  version: string;
+  content: string;
+  force_update: boolean;
+  download_url?: string;
+}
+
+/** 系统配置（从服务端拉取） */
+export interface SystemConfig {
+  website_url: string;
+  contact_url: string;
+  donate_url: string;
+  share_url: string;
+  announcement: string[];
+  default_click_prompt: string;
+  default_model: string;
+  optimize_prompt: string;
+  models: ModelItem[];
+  ads: AdItem[];
+  update_info: UpdateInfo;
+}
+
+/** 模型选项 */
+export interface ModelItem {
+  model_id: string;
+  description: string;
+}
+
+/** 广告项 */
+export interface AdItem {
+  title: string;
+  url: string;
+  subtitle?: string;
+  background_color?: string;
+  text_color?: string;
+  border_color?: string;
+}
+
+/** 日志条目 */
+export interface LogEntry {
+  type: "info" | "success" | "warning" | "error";
+  message: string;
+  time: string;
+}
+
+/** 应用设置 */
+export interface Settings {
+  version: string;
+  runMode: "free" | "ai";
+  currentSection: string;
+  identity: string;
+  identityType: string;
+  positions: Position[];
+  currentPositionName: string;
+  isAndMode: boolean;
+  matchLimit: number;
+  enableSound: boolean;
+  scrollDelayMin: number;
+  scrollDelayMax: number;
+  clickFrequency: number;
+  communicationConfig: CommunicationConfig;
+  companyInfo: CompanyInfo;
+  jobInfo: JobInfo;
+  runModeConfig: RunModeConfig;
+  aiConfig: AIConfig;
+  aiExpireTime: string;
+  aiBalance: number | null;
+  aiBalanceText: string;
+  authUser: any;
+  authApiKey: string | null;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
   version: APP_VERSION,
   runMode: "ai",
   currentSection: "overview",
@@ -69,11 +185,13 @@ export const DEFAULT_SETTINGS = {
   authApiKey: null,
 };
 
-export function createDefaultSettings() {
+/** 创建默认设置的深拷贝 */
+export function createDefaultSettings(): Settings {
   return deepClone(DEFAULT_SETTINGS);
 }
 
-export function createEmptyPosition(name = "") {
+/** 创建空白岗位 */
+export function createEmptyPosition(name = ""): Position {
   return {
     name,
     keywords: [],
@@ -82,7 +200,7 @@ export function createEmptyPosition(name = "") {
   };
 }
 
-export const DEFAULT_LOGS = [
+export const DEFAULT_LOGS: LogEntry[] = [
   {
     type: "info",
     message: "系统待机，等待绑定或启动。",

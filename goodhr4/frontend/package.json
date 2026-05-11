@@ -11,7 +11,10 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.42",
     "@vitejs/plugin-vue": "^5.2.1",
-    "vite": "^5.4.12"
+    "typescript": "^6.0.3",
+    "vite": "^5.4.12",
+    "vue-tsc": "^3.2.8"
   }
 }

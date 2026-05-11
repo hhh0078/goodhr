@@ -1,25 +1,33 @@
+/**
+ * Chrome 扩展 API 封装
+ * 提供存储、标签页、消息通信等功能的统一接口
+ */
+
 import { deepClone } from "../utils/clone.js";
 import { APP_VERSION } from "../constants/appVersion.js";
+import type { Settings, Position } from "../constants/defaults.js";
 
-function hasChrome() {
+function hasChrome(): boolean {
   return typeof chrome !== "undefined";
 }
 
-export function getManifestVersion() {
+/** 获取扩展版本号 */
+export function getManifestVersion(): string {
   if (hasChrome() && chrome.runtime?.getManifest) {
     return chrome.runtime.getManifest().version;
   }
   return APP_VERSION;
 }
 
-export async function storageGet(keys) {
+/** 从 chrome.storage 或 localStorage 读取数据 */
+export async function storageGet(keys: string | string[]): Promise<Record<string, any>> {
   if (hasChrome() && chrome.storage?.local) {
     return chrome.storage.local.get(keys);
   }
   const raw = globalThis.localStorage?.getItem("__goodhr4_fallback__");
   const parsed = raw ? JSON.parse(raw) : {};
   if (Array.isArray(keys)) {
-    return keys.reduce((acc, key) => {
+    return keys.reduce<Record<string, any>>((acc, key) => {
       acc[key] = parsed[key];
       return acc;
     }, {});
@@ -27,7 +35,8 @@ export async function storageGet(keys) {
   return { [keys]: parsed[keys] };
 }
 
-export async function storageSet(payload) {
+/** 写入 chrome.storage 或 localStorage */
+export async function storageSet(payload: Record<string, any>): Promise<void> {
   if (hasChrome() && chrome.storage?.local) {
     await chrome.storage.local.set(payload);
     return;
@@ -40,13 +49,15 @@ export async function storageSet(payload) {
   );
 }
 
-export async function queryActiveTab() {
+/** 查询当前活跃标签页 */
+export async function queryActiveTab(): Promise<chrome.tabs.Tab | null> {
   if (!hasChrome() || !chrome.tabs?.query) return null;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0] || null;
 }
 
-export async function sendMessageToActiveTab(message) {
+/** 向当前活跃标签页发送消息 */
+export async function sendMessageToActiveTab(message: any): Promise<any> {
   if (!hasChrome() || !chrome.tabs?.sendMessage) {
     return { status: "mock" };
   }
@@ -57,7 +68,8 @@ export async function sendMessageToActiveTab(message) {
   return chrome.tabs.sendMessage(tab.id, message);
 }
 
-export async function startRunOnPage(settings, currentPosition) {
+/** 启动页面端运行 */
+export async function startRunOnPage(settings: Settings, currentPosition: Position): Promise<any> {
   const shared = {
     matchLimit: settings.matchLimit,
     scrollDelayMin: settings.scrollDelayMin,
@@ -91,11 +103,13 @@ export async function startRunOnPage(settings, currentPosition) {
   });
 }
 
-export async function stopRunOnPage() {
+/** 停止页面端运行 */
+export async function stopRunOnPage(): Promise<any> {
   return sendMessageToActiveTab({ action: "STOP_SCROLL" });
 }
 
-export async function pushSettingsToPage(settings, currentPosition) {
+/** 推送设置更新到页面端 */
+export async function pushSettingsToPage(settings: Settings, currentPosition: Position): Promise<any> {
   return sendMessageToActiveTab({
     action: "SETTINGS_UPDATED",
     data: {
@@ -111,11 +125,12 @@ export async function pushSettingsToPage(settings, currentPosition) {
   }).catch(() => null);
 }
 
-export function attachRuntimeLogListener(onMessage) {
+/** 注册运行时日志监听器，返回取消监听函数 */
+export function attachRuntimeLogListener(onMessage: (data: any) => void): () => void {
   if (!hasChrome() || !chrome.runtime?.onMessage) {
     return () => {};
   }
-  const handler = (message) => {
+  const handler = (message: any) => {
     if (message?.type === "LOG_MESSAGE" && message.data) {
       onMessage(message.data);
     }
