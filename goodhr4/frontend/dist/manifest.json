@@ -21,9 +21,24 @@
     "*://employer.58.com/*",
     "*://h.liepin.com/*"
   ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.zhipin.com/*",
+        "*://*.lagou.com/*",
+        "*://*.zhaopin.com/*",
+        "*://*.liepin.com/*",
+        "*://h.liepin.com/*",
+        "*://*.58.com/*",
+        "*://employer.58.com/*"
+      ],
+      "js": ["content_scripts/common.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "web_accessible_resources": [
     {
-      "resources": [],
+      "resources": ["sounds/*"],
       "matches": ["<all_urls>"]
     }
   ],

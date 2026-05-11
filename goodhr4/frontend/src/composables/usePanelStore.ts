@@ -34,13 +34,17 @@ import {
   attachRuntimeLogListener,
   getManifestVersion,
   pushSettingsToPage,
-  startRunOnPage,
-  stopRunOnPage,
   storageGet,
   storageSet,
 } from "../services/extension.js";
 import { deepClone } from "../utils/clone.js";
 import { APP_VERSION } from "../constants/appVersion.js";
+import {
+  startFreeRun,
+  startAIRun,
+  stopRun as stopOrchestrator,
+} from "../orchestrator/orchestrator.js";
+import type { RunData, LogCallback } from "../orchestrator/orchestrator.js";
 
 /** 获取当前时间的格式化字符串 */
 function now(): string {
@@ -291,7 +295,10 @@ function validateClickPrompt(prompt: string): boolean {
 }
 
 /** 添加一条日志 */
-function pushLog(message: string, type: LogEntry["type"] = "info"): void {
+export function pushLog(
+  message: string,
+  type: LogEntry["type"] = "info",
+): void {
   logs.push({ type, message, time: now() });
   if (logs.length > MAX_LOGS) {
     logs.splice(0, logs.length - MAX_LOGS);
@@ -550,6 +557,19 @@ async function loadSystemConfig(): Promise<void> {
   }
 }
 
+/**
+ * 设置运行状态的公共方法
+ * 供 orchestrator 等外部模块调用，控制按钮和界面切换
+ * @param running - true 表示运行中，false 表示已停止
+ * @param switchToLogs - 运行时是否自动切换到日志页，默认 true
+ */
+function setRunning(running: boolean, switchToLogs = true): void {
+  ui.running = running;
+  if (running && switchToLogs) {
+    ui.activeView = "logs";
+  }
+}
+
 /** 启动运行 */
 async function startRunAction(): Promise<void> {
   if (!currentPosition.value) {
@@ -572,30 +592,46 @@ async function startRunAction(): Promise<void> {
   }
   try {
     await syncToLocalStorage();
-    const effectiveSettings = deepClone(settings);
-    effectiveSettings.aiConfig.clickPrompt = effectiveClickPrompt.value;
-    effectiveSettings.aiConfig.apiKey = effectiveApiKey.value;
-    effectiveSettings.aiConfig.model = effectiveModel.value;
-    await startRunOnPage(effectiveSettings, currentPosition.value!);
-    ui.running = true;
-    ui.activeView = "logs";
-    pushLog(
-      `已启动${settings.runMode === "ai" ? "AI" : "关键词"}模式`,
-      "success",
-    );
+    setRunning(true);
+
+    const runData: RunData = {
+      matchLimit: settings.matchLimit,
+      scrollDelayMin: settings.scrollDelayMin,
+      scrollDelayMax: settings.scrollDelayMax,
+      clickFrequency: settings.clickFrequency,
+      enableSound: settings.enableSound,
+      communicationEnabled: settings.runModeConfig.communicationEnabled,
+      communicationConfig: deepClone(settings.communicationConfig),
+      positionName: currentPosition.value.name,
+      jobDescription: currentPosition.value.description,
+      aiConfig: {
+        ...deepClone(settings.aiConfig),
+        clickPrompt: effectiveClickPrompt.value,
+        apiKey: effectiveApiKey.value,
+        model: effectiveModel.value,
+      },
+      keywords: [...currentPosition.value.keywords],
+      excludeKeywords: [...currentPosition.value.excludeKeywords],
+      isAndMode: settings.isAndMode,
+    };
+
+    const onLog: LogCallback = (message, type) => pushLog(message, type as any);
+
+    if (settings.runMode === "ai") {
+      await startAIRun(runData, onLog);
+    } else {
+      await startFreeRun(runData, onLog);
+    }
   } catch (error: any) {
+    setRunning(false);
     pushLog(`启动失败: ${error.message}`, "error");
   }
 }
 
 /** 停止运行 */
 async function stopRunAction(): Promise<void> {
-  try {
-    await stopRunOnPage();
-  } catch (_) {
-    // ignore
-  }
-  ui.running = false;
+  stopOrchestrator();
+  setRunning(false);
   pushLog("运行已停止", "warning");
 }
 
@@ -762,6 +798,7 @@ export function usePanelStore() {
     pushLog,
     startRun: startRunAction,
     stopRun: stopRunAction,
+    setRunning,
     cleanup,
   };
 }

@@ -20,7 +20,9 @@ export function getManifestVersion(): string {
 }
 
 /** 从 chrome.storage 或 localStorage 读取数据 */
-export async function storageGet(keys: string | string[]): Promise<Record<string, any>> {
+export async function storageGet(
+  keys: string | string[],
+): Promise<Record<string, any>> {
   if (hasChrome() && chrome.storage?.local) {
     return chrome.storage.local.get(keys);
   }
@@ -68,48 +70,11 @@ export async function sendMessageToActiveTab(message: any): Promise<any> {
   return chrome.tabs.sendMessage(tab.id, message);
 }
 
-/** 启动页面端运行 */
-export async function startRunOnPage(settings: Settings, currentPosition: Position): Promise<any> {
-  const shared = {
-    matchLimit: settings.matchLimit,
-    scrollDelayMin: settings.scrollDelayMin,
-    scrollDelayMax: settings.scrollDelayMax,
-    clickFrequency: settings.clickFrequency,
-    enableSound: settings.enableSound,
-    communicationEnabled: settings.runModeConfig.communicationEnabled,
-    communicationConfig: deepClone(settings.communicationConfig),
-  };
-
-  if (settings.runMode === "ai") {
-    return sendMessageToActiveTab({
-      action: "START_AI_SCROLL",
-      data: {
-        ...shared,
-        positionName: currentPosition.name,
-        jobDescription: currentPosition.description,
-        aiConfig: deepClone(settings.aiConfig),
-      },
-    });
-  }
-
-  return sendMessageToActiveTab({
-    action: "START_SCROLL",
-    data: {
-      ...shared,
-      keywords: [...currentPosition.keywords],
-      excludeKeywords: [...currentPosition.excludeKeywords],
-      isAndMode: settings.isAndMode,
-    },
-  });
-}
-
-/** 停止页面端运行 */
-export async function stopRunOnPage(): Promise<any> {
-  return sendMessageToActiveTab({ action: "STOP_SCROLL" });
-}
-
 /** 推送设置更新到页面端 */
-export async function pushSettingsToPage(settings: Settings, currentPosition: Position): Promise<any> {
+export async function pushSettingsToPage(
+  settings: Settings,
+  currentPosition: Position,
+): Promise<any> {
   return sendMessageToActiveTab({
     action: "SETTINGS_UPDATED",
     data: {
@@ -126,7 +91,9 @@ export async function pushSettingsToPage(settings: Settings, currentPosition: Po
 }
 
 /** 注册运行时日志监听器，返回取消监听函数 */
-export function attachRuntimeLogListener(onMessage: (data: any) => void): () => void {
+export function attachRuntimeLogListener(
+  onMessage: (data: any) => void,
+): () => void {
   if (!hasChrome() || !chrome.runtime?.onMessage) {
     return () => {};
   }
