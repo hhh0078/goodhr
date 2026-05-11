@@ -11,6 +11,7 @@ export const lagouConfig: PlatformConfig = {
   id: "lagou",
   name: "拉勾网",
   domain: "lagou.com",
+  pages: [],
 
   card: {
     container: ".position-list",

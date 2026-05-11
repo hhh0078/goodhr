@@ -4,9 +4,13 @@
  * 集中管理所有平台配置，提供根据 URL 自动识别平台的能力。
  * 支持远程动态配置（从后端 API 拉取）和本地硬编码兜底。
  * bridge.ts 通过此模块获取当前平台的配置信息。
+ *
+ * 页面校验：
+ *   每个平台有 pages 数组，定义了有效页面。
+ *   如果当前页面不在有效页面中，需要引导用户跳转。
  */
 
-import type { PlatformConfig } from "./types.js";
+import type { PlatformConfig, PlatformPage } from "./types.js";
 import { bossConfig } from "./boss.js";
 import { lagouConfig } from "./lagou.js";
 import { liepinConfig } from "./liepin.js";
@@ -52,8 +56,6 @@ export function getActivePlatforms(): PlatformConfig[] {
  * @returns 匹配的平台配置，未匹配返回 null
  */
 export function detectPlatform(url: string): PlatformConfig | null {
-  console.log("detectPlatform", url);
-  console.log("activePlatforms", activePlatforms);
   for (const platform of activePlatforms) {
     if (!platform.domain) continue;
     if (url.includes(platform.domain)) {
@@ -61,6 +63,32 @@ export function detectPlatform(url: string): PlatformConfig | null {
     }
   }
   return null;
+}
+
+/**
+ * 校验当前页面是否在平台的有效页面列表中
+ * pages 为空数组时表示该平台不限制页面，始终返回 true
+ * @param url - 当前页面 URL
+ * @param platform - 平台配置
+ * @returns true 表示在有效页面上，false 表示需要引导跳转
+ */
+export function isOnValidPage(url: string, platform: PlatformConfig): boolean {
+  if (!platform.pages || platform.pages.length === 0) {
+    return true;
+  }
+  return platform.pages.some((page) => url.includes(page.url));
+}
+
+/**
+ * 获取平台第一个有效页面（用于引导跳转）
+ * @param platform - 平台配置
+ * @returns 第一个有效页面配置，无则返回 null
+ */
+export function getFirstPage(platform: PlatformConfig): PlatformPage | null {
+  if (!platform.pages || platform.pages.length === 0) {
+    return null;
+  }
+  return platform.pages[0];
 }
 
 /**

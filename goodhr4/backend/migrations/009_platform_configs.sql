@@ -1,7 +1,8 @@
 -- 插入各招聘平台选择器配置到 system_configs
 -- config_key 格式：platform.{平台ID}
--- config_value 包含完整平台配置 JSON（选择器、行为等）
--- urlPattern 改为域名字符串，前端用 includes() 匹配
+-- config_value 包含完整平台配置 JSON（选择器、行为、有效页面等）
+-- domain 为域名字符串，前端用 includes() 匹配
+-- pages 为有效页面数组，页面不在列表中时需引导用户跳转
 
 insert into system_configs (config_key, config_value, description)
 values
@@ -11,6 +12,9 @@ values
       "id": "boss",
       "name": "Boss直聘",
       "domain": "zhipin.com",
+      "pages": [
+        { "url": "zhipin.com/web/chat/recommend", "title": "推荐牛人" }
+      ],
       "card": {
         "container": ".card-list",
         "card": [".candidate-card-wrap", ".geek-info-card", ".card-container"],
@@ -55,6 +59,7 @@ values
       "id": "lagou",
       "name": "拉勾网",
       "domain": "lagou.com",
+      "pages": [],
       "card": {
         "container": ".position-list",
         "card": [".position-item"],
@@ -99,6 +104,9 @@ values
       "id": "liepin",
       "name": "猎聘网",
       "domain": "lpt.liepin.com",
+      "pages": [
+        { "url": "lpt.liepin.com/recommend", "title": "人才推荐" }
+      ],
       "card": {
         "container": ".recommandResumes--",
         "card": [".newResumeItemWrap--"],
@@ -142,6 +150,9 @@ values
       "id": "hliepin",
       "name": "猎聘网(h)",
       "domain": "h.liepin.com",
+      "pages": [
+        { "url": "h.liepin.com/search/getConditionItem", "title": "找人" }
+      ],
       "card": {
         "container": ".recommandResumes--",
         "card": [".no-hover-tr"],
@@ -184,6 +195,9 @@ values
       "id": "zhilian",
       "name": "智联招聘",
       "domain": "zhaopin.com",
+      "pages": [
+        { "url": "zhaopin.com/app/recommend", "title": "推荐" }
+      ],
       "card": {
         "container": "[role=\"group\"]",
         "card": [".recommend-item__inner.recommend-resume-item__inner"],
@@ -225,6 +239,7 @@ values
       "id": "employer58",
       "name": "58同城",
       "domain": "employer.58.com",
+      "pages": [],
       "card": {
         "container": ".recommandResumes--",
         "card": [".recommend-list.recommendList"],

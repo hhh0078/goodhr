@@ -307,12 +307,27 @@ select {
 }
 
 .tabs {
-  display: inline-flex;
-  align-self: flex-start;
+  display: flex;
   padding: 4px;
-  background: #e9eef5;
+  background: #fff;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  margin-bottom: 10px;
+}
+.tabs2 {
+  display: flex;
+  padding: 4px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.asdfasdf {
+  padding: 10px 14px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 12px;
 }
 
 .tab-btn {
@@ -454,7 +469,7 @@ select {
 }
 
 .text-area.ai-compact {
-  min-height: 180px;
+  min-height: 120px;
 }
 
 .prompt-area {

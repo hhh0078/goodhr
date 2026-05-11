@@ -10,6 +10,9 @@ export const zhilianConfig: PlatformConfig = {
   id: "zhilian",
   name: "智联招聘",
   domain: "zhaopin.com",
+  pages: [
+    { url: "zhaopin.com/app/recommend", title: "推荐" },
+  ],
 
   card: {
     container: '[role="group"]',

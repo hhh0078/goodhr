@@ -16,9 +16,14 @@ import {
   sendMessageToActiveTab,
   queryActiveTab,
 } from "../services/extension.js";
-import { detectPlatform } from "./platforms/index.js";
+import {
+  detectPlatform,
+  isOnValidPage,
+  getFirstPage,
+} from "./platforms/index.js";
 import type {
   PlatformConfig,
+  PlatformPage,
   CandidateCard,
   SerializedElement,
 } from "./platforms/types.js";
@@ -64,6 +69,24 @@ export async function detectCurrentPlatform(): Promise<PlatformConfig | null> {
  */
 export function getCurrentPlatform(): PlatformConfig | null {
   return currentPlatform;
+}
+
+/**
+ * 校验当前页面是否在平台的有效页面列表中
+ * 需先调用 detectCurrentPlatform() 检测平台
+ * @returns { valid: boolean, page: PlatformPage | null } valid 表示是否有效，page 为推荐跳转页面
+ */
+export async function checkPageValidity(): Promise<{
+  valid: boolean;
+  page: PlatformPage | null;
+}> {
+  if (!currentPlatform) {
+    return { valid: false, page: null };
+  }
+  const tab = await queryActiveTab();
+  const valid = isOnValidPage(tab?.url || "", currentPlatform);
+  const page = valid ? null : getFirstPage(currentPlatform);
+  return { valid, page };
 }
 
 /**

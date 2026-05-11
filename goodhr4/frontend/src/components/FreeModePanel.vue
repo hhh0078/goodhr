@@ -1,44 +1,10 @@
 <template>
   <section class="mode-panel">
-    <a
-      v-if="balanceAd"
-      class="ad-card inline-ad"
-      :href="balanceAd.url"
-      :style="adStyle(balanceAd)"
-      target="_blank"
-      rel="noreferrer"
-    >
-      <strong>{{ balanceAd.title }}</strong>
-      <span>{{ balanceAd.subtitle }}</span>
-    </a>
-    <div class="tabs">
-      <button
-        class="tab-btn"
-        :class="{ active: settings.runMode === 'free' }"
-        type="button"
-        @click="settings.runMode = 'free'"
-      >
-        免费版
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: settings.runMode === 'ai' }"
-        type="button"
-        @click="settings.runMode = 'ai'"
-      >
-        AI版
-      </button>
-    </div>
-
-    <div
-      v-if="settings.runMode === 'free'"
-      class="content-grid"
-      @focusout.capture="requestAutoSave"
-    >
-      <section class="card" :class="ui.running ? 'span-8' : 'span-12'">
-        <div class="section-heading">
+    <div class="content-grid" @focusout.capture="requestAutoSave">
+      <section :class="ui.running ? 'span-8' : 'span-12'">
+        <!-- <div class="section-heading">
           <div style="color: black; margin-bottom: 10px">岗位与关键词</div>
-        </div>
+        </div> -->
 
         <div class="position-toolbar">
           <input
@@ -160,9 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import { usePanelStore } from "../composables/usePanelStore";
-import type { AdItem } from "../constants/defaults";
 
 const {
   settings,
@@ -174,22 +138,6 @@ const {
   removeKeyword,
   requestAutoSave,
 } = usePanelStore();
-
-const ads = computed<AdItem[]>(() => {
-  if (!Array.isArray(ui.systemConfig.ads)) return [];
-  return ui.systemConfig.ads
-    .filter((item: AdItem) => item && item.title && item.url)
-    .slice(0, 3);
-});
-const balanceAd = computed(() => ads.value[1] || null);
-
-function adStyle(ad: AdItem) {
-  return {
-    background: ad.background_color || undefined,
-    color: ad.text_color || undefined,
-    borderColor: ad.border_color || ad.background_color || undefined,
-  };
-}
 
 function confirmRemovePosition(name: string) {
   if (!globalThis.confirm(`确认删除岗位"${name}"吗？`)) return;

@@ -14,6 +14,9 @@ export const bossConfig: PlatformConfig = {
   id: "boss",
   name: "Boss直聘",
   domain: "zhipin.com",
+  pages: [
+    { url: "zhipin.com/web/chat/recommend", title: "推荐牛人" },
+  ],
 
   card: {
     container: ".card-list",

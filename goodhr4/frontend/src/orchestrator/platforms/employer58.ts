@@ -11,6 +11,7 @@ export const employer58Config: PlatformConfig = {
   id: "employer58",
   name: "58同城",
   domain: "employer.58.com",
+  pages: [],
 
   card: {
     container: ".recommandResumes--",

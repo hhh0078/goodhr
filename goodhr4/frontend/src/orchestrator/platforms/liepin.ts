@@ -10,6 +10,9 @@ export const liepinConfig: PlatformConfig = {
   id: "liepin",
   name: "猎聘网",
   domain: "lpt.liepin.com",
+  pages: [
+    { url: "lpt.liepin.com/recommend", title: "人才推荐" },
+  ],
 
   card: {
     container: ".recommandResumes--",

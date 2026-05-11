@@ -54,14 +54,19 @@ class Orchestrator {
 
     const platform = await bridge.detectCurrentPlatform();
     if (!platform) {
-      onLog("未识别当前招聘平台，请确认已打开招聘网站", "error");
-      return;
+      throw new Error("未识别当前招聘平台，请确认已打开招聘网站");
+    }
+
+    const pageCheck = await bridge.checkPageValidity();
+    if (!pageCheck.valid && pageCheck.page) {
+      throw new Error(
+        `请前往${platform.name}的「${pageCheck.page.title}」页面使用插件`,
+      );
     }
 
     const alive = await bridge.ping();
     if (!alive) {
-      onLog("注入脚本未就绪，请刷新页面后重试", "error");
-      return;
+      throw new Error("注入脚本未就绪，请刷新页面后重试");
     }
 
     this.strategy = resolveStrategy(platform.id, false);
@@ -87,20 +92,24 @@ class Orchestrator {
     if (this.isRunning) return;
 
     if (!data.jobDescription || !data.jobDescription.trim()) {
-      onLog("AI模式需要填写岗位说明", "error");
-      return;
+      throw new Error("AI模式需要填写岗位说明");
     }
 
     const platform = await bridge.detectCurrentPlatform();
     if (!platform) {
-      onLog("未识别当前招聘平台，请确认已打开招聘网站", "error");
-      return;
+      throw new Error("未识别当前招聘平台，请确认已打开招聘网站");
+    }
+
+    const pageCheck = await bridge.checkPageValidity();
+    if (!pageCheck.valid && pageCheck.page) {
+      throw new Error(
+        `请前往${platform.name}的「${pageCheck.page.title}」页面使用插件`,
+      );
     }
 
     const alive = await bridge.ping();
     if (!alive) {
-      onLog("注入脚本未就绪，请刷新页面后重试", "error");
-      return;
+      throw new Error("注入脚本未就绪，请刷新页面后重试");
     }
 
     this.strategy = resolveStrategy(platform.id, true);

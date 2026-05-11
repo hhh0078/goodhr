@@ -74,6 +74,14 @@ export interface PlatformBehavior {
   nextPageDisabledClass: string;
 }
 
+/** 平台有效页面配置 */
+export interface PlatformPage {
+  /** 页面链接（完整的 URL 路径部分，用于 includes 匹配） */
+  url: string;
+  /** 页面标题（展示给用户的描述，如"推荐牛人"） */
+  title: string;
+}
+
 /** 平台配置完整类型 */
 export interface PlatformConfig {
   /** 平台唯一标识 */
@@ -82,6 +90,8 @@ export interface PlatformConfig {
   name: string;
   /** URL 匹配域名（如 "zhipin.com"），前端用 includes() 匹配 */
   domain: string;
+  /** 平台有效页面列表，当前页面不在其中时需引导用户跳转 */
+  pages: PlatformPage[];
   /** 候选卡选择器 */
   card: CardSelectors;
   /** 操作按钮选择器 */

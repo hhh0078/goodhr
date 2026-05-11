@@ -11,6 +11,9 @@ export const hliepinConfig: PlatformConfig = {
   id: "hliepin",
   name: "猎聘网(h)",
   domain: "h.liepin.com",
+  pages: [
+    { url: "h.liepin.com/search/getConditionItem", title: "找人" },
+  ],
 
   card: {
     container: ".recommandResumes--",

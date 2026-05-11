@@ -24,9 +24,33 @@
 
       <ConfigPanel />
 
-      <FreeModePanel v-if="settings.runMode === 'free'" />
+      <div class="asdfasdf">
+        <div class="tabs2">
+          <button
+            class="tab-btn"
+            :class="{ active: settings.runMode === 'free' }"
+            type="button"
+            style="flex: 1"
+            @click="settings.runMode = 'free'"
+          >
+            免费版
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: settings.runMode === 'ai' }"
+            type="button"
+            style="flex: 1"
+            @click="settings.runMode = 'ai'"
+          >
+            AI收费版
+          </button>
+        </div>
 
-      <AIModePanel v-if="settings.runMode === 'ai'" />
+        <div style="display: block; margin-top: 5px">
+          <FreeModePanel v-if="settings.runMode === 'free'" />
+          <AIModePanel v-if="settings.runMode === 'ai'" />
+        </div>
+      </div>
 
       <a
         v-if="configAd"

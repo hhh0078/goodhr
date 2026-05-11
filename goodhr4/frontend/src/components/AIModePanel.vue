@@ -1,13 +1,24 @@
 <template>
   <section class="mode-panel">
-    <div class="content-grid" @focusout.capture="requestAutoSave">
-      <section class="card" :class="ui.running ? 'span-8' : 'span-12'">
-        <div class="section-heading">
-          <div>
-            <h2>岗位与岗位说明</h2>
-          </div>
-        </div>
+    <div class="balance-bar">
+      余额:
+      <strong :style="{ color: balanceColor }">{{
+        settings.aiBalanceText || "--"
+      }}</strong>
+      &nbsp;
+      <a
+        class="recharge-link"
+        href="https://ai.58it.cn"
+        target="_blank"
+        rel="noreferrer noopener"
+        >充值(GoodAI)</a
+      >
+      &nbsp;&nbsp;
+      <span class="pricing-link" @click="showPricingHint">价格说明</span>
+    </div>
 
+    <div class="content-grid" @focusout.capture="requestAutoSave">
+      <section :class="ui.running ? 'span-8' : 'span-12'">
         <div class="position-toolbar">
           <input
             v-model="ui.positionDraft"
@@ -118,6 +129,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { usePanelStore } from "../composables/usePanelStore";
 
 const {
@@ -130,9 +142,70 @@ const {
   requestAutoSave,
 } = usePanelStore();
 
+const balanceColor = computed(() => {
+  const balance = Number(settings.aiBalance);
+  if (!Number.isFinite(balance)) {
+    return "#9ca3af";
+  }
+  if (balance < 0.1) {
+    return "#ef4444";
+  }
+  if (balance > 3) {
+    return "#22c55e";
+  }
+  return "#f59e0b";
+});
+
+function showPricingHint() {
+  globalThis.alert(
+    "价格跟当前使用的模型有非常大的关系。模型越好，价格就越贵，效果就越好，反之一样。\n\n不同的模型都是根据token消耗量计算价格。如果你不了解，可以直接运行。每筛选一个候选人都会显示消耗的金额。",
+  );
+}
+
 function confirmRemovePosition(name: string) {
   if (!globalThis.confirm(`确认删除岗位"${name}"吗？`)) return;
   const { removePosition } = usePanelStore();
   removePosition(name);
 }
 </script>
+
+<style scoped>
+.balance-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.recharge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+}
+
+.recharge-link:hover {
+  opacity: 0.85;
+}
+
+.pricing-link {
+  cursor: pointer;
+  border: 1px solid #ccc;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.pricing-link:hover {
+  background: #f5f5f5;
+}
+</style>
