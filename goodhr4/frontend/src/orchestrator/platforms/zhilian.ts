@@ -9,7 +9,7 @@ import type { PlatformConfig } from "./types.js";
 export const zhilianConfig: PlatformConfig = {
   id: "zhilian",
   name: "智联招聘",
-  urlPattern: /zhaopin\.com/,
+  domain: "zhaopin.com",
 
   card: {
     container: '[role="group"]',

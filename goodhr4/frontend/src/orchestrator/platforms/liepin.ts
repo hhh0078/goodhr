@@ -9,7 +9,7 @@ import type { PlatformConfig } from "./types.js";
 export const liepinConfig: PlatformConfig = {
   id: "liepin",
   name: "猎聘网",
-  urlPattern: /lpt\.liepin\.com/,
+  domain: "lpt.liepin.com",
 
   card: {
     container: ".recommandResumes--",

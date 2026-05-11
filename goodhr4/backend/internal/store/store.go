@@ -408,6 +408,33 @@ func (s *Store) ReadCachedSystemConfig(ctx context.Context, key string) ([]byte,
 	return s.redis.Get(ctx, "goodhr4:system:"+key).Bytes()
 }
 
+func (s *Store) ListPlatformConfigs(ctx context.Context) ([]SystemConfig, error) {
+	const query = `
+select config_key, config_value, description, updated_at
+from system_configs
+where config_key like 'platform.%'
+order by config_key`
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []SystemConfig
+	for rows.Next() {
+		var cfg SystemConfig
+		if err := rows.Scan(&cfg.ConfigKey, &cfg.ConfigValue, &cfg.Description, &cfg.UpdatedAt); err != nil {
+			return nil, err
+		}
+		configs = append(configs, cfg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return configs, nil
+}
+
 func (s *Store) SaveSession(ctx context.Context, identifier string, ttl time.Duration) (string, error) {
 	token := uuid.NewString()
 	if err := s.redis.Set(ctx, "goodhr4:session:"+token, identifier, ttl).Err(); err != nil {

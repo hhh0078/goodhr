@@ -80,8 +80,8 @@ export interface PlatformConfig {
   id: string;
   /** 平台显示名称 */
   name: string;
-  /** URL 匹配正则 */
-  urlPattern: RegExp;
+  /** URL 匹配域名（如 "zhipin.com"），前端用 includes() 匹配 */
+  domain: string;
   /** 候选卡选择器 */
   card: CardSelectors;
   /** 操作按钮选择器 */

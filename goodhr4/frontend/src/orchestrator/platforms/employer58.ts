@@ -10,7 +10,7 @@ import type { PlatformConfig } from "./types.js";
 export const employer58Config: PlatformConfig = {
   id: "employer58",
   name: "58同城",
-  urlPattern: /employer\.58\.com|58\.com/,
+  domain: "employer.58.com",
 
   card: {
     container: ".recommandResumes--",

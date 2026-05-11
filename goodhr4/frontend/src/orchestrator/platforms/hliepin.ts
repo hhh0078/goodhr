@@ -10,7 +10,7 @@ import type { PlatformConfig } from "./types.js";
 export const hliepinConfig: PlatformConfig = {
   id: "hliepin",
   name: "猎聘网(h)",
-  urlPattern: /h\.liepin\.com/,
+  domain: "h.liepin.com",
 
   card: {
     container: ".recommandResumes--",

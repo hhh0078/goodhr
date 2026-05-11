@@ -316,6 +316,34 @@ func (s *Service) GetSiteBootstrap(ctx context.Context, updateLimit int) (SiteBo
 	}, nil
 }
 
+func (s *Service) GetPlatformConfigs(ctx context.Context) ([]map[string]any, error) {
+	if cached, err := s.store.ReadCachedSystemConfig(ctx, "platforms"); err == nil {
+		var result []map[string]any
+		if json.Unmarshal(cached, &result) == nil {
+			return result, nil
+		}
+	}
+
+	configs, err := s.store.ListPlatformConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]any
+	for _, cfg := range configs {
+		var value map[string]any
+		if err := json.Unmarshal(cfg.ConfigValue, &value); err != nil {
+			continue
+		}
+		result = append(result, value)
+	}
+
+	if encoded, err := json.Marshal(result); err == nil {
+		_ = s.store.CacheSystemConfig(ctx, "platforms", encoded, s.sessionTTL)
+	}
+	return result, nil
+}
+
 func composeSystemConfig(root string, parts []store.SystemConfig) (store.SystemConfig, error) {
 	payload := make(map[string]any, len(parts))
 	description := "聚合系统配置"

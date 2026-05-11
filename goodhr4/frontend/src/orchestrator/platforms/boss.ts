@@ -13,7 +13,7 @@ import type { PlatformConfig } from "./types.js";
 export const bossConfig: PlatformConfig = {
   id: "boss",
   name: "Boss直聘",
-  urlPattern: /zhipin\.com/,
+  domain: "zhipin.com",
 
   card: {
     container: ".card-list",

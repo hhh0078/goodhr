@@ -24,6 +24,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/account/bind", h.withCORS(h.bind))
 	mux.HandleFunc("/api/v1/account/", h.withCORS(h.accountSettings))
 	mux.HandleFunc("/api/v1/system/config", h.withCORS(h.systemConfig))
+	mux.HandleFunc("/api/v1/system/platforms", h.withCORS(h.platformConfigs))
 	mux.HandleFunc("/api/v1/site/register", h.withCORS(h.siteRegister))
 	mux.HandleFunc("/api/v1/site/bootstrap", h.withCORS(h.siteBootstrap))
 	mux.HandleFunc("/api/v1/site/updates", h.withCORS(h.siteUpdates))
@@ -134,6 +135,21 @@ func (h *Handler) systemConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"config": cfg,
+	})
+}
+
+func (h *Handler) platformConfigs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	platforms, err := h.service.GetPlatformConfigs(r.Context())
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"platforms": platforms,
 	})
 }
 

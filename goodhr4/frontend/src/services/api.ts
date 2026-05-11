@@ -12,7 +12,10 @@ export function getApiBase(): string {
 }
 
 /** 通用请求方法 */
-async function request(path: string, options: RequestInit & { headers?: Record<string, string> } = {}): Promise<any> {
+async function request(
+  path: string,
+  options: RequestInit & { headers?: Record<string, string> } = {},
+): Promise<any> {
   const response = await fetch(`${getApiBase()}${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -52,6 +55,11 @@ export function saveSettings(identifier: string, settings: any): Promise<any> {
 /** 拉取系统配置 */
 export function fetchSystemConfig(key = "frontend"): Promise<any> {
   return request(`/api/v1/system/config?key=${encodeURIComponent(key)}`);
+}
+
+/** 拉取各平台选择器配置 */
+export function fetchPlatformConfigs(): Promise<any> {
+  return request("/api/v1/system/platforms");
 }
 
 /** 注册认证用户（ai.58it.cn） */

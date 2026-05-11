@@ -26,6 +26,7 @@ import {
   bindIdentity,
   fetchSettings,
   fetchSystemConfig,
+  fetchPlatformConfigs,
   registerAuthUser,
   saveSettings,
 } from "../services/api.js";
@@ -45,6 +46,7 @@ import {
   stopRun as stopOrchestrator,
 } from "../orchestrator/orchestrator.js";
 import type { RunData, LogCallback } from "../orchestrator/orchestrator.js";
+import { applyRemoteConfigs } from "../orchestrator/platforms/index.js";
 
 /** 获取当前时间的格式化字符串 */
 function now(): string {
@@ -557,6 +559,19 @@ async function loadSystemConfig(): Promise<void> {
   }
 }
 
+/** 加载远程平台配置，失败时使用本地兜底 */
+async function loadPlatformConfigs(): Promise<void> {
+  try {
+    const response = await fetchPlatformConfigs();
+    const configs = response.platforms;
+    if (Array.isArray(configs) && configs.length > 0) {
+      applyRemoteConfigs(configs);
+    }
+  } catch (error: any) {
+    pushLog(`平台配置加载失败，使用本地配置: ${error.message}`, "warning");
+  }
+}
+
 /**
  * 设置运行状态的公共方法
  * 供 orchestrator 等外部模块调用，控制按钮和界面切换
@@ -710,6 +725,7 @@ async function initOnce(): Promise<void> {
 
   const stored = await storageGet([STORAGE_KEY, IDENTITY_KEY, LOGS_KEY]);
   await loadSystemConfig();
+  await loadPlatformConfigs();
   if (stored[STORAGE_KEY]) {
     Object.assign(settings, normalizeSettings(stored[STORAGE_KEY]));
   }

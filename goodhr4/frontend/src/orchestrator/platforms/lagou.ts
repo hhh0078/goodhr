@@ -10,7 +10,7 @@ import type { PlatformConfig } from "./types.js";
 export const lagouConfig: PlatformConfig = {
   id: "lagou",
   name: "拉勾网",
-  urlPattern: /lagou\.com/,
+  domain: "lagou.com",
 
   card: {
     container: ".position-list",
