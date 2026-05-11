@@ -14,6 +14,7 @@ import {
   IDENTITY_KEY,
   STORAGE_KEY,
   LOGS_KEY,
+  DISMISSED_KEY,
   MAX_LOGS,
 } from "../constants/defaults.js";
 import type {
@@ -39,6 +40,7 @@ import {
   storageSet,
 } from "../services/extension.js";
 import { deepClone } from "../utils/clone.js";
+import { contentHash } from "../utils/hash.js";
 import { APP_VERSION } from "../constants/appVersion.js";
 import {
   startFreeRun,
@@ -227,6 +229,7 @@ const ui = reactive<UIState>({
     donate_url: "http://58it.cn",
     share_url: "http://goodhr.58it.cn",
     announcement: ["免费版用于关键词筛选，AI版用于岗位说明智能判断。"],
+    announcements: [],
     default_click_prompt: "",
     default_model: "",
     optimize_prompt: "",
@@ -240,6 +243,19 @@ const ui = reactive<UIState>({
   },
 });
 const logs = reactive<LogEntry[]>([...DEFAULT_LOGS]);
+
+/** 弹框条目类型 */
+interface ModalItem {
+  title: string;
+  lines: string[];
+  showCancel: boolean;
+  forceUpdate?: boolean;
+  /** once 公告确认后不再显示，此字段存内容哈希 */
+  announcementHash?: string;
+  onConfirm?: () => void;
+}
+
+const modals = reactive<ModalItem[]>([]);
 
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let hasShownUpdatePrompt = false;
@@ -320,8 +336,41 @@ function openUpdatePage(): void {
   globalThis.open(url, "_blank", "noopener,noreferrer");
 }
 
-/** 显示原生更新提示弹窗 */
-function showNativeUpdatePrompt(): void {
+/**
+ * 关闭弹框（按索引移除）
+ * @param index - 弹框在队列中的位置
+ */
+function dismissModal(index: number): void {
+  modals.splice(index, 1);
+}
+
+/**
+ * 确认弹框回调
+ * 强制更新：打开更新页但不关闭弹框
+ * 其他弹框：执行 onConfirm 回调后关闭弹框
+ * @param index - 弹框在队列中的位置
+ */
+function confirmModal(index: number): void {
+  const modal = modals[index];
+  if (!modal) return;
+
+  if (modal.forceUpdate) {
+    openUpdatePage();
+    return;
+  }
+
+  if (modal.announcementHash) {
+    writeDismissedHash(modal.announcementHash);
+  }
+
+  if (modal.onConfirm) {
+    modal.onConfirm();
+  }
+  dismissModal(index);
+}
+
+/** 显示更新提示弹框（替代原生 alert/confirm） */
+function showUpdatePrompt(): void {
   if (hasShownUpdatePrompt) {
     return;
   }
@@ -343,20 +392,72 @@ function showNativeUpdatePrompt(): void {
 
   hasShownUpdatePrompt = true;
 
-  const title = updateInfo.force_update ? "强制更新" : "版本更新";
-  const message = [title, version ? `版本：v${version}` : "", content]
-    .filter(Boolean)
-    .join("\n");
+  const isForce = !!updateInfo.force_update;
+  const title = isForce ? "强制更新" : "版本更新";
+  const lines = [version ? `版本：v${version}` : "", content].filter(Boolean);
 
-  if (updateInfo.force_update) {
-    globalThis.alert(message);
-    openUpdatePage();
-    return;
+  modals.push({
+    title,
+    lines,
+    showCancel: !isForce,
+    forceUpdate: isForce,
+    onConfirm: () => {
+      openUpdatePage();
+    },
+  });
+}
+
+/** 读取已确认的 once 公告哈希列表 */
+function readDismissedHashes(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
+}
 
-  const shouldUpdate = globalThis.confirm(`${message}\n\n是否前往更新？`);
-  if (shouldUpdate) {
-    openUpdatePage();
+/** 存储已确认的 once 公告哈希 */
+function writeDismissedHash(hash: string): void {
+  const list = readDismissedHashes();
+  if (list.includes(hash)) return;
+  list.push(hash);
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify(list));
+}
+
+/** 显示公告弹框（多条公告弹出多个弹框，once 公告确认后不再显示） */
+let hasShownAnnouncement = false;
+function showAnnouncement(): void {
+  if (hasShownAnnouncement) return;
+  const items = ui.systemConfig.announcements;
+  if (!Array.isArray(items) || items.length === 0) return;
+
+  const dismissed = readDismissedHashes();
+  const valid = items.filter((a) => {
+    if (!a || (!a.title && !a.content)) return false;
+    if (a.once) {
+      const hash = contentHash(`${a.title}:${a.content}`);
+      if (dismissed.includes(hash)) return false;
+    }
+    return true;
+  });
+  if (valid.length === 0) return;
+
+  hasShownAnnouncement = true;
+  for (const item of valid) {
+    const lines = [item.content].filter(Boolean);
+    const hash = item.once
+      ? contentHash(`${item.title}:${item.content}`)
+      : undefined;
+    modals.push({
+      title: item.title || "公告",
+      lines,
+      showCancel: false,
+      forceUpdate: false,
+      announcementHash: hash,
+    });
   }
 }
 
@@ -553,7 +654,6 @@ async function loadSystemConfig(): Promise<void> {
     const response = await fetchSystemConfig("frontend");
     Object.assign(ui.systemConfig, response.config?.config_value || {});
     fillDefaultsFromSystemConfig(settings, ui.systemConfig);
-    showNativeUpdatePrompt();
   } catch (error: any) {
     pushLog(`系统配置加载失败: ${error.message}`, "warning");
   }
@@ -744,6 +844,10 @@ async function initOnce(): Promise<void> {
   }
   await syncAuthProfile({ silent: true });
   await syncToLocalStorage();
+
+  showUpdatePrompt();
+  showAnnouncement();
+
   detachLogs = attachRuntimeLogListener((entry: any) => {
     pushLog(entry.message, entry.type || "info");
   });
@@ -795,6 +899,7 @@ export function usePanelStore() {
     settings,
     ui,
     logs,
+    modals,
     effectiveClickPrompt,
     effectiveApiKey,
     effectiveModel,
@@ -812,6 +917,8 @@ export function usePanelStore() {
     validateClickPrompt,
     optimizeJobDescription,
     pushLog,
+    dismissModal,
+    confirmModal,
     startRun: startRunAction,
     stopRun: stopRunAction,
     setRunning,

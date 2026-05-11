@@ -69,6 +69,8 @@
 
     <ActionBar />
   </main>
+
+  <ModalDialog />
 </template>
 
 <script setup lang="ts">
@@ -83,6 +85,7 @@ import FreeModePanel from "./components/FreeModePanel.vue";
 import AIModePanel from "./components/AIModePanel.vue";
 import LogTerminal from "./components/LogTerminal.vue";
 import ActionBar from "./components/ActionBar.vue";
+import ModalDialog from "./components/ModalDialog.vue";
 
 const { settings, ui } = usePanelStore();
 
