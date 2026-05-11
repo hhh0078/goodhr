@@ -12,9 +12,16 @@
  * common.js 只做执行，bridge 只做翻译，orchestrator 只做编排
  */
 
-import { sendMessageToActiveTab, queryActiveTab } from "../services/extension.js";
+import {
+  sendMessageToActiveTab,
+  queryActiveTab,
+} from "../services/extension.js";
 import { detectPlatform } from "./platforms/index.js";
-import type { PlatformConfig, CandidateCard, SerializedElement } from "./platforms/types.js";
+import type {
+  PlatformConfig,
+  CandidateCard,
+  SerializedElement,
+} from "./platforms/types.js";
 
 /** 查找候选卡的结果 */
 export interface FindCandidatesResult {
@@ -43,6 +50,7 @@ let candidateElements: SerializedElement[] = [];
  */
 export async function detectCurrentPlatform(): Promise<PlatformConfig | null> {
   const tab = await queryActiveTab();
+
   if (!tab?.url) return null;
   currentPlatform = detectPlatform(tab.url);
   candidateIndex = 0;
@@ -191,7 +199,9 @@ export async function findNextCandidate(): Promise<CandidateCard | null> {
  * @param elementId - 候选卡元素 ID
  * @returns 候选人姓名和详细信息
  */
-export async function extractCandidateInfo(elementId: string): Promise<{ name: string; info: string }> {
+export async function extractCandidateInfo(
+  elementId: string,
+): Promise<{ name: string; info: string }> {
   if (!currentPlatform) return { name: "", info: "" };
 
   const card = currentPlatform.card;
@@ -210,25 +220,42 @@ export async function extractCandidateInfo(elementId: string): Promise<{ name: s
 
   for (const sel of card.basicInfo) {
     if (!sel) continue;
-    const r = await sendCommand({ action: "findById", id: elementId, childSelector: sel });
+    const r = await sendCommand({
+      action: "findById",
+      id: elementId,
+      childSelector: sel,
+    });
     if (r?.found && r.element?.text) infoParts.push(r.element.text);
   }
 
   for (const sel of card.education) {
     if (!sel) continue;
-    const r = await sendCommand({ action: "findById", id: elementId, childSelector: sel });
+    const r = await sendCommand({
+      action: "findById",
+      id: elementId,
+      childSelector: sel,
+    });
     if (r?.found && r.element?.text) infoParts.push(r.element.text);
   }
 
   if (card.university) {
-    const r = await sendCommand({ action: "findById", id: elementId, childSelector: card.university });
+    const r = await sendCommand({
+      action: "findById",
+      id: elementId,
+      childSelector: card.university,
+    });
     if (r?.found && r.element?.text) infoParts.push(r.element.text);
   }
 
   for (const extra of currentPlatform.extras) {
     if (!extra.selector) continue;
-    const r = await sendCommand({ action: "findById", id: elementId, childSelector: extra.selector });
-    if (r?.found && r.element?.text) infoParts.push(`[${extra.label}]${r.element.text}`);
+    const r = await sendCommand({
+      action: "findById",
+      id: elementId,
+      childSelector: extra.selector,
+    });
+    if (r?.found && r.element?.text)
+      infoParts.push(`[${extra.label}]${r.element.text}`);
   }
 
   return { name, info: infoParts.join(" | ") };
@@ -239,7 +266,9 @@ export async function extractCandidateInfo(elementId: string): Promise<{ name: s
  * @param elementId - 候选卡元素 ID
  * @returns 是否打开成功 + 详细信息
  */
-export async function openCandidateDetail(elementId: string): Promise<{ opened: boolean; detailedInfo: string }> {
+export async function openCandidateDetail(
+  elementId: string,
+): Promise<{ opened: boolean; detailedInfo: string }> {
   if (!currentPlatform) return { opened: false, detailedInfo: "" };
 
   const clicked = await sendCommand({ action: "click", id: elementId });
@@ -271,7 +300,12 @@ export async function closeCandidateDetail(): Promise<boolean> {
   const closeSelectors = currentPlatform.detail.closeBtn;
   for (const selector of closeSelectors) {
     if (!selector) continue;
-    const result = await sendCommand({ action: "click", selector, retries: 2, interval: 300 });
+    const result = await sendCommand({
+      action: "click",
+      selector,
+      retries: 2,
+      interval: 300,
+    });
     if (result?.clicked) {
       await new Promise((r) => setTimeout(r, 500));
       return true;
@@ -323,7 +357,12 @@ export async function collectContact(elementId: string): Promise<boolean> {
   const phoneSelectors = currentPlatform.actions.phoneBtn;
   for (const selector of phoneSelectors) {
     if (!selector) continue;
-    const result = await sendCommand({ action: "click", selector, retries: 2, interval: 300 });
+    const result = await sendCommand({
+      action: "click",
+      selector,
+      retries: 2,
+      interval: 300,
+    });
     if (result?.clicked) return true;
   }
 
@@ -377,7 +416,8 @@ export function resetCandidateIndex(): void {
  * @returns 是否翻页成功
  */
 export async function navigateNextPage(): Promise<boolean> {
-  if (!currentPlatform || !currentPlatform.behavior.supportsPaging) return false;
+  if (!currentPlatform || !currentPlatform.behavior.supportsPaging)
+    return false;
 
   const result = await sendCommand({
     action: "click",

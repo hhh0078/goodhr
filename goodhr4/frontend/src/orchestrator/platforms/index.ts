@@ -52,6 +52,8 @@ export function getActivePlatforms(): PlatformConfig[] {
  * @returns 匹配的平台配置，未匹配返回 null
  */
 export function detectPlatform(url: string): PlatformConfig | null {
+  console.log("detectPlatform", url);
+  console.log("activePlatforms", activePlatforms);
   for (const platform of activePlatforms) {
     if (!platform.domain) continue;
     if (url.includes(platform.domain)) {
