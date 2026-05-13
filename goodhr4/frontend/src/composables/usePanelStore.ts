@@ -326,6 +326,22 @@ export function pushLog(
   );
 }
 
+/**
+ * 追加文本到最后一行日志的末尾（用于同一条日志的进度更新）
+ * 例如先显示"正在筛选 xxx"，后追加" → 通过"或" → 未通过(原因)"
+ * @param suffix - 要追加的文本
+ * @param type - 可选，同时更新日志类型
+ */
+export function appendLog(
+  suffix: string,
+  type?: LogEntry["type"],
+): void {
+  if (logs.length === 0) return;
+  const last = logs[logs.length - 1];
+  last.message += suffix;
+  if (type) last.type = type;
+}
+
 /** 打开更新页面 */
 function openUpdatePage(): void {
   const url =
@@ -731,11 +747,12 @@ async function startRunAction(): Promise<void> {
     };
 
     const onLog: LogCallback = (message, type) => pushLog(message, type as any);
+    const onAppendLog = (suffix: string, type?: string) => appendLog(suffix, type as any);
 
     if (settings.runMode === "ai") {
-      await startAIRun(runData, onLog);
+      await startAIRun(runData, onLog, onAppendLog);
     } else {
-      await startFreeRun(runData, onLog);
+      await startFreeRun(runData, onLog, onAppendLog);
     }
   } catch (error: any) {
     setRunning(false);

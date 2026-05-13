@@ -24,21 +24,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
+import { ref, watch, nextTick, computed } from "vue";
 import { usePanelStore } from "../composables/usePanelStore";
 
 const { ui, logs } = usePanelStore();
 const terminalBody = ref<HTMLElement | null>(null);
 
-watch(
-  () => logs.length,
-  async () => {
-    await nextTick();
-    if (terminalBody.value) {
-      const el = terminalBody.value;
-      const target = el.scrollHeight - el.clientHeight * 0.7;
-      el.scrollTop = Math.max(0, target);
-    }
-  },
-);
+const lastLogSignature = computed(() => {
+  if (logs.length === 0) return "";
+  const last = logs[logs.length - 1];
+  return `${last.time}|${last.message}|${last.type}`;
+});
+
+watch([() => logs.length, lastLogSignature], async () => {
+  await nextTick();
+  if (terminalBody.value) {
+    const el = terminalBody.value;
+    const target = el.scrollHeight - el.clientHeight * 0.7;
+    el.scrollTop = Math.max(0, target);
+  }
+});
 </script>

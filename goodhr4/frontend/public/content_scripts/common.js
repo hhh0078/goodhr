@@ -4,6 +4,9 @@
  * 注入到招聘网站页面，作为扩展侧的"手和眼"。
  * 只做执行不做决策，所有业务逻辑在扩展侧完成。
  *
+ * 支持跨文档查找：所有 DOM 操作会遍历主文档及可访问的 iframe 文档，
+ * 确保能找到嵌入在 iframe 中的候选人卡片和详情内容。
+ *
  * 三个原子能力：
  * 1. find   — DOM 查找，带重试
  * 2. click  — DOM 点击，带等待
@@ -22,6 +25,109 @@
 
 (function () {
   "use strict";
+
+  // ════════════════════════════════════════════════
+  // 0. 跨文档支持 — 递归收集主文档 + iframe 文档
+  // ════════════════════════════════════════════════
+
+  /**
+   * 递归收集当前页面所有可访问的文档对象（主文档 + iframe 文档）
+   * 部分招聘平台（如 Boss 直聘）会将简历详情等内容嵌入 iframe 中，
+   * 需要遍历 iframe 才能查找到这些元素。
+   * @param {Document} doc - 起始文档，默认为当前 document
+   * @param {number} maxDepth - 最大递归深度，防止无限嵌套，默认 3
+   * @returns {Document[]} 文档对象数组，第一个始终是主文档
+   */
+  function getAllDocuments(doc, maxDepth) {
+    doc = doc || document;
+    maxDepth = maxDepth != null ? maxDepth : 3;
+    var docs = [doc];
+    if (maxDepth <= 0) return docs;
+
+    try {
+      var frames = doc.querySelectorAll("iframe");
+      for (var i = 0; i < frames.length; i++) {
+        try {
+          var iframeDoc =
+            frames[i].contentDocument || frames[i].contentWindow.document;
+          if (iframeDoc) {
+            docs.push(iframeDoc);
+            var nested = getAllDocuments(iframeDoc, maxDepth - 1);
+            for (var j = 0; j < nested.length; j++) {
+              if (docs.indexOf(nested[j]) === -1) {
+                docs.push(nested[j]);
+              }
+            }
+          }
+        } catch (e) {
+          // 跨域 iframe 无法访问，静默跳过
+        }
+      }
+    } catch (e) {
+      // 查询 iframe 本身失败，静默跳过
+    }
+
+    return docs;
+  }
+
+  /**
+   * 在所有文档中执行 querySelector，返回第一个匹配的元素及其所属文档
+   * @param {string} selector - CSS 选择器
+   * @returns {{ el: Element, doc: Document }|null} 匹配结果，未找到返回 null
+   */
+  function querySelectorAllDocs(selector) {
+    var docs = getAllDocuments();
+    for (var i = 0; i < docs.length; i++) {
+      try {
+        var el = docs[i].querySelector(selector);
+        if (el) return { el: el, doc: docs[i] };
+      } catch (e) {
+        // 选择器无效等异常，跳过
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 在所有文档中执行 querySelectorAll，合并结果
+   * @param {string} selector - CSS 选择器
+   * @returns {{ el: Element, doc: Document }[]} 匹配结果数组
+   */
+  function querySelectorAllDocsAll(selector) {
+    var docs = getAllDocuments();
+    var results = [];
+    for (var i = 0; i < docs.length; i++) {
+      try {
+        var els = docs[i].querySelectorAll(selector);
+        for (var j = 0; j < els.length; j++) {
+          results.push({ el: els[j], doc: docs[i] });
+        }
+      } catch (e) {
+        // 选择器无效等异常，跳过
+      }
+    }
+    return results;
+  }
+
+  /**
+   * 在所有文档中根据 __id 查找元素
+   * @param {string} id - 元素唯一标识
+   * @returns {Element|null} 匹配的 DOM 元素
+   */
+  function findElementByGoodhrId(id) {
+    var docs = getAllDocuments();
+    for (var d = 0; d < docs.length; d++) {
+      try {
+        var all = docs[d].querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+          if (all[i].__goodhr_id === id) return all[i];
+        }
+      } catch (e) {
+        // 跨域 iframe 访问异常，跳过
+      }
+    }
+    return null;
+  }
 
   // ════════════════════════════════════════════════
   // 1. send — 与扩展侧通信
@@ -59,11 +165,11 @@
   }
 
   // ════════════════════════════════════════════════
-  // 2. find — DOM 查找（带重试）
+  // 2. find — DOM 查找（带重试，支持跨文档）
   // ════════════════════════════════════════════════
 
   /**
-   * 查找单个元素（带重试）
+   * 查找单个元素（带重试，跨文档查找）
    * @param {string} selector - CSS 选择器
    * @param {number} retries - 重试次数，默认 5
    * @param {number} interval - 重试间隔(ms)，默认 1000
@@ -75,9 +181,9 @@
 
     return new Promise(function (resolve) {
       function attempt(remaining) {
-        var el = document.querySelector(selector);
-        if (el) {
-          resolve(serializeElement(el, 0));
+        var result = querySelectorAllDocs(selector);
+        if (result) {
+          resolve(serializeElement(result.el, 0));
           return;
         }
         if (remaining <= 0) {
@@ -93,7 +199,7 @@
   }
 
   /**
-   * 查找多个元素（带重试）
+   * 查找多个元素（带重试，跨文档查找）
    * @param {string} selector - CSS 选择器
    * @param {number} retries - 重试次数，默认 5
    * @param {number} interval - 重试间隔(ms)，默认 1000
@@ -105,11 +211,11 @@
 
     return new Promise(function (resolve) {
       function attempt(remaining) {
-        var els = document.querySelectorAll(selector);
-        if (els && els.length > 0) {
+        var allResults = querySelectorAllDocsAll(selector);
+        if (allResults.length > 0) {
           var results = [];
-          for (var i = 0; i < els.length; i++) {
-            results.push(serializeElement(els[i], i));
+          for (var i = 0; i < allResults.length; i++) {
+            results.push(serializeElement(allResults[i].el, i));
           }
           resolve(results);
           return;
@@ -154,11 +260,11 @@
   }
 
   // ════════════════════════════════════════════════
-  // 3. click — DOM 点击（带等待）
+  // 3. click — DOM 点击（带等待，支持跨文档）
   // ════════════════════════════════════════════════
 
   /**
-   * 查找并点击元素
+   * 查找并点击元素（跨文档查找）
    * @param {string} selector - CSS 选择器
    * @param {number} index - 第几个匹配元素，默认 0
    * @param {number} retries - 重试次数，默认 3
@@ -172,12 +278,15 @@
 
     return new Promise(function (resolve) {
       function attempt(remaining) {
-        var els = document.querySelectorAll(selector);
-        var el = els[index] || null;
-        if (el) {
+        var allResults = querySelectorAllDocsAll(selector);
+        var entry = allResults[index] || null;
+        if (entry) {
           try {
-            el.click();
-            resolve({ clicked: true, element: serializeElement(el, index) });
+            entry.el.click();
+            resolve({
+              clicked: true,
+              element: serializeElement(entry.el, index),
+            });
           } catch (e) {
             resolve({ clicked: false, element: null, error: e.message });
           }
@@ -211,58 +320,33 @@
   }
 
   /**
-   * 标记元素（视觉反馈）
+   * 标记元素（不再修改页面 DOM 样式，仅发送日志到扩展侧）
    * @param {string} selector - CSS 选择器
    * @param {number} index - 第几个匹配元素
    * @param {string} reason - 标记原因
    * @param {string} markType - 标记类型 matched/rejected/error
    */
   function markElement(selector, index, reason, markType) {
-    var els = document.querySelectorAll(selector);
-    var el = els[index || 0];
-    if (!el) return;
-
-    var colorMap = {
-      matched: "#4caf50",
-      rejected: "#9e9e9e",
-      error: "#f44336",
+    var typeMap = {
+      matched: "success",
+      rejected: "info",
+      error: "error",
     };
-    var color = colorMap[markType] || "#9e9e9e";
-
-    el.style.outline = "2px solid " + color;
-    el.style.outlineOffset = "2px";
-
-    var label = el.querySelector(".goodhr-label");
-    if (!label) {
-      label = document.createElement("div");
-      label.className = "goodhr-label";
-      label.style.cssText =
-        "position:absolute;top:0;right:0;padding:2px 8px;font-size:12px;" +
-        "color:#fff;background:" +
-        color +
-        ";border-radius:0 0 0 4px;z-index:9999;";
-      el.style.position = "relative";
-      el.appendChild(label);
-    }
-    label.textContent = reason;
-    label.style.background = color;
+    var logType = typeMap[markType] || "info";
+    sendLog("[标记] " + reason, logType);
   }
 
   // ════════════════════════════════════════════════
-  // 通过 __id 查找元素
+  // 通过 __id 查找元素（支持跨文档）
   // ════════════════════════════════════════════════
 
   /**
-   * 根据 __id 获取 DOM 元素
+   * 根据 __id 获取 DOM 元素（跨文档查找）
    * @param {string} id - 元素唯一标识
    * @returns {Element|null}
    */
   function getElementByGoodhrId(id) {
-    var all = document.querySelectorAll("*");
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].__goodhr_id === id) return all[i];
-    }
-    return null;
+    return findElementByGoodhrId(id);
   }
 
   /**
@@ -299,40 +383,19 @@
   }
 
   /**
-   * 根据 __id 标记元素
+   * 根据 __id 标记元素（不再修改页面 DOM 样式，仅发送日志到扩展侧）
    * @param {string} id - 元素唯一标识
    * @param {string} reason - 标记原因
    * @param {string} markType - 标记类型
    */
   function markByGoodhrId(id, reason, markType) {
-    var el = getElementByGoodhrId(id);
-    if (!el) return;
-
-    var colorMap = {
-      matched: "#4caf50",
-      rejected: "#9e9e9e",
-      error: "#f44336",
+    var typeMap = {
+      matched: "success",
+      rejected: "info",
+      error: "error",
     };
-    var color = colorMap[markType] || "#9e9e9e";
-
-    el.style.outline = "2px solid " + color;
-    el.style.outlineOffset = "2px";
-    el.__goodhr_processed = true;
-
-    var label = el.querySelector(".goodhr-label");
-    if (!label) {
-      label = document.createElement("div");
-      label.className = "goodhr-label";
-      label.style.cssText =
-        "position:absolute;top:0;right:0;padding:2px 8px;font-size:12px;" +
-        "color:#fff;background:" +
-        color +
-        ";border-radius:0 0 0 4px;z-index:9999;";
-      el.style.position = "relative";
-      el.appendChild(label);
-    }
-    label.textContent = reason;
-    label.style.background = color;
+    var logType = typeMap[markType] || "info";
+    sendLog("[标记] " + reason, logType);
   }
 
   // ════════════════════════════════════════════════
@@ -439,5 +502,5 @@
     },
   );
 
-  sendLog("GoodHR 注入脚本已加载", "info");
+  sendLog("GoodHR 注入脚本已加载（含 iframe 跨文档支持）", "info");
 })();

@@ -413,6 +413,8 @@ export async function markElement(
 export async function checkNewMessage(): Promise<boolean> {
   if (!currentPlatform) return false;
 
+  console.log(currentPlatform.detail.messageTip);
+
   const messageTip = currentPlatform.detail.messageTip;
   if (!messageTip) return false;
 
