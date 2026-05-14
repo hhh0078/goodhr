@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoodHR 自动化工具</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #f5f7fa;
+        color: #333;
+      }
+      .navbar {
+        background: #1a56db;
+        color: white;
+        padding: 12px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .navbar h1 {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 24px auto;
+        padding: 0 24px;
+      }
+      .card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .card h2 {
+        font-size: 16px;
+        margin-bottom: 16px;
+        color: #1a56db;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .stat-card .value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #1a56db;
+      }
+      .stat-card .label {
+        font-size: 13px;
+        color: #666;
+        margin-top: 4px;
+      }
+      .btn {
+        padding: 8px 20px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .btn-primary {
+        background: #1a56db;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #1544b0;
+      }
+      .btn-danger {
+        background: #dc2626;
+        color: white;
+      }
+      .btn-danger:hover {
+        background: #b91c1c;
+      }
+      .btn-success {
+        background: #16a34a;
+        color: white;
+      }
+      .btn-success:hover {
+        background: #15803d;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .form-group {
+        margin-bottom: 12px;
+      }
+      .form-group label {
+        display: block;
+        font-size: 13px;
+        color: #555;
+        margin-bottom: 4px;
+      }
+      .form-group input,
+      .form-group select,
+      .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .form-group textarea {
+        height: 80px;
+        resize: vertical;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+        font-size: 13px;
+      }
+      th {
+        background: #f8fafc;
+        color: #555;
+        font-weight: 600;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+      }
+      .status-greeted {
+        background: #dcfce7;
+        color: #16a34a;
+      }
+      .status-skipped {
+        background: #fef3c7;
+        color: #d97706;
+      }
+      .status-pending {
+        background: #dbeafe;
+        color: #2563eb;
+      }
+      .status-failed {
+        background: #fecaca;
+        color: #dc2626;
+      }
+      .log-area {
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 16px;
+        border-radius: 6px;
+        font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+        font-size: 12px;
+        height: 300px;
+        overflow-y: auto;
+        line-height: 1.6;
+      }
+      .log-info {
+        color: #93c5fd;
+      }
+      .log-success {
+        color: #86efac;
+      }
+      .log-warning {
+        color: #fcd34d;
+      }
+      .log-error {
+        color: #fca5a5;
+      }
+      .tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: 16px;
+        border-bottom: 2px solid #e5e7eb;
+      }
+      .tab {
+        padding: 10px 20px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #666;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+      }
+      .tab.active {
+        color: #1a56db;
+        border-bottom-color: #1a56db;
+        font-weight: 600;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .task-controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .running-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
+      .running-indicator.running {
+        background: #16a34a;
+        animation: pulse 1.5s infinite;
+      }
+      .running-indicator.idle {
+        background: #999;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="navbar">
+      <h1>GoodHR 自动化工具</h1>
+      <span id="version">v0.1.0</span>
+    </nav>
+
+    <div class="container">
+      <div class="stats">
+        <div class="stat-card">
+          <div class="value" id="stat-total">0</div>
+          <div class="label">扫描总数</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-greeted">0</div>
+          <div class="label">已打招呼</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-skipped">0</div>
+          <div class="label">已跳过</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-failed">0</div>
+          <div class="label">失败</div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="login">平台登录</div>
+        <div class="tab" data-tab="task">任务控制</div>
+        <div class="tab" data-tab="positions">岗位管理</div>
+        <div class="tab" data-tab="candidates">候选人</div>
+        <div class="tab" data-tab="logs">运行日志</div>
+        <div class="tab" data-tab="config">系统配置</div>
+      </div>
+
+      <div id="tab-login" class="tab-content active">
+        <div class="card">
+          <h2>平台登录</h2>
+          <p style="color: #666; margin-bottom: 16px; font-size: 13px">
+            首次使用需要扫码登录，登录后自动保存会话，后续无需重复登录
+          </p>
+          <div
+            id="platform-list"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+              gap: 16px;
+            "
+          ></div>
+        </div>
+        <div class="card" id="login-status-card" style="display: none">
+          <h2>登录状态</h2>
+          <div
+            id="login-status-msg"
+            style="padding: 12px; border-radius: 6px; font-size: 14px"
+          ></div>
+        </div>
+      </div>
+
+      <div id="tab-task" class="tab-content">
+        <div class="card">
+          <h2>任务控制</h2>
+          <div class="task-controls">
+            <span
+              ><span class="running-indicator idle" id="task-indicator"></span
+              ><span id="task-status-text">空闲</span></span
+            >
+          </div>
+          <div
+            class="form-group"
+            style="
+              display: grid;
+              grid-template-columns: 2fr 1fr 1fr auto;
+              gap: 12px;
+              align-items: end;
+            "
+          >
+            <div>
+              <label>选择岗位</label>
+              <select id="task-position"></select>
+            </div>
+            <div>
+              <label>筛选模式</label>
+              <select id="task-mode">
+                <option value="ai">AI 智能筛选</option>
+                <option value="keyword">关键词筛选</option>
+              </select>
+            </div>
+            <div>
+              <label>匹配上限</label>
+              <input
+                type="number"
+                id="task-limit"
+                value="60"
+                min="1"
+                max="500"
+              />
+            </div>
+            <div>
+              <button
+                class="btn btn-primary"
+                id="btn-start"
+                onclick="startTask()"
+              >
+                启动
+              </button>
+              <button
+                class="btn btn-danger"
+                id="btn-stop"
+                onclick="stopTask()"
+                disabled
+              >
+                停止
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-positions" class="tab-content">
+        <div class="card">
+          <h2>岗位列表</h2>
+          <div style="margin-bottom: 12px">
+            <button class="btn btn-primary" onclick="showAddPosition()">
+              新增岗位
+            </button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>关键词</th>
+                <th>描述</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="position-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-candidates" class="tab-content">
+        <div class="card">
+          <h2>候选人列表</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>学历</th>
+                <th>经验</th>
+                <th>技能</th>
+                <th>薪资</th>
+                <th>状态</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody id="candidate-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-logs" class="tab-content">
+        <div class="card">
+          <h2>运行日志</h2>
+          <div class="log-area" id="log-area"></div>
+        </div>
+      </div>
+
+      <div id="tab-config" class="tab-content">
+        <div class="card">
+          <h2>AI 配置</h2>
+          <div class="form-group">
+            <label>API Key</label>
+            <input
+              type="password"
+              id="cfg-api-key"
+              placeholder="输入 AI API Key"
+            />
+          </div>
+          <div class="form-group">
+            <label>模型</label>
+            <select id="cfg-model">
+              <option value="gpt-5.1-chat">GPT-5.1 - 高性能</option>
+              <option value="deepseek-v3">DeepSeek V3 - 高性价比</option>
+              <option value="qwen-plus">通义千问Plus - 均衡</option>
+              <option value="moonshot-v1">Kimi - 经济实惠</option>
+            </select>
+          </div>
+          <button class="btn btn-success" onclick="saveAIConfig()">
+            保存 AI 配置
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API = "";
+      let pollTimer = null;
+      let loginPollTimer = null;
+
+      async function api(path, opts = {}) {
+        const res = await fetch(API + path, {
+          headers: { "Content-Type": "application/json" },
+          ...opts,
+        });
+        return res.json();
+      }
+
+      async function loadPlatforms() {
+        const data = await api("/api/v1/login/platforms");
+        const container = document.getElementById("platform-list");
+        container.innerHTML = data
+          .map(
+            (p) => `
+            <div class="card" style="margin:0;padding:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <strong style="font-size:15px">${p.name}</strong>
+                    <span class="status-badge ${p.logged_in ? "status-greeted" : "status-pending"}">${p.logged_in ? "已登录" : "未登录"}</span>
+                </div>
+                <div style="font-size:12px;color:#888;margin-bottom:12px">${p.domain}</div>
+                <button class="btn ${p.logged_in ? "btn-danger" : "btn-primary"}" style="width:100%"
+                    onclick="${p.logged_in ? `doLogout('${p.id}')` : `doLogin('${p.id}')`}">
+                    ${p.logged_in ? "注销登录" : "扫码登录"}
+                </button>
+            </div>
+        `,
+          )
+          .join("");
+      }
+
+      async function doLogin(platform) {
+        const data = await api(`/api/v1/login/login?platform=${platform}`, {
+          method: "POST",
+        });
+        if (data.ok) {
+          showLoginStatus("info", data.msg);
+          startLoginPoll();
+        } else {
+          showLoginStatus("warning", data.msg);
+        }
+      }
+
+      async function doLogout(platform) {
+        if (!confirm("确认注销登录？注销后需要重新扫码登录。")) return;
+        const data = await api(`/api/v1/login/logout?platform=${platform}`, {
+          method: "POST",
+        });
+        showLoginStatus("info", data.msg);
+        await loadPlatforms();
+      }
+
+      function showLoginStatus(type, msg) {
+        const card = document.getElementById("login-status-card");
+        const el = document.getElementById("login-status-msg");
+        card.style.display = "block";
+        const colors = {
+          info: "#dbeafe",
+          success: "#dcfce7",
+          warning: "#fef3c7",
+          error: "#fecaca",
+        };
+        const textColors = {
+          info: "#1e40af",
+          success: "#166534",
+          warning: "#92400e",
+          error: "#991b1b",
+        };
+        el.style.background = colors[type] || colors.info;
+        el.style.color = textColors[type] || textColors.info;
+        el.textContent = msg;
+      }
+
+      function startLoginPoll() {
+        if (loginPollTimer) clearInterval(loginPollTimer);
+        loginPollTimer = setInterval(async () => {
+          const data = await api("/api/v1/login/status");
+          if (data.status === "logged_in") {
+            showLoginStatus("success", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+            await loadPlatforms();
+          } else if (data.status === "logging_in") {
+            showLoginStatus("info", data.message);
+          } else if (data.status === "timeout") {
+            showLoginStatus("warning", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+          } else if (data.status === "error") {
+            showLoginStatus("error", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+          }
+        }, 2000);
+      }
+
+      async function loadPositions() {
+        const data = await api("/api/v1/positions");
+        const sel = document.getElementById("task-position");
+        sel.innerHTML = data
+          .map((p) => `<option value="${p.id}">${p.name}</option>`)
+          .join("");
+        const tbody = document.getElementById("position-list");
+        tbody.innerHTML = data
+          .map(
+            (p) => `<tr>
+            <td>${p.name}</td>
+            <td>${p.keywords.join(", ")}</td>
+            <td>${p.description.slice(0, 50)}...</td>
+            <td>${p.is_active ? "启用" : "禁用"}</td>
+            <td><button class="btn btn-danger" style="padding:4px 12px;font-size:12px" onclick="deletePosition(${p.id})">删除</button></td>
+        </tr>`,
+          )
+          .join("");
+      }
+
+      async function loadCandidates() {
+        const data = await api("/api/v1/candidates");
+        const tbody = document.getElementById("candidate-list");
+        tbody.innerHTML = data.items
+          .map(
+            (c) => `<tr>
+            <td>${c.name}</td><td>${c.education}</td><td>${c.experience}</td>
+            <td>${c.skills.slice(0, 30)}</td><td>${c.salary}</td>
+            <td><span class="status-badge status-${c.status}">${c.status}</span></td>
+            <td>${c.filter_reason.slice(0, 30)}</td>
+        </tr>`,
+          )
+          .join("");
+      }
+
+      async function updateTaskStatus() {
+        const data = await api("/api/v1/tasks/status");
+        const ind = document.getElementById("task-indicator");
+        const txt = document.getElementById("task-status-text");
+        const btnStart = document.getElementById("btn-start");
+        const btnStop = document.getElementById("btn-stop");
+        if (data.status === "running") {
+          ind.className = "running-indicator running";
+          txt.textContent = `运行中 (匹配: ${data.match_count}/${data.total_count})`;
+          btnStart.disabled = true;
+          btnStop.disabled = false;
+        } else {
+          ind.className = "running-indicator idle";
+          txt.textContent = "空闲";
+          btnStart.disabled = false;
+          btnStop.disabled = true;
+        }
+      }
+
+      async function loadStats() {
+        const data = await api("/api/v1/candidates/stats");
+        document.getElementById("stat-total").textContent = data.total;
+        document.getElementById("stat-greeted").textContent = data.greeted;
+        document.getElementById("stat-skipped").textContent = data.skipped;
+        document.getElementById("stat-failed").textContent = data.failed;
+      }
+
+      async function startTask() {
+        const positionId = parseInt(
+          document.getElementById("task-position").value,
+        );
+        const mode = document.getElementById("task-mode").value;
+        const limit = parseInt(document.getElementById("task-limit").value);
+        await api("/api/v1/tasks/start", {
+          method: "POST",
+          body: JSON.stringify({
+            position_id: positionId,
+            mode,
+            match_limit: limit,
+          }),
+        });
+        addLog("任务已启动", "info");
+        updateTaskStatus();
+      }
+
+      async function stopTask() {
+        await api("/api/v1/tasks/stop", { method: "POST" });
+        addLog("任务停止中...", "warning");
+      }
+
+      function addLog(msg, level) {
+        const area = document.getElementById("log-area");
+        const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        area.innerHTML += `<div class="log-${level}">[${time}] ${msg}</div>`;
+        area.scrollTop = area.scrollHeight;
+      }
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.onclick = () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("active"));
+          document
+            .querySelectorAll(".tab-content")
+            .forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          document
+            .getElementById("tab-" + tab.dataset.tab)
+            .classList.add("active");
+        };
+      });
+
+      async function init() {
+        await loadPlatforms();
+        await loadPositions();
+        await loadStats();
+        await updateTaskStatus();
+        pollTimer = setInterval(async () => {
+          await updateTaskStatus();
+          await loadStats();
+        }, 5000);
+      }
+
+      init();
+    </script>
+  </body>
+</html>
