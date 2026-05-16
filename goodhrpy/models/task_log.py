@@ -54,3 +54,4 @@ class TaskStartRequest(BaseModel):
     position_id: int = Field(..., description="岗位ID")
     mode: str = Field(default="ai", description="筛选模式：ai/keyword")
     match_limit: Optional[int] = Field(default=None, description="匹配上限，None 使用全局配置")
+    platform_id: str = Field(default="boss", description="平台标识：boss/lagou/liepin/zhilian")

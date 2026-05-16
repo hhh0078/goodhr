@@ -1,18 +1,18 @@
 """
 GoodHR 自动化工具 - 任务编排器
 
-协调浏览器、平台解析器、筛选引擎的运行流程，
-实现候选人自动筛选和打招呼的完整任务循环。
-支持 AI 模式和关键词模式，可动态启停。
+使用严格状态机管理任务生命周期，整个流程在 _run() 方法中线性执行，
+方便查看完整流程。所有方法调用均加异常处理，单个候选人出错不影响后续。
 """
 
 import asyncio
+import gc
+import time
 from datetime import datetime
 from enum import Enum
 from typing import Callable, Optional
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.browser import BrowserManager
 from core.filter.ai_filter import AIFilter
@@ -20,6 +20,7 @@ from core.filter.keyword import KeywordFilter
 from core.humanize import random_delay, scroll_to_load
 from core.platform.base import BaseParser, CandidateInfo
 from core.platform.boss import BossParser
+from core.platform.zhaopin import ZhaopinParser
 from core.settings import config
 from models.candidate import Candidate, CandidateStatus
 from models.database import async_session
@@ -43,8 +44,13 @@ class TaskStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
     STOPPING = "stopping"
-    COMPLETED = "completed"
-    FAILED = "failed"
+
+
+_VALID_TRANSITIONS = {
+    TaskStatus.IDLE: [TaskStatus.RUNNING],
+    TaskStatus.RUNNING: [TaskStatus.STOPPING, TaskStatus.IDLE],
+    TaskStatus.STOPPING: [TaskStatus.IDLE],
+}
 
 
 def get_parser(platform_id: str = "boss") -> BaseParser:
@@ -56,9 +62,17 @@ def get_parser(platform_id: str = "boss") -> BaseParser:
 
     Returns:
         BaseParser: 平台解析器实例
+
+    Raises:
+        ValueError: 不支持的平台 ID
     """
-    parsers = {"boss": BossParser}
-    parser_cls = parsers.get(platform_id, BossParser)
+    parsers = {
+        "boss": BossParser,
+        "zhaopin": ZhaopinParser,
+    }
+    parser_cls = parsers.get(platform_id)
+    if not parser_cls:
+        raise ValueError(f"不支持的平台: {platform_id}，当前支持: {list(parsers.keys())}")
     return parser_cls()
 
 
@@ -66,10 +80,8 @@ class TaskOrchestrator:
     """
     任务编排器
 
-    管理候选人筛选任务的完整生命周期：
-    启动 → 登录验证 → 滚动提取 → 筛选 → 打招呼 → 记录结果
-
-    支持动态启停、日志回调、运行状态查询。
+    使用严格状态机管理候选人筛选任务的完整生命周期。
+    整个流程在 _run() 方法中线性执行，方便查看。
     """
 
     def __init__(self):
@@ -83,6 +95,8 @@ class TaskOrchestrator:
         self._match_count = 0
         self._total_count = 0
         self._skipped_count = 0
+        self._async_task: Optional[asyncio.Task] = None
+        self._start_lock = asyncio.Lock()
 
         self._on_log: Optional[Callable] = None
         self._position_id: Optional[int] = None
@@ -120,9 +134,32 @@ class TaskOrchestrator:
             message: 日志消息
             level: 日志级别
         """
-        logger.log(getattr(logger, level, logger.info), message)
+        log_func = getattr(logger, level, None)
+        if log_func and callable(log_func):
+            log_func(message)
+        else:
+            logger.info(message)
         if self._on_log:
             self._on_log(message, level)
+
+    def _transition(self, new_status: TaskStatus) -> bool:
+        """
+        状态机转换，只允许合法转换
+
+        Args:
+            new_status: 目标状态
+
+        Returns:
+            bool: 是否转换成功
+        """
+        allowed = _VALID_TRANSITIONS.get(self._status, [])
+        if new_status not in allowed:
+            logger.warning(f"非法状态转换: {self._status.value} → {new_status.value}")
+            return False
+        old = self._status
+        self._status = new_status
+        logger.info(f"状态转换: {old.value} → {new_status.value}")
+        return True
 
     async def start(
         self,
@@ -134,160 +171,490 @@ class TaskOrchestrator:
         """
         启动候选人筛选任务
 
+        使用 asyncio.Lock 防止并发启动。
+        状态机保证只有 IDLE → RUNNING 的转换才真正启动任务。
+
         Args:
             position_id: 岗位 ID
             mode: 筛选模式（AI / 关键词）
             match_limit: 匹配上限，None 使用全局配置
             platform_id: 平台 ID
         """
-        if self._status == TaskStatus.RUNNING:
-            self._log("任务已在运行中", "warning")
+        if self._start_lock.locked():
+            self._log("任务启动中，请勿重复操作", "warning")
             return
 
+        async with self._start_lock:
+            if not self._transition(TaskStatus.RUNNING):
+                self._log("当前状态不允许启动任务", "warning")
+                return
+
+            try:
+                await self._run(position_id, mode, match_limit, platform_id)
+            except asyncio.CancelledError:
+                self._log("任务已被用户取消", "warning")
+            except Exception as e:
+                self._log(f"任务异常: {e}", "error")
+            finally:
+                await self._cleanup()
+
+    async def stop(self) -> None:
+        """
+        停止当前任务
+
+        设置状态为 STOPPING，主循环会检测到并退出。
+        同时取消 asyncio Task 强制中断阻塞操作。
+        """
+        if self._status == TaskStatus.RUNNING:
+            self._transition(TaskStatus.STOPPING)
+            self._log("正在停止任务...")
+            if self._async_task and not self._async_task.done():
+                self._async_task.cancel()
+
+    async def _run(
+        self,
+        position_id: int,
+        mode: TaskMode,
+        match_limit: Optional[int],
+        platform_id: str,
+    ) -> None:
+        """
+        任务主流程 - 所有逻辑都在这个方法里，方便查看完整流程
+
+        流程：
+        1. 校验参数（岗位、平台登录、筛选条件）→ 不通过直接退出
+        2. 启动浏览器（使用 cookie / 持久化 profile）
+        3. 打开推荐页 + 判断登录（每秒判断页面路由，最多等60秒）
+        4. 等待用户登录（如未登录，弹出扫码页）
+        5. 主循环：提取候选人 → 查看详情 → 筛选 → 关闭详情 → 打招呼
+        6. 滚动加载更多 → 回到步骤5
+        7. 任务结束，输出统计
+        """
+        self._async_task = asyncio.current_task()
         self._position_id = position_id
         self._match_count = 0
         self._total_count = 0
         self._skipped_count = 0
-        self._parser = get_parser(platform_id)
 
-        position = await self._load_position(position_id)
-        if not position:
-            self._log(f"岗位 ID {position_id} 不存在", "error")
+        # ══════════════════════════════════════════
+        # 步骤 1：校验参数（不通过直接退出）
+        # ══════════════════════════════════════════
+        self._log("=" * 50)
+        self._log("步骤 1/7：校验任务参数...")
+
+        try:
+            self._parser = get_parser(platform_id)
+        except ValueError as e:
+            self._log(f"平台不支持: {e}", "error")
             return
 
-        self._job_description = position.description
+        profile_dir = config.data_dir / "profiles" / platform_id
+        if not profile_dir.exists() or not (profile_dir / "Default").exists():
+            self._log(
+                f"平台 [{self._parser.platform_name}] 未登录，请先在「平台登录」中扫码登录",
+                "error",
+            )
+            return
+
+        position = None
+        try:
+            position = await self._load_position(position_id)
+        except Exception as e:
+            self._log(f"加载岗位信息异常: {e}", "error")
+            return
+
+        if not position:
+            self._log(
+                f"岗位 ID {position_id} 不存在，请先在「岗位管理」中创建岗位",
+                "error",
+            )
+            return
+
+        self._job_description = position.description or ""
 
         if mode == TaskMode.AI:
-            self._ai_filter = AIFilter()
             if not config.ai.api_key:
-                self._log("AI模式需要配置 API Key", "error")
+                self._log("AI 模式需要配置 API Key，请在「系统配置」中填写", "error")
+                return
+            try:
+                self._ai_filter = AIFilter()
+            except Exception as e:
+                self._log(f"初始化 AI 筛选器失败: {e}", "error")
                 return
         else:
-            keywords = [k.strip() for k in position.keywords.split(",") if k.strip()]
-            exclude_keywords = [k.strip() for k in position.exclude_keywords.split(",") if k.strip()]
-            self._keyword_filter = KeywordFilter(
-                keywords=keywords,
-                exclude_keywords=exclude_keywords,
-                is_and_mode=position.is_and_mode,
-            )
+            keywords = [k.strip() for k in (position.keywords or "").split(",") if k.strip()]
+            exclude_keywords = [k.strip() for k in (position.exclude_keywords or "").split(",") if k.strip()]
+            if not keywords:
+                self._log("关键词模式需要设置关键词，请编辑岗位添加关键词", "error")
+                return
+            try:
+                self._keyword_filter = KeywordFilter(
+                    keywords=keywords,
+                    exclude_keywords=exclude_keywords,
+                    is_and_mode=position.is_and_mode,
+                )
+            except Exception as e:
+                self._log(f"初始化关键词筛选器失败: {e}", "error")
+                return
 
         match_limit = match_limit or config.task.match_limit
 
-        self._task_log_id = await self._create_task_log(position_id, position.name)
-        self._status = TaskStatus.RUNNING
-        self._log(f"任务启动: 岗位={position.name}, 模式={mode.value}, 上限={match_limit}")
-
         try:
-            await self._browser_manager.start(persistent=True)
-            page = await self._browser_manager.new_page("main")
-
-            is_logged_in = await self._parser.check_login_status(page)
-            if not is_logged_in:
-                self._log("未登录，等待扫码登录...")
-                is_logged_in = await self._parser.wait_for_login(page)
-                if not is_logged_in:
-                    await self._finish_task("failed", "登录超时")
-                    return
-
-            self._log("登录成功，导航到推荐页...")
-            await self._parser.navigate_to_recommend(page)
-
-            await self._run_loop(page, mode, match_limit)
-
+            self._task_log_id = await self._create_task_log(position_id, position.name)
         except Exception as e:
-            self._log(f"任务异常: {e}", "error")
-            await self._finish_task("failed", str(e))
-        finally:
-            if self._ai_filter:
-                await self._ai_filter.close()
-            await self._browser_manager.stop()
+            self._log(f"创建任务日志失败: {e}", "warning")
 
-    async def stop(self) -> None:
-        """停止当前任务"""
-        if self._status != TaskStatus.RUNNING:
+        self._log(
+            f"任务启动: 岗位={position.name}, 平台={self._parser.platform_name}, "
+            f"模式={mode.value}, 上限={match_limit}"
+        )
+        self._log("=" * 50)
+
+        # ══════════════════════════════════════════
+        # 步骤 2：启动浏览器（使用 cookie 持久化）
+        # ══════════════════════════════════════════
+        self._log("步骤 2/7：启动浏览器...")
+        page = None
+        try:
+            user_data_dir = str(config.data_dir / "profiles" / platform_id)
+            await self._browser_manager.start(persistent=True, user_data_dir=user_data_dir)
+            page = await self._browser_manager.new_page("main")
+        except Exception as e:
+            self._log(f"浏览器启动失败: {e}", "error")
             return
-        self._status = TaskStatus.STOPPING
-        self._log("正在停止任务...")
 
-    async def _run_loop(self, page, mode: TaskMode, match_limit: int) -> None:
-        """
-        主任务循环：滚动提取 → 筛选 → 打招呼
+        if not page:
+            self._log("浏览器页面创建失败", "error")
+            return
 
-        Args:
-            page: Playwright Page 实例
-            mode: 筛选模式
-            match_limit: 匹配上限
-        """
+        # ══════════════════════════════════════════
+        # 步骤 3：打开推荐页 + 判断登录
+        #   - 导航到推荐页入口 URL
+        #   - 每秒判断页面路由，如果是推荐页则已登录
+        #   - 如果不是推荐页，最多等60秒（页面可能还在跳转）
+        # ══════════════════════════════════════════
+        self._log("步骤 3/7：打开推荐页，检查登录状态...")
+        on_page = False
+        try:
+            on_page = await self._parser.ensure_on_page(page, timeout=60)
+        except Exception as e:
+            self._log(f"导航到推荐页异常: {e}", "error")
+
+        # ══════════════════════════════════════════
+        # 步骤 4：等待用户登录（如未登录）
+        #   - ensure_on_page 超时说明未登录
+        #   - 打开登录页等待用户扫码
+        # ══════════════════════════════════════════
+        if not on_page:
+            self._log("步骤 4/7：未登录，请在浏览器窗口中扫码登录...", "warning")
+            try:
+                is_logged_in = await self._parser.wait_for_login(page)
+            except Exception as e:
+                self._log(f"等待登录异常: {e}", "error")
+                return
+
+            if not is_logged_in:
+                self._log("登录超时，任务结束", "error")
+                return
+
+            self._log("登录成功，再次导航到推荐页...")
+            try:
+                on_page = await self._parser.ensure_on_page(page, timeout=60)
+                if not on_page:
+                    self._log("登录后仍无法进入推荐页，任务结束", "error")
+                    return
+            except Exception as e:
+                self._log(f"登录后导航异常: {e}", "error")
+                return
+        else:
+            self._log("步骤 4/7：已登录，跳过登录步骤")
+
+        self._log(f"推荐页加载完成，开始筛选候选人")
+
+        # ══════════════════════════════════════════
+        # 步骤 5：主循环 - 提取候选人 → 处理候选人
+        # ══════════════════════════════════════════
+        self._log("步骤 5/7：开始候选人筛选主循环...")
         processed_indices = set()
+        no_new_count = 0
 
         while self._status == TaskStatus.RUNNING:
             if self._match_count >= match_limit:
-                self._log(f"已达到匹配上限 {match_limit}，自动停止", "warning")
-                await self._finish_task("completed")
-                return
+                self._log(f"已达到匹配上限 {match_limit}，任务完成")
+                break
 
-            await self._parser.wait_for_cards(page)
-            candidates = await self._parser.extract_candidates(page)
+            # 5.1 等待候选人卡片加载
+            try:
+                cards_loaded = await self._parser.wait_for_cards(page)
+                if not cards_loaded:
+                    self._log("候选人卡片未加载，尝试滚动加载...")
+                    try:
+                        await scroll_to_load(page, config.task, max_scrolls=3)
+                    except Exception:
+                        pass
+                    try:
+                        cards_loaded = await self._parser.wait_for_cards(page, timeout=5000)
+                    except Exception:
+                        pass
+                    if not cards_loaded:
+                        self._log("候选人卡片仍未加载，可能页面结构不匹配", "warning")
+            except Exception as e:
+                self._log(f"等待卡片加载异常: {e}", "warning")
+
+            # 5.2 提取候选人（平台自己实现）
+            candidates = []
+            try:
+                candidates = await self._parser.extract_candidates(page)
+            except Exception as e:
+                self._log(f"提取候选人异常: {e}", "error")
+                candidates = []
 
             new_candidates = [c for c in candidates if c.element_index not in processed_indices]
 
+            # 5.3 没有新候选人，尝试滚动加载
             if not new_candidates:
-                self._log("当前屏无新候选人，尝试滚动加载...")
-                await scroll_to_load(page, config.task, max_scrolls=3)
-                candidates = await self._parser.extract_candidates(page)
-                new_candidates = [c for c in candidates if c.element_index not in processed_indices]
+                no_new_count += 1
+                if no_new_count >= 3:
+                    self._log("连续 3 次无新候选人，任务完成")
+                    break
+
+                self._log(f"当前屏无新候选人，尝试滚动加载（第{no_new_count}次）...")
+                try:
+                    await scroll_to_load(page, config.task, max_scrolls=3)
+                except Exception as e:
+                    self._log(f"滚动加载异常: {e}", "warning")
+
+                try:
+                    candidates = await self._parser.extract_candidates(page)
+                    new_candidates = [c for c in candidates if c.element_index not in processed_indices]
+                except Exception as e:
+                    self._log(f"滚动后提取候选人异常: {e}", "error")
+                    new_candidates = []
 
                 if not new_candidates:
-                    self._log("已无更多候选人，任务完成")
-                    await self._finish_task("completed")
-                    return
+                    continue
+            else:
+                no_new_count = 0
 
+            self._log(f"提取到 {len(new_candidates)} 个新候选人")
+
+            # 5.4 逐个处理候选人（任何异常跳过，处理下一个）
             for candidate in new_candidates:
                 if self._status != TaskStatus.RUNNING:
                     break
-
                 if self._match_count >= match_limit:
                     break
 
                 processed_indices.add(candidate.element_index)
                 self._total_count += 1
 
-                self._log(f"正在筛选 {candidate.name or '未知'} ({self._total_count})")
+                try:
+                    await self._process_candidate(page, candidate, mode)
+                except Exception as e:
+                    self._log(
+                        f"[{self._total_count}] 处理候选人异常，跳过: {e}",
+                        "error",
+                    )
+                    try:
+                        await self._save_candidate(candidate, CandidateStatus.FAILED, f"处理异常: {e}")
+                    except Exception:
+                        pass
 
-                passed, reason = await self._do_filter(candidate, mode)
+            # 5.5 更新任务日志
+            try:
+                await self._update_task_log()
+            except Exception as e:
+                logger.warning(f"更新任务日志失败: {e}")
 
-                if not passed:
-                    self._skipped_count += 1
-                    self._log(f"  → 未通过 ({reason})", "warning")
-                    await self._save_candidate(candidate, CandidateStatus.SKIPPED, reason)
-                    continue
-
-                self._log(f"  → 筛选通过 ({reason})", "success")
-
-                greet_success = await self._parser.click_greet(page, candidate.element_index)
-                if greet_success:
-                    self._match_count += 1
-                    self._log(f"打招呼成功 {self._match_count}/{match_limit} - {candidate.name}", "success")
-                    await self._save_candidate(candidate, CandidateStatus.GREETED, reason)
-                    await random_delay(config.task.scroll_delay_min, config.task.scroll_delay_max)
-                else:
-                    self._log(f"打招呼失败: {candidate.name}", "warning")
-                    await self._save_candidate(candidate, CandidateStatus.FAILED, "打招呼失败")
-
-            await self._update_task_log()
-
+            # 5.6 检查是否需要停止
             if self._status == TaskStatus.STOPPING:
-                await self._finish_task("stopped", "用户手动停止")
-                return
+                self._log("任务已被用户停止")
+                break
 
-            await scroll_to_load(page, config.task, max_scrolls=2)
+            # 5.7 滚动加载更多
+            try:
+                await scroll_to_load(page, config.task, max_scrolls=2)
+            except Exception as e:
+                self._log(f"滚动加载异常: {e}", "warning")
+
+        # ══════════════════════════════════════════
+        # 步骤 6：任务结束，输出统计
+        # ══════════════════════════════════════════
+        if self._match_count >= match_limit:
+            final_status = "completed"
+        elif self._status == TaskStatus.STOPPING:
+            final_status = "stopped"
+        else:
+            final_status = "completed"
+
+        self._log(
+            f"步骤 6/7：任务结束 - 扫描={self._total_count}, "
+            f"打招呼={self._match_count}, 跳过={self._skipped_count}"
+        )
+        try:
+            await self._finish_task_log(final_status)
+        except Exception as e:
+            logger.warning(f"更新任务日志失败: {e}")
+
+        # ══════════════════════════════════════════
+        # 步骤 7：清理资源（在 finally 中调用 _cleanup）
+        # ══════════════════════════════════════════
+        self._log("步骤 7/7：清理资源...")
+
+    async def _process_candidate(self, page, candidate: CandidateInfo, mode: TaskMode) -> None:
+        """
+        处理单个候选人：查看详情 → 筛选 → 关闭详情 → 打招呼
+
+        每个步骤都有独立异常处理，某步失败不影响后续步骤。
+
+        Args:
+            page: Playwright Page 实例
+            candidate: 候选人信息
+            mode: 筛选模式
+        """
+        candidate_summary = candidate.name or "未知"
+        detail_parts = []
+        if candidate.age:
+            detail_parts.append(f"年龄:{candidate.age}")
+        if candidate.education:
+            detail_parts.append(f"学历:{candidate.education}")
+        if candidate.experience:
+            detail_parts.append(f"经验:{candidate.experience}")
+        if candidate.salary:
+            detail_parts.append(f"薪资:{candidate.salary}")
+        if candidate.skills:
+            detail_parts.append(f"技能:{candidate.skills}")
+        if detail_parts:
+            candidate_summary += f" ({', '.join(detail_parts)})"
+
+        self._log(f"[{self._total_count}] 筛选候选人: {candidate_summary}")
+
+        # 1. 查看详情（平台自己实现）
+        detail_opened = False
+        try:
+            detail_text = await self._parser.open_detail(page, candidate.element_index)
+            if detail_text:
+                detail_opened = True
+                candidate.raw_text = (candidate.raw_text + " | " + detail_text) if candidate.raw_text else detail_text
+                detail_preview = detail_text[:200] + "..." if len(detail_text) > 200 else detail_text
+                self._log(f"  → 详情(DOM): {detail_preview}")
+        except Exception as e:
+            self._log(f"  → 打开详情异常: {e}", "warning")
+
+        # 1.5 根据 detail_mode 选择详情获取方式
+        detail_mode = config.task.detail_mode
+        if detail_mode == "ocr" and detail_opened:
+            try:
+                screenshot_bytes = await self._parser.screenshot_detail(page)
+                if screenshot_bytes:
+                    screenshot_path = await self._save_screenshot(candidate, screenshot_bytes)
+                    if screenshot_path:
+                        self._log(f"  → 截图已保存: {screenshot_path}")
+
+                    from utils.ocr import ocr_image_async
+                    ocr_text = await ocr_image_async(screenshot_bytes)
+                    if ocr_text:
+                        candidate.raw_text = (candidate.raw_text + "\n[OCR]\n" + ocr_text) if candidate.raw_text else ocr_text
+                        ocr_preview = ocr_text[:200] + "..." if len(ocr_text) > 200 else ocr_text
+                        self._log(f"  → 详情(OCR): {ocr_preview}")
+                    else:
+                        self._log(f"  → OCR 识别结果为空", "warning")
+            except Exception as e:
+                self._log(f"  → 截图/OCR 异常: {e}", "warning")
+
+        # 2. 筛选
+        passed = False
+        reason = "未知"
+        try:
+            passed, reason = await self._do_filter(candidate, mode)
+        except Exception as e:
+            self._log(f"  → 筛选异常: {e}", "error")
+            passed, reason = False, f"筛选异常: {e}"
+
+        # 3. 关闭详情（无论筛选是否通过都要关闭）
+        if detail_opened:
+            try:
+                await self._parser.close_detail(page)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                self._log(f"  → 关闭详情异常: {e}", "warning")
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.5)
+                except Exception:
+                    pass
+
+        # 4. 根据筛选结果处理
+        if not passed:
+            self._skipped_count += 1
+            self._log(f"  → 未通过 ({reason})", "warning")
+            try:
+                await self._save_candidate(candidate, CandidateStatus.SKIPPED, reason)
+            except Exception:
+                pass
+            return
+
+        self._log(f"  → 筛选通过 ({reason})", "success")
+
+        # 5. 打招呼（平台自己实现）
+        try:
+            greet_success = await self._parser.click_greet(page, candidate.element_index)
+        except Exception as e:
+            self._log(f"  → 打招呼异常: {e}", "error")
+            greet_success = False
+
+        if greet_success:
+            self._match_count += 1
+            self._log(f"  → 打招呼成功 {self._match_count} - {candidate.name}", "success")
+            try:
+                await self._save_candidate(candidate, CandidateStatus.GREETED, reason)
+            except Exception:
+                pass
+            try:
+                await random_delay(config.task.scroll_delay_min, config.task.scroll_delay_max)
+            except Exception:
+                pass
+        else:
+            self._log(f"  → 打招呼失败 - {candidate.name}", "warning")
+            try:
+                await self._save_candidate(candidate, CandidateStatus.FAILED, "打招呼失败")
+            except Exception:
+                pass
+
+    async def _save_screenshot(self, candidate: CandidateInfo, screenshot_bytes: bytes) -> Optional[str]:
+        """
+        保存候选人详情截图到本地文件
+
+        截图保存到 data/screenshots/ 目录下，文件名包含候选人姓名和时间戳。
+        目录不存在时自动创建。
+
+        Args:
+            candidate: 候选人信息（用于生成文件名）
+            screenshot_bytes: PNG 格式的截图字节数据
+
+        Returns:
+            Optional[str]: 保存的文件路径，保存失败返回 None
+        """
+        try:
+            screenshot_dir = config.data_dir / "screenshots"
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+            safe_name = "".join(c for c in (candidate.name or "unknown") if c.isalnum() or "\u4e00" <= c <= "\u9fff")[:20]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{safe_name}_{timestamp}.png"
+            filepath = screenshot_dir / filename
+
+            with open(filepath, "wb") as f:
+                f.write(screenshot_bytes)
+
+            return str(filepath)
+        except Exception as e:
+            logger.warning(f"保存截图失败: {e}")
+            return None
 
     async def _do_filter(self, candidate: CandidateInfo, mode: TaskMode) -> tuple[bool, str]:
         """
         执行筛选逻辑
-
-        根据模式选择 AI 筛选或关键词筛选，
-        AI 模式下 Boss 直聘跳过精筛（信息充足）。
 
         Args:
             candidate: 候选人信息
@@ -297,10 +664,7 @@ class TaskOrchestrator:
             tuple[bool, str]: (是否通过, 原因)
         """
         if mode == TaskMode.AI and self._ai_filter:
-            result = await self._ai_filter.filter(
-                candidate,
-                self._job_description,
-            )
+            result = await self._ai_filter.filter(candidate, self._job_description)
             reason = f"{result.msg}(-¥{result.cost})"
             return result.isok, reason
 
@@ -313,6 +677,30 @@ class TaskOrchestrator:
             return result.passed, result.reason
 
         return True, "无筛选条件"
+
+    async def _cleanup(self) -> None:
+        """
+        任务结束后统一清理资源
+
+        按顺序关闭：AI 筛选器 → 浏览器 → 重置状态。
+        每一步独立 try-except，确保某步失败不影响后续清理。
+        """
+        try:
+            if self._ai_filter:
+                await self._ai_filter.close()
+                self._ai_filter = None
+        except Exception as e:
+            logger.warning(f"关闭 AI 筛选器失败: {e}")
+
+        try:
+            await self._browser_manager.stop()
+        except Exception as e:
+            logger.warning(f"关闭浏览器失败: {e}")
+
+        self._keyword_filter = None
+        self._parser = None
+        self._async_task = None
+        self._transition(TaskStatus.IDLE)
 
     async def _load_position(self, position_id: int) -> Optional[Position]:
         """
@@ -349,7 +737,7 @@ class TaskOrchestrator:
                 raw_data=candidate.raw_text,
                 filter_reason=reason,
                 status=status,
-                platform=self._parser.platform_id,
+                platform=self._parser.platform_id if self._parser else "",
                 platform_user_id=candidate.platform_user_id,
             )
             session.add(db_candidate)
@@ -390,31 +778,28 @@ class TaskOrchestrator:
                 task_log.skipped_count = self._skipped_count
                 await session.commit()
 
-    async def _finish_task(self, status: str, error_message: str = "") -> None:
+    async def _finish_task_log(self, status: str, error_message: str = "") -> None:
         """
-        结束任务，更新状态和日志
+        结束任务日志
 
         Args:
             status: 最终状态
-            error_message: 错误消息（如果有）
+            error_message: 错误消息
         """
-        self._status = TaskStatus.COMPLETED if status == "completed" else TaskStatus.FAILED
-
-        if self._task_log_id:
-            async with async_session() as session:
-                result = await session.execute(select(TaskLog).where(TaskLog.id == self._task_log_id))
-                task_log = result.scalar_one_or_none()
-                if task_log:
-                    task_log.status = status
-                    task_log.total_count = self._total_count
-                    task_log.greeted_count = self._match_count
-                    task_log.skipped_count = self._skipped_count
-                    task_log.finished_at = datetime.now()
-                    if error_message:
-                        task_log.error_message = error_message
-                    await session.commit()
-
-        self._log(f"任务结束: status={status}, 扫描={self._total_count}, 打招呼={self._match_count}, 跳过={self._skipped_count}")
+        if not self._task_log_id:
+            return
+        async with async_session() as session:
+            result = await session.execute(select(TaskLog).where(TaskLog.id == self._task_log_id))
+            task_log = result.scalar_one_or_none()
+            if task_log:
+                task_log.status = status
+                task_log.total_count = self._total_count
+                task_log.greeted_count = self._match_count
+                task_log.skipped_count = self._skipped_count
+                task_log.finished_at = datetime.now()
+                if error_message:
+                    task_log.error_message = error_message
+                await session.commit()
 
 
 task_orchestrator = TaskOrchestrator()

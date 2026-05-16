@@ -49,7 +49,7 @@ PLATFORMS = {
     },
     "zhaopin": {
         "name": "智联招聘",
-        "login_url": "https://passport.zhaopin.com/login",
+        "login_url": "https://passport.zhaopin.com/org/login?validateCampus=",
         "home_url": "https://www.zhaopin.com",
         "logged_in_check": "document.querySelectorAll('.user-info, .user-name').length > 0",
     },
@@ -88,6 +88,7 @@ async def do_login(platform_key: str, headless: bool) -> bool:
             user_data_dir=profile_dir,
             headless=headless,
             humanize=True,
+            viewport={"width": 1280, "height": 800},
         )
 
         if len(context.pages) > 0:

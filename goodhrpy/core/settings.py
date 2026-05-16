@@ -70,6 +70,8 @@ class BrowserConfig(BaseSettings):
     humanize: bool = Field(default=True, description="是否启用仿真人行为")
     human_preset: str = Field(default="default", description="仿真人行为预设（default/careful）")
     proxy: str = Field(default="", description="代理地址（HTTP/SOCKS5）")
+    viewport_width: int = Field(default=1280, description="浏览器视口宽度（像素）")
+    viewport_height: int = Field(default=800, description="浏览器视口高度（像素）")
 
     model_config = {"env_prefix": "BROWSER_"}
 
@@ -81,6 +83,7 @@ class TaskConfig(BaseSettings):
     scroll_delay_min: int = Field(default=3, description="滚动最小延迟（秒）")
     scroll_delay_max: int = Field(default=8, description="滚动最大延迟（秒）")
     click_frequency: int = Field(default=7, description="免费模式点击概率(0-10)")
+    detail_mode: str = Field(default="dom", description="详情获取模式：dom=DOM选择器, ocr=截图OCR识别")
 
     model_config = {"env_prefix": "TASK_"}
 
@@ -145,6 +148,8 @@ def load_config() -> AppConfig:
         humanize=os.getenv("BROWSER_HUMANIZE", "true").lower() in ("true", "1") or browser_defaults.get("humanize", True),
         human_preset=os.getenv("BROWSER_HUMAN_PRESET", "") or browser_defaults.get("human_preset", "default"),
         proxy=os.getenv("PROXY", "") or os.getenv("PROXY_SOCKS5", "") or browser_defaults.get("proxy", ""),
+        viewport_width=int(os.getenv("BROWSER_VIEWPORT_WIDTH", "") or browser_defaults.get("viewport_width", 1280)),
+        viewport_height=int(os.getenv("BROWSER_VIEWPORT_HEIGHT", "") or browser_defaults.get("viewport_height", 800)),
     )
 
     task_config = TaskConfig(
@@ -152,6 +157,7 @@ def load_config() -> AppConfig:
         scroll_delay_min=int(os.getenv("TASK_SCROLL_DELAY_MIN", "") or task_defaults.get("scroll_delay_min", 3)),
         scroll_delay_max=int(os.getenv("TASK_SCROLL_DELAY_MAX", "") or task_defaults.get("scroll_delay_max", 8)),
         click_frequency=int(os.getenv("TASK_CLICK_FREQUENCY", "") or task_defaults.get("click_frequency", 7)),
+        detail_mode=os.getenv("TASK_DETAIL_MODE", "") or task_defaults.get("detail_mode", "dom"),
     )
 
     web_config = WebConfig(

@@ -52,6 +52,7 @@ class TaskConfigResponse(BaseModel):
     scroll_delay_min: int
     scroll_delay_max: int
     click_frequency: int
+    detail_mode: str
 
 
 class SystemConfigResponse(BaseModel):
@@ -84,6 +85,7 @@ async def get_config():
             scroll_delay_min=config.task.scroll_delay_min,
             scroll_delay_max=config.task.scroll_delay_max,
             click_frequency=config.task.click_frequency,
+            detail_mode=config.task.detail_mode,
         ),
     )
 
@@ -113,4 +115,47 @@ async def update_ai_config(data: AIConfigUpdate):
         has_api_key=bool(config.ai.api_key),
         click_prompt=config.ai.click_prompt,
         temperature=config.ai.temperature,
+    )
+
+
+class TaskConfigUpdate(BaseModel):
+    """任务配置更新模型"""
+
+    match_limit: Optional[int] = Field(default=None, description="匹配上限")
+    scroll_delay_min: Optional[int] = Field(default=None, description="滚动最小延迟")
+    scroll_delay_max: Optional[int] = Field(default=None, description="滚动最大延迟")
+    click_frequency: Optional[int] = Field(default=None, description="点击概率")
+    detail_mode: Optional[str] = Field(default=None, description="详情获取模式: dom/ocr")
+
+
+@router.put("/task", response_model=TaskConfigResponse)
+async def update_task_config(data: TaskConfigUpdate):
+    """
+    更新任务配置
+
+    运行时修改任务相关配置，修改后立即生效。
+    detail_mode 可选值：dom（DOM选择器读取）、ocr（截图OCR识别）。
+    """
+    if data.match_limit is not None:
+        config.task.match_limit = data.match_limit
+    if data.scroll_delay_min is not None:
+        config.task.scroll_delay_min = data.scroll_delay_min
+    if data.scroll_delay_max is not None:
+        config.task.scroll_delay_max = data.scroll_delay_max
+    if data.click_frequency is not None:
+        config.task.click_frequency = data.click_frequency
+    if data.detail_mode is not None:
+        if data.detail_mode not in ("dom", "ocr"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="detail_mode 只支持 dom 或 ocr")
+        config.task.detail_mode = data.detail_mode
+
+    logger.info(f"任务配置已更新，detail_mode={config.task.detail_mode}")
+
+    return TaskConfigResponse(
+        match_limit=config.task.match_limit,
+        scroll_delay_min=config.task.scroll_delay_min,
+        scroll_delay_max=config.task.scroll_delay_max,
+        click_frequency=config.task.click_frequency,
+        detail_mode=config.task.detail_mode,
     )

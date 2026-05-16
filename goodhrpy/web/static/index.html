@@ -273,7 +273,6 @@
         <div class="tab" data-tab="task">任务控制</div>
         <div class="tab" data-tab="positions">岗位管理</div>
         <div class="tab" data-tab="candidates">候选人</div>
-        <div class="tab" data-tab="logs">运行日志</div>
         <div class="tab" data-tab="config">系统配置</div>
       </div>
 
@@ -314,11 +313,15 @@
             class="form-group"
             style="
               display: grid;
-              grid-template-columns: 2fr 1fr 1fr auto;
+              grid-template-columns: 1fr 2fr 1fr 1fr auto;
               gap: 12px;
               align-items: end;
             "
           >
+            <div>
+              <label>选择平台</label>
+              <select id="task-platform"></select>
+            </div>
             <div>
               <label>选择岗位</label>
               <select id="task-position"></select>
@@ -343,8 +346,8 @@
             <div>
               <button
                 class="btn btn-primary"
-                id="btn-start"
                 onclick="startTask()"
+                id="btn-start"
               >
                 启动
               </button>
@@ -358,6 +361,12 @@
               </button>
             </div>
           </div>
+          <div style="margin-top: 16px">
+            <h3 style="font-size: 14px; margin-bottom: 8px; color: #555">
+              实时日志
+            </h3>
+            <div class="log-area" id="log-area" style="height: 200px"></div>
+          </div>
         </div>
       </div>
 
@@ -365,7 +374,7 @@
         <div class="card">
           <h2>岗位列表</h2>
           <div style="margin-bottom: 12px">
-            <button class="btn btn-primary" onclick="showAddPosition()">
+            <button class="btn btn-primary" onclick="showPositionModal()">
               新增岗位
             </button>
           </div>
@@ -374,13 +383,107 @@
               <tr>
                 <th>名称</th>
                 <th>关键词</th>
+                <th>排除词</th>
                 <th>描述</th>
+                <th>打招呼消息</th>
+                <th>匹配模式</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="position-list"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div
+        id="position-modal"
+        style="
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.4);
+          z-index: 1000;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            width: 520px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+          "
+        >
+          <h3
+            id="position-modal-title"
+            style="margin-bottom: 16px; font-size: 16px; color: #1a56db"
+          >
+            新增岗位
+          </h3>
+          <input type="hidden" id="position-edit-id" value="" />
+          <div class="form-group">
+            <label>岗位名称 *</label>
+            <input type="text" id="pos-name" placeholder="如：前端开发工程师" />
+          </div>
+          <div class="form-group">
+            <label>筛选关键词（逗号分隔）</label>
+            <input
+              type="text"
+              id="pos-keywords"
+              placeholder="如：React,Vue,TypeScript"
+            />
+          </div>
+          <div class="form-group">
+            <label>排除关键词（逗号分隔）</label>
+            <input
+              type="text"
+              id="pos-exclude-keywords"
+              placeholder="如：外包,实习"
+            />
+          </div>
+          <div class="form-group">
+            <label>岗位描述/要求</label>
+            <textarea
+              id="pos-description"
+              placeholder="岗位要求描述，AI 筛选时使用"
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <label>打招呼消息模板</label>
+            <textarea
+              id="pos-greet-message"
+              placeholder="自定义打招呼消息，留空使用默认"
+            ></textarea>
+          </div>
+          <div
+            class="form-group"
+            style="display: flex; align-items: center; gap: 8px"
+          >
+            <input type="checkbox" id="pos-and-mode" />
+            <label for="pos-and-mode" style="margin: 0"
+              >关键词与模式（勾选后需全部匹配）</label
+            >
+          </div>
+          <div style="display: flex; gap: 12px; margin-top: 16px">
+            <button class="btn btn-primary" onclick="savePosition()">
+              保存
+            </button>
+            <button
+              class="btn"
+              style="background: #e5e7eb; color: #333"
+              onclick="closePositionModal()"
+            >
+              取消
+            </button>
+          </div>
         </div>
       </div>
 
@@ -401,13 +504,6 @@
             </thead>
             <tbody id="candidate-list"></tbody>
           </table>
-        </div>
-      </div>
-
-      <div id="tab-logs" class="tab-content">
-        <div class="card">
-          <h2>运行日志</h2>
-          <div class="log-area" id="log-area"></div>
         </div>
       </div>
 
@@ -434,6 +530,71 @@
           <button class="btn btn-success" onclick="saveAIConfig()">
             保存 AI 配置
           </button>
+        </div>
+
+        <div class="card">
+          <h2>任务配置</h2>
+          <div class="form-group">
+            <label>详情获取模式</label>
+            <select id="cfg-detail-mode">
+              <option value="dom">
+                DOM 选择器（快速、准确，依赖页面结构）
+              </option>
+              <option value="ocr">截图 OCR（适配性强，依赖 PaddleOCR）</option>
+            </select>
+          </div>
+          <div style="font-size: 12px; color: #888; margin-bottom: 12px">
+            DOM 模式通过 CSS
+            选择器读取页面文字，速度快但网站改版需更新选择器；<br />
+            OCR 模式对详情弹框截图后识别文字，适配性更强但速度稍慢。
+          </div>
+          <button class="btn btn-success" onclick="saveTaskConfig()">
+            保存任务配置
+          </button>
+        </div>
+
+        <div class="card">
+          <h2>截图管理</h2>
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 12px;
+            "
+          >
+            <span style="font-size: 13px; color: #666" id="screenshot-count"
+              >共 0 张截图</span
+            >
+            <button
+              class="btn btn-danger"
+              onclick="clearScreenshots()"
+              id="btn-clear-screenshots"
+            >
+              一键清理
+            </button>
+          </div>
+          <div
+            id="screenshot-grid"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+              gap: 12px;
+              max-height: 400px;
+              overflow-y: auto;
+            "
+          >
+            <div
+              style="
+                color: #999;
+                font-size: 13px;
+                padding: 20px;
+                text-align: center;
+              "
+            >
+              暂无截图
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -463,12 +624,26 @@
                     <span class="status-badge ${p.logged_in ? "status-greeted" : "status-pending"}">${p.logged_in ? "已登录" : "未登录"}</span>
                 </div>
                 <div style="font-size:12px;color:#888;margin-bottom:12px">${p.domain}</div>
-                <button class="btn ${p.logged_in ? "btn-danger" : "btn-primary"}" style="width:100%"
-                    onclick="${p.logged_in ? `doLogout('${p.id}')` : `doLogin('${p.id}')`}">
-                    ${p.logged_in ? "注销登录" : "扫码登录"}
-                </button>
+                ${
+                  p.logged_in
+                    ? `
+                    <button class="btn btn-success" style="width:100%;margin-bottom:8px" onclick="doOpenPlatform('${p.id}')">打开平台</button>
+                    <button class="btn btn-danger" style="width:100%" onclick="doLogout('${p.id}')">注销登录</button>
+                `
+                    : `
+                    <button class="btn btn-primary" style="width:100%" onclick="doLogin('${p.id}')">扫码登录</button>
+                `
+                }
             </div>
         `,
+          )
+          .join("");
+
+        const sel = document.getElementById("task-platform");
+        sel.innerHTML = data
+          .map(
+            (p) =>
+              `<option value="${p.id}" ${p.logged_in ? "" : "disabled"}>${p.name}${p.logged_in ? " ✅" : "（未登录）"}</option>`,
           )
           .join("");
       }
@@ -480,6 +655,17 @@
         if (data.ok) {
           showLoginStatus("info", data.msg);
           startLoginPoll();
+        } else {
+          showLoginStatus("warning", data.msg);
+        }
+      }
+
+      async function doOpenPlatform(platform) {
+        const data = await api(`/api/v1/login/open?platform=${platform}`, {
+          method: "POST",
+        });
+        if (data.ok) {
+          showLoginStatus("success", data.msg);
         } else {
           showLoginStatus("warning", data.msg);
         }
@@ -549,13 +735,120 @@
           .map(
             (p) => `<tr>
             <td>${p.name}</td>
-            <td>${p.keywords.join(", ")}</td>
-            <td>${p.description.slice(0, 50)}...</td>
-            <td>${p.is_active ? "启用" : "禁用"}</td>
-            <td><button class="btn btn-danger" style="padding:4px 12px;font-size:12px" onclick="deletePosition(${p.id})">删除</button></td>
+            <td>${p.keywords.join(", ") || "-"}</td>
+            <td>${p.exclude_keywords.join(", ") || "-"}</td>
+            <td>${(p.description || "").slice(0, 40)}${p.description && p.description.length > 40 ? "..." : ""}</td>
+            <td>${(p.greet_message || "").slice(0, 30)}${p.greet_message && p.greet_message.length > 30 ? "..." : ""}</td>
+            <td>${p.is_and_mode ? "与模式" : "或模式"}</td>
+            <td><span class="status-badge ${p.is_active ? "status-greeted" : "status-skipped"}">${p.is_active ? "启用" : "禁用"}</span></td>
+            <td>
+              <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;margin-right:4px" onclick="editPosition(${p.id})">编辑</button>
+              <button class="btn btn-danger" style="padding:4px 12px;font-size:12px" onclick="deletePosition(${p.id})">删除</button>
+            </td>
         </tr>`,
           )
           .join("");
+      }
+
+      function showPositionModal(editId) {
+        const modal = document.getElementById("position-modal");
+        document.getElementById("position-edit-id").value = editId || "";
+        document.getElementById("position-modal-title").textContent = editId
+          ? "编辑岗位"
+          : "新增岗位";
+        if (!editId) {
+          document.getElementById("pos-name").value = "";
+          document.getElementById("pos-keywords").value = "";
+          document.getElementById("pos-exclude-keywords").value = "";
+          document.getElementById("pos-description").value = "";
+          document.getElementById("pos-greet-message").value = "";
+          document.getElementById("pos-and-mode").checked = false;
+        }
+        modal.style.display = "flex";
+      }
+
+      function closePositionModal() {
+        document.getElementById("position-modal").style.display = "none";
+      }
+
+      async function editPosition(id) {
+        const data = await api(`/api/v1/positions/${id}`);
+        document.getElementById("pos-name").value = data.name || "";
+        document.getElementById("pos-keywords").value = (
+          data.keywords || []
+        ).join(", ");
+        document.getElementById("pos-exclude-keywords").value = (
+          data.exclude_keywords || []
+        ).join(", ");
+        document.getElementById("pos-description").value =
+          data.description || "";
+        document.getElementById("pos-greet-message").value =
+          data.greet_message || "";
+        document.getElementById("pos-and-mode").checked = !!data.is_and_mode;
+        showPositionModal(id);
+      }
+
+      async function savePosition() {
+        const editId = document.getElementById("position-edit-id").value;
+        const name = document.getElementById("pos-name").value.trim();
+        if (!name) {
+          alert("请输入岗位名称");
+          return;
+        }
+        const keywords = document
+          .getElementById("pos-keywords")
+          .value.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const excludeKeywords = document
+          .getElementById("pos-exclude-keywords")
+          .value.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const description = document
+          .getElementById("pos-description")
+          .value.trim();
+        const greetMessage = document
+          .getElementById("pos-greet-message")
+          .value.trim();
+        const isAndMode = document.getElementById("pos-and-mode").checked;
+
+        const body = {
+          name,
+          keywords,
+          exclude_keywords: excludeKeywords,
+          description,
+          greet_message: greetMessage,
+          is_and_mode: isAndMode,
+        };
+
+        try {
+          if (editId) {
+            await api(`/api/v1/positions/${editId}`, {
+              method: "PUT",
+              body: JSON.stringify(body),
+            });
+          } else {
+            await api("/api/v1/positions", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+          }
+          closePositionModal();
+          await loadPositions();
+        } catch (e) {
+          alert("保存失败: " + (e.message || "未知错误"));
+        }
+      }
+
+      async function deletePosition(id) {
+        if (!confirm("确认删除该岗位？")) return;
+        try {
+          await api(`/api/v1/positions/${id}`, { method: "DELETE" });
+          await loadPositions();
+        } catch (e) {
+          alert("删除失败: " + (e.message || "未知错误"));
+        }
       }
 
       async function loadCandidates() {
@@ -600,21 +893,45 @@
         document.getElementById("stat-failed").textContent = data.failed;
       }
 
+      let _taskStarting = false;
+
       async function startTask() {
+        const btn = document.getElementById("btn-start");
+        if (btn.disabled || _taskStarting) return;
+        _taskStarting = true;
+        btn.disabled = true;
+        btn.textContent = "启动中...";
         const positionId = parseInt(
           document.getElementById("task-position").value,
         );
         const mode = document.getElementById("task-mode").value;
         const limit = parseInt(document.getElementById("task-limit").value);
-        await api("/api/v1/tasks/start", {
-          method: "POST",
-          body: JSON.stringify({
-            position_id: positionId,
-            mode,
-            match_limit: limit,
-          }),
-        });
-        addLog("任务已启动", "info");
+        const platformId = document.getElementById("task-platform").value;
+        try {
+          const data = await api("/api/v1/tasks/start", {
+            method: "POST",
+            body: JSON.stringify({
+              position_id: positionId,
+              mode,
+              match_limit: limit,
+              platform_id: platformId,
+            }),
+          });
+          if (data.ok || data.status === "started") {
+            addLog("任务已启动", "info");
+            btn.textContent = "运行中...";
+            btn.disabled = true;
+          } else {
+            addLog(data.detail || data.msg || "启动失败", "error");
+            btn.disabled = false;
+            btn.textContent = "启动";
+          }
+        } catch (e) {
+          addLog("启动请求失败: " + e.message, "error");
+          btn.disabled = false;
+          btn.textContent = "启动";
+        }
+        _taskStarting = false;
         updateTaskStatus();
       }
 
@@ -628,6 +945,22 @@
         const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
         area.innerHTML += `<div class="log-${level}">[${time}] ${msg}</div>`;
         area.scrollTop = area.scrollHeight;
+      }
+
+      let _lastLogIndex = 0;
+
+      async function pollRealtimeLogs() {
+        try {
+          const data = await api(
+            `/api/v1/tasks/realtime_logs?since=${_lastLogIndex}`,
+          );
+          if (data.logs && data.logs.length > 0) {
+            for (const log of data.logs) {
+              addLog(log.message, log.level);
+            }
+            _lastLogIndex = data.total;
+          }
+        } catch (e) {}
       }
 
       document.querySelectorAll(".tab").forEach((tab) => {
@@ -650,10 +983,80 @@
         await loadPositions();
         await loadStats();
         await updateTaskStatus();
+        await loadConfig();
+        await loadScreenshots();
         pollTimer = setInterval(async () => {
           await updateTaskStatus();
           await loadStats();
-        }, 5000);
+          await pollRealtimeLogs();
+        }, 2000);
+      }
+
+      async function loadConfig() {
+        try {
+          const data = await api("/api/v1/config");
+          if (data.task && data.task.detail_mode) {
+            document.getElementById("cfg-detail-mode").value =
+              data.task.detail_mode;
+          }
+        } catch (e) {}
+      }
+
+      async function saveTaskConfig() {
+        const detailMode = document.getElementById("cfg-detail-mode").value;
+        try {
+          await api("/api/v1/config/task", {
+            method: "PUT",
+            body: JSON.stringify({ detail_mode: detailMode }),
+          });
+          addLog("任务配置已保存", "success");
+        } catch (e) {
+          addLog("保存任务配置失败: " + e.message, "error");
+        }
+      }
+
+      async function loadScreenshots() {
+        try {
+          const data = await api("/api/v1/screenshots");
+          document.getElementById("screenshot-count").textContent =
+            `共 ${data.total} 张截图`;
+          const grid = document.getElementById("screenshot-grid");
+          if (!data.screenshots || data.screenshots.length === 0) {
+            grid.innerHTML =
+              '<div style="color:#999;font-size:13px;padding:20px;text-align:center">暂无截图</div>';
+            return;
+          }
+          grid.innerHTML = data.screenshots
+            .map(
+              (s) => `
+            <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;cursor:pointer" onclick="window.open('/api/v1/screenshots/${s.filename}','_blank')">
+              <img src="/api/v1/screenshots/${s.filename}" style="width:100%;height:120px;object-fit:cover" loading="lazy" />
+              <div style="padding:6px 8px;font-size:11px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${s.filename}
+              </div>
+              <div style="padding:0 8px 6px;font-size:10px;color:#999">
+                ${s.size_kb} KB · ${s.created_at}
+              </div>
+            </div>
+          `,
+            )
+            .join("");
+        } catch (e) {
+          console.error("加载截图失败:", e);
+        }
+      }
+
+      async function clearScreenshots() {
+        if (!confirm("确认清理所有截图？此操作不可恢复。")) return;
+        try {
+          const data = await api("/api/v1/screenshots/clear", {
+            method: "DELETE",
+          });
+          addLog(`已清理 ${data.deleted} 张截图`, "success");
+          await loadScreenshots();
+        } catch (e) {
+          addLog("清理截图失败: " + e.message, "error");
+        }
       }
 
       init();

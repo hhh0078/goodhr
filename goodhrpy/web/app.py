@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from core.settings import config
 from models.database import init_db
 from utils.logger import get_logger, setup_logger
-from web.api import candidate, config_api, login_api, position, task
+from web.api import candidate, config_api, login_api, position, screenshot_api, task
 
 logger = get_logger("app")
 
@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(task.router, prefix="/api/v1/tasks", tags=["任务管理"])
     app.include_router(config_api.router, prefix="/api/v1/config", tags=["系统配置"])
     app.include_router(login_api.router, prefix="/api/v1/login", tags=["平台登录"])
+    app.include_router(screenshot_api.router, prefix="/api/v1/screenshots", tags=["截图管理"])
 
     static_dir = config.project_root / "web" / "static"
     if static_dir.exists():
