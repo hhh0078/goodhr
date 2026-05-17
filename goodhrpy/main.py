@@ -6,7 +6,6 @@ GoodHR 自动化工具 - 项目入口
 """
 
 import argparse
-import sys
 
 import uvicorn
 
@@ -39,6 +38,7 @@ def main():
         host=args.host,
         port=args.port,
         reload=args.reload,
+        access_log=False,
     )
 
 
