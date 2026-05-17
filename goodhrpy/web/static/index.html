@@ -918,6 +918,8 @@
             }),
           });
           if (data.ok || data.status === "started") {
+            document.getElementById("log-area").innerHTML = "";
+            _lastLogSeq = 0;
             addLog("任务已启动", "info");
             btn.textContent = "运行中...";
             btn.disabled = true;
@@ -944,21 +946,26 @@
         const area = document.getElementById("log-area");
         const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
         area.innerHTML += `<div class="log-${level}">[${time}] ${msg}</div>`;
+        while (area.children.length > 100) {
+          area.removeChild(area.firstChild);
+        }
         area.scrollTop = area.scrollHeight;
       }
 
-      let _lastLogIndex = 0;
+      let _lastLogSeq = 0;
 
       async function pollRealtimeLogs() {
         try {
           const data = await api(
-            `/api/v1/tasks/realtime_logs?since=${_lastLogIndex}`,
+            `/api/v1/tasks/realtime_logs?since_id=${_lastLogSeq}`,
           );
           if (data.logs && data.logs.length > 0) {
             for (const log of data.logs) {
               addLog(log.message, log.level);
             }
-            _lastLogIndex = data.total;
+          }
+          if (data.last_seq !== undefined) {
+            _lastLogSeq = data.last_seq;
           }
         } catch (e) {}
       }

@@ -22,26 +22,28 @@ logger = get_logger("task_api")
 
 router = APIRouter()
 
-_log_queue: deque = deque(maxlen=200)
+_log_queue: deque = deque(maxlen=100)
+_log_seq: int = 0
 
 
 def _on_task_log(message: str, level: str = "info") -> None:
-    """
-    任务日志回调，将日志推入内存队列供前端轮询
-
-    Args:
-        message: 日志消息
-        level: 日志级别
-    """
+    global _log_seq
     import time
 
-    _log_queue.append(
-        {
-            "time": time.strftime("%H:%M:%S"),
-            "message": message,
-            "level": level,
-        }
-    )
+    _log_seq += 1
+    _log_queue.append({
+        "seq": _log_seq,
+        "time": time.strftime("%H:%M:%S"),
+        "message": message,
+        "level": level,
+    })
+
+
+def _clear_log_queue() -> None:
+    """清空日志队列（任务启动时调用）"""
+    global _log_seq
+    _log_queue.clear()
+    _log_seq = 0
 
 
 task_orchestrator.on_log(_on_task_log)
@@ -66,6 +68,8 @@ async def start_task(request: TaskStartRequest):
         )
 
     mode = TaskMode(request.mode) if request.mode in ("ai", "keyword") else TaskMode.AI
+
+    _clear_log_queue()
 
     asyncio.create_task(
         task_orchestrator.start(
@@ -110,22 +114,11 @@ async def list_task_logs(limit: int = Query(default=20, ge=1, le=100)):
 
 
 @router.get("/realtime_logs")
-async def realtime_logs(since: int = Query(default=0, ge=0, description="从第几条开始获取")):
-    """
-    获取实时任务日志（内存队列）
-
-    前端轮询此接口获取任务运行时的实时日志输出。
-
-    Args:
-        since: 从第几条开始获取（用于增量拉取）
-
-    Returns:
-        dict: 包含日志列表和总数
-    """
+async def realtime_logs(since_id: int = Query(default=0, ge=0, description="从哪个序列号之后开始获取")):
     logs = list(_log_queue)
-    if since > 0 and since < len(logs):
-        logs = logs[since:]
+    if since_id > 0:
+        logs = [r for r in logs if r["seq"] > since_id]
     return {
-        "total": len(_log_queue),
+        "last_seq": _log_seq,
         "logs": logs,
     }

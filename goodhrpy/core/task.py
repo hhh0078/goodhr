@@ -460,6 +460,8 @@ class TaskOrchestrator:
                     except Exception:
                         pass
 
+            gc.collect()
+
             # 5.5 更新任务日志
             try:
                 await self._update_task_log()
@@ -679,12 +681,6 @@ class TaskOrchestrator:
         return True, "无筛选条件"
 
     async def _cleanup(self) -> None:
-        """
-        任务结束后统一清理资源
-
-        按顺序关闭：AI 筛选器 → 浏览器 → 重置状态。
-        每一步独立 try-except，确保某步失败不影响后续清理。
-        """
         try:
             if self._ai_filter:
                 await self._ai_filter.close()
@@ -701,6 +697,14 @@ class TaskOrchestrator:
         self._parser = None
         self._async_task = None
         self._transition(TaskStatus.IDLE)
+
+        try:
+            from utils.ocr import close_ocr
+            close_ocr()
+        except Exception:
+            pass
+
+        gc.collect()
 
     async def _load_position(self, position_id: int) -> Optional[Position]:
         """

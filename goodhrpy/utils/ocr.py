@@ -119,6 +119,23 @@ async def ocr_image_async(image_bytes: bytes) -> str:
     return await asyncio.to_thread(ocr_image_bytes, image_bytes)
 
 
+def close_ocr() -> None:
+    """
+    释放 PaddleOCR 引擎，释放 GPU/内存资源
+
+    将全局 OCR 引擎引用置为 None，触发 Python GC 回收模型内存。
+    适合在任务结束后调用，避免长时间占用大量内存。
+
+    如需再次使用 OCR，下次调用 ocr_image_bytes 时自动重新加载。
+    """
+    global _ocr_engine
+    if _ocr_engine is not None:
+        _ocr_engine = None
+        import gc
+        gc.collect()
+        logger.info("PaddleOCR 引擎已释放")
+
+
 def is_available() -> bool:
     """
     检查 PaddleOCR 是否可用

@@ -249,7 +249,6 @@ class BaseParser(ABC):
 
         当弹框内容超出视口时，通过模拟鼠标滚轮在弹框内部滚动，
         逐段截图后用 Pillow 拼接成完整的弹框截图。
-        鼠标滚轮模拟真人操作，兼容所有滚动方式（原生滚动、虚拟滚动等）。
         子类可重写此方法，提供平台特定的弹框定位逻辑。
 
         Args:
@@ -306,22 +305,7 @@ class BaseParser(ABC):
     async def _scroll_and_stitch(
         self, page: Page, locator, box: dict, viewport_height: int
     ) -> Optional[bytes]:
-        """
-        通过鼠标滚轮在弹框内滚动，逐段截图后拼接成完整弹框截图
-
-        模拟真人操作：将鼠标移动到弹框中心，然后用鼠标滚轮向下滚动。
-        每次滚动后截图，最后用 Pillow 拼接去除重叠区域。
-        这种方式兼容所有滚动实现（原生滚动、虚拟滚动、CSS transform 等）。
-
-        Args:
-            page: Playwright Page 实例
-            locator: 弹框元素的 Locator
-            box: 弹框的 bounding_box {x, y, width, height}
-            viewport_height: 视口高度
-
-        Returns:
-            Optional[bytes]: 拼接后的 PNG 字节数据，失败返回 None
-        """
+        """通过鼠标滚轮滚动逐段截图后拼接成完整弹框截图，box 为页面坐标"""
         clip_y = max(box["y"], 0)
         clip_height = min(box["y"] + box["height"], viewport_height) - clip_y
         if clip_height <= 0:
