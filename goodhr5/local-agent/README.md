@@ -1,19 +1,23 @@
 # GoodHR 5 Local Agent
 
-本地 Agent 运行在用户电脑上，后续负责：
+本地 Agent 运行在用户电脑上，负责：
 
-- CloakBrowser 控制。
-- 招聘平台页面查找、滚动和点击。
-- 当前可见候选人提取。
-- 详情弹框截图。
-- OCR。
+- CloakBrowser 控制（browser.py）。
+- 招聘平台页面查找、滚动和点击（humanize.py + platform/base.py）。
+- 当前可见候选人提取（platform/ 各平台解析器）。
+- 详情弹框截图（platform/base.py 弹框截图拼接）。
+- OCR（后续迁移）。
 - 本地任务 JSON、截图和 OCR 文件管理。
 
-当前版本只提供 `/health`，用于云端页面探测。
+当前版本已升级为 FastAPI（v0.2.0），使用 uvicorn 启动。
 
 ## 启动
 
 ```bash
+# 激活虚拟环境
+source .venv/bin/activate
+
+# 启动 Local Agent
 python3 -m app.main
 ```
 
