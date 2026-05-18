@@ -126,7 +126,7 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务日志存储读取摘要，用于前端展开任务卡片。
-	logs, err := s.logStore.ListTaskLogs(session.Email, taskID)
+	logs, err := s.logStore.ListTaskLogs("", session.Email, taskID, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list task logs")
 		return

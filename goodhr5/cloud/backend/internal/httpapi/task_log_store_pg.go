@@ -59,7 +59,7 @@ func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 }
 
 // ListTaskLogs 列出 PostgreSQL 中当前用户某个任务的日志摘要。
-func (s *PostgresTaskLogStore) ListTaskLogs(userEmail string, taskID string) ([]TaskLog, error) {
+func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) ([]TaskLog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
