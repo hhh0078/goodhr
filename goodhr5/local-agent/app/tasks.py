@@ -10,7 +10,13 @@ from pathlib import Path
 from app.paths import data_dir
 
 
-def init_task(task_id: str, cloud_user_id: str, platform_id: str, platform_account_id: str) -> dict:
+def init_task(
+    task_id: str,
+    cloud_user_id: str,
+    platform_id: str,
+    platform_account_id: str,
+    position_snapshot: dict | None = None,
+) -> dict:
     """初始化本地任务目录和 candidates.json。"""
     task_id = _clean_id(task_id, "task")
     task_path = task_dir(task_id)
@@ -27,6 +33,7 @@ def init_task(task_id: str, cloud_user_id: str, platform_id: str, platform_accou
         "cloud_user_id": cloud_user_id,
         "platform_id": platform_id,
         "platform_account_id": platform_account_id,
+        "position_snapshot": position_snapshot or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
         "items": [],
     }

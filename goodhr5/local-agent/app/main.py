@@ -203,6 +203,7 @@ class Handler(BaseHTTPRequestHandler):
                 str(payload.get("cloud_user_id", "")),
                 str(payload.get("platform_id", "")),
                 str(payload.get("platform_account_id", "")),
+                payload.get("position_snapshot", {}),
             )
         except ValueError as exc:
             self._error(400, str(exc))

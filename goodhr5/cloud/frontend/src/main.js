@@ -530,12 +530,25 @@ const App = {
         return
       }
 
+      const position = positions.value.find((item) => item.id === task.position_id)
+
       // 调用本地任务初始化接口，保证每个云端任务都有独立候选人 JSON。
       await initLocalTask(agentInfo.value, {
         task_id: localTaskID(task),
         cloud_user_id: user.value.email,
         platform_id: task.platform_id,
-        platform_account_id: task.platform_account_id
+        platform_account_id: task.platform_account_id,
+        position_snapshot: position
+          ? {
+              id: position.id,
+              name: position.name,
+              keywords: position.keywords || [],
+              exclude_keywords: position.exclude_keywords || [],
+              description: position.description || '',
+              greet_message: position.greet_message || '',
+              is_and_mode: Boolean(position.is_and_mode)
+            }
+          : {}
       })
     }
 
