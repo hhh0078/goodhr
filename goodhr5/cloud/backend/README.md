@@ -29,6 +29,7 @@ CGO_ENABLED=0 go run ./cmd/server
 AgentStore
 AIConfigStore
 PlatformAccountStore
+PositionStore
 TaskStore
 TaskLogStore
 ```
@@ -135,6 +136,20 @@ DELETE /api/platform-accounts/{id}
 所有接口都需要 `Authorization: Bearer <token>`。
 
 云端只保存平台、显示名和 Local Agent 的 `local_profile_id`，不保存 cookie/profile 原文。
+
+## 岗位配置
+
+当前已提供：
+
+```http
+GET /api/positions
+POST /api/positions
+DELETE /api/positions/{id}
+```
+
+所有接口都需要 `Authorization: Bearer <token>`。
+
+岗位配置保存名称、关键词、排除关键词、岗位描述、默认问候语和 AND/OR 匹配方式。
 
 ## 任务 API
 

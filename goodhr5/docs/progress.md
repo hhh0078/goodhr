@@ -19,6 +19,8 @@
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
 | 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
 | 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
+| 云端后端 | 岗位配置 API | DONE | `GET/POST/DELETE /api/positions`，支持关键词和默认问候语配置 |
+| 云端后端 | PostgreSQL 岗位配置存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PositionStore 切换到 PostgreSQL |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
 | 云端后端 | PostgreSQL 机器绑定存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AgentStore 切换到 PostgreSQL |
@@ -54,6 +56,12 @@
 | 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
 
 ## 本次完成
+
+- 云端后端新增岗位配置 API。
+- 支持岗位配置创建、列表、删除。
+- 岗位配置保存名称、关键词、排除词、描述、默认问候语和 AND/OR 模式。
+- 配置 `GOODHR_PG_DSN` 后，岗位配置写入 PostgreSQL。
+- 云端后端 README 增加岗位配置 API 说明。
 
 - 云端后端新增 PostgreSQL AIConfigStore。
 - 配置 `GOODHR_PG_DSN` 后，系统默认和用户自定义 AI 配置写入 PostgreSQL。

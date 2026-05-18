@@ -106,6 +106,14 @@ func (c Config) PlatformAccountStore(db *sql.DB) PlatformAccountStore {
 	return NewMemoryPlatformAccountStore()
 }
 
+// PositionStore 创建岗位配置存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) PositionStore(db *sql.DB) PositionStore {
+	if db != nil {
+		return NewPostgresPositionStore(db)
+	}
+	return NewMemoryPositionStore()
+}
+
 // TaskStore 创建任务存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) TaskStore(db *sql.DB) TaskStore {
 	if db != nil {

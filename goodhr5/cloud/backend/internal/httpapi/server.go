@@ -12,6 +12,7 @@ type Server struct {
 	agent            *AgentService
 	ai               *AIConfigService
 	platformAccounts *PlatformAccountService
+	positions        *PositionService
 	tasks            *TaskService
 	taskLogs         *TaskLogService
 }
@@ -32,6 +33,7 @@ func NewServer() (*Server, error) {
 		agent:            NewAgentService(auth, config.AgentStore(db)),
 		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
+		positions:        NewPositionService(auth, config.PositionStore(db)),
 		tasks:            NewTaskService(auth, taskStore),
 		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore(db)),
 	}, nil
@@ -58,6 +60,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
+	// 注册岗位配置接口，用于复用岗位关键词和问候语模板。
+	mux.HandleFunc("/api/positions", s.positions.Collection)
+	mux.HandleFunc("/api/positions/", s.positions.Delete)
 	// 注册任务接口，用于创建任务和展示任务统计摘要。
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)
 	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
