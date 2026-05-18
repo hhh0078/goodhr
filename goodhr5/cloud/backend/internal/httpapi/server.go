@@ -16,6 +16,7 @@ type Server struct {
 	tasks            *TaskService
 	taskLogs         *TaskLogService
 	systemConfigs    SystemConfigStore
+	tenants          *TenantService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -39,6 +40,7 @@ func NewServer() (*Server, error) {
 		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db)),
 		taskLogs:         taskLogs,
 		systemConfigs:    config.SystemConfigStore(db),
+		tenants:          NewTenantService(auth, config.TenantStore(db)),
 	}, nil
 }
 
@@ -72,6 +74,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
+	// 注册租户管理接口，用于管理员邀请成员和管理租户。
+	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
+	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
+	mux.HandleFunc("/api/tenants/members/", s.tenantMember)
 	return cors(mux)
 }
 
@@ -146,6 +152,17 @@ func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"configs":  configs,
 	})
+}
+
+func (s *Server) tenantMember(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPut:
+		s.tenants.UpdateMember(w, r)
+	case http.MethodDelete:
+		s.tenants.DeleteMember(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 func cors(next http.Handler) http.Handler {
