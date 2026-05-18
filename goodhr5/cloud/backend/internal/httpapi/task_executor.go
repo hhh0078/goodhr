@@ -137,23 +137,31 @@ func (e *TaskExecutor) scrollPage() error {
 
 // extractCandidates 从页面提取候选人卡片。
 func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
-	e.log("info", "正在提取候选人信息")
+	e.log("info", "正在批量提取候选人信息")
 
 	selectors := e.platformCfg.Card.ExtractFieldSelectors()
-	var resp struct {
-		Ok     bool              `json:"ok"`
-		Fields map[string]string `json:"fields"`
-	}
-	if err := e.post("/api/v1/page/extract", map[string]any{"selectors": selectors}, &resp); err != nil {
-		return nil, err
+	cards := e.platformCfg.Card.Cards
+	if len(cards) == 0 {
+		return nil, fmt.Errorf("平台配置中无卡片选择器")
 	}
 
-	// 将字段映射转为候选人列表
-	candidate := make(map[string]any, len(resp.Fields))
-	for k, v := range resp.Fields {
-		candidate[k] = v
+	var resp struct {
+		Ok         bool             `json:"ok"`
+		Candidates []map[string]any `json:"candidates"`
+		Count      int              `json:"count"`
 	}
-	return []map[string]any{candidate}, nil
+	body := map[string]any{
+		"selectors":     selectors,
+		"card_selector": cards[0],
+		"mode":          "batch",
+	}
+	if err := e.post("/api/v1/page/extract", body, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Candidates == nil {
+		resp.Candidates = []map[string]any{}
+	}
+	return resp.Candidates, nil
 }
 
 // processCandidates 逐候选人筛选和打招呼。
