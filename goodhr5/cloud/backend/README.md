@@ -64,3 +64,16 @@ db/migrations/0001_initial_schema.down.sql
 ```
 
 第一版先提交标准 SQL 迁移文件，迁移执行器后续接入。
+
+## Agent 机器绑定
+
+当前已提供：
+
+```http
+POST /api/agents/bind
+GET /api/agents/current
+```
+
+两个接口都需要 `Authorization: Bearer <token>`。
+
+第一版使用内存 `AgentStore`，后续替换为 PostgreSQL 实现。

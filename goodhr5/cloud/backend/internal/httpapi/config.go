@@ -49,6 +49,11 @@ func (c Config) Mailer() (Mailer, bool) {
 	return DevMailer{}, true
 }
 
+// AgentStore 创建机器绑定存储；当前使用内存实现，后续替换为 PostgreSQL。
+func (c Config) AgentStore() AgentStore {
+	return NewMemoryAgentStore()
+}
+
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {

@@ -20,7 +20,7 @@
 | 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
 | 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
-| 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
+| 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
 | 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
@@ -49,12 +49,17 @@
 
 ## 本次完成
 
+- 云端后端新增 Agent 机器绑定模块。
+- 新增 `POST /api/agents/bind` 保存当前登录账号和机器码绑定。
+- 新增 `GET /api/agents/current` 查询当前账号绑定机器。
+- 当前使用内存 `AgentStore`，后续替换为 PostgreSQL store。
+
+## 历史完成
+
 - 新增 PostgreSQL 初始迁移 `0001_initial_schema.sql`。
 - 新增回滚脚本 `0001_initial_schema.down.sql`。
 - 覆盖用户、Agent 机器绑定、平台账号映射、岗位、系统/用户 AI 配置、任务运行、任务日志。
 - 明确云端 schema 不保存候选人详情、截图、OCR 原文和招聘平台 cookie/profile。
-
-## 历史完成
 
 - 新增 `docs/development-standards.md`。
 - 明确模块化、文件头用途注释、方法中文注释、调用点说明要求。
@@ -112,6 +117,6 @@
 
 ## 下一步建议
 
-1. 添加机器绑定 API。
-2. 添加云端登录后初始化/绑定本地 Agent 流程。
-3. 添加系统/用户 AI 配置 API。
+1. 添加云端登录后初始化/绑定本地 Agent 流程。
+2. 添加系统/用户 AI 配置 API。
+3. 添加 PostgreSQL store 接口。

@@ -149,19 +149,14 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := bearerToken(r.Header.Get("Authorization"))
-	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing bearer token")
-		return
-	}
-
-	session, err := s.store.GetSession(token)
+	// 调用认证服务的会话解析方法，用于返回当前登录用户信息。
+	session, err := s.SessionFromRequest(r)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load session")
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -175,6 +170,21 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"expires_at": session.ExpiresAt,
 		},
 	})
+}
+
+// SessionFromRequest 从请求头 Bearer token 中读取当前登录会话。
+func (s *AuthService) SessionFromRequest(r *http.Request) (Session, error) {
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		return Session{}, errors.New("missing bearer token")
+	}
+
+	// 调用 AuthStore 读取会话，用于确认 token 是否有效。
+	session, err := s.store.GetSession(token)
+	if err != nil {
+		return Session{}, err
+	}
+	return session, nil
 }
 
 func normalizeEmail(value string) (string, bool) {
