@@ -11,7 +11,7 @@ import (
 
 // TestAgentBindAndCurrent 验证登录后可以绑定并查询当前机器。
 func TestAgentBindAndCurrent(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "agent@example.com")
 
@@ -52,7 +52,7 @@ func TestAgentBindAndCurrent(t *testing.T) {
 
 // TestAgentBindRejectsAnonymous 验证未登录请求不能绑定机器。
 func TestAgentBindRejectsAnonymous(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(`{"machine_id":"sha256-test"}`))

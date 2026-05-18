@@ -11,7 +11,7 @@ import (
 
 // TestPlatformAccountLifecycle 验证平台账号映射可以创建、查询和删除。
 func TestPlatformAccountLifecycle(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "platform@example.com")
 
@@ -75,7 +75,7 @@ func TestPlatformAccountLifecycle(t *testing.T) {
 
 // TestPlatformAccountRejectsDuplicate 验证同平台同 profile 不会重复创建。
 func TestPlatformAccountRejectsDuplicate(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "duplicate@example.com")
 

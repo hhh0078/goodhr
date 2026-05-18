@@ -1,3 +1,4 @@
+// 本文件负责启动 GoodHR 5 云端 HTTP 服务。
 package main
 
 import (
@@ -10,7 +11,10 @@ import (
 
 func main() {
 	addr := envOrDefault("GOODHR_CLOUD_ADDR", ":8080")
-	server := httpapi.NewServer()
+	server, err := httpapi.NewServer()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Printf("GoodHR 5 cloud backend listening on %s", addr)
 	if err := http.ListenAndServe(addr, server.Routes()); err != nil {

@@ -12,6 +12,24 @@ CGO_ENABLED=0 go run ./cmd/server
 GOODHR_CLOUD_ADDR=127.0.0.1:18080 CGO_ENABLED=0 go run ./cmd/server
 ```
 
+## PostgreSQL
+
+未配置 PostgreSQL 时，平台账号映射和任务仍使用内存存储，适合本地纯联调。
+
+配置 `GOODHR_PG_DSN` 后，平台账号映射和任务会写入 PostgreSQL：
+
+```bash
+GOODHR_PG_DSN='postgres://postgres:postgres@127.0.0.1:5432/goodhr5?sslmode=disable' \
+CGO_ENABLED=0 go run ./cmd/server
+```
+
+当前已接入 PostgreSQL 的模块：
+
+```text
+PlatformAccountStore
+TaskStore
+```
+
 ## Redis
 
 默认使用内存存储验证码和会话，适合本地开发。

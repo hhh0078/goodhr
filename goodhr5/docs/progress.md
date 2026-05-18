@@ -22,7 +22,8 @@
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
-| 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，当前使用内存 store |
+| 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，未配置 PostgreSQL 时使用内存 store |
+| 云端后端 | PostgreSQL 平台账号与任务存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 TaskStore 切换到 PostgreSQL |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
@@ -50,6 +51,13 @@
 | 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
 
 ## 本次完成
+
+- 云端后端新增 `GOODHR_PG_DSN` 配置和 PostgreSQL 连接初始化。
+- 平台账号映射新增 PostgreSQL store，支持创建、列表、删除。
+- 任务新增 PostgreSQL store，支持创建、列表、详情读取。
+- 任务创建时会校验平台账号是否属于当前登录用户。
+- `NewServer` 改为返回错误，显式开启 PostgreSQL 时启动阶段就会校验连接。
+- 云端后端 README 增加 PostgreSQL 启用说明。
 
 - 前端新增 Local Agent API service，统一封装本地任务和候选人调用。
 - 任务卡片新增“查看候选人”面板，按任务读取本地 `candidates.json`。

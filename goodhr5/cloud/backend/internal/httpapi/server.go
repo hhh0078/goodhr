@@ -16,20 +16,25 @@ type Server struct {
 	taskLogs         *TaskLogService
 }
 
-// NewServer 创建云端 HTTP 服务实例，并完成认证和 Agent 模块依赖注入。
-func NewServer() *Server {
+// NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
+func NewServer() (*Server, error) {
 	config := LoadConfigFromEnv()
+	// 调用 PostgreSQL 初始化逻辑，供任务和平台账号映射在启用数据库时复用同一连接。
+	db, err := config.PostgresDB()
+	if err != nil {
+		return nil, err
+	}
 	mailer, exposeDebugCode := config.Mailer()
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
-	taskStore := config.TaskStore()
+	taskStore := config.TaskStore(db)
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, config.AgentStore()),
 		ai:               NewAIConfigService(auth, config.AIConfigStore()),
-		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore()),
+		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		tasks:            NewTaskService(auth, taskStore),
 		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore()),
-	}
+	}, nil
 }
 
 // Routes 注册云端 HTTP 路由，并包装基础 CORS 中间件。

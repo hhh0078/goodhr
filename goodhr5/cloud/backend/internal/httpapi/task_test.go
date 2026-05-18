@@ -11,7 +11,7 @@ import (
 
 // TestTaskCreateListDetail 验证任务可以创建、列表展示和读取详情。
 func TestTaskCreateListDetail(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "task@example.com")
 
@@ -82,7 +82,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 
 // TestTaskCreateRejectsMissingAccount 验证创建任务时必须选择平台账号。
 func TestTaskCreateRejectsMissingAccount(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "task-missing@example.com")
 

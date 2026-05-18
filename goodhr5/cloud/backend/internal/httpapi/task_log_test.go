@@ -11,7 +11,7 @@ import (
 
 // TestTaskLogAddAndList 验证任务日志可以写入和读取。
 func TestTaskLogAddAndList(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "task-log@example.com")
 	taskID := createTaskForTest(t, routes, token)
@@ -54,7 +54,7 @@ func TestTaskLogAddAndList(t *testing.T) {
 
 // TestTaskLogRejectsMissingTask 验证不存在的任务不能写入日志。
 func TestTaskLogRejectsMissingTask(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "task-log-missing@example.com")
 

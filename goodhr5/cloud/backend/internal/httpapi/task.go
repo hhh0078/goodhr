@@ -62,6 +62,10 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 
 	// 调用任务存储创建任务，后续会替换为 PostgreSQL task_runs 表。
 	saved, err := s.store.CreateTask(task)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "platform account not found")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return

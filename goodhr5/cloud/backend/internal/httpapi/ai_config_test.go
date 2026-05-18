@@ -11,7 +11,7 @@ import (
 
 // TestAIConfigEffectiveOverride 验证用户配置会覆盖系统默认配置。
 func TestAIConfigEffectiveOverride(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "ai@example.com")
 
@@ -79,7 +79,7 @@ func TestAIConfigEffectiveOverride(t *testing.T) {
 
 // TestAIConfigRejectsAnonymous 验证未登录用户不能读取 AI 配置。
 func TestAIConfigRejectsAnonymous(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config/effective-ai", nil)

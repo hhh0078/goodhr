@@ -1,3 +1,4 @@
+// 本文件负责测试云端认证 API。
 package httpapi
 
 import (
@@ -8,8 +9,9 @@ import (
 	"testing"
 )
 
+// TestAuthCodeLogin 验证验证码发送、登录和登录态查询。
 func TestAuthCodeLogin(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 
 	sendBody := bytes.NewBufferString(`{"email":"User@Example.com"}`)
@@ -64,8 +66,9 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestAuthRejectsWrongCode 验证错误验证码不能登录。
 func TestAuthRejectsWrongCode(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 
 	sendReq := httptest.NewRequest(http.MethodPost, "/api/auth/send-code", bytes.NewBufferString(`{"email":"user@example.com"}`))
@@ -81,8 +84,9 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	}
 }
 
+// TestAuthMeRejectsMissingToken 验证未带 token 时不能读取登录态。
 func TestAuthMeRejectsMissingToken(t *testing.T) {
-	server := NewServer()
+	server := mustNewServer(t)
 	routes := server.Routes()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
