@@ -22,7 +22,11 @@ class TaskLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment="日志ID")
     position_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True, comment="关联岗位ID")
     position_name: Mapped[str] = mapped_column(String(100), default="", comment="岗位名称（冗余，方便查询）")
-    status: Mapped[str] = mapped_column(String(20), default="running", comment="任务状态：running/completed/failed/stopped")
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="running",
+        comment="任务状态：running/completed/failed/stopped",
+    )
     total_count: Mapped[int] = mapped_column(Integer, default=0, comment="扫描候选人总数")
     greeted_count: Mapped[int] = mapped_column(Integer, default=0, comment="打招呼成功数")
     skipped_count: Mapped[int] = mapped_column(Integer, default=0, comment="跳过数")
@@ -55,3 +59,4 @@ class TaskStartRequest(BaseModel):
     mode: str = Field(default="ai", description="筛选模式：ai/keyword")
     match_limit: Optional[int] = Field(default=None, description="匹配上限，None 使用全局配置")
     platform_id: str = Field(default="boss", description="平台标识：boss/lagou/liepin/zhilian")
+    account_id: Optional[str] = Field(default=None, description="平台账号ID")

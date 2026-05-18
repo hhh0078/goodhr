@@ -19,6 +19,19 @@ task:
   match_limit: 60
   scroll_delay_min: 3
   scroll_delay_max: 8
+  list_view_delay_min: 1.0
+  list_view_delay_max: 3.0
+  detail_view_delay_min: 2.0
+  detail_view_delay_max: 5.0
+  greet_delay_min: 1.0
+  greet_delay_max: 3.0
+  rest_after_candidates_min: 1
+  rest_after_candidates_max: 10
+  rest_times_min: 1
+  rest_times_max: 3
+  rest_duration_min: 2.0
+  rest_duration_max: 8.0
+  keyword_detail_open_probability: 50
   click_frequency: 7
 
 web:

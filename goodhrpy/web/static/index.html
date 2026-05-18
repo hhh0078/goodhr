@@ -163,6 +163,83 @@
         background: #fecaca;
         color: #dc2626;
       }
+      .candidate-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+      }
+      .candidate-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        background: #fff;
+      }
+      .candidate-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .candidate-name {
+        font-size: 16px;
+        font-weight: 700;
+        color: #111827;
+      }
+      .candidate-meta {
+        color: #6b7280;
+        font-size: 12px;
+        margin-top: 3px;
+      }
+      .candidate-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .candidate-tag {
+        background: #f3f4f6;
+        color: #374151;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .candidate-section {
+        font-size: 12px;
+        line-height: 1.5;
+        color: #4b5563;
+        margin-top: 8px;
+      }
+      .candidate-section strong {
+        color: #374151;
+      }
+      .candidate-empty {
+        color: #9ca3af;
+        text-align: center;
+        padding: 28px 0;
+        font-size: 13px;
+      }
+      .candidate-group {
+        margin-bottom: 18px;
+      }
+      .candidate-group-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #374151;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .candidate-group-count {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 500;
+      }
       .log-area {
         background: #1e293b;
         color: #e2e8f0;
@@ -216,6 +293,39 @@
         gap: 12px;
         align-items: center;
         margin-bottom: 16px;
+      }
+      .runtime-task-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .runtime-task-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        background: #fff;
+      }
+      .runtime-task-title {
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 6px;
+      }
+      .runtime-task-meta {
+        color: #6b7280;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .account-list {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .account-row {
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 12px;
       }
       .running-indicator {
         display: inline-block;
@@ -313,14 +423,18 @@
             class="form-group"
             style="
               display: grid;
-              grid-template-columns: 1fr 2fr 1fr 1fr auto;
+              grid-template-columns: 1fr 1.4fr 2fr 1fr 1fr auto;
               gap: 12px;
               align-items: end;
             "
           >
             <div>
               <label>选择平台</label>
-              <select id="task-platform"></select>
+              <select id="task-platform" onchange="refreshTaskAccountOptions()"></select>
+            </div>
+            <div>
+              <label>选择账号</label>
+              <select id="task-account"></select>
             </div>
             <div>
               <label>选择岗位</label>
@@ -349,7 +463,7 @@
                 onclick="startTask()"
                 id="btn-start"
               >
-                启动
+                创建并启动
               </button>
               <button
                 class="btn btn-danger"
@@ -363,7 +477,13 @@
           </div>
           <div style="margin-top: 16px">
             <h3 style="font-size: 14px; margin-bottom: 8px; color: #555">
-              实时日志
+              任务列表
+            </h3>
+            <div id="runtime-task-list" class="runtime-task-grid"></div>
+          </div>
+          <div style="margin-top: 16px">
+            <h3 style="font-size: 14px; margin-bottom: 8px; color: #555">
+              最近任务实时日志
             </h3>
             <div class="log-area" id="log-area" style="height: 200px"></div>
           </div>
@@ -490,20 +610,7 @@
       <div id="tab-candidates" class="tab-content">
         <div class="card">
           <h2>候选人列表</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>姓名</th>
-                <th>学历</th>
-                <th>经验</th>
-                <th>技能</th>
-                <th>薪资</th>
-                <th>状态</th>
-                <th>原因</th>
-              </tr>
-            </thead>
-            <tbody id="candidate-list"></tbody>
-          </table>
+          <div id="candidate-list" class="candidate-grid"></div>
         </div>
       </div>
 
@@ -547,6 +654,133 @@
             DOM 模式通过 CSS
             选择器读取页面文字，速度快但网站改版需更新选择器；<br />
             OCR 模式对详情弹框截图后识别文字，适配性更强但速度稍慢。
+          </div>
+          <div class="form-group">
+            <label>候选人列表查看随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-list-view-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-list-view-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>候选人详情弹框打开后随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-detail-view-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-detail-view-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>打招呼前随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-greet-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-greet-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>处理 N 个候选人后随机休息</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-after-candidates-min"
+                min="0"
+                step="1"
+                placeholder="最少候选人数"
+              />
+              <input
+                type="number"
+                id="cfg-rest-after-candidates-max"
+                min="0"
+                step="1"
+                placeholder="最多候选人数"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>单次任务随机休息次数</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-times-min"
+                min="0"
+                step="1"
+                placeholder="最少次数"
+              />
+              <input
+                type="number"
+                id="cfg-rest-times-max"
+                min="0"
+                step="1"
+                placeholder="最多次数"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>每次随机休息时长（分钟）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-duration-min"
+                min="0"
+                step="0.1"
+                placeholder="最短分钟"
+              />
+              <input
+                type="number"
+                id="cfg-rest-duration-max"
+                min="0"
+                step="0.1"
+                placeholder="最长分钟"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>关键词模式打开详情概率（%）</label>
+            <input
+              type="number"
+              id="cfg-keyword-detail-open-probability"
+              min="0"
+              max="100"
+              step="1"
+            />
+            <div style="font-size: 12px; color: #888; margin-top: 6px">
+              默认真人摸鱼时间：关键词模式列表初筛通过后，按该概率打开详情；AI 模式仍按 AI 筛选流程处理详情。
+            </div>
           </div>
           <button class="btn btn-success" onclick="saveTaskConfig()">
             保存任务配置
@@ -603,6 +837,7 @@
       const API = "";
       let pollTimer = null;
       let loginPollTimer = null;
+      let platformAccounts = [];
 
       async function api(path, opts = {}) {
         const res = await fetch(API + path, {
@@ -614,28 +849,43 @@
 
       async function loadPlatforms() {
         const data = await api("/api/v1/login/platforms");
+        platformAccounts = await api("/api/v1/login/accounts");
         const container = document.getElementById("platform-list");
         container.innerHTML = data
           .map(
-            (p) => `
+            (p) => {
+              const accounts = platformAccounts.filter((account) => account.platform === p.id);
+              return `
             <div class="card" style="margin:0;padding:16px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                     <strong style="font-size:15px">${p.name}</strong>
                     <span class="status-badge ${p.logged_in ? "status-greeted" : "status-pending"}">${p.logged_in ? "已登录" : "未登录"}</span>
                 </div>
                 <div style="font-size:12px;color:#888;margin-bottom:12px">${p.domain}</div>
-                ${
-                  p.logged_in
-                    ? `
-                    <button class="btn btn-success" style="width:100%;margin-bottom:8px" onclick="doOpenPlatform('${p.id}')">打开平台</button>
-                    <button class="btn btn-danger" style="width:100%" onclick="doLogout('${p.id}')">注销登录</button>
-                `
-                    : `
-                    <button class="btn btn-primary" style="width:100%" onclick="doLogin('${p.id}')">扫码登录</button>
-                `
-                }
+                <div class="account-list">
+                  ${
+                    accounts.length
+                      ? accounts.map((account) => `
+                        <div class="account-row">
+                          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">
+                            <strong>${escapeHtml(account.name)}</strong>
+                            <span class="status-badge ${account.logged_in ? "status-greeted" : "status-pending"}">${account.logged_in ? "已登录" : "未登录"}</span>
+                          </div>
+                          <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="doLogin('${p.id}','${account.id}')">登录</button>
+                          <button class="btn btn-success" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="doOpenPlatform('${p.id}','${account.id}')">打开</button>
+                          <button class="btn btn-danger" style="padding:4px 10px;font-size:12px" onclick="doLogout('${p.id}','${account.id}')">注销</button>
+                        </div>
+                      `).join("")
+                      : '<div style="font-size:12px;color:#999;margin-bottom:8px">暂无账号</div>'
+                  }
+                </div>
+                <div style="display:flex;gap:8px">
+                  <input id="account-name-${p.id}" placeholder="新账号名称" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px" />
+                  <button class="btn btn-primary" style="padding:8px 12px" onclick="doLogin('${p.id}', '', document.getElementById('account-name-${p.id}').value)">新增登录</button>
+                </div>
             </div>
-        `,
+        `;
+            },
           )
           .join("");
 
@@ -646,10 +896,14 @@
               `<option value="${p.id}" ${p.logged_in ? "" : "disabled"}>${p.name}${p.logged_in ? " ✅" : "（未登录）"}</option>`,
           )
           .join("");
+        refreshTaskAccountOptions();
       }
 
-      async function doLogin(platform) {
-        const data = await api(`/api/v1/login/login?platform=${platform}`, {
+      async function doLogin(platform, accountId = "", accountName = "") {
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        if (accountName) params.set("account_name", accountName);
+        const data = await api(`/api/v1/login/login?${params.toString()}`, {
           method: "POST",
         });
         if (data.ok) {
@@ -660,8 +914,10 @@
         }
       }
 
-      async function doOpenPlatform(platform) {
-        const data = await api(`/api/v1/login/open?platform=${platform}`, {
+      async function doOpenPlatform(platform, accountId = "") {
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        const data = await api(`/api/v1/login/open?${params.toString()}`, {
           method: "POST",
         });
         if (data.ok) {
@@ -671,13 +927,24 @@
         }
       }
 
-      async function doLogout(platform) {
+      async function doLogout(platform, accountId = "") {
         if (!confirm("确认注销登录？注销后需要重新扫码登录。")) return;
-        const data = await api(`/api/v1/login/logout?platform=${platform}`, {
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        const data = await api(`/api/v1/login/logout?${params.toString()}`, {
           method: "POST",
         });
         showLoginStatus("info", data.msg);
         await loadPlatforms();
+      }
+
+      function refreshTaskAccountOptions() {
+        const platform = document.getElementById("task-platform").value;
+        const accountSelect = document.getElementById("task-account");
+        const accounts = platformAccounts.filter((account) => account.platform === platform && account.logged_in);
+        accountSelect.innerHTML = accounts
+          .map((account) => `<option value="${account.id}">${escapeHtml(account.name)}</option>`)
+          .join("");
       }
 
       function showLoginStatus(type, msg) {
@@ -852,18 +1119,113 @@
       }
 
       async function loadCandidates() {
-        const data = await api("/api/v1/candidates");
-        const tbody = document.getElementById("candidate-list");
-        tbody.innerHTML = data.items
-          .map(
-            (c) => `<tr>
-            <td>${c.name}</td><td>${c.education}</td><td>${c.experience}</td>
-            <td>${c.skills.slice(0, 30)}</td><td>${c.salary}</td>
-            <td><span class="status-badge status-${c.status}">${c.status}</span></td>
-            <td>${c.filter_reason.slice(0, 30)}</td>
-        </tr>`,
-          )
+        const list = document.getElementById("candidate-list");
+        try {
+          const data = await api("/api/v1/candidates");
+          if (!data.items || data.items.length === 0) {
+            list.innerHTML = '<div class="candidate-empty">暂无候选人记录</div>';
+            return;
+          }
+          list.innerHTML = renderCandidateGroups(data.items);
+        } catch (e) {
+          list.innerHTML = `<div class="candidate-empty">候选人加载失败：${escapeHtml(e.message || "未知错误")}</div>`;
+        }
+      }
+
+      function renderCandidateGroups(items) {
+        const groups = [
+          { status: "greeted", title: "已打招呼" },
+          { status: "skipped", title: "已跳过" },
+          { status: "failed", title: "失败" },
+          { status: "pending", title: "待处理" },
+        ];
+        const html = groups
+          .map((group) => {
+            const groupItems = items.filter((item) => item.status === group.status);
+            if (groupItems.length === 0) return "";
+            return `<section class="candidate-group">
+              <div class="candidate-group-header">
+                <span class="status-badge status-${group.status}">${group.title}</span>
+                <span class="candidate-group-count">${groupItems.length} 人</span>
+              </div>
+              <div class="candidate-grid">
+                ${groupItems.map(renderCandidateCard).join("")}
+              </div>
+            </section>`;
+          })
           .join("");
+        return html || '<div class="candidate-empty">暂无候选人记录</div>';
+      }
+
+      function renderCandidateCard(candidate) {
+        const statusText = {
+          greeted: "已打招呼",
+          skipped: "已跳过",
+          pending: "待处理",
+          failed: "失败",
+        }[candidate.status] || candidate.status || "未知";
+        const meta = [
+          candidate.platform || "未知平台",
+          formatDateTime(candidate.created_at),
+        ].filter(Boolean).join(" · ");
+        const tags = [
+          candidate.age,
+          candidate.education,
+          candidate.experience,
+          candidate.salary,
+        ].filter(Boolean);
+        const skillTags = splitCandidateText(candidate.skills).slice(0, 8);
+        const reason = candidate.filter_reason || "暂无筛选原因";
+        const raw = candidate.raw_data || "";
+
+        return `<article class="candidate-card">
+          <div class="candidate-card-header">
+            <div>
+              <div class="candidate-name">${escapeHtml(candidate.name || "未知候选人")}</div>
+              <div class="candidate-meta">${escapeHtml(meta)}</div>
+            </div>
+            <span class="status-badge status-${escapeHtml(candidate.status || "pending")}">${escapeHtml(statusText)}</span>
+          </div>
+          <div class="candidate-tags">
+            ${tags.map((tag) => `<span class="candidate-tag">${escapeHtml(tag)}</span>`).join("")}
+            ${skillTags.map((tag) => `<span class="candidate-tag">${escapeHtml(tag)}</span>`).join("")}
+          </div>
+          <div class="candidate-section"><strong>原因：</strong>${escapeHtml(reason)}</div>
+          <div class="candidate-section"><strong>详情：</strong>${escapeHtml(truncateText(raw, 180) || "暂无详情")}</div>
+        </article>`;
+      }
+
+      function splitCandidateText(text) {
+        return (text || "")
+          .split(/[\s,，、|]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function truncateText(text, maxLength) {
+        if (!text) return "";
+        return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
       }
 
       async function updateTaskStatus() {
@@ -883,6 +1245,47 @@
           btnStart.disabled = false;
           btnStop.disabled = true;
         }
+        await loadRuntimeTasks();
+      }
+
+      async function loadRuntimeTasks() {
+        const list = document.getElementById("runtime-task-list");
+        if (!list) return;
+        try {
+          const tasks = await api("/api/v1/tasks/instances");
+          if (!tasks.length) {
+            list.innerHTML = '<div class="candidate-empty">暂无任务，选择平台、账号和岗位后创建</div>';
+            return;
+          }
+          list.innerHTML = tasks.map(renderRuntimeTaskCard).join("");
+        } catch (e) {
+          list.innerHTML = `<div class="candidate-empty">任务加载失败：${escapeHtml(e.message || "未知错误")}</div>`;
+        }
+      }
+
+      function renderRuntimeTaskCard(task) {
+        const statusText = {
+          idle: "待启动",
+          running: "运行中",
+          stopping: "停止中",
+        }[task.status] || task.status;
+        return `<div class="runtime-task-card">
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px">
+            <div>
+              <div class="runtime-task-title">${escapeHtml(task.account_name || task.account_id)}</div>
+              <div class="runtime-task-meta">${escapeHtml(task.platform_id)} · ${escapeHtml(task.mode)} · 岗位 ${task.position_id}</div>
+            </div>
+            <span class="status-badge status-${task.status === "running" ? "greeted" : "pending"}">${escapeHtml(statusText)}</span>
+          </div>
+          <div class="runtime-task-meta">
+            扫描 ${task.total_count || 0} · 打招呼 ${task.match_count || 0} · 跳过 ${task.skipped_count || 0} · 失败 ${task.failed_count || 0}
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="startTaskInstance('${task.id}')" ${task.status !== "idle" ? "disabled" : ""}>启动</button>
+            <button class="btn btn-danger" style="padding:5px 12px;font-size:12px" onclick="stopTaskInstance('${task.id}')" ${task.status !== "running" ? "disabled" : ""}>停止</button>
+            <button class="btn" style="padding:5px 12px;font-size:12px;background:#e5e7eb" onclick="loadTaskLogs('${task.id}')">日志</button>
+          </div>
+        </div>`;
       }
 
       async function loadStats() {
@@ -907,31 +1310,36 @@
         const mode = document.getElementById("task-mode").value;
         const limit = parseInt(document.getElementById("task-limit").value);
         const platformId = document.getElementById("task-platform").value;
+        const accountId = document.getElementById("task-account").value;
+        if (!accountId) {
+          addLog("请先选择已登录账号", "warning");
+          btn.disabled = false;
+          btn.textContent = "创建并启动";
+          _taskStarting = false;
+          return;
+        }
         try {
-          const data = await api("/api/v1/tasks/start", {
+          const task = await api("/api/v1/tasks/create", {
             method: "POST",
             body: JSON.stringify({
               position_id: positionId,
               mode,
               match_limit: limit,
               platform_id: platformId,
+              account_id: accountId,
             }),
           });
-          if (data.ok || data.status === "started") {
-            document.getElementById("log-area").innerHTML = "";
-            _lastLogSeq = 0;
-            addLog("任务已启动", "info");
-            btn.textContent = "运行中...";
-            btn.disabled = true;
-          } else {
-            addLog(data.detail || data.msg || "启动失败", "error");
-            btn.disabled = false;
-            btn.textContent = "启动";
-          }
+          await api(`/api/v1/tasks/${task.id}/start`, { method: "POST" });
+          document.getElementById("log-area").innerHTML = "";
+          _lastLogSeq = 0;
+          addLog("任务已创建并启动", "info");
+          btn.textContent = "创建并启动";
+          btn.disabled = false;
+          await loadRuntimeTasks();
         } catch (e) {
           addLog("启动请求失败: " + e.message, "error");
           btn.disabled = false;
-          btn.textContent = "启动";
+          btn.textContent = "创建并启动";
         }
         _taskStarting = false;
         updateTaskStatus();
@@ -940,6 +1348,25 @@
       async function stopTask() {
         await api("/api/v1/tasks/stop", { method: "POST" });
         addLog("任务停止中...", "warning");
+      }
+
+      async function startTaskInstance(taskId) {
+        await api(`/api/v1/tasks/${taskId}/start`, { method: "POST" });
+        addLog(`任务 ${taskId} 启动中...`, "info");
+        await loadRuntimeTasks();
+      }
+
+      async function stopTaskInstance(taskId) {
+        await api(`/api/v1/tasks/${taskId}/stop`, { method: "POST" });
+        addLog(`任务 ${taskId} 停止中...`, "warning");
+        await loadRuntimeTasks();
+      }
+
+      async function loadTaskLogs(taskId) {
+        const data = await api(`/api/v1/tasks/${taskId}/realtime_logs`);
+        document.getElementById("log-area").innerHTML = "";
+        _lastLogSeq = data.last_seq || 0;
+        (data.logs || []).forEach((log) => addLog(log.message, log.level));
       }
 
       function addLog(msg, level) {
@@ -982,12 +1409,16 @@
           document
             .getElementById("tab-" + tab.dataset.tab)
             .classList.add("active");
+          if (tab.dataset.tab === "candidates") {
+            loadCandidates();
+          }
         };
       });
 
       async function init() {
         await loadPlatforms();
         await loadPositions();
+        await loadCandidates();
         await loadStats();
         await updateTaskStatus();
         await loadConfig();
@@ -995,6 +1426,9 @@
         pollTimer = setInterval(async () => {
           await updateTaskStatus();
           await loadStats();
+          if (document.getElementById("tab-candidates").classList.contains("active")) {
+            await loadCandidates();
+          }
           await pollRealtimeLogs();
         }, 2000);
       }
@@ -1006,20 +1440,79 @@
             document.getElementById("cfg-detail-mode").value =
               data.task.detail_mode;
           }
+          if (data.task) {
+            setNumberValue("cfg-list-view-delay-min", data.task.list_view_delay_min);
+            setNumberValue("cfg-list-view-delay-max", data.task.list_view_delay_max);
+            setNumberValue("cfg-detail-view-delay-min", data.task.detail_view_delay_min);
+            setNumberValue("cfg-detail-view-delay-max", data.task.detail_view_delay_max);
+            setNumberValue("cfg-greet-delay-min", data.task.greet_delay_min);
+            setNumberValue("cfg-greet-delay-max", data.task.greet_delay_max);
+            setNumberValue("cfg-rest-after-candidates-min", data.task.rest_after_candidates_min);
+            setNumberValue("cfg-rest-after-candidates-max", data.task.rest_after_candidates_max);
+            setNumberValue("cfg-rest-times-min", data.task.rest_times_min);
+            setNumberValue("cfg-rest-times-max", data.task.rest_times_max);
+            setNumberValue("cfg-rest-duration-min", data.task.rest_duration_min);
+            setNumberValue("cfg-rest-duration-max", data.task.rest_duration_max);
+            setNumberValue(
+              "cfg-keyword-detail-open-probability",
+              data.task.keyword_detail_open_probability
+            );
+          }
         } catch (e) {}
       }
 
       async function saveTaskConfig() {
         const detailMode = document.getElementById("cfg-detail-mode").value;
+        const payload = {
+          detail_mode: detailMode,
+          list_view_delay_min: readNumberValue("cfg-list-view-delay-min"),
+          list_view_delay_max: readNumberValue("cfg-list-view-delay-max"),
+          detail_view_delay_min: readNumberValue("cfg-detail-view-delay-min"),
+          detail_view_delay_max: readNumberValue("cfg-detail-view-delay-max"),
+          greet_delay_min: readNumberValue("cfg-greet-delay-min"),
+          greet_delay_max: readNumberValue("cfg-greet-delay-max"),
+          rest_after_candidates_min: readIntegerValue("cfg-rest-after-candidates-min"),
+          rest_after_candidates_max: readIntegerValue("cfg-rest-after-candidates-max"),
+          rest_times_min: readIntegerValue("cfg-rest-times-min"),
+          rest_times_max: readIntegerValue("cfg-rest-times-max"),
+          rest_duration_min: readNumberValue("cfg-rest-duration-min"),
+          rest_duration_max: readNumberValue("cfg-rest-duration-max"),
+          keyword_detail_open_probability: clampNumber(
+            readIntegerValue("cfg-keyword-detail-open-probability"),
+            0,
+            100
+          ),
+        };
         try {
           await api("/api/v1/config/task", {
             method: "PUT",
-            body: JSON.stringify({ detail_mode: detailMode }),
+            body: JSON.stringify(payload),
           });
           addLog("任务配置已保存", "success");
         } catch (e) {
           addLog("保存任务配置失败: " + e.message, "error");
         }
+      }
+
+      function setNumberValue(id, value) {
+        const el = document.getElementById(id);
+        if (el && value !== undefined && value !== null) {
+          el.value = Number(value).toFixed(1);
+        }
+      }
+
+      function readNumberValue(id) {
+        const value = parseFloat(document.getElementById(id).value);
+        return Number.isFinite(value) ? Math.max(value, 0) : 0;
+      }
+
+      function readIntegerValue(id) {
+        const value = parseInt(document.getElementById(id).value, 10);
+        return Number.isFinite(value) ? Math.max(value, 0) : 0;
+      }
+
+      function clampNumber(value, min, max) {
+        return Math.min(Math.max(value, min), max);
       }
 
       async function loadScreenshots() {

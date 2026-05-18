@@ -51,6 +51,19 @@ class TaskConfigResponse(BaseModel):
     match_limit: int
     scroll_delay_min: int
     scroll_delay_max: int
+    list_view_delay_min: float
+    list_view_delay_max: float
+    detail_view_delay_min: float
+    detail_view_delay_max: float
+    greet_delay_min: float
+    greet_delay_max: float
+    rest_after_candidates_min: int
+    rest_after_candidates_max: int
+    rest_times_min: int
+    rest_times_max: int
+    rest_duration_min: float
+    rest_duration_max: float
+    keyword_detail_open_probability: int
     click_frequency: int
     detail_mode: str
 
@@ -84,6 +97,19 @@ async def get_config():
             match_limit=config.task.match_limit,
             scroll_delay_min=config.task.scroll_delay_min,
             scroll_delay_max=config.task.scroll_delay_max,
+            list_view_delay_min=config.task.list_view_delay_min,
+            list_view_delay_max=config.task.list_view_delay_max,
+            detail_view_delay_min=config.task.detail_view_delay_min,
+            detail_view_delay_max=config.task.detail_view_delay_max,
+            greet_delay_min=config.task.greet_delay_min,
+            greet_delay_max=config.task.greet_delay_max,
+            rest_after_candidates_min=config.task.rest_after_candidates_min,
+            rest_after_candidates_max=config.task.rest_after_candidates_max,
+            rest_times_min=config.task.rest_times_min,
+            rest_times_max=config.task.rest_times_max,
+            rest_duration_min=config.task.rest_duration_min,
+            rest_duration_max=config.task.rest_duration_max,
+            keyword_detail_open_probability=config.task.keyword_detail_open_probability,
             click_frequency=config.task.click_frequency,
             detail_mode=config.task.detail_mode,
         ),
@@ -124,6 +150,19 @@ class TaskConfigUpdate(BaseModel):
     match_limit: Optional[int] = Field(default=None, description="匹配上限")
     scroll_delay_min: Optional[int] = Field(default=None, description="滚动最小延迟")
     scroll_delay_max: Optional[int] = Field(default=None, description="滚动最大延迟")
+    list_view_delay_min: Optional[float] = Field(default=None, description="候选人列表查看最小延迟")
+    list_view_delay_max: Optional[float] = Field(default=None, description="候选人列表查看最大延迟")
+    detail_view_delay_min: Optional[float] = Field(default=None, description="详情弹框打开后最小延迟")
+    detail_view_delay_max: Optional[float] = Field(default=None, description="详情弹框打开后最大延迟")
+    greet_delay_min: Optional[float] = Field(default=None, description="打招呼前最小延迟")
+    greet_delay_max: Optional[float] = Field(default=None, description="打招呼前最大延迟")
+    rest_after_candidates_min: Optional[int] = Field(default=None, description="处理多少个候选人后休息：最小值")
+    rest_after_candidates_max: Optional[int] = Field(default=None, description="处理多少个候选人后休息：最大值")
+    rest_times_min: Optional[int] = Field(default=None, description="单次任务随机休息次数：最小值")
+    rest_times_max: Optional[int] = Field(default=None, description="单次任务随机休息次数：最大值")
+    rest_duration_min: Optional[float] = Field(default=None, description="每次随机休息最短分钟数")
+    rest_duration_max: Optional[float] = Field(default=None, description="每次随机休息最长分钟数")
+    keyword_detail_open_probability: Optional[int] = Field(default=None, description="关键词模式打开详情概率")
     click_frequency: Optional[int] = Field(default=None, description="点击概率")
     detail_mode: Optional[str] = Field(default=None, description="详情获取模式: dom/ocr")
 
@@ -142,6 +181,32 @@ async def update_task_config(data: TaskConfigUpdate):
         config.task.scroll_delay_min = data.scroll_delay_min
     if data.scroll_delay_max is not None:
         config.task.scroll_delay_max = data.scroll_delay_max
+    if data.list_view_delay_min is not None:
+        config.task.list_view_delay_min = data.list_view_delay_min
+    if data.list_view_delay_max is not None:
+        config.task.list_view_delay_max = data.list_view_delay_max
+    if data.detail_view_delay_min is not None:
+        config.task.detail_view_delay_min = data.detail_view_delay_min
+    if data.detail_view_delay_max is not None:
+        config.task.detail_view_delay_max = data.detail_view_delay_max
+    if data.greet_delay_min is not None:
+        config.task.greet_delay_min = data.greet_delay_min
+    if data.greet_delay_max is not None:
+        config.task.greet_delay_max = data.greet_delay_max
+    if data.rest_after_candidates_min is not None:
+        config.task.rest_after_candidates_min = max(data.rest_after_candidates_min, 0)
+    if data.rest_after_candidates_max is not None:
+        config.task.rest_after_candidates_max = max(data.rest_after_candidates_max, 0)
+    if data.rest_times_min is not None:
+        config.task.rest_times_min = max(data.rest_times_min, 0)
+    if data.rest_times_max is not None:
+        config.task.rest_times_max = max(data.rest_times_max, 0)
+    if data.rest_duration_min is not None:
+        config.task.rest_duration_min = max(data.rest_duration_min, 0)
+    if data.rest_duration_max is not None:
+        config.task.rest_duration_max = max(data.rest_duration_max, 0)
+    if data.keyword_detail_open_probability is not None:
+        config.task.keyword_detail_open_probability = min(max(data.keyword_detail_open_probability, 0), 100)
     if data.click_frequency is not None:
         config.task.click_frequency = data.click_frequency
     if data.detail_mode is not None:
@@ -156,6 +221,19 @@ async def update_task_config(data: TaskConfigUpdate):
         match_limit=config.task.match_limit,
         scroll_delay_min=config.task.scroll_delay_min,
         scroll_delay_max=config.task.scroll_delay_max,
+        list_view_delay_min=config.task.list_view_delay_min,
+        list_view_delay_max=config.task.list_view_delay_max,
+        detail_view_delay_min=config.task.detail_view_delay_min,
+        detail_view_delay_max=config.task.detail_view_delay_max,
+        greet_delay_min=config.task.greet_delay_min,
+        greet_delay_max=config.task.greet_delay_max,
+        rest_after_candidates_min=config.task.rest_after_candidates_min,
+        rest_after_candidates_max=config.task.rest_after_candidates_max,
+        rest_times_min=config.task.rest_times_min,
+        rest_times_max=config.task.rest_times_max,
+        rest_duration_min=config.task.rest_duration_min,
+        rest_duration_max=config.task.rest_duration_max,
+        keyword_detail_open_probability=config.task.keyword_detail_open_probability,
         click_frequency=config.task.click_frequency,
         detail_mode=config.task.detail_mode,
     )

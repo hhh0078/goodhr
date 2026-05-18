@@ -7,9 +7,10 @@ GoodHR 自动化工具 - 任务编排器
 
 import asyncio
 import gc
-import time
+import random
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional
 
 from sqlalchemy import select
@@ -95,12 +96,18 @@ class TaskOrchestrator:
         self._match_count = 0
         self._total_count = 0
         self._skipped_count = 0
+        self._failed_count = 0
         self._async_task: Optional[asyncio.Task] = None
         self._start_lock = asyncio.Lock()
 
         self._on_log: Optional[Callable] = None
         self._position_id: Optional[int] = None
         self._job_description: str = ""
+        self._account_id: Optional[str] = None
+        self._profile_dir: Optional[str] = None
+        self._rest_remaining = 0
+        self._candidates_since_rest = 0
+        self._next_rest_after = 0
 
     @property
     def status(self) -> TaskStatus:
@@ -116,6 +123,16 @@ class TaskOrchestrator:
     def total_count(self) -> int:
         """已扫描总数"""
         return self._total_count
+
+    @property
+    def skipped_count(self) -> int:
+        """已跳过数量"""
+        return self._skipped_count
+
+    @property
+    def failed_count(self) -> int:
+        """失败数量"""
+        return self._failed_count
 
     def on_log(self, callback: Callable[[str, str], None]) -> None:
         """
@@ -167,6 +184,8 @@ class TaskOrchestrator:
         mode: TaskMode = TaskMode.AI,
         match_limit: Optional[int] = None,
         platform_id: str = "boss",
+        account_id: Optional[str] = None,
+        profile_dir: Optional[str] = None,
     ) -> None:
         """
         启动候选人筛选任务
@@ -190,7 +209,7 @@ class TaskOrchestrator:
                 return
 
             try:
-                await self._run(position_id, mode, match_limit, platform_id)
+                await self._run(position_id, mode, match_limit, platform_id, account_id, profile_dir)
             except asyncio.CancelledError:
                 self._log("任务已被用户取消", "warning")
             except Exception as e:
@@ -217,6 +236,8 @@ class TaskOrchestrator:
         mode: TaskMode,
         match_limit: Optional[int],
         platform_id: str,
+        account_id: Optional[str],
+        profile_dir: Optional[str],
     ) -> None:
         """
         任务主流程 - 所有逻辑都在这个方法里，方便查看完整流程
@@ -232,9 +253,12 @@ class TaskOrchestrator:
         """
         self._async_task = asyncio.current_task()
         self._position_id = position_id
+        self._account_id = account_id
+        self._profile_dir = profile_dir
         self._match_count = 0
         self._total_count = 0
         self._skipped_count = 0
+        self._failed_count = 0
 
         # ══════════════════════════════════════════
         # 步骤 1：校验参数（不通过直接退出）
@@ -248,8 +272,8 @@ class TaskOrchestrator:
             self._log(f"平台不支持: {e}", "error")
             return
 
-        profile_dir = config.data_dir / "profiles" / platform_id
-        if not profile_dir.exists() or not (profile_dir / "Default").exists():
+        resolved_profile_dir = Path(profile_dir) if profile_dir else config.data_dir / "profiles" / platform_id
+        if not resolved_profile_dir.exists() or not (resolved_profile_dir / "Default").exists():
             self._log(
                 f"平台 [{self._parser.platform_name}] 未登录，请先在「平台登录」中扫码登录",
                 "error",
@@ -298,6 +322,7 @@ class TaskOrchestrator:
                 return
 
         match_limit = match_limit or config.task.match_limit
+        self._prepare_mid_task_rest()
 
         try:
             self._task_log_id = await self._create_task_log(position_id, position.name)
@@ -316,7 +341,7 @@ class TaskOrchestrator:
         self._log("步骤 2/7：启动浏览器...")
         page = None
         try:
-            user_data_dir = str(config.data_dir / "profiles" / platform_id)
+            user_data_dir = str(resolved_profile_dir)
             await self._browser_manager.start(persistent=True, user_data_dir=user_data_dir)
             page = await self._browser_manager.new_page("main")
         except Exception as e:
@@ -369,7 +394,7 @@ class TaskOrchestrator:
         else:
             self._log("步骤 4/7：已登录，跳过登录步骤")
 
-        self._log(f"推荐页加载完成，开始筛选候选人")
+        self._log("推荐页加载完成，开始筛选候选人")
 
         # ══════════════════════════════════════════
         # 步骤 5：主循环 - 提取候选人 → 处理候选人
@@ -450,11 +475,13 @@ class TaskOrchestrator:
 
                 try:
                     await self._process_candidate(page, candidate, mode)
+                    await self._maybe_take_mid_task_rest()
                 except Exception as e:
                     self._log(
                         f"[{self._total_count}] 处理候选人异常，跳过: {e}",
                         "error",
                     )
+                    self._failed_count += 1
                     try:
                         await self._save_candidate(candidate, CandidateStatus.FAILED, f"处理异常: {e}")
                     except Exception:
@@ -530,18 +557,62 @@ class TaskOrchestrator:
             candidate_summary += f" ({', '.join(detail_parts)})"
 
         self._log(f"[{self._total_count}] 筛选候选人: {candidate_summary}")
+        await self._random_task_delay(
+            "候选人列表查看",
+            config.task.list_view_delay_min,
+            config.task.list_view_delay_max,
+        )
+
+        passed: Optional[bool] = None
+        reason = "未知"
+        should_open_detail = True
+
+        if mode == TaskMode.KEYWORD:
+            try:
+                passed, reason = await self._do_filter(candidate, mode)
+                if not passed:
+                    self._skipped_count += 1
+                    self._log(f"  → 关键词列表初筛未通过 ({reason})", "warning")
+                    try:
+                        await self._save_candidate(candidate, CandidateStatus.SKIPPED, reason)
+                    except Exception:
+                        pass
+                    return
+            except Exception as e:
+                self._log(f"  → 关键词列表初筛异常: {e}", "error")
+                passed, reason = False, f"筛选异常: {e}"
+
+            probability = min(max(config.task.keyword_detail_open_probability, 0), 100)
+            roll = random.uniform(0, 100)
+            should_open_detail = roll < probability
+            decision = "打开详情" if should_open_detail else "跳过详情"
+            self._log(
+                f"  → 关键词模式列表初筛通过 ({reason})；"
+                f"默认真人摸鱼时间详情概率 {probability}%，本次随机值 {roll:.1f}，{decision}"
+            )
+        elif mode == TaskMode.AI:
+            self._log("  → AI 模式按详情流程处理，详情是否使用由 AI 筛选内容决定")
 
         # 1. 查看详情（平台自己实现）
         detail_opened = False
-        try:
-            detail_text = await self._parser.open_detail(page, candidate.element_index)
-            if detail_text:
-                detail_opened = True
-                candidate.raw_text = (candidate.raw_text + " | " + detail_text) if candidate.raw_text else detail_text
-                detail_preview = detail_text[:200] + "..." if len(detail_text) > 200 else detail_text
-                self._log(f"  → 详情(DOM): {detail_preview}")
-        except Exception as e:
-            self._log(f"  → 打开详情异常: {e}", "warning")
+        if should_open_detail:
+            try:
+                detail_text = await self._parser.open_detail(page, candidate.element_index)
+                if detail_text:
+                    detail_opened = True
+                    if candidate.raw_text:
+                        candidate.raw_text = candidate.raw_text + " | " + detail_text
+                    else:
+                        candidate.raw_text = detail_text
+                    detail_preview = detail_text[:200] + "..." if len(detail_text) > 200 else detail_text
+                    self._log(f"  → 详情(DOM): {detail_preview}")
+                    await self._random_task_delay(
+                        "详情弹框打开后查看",
+                        config.task.detail_view_delay_min,
+                        config.task.detail_view_delay_max,
+                    )
+            except Exception as e:
+                self._log(f"  → 打开详情异常: {e}", "warning")
 
         # 1.5 根据 detail_mode 选择详情获取方式
         detail_mode = config.task.detail_mode
@@ -556,22 +627,29 @@ class TaskOrchestrator:
                     from utils.ocr import ocr_image_async
                     ocr_text = await ocr_image_async(screenshot_bytes)
                     if ocr_text:
-                        candidate.raw_text = (candidate.raw_text + "\n[OCR]\n" + ocr_text) if candidate.raw_text else ocr_text
+                        if candidate.raw_text:
+                            candidate.raw_text = candidate.raw_text + "\n[OCR]\n" + ocr_text
+                        else:
+                            candidate.raw_text = ocr_text
                         ocr_preview = ocr_text[:200] + "..." if len(ocr_text) > 200 else ocr_text
                         self._log(f"  → 详情(OCR): {ocr_preview}")
                     else:
-                        self._log(f"  → OCR 识别结果为空", "warning")
+                        self._log("  → OCR 识别结果为空", "warning")
             except Exception as e:
                 self._log(f"  → 截图/OCR 异常: {e}", "warning")
 
         # 2. 筛选
-        passed = False
-        reason = "未知"
-        try:
-            passed, reason = await self._do_filter(candidate, mode)
-        except Exception as e:
-            self._log(f"  → 筛选异常: {e}", "error")
-            passed, reason = False, f"筛选异常: {e}"
+        if mode == TaskMode.AI or (mode == TaskMode.KEYWORD and detail_opened):
+            try:
+                passed, reason = await self._do_filter(candidate, mode)
+                if mode == TaskMode.KEYWORD and detail_opened:
+                    self._log(f"  → 关键词详情复筛结果: {reason}")
+            except Exception as e:
+                self._log(f"  → 筛选异常: {e}", "error")
+                passed, reason = False, f"筛选异常: {e}"
+
+        if passed is None:
+            passed, reason = False, "未执行筛选"
 
         # 3. 关闭详情（无论筛选是否通过都要关闭）
         if detail_opened:
@@ -597,6 +675,11 @@ class TaskOrchestrator:
             return
 
         self._log(f"  → 筛选通过 ({reason})", "success")
+        await self._random_task_delay(
+            "打招呼前",
+            config.task.greet_delay_min,
+            config.task.greet_delay_max,
+        )
 
         # 5. 打招呼（平台自己实现）
         try:
@@ -618,10 +701,101 @@ class TaskOrchestrator:
                 pass
         else:
             self._log(f"  → 打招呼失败 - {candidate.name}", "warning")
+            self._failed_count += 1
             try:
                 await self._save_candidate(candidate, CandidateStatus.FAILED, "打招呼失败")
             except Exception:
                 pass
+
+    async def _random_task_delay(self, label: str, min_seconds: float, max_seconds: float) -> None:
+        """
+        执行任务节点的随机等待，并把实际等待时间输出到运行日志。
+
+        Args:
+            label: 日志中的等待场景
+            min_seconds: 最小等待秒数
+            max_seconds: 最大等待秒数
+        """
+        low = max(float(min_seconds or 0), 0.0)
+        high = max(float(max_seconds or 0), 0.0)
+        if high < low:
+            low, high = high, low
+
+        if high <= 0:
+            return
+
+        delay = random.uniform(low, high)
+        self._log(f"  → {label}随机延迟 {delay:.1f} 秒（范围 {low:.1f}-{high:.1f} 秒）")
+        await asyncio.sleep(delay)
+
+    def _prepare_mid_task_rest(self) -> None:
+        """为本次任务生成随机休息计划。"""
+        min_times, max_times = self._normalized_int_range(config.task.rest_times_min, config.task.rest_times_max)
+        self._rest_remaining = random.randint(min_times, max_times) if max_times > 0 else 0
+        self._candidates_since_rest = 0
+        self._next_rest_after = self._pick_next_rest_after()
+
+        if self._rest_remaining > 0 and self._next_rest_after > 0:
+            self._log(
+                "默认真人摸鱼时间已启用："
+                f"本次任务随机休息 {self._rest_remaining} 次，"
+                f"首次处理 {self._next_rest_after} 个候选人后休息"
+            )
+        else:
+            self._log("默认真人摸鱼时间未启用：本次任务不安排中途休息")
+
+    async def _maybe_take_mid_task_rest(self) -> None:
+        """处理一定数量候选人后，按配置随机休息。"""
+        if self._rest_remaining <= 0 or self._next_rest_after <= 0:
+            return
+
+        self._candidates_since_rest += 1
+        if self._candidates_since_rest < self._next_rest_after:
+            return
+
+        low, high = self._normalized_float_range(config.task.rest_duration_min, config.task.rest_duration_max)
+        if high <= 0:
+            self._rest_remaining = 0
+            return
+
+        minutes = random.uniform(low, high)
+        self._log(
+            "  → 默认真人摸鱼时间："
+            f"已连续处理 {self._candidates_since_rest} 个候选人，"
+            f"随机休息 {minutes:.1f} 分钟（剩余休息 {self._rest_remaining - 1} 次）"
+        )
+        await asyncio.sleep(minutes * 60)
+
+        self._rest_remaining -= 1
+        self._candidates_since_rest = 0
+        self._next_rest_after = self._pick_next_rest_after()
+        if self._rest_remaining > 0 and self._next_rest_after > 0:
+            self._log(f"  → 休息结束；下次处理 {self._next_rest_after} 个候选人后再次休息")
+        else:
+            self._log("  → 休息结束；本次任务不再安排中途休息")
+
+    def _pick_next_rest_after(self) -> int:
+        low, high = self._normalized_int_range(
+            config.task.rest_after_candidates_min,
+            config.task.rest_after_candidates_max,
+        )
+        return random.randint(low, high) if high > 0 else 0
+
+    @staticmethod
+    def _normalized_int_range(min_value: int, max_value: int) -> tuple[int, int]:
+        low = max(int(min_value or 0), 0)
+        high = max(int(max_value or 0), 0)
+        if high < low:
+            low, high = high, low
+        return low, high
+
+    @staticmethod
+    def _normalized_float_range(min_value: float, max_value: float) -> tuple[float, float]:
+        low = max(float(min_value or 0), 0.0)
+        high = max(float(max_value or 0), 0.0)
+        if high < low:
+            low, high = high, low
+        return low, high
 
     async def _save_screenshot(self, candidate: CandidateInfo, screenshot_bytes: bytes) -> Optional[str]:
         """
@@ -641,7 +815,9 @@ class TaskOrchestrator:
             screenshot_dir = config.data_dir / "screenshots"
             screenshot_dir.mkdir(parents=True, exist_ok=True)
 
-            safe_name = "".join(c for c in (candidate.name or "unknown") if c.isalnum() or "\u4e00" <= c <= "\u9fff")[:20]
+            safe_name = "".join(
+                c for c in (candidate.name or "unknown") if c.isalnum() or "\u4e00" <= c <= "\u9fff"
+            )[:20]
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{safe_name}_{timestamp}.png"
             filepath = screenshot_dir / filename

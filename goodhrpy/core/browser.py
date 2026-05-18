@@ -6,7 +6,6 @@ GoodHR 自动化工具 - CloakBrowser 浏览器封装
 """
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -353,7 +352,10 @@ class BrowserManager:
                 pass
             self._browser = None
 
-        _kill_all_cloakbrowser_chromium()
+        if user_data_dir:
+            _kill_orphan_chromium(user_data_dir)
+        else:
+            _kill_all_cloakbrowser_chromium()
 
         if user_data_dir:
             _cleanup_profile_lock(user_data_dir)

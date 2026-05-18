@@ -6,7 +6,7 @@ GoodHR 自动化工具 - 平台解析器基类
 """
 
 import io
-
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -517,3 +517,33 @@ class BaseParser(ABC):
 
         logger.warning("候选人卡片未加载")
         return False
+
+    async def click_box_random_point(
+        self,
+        page: Page,
+        box: dict,
+        label: str = "元素",
+        min_ratio: float = 0.3,
+        max_ratio: float = 0.7,
+    ) -> bool:
+        """
+        在元素盒子内部随机点击一个点。
+
+        默认在元素宽高 30%-70% 区域内取点，这是默认真人点击位置随机性：
+        不总是精确点击中心，也不贴近边缘。
+        """
+        if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
+            return False
+
+        ratio_x = random.uniform(min_ratio, max_ratio)
+        ratio_y = random.uniform(min_ratio, max_ratio)
+        x = box["x"] + box["width"] * ratio_x
+        y = box["y"] + box["height"] * ratio_y
+
+        await page.mouse.move(x, y)
+        await page.mouse.click(x, y)
+        logger.debug(
+            f"[{self.platform_name}] 随机点击{label}: "
+            f"point=({x:.1f},{y:.1f}), ratio=({ratio_x:.2f},{ratio_y:.2f})"
+        )
+        return True

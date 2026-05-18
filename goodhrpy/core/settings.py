@@ -13,7 +13,6 @@ import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DATA_DIR = _PROJECT_ROOT / "data"
 _LOCAL_BINARY = _DATA_DIR / "browser" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
@@ -82,6 +81,19 @@ class TaskConfig(BaseSettings):
     match_limit: int = Field(default=60, description="匹配候选人上限")
     scroll_delay_min: int = Field(default=3, description="滚动最小延迟（秒）")
     scroll_delay_max: int = Field(default=8, description="滚动最大延迟（秒）")
+    list_view_delay_min: float = Field(default=1.0, description="候选人列表查看最小延迟（秒）")
+    list_view_delay_max: float = Field(default=3.0, description="候选人列表查看最大延迟（秒）")
+    detail_view_delay_min: float = Field(default=2.0, description="详情弹框打开后最小延迟（秒）")
+    detail_view_delay_max: float = Field(default=5.0, description="详情弹框打开后最大延迟（秒）")
+    greet_delay_min: float = Field(default=1.0, description="打招呼前最小延迟（秒）")
+    greet_delay_max: float = Field(default=3.0, description="打招呼前最大延迟（秒）")
+    rest_after_candidates_min: int = Field(default=1, description="处理多少个候选人后休息：最小值")
+    rest_after_candidates_max: int = Field(default=10, description="处理多少个候选人后休息：最大值")
+    rest_times_min: int = Field(default=1, description="单次任务随机休息次数：最小值")
+    rest_times_max: int = Field(default=3, description="单次任务随机休息次数：最大值")
+    rest_duration_min: float = Field(default=2.0, description="每次随机休息最短分钟数")
+    rest_duration_max: float = Field(default=8.0, description="每次随机休息最长分钟数")
+    keyword_detail_open_probability: int = Field(default=50, description="关键词模式打开详情概率(0-100)")
     click_frequency: int = Field(default=7, description="免费模式点击概率(0-10)")
     detail_mode: str = Field(default="dom", description="详情获取模式：dom=DOM选择器, ocr=截图OCR识别")
 
@@ -145,7 +157,10 @@ def load_config() -> AppConfig:
 
     browser_config = BrowserConfig(
         headless=os.getenv("BROWSER_HEADLESS", "").lower() in ("true", "1") or browser_defaults.get("headless", False),
-        humanize=os.getenv("BROWSER_HUMANIZE", "true").lower() in ("true", "1") or browser_defaults.get("humanize", True),
+        humanize=(
+            os.getenv("BROWSER_HUMANIZE", "true").lower() in ("true", "1")
+            or browser_defaults.get("humanize", True)
+        ),
         human_preset=os.getenv("BROWSER_HUMAN_PRESET", "") or browser_defaults.get("human_preset", "default"),
         proxy=os.getenv("PROXY", "") or os.getenv("PROXY_SOCKS5", "") or browser_defaults.get("proxy", ""),
         viewport_width=int(os.getenv("BROWSER_VIEWPORT_WIDTH", "") or browser_defaults.get("viewport_width", 1280)),
@@ -156,6 +171,36 @@ def load_config() -> AppConfig:
         match_limit=int(os.getenv("TASK_MATCH_LIMIT", "") or task_defaults.get("match_limit", 60)),
         scroll_delay_min=int(os.getenv("TASK_SCROLL_DELAY_MIN", "") or task_defaults.get("scroll_delay_min", 3)),
         scroll_delay_max=int(os.getenv("TASK_SCROLL_DELAY_MAX", "") or task_defaults.get("scroll_delay_max", 8)),
+        list_view_delay_min=float(
+            os.getenv("TASK_LIST_VIEW_DELAY_MIN", "") or task_defaults.get("list_view_delay_min", 1.0)
+        ),
+        list_view_delay_max=float(
+            os.getenv("TASK_LIST_VIEW_DELAY_MAX", "") or task_defaults.get("list_view_delay_max", 3.0)
+        ),
+        detail_view_delay_min=float(
+            os.getenv("TASK_DETAIL_VIEW_DELAY_MIN", "") or task_defaults.get("detail_view_delay_min", 2.0)
+        ),
+        detail_view_delay_max=float(
+            os.getenv("TASK_DETAIL_VIEW_DELAY_MAX", "") or task_defaults.get("detail_view_delay_max", 5.0)
+        ),
+        greet_delay_min=float(os.getenv("TASK_GREET_DELAY_MIN", "") or task_defaults.get("greet_delay_min", 1.0)),
+        greet_delay_max=float(os.getenv("TASK_GREET_DELAY_MAX", "") or task_defaults.get("greet_delay_max", 3.0)),
+        rest_after_candidates_min=int(
+            os.getenv("TASK_REST_AFTER_CANDIDATES_MIN", "")
+            or task_defaults.get("rest_after_candidates_min", 1)
+        ),
+        rest_after_candidates_max=int(
+            os.getenv("TASK_REST_AFTER_CANDIDATES_MAX", "")
+            or task_defaults.get("rest_after_candidates_max", 10)
+        ),
+        rest_times_min=int(os.getenv("TASK_REST_TIMES_MIN", "") or task_defaults.get("rest_times_min", 1)),
+        rest_times_max=int(os.getenv("TASK_REST_TIMES_MAX", "") or task_defaults.get("rest_times_max", 3)),
+        rest_duration_min=float(os.getenv("TASK_REST_DURATION_MIN", "") or task_defaults.get("rest_duration_min", 2.0)),
+        rest_duration_max=float(os.getenv("TASK_REST_DURATION_MAX", "") or task_defaults.get("rest_duration_max", 8.0)),
+        keyword_detail_open_probability=int(
+            os.getenv("TASK_KEYWORD_DETAIL_OPEN_PROBABILITY", "")
+            or task_defaults.get("keyword_detail_open_probability", 50)
+        ),
         click_frequency=int(os.getenv("TASK_CLICK_FREQUENCY", "") or task_defaults.get("click_frequency", 7)),
         detail_mode=os.getenv("TASK_DETAIL_MODE", "") or task_defaults.get("detail_mode", "dom"),
     )

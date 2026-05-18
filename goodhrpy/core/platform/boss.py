@@ -181,7 +181,18 @@ class BossParser(BaseParser):
                 }
             }
 
-            return cards.map((card, index) => {
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const visibleCards = cards
+                .map((card, index) => ({ card, index, rect: card.getBoundingClientRect() }))
+                .filter(({ rect }) => {
+                    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+                    const visibleWidth = Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0);
+                    const visibleHeight = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+                    return visibleWidth > rect.width * 0.35 && visibleHeight > Math.min(rect.height * 0.35, 120);
+                });
+
+            return visibleCards.map(({ card, index, rect }) => {
                 const nameEl = pick(card, ['.name', '[class*="name"]']);
                 const basicEl = pick(card, ['.job-card-left', '[class*="job-card-left"]']);
                 const eduEl = pick(card, [
@@ -244,6 +255,11 @@ class BossParser(BaseParser):
                     element_index: index,
                     platform_user_id: card.getAttribute('data-geek-id') || card.getAttribute('data-uid') || '',
                     matched_selector: matchedSelector,
+                    visible_box: {
+                        top: Math.round(rect.top),
+                        bottom: Math.round(rect.bottom),
+                        height: Math.round(rect.height)
+                    },
                 };
             }).filter(item => item.name || item.raw_text);
         }"""
@@ -275,7 +291,7 @@ class BossParser(BaseParser):
                 )
                 for item in results
             ]
-            logger.info(f"Boss直聘提取到 {len(candidates)} 个候选人（选择器: {selector}）")
+            logger.info(f"Boss直聘提取到 {len(candidates)} 个当前可见候选人（选择器: {selector}）")
             return candidates
         except Exception as e:
             logger.error(f"Boss直聘提取候选人失败: {e}")
@@ -460,8 +476,7 @@ class BossParser(BaseParser):
                 x = box["x"] + box["width"] / 2
                 y = box["y"] + box["height"] / 2
                 if self._point_in_viewport(x, y, viewport_width, viewport_height):
-                    await page.mouse.move(x, y)
-                    await page.mouse.click(x, y)
+                    await self.click_box_random_point(page, box, label="Boss目标元素")
                     await page.wait_for_timeout(300)
                     return True
 
