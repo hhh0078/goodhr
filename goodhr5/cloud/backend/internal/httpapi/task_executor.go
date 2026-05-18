@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ import (
 type TaskExecutor struct {
 	task         TaskRun
 	platformCfg  PlatformConfig
+	filter       *KeywordFilter
 	position     map[string]any
 	agentBaseURL string
 	httpClient   *http.Client
@@ -29,9 +31,21 @@ func NewTaskExecutor(
 	agentBaseURL string,
 	logCallback func(level, message string),
 ) *TaskExecutor {
+	var filter *KeywordFilter
+	if task.Mode != "ai" && position != nil {
+		keywords := toStringSlice(position["keywords"])
+		exclude := toStringSlice(position["exclude"])
+		isAndMode := false
+		if v, ok := position["is_and_mode"].(bool); ok {
+			isAndMode = v
+		}
+		filter = NewKeywordFilter(keywords, exclude, isAndMode, 7)
+	}
+
 	return &TaskExecutor{
 		task:         task,
 		platformCfg:  platformCfg,
+		filter:       filter,
 		position:     position,
 		agentBaseURL: agentBaseURL,
 		httpClient:   &http.Client{Timeout: 120 * time.Second},
@@ -175,11 +189,17 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 
 		e.log("info", fmt.Sprintf("处理候选人 %d/%d", i+1, len(candidates)))
 
-		// 筛选逻辑：后续根据 mode 调用关键词或 AI 筛选
+		// 筛选逻辑
 		if e.task.Mode == "ai" {
 			e.log("info", "AI 模式筛选（待实现）")
-		} else {
-			e.log("info", "关键词模式筛选（待实现）")
+		} else if e.filter != nil {
+			text := candidateText(candidates[i])
+			result := e.filter.Filter(text)
+			if !result.Passed {
+				e.log("info", fmt.Sprintf("候选人 %d 被筛选跳过: %s", i+1, result.Reason))
+				continue
+			}
+			e.log("info", fmt.Sprintf("候选人 %d 通过筛选: %s", i+1, result.Reason))
 		}
 
 		// 打招呼：点击 greeting 按钮
@@ -252,4 +272,33 @@ func (e *TaskExecutor) log(level, message string) {
 	if e.logCallback != nil {
 		e.logCallback(level, message)
 	}
+}
+
+// candidateText 将候选人字段拼接为可供筛选的文本。
+func candidateText(candidate map[string]any) string {
+	var parts []string
+	for _, v := range candidate {
+		if s, ok := v.(string); ok && s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// toStringSlice 将 interface{} 转为 []string。
+func toStringSlice(v any) []string {
+	if v == nil {
+		return nil
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
 }
