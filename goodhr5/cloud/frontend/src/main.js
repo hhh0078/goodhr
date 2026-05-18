@@ -1,4 +1,4 @@
-import { createApp, ref } from 'vue'
+import { createApp, onMounted, ref } from 'vue'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -36,6 +36,10 @@ const App = {
       agentStatus.value = '未连接'
       checking.value = false
     }
+
+    onMounted(() => {
+      detectLocalAgent()
+    })
 
     return {
       agentStatus,
