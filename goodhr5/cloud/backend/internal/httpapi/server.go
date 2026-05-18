@@ -33,7 +33,7 @@ func NewServer() (*Server, error) {
 		ai:               NewAIConfigService(auth, config.AIConfigStore()),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		tasks:            NewTaskService(auth, taskStore),
-		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore()),
+		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore(db)),
 	}, nil
 }
 

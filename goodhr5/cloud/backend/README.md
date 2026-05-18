@@ -28,6 +28,7 @@ CGO_ENABLED=0 go run ./cmd/server
 ```text
 PlatformAccountStore
 TaskStore
+TaskLogStore
 ```
 
 ## Redis

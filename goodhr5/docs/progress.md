@@ -24,6 +24,7 @@
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
 | 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，未配置 PostgreSQL 时使用内存 store |
 | 云端后端 | PostgreSQL 平台账号与任务存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 TaskStore 切换到 PostgreSQL |
+| 云端后端 | PostgreSQL 任务日志存储 | DONE | 配置 `GOODHR_PG_DSN` 后，TaskLogStore 切换到 PostgreSQL |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
@@ -51,6 +52,11 @@
 | 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
 
 ## 本次完成
+
+- 架构文档补充“任务运行态归属 Local Agent、网页只是控制台”的关键原则。
+- 云端后端新增 PostgreSQL TaskLogStore。
+- 配置 `GOODHR_PG_DSN` 后，任务日志摘要写入 PostgreSQL。
+- 云端后端 README 增加 TaskLogStore 的 PostgreSQL 说明。
 
 - 云端后端新增 `GOODHR_PG_DSN` 配置和 PostgreSQL 连接初始化。
 - 平台账号映射新增 PostgreSQL store，支持创建、列表、删除。

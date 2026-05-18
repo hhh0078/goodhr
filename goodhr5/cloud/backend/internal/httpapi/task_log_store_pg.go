@@ -1,0 +1,99 @@
+// 本文件负责提供任务日志摘要的 PostgreSQL 存储实现。
+package httpapi
+
+import (
+	"context"
+	"database/sql"
+	"time"
+)
+
+// PostgresTaskLogStore 使用 PostgreSQL 持久化任务日志摘要。
+type PostgresTaskLogStore struct {
+	db *sql.DB
+}
+
+// NewPostgresTaskLogStore 创建 PostgreSQL 任务日志存储。
+func NewPostgresTaskLogStore(db *sql.DB) *PostgresTaskLogStore {
+	return &PostgresTaskLogStore{db: db}
+}
+
+// AddTaskLog 新增一条 PostgreSQL 任务日志摘要。
+func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	userID, err := ensureUserID(ctx, s.db, log.UserEmail)
+	if err != nil {
+		return TaskLog{}, err
+	}
+
+	level := log.Level
+	if level == "" {
+		level = "info"
+	}
+
+	var saved TaskLog
+	saved.UserEmail = log.UserEmail
+	err = s.db.QueryRowContext(
+		ctx,
+		`
+		INSERT INTO task_logs (task_id, user_id, level, message)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, task_id, level, message, created_at
+		`,
+		log.TaskID,
+		userID,
+		level,
+		log.Message,
+	).Scan(
+		&saved.ID,
+		&saved.TaskID,
+		&saved.Level,
+		&saved.Message,
+		&saved.CreatedAt,
+	)
+	if err != nil {
+		return TaskLog{}, err
+	}
+	return saved, nil
+}
+
+// ListTaskLogs 列出 PostgreSQL 中当前用户某个任务的日志摘要。
+func (s *PostgresTaskLogStore) ListTaskLogs(userEmail string, taskID string) ([]TaskLog, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT tl.id, tl.task_id, tl.level, tl.message, tl.created_at
+		FROM task_logs tl
+		INNER JOIN users u ON u.id = tl.user_id
+		WHERE u.email = $1 AND tl.task_id = $2
+		ORDER BY tl.created_at DESC
+		`,
+		userEmail,
+		taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]TaskLog, 0)
+	for rows.Next() {
+		var item TaskLog
+		item.UserEmail = userEmail
+		if err := rows.Scan(
+			&item.ID,
+			&item.TaskID,
+			&item.Level,
+			&item.Message,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}

@@ -108,8 +108,11 @@ func (c Config) TaskStore(db *sql.DB) TaskStore {
 	return NewMemoryTaskStore()
 }
 
-// TaskLogStore 创建任务日志存储；当前使用内存实现，后续替换为 PostgreSQL。
-func (c Config) TaskLogStore() TaskLogStore {
+// TaskLogStore 创建任务日志存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
+	if db != nil {
+		return NewPostgresTaskLogStore(db)
+	}
 	return NewMemoryTaskLogStore()
 }
 
