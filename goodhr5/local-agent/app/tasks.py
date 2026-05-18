@@ -74,6 +74,51 @@ def delete_candidate(task_id: str, candidate_id: str) -> bool:
     return True
 
 
+def list_screenshots(task_id: str) -> list[dict[str, str]]:
+    """列出任务截图文件。"""
+    directory = screenshots_dir(task_id)
+    if not directory.exists():
+        raise FileNotFoundError("task screenshots not found")
+
+    items = []
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        items.append({
+            "filename": path.name,
+            "path": "screenshots/" + path.name,
+        })
+    return items
+
+
+def screenshot_path(task_id: str, filename: str) -> Path:
+    """返回截图文件路径，并限制文件只能位于 screenshots 目录内。"""
+    safe_name = Path(filename).name
+    return screenshots_dir(task_id) / safe_name
+
+
+def delete_screenshot(task_id: str, filename: str) -> bool:
+    """删除任务截图文件。"""
+    path = screenshot_path(task_id, filename)
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def save_ocr_text(task_id: str, candidate_id: str, text: str) -> dict[str, str]:
+    """保存候选人的 OCR 文本到本地任务目录。"""
+    task_id = _clean_id(task_id, "task")
+    candidate_id = _clean_id(candidate_id, "candidate")
+    path = ocr_dir(task_id) / f"{candidate_id}.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return {
+        "candidate_id": candidate_id,
+        "path": "ocr/" + path.name,
+    }
+
+
 def task_dir(task_id: str) -> Path:
     """返回本地任务目录路径。"""
     return data_dir() / "tasks" / _clean_id(task_id, "task")
@@ -82,6 +127,16 @@ def task_dir(task_id: str) -> Path:
 def candidates_path(task_id: str) -> Path:
     """返回本地任务 candidates.json 路径。"""
     return task_dir(task_id) / "candidates.json"
+
+
+def screenshots_dir(task_id: str) -> Path:
+    """返回本地任务截图目录路径。"""
+    return task_dir(task_id) / "screenshots"
+
+
+def ocr_dir(task_id: str) -> Path:
+    """返回本地任务 OCR 目录路径。"""
+    return task_dir(task_id) / "ocr"
 
 
 def _clean_id(value: str, fallback: str) -> str:

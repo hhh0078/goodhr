@@ -91,3 +91,22 @@ ocr/
 ```
 
 候选人详情、截图路径和 OCR 文本都只写入本地任务目录。
+
+## 截图/OCR 文件管理
+
+当前已提供：
+
+```http
+GET /api/v1/tasks/{task_id}/screenshots
+GET /api/v1/tasks/{task_id}/screenshots/{filename}
+DELETE /api/v1/tasks/{task_id}/screenshots/{filename}
+POST /api/v1/tasks/{task_id}/ocr
+```
+
+截图文件只允许读取和删除当前任务 `screenshots/` 目录内的文件。
+
+OCR 文本写入：
+
+```text
+local-agent/agent_data/tasks/{task_id}/ocr/{candidate_id}.txt
+```

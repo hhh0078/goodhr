@@ -11,7 +11,16 @@ from urllib.parse import parse_qs, urlparse
 from app.machine import load_machine
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.session import load_cloud_account, save_cloud_account
-from app.tasks import delete_candidate, init_task, load_candidates, save_candidate
+from app.tasks import (
+    delete_candidate,
+    delete_screenshot,
+    init_task,
+    list_screenshots,
+    load_candidates,
+    save_candidate,
+    save_ocr_text,
+    screenshot_path,
+)
 
 
 HOST = "127.0.0.1"
@@ -42,6 +51,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/candidates"):
             self._load_candidates()
             return
+        if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/screenshots"):
+            self._list_screenshots()
+            return
+        if self.path.startswith("/api/v1/tasks/") and "/screenshots/" in self.path:
+            self._get_screenshot()
+            return
 
         self.send_error(404)
 
@@ -59,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/candidates"):
             self._save_candidate()
             return
+        if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/ocr"):
+            self._save_ocr()
+            return
 
         self.send_error(404)
 
@@ -69,6 +87,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/api/v1/tasks/") and "/candidates/" in self.path:
             self._delete_candidate()
+            return
+        if self.path.startswith("/api/v1/tasks/") and "/screenshots/" in self.path:
+            self._delete_screenshot()
             return
 
         self.send_error(404)
@@ -230,6 +251,62 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json({"ok": True})
 
+    def _list_screenshots(self) -> None:
+        """列出本地任务截图文件。"""
+        task_id = self._task_id_from_path("/screenshots")
+        try:
+            # 调用 tasks 模块列出截图文件，供云端页面预览本地截图。
+            screenshots = list_screenshots(task_id)
+        except FileNotFoundError:
+            self._error(404, "task screenshots not found")
+            return
+
+        self._json({"ok": True, "screenshots": screenshots})
+
+    def _get_screenshot(self) -> None:
+        """读取本地任务截图文件。"""
+        task_id = self._task_id_from_path("")
+        filename = self.path.rsplit("/", 1)[-1]
+        path = screenshot_path(task_id, filename)
+        if not path.exists():
+            self._error(404, "screenshot not found")
+            return
+
+        body = path.read_bytes()
+        self.send_response(200)
+        self._cors_headers()
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _delete_screenshot(self) -> None:
+        """删除本地任务截图文件。"""
+        task_id = self._task_id_from_path("")
+        filename = self.path.rsplit("/", 1)[-1]
+        # 调用 tasks 模块删除截图文件，确保只能删除当前任务 screenshots 目录内文件。
+        deleted = delete_screenshot(task_id, filename)
+        if not deleted:
+            self._error(404, "screenshot not found")
+            return
+
+        self._json({"ok": True})
+
+    def _save_ocr(self) -> None:
+        """保存本地任务 OCR 文本。"""
+        task_id = self._task_id_from_path("/ocr")
+        try:
+            payload = self._read_json()
+            candidate_id = str(payload.get("candidate_id", ""))
+            text = str(payload.get("text", ""))
+            # 调用 tasks 模块保存 OCR 文本，OCR 原文只保存在本地任务目录。
+            result = save_ocr_text(task_id, candidate_id, text)
+        except ValueError as exc:
+            self._error(400, str(exc))
+            return
+
+        self._json({"ok": True, "ocr": result})
+
     def _task_id_from_path(self, suffix: str) -> str:
         """从任务 API 路径中解析 task_id。"""
         value = self.path.removeprefix("/api/v1/tasks/")
@@ -237,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
             value = value[: -len(suffix)]
         if "/candidates/" in value:
             value = value.split("/candidates/", 1)[0]
+        if "/screenshots/" in value:
+            value = value.split("/screenshots/", 1)[0]
         return value.strip("/")
 
     def _read_json(self) -> dict:

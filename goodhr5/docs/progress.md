@@ -40,7 +40,7 @@
 | 本地 Agent | 截图能力迁移 | TODO | 复用当前可用的详情弹框截图代码 |
 | 本地 Agent | OCR 能力迁移 | TODO | 复用当前 PaddleOCR 懒加载封装 |
 | 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
-| 本地 Agent | 截图/OCR 本地文件管理 | TODO | screenshots/ 和 ocr/ |
+| 本地 Agent | 截图/OCR 本地文件管理 | DONE | 截图列表/读取/删除和 OCR 文本写入接口已完成 |
 | 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
 | 协议 | Local Agent API 草案落地 | TODO | health/session/profile/browser/page/task |
 | 协议 | 云端登录后初始化/绑定本地 Agent | DONE | 前端探测成功后绑定云端 `/api/agents/bind` 和本地 `bind-cloud-user` |
@@ -51,12 +51,17 @@
 
 ## 本次完成
 
+- Local Agent 新增截图文件列表、读取、删除接口。
+- Local Agent 新增 OCR 文本写入接口。
+- 截图读取和删除限制在当前任务 `screenshots/` 目录内。
+- OCR 原文写入当前任务 `ocr/` 目录。
+
+## 历史完成
+
 - Local Agent 新增本地任务目录和候选人 JSON 管理模块。
 - 新增任务初始化接口，每个任务创建独立目录。
 - 新增候选人 JSON 读取、新增/更新、删除接口。
 - 任务目录预留 `screenshots/` 和 `ocr/`，候选人详情仍只保存在本地。
-
-## 历史完成
 
 - 前端任务卡片新增展开/收起日志。
 - 展开任务时调用云端 `GET /api/tasks/{id}/logs`。
@@ -171,4 +176,4 @@
 
 1. 前端候选人 JSON 管理接入 Local Agent。
 2. 添加 PostgreSQL store 接口。
-3. 添加截图/OCR 本地文件管理接口。
+3. 迁移现有截图/OCR 执行逻辑。
