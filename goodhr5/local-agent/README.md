@@ -36,3 +36,11 @@ local-agent/agent_data/machine.json
 ```
 
 `machine_id` 由系统类型、主机名、用户目录、安装 ID 等信息哈希生成。本地只保存哈希后的机器码和随机安装 ID，不保存用于上传的明文硬件信息。
+
+绑定云端账号后会生成：
+
+```text
+local-agent/agent_data/cloud_account.json
+```
+
+本文件保存当前绑定的云端用户 ID、邮箱、本地调用 token 和绑定时间。

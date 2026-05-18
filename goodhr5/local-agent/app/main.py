@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from app.machine import load_machine
+from app.session import load_cloud_account, save_cloud_account
 
 
 HOST = "127.0.0.1"
@@ -16,6 +17,7 @@ MACHINE = load_machine()
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
+            account = load_cloud_account()
             self._json(
                 {
                     "ok": True,
@@ -23,8 +25,16 @@ class Handler(BaseHTTPRequestHandler):
                     "version": "0.1.0",
                     "port": self.server.server_address[1],
                     "machine_id": MACHINE["machine_id"],
+                    "bound_cloud_user_id": account["cloud_user_id"] if account else "",
                 }
             )
+            return
+
+        self.send_error(404)
+
+    def do_POST(self) -> None:
+        if self.path == "/api/v1/session/bind-cloud-user":
+            self._bind_cloud_user()
             return
 
         self.send_error(404)
@@ -51,6 +61,62 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GoodHR-Local-Token")
         self.send_header("Access-Control-Allow-Private-Network", "true")
+
+    def _bind_cloud_user(self) -> None:
+        try:
+            payload = self._read_json()
+        except ValueError as exc:
+            self._error(400, str(exc))
+            return
+
+        cloud_user_id = str(payload.get("cloud_user_id", "")).strip()
+        cloud_email = str(payload.get("cloud_email", "")).strip().lower()
+        agent_token = str(payload.get("agent_token", "")).strip()
+
+        if not cloud_user_id:
+            self._error(400, "cloud_user_id is required")
+            return
+        if not cloud_email:
+            self._error(400, "cloud_email is required")
+            return
+        if not agent_token:
+            self._error(400, "agent_token is required")
+            return
+
+        account = save_cloud_account(cloud_user_id, cloud_email, agent_token)
+        self._json(
+            {
+                "ok": True,
+                "machine_id": MACHINE["machine_id"],
+                "cloud_user_id": account["cloud_user_id"],
+                "cloud_email": account["cloud_email"],
+                "bound_at": account["bound_at"],
+            }
+        )
+
+    def _read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            raise ValueError("json body is required")
+
+        raw = self.rfile.read(length)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("invalid json body") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError("json body must be an object")
+        return payload
+
+    def _error(self, status: int, message: str) -> None:
+        body = json.dumps({"ok": False, "error": message}, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self._cors_headers()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def main() -> None:

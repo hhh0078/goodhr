@@ -30,7 +30,7 @@
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
 | 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
-| 本地 Agent | 云端账号绑定 | TODO | 保存当前 cloud_user_id |
+| 本地 Agent | 云端账号绑定 | DONE | `POST /api/v1/session/bind-cloud-user` 写入 `cloud_account.json` |
 | 本地 Agent | Profile/cookie 多账号管理 | TODO | 同平台多个账号独立 profile |
 | 本地 Agent | CloakBrowser 控制 | TODO | 启动、关闭、打开页面 |
 | 本地 Agent | 页面基础操作 API | TODO | 查找、滚动、随机位置点击 |
@@ -48,12 +48,16 @@
 
 ## 本次完成
 
+- 本地 Agent 增加 `POST /api/v1/session/bind-cloud-user`。
+- 绑定信息保存到 `agent_data/cloud_account.json`。
+- `/health` 返回 `bound_cloud_user_id`，方便云端页面识别本地绑定状态。
+
+## 历史完成
+
 - 云端 Go API 增加 `POST /api/auth/send-code`。
 - 云端 Go API 增加 `POST /api/auth/login`。
 - 验证码先用内存 TTL 存储，并返回 `debug_code` 方便本地开发验证。
 - 登录成功返回临时 Bearer token。
-
-## 历史完成
 
 - Vue 页面加载后自动探测 `127.0.0.1:9001-9009` 的本地 Agent。
 - 保留手动“检测本地程序”按钮，方便用户启动本地程序后重新检测。
@@ -76,4 +80,4 @@
 
 1. 添加 Redis 验证码/会话存储接口。
 2. 添加 163 SMTP 发信接口。
-3. 添加本地 Agent 云端账号绑定。
+3. 添加未检测到本地程序时的下载/启动提示。
