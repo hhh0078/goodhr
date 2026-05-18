@@ -68,6 +68,11 @@ func (c Config) PlatformAccountStore() PlatformAccountStore {
 	return NewMemoryPlatformAccountStore()
 }
 
+// TaskStore 创建任务存储；当前使用内存实现，后续替换为 PostgreSQL。
+func (c Config) TaskStore() TaskStore {
+	return NewMemoryTaskStore()
+}
+
 // envInt 从环境变量读取整数，读取失败时返回默认值。
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)

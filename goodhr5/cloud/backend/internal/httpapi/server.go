@@ -11,6 +11,7 @@ type Server struct {
 	agent            *AgentService
 	ai               *AIConfigService
 	platformAccounts *PlatformAccountService
+	tasks            *TaskService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和 Agent 模块依赖注入。
@@ -23,6 +24,7 @@ func NewServer() *Server {
 		agent:            NewAgentService(auth, config.AgentStore()),
 		ai:               NewAIConfigService(auth, config.AIConfigStore()),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore()),
+		tasks:            NewTaskService(auth, config.TaskStore()),
 	}
 }
 
@@ -47,6 +49,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
+	// 注册任务接口，用于创建任务和展示任务统计摘要。
+	mux.HandleFunc("/api/tasks", s.tasks.Collection)
+	mux.HandleFunc("/api/tasks/", s.tasks.Detail)
 	return cors(mux)
 }
 

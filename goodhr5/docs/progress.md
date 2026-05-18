@@ -22,6 +22,7 @@
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
+| 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，当前使用内存 store |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
@@ -40,7 +41,7 @@
 | 本地 Agent | OCR 能力迁移 | TODO | 复用当前 PaddleOCR 懒加载封装 |
 | 本地 Agent | 任务 JSON 存储 | TODO | 每个任务一个目录和 candidates.json |
 | 本地 Agent | 截图/OCR 本地文件管理 | TODO | screenshots/ 和 ocr/ |
-| 协议 | 云端任务协议 | TODO | Vue 协调云端任务状态和 Local Agent |
+| 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
 | 协议 | Local Agent API 草案落地 | TODO | health/session/profile/browser/page/task |
 | 协议 | 云端登录后初始化/绑定本地 Agent | DONE | 前端探测成功后绑定云端 `/api/agents/bind` 和本地 `bind-cloud-user` |
 | 安全 | CORS/PNA | TODO | 允许正式云端域名访问 localhost |
@@ -50,12 +51,17 @@
 
 ## 本次完成
 
+- 云端后端新增任务模块。
+- 新增任务创建、任务列表、任务详情接口。
+- 任务只保存平台、账号、模式、匹配上限、状态和统计摘要。
+- 当前使用内存 `TaskStore`，后续替换为 PostgreSQL `task_runs` 表。
+
+## 历史完成
+
 - 云端前端新增任务创建面板。
 - 任务表单支持选择平台、平台账号、筛选模式、匹配上限。
 - 读取云端平台账号映射，用于同平台多账号选择。
 - 前端先创建任务草稿并展示扫描/打招呼/跳过/失败统计，后续接入云端任务 API。
-
-## 历史完成
 
 - Local Agent 新增 profile 元数据管理模块。
 - 新增本地 profile 列表、创建、删除接口。
@@ -144,6 +150,6 @@
 
 ## 下一步建议
 
-1. 添加 PostgreSQL store 接口。
-2. 添加云端任务 API。
+1. 前端任务创建接入云端任务 API。
+2. 添加 PostgreSQL store 接口。
 3. 添加任务运行列表与日志展开。

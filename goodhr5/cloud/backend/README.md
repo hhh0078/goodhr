@@ -114,3 +114,17 @@ DELETE /api/platform-accounts/{id}
 所有接口都需要 `Authorization: Bearer <token>`。
 
 云端只保存平台、显示名和 Local Agent 的 `local_profile_id`，不保存 cookie/profile 原文。
+
+## 任务 API
+
+当前已提供：
+
+```http
+POST /api/tasks
+GET /api/tasks
+GET /api/tasks/{id}
+```
+
+所有接口都需要 `Authorization: Bearer <token>`。
+
+第一版只保存任务元信息和统计摘要，不保存候选人详情。
