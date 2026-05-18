@@ -25,6 +25,7 @@
         </div>
 
         <div class="actions compact" style="margin-top:8px">
+          <button class="ghost primary" :disabled="tasks.loading.value" @click="tasks.execute(task.id)">运行</button>
           <button class="ghost" @click="tasks.toggleLogs(task.id)">
             {{ tasks.expandedTaskId.value === task.id ? '收起日志' : '展开日志' }}
           </button>

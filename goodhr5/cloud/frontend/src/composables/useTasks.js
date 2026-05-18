@@ -1,6 +1,6 @@
 /** 任务和候选人管理 */
 import { ref } from 'vue'
-import { createTask, listTasks, listTaskLogs } from '../services/cloudApi.js'
+import { createTask, listTasks, listTaskLogs, runTask } from '../services/cloudApi.js'
 import { initLocalTask, listLocalCandidates, deleteLocalCandidate } from '../services/localAgentApi.js'
 
 export function useTasks(token, agentBaseUrl) {
@@ -25,6 +25,12 @@ export function useTasks(token, agentBaseUrl) {
     if (!form.value.platformAccountId) return
     loading.value = true; error.value = ''
     try { await createTask(token.value, { ...form.value }); await load(); form.value = { ...form.value, positionId: '' } }
+    catch (e) { error.value = e.message } finally { loading.value = false }
+  }
+
+  async function execute(taskId) {
+    loading.value = true; error.value = ''
+    try { await runTask(token.value, taskId, agentBaseUrl.value); await load() }
     catch (e) { error.value = e.message } finally { loading.value = false }
   }
 
@@ -71,5 +77,5 @@ export function useTasks(token, agentBaseUrl) {
   function candidateSubtitle(c) { return c.raw_text || c.skills || '' }
   function candidateDetail(c) { return c.detail_text || '' }
 
-  return { tasks, loading, error, form, expandedTaskId, taskLogs, candidateExpandedTaskId, taskCandidates, candidateLoadingTaskId, candidateError, load, create, toggleLogs, toggleCandidates, loadCandidates, removeCandidate, localTaskID, taskPositionSnapshot, candidateItems, candidateTitle, candidateSubtitle, candidateDetail }
+  return { tasks, loading, error, form, expandedTaskId, taskLogs, candidateExpandedTaskId, taskCandidates, candidateLoadingTaskId, candidateError, load, create, execute, toggleLogs, toggleCandidates, loadCandidates, removeCandidate, localTaskID, taskPositionSnapshot, candidateItems, candidateTitle, candidateSubtitle, candidateDetail }
 }

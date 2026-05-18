@@ -66,6 +66,14 @@ export async function listTasks(token) {
 }
 
 // listTaskLogs 调用云端任务日志接口读取某个任务的日志摘要。
+export async function runTask(token, taskID, agentBaseURL) {
+  return request(`/api/tasks/${taskID}/run`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_base_url: agentBaseURL })
+  })
+}
+
 export async function listTaskLogs(token, taskID) {
   return request(`/api/tasks/${taskID}/logs`, {
     headers: { Authorization: `Bearer ${token}` }

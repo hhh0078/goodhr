@@ -11,6 +11,8 @@ button:hover{background:var(--fg);color:var(--bg)}
 button:disabled{opacity:.35;cursor:not-allowed}
 button.ghost{border-color:var(--border);color:var(--fg-dim)}
 button.ghost:hover{border-color:var(--fg);color:var(--fg);background:transparent}
+button.ghost.primary{border-color:var(--fg);color:var(--fg)}
+button.ghost.primary:hover{background:var(--fg);color:var(--bg)}
 button.danger{border-color:var(--fg-error);color:var(--fg-error)}
 button.danger:hover{background:var(--fg-error);color:var(--bg)}
 select option{background:var(--bg-input);color:var(--fg)}
