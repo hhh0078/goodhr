@@ -4,24 +4,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
-	"sync"
 	"time"
 )
 
 const codeTTL = 5 * time.Minute
+const sessionTTL = 2 * time.Hour
 
 type AuthService struct {
-	mu    sync.Mutex
-	codes map[string]loginCode
-}
-
-type loginCode struct {
-	Code      string
-	ExpiresAt time.Time
+	store AuthStore
 }
 
 type sendCodeRequest struct {
@@ -33,9 +28,9 @@ type loginRequest struct {
 	Code  string `json:"code"`
 }
 
-func NewAuthService() *AuthService {
+func NewAuthService(store AuthStore) *AuthService {
 	return &AuthService{
-		codes: make(map[string]loginCode),
+		store: store,
 	}
 }
 
@@ -63,10 +58,10 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresAt := time.Now().Add(codeTTL)
-	s.mu.Lock()
-	s.codes[email] = loginCode{Code: code, ExpiresAt: expiresAt}
-	s.mu.Unlock()
+	if err := s.store.SaveLoginCode(email, code, codeTTL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save code")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
@@ -100,7 +95,12 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.verifyCode(email, code) {
+	matched, err := s.store.ConsumeLoginCode(email, code)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify code")
+		return
+	}
+	if !matched {
 		writeError(w, http.StatusUnauthorized, "code is invalid or expired")
 		return
 	}
@@ -111,34 +111,58 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
+	if err := s.store.SaveSession(token, Session{
+		Email:     email,
+		CreatedAt: now,
+	}, sessionTTL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save session")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,
 		"access_token": token,
 		"token_type":   "Bearer",
+		"expires_in":   int(sessionTTL.Seconds()),
 		"user": map[string]any{
 			"email": email,
 		},
 	})
 }
 
-func (s *AuthService) verifyCode(email string, code string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	saved, ok := s.codes[email]
-	if !ok {
-		return false
-	}
-	if time.Now().After(saved.ExpiresAt) {
-		delete(s.codes, email)
-		return false
-	}
-	if saved.Code != code {
-		return false
+func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
 	}
 
-	delete(s.codes, email)
-	return true
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "missing bearer token")
+		return
+	}
+
+	session, err := s.store.GetSession(token)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true,
+		"user": map[string]any{
+			"email": session.Email,
+		},
+		"session": map[string]any{
+			"created_at": session.CreatedAt,
+			"expires_at": session.ExpiresAt,
+		},
+	})
 }
 
 func normalizeEmail(value string) (string, bool) {
@@ -171,4 +195,12 @@ func randomToken() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("gh5_%s", hex.EncodeToString(bytes)), nil
+}
+
+func bearerToken(value string) string {
+	prefix := "Bearer "
+	if !strings.HasPrefix(value, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(value, prefix))
 }

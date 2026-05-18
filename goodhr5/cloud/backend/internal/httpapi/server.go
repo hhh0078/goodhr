@@ -11,7 +11,7 @@ type Server struct {
 
 func NewServer() *Server {
 	return &Server{
-		auth: NewAuthService(),
+		auth: NewAuthService(NewMemoryAuthStore()),
 	}
 }
 
@@ -20,6 +20,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
+	mux.HandleFunc("/api/auth/me", s.auth.Me)
 	return mux
 }
 

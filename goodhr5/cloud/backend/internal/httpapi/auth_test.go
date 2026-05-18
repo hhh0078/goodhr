@@ -43,6 +43,25 @@ func TestAuthCodeLogin(t *testing.T) {
 	if loginResp.Code != http.StatusOK {
 		t.Fatalf("login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
 	}
+
+	var loginPayload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginPayload); err != nil {
+		t.Fatal(err)
+	}
+	if loginPayload.AccessToken == "" {
+		t.Fatal("access token is empty")
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+loginPayload.AccessToken)
+	meResp := httptest.NewRecorder()
+	routes.ServeHTTP(meResp, meReq)
+
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("me status = %d, body = %s", meResp.Code, meResp.Body.String())
+	}
 }
 
 func TestAuthRejectsWrongCode(t *testing.T) {
@@ -59,5 +78,18 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 
 	if loginResp.Code != http.StatusUnauthorized {
 		t.Fatalf("login status = %d, want %d", loginResp.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAuthMeRejectsMissingToken(t *testing.T) {
+	server := NewServer()
+	routes := server.Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("me status = %d, want %d", resp.Code, http.StatusUnauthorized)
 	}
 }
