@@ -46,7 +46,7 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { listPlatformAccounts } from '../services/cloudApi.js'
 const props = defineProps({ tasks: Object, positions: Object, token: String })

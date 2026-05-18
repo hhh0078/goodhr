@@ -25,6 +25,6 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineProps({ agent: Object })
 </script>

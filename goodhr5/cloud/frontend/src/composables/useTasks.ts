@@ -1,7 +1,7 @@
 /** 任务和候选人管理 */
 import { ref } from 'vue'
-import { createTask, listTasks, listTaskLogs, runTask } from '../services/cloudApi.js'
-import { initLocalTask, listLocalCandidates, deleteLocalCandidate } from '../services/localAgentApi.js'
+import { createTask, listTasks, listTaskLogs, runTask } from '../services/cloudApi'
+import { initLocalTask, listLocalCandidates, deleteLocalCandidate } from '../services/localAgentApi'
 
 export function useTasks(token, agentBaseUrl) {
   const tasks = ref([])

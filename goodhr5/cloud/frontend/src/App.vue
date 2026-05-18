@@ -14,12 +14,12 @@
   </template>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, toRefs, watch } from 'vue'
-import { useAuth } from './composables/useAuth.js'
-import { useAgent } from './composables/useAgent.js'
-import { usePositions } from './composables/usePositions.js'
-import { useTasks } from './composables/useTasks.js'
+import { useAuth } from './composables/useAuth'
+import { useAgent } from './composables/useAgent'
+import { usePositions } from './composables/usePositions'
+import { useTasks } from './composables/useTasks'
 import LoginForm from './components/LoginForm.vue'
 import AgentPanel from './components/AgentPanel.vue'
 import AccountManager from './components/AccountManager.vue'

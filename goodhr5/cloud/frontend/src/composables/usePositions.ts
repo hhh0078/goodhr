@@ -1,6 +1,6 @@
 /** 岗位模板管理 */
 import { ref } from 'vue'
-import { listPositions, savePosition, deletePosition } from '../services/cloudApi.js'
+import { listPositions, savePosition, deletePosition } from '../services/cloudApi'
 
 export function usePositions(token) {
   const positions = ref([])

@@ -30,7 +30,7 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 const props = defineProps({ token: String, agentBaseUrl: String })
 const localProfiles = ref([]); const cloudAccounts = ref([])

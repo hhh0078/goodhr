@@ -77,6 +77,6 @@
   </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineProps({ tasks: Object, agent: Object })
 </script>
