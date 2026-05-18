@@ -18,7 +18,7 @@
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
 | 云端后端 | 邮箱验证码登录 | DONE | 登录骨架完成：4 位验证码、校验、临时 token；Redis/163 SMTP 后续接入 |
 | 云端后端 | PostgreSQL schema | TODO | 用户、Agent、任务、配置 |
-| 云端后端 | Redis 会话与验证码 | DOING | 验证码/会话存储接口已完成，Redis 驱动待接入 |
+| 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
 | 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
@@ -48,11 +48,16 @@
 
 ## 本次完成
 
+- 云端认证增加 Redis 版 `AuthStore`。
+- 配置 `GOODHR_REDIS_ADDR` 后，验证码和会话写入 Redis。
+- 未配置 Redis 时继续使用内存存储，方便本地开发。
+- 新增云端后端 README，记录 Redis 环境变量和 key 规则。
+
+## 历史完成
+
 - 云端认证增加 `AuthStore` 存储接口。
 - 当前默认使用 `MemoryAuthStore`，验证码和会话逻辑不再直接依赖内存 map。
 - 登录成功后保存会话，并新增 `GET /api/auth/me` 验证登录态。
-
-## 历史完成
 
 - 云端前端在未检测到本地 Agent 时显示下载/启动提示。
 - 保留重新检测按钮。
@@ -86,6 +91,6 @@
 
 ## 下一步建议
 
-1. 接入 Redis 版 `AuthStore`。
-2. 添加 163 SMTP 发信接口。
-3. 添加云端登录页并接入验证码接口。
+1. 添加 163 SMTP 发信接口。
+2. 添加云端登录页并接入验证码接口。
+3. 添加 PostgreSQL schema。

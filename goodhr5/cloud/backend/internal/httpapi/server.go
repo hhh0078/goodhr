@@ -10,8 +10,9 @@ type Server struct {
 }
 
 func NewServer() *Server {
+	config := LoadConfigFromEnv()
 	return &Server{
-		auth: NewAuthService(NewMemoryAuthStore()),
+		auth: NewAuthService(config.AuthStore()),
 	}
 }
 
