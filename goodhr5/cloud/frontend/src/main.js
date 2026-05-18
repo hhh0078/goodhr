@@ -46,6 +46,7 @@ const App = {
     const taskForm = ref({
       platformId: 'boss',
       platformAccountId: '',
+      positionId: '',
       mode: 'keyword',
       matchLimit: 20
     })
@@ -411,6 +412,7 @@ const App = {
         const data = await createTask(authToken.value, {
           platform_id: taskForm.value.platformId,
           platform_account_id: account.id,
+          position_id: taskForm.value.positionId,
           mode: taskForm.value.mode,
           match_limit: Number(taskForm.value.matchLimit) || 0
         })
@@ -439,7 +441,8 @@ const App = {
         const data = await listTasks(authToken.value)
         tasks.value = (data.tasks || []).map((task) => ({
           ...task,
-          platform_account_name: accountName(task.platform_account_id)
+          platform_account_name: accountName(task.platform_account_id),
+          position_name: positionName(task.position_id)
         }))
       } catch (error) {
         taskError.value = error.message
@@ -557,6 +560,15 @@ const App = {
       return account?.display_name || accountID
     }
 
+    // positionName 根据岗位模板 ID 返回可读名称。
+    function positionName(positionID) {
+      if (!positionID) {
+        return ''
+      }
+      const position = positions.value.find((item) => item.id === positionID)
+      return position?.name || positionID
+    }
+
     // localTaskID 返回云端任务对应的本地任务 ID。
     function localTaskID(task) {
       return task.local_task_id || task.id
@@ -642,6 +654,7 @@ const App = {
       loadTaskCandidates,
       removeCandidate,
       localTaskID,
+      positionName,
       candidateTitle,
       candidateSubtitle,
       candidateDetail
@@ -809,6 +822,15 @@ const App = {
             </select>
           </label>
           <label>
+            岗位模板
+            <select v-model="taskForm.positionId">
+              <option value="">不使用模板</option>
+              <option v-for="position in positions" :key="position.id" :value="position.id">
+                {{ position.name }}
+              </option>
+            </select>
+          </label>
+          <label>
             筛选模式
             <select v-model="taskForm.mode">
               <option value="keyword">关键词筛选</option>
@@ -842,6 +864,7 @@ const App = {
             <div>
               <strong>{{ task.platform_account_name }}</strong>
               <p>{{ task.platform_id }} / {{ task.mode }} / 上限 {{ task.match_limit }}</p>
+              <p v-if="task.position_name">岗位模板：{{ task.position_name }}</p>
             </div>
             <dl>
               <dt>状态</dt>

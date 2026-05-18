@@ -17,6 +17,7 @@ type TaskService struct {
 type createTaskRequest struct {
 	PlatformID        string `json:"platform_id"`
 	PlatformAccountID string `json:"platform_account_id"`
+	PositionID        string `json:"position_id"`
 	Mode              string `json:"mode"`
 	MatchLimit        int    `json:"match_limit"`
 }
@@ -155,6 +156,7 @@ func (r createTaskRequest) toTask(w http.ResponseWriter, userEmail string) (Task
 		UserEmail:         userEmail,
 		PlatformID:        strings.TrimSpace(r.PlatformID),
 		PlatformAccountID: strings.TrimSpace(r.PlatformAccountID),
+		PositionID:        strings.TrimSpace(r.PositionID),
 		Mode:              strings.TrimSpace(r.Mode),
 		MatchLimit:        r.MatchLimit,
 	}
@@ -192,6 +194,7 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"id":                  item.ID,
 		"platform_id":         item.PlatformID,
 		"platform_account_id": item.PlatformAccountID,
+		"position_id":         item.PositionID,
 		"mode":                item.Mode,
 		"match_limit":         item.MatchLimit,
 		"status":              item.Status,

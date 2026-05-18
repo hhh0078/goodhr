@@ -12,6 +12,7 @@ type TaskRun struct {
 	UserEmail         string
 	PlatformID        string
 	PlatformAccountID string
+	PositionID        string
 	Mode              string
 	MatchLimit        int
 	Status            string
@@ -23,6 +24,17 @@ type TaskRun struct {
 	CreatedAt         time.Time
 	StartedAt         *time.Time
 	FinishedAt        *time.Time
+}
+
+// localTaskIDOrDefault 返回任务应写入云端和本地的默认本地任务 ID。
+func (t TaskRun) localTaskIDOrDefault() string {
+	if t.LocalTaskID != "" {
+		return t.LocalTaskID
+	}
+	if t.ID != "" {
+		return t.ID
+	}
+	return ""
 }
 
 // TaskStore 定义任务运行记录的持久化能力。
@@ -60,6 +72,7 @@ func (s *MemoryTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 
 	task.ID = s.nextID()
 	task.Status = "created"
+	task.LocalTaskID = task.ID
 	task.CreatedAt = s.now()
 	s.tasks[task.ID] = task
 	return task, nil

@@ -32,6 +32,10 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 	if err != nil {
 		return TaskRun{}, err
 	}
+	positionID, err := s.nullPositionID(ctx, userID, task.PositionID)
+	if err != nil {
+		return TaskRun{}, err
+	}
 
 	var saved TaskRun
 	saved.UserEmail = task.UserEmail
@@ -41,6 +45,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		INSERT INTO task_runs (
 			user_id,
 			platform_account_id,
+			position_id,
 			platform_id,
 			mode,
 			match_limit,
@@ -51,11 +56,12 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			failed_count,
 			local_task_id
 		)
-		VALUES ($1, $2, $3, $4, $5, 'created', 0, 0, 0, 0, '')
+		VALUES ($1, $2, $3, $4, $5, $6, 'created', 0, 0, 0, 0, $7)
 		RETURNING
 			id,
 			platform_id,
 			COALESCE(platform_account_id::text, ''),
+			COALESCE(position_id::text, ''),
 			mode,
 			match_limit,
 			status,
@@ -70,13 +76,16 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		`,
 		userID,
 		platformAccountID,
+		positionID,
 		task.PlatformID,
 		task.Mode,
 		task.MatchLimit,
+		task.localTaskIDOrDefault(),
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,
 		&saved.PlatformAccountID,
+		&saved.PositionID,
 		&saved.Mode,
 		&saved.MatchLimit,
 		&saved.Status,
@@ -95,6 +104,9 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 	if err != nil {
 		return TaskRun{}, err
 	}
+	if saved.LocalTaskID == "" {
+		saved.LocalTaskID = saved.ID
+	}
 	return saved, nil
 }
 
@@ -110,6 +122,7 @@ func (s *PostgresTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
 			tr.id,
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
+			COALESCE(tr.position_id::text, ''),
 			tr.mode,
 			tr.match_limit,
 			tr.status,
@@ -141,6 +154,7 @@ func (s *PostgresTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
 			&item.ID,
 			&item.PlatformID,
 			&item.PlatformAccountID,
+			&item.PositionID,
 			&item.Mode,
 			&item.MatchLimit,
 			&item.Status,
@@ -174,6 +188,7 @@ func (s *PostgresTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, 
 			tr.id,
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
+			COALESCE(tr.position_id::text, ''),
 			tr.mode,
 			tr.match_limit,
 			tr.status,
@@ -195,6 +210,7 @@ func (s *PostgresTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, 
 		&item.ID,
 		&item.PlatformID,
 		&item.PlatformAccountID,
+		&item.PositionID,
 		&item.Mode,
 		&item.MatchLimit,
 		&item.Status,
@@ -214,6 +230,32 @@ func (s *PostgresTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, 
 		return TaskRun{}, err
 	}
 	return item, nil
+}
+
+// nullPositionID 校验岗位模板是否属于当前用户，并返回可写入数据库的值。
+func (s *PostgresTaskStore) nullPositionID(ctx context.Context, userID string, positionID string) (sql.NullString, error) {
+	if positionID == "" {
+		return sql.NullString{}, nil
+	}
+
+	var savedID string
+	err := s.db.QueryRowContext(
+		ctx,
+		`
+		SELECT id
+		FROM positions
+		WHERE user_id = $1 AND id = $2
+		`,
+		userID,
+		positionID,
+	).Scan(&savedID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.NullString{}, ErrNotFound
+	}
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: savedID, Valid: true}, nil
 }
 
 // nullPlatformAccountID 校验平台账号是否属于当前用户，并返回可写入数据库的值。

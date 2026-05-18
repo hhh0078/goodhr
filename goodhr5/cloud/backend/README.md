@@ -163,6 +163,8 @@ GET /api/tasks/{id}
 
 所有接口都需要 `Authorization: Bearer <token>`。
 
+任务创建时支持传入 `position_id` 关联岗位模板。
+
 第一版只保存任务元信息和统计摘要，不保存候选人详情。
 
 ## 任务日志 API
