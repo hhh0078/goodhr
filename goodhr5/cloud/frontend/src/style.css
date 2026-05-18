@@ -26,6 +26,12 @@ button:disabled {
   opacity: 0.65;
 }
 
+button.ghost {
+  background: #fff;
+  border-color: #d8dee4;
+  color: #24292f;
+}
+
 .button.secondary {
   background: #fff;
   color: #1f6feb;
@@ -66,6 +72,39 @@ p {
   border-radius: 8px;
   margin-top: 24px;
   padding: 20px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+label {
+  color: #57606a;
+  display: grid;
+  gap: 8px;
+}
+
+input {
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #24292f;
+  font: inherit;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.hint {
+  color: #57606a;
+  margin-top: 12px;
+}
+
+.error {
+  color: #cf222e;
+  margin-top: 12px;
 }
 
 .notice {
@@ -109,4 +148,16 @@ dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .form-grid,
+  dl {
+    grid-template-columns: 1fr;
+  }
 }

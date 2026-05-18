@@ -22,7 +22,7 @@
 | 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
 | 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
-| 云端前端 | 邮箱验证码登录页 | TODO | 登录后探测本地 Agent |
+| 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
 | 云端前端 | 任务创建页面 | TODO | 选择平台、账号、筛选模式、匹配上限 |
 | 云端前端 | 任务列表与日志展开 | TODO | 扫描总数、已打招呼、跳过、失败 |
@@ -48,12 +48,18 @@
 
 ## 本次完成
 
+- 云端前端增加邮箱验证码登录页面。
+- 接入 `POST /api/auth/send-code`、`POST /api/auth/login`、`GET /api/auth/me`。
+- 登录 token 保存到 `localStorage`。
+- 页面改为登录云端后再探测本地 Agent。
+- Go 后端增加基础 CORS，支持本地 Vite 页面调用 API。
+
+## 历史完成
+
 - 云端认证增加 `Mailer` 发信接口。
 - 配置 `GOODHR_SMTP_HOST`、`GOODHR_SMTP_USERNAME`、`GOODHR_SMTP_PASSWORD` 后，通过 SMTP 发送 4 位验证码。
 - 未配置 SMTP 时使用开发模式 mailer，并返回 `debug_code` 方便本地联调。
 - README 增加 163 SMTP 环境变量说明。
-
-## 历史完成
 
 - 云端认证增加 Redis 版 `AuthStore`。
 - 配置 `GOODHR_REDIS_ADDR` 后，验证码和会话写入 Redis。
@@ -96,6 +102,6 @@
 
 ## 下一步建议
 
-1. 添加云端登录页并接入验证码接口。
-2. 添加 PostgreSQL schema。
-3. 添加机器绑定 API。
+1. 添加 PostgreSQL schema。
+2. 添加机器绑定 API。
+3. 添加云端登录后初始化/绑定本地 Agent 流程。
