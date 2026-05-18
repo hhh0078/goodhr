@@ -44,3 +44,22 @@ local-agent/agent_data/cloud_account.json
 ```
 
 本文件保存当前绑定的云端用户 ID、邮箱、本地调用 token 和绑定时间。
+
+## Profile 管理
+
+当前已提供：
+
+```http
+GET /api/v1/profiles
+GET /api/v1/profiles?platform_id=boss
+POST /api/v1/profiles
+DELETE /api/v1/profiles/{profile_id}
+```
+
+本地 profile 元数据保存到：
+
+```text
+local-agent/agent_data/profiles.json
+```
+
+当前只保存 `platform_id`、`display_name`、`id` 等元数据，不保存 cookie 原文。

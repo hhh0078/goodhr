@@ -32,7 +32,7 @@
 | 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
 | 本地 Agent | 云端账号绑定 | DONE | `POST /api/v1/session/bind-cloud-user` 写入 `cloud_account.json` |
-| 本地 Agent | Profile/cookie 多账号管理 | DOING | 云端平台账号映射 API 已完成，本地 profile 管理待接入 |
+| 本地 Agent | Profile/cookie 多账号管理 | DONE | 云端平台账号映射和本地 profile 元数据接口已完成；cookie 原文仍只在浏览器 profile |
 | 本地 Agent | CloakBrowser 控制 | TODO | 启动、关闭、打开页面 |
 | 本地 Agent | 页面基础操作 API | TODO | 查找、滚动、随机位置点击 |
 | 本地 Agent | Boss 平台执行能力迁移 | TODO | iframe 内查找、当前可见候选人 |
@@ -50,12 +50,17 @@
 
 ## 本次完成
 
+- Local Agent 新增 profile 元数据管理模块。
+- 新增本地 profile 列表、创建、删除接口。
+- 本地 profile 元数据写入 `agent_data/profiles.json`。
+- 当前只保存 profile 元数据，不保存 cookie 原文。
+
+## 历史完成
+
 - 云端后端新增平台账号映射模块。
 - 新增平台账号映射列表、创建、删除接口。
 - 支持按 `platform_id` 过滤同一平台的多个账号/profile。
 - 云端只保存显示名和 `local_profile_id`，不保存 cookie/profile 原文。
-
-## 历史完成
 
 - 云端后端新增 AI 配置模块。
 - 新增系统默认 AI 配置读取和更新接口。
@@ -135,5 +140,5 @@
 ## 下一步建议
 
 1. 添加 PostgreSQL store 接口。
-2. 添加本地 Agent profile 管理接口。
-3. 添加任务创建页面。
+2. 添加任务创建页面。
+3. 添加任务运行列表与日志展开。
