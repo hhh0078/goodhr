@@ -73,6 +73,22 @@ const App = {
           <dd>{{ agentInfo?.machine_id || '-' }}</dd>
         </dl>
       </section>
+
+      <section v-if="agentStatus === '未连接'" class="panel notice">
+        <h2>未检测到本地程序</h2>
+        <p>请先下载并启动 GoodHR 本地程序。启动后保持程序运行，再回到本页面重新检测。</p>
+        <div class="actions">
+          <a class="button secondary" href="#" aria-disabled="true">下载本地程序</a>
+          <button type="button" :disabled="checking" @click="detectLocalAgent">
+            重新检测
+          </button>
+        </div>
+        <ol>
+          <li>下载 GoodHR 本地程序。</li>
+          <li>打开本地程序，它会自动尝试监听 9001-9009 端口。</li>
+          <li>回到云端页面点击重新检测。</li>
+        </ol>
+      </section>
     </main>
   `
 }

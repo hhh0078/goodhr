@@ -8,18 +8,31 @@ body {
   margin: 0;
 }
 
-button {
+button,
+.button {
   border: 1px solid #1f6feb;
   border-radius: 6px;
   background: #1f6feb;
   color: #fff;
   cursor: pointer;
+  display: inline-block;
   font: inherit;
   padding: 10px 14px;
+  text-decoration: none;
 }
 
 button:disabled {
   cursor: wait;
+  opacity: 0.65;
+}
+
+.button.secondary {
+  background: #fff;
+  color: #1f6feb;
+}
+
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -53,6 +66,32 @@ p {
   border-radius: 8px;
   margin-top: 24px;
   padding: 20px;
+}
+
+.notice {
+  border-color: #f0b429;
+}
+
+.notice p {
+  color: #57606a;
+  margin-top: 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.notice ol {
+  color: #57606a;
+  margin: 16px 0 0;
+  padding-left: 20px;
+}
+
+.notice li + li {
+  margin-top: 8px;
 }
 
 dl {
