@@ -191,7 +191,18 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
-			e.log("info", "AI 模式筛选（待实现）")
+			text := candidateText(candidates[i])
+			jobDesc := e.positionDescription()
+			decision, err := e.callAI(jobDesc, text)
+			if err != nil {
+				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
+				continue
+			}
+			if !decision.IsOK {
+				e.log("info", fmt.Sprintf("候选人 %d AI 筛选跳过: %s", i+1, decision.Msg))
+				continue
+			}
+			e.log("info", fmt.Sprintf("候选人 %d AI 通过: %s", i+1, decision.Msg))
 		} else if e.filter != nil {
 			text := candidateText(candidates[i])
 			result := e.filter.Filter(text)
@@ -301,4 +312,82 @@ func toStringSlice(v any) []string {
 		}
 	}
 	return result
+}
+
+// ---------- AI 筛选 ----------
+
+type AIRequest struct {
+	Model       string  `json:"model"`
+	Messages    []AIMsg `json:"messages"`
+	Temperature float64 `json:"temperature"`
+}
+type AIMsg struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+type AIResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+type AIDecision struct {
+	IsOK bool   `json:"isok"`
+	Msg  string `json:"msg"`
+}
+
+const defaultAIPrompt = `你是一个资深的HR专家。请根据候选人的基本信息判断是否值得查看其详细信息。
+
+重要提示：
+1. 这个API仅用于岗位与候选人的筛选。
+2. 请根据岗位要求判断是否值得查看这位候选人的详细信息。
+3. 必须返回JSON格式，包含isok和msg两个字段。
+4. isok字段只能是true或false。
+5. msg字段是决策原因，10个字以内。
+
+岗位要求：
+%s
+
+候选人基本信息：
+%s
+
+请判断是否值得查看这位候选人的详细信息，返回JSON格式：{"isok": true, "msg": "符合基本要求"}`
+
+// positionDescription 从岗位信息中提取职位要求文本。
+func (e *TaskExecutor) positionDescription() string {
+	if e.position == nil {
+		return ""
+	}
+	if desc, ok := e.position["name"].(string); ok && desc != "" {
+		return desc
+	}
+	return ""
+}
+
+// callAI 调用 AI API 对候选人进行筛选。
+func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error) {
+	prompt := fmt.Sprintf(defaultAIPrompt, jobDesc, candidateText)
+	reqBody := AIRequest{Model: "gpt-5.1-chat", Messages: []AIMsg{{Role: "user", Content: prompt}}, Temperature: 0.3}
+	data, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest(http.MethodPost, "https://ai.58it.cn/v1/chat/completions", bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.httpClient.Do(req)
+	if err != nil { return AIDecision{}, fmt.Errorf("AI API 请求失败: %w", err) }
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 { return AIDecision{}, fmt.Errorf("AI API 错误 %d", resp.StatusCode) }
+	var aiResp AIResponse
+	json.Unmarshal(body, &aiResp)
+	if len(aiResp.Choices) == 0 { return AIDecision{}, fmt.Errorf("AI 未返回结果") }
+	content := aiResp.Choices[0].Message.Content
+	var decision AIDecision
+	if err := json.Unmarshal([]byte(content), &decision); err != nil {
+		start := strings.Index(content, "{")
+		end := strings.LastIndex(content, "}")
+		if start >= 0 && end > start {
+			json.Unmarshal([]byte(content[start:end+1]), &decision)
+		}
+	}
+	return decision, nil
 }
