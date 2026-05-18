@@ -1,6 +1,14 @@
 // 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
 import { computed, createApp, onMounted, ref } from 'vue'
-import { createTask, listPlatformAccounts, listTaskLogs, listTasks } from './services/cloudApi.js'
+import {
+  createTask,
+  deletePosition,
+  listPlatformAccounts,
+  listPositions,
+  listTaskLogs,
+  listTasks,
+  savePosition
+} from './services/cloudApi.js'
 import { deleteLocalCandidate, initLocalTask, listLocalCandidates } from './services/localAgentApi.js'
 import './style.css'
 
@@ -24,6 +32,9 @@ const App = {
     const bindError = ref('')
     const checking = ref(false)
     const platformAccounts = ref([])
+    const positions = ref([])
+    const positionError = ref('')
+    const positionLoading = ref(false)
     const taskError = ref('')
     const taskLoading = ref(false)
     const expandedTaskId = ref('')
@@ -37,6 +48,15 @@ const App = {
       platformAccountId: '',
       mode: 'keyword',
       matchLimit: 20
+    })
+    const positionForm = ref({
+      id: '',
+      name: '',
+      keywords: '',
+      excludeKeywords: '',
+      description: '',
+      greetMessage: '',
+      isAndMode: false
     })
     const tasks = ref([])
 
@@ -92,6 +112,8 @@ const App = {
         user.value = data.user
         // 登录成功后探测本地 Agent，用于初始化本地执行环境。
         await detectLocalAgent()
+        // 登录成功后读取岗位配置，用于复用关键词和问候语模板。
+        await loadPositions()
         // 登录成功后读取平台账号映射，用于任务创建时选择账号。
         await loadPlatformAccounts()
         // 登录成功后读取云端任务列表，用于恢复任务控制台状态。
@@ -120,6 +142,8 @@ const App = {
         user.value = data.user
         // 恢复登录态后探测本地 Agent，用于保持云端和本地的绑定状态。
         await detectLocalAgent()
+        // 恢复登录态后读取岗位配置，用于刷新岗位模板面板。
+        await loadPositions()
         // 恢复登录态后读取平台账号映射，用于刷新任务创建表单。
         await loadPlatformAccounts()
         // 恢复登录态后读取云端任务列表，用于刷新任务控制台。
@@ -138,11 +162,13 @@ const App = {
       bindStatus.value = '未绑定'
       bindError.value = ''
       platformAccounts.value = []
+      positions.value = []
       tasks.value = []
       taskLogs.value = {}
       taskCandidates.value = {}
       expandedTaskId.value = ''
       candidateExpandedTaskId.value = ''
+      positionError.value = ''
       taskError.value = ''
       candidateError.value = ''
       localStorage.removeItem(TOKEN_KEY)
@@ -255,6 +281,94 @@ const App = {
       const token = crypto.randomUUID()
       localStorage.setItem(LOCAL_TOKEN_KEY, token)
       return token
+    }
+
+    // loadPositions 调用云端岗位配置 API 读取岗位模板列表。
+    async function loadPositions() {
+      if (!authToken.value) {
+        return
+      }
+
+      try {
+        positionError.value = ''
+        // 调用岗位配置列表接口，用于网页复用关键词和默认问候语模板。
+        const data = await listPositions(authToken.value)
+        positions.value = data.positions || []
+      } catch (error) {
+        positionError.value = error.message
+      }
+    }
+
+    // savePositionDraft 调用云端岗位配置 API 保存岗位模板。
+    async function savePositionDraft() {
+      positionLoading.value = true
+      positionError.value = ''
+
+      try {
+        // 调用岗位配置保存接口，把当前表单写成一个可复用模板。
+        await savePosition(authToken.value, {
+          id: positionForm.value.id,
+          name: positionForm.value.name,
+          keywords: parseLineItems(positionForm.value.keywords),
+          exclude_keywords: parseLineItems(positionForm.value.excludeKeywords),
+          description: positionForm.value.description,
+          greet_message: positionForm.value.greetMessage,
+          is_and_mode: positionForm.value.isAndMode
+        })
+        resetPositionForm()
+        // 保存成功后重新读取岗位模板列表，保证页面和云端一致。
+        await loadPositions()
+      } catch (error) {
+        positionError.value = error.message
+      } finally {
+        positionLoading.value = false
+      }
+    }
+
+    // editPosition 将已有岗位模板回填到表单，便于修改。
+    function editPosition(position) {
+      positionForm.value = {
+        id: position.id,
+        name: position.name || '',
+        keywords: (position.keywords || []).join('\n'),
+        excludeKeywords: (position.exclude_keywords || []).join('\n'),
+        description: position.description || '',
+        greetMessage: position.greet_message || '',
+        isAndMode: Boolean(position.is_and_mode)
+      }
+    }
+
+    // removePosition 调用云端岗位配置 API 删除岗位模板。
+    async function removePosition(positionID) {
+      positionLoading.value = true
+      positionError.value = ''
+
+      try {
+        // 调用岗位配置删除接口，移除当前不再使用的模板。
+        await deletePosition(authToken.value, positionID)
+        if (positionForm.value.id === positionID) {
+          resetPositionForm()
+        }
+        // 删除成功后重新读取岗位模板列表，保持页面和云端一致。
+        await loadPositions()
+      } catch (error) {
+        positionError.value = error.message
+      } finally {
+        positionLoading.value = false
+      }
+    }
+
+    // resetPositionForm 清空岗位模板编辑表单。
+    function resetPositionForm() {
+      positionForm.value = {
+        id: '',
+        name: '',
+        keywords: '',
+        excludeKeywords: '',
+        description: '',
+        greetMessage: '',
+        isAndMode: false
+      }
     }
 
     // loadPlatformAccounts 调用云端 API 读取当前平台账号映射。
@@ -469,6 +583,14 @@ const App = {
       return candidate.detail || candidate.details || candidate.skills || candidate.description || candidate.raw_text || ''
     }
 
+    // parseLineItems 把多行文本拆成字符串数组。
+    function parseLineItems(value) {
+      return String(value || '')
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+
     onMounted(() => {
       // 页面加载时尝试恢复登录态，恢复成功后再探测本地 Agent。
       loadCurrentUser()
@@ -487,7 +609,11 @@ const App = {
       bindError,
       checking,
       platformAccounts,
+      positions,
+      positionError,
+      positionLoading,
       selectedPlatformAccounts,
+      positionForm,
       taskForm,
       taskError,
       taskLoading,
@@ -502,6 +628,11 @@ const App = {
       login,
       logout,
       detectLocalAgent,
+      loadPositions,
+      savePositionDraft,
+      editPosition,
+      removePosition,
+      resetPositionForm,
       loadPlatformAccounts,
       onPlatformChange,
       createTaskDraft,
@@ -594,6 +725,64 @@ const App = {
           <li>打开本地程序，它会自动尝试监听 9001-9009 端口。</li>
           <li>回到云端页面点击重新检测。</li>
         </ol>
+      </section>
+
+      <section v-if="user" class="panel">
+        <div class="section-header">
+          <h2>岗位模板</h2>
+          <button type="button" class="ghost" @click="loadPositions">刷新模板</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            名称
+            <input v-model="positionForm.name" type="text" placeholder="例如：带货主播" />
+          </label>
+          <label class="toggle-field">
+            匹配模式
+            <label class="checkbox-row">
+              <input v-model="positionForm.isAndMode" type="checkbox" />
+              <span>使用 AND 匹配</span>
+            </label>
+          </label>
+          <label>
+            关键词
+            <textarea v-model="positionForm.keywords" rows="5" placeholder="每行一个关键词"></textarea>
+          </label>
+          <label>
+            排除词
+            <textarea v-model="positionForm.excludeKeywords" rows="5" placeholder="每行一个排除词"></textarea>
+          </label>
+          <label>
+            岗位描述
+            <textarea v-model="positionForm.description" rows="4" placeholder="岗位说明"></textarea>
+          </label>
+          <label>
+            默认问候语
+            <textarea v-model="positionForm.greetMessage" rows="4" placeholder="默认打招呼文案"></textarea>
+          </label>
+        </div>
+        <p v-if="positionError" class="error">{{ positionError }}</p>
+        <div class="actions">
+          <button type="button" :disabled="positionLoading || !positionForm.name" @click="savePositionDraft">
+            {{ positionLoading ? '保存中...' : (positionForm.id ? '更新模板' : '保存模板') }}
+          </button>
+          <button type="button" class="ghost" :disabled="positionLoading" @click="resetPositionForm">清空表单</button>
+        </div>
+        <p v-if="positions.length === 0" class="hint">暂无岗位模板</p>
+        <div v-else class="position-list">
+          <article v-for="position in positions" :key="position.id" class="position-card">
+            <div>
+              <strong>{{ position.name }}</strong>
+              <p>{{ position.is_and_mode ? 'AND 匹配' : 'OR 匹配' }}</p>
+              <p class="position-meta">关键词：{{ (position.keywords || []).join(' / ') || '无' }}</p>
+              <p class="position-meta">排除词：{{ (position.exclude_keywords || []).join(' / ') || '无' }}</p>
+            </div>
+            <div class="actions compact">
+              <button type="button" class="ghost" @click="editPosition(position)">编辑</button>
+              <button type="button" class="ghost danger" :disabled="positionLoading" @click="removePosition(position.id)">删除</button>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section v-if="user" class="panel task-panel">

@@ -93,7 +93,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid #d8dee4;
   border-radius: 6px;
   box-sizing: border-box;
@@ -101,6 +102,11 @@ select {
   font: inherit;
   min-width: 0;
   padding: 10px 12px;
+}
+
+textarea {
+  min-height: 92px;
+  resize: vertical;
 }
 
 .section-header {
@@ -176,6 +182,44 @@ dd {
   display: grid;
   gap: 12px;
   margin-top: 16px;
+}
+
+.position-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.position-card {
+  align-items: flex-start;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.position-card p,
+.position-meta {
+  color: #57606a;
+  margin-top: 6px;
+}
+
+.toggle-field {
+  align-content: start;
+}
+
+.checkbox-row {
+  align-items: center;
+  color: #24292f;
+  display: flex;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  margin: 0;
+  min-width: auto;
 }
 
 .task-item {
@@ -262,6 +306,10 @@ dd {
   }
 
   .candidate-card {
+    flex-direction: column;
+  }
+
+  .position-card {
     flex-direction: column;
   }
 
