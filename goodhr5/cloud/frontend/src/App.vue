@@ -14,7 +14,7 @@
 </template>
 
 <script setup>
-import { onMounted, toRefs } from 'vue'
+import { onMounted, toRefs, watch } from 'vue'
 import { useAuth } from './composables/useAuth.js'
 import { useAgent } from './composables/useAgent.js'
 import { usePositions } from './composables/usePositions.js'
@@ -30,6 +30,15 @@ const agent = useAgent()
 const positions = usePositions(auth.token)
 const tasks = useTasks(auth.token, agent.baseUrl)
 const { user } = toRefs(auth)
+
+// 登录成功后自动探测 Agent 并加载数据
+watch(user, async (u) => {
+  if (u) {
+    await agent.detect(u, auth.token.value)
+    await positions.load()
+    await tasks.load()
+  }
+})
 
 onMounted(async () => {
   await auth.loadCurrentUser()
