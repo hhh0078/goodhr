@@ -75,6 +75,11 @@
 
 ## 本次完成
 
+- **TaskExecutor 完善**：接入关键词筛选 + 批量候选人提取。
+  - `extractCandidates` 改用 Local Agent batch 模式（card_selector + mode=batch）。
+  - `processCandidates` 接入 `KeywordFilter`，按模式自动筛选并记录跳过/通过日志。
+  - 新增 `candidateText` 和 `toStringSlice` 辅助函数。
+
 - **云端任务编排器（task_executor.go）**：连接本地 Agent 的执行编排核心。
   - `TaskExecutor` 编排主流程：启动浏览器 → 打开页面 → 滚动 → 提取候选人 → 逐候选人筛选 → 打招呼。
   - `post()` 方法封装 Local Agent HTTP 调用，统一错误处理和 JSON 解析。
