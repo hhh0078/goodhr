@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from app.machine import load_machine
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.session import load_cloud_account, save_cloud_account
+from app.tasks import delete_candidate, init_task, load_candidates, save_candidate
 
 
 HOST = "127.0.0.1"
@@ -38,6 +39,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/v1/profiles"):
             self._list_profiles()
             return
+        if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/candidates"):
+            self._load_candidates()
+            return
 
         self.send_error(404)
 
@@ -49,6 +53,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/v1/profiles":
             self._create_profile()
             return
+        if self.path == "/api/v1/tasks/init":
+            self._init_task()
+            return
+        if self.path.startswith("/api/v1/tasks/") and self.path.endswith("/candidates"):
+            self._save_candidate()
+            return
 
         self.send_error(404)
 
@@ -56,6 +66,9 @@ class Handler(BaseHTTPRequestHandler):
         """处理 Local Agent 的 DELETE 请求。"""
         if self.path.startswith("/api/v1/profiles/"):
             self._delete_profile()
+            return
+        if self.path.startswith("/api/v1/tasks/") and "/candidates/" in self.path:
+            self._delete_candidate()
             return
 
         self.send_error(404)
@@ -158,6 +171,73 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._json({"ok": True})
+
+    def _init_task(self) -> None:
+        """初始化本地任务目录。"""
+        try:
+            payload = self._read_json()
+            # 调用 tasks 模块初始化任务目录，用于保存本地 candidates.json、截图和 OCR。
+            task = init_task(
+                str(payload.get("task_id", "")),
+                str(payload.get("cloud_user_id", "")),
+                str(payload.get("platform_id", "")),
+                str(payload.get("platform_account_id", "")),
+            )
+        except ValueError as exc:
+            self._error(400, str(exc))
+            return
+
+        self._json({"ok": True, "task": task})
+
+    def _load_candidates(self) -> None:
+        """读取本地任务候选人 JSON。"""
+        task_id = self._task_id_from_path("/candidates")
+        try:
+            # 调用 tasks 模块读取 candidates.json，供云端页面渲染候选人卡片。
+            data = load_candidates(task_id)
+        except FileNotFoundError:
+            self._error(404, "task candidates not found")
+            return
+
+        self._json({"ok": True, "data": data})
+
+    def _save_candidate(self) -> None:
+        """新增或更新本地候选人记录。"""
+        task_id = self._task_id_from_path("/candidates")
+        try:
+            payload = self._read_json()
+            # 调用 tasks 模块写入候选人记录，候选人详情只保存在本地 JSON。
+            candidate = save_candidate(task_id, payload)
+        except FileNotFoundError:
+            self._error(404, "task candidates not found")
+            return
+
+        self._json({"ok": True, "candidate": candidate})
+
+    def _delete_candidate(self) -> None:
+        """删除本地候选人记录。"""
+        task_id = self._task_id_from_path("")
+        candidate_id = self.path.rsplit("/", 1)[-1]
+        try:
+            # 调用 tasks 模块删除候选人记录，用于云端页面管理本地 JSON。
+            deleted = delete_candidate(task_id, candidate_id)
+        except FileNotFoundError:
+            self._error(404, "task candidates not found")
+            return
+        if not deleted:
+            self._error(404, "candidate not found")
+            return
+
+        self._json({"ok": True})
+
+    def _task_id_from_path(self, suffix: str) -> str:
+        """从任务 API 路径中解析 task_id。"""
+        value = self.path.removeprefix("/api/v1/tasks/")
+        if suffix and value.endswith(suffix):
+            value = value[: -len(suffix)]
+        if "/candidates/" in value:
+            value = value.split("/candidates/", 1)[0]
+        return value.strip("/")
 
     def _read_json(self) -> dict:
         """读取请求体中的 JSON 对象。"""

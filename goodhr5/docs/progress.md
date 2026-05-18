@@ -28,7 +28,7 @@
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
 | 云端前端 | 任务创建页面 | DONE | 任务创建已接入云端任务 API |
 | 云端前端 | 任务列表与日志展开 | DONE | 任务卡片支持展开/收起日志，日志来自云端任务日志 API |
-| 云端前端 | 本地候选人 JSON 管理 | TODO | 通过 Local Agent 读取和渲染 |
+| 云端前端 | 本地候选人 JSON 管理 | DOING | Local Agent 候选人 JSON API 已完成，前端渲染待接入 |
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
 | 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
@@ -39,7 +39,7 @@
 | 本地 Agent | Boss 平台执行能力迁移 | TODO | iframe 内查找、当前可见候选人 |
 | 本地 Agent | 截图能力迁移 | TODO | 复用当前可用的详情弹框截图代码 |
 | 本地 Agent | OCR 能力迁移 | TODO | 复用当前 PaddleOCR 懒加载封装 |
-| 本地 Agent | 任务 JSON 存储 | TODO | 每个任务一个目录和 candidates.json |
+| 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
 | 本地 Agent | 截图/OCR 本地文件管理 | TODO | screenshots/ 和 ocr/ |
 | 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
 | 协议 | Local Agent API 草案落地 | TODO | health/session/profile/browser/page/task |
@@ -51,11 +51,16 @@
 
 ## 本次完成
 
+- Local Agent 新增本地任务目录和候选人 JSON 管理模块。
+- 新增任务初始化接口，每个任务创建独立目录。
+- 新增候选人 JSON 读取、新增/更新、删除接口。
+- 任务目录预留 `screenshots/` 和 `ocr/`，候选人详情仍只保存在本地。
+
+## 历史完成
+
 - 前端任务卡片新增展开/收起日志。
 - 展开任务时调用云端 `GET /api/tasks/{id}/logs`。
 - 无日志时显示空状态。
-
-## 历史完成
 
 - 云端后端新增任务日志模块。
 - 新增 `GET /api/tasks/{id}/logs` 读取任务日志摘要。
@@ -164,6 +169,6 @@
 
 ## 下一步建议
 
-1. 添加 PostgreSQL store 接口。
-2. 添加本地候选人 JSON 管理接口。
-3. 添加本地任务目录和 candidates.json 管理。
+1. 前端候选人 JSON 管理接入 Local Agent。
+2. 添加 PostgreSQL store 接口。
+3. 添加截图/OCR 本地文件管理接口。

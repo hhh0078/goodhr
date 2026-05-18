@@ -63,3 +63,31 @@ local-agent/agent_data/profiles.json
 ```
 
 当前只保存 `platform_id`、`display_name`、`id` 等元数据，不保存 cookie 原文。
+
+## 本地任务和候选人 JSON
+
+当前已提供：
+
+```http
+POST /api/v1/tasks/init
+GET /api/v1/tasks/{task_id}/candidates
+POST /api/v1/tasks/{task_id}/candidates
+DELETE /api/v1/tasks/{task_id}/candidates/{candidate_id}
+```
+
+每个任务一个目录：
+
+```text
+local-agent/agent_data/tasks/{task_id}/
+```
+
+目录内包含：
+
+```text
+candidates.json
+logs.jsonl
+screenshots/
+ocr/
+```
+
+候选人详情、截图路径和 OCR 文本都只写入本地任务目录。
