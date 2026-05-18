@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
 from app.humanize import navigate_to_page, random_delay, scroll_to_load, wait_and_click
+from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
 from app.profiles import create_profile, delete_profile, list_profiles
@@ -37,6 +38,7 @@ from app.tasks import (
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
 MACHINE = load_machine()
+CRYPTO_KEYS = load_crypto_keys()
 
 # ---------------------------------------------------------------------------
 # FastAPI 应用与中间件
@@ -76,6 +78,7 @@ async def get_health() -> dict:
         "version": "0.4.0",
         "port": app.state.port,
         "machine_id": MACHINE["machine_id"],
+        "public_key": CRYPTO_KEYS.get("public_key", ""),
         "bound_cloud_user_id": account["cloud_user_id"] if account else "",
     }
 
@@ -434,6 +437,37 @@ async def page_screenshot(payload: dict) -> dict:
         raise HTTPException(500, "截图失败")
 
     return {"ok": True, "size": len(screenshot_bytes)}
+
+
+@app.post("/api/v1/crypto/decrypt")
+async def crypto_decrypt(payload: dict) -> dict:
+    """用 Agent 私钥解密对称密钥 SK，再用 SK 解密密文。"""
+    # 调用 crypto 模块的解密逻辑，避免在路由中做复杂操作
+    encrypted_sk_b64 = str(payload.get("encrypted_sk", "")).strip()
+    encrypted_data_b64 = str(payload.get("encrypted_data", "")).strip()
+    if not encrypted_sk_b64 or not encrypted_data_b64:
+        raise HTTPException(400, "encrypted_sk and encrypted_data are required")
+
+    import base64, hashlib
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization, hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    # 1. 用私钥解密 SK
+    sk_bytes = base64.b64decode(encrypted_sk_b64)
+    private_key = serialization.load_pem_private_key(CRYPTO_KEYS["private_key"].encode(), password=None)
+    shared_secret = private_key.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), sk_bytes))
+    sk = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"goodhr5-cookie-v1").derive(shared_secret)
+
+    # 2. 用 SK 解密数据
+    data_bytes = base64.b64decode(encrypted_data_b64)
+    nonce = data_bytes[:12]
+    ciphertext = data_bytes[12:]
+    aesgcm = AESGCM(sk)
+    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+
+    return {"ok": True, "data": base64.b64encode(plaintext).decode()}
 
 
 @app.get("/api/v1/ocr/status")

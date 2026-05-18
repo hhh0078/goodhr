@@ -8,6 +8,7 @@
   <template v-else>
     <AgentPanel :agent="agent" :user="user" :token="auth.token" />
     <TenantManager :token="auth.token.value" :user-email="user?.email" />
+    <CookieManager :token="auth.token.value" />
     <AccountManager :token="auth.token.value" :agent-base-url="agent.baseUrl.value" />
     <PositionManager :positions="positions" />
     <TaskCreator :tasks="tasks" :positions="positions.positions" :token="auth.token.value" />
@@ -24,6 +25,7 @@ import { useTasks } from './composables/useTasks'
 import LoginForm from './components/LoginForm.vue'
 import AgentPanel from './components/AgentPanel.vue'
 import TenantManager from './components/TenantManager.vue'
+import CookieManager from './components/CookieManager.vue'
 import AccountManager from './components/AccountManager.vue'
 import PositionManager from './components/PositionManager.vue'
 import TaskCreator from './components/TaskCreator.vue'

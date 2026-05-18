@@ -17,6 +17,7 @@ type Server struct {
 	taskLogs         *TaskLogService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
+	cookies          *CookieService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -41,6 +42,7 @@ func NewServer() (*Server, error) {
 		taskLogs:         taskLogs,
 		systemConfigs:    config.SystemConfigStore(db),
 		tenants:          NewTenantService(auth, config.TenantStore(db)),
+		cookies:          NewCookieService(auth, config.CookieStore(db), config.TenantStore(db)),
 	}, nil
 }
 
@@ -78,6 +80,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
 	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
 	mux.HandleFunc("/api/tenants/members/", s.tenantMember)
+	mux.HandleFunc("/api/cookies", s.cookies.List)
+	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
+	mux.HandleFunc("/api/cookies/", s.cookies.Delete)
 	return cors(mux)
 }
 
