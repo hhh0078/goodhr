@@ -87,7 +87,8 @@ label {
   gap: 8px;
 }
 
-input {
+input,
+select {
   border: 1px solid #d8dee4;
   border-radius: 6px;
   box-sizing: border-box;
@@ -95,6 +96,13 @@ input {
   font: inherit;
   min-width: 0;
   padding: 10px 12px;
+}
+
+.section-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
 }
 
 .hint {
@@ -150,6 +158,27 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.task-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.task-item {
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.task-item p {
+  color: #57606a;
+  margin-top: 6px;
+}
+
+.task-item dl {
+  grid-template-columns: repeat(5, minmax(80px, 1fr));
+}
+
 @media (max-width: 720px) {
   .topbar {
     align-items: flex-start;
@@ -157,6 +186,7 @@ dd {
   }
 
   .form-grid,
+  .task-item dl,
   dl {
     grid-template-columns: 1fr;
   }

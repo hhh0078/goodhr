@@ -1,5 +1,6 @@
 // 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
-import { createApp, onMounted, ref } from 'vue'
+import { computed, createApp, onMounted, ref } from 'vue'
+import { listPlatformAccounts } from './services/cloudApi.js'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -21,6 +22,19 @@ const App = {
     const bindStatus = ref('未绑定')
     const bindError = ref('')
     const checking = ref(false)
+    const platformAccounts = ref([])
+    const taskError = ref('')
+    const taskForm = ref({
+      platformId: 'boss',
+      platformAccountId: '',
+      mode: 'keyword',
+      matchLimit: 20
+    })
+    const tasks = ref([])
+
+    const selectedPlatformAccounts = computed(() => {
+      return platformAccounts.value.filter((account) => account.platform_id === taskForm.value.platformId)
+    })
 
     // sendCode 调用云端接口发送邮箱验证码。
     async function sendCode() {
@@ -70,6 +84,8 @@ const App = {
         user.value = data.user
         // 登录成功后探测本地 Agent，用于初始化本地执行环境。
         await detectLocalAgent()
+        // 登录成功后读取平台账号映射，用于任务创建时选择账号。
+        await loadPlatformAccounts()
       } catch (error) {
         authError.value = error.message
       } finally {
@@ -94,6 +110,8 @@ const App = {
         user.value = data.user
         // 恢复登录态后探测本地 Agent，用于保持云端和本地的绑定状态。
         await detectLocalAgent()
+        // 恢复登录态后读取平台账号映射，用于刷新任务创建表单。
+        await loadPlatformAccounts()
       } catch {
         logout()
       }
@@ -107,6 +125,9 @@ const App = {
       agentInfo.value = null
       bindStatus.value = '未绑定'
       bindError.value = ''
+      platformAccounts.value = []
+      tasks.value = []
+      taskError.value = ''
       localStorage.removeItem(TOKEN_KEY)
     }
 
@@ -219,6 +240,56 @@ const App = {
       return token
     }
 
+    // loadPlatformAccounts 调用云端 API 读取当前平台账号映射。
+    async function loadPlatformAccounts() {
+      if (!authToken.value) {
+        return
+      }
+
+      try {
+        taskError.value = ''
+        // 调用云端平台账号接口，供任务创建表单选择不同账号/profile。
+        const data = await listPlatformAccounts(authToken.value, '')
+        platformAccounts.value = data.accounts || []
+        if (!taskForm.value.platformAccountId && selectedPlatformAccounts.value.length > 0) {
+          taskForm.value.platformAccountId = selectedPlatformAccounts.value[0].id
+        }
+      } catch (error) {
+        taskError.value = error.message
+      }
+    }
+
+    // onPlatformChange 在切换平台时自动选择该平台的第一个账号。
+    function onPlatformChange() {
+      const firstAccount = selectedPlatformAccounts.value[0]
+      taskForm.value.platformAccountId = firstAccount?.id || ''
+    }
+
+    // createTaskDraft 创建一个前端任务草稿，后续会接入云端任务 API。
+    function createTaskDraft() {
+      taskError.value = ''
+      const account = platformAccounts.value.find((item) => item.id === taskForm.value.platformAccountId)
+      if (!account) {
+        taskError.value = '请先选择平台账号'
+        return
+      }
+
+      const task = {
+        id: `task_${Date.now()}`,
+        platform_id: taskForm.value.platformId,
+        platform_account_id: account.id,
+        platform_account_name: account.display_name,
+        mode: taskForm.value.mode,
+        match_limit: Number(taskForm.value.matchLimit) || 0,
+        status: 'created',
+        scanned_count: 0,
+        greeted_count: 0,
+        skipped_count: 0,
+        failed_count: 0
+      }
+      tasks.value.unshift(task)
+    }
+
     onMounted(() => {
       // 页面加载时尝试恢复登录态，恢复成功后再探测本地 Agent。
       loadCurrentUser()
@@ -236,10 +307,18 @@ const App = {
       bindStatus,
       bindError,
       checking,
+      platformAccounts,
+      selectedPlatformAccounts,
+      taskForm,
+      taskError,
+      tasks,
       sendCode,
       login,
       logout,
-      detectLocalAgent
+      detectLocalAgent,
+      loadPlatformAccounts,
+      onPlatformChange,
+      createTaskDraft
     }
   },
   template: `
@@ -320,6 +399,77 @@ const App = {
           <li>打开本地程序，它会自动尝试监听 9001-9009 端口。</li>
           <li>回到云端页面点击重新检测。</li>
         </ol>
+      </section>
+
+      <section v-if="user" class="panel task-panel">
+        <div class="section-header">
+          <h2>创建任务</h2>
+          <button type="button" class="ghost" @click="loadPlatformAccounts">刷新账号</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            平台
+            <select v-model="taskForm.platformId" @change="onPlatformChange">
+              <option value="boss">Boss直聘</option>
+              <option value="zhaopin">智联招聘</option>
+              <option value="liepin">猎聘</option>
+            </select>
+          </label>
+          <label>
+            账号
+            <select v-model="taskForm.platformAccountId">
+              <option value="">请选择账号</option>
+              <option v-for="account in selectedPlatformAccounts" :key="account.id" :value="account.id">
+                {{ account.display_name }} / {{ account.local_profile_id }}
+              </option>
+            </select>
+          </label>
+          <label>
+            筛选模式
+            <select v-model="taskForm.mode">
+              <option value="keyword">关键词筛选</option>
+              <option value="ai">AI筛选</option>
+            </select>
+          </label>
+          <label>
+            匹配上限
+            <input v-model="taskForm.matchLimit" type="number" min="1" />
+          </label>
+        </div>
+        <p v-if="selectedPlatformAccounts.length === 0" class="hint">
+          当前平台还没有账号映射，请先通过本地 Agent 创建 profile 并同步到云端账号映射。
+        </p>
+        <p v-if="taskError" class="error">{{ taskError }}</p>
+        <div class="actions">
+          <button type="button" :disabled="selectedPlatformAccounts.length === 0" @click="createTaskDraft">
+            创建任务
+          </button>
+        </div>
+      </section>
+
+      <section v-if="user" class="panel">
+        <h2>任务列表</h2>
+        <p v-if="tasks.length === 0" class="hint">暂无任务</p>
+        <div v-else class="task-list">
+          <article v-for="task in tasks" :key="task.id" class="task-item">
+            <div>
+              <strong>{{ task.platform_account_name }}</strong>
+              <p>{{ task.platform_id }} / {{ task.mode }} / 上限 {{ task.match_limit }}</p>
+            </div>
+            <dl>
+              <dt>状态</dt>
+              <dd>{{ task.status }}</dd>
+              <dt>扫描</dt>
+              <dd>{{ task.scanned_count }}</dd>
+              <dt>打招呼</dt>
+              <dd>{{ task.greeted_count }}</dd>
+              <dt>跳过</dt>
+              <dd>{{ task.skipped_count }}</dd>
+              <dt>失败</dt>
+              <dd>{{ task.failed_count }}</dd>
+            </dl>
+          </article>
+        </div>
       </section>
     </main>
   `
