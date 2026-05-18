@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type Server struct {
@@ -12,6 +13,7 @@ type Server struct {
 	ai               *AIConfigService
 	platformAccounts *PlatformAccountService
 	tasks            *TaskService
+	taskLogs         *TaskLogService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和 Agent 模块依赖注入。
@@ -19,12 +21,14 @@ func NewServer() *Server {
 	config := LoadConfigFromEnv()
 	mailer, exposeDebugCode := config.Mailer()
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
+	taskStore := config.TaskStore()
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, config.AgentStore()),
 		ai:               NewAIConfigService(auth, config.AIConfigStore()),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore()),
-		tasks:            NewTaskService(auth, config.TaskStore()),
+		tasks:            NewTaskService(auth, taskStore),
+		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore()),
 	}
 }
 
@@ -51,8 +55,20 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
 	// 注册任务接口，用于创建任务和展示任务统计摘要。
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)
-	mux.HandleFunc("/api/tasks/", s.tasks.Detail)
+	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
+	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	return cors(mux)
+}
+
+// taskOrLog 根据路径分发任务详情和任务日志请求。
+func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/logs") {
+		// 调用任务日志服务处理日志读写，供前端展开任务卡片。
+		s.taskLogs.Collection(w, r)
+		return
+	}
+	// 调用任务服务处理任务详情读取。
+	s.tasks.Detail(w, r)
 }
 
 // health 返回云端 API 的健康状态。

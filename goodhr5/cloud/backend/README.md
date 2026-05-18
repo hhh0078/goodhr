@@ -128,3 +128,16 @@ GET /api/tasks/{id}
 所有接口都需要 `Authorization: Bearer <token>`。
 
 第一版只保存任务元信息和统计摘要，不保存候选人详情。
+
+## 任务日志 API
+
+当前已提供：
+
+```http
+GET /api/tasks/{id}/logs
+POST /api/tasks/{id}/logs
+```
+
+所有接口都需要 `Authorization: Bearer <token>`。
+
+云端日志只保存运行摘要，不保存候选人完整详情。

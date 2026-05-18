@@ -73,6 +73,11 @@ func (c Config) TaskStore() TaskStore {
 	return NewMemoryTaskStore()
 }
 
+// TaskLogStore 创建任务日志存储；当前使用内存实现，后续替换为 PostgreSQL。
+func (c Config) TaskLogStore() TaskLogStore {
+	return NewMemoryTaskLogStore()
+}
+
 // envInt 从环境变量读取整数，读取失败时返回默认值。
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)
