@@ -65,6 +65,10 @@ const App = {
       return platformAccounts.value.filter((account) => account.platform_id === taskForm.value.platformId)
     })
 
+    const selectedTaskPosition = computed(() => {
+      return positions.value.find((position) => position.id === taskForm.value.positionId) || null
+    })
+
     // sendCode 调用云端接口发送邮箱验证码。
     async function sendCode() {
       authLoading.value = true
@@ -650,6 +654,7 @@ const App = {
       positionError,
       positionLoading,
       selectedPlatformAccounts,
+      selectedTaskPosition,
       positionForm,
       taskForm,
       taskError,
@@ -872,6 +877,14 @@ const App = {
         <p v-if="selectedPlatformAccounts.length === 0" class="hint">
           当前平台还没有账号映射，请先通过本地 Agent 创建 profile 并同步到云端账号映射。
         </p>
+        <div v-if="selectedTaskPosition" class="snapshot-panel">
+          <strong>{{ selectedTaskPosition.name }}</strong>
+          <p>{{ selectedTaskPosition.is_and_mode ? 'AND 匹配' : 'OR 匹配' }}</p>
+          <p class="snapshot-meta">关键词：{{ (selectedTaskPosition.keywords || []).join(' / ') || '无' }}</p>
+          <p class="snapshot-meta">排除词：{{ (selectedTaskPosition.exclude_keywords || []).join(' / ') || '无' }}</p>
+          <p v-if="selectedTaskPosition.description" class="snapshot-meta">岗位描述：{{ selectedTaskPosition.description }}</p>
+          <p v-if="selectedTaskPosition.greet_message" class="snapshot-meta">默认问候语：{{ selectedTaskPosition.greet_message }}</p>
+        </div>
         <p v-if="taskError" class="error">{{ taskError }}</p>
         <div class="actions">
           <button type="button" :disabled="taskLoading || selectedPlatformAccounts.length === 0" @click="createTaskDraft">
