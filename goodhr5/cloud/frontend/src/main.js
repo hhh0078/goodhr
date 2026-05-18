@@ -1,6 +1,7 @@
 // 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
 import { computed, createApp, onMounted, ref } from 'vue'
 import { createTask, listPlatformAccounts, listTaskLogs, listTasks } from './services/cloudApi.js'
+import { deleteLocalCandidate, initLocalTask, listLocalCandidates } from './services/localAgentApi.js'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -27,6 +28,10 @@ const App = {
     const taskLoading = ref(false)
     const expandedTaskId = ref('')
     const taskLogs = ref({})
+    const candidateExpandedTaskId = ref('')
+    const taskCandidates = ref({})
+    const candidateLoadingTaskId = ref('')
+    const candidateError = ref('')
     const taskForm = ref({
       platformId: 'boss',
       platformAccountId: '',
@@ -135,8 +140,11 @@ const App = {
       platformAccounts.value = []
       tasks.value = []
       taskLogs.value = {}
+      taskCandidates.value = {}
       expandedTaskId.value = ''
+      candidateExpandedTaskId.value = ''
       taskError.value = ''
+      candidateError.value = ''
       localStorage.removeItem(TOKEN_KEY)
     }
 
@@ -286,12 +294,16 @@ const App = {
       taskLoading.value = true
       try {
         // 调用云端任务 API 创建任务元信息，后续再交给 Local Agent 执行。
-        await createTask(authToken.value, {
+        const data = await createTask(authToken.value, {
           platform_id: taskForm.value.platformId,
           platform_account_id: account.id,
           mode: taskForm.value.mode,
           match_limit: Number(taskForm.value.matchLimit) || 0
         })
+        if (agentInfo.value) {
+          // 调用本地任务初始化接口，为云端任务创建对应的本地 candidates.json。
+          await initializeLocalTask(data.task)
+        }
         // 创建成功后重新读取云端任务列表，保证页面展示与云端一致。
         await loadTasks()
       } catch (error) {
@@ -331,6 +343,85 @@ const App = {
       await loadTaskLogs(taskID)
     }
 
+    // toggleTaskCandidates 展开或收起任务候选人面板。
+    async function toggleTaskCandidates(task) {
+      const taskID = localTaskID(task)
+      if (candidateExpandedTaskId.value === taskID) {
+        candidateExpandedTaskId.value = ''
+        return
+      }
+
+      candidateExpandedTaskId.value = taskID
+      // 展开候选人面板时调用本地 Agent，读取该任务自己的 candidates.json。
+      await loadTaskCandidates(task)
+    }
+
+    // loadTaskCandidates 调用本地 Agent 读取任务候选人列表。
+    async function loadTaskCandidates(task) {
+      if (!agentInfo.value) {
+        candidateError.value = '本地 Agent 未连接，无法读取候选人数据'
+        return
+      }
+
+      const taskID = localTaskID(task)
+      candidateLoadingTaskId.value = taskID
+      candidateError.value = ''
+
+      try {
+        // 读取候选人前先初始化本地任务目录，避免旧任务没有本地 JSON。
+        await initializeLocalTask(task)
+        // 调用本地候选人读取接口，候选人详情只从用户电脑上的 JSON 获取。
+        const data = await listLocalCandidates(agentInfo.value, taskID)
+        taskCandidates.value = {
+          ...taskCandidates.value,
+          [taskID]: data.task?.items || []
+        }
+      } catch (error) {
+        candidateError.value = error.message
+        taskCandidates.value = {
+          ...taskCandidates.value,
+          [taskID]: []
+        }
+      } finally {
+        candidateLoadingTaskId.value = ''
+      }
+    }
+
+    // removeCandidate 调用本地 Agent 删除任务里的候选人记录。
+    async function removeCandidate(task, candidate) {
+      if (!agentInfo.value) {
+        candidateError.value = '本地 Agent 未连接，无法删除候选人数据'
+        return
+      }
+
+      const taskID = localTaskID(task)
+      candidateError.value = ''
+
+      try {
+        // 调用本地候选人删除接口，只修改当前任务对应的本地 JSON。
+        await deleteLocalCandidate(agentInfo.value, taskID, candidate.id)
+        // 删除后重新读取候选人列表，用于保持页面和本地 JSON 一致。
+        await loadTaskCandidates(task)
+      } catch (error) {
+        candidateError.value = error.message
+      }
+    }
+
+    // initializeLocalTask 调用本地 Agent 创建云端任务对应的本地任务目录。
+    async function initializeLocalTask(task) {
+      if (!agentInfo.value || !task) {
+        return
+      }
+
+      // 调用本地任务初始化接口，保证每个云端任务都有独立候选人 JSON。
+      await initLocalTask(agentInfo.value, {
+        task_id: localTaskID(task),
+        cloud_user_id: user.value.email,
+        platform_id: task.platform_id,
+        platform_account_id: task.platform_account_id
+      })
+    }
+
     // loadTaskLogs 调用云端任务日志 API 读取任务运行摘要。
     async function loadTaskLogs(taskID) {
       try {
@@ -350,6 +441,32 @@ const App = {
     function accountName(accountID) {
       const account = platformAccounts.value.find((item) => item.id === accountID)
       return account?.display_name || accountID
+    }
+
+    // localTaskID 返回云端任务对应的本地任务 ID。
+    function localTaskID(task) {
+      return task.local_task_id || task.id
+    }
+
+    // candidateTitle 返回候选人在列表中的主要展示名称。
+    function candidateTitle(candidate) {
+      return candidate.name || candidate.title || candidate.candidate_name || candidate.id || '未命名候选人'
+    }
+
+    // candidateSubtitle 返回候选人在列表中的辅助展示信息。
+    function candidateSubtitle(candidate) {
+      const parts = [
+        candidate.age,
+        candidate.education,
+        candidate.experience,
+        candidate.status || candidate.result
+      ].filter(Boolean)
+      return parts.join(' / ') || '暂无摘要'
+    }
+
+    // candidateDetail 返回候选人的详情摘要文本。
+    function candidateDetail(candidate) {
+      return candidate.detail || candidate.details || candidate.skills || candidate.description || candidate.raw_text || ''
     }
 
     onMounted(() => {
@@ -376,6 +493,10 @@ const App = {
       taskLoading,
       expandedTaskId,
       taskLogs,
+      candidateExpandedTaskId,
+      taskCandidates,
+      candidateLoadingTaskId,
+      candidateError,
       tasks,
       sendCode,
       login,
@@ -385,7 +506,14 @@ const App = {
       onPlatformChange,
       createTaskDraft,
       loadTasks,
-      toggleTaskLogs
+      toggleTaskLogs,
+      toggleTaskCandidates,
+      loadTaskCandidates,
+      removeCandidate,
+      localTaskID,
+      candidateTitle,
+      candidateSubtitle,
+      candidateDetail
     }
   },
   template: `
@@ -542,6 +670,9 @@ const App = {
               <button type="button" class="ghost" @click="toggleTaskLogs(task.id)">
                 {{ expandedTaskId === task.id ? '收起日志' : '展开日志' }}
               </button>
+              <button type="button" class="ghost" @click="toggleTaskCandidates(task)">
+                {{ candidateExpandedTaskId === localTaskID(task) ? '收起候选人' : '查看候选人' }}
+              </button>
             </div>
             <div v-if="expandedTaskId === task.id" class="log-panel">
               <p v-if="!taskLogs[task.id] || taskLogs[task.id].length === 0" class="hint">暂无日志</p>
@@ -551,6 +682,28 @@ const App = {
                   <strong>{{ log.message }}</strong>
                 </li>
               </ol>
+            </div>
+            <div v-if="candidateExpandedTaskId === localTaskID(task)" class="candidate-panel">
+              <div class="section-header subtle">
+                <h3>候选人</h3>
+                <button type="button" class="ghost" :disabled="candidateLoadingTaskId === localTaskID(task)" @click="loadTaskCandidates(task)">
+                  {{ candidateLoadingTaskId === localTaskID(task) ? '读取中...' : '刷新候选人' }}
+                </button>
+              </div>
+              <p v-if="candidateError" class="error">{{ candidateError }}</p>
+              <p v-if="!taskCandidates[localTaskID(task)] || taskCandidates[localTaskID(task)].length === 0" class="hint">
+                暂无候选人数据
+              </p>
+              <div v-else class="candidate-list">
+                <article v-for="candidate in taskCandidates[localTaskID(task)]" :key="candidate.id" class="candidate-card">
+                  <div>
+                    <strong>{{ candidateTitle(candidate) }}</strong>
+                    <p>{{ candidateSubtitle(candidate) }}</p>
+                    <p v-if="candidateDetail(candidate)" class="candidate-detail">{{ candidateDetail(candidate) }}</p>
+                  </div>
+                  <button type="button" class="ghost danger" @click="removeCandidate(task, candidate)">删除</button>
+                </article>
+              </div>
             </div>
           </article>
         </div>

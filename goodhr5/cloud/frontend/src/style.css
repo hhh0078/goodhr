@@ -32,6 +32,11 @@ button.ghost {
   color: #24292f;
 }
 
+.ghost.danger {
+  border-color: #ff818266;
+  color: #cf222e;
+}
+
 .button.secondary {
   background: #fff;
   color: #1f6feb;
@@ -103,6 +108,11 @@ select {
   display: flex;
   gap: 12px;
   justify-content: space-between;
+}
+
+.section-header.subtle h3 {
+  font-size: 16px;
+  margin: 0;
 }
 
 .hint {
@@ -209,9 +219,49 @@ dd {
   font-weight: 500;
 }
 
+.candidate-panel {
+  background: #fff;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.candidate-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.candidate-card {
+  align-items: flex-start;
+  background: #f6f8fa;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.candidate-card strong {
+  display: block;
+}
+
+.candidate-detail {
+  color: #24292f;
+  line-height: 1.55;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .topbar {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .candidate-card {
     flex-direction: column;
   }
 

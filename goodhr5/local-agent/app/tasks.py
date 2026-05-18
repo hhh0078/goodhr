@@ -19,6 +19,9 @@ def init_task(task_id: str, cloud_user_id: str, platform_id: str, platform_accou
     (task_path / "ocr").mkdir(exist_ok=True)
     (task_path / "logs.jsonl").touch(exist_ok=True)
 
+    if candidates_path(task_id).exists():
+        return load_candidates(task_id)
+
     data = {
         "task_id": task_id,
         "cloud_user_id": cloud_user_id,
