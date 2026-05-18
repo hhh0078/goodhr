@@ -81,6 +81,9 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("提取候选人失败: %w", err)
 	}
+	if len(candidates) == 0 {
+		e.log("warn", "提取到 0 个候选人，可能未登录平台或页面无数据，请检查平台登录状态")
+	}
 	e.log("info", fmt.Sprintf("提取到 %d 个候选人", len(candidates)))
 
 	// 5. 逐候选人处理

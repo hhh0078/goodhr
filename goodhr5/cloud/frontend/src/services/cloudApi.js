@@ -74,6 +74,21 @@ export async function runTask(token, taskID, agentBaseURL) {
   })
 }
 
+export async function createPlatformAccount(token, payload) {
+  return request('/api/platform-accounts/create', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deletePlatformAccount(token, accountID) {
+  return request(`/api/platform-accounts/${accountID}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export async function listTaskLogs(token, taskID) {
   return request(`/api/tasks/${taskID}/logs`, {
     headers: { Authorization: `Bearer ${token}` }

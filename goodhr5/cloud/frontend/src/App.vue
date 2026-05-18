@@ -7,6 +7,7 @@
   <LoginForm v-if="!user" :auth="auth" />
   <template v-else>
     <AgentPanel :agent="agent" :user="user" :token="auth.token" />
+    <AccountManager :token="auth.token.value" :agent-base-url="agent.baseUrl.value" />
     <PositionManager :positions="positions" />
     <TaskCreator :tasks="tasks" :positions="positions.positions" :token="auth.token.value" />
     <TaskList :tasks="tasks" />
@@ -21,6 +22,7 @@ import { usePositions } from './composables/usePositions.js'
 import { useTasks } from './composables/useTasks.js'
 import LoginForm from './components/LoginForm.vue'
 import AgentPanel from './components/AgentPanel.vue'
+import AccountManager from './components/AccountManager.vue'
 import PositionManager from './components/PositionManager.vue'
 import TaskCreator from './components/TaskCreator.vue'
 import TaskList from './components/TaskList.vue'
