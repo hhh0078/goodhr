@@ -15,6 +15,7 @@
 | --- | --- | --- | --- |
 | 工程 | 创建 goodhr5 目录结构 | DONE | 云端后端、云端前端、本地 Agent、文档目录 |
 | 工程 | 初始化进度表 | DONE | 后续每个功能完成后更新本文件 |
+| 工程 | 开发规范文档 | DONE | 模块化、文件头注释、方法中文注释、调用点说明 |
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
 | 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
 | 云端后端 | PostgreSQL schema | TODO | 用户、Agent、任务、配置 |
@@ -48,13 +49,17 @@
 
 ## 本次完成
 
+- 新增 `docs/development-standards.md`。
+- 明确模块化、文件头用途注释、方法中文注释、调用点说明要求。
+- 明确每完成一个功能必须更新进度表并单独提交。
+
+## 历史完成
+
 - 云端前端增加邮箱验证码登录页面。
 - 接入 `POST /api/auth/send-code`、`POST /api/auth/login`、`GET /api/auth/me`。
 - 登录 token 保存到 `localStorage`。
 - 页面改为登录云端后再探测本地 Agent。
 - Go 后端增加基础 CORS，支持本地 Vite 页面调用 API。
-
-## 历史完成
 
 - 云端认证增加 `Mailer` 发信接口。
 - 配置 `GOODHR_SMTP_HOST`、`GOODHR_SMTP_USERNAME`、`GOODHR_SMTP_PASSWORD` 后，通过 SMTP 发送 4 位验证码。
