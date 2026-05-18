@@ -1,6 +1,6 @@
 // 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
 import { computed, createApp, onMounted, ref } from 'vue'
-import { listPlatformAccounts } from './services/cloudApi.js'
+import { createTask, listPlatformAccounts, listTasks } from './services/cloudApi.js'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -24,6 +24,7 @@ const App = {
     const checking = ref(false)
     const platformAccounts = ref([])
     const taskError = ref('')
+    const taskLoading = ref(false)
     const taskForm = ref({
       platformId: 'boss',
       platformAccountId: '',
@@ -86,6 +87,8 @@ const App = {
         await detectLocalAgent()
         // 登录成功后读取平台账号映射，用于任务创建时选择账号。
         await loadPlatformAccounts()
+        // 登录成功后读取云端任务列表，用于恢复任务控制台状态。
+        await loadTasks()
       } catch (error) {
         authError.value = error.message
       } finally {
@@ -112,6 +115,8 @@ const App = {
         await detectLocalAgent()
         // 恢复登录态后读取平台账号映射，用于刷新任务创建表单。
         await loadPlatformAccounts()
+        // 恢复登录态后读取云端任务列表，用于刷新任务控制台。
+        await loadTasks()
       } catch {
         logout()
       }
@@ -265,8 +270,8 @@ const App = {
       taskForm.value.platformAccountId = firstAccount?.id || ''
     }
 
-    // createTaskDraft 创建一个前端任务草稿，后续会接入云端任务 API。
-    function createTaskDraft() {
+    // createTaskDraft 调用云端任务 API 创建任务记录。
+    async function createTaskDraft() {
       taskError.value = ''
       const account = platformAccounts.value.find((item) => item.id === taskForm.value.platformAccountId)
       if (!account) {
@@ -274,20 +279,47 @@ const App = {
         return
       }
 
-      const task = {
-        id: `task_${Date.now()}`,
-        platform_id: taskForm.value.platformId,
-        platform_account_id: account.id,
-        platform_account_name: account.display_name,
-        mode: taskForm.value.mode,
-        match_limit: Number(taskForm.value.matchLimit) || 0,
-        status: 'created',
-        scanned_count: 0,
-        greeted_count: 0,
-        skipped_count: 0,
-        failed_count: 0
+      taskLoading.value = true
+      try {
+        // 调用云端任务 API 创建任务元信息，后续再交给 Local Agent 执行。
+        await createTask(authToken.value, {
+          platform_id: taskForm.value.platformId,
+          platform_account_id: account.id,
+          mode: taskForm.value.mode,
+          match_limit: Number(taskForm.value.matchLimit) || 0
+        })
+        // 创建成功后重新读取云端任务列表，保证页面展示与云端一致。
+        await loadTasks()
+      } catch (error) {
+        taskError.value = error.message
+      } finally {
+        taskLoading.value = false
       }
-      tasks.value.unshift(task)
+    }
+
+    // loadTasks 调用云端任务 API 读取当前用户任务列表。
+    async function loadTasks() {
+      if (!authToken.value) {
+        return
+      }
+
+      try {
+        taskError.value = ''
+        // 调用云端任务列表接口，用于展示任务统计摘要。
+        const data = await listTasks(authToken.value)
+        tasks.value = (data.tasks || []).map((task) => ({
+          ...task,
+          platform_account_name: accountName(task.platform_account_id)
+        }))
+      } catch (error) {
+        taskError.value = error.message
+      }
+    }
+
+    // accountName 根据平台账号 ID 返回可读账号名称。
+    function accountName(accountID) {
+      const account = platformAccounts.value.find((item) => item.id === accountID)
+      return account?.display_name || accountID
     }
 
     onMounted(() => {
@@ -311,6 +343,7 @@ const App = {
       selectedPlatformAccounts,
       taskForm,
       taskError,
+      taskLoading,
       tasks,
       sendCode,
       login,
@@ -318,7 +351,8 @@ const App = {
       detectLocalAgent,
       loadPlatformAccounts,
       onPlatformChange,
-      createTaskDraft
+      createTaskDraft,
+      loadTasks
     }
   },
   template: `
@@ -441,14 +475,17 @@ const App = {
         </p>
         <p v-if="taskError" class="error">{{ taskError }}</p>
         <div class="actions">
-          <button type="button" :disabled="selectedPlatformAccounts.length === 0" @click="createTaskDraft">
-            创建任务
+          <button type="button" :disabled="taskLoading || selectedPlatformAccounts.length === 0" @click="createTaskDraft">
+            {{ taskLoading ? '创建中...' : '创建任务' }}
           </button>
         </div>
       </section>
 
       <section v-if="user" class="panel">
-        <h2>任务列表</h2>
+        <div class="section-header">
+          <h2>任务列表</h2>
+          <button type="button" class="ghost" @click="loadTasks">刷新任务</button>
+        </div>
         <p v-if="tasks.length === 0" class="hint">暂无任务</p>
         <div v-else class="task-list">
           <article v-for="task in tasks" :key="task.id" class="task-item">

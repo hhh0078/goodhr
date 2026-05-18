@@ -18,3 +18,22 @@ export async function listPlatformAccounts(token, platformId) {
     headers: { Authorization: `Bearer ${token}` }
   })
 }
+
+// createTask 调用云端任务接口创建任务运行记录。
+export async function createTask(token, payload) {
+  return request('/api/tasks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+}
+
+// listTasks 调用云端任务接口读取任务列表。
+export async function listTasks(token) {
+  return request('/api/tasks', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
