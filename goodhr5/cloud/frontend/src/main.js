@@ -1,9 +1,11 @@
+// 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
 import { createApp, onMounted, ref } from 'vue'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
 const CLOUD_API_BASE = window.GOODHR_CLOUD_API || 'http://127.0.0.1:8080'
 const TOKEN_KEY = 'goodhr5_access_token'
+const LOCAL_TOKEN_KEY = 'goodhr5_local_agent_token'
 
 const App = {
   setup() {
@@ -16,8 +18,11 @@ const App = {
     const authLoading = ref(false)
     const agentStatus = ref('未检测')
     const agentInfo = ref(null)
+    const bindStatus = ref('未绑定')
+    const bindError = ref('')
     const checking = ref(false)
 
+    // sendCode 调用云端接口发送邮箱验证码。
     async function sendCode() {
       authLoading.value = true
       authError.value = ''
@@ -44,6 +49,7 @@ const App = {
       }
     }
 
+    // login 调用云端登录接口，用验证码换取访问 token。
     async function login() {
       authLoading.value = true
       authError.value = ''
@@ -62,6 +68,7 @@ const App = {
         authToken.value = data.access_token
         localStorage.setItem(TOKEN_KEY, data.access_token)
         user.value = data.user
+        // 登录成功后探测本地 Agent，用于初始化本地执行环境。
         await detectLocalAgent()
       } catch (error) {
         authError.value = error.message
@@ -70,6 +77,7 @@ const App = {
       }
     }
 
+    // loadCurrentUser 使用本地保存的 token 恢复云端登录态。
     async function loadCurrentUser() {
       if (!authToken.value) {
         return
@@ -84,20 +92,25 @@ const App = {
           throw new Error(data.error || '登录已过期')
         }
         user.value = data.user
+        // 恢复登录态后探测本地 Agent，用于保持云端和本地的绑定状态。
         await detectLocalAgent()
       } catch {
         logout()
       }
     }
 
+    // logout 清理云端登录态和当前页面上的本地 Agent 状态。
     function logout() {
       authToken.value = ''
       user.value = null
       agentStatus.value = '未检测'
       agentInfo.value = null
+      bindStatus.value = '未绑定'
+      bindError.value = ''
       localStorage.removeItem(TOKEN_KEY)
     }
 
+    // detectLocalAgent 依次探测 9001-9009，找到本地 Agent 后执行绑定初始化。
     async function detectLocalAgent() {
       if (!user.value) {
         return
@@ -105,6 +118,8 @@ const App = {
 
       checking.value = true
       agentInfo.value = null
+      bindStatus.value = '未绑定'
+      bindError.value = ''
       agentStatus.value = '检测中'
 
       for (const port of LOCAL_PORTS) {
@@ -119,6 +134,8 @@ const App = {
           const data = await response.json()
           agentInfo.value = { ...data, port }
           agentStatus.value = '已连接'
+          // 探测成功后初始化绑定，让云端和本地 Agent 都知道当前账号和机器。
+          await initializeAgentBinding(agentInfo.value)
           checking.value = false
           return
         } catch {
@@ -130,7 +147,80 @@ const App = {
       checking.value = false
     }
 
+    // initializeAgentBinding 同步云端机器绑定，并把云端账号写入本地 Agent。
+    async function initializeAgentBinding(agent) {
+      if (!agent?.machine_id) {
+        bindStatus.value = '绑定失败'
+        bindError.value = '本地 Agent 未返回 machine_id'
+        return
+      }
+
+      bindStatus.value = '绑定中'
+
+      try {
+        // 调用云端机器绑定接口，用于记录当前账号对应的本地机器。
+        await bindCloudAgent(agent)
+        // 调用本地账号绑定接口，用于让 Local Agent 保存当前云端账号。
+        await bindLocalAgent(agent)
+        bindStatus.value = '已绑定'
+      } catch (error) {
+        bindStatus.value = '绑定失败'
+        bindError.value = error.message
+      }
+    }
+
+    // bindCloudAgent 调用云端 API 保存账号和机器码绑定关系。
+    async function bindCloudAgent(agent) {
+      const response = await fetch(`${CLOUD_API_BASE}/api/agents/bind`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken.value}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          machine_id: agent.machine_id,
+          agent_version: agent.version || '',
+          local_port: agent.port
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || '云端机器绑定失败')
+      }
+    }
+
+    // bindLocalAgent 调用本地 API 保存当前云端账号信息。
+    async function bindLocalAgent(agent) {
+      const localToken = ensureLocalAgentToken()
+      const response = await fetch(`http://127.0.0.1:${agent.port}/api/v1/session/bind-cloud-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cloud_user_id: user.value.email,
+          cloud_email: user.value.email,
+          agent_token: localToken
+        })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || '本地账号绑定失败')
+      }
+    }
+
+    // ensureLocalAgentToken 读取或生成本地 Agent 调用 token。
+    function ensureLocalAgentToken() {
+      const saved = localStorage.getItem(LOCAL_TOKEN_KEY)
+      if (saved) {
+        return saved
+      }
+
+      const token = crypto.randomUUID()
+      localStorage.setItem(LOCAL_TOKEN_KEY, token)
+      return token
+    }
+
     onMounted(() => {
+      // 页面加载时尝试恢复登录态，恢复成功后再探测本地 Agent。
       loadCurrentUser()
     })
 
@@ -143,6 +233,8 @@ const App = {
       authLoading,
       agentStatus,
       agentInfo,
+      bindStatus,
+      bindError,
       checking,
       sendCode,
       login,
@@ -208,7 +300,10 @@ const App = {
           <dd>{{ agentInfo?.version || '-' }}</dd>
           <dt>机器码</dt>
           <dd>{{ agentInfo?.machine_id || '-' }}</dd>
+          <dt>绑定</dt>
+          <dd>{{ bindStatus }}</dd>
         </dl>
+        <p v-if="bindError" class="error">{{ bindError }}</p>
       </section>
 
       <section v-if="user && agentStatus === '未连接'" class="panel notice">

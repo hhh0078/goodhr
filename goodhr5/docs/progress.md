@@ -42,6 +42,7 @@
 | 本地 Agent | 截图/OCR 本地文件管理 | TODO | screenshots/ 和 ocr/ |
 | 协议 | 云端任务协议 | TODO | Vue 协调云端任务状态和 Local Agent |
 | 协议 | Local Agent API 草案落地 | TODO | health/session/profile/browser/page/task |
+| 协议 | 云端登录后初始化/绑定本地 Agent | DONE | 前端探测成功后绑定云端 `/api/agents/bind` 和本地 `bind-cloud-user` |
 | 安全 | CORS/PNA | TODO | 允许正式云端域名访问 localhost |
 | 安全 | 本地 token | TODO | 初始化后所有本地 API 携带 token |
 | 发布 | 本地程序打包 | TODO | 首版先确认 macOS/Windows 目标 |
@@ -49,12 +50,17 @@
 
 ## 本次完成
 
+- 云端前端在探测到本地 Agent 后自动初始化绑定。
+- 调用云端 `POST /api/agents/bind` 保存机器绑定。
+- 调用本地 `POST /api/v1/session/bind-cloud-user` 写入当前云端账号。
+- 前端显示本地 Agent 绑定状态和绑定错误。
+
+## 历史完成
+
 - 云端后端新增 Agent 机器绑定模块。
 - 新增 `POST /api/agents/bind` 保存当前登录账号和机器码绑定。
 - 新增 `GET /api/agents/current` 查询当前账号绑定机器。
 - 当前使用内存 `AgentStore`，后续替换为 PostgreSQL store。
-
-## 历史完成
 
 - 新增 PostgreSQL 初始迁移 `0001_initial_schema.sql`。
 - 新增回滚脚本 `0001_initial_schema.down.sql`。
@@ -117,6 +123,6 @@
 
 ## 下一步建议
 
-1. 添加云端登录后初始化/绑定本地 Agent 流程。
-2. 添加系统/用户 AI 配置 API。
-3. 添加 PostgreSQL store 接口。
+1. 添加系统/用户 AI 配置 API。
+2. 添加 PostgreSQL store 接口。
+3. 添加平台账号/profile 多账号管理接口。
