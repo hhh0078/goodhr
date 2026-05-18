@@ -17,6 +17,7 @@ type TaskService struct {
 	systemConfigs  SystemConfigStore
 	positionStore  PositionStore
 	taskLogs       TaskLogService
+	aiConfigStore  AIConfigStore
 }
 
 type createTaskRequest struct {
@@ -28,13 +29,14 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore) *TaskService {
 	return &TaskService{
 		auth:          auth,
 		store:         store,
 		systemConfigs: systemConfigs,
 		positionStore: positionStore,
 		taskLogs:      taskLogs,
+		aiConfigStore: aiConfigStore,
 	}
 }
 
@@ -257,6 +259,12 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 禁止重复执行已在运行或已完成的任务
+	if task.Status == "running" || task.Status == "done" {
+		writeError(w, http.StatusBadRequest, "task is already "+task.Status)
+		return
+	}
+
 	// 异步执行任务，不阻塞 HTTP 响应
 	go s.executeTask(task, req.AgentBaseURL)
 
@@ -276,6 +284,9 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 	}
 
 	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
+
+	// 更新任务状态为 running
+	_ = s.store.UpdateTaskStatus(task.ID, "running")
 
 	// 读取平台配置
 	cfg, err := s.systemConfigs.Get("platform." + task.PlatformID)
@@ -304,11 +315,22 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, log)
+	// 读取 AI 配置（供 AI 筛选模式使用）
+	var aiConfig AIConfig
+	if task.Mode == "ai" && s.aiConfigStore != nil {
+		cfg, err := s.aiConfigStore.SystemConfig()
+		if err == nil {
+			aiConfig = cfg
+		}
+	}
+
+	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, aiConfig, log)
 	if err := executor.Run(ctx); err != nil {
 		log("error", fmt.Sprintf("任务执行失败: %v", err))
+		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 	} else {
 		log("info", "任务执行完成")
+		_ = s.store.UpdateTaskStatus(task.ID, "done")
 	}
 }
 

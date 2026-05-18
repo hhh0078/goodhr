@@ -2,105 +2,69 @@
 package httpapi
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
 
-// TaskRun 表示一个云端任务运行记录。
 type TaskRun struct {
-	ID                string
-	UserEmail         string
-	PlatformID        string
-	PlatformAccountID string
-	PositionID        string
-	Mode              string
-	MatchLimit        int
-	Status            string
-	ScannedCount      int
-	GreetedCount      int
-	SkippedCount      int
-	FailedCount       int
-	LocalTaskID       string
-	CreatedAt         time.Time
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
+	ID, UserEmail, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
+	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount int
+	CreatedAt time.Time; StartedAt *time.Time; FinishedAt *time.Time
 }
 
-// localTaskIDOrDefault 返回任务应写入云端和本地的默认本地任务 ID。
-func (t TaskRun) localTaskIDOrDefault() string {
-	if t.LocalTaskID != "" {
-		return t.LocalTaskID
-	}
-	if t.ID != "" {
-		return t.ID
-	}
-	return ""
-}
-
-// TaskStore 定义任务运行记录的持久化能力。
 type TaskStore interface {
 	CreateTask(task TaskRun) (TaskRun, error)
 	ListTasks(userEmail string) ([]TaskRun, error)
-	TaskByID(userEmail string, taskID string) (TaskRun, error)
+	TaskByID(userEmail, taskID string) (TaskRun, error)
+	UpdateTaskStatus(taskID, status string) error
+	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
 }
 
-// MemoryTaskStore 提供开发期使用的内存任务存储。
 type MemoryTaskStore struct {
-	mu     sync.Mutex
-	tasks  map[string]TaskRun
-	now    func() time.Time
-	nextID func() string
+	mu sync.Mutex; tasks map[string]TaskRun; now func() time.Time; nextID func() string
 }
 
-// NewMemoryTaskStore 创建开发期内存任务存储。
 func NewMemoryTaskStore() *MemoryTaskStore {
 	seq := 0
-	return &MemoryTaskStore{
-		tasks: make(map[string]TaskRun),
-		now:   time.Now,
-		nextID: func() string {
-			seq++
-			return "task_" + intString(seq)
-		},
-	}
+	return &MemoryTaskStore{tasks: make(map[string]TaskRun), now: time.Now, nextID: func() string { seq++; return fmt.Sprintf("task_%d", seq) }}
 }
 
-// CreateTask 创建任务运行记录。
 func (s *MemoryTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	task.ID = s.nextID()
-	task.Status = "created"
-	task.LocalTaskID = task.ID
-	task.CreatedAt = s.now()
+	s.mu.Lock(); defer s.mu.Unlock()
+	task.ID = s.nextID(); task.Status = "created"; task.LocalTaskID = task.ID; task.CreatedAt = s.now()
 	s.tasks[task.ID] = task
 	return task, nil
 }
 
-// ListTasks 列出当前用户的任务运行记录。
-func (s *MemoryTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }
+	now := s.now(); task.Status = status
+	if status == "running" && task.StartedAt == nil { task.StartedAt = &now }
+	if status == "done" || status == "failed" { task.FinishedAt = &now }
+	s.tasks[taskID] = task
+	return nil
+}
 
+func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }
+	task.ScannedCount += scanned; task.GreetedCount += greeted
+	task.SkippedCount += skipped; task.FailedCount += failed
+	s.tasks[taskID] = task
+	return nil
+}
+
+func (s *MemoryTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
 	items := make([]TaskRun, 0)
-	for _, task := range s.tasks {
-		if task.UserEmail != userEmail {
-			continue
-		}
-		items = append(items, task)
-	}
+	for _, task := range s.tasks { if task.UserEmail == userEmail { items = append(items, task) } }
 	return items, nil
 }
 
-// TaskByID 读取当前用户的单个任务运行记录。
-func (s *MemoryTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	task, ok := s.tasks[taskID]
-	if !ok || task.UserEmail != userEmail {
-		return TaskRun{}, ErrNotFound
-	}
+func (s *MemoryTaskStore) TaskByID(userEmail, taskID string) (TaskRun, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]; if !ok || task.UserEmail != userEmail { return TaskRun{}, ErrNotFound }
 	return task, nil
 }

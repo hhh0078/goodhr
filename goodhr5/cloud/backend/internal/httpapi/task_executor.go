@@ -18,6 +18,7 @@ type TaskExecutor struct {
 	platformCfg  PlatformConfig
 	filter       *KeywordFilter
 	position     map[string]any
+	aiConfig     AIConfig
 	agentBaseURL string
 	httpClient   *http.Client
 	logCallback  func(level, message string)
@@ -29,6 +30,7 @@ func NewTaskExecutor(
 	platformCfg PlatformConfig,
 	position map[string]any,
 	agentBaseURL string,
+	aiConfig AIConfig,
 	logCallback func(level, message string),
 ) *TaskExecutor {
 	var filter *KeywordFilter
@@ -47,6 +49,7 @@ func NewTaskExecutor(
 		platformCfg:  platformCfg,
 		filter:       filter,
 		position:     position,
+		aiConfig:     aiConfig,
 		agentBaseURL: agentBaseURL,
 		httpClient:   &http.Client{Timeout: 120 * time.Second},
 		logCallback:  logCallback,
@@ -367,11 +370,28 @@ func (e *TaskExecutor) positionDescription() string {
 
 // callAI 调用 AI API 对候选人进行筛选。
 func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error) {
+	model := "gpt-5.1-chat"
+	baseURL := "https://ai.58it.cn/v1/chat/completions"
+	temperature := 0.3
+
+	if e.aiConfig.Model != "" {
+		model = e.aiConfig.Model
+	}
+	if e.aiConfig.BaseURL != "" {
+		baseURL = e.aiConfig.BaseURL
+	}
+	if e.aiConfig.Temperature > 0 {
+		temperature = e.aiConfig.Temperature
+	}
+
 	prompt := fmt.Sprintf(defaultAIPrompt, jobDesc, candidateText)
-	reqBody := AIRequest{Model: "gpt-5.1-chat", Messages: []AIMsg{{Role: "user", Content: prompt}}, Temperature: 0.3}
+	reqBody := AIRequest{Model: model, Messages: []AIMsg{{Role: "user", Content: prompt}}, Temperature: temperature}
 	data, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest(http.MethodPost, "https://ai.58it.cn/v1/chat/completions", bytes.NewReader(data))
+	req, _ := http.NewRequest(http.MethodPost, baseURL, bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/json")
+	if e.aiConfig.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+e.aiConfig.APIKey)
+	}
 	resp, err := e.httpClient.Do(req)
 	if err != nil { return AIDecision{}, fmt.Errorf("AI API 请求失败: %w", err) }
 	defer resp.Body.Close()

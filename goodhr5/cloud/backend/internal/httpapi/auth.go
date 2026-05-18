@@ -138,6 +138,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		"token_type":   "Bearer",
 		"expires_in":   int(sessionTTL.Seconds()),
 		"user": map[string]any{
+			"id":    email,
 			"email": email,
 		},
 	})
@@ -163,6 +164,7 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true,
 		"user": map[string]any{
+			"id":    session.Email,
 			"email": session.Email,
 		},
 		"session": map[string]any{

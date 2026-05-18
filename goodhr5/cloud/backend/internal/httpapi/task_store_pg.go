@@ -80,7 +80,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		task.PlatformID,
 		task.Mode,
 		task.MatchLimit,
-		task.localTaskIDOrDefault(),
+		localTaskID(task),
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,
@@ -282,4 +282,28 @@ func (s *PostgresTaskStore) nullPlatformAccountID(ctx context.Context, userID st
 		return sql.NullString{}, err
 	}
 	return sql.NullString{String: accountID, Valid: true}, nil
+}
+
+// UpdateTaskStatus 更新 PostgreSQL 任务状态。
+func (s *PostgresTaskStore) UpdateTaskStatus(taskID string, status string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE task_runs SET status=$1, updated_at=NOW() WHERE id=$2`, status, taskID)
+	return err
+}
+
+func localTaskID(task TaskRun) string {
+	if task.LocalTaskID != "" { return task.LocalTaskID }
+	return task.ID
+}
+
+// IncrementTaskCounts 累加 PostgreSQL 任务统计计数。
+func (s *PostgresTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE task_runs SET scanned_count=scanned_count+$1, greeted_count=greeted_count+$2, skipped_count=skipped_count+$3, failed_count=failed_count+$4 WHERE id=$5`,
+		scanned, greeted, skipped, failed, taskID)
+	return err
 }
