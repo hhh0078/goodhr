@@ -1,0 +1,61 @@
+# GoodHR 5 任务进度表
+
+更新时间：2026-05-18
+
+## 状态说明
+
+- `TODO`：未开始
+- `DOING`：进行中
+- `DONE`：已完成并提交
+- `BLOCKED`：被外部信息或决策阻塞
+
+## 总进度
+
+| 模块 | 功能 | 状态 | 备注 |
+| --- | --- | --- | --- |
+| 工程 | 创建 goodhr5 目录结构 | DONE | 云端后端、云端前端、本地 Agent、文档目录 |
+| 工程 | 初始化进度表 | DONE | 后续每个功能完成后更新本文件 |
+| 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
+| 云端后端 | 邮箱验证码登录 | TODO | 163 SMTP，4 位验证码，Redis TTL |
+| 云端后端 | PostgreSQL schema | TODO | 用户、Agent、任务、配置 |
+| 云端后端 | Redis 会话与验证码 | TODO | 登录验证码、会话、在线状态 |
+| 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
+| 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
+| 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
+| 云端前端 | 邮箱验证码登录页 | TODO | 登录后探测本地 Agent |
+| 云端前端 | 本地程序下载/启动提示 | TODO | 未检测到本地 Agent 时展示 |
+| 云端前端 | 任务创建页面 | TODO | 选择平台、账号、筛选模式、匹配上限 |
+| 云端前端 | 任务列表与日志展开 | TODO | 扫描总数、已打招呼、跳过、失败 |
+| 云端前端 | 本地候选人 JSON 管理 | TODO | 通过 Local Agent 读取和渲染 |
+| 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
+| 本地 Agent | 端口 9001-9009 自动监听 | TODO | 遇到占用自动尝试下一个端口 |
+| 本地 Agent | 本地 machine_id | TODO | 哈希机器信息 + install_id |
+| 本地 Agent | 云端账号绑定 | TODO | 保存当前 cloud_user_id |
+| 本地 Agent | Profile/cookie 多账号管理 | TODO | 同平台多个账号独立 profile |
+| 本地 Agent | CloakBrowser 控制 | TODO | 启动、关闭、打开页面 |
+| 本地 Agent | 页面基础操作 API | TODO | 查找、滚动、随机位置点击 |
+| 本地 Agent | Boss 平台执行能力迁移 | TODO | iframe 内查找、当前可见候选人 |
+| 本地 Agent | 截图能力迁移 | TODO | 复用当前可用的详情弹框截图代码 |
+| 本地 Agent | OCR 能力迁移 | TODO | 复用当前 PaddleOCR 懒加载封装 |
+| 本地 Agent | 任务 JSON 存储 | TODO | 每个任务一个目录和 candidates.json |
+| 本地 Agent | 截图/OCR 本地文件管理 | TODO | screenshots/ 和 ocr/ |
+| 协议 | 云端任务协议 | TODO | Vue 协调云端任务状态和 Local Agent |
+| 协议 | Local Agent API 草案落地 | TODO | health/session/profile/browser/page/task |
+| 安全 | CORS/PNA | TODO | 允许正式云端域名访问 localhost |
+| 安全 | 本地 token | TODO | 初始化后所有本地 API 携带 token |
+| 发布 | 本地程序打包 | TODO | 首版先确认 macOS/Windows 目标 |
+| 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
+
+## 本次完成
+
+- 创建 `goodhr5` 工程目录。
+- 添加云端 Go 后端最小健康检查服务。
+- 添加 Vue 前端最小页面，包含本地 Agent 端口探测按钮。
+- 添加 Python 本地 Agent 最小健康检查服务。
+- 添加本进度表。
+
+## 下一步建议
+
+1. 完成本地 Agent 9001-9009 自动选端口。
+2. 添加 machine_id 生成和本地 `agent_data/machine.json`。
+3. 添加 Vue 页面自动探测本地 Agent。
