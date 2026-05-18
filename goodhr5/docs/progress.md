@@ -21,7 +21,7 @@
 | 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
-| 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
+| 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
@@ -50,12 +50,18 @@
 
 ## 本次完成
 
+- 云端后端新增 AI 配置模块。
+- 新增系统默认 AI 配置读取和更新接口。
+- 新增用户自定义 AI 配置读取和更新接口。
+- 新增最终生效 AI 配置接口，按“用户配置 > 系统默认配置”合并。
+- 当前使用内存 `AIConfigStore`，后续替换为 PostgreSQL store。
+
+## 历史完成
+
 - 云端前端在探测到本地 Agent 后自动初始化绑定。
 - 调用云端 `POST /api/agents/bind` 保存机器绑定。
 - 调用本地 `POST /api/v1/session/bind-cloud-user` 写入当前云端账号。
 - 前端显示本地 Agent 绑定状态和绑定错误。
-
-## 历史完成
 
 - 云端后端新增 Agent 机器绑定模块。
 - 新增 `POST /api/agents/bind` 保存当前登录账号和机器码绑定。
@@ -123,6 +129,6 @@
 
 ## 下一步建议
 
-1. 添加系统/用户 AI 配置 API。
-2. 添加 PostgreSQL store 接口。
-3. 添加平台账号/profile 多账号管理接口。
+1. 添加 PostgreSQL store 接口。
+2. 添加平台账号/profile 多账号管理接口。
+3. 添加任务创建页面。

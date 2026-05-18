@@ -77,3 +77,25 @@ GET /api/agents/current
 两个接口都需要 `Authorization: Bearer <token>`。
 
 第一版使用内存 `AgentStore`，后续替换为 PostgreSQL 实现。
+
+## AI 配置
+
+当前已提供：
+
+```http
+GET /api/config/system-ai
+PUT /api/admin/config/system-ai
+GET /api/config/user-ai
+PUT /api/config/user-ai
+GET /api/config/effective-ai
+```
+
+所有接口都需要 `Authorization: Bearer <token>`。
+
+配置优先级：
+
+```text
+用户 AI 配置 > 系统默认 AI 配置
+```
+
+第一版使用内存 `AIConfigStore`，后续替换为 PostgreSQL 实现。

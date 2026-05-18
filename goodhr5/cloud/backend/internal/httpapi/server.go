@@ -1,3 +1,4 @@
+// 本文件负责组装云端 HTTP 服务路由和公共响应工具。
 package httpapi
 
 import (
@@ -8,6 +9,7 @@ import (
 type Server struct {
 	auth  *AuthService
 	agent *AgentService
+	ai    *AIConfigService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和 Agent 模块依赖注入。
@@ -18,6 +20,7 @@ func NewServer() *Server {
 	return &Server{
 		auth:  auth,
 		agent: NewAgentService(auth, config.AgentStore()),
+		ai:    NewAIConfigService(auth, config.AIConfigStore()),
 	}
 }
 
@@ -33,6 +36,11 @@ func (s *Server) Routes() http.Handler {
 	// 注册机器绑定接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
+	// 注册 AI 配置接口，用于读取系统默认、用户自定义和最终生效配置。
+	mux.HandleFunc("/api/config/system-ai", s.ai.System)
+	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
+	mux.HandleFunc("/api/config/user-ai", s.ai.User)
+	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	return cors(mux)
 }
 

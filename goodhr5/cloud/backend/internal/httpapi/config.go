@@ -1,3 +1,4 @@
+// 本文件负责从环境变量加载云端后端配置，并创建开发期依赖。
 package httpapi
 
 import (
@@ -16,6 +17,7 @@ type Config struct {
 	SMTPFrom      string
 }
 
+// LoadConfigFromEnv 从环境变量读取云端后端配置。
 func LoadConfigFromEnv() Config {
 	return Config{
 		RedisAddr:     os.Getenv("GOODHR_REDIS_ADDR"),
@@ -29,6 +31,7 @@ func LoadConfigFromEnv() Config {
 	}
 }
 
+// AuthStore 创建认证存储；配置 Redis 时使用 Redis，否则使用内存实现。
 func (c Config) AuthStore() AuthStore {
 	if c.RedisAddr != "" {
 		return NewRedisAuthStore(c.RedisAddr, c.RedisPassword, c.RedisDB)
@@ -36,6 +39,7 @@ func (c Config) AuthStore() AuthStore {
 	return NewMemoryAuthStore()
 }
 
+// Mailer 创建验证码发信器；配置 SMTP 时真实发信，否则使用开发模式。
 func (c Config) Mailer() (Mailer, bool) {
 	if c.SMTPHost != "" && c.SMTPUsername != "" && c.SMTPPassword != "" {
 		return SMTPMailer{
@@ -54,6 +58,12 @@ func (c Config) AgentStore() AgentStore {
 	return NewMemoryAgentStore()
 }
 
+// AIConfigStore 创建 AI 配置存储；当前使用内存实现，后续替换为 PostgreSQL。
+func (c Config) AIConfigStore() AIConfigStore {
+	return NewMemoryAIConfigStore()
+}
+
+// envInt 从环境变量读取整数，读取失败时返回默认值。
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {
