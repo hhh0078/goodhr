@@ -491,13 +491,13 @@ const App = {
         const data = await listLocalCandidates(agentInfo.value, taskID)
         taskCandidates.value = {
           ...taskCandidates.value,
-          [taskID]: data.task?.items || []
+          [taskID]: data.data || {}
         }
       } catch (error) {
         candidateError.value = error.message
         taskCandidates.value = {
           ...taskCandidates.value,
-          [taskID]: []
+          [taskID]: {}
         }
       } finally {
         candidateLoadingTaskId.value = ''
@@ -608,6 +608,18 @@ const App = {
       return candidate.detail || candidate.details || candidate.skills || candidate.description || candidate.raw_text || ''
     }
 
+    // taskCandidateItems 返回本地任务数据里的候选人数组。
+    function taskCandidateItems(task) {
+      const taskData = taskCandidates.value[localTaskID(task)] || {}
+      return taskData.items || []
+    }
+
+    // taskPositionSnapshot 返回本地任务里保存的岗位模板快照。
+    function taskPositionSnapshot(task) {
+      const taskData = taskCandidates.value[localTaskID(task)] || {}
+      return taskData.position_snapshot || {}
+    }
+
     // parseLineItems 把多行文本拆成字符串数组。
     function parseLineItems(value) {
       return String(value || '')
@@ -670,7 +682,9 @@ const App = {
       positionName,
       candidateTitle,
       candidateSubtitle,
-      candidateDetail
+      candidateDetail,
+      taskCandidateItems,
+      taskPositionSnapshot
     }
   },
   template: `
@@ -916,11 +930,18 @@ const App = {
                 </button>
               </div>
               <p v-if="candidateError" class="error">{{ candidateError }}</p>
-              <p v-if="!taskCandidates[localTaskID(task)] || taskCandidates[localTaskID(task)].length === 0" class="hint">
+              <div v-if="taskPositionSnapshot(task).name" class="snapshot-panel">
+                <strong>{{ taskPositionSnapshot(task).name }}</strong>
+                <p>{{ taskPositionSnapshot(task).is_and_mode ? 'AND 匹配' : 'OR 匹配' }}</p>
+                <p class="snapshot-meta">关键词：{{ (taskPositionSnapshot(task).keywords || []).join(' / ') || '无' }}</p>
+                <p class="snapshot-meta">排除词：{{ (taskPositionSnapshot(task).exclude_keywords || []).join(' / ') || '无' }}</p>
+                <p v-if="taskPositionSnapshot(task).greet_message" class="snapshot-meta">问候语：{{ taskPositionSnapshot(task).greet_message }}</p>
+              </div>
+              <p v-if="taskCandidateItems(task).length === 0" class="hint">
                 暂无候选人数据
               </p>
               <div v-else class="candidate-list">
-                <article v-for="candidate in taskCandidates[localTaskID(task)]" :key="candidate.id" class="candidate-card">
+                <article v-for="candidate in taskCandidateItems(task)" :key="candidate.id" class="candidate-card">
                   <div>
                     <strong>{{ candidateTitle(candidate) }}</strong>
                     <p>{{ candidateSubtitle(candidate) }}</p>

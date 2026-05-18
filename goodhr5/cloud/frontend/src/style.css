@@ -271,6 +271,20 @@ dd {
   padding: 12px;
 }
 
+.snapshot-panel {
+  background: #f6f8fa;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.snapshot-panel p,
+.snapshot-meta {
+  color: #57606a;
+  margin-top: 6px;
+}
+
 .candidate-list {
   display: grid;
   gap: 10px;
