@@ -48,3 +48,19 @@ CGO_ENABLED=0 go run ./cmd/server
 ```
 
 注意：这里的 `GOODHR_SMTP_PASSWORD` 应该使用 163 邮箱 SMTP 授权码，不是邮箱登录密码。
+
+## PostgreSQL schema
+
+初始 schema 位于：
+
+```text
+db/migrations/0001_initial_schema.sql
+```
+
+回滚脚本位于：
+
+```text
+db/migrations/0001_initial_schema.down.sql
+```
+
+第一版先提交标准 SQL 迁移文件，迁移执行器后续接入。

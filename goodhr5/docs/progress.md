@@ -18,7 +18,7 @@
 | 工程 | 开发规范文档 | DONE | 模块化、文件头注释、方法中文注释、调用点说明 |
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
 | 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
-| 云端后端 | PostgreSQL schema | TODO | 用户、Agent、任务、配置 |
+| 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
 | 云端后端 | 系统/用户 AI 配置 | TODO | 用户配置优先，系统默认兜底 |
@@ -49,11 +49,16 @@
 
 ## 本次完成
 
+- 新增 PostgreSQL 初始迁移 `0001_initial_schema.sql`。
+- 新增回滚脚本 `0001_initial_schema.down.sql`。
+- 覆盖用户、Agent 机器绑定、平台账号映射、岗位、系统/用户 AI 配置、任务运行、任务日志。
+- 明确云端 schema 不保存候选人详情、截图、OCR 原文和招聘平台 cookie/profile。
+
+## 历史完成
+
 - 新增 `docs/development-standards.md`。
 - 明确模块化、文件头用途注释、方法中文注释、调用点说明要求。
 - 明确每完成一个功能必须更新进度表并单独提交。
-
-## 历史完成
 
 - 云端前端增加邮箱验证码登录页面。
 - 接入 `POST /api/auth/send-code`、`POST /api/auth/login`、`GET /api/auth/me`。
@@ -107,6 +112,6 @@
 
 ## 下一步建议
 
-1. 添加 PostgreSQL schema。
-2. 添加机器绑定 API。
-3. 添加云端登录后初始化/绑定本地 Agent 流程。
+1. 添加机器绑定 API。
+2. 添加云端登录后初始化/绑定本地 Agent 流程。
+3. 添加系统/用户 AI 配置 API。
