@@ -23,6 +23,7 @@
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
 | 云端后端 | PostgreSQL 机器绑定存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AgentStore 切换到 PostgreSQL |
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
+| 云端后端 | PostgreSQL AI 配置存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AIConfigStore 切换到 PostgreSQL |
 | 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，未配置 PostgreSQL 时使用内存 store |
 | 云端后端 | PostgreSQL 平台账号与任务存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 TaskStore 切换到 PostgreSQL |
 | 云端后端 | PostgreSQL 任务日志存储 | DONE | 配置 `GOODHR_PG_DSN` 后，TaskLogStore 切换到 PostgreSQL |
@@ -53,6 +54,11 @@
 | 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
 
 ## 本次完成
+
+- 云端后端新增 PostgreSQL AIConfigStore。
+- 配置 `GOODHR_PG_DSN` 后，系统默认和用户自定义 AI 配置写入 PostgreSQL。
+- 未初始化系统 AI 配置时，会自动写入一份默认配置。
+- 云端后端 README 增加 AIConfigStore 的 PostgreSQL 说明。
 
 - 云端后端新增 PostgreSQL AgentStore。
 - 配置 `GOODHR_PG_DSN` 后，机器绑定写入 PostgreSQL。

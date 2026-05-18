@@ -17,6 +17,17 @@ type AIConfig struct {
 	UpdatedAt      time.Time
 }
 
+// DefaultSystemAIConfig 返回系统默认 AI 配置。
+func DefaultSystemAIConfig() AIConfig {
+	return AIConfig{
+		BaseURL:        "https://api.siliconflow.cn/v1",
+		Model:          "default-model",
+		Temperature:    0.20,
+		PromptTemplate: "",
+		Enabled:        true,
+	}
+}
+
 // AIConfigStore 定义系统默认配置和用户自定义配置的存储能力。
 type AIConfigStore interface {
 	SystemConfig() (AIConfig, error)
@@ -37,15 +48,10 @@ type MemoryAIConfigStore struct {
 // NewMemoryAIConfigStore 创建开发期内存 AI 配置存储。
 func NewMemoryAIConfigStore() *MemoryAIConfigStore {
 	now := time.Now()
+	system := DefaultSystemAIConfig()
+	system.UpdatedAt = now
 	return &MemoryAIConfigStore{
-		system: AIConfig{
-			BaseURL:        "https://api.siliconflow.cn/v1",
-			Model:          "default-model",
-			Temperature:    0.20,
-			PromptTemplate: "",
-			Enabled:        true,
-			UpdatedAt:      now,
-		},
+		system:  system,
 		users:   make(map[string]AIConfig),
 		now:     time.Now,
 		started: now,

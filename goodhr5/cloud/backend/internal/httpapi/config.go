@@ -90,8 +90,11 @@ func (c Config) AgentStore(db *sql.DB) AgentStore {
 	return NewMemoryAgentStore()
 }
 
-// AIConfigStore 创建 AI 配置存储；当前使用内存实现，后续替换为 PostgreSQL。
-func (c Config) AIConfigStore() AIConfigStore {
+// AIConfigStore 创建 AI 配置存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) AIConfigStore(db *sql.DB) AIConfigStore {
+	if db != nil {
+		return NewPostgresAIConfigStore(db)
+	}
 	return NewMemoryAIConfigStore()
 }
 

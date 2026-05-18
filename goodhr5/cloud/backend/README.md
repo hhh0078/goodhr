@@ -27,6 +27,7 @@ CGO_ENABLED=0 go run ./cmd/server
 
 ```text
 AgentStore
+AIConfigStore
 PlatformAccountStore
 TaskStore
 TaskLogStore

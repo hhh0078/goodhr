@@ -30,7 +30,7 @@ func NewServer() (*Server, error) {
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, config.AgentStore(db)),
-		ai:               NewAIConfigService(auth, config.AIConfigStore()),
+		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		tasks:            NewTaskService(auth, taskStore),
 		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore(db)),
