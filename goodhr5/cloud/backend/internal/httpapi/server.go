@@ -15,6 +15,7 @@ type Server struct {
 	positions        *PositionService
 	tasks            *TaskService
 	taskLogs         *TaskLogService
+	systemConfigs    SystemConfigStore
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -28,14 +29,16 @@ func NewServer() (*Server, error) {
 	mailer, exposeDebugCode := config.Mailer()
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
 	taskStore := config.TaskStore(db)
+	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db))
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, config.AgentStore(db)),
 		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		positions:        NewPositionService(auth, config.PositionStore(db)),
-		tasks:            NewTaskService(auth, taskStore),
-		taskLogs:         NewTaskLogService(auth, taskStore, config.TaskLogStore(db)),
+		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs),
+		taskLogs:         taskLogs,
+		systemConfigs:    config.SystemConfigStore(db),
 	}, nil
 }
 
@@ -67,6 +70,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)
 	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
+	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
+	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	return cors(mux)
 }
 
@@ -75,6 +80,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/logs") {
 		// 调用任务日志服务处理日志读写，供前端展开任务卡片。
 		s.taskLogs.Collection(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/run") {
+		// 调用任务服务异步执行任务。
+		s.tasks.Run(w, r)
 		return
 	}
 	// 调用任务服务处理任务详情读取。
@@ -111,6 +121,33 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 // cors 为本地开发和云端前端调用添加基础跨域响应头。
+// ListPlatformConfigs 返回所有已启用的平台配置。
+func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// 调用认证服务读取当前用户，限制只返回已登录用户可见的配置。
+	_, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+
+	// 调用 system_configs 存储读取平台配置，用于云端前端和任务执行。
+	configs, err := s.systemConfigs.List("platform.")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load platform configs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"configs":  configs,
+	})
+}
+
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
