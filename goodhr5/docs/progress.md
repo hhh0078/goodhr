@@ -28,7 +28,7 @@
 | 云端前端 | 任务列表与日志展开 | TODO | 扫描总数、已打招呼、跳过、失败 |
 | 云端前端 | 本地候选人 JSON 管理 | TODO | 通过 Local Agent 读取和渲染 |
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
-| 本地 Agent | 端口 9001-9009 自动监听 | TODO | 遇到占用自动尝试下一个端口 |
+| 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | TODO | 哈希机器信息 + install_id |
 | 本地 Agent | 云端账号绑定 | TODO | 保存当前 cloud_user_id |
 | 本地 Agent | Profile/cookie 多账号管理 | TODO | 同平台多个账号独立 profile |
@@ -48,6 +48,12 @@
 
 ## 本次完成
 
+- 本地 Agent 支持 `9001-9009` 自动选端口。
+- `/health` 返回实际监听端口。
+- `GOODHR_AGENT_PORT` 可作为优先尝试端口。
+
+## 历史完成
+
 - 创建 `goodhr5` 工程目录。
 - 添加云端 Go 后端最小健康检查服务。
 - 添加 Vue 前端最小页面，包含本地 Agent 端口探测按钮。
@@ -56,6 +62,6 @@
 
 ## 下一步建议
 
-1. 完成本地 Agent 9001-9009 自动选端口。
-2. 添加 machine_id 生成和本地 `agent_data/machine.json`。
-3. 添加 Vue 页面自动探测本地 Agent。
+1. 添加 machine_id 生成和本地 `agent_data/machine.json`。
+2. 添加 Vue 页面自动探测本地 Agent。
+3. 添加云端邮箱验证码登录骨架。

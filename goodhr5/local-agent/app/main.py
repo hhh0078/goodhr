@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 HOST = "127.0.0.1"
-PORT = int(os.getenv("GOODHR_AGENT_PORT", "9001"))
+DEFAULT_PORTS = range(9001, 9010)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -17,6 +18,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "name": "GoodHR 5 Local Agent",
                     "version": "0.1.0",
+                    "port": self.server.server_address[1],
                     "machine_id": "",
                 }
             )
@@ -49,9 +51,41 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"GoodHR 5 Local Agent listening on http://{HOST}:{PORT}")
+    server = create_server()
+    host, port = server.server_address
+    print(f"GoodHR 5 Local Agent listening on http://{host}:{port}")
     server.serve_forever()
+
+
+def create_server() -> ThreadingHTTPServer:
+    errors: list[str] = []
+    for port in candidate_ports():
+        try:
+            return ThreadingHTTPServer((HOST, port), Handler)
+        except OSError as exc:
+            errors.append(f"{port}: {exc}")
+
+    detail = "; ".join(errors)
+    raise RuntimeError(f"No available GoodHR Local Agent port in 9001-9009. {detail}")
+
+
+def candidate_ports() -> Iterable[int]:
+    configured = os.getenv("GOODHR_AGENT_PORT")
+    yielded: set[int] = set()
+
+    if configured:
+        try:
+            port = int(configured)
+        except ValueError as exc:
+            raise RuntimeError("GOODHR_AGENT_PORT must be a number") from exc
+
+        yielded.add(port)
+        yield port
+
+    for port in DEFAULT_PORTS:
+        if port in yielded:
+            continue
+        yield port
 
 
 if __name__ == "__main__":
