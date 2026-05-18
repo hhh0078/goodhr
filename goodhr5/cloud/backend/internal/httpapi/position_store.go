@@ -24,6 +24,7 @@ type Position struct {
 type PositionStore interface {
 	ListPositions(userEmail string) ([]Position, error)
 	SavePosition(position Position) (Position, error)
+	PositionByID(userEmail string, positionID string) (Position, error)
 	DeletePosition(userEmail string, positionID string) error
 }
 
@@ -76,6 +77,18 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 	position.UpdatedAt = now
 	s.positions[position.ID] = position
 	return position, nil
+}
+
+// PositionByID 读取当前用户的单个岗位配置。
+func (s *MemoryPositionStore) PositionByID(userEmail string, positionID string) (Position, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.positions[positionID]
+	if !ok || item.UserEmail != userEmail {
+		return Position{}, ErrNotFound
+	}
+	return item, nil
 }
 
 // DeletePosition 删除当前用户的岗位配置。

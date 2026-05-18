@@ -29,6 +29,16 @@ func NewTaskLogService(auth *AuthService, tasks TaskStore, logStore TaskLogStore
 	}
 }
 
+// WriteLog 写入任务日志摘要（内部调用，不验证 session）。
+func (s *TaskLogService) WriteLog(taskID, level, message string) error {
+	_, err := s.logStore.AddTaskLog(TaskLog{
+		TaskID:  taskID,
+		Level:   level,
+		Message: message,
+	})
+	return err
+}
+
 // Collection 按请求方法处理任务日志集合资源。
 func (s *TaskLogService) Collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

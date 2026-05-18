@@ -164,6 +164,40 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 	return saved, nil
 }
 
+// PositionByID 读取 PostgreSQL 中当前用户的单个岗位配置。
+func (s *PostgresPositionStore) PositionByID(userEmail string, positionID string) (Position, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var item Position
+	var rawKeywords, rawExclude []byte
+	err := s.db.QueryRowContext(
+		ctx,
+		`
+		SELECT p.id, p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
+		       p.description, p.greet_message, p.is_and_mode, p.created_at, p.updated_at
+		FROM positions p
+		JOIN users u ON p.user_id = u.id
+		WHERE u.email = $1 AND p.id = $2
+		`,
+		userEmail, positionID,
+	).Scan(
+		&item.ID, &item.Name, &rawKeywords, &rawExclude,
+		&item.Description, &item.GreetMessage, &item.IsAndMode,
+		&item.CreatedAt, &item.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Position{}, ErrNotFound
+	}
+	if err != nil {
+		return Position{}, err
+	}
+
+	_ = decodeStringArray(rawKeywords, &item.Keywords)
+	_ = decodeStringArray(rawExclude, &item.ExcludeKeywords)
+	return item, nil
+}
+
 // DeletePosition 删除 PostgreSQL 中当前用户的岗位配置。
 func (s *PostgresPositionStore) DeletePosition(userEmail string, positionID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

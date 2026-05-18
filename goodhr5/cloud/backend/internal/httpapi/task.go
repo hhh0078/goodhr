@@ -2,16 +2,21 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
 
-// TaskService 处理任务创建、列表和详情请求。
+// TaskService 处理任务创建、列表、详情和执行请求。
 type TaskService struct {
-	auth  *AuthService
-	store TaskStore
+	auth           *AuthService
+	store          TaskStore
+	systemConfigs  SystemConfigStore
+	positionStore  PositionStore
+	taskLogs       TaskLogService
 }
 
 type createTaskRequest struct {
@@ -22,11 +27,14 @@ type createTaskRequest struct {
 	MatchLimit        int    `json:"match_limit"`
 }
 
-// NewTaskService 创建任务 API 服务，并注入认证服务和任务存储。
-func NewTaskService(auth *AuthService, store TaskStore) *TaskService {
+// NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService) *TaskService {
 	return &TaskService{
-		auth:  auth,
-		store: store,
+		auth:          auth,
+		store:         store,
+		systemConfigs: systemConfigs,
+		positionStore: positionStore,
+		taskLogs:      taskLogs,
 	}
 }
 
@@ -208,3 +216,101 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"finished_at":         item.FinishedAt,
 	}
 }
+
+// runTaskRequest 定义任务执行请求。
+type runTaskRequest struct {
+	AgentBaseURL string `json:"agent_base_url"`
+}
+
+// Run 启动任务异步执行。
+func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	taskID = strings.TrimSuffix(taskID, "/run")
+
+	task, err := s.store.TaskByID(session.Email, taskID)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+
+	var req runTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.AgentBaseURL == "" {
+		writeError(w, http.StatusBadRequest, "agent_base_url is required")
+		return
+	}
+
+	// 异步执行任务，不阻塞 HTTP 响应
+	go s.executeTask(task, req.AgentBaseURL)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": "running",
+	})
+}
+
+// executeTask 在 goroutine 中执行任务编排流程。
+func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
+	ctx := context.Background()
+
+	log := func(level, message string) {
+		// 调用任务日志存储写入日志，供前端展示运行摘要
+		_ = s.taskLogs.WriteLog(task.ID, level, message)
+	}
+
+	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
+
+	// 读取平台配置
+	cfg, err := s.systemConfigs.Get("platform." + task.PlatformID)
+	if err != nil {
+		log("error", fmt.Sprintf("读取平台配置失败: %v", err))
+		return
+	}
+
+	platformCfg, err := ParsePlatformConfig(cfg.ConfigValue)
+	if err != nil {
+		log("error", fmt.Sprintf("解析平台配置失败: %v", err))
+		return
+	}
+
+	// 读取岗位信息
+	position := map[string]any{}
+	if task.PositionID != "" {
+		pos, err := s.positionStore.PositionByID(sessionEmail(task.UserEmail), task.PositionID)
+		if err == nil {
+			// 确保位置不为 nil
+			position = map[string]any{
+				"name":     pos.Name,
+				"keywords": pos.Keywords,
+				"exclude":  pos.ExcludeKeywords,
+			}
+		}
+	}
+
+	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, log)
+	if err := executor.Run(ctx); err != nil {
+		log("error", fmt.Sprintf("任务执行失败: %v", err))
+	} else {
+		log("info", "任务执行完成")
+	}
+}
+
+// sessionEmail 模拟从 session 获取 email（用于内部调用）。
+func sessionEmail(email string) string { return email }
