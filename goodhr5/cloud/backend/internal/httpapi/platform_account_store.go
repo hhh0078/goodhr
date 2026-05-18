@@ -21,7 +21,7 @@ type PlatformAccount struct {
 
 // PlatformAccountStore 定义平台账号映射的持久化能力。
 type PlatformAccountStore interface {
-	ListPlatformAccounts(userEmail string, platformID string) ([]PlatformAccount, error)
+	ListPlatformAccounts(tenantID, userEmail, platformID string, isAdmin bool) ([]PlatformAccount, error)
 	SavePlatformAccount(account PlatformAccount) (PlatformAccount, error)
 	DeletePlatformAccount(userEmail string, accountID string) error
 }
@@ -48,13 +48,13 @@ func NewMemoryPlatformAccountStore() *MemoryPlatformAccountStore {
 }
 
 // ListPlatformAccounts 按用户和平台列出平台账号映射。
-func (s *MemoryPlatformAccountStore) ListPlatformAccounts(userEmail string, platformID string) ([]PlatformAccount, error) {
+func (s *MemoryPlatformAccountStore) ListPlatformAccounts(tenantID, userEmail, platformID string, isAdmin bool) ([]PlatformAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	items := make([]PlatformAccount, 0)
 	for _, account := range s.accounts {
-		if account.UserEmail != userEmail {
+		if !isAdmin && account.UserEmail != userEmail {
 			continue
 		}
 		if platformID != "" && account.PlatformID != platformID {

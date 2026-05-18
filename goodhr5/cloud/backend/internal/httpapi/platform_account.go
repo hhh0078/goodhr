@@ -43,7 +43,7 @@ func (s *PlatformAccountService) List(w http.ResponseWriter, r *http.Request) {
 
 	platformID := strings.TrimSpace(r.URL.Query().Get("platform_id"))
 	// 调用平台账号存储读取映射列表，用于任务创建时选择账号/profile。
-	items, err := s.store.ListPlatformAccounts(session.Email, platformID)
+	items, err := s.store.ListPlatformAccounts("", session.Email, platformID, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list platform accounts")
 		return

@@ -21,7 +21,7 @@ func NewPostgresPlatformAccountStore(db *sql.DB) *PostgresPlatformAccountStore {
 }
 
 // ListPlatformAccounts 按用户和平台列出 PostgreSQL 中的平台账号映射。
-func (s *PostgresPlatformAccountStore) ListPlatformAccounts(userEmail string, platformID string) ([]PlatformAccount, error) {
+func (s *PostgresPlatformAccountStore) ListPlatformAccounts(tenantID, userEmail, platformID string, isAdmin bool) ([]PlatformAccount, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
