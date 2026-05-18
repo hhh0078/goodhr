@@ -99,3 +99,18 @@ GET /api/config/effective-ai
 ```
 
 第一版使用内存 `AIConfigStore`，后续替换为 PostgreSQL 实现。
+
+## 平台账号映射
+
+当前已提供：
+
+```http
+GET /api/platform-accounts
+GET /api/platform-accounts?platform_id=boss
+POST /api/platform-accounts/create
+DELETE /api/platform-accounts/{id}
+```
+
+所有接口都需要 `Authorization: Bearer <token>`。
+
+云端只保存平台、显示名和 Local Agent 的 `local_profile_id`，不保存 cookie/profile 原文。

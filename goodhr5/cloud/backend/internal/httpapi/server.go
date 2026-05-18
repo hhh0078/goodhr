@@ -7,9 +7,10 @@ import (
 )
 
 type Server struct {
-	auth  *AuthService
-	agent *AgentService
-	ai    *AIConfigService
+	auth             *AuthService
+	agent            *AgentService
+	ai               *AIConfigService
+	platformAccounts *PlatformAccountService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和 Agent 模块依赖注入。
@@ -18,9 +19,10 @@ func NewServer() *Server {
 	mailer, exposeDebugCode := config.Mailer()
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
 	return &Server{
-		auth:  auth,
-		agent: NewAgentService(auth, config.AgentStore()),
-		ai:    NewAIConfigService(auth, config.AIConfigStore()),
+		auth:             auth,
+		agent:            NewAgentService(auth, config.AgentStore()),
+		ai:               NewAIConfigService(auth, config.AIConfigStore()),
+		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore()),
 	}
 }
 
@@ -41,6 +43,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
+	// 注册平台账号映射接口，用于同一平台多账号/profile 管理。
+	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
+	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
+	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
 	return cors(mux)
 }
 
