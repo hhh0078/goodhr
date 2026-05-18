@@ -21,6 +21,7 @@
 | 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | DONE | `POST /api/agents/bind`、`GET /api/agents/current`，当前使用内存 store |
+| 云端后端 | PostgreSQL 机器绑定存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AgentStore 切换到 PostgreSQL |
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
 | 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，未配置 PostgreSQL 时使用内存 store |
 | 云端后端 | PostgreSQL 平台账号与任务存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 TaskStore 切换到 PostgreSQL |
@@ -52,6 +53,11 @@
 | 发布 | 版本检查与下载 | TODO | 云端管理下载链接 |
 
 ## 本次完成
+
+- 云端后端新增 PostgreSQL AgentStore。
+- 配置 `GOODHR_PG_DSN` 后，机器绑定写入 PostgreSQL。
+- 机器绑定按用户和机器码 upsert，并返回最近活跃机器。
+- 云端后端 README 增加 AgentStore 的 PostgreSQL 说明。
 
 - 架构文档补充“任务运行态归属 Local Agent、网页只是控制台”的关键原则。
 - 云端后端新增 PostgreSQL TaskLogStore。

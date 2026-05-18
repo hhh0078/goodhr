@@ -29,7 +29,7 @@ func NewServer() (*Server, error) {
 	taskStore := config.TaskStore(db)
 	return &Server{
 		auth:             auth,
-		agent:            NewAgentService(auth, config.AgentStore()),
+		agent:            NewAgentService(auth, config.AgentStore(db)),
 		ai:               NewAIConfigService(auth, config.AIConfigStore()),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		tasks:            NewTaskService(auth, taskStore),

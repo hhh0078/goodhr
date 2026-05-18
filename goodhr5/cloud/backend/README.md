@@ -26,6 +26,7 @@ CGO_ENABLED=0 go run ./cmd/server
 当前已接入 PostgreSQL 的模块：
 
 ```text
+AgentStore
 PlatformAccountStore
 TaskStore
 TaskLogStore

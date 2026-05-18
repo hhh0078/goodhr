@@ -82,8 +82,11 @@ func (c Config) Mailer() (Mailer, bool) {
 	return DevMailer{}, true
 }
 
-// AgentStore 创建机器绑定存储；当前使用内存实现，后续替换为 PostgreSQL。
-func (c Config) AgentStore() AgentStore {
+// AgentStore 创建机器绑定存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) AgentStore(db *sql.DB) AgentStore {
+	if db != nil {
+		return NewPostgresAgentStore(db)
+	}
 	return NewMemoryAgentStore()
 }
 
