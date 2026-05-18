@@ -111,7 +111,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 }
 
 // ListTasks 列出 PostgreSQL 中当前用户的任务运行记录。
-func (s *PostgresTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
+func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -136,10 +136,11 @@ func (s *PostgresTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.email = $1
+		WHERE u.tenant_id = $1
+		  AND (u.email = $2 OR $3::boolean)
 		ORDER BY tr.created_at DESC
 		`,
-		userEmail,
+		tenantID, userEmail, isAdmin,
 	)
 	if err != nil {
 		return nil, err
@@ -175,7 +176,7 @@ func (s *PostgresTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
 }
 
 // TaskByID 读取 PostgreSQL 中当前用户的单个任务运行记录。
-func (s *PostgresTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, error) {
+func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin bool) (TaskRun, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -202,10 +203,9 @@ func (s *PostgresTaskStore) TaskByID(userEmail string, taskID string) (TaskRun, 
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.email = $1 AND tr.id = $2
+		WHERE u.tenant_id = $1 AND (u.email = $2 OR $3::boolean) AND tr.id = $4
 		`,
-		userEmail,
-		taskID,
+		tenantID, userEmail, isAdmin, taskID,
 	).Scan(
 		&item.ID,
 		&item.PlatformID,

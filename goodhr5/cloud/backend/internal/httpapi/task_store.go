@@ -1,70 +1,11 @@
-// 本文件负责定义云端任务的数据模型和存储接口。
 package httpapi
-
-import (
-	"fmt"
-	"sync"
-	"time"
-)
-
-type TaskRun struct {
-	ID, UserEmail, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
-	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount int
-	CreatedAt time.Time; StartedAt *time.Time; FinishedAt *time.Time
-}
-
-type TaskStore interface {
-	CreateTask(task TaskRun) (TaskRun, error)
-	ListTasks(userEmail string) ([]TaskRun, error)
-	TaskByID(userEmail, taskID string) (TaskRun, error)
-	UpdateTaskStatus(taskID, status string) error
-	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
-}
-
-type MemoryTaskStore struct {
-	mu sync.Mutex; tasks map[string]TaskRun; now func() time.Time; nextID func() string
-}
-
-func NewMemoryTaskStore() *MemoryTaskStore {
-	seq := 0
-	return &MemoryTaskStore{tasks: make(map[string]TaskRun), now: time.Now, nextID: func() string { seq++; return fmt.Sprintf("task_%d", seq) }}
-}
-
-func (s *MemoryTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
-	task.ID = s.nextID(); task.Status = "created"; task.LocalTaskID = task.ID; task.CreatedAt = s.now()
-	s.tasks[task.ID] = task
-	return task, nil
-}
-
-func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error {
-	s.mu.Lock(); defer s.mu.Unlock()
-	task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }
-	now := s.now(); task.Status = status
-	if status == "running" && task.StartedAt == nil { task.StartedAt = &now }
-	if status == "done" || status == "failed" { task.FinishedAt = &now }
-	s.tasks[taskID] = task
-	return nil
-}
-
-func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
-	s.mu.Lock(); defer s.mu.Unlock()
-	task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }
-	task.ScannedCount += scanned; task.GreetedCount += greeted
-	task.SkippedCount += skipped; task.FailedCount += failed
-	s.tasks[taskID] = task
-	return nil
-}
-
-func (s *MemoryTaskStore) ListTasks(userEmail string) ([]TaskRun, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
-	items := make([]TaskRun, 0)
-	for _, task := range s.tasks { if task.UserEmail == userEmail { items = append(items, task) } }
-	return items, nil
-}
-
-func (s *MemoryTaskStore) TaskByID(userEmail, taskID string) (TaskRun, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
-	task, ok := s.tasks[taskID]; if !ok || task.UserEmail != userEmail { return TaskRun{}, ErrNotFound }
-	return task, nil
-}
+import ("fmt"; "sync"; "time")
+type TaskRun struct { ID, UserEmail, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string; MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount int; CreatedAt time.Time; StartedAt, FinishedAt *time.Time }
+type TaskStore interface { CreateTask(task TaskRun) (TaskRun, error); ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error); TaskByID(tenantID, userEmail, taskID string, isAdmin bool) (TaskRun, error); UpdateTaskStatus(taskID, status string) error; IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error }
+type MemoryTaskStore struct { mu sync.Mutex; tasks map[string]TaskRun; now func() time.Time; nextID func() string }
+func NewMemoryTaskStore() *MemoryTaskStore { seq := 0; return &MemoryTaskStore{tasks: make(map[string]TaskRun), now: time.Now, nextID: func() string { seq++; return fmt.Sprintf("task_%d", seq) }} }
+func (s *MemoryTaskStore) CreateTask(task TaskRun) (TaskRun, error) { s.mu.Lock(); defer s.mu.Unlock(); task.ID = s.nextID(); task.Status = "created"; task.LocalTaskID = task.ID; task.CreatedAt = s.now(); s.tasks[task.ID] = task; return task, nil }
+func (s *MemoryTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error) { s.mu.Lock(); defer s.mu.Unlock(); items := make([]TaskRun, 0); for _, task := range s.tasks { if isAdmin { items = append(items, task) } else if task.UserEmail == userEmail { items = append(items, task) } }; return items, nil }
+func (s *MemoryTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin bool) (TaskRun, error) { s.mu.Lock(); defer s.mu.Unlock(); task, ok := s.tasks[taskID]; if !ok || (!isAdmin && task.UserEmail != userEmail) { return TaskRun{}, ErrNotFound }; return task, nil }
+func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error { s.mu.Lock(); defer s.mu.Unlock(); task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }; now := s.now(); task.Status = status; if status == "running" && task.StartedAt == nil { task.StartedAt = &now }; if status == "done" || status == "failed" { task.FinishedAt = &now }; s.tasks[taskID] = task; return nil }
+func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error { s.mu.Lock(); defer s.mu.Unlock(); task, ok := s.tasks[taskID]; if !ok { return ErrNotFound }; task.ScannedCount += scanned; task.GreetedCount += greeted; task.SkippedCount += skipped; task.FailedCount += failed; s.tasks[taskID] = task; return nil }

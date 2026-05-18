@@ -18,6 +18,7 @@ type TaskService struct {
 	positionStore  PositionStore
 	taskLogs       TaskLogService
 	aiConfigStore  AIConfigStore
+	tenantStore    TenantStore
 }
 
 type createTaskRequest struct {
@@ -29,7 +30,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore) *TaskService {
 	return &TaskService{
 		auth:          auth,
 		store:         store,
@@ -37,6 +38,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		positionStore: positionStore,
 		taskLogs:      taskLogs,
 		aiConfigStore: aiConfigStore,
+		tenantStore:   tenantStore,
 	}
 }
 
@@ -97,7 +99,8 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务存储读取任务列表，用于任务控制台展示统计摘要。
-	tasks, err := s.store.ListTasks(session.Email)
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	tasks, err := s.store.ListTasks(tenantID, session.Email, isAdmin)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
@@ -129,7 +132,8 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务存储读取任务详情，用于后续展开日志和候选人数据。
-	task, err := s.store.TaskByID(session.Email, taskID)
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -239,7 +243,8 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
 	taskID = strings.TrimSuffix(taskID, "/run")
 
-	task, err := s.store.TaskByID(session.Email, taskID)
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -304,7 +309,7 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 	// 读取岗位信息
 	position := map[string]any{}
 	if task.PositionID != "" {
-		pos, err := s.positionStore.PositionByID(sessionEmail(task.UserEmail), task.PositionID)
+		pos, err := s.positionStore.PositionByID("", sessionEmail(task.UserEmail), task.PositionID, true)
 		if err == nil {
 			// 确保位置不为 nil
 			position = map[string]any{
@@ -332,6 +337,13 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 		log("info", "任务执行完成")
 		_ = s.store.UpdateTaskStatus(task.ID, "done")
 	}
+}
+
+func (s *TaskService) getTenantInfo(email string) (string, bool) {
+	t, err := s.tenantStore.GetOrCreateTenant(email)
+	if err != nil { return "", false }
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
+	return t.ID, isAdmin
 }
 
 // sessionEmail 模拟从 session 获取 email（用于内部调用）。

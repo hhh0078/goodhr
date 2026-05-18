@@ -52,7 +52,7 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用岗位存储读取当前用户的岗位配置，供后续任务选择和复用。
-	items, err := s.store.ListPositions(session.Email)
+	items, err := s.store.ListPositions("", session.Email, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
 		return

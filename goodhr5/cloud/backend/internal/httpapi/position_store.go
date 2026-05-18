@@ -22,9 +22,9 @@ type Position struct {
 
 // PositionStore 定义岗位配置的持久化能力。
 type PositionStore interface {
-	ListPositions(userEmail string) ([]Position, error)
+	ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error)
 	SavePosition(position Position) (Position, error)
-	PositionByID(userEmail string, positionID string) (Position, error)
+	PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error)
 	DeletePosition(userEmail string, positionID string) error
 }
 
@@ -49,21 +49,6 @@ func NewMemoryPositionStore() *MemoryPositionStore {
 	}
 }
 
-// ListPositions 列出当前用户的岗位配置。
-func (s *MemoryPositionStore) ListPositions(userEmail string) ([]Position, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items := make([]Position, 0)
-	for _, item := range s.positions {
-		if item.UserEmail != userEmail {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
 // SavePosition 保存一个岗位配置。
 func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) {
 	s.mu.Lock()
@@ -80,7 +65,15 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 }
 
 // PositionByID 读取当前用户的单个岗位配置。
-func (s *MemoryPositionStore) PositionByID(userEmail string, positionID string) (Position, error) {
+func (s *MemoryPositionStore) ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	items := make([]Position, 0)
+	for _, p := range s.positions {
+		if isAdmin { items = append(items, p) } else if p.UserEmail == userEmail { items = append(items, p) }
+	}
+	return items, nil
+}
+func (s *MemoryPositionStore) PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

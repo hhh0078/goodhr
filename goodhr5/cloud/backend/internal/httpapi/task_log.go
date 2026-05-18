@@ -65,7 +65,7 @@ func (s *TaskLogService) Add(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务存储确认任务归属，避免写入其他用户任务日志。
-	if _, err := s.tasks.TaskByID(session.Email, taskID); errors.Is(err, ErrNotFound) {
+	if _, err := s.tasks.TaskByID("", session.Email, taskID, true); errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
@@ -117,7 +117,7 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务存储确认任务归属，避免读取其他用户任务日志。
-	if _, err := s.tasks.TaskByID(session.Email, taskID); errors.Is(err, ErrNotFound) {
+	if _, err := s.tasks.TaskByID("", session.Email, taskID, true); errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {

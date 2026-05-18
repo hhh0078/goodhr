@@ -20,7 +20,7 @@ func NewPostgresPositionStore(db *sql.DB) *PostgresPositionStore {
 }
 
 // ListPositions 列出 PostgreSQL 中当前用户的岗位配置。
-func (s *PostgresPositionStore) ListPositions(userEmail string) ([]Position, error) {
+func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -165,7 +165,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 }
 
 // PositionByID 读取 PostgreSQL 中当前用户的单个岗位配置。
-func (s *PostgresPositionStore) PositionByID(userEmail string, positionID string) (Position, error) {
+func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
