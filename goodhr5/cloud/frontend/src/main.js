@@ -1,6 +1,6 @@
 // 本文件负责 GoodHR 5 云端首页的邮箱登录、本地 Agent 探测和账号绑定初始化。
 import { computed, createApp, onMounted, ref } from 'vue'
-import { createTask, listPlatformAccounts, listTasks } from './services/cloudApi.js'
+import { createTask, listPlatformAccounts, listTaskLogs, listTasks } from './services/cloudApi.js'
 import './style.css'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -25,6 +25,8 @@ const App = {
     const platformAccounts = ref([])
     const taskError = ref('')
     const taskLoading = ref(false)
+    const expandedTaskId = ref('')
+    const taskLogs = ref({})
     const taskForm = ref({
       platformId: 'boss',
       platformAccountId: '',
@@ -132,6 +134,8 @@ const App = {
       bindError.value = ''
       platformAccounts.value = []
       tasks.value = []
+      taskLogs.value = {}
+      expandedTaskId.value = ''
       taskError.value = ''
       localStorage.removeItem(TOKEN_KEY)
     }
@@ -316,6 +320,32 @@ const App = {
       }
     }
 
+    // toggleTaskLogs 展开或收起任务日志面板。
+    async function toggleTaskLogs(taskID) {
+      if (expandedTaskId.value === taskID) {
+        expandedTaskId.value = ''
+        return
+      }
+
+      expandedTaskId.value = taskID
+      await loadTaskLogs(taskID)
+    }
+
+    // loadTaskLogs 调用云端任务日志 API 读取任务运行摘要。
+    async function loadTaskLogs(taskID) {
+      try {
+        taskError.value = ''
+        // 调用云端任务日志接口，用于任务卡片展开时展示运行过程。
+        const data = await listTaskLogs(authToken.value, taskID)
+        taskLogs.value = {
+          ...taskLogs.value,
+          [taskID]: data.logs || []
+        }
+      } catch (error) {
+        taskError.value = error.message
+      }
+    }
+
     // accountName 根据平台账号 ID 返回可读账号名称。
     function accountName(accountID) {
       const account = platformAccounts.value.find((item) => item.id === accountID)
@@ -344,6 +374,8 @@ const App = {
       taskForm,
       taskError,
       taskLoading,
+      expandedTaskId,
+      taskLogs,
       tasks,
       sendCode,
       login,
@@ -352,7 +384,8 @@ const App = {
       loadPlatformAccounts,
       onPlatformChange,
       createTaskDraft,
-      loadTasks
+      loadTasks,
+      toggleTaskLogs
     }
   },
   template: `
@@ -505,6 +538,20 @@ const App = {
               <dt>失败</dt>
               <dd>{{ task.failed_count }}</dd>
             </dl>
+            <div class="actions compact">
+              <button type="button" class="ghost" @click="toggleTaskLogs(task.id)">
+                {{ expandedTaskId === task.id ? '收起日志' : '展开日志' }}
+              </button>
+            </div>
+            <div v-if="expandedTaskId === task.id" class="log-panel">
+              <p v-if="!taskLogs[task.id] || taskLogs[task.id].length === 0" class="hint">暂无日志</p>
+              <ol v-else>
+                <li v-for="log in taskLogs[task.id]" :key="log.id">
+                  <span>{{ log.level }}</span>
+                  <strong>{{ log.message }}</strong>
+                </li>
+              </ol>
+            </div>
           </article>
         </div>
       </section>

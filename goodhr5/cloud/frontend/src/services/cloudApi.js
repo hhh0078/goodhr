@@ -37,3 +37,10 @@ export async function listTasks(token) {
     headers: { Authorization: `Bearer ${token}` }
   })
 }
+
+// listTaskLogs 调用云端任务日志接口读取某个任务的日志摘要。
+export async function listTaskLogs(token, taskID) {
+  return request(`/api/tasks/${taskID}/logs`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}

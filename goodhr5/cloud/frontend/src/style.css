@@ -131,6 +131,10 @@ select {
   margin-top: 16px;
 }
 
+.actions.compact {
+  margin-top: 12px;
+}
+
 .notice ol {
   color: #57606a;
   margin: 16px 0 0;
@@ -177,6 +181,32 @@ dd {
 
 .task-item dl {
   grid-template-columns: repeat(5, minmax(80px, 1fr));
+}
+
+.log-panel {
+  background: #f6f8fa;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.log-panel ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.log-panel span {
+  color: #57606a;
+  display: inline-block;
+  margin-right: 8px;
+  min-width: 48px;
+}
+
+.log-panel strong {
+  font-weight: 500;
 }
 
 @media (max-width: 720px) {
