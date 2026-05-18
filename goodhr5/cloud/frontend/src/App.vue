@@ -8,7 +8,7 @@
   <template v-else>
     <AgentPanel :agent="agent" :user="user" :token="auth.token" />
     <PositionManager :positions="positions" />
-    <TaskCreator :tasks="tasks" :positions="positions.positions" />
+    <TaskCreator :tasks="tasks" :positions="positions.positions" :token="auth.token.value" />
     <TaskList :tasks="tasks" />
   </template>
 </template>
