@@ -5,9 +5,12 @@ import os
 from collections.abc import Iterable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from app.machine import load_machine
+
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
+MACHINE = load_machine()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -19,7 +22,7 @@ class Handler(BaseHTTPRequestHandler):
                     "name": "GoodHR 5 Local Agent",
                     "version": "0.1.0",
                     "port": self.server.server_address[1],
-                    "machine_id": "",
+                    "machine_id": MACHINE["machine_id"],
                 }
             )
             return

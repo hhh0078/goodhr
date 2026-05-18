@@ -20,3 +20,19 @@ python3 -m app.main
 默认从 `127.0.0.1:9001` 到 `127.0.0.1:9009` 自动尝试，遇到端口占用会继续尝试下一个端口。
 
 如果设置了 `GOODHR_AGENT_PORT`，会优先尝试该端口，然后继续尝试默认端口范围。
+
+## 本地数据
+
+默认数据目录：
+
+```text
+local-agent/agent_data/
+```
+
+首次启动会生成：
+
+```text
+local-agent/agent_data/machine.json
+```
+
+`machine_id` 由系统类型、主机名、用户目录、安装 ID 等信息哈希生成。本地只保存哈希后的机器码和随机安装 ID，不保存用于上传的明文硬件信息。
