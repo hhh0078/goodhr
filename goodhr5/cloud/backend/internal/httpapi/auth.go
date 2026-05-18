@@ -16,7 +16,9 @@ const codeTTL = 5 * time.Minute
 const sessionTTL = 2 * time.Hour
 
 type AuthService struct {
-	store AuthStore
+	store           AuthStore
+	mailer          Mailer
+	exposeDebugCode bool
 }
 
 type sendCodeRequest struct {
@@ -28,9 +30,11 @@ type loginRequest struct {
 	Code  string `json:"code"`
 }
 
-func NewAuthService(store AuthStore) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool) *AuthService {
 	return &AuthService{
-		store: store,
+		store:           store,
+		mailer:          mailer,
+		exposeDebugCode: exposeDebugCode,
 	}
 }
 
@@ -63,12 +67,20 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	if err := s.mailer.SendLoginCode(email, code); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send code")
+		return
+	}
+
+	response := map[string]any{
 		"ok":         true,
 		"email":      email,
 		"expires_in": int(codeTTL.Seconds()),
-		"debug_code": code,
-	})
+	}
+	if s.exposeDebugCode {
+		response["debug_code"] = code
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {

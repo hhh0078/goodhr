@@ -31,3 +31,20 @@ Redis key：
 login_code:{email}
 session:{token}
 ```
+
+## 163 SMTP
+
+未配置 SMTP 时，后端使用开发模式 mailer，并在 `send-code` 响应里返回 `debug_code`。
+
+配置 SMTP 后，验证码会通过邮箱发送，响应不再返回 `debug_code`：
+
+```bash
+GOODHR_SMTP_HOST=smtp.163.com \
+GOODHR_SMTP_PORT=465 \
+GOODHR_SMTP_USERNAME=your_email@163.com \
+GOODHR_SMTP_PASSWORD=your_smtp_authorization_code \
+GOODHR_SMTP_FROM=your_email@163.com \
+CGO_ENABLED=0 go run ./cmd/server
+```
+
+注意：这里的 `GOODHR_SMTP_PASSWORD` 应该使用 163 邮箱 SMTP 授权码，不是邮箱登录密码。

@@ -11,8 +11,9 @@ type Server struct {
 
 func NewServer() *Server {
 	config := LoadConfigFromEnv()
+	mailer, exposeDebugCode := config.Mailer()
 	return &Server{
-		auth: NewAuthService(config.AuthStore()),
+		auth: NewAuthService(config.AuthStore(), mailer, exposeDebugCode),
 	}
 }
 

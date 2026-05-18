@@ -16,7 +16,7 @@
 | 工程 | 创建 goodhr5 目录结构 | DONE | 云端后端、云端前端、本地 Agent、文档目录 |
 | 工程 | 初始化进度表 | DONE | 后续每个功能完成后更新本文件 |
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
-| 云端后端 | 邮箱验证码登录 | DONE | 登录骨架完成：4 位验证码、校验、临时 token；Redis/163 SMTP 后续接入 |
+| 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
 | 云端后端 | PostgreSQL schema | TODO | 用户、Agent、任务、配置 |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
 | 云端后端 | 机器绑定 API | TODO | 初期只记录，不强限制 |
@@ -48,12 +48,17 @@
 
 ## 本次完成
 
+- 云端认证增加 `Mailer` 发信接口。
+- 配置 `GOODHR_SMTP_HOST`、`GOODHR_SMTP_USERNAME`、`GOODHR_SMTP_PASSWORD` 后，通过 SMTP 发送 4 位验证码。
+- 未配置 SMTP 时使用开发模式 mailer，并返回 `debug_code` 方便本地联调。
+- README 增加 163 SMTP 环境变量说明。
+
+## 历史完成
+
 - 云端认证增加 Redis 版 `AuthStore`。
 - 配置 `GOODHR_REDIS_ADDR` 后，验证码和会话写入 Redis。
 - 未配置 Redis 时继续使用内存存储，方便本地开发。
 - 新增云端后端 README，记录 Redis 环境变量和 key 规则。
-
-## 历史完成
 
 - 云端认证增加 `AuthStore` 存储接口。
 - 当前默认使用 `MemoryAuthStore`，验证码和会话逻辑不再直接依赖内存 map。
@@ -91,6 +96,6 @@
 
 ## 下一步建议
 
-1. 添加 163 SMTP 发信接口。
-2. 添加云端登录页并接入验证码接口。
-3. 添加 PostgreSQL schema。
+1. 添加云端登录页并接入验证码接口。
+2. 添加 PostgreSQL schema。
+3. 添加机器绑定 API。
