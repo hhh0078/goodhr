@@ -1,7 +1,7 @@
 // cookie HTTP API
 package httpapi
 
-import ("encoding/json"; "net/http"; "strings")
+import ("encoding/base64"; "encoding/json"; "net/http"; "strings")
 
 type CookieService struct { auth *AuthService; store CookieStore; tenantStore TenantStore; capture *CookieCapture }
 
@@ -50,6 +50,24 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
 }
 
+func (s *CookieService) Claim(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { writeError(w, 405, "method not allowed"); return }
+	tenantID, ok := s.currentTenant(w, r); if !ok { return }
+	cookieID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/cookies/"), "/claim")
+	rec, err := s.store.GetByID(tenantID, cookieID)
+	if err != nil { writeError(w, 404, "cookie not found"); return }
+	if rec.Status != "available" { writeError(w, 409, "cookie in use"); return }
+	var req struct { TaskID string `json:"task_id"` }; json.NewDecoder(r.Body).Decode(&req)
+	s.store.UpdateStatus(tenantID, cookieID, "in_use", req.TaskID)
+	writeJSON(w, 200, map[string]any{"ok": true, "encrypted_data": base64.StdEncoding.EncodeToString(rec.EncryptedData), "encrypted_keys": rec.EncryptedKeys})
+}
+func (s *CookieService) Release(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { writeError(w, 405, "method not allowed"); return }
+	tenantID, ok := s.currentTenant(w, r); if !ok { return }
+	cookieID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/cookies/"), "/release")
+	s.store.UpdateStatus(tenantID, cookieID, "available", "")
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
 // Delete
 func (s *CookieService) Delete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete { writeError(w, 405, "method not allowed"); return }
