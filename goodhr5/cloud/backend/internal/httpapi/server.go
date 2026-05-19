@@ -79,6 +79,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
 	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
+	mux.HandleFunc("/api/tenants/cookie-sharing", s.tenants.ToggleCookieSharing)
 	mux.HandleFunc("/api/tenants/members/", s.tenantMember)
 	mux.HandleFunc("/api/cookies", s.cookies.List)
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)

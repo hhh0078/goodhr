@@ -119,6 +119,17 @@ func (s *TenantService) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// ToggleCookieSharing 切换 cookie 共享开关。
+func (s *TenantService) ToggleCookieSharing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { writeError(w, 405, "method not allowed"); return }
+	session, ok := s.currentSession(w, r); if !ok { return }
+	tenant, err := s.store.GetOrCreateTenant(session.Email)
+	if err != nil { writeError(w, 500, "failed to get tenant"); return }
+	var req struct { Enabled bool `json:"enabled"` }; json.NewDecoder(r.Body).Decode(&req)
+	s.store.SetCookieSharing(tenant.ID, req.Enabled)
+	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})
+}
+
 // DeleteMember 移除成员，仅管理员可操作。
 func (s *TenantService) DeleteMember(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {

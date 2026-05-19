@@ -31,6 +31,8 @@ type TenantStore interface {
 	UpdateMemberRole(tenantID, email, role string) error
 	RemoveMember(tenantID, email string) error
 	IsTenantAdmin(tenantID, email string) (bool, error)
+	GetCookieSharing(tenantID string) (bool, error)
+	SetCookieSharing(tenantID string, enabled bool) error
 }
 
 // ---------- 内存实现 ----------
@@ -187,3 +189,15 @@ func (s *PostgresTenantStore) IsTenantAdmin(tenantID, email string) (bool, error
 	if err != nil { return false, nil }
 	return role == "admin", nil
 }
+
+func (s *PostgresTenantStore) GetCookieSharing(tenantID string) (bool, error) {
+	var enabled bool
+	err := s.db.QueryRow(`SELECT cookie_sharing_enabled FROM tenants WHERE id=$1`, tenantID).Scan(&enabled)
+	if err != nil { return true, nil }; return enabled, nil
+}
+func (s *PostgresTenantStore) SetCookieSharing(tenantID string, enabled bool) error {
+	_, err := s.db.Exec(`UPDATE tenants SET cookie_sharing_enabled=$1 WHERE id=$2`, enabled, tenantID)
+	return err
+}
+func (s *MemoryTenantStore) GetCookieSharing(tenantID string) (bool, error) { return true, nil }
+func (s *MemoryTenantStore) SetCookieSharing(tenantID string, enabled bool) error { return nil }
