@@ -19,6 +19,7 @@ type TaskService struct {
 	taskLogs       TaskLogService
 	aiConfigStore  AIConfigStore
 	tenantStore    TenantStore
+	cookieStore    CookieStore
 }
 
 type createTaskRequest struct {
@@ -30,7 +31,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore, cookieStore CookieStore) *TaskService {
 	return &TaskService{
 		auth:          auth,
 		store:         store,
@@ -39,6 +40,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		taskLogs:      taskLogs,
 		aiConfigStore: aiConfigStore,
 		tenantStore:   tenantStore,
+		cookieStore:   cookieStore,
 	}
 }
 
@@ -329,7 +331,7 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, aiConfig, log)
+	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, aiConfig, s.cookieStore, log)
 	if err := executor.Run(ctx); err != nil {
 		log("error", fmt.Sprintf("任务执行失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")

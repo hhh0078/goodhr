@@ -476,6 +476,19 @@ async def page_url() -> dict:
     page = await _require_page()
     return {"ok": True, "url": page.url}
 
+@app.post("/api/v1/page/load-profile")
+async def page_load_profile(payload: dict) -> dict:
+    import shutil, tempfile, base64, os
+    data = base64.b64decode(str(payload.get("data","")).strip())
+    if not payload.get("data"): raise HTTPException(400, "data required")
+    tmp = tempfile.mktemp(suffix=".tar.gz")
+    with open(tmp,"wb") as f: f.write(data)
+    target = str(data_dir()/"profiles"/str(payload.get("name","default")))
+    os.makedirs(target,exist_ok=True)
+    shutil.unpack_archive(tmp, target)
+    os.remove(tmp)
+    return {"ok":True,"dir":target}
+
 @app.post("/api/v1/page/export-profile")
 async def page_export_profile() -> dict:
     """导出浏览器 profile 目录为 tar.gz + Base64。"""

@@ -20,6 +20,7 @@ type TaskExecutor struct {
 	position     map[string]any
 	aiConfig     AIConfig
 	agentBaseURL string
+	cookieStore   CookieStore
 	httpClient   *http.Client
 	logCallback  func(level, message string)
 }
@@ -31,6 +32,7 @@ func NewTaskExecutor(
 	position map[string]any,
 	agentBaseURL string,
 	aiConfig AIConfig,
+	cookieStore CookieStore,
 	logCallback func(level, message string),
 ) *TaskExecutor {
 	var filter *KeywordFilter
@@ -50,6 +52,7 @@ func NewTaskExecutor(
 		filter:       filter,
 		position:     position,
 		aiConfig:     aiConfig,
+		cookieStore:  cookieStore,
 		agentBaseURL: agentBaseURL,
 		httpClient:   &http.Client{Timeout: 120 * time.Second},
 		logCallback:  logCallback,
