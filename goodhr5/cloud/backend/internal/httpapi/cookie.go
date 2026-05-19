@@ -3,10 +3,10 @@ package httpapi
 
 import ("encoding/json"; "net/http"; "strings")
 
-type CookieService struct { auth *AuthService; store CookieStore; tenantStore TenantStore }
+type CookieService struct { auth *AuthService; store CookieStore; tenantStore TenantStore; capture *CookieCapture }
 
 func NewCookieService(auth *AuthService, store CookieStore, tenantStore TenantStore) *CookieService {
-	return &CookieService{auth: auth, store: store, tenantStore: tenantStore}
+	return &CookieService{auth: auth, store: store, tenantStore: tenantStore, capture: NewCookieCapture(store)}
 }
 
 func (s *CookieService) currentTenant(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -42,6 +42,11 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		DisplayName: req.DisplayName, CookieType: "folder", Status: "capturing",
 	})
 	if err != nil { writeError(w, 500, "failed to create cookie"); return }
+	// 启动异步捕获流程
+	agentBaseURL := strings.TrimSpace(r.Header.Get("X-GoodHR-Agent-BaseURL"))
+	if agentBaseURL != "" {
+		s.capture.Capture(rec.ID, tenantID, req.PlatformID, agentBaseURL, rec.ID, nil)
+	}
 	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
 }
 

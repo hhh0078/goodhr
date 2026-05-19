@@ -470,6 +470,25 @@ async def crypto_decrypt(payload: dict) -> dict:
     return {"ok": True, "data": base64.b64encode(plaintext).decode()}
 
 
+@app.get("/api/v1/page/url")
+async def page_url() -> dict:
+    """返回当前页面 URL。"""
+    page = await _require_page()
+    return {"ok": True, "url": page.url}
+
+@app.post("/api/v1/page/export-profile")
+async def page_export_profile() -> dict:
+    """导出浏览器 profile 目录为 tar.gz + Base64。"""
+    import shutil, tempfile, base64, os
+    page = await _require_page()
+    user_data_dir = _browser_manager._last_user_data_dir
+    if not user_data_dir: raise HTTPException(400, "未使用持久化模式")
+    tmp = tempfile.mktemp(suffix=".tar.gz"); base = tmp.replace(".tar.gz", "")
+    shutil.make_archive(base, "gztar", user_data_dir)
+    with open(tmp, "rb") as f: data = base64.b64encode(f.read()).decode()
+    os.remove(tmp)
+    return {"ok": True, "data": data, "size": len(data)}
+
 @app.get("/api/v1/ocr/status")
 async def ocr_status() -> dict:
     """检查 PaddleOCR 是否可用。"""
