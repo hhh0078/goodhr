@@ -12,6 +12,9 @@ type PlatformLoginFlowOptions = {
   userDataDir?: string
 }
 
+const URL_CHECK_INTERVAL_MS = 3000
+const LOGIN_SUCCESS_CONFIRM_TIMES = 3
+
 /**
  * 执行 Boss 等招聘平台的扫码登录检测流程。
  * @param {string} agentBaseUrl - Local Agent HTTP 基础地址。
@@ -33,30 +36,46 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
   })
   await openPage(agentBaseUrl, { url: entryUrl })
   let sawLoginPage = false
+  let loggedInHits = 0
   for (let index = 0; index < 10; index += 1) {
-    await delay(1000)
+    await delay(URL_CHECK_INTERVAL_MS)
     const url = await currentPageURL(agentBaseUrl)
     if (isLoginURL(url, auth)) {
       sawLoginPage = true
+      loggedInHits = 0
       onStatus('请在打开的浏览器中扫码登录')
       break
     }
     if (isLoggedInURL(url, auth)) {
+      loggedInHits += 1
+      if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
+        onStatus('已检测到登录状态，正在导出 cookie')
+        return exportPageCookies(agentBaseUrl)
+      }
+      continue
+    }
+    loggedInHits = 0
+  }
+  if (!sawLoginPage) {
+    if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
       onStatus('已检测到登录状态，正在导出 cookie')
       return exportPageCookies(agentBaseUrl)
     }
+    throw new Error('未确认登录状态，请重试')
   }
-  if (!sawLoginPage) {
-    onStatus('已检测到登录状态，正在导出 cookie')
-    return exportPageCookies(agentBaseUrl)
-  }
+  loggedInHits = 0
   for (let index = 0; index < 180; index += 1) {
-    await delay(1000)
+    await delay(URL_CHECK_INTERVAL_MS)
     const url = await currentPageURL(agentBaseUrl)
     if (isLoggedInURL(url, auth)) {
-      onStatus('登录成功，正在导出 cookie')
-      return exportPageCookies(agentBaseUrl)
+      loggedInHits += 1
+      if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
+        onStatus('登录成功，正在导出 cookie')
+        return exportPageCookies(agentBaseUrl)
+      }
+      continue
     }
+    loggedInHits = 0
   }
   throw new Error('扫码登录超时')
 }
