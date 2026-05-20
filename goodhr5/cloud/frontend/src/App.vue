@@ -22,7 +22,7 @@
         
         <AccountManager v-else-if="activeMenu==='account'" :token="auth.token.value" :agent-base-url="agent.baseUrl.value" />
         <PositionManager v-else-if="activeMenu==='position'" :positions="positions" />
-        <TaskCreator v-else-if="activeMenu==='task-create'" :tasks="tasks" :positions="positions.positions" :token="auth.token.value" />
+        <TaskCreator v-else-if="activeMenu==='task-create'" :tasks="tasks" :positions="positions.positions.value" :token="auth.token.value" />
         <TaskList v-else-if="activeMenu==='task-list'" :tasks="tasks" />
       </div>
     </main>
