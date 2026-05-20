@@ -2,7 +2,7 @@
 :root{--bg:#0a0a0a;--bg-panel:#0d0d0d;--bg-input:#111;--fg:#0f0;--fg-dim:#0a0;--fg-error:#f33;--fg-warn:#fa0;--border:#333;--border-focus:#0f0;--font:'Courier New','Source Code Pro',monospace;--radius:0;--gap:12px}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.5}
-#app{max-width:1024px;margin:0 auto;padding:var(--gap)}
+#app{padding:0}
 input,textarea,select{font-family:inherit;font-size:inherit;background:var(--bg-input);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;width:100%}
 input:focus,textarea:focus,select:focus{border-color:var(--border-focus);outline:none}
 textarea{resize:vertical;min-height:60px}
