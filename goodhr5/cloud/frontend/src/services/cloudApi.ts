@@ -74,7 +74,7 @@ export async function createCookie(payload: any, agentBaseURL = '') {
   const data = await api('/api/cookies/create', {
     method: 'POST',
     headers: agentBaseURL ? { 'X-GoodHR-Agent-BaseURL': agentBaseURL } : undefined,
-    body: payload,
+    body: agentBaseURL ? { ...payload, agent_base_url: agentBaseURL } : payload,
   })
   return data.cookie
 }
