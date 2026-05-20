@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine
+FROM golang:1.25-alpine
 ENV GOPROXY=https://goproxy.cn,direct
 RUN go install github.com/air-verse/air@latest
 WORKDIR /app

@@ -4,17 +4,19 @@
 
 ```bash
 cd goodhr5
-docker compose up -d
+
+    docker compose build --no-cache
+    docker compose up -d
 ```
 
 首次启动会自动构建镜像（约 2-3 分钟），后续秒级启动。
 
-| 服务 | 地址 | 热重载 |
-|------|------|--------|
-| Go 后端 | http://localhost:8080 | ✅ 改 .go 自动重启 |
-| Vue 前端 | http://localhost:5173 | ✅ 改 .ts/.vue 即时刷新 |
-| PostgreSQL | localhost:5432 | - |
-| Redis | localhost:6379 | - |
+| 服务       | 地址                  | 热重载                  |
+| ---------- | --------------------- | ----------------------- |
+| Go 后端    | http://localhost:8080 | ✅ 改 .go 自动重启      |
+| Vue 前端   | http://localhost:5173 | ✅ 改 .ts/.vue 即时刷新 |
+| PostgreSQL | localhost:5432        | -                       |
+| Redis      | localhost:6379        | -                       |
 
 ## 停止
 
