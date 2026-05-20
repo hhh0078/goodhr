@@ -92,9 +92,10 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenantID, _ := s.getTenantInfo(session.Email)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": publicTaskRun(saved),
+		"task": s.publicTaskRunWithAccount(tenantID, saved),
 	})
 }
 
@@ -116,7 +117,7 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
-		"tasks": publicTaskRuns(tasks),
+		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks),
 	})
 }
 
@@ -157,7 +158,7 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": publicTaskRun(task),
+		"task": s.publicTaskRunWithAccount(tenantID, task),
 	})
 }
 
@@ -207,7 +208,7 @@ func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": publicTaskRun(updated),
+		"task": s.publicTaskRunWithAccount(tenantID, updated),
 	})
 }
 
@@ -283,6 +284,34 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"started_at":          item.StartedAt,
 		"finished_at":         item.FinishedAt,
 	}
+}
+
+func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, s.publicTaskRunWithAccount(tenantID, item))
+	}
+	return result
+}
+
+func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
+	result := publicTaskRun(item)
+	if item.PlatformAccountID == "" || tenantID == "" {
+		return result
+	}
+	account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
+	if err != nil {
+		return result
+	}
+	result["platform_account_name"] = account.DisplayName
+	result["platform_account"] = map[string]any{
+		"id":           account.ID,
+		"platform_id":  account.PlatformID,
+		"display_name": account.DisplayName,
+		"status":       account.Status,
+		"updated_at":   account.UpdatedAt,
+	}
+	return result
 }
 
 // Run 启动任务异步执行。
