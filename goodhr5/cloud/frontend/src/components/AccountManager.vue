@@ -95,7 +95,7 @@ import {
   listPlatformConfigs,
   listPlatformAccounts,
 } from "../services/cloudApi";
-import { openPage, startBrowser } from "../services/localAgentApi";
+import { openPage } from "../services/localAgentApi";
 import { runPlatformLoginFlow } from "../services/platformLoginFlow";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
@@ -214,13 +214,13 @@ async function openWithCookie(account: any) {
     const authConfig = platformAuthConfig(account.platform_id);
     const targetURL = authConfig.entry_url || authConfig.logged_in_url_prefix;
     if (!targetURL) throw new Error("平台配置缺少入口地址");
-    await startBrowser(props.agentBaseUrl, {
+    await openPage(props.agentBaseUrl, {
+      url: targetURL,
       persistent: true,
       user_data_dir: account.local_profile_id || account.display_name || account.id,
       headless: false,
       humanize: true,
     });
-    await openPage(props.agentBaseUrl, { url: targetURL });
     msg.value = "已打开推荐页";
     msgType.value = "success";
   } catch (e: any) {

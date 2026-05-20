@@ -385,10 +385,24 @@ async def page_open(payload: dict) -> dict:
     请求体参数：
         url: 目标页面 URL（必填）
         timeout: 导航超时毫秒数（默认 30000）
+        user_data_dir: 可选，指定账号目录名；传入时会先切换到对应目录再打开页面
     """
     url = str(payload.get("url", "")).strip()
     if not url:
         raise HTTPException(400, "url is required")
+
+    user_data_dir = str(payload.get("user_data_dir") or "").strip()
+    if user_data_dir:
+        # 允许 open 接口直接按账号目录切换浏览器上下文，避免前端必须先单独调 start。
+        await browser_start(
+            {
+                "persistent": bool(payload.get("persistent", True)),
+                "user_data_dir": user_data_dir,
+                "headless": bool(payload.get("headless", False)),
+                "humanize": bool(payload.get("humanize", True)),
+                "proxy": str(payload.get("proxy", "")),
+            }
+        )
 
     try:
         page = await _browser_manager.new_page("default")
