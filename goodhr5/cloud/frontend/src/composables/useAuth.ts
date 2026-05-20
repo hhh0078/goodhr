@@ -1,6 +1,6 @@
 /** 云端认证逻辑 */
 import { ref } from "vue";
-import { cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
+import { ApiError, cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
 import { currentUser, loginByCode, sendLoginCode } from "../services/cloudApi";
 
 export function useAuth() {
@@ -46,10 +46,22 @@ export function useAuth() {
 
   async function loadCurrentUser() {
     if (!token.value) return;
-    try {
-      user.value = await currentUser();
-    } catch {
-      logout();
+    for (let i = 0; i < 3; i += 1) {
+      try {
+        user.value = await currentUser();
+        return;
+      } catch (e: any) {
+        const status = e instanceof ApiError ? e.status : 0;
+        if (status === 401 || status === 403) {
+          logout();
+          return;
+        }
+        if (i < 2) {
+          await delay(1000);
+          continue;
+        }
+        error.value = e?.message || "云端服务暂不可用，请稍后重试";
+      }
     }
   }
 
@@ -73,4 +85,8 @@ export function useAuth() {
     logout,
     CLOUD_API_BASE: cloudApiBase(),
   };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

@@ -1,6 +1,18 @@
 // GoodHR 5 云端请求工具。业务接口统一从 cloudApi.ts 调用这里。
 export const TOKEN_KEY = 'goodhr5_access_token'
 
+export class ApiError extends Error {
+  status: number
+  data: any
+
+  constructor(message: string, status = 0, data: any = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.data = data
+  }
+}
+
 export function cloudApiBase() {
   return window.GOODHR_CLOUD_API || 'http://127.0.0.1:8084'
 }
@@ -27,13 +39,18 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<any> {
     ...(headers as Record<string, string> | undefined),
   }
 
-  const res = await fetch(`${cloudApiBase()}${path}`, {
-    ...rest,
-    headers: requestHeaders,
-    body: serializeBody(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${cloudApiBase()}${path}`, {
+      ...rest,
+      headers: requestHeaders,
+      body: serializeBody(body),
+    })
+  } catch (error: any) {
+    throw new ApiError(error?.message || '网络请求失败', 0, null)
+  }
   const data = await parseJSON(res)
-  if (!res.ok || data.ok === false) throw new Error(data.error || '请求失败')
+  if (!res.ok || data.ok === false) throw new ApiError(data.error || '请求失败', res.status, data)
   return data
 }
 
@@ -49,6 +66,6 @@ async function parseJSON(res: Response) {
   try {
     return JSON.parse(text)
   } catch {
-    throw new Error('响应不是有效 JSON')
+    throw new ApiError('响应不是有效 JSON', res.status, null)
   }
 }
