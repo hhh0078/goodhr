@@ -1,104 +1,53 @@
-// 本文件负责封装 GoodHR 云端 API 调用。
+// GoodHR 5 云端 API 封装。所有函数返回解析后的数据，不是原始响应。
+import { api } from './apiClient'
 
-// request 调用云端 API，并统一处理 JSON 响应和错误。
-export async function request(path, options = {}) {
-  const base = window.GOODHR_CLOUD_API || "http://127.0.0.1:8084";
-  const response = await fetch(`${base}${path}`, options);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "云端请求失败");
-  }
-  return data;
+export async function listPositions() {
+  const data = await api('/api/positions')
+  return data.positions
 }
 
-// listPlatformAccounts 读取当前用户的平台账号映射列表。
-export async function listPlatformAccounts(token, platformId) {
-  const query = platformId
-    ? `?platform_id=${encodeURIComponent(platformId)}`
-    : "";
-  return request(`/api/platform-accounts${query}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function savePosition(payload: any) {
+  const data = await api('/api/positions', { method: 'POST', body: JSON.stringify(payload) })
+  return data.position
 }
 
-// listPositions 读取当前用户的岗位配置列表。
-export async function listPositions(token) {
-  return request("/api/positions", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function deletePosition(positionID: string) {
+  await api(`/api/positions/${positionID}`, { method: 'DELETE' })
 }
 
-// savePosition 调用云端岗位配置接口创建或更新岗位模板。
-export async function savePosition(token, payload) {
-  return request("/api/positions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+export async function listPlatformAccounts() {
+  const data = await api('/api/platform-accounts')
+  return data.accounts
 }
 
-// deletePosition 调用云端岗位配置接口删除岗位模板。
-export async function deletePosition(token, positionID) {
-  return request(`/api/positions/${positionID}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function createPlatformAccount(payload: any) {
+  const data = await api('/api/platform-accounts/create', { method: 'POST', body: JSON.stringify(payload) })
+  return data.account
 }
 
-// createTask 调用云端任务接口创建任务运行记录。
-export async function createTask(token, payload) {
-  return request("/api/tasks", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+export async function deletePlatformAccount(accountID: string) {
+  await api(`/api/platform-accounts/${accountID}`, { method: 'DELETE' })
 }
 
-// listTasks 调用云端任务接口读取任务列表。
-export async function listTasks(token) {
-  return request("/api/tasks", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function createTask(payload: any) {
+  const data = await api('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
+  return data.task
 }
 
-// listTaskLogs 调用云端任务日志接口读取某个任务的日志摘要。
-export async function runTask(token, taskID, agentBaseURL) {
-  return request(`/api/tasks/${taskID}/run`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+export async function listTasks() {
+  const data = await api('/api/tasks')
+  return data.tasks
+}
+
+export async function runTask(taskID: string, agentBaseURL: string) {
+  const data = await api(`/api/tasks/${taskID}/run`, {
+    method: 'POST',
     body: JSON.stringify({ agent_base_url: agentBaseURL }),
-  });
+  })
+  return data
 }
 
-export async function createPlatformAccount(token, payload) {
-  return request("/api/platform-accounts/create", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function deletePlatformAccount(token, accountID) {
-  return request(`/api/platform-accounts/${accountID}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-export async function listTaskLogs(token, taskID) {
-  return request(`/api/tasks/${taskID}/logs`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+export async function listTaskLogs(taskID: string) {
+  const data = await api(`/api/tasks/${taskID}/logs`)
+  return data.logs
 }

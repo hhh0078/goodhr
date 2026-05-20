@@ -106,7 +106,7 @@ const props = defineProps({ tasks: Object, positions: Object, token: String, age
 const showCreate = ref(false)
 const accounts = ref<any[]>([])
 const accountsError = ref('')
-async function loadAccounts() { accountsError.value=''; try{ const d=await listPlatformAccounts(props.token); accounts.value=d.accounts||[] }catch(e:any){accountsError.value=e.message} }
+async function loadAccounts() { accountsError.value=''; try{ accounts.value=await listPlatformAccounts() }catch(e:any){accountsError.value=e.message} }
 async function createTask() { if(props.tasks) await props.tasks.create(); showCreate.value=false; await loadAccounts() }
-onMounted(()=>{ if(props.token) loadAccounts() })
+onMounted(loadAccounts)
 </script>

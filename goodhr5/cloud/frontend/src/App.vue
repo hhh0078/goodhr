@@ -43,7 +43,7 @@ import AccountManager from './components/AccountManager.vue'
 import PositionManager from './components/PositionManager.vue'
 import TaskList from './components/TaskList.vue'
 
-const auth = useAuth(); const agent = useAgent(); const positions = usePositions(auth.token); const tasks = useTasks(auth.token, agent.baseUrl); const { user } = auth
+const auth = useAuth(); const agent = useAgent(); const positions = usePositions(); const tasks = useTasks(agent.baseUrl); const { user } = auth
 const activeMenu = ref('agent')
 const menuItems = [{id:'agent',label:'本地 Agent'},{id:'tenant',label:'团队管理'},{id:'account',label:'平台账号'},{id:'position',label:'岗位模板'},{id:'task-list',label:'任务列表'}]
 const agentStatusColor = computed(() => { const s=agent.status.value; if(s.includes('连接')) return 'success'; if(s.includes('检测中')) return 'warn'; return 'error' })
