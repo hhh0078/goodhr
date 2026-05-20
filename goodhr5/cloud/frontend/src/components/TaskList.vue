@@ -92,41 +92,45 @@
               <span class="stat-chip">失败 {{ task.failed_count }}</span>
             </div>
             <div class="actions compact task-actions">
-              <button
-                class="ghost primary"
-                :disabled="tasks.loading.value"
-                @click="tasks.execute(task.id)"
-              >
-                运行
-              </button>
-              <button
-                class="ghost danger"
-                :disabled="tasks.loading.value || task.status !== 'running'"
-                @click="tasks.stop(task.id)"
-              >
-                停止
-              </button>
-              <button class="ghost" @click="tasks.toggleLogs(task.id)">
-                {{
-                  tasks.expandedTaskId.value === task.id
-                    ? "收起日志"
-                    : "展开日志"
-                }}
-              </button>
-              <button class="ghost" @click="tasks.toggleCandidates(task)">
-                {{
-                  tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)
-                    ? "收起候选人"
-                    : "查看候选人"
-                }}
-              </button>
-              <button
-                class="ghost"
-                :disabled="tasks.loading.value || task.status === 'running'"
-                @click="startEdit(task)"
-              >
-                {{ editingTaskId === task.id ? "取消编辑" : "编辑" }}
-              </button>
+              <div class="task-actions-left">
+                <button
+                  class="ghost primary"
+                  :disabled="tasks.loading.value"
+                  @click="tasks.execute(task.id)"
+                >
+                  运行
+                </button>
+                <button
+                  class="ghost danger"
+                  :disabled="tasks.loading.value || task.status !== 'running'"
+                  @click="tasks.stop(task.id)"
+                >
+                  停止
+                </button>
+              </div>
+              <div class="task-actions-right">
+                <button class="ghost" @click="tasks.toggleLogs(task.id)">
+                  {{
+                    tasks.expandedTaskId.value === task.id
+                      ? "收起日志"
+                      : "展开日志"
+                  }}
+                </button>
+                <button class="ghost" @click="tasks.toggleCandidates(task)">
+                  {{
+                    tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)
+                      ? "收起候选人"
+                      : "查看候选人"
+                  }}
+                </button>
+                <button
+                  class="ghost"
+                  :disabled="tasks.loading.value || task.status === 'running'"
+                  @click="startEdit(task)"
+                >
+                  {{ editingTaskId === task.id ? "取消编辑" : "编辑" }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -382,7 +386,13 @@ onMounted(loadAccounts);
 }
 .task-actions {
   margin-top: 0;
-  justify-content: flex-end;
+  justify-content: space-between;
+  width: 100%;
+}
+.task-actions-left,
+.task-actions-right {
+  display: flex;
+  gap: 8px;
 }
 @media (max-width: 900px) {
   .task-main {
@@ -398,7 +408,8 @@ onMounted(loadAccounts);
     justify-content: flex-start;
   }
   .task-actions {
-    justify-content: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
   }
 }
 </style>
