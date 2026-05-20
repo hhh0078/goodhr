@@ -53,7 +53,8 @@ const props = defineProps({ tasks: Object, positions: Object, token: String })
 const accounts = ref([])
 const accountsError = ref('')
 const filteredAccounts = computed(() => accounts.value.filter(a => a.platform_id === props.tasks.form.value.platformId))
-const selectedPosition = computed(() => props.positions.find(p => p.id === props.tasks.form.value.positionId) || null)
+const posList = typeof props.positions === 'object' && !Array.isArray(props.positions) ? (props.positions as any)?.positions || [] : (props.positions as any[]) || []
+const selectedPosition = computed(() => posList.find((p: any) => p.id === props.tasks.form.value.positionId) || null)
 async function loadAccounts() { accountsError.value = ''; try { const data = await listPlatformAccounts(props.token); accounts.value = data.accounts || [] } catch (e) { accountsError.value = e.message } }
 function onPlatformChange() { props.tasks.form.value.platformAccountId = '' }
 onMounted(() => { if (props.token) loadAccounts() })

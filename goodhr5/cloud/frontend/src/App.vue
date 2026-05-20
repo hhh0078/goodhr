@@ -30,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, toRefs, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuth } from './composables/useAuth'
 import { useAgent } from './composables/useAgent'
 import { usePositions } from './composables/usePositions'
@@ -44,7 +44,7 @@ import PositionManager from './components/PositionManager.vue'
 import TaskCreator from './components/TaskCreator.vue'
 import TaskList from './components/TaskList.vue'
 
-const auth = useAuth(); const agent = useAgent(); const positions = usePositions(auth.token); const tasks = useTasks(auth.token, agent.baseUrl); const { user } = toRefs(auth)
+const auth = useAuth(); const agent = useAgent(); const positions = usePositions(auth.token); const tasks = useTasks(auth.token, agent.baseUrl); const { user } = auth
 const activeMenu = ref('agent')
 const menuItems = [{id:'agent',label:'本地 Agent'},{id:'tenant',label:'团队管理'},{id:'account',label:'平台账号'},{id:'position',label:'岗位模板'},{id:'task-create',label:'创建任务'},{id:'task-list',label:'任务列表'}]
 const agentStatusColor = computed(() => { const s=agent.status.value; if(s.includes('连接')) return 'success'; if(s.includes('检测中')) return 'warn'; return 'error' })
