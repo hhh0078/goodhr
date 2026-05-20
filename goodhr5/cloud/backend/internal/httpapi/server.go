@@ -10,6 +10,7 @@ import (
 type Server struct {
 	auth             *AuthService
 	agent            *AgentService
+	agentWS          *AgentWSHub
 	ai               *AIConfigService
 	platformAccounts *PlatformAccountService
 	positions        *PositionService
@@ -30,19 +31,24 @@ func NewServer() (*Server, error) {
 	}
 	mailer, exposeDebugCode := config.Mailer()
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
+	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
+	agentStore := config.AgentStore(db)
+	tenantStore := config.TenantStore(db)
+	cookieStore := config.CookieStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db))
 	return &Server{
 		auth:             auth,
-		agent:            NewAgentService(auth, config.AgentStore(db)),
+		agent:            NewAgentService(auth, agentStore),
+		agentWS:          agentWS,
 		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
 		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
 		positions:        NewPositionService(auth, config.PositionStore(db)),
-		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), config.TenantStore(db), config.CookieStore(db)),
+		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
 		systemConfigs:    config.SystemConfigStore(db),
-		tenants:          NewTenantService(auth, config.TenantStore(db)),
-		cookies:          NewCookieService(auth, config.CookieStore(db), config.TenantStore(db)),
+		tenants:          NewTenantService(auth, tenantStore),
+		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
 }
 
@@ -58,6 +64,8 @@ func (s *Server) Routes() http.Handler {
 	// 注册机器绑定接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
+	mux.HandleFunc("/api/agents/ws", s.agentWS.ServeWS)
+	mux.HandleFunc("/api/agents/ws-status", s.agentWS.Status)
 	// 注册 AI 配置接口，用于读取系统默认、用户自定义和最终生效配置。
 	mux.HandleFunc("/api/config/system-ai", s.ai.System)
 	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
@@ -97,6 +105,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/run") {
 		// 调用任务服务异步执行任务。
 		s.tasks.Run(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/stop") {
+		// 调用任务服务停止正在运行的任务。
+		s.tasks.Stop(w, r)
 		return
 	}
 	// 调用任务服务处理任务详情读取。
@@ -155,8 +168,8 @@ func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"configs":  configs,
+		"ok":      true,
+		"configs": configs,
 	})
 }
 

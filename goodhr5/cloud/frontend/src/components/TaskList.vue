@@ -28,6 +28,8 @@
     </div>
 
     <p v-if="tasks.tasks.value.length === 0" class="hint">暂无任务</p>
+    <p v-if="tasks.message.value" class="success">{{ tasks.message.value }}</p>
+    <p v-if="tasks.error.value" class="error">{{ tasks.error.value }}</p>
 
     <div v-else class="card-list">
       <article v-for="task in tasks.tasks.value" :key="task.id" class="card" style="flex-direction:column">
@@ -48,6 +50,7 @@
 
         <div class="actions compact" style="margin-top:8px">
           <button class="ghost primary" :disabled="tasks.loading.value" @click="tasks.execute(task.id)">运行</button>
+          <button class="ghost danger" :disabled="tasks.loading.value || task.status !== 'running'" @click="tasks.stop(task.id)">停止</button>
           <button class="ghost" @click="tasks.toggleLogs(task.id)">
             {{ tasks.expandedTaskId.value === task.id ? '收起日志' : '展开日志' }}
           </button>

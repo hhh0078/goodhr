@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
+from app.cookie_crypto import decrypt_aes_gcm, decrypt_wrapped_key
 from app.humanize import navigate_to_page, random_delay, scroll_to_load, wait_and_click
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
@@ -34,6 +35,7 @@ from app.tasks import (
     save_ocr_text,
     screenshot_path,
 )
+from app.ws_client import WSAgentClient
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
@@ -62,6 +64,7 @@ app.add_middleware(
 
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
+_ws_agent = WSAgentClient(_browser_manager)
 
 # ---------------------------------------------------------------------------
 # 路由处理函数
@@ -109,6 +112,86 @@ async def bind_cloud_user(payload: dict) -> dict:
         "cloud_email": account["cloud_email"],
         "bound_at": account["bound_at"],
     }
+
+
+@app.post("/api/v1/ws/connect")
+async def ws_connect(payload: dict) -> dict:
+    """连接云端 WebSocket。
+
+    Args:
+        payload: 包含 cloud_ws_url 和 token 的请求体。
+
+    Returns:
+        返回当前 WebSocket 连接状态。
+    """
+    cloud_ws_url = str(payload.get("cloud_ws_url", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not cloud_ws_url:
+        raise HTTPException(400, "cloud_ws_url is required")
+    if not token:
+        raise HTTPException(400, "token is required")
+    return await _ws_agent.connect(cloud_ws_url, token)
+
+
+@app.get("/api/v1/ws/status")
+async def ws_status() -> dict:
+    """返回 Local Agent 到云端 WebSocket 的连接状态。"""
+    return _ws_agent.status()
+
+
+@app.post("/api/v1/ws/disconnect")
+async def ws_disconnect() -> dict:
+    """断开 Local Agent 到云端 WebSocket 的连接。"""
+    return await _ws_agent.disconnect()
+
+
+@app.post("/api/v1/tasks/{task_id}/start-ws")
+async def start_task_ws(task_id: str, payload: dict) -> dict:
+    """通过任务级 WebSocket 启动云端任务。
+
+    Args:
+        task_id: 云端任务 ID。
+        payload: 包含 cloud_api_base、cloud_ws_url 和 token 的请求体。
+
+    Returns:
+        返回任务启动提示和 WebSocket 状态。
+    """
+    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
+    cloud_ws_url = str(payload.get("cloud_ws_url", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not cloud_api_base:
+        raise HTTPException(400, "cloud_api_base is required")
+    if not cloud_ws_url:
+        raise HTTPException(400, "cloud_ws_url is required")
+    if not token:
+        raise HTTPException(400, "token is required")
+    try:
+        return await _ws_agent.start_task(task_id, cloud_api_base, cloud_ws_url, token)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+
+
+@app.post("/api/v1/tasks/{task_id}/stop-ws")
+async def stop_task_ws(task_id: str, payload: dict) -> dict:
+    """停止云端任务并按需断开任务级 WebSocket。
+
+    Args:
+        task_id: 云端任务 ID。
+        payload: 包含 cloud_api_base 和 token 的请求体。
+
+    Returns:
+        返回任务停止提示和 WebSocket 状态。
+    """
+    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not cloud_api_base:
+        raise HTTPException(400, "cloud_api_base is required")
+    if not token:
+        raise HTTPException(400, "token is required")
+    try:
+        return await _ws_agent.stop_task(task_id, cloud_api_base, token)
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
 
 
 @app.get("/api/v1/profiles")
@@ -442,30 +525,15 @@ async def page_screenshot(payload: dict) -> dict:
 @app.post("/api/v1/crypto/decrypt")
 async def crypto_decrypt(payload: dict) -> dict:
     """用 Agent 私钥解密对称密钥 SK，再用 SK 解密密文。"""
-    # 调用 crypto 模块的解密逻辑，避免在路由中做复杂操作
     encrypted_sk_b64 = str(payload.get("encrypted_sk", "")).strip()
     encrypted_data_b64 = str(payload.get("encrypted_data", "")).strip()
     if not encrypted_sk_b64 or not encrypted_data_b64:
         raise HTTPException(400, "encrypted_sk and encrypted_data are required")
 
-    import base64, hashlib
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives import serialization, hashes
-    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    import base64
 
-    # 1. 用私钥解密 SK
-    sk_bytes = base64.b64decode(encrypted_sk_b64)
-    private_key = serialization.load_pem_private_key(CRYPTO_KEYS["private_key"].encode(), password=None)
-    shared_secret = private_key.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), sk_bytes))
-    sk = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"goodhr5-cookie-v1").derive(shared_secret)
-
-    # 2. 用 SK 解密数据
-    data_bytes = base64.b64decode(encrypted_data_b64)
-    nonce = data_bytes[:12]
-    ciphertext = data_bytes[12:]
-    aesgcm = AESGCM(sk)
-    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    sk = decrypt_wrapped_key(CRYPTO_KEYS["private_key"], encrypted_sk_b64)
+    plaintext = decrypt_aes_gcm(base64.b64decode(encrypted_data_b64), sk)
 
     return {"ok": True, "data": base64.b64encode(plaintext).decode()}
 
@@ -475,6 +543,14 @@ async def page_url() -> dict:
     """返回当前页面 URL。"""
     page = await _require_page()
     return {"ok": True, "url": page.url}
+
+
+@app.get("/api/v1/page/cookies")
+async def page_cookies() -> dict:
+    """导出当前浏览器上下文 cookies JSON。"""
+    page = await _require_page()
+    cookies = await page.context.cookies()
+    return {"ok": True, "cookies": cookies}
 
 @app.post("/api/v1/page/load-profile")
 async def page_load_profile(payload: dict) -> dict:

@@ -38,22 +38,25 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 	err = s.db.QueryRowContext(
 		ctx,
 		`
-		INSERT INTO local_agents (user_id, machine_id, agent_version, bind_status, last_seen_at)
-		VALUES ($1, $2, $3, $4, now())
+		INSERT INTO local_agents (user_id, machine_id, agent_version, public_key, bind_status, last_seen_at)
+		VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (user_id, machine_id)
 		DO UPDATE SET
 			agent_version = EXCLUDED.agent_version,
+			public_key = EXCLUDED.public_key,
 			bind_status = EXCLUDED.bind_status,
 			last_seen_at = now()
-		RETURNING machine_id, agent_version, bind_status, last_seen_at, created_at
+		RETURNING machine_id, agent_version, public_key, bind_status, last_seen_at, created_at
 		`,
 		userID,
 		binding.MachineID,
 		binding.AgentVersion,
+		binding.PublicKey,
 		status,
 	).Scan(
 		&saved.MachineID,
 		&saved.AgentVersion,
+		&saved.PublicKey,
 		&saved.BindStatus,
 		&saved.LastSeenAt,
 		&saved.CreatedAt,
@@ -75,7 +78,7 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT machine_id, agent_version, bind_status, last_seen_at, created_at
+		SELECT machine_id, agent_version, public_key, bind_status, last_seen_at, created_at
 		FROM local_agents la
 		INNER JOIN users u ON u.id = la.user_id
 		WHERE u.email = $1
@@ -86,6 +89,7 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 	).Scan(
 		&binding.MachineID,
 		&binding.AgentVersion,
+		&binding.PublicKey,
 		&binding.BindStatus,
 		&binding.LastSeenAt,
 		&binding.CreatedAt,

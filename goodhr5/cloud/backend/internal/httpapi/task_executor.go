@@ -14,15 +14,15 @@ import (
 
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
-	task         TaskRun
-	platformCfg  PlatformConfig
-	filter       *KeywordFilter
-	position     map[string]any
-	aiConfig     AIConfig
-	agentBaseURL string
-	cookieStore   CookieStore
-	httpClient   *http.Client
-	logCallback  func(level, message string)
+	task        TaskRun
+	platformCfg PlatformConfig
+	filter      *KeywordFilter
+	position    map[string]any
+	aiConfig    AIConfig
+	agentWS     *AgentWSHub
+	cookieStore CookieStore
+	httpClient  *http.Client
+	logCallback func(level, message string)
 }
 
 // NewTaskExecutor 创建任务编排器实例。
@@ -30,7 +30,7 @@ func NewTaskExecutor(
 	task TaskRun,
 	platformCfg PlatformConfig,
 	position map[string]any,
-	agentBaseURL string,
+	agentWS *AgentWSHub,
 	aiConfig AIConfig,
 	cookieStore CookieStore,
 	logCallback func(level, message string),
@@ -47,15 +47,15 @@ func NewTaskExecutor(
 	}
 
 	return &TaskExecutor{
-		task:         task,
-		platformCfg:  platformCfg,
-		filter:       filter,
-		position:     position,
-		aiConfig:     aiConfig,
-		cookieStore:  cookieStore,
-		agentBaseURL: agentBaseURL,
-		httpClient:   &http.Client{Timeout: 120 * time.Second},
-		logCallback:  logCallback,
+		task:        task,
+		platformCfg: platformCfg,
+		filter:      filter,
+		position:    position,
+		aiConfig:    aiConfig,
+		cookieStore: cookieStore,
+		agentWS:     agentWS,
+		httpClient:  &http.Client{Timeout: 120 * time.Second},
+		logCallback: logCallback,
 	}
 }
 
@@ -64,22 +64,34 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 	e.log("info", "任务执行开始")
 
 	// 1. 启动浏览器
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := e.startBrowser(); err != nil {
 		return fmt.Errorf("启动浏览器失败: %w", err)
 	}
 	defer e.stopBrowser()
 
 	// 2. 打开平台推荐页
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := e.openPage(); err != nil {
 		return fmt.Errorf("打开页面失败: %w", err)
 	}
 
 	// 3. 滚动加载候选人列表
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := e.scrollPage(); err != nil {
 		return fmt.Errorf("滚动加载失败: %w", err)
 	}
 
 	// 4. 提取候选人卡片信息
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	candidates, err := e.extractCandidates()
 	if err != nil {
 		return fmt.Errorf("提取候选人失败: %w", err)
@@ -242,43 +254,31 @@ func (e *TaskExecutor) clickGreet() error {
 	}, nil)
 }
 
-// ---------- Local Agent HTTP 客户端 ----------
+// ---------- Local Agent WebSocket 客户端 ----------
 
-// post 向 Local Agent 发送 POST 请求。
+// post 通过 WebSocket 向 Local Agent 发送浏览器操作请求。
 func (e *TaskExecutor) post(path string, body any, result any) error {
-	url := e.agentBaseURL + path
-
-	var reqBody io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("序列化请求体失败: %w", err)
-		}
-		reqBody = bytes.NewReader(data)
+	if e.agentWS == nil {
+		return fmt.Errorf("Local Agent WebSocket 未初始化")
 	}
-
-	req, err := http.NewRequest(http.MethodPost, url, reqBody)
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+	payload := map[string]any{
+		"path": path,
+		"body": body,
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := e.httpClient.Do(req)
+	resp, err := e.agentWS.SendCommand(e.task.UserEmail, AgentWSMessage{
+		Type:    "local.http.post",
+		TaskID:  e.task.ID,
+		Payload: payload,
+	}, 3)
 	if err != nil {
 		return fmt.Errorf("请求 Local Agent 失败 (%s): %w", path, err)
 	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("Local Agent 错误 %d: %s", resp.StatusCode, string(respBytes))
-	}
 
 	if result != nil {
+		respBytes, err := json.Marshal(resp.Payload)
+		if err != nil {
+			return fmt.Errorf("序列化 Local Agent 响应失败: %w", err)
+		}
 		if err := json.Unmarshal(respBytes, result); err != nil {
 			return fmt.Errorf("解析响应失败: %w", err)
 		}
@@ -399,13 +399,19 @@ func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error)
 		req.Header.Set("Authorization", "Bearer "+e.aiConfig.APIKey)
 	}
 	resp, err := e.httpClient.Do(req)
-	if err != nil { return AIDecision{}, fmt.Errorf("AI API 请求失败: %w", err) }
+	if err != nil {
+		return AIDecision{}, fmt.Errorf("AI API 请求失败: %w", err)
+	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 { return AIDecision{}, fmt.Errorf("AI API 错误 %d", resp.StatusCode) }
+	if resp.StatusCode >= 400 {
+		return AIDecision{}, fmt.Errorf("AI API 错误 %d", resp.StatusCode)
+	}
 	var aiResp AIResponse
 	json.Unmarshal(body, &aiResp)
-	if len(aiResp.Choices) == 0 { return AIDecision{}, fmt.Errorf("AI 未返回结果") }
+	if len(aiResp.Choices) == 0 {
+		return AIDecision{}, fmt.Errorf("AI 未返回结果")
+	}
 	content := aiResp.Choices[0].Message.Content
 	var decision AIDecision
 	if err := json.Unmarshal([]byte(content), &decision); err != nil {

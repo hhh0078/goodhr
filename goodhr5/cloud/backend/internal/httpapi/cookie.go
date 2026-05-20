@@ -13,11 +13,14 @@ type CookieService struct {
 	auth        *AuthService
 	store       CookieStore
 	tenantStore TenantStore
-	capture     *CookieCapture
+	agentStore  AgentStore
+	agentWS     *AgentWSHub
 }
 
-func NewCookieService(auth *AuthService, store CookieStore, tenantStore TenantStore) *CookieService {
-	return &CookieService{auth: auth, store: store, tenantStore: tenantStore, capture: NewCookieCapture(store)}
+// NewCookieService 创建 cookie 管理服务。
+// agentWS 用于向当前用户在线 Local Agent 下发扫码登录和 cookie 捕获指令。
+func NewCookieService(auth *AuthService, store CookieStore, tenantStore TenantStore, agentStore AgentStore, agentWS *AgentWSHub) *CookieService {
+	return &CookieService{auth: auth, store: store, tenantStore: tenantStore, agentStore: agentStore, agentWS: agentWS}
 }
 
 func (s *CookieService) currentTenant(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -69,9 +72,9 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		PlatformID   string `json:"platform_id"`
-		DisplayName  string `json:"display_name"`
-		AgentBaseURL string `json:"agent_base_url"`
+		PlatformID  string `json:"platform_id"`
+		DisplayName string `json:"display_name"`
+		Cookies     any    `json:"cookies"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, 400, "invalid json")
@@ -81,27 +84,69 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "platform_id required")
 		return
 	}
+	if req.Cookies == nil {
+		writeError(w, 400, "cookies required")
+		return
+	}
+	cookieJSON, err := json.Marshal(req.Cookies)
+	if err != nil {
+		writeError(w, 400, "invalid cookies")
+		return
+	}
+	encryptedData, encryptedKeys, err := s.encryptCookieForTenant(tenantID, cookieJSON)
+	if err != nil {
+		log.Printf("[cookies] encrypt failed: %v", err)
+		writeError(w, 500, "failed to encrypt cookie")
+		return
+	}
 
 	rec, err := s.store.Create(CookieRecord{
 		TenantID: tenantID, UserID: session.Email, PlatformID: req.PlatformID,
-		DisplayName: req.DisplayName, CookieType: "folder", Status: "capturing",
+		DisplayName: req.DisplayName, CookieType: "json", Status: "available",
+		EncryptedData: encryptedData, EncryptedKeys: encryptedKeys, SizeBytes: int64(len(cookieJSON)),
 	})
 	if err != nil {
 		log.Printf("[cookies] create failed: %v", err)
 		writeError(w, 500, "failed to create cookie")
 		return
 	}
-	// 启动异步捕获流程
-	agentBaseURL := strings.TrimSpace(r.Header.Get("X-GoodHR-Agent-BaseURL"))
-	if agentBaseURL == "" {
-		agentBaseURL = strings.TrimSpace(req.AgentBaseURL)
+	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
+}
+
+// encryptCookieForTenant 为租户内已登记公钥的 Agent 自动加密 cookie 数据密钥。
+// 用户无需手动分享密钥，数据库只保存密文和每台 Agent 的加密数据密钥。
+func (s *CookieService) encryptCookieForTenant(tenantID string, cookieJSON []byte) ([]byte, map[string]string, error) {
+	sk, err := GenerateSK()
+	if err != nil {
+		return nil, nil, err
 	}
-	captureStarted := false
-	if agentBaseURL != "" {
-		s.capture.Capture(rec.ID, tenantID, req.PlatformID, agentBaseURL, rec.ID, nil)
-		captureStarted = true
+	encryptedData, err := EncryptData(cookieJSON, sk)
+	if err != nil {
+		return nil, nil, err
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec, "capture_started": captureStarted})
+	members, err := s.tenantStore.ListMembers(tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	encryptedKeys := map[string]string{}
+	for _, member := range members {
+		if member.Email == "" {
+			continue
+		}
+		binding, err := s.agentStore.CurrentBinding(member.Email)
+		if err != nil || binding.PublicKey == "" || binding.MachineID == "" {
+			continue
+		}
+		encryptedKey, err := EncryptSKForAgent(binding.PublicKey, sk)
+		if err != nil {
+			return nil, nil, err
+		}
+		encryptedKeys[binding.MachineID] = encryptedKey
+	}
+	if len(encryptedKeys) == 0 {
+		return nil, nil, ErrNotFound
+	}
+	return encryptedData, encryptedKeys, nil
 }
 
 func (s *CookieService) Claim(w http.ResponseWriter, r *http.Request) {

@@ -288,13 +288,21 @@ func (s *PostgresTaskStore) nullPlatformAccountID(ctx context.Context, userID st
 func (s *PostgresTaskStore) UpdateTaskStatus(taskID string, status string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE task_runs SET status=$1, updated_at=NOW() WHERE id=$2`, status, taskID)
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE task_runs
+		SET
+			status=$1,
+			started_at=CASE WHEN $1='running' AND started_at IS NULL THEN NOW() ELSE started_at END,
+			finished_at=CASE WHEN $1 IN ('done','failed','stopped') THEN NOW() ELSE finished_at END
+		WHERE id=$2
+	`, status, taskID)
 	return err
 }
 
 func localTaskID(task TaskRun) string {
-	if task.LocalTaskID != "" { return task.LocalTaskID }
+	if task.LocalTaskID != "" {
+		return task.LocalTaskID
+	}
 	return task.ID
 }
 

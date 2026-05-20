@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // TaskService 处理任务创建、列表、详情和执行请求。
@@ -20,6 +21,9 @@ type TaskService struct {
 	aiConfigStore  AIConfigStore
 	tenantStore    TenantStore
 	cookieStore    CookieStore
+	agentWS        *AgentWSHub
+	runningMu      sync.Mutex
+	runningCancels map[string]context.CancelFunc
 }
 
 type createTaskRequest struct {
@@ -31,16 +35,18 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore, cookieStore CookieStore) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore, cookieStore CookieStore, agentWS *AgentWSHub) *TaskService {
 	return &TaskService{
-		auth:          auth,
-		store:         store,
-		systemConfigs: systemConfigs,
-		positionStore: positionStore,
-		taskLogs:      taskLogs,
-		aiConfigStore: aiConfigStore,
-		tenantStore:   tenantStore,
-		cookieStore:   cookieStore,
+		auth:           auth,
+		store:          store,
+		systemConfigs:  systemConfigs,
+		positionStore:  positionStore,
+		taskLogs:       taskLogs,
+		aiConfigStore:  aiConfigStore,
+		tenantStore:    tenantStore,
+		cookieStore:    cookieStore,
+		agentWS:        agentWS,
+		runningCancels: map[string]context.CancelFunc{},
 	}
 }
 
@@ -225,11 +231,6 @@ func publicTaskRun(item TaskRun) map[string]any {
 	}
 }
 
-// runTaskRequest 定义任务执行请求。
-type runTaskRequest struct {
-	AgentBaseURL string `json:"agent_base_url"`
-}
-
 // Run 启动任务异步执行。
 func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -256,13 +257,8 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req runTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json body")
-		return
-	}
-	if req.AgentBaseURL == "" {
-		writeError(w, http.StatusBadRequest, "agent_base_url is required")
+	if s.agentWS == nil || !s.agentWS.IsOnline(session.Email) {
+		writeError(w, http.StatusConflict, "local agent websocket is not connected")
 		return
 	}
 
@@ -273,7 +269,7 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 异步执行任务，不阻塞 HTTP 响应
-	go s.executeTask(task, req.AgentBaseURL)
+	go s.executeTask(task)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
@@ -281,9 +277,47 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Stop 停止正在运行的云端任务。
+// 停止请求会取消任务上下文，并把任务状态更新为 stopped。
+func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	taskID = strings.TrimSuffix(taskID, "/stop")
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	s.cancelTask(task.ID)
+	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
+	_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已停止")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": "stopped",
+	})
+}
+
 // executeTask 在 goroutine 中执行任务编排流程。
-func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
-	ctx := context.Background()
+func (s *TaskService) executeTask(task TaskRun) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if !s.registerTaskCancel(task.ID, cancel) {
+		cancel()
+		_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已在运行中")
+		return
+	}
+	defer s.unregisterTaskCancel(task.ID)
 
 	log := func(level, message string) {
 		// 调用任务日志存储写入日志，供前端展示运行摘要
@@ -331,8 +365,13 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, agentBaseURL, aiConfig, s.cookieStore, log)
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, s.cookieStore, log)
 	if err := executor.Run(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			log("warn", "任务已取消")
+			_ = s.store.UpdateTaskStatus(task.ID, "stopped")
+			return
+		}
 		log("error", fmt.Sprintf("任务执行失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 	} else {
@@ -341,9 +380,36 @@ func (s *TaskService) executeTask(task TaskRun, agentBaseURL string) {
 	}
 }
 
+func (s *TaskService) registerTaskCancel(taskID string, cancel context.CancelFunc) bool {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	if _, exists := s.runningCancels[taskID]; exists {
+		return false
+	}
+	s.runningCancels[taskID] = cancel
+	return true
+}
+
+func (s *TaskService) cancelTask(taskID string) {
+	s.runningMu.Lock()
+	cancel := s.runningCancels[taskID]
+	s.runningMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *TaskService) unregisterTaskCancel(taskID string) {
+	s.runningMu.Lock()
+	delete(s.runningCancels, taskID)
+	s.runningMu.Unlock()
+}
+
 func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	t, err := s.tenantStore.GetOrCreateTenant(email)
-	if err != nil { return "", false }
+	if err != nil {
+		return "", false
+	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
 	return t.ID, isAdmin
 }

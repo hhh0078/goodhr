@@ -179,7 +179,37 @@ func (s *PostgresCookieStore) List(tenantID string) ([]CookieRecord, error) {
 	return result, rows.Err()
 }
 func (s *PostgresCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, error) {
-	return CookieRecord{}, ErrCookieNotFound // TODO
+	var r CookieRecord
+	var uid, tid sql.NullString
+	var keysJSON []byte
+	err := s.db.QueryRow(`
+		SELECT id,tenant_id,COALESCE(user_id::text,''),platform_id,display_name,cookie_type,status,
+		       COALESCE(used_by_task_id::text,''),file_name,size_bytes,encrypted_data,encrypted_keys,created_at,updated_at
+		FROM cookie_data
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, cookieID).Scan(
+		&r.ID, &r.TenantID, &uid, &r.PlatformID, &r.DisplayName, &r.CookieType, &r.Status,
+		&tid, &r.FileName, &r.SizeBytes, &r.EncryptedData, &keysJSON, &r.CreatedAt, &r.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CookieRecord{}, ErrCookieNotFound
+	}
+	if err != nil {
+		return CookieRecord{}, err
+	}
+	if uid.Valid {
+		r.UserID = uid.String
+	}
+	if tid.Valid {
+		r.UsedByTaskID = tid
+	}
+	if err := json.Unmarshal(keysJSON, &r.EncryptedKeys); err != nil {
+		return CookieRecord{}, err
+	}
+	if r.EncryptedKeys == nil {
+		r.EncryptedKeys = map[string]string{}
+	}
+	return r, nil
 }
 func (s *PostgresCookieStore) UpdateStatus(tenantID, cookieID, status, taskID string) error {
 	_, err := s.db.Exec(`UPDATE cookie_data SET status=$1,used_by_task_id=NULLIF($2,'')::uuid,updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, status, taskID, tenantID, cookieID)

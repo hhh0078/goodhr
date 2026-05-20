@@ -180,7 +180,12 @@ func (s *AuthService) SessionFromRequest(r *http.Request) (Session, error) {
 	if token == "" {
 		return Session{}, errors.New("missing bearer token")
 	}
+	return s.SessionFromToken(token)
+}
 
+// SessionFromToken 根据访问令牌读取当前登录会话。
+// token 为验证码登录后返回的 access_token，返回会话用于 HTTP 与 WebSocket 认证。
+func (s *AuthService) SessionFromToken(token string) (Session, error) {
 	// 调用 AuthStore 读取会话，用于确认 token 是否有效。
 	session, err := s.store.GetSession(token)
 	if err != nil {

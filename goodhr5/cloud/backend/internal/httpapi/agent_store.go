@@ -12,6 +12,7 @@ type AgentBinding struct {
 	MachineID    string
 	AgentVersion string
 	LocalPort    int
+	PublicKey    string
 	BindStatus   string
 	LastSeenAt   time.Time
 	CreatedAt    time.Time

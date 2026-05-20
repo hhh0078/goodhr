@@ -18,6 +18,7 @@ type bindAgentRequest struct {
 	MachineID    string `json:"machine_id"`
 	AgentVersion string `json:"agent_version"`
 	LocalPort    int    `json:"local_port"`
+	PublicKey    string `json:"public_key"`
 }
 
 // NewAgentService 创建 Agent API 服务，并注入认证服务和机器绑定存储。
@@ -59,6 +60,7 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		MachineID:    machineID,
 		AgentVersion: strings.TrimSpace(req.AgentVersion),
 		LocalPort:    req.LocalPort,
+		PublicKey:    strings.TrimSpace(req.PublicKey),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to bind agent")
@@ -71,6 +73,7 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 			"machine_id":    binding.MachineID,
 			"agent_version": binding.AgentVersion,
 			"local_port":    binding.LocalPort,
+			"public_key":    binding.PublicKey,
 			"bind_status":   binding.BindStatus,
 			"last_seen_at":  binding.LastSeenAt,
 		},
@@ -110,6 +113,7 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 			"machine_id":    binding.MachineID,
 			"agent_version": binding.AgentVersion,
 			"local_port":    binding.LocalPort,
+			"public_key":    binding.PublicKey,
 			"bind_status":   binding.BindStatus,
 			"last_seen_at":  binding.LastSeenAt,
 		},

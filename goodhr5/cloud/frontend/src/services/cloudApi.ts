@@ -52,11 +52,15 @@ export async function listTasks() {
   return data.tasks
 }
 
-export async function runTask(taskID: string, agentBaseURL: string) {
+export async function runTask(taskID: string) {
   const data = await api(`/api/tasks/${taskID}/run`, {
     method: 'POST',
-    body: { agent_base_url: agentBaseURL },
   })
+  return data
+}
+
+export async function stopTask(taskID: string) {
+  const data = await api(`/api/tasks/${taskID}/stop`, { method: 'POST' })
   return data
 }
 
@@ -70,13 +74,17 @@ export async function listCookies() {
   return data.cookies
 }
 
-export async function createCookie(payload: any, agentBaseURL = '') {
+export async function createCookie(payload: any) {
   const data = await api('/api/cookies/create', {
     method: 'POST',
-    headers: agentBaseURL ? { 'X-GoodHR-Agent-BaseURL': agentBaseURL } : undefined,
-    body: agentBaseURL ? { ...payload, agent_base_url: agentBaseURL } : payload,
+    body: payload,
   })
   return data.cookie
+}
+
+export async function listPlatformConfigs() {
+  const data = await api('/api/platforms/config/')
+  return data.configs
 }
 
 export async function listTenantMembers() {
