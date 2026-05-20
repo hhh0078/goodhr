@@ -1,6 +1,6 @@
 module goodhr5/cloud/backend
 
-go 1.25
+go 1.24
 
 require (
 	github.com/lib/pq v1.12.3
