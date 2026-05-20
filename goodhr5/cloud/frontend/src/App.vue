@@ -68,7 +68,7 @@ onMounted(async () => { await auth.loadCurrentUser(); if(auth.user.value) { agen
 .menu-item.active .prompt{color:var(--fg)}
 .main-area{flex:1;display:flex;flex-direction:column;min-width:0;margin-top:12px}
 .top-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--border);background:var(--bg-panel);font-size:13px;margin-bottom:12px}
-.top-bar .prompt{color:var(--fg)}.top-bar .cmd{color:var(--fg-dim)}.top-bar .spacer{flex:1}.top-bar .sep{color:var(--border)}
+.top-bar .prompt{color:var(--fg-dim)}.top-bar .cmd{color:var(--fg-dim)}.top-bar .spacer{flex:1}.top-bar .sep{color:var(--border)}
 .top-info{color:var(--fg-dim);font-size:12px}.top-info.success{color:#0f0}.top-info.warn{color:#fa0}.top-info.error{color:#f33}
 .content-area{flex:1;overflow-y:auto}
 </style>

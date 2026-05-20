@@ -93,7 +93,7 @@ watch(
 .terminal-window {
   width: 480px;
   max-width: 100%;
-  border: 1px solid #0f0;
+  border: 1px solid var(--fg);
   background: #050505;
 }
 .terminal-bar {
@@ -147,7 +147,7 @@ watch(
   margin-top: 8px;
 }
 .prompt {
-  color: #0f0;
+  color: var(--fg);
   margin-right: 4px;
   flex-shrink: 0;
 }
@@ -159,14 +159,14 @@ watch(
   background: transparent;
   border: none;
   border-bottom: 1px dashed #333;
-  color: #0f0;
+  color: var(--fg);
   font-family: inherit;
   font-size: 14px;
   padding: 2px 4px;
   outline: none;
 }
 .terminal-input:focus {
-  border-bottom-color: #0f0;
+  border-bottom-color: var(--fg);
 }
 .terminal-input::placeholder {
   color: #333;
@@ -188,15 +188,15 @@ watch(
   border-radius: 0;
 }
 .terminal-btn:hover:not(:disabled) {
-  border-color: #0f0;
-  color: #0f0;
+  border-color: var(--fg);
+  color: var(--fg);
 }
 .terminal-btn.primary {
-  border-color: #0f0;
-  color: #0f0;
+  border-color: var(--fg);
+  color: var(--fg);
 }
 .terminal-btn.primary:hover:not(:disabled) {
-  background: #0f0;
+  background: var(--fg);
   color: #000;
 }
 .terminal-btn:disabled {
