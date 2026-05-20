@@ -8,14 +8,22 @@ type AgentRequestOptions = Omit<RequestInit, 'body'> & {
   body?: BodyInit | Record<string, any> | null
 }
 
-export type OpenPagePayload = {
-  url: string
-  timeout?: number
-  user_data_dir?: string
+type BrowserRuntimeOptions = {
   persistent?: boolean
+  user_data_dir?: string
   headless?: boolean
   humanize?: boolean
   proxy?: string
+}
+
+export type StartBrowserPayload = BrowserRuntimeOptions & {
+  viewport_width?: number
+  viewport_height?: number
+}
+
+export type OpenPagePayload = BrowserRuntimeOptions & {
+  url: string
+  timeout?: number
 }
 
 async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
@@ -114,10 +122,10 @@ export async function listLocalProfiles(base: string) {
 /**
  * 启动本地浏览器。
  * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 浏览器启动参数。
+ * @param {StartBrowserPayload} payload - 浏览器启动参数，可选传 user_data_dir 指定账号目录。
  * @returns {Promise<any>} 返回启动结果。
  */
-export async function startBrowser(base: string, payload: any) {
+export async function startBrowser(base: string, payload: StartBrowserPayload) {
   return req(base, '/api/v1/browser/start', { method: 'POST', body: payload })
 }
 
