@@ -108,7 +108,7 @@ watch(
   flex: 1;
   text-align: center;
   font-size: 12px;
-  color: #555;
+  color: #fff;
   margin-right: 40px;
 }
 .bar-btn {
@@ -154,16 +154,24 @@ watch(
 .cmd {
   color: #0a0;
 }
+.placeholder {
+  color: #fff; /* 灰色，可换成 #666、#fff 等 */
+}
 .terminal-input {
+  .placeholder {
+    color: #fff;
+  }
   width: 180px;
   background: transparent;
   border: none;
-  border-bottom: 1px dashed #333;
+  border-bottom: 1px dashed #b6b6b6;
   color: #0f0;
   font-family: inherit;
   font-size: 14px;
   padding: 2px 4px;
   outline: none;
+
+  /* 提示文字颜色 白色 */
 }
 .terminal-input:focus {
   border-bottom-color: #0f0;
@@ -172,14 +180,14 @@ watch(
   color: #333;
 }
 .field-label {
-  color: #555;
+  color: #fff;
   font-size: 12px;
   margin-left: 4px;
 }
 .terminal-btn {
   background: transparent;
   border: 1px solid #333;
-  color: #555;
+  color: #fff;
   font-family: inherit;
   font-size: 13px;
   padding: 6px 16px;

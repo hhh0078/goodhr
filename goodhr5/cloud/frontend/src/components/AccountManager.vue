@@ -1,7 +1,22 @@
 <template>
   <section class="panel">
     <div class="panel-header">
-      <h2>平台账号</h2>
+      <div>
+        <h2>平台账号</h2>
+        <div class="top-info">
+          > 该功能有助您的团队在不同电脑上切换多个账号，可关闭该功能。
+        </div>
+
+        <div class="top-info">
+          > cookie 为非对称加密存储在服务器。有且仅有您的账号和团队成员可访问,
+        </div>
+        <div class="top-info">
+          > 即使服务器被黑客攻击,也无法获取到您的cookie。除非黑客攻击了您的电脑
+        </div>
+        <div class="top-info">
+          > 如果您还想使用该功能，且依旧担心安全问题，可考虑联系作者私有化部署。
+        </div>
+      </div>
       <div style="display: flex; gap: 8px">
         <button v-if="!showForm" class="ghost" @click="showForm = true">
           + 新增</button
@@ -17,15 +32,25 @@
             <option value="boss">Boss直聘</option>
             <option value="zhaopin">智联招聘</option>
             <option value="liepin">猎聘</option>
-          </select></label>
+          </select></label
+        >
         <label v-if="pendingCookies"
           >名称<input v-model="form.displayName" placeholder="我的Boss"
         /></label>
       </div>
       <p v-if="msg" :class="msgType">{{ msg }}</p>
       <div class="actions">
-        <button :disabled="loading || (pendingCookies && !form.displayName)" @click="create">
-          {{ loading ? "处理中..." : pendingCookies ? "保存账号" : "登录并获取Cookie" }}
+        <button
+          :disabled="loading || (pendingCookies && !form.displayName)"
+          @click="create"
+        >
+          {{
+            loading
+              ? "处理中..."
+              : pendingCookies
+                ? "保存账号"
+                : "登录并获取Cookie"
+          }}
         </button>
       </div></template
     >
@@ -177,11 +202,18 @@ async function refreshCookie(account: any) {
 }
 
 function platformAuthConfig(platformId: string) {
-  const item = platformConfigs.value.find((config: any) => config.config_key === `platform.${platformId}`);
+  const item = platformConfigs.value.find(
+    (config: any) => config.config_key === `platform.${platformId}`,
+  );
   if (!item?.config_value) return {};
   try {
     const parsed = JSON.parse(item.config_value);
-    return parsed.auth || { entry_url: parsed.pages?.[0]?.url, logged_in_url_prefix: parsed.pages?.[0]?.url };
+    return (
+      parsed.auth || {
+        entry_url: parsed.pages?.[0]?.url,
+        logged_in_url_prefix: parsed.pages?.[0]?.url,
+      }
+    );
   } catch {
     return {};
   }
@@ -193,12 +225,28 @@ async function del(a: any) {
   await load();
 }
 onMounted(load);
-watch(() => form.value.platformId, () => {
-  pendingCookies.value = null;
-  msg.value = "";
-});
+watch(
+  () => form.value.platformId,
+  () => {
+    pendingCookies.value = null;
+    msg.value = "";
+  },
+);
 </script>
 <style scoped>
+.top-info {
+  color: #0a0;
+  font-size: 12px;
+}
+.top-info.success {
+  color: #0f0;
+}
+.top-info.warn {
+  color: #fa0;
+}
+.top-info.error {
+  color: #f33;
+}
 .account-actions {
   display: flex;
   gap: 8px;
