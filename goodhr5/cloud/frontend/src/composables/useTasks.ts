@@ -26,7 +26,17 @@ export function useTasks(agentBaseUrl: Ref<string>) {
   async function create() {
     if (!form.value.platformAccountId) return
     loading.value = true; error.value = ''
-    try { await createTask({ ...form.value }); await load(); form.value = { ...form.value, positionId: '' } }
+    try {
+      await createTask({
+        platform_id: form.value.platformId,
+        platform_account_id: form.value.platformAccountId,
+        position_id: form.value.positionId || '',
+        mode: form.value.mode,
+        match_limit: Number(form.value.matchLimit || 0),
+      })
+      await load()
+      form.value = { ...form.value, positionId: '' }
+    }
     catch (e: any) { error.value = e.message }
     finally { loading.value = false }
   }
