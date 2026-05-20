@@ -1,63 +1,30 @@
 <template>
   <section class="panel">
-    <div class="panel-header">
-      <h2>任务列表</h2>
-      <button class="ghost" @click="tasks.load">刷新</button>
-    </div>
+    <div class="panel-header"><h2>任务列表</h2><button class="ghost" @click="tasks.load">刷新</button></div>
 
     <!-- 创建任务折叠 -->
-    <div
-      class="panel-header"
-      style="margin-bottom: 8px; border: none; padding-bottom: 0"
-    >
-      <button class="ghost" @click="showCreate = !showCreate">
-        {{ showCreate ? "收起创建" : "+ 创建任务" }}
-      </button>
+    <div class="panel-header" style="margin-bottom:8px;border:none;padding-bottom:0">
+      <button class="ghost" @click="showCreate=!showCreate">{{ showCreate ? '收起创建' : '+ 创建任务' }}</button>
     </div>
-    <div v-if="showCreate" class="form-grid" style="margin-bottom: 12px">
-      <label
-        >平台<select v-model="tasks.form.value.platformId">
-          <option value="boss">Boss直聘</option>
-          <option value="zhaopin">智联招聘</option>
-          <option value="liepin">猎聘</option>
-        </select></label
-      >
-      <label
-        >账号<select v-model="tasks.form.value.platformAccountId">
-          <option value="">请选择账号</option>
-          <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
-            {{ acc.display_name }}
-          </option>
-        </select></label
-      >
-      <label
-        >岗位模板<select v-model="tasks.form.value.positionId">
-          <option value="">不使用模板</option>
-          <option v-for="pos in positions" :key="pos.id" :value="pos.id">
-            {{ pos.name }}
-          </option>
-        </select></label
-      >
-      <label
-        >筛选模式<select v-model="tasks.form.value.mode">
-          <option value="keyword">关键词筛选</option>
-          <option value="ai">AI筛选</option>
-        </select></label
-      >
-      <label
-        >匹配上限<input
-          v-model="tasks.form.value.matchLimit"
-          type="number"
-          min="1"
-      /></label>
+    <div v-if="showCreate" class="form-grid" style="margin-bottom:12px">
+      <label>平台<select v-model="tasks.form.value.platformId">
+        <option value="boss">Boss直聘</option><option value="zhaopin">智联招聘</option><option value="liepin">猎聘</option>
+      </select></label>
+      <label>账号<select v-model="tasks.form.value.platformAccountId">
+        <option value="">请选择账号</option>
+        <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.display_name }}</option>
+      </select></label>
+      <label>岗位模板<select v-model="tasks.form.value.positionId">
+        <option value="">不使用模板</option>
+        <option v-for="pos in positions" :key="pos.id" :value="pos.id">{{ pos.name }}</option>
+      </select></label>
+      <label>筛选模式<select v-model="tasks.form.value.mode">
+        <option value="keyword">关键词筛选</option><option value="ai">AI筛选</option>
+      </select></label>
+      <label>匹配上限<input v-model="tasks.form.value.matchLimit" type="number" min="1" /></label>
     </div>
     <div v-if="showCreate" class="actions">
-      <button
-        :disabled="tasks.loading.value || !tasks.form.value.platformAccountId"
-        @click="createTask"
-      >
-        {{ tasks.loading.value ? "创建中..." : "创建任务" }}
-      </button>
+      <button :disabled="tasks.loading.value||!tasks.form.value.platformAccountId" @click="createTask">{{ tasks.loading.value?'创建中...':'创建任务' }}</button>
     </div>
 
     <p v-if="tasks.tasks.value.length === 0" class="hint">暂无任务</p>
@@ -65,220 +32,98 @@
     <p v-if="tasks.error.value" class="error">{{ tasks.error.value }}</p>
 
     <div v-else class="card-list">
-      <article
-        v-for="task in tasks.tasks.value"
-        :key="task.id"
-        class="card task-card"
-      >
+      <article v-for="task in tasks.tasks.value" :key="task.id" class="card task-card">
         <div class="task-main">
-          <div class="task-left">
-            <strong>{{
-              task.platform_account_name || task.platform_account_id
-            }}</strong>
-            <p class="card-meta">
-              {{ task.platform_id }} / {{ task.mode }} / 上限
-              {{ task.match_limit }}
-            </p>
-            <p v-if="task.position_name" class="card-meta">
-              岗位模板：{{ task.position_name }}
-            </p>
+          <div class="task-title">
+            <strong>{{ task.platform_account_name || task.platform_account_id }}</strong>
+            <p class="card-meta">{{ task.platform_id }} / {{ task.mode }} / 上限 {{ task.match_limit }}</p>
+            <p v-if="task.position_name" class="card-meta">岗位模板：{{ task.position_name }}</p>
           </div>
-          <div class="task-right">
-            <div class="task-stats">
-              <span class="stat-chip">状态 {{ task.status }}</span>
-              <span class="stat-chip">扫描 {{ task.scanned_count }}</span>
-              <span class="stat-chip">打招呼 {{ task.greeted_count }}</span>
-              <span class="stat-chip">跳过 {{ task.skipped_count }}</span>
-              <span class="stat-chip">失败 {{ task.failed_count }}</span>
-            </div>
-            <div class="actions compact task-actions">
-              <div class="task-actions-left">
-                <button
-                  class="ghost primary"
-                  :disabled="tasks.loading.value"
-                  @click="tasks.execute(task.id)"
-                >
-                  运行
-                </button>
-                <button
-                  class="ghost danger"
-                  :disabled="tasks.loading.value || task.status !== 'running'"
-                  @click="tasks.stop(task.id)"
-                >
-                  停止
-                </button>
-              </div>
-              <div class="task-actions-right">
-                <button class="ghost" @click="tasks.toggleLogs(task.id)">
-                  {{
-                    tasks.expandedTaskId.value === task.id
-                      ? "收起日志"
-                      : "展开日志"
-                  }}
-                </button>
-                <button class="ghost" @click="tasks.toggleCandidates(task)">
-                  {{
-                    tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)
-                      ? "收起候选人"
-                      : "查看候选人"
-                  }}
-                </button>
-                <button
-                  class="ghost"
-                  :disabled="tasks.loading.value || task.status === 'running'"
-                  @click="startEdit(task)"
-                >
-                  {{ editingTaskId === task.id ? "取消编辑" : "编辑" }}
-                </button>
-              </div>
-            </div>
+          <div class="task-stats">
+            <span class="stat-chip">状态 {{ task.status }}</span>
+            <span class="stat-chip">扫描 {{ task.scanned_count }}</span>
+            <span class="stat-chip">打招呼 {{ task.greeted_count }}</span>
+            <span class="stat-chip">跳过 {{ task.skipped_count }}</span>
+            <span class="stat-chip">失败 {{ task.failed_count }}</span>
+          </div>
+        </div>
+
+        <div class="actions compact task-actions">
+          <div class="task-actions-left">
+            <button class="ghost primary" :disabled="tasks.loading.value" @click="tasks.execute(task.id)">运行</button>
+            <button class="ghost danger" :disabled="tasks.loading.value || task.status !== 'running'" @click="tasks.stop(task.id)">停止</button>
+          </div>
+          <div class="task-actions-right">
+            <button class="ghost" @click="tasks.toggleLogs(task.id)">
+              {{ tasks.expandedTaskId.value === task.id ? '收起日志' : '展开日志' }}
+            </button>
+            <button class="ghost" @click="tasks.toggleCandidates(task)">
+              {{ tasks.candidateExpandedTaskId.value === tasks.localTaskID(task) ? '收起候选人' : '查看候选人' }}
+            </button>
+            <button class="ghost" :disabled="tasks.loading.value || task.status === 'running'" @click="startEdit(task)">
+              {{ editingTaskId === task.id ? '取消编辑' : '编辑' }}
+            </button>
           </div>
         </div>
 
         <div v-if="editingTaskId === task.id" class="log-panel">
           <div class="form-grid">
-            <label
-              >平台<select
-                v-model="editForm.platformId"
-                @change="onEditPlatformChange"
-              >
-                <option value="boss">Boss直聘</option>
-                <option value="zhaopin">智联招聘</option>
-                <option value="liepin">猎聘</option>
-              </select></label
-            >
-            <label
-              >账号<select v-model="editForm.platformAccountId">
-                <option value="">请选择账号</option>
-                <option
-                  v-for="acc in editAccounts"
-                  :key="acc.id"
-                  :value="acc.id"
-                >
-                  {{ acc.display_name }}
-                </option>
-              </select></label
-            >
-            <label
-              >岗位模板<select v-model="editForm.positionId">
-                <option value="">不使用模板</option>
-                <option v-for="pos in positions" :key="pos.id" :value="pos.id">
-                  {{ pos.name }}
-                </option>
-              </select></label
-            >
-            <label
-              >筛选模式<select v-model="editForm.mode">
-                <option value="keyword">关键词筛选</option>
-                <option value="ai">AI筛选</option>
-              </select></label
-            >
-            <label
-              >匹配上限<input
-                v-model="editForm.matchLimit"
-                type="number"
-                min="1"
-            /></label>
+            <label>平台<select v-model="editForm.platformId" @change="onEditPlatformChange">
+              <option value="boss">Boss直聘</option><option value="zhaopin">智联招聘</option><option value="liepin">猎聘</option>
+            </select></label>
+            <label>账号<select v-model="editForm.platformAccountId">
+              <option value="">请选择账号</option>
+              <option v-for="acc in editAccounts" :key="acc.id" :value="acc.id">{{ acc.display_name }}</option>
+            </select></label>
+            <label>岗位模板<select v-model="editForm.positionId">
+              <option value="">不使用模板</option>
+              <option v-for="pos in positions" :key="pos.id" :value="pos.id">{{ pos.name }}</option>
+            </select></label>
+            <label>筛选模式<select v-model="editForm.mode">
+              <option value="keyword">关键词筛选</option><option value="ai">AI筛选</option>
+            </select></label>
+            <label>匹配上限<input v-model="editForm.matchLimit" type="number" min="1" /></label>
           </div>
           <div class="actions compact">
-            <button
-              :disabled="tasks.loading.value || !editForm.platformAccountId"
-              @click="saveEdit(task.id)"
-            >
-              保存参数
-            </button>
+            <button :disabled="tasks.loading.value || !editForm.platformAccountId" @click="saveEdit(task.id)">保存参数</button>
           </div>
         </div>
 
         <!-- 日志面板 -->
         <div v-if="tasks.expandedTaskId.value === task.id" class="log-panel">
-          <p
-            v-if="
-              !tasks.taskLogs.value[task.id] ||
-              tasks.taskLogs.value[task.id].length === 0
-            "
-            class="hint"
-          >
-            暂无日志
-          </p>
+          <p v-if="!tasks.taskLogs.value[task.id] || tasks.taskLogs.value[task.id].length === 0" class="hint">暂无日志</p>
           <ol v-else>
             <li v-for="log in tasks.taskLogs.value[task.id]" :key="log.id">
-              <span
-                :class="{
-                  error: log.level === 'error',
-                  warn: log.level === 'warn',
-                }"
-                >{{ log.level }}</span
-              >
+              <span :class="{ error: log.level === 'error', warn: log.level === 'warn' }">{{ log.level }}</span>
               <strong>{{ log.message }}</strong>
             </li>
           </ol>
         </div>
 
         <!-- 候选人面板 -->
-        <div
-          v-if="tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)"
-          class="log-panel"
-        >
-          <button
-            class="ghost"
-            :disabled="
-              tasks.candidateLoadingTaskId.value === tasks.localTaskID(task)
-            "
-            @click="tasks.loadCandidates(task, tasks.localTaskID(task))"
-            style="margin-bottom: 8px"
-          >
-            {{
-              tasks.candidateLoadingTaskId.value === tasks.localTaskID(task)
-                ? "读取中..."
-                : "刷新候选人"
-            }}
+        <div v-if="tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)" class="log-panel">
+          <button class="ghost" :disabled="tasks.candidateLoadingTaskId.value === tasks.localTaskID(task)" @click="tasks.loadCandidates(task, tasks.localTaskID(task))" style="margin-bottom:8px">
+            {{ tasks.candidateLoadingTaskId.value === tasks.localTaskID(task) ? '读取中...' : '刷新候选人' }}
           </button>
 
-          <p v-if="tasks.candidateError.value" class="error">
-            {{ tasks.candidateError.value }}
-          </p>
+          <p v-if="tasks.candidateError.value" class="error">{{ tasks.candidateError.value }}</p>
 
           <div v-if="tasks.taskPositionSnapshot(task).name" class="snapshot">
             <strong>{{ tasks.taskPositionSnapshot(task).name }}</strong>
-            <p class="snapshot-meta">
-              关键词：{{
-                (tasks.taskPositionSnapshot(task).keywords || []).join(" / ") ||
-                "无"
-              }}
-            </p>
-            <p class="snapshot-meta">
-              排除词：{{
-                (tasks.taskPositionSnapshot(task).exclude_keywords || []).join(
-                  " / ",
-                ) || "无"
-              }}
-            </p>
+            <p class="snapshot-meta">关键词：{{ (tasks.taskPositionSnapshot(task).keywords || []).join(' / ') || '无' }}</p>
+            <p class="snapshot-meta">排除词：{{ (tasks.taskPositionSnapshot(task).exclude_keywords || []).join(' / ') || '无' }}</p>
           </div>
 
-          <p v-if="tasks.candidateItems(task).length === 0" class="hint">
-            暂无候选人数据
-          </p>
+          <p v-if="tasks.candidateItems(task).length === 0" class="hint">暂无候选人数据</p>
 
-          <div v-else class="card-list" style="margin-top: 8px">
-            <article
-              v-for="c in tasks.candidateItems(task)"
-              :key="c.id"
-              class="card"
-            >
+          <div v-else class="card-list" style="margin-top:8px">
+            <article v-for="c in tasks.candidateItems(task)" :key="c.id" class="card">
               <div>
                 <strong>{{ tasks.candidateTitle(c) }}</strong>
                 <p class="card-meta">{{ tasks.candidateSubtitle(c) }}</p>
-                <p v-if="tasks.candidateDetail(c)" class="candidate-detail">
-                  {{ tasks.candidateDetail(c) }}
-                </p>
+                <p v-if="tasks.candidateDetail(c)" class="candidate-detail">{{ tasks.candidateDetail(c) }}</p>
               </div>
-              <button
-                class="ghost danger"
-                @click="tasks.removeCandidate(task, c)"
-              >
-                删除
-              </button>
+              <button class="ghost danger" @click="tasks.removeCandidate(task, c)">删除</button>
             </article>
           </div>
         </div>
@@ -288,66 +133,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { listPlatformAccounts } from "../services/cloudApi";
-const props = defineProps({
-  tasks: Object,
-  positions: Object,
-  token: String,
-  agent: Object,
-});
-const showCreate = ref(false);
-const accounts = ref<any[]>([]);
-const accountsError = ref("");
-const editingTaskId = ref("");
-const editForm = ref({
-  platformId: "boss",
-  platformAccountId: "",
-  positionId: "",
-  mode: "keyword",
-  matchLimit: 20,
-});
-async function loadAccounts() {
-  accountsError.value = "";
-  try {
-    accounts.value = await listPlatformAccounts();
-  } catch (e: any) {
-    accountsError.value = e.message;
-  }
-}
-async function createTask() {
-  if (props.tasks) await props.tasks.create();
-  showCreate.value = false;
-  await loadAccounts();
-}
+import { computed, onMounted, ref } from 'vue'
+import { listPlatformAccounts } from '../services/cloudApi'
+const props = defineProps({ tasks: Object, positions: Object, token: String, agent: Object })
+const showCreate = ref(false)
+const accounts = ref<any[]>([])
+const accountsError = ref('')
+const editingTaskId = ref('')
+const editForm = ref({ platformId: 'boss', platformAccountId: '', positionId: '', mode: 'keyword', matchLimit: 20 })
+async function loadAccounts() { accountsError.value=''; try{ accounts.value=await listPlatformAccounts() }catch(e:any){accountsError.value=e.message} }
+async function createTask() { if(props.tasks) await props.tasks.create(); showCreate.value=false; await loadAccounts() }
 function startEdit(task: any) {
   if (editingTaskId.value === task.id) {
-    editingTaskId.value = "";
-    return;
+    editingTaskId.value = ''
+    return
   }
-  editingTaskId.value = task.id;
+  editingTaskId.value = task.id
   editForm.value = {
-    platformId: task.platform_id || "boss",
-    platformAccountId: task.platform_account_id || "",
-    positionId: task.position_id || "",
-    mode: task.mode || "keyword",
+    platformId: task.platform_id || 'boss',
+    platformAccountId: task.platform_account_id || '',
+    positionId: task.position_id || '',
+    mode: task.mode || 'keyword',
     matchLimit: task.match_limit || 20,
-  };
+  }
 }
-function onEditPlatformChange() {
-  editForm.value.platformAccountId = "";
-}
-const editAccounts = computed(() =>
-  accounts.value.filter(
-    (a: any) => a.platform_id === editForm.value.platformId,
-  ),
-);
+function onEditPlatformChange() { editForm.value.platformAccountId = '' }
+const editAccounts = computed(() => accounts.value.filter((a: any) => a.platform_id === editForm.value.platformId))
 async function saveEdit(taskId: string) {
-  if (!props.tasks) return;
-  await props.tasks.update(taskId, editForm.value);
-  editingTaskId.value = "";
+  if (!props.tasks) return
+  await props.tasks.update(taskId, editForm.value)
+  editingTaskId.value = ''
 }
-onMounted(loadAccounts);
+onMounted(loadAccounts)
 </script>
 
 <style scoped>
@@ -356,20 +173,12 @@ onMounted(loadAccounts);
 }
 .task-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
 }
-.task-left {
+.task-title {
   min-width: 0;
-  flex: 1;
-}
-.task-right {
-  min-width: 420px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
 }
 .task-stats {
   display: flex;
@@ -385,7 +194,7 @@ onMounted(loadAccounts);
   line-height: 1.3;
 }
 .task-actions {
-  margin-top: 0;
+  margin-top: 8px;
   justify-content: space-between;
   width: 100%;
 }
@@ -394,22 +203,20 @@ onMounted(loadAccounts);
   display: flex;
   gap: 8px;
 }
+.edit-actions {
+  margin-top: 8px;
+}
 @media (max-width: 900px) {
   .task-main {
     flex-direction: column;
-    align-items: flex-start;
-  }
-  .task-right {
-    min-width: 0;
-    width: 100%;
     align-items: flex-start;
   }
   .task-stats {
     justify-content: flex-start;
   }
   .task-actions {
-    justify-content: space-between;
     flex-wrap: wrap;
+    justify-content: space-between;
   }
 }
 </style>
