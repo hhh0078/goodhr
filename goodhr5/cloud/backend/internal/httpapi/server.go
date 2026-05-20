@@ -91,7 +91,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tenants/members/", s.tenantMember)
 	mux.HandleFunc("/api/cookies", s.cookies.List)
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
-	mux.HandleFunc("/api/cookies/", s.cookies.Delete)
+	mux.HandleFunc("/api/cookies/", s.cookieRoute)
 	return cors(mux)
 }
 
@@ -182,6 +182,18 @@ func (s *Server) tenantMember(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (s *Server) cookieRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/claim") {
+		s.cookies.Claim(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/release") {
+		s.cookies.Release(w, r)
+		return
+	}
+	s.cookies.Delete(w, r)
 }
 
 func cors(next http.Handler) http.Handler {

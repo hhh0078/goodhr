@@ -92,6 +92,19 @@ export async function createCookie(payload: any) {
   return data.cookie
 }
 
+export async function claimCookie(cookieID: string, payload: any = {}) {
+  return api(`/api/cookies/${encodeURIComponent(cookieID)}/claim`, {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+export async function releaseCookie(cookieID: string) {
+  return api(`/api/cookies/${encodeURIComponent(cookieID)}/release`, {
+    method: 'POST',
+  })
+}
+
 export async function listPlatformConfigs() {
   const data = await api('/api/platforms/config/')
   return data.configs

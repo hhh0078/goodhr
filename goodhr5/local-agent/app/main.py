@@ -409,6 +409,12 @@ async def page_open(payload: dict) -> dict:
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
     timeout = int(payload.get("timeout", 30000))
+    cookies = payload.get("cookies")
+    if isinstance(cookies, list) and cookies:
+        try:
+            await page.context.add_cookies(cookies)
+        except Exception as exc:
+            raise HTTPException(400, f"cookie 注入失败: {exc}")
 
     success = await navigate_to_page(page, url, timeout=timeout)
     if not success:

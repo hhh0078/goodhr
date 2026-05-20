@@ -24,6 +24,7 @@ export type StartBrowserPayload = BrowserRuntimeOptions & {
 export type OpenPagePayload = BrowserRuntimeOptions & {
   url: string
   timeout?: number
+  cookies?: any[]
 }
 
 async function req(base: string, path: string, opts: AgentRequestOptions = {}) {

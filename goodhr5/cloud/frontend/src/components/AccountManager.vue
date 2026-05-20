@@ -90,12 +90,15 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import {
+  claimCookie,
   createCookie,
   deletePlatformAccount,
   listPlatformConfigs,
   listPlatformAccounts,
+  releaseCookie,
 } from "../services/cloudApi";
-import { openPage } from "../services/localAgentApi";
+import { getLocalHealth, openPage } from "../services/localAgentApi";
+import { decryptCookieByAgent, pickDecryptPayload } from "../services/cookieCrypto";
 import { runPlatformLoginFlow } from "../services/platformLoginFlow";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
@@ -214,13 +217,40 @@ async function openWithCookie(account: any) {
     const authConfig = platformAuthConfig(account.platform_id);
     const targetURL = authConfig.entry_url || authConfig.logged_in_url_prefix;
     if (!targetURL) throw new Error("平台配置缺少入口地址");
-    await openPage(props.agentBaseUrl, {
+    const openPayload: any = {
       url: targetURL,
       persistent: true,
       user_data_dir: account.local_profile_id || account.display_name || account.id,
       headless: false,
       humanize: true,
-    });
+    };
+
+    let claimed = false;
+    try {
+      const health = await getLocalHealth(props.agentBaseUrl);
+      const machineID = String(health.machine_id || "").trim();
+      if (machineID) {
+        const claimedPayload = await claimCookie(account.id, {});
+        claimed = true;
+        const decryptPayload = pickDecryptPayload(claimedPayload, machineID);
+        const cookies = await decryptCookieByAgent(props.agentBaseUrl, decryptPayload);
+        if (Array.isArray(cookies) && cookies.length > 0) {
+          openPayload.cookies = cookies;
+        }
+      }
+    } catch (e) {
+      console.warn("openWithCookie fallback to open without cookies", e);
+    } finally {
+      if (claimed) {
+        try {
+          await releaseCookie(account.id);
+        } catch (e) {
+          console.warn("release cookie claim failed", e);
+        }
+      }
+    }
+
+    await openPage(props.agentBaseUrl, openPayload);
     msg.value = "已打开推荐页";
     msgType.value = "success";
   } catch (e: any) {
