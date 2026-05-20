@@ -12,6 +12,7 @@ import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -801,10 +802,25 @@ def main() -> None:
     """
     import uvicorn
 
+    log_file = os.getenv("GOODHR_AGENT_LOG_FILE", str(Path(__file__).resolve().parents[1] / "logs" / "agent.log"))
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    file_handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
+
     port = find_port()
     app.state.port = port  # 保存到应用状态，供 /health 返回
 
-    print(f"GoodHR 5 Local Agent starting on http://{HOST}:{port}")
+    logger.info("GoodHR 5 Local Agent log file: %s", log_path)
+    logger.info("GoodHR 5 Local Agent starting on http://%s:%s", HOST, port)
     uvicorn.run(app, host=HOST, port=port, log_level="warning", access_log=False)
 
 
