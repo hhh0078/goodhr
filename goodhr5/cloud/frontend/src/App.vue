@@ -19,7 +19,7 @@
       <div class="content-area">
         <AgentPanel v-if="activeMenu==='agent'" :agent="agent" :user="user" :token="auth.token" />
         <TenantManager v-else-if="activeMenu==='tenant'" :token="auth.token.value" :user-email="user?.email" />
-        <CookieManager v-else-if="activeMenu==='cookie'" :token="auth.token.value" />
+        
         <AccountManager v-else-if="activeMenu==='account'" :token="auth.token.value" :agent-base-url="agent.baseUrl.value" />
         <PositionManager v-else-if="activeMenu==='position'" :positions="positions" />
         <TaskCreator v-else-if="activeMenu==='task-create'" :tasks="tasks" :positions="positions.positions" :token="auth.token.value" />
@@ -38,7 +38,7 @@ import { useTasks } from './composables/useTasks'
 import LoginForm from './components/LoginForm.vue'
 import AgentPanel from './components/AgentPanel.vue'
 import TenantManager from './components/TenantManager.vue'
-import CookieManager from './components/CookieManager.vue'
+
 import AccountManager from './components/AccountManager.vue'
 import PositionManager from './components/PositionManager.vue'
 import TaskCreator from './components/TaskCreator.vue'
@@ -46,7 +46,7 @@ import TaskList from './components/TaskList.vue'
 
 const auth = useAuth(); const agent = useAgent(); const positions = usePositions(auth.token); const tasks = useTasks(auth.token, agent.baseUrl); const { user } = toRefs(auth)
 const activeMenu = ref('agent')
-const menuItems = [{id:'agent',label:'本地 Agent'},{id:'tenant',label:'团队管理'},{id:'cookie',label:'Cookie管理'},{id:'account',label:'平台账号'},{id:'position',label:'岗位模板'},{id:'task-create',label:'创建任务'},{id:'task-list',label:'任务列表'}]
+const menuItems = [{id:'agent',label:'本地 Agent'},{id:'tenant',label:'团队管理'},{id:'account',label:'平台账号'},{id:'position',label:'岗位模板'},{id:'task-create',label:'创建任务'},{id:'task-list',label:'任务列表'}]
 const agentStatusColor = computed(() => { const s=agent.status.value; if(s.includes('连接')) return 'success'; if(s.includes('检测中')) return 'warn'; return 'error' })
 watch(user, async u => { if(u) { agent.detect(u,auth.token.value); positions.load(); tasks.load() }})
 onMounted(async () => { await auth.loadCurrentUser(); if(auth.user.value) { agent.detect(auth.user.value,auth.token.value); positions.load(); tasks.load() }})
