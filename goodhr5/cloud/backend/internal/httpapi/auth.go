@@ -13,7 +13,7 @@ import (
 )
 
 const codeTTL = 5 * time.Minute
-const sessionTTL = 2 * time.Hour
+const sessionTTL = 7 * 24 * time.Hour
 
 type AuthService struct {
 	store           AuthStore
