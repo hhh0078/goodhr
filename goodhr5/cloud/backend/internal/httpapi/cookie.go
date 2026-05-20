@@ -4,10 +4,13 @@ package httpapi
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 )
+
+var errNoAgentPublicKey = errors.New("no local agent public key registered")
 
 type CookieService struct {
 	auth        *AuthService
@@ -96,6 +99,10 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 	encryptedData, encryptedKeys, err := s.encryptCookieForTenant(tenantID, cookieJSON)
 	if err != nil {
 		log.Printf("[cookies] encrypt failed: %v", err)
+		if errors.Is(err, errNoAgentPublicKey) {
+			writeError(w, http.StatusConflict, "no local agent public key registered")
+			return
+		}
 		writeError(w, 500, "failed to encrypt cookie")
 		return
 	}
@@ -144,7 +151,7 @@ func (s *CookieService) encryptCookieForTenant(tenantID string, cookieJSON []byt
 		encryptedKeys[binding.MachineID] = encryptedKey
 	}
 	if len(encryptedKeys) == 0 {
-		return nil, nil, ErrNotFound
+		return nil, nil, errNoAgentPublicKey
 	}
 	return encryptedData, encryptedKeys, nil
 }

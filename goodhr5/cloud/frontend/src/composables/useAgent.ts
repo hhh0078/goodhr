@@ -1,5 +1,6 @@
 /** 本地 Agent 探测和绑定 */
 import { ref } from 'vue'
+import { bindAgent } from '../services/cloudApi'
 import { bindCloudUser, getCloudWSStatus, getLocalHealth } from '../services/localAgentApi'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
@@ -47,11 +48,21 @@ export function useAgent() {
     bindStatus.value = '绑定中'
     bindError.value = ''
     try {
+      const machineID = info.value?.machine_id || ''
+      if (!machineID) throw new Error('本地程序缺少机器码')
+      const publicKey = info.value?.public_key || ''
+      if (!publicKey) throw new Error('本地程序缺少加密公钥，请更新并重启本地程序')
       await bindCloudUser(baseUrl.value, {
         cloud_user_id: user.id,
         cloud_email: user.email,
         agent_token: token,
-        public_key: info.value?.public_key || ''
+        public_key: publicKey
+      })
+      await bindAgent({
+        machine_id: machineID,
+        agent_version: info.value?.version || '',
+        local_port: info.value?.port || 0,
+        public_key: publicKey
       })
       bindStatus.value = '已绑定'
     } catch (e) {
