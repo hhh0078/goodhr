@@ -1,8 +1,30 @@
 <template>
   <section class="panel">
-    <div class="panel-header">
-      <h2>任务列表</h2>
-      <button class="ghost" @click="tasks.load">刷新</button>
+    <div class="panel-header"><h2>任务列表</h2><button class="ghost" @click="tasks.load">刷新</button></div>
+
+    <!-- 创建任务折叠 -->
+    <div class="panel-header" style="margin-bottom:8px;border:none;padding-bottom:0">
+      <button class="ghost" @click="showCreate=!showCreate">{{ showCreate ? '收起创建' : '+ 创建任务' }}</button>
+    </div>
+    <div v-if="showCreate" class="form-grid" style="margin-bottom:12px">
+      <label>平台<select v-model="tasks.form.value.platformId">
+        <option value="boss">Boss直聘</option><option value="zhaopin">智联招聘</option><option value="liepin">猎聘</option>
+      </select></label>
+      <label>账号<select v-model="tasks.form.value.platformAccountId">
+        <option value="">请选择账号</option>
+        <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.display_name }}</option>
+      </select></label>
+      <label>岗位模板<select v-model="tasks.form.value.positionId">
+        <option value="">不使用模板</option>
+        <option v-for="pos in positions" :key="pos.id" :value="pos.id">{{ pos.name }}</option>
+      </select></label>
+      <label>筛选模式<select v-model="tasks.form.value.mode">
+        <option value="keyword">关键词筛选</option><option value="ai">AI筛选</option>
+      </select></label>
+      <label>匹配上限<input v-model="tasks.form.value.matchLimit" type="number" min="1" /></label>
+    </div>
+    <div v-if="showCreate" class="actions">
+      <button :disabled="tasks.loading.value||!tasks.form.value.platformAccountId" @click="createTask">{{ tasks.loading.value?'创建中...':'创建任务' }}</button>
     </div>
 
     <p v-if="tasks.tasks.value.length === 0" class="hint">暂无任务</p>
@@ -78,5 +100,13 @@
 </template>
 
 <script setup lang="ts">
-defineProps({ tasks: Object, agent: Object })
+import { onMounted, ref } from 'vue'
+import { listPlatformAccounts } from '../services/cloudApi'
+const props = defineProps({ tasks: Object, positions: Object, token: String, agent: Object })
+const showCreate = ref(false)
+const accounts = ref<any[]>([])
+const accountsError = ref('')
+async function loadAccounts() { accountsError.value=''; try{ const d=await listPlatformAccounts(props.token); accounts.value=d.accounts||[] }catch(e:any){accountsError.value=e.message} }
+async function createTask() { if(props.tasks) await props.tasks.create(); showCreate.value=false; await loadAccounts() }
+onMounted(()=>{ if(props.token) loadAccounts() })
 </script>
