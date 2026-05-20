@@ -87,7 +87,9 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "platform_id required")
 		return
 	}
+	log.Printf("[cookies] create request tenant=%s user=%s platform=%s name=%s", tenantID, session.Email, req.PlatformID, req.DisplayName)
 	if isCookieNameDuplicate(s.store, tenantID, req.DisplayName) {
+		log.Printf("[cookies] create rejected duplicate tenant=%s platform=%s name=%s", tenantID, req.PlatformID, req.DisplayName)
 		writeError(w, http.StatusConflict, "display_name already exists")
 		return
 	}
@@ -121,6 +123,7 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to create cookie")
 		return
 	}
+	log.Printf("[cookies] create success cookie=%s tenant=%s platform=%s name=%s size=%d", rec.ID, tenantID, req.PlatformID, req.DisplayName, len(cookieJSON))
 	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
 }
 

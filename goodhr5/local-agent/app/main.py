@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
@@ -42,6 +43,7 @@ HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
+logger = logging.getLogger("goodhr5.local-agent")
 
 # ---------------------------------------------------------------------------
 # FastAPI 应用与中间件
@@ -93,19 +95,29 @@ async def _sync_cookie_after_browser_closed(reason: str) -> None:
     global _cookie_sync_config
     config = _cookie_sync_config
     if not config:
+        logger.info("[cookie-sync] skip: no config, reason=%s", reason)
         return
+    logger.info(
+        "[cookie-sync] triggered: reason=%s platform=%s name=%s",
+        reason,
+        config.get("platform_id", ""),
+        config.get("display_name", ""),
+    )
     account = load_cloud_account()
     if not account or not account.get("agent_token"):
+        logger.warning("[cookie-sync] skip: cloud account not bound")
         return
     try:
         cookies = await _browser_manager.export_cookies()
-    except Exception:
+    except Exception as exc:
+        logger.exception("[cookie-sync] export cookies failed: %s", exc)
         cookies = []
     if not cookies:
+        logger.warning("[cookie-sync] skip: no cookies exported")
         return
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(
+            resp = await client.post(
                 f"{config['cloud_api_base']}/api/cookies/create",
                 headers={"Authorization": f"Bearer {account['agent_token']}"},
                 json={
@@ -114,7 +126,12 @@ async def _sync_cookie_after_browser_closed(reason: str) -> None:
                     "cookies": cookies,
                 },
             )
-    except Exception:
+        if resp.status_code >= 400:
+            logger.error("[cookie-sync] upload failed: status=%s body=%s", resp.status_code, resp.text)
+        else:
+            logger.info("[cookie-sync] upload success: status=%s cookies=%d", resp.status_code, len(cookies))
+    except Exception as exc:
+        logger.exception("[cookie-sync] upload error: %s", exc)
         return
     finally:
         _cookie_sync_config = None
