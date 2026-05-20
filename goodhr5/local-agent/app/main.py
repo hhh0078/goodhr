@@ -334,15 +334,21 @@ async def browser_start(payload: dict) -> dict:
         humanize: 是否启用仿真人行为（默认 true）
         proxy: 代理地址（可选）
     """
-    if _browser_manager.is_running:
-        return {"ok": True, "status": "already_running"}
-
     user_data_dir = str(payload.get("user_data_dir") or "").strip()
     if user_data_dir:
         user_data_dir = str(_profile_dir(user_data_dir))
+    persistent = bool(payload.get("persistent", False))
+
+    # 浏览器已运行时，如果目标 profile 不同则先重启，确保切到对应 cookie 目录。
+    if _browser_manager.is_running:
+        current_dir = str(_browser_manager._last_user_data_dir or "")
+        if persistent and user_data_dir and current_dir and current_dir != user_data_dir:
+            await _browser_manager.stop()
+        else:
+            return {"ok": True, "status": "already_running"}
 
     await _browser_manager.start(
-        persistent=bool(payload.get("persistent", False)),
+        persistent=persistent,
         user_data_dir=user_data_dir,
         headless=bool(payload.get("headless", False)),
         humanize=bool(payload.get("humanize", True)),
