@@ -14,6 +14,12 @@ type BrowserRuntimeOptions = {
   headless?: boolean
   humanize?: boolean
   proxy?: string
+  cookies?: any[]
+  cookie_sync?: {
+    platform_id: string
+    display_name: string
+    cloud_api_base: string
+  }
 }
 
 export type StartBrowserPayload = BrowserRuntimeOptions & {
@@ -24,7 +30,6 @@ export type StartBrowserPayload = BrowserRuntimeOptions & {
 export type OpenPagePayload = BrowserRuntimeOptions & {
   url: string
   timeout?: number
-  cookies?: any[]
 }
 
 async function req(base: string, path: string, opts: AgentRequestOptions = {}) {

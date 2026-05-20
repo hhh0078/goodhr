@@ -307,6 +307,9 @@ class WSAgentClient:
                 humanize=bool(body.get("humanize", True)),
                 proxy=str(body.get("proxy", "")),
             )
+            cookies = body.get("cookies")
+            if isinstance(cookies, list) and cookies:
+                await self.browser_manager.add_cookies(cookies)
             return {"ok": True, "status": "started"}
         if path == "/api/v1/browser/stop":
             await self.browser_manager.stop()
@@ -316,6 +319,9 @@ class WSAgentClient:
             url = str(body.get("url") or "").strip()
             if not url:
                 raise ValueError("url is required")
+            cookies = body.get("cookies")
+            if isinstance(cookies, list) and cookies:
+                await self.browser_manager.add_cookies(cookies)
             ok = await navigate_to_page(page, url, timeout=int(body.get("timeout", 30000)))
             if not ok:
                 raise RuntimeError("页面导航失败")

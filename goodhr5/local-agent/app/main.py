@@ -12,6 +12,7 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -65,10 +66,61 @@ app.add_middleware(
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
 _ws_agent = WSAgentClient(_browser_manager)
+_cookie_sync_config: dict | None = None
 
 # ---------------------------------------------------------------------------
 # 路由处理函数
 # ---------------------------------------------------------------------------
+
+
+def _extract_cookie_sync(payload: dict) -> dict | None:
+    sync = payload.get("cookie_sync")
+    if not isinstance(sync, dict):
+        return None
+    platform_id = str(sync.get("platform_id", "")).strip()
+    display_name = str(sync.get("display_name", "")).strip()
+    cloud_api_base = str(sync.get("cloud_api_base", "")).strip().rstrip("/")
+    if not platform_id or not display_name or not cloud_api_base:
+        return None
+    return {
+        "platform_id": platform_id,
+        "display_name": display_name,
+        "cloud_api_base": cloud_api_base,
+    }
+
+
+async def _sync_cookie_after_browser_closed(reason: str) -> None:
+    global _cookie_sync_config
+    config = _cookie_sync_config
+    if not config:
+        return
+    account = load_cloud_account()
+    if not account or not account.get("agent_token"):
+        return
+    try:
+        cookies = await _browser_manager.export_cookies()
+    except Exception:
+        cookies = []
+    if not cookies:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(
+                f"{config['cloud_api_base']}/api/cookies/create",
+                headers={"Authorization": f"Bearer {account['agent_token']}"},
+                json={
+                    "platform_id": config["platform_id"],
+                    "display_name": config["display_name"],
+                    "cookies": cookies,
+                },
+            )
+    except Exception:
+        return
+    finally:
+        _cookie_sync_config = None
+
+
+_browser_manager.add_closed_callback(_sync_cookie_after_browser_closed)
 
 
 @app.get("/health")
@@ -338,6 +390,8 @@ async def browser_start(payload: dict) -> dict:
     if user_data_dir:
         user_data_dir = str(_profile_dir(user_data_dir))
     persistent = bool(payload.get("persistent", False))
+    cookies = payload.get("cookies")
+    cookie_sync = _extract_cookie_sync(payload)
 
     # 浏览器已运行时，如果目标 profile 不同则先重启，确保切到对应 cookie 目录。
     if _browser_manager.is_running:
@@ -354,6 +408,13 @@ async def browser_start(payload: dict) -> dict:
         humanize=bool(payload.get("humanize", True)),
         proxy=str(payload.get("proxy", "")),
     )
+    if isinstance(cookies, list) and cookies:
+        try:
+            await _browser_manager.add_cookies(cookies)
+        except Exception as exc:
+            raise HTTPException(400, f"cookie 注入失败: {exc}")
+    global _cookie_sync_config
+    _cookie_sync_config = cookie_sync
     return {"ok": True, "status": "started"}
 
 
@@ -401,6 +462,8 @@ async def page_open(payload: dict) -> dict:
                 "headless": bool(payload.get("headless", False)),
                 "humanize": bool(payload.get("humanize", True)),
                 "proxy": str(payload.get("proxy", "")),
+                "cookies": payload.get("cookies"),
+                "cookie_sync": payload.get("cookie_sync"),
             }
         )
 
@@ -410,7 +473,7 @@ async def page_open(payload: dict) -> dict:
         raise HTTPException(400, str(exc))
     timeout = int(payload.get("timeout", 30000))
     cookies = payload.get("cookies")
-    if isinstance(cookies, list) and cookies:
+    if isinstance(cookies, list) and cookies and not user_data_dir:
         try:
             await page.context.add_cookies(cookies)
         except Exception as exc:

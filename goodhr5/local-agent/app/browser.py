@@ -296,6 +296,8 @@ class BrowserManager:
         self._pages: dict[str, Page] = {}
         self._last_user_data_dir: Optional[str] = None
         self._browser_data_dir = browser_data_dir
+        self._closed_callbacks: list = []
+        self._closed_notified = False
 
     async def start(
         self,
@@ -324,6 +326,7 @@ class BrowserManager:
             await self.stop()
 
         self._last_user_data_dir = user_data_dir
+        self._closed_notified = False
 
         if persistent:
             if not user_data_dir:
@@ -343,6 +346,32 @@ class BrowserManager:
                 proxy=proxy,
                 user_data_dir=user_data_dir,
             )
+            try:
+                self._browser.on("disconnected", lambda *_: self._notify_closed("disconnected"))
+            except Exception:
+                pass
+        if self._context:
+            try:
+                self._context.on("close", lambda *_: self._notify_closed("context_closed"))
+            except Exception:
+                pass
+
+    def add_closed_callback(self, callback) -> None:
+        """注册浏览器关闭回调。"""
+        self._closed_callbacks.append(callback)
+
+    def _notify_closed(self, reason: str) -> None:
+        """触发浏览器关闭回调（仅触发一次）。"""
+        if self._closed_notified:
+            return
+        self._closed_notified = True
+        for callback in list(self._closed_callbacks):
+            try:
+                result = callback(reason)
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except Exception:
+                pass
 
     async def new_page(self, name: str = "default") -> Page:
         """
@@ -425,4 +454,27 @@ class BrowserManager:
 
         self._last_user_data_dir = None
 
+        self._notify_closed("stopped")
         logger.info("浏览器已关闭")
+
+    async def add_cookies(self, cookies: list[dict]) -> None:
+        """向当前浏览器上下文注入 cookies。"""
+        if not cookies:
+            return
+        context = self._context
+        if context is None and self._pages:
+            page = next(iter(self._pages.values()))
+            context = page.context if page else None
+        if context is None:
+            raise RuntimeError("浏览器未启动，无法注入 cookies")
+        await context.add_cookies(cookies)
+
+    async def export_cookies(self) -> list[dict]:
+        """导出当前浏览器上下文 cookies。"""
+        context = self._context
+        if context is None and self._pages:
+            page = next(iter(self._pages.values()))
+            context = page.context if page else None
+        if context is None:
+            return []
+        return await context.cookies()
