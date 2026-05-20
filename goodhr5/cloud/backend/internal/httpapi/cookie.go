@@ -87,6 +87,10 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "platform_id required")
 		return
 	}
+	if isCookieNameDuplicate(s.store, tenantID, req.DisplayName) {
+		writeError(w, http.StatusConflict, "display_name already exists")
+		return
+	}
 	if req.Cookies == nil {
 		writeError(w, 400, "cookies required")
 		return
@@ -118,6 +122,27 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
+}
+
+func isCookieNameDuplicate(store CookieStore, tenantID string, displayName string) bool {
+	target := normalizeCookieName(displayName)
+	if target == "" {
+		return false
+	}
+	items, err := store.List(tenantID)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if normalizeCookieName(item.DisplayName) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeCookieName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 // encryptCookieForTenant 为租户内已登记公钥的 Agent 自动加密 cookie 数据密钥。
