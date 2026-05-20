@@ -9,40 +9,16 @@ import (
 	"testing"
 )
 
-// TestPlatformAccountLifecycle 验证平台账号映射可以创建、查询和删除。
+// TestPlatformAccountLifecycle 验证平台账号兼容接口会从 cookie 表查询和删除记录。
 func TestPlatformAccountLifecycle(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "platform@example.com")
+	email := "platform@example.com"
+	token := loginForTest(t, routes, email)
 
-	// 调用创建接口，保存 Boss 平台的一个本地 profile 映射。
-	createReq := httptest.NewRequest(
-		http.MethodPost,
-		"/api/platform-accounts/create",
-		bytes.NewBufferString(`{"platform_id":"boss","display_name":"Boss 主账号","local_profile_id":"boss_main"}`),
-	)
-	createReq.Header.Set("Authorization", "Bearer "+token)
-	createResp := httptest.NewRecorder()
-	routes.ServeHTTP(createResp, createReq)
-	if createResp.Code != http.StatusOK {
-		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body.String())
-	}
+	cookieID := createCookieRecordForTest(t, server, email, "boss", "Boss 主账号")
 
-	var createPayload struct {
-		Account struct {
-			ID             string `json:"id"`
-			PlatformID     string `json:"platform_id"`
-			LocalProfileID string `json:"local_profile_id"`
-		} `json:"account"`
-	}
-	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
-		t.Fatal(err)
-	}
-	if createPayload.Account.ID == "" {
-		t.Fatal("platform account id is empty")
-	}
-
-	// 调用列表接口，并按平台过滤，供任务创建页面选择账号。
+	// 调用列表接口，并按平台过滤，供任务创建页面选择 cookie 账号。
 	listReq := httptest.NewRequest(http.MethodGet, "/api/platform-accounts?platform_id=boss", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listResp := httptest.NewRecorder()
@@ -53,7 +29,10 @@ func TestPlatformAccountLifecycle(t *testing.T) {
 
 	var listPayload struct {
 		Accounts []struct {
-			ID string `json:"id"`
+			ID           string `json:"id"`
+			DisplayName  string `json:"display_name"`
+			CookieStatus string `json:"cookie_status"`
+			LocalProfile string `json:"local_profile_id"`
 		} `json:"accounts"`
 	}
 	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
@@ -62,9 +41,12 @@ func TestPlatformAccountLifecycle(t *testing.T) {
 	if len(listPayload.Accounts) != 1 {
 		t.Fatalf("accounts length = %d", len(listPayload.Accounts))
 	}
+	if listPayload.Accounts[0].ID != cookieID || listPayload.Accounts[0].CookieStatus != "available" {
+		t.Fatalf("unexpected account payload: %+v", listPayload.Accounts[0])
+	}
 
-	// 调用删除接口，移除云端映射；本地 profile 文件不在云端删除。
-	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/platform-accounts/"+createPayload.Account.ID, nil)
+	// 调用删除接口，删除对应 cookie 账号记录。
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/platform-accounts/"+cookieID, nil)
 	deleteReq.Header.Set("Authorization", "Bearer "+token)
 	deleteResp := httptest.NewRecorder()
 	routes.ServeHTTP(deleteResp, deleteReq)
@@ -73,24 +55,42 @@ func TestPlatformAccountLifecycle(t *testing.T) {
 	}
 }
 
-// TestPlatformAccountRejectsDuplicate 验证同平台同 profile 不会重复创建。
-func TestPlatformAccountRejectsDuplicate(t *testing.T) {
+// TestPlatformAccountCreateRemoved 验证独立平台账号创建入口已经关闭。
+func TestPlatformAccountCreateRemoved(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "duplicate@example.com")
 
-	body := `{"platform_id":"boss","display_name":"Boss 主账号","local_profile_id":"boss_main"}`
-	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/api/platform-accounts/create", bytes.NewBufferString(body))
-		req.Header.Set("Authorization", "Bearer "+token)
-		resp := httptest.NewRecorder()
-		routes.ServeHTTP(resp, req)
-
-		if i == 0 && resp.Code != http.StatusOK {
-			t.Fatalf("first create status = %d, body = %s", resp.Code, resp.Body.String())
-		}
-		if i == 1 && resp.Code != http.StatusConflict {
-			t.Fatalf("second create status = %d, want %d", resp.Code, http.StatusConflict)
-		}
+	req := httptest.NewRequest(http.MethodPost, "/api/platform-accounts/create", bytes.NewBufferString(`{"platform_id":"boss"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("create status = %d, want %d", resp.Code, http.StatusBadRequest)
 	}
+}
+
+// createCookieRecordForTest 直接写入一条测试 cookie 账号记录，并返回 cookie ID。
+func createCookieRecordForTest(t *testing.T, server *Server, email string, platformID string, displayName string) string {
+	t.Helper()
+
+	tenant, err := server.tenants.store.GetOrCreateTenant(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := server.cookies.store.Create(CookieRecord{
+		TenantID:      tenant.ID,
+		UserID:        email,
+		PlatformID:    platformID,
+		DisplayName:   displayName,
+		CookieType:    "json",
+		Status:        "available",
+		EncryptedData: []byte("encrypted"),
+		EncryptedKeys: map[string]string{"agent": "key"},
+		SizeBytes:     9,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec.ID
 }

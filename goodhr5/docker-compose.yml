@@ -7,7 +7,7 @@ services:
 
   frontend:
     build: ./cloud/frontend
-    ports: ["5175:5175"]
+    ports: ["5173:5173"]
     volumes:
       [
         "./cloud/frontend/src:/app/src",

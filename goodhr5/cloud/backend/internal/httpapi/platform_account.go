@@ -1,191 +1,132 @@
-// 本文件负责提供招聘平台账号映射的 HTTP API。
+// 本文件提供平台账号兼容 API，底层统一使用 cookie_data 作为账号数据源。
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 )
 
-// PlatformAccountService 处理平台账号映射的创建、查询和删除。
+// PlatformAccountService 处理平台账号兼容接口。
+// 账号列表、删除和任务选择都以 cookie 记录为准，不再写入 platform_accounts 表。
 type PlatformAccountService struct {
-	auth  *AuthService
-	store PlatformAccountStore
+	auth        *AuthService
+	cookies     CookieStore
+	tenantStore TenantStore
 }
 
-type createPlatformAccountRequest struct {
-	PlatformID     string `json:"platform_id"`
-	DisplayName    string `json:"display_name"`
-	LocalProfileID string `json:"local_profile_id"`
-}
-
-// NewPlatformAccountService 创建平台账号 API 服务，并注入认证服务和账号存储。
-func NewPlatformAccountService(auth *AuthService, store PlatformAccountStore) *PlatformAccountService {
+// NewPlatformAccountService 创建平台账号兼容服务。
+// cookies 为 cookie 存储，tenantStore 用于限定当前用户可见的租户数据。
+func NewPlatformAccountService(auth *AuthService, cookies CookieStore, tenantStore TenantStore) *PlatformAccountService {
 	return &PlatformAccountService{
-		auth:  auth,
-		store: store,
+		auth:        auth,
+		cookies:     cookies,
+		tenantStore: tenantStore,
 	}
 }
 
-// List 返回当前登录用户的平台账号映射列表。
+// List 返回当前租户可见的 cookie 账号列表。
 func (s *PlatformAccountService) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-
-	// 调用认证服务读取当前用户，用于只返回自己的平台账号映射。
-	session, ok := s.currentSession(w, r)
+	tenantID, ok := s.currentTenant(w, r)
 	if !ok {
 		return
 	}
-
 	platformID := strings.TrimSpace(r.URL.Query().Get("platform_id"))
-	// 调用平台账号存储读取映射列表，用于任务创建时选择账号/profile。
-	items, err := s.store.ListPlatformAccounts("", session.Email, platformID, true)
+	items, err := s.cookies.List(tenantID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list platform accounts")
 		return
 	}
-
+	accounts := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if platformID != "" && item.PlatformID != platformID {
+			continue
+		}
+		accounts = append(accounts, publicCookieAccount(item))
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"accounts": publicPlatformAccounts(items),
+		"accounts": accounts,
 	})
 }
 
-// Create 创建一个平台账号映射。
+// Create 禁止继续创建独立平台账号。
+// 新流程应直接调用 /api/cookies/create 写入带名称的 cookie 记录。
 func (s *PlatformAccountService) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-
-	// 调用认证服务读取当前用户，用于将账号映射写入该用户名下。
-	session, ok := s.currentSession(w, r)
-	if !ok {
+	if _, ok := s.currentTenant(w, r); !ok {
 		return
 	}
-
-	var req createPlatformAccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json body")
-		return
-	}
-
-	account, ok := req.toAccount(w, session.Email)
-	if !ok {
-		return
-	}
-
-	// 调用平台账号存储保存映射；cookie/profile 原文仍保留在本地 Agent。
-	saved, err := s.store.SavePlatformAccount(account)
-	if errors.Is(err, ErrConflict) {
-		writeError(w, http.StatusConflict, "platform account already exists")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save platform account")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"account": publicPlatformAccount(saved),
-	})
+	writeError(w, http.StatusBadRequest, "platform account table has been removed; create cookie instead")
 }
 
-// Delete 删除当前登录用户的平台账号映射。
+// Delete 删除一个 cookie 账号记录。
 func (s *PlatformAccountService) Delete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-
-	// 调用认证服务读取当前用户，用于避免删除其他用户的账号映射。
-	session, ok := s.currentSession(w, r)
+	tenantID, ok := s.currentTenant(w, r)
 	if !ok {
 		return
 	}
-
 	accountID := strings.TrimPrefix(r.URL.Path, "/api/platform-accounts/")
 	if accountID == "" || accountID == r.URL.Path {
 		writeError(w, http.StatusBadRequest, "account id is required")
 		return
 	}
-
-	// 调用平台账号存储删除映射；本地 profile 是否删除由 Local Agent 另行处理。
-	err := s.store.DeletePlatformAccount(session.Email, accountID)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, "platform account not found")
-		return
-	}
-	if err != nil {
+	if err := s.cookies.Delete(tenantID, accountID); err != nil {
+		if errors.Is(err, ErrCookieNotFound) {
+			writeError(w, http.StatusNotFound, "platform account not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete platform account")
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// currentSession 从请求中解析登录会话。
-func (s *PlatformAccountService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
-	// 调用认证服务解析请求会话，避免平台账号 API 自己重复处理 token。
+// currentTenant 读取当前会话对应的租户 ID。
+func (s *PlatformAccountService) currentTenant(w http.ResponseWriter, r *http.Request) (string, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return Session{}, false
+		return "", false
 	}
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
-		return Session{}, false
+		return "", false
 	}
-	return session, true
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return "", false
+	}
+	return tenant.ID, true
 }
 
-// toAccount 将创建请求转换为平台账号映射模型。
-func (r createPlatformAccountRequest) toAccount(w http.ResponseWriter, userEmail string) (PlatformAccount, bool) {
-	account := PlatformAccount{
-		UserEmail:      userEmail,
-		PlatformID:     strings.TrimSpace(r.PlatformID),
-		DisplayName:    strings.TrimSpace(r.DisplayName),
-		LocalProfileID: strings.TrimSpace(r.LocalProfileID),
+// publicCookieAccount 将 cookie 记录转换为前端账号兼容结构。
+func publicCookieAccount(item CookieRecord) map[string]any {
+	localProfileID := item.DisplayName
+	if localProfileID == "" {
+		localProfileID = item.ID
 	}
-
-	if account.PlatformID == "" {
-		writeError(w, http.StatusBadRequest, "platform_id is required")
-		return PlatformAccount{}, false
-	}
-	if account.DisplayName == "" {
-		writeError(w, http.StatusBadRequest, "display_name is required")
-		return PlatformAccount{}, false
-	}
-	if account.LocalProfileID == "" {
-		writeError(w, http.StatusBadRequest, "local_profile_id is required")
-		return PlatformAccount{}, false
-	}
-	return account, true
-}
-
-// publicPlatformAccounts 将平台账号映射列表转换为前端响应结构。
-func publicPlatformAccounts(items []PlatformAccount) []map[string]any {
-	result := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		result = append(result, publicPlatformAccount(item))
-	}
-	return result
-}
-
-// publicPlatformAccount 将平台账号映射转换为前端响应结构。
-func publicPlatformAccount(item PlatformAccount) map[string]any {
 	return map[string]any{
 		"id":               item.ID,
 		"platform_id":      item.PlatformID,
 		"display_name":     item.DisplayName,
-		"local_profile_id": item.LocalProfileID,
+		"local_profile_id": localProfileID,
+		"cookie_status":    item.Status,
+		"status":           item.Status,
+		"size_bytes":       item.SizeBytes,
 		"created_at":       item.CreatedAt,
+		"updated_at":       item.UpdatedAt,
 	}
 }

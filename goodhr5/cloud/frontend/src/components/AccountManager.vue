@@ -60,7 +60,9 @@
         <div>
           <strong>{{ a.display_name || a.id }}</strong>
           <p class="card-meta">
-            {{ a.platform_id }} | cookie:{{ a.cookie_status || "无" }}
+            {{ a.platform_id }} | cookie:{{ a.cookie_status || a.status || "无" }} | 最近时间:{{
+              a.updated_at || "未更新"
+            }}
           </p>
         </div>
         <div class="account-actions">
@@ -81,9 +83,7 @@
 import { onMounted, ref, watch } from "vue";
 import {
   createCookie,
-  createPlatformAccount,
   deletePlatformAccount,
-  listCookies,
   listPlatformConfigs,
   listPlatformAccounts,
 } from "../services/cloudApi";
@@ -104,17 +104,6 @@ async function load() {
   try {
     platformConfigs.value = await listPlatformConfigs();
     const list: any[] = await listPlatformAccounts();
-    let cookies: any[] = [];
-    try {
-      cookies = await listCookies();
-    } catch {}
-    for (const a of list) {
-      const m = cookies.find(
-        (x: any) =>
-          x.platform_id === a.platform_id && x.display_name === a.display_name,
-      );
-      if (m) a.cookie_status = m.status;
-    }
     accounts.value = list;
   } catch {}
 }
@@ -138,11 +127,6 @@ async function create() {
       msgType.value = "success";
       return;
     }
-    await createPlatformAccount({
-      platform_id: form.value.platformId,
-      display_name: form.value.displayName,
-      local_profile_id: form.value.displayName,
-    });
     await createCookie({
       platform_id: form.value.platformId,
       display_name: form.value.displayName,

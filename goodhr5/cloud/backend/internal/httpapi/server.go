@@ -42,7 +42,7 @@ func NewServer() (*Server, error) {
 		agent:            NewAgentService(auth, agentStore),
 		agentWS:          agentWS,
 		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
-		platformAccounts: NewPlatformAccountService(auth, config.PlatformAccountStore(db)),
+		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, config.PositionStore(db)),
 		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
@@ -71,7 +71,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
-	// 注册平台账号映射接口，用于同一平台多账号/profile 管理。
+	// 注册平台账号兼容接口，底层统一读取 cookie_data。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)

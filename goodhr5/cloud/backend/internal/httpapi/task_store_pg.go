@@ -258,30 +258,31 @@ func (s *PostgresTaskStore) nullPositionID(ctx context.Context, userID string, p
 	return sql.NullString{String: savedID, Valid: true}, nil
 }
 
-// nullPlatformAccountID 校验平台账号是否属于当前用户，并返回可写入数据库的值。
+// nullPlatformAccountID 校验选择的 cookie 是否属于当前用户租户，并返回可写入数据库的值。
 func (s *PostgresTaskStore) nullPlatformAccountID(ctx context.Context, userID string, platformAccountID string) (sql.NullString, error) {
 	if platformAccountID == "" {
 		return sql.NullString{}, nil
 	}
 
-	var accountID string
+	var cookieID string
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT id
-		FROM platform_accounts
-		WHERE user_id = $1 AND id = $2
+		SELECT cd.id
+		FROM cookie_data cd
+		INNER JOIN users u ON u.tenant_id = cd.tenant_id
+		WHERE u.id = $1 AND cd.id = $2
 		`,
 		userID,
 		platformAccountID,
-	).Scan(&accountID)
+	).Scan(&cookieID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sql.NullString{}, ErrNotFound
 	}
 	if err != nil {
 		return sql.NullString{}, err
 	}
-	return sql.NullString{String: accountID, Valid: true}, nil
+	return sql.NullString{String: cookieID, Valid: true}, nil
 }
 
 // UpdateTaskStatus 更新 PostgreSQL 任务状态。
