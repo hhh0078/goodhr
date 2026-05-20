@@ -1,14 +1,13 @@
 /** 云端认证逻辑 */
 import { ref } from "vue";
-
-const TOKEN_KEY = "goodhr5_access_token";
-const CLOUD_API_BASE = window.GOODHR_CLOUD_API || "http://127.0.0.1:8084";
+import { cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
+import { currentUser, loginByCode, sendLoginCode } from "../services/cloudApi";
 
 export function useAuth() {
   const email = ref("");
   const code = ref("");
   const devCode = ref("");
-  const token = ref(localStorage.getItem(TOKEN_KEY) || "");
+  const token = ref(getAccessToken());
   const user = ref(null);
   const error = ref("");
   const loading = ref(false);
@@ -18,13 +17,7 @@ export function useAuth() {
     error.value = "";
     devCode.value = "";
     try {
-      const res = await fetch(`${CLOUD_API_BASE}/api/auth/send-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "发送失败");
+      const data = await sendLoginCode(email.value);
       if (data.debug_code) {
         devCode.value = data.debug_code;
         code.value = data.debug_code;
@@ -40,15 +33,9 @@ export function useAuth() {
     loading.value = true;
     error.value = "";
     try {
-      const res = await fetch(`${CLOUD_API_BASE}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.value, code: code.value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "登录失败");
+      const data = await loginByCode(email.value, code.value);
       token.value = data.access_token;
-      localStorage.setItem(TOKEN_KEY, data.access_token);
+      setAccessToken(data.access_token);
       user.value = data.user;
     } catch (e) {
       error.value = e.message;
@@ -60,12 +47,7 @@ export function useAuth() {
   async function loadCurrentUser() {
     if (!token.value) return;
     try {
-      const res = await fetch(`${CLOUD_API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token.value}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "登录已过期");
-      user.value = data.user;
+      user.value = await currentUser();
     } catch {
       logout();
     }
@@ -74,7 +56,7 @@ export function useAuth() {
   function logout() {
     token.value = "";
     user.value = null;
-    localStorage.removeItem(TOKEN_KEY);
+    setAccessToken("");
   }
 
   return {
@@ -89,6 +71,6 @@ export function useAuth() {
     login,
     loadCurrentUser,
     logout,
-    CLOUD_API_BASE,
+    CLOUD_API_BASE: cloudApiBase(),
   };
 }

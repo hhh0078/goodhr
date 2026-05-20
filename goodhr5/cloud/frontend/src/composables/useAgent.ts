@@ -1,5 +1,6 @@
 /** 本地 Agent 探测和绑定 */
 import { ref } from 'vue'
+import { bindCloudUser, getLocalHealth } from '../services/localAgentApi'
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]
 
@@ -21,12 +22,11 @@ export function useAgent() {
 
     for (const port of LOCAL_PORTS) {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/health`, { cache: 'no-store' })
-        if (!res.ok) continue
-        const data = await res.json()
+        const candidateBaseUrl = `http://127.0.0.1:${port}`
+        const data = await getLocalHealth(candidateBaseUrl)
         info.value = data
         status.value = `已连接 (端口 ${port})`
-        baseUrl.value = `http://127.0.0.1:${port}`
+        baseUrl.value = candidateBaseUrl
 
         // 如果本地未绑定当前云端用户，自动绑定
         if (data.bound_cloud_user_id !== user.id) {
@@ -48,17 +48,11 @@ export function useAgent() {
     bindStatus.value = '绑定中'
     bindError.value = ''
     try {
-      const res = await fetch(`${baseUrl.value}/api/v1/session/bind-cloud-user`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cloud_user_id: user.id,
-          cloud_email: user.email,
-          agent_token: token
-        })
+      await bindCloudUser(baseUrl.value, {
+        cloud_user_id: user.id,
+        cloud_email: user.email,
+        agent_token: token
       })
-      const data = await res.json()
-      if (!res.ok || !data.ok) throw new Error(data.error || '绑定失败')
       bindStatus.value = '已绑定'
     } catch (e) {
       bindError.value = e.message

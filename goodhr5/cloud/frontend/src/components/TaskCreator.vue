@@ -55,7 +55,7 @@ const accountsError = ref('')
 const filteredAccounts = computed(() => accounts.value.filter(a => a.platform_id === props.tasks.form.value.platformId))
 const posList = typeof props.positions === 'object' && !Array.isArray(props.positions) ? (props.positions as any)?.positions || [] : (props.positions as any[]) || []
 const selectedPosition = computed(() => posList.find((p: any) => p.id === props.tasks.form.value.positionId) || null)
-async function loadAccounts() { accountsError.value = ''; try { const data = await listPlatformAccounts(props.token); accounts.value = data.accounts || [] } catch (e) { accountsError.value = e.message } }
+async function loadAccounts() { accountsError.value = ''; try { accounts.value = await listPlatformAccounts() } catch (e) { accountsError.value = e.message } }
 function onPlatformChange() { props.tasks.form.value.platformAccountId = '' }
 onMounted(() => { if (props.token) loadAccounts() })
 </script>

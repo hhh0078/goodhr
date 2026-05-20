@@ -59,6 +59,13 @@
 </template>
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import {
+  deleteTenantMember,
+  inviteTenantMember,
+  listTenantMembers,
+  updateTenantMember,
+} from "../services/cloudApi";
+
 const props = defineProps<{ token: string; userEmail: string }>();
 const members = ref<any[]>([]);
 const loading = ref(false);
@@ -67,41 +74,24 @@ const msgType = ref("error");
 const inviteEmail = ref("");
 const inviteRole = ref("user");
 const showInvite = ref(false);
-const api = (p: string, o?: RequestInit) =>
-  fetch(`${(window as any).GOODHR_CLOUD_API || "http://127.0.0.1:8084"}${p}`, {
-    headers: {
-      Authorization: `Bearer ${props.token}`,
-      "Content-Type": "application/json",
-      ...o?.headers,
-    },
-    ...o,
-  }).then((r) => r.json());
+
 async function load() {
   try {
-    const d = await api("/api/tenants/members");
-    members.value = d.members || [];
+    members.value = await listTenantMembers();
   } catch {}
 }
 async function invite() {
   loading.value = true;
   msg.value = "";
   try {
-    const d = await api("/api/tenants/invite", {
-      method: "POST",
-      body: JSON.stringify({
-        email: inviteEmail.value,
-        role: inviteRole.value,
-      }),
+    await inviteTenantMember({
+      email: inviteEmail.value,
+      role: inviteRole.value,
     });
-    if (d.ok) {
-      inviteEmail.value = "";
-      msg.value = "邀请成功";
-      msgType.value = "success";
-      await load();
-    } else {
-      msg.value = d.error || "邀请失败";
-      msgType.value = "error";
-    }
+    inviteEmail.value = "";
+    msg.value = "邀请成功";
+    msgType.value = "success";
+    await load();
   } catch (e: any) {
     msg.value = e.message;
     msgType.value = "error";
@@ -111,16 +101,11 @@ async function invite() {
 }
 async function toggleRole(m: any) {
   const r = m.role === "admin" ? "user" : "admin";
-  await api(`/api/tenants/members/${encodeURIComponent(m.Email)}`, {
-    method: "PUT",
-    body: JSON.stringify({ role: r }),
-  });
+  await updateTenantMember(m.Email, { role: r });
   await load();
 }
 async function remove(email: string) {
-  await api(`/api/tenants/members/${encodeURIComponent(email)}`, {
-    method: "DELETE",
-  });
+  await deleteTenantMember(email);
   await load();
 }
 onMounted(load);
