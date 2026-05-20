@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: goodhr5
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  backend:
+    build: ./cloud/backend
+    ports: ["8080:8080"]
+    env_file: ./cloud/backend/.env
+    environment:
+      GOODHR_PG_DSN: "postgres://postgres:postgres@postgres:5432/goodhr5?sslmode=disable"
+      GOODHR_REDIS_ADDR: "redis:6379"
+    volumes:
+      - ./cloud/backend:/app
+      - /app/tmp
+    depends_on: [postgres, redis]
+
+  frontend:
+    build: ./cloud/frontend
+    ports: ["5173:5173"]
+    volumes:
+      - ./cloud/frontend/src:/app/src
+      - ./cloud/frontend/index.html:/app/index.html
+      - ./cloud/frontend/vite.config.ts:/app/vite.config.ts
+      - ./cloud/frontend/tsconfig.json:/app/tsconfig.json
+    depends_on: [backend]
+
+volumes:
+  pgdata:
