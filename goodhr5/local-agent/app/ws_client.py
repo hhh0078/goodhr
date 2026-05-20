@@ -516,10 +516,10 @@ def _profile_dir(name: str) -> Path:
         name: profile 名称。
 
     Returns:
-        返回 agent_data/profiles 下的安全路径。
+        返回 local-agent/cookies 下的安全路径。
     """
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name).strip("_") or "default"
-    return data_dir() / "profiles" / safe_name
+    return data_dir().parent / "cookies" / safe_name
 
 
 def _platform_entry(platform_id: str) -> str:

@@ -35,7 +35,7 @@ from app.tasks import (
     save_ocr_text,
     screenshot_path,
 )
-from app.ws_client import WSAgentClient
+from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
@@ -337,9 +337,13 @@ async def browser_start(payload: dict) -> dict:
     if _browser_manager.is_running:
         return {"ok": True, "status": "already_running"}
 
+    user_data_dir = str(payload.get("user_data_dir") or "").strip()
+    if user_data_dir:
+        user_data_dir = str(_profile_dir(user_data_dir))
+
     await _browser_manager.start(
         persistent=bool(payload.get("persistent", False)),
-        user_data_dir=payload.get("user_data_dir"),
+        user_data_dir=user_data_dir,
         headless=bool(payload.get("headless", False)),
         humanize=bool(payload.get("humanize", True)),
         proxy=str(payload.get("proxy", "")),
@@ -559,7 +563,7 @@ async def page_load_profile(payload: dict) -> dict:
     if not payload.get("data"): raise HTTPException(400, "data required")
     tmp = tempfile.mktemp(suffix=".tar.gz")
     with open(tmp,"wb") as f: f.write(data)
-    target = str(data_dir()/"profiles"/str(payload.get("name","default")))
+    target = str(_profile_dir(str(payload.get("name","default"))))
     os.makedirs(target,exist_ok=True)
     shutil.unpack_archive(tmp, target)
     os.remove(tmp)
