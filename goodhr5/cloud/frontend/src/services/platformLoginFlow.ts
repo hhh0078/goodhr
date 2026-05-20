@@ -7,21 +7,26 @@ type PlatformAuthConfig = {
   login_url_prefixes?: string[]
 }
 
+type PlatformLoginFlowOptions = {
+  userDataDir?: string
+}
+
 /**
  * 执行 Boss 等招聘平台的扫码登录检测流程。
  * @param {string} agentBaseUrl - Local Agent HTTP 基础地址。
  * @param {string} platformId - 平台 ID。
  * @param {PlatformAuthConfig} auth - 平台登录配置。
  * @param {(message: string) => void} onStatus - 状态提示回调。
+ * @param {PlatformLoginFlowOptions} options - 可选流程参数，用于指定本地浏览器目录。
  * @returns {Promise<any[]>} 返回登录后的 cookies 数组。
  */
-export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: string, auth: PlatformAuthConfig, onStatus: (message: string) => void) {
+export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: string, auth: PlatformAuthConfig, onStatus: (message: string) => void, options: PlatformLoginFlowOptions = {}) {
   if (!agentBaseUrl) throw new Error('未检测到本地程序')
   const entryUrl = auth.entry_url || auth.logged_in_url_prefix
   if (!entryUrl) throw new Error('平台登录配置缺少入口地址')
   await startBrowser(agentBaseUrl, {
     persistent: true,
-    user_data_dir: `platform_${platformId}`,
+    user_data_dir: options.userDataDir || `platform_${platformId}`,
     headless: false,
     humanize: true,
   })

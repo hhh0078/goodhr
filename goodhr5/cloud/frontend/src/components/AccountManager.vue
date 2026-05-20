@@ -38,7 +38,16 @@
             {{ a.platform_id }} | cookie:{{ a.cookie_status || "无" }}
           </p>
         </div>
-        <button class="ghost danger" @click="del(a)">删除</button>
+        <div class="account-actions">
+          <button
+            class="ghost"
+            :disabled="loading || refreshingAccountId === a.id"
+            @click="refreshCookie(a)"
+          >
+            {{ refreshingAccountId === a.id ? "登录中..." : "重新登录" }}
+          </button>
+          <button class="ghost danger" @click="del(a)">删除</button>
+        </div>
       </article>
     </div>
   </section>
@@ -64,6 +73,7 @@ const form = ref({ platformId: "boss", displayName: "" });
 const showForm = ref(false);
 const platformConfigs = ref<any[]>([]);
 const pendingCookies = ref<any[] | null>(null);
+const refreshingAccountId = ref("");
 
 async function load() {
   try {
@@ -74,7 +84,10 @@ async function load() {
       cookies = await listCookies();
     } catch {}
     for (const a of list) {
-      const m = cookies.find((x: any) => x.platform_id === a.platform_id);
+      const m = cookies.find(
+        (x: any) =>
+          x.platform_id === a.platform_id && x.display_name === a.display_name,
+      );
       if (m) a.cookie_status = m.status;
     }
     accounts.value = list;
@@ -123,6 +136,46 @@ async function create() {
   }
 }
 
+/**
+ * 为已有平台账号重新执行扫码登录流程，并保存新的 cookie。
+ * @param {any} account - 平台账号记录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function refreshCookie(account: any) {
+  if (!account?.id) return;
+  refreshingAccountId.value = account.id;
+  loading.value = true;
+  msg.value = "";
+  try {
+    msg.value = `正在为 ${account.display_name || account.id} 重新登录`;
+    msgType.value = "success";
+    const cookies = await runPlatformLoginFlow(
+      props.agentBaseUrl,
+      account.platform_id,
+      platformAuthConfig(account.platform_id),
+      (message) => {
+        msg.value = message;
+        msgType.value = "success";
+      },
+      { userDataDir: account.local_profile_id || account.id },
+    );
+    await createCookie({
+      platform_id: account.platform_id,
+      display_name: account.display_name,
+      cookies,
+    });
+    msg.value = "cookie 已更新";
+    msgType.value = "success";
+    await load();
+  } catch (e: any) {
+    msg.value = e.message;
+    msgType.value = "error";
+  } finally {
+    refreshingAccountId.value = "";
+    loading.value = false;
+  }
+}
+
 function platformAuthConfig(platformId: string) {
   const item = platformConfigs.value.find((config: any) => config.config_key === `platform.${platformId}`);
   if (!item?.config_value) return {};
@@ -145,3 +198,11 @@ watch(() => form.value.platformId, () => {
   msg.value = "";
 });
 </script>
+<style scoped>
+.account-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+</style>
