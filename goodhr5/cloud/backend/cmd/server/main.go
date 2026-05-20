@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	addr := envOrDefault("GOODHR_CLOUD_ADDR", ":8080")
+	addr := envOrDefault("GOODHR_CLOUD_ADDR", ":8084")
 	server, err := httpapi.NewServer()
 	if err != nil {
 		log.Fatal(err)

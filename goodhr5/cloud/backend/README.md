@@ -6,10 +6,10 @@
 CGO_ENABLED=0 go run ./cmd/server
 ```
 
-默认监听 `:8080`。可通过环境变量修改：
+默认监听 `:8084`。可通过环境变量修改：
 
 ```bash
-GOODHR_CLOUD_ADDR=127.0.0.1:18080 CGO_ENABLED=0 go run ./cmd/server
+GOODHR_CLOUD_ADDR=127.0.0.1:8084 CGO_ENABLED=0 go run ./cmd/server
 ```
 
 ## PostgreSQL
@@ -179,17 +179,23 @@ POST /api/tasks/{id}/logs
 所有接口都需要 `Authorization: Bearer <token>`。
 
 ## 开发快速启动
+
 ```bash
 cp .env.example .env
 go run ./cmd/server  # 开发模式(全内存存储)
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8084/health
 ```
+
 ## Local Agent
+
 ```bash
 cd ../local-agent && source .venv/bin/activate && python3 -m app.main
 ```
+
 ## 前端
+
 ```bash
 cd ../frontend && npm run dev
 ```
+
 云端日志只保存运行摘要，不保存候选人完整详情。

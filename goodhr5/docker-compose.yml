@@ -1,11 +1,17 @@
 services:
   backend:
     build: ./cloud/backend
-    ports: ["8080:8080"]
+    ports: ["8084:8084"]
     env_file: ./cloud/backend/.env
     volumes: ["./cloud/backend:/app", "/app/tmp"]
 
   frontend:
     build: ./cloud/frontend
-    ports: ["5173:5173"]
-    volumes: ["./cloud/frontend/src:/app/src", "./cloud/frontend/index.html:/app/index.html", "./cloud/frontend/vite.config.ts:/app/vite.config.ts", "./cloud/frontend/tsconfig.json:/app/tsconfig.json"]
+    ports: ["5175:5175"]
+    volumes:
+      [
+        "./cloud/frontend/src:/app/src",
+        "./cloud/frontend/index.html:/app/index.html",
+        "./cloud/frontend/vite.config.ts:/app/vite.config.ts",
+        "./cloud/frontend/tsconfig.json:/app/tsconfig.json",
+      ]

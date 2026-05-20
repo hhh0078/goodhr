@@ -13,8 +13,8 @@ cd goodhr5
 
 | 服务       | 地址                  | 热重载                  |
 | ---------- | --------------------- | ----------------------- |
-| Go 后端    | http://localhost:8080 | ✅ 改 .go 自动重启      |
-| Vue 前端   | http://localhost:5173 | ✅ 改 .ts/.vue 即时刷新 |
+| Go 后端    | http://localhost:8084 | ✅ 改 .go 自动重启      |
+| Vue 前端   | http://localhost:5175 | ✅ 改 .ts/.vue 即时刷新 |
 | PostgreSQL | localhost:5432        | -                       |
 | Redis      | localhost:6379        | -                       |
 
