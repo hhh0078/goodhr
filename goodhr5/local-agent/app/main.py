@@ -384,7 +384,10 @@ async def page_open(payload: dict) -> dict:
     if not url:
         raise HTTPException(400, "url is required")
 
-    page = await _browser_manager.new_page("default")
+    try:
+        page = await _browser_manager.new_page("default")
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
     timeout = int(payload.get("timeout", 30000))
 
     success = await navigate_to_page(page, url, timeout=timeout)
