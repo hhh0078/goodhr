@@ -32,23 +32,23 @@
     <p v-if="tasks.error.value" class="error">{{ tasks.error.value }}</p>
 
     <div v-else class="card-list">
-      <article v-for="task in tasks.tasks.value" :key="task.id" class="card" style="flex-direction:column">
-        <div style="display:flex;justify-content:space-between;width:100%">
-          <div>
+      <article v-for="task in tasks.tasks.value" :key="task.id" class="card task-card">
+        <div class="task-main">
+          <div class="task-title">
             <strong>{{ task.platform_account_name || task.platform_account_id }}</strong>
             <p class="card-meta">{{ task.platform_id }} / {{ task.mode }} / 上限 {{ task.match_limit }}</p>
             <p v-if="task.position_name" class="card-meta">岗位模板：{{ task.position_name }}</p>
           </div>
-          <dl>
-            <dt>状态</dt><dd>{{ task.status }}</dd>
-            <dt>扫描</dt><dd>{{ task.scanned_count }}</dd>
-            <dt>打招呼</dt><dd>{{ task.greeted_count }}</dd>
-            <dt>跳过</dt><dd>{{ task.skipped_count }}</dd>
-            <dt>失败</dt><dd>{{ task.failed_count }}</dd>
-          </dl>
+          <div class="task-stats">
+            <span class="stat-chip">状态 {{ task.status }}</span>
+            <span class="stat-chip">扫描 {{ task.scanned_count }}</span>
+            <span class="stat-chip">打招呼 {{ task.greeted_count }}</span>
+            <span class="stat-chip">跳过 {{ task.skipped_count }}</span>
+            <span class="stat-chip">失败 {{ task.failed_count }}</span>
+          </div>
         </div>
 
-        <div class="actions compact" style="margin-top:8px">
+        <div class="actions compact task-actions">
           <button class="ghost primary" :disabled="tasks.loading.value" @click="tasks.execute(task.id)">运行</button>
           <button class="ghost danger" :disabled="tasks.loading.value || task.status !== 'running'" @click="tasks.stop(task.id)">停止</button>
           <button class="ghost" @click="tasks.toggleLogs(task.id)">
@@ -113,3 +113,43 @@ async function loadAccounts() { accountsError.value=''; try{ accounts.value=awai
 async function createTask() { if(props.tasks) await props.tasks.create(); showCreate.value=false; await loadAccounts() }
 onMounted(loadAccounts)
 </script>
+
+<style scoped>
+.task-card {
+  display: block;
+}
+.task-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.task-title {
+  min-width: 0;
+}
+.task-stats {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.stat-chip {
+  border: 1px solid #333;
+  color: #ddd;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.task-actions {
+  margin-top: 8px;
+}
+@media (max-width: 900px) {
+  .task-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .task-stats {
+    justify-content: flex-start;
+  }
+}
+</style>
