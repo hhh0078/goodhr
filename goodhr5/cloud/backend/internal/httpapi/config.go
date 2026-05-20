@@ -53,6 +53,8 @@ func (c Config) PostgresDB() (*sql.DB, error) {
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	// 调用数据库连接的 Ping，保证显式开启 PostgreSQL 时启动阶段就能发现配置错误。
+	// 自动执行数据库迁移
+	RunMigrations(db)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, err
