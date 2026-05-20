@@ -60,12 +60,20 @@
         <div>
           <strong>{{ a.display_name || a.id }}</strong>
           <p class="card-meta">
-            {{ a.platform_id }} | cookie:{{ a.cookie_status || a.status || "无" }} | 最近时间:{{
-              a.updated_at || "未更新"
+            {{ a.platform_id }} | cookie:{{
+              a.status === "available" ? "已登录" : "未登录"
             }}
+            | 最近时间:{{ a.updated_at.slice(0, 16) || "未更新" }}
           </p>
         </div>
         <div class="account-actions">
+          <button
+            class="ghost"
+            :disabled="loading || openingAccountId === a.id"
+            @click="openWithCookie(a)"
+          >
+            {{ openingAccountId === a.id ? "打开中..." : "打开" }}
+          </button>
           <button
             class="ghost"
             :disabled="loading || refreshingAccountId === a.id"
@@ -87,6 +95,7 @@ import {
   listPlatformConfigs,
   listPlatformAccounts,
 } from "../services/cloudApi";
+import { openPage, startBrowser } from "../services/localAgentApi";
 import { runPlatformLoginFlow } from "../services/platformLoginFlow";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
@@ -99,6 +108,7 @@ const showForm = ref(false);
 const platformConfigs = ref<any[]>([]);
 const pendingCookies = ref<any[] | null>(null);
 const refreshingAccountId = ref("");
+const openingAccountId = ref("");
 
 async function load() {
   try {
@@ -185,6 +195,43 @@ async function refreshCookie(account: any) {
   }
 }
 
+/**
+ * 使用指定 cookie 账号直接打开平台推荐页。
+ * @param {any} account - cookie 账号记录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function openWithCookie(account: any) {
+  if (!account?.id) return;
+  if (!props.agentBaseUrl) {
+    msg.value = "未检测到本地程序";
+    msgType.value = "error";
+    return;
+  }
+  openingAccountId.value = account.id;
+  loading.value = true;
+  msg.value = "";
+  try {
+    const authConfig = platformAuthConfig(account.platform_id);
+    const targetURL = authConfig.entry_url || authConfig.logged_in_url_prefix;
+    if (!targetURL) throw new Error("平台配置缺少入口地址");
+    await startBrowser(props.agentBaseUrl, {
+      persistent: true,
+      user_data_dir: account.local_profile_id || account.display_name || account.id,
+      headless: false,
+      humanize: true,
+    });
+    await openPage(props.agentBaseUrl, { url: targetURL });
+    msg.value = "已打开推荐页";
+    msgType.value = "success";
+  } catch (e: any) {
+    msg.value = e.message;
+    msgType.value = "error";
+  } finally {
+    openingAccountId.value = "";
+    loading.value = false;
+  }
+}
+
 function platformAuthConfig(platformId: string) {
   const item = platformConfigs.value.find(
     (config: any) => config.config_key === `platform.${platformId}`,
@@ -204,6 +251,9 @@ function platformAuthConfig(platformId: string) {
 }
 async function del(a: any) {
   try {
+    // 确认删除
+    if (!confirm(`确定删除账号 ${a.display_name || a.id} 吗？`)) return;
+    // 删除账号
     await deletePlatformAccount(a.id);
   } catch {}
   await load();
