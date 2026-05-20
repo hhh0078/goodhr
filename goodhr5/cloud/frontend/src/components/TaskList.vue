@@ -49,6 +49,9 @@
         </div>
 
         <div class="actions compact task-actions">
+          <button class="ghost" :disabled="tasks.loading.value || task.status === 'running'" @click="startEdit(task)">
+            {{ editingTaskId === task.id ? '取消编辑' : '编辑' }}
+          </button>
           <button class="ghost primary" :disabled="tasks.loading.value" @click="tasks.execute(task.id)">运行</button>
           <button class="ghost danger" :disabled="tasks.loading.value || task.status !== 'running'" @click="tasks.stop(task.id)">停止</button>
           <button class="ghost" @click="tasks.toggleLogs(task.id)">
@@ -57,6 +60,29 @@
           <button class="ghost" @click="tasks.toggleCandidates(task)">
             {{ tasks.candidateExpandedTaskId.value === tasks.localTaskID(task) ? '收起候选人' : '查看候选人' }}
           </button>
+        </div>
+
+        <div v-if="editingTaskId === task.id" class="log-panel">
+          <div class="form-grid">
+            <label>平台<select v-model="editForm.platformId" @change="onEditPlatformChange">
+              <option value="boss">Boss直聘</option><option value="zhaopin">智联招聘</option><option value="liepin">猎聘</option>
+            </select></label>
+            <label>账号<select v-model="editForm.platformAccountId">
+              <option value="">请选择账号</option>
+              <option v-for="acc in editAccounts" :key="acc.id" :value="acc.id">{{ acc.display_name }}</option>
+            </select></label>
+            <label>岗位模板<select v-model="editForm.positionId">
+              <option value="">不使用模板</option>
+              <option v-for="pos in positions" :key="pos.id" :value="pos.id">{{ pos.name }}</option>
+            </select></label>
+            <label>筛选模式<select v-model="editForm.mode">
+              <option value="keyword">关键词筛选</option><option value="ai">AI筛选</option>
+            </select></label>
+            <label>匹配上限<input v-model="editForm.matchLimit" type="number" min="1" /></label>
+          </div>
+          <div class="actions compact">
+            <button :disabled="tasks.loading.value || !editForm.platformAccountId" @click="saveEdit(task.id)">保存参数</button>
+          </div>
         </div>
 
         <!-- 日志面板 -->
@@ -103,14 +129,37 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { listPlatformAccounts } from '../services/cloudApi'
 const props = defineProps({ tasks: Object, positions: Object, token: String, agent: Object })
 const showCreate = ref(false)
 const accounts = ref<any[]>([])
 const accountsError = ref('')
+const editingTaskId = ref('')
+const editForm = ref({ platformId: 'boss', platformAccountId: '', positionId: '', mode: 'keyword', matchLimit: 20 })
 async function loadAccounts() { accountsError.value=''; try{ accounts.value=await listPlatformAccounts() }catch(e:any){accountsError.value=e.message} }
 async function createTask() { if(props.tasks) await props.tasks.create(); showCreate.value=false; await loadAccounts() }
+function startEdit(task: any) {
+  if (editingTaskId.value === task.id) {
+    editingTaskId.value = ''
+    return
+  }
+  editingTaskId.value = task.id
+  editForm.value = {
+    platformId: task.platform_id || 'boss',
+    platformAccountId: task.platform_account_id || '',
+    positionId: task.position_id || '',
+    mode: task.mode || 'keyword',
+    matchLimit: task.match_limit || 20,
+  }
+}
+function onEditPlatformChange() { editForm.value.platformAccountId = '' }
+const editAccounts = computed(() => accounts.value.filter((a: any) => a.platform_id === editForm.value.platformId))
+async function saveEdit(taskId: string) {
+  if (!props.tasks) return
+  await props.tasks.update(taskId, editForm.value)
+  editingTaskId.value = ''
+}
 onMounted(loadAccounts)
 </script>
 
@@ -141,6 +190,9 @@ onMounted(loadAccounts)
   line-height: 1.3;
 }
 .task-actions {
+  margin-top: 8px;
+}
+.edit-actions {
   margin-top: 8px;
 }
 @media (max-width: 900px) {

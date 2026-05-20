@@ -232,6 +232,81 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 	return item, nil
 }
 
+// UpdateTask 更新 PostgreSQL 任务的可编辑参数。
+func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	userID, err := ensureUserID(ctx, s.db, task.UserEmail)
+	if err != nil {
+		return TaskRun{}, err
+	}
+	platformAccountID, err := s.nullPlatformAccountID(ctx, userID, task.PlatformAccountID)
+	if err != nil {
+		return TaskRun{}, err
+	}
+	positionID, err := s.nullPositionID(ctx, userID, task.PositionID)
+	if err != nil {
+		return TaskRun{}, err
+	}
+
+	var saved TaskRun
+	saved.UserEmail = task.UserEmail
+	err = s.db.QueryRowContext(
+		ctx,
+		`
+		UPDATE task_runs
+		SET platform_account_id=$1, position_id=$2, platform_id=$3, mode=$4, match_limit=$5
+		WHERE id=$6
+		RETURNING
+			id,
+			platform_id,
+			COALESCE(platform_account_id::text, ''),
+			COALESCE(position_id::text, ''),
+			mode,
+			match_limit,
+			status,
+			scanned_count,
+			greeted_count,
+			skipped_count,
+			failed_count,
+			local_task_id,
+			created_at,
+			started_at,
+			finished_at
+		`,
+		platformAccountID,
+		positionID,
+		task.PlatformID,
+		task.Mode,
+		task.MatchLimit,
+		taskID,
+	).Scan(
+		&saved.ID,
+		&saved.PlatformID,
+		&saved.PlatformAccountID,
+		&saved.PositionID,
+		&saved.Mode,
+		&saved.MatchLimit,
+		&saved.Status,
+		&saved.ScannedCount,
+		&saved.GreetedCount,
+		&saved.SkippedCount,
+		&saved.FailedCount,
+		&saved.LocalTaskID,
+		&saved.CreatedAt,
+		&saved.StartedAt,
+		&saved.FinishedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskRun{}, ErrNotFound
+	}
+	if err != nil {
+		return TaskRun{}, err
+	}
+	return saved, nil
+}
+
 // nullPositionID 校验岗位模板是否属于当前用户，并返回可写入数据库的值。
 func (s *PostgresTaskStore) nullPositionID(ctx context.Context, userID string, positionID string) (sql.NullString, error) {
 	if positionID == "" {

@@ -57,6 +57,11 @@ export async function createTask(payload: any) {
   return data.task
 }
 
+export async function updateTask(taskID: string, payload: any) {
+  const data = await api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: 'PUT', body: payload })
+  return data.task
+}
+
 export async function listTasks() {
   const data = await api('/api/tasks')
   return data.tasks

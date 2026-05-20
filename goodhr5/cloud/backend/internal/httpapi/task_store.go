@@ -16,6 +16,7 @@ type TaskStore interface {
 	CreateTask(task TaskRun) (TaskRun, error)
 	ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error)
 	TaskByID(tenantID, userEmail, taskID string, isAdmin bool) (TaskRun, error)
+	UpdateTask(taskID string, task TaskRun) (TaskRun, error)
 	UpdateTaskStatus(taskID, status string) error
 	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
 }
@@ -79,6 +80,22 @@ func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error {
 	}
 	s.tasks[taskID] = task
 	return nil
+}
+
+func (s *MemoryTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.tasks[taskID]
+	if !ok {
+		return TaskRun{}, ErrNotFound
+	}
+	existing.PlatformID = task.PlatformID
+	existing.PlatformAccountID = task.PlatformAccountID
+	existing.PositionID = task.PositionID
+	existing.Mode = task.Mode
+	existing.MatchLimit = task.MatchLimit
+	s.tasks[taskID] = existing
+	return existing, nil
 }
 func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
 	s.mu.Lock()

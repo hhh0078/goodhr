@@ -1,7 +1,7 @@
 /** 任务和候选人管理 */
 import { ref } from 'vue'
 import { cloudApiBase, getAccessToken } from '../services/apiClient'
-import { createTask, listTasks, listTaskLogs } from '../services/cloudApi'
+import { createTask, listTasks, listTaskLogs, updateTask } from '../services/cloudApi'
 import { initLocalTask, listLocalCandidates, deleteLocalCandidate, startTaskWS, stopTaskWS } from '../services/localAgentApi'
 
 export function useTasks(agentBaseUrl: Ref<string>) {
@@ -39,6 +39,24 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     }
     catch (e: any) { error.value = e.message }
     finally { loading.value = false }
+  }
+
+  async function update(taskId: string, payload: any) {
+    loading.value = true; error.value = ''
+    try {
+      await updateTask(taskId, {
+        platform_id: payload.platformId,
+        platform_account_id: payload.platformAccountId,
+        position_id: payload.positionId || '',
+        mode: payload.mode,
+        match_limit: Number(payload.matchLimit || 0),
+      })
+      await load()
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      loading.value = false
+    }
   }
 
   async function execute(taskId: string) {
@@ -112,5 +130,5 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     return { cloud_api_base: base, cloud_ws_url: `${wsBase}/api/agents/ws`, token: getAccessToken() }
   }
 
-  return { tasks, loading, error, message, form, expandedTaskId, taskLogs, candidateExpandedTaskId, taskCandidates, candidateLoadingTaskId, candidateError, load, create, execute, stop, toggleLogs, toggleCandidates, loadCandidates, removeCandidate, localTaskID, taskPositionSnapshot, candidateItems, candidateTitle, candidateSubtitle, candidateDetail }
+  return { tasks, loading, error, message, form, expandedTaskId, taskLogs, candidateExpandedTaskId, taskCandidates, candidateLoadingTaskId, candidateError, load, create, update, execute, stop, toggleLogs, toggleCandidates, loadCandidates, removeCandidate, localTaskID, taskPositionSnapshot, candidateItems, candidateTitle, candidateSubtitle, candidateDetail }
 }

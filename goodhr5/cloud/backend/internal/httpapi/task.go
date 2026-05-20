@@ -122,6 +122,10 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 
 // Detail 返回当前登录用户的单个任务详情。
 func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.Update(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -154,6 +158,56 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"task": publicTaskRun(task),
+	})
+}
+
+// Update 更新任务创建参数（平台、账号、岗位模板、模式、上限）。
+func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	if taskID == "" || taskID == r.URL.Path {
+		writeError(w, http.StatusBadRequest, "task id is required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	current, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	if current.Status == "running" {
+		writeError(w, http.StatusConflict, "running task cannot be edited")
+		return
+	}
+
+	var req createTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	next, ok := req.toTask(w, session.Email)
+	if !ok {
+		return
+	}
+	updated, err := s.store.UpdateTask(taskID, next)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "platform account not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update task")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"task": publicTaskRun(updated),
 	})
 }
 
