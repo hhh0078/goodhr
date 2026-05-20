@@ -78,7 +78,7 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT machine_id, agent_version, public_key, bind_status, last_seen_at, created_at
+		SELECT la.machine_id, la.agent_version, la.public_key, la.bind_status, la.last_seen_at, la.created_at
 		FROM local_agents la
 		INNER JOIN users u ON u.id = la.user_id
 		WHERE u.email = $1

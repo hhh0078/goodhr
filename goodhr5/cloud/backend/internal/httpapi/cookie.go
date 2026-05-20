@@ -141,7 +141,13 @@ func (s *CookieService) encryptCookieForTenant(tenantID string, cookieJSON []byt
 			continue
 		}
 		binding, err := s.agentStore.CurrentBinding(member.Email)
-		if err != nil || binding.PublicKey == "" || binding.MachineID == "" {
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if binding.PublicKey == "" || binding.MachineID == "" {
 			continue
 		}
 		encryptedKey, err := EncryptSKForAgent(binding.PublicKey, sk)
