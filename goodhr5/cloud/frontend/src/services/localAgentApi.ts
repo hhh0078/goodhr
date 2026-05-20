@@ -8,6 +8,16 @@ type AgentRequestOptions = Omit<RequestInit, 'body'> & {
   body?: BodyInit | Record<string, any> | null
 }
 
+export type OpenPagePayload = {
+  url: string
+  timeout?: number
+  user_data_dir?: string
+  persistent?: boolean
+  headless?: boolean
+  humanize?: boolean
+  proxy?: string
+}
+
 async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
   const { body, ...rest } = opts
   const res = await fetch(agentURL(base, path), {
@@ -114,10 +124,10 @@ export async function startBrowser(base: string, payload: any) {
 /**
  * 打开当前浏览器页面。
  * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 包含 url 的页面参数。
+ * @param {OpenPagePayload} payload - 页面打开参数，可选传 user_data_dir 指定账号目录。
  * @returns {Promise<any>} 返回打开结果。
  */
-export async function openPage(base: string, payload: any) {
+export async function openPage(base: string, payload: OpenPagePayload) {
   return req(base, '/api/v1/page/open', { method: 'POST', body: payload })
 }
 
