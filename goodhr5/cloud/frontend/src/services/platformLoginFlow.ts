@@ -4,6 +4,7 @@ import { currentPageURL, exportPageCookies, openPage, startBrowser } from './loc
 type PlatformAuthConfig = {
   entry_url?: string
   logged_in_url_prefix?: string
+  logged_in_url_contains?: string[]
   login_url_prefixes?: string[]
 }
 
@@ -65,6 +66,8 @@ function isLoginURL(url: string, auth: PlatformAuthConfig) {
 }
 
 function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
+  const contains = auth.logged_in_url_contains || []
+  if (contains.some(keyword => keyword && url.includes(keyword))) return true
   return !!auth.logged_in_url_prefix && url.startsWith(auth.logged_in_url_prefix)
 }
 

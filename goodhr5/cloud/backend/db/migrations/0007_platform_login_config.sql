@@ -6,7 +6,8 @@ SET config_value = jsonb_set(
         '{auth}',
         '{
           "entry_url": "https://www.zhipin.com/web/chat/recommend",
-          "logged_in_url_prefix": "https://www.zhipin.com/web/chat/recommend",
+          "logged_in_url_prefix": "https://www.zhipin.com/web/chat",
+          "logged_in_url_contains": ["www.zhipin.com/web/chat"],
           "login_url_prefixes": ["https://login.zhipin.com", "https://www.zhipin.com/web/user/"]
         }'::jsonb,
         true
