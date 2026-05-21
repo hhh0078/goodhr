@@ -27,6 +27,7 @@ from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.screenshot import screenshot_modal
+from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 from app.session import load_cloud_account, save_cloud_account
 from app.tasks import (
     delete_candidate,
@@ -718,6 +719,36 @@ async def ocr_recognize(payload: dict) -> dict:
 
     text = await ocr_image_async(image_bytes)
     return {"ok": True, "text": text}
+
+
+@app.post("/api/v1/sound/play")
+async def sound_play(payload: dict) -> dict:
+    """播放提示音。
+
+    请求体支持：
+    - kind: success | failed（播放内置音频）
+    - url: 网络音频地址（先检查/下载到本地后播放一次）
+    """
+    kind = str(payload.get("kind", "")).strip().lower()
+    url = str(payload.get("url", "")).strip()
+    if not kind and not url:
+        raise HTTPException(400, "kind or url is required")
+
+    try:
+        if url:
+            audio = await ensure_audio_from_url(url)
+        else:
+            audio = resolve_builtin_audio(kind)
+        play_once(audio)
+        return {"ok": True, "file": str(audio)}
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"download audio failed: {exc}")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"play audio failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

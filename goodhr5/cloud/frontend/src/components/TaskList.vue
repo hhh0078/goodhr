@@ -98,21 +98,32 @@
         <div class="actions compact task-actions">
           <div class="task-actions-left">
             <button
+              v-if="task.status !== 'running'"
               class="ghost primary"
               :disabled="tasks.loading.value"
               @click="tasks.execute(task.id)"
             >
-              运行
+              开始
             </button>
             <button
+              v-else
               class="ghost danger"
-              :disabled="tasks.loading.value || task.status !== 'running'"
+              :disabled="tasks.loading.value"
               @click="tasks.stop(task.id)"
             >
               停止
             </button>
           </div>
           <div class="task-actions-right">
+            <label class="sound-toggle">
+              <input
+                type="checkbox"
+                :checked="Boolean(task.enable_sound)"
+                :disabled="tasks.loading.value || task.status === 'running'"
+                @change="onSoundToggle(task, $event)"
+              />
+              <span>提示音</span>
+            </label>
             <button class="ghost" @click="tasks.toggleLogs(task.id)">
               {{
                 tasks.expandedTaskId.value === task.id ? "收起日志" : "展开日志"
@@ -306,6 +317,7 @@ const editForm = ref({
   positionId: "",
   mode: "keyword",
   matchLimit: 20,
+  enableSound: false,
 });
 async function loadAccounts() {
   accountsError.value = "";
@@ -332,6 +344,7 @@ function startEdit(task: any) {
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
     matchLimit: task.match_limit || 20,
+    enableSound: Boolean(task.enable_sound),
   };
 }
 function onEditPlatformChange() {
@@ -347,6 +360,21 @@ async function saveEdit(taskId: string) {
   await props.tasks.update(taskId, editForm.value);
   editingTaskId.value = "";
 }
+async function toggleSound(task: any, enableSound: boolean) {
+  if (!props.tasks) return;
+  await props.tasks.update(task.id, {
+    platformId: task.platform_id || "boss",
+    platformAccountId: task.platform_account_id || "",
+    positionId: task.position_id || "",
+    mode: task.mode || "keyword",
+    matchLimit: task.match_limit || 20,
+    enableSound,
+  });
+}
+function onSoundToggle(task: any, event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  void toggleSound(task, Boolean(target?.checked));
+}
 function taskStatusLabel(status: string) {
   const key = String(status || "").toLowerCase();
   if (key === "created") return "待运行";
@@ -358,6 +386,20 @@ function taskStatusLabel(status: string) {
 }
 onMounted(loadAccounts);
 </script>
+
+<style scoped>
+.sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #475467;
+}
+
+.sound-toggle input {
+  margin: 0;
+}
+</style>
 
 <style scoped>
 .task-card {

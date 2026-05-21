@@ -235,7 +235,15 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 		}
 
 		// 打招呼：点击 greeting 按钮
-		_ = e.clickGreet()
+		if err := e.clickGreet(); err != nil {
+			e.log("error", fmt.Sprintf("候选人 %d 打招呼失败: %v", i+1, err))
+			continue
+		}
+		if e.task.EnableSound {
+			if err := e.playSuccessSound(); err != nil {
+				e.log("warn", fmt.Sprintf("播放成功提示音失败: %v", err))
+			}
+		}
 	}
 	return nil
 }
@@ -251,6 +259,12 @@ func (e *TaskExecutor) clickGreet() error {
 		"selector":     btns[0],
 		"timeout":      10000,
 		"delay_before": 1.0,
+	}, nil)
+}
+
+func (e *TaskExecutor) playSuccessSound() error {
+	return e.post("/api/v1/sound/play", map[string]any{
+		"kind": "success",
 	}, nil)
 }
 

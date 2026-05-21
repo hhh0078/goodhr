@@ -15,6 +15,7 @@ import httpx
 
 from app.humanize import navigate_to_page, scroll_to_load, wait_and_click
 from app.paths import data_dir
+from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 
 
 REPLY_TIMEOUT_SECONDS = 8
@@ -349,6 +350,14 @@ class WSAgentClient:
                 delay_before=float(body.get("delay_before", 0.5)),
             )
             return {"ok": True, "clicked": clicked}
+        if path == "/api/v1/sound/play":
+            kind = str(body.get("kind") or "").strip().lower()
+            url = str(body.get("url") or "").strip()
+            if not kind and not url:
+                raise ValueError("kind or url is required")
+            audio = await ensure_audio_from_url(url) if url else resolve_builtin_audio(kind)
+            play_once(audio)
+            return {"ok": True, "file": str(audio)}
         raise ValueError(f"unsupported local path: {path}")
 
     async def _require_page(self):
