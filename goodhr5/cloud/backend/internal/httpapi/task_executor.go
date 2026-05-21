@@ -24,12 +24,6 @@ type localElementItem struct {
 	Index int    `json:"index"`
 }
 
-type localViewportResp struct {
-	Ok         bool   `json:"ok"`
-	InViewport bool   `json:"in_viewport"`
-	Matched    string `json:"matched"`
-}
-
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
 	task           TaskRun
@@ -295,7 +289,7 @@ func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
 
 	candidates := make([]map[string]any, 0, len(findResp.Items))
 	for _, item := range findResp.Items {
-		if err := e.ensureCandidateInViewport(item.Ref); err != nil {
+		if err := e.platformCfg.EnsureCandidateVisible(e, item.Ref); err != nil {
 			return nil, err
 		}
 		var extractResp struct {
@@ -316,31 +310,6 @@ func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
 		candidates = append(candidates, extractResp.Fields)
 	}
 	return candidates, nil
-}
-
-// ensureCandidateInViewport 在读取候选人字段前，确保对应卡片处于当前视口内。
-func (e *TaskExecutor) ensureCandidateInViewport(elementRef string) error {
-	if strings.TrimSpace(elementRef) == "" {
-		return nil
-	}
-	var viewportResp localViewportResp
-	if err := e.post("/api/v1/page/in-viewport", map[string]any{
-		"element_ref": elementRef,
-	}, &viewportResp); err != nil {
-		return err
-	}
-	if viewportResp.InViewport {
-		e.log("info", fmt.Sprintf("候选人卡片已在当前视口内：%s", elementRef))
-		return nil
-	}
-	e.log("info", fmt.Sprintf("候选人卡片不在当前视口内，准备滚动到视口：%s", elementRef))
-	if err := e.post("/api/v1/page/scroll-into-view", map[string]any{
-		"element_ref": elementRef,
-	}, &viewportResp); err != nil {
-		return err
-	}
-	e.log("info", fmt.Sprintf("候选人卡片已滚动到视口内：%s", viewportResp.Matched))
-	return nil
 }
 
 // processCandidates 逐候选人筛选和打招呼。
