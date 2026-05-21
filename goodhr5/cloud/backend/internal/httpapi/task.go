@@ -301,20 +301,37 @@ func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun
 
 func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
 	result := publicTaskRun(item)
-	if item.PlatformAccountID == "" || tenantID == "" {
-		return result
+	if item.PlatformAccountID != "" && tenantID != "" {
+		account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
+		if err == nil {
+			result["platform_account_name"] = account.DisplayName
+			result["platform_account"] = map[string]any{
+				"id":           account.ID,
+				"platform_id":  account.PlatformID,
+				"display_name": account.DisplayName,
+				"status":       account.Status,
+				"updated_at":   account.UpdatedAt,
+			}
+		}
 	}
-	account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
-	if err != nil {
-		return result
-	}
-	result["platform_account_name"] = account.DisplayName
-	result["platform_account"] = map[string]any{
-		"id":           account.ID,
-		"platform_id":  account.PlatformID,
-		"display_name": account.DisplayName,
-		"status":       account.Status,
-		"updated_at":   account.UpdatedAt,
+	if item.PositionID != "" {
+		position, err := s.positionStore.PositionByID(tenantID, item.UserEmail, item.PositionID, false)
+		if err == nil {
+			result["position_name"] = position.Name
+			result["position"] = map[string]any{
+				"id":               position.ID,
+				"name":             position.Name,
+				"description":      position.Description,
+				"greet_message":    position.GreetMessage,
+				"keywords":         position.Keywords,
+				"exclude_keywords": position.ExcludeKeywords,
+				"is_and_mode":      position.IsAndMode,
+				"common_config":    cloneMap(position.CommonConfig),
+				"ai_config":        cloneMap(position.AIConfig),
+				"keyword_config":   cloneMap(position.KeywordConfig),
+				"updated_at":       position.UpdatedAt,
+			}
+		}
 	}
 	return result
 }

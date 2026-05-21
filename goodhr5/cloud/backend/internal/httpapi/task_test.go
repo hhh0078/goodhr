@@ -31,15 +31,21 @@ func TestTaskCreateListDetail(t *testing.T) {
 
 	var createPayload struct {
 		Task struct {
-			ID          string `json:"id"`
-			Status      string `json:"status"`
-			Scanned     int    `json:"scanned_count"`
-			MatchLimit  int    `json:"match_limit"`
-			PlatformID  string `json:"platform_id"`
-			AccountID   string `json:"platform_account_id"`
-			PositionID  string `json:"position_id"`
-			FilterMode  string `json:"mode"`
-			LocalTaskID string `json:"local_task_id"`
+			ID           string `json:"id"`
+			Status       string `json:"status"`
+			Scanned      int    `json:"scanned_count"`
+			MatchLimit   int    `json:"match_limit"`
+			PlatformID   string `json:"platform_id"`
+			AccountID    string `json:"platform_account_id"`
+			PositionID   string `json:"position_id"`
+			PositionName string `json:"position_name"`
+			FilterMode   string `json:"mode"`
+			LocalTaskID  string `json:"local_task_id"`
+			Position     struct {
+				ID       string   `json:"id"`
+				Name     string   `json:"name"`
+				Keywords []string `json:"keywords"`
+			} `json:"position"`
 		} `json:"task"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
@@ -53,6 +59,12 @@ func TestTaskCreateListDetail(t *testing.T) {
 	}
 	if createPayload.Task.PositionID != positionID {
 		t.Fatalf("position_id = %q", createPayload.Task.PositionID)
+	}
+	if createPayload.Task.PositionName != "带货主播" {
+		t.Fatalf("position_name = %q", createPayload.Task.PositionName)
+	}
+	if createPayload.Task.Position.ID != positionID || createPayload.Task.Position.Name != "带货主播" {
+		t.Fatalf("unexpected position payload: %+v", createPayload.Task.Position)
 	}
 	if createPayload.Task.LocalTaskID == "" {
 		t.Fatal("local_task_id is empty")
@@ -69,7 +81,11 @@ func TestTaskCreateListDetail(t *testing.T) {
 
 	var listPayload struct {
 		Tasks []struct {
-			ID string `json:"id"`
+			ID       string `json:"id"`
+			Position struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"position"`
 		} `json:"tasks"`
 	}
 	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
@@ -77,6 +93,9 @@ func TestTaskCreateListDetail(t *testing.T) {
 	}
 	if len(listPayload.Tasks) != 1 {
 		t.Fatalf("tasks length = %d", len(listPayload.Tasks))
+	}
+	if listPayload.Tasks[0].Position.ID != positionID || listPayload.Tasks[0].Position.Name != "带货主播" {
+		t.Fatalf("unexpected list position payload: %+v", listPayload.Tasks[0].Position)
 	}
 
 	// 调用任务详情接口，供后续展开日志和候选人数据时使用。

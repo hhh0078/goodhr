@@ -37,18 +37,22 @@ func NewServer() (*Server, error) {
 	agentStore := config.AgentStore(db)
 	tenantStore := config.TenantStore(db)
 	cookieStore := config.CookieStore(db)
+	positionStore := config.PositionStore(db)
+	aiConfigStore := config.AIConfigStore(db)
+	userPreferencesStore := config.UserPreferencesStore(db)
+	systemConfigStore := config.SystemConfigStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db))
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, agentStore),
 		agentWS:          agentWS,
-		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
-		userPreferences:  NewUserPreferencesService(auth, config.UserPreferencesStore(db)),
+		ai:               NewAIConfigService(auth, aiConfigStore),
+		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
-		positions:        NewPositionService(auth, config.PositionStore(db)),
-		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), config.UserPreferencesStore(db), tenantStore, cookieStore, agentWS),
+		positions:        NewPositionService(auth, positionStore),
+		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
-		systemConfigs:    config.SystemConfigStore(db),
+		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
