@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import secrets
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -327,7 +328,17 @@ class WSAgentClient:
             await self._send_reply(message_id, msg_type, task_id, True, "", result)
         except Exception as exc:
             logger.exception("[任务WS] 命令执行失败 type=%s task=%s: %s", msg_type, task_id, exc)
-            await self._send_reply(message_id, msg_type, task_id, False, str(exc), {})
+            await self._send_reply(
+                message_id,
+                msg_type,
+                task_id,
+                False,
+                str(exc),
+                {
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+            )
 
     async def _execute_command(self, msg_type: str, task_id: str, payload: dict) -> dict:
         """

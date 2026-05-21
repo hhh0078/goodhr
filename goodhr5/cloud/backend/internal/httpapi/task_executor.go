@@ -338,6 +338,9 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	}, 3)
 	if err != nil {
 		e.log("error", fmt.Sprintf("本地程序请求失败：%s，err=%v", path, err))
+		if detail := localAgentReplyDetail(resp); detail != "" {
+			e.log("error", fmt.Sprintf("本地程序详细错误：%s", detail))
+		}
 		return fmt.Errorf("请求 Local Agent 失败 (%s): %w", path, err)
 	}
 	e.log("info", fmt.Sprintf("本地程序响应成功：%s", path))
@@ -353,6 +356,19 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	}
 
 	return nil
+}
+
+func localAgentReplyDetail(resp AgentWSMessage) string {
+	if len(resp.Payload) == 0 {
+		return ""
+	}
+	if traceback, ok := resp.Payload["traceback"].(string); ok && strings.TrimSpace(traceback) != "" {
+		return strings.TrimSpace(traceback)
+	}
+	if detail, ok := resp.Payload["detail"].(string); ok && strings.TrimSpace(detail) != "" {
+		return strings.TrimSpace(detail)
+	}
+	return ""
 }
 
 // log 记录任务执行日志。
