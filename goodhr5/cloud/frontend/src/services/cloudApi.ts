@@ -72,6 +72,10 @@ export async function updateTask(taskID: string, payload: any) {
   return data.task
 }
 
+export async function deleteTask(taskID: string) {
+  return api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: 'DELETE' })
+}
+
 export async function listTasks() {
   const data = await api('/api/tasks')
   return data.tasks

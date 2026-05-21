@@ -126,6 +126,10 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 
 // Detail 返回当前登录用户的单个任务详情。
 func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.Delete(w, r)
+		return
+	}
 	if r.Method == http.MethodPut {
 		s.Update(w, r)
 		return
@@ -162,6 +166,43 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"task": s.publicTaskRunWithAccount(tenantID, task),
+	})
+}
+
+func (s *TaskService) Delete(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	if taskID == "" || taskID == r.URL.Path {
+		writeError(w, http.StatusBadRequest, "task id is required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	current, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	if current.Status == "running" {
+		writeError(w, http.StatusConflict, "running task cannot be deleted")
+		return
+	}
+	if err := s.store.DeleteTask(tenantID, session.Email, taskID, isAdmin); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete task")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true,
 	})
 }
 

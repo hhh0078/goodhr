@@ -240,6 +240,38 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 	return item, nil
 }
 
+func (s *PostgresTaskStore) DeleteTask(tenantID, userEmail, taskID string, isAdmin bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := s.db.ExecContext(
+		ctx,
+		`
+		DELETE FROM task_runs tr
+		USING users u
+		WHERE tr.user_id = u.id
+		  AND u.tenant_id = $1
+		  AND (u.email = $2 OR $3::boolean)
+		  AND tr.id = $4
+		`,
+		tenantID,
+		userEmail,
+		isAdmin,
+		taskID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateTask 更新 PostgreSQL 任务的可编辑参数。
 func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { cloudApiBase, getAccessToken } from "../services/apiClient";
 import {
   createTask,
+  deleteTask,
   listTasks,
   listTaskLogs,
   updateTask,
@@ -133,6 +134,22 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     }
   }
 
+  async function remove(taskId: string) {
+    loading.value = true;
+    error.value = "";
+    message.value = "";
+    try {
+      if (!confirm("确认删除任务吗？")) return;
+      await deleteTask(taskId);
+      message.value = "任务已删除";
+      await load();
+    } catch (e: any) {
+      error.value = e.message;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   async function toggleLogs(taskId: string) {
     if (expandedTaskId.value === taskId) {
       expandedTaskId.value = "";
@@ -239,6 +256,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     update,
     execute,
     stop,
+    remove,
     toggleLogs,
     toggleCandidates,
     loadCandidates,

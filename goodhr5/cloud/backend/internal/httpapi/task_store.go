@@ -17,6 +17,7 @@ type TaskStore interface {
 	CreateTask(task TaskRun) (TaskRun, error)
 	ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error)
 	TaskByID(tenantID, userEmail, taskID string, isAdmin bool) (TaskRun, error)
+	DeleteTask(tenantID, userEmail, taskID string, isAdmin bool) error
 	UpdateTask(taskID string, task TaskRun) (TaskRun, error)
 	UpdateTaskStatus(taskID, status string) error
 	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
@@ -63,6 +64,16 @@ func (s *MemoryTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin b
 		return TaskRun{}, ErrNotFound
 	}
 	return task, nil
+}
+func (s *MemoryTaskStore) DeleteTask(tenantID, userEmail, taskID string, isAdmin bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok || (!isAdmin && task.UserEmail != userEmail) {
+		return ErrNotFound
+	}
+	delete(s.tasks, taskID)
+	return nil
 }
 func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error {
 	s.mu.Lock()

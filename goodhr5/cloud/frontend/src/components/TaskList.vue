@@ -77,6 +77,8 @@
         <div class="task-main">
           <div class="task-title">
             <div>
+              {{ task.position.name }}
+              |
               {{
                 task.platform_account.display_name || task.platform_account_id
               }}
@@ -124,12 +126,12 @@
               />
               <span>提示音</span>
             </label>
-            <button class="ghost" @click="tasks.toggleLogs(task.id)">
+            <button class="text-action" @click="tasks.toggleLogs(task.id)">
               {{
                 tasks.expandedTaskId.value === task.id ? "收起日志" : "展开日志"
               }}
             </button>
-            <button class="ghost" @click="tasks.toggleCandidates(task)">
+            <button class="text-action" @click="tasks.toggleCandidates(task)">
               {{
                 tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)
                   ? "收起候选人"
@@ -137,11 +139,18 @@
               }}
             </button>
             <button
-              class="ghost"
+              class="text-action"
               :disabled="tasks.loading.value || task.status === 'running'"
               @click="startEdit(task)"
             >
               {{ editingTaskId === task.id ? "取消编辑" : "编辑" }}
+            </button>
+            <button
+              class="text-action danger-text"
+              :disabled="tasks.loading.value || task.status === 'running'"
+              @click="tasks.remove(task.id)"
+            >
+              删除
             </button>
           </div>
         </div>
@@ -441,9 +450,28 @@ onMounted(loadAccounts);
 .task-actions-right {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 .edit-actions {
   margin-top: 8px;
+}
+.text-action {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 13px;
+}
+.text-action:hover {
+  color: #0f0;
+}
+.text-action:disabled {
+  color: #666;
+  cursor: not-allowed;
+}
+.danger-text:hover {
+  color: #f97066;
 }
 @media (max-width: 900px) {
   .task-main {
