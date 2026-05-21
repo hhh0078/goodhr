@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
+from app.element_refs import ELEMENT_REFS
 from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
@@ -421,9 +422,11 @@ async def browser_start(payload: dict) -> dict:
         current_dir = str(_browser_manager._last_user_data_dir or "")
         if persistent and user_data_dir and current_dir and current_dir != user_data_dir:
             await _browser_manager.stop()
+            ELEMENT_REFS.clear()
         else:
             return {"ok": True, "status": "already_running"}
 
+    ELEMENT_REFS.clear()
     await _browser_manager.start(
         persistent=persistent,
         user_data_dir=user_data_dir,
@@ -444,6 +447,7 @@ async def browser_start(payload: dict) -> dict:
 @app.post("/api/v1/browser/stop")
 async def browser_stop() -> dict:
     """关闭浏览器实例，清理所有页面和残留进程。"""
+    ELEMENT_REFS.clear()
     await _browser_manager.stop()
     return {"ok": True, "status": "stopped"}
 
@@ -460,6 +464,55 @@ async def _require_page():
     if page is None:
         raise HTTPException(400, "浏览器未启动，请先调用 POST /api/v1/browser/start")
     return page
+
+
+def _parse_field_requests(raw: object) -> list[tuple[str, object]]:
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "fields must be a non-empty list")
+    requests: list[tuple[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict) or len(item) != 1:
+            raise HTTPException(400, "each field item must contain exactly one field name")
+        field_name, spec = next(iter(item.items()))
+        field = str(field_name).strip()
+        if not field:
+            raise HTTPException(400, "field name is required")
+        requests.append((field, spec))
+    return requests
+
+
+async def _find_element_items(page, spec, visible_only: bool = True) -> list[dict[str, int | str]]:
+    locators, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "目标元素集合")
+    count = await locators.count()
+    items: list[dict[str, int | str]] = []
+    for index in range(count):
+        locator = locators.nth(index)
+        if visible_only:
+            try:
+                if not await locator.is_visible(timeout=500):
+                    continue
+            except Exception:
+                continue
+        items.append(ELEMENT_REFS.register(locator, index))
+    return items
+
+
+async def _extract_fields_from_container(container, field_requests: list[tuple[str, object]]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for field_name, spec_raw in field_requests:
+        try:
+            spec = parse_element_locator_spec(spec_raw)
+            if not spec.target_classes:
+                fields[field_name] = ""
+                continue
+            locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
+            if await locator.is_visible(timeout=3000):
+                fields[field_name] = await locator.inner_text(timeout=3000)
+            else:
+                fields[field_name] = ""
+        except Exception:
+            fields[field_name] = ""
+    return fields
 
 
 @app.post("/api/v1/page/open")
@@ -494,6 +547,7 @@ async def page_open(payload: dict) -> dict:
         page = await _browser_manager.new_page("default")
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
+    ELEMENT_REFS.clear()
     timeout = int(payload.get("timeout", 30000))
     cookies = payload.get("cookies")
     if isinstance(cookies, list) and cookies and not user_data_dir:
@@ -533,83 +587,32 @@ async def page_scroll(payload: dict) -> dict:
     return {"ok": True}
 
 
-@app.post("/api/v1/page/extract")
-async def page_extract(payload: dict) -> dict:
-    """从当前页面按选择器提取文本内容。
-
-    请求体参数：
-        selectors: 字段→统一元素定位对象映射
-        card_element: 可选，候选人卡片统一元素定位对象
-        mode: "single"（默认）或 "batch"
-
-    single 返回:
-        fields: 单组提取字段值
-    batch 返回:
-        candidates: 每个卡片的字段值数组
-    """
+@app.post("/api/v1/page/find-elements")
+async def page_find_elements(payload: dict) -> dict:
+    """查找一组元素，返回元素引用数组。"""
     page = await _require_page()
-    selectors = payload.get("selectors", {})
-    if not selectors or not isinstance(selectors, dict):
-        raise HTTPException(400, "selectors must be a dict of field->element")
-
-    mode = str(payload.get("mode", "single"))
-    card_element = payload.get("card_element")
-
-    if mode == "batch":
-        return await _extract_batch(page, card_element, selectors)
-
-    return await _extract_single(page, selectors)
+    spec = parse_element_locator_spec(payload.get("element"))
+    if not spec.target_classes:
+        raise HTTPException(400, "element.target_classes is required")
+    visible_only = bool(payload.get("visible_only", True))
+    items = await _find_element_items(page, spec, visible_only=visible_only)
+    return {"ok": True, "items": items, "count": len(items)}
 
 
-async def _extract_single(page, selectors: dict) -> dict:
-    """从页面提取单个候选人的字段。"""
-    fields = {}
-    for field_name, selector in selectors.items():
-        try:
-            fields[field_name] = await _extract_field_text(page, selector, field_name)
-        except Exception:
-            fields[field_name] = ""
+@app.post("/api/v1/page/extract-fields")
+async def page_extract_fields(payload: dict) -> dict:
+    """提取字段文本，返回字段键值对。"""
+    field_requests = _parse_field_requests(payload.get("fields"))
+    element_ref = str(payload.get("element_ref", "")).strip()
+    if element_ref:
+        entry = ELEMENT_REFS.get(element_ref)
+        if entry is None:
+            raise HTTPException(404, "element_ref not found")
+        container = entry.locator
+    else:
+        container = await _require_page()
+    fields = await _extract_fields_from_container(container, field_requests)
     return {"ok": True, "fields": fields}
-
-
-async def _extract_batch(page, card_element: dict | None, selectors: dict) -> dict:
-    """从页面批量提取多个候选人卡片的字段。"""
-    if not isinstance(card_element, dict):
-        raise HTTPException(400, "card_element is required in batch mode")
-    spec = parse_element_locator_spec(card_element)
-    if not spec.target_classes:
-        raise HTTPException(400, "card_element.target_classes is required")
-    cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
-
-    try:
-        count = await cards_locator.count()
-    except Exception as exc:
-        raise HTTPException(500, f"批量提取失败: {exc}")
-
-    candidates = []
-    for index in range(count):
-        card = cards_locator.nth(index)
-        item = {"_index": index}
-        for field_name, selector in selectors.items():
-            try:
-                item[field_name] = await _extract_field_text(card, selector, field_name)
-            except Exception:
-                item[field_name] = ""
-        candidates.append(item)
-
-    return {"ok": True, "candidates": candidates, "count": len(candidates)}
-
-
-async def _extract_field_text(container, selector: object, field_name: str) -> str:
-    if not isinstance(selector, dict):
-        return ""
-    spec = parse_element_locator_spec(selector)
-    if not spec.target_classes:
-        return ""
-    locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
-    if await locator.is_visible(timeout=3000):
-        return await locator.inner_text(timeout=3000)
-    return ""
 
 
 @app.post("/api/v1/page/click")

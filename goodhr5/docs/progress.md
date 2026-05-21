@@ -31,7 +31,7 @@
 | 云端后端 | PostgreSQL 任务日志存储 | DONE | 配置 `GOODHR_PG_DSN` 后，TaskLogStore 切换到 PostgreSQL |
 | 云端后端 | system_configs 迁移 | DONE | 0002 创建表，0003 插入 Boss + 智联平台选择器配置 |
 | 云端后端 | 系统配置存储 | DONE | SystemConfigStore 接口 + 内存 + PostgreSQL 双实现 |
-| 云端后端 | 平台配置解析器 | DONE | PlatformConfig 结构体、ParsePlatformConfig、ExtractFieldSelectors |
+| 云端后端 | 平台配置解析器 | DONE | PlatformConfig 结构体、ParsePlatformConfig、字段定位请求生成 |
 | 云端后端 | 平台配置 API | DONE | `GET /api/platforms/config/` 返回已启用的平台选择器配置 |
 | 云端后端 | 任务编排器 | DONE | TaskExecutor 编排主流程：启动浏览器→打开页面→滚动→提取→处理候选人→打招呼 |
 | 云端后端 | 关键词筛选模块 | DONE | KeywordFilter：支持与/或模式、排除词、概率通过 |
@@ -62,7 +62,7 @@
 | 本地 Agent | 截图能力迁移 | DOING | 截图拼接逻辑已迁入 base.py，PaddleOCR 待迁移 |
 | 本地 Agent | PaddleOCR 能力迁移 | DONE | 从 goodhrpy 迁移 ocr.py，懒加载、线程池异步、v3/v2 双 API 兼容 |
 | 本地 Agent | OCR API 注册 | DONE | GET /api/v1/ocr/status、POST /api/v1/ocr/recognize（Base64 输入）|
-| 本地 Agent | 批量候选人提取 | DONE | page/extract mode=batch + card_element，按统一元素定位协议批量提取每个卡片字段 |
+| 本地 Agent | 批量候选人提取 | DONE | 先 find-elements 查询当前可见卡片，再 extract-fields 逐卡提取字段 |
 | 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
 | 本地 Agent | 截图/OCR 本地文件管理 | DONE | 截图列表/读取/删除和 OCR 文本写入接口已完成 |
 | 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
@@ -76,7 +76,7 @@
 ## 本次完成
 
 - **TaskExecutor 完善**：接入关键词筛选 + 批量候选人提取。
-  - `extractCandidates` 改用 Local Agent batch 模式（card_element + mode=batch）。
+  - `extractCandidates` 改为先调 `page/find-elements` 拿卡片，再调 `page/extract-fields` 逐卡提取。
   - `processCandidates` 接入 `KeywordFilter`，按模式自动筛选并记录跳过/通过日志。
   - 新增 `candidateText` 和 `toStringSlice` 辅助函数。
 
@@ -91,7 +91,7 @@
   - 迁移 `0002_add_system_configs.sql`，新增 `system_configs` 表（config_key、config_value JSONB、enabled）。
   - 创建 `SystemConfigStore` 接口 + `MemorySystemConfigStore` + `PostgresSystemConfigStore` 双实现。
   - 创建平台配置数据结构：`PlatformConfig`、`PlatformCard`、`PlatformActions`、`PlatformDetail` 等。
-  - `PlatformCard.ExtractFieldSelectors()` 提取字段→选择器映射，供 Local Agent page/extract 调用。
+  - `PlatformCard.ExtractFieldRequests()` 生成字段定位请求，供 Local Agent `page/extract-fields` 调用。
   - 注册 `GET /api/platforms/config/` 返回已启用的平台选择器配置。
   - Go 编译通过。
 
@@ -109,7 +109,8 @@
   - `GET /api/v1/browser/status` — 查询浏览器运行状态
   - `POST /api/v1/page/open` — 打开指定 URL 页面
   - `POST /api/v1/page/scroll` — 仿真人滚动加载列表
-  - `POST /api/v1/page/extract` — 按选择器映射提取文本内容
+  - `POST /api/v1/page/find-elements` — 查询当前页面中的元素集合
+  - `POST /api/v1/page/extract-fields` — 提取字段文本内容
   - `POST /api/v1/page/click` — 带延迟的元素点击
   - `POST /api/v1/page/screenshot` — 弹框截图（支持滚动拼接）
   - 每个操作均同步等待完成后返回结果，浏览器未启动时返回明确错误。

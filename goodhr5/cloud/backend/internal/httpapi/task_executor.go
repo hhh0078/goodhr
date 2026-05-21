@@ -19,6 +19,11 @@ type claimedTaskCookie struct {
 	DisplayName   string
 }
 
+type localElementItem struct {
+	Ref   string `json:"ref"`
+	Index int    `json:"index"`
+}
+
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
 	task          TaskRun
@@ -229,34 +234,54 @@ func (e *TaskExecutor) scrollPage() error {
 
 // extractCandidates 从页面提取候选人卡片。
 func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
-	e.log("info", "正在批量提取候选人信息")
+	e.log("info", "正在查找当前可见候选人卡片")
 
-	selectors := e.platformCfg.Card.ExtractFieldElements()
+	fieldRequests := e.platformCfg.Card.ExtractFieldRequests()
 	cardElement := e.platformCfg.Card.CardElement()
-	if len(selectors) == 0 {
+	if len(fieldRequests) == 0 {
 		return nil, fmt.Errorf("平台配置中无候选人字段选择器")
 	}
 	if cardElement == nil {
 		return nil, fmt.Errorf("平台配置中无候选人卡片定位配置")
 	}
 
-	var resp struct {
-		Ok         bool             `json:"ok"`
-		Candidates []map[string]any `json:"candidates"`
-		Count      int              `json:"count"`
+	var findResp struct {
+		Ok    bool               `json:"ok"`
+		Items []localElementItem `json:"items"`
+		Count int                `json:"count"`
 	}
 	body := map[string]any{
-		"selectors":    selectors,
-		"card_element": cardElement,
-		"mode":         "batch",
+		"element":      cardElement,
+		"visible_only": true,
 	}
-	if err := e.post("/api/v1/page/extract", body, &resp); err != nil {
+	if err := e.post("/api/v1/page/find-elements", body, &findResp); err != nil {
 		return nil, err
 	}
-	if resp.Candidates == nil {
-		resp.Candidates = []map[string]any{}
+	if findResp.Items == nil {
+		findResp.Items = []localElementItem{}
 	}
-	return resp.Candidates, nil
+	e.log("info", fmt.Sprintf("查找到 %d 个当前可见候选人卡片", len(findResp.Items)))
+
+	candidates := make([]map[string]any, 0, len(findResp.Items))
+	for _, item := range findResp.Items {
+		var extractResp struct {
+			Ok     bool           `json:"ok"`
+			Fields map[string]any `json:"fields"`
+		}
+		if err := e.post("/api/v1/page/extract-fields", map[string]any{
+			"element_ref": item.Ref,
+			"fields":      fieldRequests,
+		}, &extractResp); err != nil {
+			return nil, err
+		}
+		if extractResp.Fields == nil {
+			extractResp.Fields = map[string]any{}
+		}
+		extractResp.Fields["_index"] = item.Index
+		extractResp.Fields["element_ref"] = item.Ref
+		candidates = append(candidates, extractResp.Fields)
+	}
+	return candidates, nil
 }
 
 // processCandidates 逐候选人筛选和打招呼。

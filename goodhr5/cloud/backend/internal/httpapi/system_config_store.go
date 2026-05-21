@@ -195,8 +195,8 @@ type PlatformBehavior struct {
 }
 
 type ElementLocatorPayload struct {
-	ParentClasses []string `json:"parent_classes,omitempty"`
-	TargetClasses []string `json:"target_classes"`
+	ParentClasses [][]string `json:"parent_classes,omitempty"`
+	TargetClasses [][]string `json:"target_classes"`
 }
 
 func normalizeSelectorList(items []string) []string {
@@ -211,51 +211,53 @@ func normalizeSelectorList(items []string) []string {
 	return result
 }
 
+func selectorGroups(items []string) [][]string {
+	group := normalizeSelectorList(items)
+	if len(group) == 0 {
+		return nil
+	}
+	return [][]string{group}
+}
+
 func buildElementPayload(parentClasses []string, targetClasses []string) map[string]any {
-	targets := normalizeSelectorList(targetClasses)
+	targets := selectorGroups(targetClasses)
 	if len(targets) == 0 {
 		return nil
 	}
 	payload := map[string]any{
 		"target_classes": targets,
 	}
-	parents := normalizeSelectorList(parentClasses)
+	parents := selectorGroups(parentClasses)
 	if len(parents) > 0 {
 		payload["parent_classes"] = parents
 	}
 	return payload
 }
 
-// ExtractFieldSelectors 提取 PlatformCard 中所有字段选择器的映射，
-// 用于调用 Local Agent POST /api/v1/page/extract。
-func (pc *PlatformCard) ExtractFieldSelectors() map[string]string {
-	fields := map[string]string{}
+// ExtractFieldRequests 提取 PlatformCard 中所有字段定位规则，
+// 用于调用 Local Agent POST /api/v1/page/extract-fields。
+func (pc *PlatformCard) ExtractFieldRequests() []map[string]any {
+	fields := make([]map[string]any, 0, 4)
 	if pc.Name != "" {
-		fields["name"] = pc.Name
-	}
-	for i, sel := range pc.BasicInfo {
-		key := "basic_info"
-		if i > 0 {
-			key = "basic_info_" + string(rune('0'+i))
-		}
-		if sel != "" {
-			fields[key] = sel
+		if payload := buildElementPayload(nil, []string{pc.Name}); payload != nil {
+			fields = append(fields, map[string]any{"name": payload})
 		}
 	}
-	for i, sel := range pc.Education {
-		key := "education"
-		if i > 0 {
-			key = "education_" + string(rune('0'+i))
-		}
-		if sel != "" {
-			fields[key] = sel
-		}
+	if payload := buildElementPayload(nil, pc.BasicInfo); payload != nil {
+		fields = append(fields, map[string]any{"basic_info": payload})
+	}
+	if payload := buildElementPayload(nil, pc.Education); payload != nil {
+		fields = append(fields, map[string]any{"education": payload})
 	}
 	if pc.University != "" {
-		fields["university"] = pc.University
+		if payload := buildElementPayload(nil, []string{pc.University}); payload != nil {
+			fields = append(fields, map[string]any{"university": payload})
+		}
 	}
 	if pc.Description != "" {
-		fields["description"] = pc.Description
+		if payload := buildElementPayload(nil, []string{pc.Description}); payload != nil {
+			fields = append(fields, map[string]any{"description": payload})
+		}
 	}
 	return fields
 }
@@ -273,26 +275,6 @@ func (pc *PlatformCard) ScrollElement() map[string]any {
 		return buildElementPayload(nil, []string{pc.Container})
 	}
 	return buildElementPayload(nil, pc.Cards)
-}
-
-func (pc *PlatformCard) ExtractFieldElements() map[string]any {
-	fields := map[string]any{}
-	if payload := buildElementPayload(nil, []string{pc.Name}); payload != nil {
-		fields["name"] = payload
-	}
-	if payload := buildElementPayload(nil, pc.BasicInfo); payload != nil {
-		fields["basic_info"] = payload
-	}
-	if payload := buildElementPayload(nil, pc.Education); payload != nil {
-		fields["education"] = payload
-	}
-	if payload := buildElementPayload(nil, []string{pc.University}); payload != nil {
-		fields["university"] = payload
-	}
-	if payload := buildElementPayload(nil, []string{pc.Description}); payload != nil {
-		fields["description"] = payload
-	}
-	return fields
 }
 
 func actionElementPayload(selectors []string) map[string]any {

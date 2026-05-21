@@ -458,20 +458,24 @@ goroutine: executeTask(task, agentBaseURL)
     │         └─ random_delay(3-8 秒)
     │       → 返回 { ok }
     │
-    ├─── 步骤 4/5: 批量提取候选人 ──────────────────────────
-    │   POST {agentBaseURL}/api/v1/page/extract
-    │   Body: { selectors: { name:{target_classes:[...]}, basic_info:{target_classes:[...]}, ... },
-    │           card_element: { target_classes: ["candidate-card-wrap"] },
-    │           mode: "batch" }
+    ├─── 步骤 4/5: 查询候选人卡片并逐卡提取 ──────────────────
+    │   POST {agentBaseURL}/api/v1/page/find-elements
+    │   Body: { element: { target_classes: [["candidate-card-wrap"]] },
+    │           visible_only: true }
     │   │
     │   └─► Local Agent:
-    │       通过统一元素定位协议定位候选人卡片和字段：
+    │       通过统一元素定位协议定位候选人卡片：
     │         先查主页面，再查所有 iframe
-    │         按 parent_classes / target_classes 循环重试查找
-    │         → 遍历每个卡片:
-    │            对每个字段再次按统一元素定位协议查找
-    │            → 提取 innerText
-    │         → 返回 [{_index:0, name:"张三", basic_info:"...", education:"..."}, ...]
+    │         按 parent_classes / target_classes 交叉查询
+    │         → 返回 { items:[{ref:"el_xxx", index:0}, ...], count:N }
+    │
+    │   POST {agentBaseURL}/api/v1/page/extract-fields
+    │   Body: { element_ref: "el_xxx",
+    │           fields: [{name:{...}}, {basic_info:{...}}, {education:{...}}] }
+    │   │
+    │   └─► Local Agent:
+    │       在指定 card ref 范围内提取字段文本
+    │       → 返回 { fields:{name:"张三", basic_info:"...", education:"..."} }
     │       │
     │       返回 { ok, candidates: [...], count: N }
     │
@@ -706,7 +710,7 @@ Go 后端 ↔ Local Agent 通信:
   ├─ browser/start 失败 → Run() 返回 error
   ├─ page/open 失败 → Run() 返回 error
   ├─ page/scroll 失败 → Run() 返回 error
-  ├─ page/extract 失败 → Run() 返回 error
+  ├─ page/find-elements 或 page/extract-fields 失败 → Run() 返回 error
   └─ page/click 失败 → 跳过当前候选人，继续下一个
 
 Go 后端 ↔ AI API 通信:

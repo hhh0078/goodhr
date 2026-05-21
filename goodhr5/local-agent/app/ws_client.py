@@ -17,6 +17,7 @@ import httpx
 
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
+from app.element_refs import ELEMENT_REFS
 from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_to_load
 from app.machine import load_machine
 from app.paths import data_dir
@@ -64,6 +65,16 @@ def _payload_summary(payload: Any) -> str:
     selectors = body.get("selectors")
     if isinstance(selectors, dict):
         parts.append(f"selectors={list(selectors.keys())}")
+    fields = body.get("fields")
+    if isinstance(fields, list):
+        names: list[str] = []
+        for item in fields:
+            if isinstance(item, dict) and item:
+                names.extend([str(key) for key in item.keys()])
+        if names:
+            parts.append(f"fields={names}")
+    if "element_ref" in body:
+        parts.append(f"element_ref={body.get('element_ref')}")
     if "max_scrolls" in body:
         parts.append(f"max_scrolls={body.get('max_scrolls')}")
     return ", ".join(parts) if parts else str(sorted(body.keys()))
@@ -381,6 +392,7 @@ class WSAgentClient:
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
                 body["user_data_dir"] = str(_profile_dir(user_data_dir))
+            ELEMENT_REFS.clear()
             await self.browser_manager.start(
                 persistent=bool(body.get("persistent", False)),
                 user_data_dir=body.get("user_data_dir"),
@@ -393,10 +405,12 @@ class WSAgentClient:
                 await self.browser_manager.add_cookies(cookies)
             return {"ok": True, "status": "started"}
         if path == "/api/v1/browser/stop":
+            ELEMENT_REFS.clear()
             await self.browser_manager.stop()
             return {"ok": True, "status": "stopped"}
         if path == "/api/v1/page/open":
             page = await self.browser_manager.new_page("default")
+            ELEMENT_REFS.clear()
             url = str(body.get("url") or "").strip()
             if not url:
                 raise ValueError("url is required")
@@ -420,8 +434,26 @@ class WSAgentClient:
                 element_spec=element_spec,
             )
             return {"ok": True}
-        if path == "/api/v1/page/extract":
-            return await self._extract_page(body)
+        if path == "/api/v1/page/find-elements":
+            page = await self._require_page()
+            element_spec = parse_element_locator_spec(body.get("element"))
+            if not element_spec.target_classes:
+                raise ValueError("element.target_classes is required")
+            visible_only = bool(body.get("visible_only", True))
+            items = await self._find_element_items(page, element_spec, visible_only=visible_only)
+            return {"ok": True, "items": items, "count": len(items)}
+        if path == "/api/v1/page/extract-fields":
+            field_requests = self._parse_field_requests(body.get("fields"))
+            element_ref = str(body.get("element_ref") or "").strip()
+            if element_ref:
+                entry = ELEMENT_REFS.get(element_ref)
+                if entry is None:
+                    raise ValueError("element_ref not found")
+                container = entry.locator
+            else:
+                container = await self._require_page()
+            fields = await self._extract_fields_from_container(container, field_requests)
+            return {"ok": True, "fields": fields}
         if path == "/api/v1/page/click":
             page = await self._require_page()
             element_spec = parse_element_locator_spec(body.get("element"))
@@ -470,60 +502,51 @@ class WSAgentClient:
             raise RuntimeError("浏览器未启动")
         return page
 
-    async def _extract_page(self, body: dict) -> dict:
-        """
-        按云端下发的选择器提取页面内容。
+    def _parse_field_requests(self, raw: Any) -> list[tuple[str, Any]]:
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("fields must be a non-empty list")
+        requests: list[tuple[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict) or len(item) != 1:
+                raise ValueError("each field item must contain exactly one field name")
+            field_name, spec = next(iter(item.items()))
+            field = str(field_name).strip()
+            if not field:
+                raise ValueError("field name is required")
+            requests.append((field, spec))
+        return requests
 
-        Args:
-            body: 包含 selectors、card_element 和 mode 的请求体。
+    async def _find_element_items(self, page: Any, spec: Any, visible_only: bool = True) -> list[dict[str, int | str]]:
+        locators, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "目标元素集合")
+        count = await locators.count()
+        items: list[dict[str, int | str]] = []
+        for index in range(count):
+            locator = locators.nth(index)
+            if visible_only:
+                try:
+                    if not await locator.is_visible(timeout=500):
+                        continue
+                except Exception:
+                    continue
+            items.append(ELEMENT_REFS.register(locator, index))
+        return items
 
-        Returns:
-            返回字段或候选人列表。
-        """
-        page = await self._require_page()
-        selectors = body.get("selectors") or {}
-        if not isinstance(selectors, dict) or not selectors:
-            raise ValueError("selectors must be a dict")
-        mode = str(body.get("mode") or "single")
-        card_element = body.get("card_element")
-        if mode == "batch":
-            if not isinstance(card_element, dict):
-                raise ValueError("card_element is required in batch mode")
-            spec = parse_element_locator_spec(card_element)
-            if not spec.target_classes:
-                raise ValueError("card_element.target_classes is required")
-            cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
-
-            count = await cards_locator.count()
-            candidates = []
-            for index in range(count):
-                card = cards_locator.nth(index)
-                item = {"_index": index}
-                for field_name, selector in selectors.items():
-                    try:
-                        item[field_name] = await self._extract_field_text(card, selector, field_name)
-                    except Exception:
-                        item[field_name] = ""
-                candidates.append(item)
-            return {"ok": True, "candidates": candidates, "count": len(candidates)}
-        fields = {}
-        for field_name, selector in selectors.items():
+    async def _extract_fields_from_container(self, container: Any, field_requests: list[tuple[str, Any]]) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        for field_name, selector in field_requests:
             try:
-                fields[field_name] = await self._extract_field_text(page, selector, field_name)
+                spec = parse_element_locator_spec(selector)
+                if not spec.target_classes:
+                    fields[field_name] = ""
+                    continue
+                locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
+                if await locator.is_visible(timeout=3000):
+                    fields[field_name] = await locator.inner_text(timeout=3000)
+                else:
+                    fields[field_name] = ""
             except Exception:
                 fields[field_name] = ""
-        return {"ok": True, "fields": fields}
-
-    async def _extract_field_text(self, container: Any, selector: Any, field_name: str) -> str:
-        if not isinstance(selector, dict):
-            return ""
-        spec = parse_element_locator_spec(selector)
-        if not spec.target_classes:
-            return ""
-        locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
-        if await locator.is_visible(timeout=3000):
-            return await locator.inner_text(timeout=3000)
-        return ""
+        return fields
 
     async def _capture_cookie(self, task_id: str, payload: dict) -> dict:
         """
@@ -544,6 +567,7 @@ class WSAgentClient:
         if not url:
             raise ValueError(f"unsupported platform: {platform_id}")
         profile_dir = _profile_dir(user_data_dir)
+        ELEMENT_REFS.clear()
         await self.browser_manager.start(persistent=True, user_data_dir=str(profile_dir), headless=False, humanize=True)
         page = await self.browser_manager.new_page("default")
         ok = await navigate_to_page(page, url, timeout=30000)

@@ -32,8 +32,8 @@ DEFAULT_FIND_INTERVAL_MS = 500
 class ElementLocatorSpec:
     """统一的页面元素定位协议。"""
 
-    target_classes: list[str]
-    parent_classes: list[str]
+    target_classes: list[list[str]]
+    parent_classes: list[list[str]]
     find_attempts: int
     find_interval_ms: int
 
@@ -56,27 +56,46 @@ def _normalize_class_array(items: Any) -> list[str]:
     return result
 
 
+def _normalize_class_groups(items: Any) -> list[list[str]]:
+    if not isinstance(items, list):
+        return []
+    if items and all(not isinstance(item, list) for item in items):
+        group = _normalize_class_array(items)
+        return [group] if group else []
+    result: list[list[str]] = []
+    for item in items:
+        if isinstance(item, list):
+            group = _normalize_class_array(item)
+        else:
+            selector = _normalize_class_name(str(item))
+            group = [selector] if selector else []
+        if group:
+            result.append(group)
+    return result
+
+
 def parse_element_locator_spec(raw: Any, *, default_target_classes: Optional[list[str]] = None) -> ElementLocatorSpec:
     """
     解析统一的元素定位参数。
 
     支持两种格式：
-    1. 新格式：{"parent_classes": [...], "target_classes": [...]}
+    1. 新格式：{"parent_classes": [[...]], "target_classes": [[...]]}
     2. 兼容旧格式：直接传 class 数组，此时视为 target_classes
     """
     if isinstance(raw, dict):
-        target_classes = _normalize_class_array(raw.get("target_classes", []))
-        parent_classes = _normalize_class_array(raw.get("parent_classes", []))
+        target_classes = _normalize_class_groups(raw.get("target_classes", []))
+        parent_classes = _normalize_class_groups(raw.get("parent_classes", []))
         find_attempts = max(1, int(raw.get("find_attempts", DEFAULT_FIND_ATTEMPTS) or DEFAULT_FIND_ATTEMPTS))
         find_interval_ms = max(0, int(raw.get("find_interval_ms", DEFAULT_FIND_INTERVAL_MS) or DEFAULT_FIND_INTERVAL_MS))
     else:
-        target_classes = _normalize_class_array(raw)
+        target_classes = _normalize_class_groups(raw)
         parent_classes = []
         find_attempts = DEFAULT_FIND_ATTEMPTS
         find_interval_ms = DEFAULT_FIND_INTERVAL_MS
 
     if not target_classes and default_target_classes:
-        target_classes = [_normalize_class_name(item) for item in default_target_classes if _normalize_class_name(item)]
+        fallback_group = [_normalize_class_name(item) for item in default_target_classes if _normalize_class_name(item)]
+        target_classes = [fallback_group] if fallback_group else []
 
     return ElementLocatorSpec(
         target_classes=target_classes,
@@ -212,6 +231,23 @@ async def find_first_visible_locator(
     raise ValueError(f"找不到{label}: {' / '.join(selectors)}")
 
 
+async def _find_first_visible_locator_once(
+    container: Page | Frame | Locator,
+    selectors: list[str],
+    label: str,
+) -> tuple[Page | Frame | Locator, Locator, str] | None:
+    for search_container in _iter_search_containers(container):
+        for selector in selectors:
+            try:
+                locator = search_container.locator(selector).first
+                if await locator.is_visible(timeout=1500):
+                    return search_container, locator, selector
+            except Exception as exc:
+                logger.debug("查找%s失败 selector=%s err=%s", label, selector, exc)
+                continue
+    return None
+
+
 async def locate_element_by_spec(container: Page | Frame | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
     """
     按统一协议先找父级，再找目标元素。
@@ -222,25 +258,28 @@ async def locate_element_by_spec(container: Page | Frame | Locator, spec: Elemen
     if not spec.target_classes:
         raise ValueError(f"{target_label}的 target_classes 不能为空")
 
-    parent_locator: Page | Frame | Locator = container
-    matched_parent = ""
-    if spec.parent_classes:
-        parent_locator, matched_parent = await find_first_visible_locator(
-            container,
-            spec.parent_classes,
-            "父级元素",
-            spec.find_attempts,
-            spec.find_interval_ms,
-        )
-
-    target_locator, matched_target = await find_first_visible_locator(
-        parent_locator,
-        spec.target_classes,
-        target_label,
-        spec.find_attempts,
-        spec.find_interval_ms,
-    )
-    return target_locator, matched_parent, matched_target
+    parent_groups = spec.parent_classes or [[]]
+    matched_error = ""
+    for attempt in range(1, max(1, spec.find_attempts) + 1):
+        for parent_group in parent_groups:
+            parent_locator: Page | Frame | Locator = container
+            matched_parent = ""
+            if parent_group:
+                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素")
+                if not found_parent:
+                    continue
+                _parent_container, parent_locator, matched_parent = found_parent
+            for target_group in spec.target_classes:
+                found_target = await _find_first_visible_locator_once(parent_locator, target_group, target_label)
+                if found_target:
+                    _target_container, target_locator, matched_target = found_target
+                    if attempt > 1:
+                        logger.info("第 %d 次交叉查找命中%s: parent=%s target=%s", attempt, target_label, matched_parent or "-", matched_target)
+                    return target_locator, matched_parent, matched_target
+                matched_error = " / ".join(target_group)
+        if attempt < max(1, spec.find_attempts):
+            await asyncio.sleep(max(0, spec.find_interval_ms) / 1000)
+    raise ValueError(f"找不到{target_label}: {matched_error or '未提供有效选择器'}")
 
 
 async def move_mouse_to_element_spec(page: Page, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[bool, str, str]:
@@ -267,32 +306,34 @@ async def find_all_locators_by_spec(container: Page | Frame | Locator, spec: Ele
     if not spec.target_classes:
         raise ValueError(f"{target_label}的 target_classes 不能为空")
 
-    parent_locator: Page | Frame | Locator = container
-    matched_parent = ""
-    if spec.parent_classes:
-        parent_locator, matched_parent = await find_first_visible_locator(
-            container,
-            spec.parent_classes,
-            "父级元素",
-            spec.find_attempts,
-            spec.find_interval_ms,
-        )
-
+    parent_groups = spec.parent_classes or [[]]
+    matched_error = ""
     for attempt in range(1, max(1, spec.find_attempts) + 1):
-        for search_container in _iter_search_containers(parent_locator):
-            for selector in spec.target_classes:
-                try:
-                    locators = search_container.locator(selector)
-                    if await locators.count() > 0:
-                        if attempt > 1:
-                            logger.info("第 %d 次查找命中%s集合: %s", attempt, target_label, selector)
-                        return locators, matched_parent, selector
-                except Exception as exc:
-                    logger.debug("查找%s集合失败 attempt=%d selector=%s err=%s", target_label, attempt, selector, exc)
+        for parent_group in parent_groups:
+            parent_locator: Page | Frame | Locator = container
+            matched_parent = ""
+            if parent_group:
+                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素")
+                if not found_parent:
                     continue
+                _parent_container, parent_locator, matched_parent = found_parent
+
+            for target_group in spec.target_classes:
+                for search_container in _iter_search_containers(parent_locator):
+                    for selector in target_group:
+                        try:
+                            locators = search_container.locator(selector)
+                            if await locators.count() > 0:
+                                if attempt > 1:
+                                    logger.info("第 %d 次交叉查找命中%s集合: parent=%s target=%s", attempt, target_label, matched_parent or "-", selector)
+                                return locators, matched_parent, selector
+                        except Exception as exc:
+                            logger.debug("查找%s集合失败 attempt=%d selector=%s err=%s", target_label, attempt, selector, exc)
+                            continue
+                matched_error = " / ".join(target_group)
         if attempt < max(1, spec.find_attempts):
             await asyncio.sleep(max(0, spec.find_interval_ms) / 1000)
-    raise ValueError(f"找不到{target_label}: {' / '.join(spec.target_classes)}")
+    raise ValueError(f"找不到{target_label}: {matched_error or '未提供有效选择器'}")
 
 
 async def scroll_to_load(

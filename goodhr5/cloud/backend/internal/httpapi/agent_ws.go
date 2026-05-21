@@ -265,6 +265,25 @@ func wsPayloadSummary(payload map[string]any) string {
 	if selectors, ok := body["selectors"].(map[string]any); ok {
 		parts = append(parts, fmt.Sprintf("selectors=%v", sortedMapKeys(selectors)))
 	}
+	if fields, ok := body["fields"].([]any); ok {
+		names := make([]string, 0, len(fields))
+		for _, item := range fields {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			for key := range m {
+				names = append(names, key)
+			}
+		}
+		if len(names) > 0 {
+			sort.Strings(names)
+			parts = append(parts, fmt.Sprintf("fields=%v", names))
+		}
+	}
+	if elementRef, ok := body["element_ref"].(string); ok && elementRef != "" {
+		parts = append(parts, fmt.Sprintf("element_ref=%s", elementRef))
+	}
 	if maxScrolls, ok := body["max_scrolls"]; ok {
 		parts = append(parts, fmt.Sprintf("max_scrolls=%v", maxScrolls))
 	}
