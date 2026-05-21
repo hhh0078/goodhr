@@ -120,19 +120,21 @@
             <label
               :class="[
                 'sound-toggle',
-                { enabled: Boolean(task.enable_sound), disabled: tasks.loading.value || task.status === 'running' },
+                {
+                  enabled: Boolean(task.enable_sound),
+                  disabled: tasks.loading.value || task.status === 'running',
+                },
               ]"
             >
-              <span class="sound-toggle-label">提示音</span>
-              <input
-                type="checkbox"
-                :checked="Boolean(task.enable_sound)"
-                :disabled="tasks.loading.value || task.status === 'running'"
-                @change="onSoundToggle(task, $event)"
-              />
-              <span class="sound-toggle-track">
-                <span class="sound-toggle-thumb"></span>
-              </span>
+              <div style="margin-right: 10px">
+                <span class="sound-toggle-label">提示音</span>
+                <input
+                  type="checkbox"
+                  :checked="Boolean(task.enable_sound)"
+                  :disabled="tasks.loading.value || task.status === 'running'"
+                  @change="onSoundToggle(task, $event)"
+                />
+              </div>
             </label>
             <button class="text-action" @click="tasks.toggleLogs(task.id)">
               {{
