@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
-from app.cookie_crypto import decrypt_aes_gcm, decrypt_wrapped_key
+from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.humanize import navigate_to_page, random_delay, scroll_to_load, wait_and_click
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
@@ -655,6 +655,29 @@ async def crypto_decrypt(payload: dict) -> dict:
     plaintext = decrypt_aes_gcm(base64.b64decode(encrypted_data_b64), sk)
 
     return {"ok": True, "data": base64.b64encode(plaintext).decode()}
+
+
+@app.post("/api/v1/cookies/decrypt")
+async def cookies_decrypt(payload: dict) -> dict:
+    """按当前机器密钥解密云端下发的 cookie 数据。"""
+    encrypted_data_b64 = str(payload.get("encrypted_data", "")).strip()
+    encrypted_keys = payload.get("encrypted_keys")
+    if not encrypted_data_b64 or not isinstance(encrypted_keys, dict):
+        raise HTTPException(400, "encrypted_data and encrypted_keys are required")
+
+    try:
+        cookies = decrypt_cookie_payload(
+            CRYPTO_KEYS["private_key"],
+            MACHINE["machine_id"],
+            encrypted_data_b64,
+            encrypted_keys,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"cookie 解密失败: {exc}")
+
+    return {"ok": True, "cookies": cookies, "count": len(cookies)}
 
 
 @app.get("/api/v1/page/url")

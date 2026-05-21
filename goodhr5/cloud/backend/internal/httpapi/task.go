@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -479,6 +480,17 @@ func (s *TaskService) executeTask(task TaskRun) {
 
 	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
 
+	tenantID, _ := s.getTenantInfo(task.UserEmail)
+	claimedCookie, releaseClaim, err := s.claimTaskCookie(tenantID, task, log)
+	if err != nil {
+		log("error", fmt.Sprintf("准备任务 cookie 失败: %v", err))
+		_ = s.store.UpdateTaskStatus(task.ID, "failed")
+		return
+	}
+	if releaseClaim != nil {
+		defer releaseClaim()
+	}
+
 	// 更新任务状态为 running
 	_ = s.store.UpdateTaskStatus(task.ID, "running")
 
@@ -524,7 +536,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, s.cookieStore, log)
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, claimedCookie, log)
 	if err := executor.Run(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			log("warn", "任务已取消")
@@ -575,3 +587,43 @@ func (s *TaskService) getTenantInfo(email string) (string, bool) {
 
 // sessionEmail 模拟从 session 获取 email（用于内部调用）。
 func sessionEmail(email string) string { return email }
+
+func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(level, message string)) (*claimedTaskCookie, func(), error) {
+	if tenantID == "" || task.PlatformAccountID == "" || s.cookieStore == nil {
+		return nil, nil, nil
+	}
+
+	rec, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if rec.Status == "in_use" && (!rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID) {
+		return nil, nil, fmt.Errorf("该平台账号正在被其他任务占用")
+	}
+	if rec.Status != "in_use" || !rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID {
+		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "in_use", task.ID); err != nil {
+			return nil, nil, err
+		}
+	}
+	log("info", fmt.Sprintf("已锁定任务 cookie：账号=%s cookie=%s", rec.DisplayName, rec.ID))
+
+	released := false
+	release := func() {
+		if released {
+			return
+		}
+		released = true
+		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "available", ""); err != nil {
+			log("error", fmt.Sprintf("释放任务 cookie 失败：cookie=%s err=%v", rec.ID, err))
+			return
+		}
+		log("info", fmt.Sprintf("已释放任务 cookie：账号=%s cookie=%s", rec.DisplayName, rec.ID))
+	}
+
+	return &claimedTaskCookie{
+		CookieID:      rec.ID,
+		DisplayName:   rec.DisplayName,
+		EncryptedData: base64.StdEncoding.EncodeToString(rec.EncryptedData),
+		EncryptedKeys: rec.EncryptedKeys,
+	}, release, nil
+}

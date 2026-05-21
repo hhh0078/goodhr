@@ -14,13 +14,18 @@ from urllib.parse import quote
 import websockets
 import httpx
 
+from app.crypto_keys import load_or_generate as load_crypto_keys
+from app.cookie_crypto import decrypt_cookie_payload
 from app.humanize import navigate_to_page, scroll_to_load, wait_and_click
+from app.machine import load_machine
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 
 
 REPLY_TIMEOUT_SECONDS = 8
 MAX_RETRIES = 3
+MACHINE = load_machine()
+CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent.ws")
 
 
@@ -383,6 +388,18 @@ class WSAgentClient:
             audio = await ensure_audio_from_url(url) if url else resolve_builtin_audio(kind)
             play_once(audio)
             return {"ok": True, "file": str(audio)}
+        if path == "/api/v1/cookies/decrypt":
+            encrypted_data = str(body.get("encrypted_data") or "").strip()
+            encrypted_keys = body.get("encrypted_keys")
+            if not encrypted_data or not isinstance(encrypted_keys, dict):
+                raise ValueError("encrypted_data and encrypted_keys are required")
+            cookies = decrypt_cookie_payload(
+                CRYPTO_KEYS["private_key"],
+                MACHINE["machine_id"],
+                encrypted_data,
+                encrypted_keys,
+            )
+            return {"ok": True, "cookies": cookies, "count": len(cookies)}
         raise ValueError(f"unsupported local path: {path}")
 
     async def _require_page(self):

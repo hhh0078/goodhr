@@ -12,18 +12,26 @@ import (
 	"time"
 )
 
+type claimedTaskCookie struct {
+	CookieID      string
+	EncryptedData string
+	EncryptedKeys map[string]string
+	DisplayName   string
+}
+
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
-	task        TaskRun
-	platformCfg PlatformConfig
-	filter      *KeywordFilter
-	position    map[string]any
-	aiConfig    AIConfig
-	userPrefs   UserPreferences
-	agentWS     *AgentWSHub
-	cookieStore CookieStore
-	httpClient  *http.Client
-	logCallback func(level, message string)
+	task          TaskRun
+	platformCfg   PlatformConfig
+	filter        *KeywordFilter
+	position      map[string]any
+	aiConfig      AIConfig
+	userPrefs     UserPreferences
+	agentWS       *AgentWSHub
+	httpClient    *http.Client
+	logCallback   func(level, message string)
+	cookies       []map[string]any
+	claimedCookie *claimedTaskCookie
 }
 
 // NewTaskExecutor 创建任务编排器实例。
@@ -34,7 +42,7 @@ func NewTaskExecutor(
 	agentWS *AgentWSHub,
 	aiConfig AIConfig,
 	userPrefs UserPreferences,
-	cookieStore CookieStore,
+	claimedCookie *claimedTaskCookie,
 	logCallback func(level, message string),
 ) *TaskExecutor {
 	var filter *KeywordFilter
@@ -49,22 +57,29 @@ func NewTaskExecutor(
 	}
 
 	return &TaskExecutor{
-		task:        task,
-		platformCfg: platformCfg,
-		filter:      filter,
-		position:    position,
-		aiConfig:    aiConfig,
-		userPrefs:   userPrefs,
-		cookieStore: cookieStore,
-		agentWS:     agentWS,
-		httpClient:  &http.Client{Timeout: 120 * time.Second},
-		logCallback: logCallback,
+		task:          task,
+		platformCfg:   platformCfg,
+		filter:        filter,
+		position:      position,
+		aiConfig:      aiConfig,
+		userPrefs:     userPrefs,
+		agentWS:       agentWS,
+		httpClient:    &http.Client{Timeout: 120 * time.Second},
+		logCallback:   logCallback,
+		claimedCookie: claimedCookie,
 	}
 }
 
 // Run 执行任务编排主流程。
 func (e *TaskExecutor) Run(ctx context.Context) error {
 	e.log("info", "任务执行开始")
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := e.prepareCookies(); err != nil {
+		return fmt.Errorf("准备 cookie 失败: %w", err)
+	}
 
 	// 1. 启动浏览器
 	if err := ctx.Err(); err != nil {
@@ -122,6 +137,10 @@ func (e *TaskExecutor) startBrowser() error {
 		"headless":      false,
 		"humanize":      true,
 	}
+	if len(e.cookies) > 0 {
+		e.log("info", fmt.Sprintf("启动浏览器时注入 %d 条 cookie", len(e.cookies)))
+		body["cookies"] = e.cookies
+	}
 	var resp struct {
 		Ok     bool   `json:"ok"`
 		Status string `json:"status"`
@@ -153,9 +172,38 @@ func (e *TaskExecutor) openPage() error {
 	body := map[string]any{
 		"url": url,
 	}
+	if len(e.cookies) > 0 {
+		e.log("info", fmt.Sprintf("打开页面前补充注入 %d 条 cookie", len(e.cookies)))
+		body["cookies"] = e.cookies
+	}
 	if err := e.post("/api/v1/page/open", body, nil); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (e *TaskExecutor) prepareCookies() error {
+	if e.claimedCookie == nil {
+		e.log("warn", "当前任务未绑定平台账号 cookie，将按未登录状态继续执行")
+		return nil
+	}
+	e.log("info", fmt.Sprintf("准备解密任务 cookie：账号=%s cookie=%s", e.claimedCookie.DisplayName, e.claimedCookie.CookieID))
+	var resp struct {
+		Ok      bool             `json:"ok"`
+		Cookies []map[string]any `json:"cookies"`
+		Count   int              `json:"count"`
+	}
+	if err := e.post("/api/v1/cookies/decrypt", map[string]any{
+		"encrypted_data": e.claimedCookie.EncryptedData,
+		"encrypted_keys": e.claimedCookie.EncryptedKeys,
+	}, &resp); err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return fmt.Errorf("本地程序未返回成功状态")
+	}
+	e.cookies = resp.Cookies
+	e.log("info", fmt.Sprintf("任务 cookie 解密成功，共 %d 条", len(e.cookies)))
 	return nil
 }
 
