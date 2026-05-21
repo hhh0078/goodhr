@@ -11,9 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Callable, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
 
-from playwright.async_api import Page
+from playwright.async_api import Locator, Page
 
 logger = logging.getLogger("goodhr5.humanize")
 
@@ -23,6 +24,53 @@ DEFAULT_DELAY_MIN = 3
 DEFAULT_DELAY_MAX = 8
 DEFAULT_SCROLL_DISTANCE = 300
 DEFAULT_MAX_SCROLLS = 20
+
+
+@dataclass
+class ElementLocatorSpec:
+    """统一的页面元素定位协议。"""
+
+    target_classes: list[str]
+    parent_classes: list[str]
+
+
+def _normalize_class_name(class_name: str) -> str:
+    value = str(class_name).strip()
+    if not value:
+        return ""
+    return value if value.startswith(".") else f".{value}"
+
+
+def _normalize_class_array(items: Any) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    result: list[str] = []
+    for item in items:
+        selector = _normalize_class_name(str(item))
+        if selector:
+            result.append(selector)
+    return result
+
+
+def parse_element_locator_spec(raw: Any, *, default_target_classes: Optional[list[str]] = None) -> ElementLocatorSpec:
+    """
+    解析统一的元素定位参数。
+
+    支持两种格式：
+    1. 新格式：{"parent_classes": [...], "target_classes": [...]}
+    2. 兼容旧格式：直接传 class 数组，此时视为 target_classes
+    """
+    if isinstance(raw, dict):
+        target_classes = _normalize_class_array(raw.get("target_classes", []))
+        parent_classes = _normalize_class_array(raw.get("parent_classes", []))
+    else:
+        target_classes = _normalize_class_array(raw)
+        parent_classes = []
+
+    if not target_classes and default_target_classes:
+        target_classes = [_normalize_class_name(item) for item in default_target_classes if _normalize_class_name(item)]
+
+    return ElementLocatorSpec(target_classes=target_classes, parent_classes=parent_classes)
 
 
 # ---------- 延迟 ----------
@@ -69,40 +117,88 @@ async def human_scroll(
     logger.debug("已完成滚动，总距离: %dpx，分 %d 步", distance, steps)
 
 
-async def move_mouse_to_element_classes(page: Page, element_classes: list[str]) -> bool:
+async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool:
     """
-    将鼠标移动到第一个可见的 class 元素中心，便于后续滚轮作用于对应容器。
+    将鼠标移动到元素中心。
 
     Args:
-        page: Playwright Page 实例
-        element_classes: class 名数组，例如 ["candidate-list", "list-wrap"]
+        locator: Playwright 元素定位器
+        label: 日志展示用名称
 
     Returns:
-        bool: 是否成功移动到某个元素上方
+        bool: 是否成功移动
     """
-    for item in element_classes:
-        class_name = str(item).strip()
-        if not class_name:
-            continue
-        selector = class_name if class_name.startswith(".") else f".{class_name}"
+    try:
+        box = await locator.bounding_box()
+        if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
+            logger.warning("%s 无法获取有效位置", label)
+            return False
+        x = box["x"] + box["width"] / 2
+        y = box["y"] + box["height"] / 2
+        page = locator.page
+        await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.05, 0.2))
+        logger.info("已移动鼠标到%s中心: (%.1f, %.1f)", label, x, y)
+        return True
+    except Exception as exc:
+        logger.warning("移动鼠标到%s失败: %s", label, exc)
+        return False
+
+
+async def find_first_visible_locator(container: Page | Locator, selectors: list[str], label: str) -> tuple[Locator, str]:
+    """
+    在页面或父元素中，按顺序查找第一个可见元素。
+
+    Args:
+        container: Page 或父级 Locator
+        selectors: class 选择器数组
+        label: 错误提示中的元素类型名称
+
+    Returns:
+        tuple[Locator, str]: 命中的定位器和选择器
+    """
+    for selector in selectors:
         try:
-            locator = page.locator(selector).first
-            if not await locator.is_visible(timeout=1500):
-                continue
-            box = await locator.bounding_box()
-            if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
-                continue
-            x = box["x"] + box["width"] / 2
-            y = box["y"] + box["height"] / 2
-            await page.mouse.move(x, y)
-            await asyncio.sleep(random.uniform(0.05, 0.2))
-            logger.info("已移动鼠标到滚动目标: %s", selector)
-            return True
+            locator = container.locator(selector).first
+            if await locator.is_visible(timeout=1500):
+                return locator, selector
         except Exception as exc:
-            logger.debug("定位滚动目标失败 selector=%s err=%s", selector, exc)
+            logger.debug("查找%s失败 selector=%s err=%s", label, selector, exc)
             continue
-    logger.warning("未找到可用滚动目标，将继续按页面默认位置滚动")
-    return False
+    raise ValueError(f"找不到{label}: {' / '.join(selectors)}")
+
+
+async def locate_element_by_spec(page: Page, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
+    """
+    按统一协议先找父级，再找目标元素。
+
+    Returns:
+        tuple[Locator, str, str]: 目标定位器、命中的父级选择器、命中的目标选择器
+    """
+    if not spec.target_classes:
+        raise ValueError(f"{target_label}的 target_classes 不能为空")
+
+    parent_locator: Page | Locator = page
+    matched_parent = ""
+    if spec.parent_classes:
+        parent_locator, matched_parent = await find_first_visible_locator(page, spec.parent_classes, "父级元素")
+
+    target_locator, matched_target = await find_first_visible_locator(parent_locator, spec.target_classes, target_label)
+    return target_locator, matched_parent, matched_target
+
+
+async def move_mouse_to_element_spec(page: Page, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[bool, str, str]:
+    """
+    按统一协议定位元素并移动鼠标到其中心。
+
+    Returns:
+        tuple[bool, str, str]: 是否成功、父级选择器、目标选择器
+    """
+    target_locator, matched_parent, matched_target = await locate_element_by_spec(page, spec, target_label)
+    moved = await move_mouse_to_locator(target_locator, matched_target)
+    if not moved:
+        raise ValueError(f"已找到{target_label}，但无法移动鼠标到元素上: {matched_target}")
+    return moved, matched_parent, matched_target
 
 
 async def scroll_to_load(
@@ -110,7 +206,7 @@ async def scroll_to_load(
     scroll_delay_min: int = DEFAULT_DELAY_MIN,
     scroll_delay_max: int = DEFAULT_DELAY_MAX,
     max_scrolls: int = DEFAULT_MAX_SCROLLS,
-    element_classes: Optional[list[str]] = None,
+    element_spec: Optional[ElementLocatorSpec] = None,
     stop_condition: Optional[Callable[..., bool]] = None,
 ) -> None:
     """
@@ -124,11 +220,15 @@ async def scroll_to_load(
         scroll_delay_min: 滚动间最小延迟秒数
         scroll_delay_max: 滚动间最大延迟秒数
         max_scrolls: 最大滚动次数
-        element_classes: 可选 class 数组；传入后先移动到对应元素上再滚动
+        element_spec: 可选元素定位协议；传入后先定位元素并移动到其上方再滚动
         stop_condition: 停止条件回调，返回 True 则停止滚动
     """
-    if element_classes:
-        await move_mouse_to_element_classes(page, element_classes)
+    if element_spec and element_spec.target_classes:
+        _moved, matched_parent, matched_target = await move_mouse_to_element_spec(page, element_spec, "滚动目标元素")
+        if matched_parent:
+            logger.info("滚动前已命中父级元素: %s，目标元素: %s", matched_parent, matched_target)
+        else:
+            logger.info("滚动前已命中目标元素: %s", matched_target)
 
     for i in range(max_scrolls):
         distance = random.randint(250, 450)

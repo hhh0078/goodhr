@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
-from app.humanize import navigate_to_page, random_delay, scroll_to_load, wait_and_click
+from app.humanize import navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load, wait_and_click
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
@@ -517,18 +517,22 @@ async def page_scroll(payload: dict) -> dict:
         scroll_delay_min: 滚动最小延迟秒数（默认 3）
         scroll_delay_max: 滚动最大延迟秒数（默认 8）
         max_scrolls: 最大滚动次数（默认 20）
-        element_classes: 可选 class 数组；传入后先移动到对应元素上再滚动
+        element: 可选统一元素定位对象，支持 parent_classes 和 target_classes
+        element_classes: 兼容旧参数，可直接传目标 class 数组
     """
     page = await _require_page()
-    element_classes = payload.get("element_classes", [])
-    if not isinstance(element_classes, list):
-        element_classes = []
+    element_spec = parse_element_locator_spec(
+        payload.get("element"),
+        default_target_classes=payload.get("element_classes", []),
+    )
+    if "element" in payload and not element_spec.target_classes:
+        raise HTTPException(400, "element.target_classes is required")
     await scroll_to_load(
         page,
         scroll_delay_min=int(payload.get("scroll_delay_min", 3)),
         scroll_delay_max=int(payload.get("scroll_delay_max", 8)),
         max_scrolls=int(payload.get("max_scrolls", 20)),
-        element_classes=[str(item) for item in element_classes],
+        element_spec=element_spec,
     )
     return {"ok": True}
 

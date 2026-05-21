@@ -17,7 +17,7 @@ import httpx
 
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
-from app.humanize import navigate_to_page, scroll_to_load, wait_and_click
+from app.humanize import navigate_to_page, parse_element_locator_spec, scroll_to_load, wait_and_click
 from app.machine import load_machine
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -49,6 +49,14 @@ def _payload_summary(payload: Any) -> str:
         parts.append(f"card_selector={body.get('card_selector')}")
     if "user_data_dir" in body:
         parts.append(f"user_data_dir={body.get('user_data_dir')}")
+    element = body.get("element")
+    if isinstance(element, dict):
+        parent_classes = element.get("parent_classes")
+        target_classes = element.get("target_classes")
+        if isinstance(parent_classes, list) and parent_classes:
+            parts.append(f"parent_classes={parent_classes}")
+        if isinstance(target_classes, list) and target_classes:
+            parts.append(f"target_classes={target_classes}")
     cookies = body.get("cookies")
     if isinstance(cookies, list):
         parts.append(f"cookies={len(cookies)}条")
@@ -405,15 +413,18 @@ class WSAgentClient:
             return {"ok": True, "url": url, "title": await page.title()}
         if path == "/api/v1/page/scroll":
             page = await self._require_page()
-            element_classes = body.get("element_classes", [])
-            if not isinstance(element_classes, list):
-                element_classes = []
+            element_spec = parse_element_locator_spec(
+                body.get("element"),
+                default_target_classes=body.get("element_classes", []),
+            )
+            if "element" in body and not element_spec.target_classes:
+                raise ValueError("element.target_classes is required")
             await scroll_to_load(
                 page,
                 scroll_delay_min=int(body.get("scroll_delay_min", 3)),
                 scroll_delay_max=int(body.get("scroll_delay_max", 8)),
                 max_scrolls=int(body.get("max_scrolls", 20)),
-                element_classes=[str(item) for item in element_classes],
+                element_spec=element_spec,
             )
             return {"ok": True}
         if path == "/api/v1/page/extract":
