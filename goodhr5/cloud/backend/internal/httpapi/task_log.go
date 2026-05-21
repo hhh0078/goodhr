@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // TaskLogService 处理任务日志写入和读取请求。
@@ -126,7 +127,13 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务日志存储读取摘要，用于前端展开任务卡片。
-	logs, err := s.logStore.ListTaskLogs("", session.Email, taskID, true)
+	since, err := parseTaskLogSince(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	logs, err := s.logStore.ListTaskLogs("", session.Email, taskID, true, since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list task logs")
 		return
@@ -136,6 +143,18 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 		"ok":   true,
 		"logs": publicTaskLogs(logs),
 	})
+}
+
+func parseTaskLogSince(r *http.Request) (*time.Time, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("since"))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil, errors.New("since must be RFC3339 time")
+	}
+	return &value, nil
 }
 
 // currentSession 从请求中解析登录会话。

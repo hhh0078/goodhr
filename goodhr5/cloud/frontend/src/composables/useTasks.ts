@@ -187,9 +187,17 @@ export function useTasks(agentBaseUrl: Ref<string>) {
 
   async function refreshLogs(taskId: string) {
     try {
-      const logs = await listTaskLogs(taskId);
-      taskLogs.value = { ...taskLogs.value, [taskId]: logs };
-      console.info("[goodhr5][task-logs] refreshed", { taskId, count: logs.length });
+      const existing = taskLogs.value[taskId] || [];
+      const since = latestTaskLogTime(existing);
+      const logs = await listTaskLogs(taskId, since || undefined);
+      const merged = mergeTaskLogs(existing, logs, Boolean(since));
+      taskLogs.value = { ...taskLogs.value, [taskId]: merged };
+      console.info("[goodhr5][task-logs] refreshed", {
+        taskId,
+        incremental: Boolean(since),
+        added: logs.length,
+        total: merged.length,
+      });
     } catch (e) {
       console.error("[goodhr5][task-logs] refresh failed", { taskId, error: e });
     }
@@ -216,6 +224,41 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       window.clearInterval(taskLogPollTimer);
       taskLogPollTimer = null;
     }
+  }
+
+  function latestTaskLogTime(logs: any[]) {
+    if (!logs || logs.length === 0) return "";
+    return logs.reduce((latest: string, item: any) => {
+      const createdAt = String(item?.created_at || "");
+      if (!createdAt) return latest;
+      return !latest || createdAt > latest ? createdAt : latest;
+    }, "");
+  }
+
+  function mergeTaskLogs(existing: any[], incoming: any[], incremental: boolean) {
+    if (!incremental) {
+      return sortTaskLogs(incoming || []);
+    }
+    const merged = [...existing];
+    const seen = new Set(existing.map((item: any) => String(item.id)));
+    for (const item of incoming || []) {
+      const id = String(item?.id || "");
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      merged.push(item);
+    }
+    return sortTaskLogs(merged);
+  }
+
+  function sortTaskLogs(logs: any[]) {
+    return [...logs].sort((a: any, b: any) => {
+      const aTime = String(a?.created_at || "");
+      const bTime = String(b?.created_at || "");
+      if (aTime === bTime) {
+        return String(b?.id || "").localeCompare(String(a?.id || ""));
+      }
+      return bTime.localeCompare(aTime);
+    });
   }
 
   async function toggleCandidates(task: any) {

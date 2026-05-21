@@ -93,8 +93,9 @@ export async function stopTask(taskID: string) {
   return data
 }
 
-export async function listTaskLogs(taskID: string) {
-  const data = await api(`/api/tasks/${taskID}/logs`)
+export async function listTaskLogs(taskID: string, since?: string) {
+  const query = since ? `?since=${encodeURIComponent(since)}` : ''
+  const data = await api(`/api/tasks/${taskID}/logs${query}`)
   return data.logs
 }
 

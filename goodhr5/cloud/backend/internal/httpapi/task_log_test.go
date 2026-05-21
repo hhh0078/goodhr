@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestTaskLogAddAndList 验证任务日志可以写入和读取。
@@ -48,6 +49,53 @@ func TestTaskLogAddAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(payload.Logs) != 1 || payload.Logs[0].Message != "任务已创建" {
+		t.Fatalf("unexpected logs: %+v", payload.Logs)
+	}
+}
+
+func TestTaskLogListSupportsSince(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "task-log-since@example.com")
+	taskID := createTaskForTest(t, routes, token)
+
+	addLog := func(message string) {
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/api/tasks/"+taskID+"/logs",
+			bytes.NewBufferString(`{"level":"info","message":"`+message+`"}`),
+		)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp := httptest.NewRecorder()
+		routes.ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("add log status = %d, body = %s", resp.Code, resp.Body.String())
+		}
+	}
+
+	addLog("第一条")
+	time.Sleep(10 * time.Millisecond)
+	since := time.Now().UTC().Format(time.RFC3339Nano)
+	time.Sleep(10 * time.Millisecond)
+	addLog("第二条")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/logs?since="+since, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list logs status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		Logs []struct {
+			Message string `json:"message"`
+		} `json:"logs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Logs) != 1 || payload.Logs[0].Message != "第二条" {
 		t.Fatalf("unexpected logs: %+v", payload.Logs)
 	}
 }

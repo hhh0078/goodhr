@@ -19,7 +19,7 @@ type TaskLog struct {
 // TaskLogStore 定义任务日志摘要的持久化能力。
 type TaskLogStore interface {
 	AddTaskLog(log TaskLog) (TaskLog, error)
-	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) ([]TaskLog, error)
+	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error)
 }
 
 // MemoryTaskLogStore 提供开发期使用的内存任务日志存储。
@@ -58,13 +58,16 @@ func (s *MemoryTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 }
 
 // ListTaskLogs 列出当前用户某个任务的日志摘要。
-func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) ([]TaskLog, error) {
+func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	items := make([]TaskLog, 0)
 	for _, log := range s.logs {
 		if (!isAdmin && log.UserEmail != userEmail) || log.TaskID != taskID {
+			continue
+		}
+		if since != nil && log.CreatedAt.Before(*since) {
 			continue
 		}
 		items = append(items, log)

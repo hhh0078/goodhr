@@ -59,22 +59,25 @@ func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 }
 
 // ListTaskLogs 列出 PostgreSQL 中当前用户某个任务的日志摘要。
-func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) ([]TaskLog, error) {
+func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := s.db.QueryContext(
-		ctx,
-		`
+	query := `
 		SELECT tl.id, tl.task_id, tl.level, tl.message, tl.created_at
 		FROM task_logs tl
 		INNER JOIN users u ON u.id = tl.user_id
 		WHERE u.email = $1 AND tl.task_id = $2
+	`
+	args := []any{userEmail, taskID}
+	if since != nil {
+		query += ` AND tl.created_at >= $3`
+		args = append(args, *since)
+	}
+	query += `
 		ORDER BY tl.created_at DESC
-		`,
-		userEmail,
-		taskID,
-	)
+	`
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
