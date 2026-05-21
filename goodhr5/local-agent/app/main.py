@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
-from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load, wait_and_click
+from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
@@ -518,13 +518,9 @@ async def page_scroll(payload: dict) -> dict:
         scroll_delay_max: 滚动最大延迟秒数（默认 8）
         max_scrolls: 最大滚动次数（默认 20）
         element: 可选统一元素定位对象，支持 parent_classes 和 target_classes
-        element_classes: 兼容旧参数，可直接传目标 class 数组
     """
     page = await _require_page()
-    element_spec = parse_element_locator_spec(
-        payload.get("element"),
-        default_target_classes=payload.get("element_classes", []),
-    )
+    element_spec = parse_element_locator_spec(payload.get("element"))
     if "element" in payload and not element_spec.target_classes:
         raise HTTPException(400, "element.target_classes is required")
     await scroll_to_load(
@@ -542,8 +538,7 @@ async def page_extract(payload: dict) -> dict:
     """从当前页面按选择器提取文本内容。
 
     请求体参数：
-        selectors: 字段→选择器映射，值支持 CSS 选择器或统一元素定位对象
-        card_selector: 可选，候选人卡片 CSS 选择器
+        selectors: 字段→统一元素定位对象映射
         card_element: 可选，候选人卡片统一元素定位对象
         mode: "single"（默认）或 "batch"
 
@@ -555,14 +550,13 @@ async def page_extract(payload: dict) -> dict:
     page = await _require_page()
     selectors = payload.get("selectors", {})
     if not selectors or not isinstance(selectors, dict):
-        raise HTTPException(400, "selectors must be a dict of field->selector")
+        raise HTTPException(400, "selectors must be a dict of field->element")
 
     mode = str(payload.get("mode", "single"))
-    card_selector = str(payload.get("card_selector", "")).strip()
     card_element = payload.get("card_element")
 
     if mode == "batch":
-        return await _extract_batch(page, card_selector, card_element, selectors)
+        return await _extract_batch(page, card_element, selectors)
 
     return await _extract_single(page, selectors)
 
@@ -578,18 +572,14 @@ async def _extract_single(page, selectors: dict) -> dict:
     return {"ok": True, "fields": fields}
 
 
-async def _extract_batch(page, card_selector: str, card_element: dict | None, selectors: dict) -> dict:
+async def _extract_batch(page, card_element: dict | None, selectors: dict) -> dict:
     """从页面批量提取多个候选人卡片的字段。"""
-    cards_locator = None
-    if isinstance(card_element, dict):
-        spec = parse_element_locator_spec(card_element)
-        if not spec.target_classes:
-            raise HTTPException(400, "card_element.target_classes is required")
-        cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
-    elif card_selector:
-        cards_locator = page.locator(card_selector)
-    else:
-        raise HTTPException(400, "card_selector or card_element is required in batch mode")
+    if not isinstance(card_element, dict):
+        raise HTTPException(400, "card_element is required in batch mode")
+    spec = parse_element_locator_spec(card_element)
+    if not spec.target_classes:
+        raise HTTPException(400, "card_element.target_classes is required")
+    cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
 
     try:
         count = await cards_locator.count()
@@ -611,16 +601,12 @@ async def _extract_batch(page, card_selector: str, card_element: dict | None, se
 
 
 async def _extract_field_text(container, selector: object, field_name: str) -> str:
-    if isinstance(selector, dict) or isinstance(selector, list):
-        spec = parse_element_locator_spec(selector)
-        if not spec.target_classes:
-            return ""
-        locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
-    else:
-        css = str(selector).strip()
-        if not css:
-            return ""
-        locator = container.locator(css).first
+    if not isinstance(selector, dict):
+        return ""
+    spec = parse_element_locator_spec(selector)
+    if not spec.target_classes:
+        return ""
+    locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
     if await locator.is_visible(timeout=3000):
         return await locator.inner_text(timeout=3000)
     return ""
@@ -631,29 +617,24 @@ async def page_click(payload: dict) -> dict:
     """点击当前页面中的元素。
 
     请求体参数：
-        selector: CSS 选择器（必填）
-        element: 可选统一元素定位对象
+        element: 统一元素定位对象
         timeout: 等待超时毫秒数（默认 10000）
         delay_before: 点击前延迟秒数（默认 0.5）
     """
     page = await _require_page()
-    selector = str(payload.get("selector", "")).strip()
     element_spec = parse_element_locator_spec(payload.get("element"))
-    if not selector and not element_spec.target_classes:
-        raise HTTPException(400, "selector or element.target_classes is required")
+    if not element_spec.target_classes:
+        raise HTTPException(400, "element.target_classes is required")
 
     timeout = int(payload.get("timeout", 10000))
     delay_before = float(payload.get("delay_before", 0.5))
-    if element_spec.target_classes:
-        locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
-        if await locator.is_visible(timeout=timeout):
-            await move_mouse_to_locator(locator, matched_target)
-            await locator.click(delay=int(delay_before * 1000))
-            success = True
-        else:
-            raise HTTPException(400, f"点击目标元素不可见: {matched_target}")
+    locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+    if await locator.is_visible(timeout=timeout):
+        await move_mouse_to_locator(locator, matched_target)
+        await locator.click(delay=int(delay_before * 1000))
+        success = True
     else:
-        success = await wait_and_click(page, selector, timeout=timeout, delay_before=delay_before)
+        raise HTTPException(400, f"点击目标元素不可见: {matched_target}")
     return {"ok": True, "clicked": success}
 
 

@@ -242,12 +242,6 @@ func wsPayloadSummary(payload map[string]any) string {
 	if url, ok := body["url"].(string); ok && url != "" {
 		parts = append(parts, fmt.Sprintf("url=%s", url))
 	}
-	if selector, ok := body["selector"].(string); ok && selector != "" {
-		parts = append(parts, fmt.Sprintf("selector=%s", selector))
-	}
-	if cardSelector, ok := body["card_selector"].(string); ok && cardSelector != "" {
-		parts = append(parts, fmt.Sprintf("card_selector=%s", cardSelector))
-	}
 	if cardElement, ok := body["card_element"].(map[string]any); ok {
 		if parentClasses := toLogStringSlice(cardElement["parent_classes"]); len(parentClasses) > 0 {
 			parts = append(parts, fmt.Sprintf("card_parent_classes=%v", parentClasses))

@@ -460,15 +460,16 @@ goroutine: executeTask(task, agentBaseURL)
     │
     ├─── 步骤 4/5: 批量提取候选人 ──────────────────────────
     │   POST {agentBaseURL}/api/v1/page/extract
-    │   Body: { selectors: { name:".name", basic_info:".job-card-left", ... },
-    │           card_selector: ".candidate-card-wrap",
+    │   Body: { selectors: { name:{target_classes:[...]}, basic_info:{target_classes:[...]}, ... },
+    │           card_element: { target_classes: ["candidate-card-wrap"] },
     │           mode: "batch" }
     │   │
     │   └─► Local Agent:
-    │       通过 page.evaluate() 在浏览器 JS 中执行:
-    │         document.querySelectorAll(card_selector)
+    │       通过统一元素定位协议定位候选人卡片和字段：
+    │         先查主页面，再查所有 iframe
+    │         按 parent_classes / target_classes 循环重试查找
     │         → 遍历每个卡片:
-    │            对每个 field_selector 执行 card.querySelector(fieldSel)
+    │            对每个字段再次按统一元素定位协议查找
     │            → 提取 innerText
     │         → 返回 [{_index:0, name:"张三", basic_info:"...", education:"..."}, ...]
     │       │

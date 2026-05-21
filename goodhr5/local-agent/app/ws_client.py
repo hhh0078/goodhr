@@ -17,7 +17,7 @@ import httpx
 
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
-from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_to_load, wait_and_click
+from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_to_load
 from app.machine import load_machine
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -43,10 +43,6 @@ def _payload_summary(payload: Any) -> str:
         parts.append(f"path={path}")
     if "url" in body:
         parts.append(f"url={body.get('url')}")
-    if "selector" in body:
-        parts.append(f"selector={body.get('selector')}")
-    if "card_selector" in body:
-        parts.append(f"card_selector={body.get('card_selector')}")
     if "user_data_dir" in body:
         parts.append(f"user_data_dir={body.get('user_data_dir')}")
     element = body.get("element")
@@ -413,10 +409,7 @@ class WSAgentClient:
             return {"ok": True, "url": url, "title": await page.title()}
         if path == "/api/v1/page/scroll":
             page = await self._require_page()
-            element_spec = parse_element_locator_spec(
-                body.get("element"),
-                default_target_classes=body.get("element_classes", []),
-            )
+            element_spec = parse_element_locator_spec(body.get("element"))
             if "element" in body and not element_spec.target_classes:
                 raise ValueError("element.target_classes is required")
             await scroll_to_load(
@@ -431,26 +424,17 @@ class WSAgentClient:
             return await self._extract_page(body)
         if path == "/api/v1/page/click":
             page = await self._require_page()
-            selector = str(body.get("selector") or "").strip()
             element_spec = parse_element_locator_spec(body.get("element"))
-            if not selector and not element_spec.target_classes:
-                raise ValueError("selector or element.target_classes is required")
+            if not element_spec.target_classes:
+                raise ValueError("element.target_classes is required")
             timeout = int(body.get("timeout", 10000))
             delay_before = float(body.get("delay_before", 0.5))
-            if element_spec.target_classes:
-                locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
-                if not await locator.is_visible(timeout=timeout):
-                    raise ValueError(f"点击目标元素不可见: {matched_target}")
-                await move_mouse_to_locator(locator, matched_target)
-                await locator.click(delay=int(delay_before * 1000))
-                clicked = True
-            else:
-                clicked = await wait_and_click(
-                    page,
-                    selector,
-                    timeout=timeout,
-                    delay_before=delay_before,
-                )
+            locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+            if not await locator.is_visible(timeout=timeout):
+                raise ValueError(f"点击目标元素不可见: {matched_target}")
+            await move_mouse_to_locator(locator, matched_target)
+            await locator.click(delay=int(delay_before * 1000))
+            clicked = True
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/sound/play":
             kind = str(body.get("kind") or "").strip().lower()
@@ -491,7 +475,7 @@ class WSAgentClient:
         按云端下发的选择器提取页面内容。
 
         Args:
-            body: 包含 selectors、card_selector 和 mode 的请求体。
+            body: 包含 selectors、card_element 和 mode 的请求体。
 
         Returns:
             返回字段或候选人列表。
@@ -501,19 +485,14 @@ class WSAgentClient:
         if not isinstance(selectors, dict) or not selectors:
             raise ValueError("selectors must be a dict")
         mode = str(body.get("mode") or "single")
-        card_selector = str(body.get("card_selector") or "").strip()
         card_element = body.get("card_element")
         if mode == "batch":
-            cards_locator = None
-            if isinstance(card_element, dict):
-                spec = parse_element_locator_spec(card_element)
-                if not spec.target_classes:
-                    raise ValueError("card_element.target_classes is required")
-                cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
-            elif card_selector:
-                cards_locator = page.locator(card_selector)
-            else:
-                raise ValueError("card_selector or card_element is required in batch mode")
+            if not isinstance(card_element, dict):
+                raise ValueError("card_element is required in batch mode")
+            spec = parse_element_locator_spec(card_element)
+            if not spec.target_classes:
+                raise ValueError("card_element.target_classes is required")
+            cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
 
             count = await cards_locator.count()
             candidates = []
@@ -536,16 +515,12 @@ class WSAgentClient:
         return {"ok": True, "fields": fields}
 
     async def _extract_field_text(self, container: Any, selector: Any, field_name: str) -> str:
-        if isinstance(selector, dict) or isinstance(selector, list):
-            spec = parse_element_locator_spec(selector)
-            if not spec.target_classes:
-                return ""
-            locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
-        else:
-            css = str(selector).strip()
-            if not css:
-                return ""
-            locator = container.locator(css).first
+        if not isinstance(selector, dict):
+            return ""
+        spec = parse_element_locator_spec(selector)
+        if not spec.target_classes:
+            return ""
+        locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
         if await locator.is_visible(timeout=3000):
             return await locator.inner_text(timeout=3000)
         return ""

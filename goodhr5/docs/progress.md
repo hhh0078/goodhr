@@ -62,7 +62,7 @@
 | 本地 Agent | 截图能力迁移 | DOING | 截图拼接逻辑已迁入 base.py，PaddleOCR 待迁移 |
 | 本地 Agent | PaddleOCR 能力迁移 | DONE | 从 goodhrpy 迁移 ocr.py，懒加载、线程池异步、v3/v2 双 API 兼容 |
 | 本地 Agent | OCR API 注册 | DONE | GET /api/v1/ocr/status、POST /api/v1/ocr/recognize（Base64 输入）|
-| 本地 Agent | 批量候选人提取 | DONE | page/extract mode=batch + card_selector，JS 批量提取每个卡片字段 |
+| 本地 Agent | 批量候选人提取 | DONE | page/extract mode=batch + card_element，按统一元素定位协议批量提取每个卡片字段 |
 | 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
 | 本地 Agent | 截图/OCR 本地文件管理 | DONE | 截图列表/读取/删除和 OCR 文本写入接口已完成 |
 | 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
@@ -76,7 +76,7 @@
 ## 本次完成
 
 - **TaskExecutor 完善**：接入关键词筛选 + 批量候选人提取。
-  - `extractCandidates` 改用 Local Agent batch 模式（card_selector + mode=batch）。
+  - `extractCandidates` 改用 Local Agent batch 模式（card_element + mode=batch）。
   - `processCandidates` 接入 `KeywordFilter`，按模式自动筛选并记录跳过/通过日志。
   - 新增 `candidateText` 和 `toStringSlice` 辅助函数。
 

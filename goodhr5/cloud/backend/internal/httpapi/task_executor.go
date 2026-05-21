@@ -324,18 +324,15 @@ func (e *TaskExecutor) incrementCounts(scanned, greeted, skipped, failed int) {
 // clickGreet 点击打招呼按钮。
 func (e *TaskExecutor) clickGreet() error {
 	btns := e.platformCfg.Actions.GreetBtn
-	if len(btns) == 0 {
+	element := actionElementPayload(btns)
+	if element == nil {
 		e.log("warn", "无打招呼按钮选择器")
 		return nil
 	}
 	body := map[string]any{
 		"timeout":      10000,
 		"delay_before": greetDelayBefore(e.userPrefs),
-	}
-	if element := actionElementPayload(btns); element != nil {
-		body["element"] = element
-	} else {
-		body["selector"] = btns[0]
+		"element":      element,
 	}
 	return e.post("/api/v1/page/click", body, nil)
 }
