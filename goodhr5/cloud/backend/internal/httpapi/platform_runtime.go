@@ -63,6 +63,16 @@ func (cfg PlatformConfig) ScrollCandidateList(exec platformViewportExecutor, pre
 	}
 }
 
+// GreetCandidate 由平台运行时逻辑执行打招呼动作。
+func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any) error {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return cfg.greetCandidateWithActions(exec, prefs, candidate, "Boss候选人")
+	default:
+		return cfg.greetCandidateWithActions(exec, prefs, candidate, "候选人")
+	}
+}
+
 // EnsureCandidateVisible 由平台运行时逻辑确保候选人卡片位于可视区域。
 func (cfg PlatformConfig) EnsureCandidateVisible(exec platformViewportExecutor, elementRef string) error {
 	switch strings.TrimSpace(cfg.ID) {
@@ -182,4 +192,46 @@ func (cfg PlatformConfig) scrollCandidateListWithElement(exec platformViewportEx
 		body["element"] = element
 	}
 	return exec.post("/api/v1/page/scroll", body, nil)
+}
+
+// greetCandidateWithActions 使用平台动作配置执行打招呼及后续确认按钮点击。
+func (cfg PlatformConfig) greetCandidateWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, label string) error {
+	exec.log("info", fmt.Sprintf("正在执行%s打招呼动作", label))
+	if err := clickRequiredAction(exec, cfg.Actions.GreetBtn.AsPayload(), greetDelayBefore(prefs), "打招呼按钮"); err != nil {
+		return err
+	}
+	_ = clickOptionalAction(exec, cfg.Actions.ContinueBtn.AsPayload(), 0.6, "继续沟通按钮")
+	_ = clickOptionalAction(exec, cfg.Actions.ConfirmBtn.AsPayload(), 0.6, "确认按钮")
+	return nil
+}
+
+// clickRequiredAction 点击必须成功的动作按钮。
+func clickRequiredAction(exec platformViewportExecutor, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return fmt.Errorf("无%s选择器", label)
+	}
+	body := map[string]any{
+		"timeout":      10000,
+		"delay_before": delayBefore,
+		"element":      element,
+	}
+	return exec.post("/api/v1/page/click", body, nil)
+}
+
+// clickOptionalAction 尝试点击可选动作按钮，失败时只记日志不终止主流程。
+func clickOptionalAction(exec platformViewportExecutor, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return nil
+	}
+	body := map[string]any{
+		"timeout":      2000,
+		"delay_before": delayBefore,
+		"element":      element,
+	}
+	if err := exec.post("/api/v1/page/click", body, nil); err != nil {
+		exec.log("info", fmt.Sprintf("%s未命中，已跳过：%v", label, err))
+		return err
+	}
+	exec.log("info", fmt.Sprintf("%s点击成功", label))
+	return nil
 }

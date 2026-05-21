@@ -274,8 +274,8 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			e.log("info", fmt.Sprintf("候选人 %d 通过筛选: %s", i+1, result.Reason))
 		}
 
-		// 打招呼：点击 greeting 按钮
-		if err := e.clickGreet(); err != nil {
+		// 打招呼：交由平台动作实现
+		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidates[i]); err != nil {
 			e.log("error", fmt.Sprintf("候选人 %d 打招呼失败: %v", i+1, err))
 			e.incrementCounts(0, 0, 0, 1)
 			continue
@@ -325,21 +325,6 @@ func (e *TaskExecutor) filterNewCandidates(candidates []map[string]any) []map[st
 		result = append(result, candidate)
 	}
 	return result
-}
-
-// clickGreet 点击打招呼按钮。
-func (e *TaskExecutor) clickGreet() error {
-	element := e.platformCfg.Actions.GreetBtn.AsPayload()
-	if element == nil {
-		e.log("warn", "无打招呼按钮选择器")
-		return nil
-	}
-	body := map[string]any{
-		"timeout":      10000,
-		"delay_before": greetDelayBefore(e.userPrefs),
-		"element":      element,
-	}
-	return e.post("/api/v1/page/click", body, nil)
 }
 
 func (e *TaskExecutor) playSuccessSound() error {
