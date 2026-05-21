@@ -67,12 +67,12 @@ func (h *AgentWSHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[agent-ws] upgrade failed user=%s: %v", session.Email, err)
+		log.Printf("[云端WS] 升级连接失败 user=%s err=%v", session.Email, err)
 		return
 	}
 	client := NewAgentWSClient(session.Email, conn, h)
 	h.replaceClient(session.Email, client)
-	log.Printf("[agent-ws] connected user=%s", session.Email)
+	log.Printf("[云端WS] 已连接 user=%s", session.Email)
 	go client.writeLoop()
 	client.readLoop()
 }
@@ -122,18 +122,18 @@ func (h *AgentWSHub) SendCommand(userEmail string, msg AgentWSMessage, retries i
 	if msg.MessageID == "" {
 		msg.MessageID = newWSMessageID()
 	}
-	log.Printf("[agent-ws] send command user=%s type=%s task=%s message_id=%s retries=%d payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, msg.Payload)
+	log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, msg.Payload)
 	for attempt := 1; attempt <= retries; attempt++ {
 		msg.Attempt = attempt
 		reply, err := client.sendAndWait(msg, agentWSReplyTimeout)
 		if err == nil {
-			log.Printf("[agent-ws] command reply user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, reply.Payload)
+			log.Printf("[云端WS] 收到命令回复 user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, reply.Payload)
 			if !reply.OK {
 				return reply, fmt.Errorf("local agent returned error: %s", reply.Error)
 			}
 			return reply, nil
 		}
-		log.Printf("[agent-ws] command retry user=%s type=%s task=%s attempt=%d err=%v", userEmail, msg.Type, msg.TaskID, attempt, err)
+		log.Printf("[云端WS] 命令重试 user=%s type=%s task=%s attempt=%d err=%v", userEmail, msg.Type, msg.TaskID, attempt, err)
 	}
 	return AgentWSMessage{}, fmt.Errorf("local agent websocket command timeout: %s", msg.Type)
 }
@@ -194,10 +194,10 @@ func (c *AgentWSClient) readLoop() {
 	for {
 		var msg AgentWSMessage
 		if err := c.conn.ReadJSON(&msg); err != nil {
-			log.Printf("[agent-ws] read closed user=%s: %v", c.userEmail, err)
+			log.Printf("[云端WS] 读取连接关闭 user=%s err=%v", c.userEmail, err)
 			return
 		}
-		log.Printf("[agent-ws] recv user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, msg.Payload)
+		log.Printf("[云端WS] 收到消息 user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, msg.Payload)
 		if msg.ReplyTo != "" {
 			c.resolvePending(msg)
 			continue
@@ -218,9 +218,9 @@ func (c *AgentWSClient) readLoop() {
 // 连接写入失败时会关闭连接并清理在线状态。
 func (c *AgentWSClient) writeLoop() {
 	for msg := range c.send {
-		log.Printf("[agent-ws] send user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, msg.Payload)
+		log.Printf("[云端WS] 发送消息 user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, msg.Payload)
 		if err := c.conn.WriteJSON(msg); err != nil {
-			log.Printf("[agent-ws] write failed user=%s: %v", c.userEmail, err)
+			log.Printf("[云端WS] 写入消息失败 user=%s err=%v", c.userEmail, err)
 			c.close()
 			return
 		}
@@ -314,7 +314,7 @@ func (c *AgentWSClient) close() {
 	c.mu.Unlock()
 	_ = c.conn.Close()
 	c.hub.removeClient(c.userEmail, c)
-	log.Printf("[agent-ws] disconnected user=%s", c.userEmail)
+	log.Printf("[云端WS] 已断开 user=%s", c.userEmail)
 }
 
 // newWSMessageID 生成云端 WebSocket 消息 ID。

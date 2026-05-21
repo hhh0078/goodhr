@@ -405,20 +405,20 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.agentWS == nil || !s.agentWS.IsOnline(session.Email) {
-		log.Printf("[task-run] rejected task=%s user=%s reason=agent_ws_offline", task.ID, session.Email)
+		log.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=本地WS未连接", task.ID, session.Email)
 		writeError(w, http.StatusConflict, "local agent websocket is not connected")
 		return
 	}
 
 	// 禁止重复执行已在运行或已完成的任务
 	if task.Status == "running" || task.Status == "done" {
-		log.Printf("[task-run] rejected task=%s user=%s reason=already_%s", task.ID, session.Email, task.Status)
+		log.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=任务状态已是%s", task.ID, session.Email, task.Status)
 		writeError(w, http.StatusBadRequest, "task is already "+task.Status)
 		return
 	}
 
 	// 异步执行任务，不阻塞 HTTP 响应
-	log.Printf("[task-run] accepted task=%s user=%s platform=%s account=%s position=%s mode=%s", task.ID, session.Email, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode)
+	log.Printf("[任务开始] 已接受执行 task=%s user=%s platform=%s account=%s position=%s mode=%s", task.ID, session.Email, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode)
 	go s.executeTask(task)
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -451,7 +451,7 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cancelTask(task.ID)
-	log.Printf("[task-stop] requested task=%s user=%s", task.ID, session.Email)
+	log.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
 	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 	_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已停止")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -465,14 +465,14 @@ func (s *TaskService) executeTask(task TaskRun) {
 	ctx, cancel := context.WithCancel(context.Background())
 	if !s.registerTaskCancel(task.ID, cancel) {
 		cancel()
-		log.Printf("[task-flow] task=%s register cancel rejected: already running", task.ID)
+		log.Printf("[任务流程] task=%s 注册取消器失败：任务已在运行", task.ID)
 		_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已在运行中")
 		return
 	}
 	defer s.unregisterTaskCancel(task.ID)
 
 	log := func(level, message string) {
-		log.Printf("[task-flow] task=%s level=%s message=%s", task.ID, level, message)
+		log.Printf("[任务流程] task=%s level=%s message=%s", task.ID, level, message)
 		// 调用任务日志存储写入日志，供前端展示运行摘要
 		_ = s.taskLogs.WriteLog(task.ID, level, message)
 	}
