@@ -248,6 +248,14 @@ func wsPayloadSummary(payload map[string]any) string {
 	if cardSelector, ok := body["card_selector"].(string); ok && cardSelector != "" {
 		parts = append(parts, fmt.Sprintf("card_selector=%s", cardSelector))
 	}
+	if cardElement, ok := body["card_element"].(map[string]any); ok {
+		if parentClasses := toLogStringSlice(cardElement["parent_classes"]); len(parentClasses) > 0 {
+			parts = append(parts, fmt.Sprintf("card_parent_classes=%v", parentClasses))
+		}
+		if targetClasses := toLogStringSlice(cardElement["target_classes"]); len(targetClasses) > 0 {
+			parts = append(parts, fmt.Sprintf("card_target_classes=%v", targetClasses))
+		}
+	}
 	if userDataDir, ok := body["user_data_dir"].(string); ok && userDataDir != "" {
 		parts = append(parts, fmt.Sprintf("user_data_dir=%s", userDataDir))
 	}
@@ -276,6 +284,23 @@ func sortedMapKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func toLogStringSlice(value any) []string {
+	switch items := value.(type) {
+	case []string:
+		return items
+	case []any:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if s, ok := item.(string); ok && s != "" {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 // sendAndWait 发送一条命令并等待对应 reply_to 回复。

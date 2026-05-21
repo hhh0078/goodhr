@@ -215,6 +215,9 @@ func (e *TaskExecutor) scrollPage() error {
 		"scroll_delay_max": e.userPrefs.ScrollDelayMax,
 		"max_scrolls":      e.task.MatchLimit / 5,
 	}
+	if element := e.platformCfg.Card.ScrollElement(); element != nil {
+		body["element"] = element
+	}
 	if body["max_scrolls"].(int) < 5 {
 		body["max_scrolls"] = 5
 	}
@@ -225,10 +228,13 @@ func (e *TaskExecutor) scrollPage() error {
 func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
 	e.log("info", "正在批量提取候选人信息")
 
-	selectors := e.platformCfg.Card.ExtractFieldSelectors()
-	cards := e.platformCfg.Card.Cards
-	if len(cards) == 0 {
-		return nil, fmt.Errorf("平台配置中无卡片选择器")
+	selectors := e.platformCfg.Card.ExtractFieldElements()
+	cardElement := e.platformCfg.Card.CardElement()
+	if len(selectors) == 0 {
+		return nil, fmt.Errorf("平台配置中无候选人字段选择器")
+	}
+	if cardElement == nil {
+		return nil, fmt.Errorf("平台配置中无候选人卡片定位配置")
 	}
 
 	var resp struct {
@@ -237,9 +243,9 @@ func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
 		Count      int              `json:"count"`
 	}
 	body := map[string]any{
-		"selectors":     selectors,
-		"card_selector": cards[0],
-		"mode":          "batch",
+		"selectors":    selectors,
+		"card_element": cardElement,
+		"mode":         "batch",
 	}
 	if err := e.post("/api/v1/page/extract", body, &resp); err != nil {
 		return nil, err
@@ -306,11 +312,16 @@ func (e *TaskExecutor) clickGreet() error {
 		e.log("warn", "无打招呼按钮选择器")
 		return nil
 	}
-	return e.post("/api/v1/page/click", map[string]any{
-		"selector":     btns[0],
+	body := map[string]any{
 		"timeout":      10000,
 		"delay_before": greetDelayBefore(e.userPrefs),
-	}, nil)
+	}
+	if element := actionElementPayload(btns); element != nil {
+		body["element"] = element
+	} else {
+		body["selector"] = btns[0]
+	}
+	return e.post("/api/v1/page/click", body, nil)
 }
 
 func (e *TaskExecutor) playSuccessSound() error {

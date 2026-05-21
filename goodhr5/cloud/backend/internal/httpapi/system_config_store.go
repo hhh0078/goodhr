@@ -134,14 +134,14 @@ func (s *PostgresSystemConfigStore) List(prefix string) ([]SystemConfig, error) 
 
 // PlatformConfig 存储系统配置 JSON 的 value 部分。
 type PlatformConfig struct {
-	ID      string        `json:"id"`
-	Name    string        `json:"name"`
-	Domain  string        `json:"domain"`
-	Pages   []PlatformPage `json:"pages,omitempty"`
-	Card    PlatformCard   `json:"card"`
-	Actions PlatformActions `json:"actions"`
-	Detail  PlatformDetail `json:"detail"`
-	Extras  []PlatformExtra `json:"extras,omitempty"`
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Domain   string           `json:"domain"`
+	Pages    []PlatformPage   `json:"pages,omitempty"`
+	Card     PlatformCard     `json:"card"`
+	Actions  PlatformActions  `json:"actions"`
+	Detail   PlatformDetail   `json:"detail"`
+	Extras   []PlatformExtra  `json:"extras,omitempty"`
 	Behavior PlatformBehavior `json:"behavior"`
 }
 
@@ -153,13 +153,13 @@ type PlatformPage struct {
 
 // PlatformCard 定义候选人卡片的选择器。
 type PlatformCard struct {
-	Container     string   `json:"container"`
-	Cards         []string `json:"card"`
-	Name          string   `json:"name"`
-	BasicInfo     []string `json:"basicInfo"`
-	Education     []string `json:"education"`
-	University    string   `json:"university"`
-	Description   string   `json:"description"`
+	Container   string   `json:"container"`
+	Cards       []string `json:"card"`
+	Name        string   `json:"name"`
+	BasicInfo   []string `json:"basicInfo"`
+	Education   []string `json:"education"`
+	University  string   `json:"university"`
+	Description string   `json:"description"`
 }
 
 // PlatformActions 定义候选人操作按钮的选择器。
@@ -188,10 +188,42 @@ type PlatformExtra struct {
 
 // PlatformBehavior 定义平台特定行为配置。
 type PlatformBehavior struct {
-	NeedsDetailPage        bool   `json:"needsDetailPage"`
-	SupportsPaging         bool   `json:"supportsPaging"`
-	NextPageBtn            string `json:"nextPageBtn"`
-	NextPageDisabledClass  string `json:"nextPageDisabledClass"`
+	NeedsDetailPage       bool   `json:"needsDetailPage"`
+	SupportsPaging        bool   `json:"supportsPaging"`
+	NextPageBtn           string `json:"nextPageBtn"`
+	NextPageDisabledClass string `json:"nextPageDisabledClass"`
+}
+
+type ElementLocatorPayload struct {
+	ParentClasses []string `json:"parent_classes,omitempty"`
+	TargetClasses []string `json:"target_classes"`
+}
+
+func normalizeSelectorList(items []string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func buildElementPayload(parentClasses []string, targetClasses []string) map[string]any {
+	targets := normalizeSelectorList(targetClasses)
+	if len(targets) == 0 {
+		return nil
+	}
+	payload := map[string]any{
+		"target_classes": targets,
+	}
+	parents := normalizeSelectorList(parentClasses)
+	if len(parents) > 0 {
+		payload["parent_classes"] = parents
+	}
+	return payload
 }
 
 // ExtractFieldSelectors 提取 PlatformCard 中所有字段选择器的映射，
@@ -226,6 +258,45 @@ func (pc *PlatformCard) ExtractFieldSelectors() map[string]string {
 		fields["description"] = pc.Description
 	}
 	return fields
+}
+
+func (pc *PlatformCard) CardElement() map[string]any {
+	var parents []string
+	if strings.TrimSpace(pc.Container) != "" {
+		parents = []string{pc.Container}
+	}
+	return buildElementPayload(parents, pc.Cards)
+}
+
+func (pc *PlatformCard) ScrollElement() map[string]any {
+	if strings.TrimSpace(pc.Container) != "" {
+		return buildElementPayload(nil, []string{pc.Container})
+	}
+	return buildElementPayload(nil, pc.Cards)
+}
+
+func (pc *PlatformCard) ExtractFieldElements() map[string]any {
+	fields := map[string]any{}
+	if payload := buildElementPayload(nil, []string{pc.Name}); payload != nil {
+		fields["name"] = payload
+	}
+	if payload := buildElementPayload(nil, pc.BasicInfo); payload != nil {
+		fields["basic_info"] = payload
+	}
+	if payload := buildElementPayload(nil, pc.Education); payload != nil {
+		fields["education"] = payload
+	}
+	if payload := buildElementPayload(nil, []string{pc.University}); payload != nil {
+		fields["university"] = payload
+	}
+	if payload := buildElementPayload(nil, []string{pc.Description}); payload != nil {
+		fields["description"] = payload
+	}
+	return fields
+}
+
+func actionElementPayload(selectors []string) map[string]any {
+	return buildElementPayload(nil, selectors)
 }
 
 // ParsePlatformConfig 从 JSON 字符串解析平台配置。
