@@ -249,7 +249,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
-			text := candidateText(candidates[i])
+			text := e.platformCfg.CandidateFilterText(candidates[i])
 			jobDesc := e.positionDescription()
 			decision, err := e.callAI(jobDesc, text)
 			if err != nil {
@@ -264,7 +264,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			}
 			e.log("info", fmt.Sprintf("候选人 %d AI 通过: %s", i+1, decision.Msg))
 		} else if e.filter != nil {
-			text := candidateText(candidates[i])
+			text := e.platformCfg.CandidateFilterText(candidates[i])
 			result := e.filter.Filter(text)
 			if !result.Passed {
 				e.log("info", fmt.Sprintf("候选人 %d 被筛选跳过: %s", i+1, result.Reason))
@@ -313,7 +313,7 @@ func (e *TaskExecutor) reachedMatchLimit() bool {
 func (e *TaskExecutor) filterNewCandidates(candidates []map[string]any) []map[string]any {
 	result := make([]map[string]any, 0, len(candidates))
 	for _, candidate := range candidates {
-		key := candidateFingerprint(candidate)
+		key := e.platformCfg.CandidateFingerprint(candidate)
 		if key == "" {
 			result = append(result, candidate)
 			continue
@@ -390,31 +390,6 @@ func (e *TaskExecutor) log(level, message string) {
 	if e.logCallback != nil {
 		e.logCallback(level, message)
 	}
-}
-
-// candidateText 将候选人字段拼接为可供筛选的文本。
-func candidateText(candidate map[string]any) string {
-	var parts []string
-	for _, v := range candidate {
-		if s, ok := v.(string); ok && s != "" {
-			parts = append(parts, s)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// candidateFingerprint 生成候选人的稳定指纹，用于避免重复处理同一屏候选人。
-func candidateFingerprint(candidate map[string]any) string {
-	keys := []string{"name", "basic_info", "education", "university", "description"}
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		value, _ := candidate[key].(string)
-		value = strings.TrimSpace(value)
-		if value != "" {
-			parts = append(parts, key+"="+value)
-		}
-	}
-	return strings.Join(parts, "|")
 }
 
 // toStringSlice 将 interface{} 转为 []string。

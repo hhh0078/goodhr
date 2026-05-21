@@ -235,3 +235,72 @@ func clickOptionalAction(exec platformViewportExecutor, element map[string]any, 
 	exec.log("info", fmt.Sprintf("%s点击成功", label))
 	return nil
 }
+
+// CandidateFilterText 由平台运行时逻辑拼接候选人筛选文本。
+func (cfg PlatformConfig) CandidateFilterText(candidate map[string]any) string {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return buildCandidateText(candidate, []string{"name", "basic_info", "education", "university", "description"})
+	default:
+		return buildCandidateText(candidate, nil)
+	}
+}
+
+// CandidateFingerprint 由平台运行时逻辑生成候选人的去重指纹。
+func (cfg PlatformConfig) CandidateFingerprint(candidate map[string]any) string {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return buildCandidateFingerprint(candidate, []string{"name", "basic_info", "education", "university", "description"})
+	default:
+		return buildCandidateFingerprint(candidate, nil)
+	}
+}
+
+// buildCandidateText 按字段顺序拼接候选人文本；不传字段时退化为全部字符串字段。
+func buildCandidateText(candidate map[string]any, orderedKeys []string) string {
+	if len(orderedKeys) == 0 {
+		parts := make([]string, 0, len(candidate))
+		for _, value := range candidate {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				parts = append(parts, strings.TrimSpace(text))
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	parts := make([]string, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		value, _ := candidate[key].(string)
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// buildCandidateFingerprint 按字段顺序生成稳定指纹；不传字段时退化为全部字符串字段。
+func buildCandidateFingerprint(candidate map[string]any, orderedKeys []string) string {
+	if len(orderedKeys) == 0 {
+		parts := make([]string, 0, len(candidate))
+		for key, value := range candidate {
+			text, ok := value.(string)
+			if !ok {
+				continue
+			}
+			text = strings.TrimSpace(text)
+			if text != "" {
+				parts = append(parts, key+"="+text)
+			}
+		}
+		return strings.Join(parts, "|")
+	}
+	parts := make([]string, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		value, _ := candidate[key].(string)
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, "|")
+}
