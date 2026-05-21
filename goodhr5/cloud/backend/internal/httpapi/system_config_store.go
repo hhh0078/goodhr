@@ -151,39 +151,74 @@ type PlatformPage struct {
 	Title string `json:"title"`
 }
 
-// PlatformCard 定义候选人卡片的选择器。
+// ElementLocatorConfig 定义统一元素定位协议的配置结构。
+type ElementLocatorConfig struct {
+	ParentClasses [][]string `json:"parent_classes,omitempty"`
+	TargetClasses [][]string `json:"target_classes"`
+	FindAttempts  int        `json:"find_attempts,omitempty"`
+	FindInterval  int        `json:"find_interval_ms,omitempty"`
+}
+
+func normalizeSelectorGroups(groups [][]string) [][]string {
+	result := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		normalized := normalizeSelectorList(group)
+		if len(normalized) > 0 {
+			result = append(result, normalized)
+		}
+	}
+	return result
+}
+
+func (c ElementLocatorConfig) AsPayload() map[string]any {
+	targets := normalizeSelectorGroups(c.TargetClasses)
+	if len(targets) == 0 {
+		return nil
+	}
+	payload := map[string]any{
+		"target_classes": targets,
+	}
+	if parents := normalizeSelectorGroups(c.ParentClasses); len(parents) > 0 {
+		payload["parent_classes"] = parents
+	}
+	if c.FindAttempts > 0 {
+		payload["find_attempts"] = c.FindAttempts
+	}
+	if c.FindInterval > 0 {
+		payload["find_interval_ms"] = c.FindInterval
+	}
+	return payload
+}
+
+// PlatformCard 定义候选人卡片、滚动目标和字段定位配置。
 type PlatformCard struct {
-	Container   string   `json:"container"`
-	Cards       []string `json:"card"`
-	Name        string   `json:"name"`
-	BasicInfo   []string `json:"basicInfo"`
-	Education   []string `json:"education"`
-	University  string   `json:"university"`
-	Description string   `json:"description"`
+	Scroll ElementLocatorConfig `json:"scroll"`
+	Item   ElementLocatorConfig `json:"item"`
+	Fields []map[string]ElementLocatorConfig `json:"fields"`
 }
 
-// PlatformActions 定义候选人操作按钮的选择器。
+// PlatformActions 定义候选人操作按钮的定位配置。
 type PlatformActions struct {
-	GreetBtn    []string `json:"greetBtn"`
-	ContinueBtn []string `json:"continueBtn"`
-	PhoneBtn    []string `json:"phoneBtn"`
-	WechatBtn   []string `json:"wechatBtn"`
-	ResumeBtn   []string `json:"resumeBtn"`
-	ConfirmBtn  []string `json:"confirmBtn"`
+	GreetBtn    ElementLocatorConfig `json:"greetBtn"`
+	ContinueBtn ElementLocatorConfig `json:"continueBtn"`
+	PhoneBtn    ElementLocatorConfig `json:"phoneBtn"`
+	WechatBtn   ElementLocatorConfig `json:"wechatBtn"`
+	ResumeBtn   ElementLocatorConfig `json:"resumeBtn"`
+	ConfirmBtn  ElementLocatorConfig `json:"confirmBtn"`
 }
 
-// PlatformDetail 定义候选人详情弹框的选择器。
+// PlatformDetail 定义候选人详情弹框的定位配置。
 type PlatformDetail struct {
-	OpenTarget  []string `json:"openTarget"`
-	CloseBtn    []string `json:"closeBtn"`
-	MessageTip  string   `json:"messageTip"`
-	MessageItem string   `json:"messageItem"`
+	OpenTarget  ElementLocatorConfig `json:"openTarget"`
+	CloseBtn    ElementLocatorConfig `json:"closeBtn"`
+	MessageTip  ElementLocatorConfig `json:"messageTip"`
+	MessageItem ElementLocatorConfig `json:"messageItem"`
 }
 
-// PlatformExtra 定义额外提取字段的选择器。
+// PlatformExtra 定义额外提取字段的定位配置。
 type PlatformExtra struct {
-	Selector string `json:"selector"`
-	Label    string `json:"label"`
+	Element ElementLocatorConfig `json:"element"`
+	Label   string               `json:"label"`
 }
 
 // PlatformBehavior 定义平台特定行为配置。
@@ -192,11 +227,6 @@ type PlatformBehavior struct {
 	SupportsPaging        bool   `json:"supportsPaging"`
 	NextPageBtn           string `json:"nextPageBtn"`
 	NextPageDisabledClass string `json:"nextPageDisabledClass"`
-}
-
-type ElementLocatorPayload struct {
-	ParentClasses [][]string `json:"parent_classes,omitempty"`
-	TargetClasses [][]string `json:"target_classes"`
 }
 
 func normalizeSelectorList(items []string) []string {
@@ -211,74 +241,26 @@ func normalizeSelectorList(items []string) []string {
 	return result
 }
 
-func selectorGroups(items []string) [][]string {
-	group := normalizeSelectorList(items)
-	if len(group) == 0 {
-		return nil
-	}
-	return [][]string{group}
-}
-
-func buildElementPayload(parentClasses []string, targetClasses []string) map[string]any {
-	targets := selectorGroups(targetClasses)
-	if len(targets) == 0 {
-		return nil
-	}
-	payload := map[string]any{
-		"target_classes": targets,
-	}
-	parents := selectorGroups(parentClasses)
-	if len(parents) > 0 {
-		payload["parent_classes"] = parents
-	}
-	return payload
-}
-
 // ExtractFieldRequests 提取 PlatformCard 中所有字段定位规则，
 // 用于调用 Local Agent POST /api/v1/page/extract-fields。
 func (pc *PlatformCard) ExtractFieldRequests() []map[string]any {
-	fields := make([]map[string]any, 0, 4)
-	if pc.Name != "" {
-		if payload := buildElementPayload(nil, []string{pc.Name}); payload != nil {
-			fields = append(fields, map[string]any{"name": payload})
-		}
-	}
-	if payload := buildElementPayload(nil, pc.BasicInfo); payload != nil {
-		fields = append(fields, map[string]any{"basic_info": payload})
-	}
-	if payload := buildElementPayload(nil, pc.Education); payload != nil {
-		fields = append(fields, map[string]any{"education": payload})
-	}
-	if pc.University != "" {
-		if payload := buildElementPayload(nil, []string{pc.University}); payload != nil {
-			fields = append(fields, map[string]any{"university": payload})
-		}
-	}
-	if pc.Description != "" {
-		if payload := buildElementPayload(nil, []string{pc.Description}); payload != nil {
-			fields = append(fields, map[string]any{"description": payload})
+	fields := make([]map[string]any, 0, len(pc.Fields))
+	for _, item := range pc.Fields {
+		for name, cfg := range item {
+			if payload := cfg.AsPayload(); payload != nil {
+				fields = append(fields, map[string]any{name: payload})
+			}
 		}
 	}
 	return fields
 }
 
 func (pc *PlatformCard) CardElement() map[string]any {
-	var parents []string
-	if strings.TrimSpace(pc.Container) != "" {
-		parents = []string{pc.Container}
-	}
-	return buildElementPayload(parents, pc.Cards)
+	return pc.Item.AsPayload()
 }
 
 func (pc *PlatformCard) ScrollElement() map[string]any {
-	if strings.TrimSpace(pc.Container) != "" {
-		return buildElementPayload(nil, []string{pc.Container})
-	}
-	return buildElementPayload(nil, pc.Cards)
-}
-
-func actionElementPayload(selectors []string) map[string]any {
-	return buildElementPayload(nil, selectors)
+	return pc.Scroll.AsPayload()
 }
 
 // ParsePlatformConfig 从 JSON 字符串解析平台配置。

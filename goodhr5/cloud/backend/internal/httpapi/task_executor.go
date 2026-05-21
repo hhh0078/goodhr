@@ -348,8 +348,7 @@ func (e *TaskExecutor) incrementCounts(scanned, greeted, skipped, failed int) {
 
 // clickGreet 点击打招呼按钮。
 func (e *TaskExecutor) clickGreet() error {
-	btns := e.platformCfg.Actions.GreetBtn
-	element := actionElementPayload(btns)
+	element := e.platformCfg.Actions.GreetBtn.AsPayload()
 	if element == nil {
 		e.log("warn", "无打招呼按钮选择器")
 		return nil
