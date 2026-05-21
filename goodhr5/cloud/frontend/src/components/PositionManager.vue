@@ -35,6 +35,12 @@
         <label>详情查看最大(秒)<input v-model="positions.form.value.detailViewDelayMax" type="number" min="0" step="0.1"/></label>
         <label>打招呼延迟最小(秒)<input v-model="positions.form.value.greetDelayMin" type="number" min="0" step="0.1"/></label>
         <label>打招呼延迟最大(秒)<input v-model="positions.form.value.greetDelayMax" type="number" min="0" step="0.1"/></label>
+        <label>处理后休息阈值最小(人)<input v-model="positions.form.value.restAfterCandidatesMin" type="number" min="0"/></label>
+        <label>处理后休息阈值最大(人)<input v-model="positions.form.value.restAfterCandidatesMax" type="number" min="0"/></label>
+        <label>单次任务休息次数最小<input v-model="positions.form.value.restTimesMin" type="number" min="0"/></label>
+        <label>单次任务休息次数最大<input v-model="positions.form.value.restTimesMax" type="number" min="0"/></label>
+        <label>每次休息时长最小(分钟)<input v-model="positions.form.value.restDurationMin" type="number" min="0" step="0.1"/></label>
+        <label>每次休息时长最大(分钟)<input v-model="positions.form.value.restDurationMax" type="number" min="0" step="0.1"/></label>
       </div>
 
       <h3>AI 模式专属</h3>
