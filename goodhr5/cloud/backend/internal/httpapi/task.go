@@ -19,6 +19,7 @@ type TaskService struct {
 	positionStore  PositionStore
 	taskLogs       TaskLogService
 	aiConfigStore  AIConfigStore
+	userPrefsStore UserPreferencesStore
 	tenantStore    TenantStore
 	cookieStore    CookieStore
 	agentWS        *AgentWSHub
@@ -36,7 +37,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, tenantStore TenantStore, cookieStore CookieStore, agentWS *AgentWSHub) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, agentWS *AgentWSHub) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -44,6 +45,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		positionStore:  positionStore,
 		taskLogs:       taskLogs,
 		aiConfigStore:  aiConfigStore,
+		userPrefsStore: userPrefsStore,
 		tenantStore:    tenantStore,
 		cookieStore:    cookieStore,
 		agentWS:        agentWS,
@@ -450,8 +452,14 @@ func (s *TaskService) executeTask(task TaskRun) {
 			aiConfig = cfg
 		}
 	}
+	userPrefs := DefaultUserPreferences()
+	if s.userPrefsStore != nil {
+		if prefs, err := s.userPrefsStore.UserPreferences(task.UserEmail); err == nil {
+			userPrefs = prefs
+		}
+	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, s.cookieStore, log)
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, s.cookieStore, log)
 	if err := executor.Run(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			log("warn", "任务已取消")

@@ -25,27 +25,13 @@
 
       <h3>公共参数</h3>
       <div class="position-form-grid">
-        <label class="field field-small">提示音<select v-model="positions.form.value.enableSound"><option :value="true">开启</option><option :value="false">关闭</option></select></label>
-        <label class="field field-small">点击频率(%)<input v-model="positions.form.value.clickFrequency" type="number" min="0" max="100"/></label>
-        <label class="field field-small">滚动延迟最小(秒)<input v-model="positions.form.value.scrollDelayMin" type="number" min="0"/></label>
-        <label class="field field-small">滚动延迟最大(秒)<input v-model="positions.form.value.scrollDelayMax" type="number" min="0"/></label>
-        <label class="field field-small">列表查看最小(秒)<input v-model="positions.form.value.listViewDelayMin" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">列表查看最大(秒)<input v-model="positions.form.value.listViewDelayMax" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">详情查看最小(秒)<input v-model="positions.form.value.detailViewDelayMin" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">详情查看最大(秒)<input v-model="positions.form.value.detailViewDelayMax" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">打招呼延迟最小(秒)<input v-model="positions.form.value.greetDelayMin" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">打招呼延迟最大(秒)<input v-model="positions.form.value.greetDelayMax" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">处理后休息阈值最小(人)<input v-model="positions.form.value.restAfterCandidatesMin" type="number" min="0"/></label>
-        <label class="field field-small">处理后休息阈值最大(人)<input v-model="positions.form.value.restAfterCandidatesMax" type="number" min="0"/></label>
-        <label class="field field-small">单次任务休息次数最小<input v-model="positions.form.value.restTimesMin" type="number" min="0"/></label>
-        <label class="field field-small">单次任务休息次数最大<input v-model="positions.form.value.restTimesMax" type="number" min="0"/></label>
-        <label class="field field-small">每次休息时长最小(分钟)<input v-model="positions.form.value.restDurationMin" type="number" min="0" step="0.1"/></label>
-        <label class="field field-small">每次休息时长最大(分钟)<input v-model="positions.form.value.restDurationMax" type="number" min="0" step="0.1"/></label>
+        <p class="hint field field-full">
+          运行节奏、模型等参数已移到“个人配置”，这里仅保留岗位本身的筛选规则。
+        </p>
       </div>
 
       <h3>AI 模式专属</h3>
       <div class="position-form-grid">
-        <label class="field field-small">模型<input v-model="positions.form.value.aiModel" placeholder="如: gpt-4.1-mini"/></label>
         <label class="field field-full">岗位要求<textarea v-model="positions.form.value.aiPositionRequirement" rows="2"/></label>
         <label class="field field-full">AI提示词<textarea v-model="positions.form.value.aiClickPrompt" rows="2"/></label>
       </div>

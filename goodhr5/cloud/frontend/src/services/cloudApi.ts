@@ -115,6 +115,16 @@ export async function listPlatformConfigs() {
   return data.configs
 }
 
+export async function getUserPreferences() {
+  const data = await api('/api/config/user-preferences')
+  return data.config
+}
+
+export async function updateUserPreferences(payload: any) {
+  const data = await api('/api/config/user-preferences', { method: 'PUT', body: payload })
+  return data.config
+}
+
 export async function listTenantMembers() {
   const data = await api('/api/tenants/members')
   return data.members

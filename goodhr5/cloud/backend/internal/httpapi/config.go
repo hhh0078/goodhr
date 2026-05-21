@@ -100,6 +100,13 @@ func (c Config) AIConfigStore(db *sql.DB) AIConfigStore {
 	return NewMemoryAIConfigStore()
 }
 
+func (c Config) UserPreferencesStore(db *sql.DB) UserPreferencesStore {
+	if db != nil {
+		return NewPostgresUserPreferencesStore(db)
+	}
+	return NewMemoryUserPreferencesStore()
+}
+
 // PlatformAccountStore 创建平台账号映射存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) PlatformAccountStore(db *sql.DB) PlatformAccountStore {
 	if db != nil {
@@ -126,12 +133,16 @@ func (c Config) TaskStore(db *sql.DB) TaskStore {
 
 // TaskLogStore 创建任务日志存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) CookieStore(db *sql.DB) CookieStore {
-	if db != nil { return NewPostgresCookieStore(db) }
+	if db != nil {
+		return NewPostgresCookieStore(db)
+	}
 	return NewMemoryCookieStore()
 }
 
 func (c Config) TenantStore(db *sql.DB) TenantStore {
-	if db != nil { return NewPostgresTenantStore(db) }
+	if db != nil {
+		return NewPostgresTenantStore(db)
+	}
 	return NewMemoryTenantStore()
 }
 

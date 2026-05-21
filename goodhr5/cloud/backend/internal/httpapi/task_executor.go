@@ -19,6 +19,7 @@ type TaskExecutor struct {
 	filter      *KeywordFilter
 	position    map[string]any
 	aiConfig    AIConfig
+	userPrefs   UserPreferences
 	agentWS     *AgentWSHub
 	cookieStore CookieStore
 	httpClient  *http.Client
@@ -32,6 +33,7 @@ func NewTaskExecutor(
 	position map[string]any,
 	agentWS *AgentWSHub,
 	aiConfig AIConfig,
+	userPrefs UserPreferences,
 	cookieStore CookieStore,
 	logCallback func(level, message string),
 ) *TaskExecutor {
@@ -52,6 +54,7 @@ func NewTaskExecutor(
 		filter:      filter,
 		position:    position,
 		aiConfig:    aiConfig,
+		userPrefs:   userPrefs,
 		cookieStore: cookieStore,
 		agentWS:     agentWS,
 		httpClient:  &http.Client{Timeout: 120 * time.Second},
@@ -160,8 +163,8 @@ func (e *TaskExecutor) openPage() error {
 func (e *TaskExecutor) scrollPage() error {
 	e.log("info", "正在滚动加载候选人列表")
 	body := map[string]any{
-		"scroll_delay_min": 3,
-		"scroll_delay_max": 8,
+		"scroll_delay_min": e.userPrefs.ScrollDelayMin,
+		"scroll_delay_max": e.userPrefs.ScrollDelayMax,
 		"max_scrolls":      e.task.MatchLimit / 5,
 	}
 	if body["max_scrolls"].(int) < 5 {
@@ -258,7 +261,7 @@ func (e *TaskExecutor) clickGreet() error {
 	return e.post("/api/v1/page/click", map[string]any{
 		"selector":     btns[0],
 		"timeout":      10000,
-		"delay_before": 1.0,
+		"delay_before": greetDelayBefore(e.userPrefs),
 	}, nil)
 }
 
@@ -337,6 +340,16 @@ func toStringSlice(v any) []string {
 	return result
 }
 
+func greetDelayBefore(prefs UserPreferences) float64 {
+	if prefs.GreetDelayMax > prefs.GreetDelayMin && prefs.GreetDelayMin >= 0 {
+		return (prefs.GreetDelayMin + prefs.GreetDelayMax) / 2
+	}
+	if prefs.GreetDelayMin >= 0 {
+		return prefs.GreetDelayMin
+	}
+	return 1
+}
+
 // ---------- AI 筛选 ----------
 
 type AIRequest struct {
@@ -394,7 +407,9 @@ func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error)
 	baseURL := "https://ai.58it.cn/v1/chat/completions"
 	temperature := 0.3
 
-	if e.aiConfig.Model != "" {
+	if e.userPrefs.AIModel != "" {
+		model = e.userPrefs.AIModel
+	} else if e.aiConfig.Model != "" {
 		model = e.aiConfig.Model
 	}
 	if e.aiConfig.BaseURL != "" {

@@ -12,6 +12,7 @@ type Server struct {
 	agent            *AgentService
 	agentWS          *AgentWSHub
 	ai               *AIConfigService
+	userPreferences  *UserPreferencesService
 	platformAccounts *PlatformAccountService
 	positions        *PositionService
 	tasks            *TaskService
@@ -42,9 +43,10 @@ func NewServer() (*Server, error) {
 		agent:            NewAgentService(auth, agentStore),
 		agentWS:          agentWS,
 		ai:               NewAIConfigService(auth, config.AIConfigStore(db)),
+		userPreferences:  NewUserPreferencesService(auth, config.UserPreferencesStore(db)),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, config.PositionStore(db)),
-		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), tenantStore, cookieStore, agentWS),
+		tasks:            NewTaskService(auth, taskStore, config.SystemConfigStore(db), config.PositionStore(db), *taskLogs, config.AIConfigStore(db), config.UserPreferencesStore(db), tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
 		systemConfigs:    config.SystemConfigStore(db),
 		tenants:          NewTenantService(auth, tenantStore),
@@ -71,6 +73,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
+	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)

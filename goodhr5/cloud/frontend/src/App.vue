@@ -58,6 +58,10 @@
           v-else-if="activeMenu === 'position'"
           :positions="positions"
         />
+        <PersonalConfig
+          v-else-if="activeMenu === 'personal-config'"
+          :config="personalConfig"
+        />
 
         <TaskList
           v-else-if="activeMenu === 'task-list'"
@@ -76,6 +80,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
 import { usePositions } from "./composables/usePositions";
+import { usePersonalConfig } from "./composables/usePersonalConfig";
 import { useTasks } from "./composables/useTasks";
 import LoginForm from "./components/LoginForm.vue";
 import AgentPanel from "./components/AgentPanel.vue";
@@ -83,11 +88,13 @@ import TenantManager from "./components/TenantManager.vue";
 
 import AccountManager from "./components/AccountManager.vue";
 import PositionManager from "./components/PositionManager.vue";
+import PersonalConfig from "./components/PersonalConfig.vue";
 import TaskList from "./components/TaskList.vue";
 
 const auth = useAuth();
 const agent = useAgent();
 const positions = usePositions();
+const personalConfig = usePersonalConfig();
 const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
@@ -97,6 +104,7 @@ const menuItems = [
   { id: "tenant", label: "团队管理" },
   { id: "account", label: "平台账号" },
   { id: "position", label: "岗位模板" },
+  { id: "personal-config", label: "个人配置" },
   { id: "task-list", label: "任务列表" },
 ];
 const agentStatusColor = computed(() => {
@@ -109,6 +117,7 @@ watch(user, async (u) => {
   if (u) {
     agent.detect(u, auth.token.value);
     positions.load();
+    personalConfig.load();
     tasks.load();
   }
 });
@@ -121,6 +130,7 @@ onMounted(async () => {
     agent.detect(auth.user.value, auth.token.value);
     detectLocalAgent();
     positions.load();
+    personalConfig.load();
     tasks.load();
   }
 });
