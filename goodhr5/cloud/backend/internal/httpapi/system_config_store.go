@@ -22,6 +22,8 @@ type SystemConfigStore interface {
 	Get(key string) (SystemConfig, error)
 	// List 列出所有启用且键名匹配 prefix 的配置。
 	List(prefix string) ([]SystemConfig, error)
+	// Save 保存或更新一条系统配置。
+	Save(cfg SystemConfig) error
 }
 
 var ErrConfigNotFound = errors.New("system config not found")
@@ -61,6 +63,12 @@ func (s *MemorySystemConfigStore) List(prefix string) ([]SystemConfig, error) {
 		}
 	}
 	return result, nil
+}
+
+// Save 保存或更新一条系统配置。
+func (s *MemorySystemConfigStore) Save(cfg SystemConfig) error {
+	s.configs[cfg.ConfigKey] = cfg
+	return nil
 }
 
 // ---------- PostgreSQL 实现 ----------
@@ -130,6 +138,23 @@ func (s *PostgresSystemConfigStore) List(prefix string) ([]SystemConfig, error) 
 		result = []SystemConfig{}
 	}
 	return result, nil
+}
+
+// Save 保存或更新一条系统配置。
+func (s *PostgresSystemConfigStore) Save(cfg SystemConfig) error {
+	_, err := s.db.Exec(
+		`INSERT INTO system_configs (config_key, config_value, description, enabled)
+		 VALUES ($1, $2::jsonb, $3, $4)
+		 ON CONFLICT (config_key) DO UPDATE
+		 SET config_value = EXCLUDED.config_value,
+		     description = EXCLUDED.description,
+		     enabled = EXCLUDED.enabled`,
+		cfg.ConfigKey,
+		cfg.ConfigValue,
+		cfg.Description,
+		cfg.Enabled,
+	)
+	return err
 }
 
 // PlatformConfig 存储系统配置 JSON 的 value 部分。

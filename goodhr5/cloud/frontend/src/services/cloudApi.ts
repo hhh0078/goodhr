@@ -139,6 +139,14 @@ export async function listAdminPlatformConfigs() {
   return data.configs
 }
 
+export async function updateAdminPlatformConfig(configKey: string, configValue: string) {
+  const data = await api(`/api/admin/platforms/config/${encodeURIComponent(configKey)}`, {
+    method: 'PUT',
+    body: { config_value: configValue },
+  })
+  return data.config
+}
+
 export async function getUserPreferences() {
   const data = await api('/api/config/user-preferences')
   return data.config

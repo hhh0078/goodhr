@@ -3,9 +3,14 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 )
+
+type updateAdminPlatformConfigRequest struct {
+	ConfigValue string `json:"config_value"`
+}
 
 type Server struct {
 	auth             *AuthService
@@ -91,7 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
-	mux.HandleFunc("/api/admin/platforms/config/", s.ListAdminPlatformConfigs)
+	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
 	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
@@ -206,6 +211,73 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"configs": configs,
+	})
+}
+
+func (s *Server) adminPlatformConfigs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.ListAdminPlatformConfigs(w, r)
+	case http.MethodPut:
+		s.UpdateAdminPlatformConfig(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// UpdateAdminPlatformConfig 允许超管直接保存平台原始 JSON。
+func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Request) {
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
+		return
+	}
+
+	configKey := strings.TrimPrefix(r.URL.Path, "/api/admin/platforms/config/")
+	configKey = strings.TrimSpace(strings.Trim(configKey, "/"))
+	if configKey == "" {
+		writeError(w, http.StatusBadRequest, "config key is required")
+		return
+	}
+
+	existing, err := s.systemConfigs.Get(configKey)
+	if err != nil {
+		if errors.Is(err, ErrConfigNotFound) {
+			writeError(w, http.StatusNotFound, "platform config not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load platform config")
+		return
+	}
+
+	var req updateAdminPlatformConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	raw := strings.TrimSpace(req.ConfigValue)
+	if raw == "" {
+		writeError(w, http.StatusBadRequest, "config_value is required")
+		return
+	}
+	if !json.Valid([]byte(raw)) {
+		writeError(w, http.StatusBadRequest, "config_value must be valid json")
+		return
+	}
+
+	existing.ConfigValue = raw
+	if err := s.systemConfigs.Save(existing); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save platform config")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"config": existing,
 	})
 }
 
