@@ -98,7 +98,10 @@ import {
   releaseCookie,
 } from "../services/cloudApi";
 import { getLocalHealth, openPage } from "../services/localAgentApi";
-import { decryptCookieByAgent, pickDecryptPayload } from "../services/cookieCrypto";
+import {
+  decryptCookieByAgent,
+  pickDecryptPayload,
+} from "../services/cookieCrypto";
 import { runPlatformLoginFlow } from "../services/platformLoginFlow";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
@@ -220,7 +223,8 @@ async function openWithCookie(account: any) {
     const openPayload: any = {
       url: targetURL,
       persistent: true,
-      user_data_dir: account.local_profile_id || account.display_name || account.id,
+      user_data_dir:
+        account.local_profile_id || account.display_name || account.id,
       headless: false,
       humanize: true,
     };
@@ -233,7 +237,10 @@ async function openWithCookie(account: any) {
         const claimedPayload = await claimCookie(account.id, {});
         claimed = true;
         const decryptPayload = pickDecryptPayload(claimedPayload, machineID);
-        const cookies = await decryptCookieByAgent(props.agentBaseUrl, decryptPayload);
+        const cookies = await decryptCookieByAgent(
+          props.agentBaseUrl,
+          decryptPayload,
+        );
         if (Array.isArray(cookies) && cookies.length > 0) {
           openPayload.cookies = cookies;
         }
