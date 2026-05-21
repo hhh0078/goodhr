@@ -464,7 +464,7 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 	s.cancelTask(task.ID)
 	log.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
 	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
-	_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已停止")
+	_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"status": "stopped",
@@ -477,7 +477,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 	if !s.registerTaskCancel(task.ID, cancel) {
 		cancel()
 		log.Printf("[任务流程] task=%s 注册取消器失败：任务已在运行", task.ID)
-		_ = s.taskLogs.WriteLog(task.ID, "warn", "任务已在运行中")
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已在运行中")
 		return
 	}
 	defer s.unregisterTaskCancel(task.ID)
@@ -485,7 +485,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 	log := func(level, message string) {
 		log.Printf("[任务流程] task=%s level=%s message=%s", task.ID, level, message)
 		// 调用任务日志存储写入日志，供前端展示运行摘要
-		_ = s.taskLogs.WriteLog(task.ID, level, message)
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
 	}
 
 	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))

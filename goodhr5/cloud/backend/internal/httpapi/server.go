@@ -41,7 +41,7 @@ func NewServer() (*Server, error) {
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
-	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db))
+	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, agentStore),

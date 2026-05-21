@@ -11,9 +11,10 @@ import (
 
 // TaskLogService 处理任务日志写入和读取请求。
 type TaskLogService struct {
-	auth     *AuthService
-	tasks    TaskStore
-	logStore TaskLogStore
+	auth        *AuthService
+	tasks       TaskStore
+	logStore    TaskLogStore
+	tenantStore TenantStore
 }
 
 type addTaskLogRequest struct {
@@ -22,20 +23,17 @@ type addTaskLogRequest struct {
 }
 
 // NewTaskLogService 创建任务日志 API 服务，并注入认证、任务存储和日志存储。
-func NewTaskLogService(auth *AuthService, tasks TaskStore, logStore TaskLogStore) *TaskLogService {
+func NewTaskLogService(auth *AuthService, tasks TaskStore, logStore TaskLogStore, tenantStore TenantStore) *TaskLogService {
 	return &TaskLogService{
-		auth:     auth,
-		tasks:    tasks,
-		logStore: logStore,
+		auth:        auth,
+		tasks:       tasks,
+		logStore:    logStore,
+		tenantStore: tenantStore,
 	}
 }
 
 // WriteLog 写入任务日志摘要（内部调用，不验证 session）。
-func (s *TaskLogService) WriteLog(taskID, level, message string) error {
-	userEmail := ""
-	if task, err := s.tasks.TaskByID("", "", taskID, true); err == nil {
-		userEmail = task.UserEmail
-	}
+func (s *TaskLogService) WriteLog(taskID, userEmail, level, message string) error {
 	_, err := s.logStore.AddTaskLog(TaskLog{
 		TaskID:    taskID,
 		UserEmail: userEmail,
@@ -69,9 +67,10 @@ func (s *TaskLogService) Add(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
 
 	// 调用任务存储确认任务归属，避免写入其他用户任务日志。
-	if _, err := s.tasks.TaskByID("", session.Email, taskID, true); errors.Is(err, ErrNotFound) {
+	if _, err := s.tasks.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
@@ -121,9 +120,10 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
 
 	// 调用任务存储确认任务归属，避免读取其他用户任务日志。
-	if _, err := s.tasks.TaskByID("", session.Email, taskID, true); errors.Is(err, ErrNotFound) {
+	if _, err := s.tasks.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
@@ -138,7 +138,7 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs, err := s.logStore.ListTaskLogs("", session.Email, taskID, true, since)
+	logs, err := s.logStore.ListTaskLogs(tenantID, session.Email, taskID, isAdmin, since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list task logs")
 		return
@@ -190,6 +190,18 @@ func taskIDFromLogsPath(w http.ResponseWriter, path string) (string, bool) {
 		return "", false
 	}
 	return taskID, true
+}
+
+func (s *TaskLogService) getTenantInfo(email string) (string, bool) {
+	if s.tenantStore == nil {
+		return "", false
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(email)
+	if err != nil {
+		return "", false
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, email)
+	return tenant.ID, isAdmin
 }
 
 // publicTaskLogs 将任务日志列表转换为前端响应结构。
