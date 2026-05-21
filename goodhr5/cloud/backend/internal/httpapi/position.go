@@ -22,6 +22,9 @@ type positionRequest struct {
 	Description     string   `json:"description"`
 	GreetMessage    string   `json:"greet_message"`
 	IsAndMode       bool     `json:"is_and_mode"`
+	CommonConfig    map[string]any `json:"common_config"`
+	AIConfig        map[string]any `json:"ai_config"`
+	KeywordConfig   map[string]any `json:"keyword_config"`
 }
 
 // NewPositionService 创建岗位配置 API 服务，并注入认证服务和岗位存储。
@@ -159,6 +162,9 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 		Description:     strings.TrimSpace(r.Description),
 		GreetMessage:    strings.TrimSpace(r.GreetMessage),
 		IsAndMode:       r.IsAndMode,
+		CommonConfig:    cloneMap(r.CommonConfig),
+		AIConfig:        cloneMap(r.AIConfig),
+		KeywordConfig:   cloneMap(r.KeywordConfig),
 	}
 
 	if position.Name == "" {
@@ -187,6 +193,9 @@ func publicPosition(item Position) map[string]any {
 		"description":      item.Description,
 		"greet_message":    item.GreetMessage,
 		"is_and_mode":      item.IsAndMode,
+		"common_config":    cloneMap(item.CommonConfig),
+		"ai_config":        cloneMap(item.AIConfig),
+		"keyword_config":   cloneMap(item.KeywordConfig),
 		"created_at":       item.CreatedAt,
 		"updated_at":       item.UpdatedAt,
 	}
@@ -203,4 +212,15 @@ func trimStringList(items []string) []string {
 		cleaned = append(cleaned, value)
 	}
 	return cleaned
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	if input == nil {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(input))
+	for k, v := range input {
+		out[k] = v
+	}
+	return out
 }

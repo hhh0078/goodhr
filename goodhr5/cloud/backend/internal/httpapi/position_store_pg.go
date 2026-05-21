@@ -27,7 +27,8 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-		SELECT p.id, p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode, p.created_at, p.updated_at
+		SELECT p.id, p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
+		       p.common_config, p.ai_config, p.keyword_config, p.created_at, p.updated_at
 		FROM positions p
 		INNER JOIN users u ON u.id = p.user_id
 		WHERE u.email = $1
@@ -45,6 +46,9 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 		var item Position
 		var keywordsJSON []byte
 		var excludeKeywordsJSON []byte
+		var commonConfigJSON []byte
+		var aiConfigJSON []byte
+		var keywordConfigJSON []byte
 		item.UserEmail = userEmail
 		if err := rows.Scan(
 			&item.ID,
@@ -54,6 +58,9 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			&item.Description,
 			&item.GreetMessage,
 			&item.IsAndMode,
+			&commonConfigJSON,
+			&aiConfigJSON,
+			&keywordConfigJSON,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
@@ -63,6 +70,15 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			return nil, err
 		}
 		if err := decodeStringArray(excludeKeywordsJSON, &item.ExcludeKeywords); err != nil {
+			return nil, err
+		}
+		if err := decodeObject(commonConfigJSON, &item.CommonConfig); err != nil {
+			return nil, err
+		}
+		if err := decodeObject(aiConfigJSON, &item.AIConfig); err != nil {
+			return nil, err
+		}
+		if err := decodeObject(keywordConfigJSON, &item.KeywordConfig); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -88,6 +104,18 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 	if err != nil {
 		return Position{}, err
 	}
+	commonConfigJSON, err := json.Marshal(nonNilMap(position.CommonConfig))
+	if err != nil {
+		return Position{}, err
+	}
+	aiConfigJSON, err := json.Marshal(nonNilMap(position.AIConfig))
+	if err != nil {
+		return Position{}, err
+	}
+	keywordConfigJSON, err := json.Marshal(nonNilMap(position.KeywordConfig))
+	if err != nil {
+		return Position{}, err
+	}
 
 	var saved Position
 	saved.UserEmail = position.UserEmail
@@ -96,9 +124,9 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		row = s.db.QueryRowContext(
 			ctx,
 			`
-			INSERT INTO positions (user_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode)
-			VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7)
-			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, created_at, updated_at
+			INSERT INTO positions (user_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config)
+			VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)
+			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
 			`,
 			userID,
 			position.Name,
@@ -107,6 +135,9 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			position.Description,
 			position.GreetMessage,
 			position.IsAndMode,
+			string(commonConfigJSON),
+			string(aiConfigJSON),
+			string(keywordConfigJSON),
 		)
 	} else {
 		row = s.db.QueryRowContext(
@@ -120,9 +151,12 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 				description = $6,
 				greet_message = $7,
 				is_and_mode = $8,
+				common_config = $9::jsonb,
+				ai_config = $10::jsonb,
+				keyword_config = $11::jsonb,
 				updated_at = now()
 			WHERE id = $1 AND user_id = $2
-			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, created_at, updated_at
+			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
 			`,
 			position.ID,
 			userID,
@@ -132,11 +166,17 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			position.Description,
 			position.GreetMessage,
 			position.IsAndMode,
+			string(commonConfigJSON),
+			string(aiConfigJSON),
+			string(keywordConfigJSON),
 		)
 	}
 
 	var savedKeywordsJSON []byte
 	var savedExcludeKeywordsJSON []byte
+	var savedCommonConfigJSON []byte
+	var savedAIConfigJSON []byte
+	var savedKeywordConfigJSON []byte
 	err = row.Scan(
 		&saved.ID,
 		&saved.Name,
@@ -145,6 +185,9 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		&saved.Description,
 		&saved.GreetMessage,
 		&saved.IsAndMode,
+		&savedCommonConfigJSON,
+		&savedAIConfigJSON,
+		&savedKeywordConfigJSON,
 		&saved.CreatedAt,
 		&saved.UpdatedAt,
 	)
@@ -161,6 +204,15 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 	if err := decodeStringArray(savedExcludeKeywordsJSON, &saved.ExcludeKeywords); err != nil {
 		return Position{}, err
 	}
+	if err := decodeObject(savedCommonConfigJSON, &saved.CommonConfig); err != nil {
+		return Position{}, err
+	}
+	if err := decodeObject(savedAIConfigJSON, &saved.AIConfig); err != nil {
+		return Position{}, err
+	}
+	if err := decodeObject(savedKeywordConfigJSON, &saved.KeywordConfig); err != nil {
+		return Position{}, err
+	}
 	return saved, nil
 }
 
@@ -171,11 +223,12 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 
 	var item Position
 	var rawKeywords, rawExclude []byte
+	var rawCommonConfig, rawAIConfig, rawKeywordConfig []byte
 	err := s.db.QueryRowContext(
 		ctx,
 		`
 		SELECT p.id, p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
-		       p.description, p.greet_message, p.is_and_mode, p.created_at, p.updated_at
+		       p.description, p.greet_message, p.is_and_mode, CAST(p.common_config AS text), CAST(p.ai_config AS text), CAST(p.keyword_config AS text), p.created_at, p.updated_at
 		FROM positions p
 		JOIN users u ON p.user_id = u.id
 		WHERE u.email = $1 AND p.id = $2
@@ -184,6 +237,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 	).Scan(
 		&item.ID, &item.Name, &rawKeywords, &rawExclude,
 		&item.Description, &item.GreetMessage, &item.IsAndMode,
+		&rawCommonConfig, &rawAIConfig, &rawKeywordConfig,
 		&item.CreatedAt, &item.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -195,6 +249,9 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 
 	_ = decodeStringArray(rawKeywords, &item.Keywords)
 	_ = decodeStringArray(rawExclude, &item.ExcludeKeywords)
+	_ = decodeObject(rawCommonConfig, &item.CommonConfig)
+	_ = decodeObject(rawAIConfig, &item.AIConfig)
+	_ = decodeObject(rawKeywordConfig, &item.KeywordConfig)
 	return item, nil
 }
 
@@ -235,4 +292,19 @@ func decodeStringArray(value []byte, target *[]string) error {
 		return nil
 	}
 	return json.Unmarshal(value, target)
+}
+
+func decodeObject(value []byte, target *map[string]any) error {
+	if len(value) == 0 {
+		*target = map[string]any{}
+		return nil
+	}
+	return json.Unmarshal(value, target)
+}
+
+func nonNilMap(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
 }

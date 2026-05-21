@@ -16,6 +16,9 @@ type Position struct {
 	Description     string
 	GreetMessage    string
 	IsAndMode       bool
+	CommonConfig    map[string]any
+	AIConfig        map[string]any
+	KeywordConfig   map[string]any
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
