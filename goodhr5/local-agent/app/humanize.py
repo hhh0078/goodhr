@@ -69,11 +69,48 @@ async def human_scroll(
     logger.debug("已完成滚动，总距离: %dpx，分 %d 步", distance, steps)
 
 
+async def move_mouse_to_element_classes(page: Page, element_classes: list[str]) -> bool:
+    """
+    将鼠标移动到第一个可见的 class 元素中心，便于后续滚轮作用于对应容器。
+
+    Args:
+        page: Playwright Page 实例
+        element_classes: class 名数组，例如 ["candidate-list", "list-wrap"]
+
+    Returns:
+        bool: 是否成功移动到某个元素上方
+    """
+    for item in element_classes:
+        class_name = str(item).strip()
+        if not class_name:
+            continue
+        selector = class_name if class_name.startswith(".") else f".{class_name}"
+        try:
+            locator = page.locator(selector).first
+            if not await locator.is_visible(timeout=1500):
+                continue
+            box = await locator.bounding_box()
+            if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
+                continue
+            x = box["x"] + box["width"] / 2
+            y = box["y"] + box["height"] / 2
+            await page.mouse.move(x, y)
+            await asyncio.sleep(random.uniform(0.05, 0.2))
+            logger.info("已移动鼠标到滚动目标: %s", selector)
+            return True
+        except Exception as exc:
+            logger.debug("定位滚动目标失败 selector=%s err=%s", selector, exc)
+            continue
+    logger.warning("未找到可用滚动目标，将继续按页面默认位置滚动")
+    return False
+
+
 async def scroll_to_load(
     page: Page,
     scroll_delay_min: int = DEFAULT_DELAY_MIN,
     scroll_delay_max: int = DEFAULT_DELAY_MAX,
     max_scrolls: int = DEFAULT_MAX_SCROLLS,
+    element_classes: Optional[list[str]] = None,
     stop_condition: Optional[Callable[..., bool]] = None,
 ) -> None:
     """
@@ -87,8 +124,12 @@ async def scroll_to_load(
         scroll_delay_min: 滚动间最小延迟秒数
         scroll_delay_max: 滚动间最大延迟秒数
         max_scrolls: 最大滚动次数
+        element_classes: 可选 class 数组；传入后先移动到对应元素上再滚动
         stop_condition: 停止条件回调，返回 True 则停止滚动
     """
+    if element_classes:
+        await move_mouse_to_element_classes(page, element_classes)
+
     for i in range(max_scrolls):
         distance = random.randint(250, 450)
         await human_scroll(page, distance=distance)

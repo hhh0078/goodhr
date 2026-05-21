@@ -517,13 +517,18 @@ async def page_scroll(payload: dict) -> dict:
         scroll_delay_min: 滚动最小延迟秒数（默认 3）
         scroll_delay_max: 滚动最大延迟秒数（默认 8）
         max_scrolls: 最大滚动次数（默认 20）
+        element_classes: 可选 class 数组；传入后先移动到对应元素上再滚动
     """
     page = await _require_page()
+    element_classes = payload.get("element_classes", [])
+    if not isinstance(element_classes, list):
+        element_classes = []
     await scroll_to_load(
         page,
         scroll_delay_min=int(payload.get("scroll_delay_min", 3)),
         scroll_delay_max=int(payload.get("scroll_delay_max", 8)),
         max_scrolls=int(payload.get("max_scrolls", 20)),
+        element_classes=[str(item) for item in element_classes],
     )
     return {"ok": True}
 

@@ -405,11 +405,15 @@ class WSAgentClient:
             return {"ok": True, "url": url, "title": await page.title()}
         if path == "/api/v1/page/scroll":
             page = await self._require_page()
+            element_classes = body.get("element_classes", [])
+            if not isinstance(element_classes, list):
+                element_classes = []
             await scroll_to_load(
                 page,
                 scroll_delay_min=int(body.get("scroll_delay_min", 3)),
                 scroll_delay_max=int(body.get("scroll_delay_max", 8)),
                 max_scrolls=int(body.get("max_scrolls", 20)),
+                element_classes=[str(item) for item in element_classes],
             )
             return {"ok": True}
         if path == "/api/v1/page/extract":
