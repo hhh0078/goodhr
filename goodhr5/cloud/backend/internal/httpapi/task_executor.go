@@ -26,18 +26,23 @@ type localElementItem struct {
 
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
-	task          TaskRun
-	platformCfg   PlatformConfig
-	filter        *KeywordFilter
-	position      map[string]any
-	aiConfig      AIConfig
-	userPrefs     UserPreferences
-	agentWS       *AgentWSHub
-	httpClient    *http.Client
-	logCallback   func(level, message string)
-	countCallback func(scanned, greeted, skipped, failed int)
-	cookies       []map[string]any
-	claimedCookie *claimedTaskCookie
+	task           TaskRun
+	platformCfg    PlatformConfig
+	filter         *KeywordFilter
+	position       map[string]any
+	aiConfig       AIConfig
+	userPrefs      UserPreferences
+	agentWS        *AgentWSHub
+	httpClient     *http.Client
+	logCallback    func(level, message string)
+	countCallback  func(scanned, greeted, skipped, failed int)
+	cookies        []map[string]any
+	claimedCookie  *claimedTaskCookie
+	seenCandidates map[string]struct{}
+	scannedCount   int
+	greetedCount   int
+	skippedCount   int
+	failedCount    int
 }
 
 // NewTaskExecutor 创建任务编排器实例。
@@ -64,17 +69,18 @@ func NewTaskExecutor(
 	}
 
 	return &TaskExecutor{
-		task:          task,
-		platformCfg:   platformCfg,
-		filter:        filter,
-		position:      position,
-		aiConfig:      aiConfig,
-		userPrefs:     userPrefs,
-		agentWS:       agentWS,
-		httpClient:    &http.Client{Timeout: 120 * time.Second},
-		logCallback:   logCallback,
-		countCallback: countCallback,
-		claimedCookie: claimedCookie,
+		task:           task,
+		platformCfg:    platformCfg,
+		filter:         filter,
+		position:       position,
+		aiConfig:       aiConfig,
+		userPrefs:      userPrefs,
+		agentWS:        agentWS,
+		httpClient:     &http.Client{Timeout: 120 * time.Second},
+		logCallback:    logCallback,
+		countCallback:  countCallback,
+		claimedCookie:  claimedCookie,
+		seenCandidates: make(map[string]struct{}),
 	}
 }
 
@@ -106,30 +112,52 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 		return fmt.Errorf("打开页面失败: %w", err)
 	}
 
-	// 3. 滚动加载候选人列表
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := e.scrollPage(); err != nil {
-		return fmt.Errorf("滚动加载失败: %w", err)
-	}
+	// 3. 先处理当前可见候选人，处理完后再滚动下一屏
+	idleRounds := 0
+	for round := 1; ; round++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if e.reachedMatchLimit() {
+			e.log("info", fmt.Sprintf("已达到任务上限 %d，停止继续处理", e.task.MatchLimit))
+			break
+		}
 
-	// 4. 提取候选人卡片信息
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	candidates, err := e.extractCandidates()
-	if err != nil {
-		return fmt.Errorf("提取候选人失败: %w", err)
-	}
-	if len(candidates) == 0 {
-		e.log("warn", "提取到 0 个候选人，可能未登录平台或页面无数据，请检查平台登录状态")
-	}
-	e.log("info", fmt.Sprintf("提取到 %d 个候选人", len(candidates)))
+		e.log("info", fmt.Sprintf("开始处理第 %d 轮当前可见候选人", round))
+		candidates, err := e.extractCandidates()
+		if err != nil {
+			return fmt.Errorf("提取候选人失败: %w", err)
+		}
+		if len(candidates) == 0 {
+			e.log("warn", "当前可见区域未找到候选人")
+		}
+		newCandidates := e.filterNewCandidates(candidates)
+		if len(newCandidates) == 0 {
+			idleRounds++
+			if idleRounds >= 2 {
+				e.log("info", "连续两轮都没有新的可见候选人，结束本次任务")
+				break
+			}
+			e.log("info", fmt.Sprintf("第 %d 轮没有新的可见候选人，准备滚动下一屏", round))
+			if err := e.scrollPage(); err != nil {
+				return fmt.Errorf("滚动加载失败: %w", err)
+			}
+			continue
+		}
 
-	// 5. 逐候选人处理
-	if err := e.processCandidates(ctx, candidates); err != nil {
-		return fmt.Errorf("处理候选人失败: %w", err)
+		idleRounds = 0
+		e.log("info", fmt.Sprintf("第 %d 轮提取到 %d 个候选人，其中 %d 个为新候选人", round, len(candidates), len(newCandidates)))
+		if err := e.processCandidates(ctx, newCandidates); err != nil {
+			return fmt.Errorf("处理候选人失败: %w", err)
+		}
+		if e.reachedMatchLimit() {
+			e.log("info", fmt.Sprintf("已达到任务上限 %d，停止继续处理", e.task.MatchLimit))
+			break
+		}
+		e.log("info", fmt.Sprintf("第 %d 轮当前可见候选人处理完成，准备滚动下一屏", round))
+		if err := e.scrollPage(); err != nil {
+			return fmt.Errorf("滚动加载失败: %w", err)
+		}
 	}
 
 	e.log("info", "任务执行完成")
@@ -217,17 +245,14 @@ func (e *TaskExecutor) prepareCookies() error {
 
 // scrollPage 滚动加载候选人列表。
 func (e *TaskExecutor) scrollPage() error {
-	e.log("info", "正在滚动加载候选人列表")
+	e.log("info", "正在滚动到下一屏候选人列表")
 	body := map[string]any{
 		"scroll_delay_min": e.userPrefs.ScrollDelayMin,
 		"scroll_delay_max": e.userPrefs.ScrollDelayMax,
-		"max_scrolls":      e.task.MatchLimit / 5,
+		"max_scrolls":      1,
 	}
 	if element := e.platformCfg.Card.ScrollElement(); element != nil {
 		body["element"] = element
-	}
-	if body["max_scrolls"].(int) < 5 {
-		body["max_scrolls"] = 5
 	}
 	return e.post("/api/v1/page/scroll", body, nil)
 }
@@ -292,6 +317,10 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			return ctx.Err()
 		default:
 		}
+		if e.reachedMatchLimit() {
+			e.log("info", fmt.Sprintf("已达到任务上限 %d，本轮停止继续处理候选人", e.task.MatchLimit))
+			return nil
+		}
 
 		e.log("info", fmt.Sprintf("处理候选人 %d/%d", i+1, len(candidates)))
 		e.incrementCounts(1, 0, 0, 0)
@@ -341,9 +370,39 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 }
 
 func (e *TaskExecutor) incrementCounts(scanned, greeted, skipped, failed int) {
+	e.scannedCount += scanned
+	e.greetedCount += greeted
+	e.skippedCount += skipped
+	e.failedCount += failed
 	if e.countCallback != nil {
 		e.countCallback(scanned, greeted, skipped, failed)
 	}
+}
+
+// reachedMatchLimit 判断当前任务是否已经达到打招呼上限。
+func (e *TaskExecutor) reachedMatchLimit() bool {
+	if e.task.MatchLimit <= 0 {
+		return false
+	}
+	return e.greetedCount >= e.task.MatchLimit
+}
+
+// filterNewCandidates 过滤掉当前任务轮次里已经处理过的候选人。
+func (e *TaskExecutor) filterNewCandidates(candidates []map[string]any) []map[string]any {
+	result := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		key := candidateFingerprint(candidate)
+		if key == "" {
+			result = append(result, candidate)
+			continue
+		}
+		if _, exists := e.seenCandidates[key]; exists {
+			continue
+		}
+		e.seenCandidates[key] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
 }
 
 // clickGreet 点击打招呼按钮。
@@ -435,6 +494,20 @@ func candidateText(candidate map[string]any) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// candidateFingerprint 生成候选人的稳定指纹，用于避免重复处理同一屏候选人。
+func candidateFingerprint(candidate map[string]any) string {
+	keys := []string{"name", "basic_info", "education", "university", "description"}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value, _ := candidate[key].(string)
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	return strings.Join(parts, "|")
 }
 
 // toStringSlice 将 interface{} 转为 []string。
