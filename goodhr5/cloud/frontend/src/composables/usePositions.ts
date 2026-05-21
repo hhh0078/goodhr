@@ -30,6 +30,7 @@ export function usePositions() {
         is_and_mode: form.value.isAndMode,
         common_config: {
           mode_default: form.value.modeDefault,
+          detail_mode: form.value.detailMode,
         },
         ai_config: {
           position_requirement: form.value.aiPositionRequirement,
@@ -37,7 +38,6 @@ export function usePositions() {
         },
         keyword_config: {
           keyword_detail_open_probability: Number(form.value.keywordDetailOpenProbability),
-          detail_mode: form.value.keywordDetailMode,
         },
       })
       await load(); resetForm()
@@ -65,10 +65,10 @@ export function usePositions() {
       greetMessage: pos.greet_message || '',
       isAndMode: pos.is_and_mode || false,
       modeDefault: common.mode_default || 'ai',
+      detailMode: common.detail_mode || keyword.detail_mode || 'dom',
       aiPositionRequirement: ai.position_requirement || '',
       aiClickPrompt: ai.click_prompt || '',
       keywordDetailOpenProbability: keyword.keyword_detail_open_probability ?? 30,
-      keywordDetailMode: keyword.detail_mode || 'dom',
     }
   }
 
@@ -85,9 +85,9 @@ function defaultForm() {
     greetMessage: '',
     isAndMode: false,
     modeDefault: 'ai',
+    detailMode: 'dom',
     aiPositionRequirement: '',
     aiClickPrompt: '',
     keywordDetailOpenProbability: 30,
-    keywordDetailMode: 'dom',
   }
 }

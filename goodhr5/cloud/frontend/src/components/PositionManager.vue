@@ -42,6 +42,16 @@
         <p class="hint field field-full">
           运行节奏、模型等参数已移到“个人配置”，这里仅保留岗位本身的筛选规则。
         </p>
+        <label class="field field-small"
+          >详情模式
+          <select v-model="positions.form.value.detailMode">
+            <option value="dom">页面解析</option>
+            <option value="ocr">图片识别</option>
+          </select>
+          <small class="field-help"
+            >页面解析更快；图片识别适合页面文字不稳定、需要读截图内容时使用。</small
+          >
+        </label>
       </div>
 
       <template v-if="positions.form.value.modeDefault === 'ai'">
@@ -52,12 +62,18 @@
               v-model="positions.form.value.aiPositionRequirement"
               rows="2"
             />
+            <small class="field-help"
+              >写清楚这个岗位最看重的经验、行业、年限、技术栈或学历要求。</small
+            >
           </label>
           <label class="field field-full"
             >AI提示词<textarea
               v-model="positions.form.value.aiClickPrompt"
               rows="2"
             />
+            <small class="field-help"
+              >给 AI 的补充判断规则。比如更看重稳定性、项目深度，或必须有某类经验。</small
+            >
           </label>
         </div>
       </template>
@@ -66,33 +82,42 @@
         <h3>关键词模式专属</h3>
         <div class="position-form-grid">
           <label class="field field-small"
-            >AND/OR<select v-model="positions.form.value.isAndMode">
-              <option :value="false">OR</option>
-              <option :value="true">AND</option>
-            </select></label
+            >匹配方式<select v-model="positions.form.value.isAndMode">
+              <option :value="false">满足任一关键词</option>
+              <option :value="true">必须同时满足</option>
+            </select>
+            <small class="field-help"
+              >满足任一关键词更宽松；必须同时满足更严格。</small
+            ></label
           >
           <label class="field field-medium"
             >关键词<input
               v-model="positions.form.value.keywords"
-              placeholder="Java Spring"
-          /></label>
+              placeholder="Java Spring，支持空格、逗号或换行分隔"
+          />
+            <small class="field-help"
+              >可用空格、中文逗号、英文逗号或换行分隔多个关键词。</small
+            ></label
+          >
           <label class="field field-medium"
             >排除词<input
               v-model="positions.form.value.excludeKeywords"
-              placeholder="实习 应届"
-          /></label>
+              placeholder="实习 应届，支持空格、逗号或换行分隔"
+          />
+            <small class="field-help"
+              >命中这些词会被排除，适合过滤实习、应届、转行等不匹配人群。</small
+            ></label
+          >
           <label class="field field-small"
             >关键词模式详情打开概率(%)<input
               v-model="positions.form.value.keywordDetailOpenProbability"
               type="number"
               min="0"
               max="100"
-          /></label>
-          <label class="field field-small"
-            >详情模式<select v-model="positions.form.value.keywordDetailMode">
-              <option value="dom">DOM</option>
-              <option value="ocr">OCR</option>
-            </select></label
+          />
+            <small class="field-help"
+              >0 表示几乎不主动打开详情，100 表示每次都打开详情后再判断。</small
+            ></label
           >
         </div>
       </template>
@@ -204,6 +229,12 @@ function edit(pos: any) {
 .field textarea {
   width: 100%;
   box-sizing: border-box;
+}
+
+.field-help {
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 @media (max-width: 900px) {
