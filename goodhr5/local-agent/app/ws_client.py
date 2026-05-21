@@ -18,7 +18,7 @@ import httpx
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
 from app.element_refs import ELEMENT_REFS
-from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_to_load
+from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
 from app.machine import load_machine
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -99,6 +99,10 @@ def _payload_summary(payload: Any) -> str:
             parts.append(f"fields={names}")
     if "element_ref" in body:
         parts.append(f"element_ref={body.get('element_ref')}")
+    if "in_viewport" in payload:
+        parts.append(f"in_viewport={payload.get('in_viewport')}")
+    if "matched" in payload:
+        parts.append(f"matched={payload.get('matched')}")
     if "max_scrolls" in body:
         parts.append(f"max_scrolls={body.get('max_scrolls')}")
     return ", ".join(parts) if parts else str(sorted(body.keys()))
@@ -478,6 +482,18 @@ class WSAgentClient:
                 container = await self._require_page()
             fields = await self._extract_fields_from_container(container, field_requests)
             return {"ok": True, "fields": fields}
+        if path == "/api/v1/page/in-viewport":
+            page = await self._require_page()
+            locator, matched = await self._resolve_locator_from_payload(page, body, "视口判断元素")
+            in_viewport = await is_locator_in_viewport(locator)
+            return {"ok": True, "in_viewport": in_viewport, "matched": matched}
+        if path == "/api/v1/page/scroll-into-view":
+            page = await self._require_page()
+            locator, matched = await self._resolve_locator_from_payload(page, body, "滚动到视口元素")
+            in_viewport = await scroll_locator_into_view(locator, str(matched))
+            if not in_viewport:
+                raise ValueError(f"目标元素未能滚动到视口内: {matched}")
+            return {"ok": True, "in_viewport": True, "matched": matched}
         if path == "/api/v1/page/click":
             page = await self._require_page()
             element_spec = parse_element_locator_spec(body.get("element"))
@@ -568,6 +584,21 @@ class WSAgentClient:
             except Exception:
                 fields[field_name] = ""
         return fields
+
+    async def _resolve_locator_from_payload(self, page: Any, body: dict, label: str):
+        """按 element_ref 或 element 解析单个目标元素定位器。"""
+        element_ref = str(body.get("element_ref") or "").strip()
+        if element_ref:
+            entry = ELEMENT_REFS.get(element_ref)
+            if entry is None:
+                raise ValueError("element_ref not found")
+            return entry.locator, element_ref
+
+        spec = parse_element_locator_spec(body.get("element"))
+        if not spec.target_classes:
+            raise ValueError("element.target_classes is required")
+        locator, _matched_parent, matched_target = await locate_element_by_spec(page, spec, label)
+        return locator, matched_target
 
     async def _capture_cookie(self, task_id: str, payload: dict) -> dict:
         """

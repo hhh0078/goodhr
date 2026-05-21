@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
-from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load
+from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_locator_into_view, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
@@ -512,6 +512,22 @@ async def _extract_fields_from_container(container, field_requests: list[tuple[s
     return fields
 
 
+async def _resolve_locator_from_payload(page, payload: dict, label: str):
+    """按 element_ref 或 element 解析单个目标元素定位器。"""
+    element_ref = str(payload.get("element_ref", "")).strip()
+    if element_ref:
+        entry = ELEMENT_REFS.get(element_ref)
+        if entry is None:
+            raise HTTPException(404, "element_ref not found")
+        return entry.locator, element_ref
+
+    spec = parse_element_locator_spec(payload.get("element"))
+    if not spec.target_classes:
+        raise HTTPException(400, "element.target_classes is required")
+    locator, _matched_parent, matched_target = await locate_element_by_spec(page, spec, label)
+    return locator, matched_target
+
+
 @app.post("/api/v1/page/open")
 async def page_open(payload: dict) -> dict:
     """打开指定 URL 页面，注册为默认页面供后续操作使用。
@@ -610,6 +626,26 @@ async def page_extract_fields(payload: dict) -> dict:
         container = await _require_page()
     fields = await _extract_fields_from_container(container, field_requests)
     return {"ok": True, "fields": fields}
+
+
+@app.post("/api/v1/page/in-viewport")
+async def page_in_viewport(payload: dict) -> dict:
+    """判断目标元素当前是否位于可视区域内。"""
+    page = await _require_page()
+    locator, matched = await _resolve_locator_from_payload(page, payload, "视口判断元素")
+    in_viewport = await is_locator_in_viewport(locator)
+    return {"ok": True, "in_viewport": in_viewport, "matched": matched}
+
+
+@app.post("/api/v1/page/scroll-into-view")
+async def page_scroll_into_view(payload: dict) -> dict:
+    """将目标元素滚动到可视区域内。"""
+    page = await _require_page()
+    locator, matched = await _resolve_locator_from_payload(page, payload, "滚动到视口元素")
+    in_viewport = await scroll_locator_into_view(locator, str(matched))
+    if not in_viewport:
+        raise HTTPException(400, f"目标元素未能滚动到视口内: {matched}")
+    return {"ok": True, "in_viewport": True, "matched": matched}
 
 
 @app.post("/api/v1/page/click")

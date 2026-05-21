@@ -161,7 +161,6 @@ async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool
         bool: 是否成功移动
     """
     try:
-        await locator.scroll_into_view_if_needed(timeout=1500)
         box = await locator.bounding_box()
         if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
             logger.warning("%s 无法获取有效位置", label)
@@ -185,6 +184,31 @@ async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool
         return True
     except Exception as exc:
         logger.warning("移动鼠标到%s失败: %s", label, exc)
+        return False
+
+
+async def scroll_locator_into_view(locator: Locator, label: str = "元素") -> bool:
+    """
+    将元素滚动到当前可视区域内。
+
+    Args:
+        locator: Playwright 元素定位器
+        label: 日志展示用名称
+
+    Returns:
+        bool: 是否成功滚动到可视区域
+    """
+    try:
+        await locator.scroll_into_view_if_needed(timeout=3000)
+        await asyncio.sleep(random.uniform(0.1, 0.25))
+        in_viewport = await is_locator_in_viewport(locator)
+        if in_viewport:
+            logger.info("%s 已滚动到可视区域内", label)
+        else:
+            logger.warning("%s 已尝试滚动到可视区域，但当前仍不在视口内", label)
+        return in_viewport
+    except Exception as exc:
+        logger.warning("滚动%s到视口失败: %s", label, exc)
         return False
 
 
