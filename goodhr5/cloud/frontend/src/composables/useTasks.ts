@@ -35,6 +35,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
   const candidateLoadingTaskId = ref("");
   const candidateError = ref("");
   const message = ref("");
+  let taskLogPollTimer: number | null = null;
 
   async function load() {
     loading.value = true;
@@ -45,6 +46,14 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       error.value = e.message;
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function refreshTasksQuietly() {
+    try {
+      tasks.value = await listTasks();
+    } catch (e) {
+      console.error("[goodhr5][tasks] quiet refresh failed", e);
     }
   }
 
@@ -99,14 +108,24 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       if (!confirm("确认开始任务吗？")) return;
 
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
+      console.info("[goodhr5][task-start] frontend requested", {
+        taskId,
+        agentBaseUrl: agentBaseUrl.value,
+        payload: taskWSPayload(),
+      });
+      expandedTaskId.value = taskId;
+      await refreshLogs(taskId);
+      startTaskLogPolling(taskId);
       const data = await startTaskWS(
         agentBaseUrl.value,
         taskId,
         taskWSPayload(),
       );
+      console.info("[goodhr5][task-start] frontend success", { taskId, data });
       message.value = data.message || "任务开始，请关注日志";
       await load();
     } catch (e: any) {
+      console.error("[goodhr5][task-start] frontend failed", { taskId, error: e });
       error.value = e.message;
     } finally {
       loading.value = false;
@@ -121,13 +140,18 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       //弹框确认
       if (!confirm("确认停止任务吗？")) return;
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
+      console.info("[goodhr5][task-stop] frontend requested", { taskId, agentBaseUrl: agentBaseUrl.value });
       const data = await stopTaskWS(agentBaseUrl.value, taskId, {
         cloud_api_base: cloudApiBase(),
         token: getAccessToken(),
       });
+      console.info("[goodhr5][task-stop] frontend success", { taskId, data });
       message.value = data.message || "任务已停止";
       await load();
+      await refreshLogs(taskId);
+      stopTaskLogPolling();
     } catch (e: any) {
+      console.error("[goodhr5][task-stop] frontend failed", { taskId, error: e });
       error.value = e.message;
     } finally {
       loading.value = false;
@@ -153,13 +177,45 @@ export function useTasks(agentBaseUrl: Ref<string>) {
   async function toggleLogs(taskId: string) {
     if (expandedTaskId.value === taskId) {
       expandedTaskId.value = "";
+      stopTaskLogPolling();
       return;
     }
     expandedTaskId.value = taskId;
+    await refreshLogs(taskId);
+    startTaskLogPolling(taskId);
+  }
+
+  async function refreshLogs(taskId: string) {
     try {
       const logs = await listTaskLogs(taskId);
       taskLogs.value = { ...taskLogs.value, [taskId]: logs };
-    } catch {}
+      console.info("[goodhr5][task-logs] refreshed", { taskId, count: logs.length });
+    } catch (e) {
+      console.error("[goodhr5][task-logs] refresh failed", { taskId, error: e });
+    }
+  }
+
+  function startTaskLogPolling(taskId: string) {
+    stopTaskLogPolling();
+    taskLogPollTimer = window.setInterval(async () => {
+      if (expandedTaskId.value !== taskId) {
+        stopTaskLogPolling();
+        return;
+      }
+      await refreshLogs(taskId);
+      await refreshTasksQuietly();
+      const task = tasks.value.find((item: any) => item.id === taskId);
+      if (!task || task.status !== "running") {
+        stopTaskLogPolling();
+      }
+    }, 1500);
+  }
+
+  function stopTaskLogPolling() {
+    if (taskLogPollTimer != null) {
+      window.clearInterval(taskLogPollTimer);
+      taskLogPollTimer = null;
+    }
   }
 
   async function toggleCandidates(task: any) {
@@ -258,6 +314,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     stop,
     remove,
     toggleLogs,
+    refreshLogs,
     toggleCandidates,
     loadCandidates,
     removeCandidate,

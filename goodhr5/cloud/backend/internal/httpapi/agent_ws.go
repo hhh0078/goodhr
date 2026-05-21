@@ -122,10 +122,12 @@ func (h *AgentWSHub) SendCommand(userEmail string, msg AgentWSMessage, retries i
 	if msg.MessageID == "" {
 		msg.MessageID = newWSMessageID()
 	}
+	log.Printf("[agent-ws] send command user=%s type=%s task=%s message_id=%s retries=%d payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, msg.Payload)
 	for attempt := 1; attempt <= retries; attempt++ {
 		msg.Attempt = attempt
 		reply, err := client.sendAndWait(msg, agentWSReplyTimeout)
 		if err == nil {
+			log.Printf("[agent-ws] command reply user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, reply.Payload)
 			if !reply.OK {
 				return reply, fmt.Errorf("local agent returned error: %s", reply.Error)
 			}
@@ -195,6 +197,7 @@ func (c *AgentWSClient) readLoop() {
 			log.Printf("[agent-ws] read closed user=%s: %v", c.userEmail, err)
 			return
 		}
+		log.Printf("[agent-ws] recv user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, msg.Payload)
 		if msg.ReplyTo != "" {
 			c.resolvePending(msg)
 			continue
@@ -215,6 +218,7 @@ func (c *AgentWSClient) readLoop() {
 // 连接写入失败时会关闭连接并清理在线状态。
 func (c *AgentWSClient) writeLoop() {
 	for msg := range c.send {
+		log.Printf("[agent-ws] send user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, msg.Payload)
 		if err := c.conn.WriteJSON(msg); err != nil {
 			log.Printf("[agent-ws] write failed user=%s: %v", c.userEmail, err)
 			c.close()

@@ -278,6 +278,7 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	if e.agentWS == nil {
 		return fmt.Errorf("Local Agent WebSocket 未初始化")
 	}
+	e.log("info", fmt.Sprintf("正在请求本地程序: %s", path))
 	payload := map[string]any{
 		"path": path,
 		"body": body,
@@ -288,8 +289,10 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 		Payload: payload,
 	}, 3)
 	if err != nil {
+		e.log("error", fmt.Sprintf("本地程序请求失败: %s, err=%v", path, err))
 		return fmt.Errorf("请求 Local Agent 失败 (%s): %w", path, err)
 	}
+	e.log("info", fmt.Sprintf("本地程序响应成功: %s", path))
 
 	if result != nil {
 		respBytes, err := json.Marshal(resp.Payload)

@@ -236,9 +236,11 @@ async def start_task_ws(task_id: str, payload: dict) -> dict:
         raise HTTPException(400, "cloud_ws_url is required")
     if not token:
         raise HTTPException(400, "token is required")
+    logger.info("[task-start] local request received task=%s api=%s ws=%s", task_id, cloud_api_base, cloud_ws_url)
     try:
         return await _ws_agent.start_task(task_id, cloud_api_base, cloud_ws_url, token)
     except RuntimeError as exc:
+        logger.error("[task-start] local request failed task=%s err=%s", task_id, exc)
         raise HTTPException(502, str(exc))
 
 
@@ -259,9 +261,11 @@ async def stop_task_ws(task_id: str, payload: dict) -> dict:
         raise HTTPException(400, "cloud_api_base is required")
     if not token:
         raise HTTPException(400, "token is required")
+    logger.info("[task-stop] local request received task=%s api=%s", task_id, cloud_api_base)
     try:
         return await _ws_agent.stop_task(task_id, cloud_api_base, token)
     except RuntimeError as exc:
+        logger.error("[task-stop] local request failed task=%s err=%s", task_id, exc)
         raise HTTPException(502, str(exc))
 
 

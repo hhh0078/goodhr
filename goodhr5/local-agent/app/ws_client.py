@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,7 @@ from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 
 REPLY_TIMEOUT_SECONDS = 8
 MAX_RETRIES = 3
+logger = logging.getLogger("goodhr5.local-agent.ws")
 
 
 def _message_id() -> str:
@@ -65,6 +67,7 @@ class WSAgentClient:
         Returns:
             返回当前连接状态。
         """
+        logger.info("[task-ws] connect requested cloud_ws_url=%s", cloud_ws_url)
         await self.disconnect()
         self.state.cloud_ws_url = self._url_with_token(cloud_ws_url, token)
         self.state.status = "连接中"
@@ -87,6 +90,7 @@ class WSAgentClient:
         """
         if not task_id:
             raise ValueError("task_id is required")
+        logger.info("[task-ws] start requested task=%s api=%s ws=%s", task_id, cloud_api_base, cloud_ws_url)
         connected = await self._connect_with_retries(cloud_ws_url, token, MAX_RETRIES)
         if not connected:
             raise RuntimeError("本地程序无法与服务器建立连接")
@@ -98,6 +102,7 @@ class WSAgentClient:
             raise
         self._active_tasks.add(task_id)
         self.state.last_message = "任务开始，请关注日志"
+        logger.info("[task-ws] start success task=%s active_tasks=%s", task_id, sorted(self._active_tasks))
         return {"ok": True, "message": "任务开始，请关注日志", "status": self.status()}
 
     async def stop_task(self, task_id: str, cloud_api_base: str, token: str) -> dict:
@@ -114,10 +119,12 @@ class WSAgentClient:
         """
         if not task_id:
             raise ValueError("task_id is required")
+        logger.info("[task-ws] stop requested task=%s api=%s", task_id, cloud_api_base)
         await self._post_cloud_task(cloud_api_base, token, task_id, "stop")
         self._active_tasks.discard(task_id)
         if not self._active_tasks:
             await self.disconnect()
+        logger.info("[task-ws] stop success task=%s active_tasks=%s", task_id, sorted(self._active_tasks))
         return {"ok": True, "message": "任务已停止", "status": self.status()}
 
     async def disconnect(self) -> dict:
@@ -136,6 +143,7 @@ class WSAgentClient:
         self._active_tasks.clear()
         self.state.connected = False
         self.state.status = "未连接"
+        logger.info("[task-ws] disconnected manually")
         return self.status()
 
     def status(self) -> dict:
@@ -159,22 +167,28 @@ class WSAgentClient:
         """
         while True:
             try:
+                logger.info("[task-ws] connecting url=%s", self.state.cloud_ws_url)
                 async with websockets.connect(self.state.cloud_ws_url, ping_interval=20, ping_timeout=20) as ws:
                     self._ws = ws
                     self.state.connected = True
                     self.state.status = "已连接"
                     self.state.last_error = ""
+                    logger.info("[task-ws] connected")
                     await self.send_with_reply("agent.status", "", {"status": "online"})
                     async for raw in ws:
+                        logger.info("[task-ws] received raw=%s", raw)
                         await self._handle_raw(raw)
                     self.state.connected = False
                     self.state.status = "重连中"
+                    logger.warning("[task-ws] socket closed, reconnecting")
             except asyncio.CancelledError:
+                logger.info("[task-ws] run loop cancelled")
                 break
             except Exception as exc:
                 self.state.connected = False
                 self.state.status = "重连中"
                 self.state.last_error = str(exc)
+                logger.exception("[task-ws] connection loop error: %s", exc)
                 await asyncio.sleep(3)
 
     async def _connect_with_retries(self, cloud_ws_url: str, token: str, retries: int) -> bool:
@@ -190,12 +204,16 @@ class WSAgentClient:
             返回是否连接成功。
         """
         if self.state.connected:
+            logger.info("[task-ws] already connected, skip retries")
             return True
-        for _ in range(retries):
+        for attempt in range(1, retries + 1):
+            logger.info("[task-ws] connect attempt=%d/%d", attempt, retries)
             await self.connect(cloud_ws_url, token)
             if await self._wait_connected(5):
+                logger.info("[task-ws] connect attempt=%d succeeded", attempt)
                 return True
             await self.disconnect()
+            logger.warning("[task-ws] connect attempt=%d failed", attempt)
         return False
 
     async def _wait_connected(self, timeout_seconds: int) -> bool:
@@ -231,8 +249,10 @@ class WSAgentClient:
         base = cloud_api_base.rstrip("/")
         url = f"{base}/api/tasks/{quote(task_id)}/{action}"
         async with httpx.AsyncClient(timeout=30) as client:
+            logger.info("[task-ws] post cloud task action=%s task=%s url=%s", action, task_id, url)
             resp = await client.post(url, headers={"Authorization": f"Bearer {token}"})
         data = resp.json() if resp.content else {}
+        logger.info("[task-ws] post cloud task result action=%s task=%s status=%s body=%s", action, task_id, resp.status_code, data)
         if resp.status_code >= 400 or not data.get("ok", False):
             raise RuntimeError(str(data.get("error") or f"云端任务{action}失败"))
         return data
@@ -247,9 +267,11 @@ class WSAgentClient:
         try:
             message = json.loads(raw)
         except json.JSONDecodeError:
+            logger.warning("[task-ws] invalid json raw=%s", raw)
             return
         reply_to = str(message.get("reply_to") or "")
         if reply_to:
+            logger.info("[task-ws] received reply reply_to=%s ok=%s type=%s task=%s", reply_to, message.get("ok"), message.get("type"), message.get("task_id"))
             future = self._pending.pop(reply_to, None)
             if future and not future.done():
                 future.set_result(message)
@@ -258,11 +280,13 @@ class WSAgentClient:
         message_id = str(message.get("message_id") or "")
         task_id = str(message.get("task_id") or "")
         msg_type = str(message.get("type") or "")
+        logger.info("[task-ws] handling command type=%s task=%s message_id=%s", msg_type, task_id, message_id)
         try:
             payload = message.get("payload") or {}
             result = await self._execute_command(msg_type, task_id, payload)
             await self._send_reply(message_id, msg_type, task_id, True, "", result)
         except Exception as exc:
+            logger.exception("[task-ws] command failed type=%s task=%s: %s", msg_type, task_id, exc)
             await self._send_reply(message_id, msg_type, task_id, False, str(exc), {})
 
     async def _execute_command(self, msg_type: str, task_id: str, payload: dict) -> dict:
@@ -297,6 +321,7 @@ class WSAgentClient:
         body = payload.get("body") or {}
         if not isinstance(body, dict):
             body = {}
+        logger.info("[task-ws] execute local path=%s body=%s", path, body)
         if path == "/api/v1/browser/start":
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
@@ -474,14 +499,17 @@ class WSAgentClient:
             future = asyncio.get_running_loop().create_future()
             self._pending[message_id] = future
             try:
+                logger.info("[task-ws] send message type=%s task=%s attempt=%d message_id=%s payload=%s", msg_type, task_id, attempt, message_id, payload)
                 await self._ws.send(json.dumps(message, ensure_ascii=False))
                 reply = await asyncio.wait_for(future, timeout=REPLY_TIMEOUT_SECONDS)
+                logger.info("[task-ws] send message reply type=%s task=%s attempt=%d message_id=%s reply=%s", msg_type, task_id, attempt, message_id, reply)
                 if not reply.get("ok", False):
                     raise RuntimeError(str(reply.get("error") or "云端返回失败"))
                 return reply
             except Exception as exc:
                 self._pending.pop(message_id, None)
                 last_error = exc
+                logger.warning("[task-ws] send message failed type=%s task=%s attempt=%d message_id=%s err=%s", msg_type, task_id, attempt, message_id, exc)
         raise RuntimeError(str(last_error) if last_error else "消息发送失败")
 
     async def _send_reply(self, reply_to: str, msg_type: str, task_id: str, ok: bool, error: str, payload: dict) -> None:
@@ -498,7 +526,7 @@ class WSAgentClient:
         """
         if not reply_to or not self._ws:
             return
-        await self._ws.send(json.dumps({
+        reply_message = {
             "message_id": _message_id(),
             "reply_to": reply_to,
             "type": f"{msg_type}.reply",
@@ -506,7 +534,9 @@ class WSAgentClient:
             "ok": ok,
             "error": error,
             "payload": payload,
-        }, ensure_ascii=False))
+        }
+        logger.info("[task-ws] send reply type=%s task=%s reply_to=%s ok=%s error=%s payload=%s", msg_type, task_id, reply_to, ok, error, payload)
+        await self._ws.send(json.dumps(reply_message, ensure_ascii=False))
 
     def _url_with_token(self, cloud_ws_url: str, token: str) -> str:
         """
