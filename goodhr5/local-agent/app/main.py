@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
-from app.humanize import navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load, wait_and_click
+from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load, wait_and_click
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
@@ -542,8 +542,9 @@ async def page_extract(payload: dict) -> dict:
     """从当前页面按选择器提取文本内容。
 
     请求体参数：
-        selectors: 字段→选择器映射 {"name": ".name", "age": ".age"}
-        card_selector: 可选，候选人卡片 CSS 选择器，传入后批量提取每个卡片的字段
+        selectors: 字段→选择器映射，值支持 CSS 选择器或统一元素定位对象
+        card_selector: 可选，候选人卡片 CSS 选择器
+        card_element: 可选，候选人卡片统一元素定位对象
         mode: "single"（默认）或 "batch"
 
     single 返回:
@@ -558,9 +559,10 @@ async def page_extract(payload: dict) -> dict:
 
     mode = str(payload.get("mode", "single"))
     card_selector = str(payload.get("card_selector", "")).strip()
+    card_element = payload.get("card_element")
 
-    if mode == "batch" and card_selector:
-        return await _extract_batch(page, card_selector, selectors)
+    if mode == "batch":
+        return await _extract_batch(page, card_selector, card_element, selectors)
 
     return await _extract_single(page, selectors)
 
@@ -570,46 +572,58 @@ async def _extract_single(page, selectors: dict) -> dict:
     fields = {}
     for field_name, selector in selectors.items():
         try:
-            locator = page.locator(selector).first
-            if await locator.is_visible(timeout=3000):
-                fields[field_name] = await locator.inner_text()
-            else:
-                fields[field_name] = ""
+            fields[field_name] = await _extract_field_text(page, selector, field_name)
         except Exception:
             fields[field_name] = ""
     return {"ok": True, "fields": fields}
 
 
-async def _extract_batch(page, card_selector: str, selectors: dict) -> dict:
+async def _extract_batch(page, card_selector: str, card_element: dict | None, selectors: dict) -> dict:
     """从页面批量提取多个候选人卡片的字段。"""
-    # 使用 JS 在页面内批量提取，避免单次 DOM 往返
-    js_code = """
-    (input) => {
-        const selector = input.selector;
-        const fields = input.fields || {};
-        const cards = document.querySelectorAll(selector);
-        if (!cards || cards.length === 0) return [];
-        const results = [];
-        cards.forEach((card, index) => {
-            const item = { _index: index };
-            for (const [fieldName, fieldSel] of Object.entries(fields)) {
-                const el = card.querySelector(fieldSel);
-                item[fieldName] = el ? el.innerText.trim() : '';
-            }
-            results.push(item);
-        });
-        return results;
-    }
-    """
-    try:
-        candidates = await page.evaluate(js_code, {"selector": card_selector, "fields": selectors})
-    except Exception as e:
-        raise HTTPException(500, f"批量提取失败: {e}")
+    cards_locator = None
+    if isinstance(card_element, dict):
+        spec = parse_element_locator_spec(card_element)
+        if not spec.target_classes:
+            raise HTTPException(400, "card_element.target_classes is required")
+        cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
+    elif card_selector:
+        cards_locator = page.locator(card_selector)
+    else:
+        raise HTTPException(400, "card_selector or card_element is required in batch mode")
 
-    if not candidates or not isinstance(candidates, list):
-        return {"ok": True, "candidates": []}
+    try:
+        count = await cards_locator.count()
+    except Exception as exc:
+        raise HTTPException(500, f"批量提取失败: {exc}")
+
+    candidates = []
+    for index in range(count):
+        card = cards_locator.nth(index)
+        item = {"_index": index}
+        for field_name, selector in selectors.items():
+            try:
+                item[field_name] = await _extract_field_text(card, selector, field_name)
+            except Exception:
+                item[field_name] = ""
+        candidates.append(item)
 
     return {"ok": True, "candidates": candidates, "count": len(candidates)}
+
+
+async def _extract_field_text(container, selector: object, field_name: str) -> str:
+    if isinstance(selector, dict) or isinstance(selector, list):
+        spec = parse_element_locator_spec(selector)
+        if not spec.target_classes:
+            return ""
+        locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
+    else:
+        css = str(selector).strip()
+        if not css:
+            return ""
+        locator = container.locator(css).first
+    if await locator.is_visible(timeout=3000):
+        return await locator.inner_text(timeout=3000)
+    return ""
 
 
 @app.post("/api/v1/page/click")
@@ -618,18 +632,28 @@ async def page_click(payload: dict) -> dict:
 
     请求体参数：
         selector: CSS 选择器（必填）
+        element: 可选统一元素定位对象
         timeout: 等待超时毫秒数（默认 10000）
         delay_before: 点击前延迟秒数（默认 0.5）
     """
     page = await _require_page()
     selector = str(payload.get("selector", "")).strip()
-    if not selector:
-        raise HTTPException(400, "selector is required")
+    element_spec = parse_element_locator_spec(payload.get("element"))
+    if not selector and not element_spec.target_classes:
+        raise HTTPException(400, "selector or element.target_classes is required")
 
     timeout = int(payload.get("timeout", 10000))
     delay_before = float(payload.get("delay_before", 0.5))
-
-    success = await wait_and_click(page, selector, timeout=timeout, delay_before=delay_before)
+    if element_spec.target_classes:
+        locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+        if await locator.is_visible(timeout=timeout):
+            await move_mouse_to_locator(locator, matched_target)
+            await locator.click(delay=int(delay_before * 1000))
+            success = True
+        else:
+            raise HTTPException(400, f"点击目标元素不可见: {matched_target}")
+    else:
+        success = await wait_and_click(page, selector, timeout=timeout, delay_before=delay_before)
     return {"ok": True, "clicked": success}
 
 

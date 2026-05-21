@@ -168,7 +168,7 @@ async def find_first_visible_locator(container: Page | Locator, selectors: list[
     raise ValueError(f"找不到{label}: {' / '.join(selectors)}")
 
 
-async def locate_element_by_spec(page: Page, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
+async def locate_element_by_spec(container: Page | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
     """
     按统一协议先找父级，再找目标元素。
 
@@ -178,10 +178,10 @@ async def locate_element_by_spec(page: Page, spec: ElementLocatorSpec, target_la
     if not spec.target_classes:
         raise ValueError(f"{target_label}的 target_classes 不能为空")
 
-    parent_locator: Page | Locator = page
+    parent_locator: Page | Locator = container
     matched_parent = ""
     if spec.parent_classes:
-        parent_locator, matched_parent = await find_first_visible_locator(page, spec.parent_classes, "父级元素")
+        parent_locator, matched_parent = await find_first_visible_locator(container, spec.parent_classes, "父级元素")
 
     target_locator, matched_target = await find_first_visible_locator(parent_locator, spec.target_classes, target_label)
     return target_locator, matched_parent, matched_target
@@ -199,6 +199,32 @@ async def move_mouse_to_element_spec(page: Page, spec: ElementLocatorSpec, targe
     if not moved:
         raise ValueError(f"已找到{target_label}，但无法移动鼠标到元素上: {matched_target}")
     return moved, matched_parent, matched_target
+
+
+async def find_all_locators_by_spec(container: Page | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
+    """
+    按统一协议定位一组元素，返回匹配集合定位器。
+
+    Returns:
+        tuple[Locator, str, str]: 集合定位器、命中的父级选择器、命中的目标选择器
+    """
+    if not spec.target_classes:
+        raise ValueError(f"{target_label}的 target_classes 不能为空")
+
+    parent_locator: Page | Locator = container
+    matched_parent = ""
+    if spec.parent_classes:
+        parent_locator, matched_parent = await find_first_visible_locator(container, spec.parent_classes, "父级元素")
+
+    for selector in spec.target_classes:
+        try:
+            locators = parent_locator.locator(selector)
+            if await locators.count() > 0:
+                return locators, matched_parent, selector
+        except Exception as exc:
+            logger.debug("查找%s集合失败 selector=%s err=%s", target_label, selector, exc)
+            continue
+    raise ValueError(f"找不到{target_label}: {' / '.join(spec.target_classes)}")
 
 
 async def scroll_to_load(

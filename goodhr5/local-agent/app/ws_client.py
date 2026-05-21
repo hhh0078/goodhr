@@ -17,7 +17,7 @@ import httpx
 
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
-from app.humanize import navigate_to_page, parse_element_locator_spec, scroll_to_load, wait_and_click
+from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_to_load, wait_and_click
 from app.machine import load_machine
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -432,14 +432,25 @@ class WSAgentClient:
         if path == "/api/v1/page/click":
             page = await self._require_page()
             selector = str(body.get("selector") or "").strip()
-            if not selector:
-                raise ValueError("selector is required")
-            clicked = await wait_and_click(
-                page,
-                selector,
-                timeout=int(body.get("timeout", 10000)),
-                delay_before=float(body.get("delay_before", 0.5)),
-            )
+            element_spec = parse_element_locator_spec(body.get("element"))
+            if not selector and not element_spec.target_classes:
+                raise ValueError("selector or element.target_classes is required")
+            timeout = int(body.get("timeout", 10000))
+            delay_before = float(body.get("delay_before", 0.5))
+            if element_spec.target_classes:
+                locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+                if not await locator.is_visible(timeout=timeout):
+                    raise ValueError(f"点击目标元素不可见: {matched_target}")
+                await move_mouse_to_locator(locator, matched_target)
+                await locator.click(delay=int(delay_before * 1000))
+                clicked = True
+            else:
+                clicked = await wait_and_click(
+                    page,
+                    selector,
+                    timeout=timeout,
+                    delay_before=delay_before,
+                )
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/sound/play":
             kind = str(body.get("kind") or "").strip().lower()
@@ -491,37 +502,53 @@ class WSAgentClient:
             raise ValueError("selectors must be a dict")
         mode = str(body.get("mode") or "single")
         card_selector = str(body.get("card_selector") or "").strip()
-        if mode == "batch" and card_selector:
-            js_code = """
-            (input) => {
-                const selector = input.selector;
-                const fields = input.fields || {};
-                const cards = document.querySelectorAll(selector);
-                if (!cards || cards.length === 0) return [];
-                const results = [];
-                cards.forEach((card, index) => {
-                    const item = { _index: index };
-                    for (const [fieldName, fieldSel] of Object.entries(fields)) {
-                        const el = card.querySelector(fieldSel);
-                        item[fieldName] = el ? el.innerText.trim() : '';
-                    }
-                    results.push(item);
-                });
-                return results;
-            }
-            """
-            candidates = await page.evaluate(js_code, {"selector": card_selector, "fields": selectors})
-            if not isinstance(candidates, list):
-                candidates = []
+        card_element = body.get("card_element")
+        if mode == "batch":
+            cards_locator = None
+            if isinstance(card_element, dict):
+                spec = parse_element_locator_spec(card_element)
+                if not spec.target_classes:
+                    raise ValueError("card_element.target_classes is required")
+                cards_locator, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "候选人卡片")
+            elif card_selector:
+                cards_locator = page.locator(card_selector)
+            else:
+                raise ValueError("card_selector or card_element is required in batch mode")
+
+            count = await cards_locator.count()
+            candidates = []
+            for index in range(count):
+                card = cards_locator.nth(index)
+                item = {"_index": index}
+                for field_name, selector in selectors.items():
+                    try:
+                        item[field_name] = await self._extract_field_text(card, selector, field_name)
+                    except Exception:
+                        item[field_name] = ""
+                candidates.append(item)
             return {"ok": True, "candidates": candidates, "count": len(candidates)}
         fields = {}
         for field_name, selector in selectors.items():
             try:
-                locator = page.locator(str(selector)).first
-                fields[field_name] = await locator.inner_text(timeout=3000) if await locator.is_visible(timeout=3000) else ""
+                fields[field_name] = await self._extract_field_text(page, selector, field_name)
             except Exception:
                 fields[field_name] = ""
         return {"ok": True, "fields": fields}
+
+    async def _extract_field_text(self, container: Any, selector: Any, field_name: str) -> str:
+        if isinstance(selector, dict) or isinstance(selector, list):
+            spec = parse_element_locator_spec(selector)
+            if not spec.target_classes:
+                return ""
+            locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
+        else:
+            css = str(selector).strip()
+            if not css:
+                return ""
+            locator = container.locator(css).first
+        if await locator.is_visible(timeout=3000):
+            return await locator.inner_text(timeout=3000)
+        return ""
 
     async def _capture_cookie(self, task_id: str, payload: dict) -> dict:
         """
