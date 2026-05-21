@@ -35,6 +35,30 @@ def _payload_summary(payload: Any) -> str:
     """生成适合日志查看的消息摘要，避免整包 payload 过大。"""
     if not isinstance(payload, dict):
         return str(payload)
+    if "fields" in payload and isinstance(payload.get("fields"), dict):
+        field_parts: list[str] = []
+        fields = payload.get("fields") or {}
+        non_empty = 0
+        for key, value in fields.items():
+            text = str(value or "").strip()
+            if text:
+                non_empty += 1
+                preview = text.replace("\n", " ")
+                if len(preview) > 18:
+                    preview = preview[:18] + "..."
+                field_parts.append(f"{key}={preview}")
+            else:
+                field_parts.append(f"{key}=空")
+        return f"fields命中={non_empty}/{len(fields)}, " + ", ".join(field_parts)
+    if "items" in payload and isinstance(payload.get("items"), list):
+        count = payload.get("count")
+        items = payload.get("items") or []
+        refs = [str(item.get("ref")) for item in items[:3] if isinstance(item, dict) and item.get("ref")]
+        if refs:
+            return f"items={count or len(items)}个, refs={refs}"
+        return f"items={count or len(items)}个"
+    if "cookies" in payload and isinstance(payload.get("cookies"), list):
+        return f"cookies={payload.get('count') or len(payload.get('cookies') or [])}条"
     path = str(payload.get("path") or "")
     body = payload.get("body") or {}
     if not isinstance(body, dict):
