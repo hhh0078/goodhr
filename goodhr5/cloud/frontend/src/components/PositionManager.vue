@@ -11,54 +11,59 @@
 
     <template v-if="showForm">
       <h3>基础信息</h3>
-      <div class="form-grid">
-        <label>岗位名称<input v-model="positions.form.value.name" placeholder="如: Java高级开发"/></label>
-        <label>默认模式
+      <div class="position-form-grid">
+        <label class="field field-medium">岗位名称<input v-model="positions.form.value.name" placeholder="如: Java高级开发"/></label>
+        <label class="field field-small">默认模式
           <select v-model="positions.form.value.modeDefault">
             <option value="ai">AI筛选</option>
             <option value="keyword">关键词筛选</option>
           </select>
         </label>
-        <label>问候语<textarea v-model="positions.form.value.greetMessage" rows="2"/></label>
-        <label>描述<textarea v-model="positions.form.value.description" rows="2"/></label>
+        <label class="field field-full">问候语<textarea v-model="positions.form.value.greetMessage" rows="2"/></label>
+        <label class="field field-full">描述<textarea v-model="positions.form.value.description" rows="2"/></label>
       </div>
 
       <h3>公共参数</h3>
-      <div class="form-grid">
-        <label>提示音<select v-model="positions.form.value.enableSound"><option :value="true">开启</option><option :value="false">关闭</option></select></label>
-        <label>点击频率(%)<input v-model="positions.form.value.clickFrequency" type="number" min="0" max="100"/></label>
-        <label>滚动延迟最小(秒)<input v-model="positions.form.value.scrollDelayMin" type="number" min="0"/></label>
-        <label>滚动延迟最大(秒)<input v-model="positions.form.value.scrollDelayMax" type="number" min="0"/></label>
-        <label>列表查看最小(秒)<input v-model="positions.form.value.listViewDelayMin" type="number" min="0" step="0.1"/></label>
-        <label>列表查看最大(秒)<input v-model="positions.form.value.listViewDelayMax" type="number" min="0" step="0.1"/></label>
-        <label>详情查看最小(秒)<input v-model="positions.form.value.detailViewDelayMin" type="number" min="0" step="0.1"/></label>
-        <label>详情查看最大(秒)<input v-model="positions.form.value.detailViewDelayMax" type="number" min="0" step="0.1"/></label>
-        <label>打招呼延迟最小(秒)<input v-model="positions.form.value.greetDelayMin" type="number" min="0" step="0.1"/></label>
-        <label>打招呼延迟最大(秒)<input v-model="positions.form.value.greetDelayMax" type="number" min="0" step="0.1"/></label>
-        <label>处理后休息阈值最小(人)<input v-model="positions.form.value.restAfterCandidatesMin" type="number" min="0"/></label>
-        <label>处理后休息阈值最大(人)<input v-model="positions.form.value.restAfterCandidatesMax" type="number" min="0"/></label>
-        <label>单次任务休息次数最小<input v-model="positions.form.value.restTimesMin" type="number" min="0"/></label>
-        <label>单次任务休息次数最大<input v-model="positions.form.value.restTimesMax" type="number" min="0"/></label>
-        <label>每次休息时长最小(分钟)<input v-model="positions.form.value.restDurationMin" type="number" min="0" step="0.1"/></label>
-        <label>每次休息时长最大(分钟)<input v-model="positions.form.value.restDurationMax" type="number" min="0" step="0.1"/></label>
+      <div class="position-form-grid">
+        <label class="field field-small">提示音<select v-model="positions.form.value.enableSound"><option :value="true">开启</option><option :value="false">关闭</option></select></label>
+        <label class="field field-small">点击频率(%)<input v-model="positions.form.value.clickFrequency" type="number" min="0" max="100"/></label>
+        <label class="field field-small">滚动延迟最小(秒)<input v-model="positions.form.value.scrollDelayMin" type="number" min="0"/></label>
+        <label class="field field-small">滚动延迟最大(秒)<input v-model="positions.form.value.scrollDelayMax" type="number" min="0"/></label>
+        <label class="field field-small">列表查看最小(秒)<input v-model="positions.form.value.listViewDelayMin" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">列表查看最大(秒)<input v-model="positions.form.value.listViewDelayMax" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">详情查看最小(秒)<input v-model="positions.form.value.detailViewDelayMin" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">详情查看最大(秒)<input v-model="positions.form.value.detailViewDelayMax" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">打招呼延迟最小(秒)<input v-model="positions.form.value.greetDelayMin" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">打招呼延迟最大(秒)<input v-model="positions.form.value.greetDelayMax" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">处理后休息阈值最小(人)<input v-model="positions.form.value.restAfterCandidatesMin" type="number" min="0"/></label>
+        <label class="field field-small">处理后休息阈值最大(人)<input v-model="positions.form.value.restAfterCandidatesMax" type="number" min="0"/></label>
+        <label class="field field-small">单次任务休息次数最小<input v-model="positions.form.value.restTimesMin" type="number" min="0"/></label>
+        <label class="field field-small">单次任务休息次数最大<input v-model="positions.form.value.restTimesMax" type="number" min="0"/></label>
+        <label class="field field-small">每次休息时长最小(分钟)<input v-model="positions.form.value.restDurationMin" type="number" min="0" step="0.1"/></label>
+        <label class="field field-small">每次休息时长最大(分钟)<input v-model="positions.form.value.restDurationMax" type="number" min="0" step="0.1"/></label>
       </div>
 
       <h3>AI 模式专属</h3>
-      <div class="form-grid">
-        <label>模型<input v-model="positions.form.value.aiModel" placeholder="如: gpt-4.1-mini"/></label>
-        <label>岗位要求<textarea v-model="positions.form.value.aiPositionRequirement" rows="2"/></label>
-        <label>AI提示词<textarea v-model="positions.form.value.aiClickPrompt" rows="2"/></label>
+      <div class="position-form-grid">
+        <label class="field field-small">模型<input v-model="positions.form.value.aiModel" placeholder="如: gpt-4.1-mini"/></label>
+        <label class="field field-full">岗位要求<textarea v-model="positions.form.value.aiPositionRequirement" rows="2"/></label>
+        <label class="field field-full">AI提示词<textarea v-model="positions.form.value.aiClickPrompt" rows="2"/></label>
       </div>
 
-      <h3>关键词模式专属</h3>
-      <div class="form-grid">
-        <label>AND/OR<select v-model="positions.form.value.isAndMode"><option :value="false">OR</option><option :value="true">AND</option></select></label>
-        <label>关键词<input v-model="positions.form.value.keywords" placeholder="Java Spring"/></label>
-        <label>排除词<input v-model="positions.form.value.excludeKeywords" placeholder="实习 应届"/></label>
-        <label>关键词模式详情打开概率(%)<input v-model="positions.form.value.keywordDetailOpenProbability" type="number" min="0" max="100"/></label>
-        <label>详情模式<select v-model="positions.form.value.keywordDetailMode"><option value="dom">DOM</option><option value="ocr">OCR</option></select></label>
-      </div>
-
+      <template v-if="positions.form.value.modeDefault === 'keyword'">
+        <h3>关键词模式专属</h3>
+        <div class="position-form-grid">
+          <label class="field field-small">AND/OR<select v-model="positions.form.value.isAndMode"><option :value="false">OR</option><option :value="true">AND</option></select></label>
+          <label class="field field-medium">关键词<input v-model="positions.form.value.keywords" placeholder="Java Spring"/></label>
+          <label class="field field-medium">排除词<input v-model="positions.form.value.excludeKeywords" placeholder="实习 应届"/></label>
+          <label class="field field-small">关键词模式详情打开概率(%)<input v-model="positions.form.value.keywordDetailOpenProbability" type="number" min="0" max="100"/></label>
+          <label class="field field-small">详情模式<select v-model="positions.form.value.keywordDetailMode"><option value="dom">DOM</option><option value="ocr">OCR</option></select></label>
+        </div>
+      </template>
+      <template v-else>
+        <p class="hint" style="margin-top:8px">当前默认模式为 AI，已隐藏关键词专属参数。</p>
+      </template>
+      
       <p v-if="positions.error.value" class="error">{{positions.error.value}}</p>
       <div class="actions">
         <button :disabled="positions.loading.value||!positions.form.value.name" @click="positions.save">{{positions.loading.value?'保存中...':(positions.form.value.id?'更新':'保存')}}</button>
@@ -88,3 +93,51 @@ const props=defineProps({positions:Object})
 const showForm=ref(false)
 function edit(pos:any){showForm.value=true;props.positions.edit(pos)}
 </script>
+
+<style scoped>
+.position-form-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-small {
+  grid-column: span 3;
+}
+
+.field-medium {
+  grid-column: span 6;
+}
+
+.field-full {
+  grid-column: 1 / -1;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+  .field-small,
+  .field-medium {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 640px) {
+  .field-small,
+  .field-medium,
+  .field-full {
+    grid-column: 1 / -1;
+  }
+}
+</style>
