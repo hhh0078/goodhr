@@ -90,7 +90,8 @@ const agent = useAgent();
 const positions = usePositions();
 const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
-const activeMenu = ref("agent");
+const ACTIVE_MENU_KEY = "goodhr5_active_menu";
+const activeMenu = ref(localStorage.getItem(ACTIVE_MENU_KEY) || "agent");
 const menuItems = [
   { id: "agent", label: "本地 Agent" },
   { id: "tenant", label: "团队管理" },
@@ -111,14 +112,25 @@ watch(user, async (u) => {
     tasks.load();
   }
 });
+watch(activeMenu, (menu) => {
+  localStorage.setItem(ACTIVE_MENU_KEY, menu);
+});
 onMounted(async () => {
   await auth.loadCurrentUser();
   if (auth.user.value) {
     agent.detect(auth.user.value, auth.token.value);
+    detectLocalAgent();
     positions.load();
     tasks.load();
   }
 });
+
+const detectLocalAgent = () => {
+  //3秒运行一次
+  setInterval(() => {
+    agent.detect(auth.user.value, auth.token.value);
+  }, 3000);
+};
 </script>
 
 <style scoped>
