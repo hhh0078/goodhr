@@ -70,6 +70,9 @@
           :token="auth.token.value"
           :agent="agent"
         />
+        <PlatformConfigViewer
+          v-else-if="activeMenu === 'platform-config' && isAdmin"
+        />
       </div>
     </main>
   </div>
@@ -87,6 +90,7 @@ import AgentPanel from "./components/AgentPanel.vue";
 import TenantManager from "./components/TenantManager.vue";
 
 import AccountManager from "./components/AccountManager.vue";
+import PlatformConfigViewer from "./components/PlatformConfigViewer.vue";
 import PositionManager from "./components/PositionManager.vue";
 import PersonalConfig from "./components/PersonalConfig.vue";
 import TaskList from "./components/TaskList.vue";
@@ -99,14 +103,21 @@ const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const activeMenu = ref(localStorage.getItem(ACTIVE_MENU_KEY) || "agent");
-const menuItems = [
-  { id: "agent", label: "本地 Agent" },
-  { id: "tenant", label: "团队管理" },
-  { id: "account", label: "平台账号" },
-  { id: "position", label: "岗位模板" },
-  { id: "personal-config", label: "个人配置" },
-  { id: "task-list", label: "任务列表" },
-];
+const isAdmin = computed(() => user.value?.role === "admin");
+const menuItems = computed(() => {
+  const items = [
+    { id: "agent", label: "本地 Agent" },
+    { id: "tenant", label: "团队管理" },
+    { id: "account", label: "平台账号" },
+    { id: "position", label: "岗位模板" },
+    { id: "personal-config", label: "个人配置" },
+    { id: "task-list", label: "任务列表" },
+  ];
+  if (isAdmin.value) {
+    items.push({ id: "platform-config", label: "平台配置" });
+  }
+  return items;
+});
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
   if (s.includes("连接")) return "success";
@@ -124,6 +135,15 @@ watch(user, async (u) => {
 watch(activeMenu, (menu) => {
   localStorage.setItem(ACTIVE_MENU_KEY, menu);
 });
+watch(
+  [user, menuItems],
+  () => {
+    if (!menuItems.value.some((item) => item.id === activeMenu.value)) {
+      activeMenu.value = "agent";
+    }
+  },
+  { immediate: true },
+);
 onMounted(async () => {
   await auth.loadCurrentUser();
   if (auth.user.value) {

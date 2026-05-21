@@ -19,6 +19,7 @@ type AuthService struct {
 	store           AuthStore
 	mailer          Mailer
 	exposeDebugCode bool
+	tenantStore     TenantStore
 }
 
 type sendCodeRequest struct {
@@ -30,11 +31,12 @@ type loginRequest struct {
 	Code  string `json:"code"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore) *AuthService {
 	return &AuthService{
 		store:           store,
 		mailer:          mailer,
 		exposeDebugCode: exposeDebugCode,
+		tenantStore:     tenantStore,
 	}
 }
 
@@ -166,6 +168,7 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		"user": map[string]any{
 			"id":    session.Email,
 			"email": session.Email,
+			"role":  s.userRole(session.Email),
 		},
 		"session": map[string]any{
 			"created_at": session.CreatedAt,
@@ -232,4 +235,22 @@ func bearerToken(value string) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimPrefix(value, prefix))
+}
+
+func (s *AuthService) userRole(email string) string {
+	if s.tenantStore == nil {
+		return "user"
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(email)
+	if err != nil {
+		return "user"
+	}
+	isAdmin, err := s.tenantStore.IsTenantAdmin(tenant.ID, email)
+	if err != nil {
+		return "user"
+	}
+	if isAdmin {
+		return "admin"
+	}
+	return "user"
 }

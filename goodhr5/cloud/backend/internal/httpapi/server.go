@@ -31,11 +31,11 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 	mailer, exposeDebugCode := config.Mailer()
-	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode)
+	tenantStore := config.TenantStore(db)
+	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	agentStore := config.AgentStore(db)
-	tenantStore := config.TenantStore(db)
 	cookieStore := config.CookieStore(db)
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
