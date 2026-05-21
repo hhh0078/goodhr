@@ -73,6 +73,26 @@ func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs Us
 	}
 }
 
+// OpenCandidateDetail 由平台运行时逻辑打开候选人详情。
+func (cfg PlatformConfig) OpenCandidateDetail(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any) error {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return cfg.openCandidateDetailWithActions(exec, prefs, candidate, "Boss候选人详情")
+	default:
+		return cfg.openCandidateDetailWithActions(exec, prefs, candidate, "候选人详情")
+	}
+}
+
+// CloseCandidateDetail 由平台运行时逻辑关闭候选人详情。
+func (cfg PlatformConfig) CloseCandidateDetail(exec platformViewportExecutor, prefs UserPreferences) error {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return cfg.closeCandidateDetailWithActions(exec, prefs, "Boss候选人详情")
+	default:
+		return cfg.closeCandidateDetailWithActions(exec, prefs, "候选人详情")
+	}
+}
+
 // EnsureCandidateVisible 由平台运行时逻辑确保候选人卡片位于可视区域。
 func (cfg PlatformConfig) EnsureCandidateVisible(exec platformViewportExecutor, elementRef string) error {
 	switch strings.TrimSpace(cfg.ID) {
@@ -236,6 +256,24 @@ func clickOptionalAction(exec platformViewportExecutor, element map[string]any, 
 	return nil
 }
 
+// clickActionWithinCandidate 在候选人卡片内部点击某个动作元素。
+func clickActionWithinCandidate(exec platformViewportExecutor, candidate map[string]any, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return fmt.Errorf("无%s选择器", label)
+	}
+	elementRef, _ := candidate["element_ref"].(string)
+	if strings.TrimSpace(elementRef) == "" {
+		return fmt.Errorf("%s缺少 element_ref", label)
+	}
+	body := map[string]any{
+		"timeout":      10000,
+		"delay_before": delayBefore,
+		"element_ref":  elementRef,
+		"element":      element,
+	}
+	return exec.post("/api/v1/page/click", body, nil)
+}
+
 // CandidateFilterText 由平台运行时逻辑拼接候选人筛选文本。
 func (cfg PlatformConfig) CandidateFilterText(candidate map[string]any) string {
 	switch strings.TrimSpace(cfg.ID) {
@@ -254,6 +292,25 @@ func (cfg PlatformConfig) CandidateFingerprint(candidate map[string]any) string 
 	default:
 		return buildCandidateFingerprint(candidate, nil)
 	}
+}
+
+// openCandidateDetailWithActions 使用平台详情配置打开候选人详情。
+func (cfg PlatformConfig) openCandidateDetailWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, label string) error {
+	exec.log("info", fmt.Sprintf("正在打开%s", label))
+	if err := clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget.AsPayload(), detailDelayBefore(prefs), "详情打开按钮"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// closeCandidateDetailWithActions 使用平台详情配置关闭候选人详情。
+func (cfg PlatformConfig) closeCandidateDetailWithActions(exec platformViewportExecutor, prefs UserPreferences, label string) error {
+	exec.log("info", fmt.Sprintf("正在关闭%s", label))
+	if cfg.Detail.CloseBtn.AsPayload() == nil {
+		exec.log("info", fmt.Sprintf("%s未配置关闭按钮，跳过关闭动作", label))
+		return nil
+	}
+	return clickRequiredAction(exec, cfg.Detail.CloseBtn.AsPayload(), 0.3, "详情关闭按钮")
 }
 
 // buildCandidateText 按字段顺序拼接候选人文本；不传字段时退化为全部字符串字段。

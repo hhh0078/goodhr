@@ -496,12 +496,23 @@ class WSAgentClient:
             return {"ok": True, "in_viewport": True, "matched": matched}
         if path == "/api/v1/page/click":
             page = await self._require_page()
-            element_spec = parse_element_locator_spec(body.get("element"))
-            if not element_spec.target_classes:
-                raise ValueError("element.target_classes is required")
             timeout = int(body.get("timeout", 10000))
             delay_before = float(body.get("delay_before", 0.5))
-            locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+            element_ref = str(body.get("element_ref") or "").strip()
+            if element_ref:
+                entry = ELEMENT_REFS.get(element_ref)
+                if entry is None:
+                    raise ValueError("element_ref not found")
+                container = entry.locator
+                element_spec = parse_element_locator_spec(body.get("element"))
+                if not element_spec.target_classes:
+                    raise ValueError("element.target_classes is required")
+                locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
+            else:
+                element_spec = parse_element_locator_spec(body.get("element"))
+                if not element_spec.target_classes:
+                    raise ValueError("element.target_classes is required")
+                locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
             if not await locator.is_visible(timeout=timeout):
                 raise ValueError(f"点击目标元素不可见: {matched_target}")
             await move_mouse_to_locator(locator, matched_target)

@@ -420,6 +420,16 @@ func greetDelayBefore(prefs UserPreferences) float64 {
 	return 1
 }
 
+func detailDelayBefore(prefs UserPreferences) float64 {
+	if prefs.DetailViewDelayMax > prefs.DetailViewDelayMin && prefs.DetailViewDelayMin >= 0 {
+		return (prefs.DetailViewDelayMin + prefs.DetailViewDelayMax) / 2
+	}
+	if prefs.DetailViewDelayMin >= 0 {
+		return prefs.DetailViewDelayMin
+	}
+	return 1
+}
+
 // ---------- AI 筛选 ----------
 
 type AIRequest struct {

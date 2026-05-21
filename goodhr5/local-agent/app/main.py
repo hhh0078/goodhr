@@ -658,13 +658,23 @@ async def page_click(payload: dict) -> dict:
         delay_before: 点击前延迟秒数（默认 0.5）
     """
     page = await _require_page()
-    element_spec = parse_element_locator_spec(payload.get("element"))
-    if not element_spec.target_classes:
-        raise HTTPException(400, "element.target_classes is required")
-
     timeout = int(payload.get("timeout", 10000))
     delay_before = float(payload.get("delay_before", 0.5))
-    locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
+    element_ref = str(payload.get("element_ref", "")).strip()
+    if element_ref:
+        entry = ELEMENT_REFS.get(element_ref)
+        if entry is None:
+            raise HTTPException(404, "element_ref not found")
+        container = entry.locator
+        element_spec = parse_element_locator_spec(payload.get("element"))
+        if not element_spec.target_classes:
+            raise HTTPException(400, "element.target_classes is required")
+        locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
+    else:
+        element_spec = parse_element_locator_spec(payload.get("element"))
+        if not element_spec.target_classes:
+            raise HTTPException(400, "element.target_classes is required")
+        locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
     if await locator.is_visible(timeout=timeout):
         await move_mouse_to_locator(locator, matched_target)
         await locator.click(delay=int(delay_before * 1000))
