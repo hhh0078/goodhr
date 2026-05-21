@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -15,6 +16,7 @@ type Config struct {
 	RedisAddr     string
 	RedisPassword string
 	RedisDB       int
+	SuperAdmins   []string
 	SMTPHost      string
 	SMTPPort      int
 	SMTPUsername  string
@@ -29,6 +31,7 @@ func LoadConfigFromEnv() Config {
 		RedisAddr:     os.Getenv("GOODHR_REDIS_ADDR"),
 		RedisPassword: os.Getenv("GOODHR_REDIS_PASSWORD"),
 		RedisDB:       envInt("GOODHR_REDIS_DB", 0),
+		SuperAdmins:   envList("GOODHR_SUPER_ADMINS", []string{"1224299352@qq.com"}),
 		SMTPHost:      os.Getenv("GOODHR_SMTP_HOST"),
 		SMTPPort:      envInt("GOODHR_SMTP_PORT", 465),
 		SMTPUsername:  os.Getenv("GOODHR_SMTP_USERNAME"),
@@ -172,4 +175,25 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// envList 从环境变量读取逗号分隔字符串列表，读取失败时返回默认值。
+func envList(key string, fallback []string) []string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	items := strings.Split(value, ",")
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	if len(result) == 0 {
+		return fallback
+	}
+	return result
 }

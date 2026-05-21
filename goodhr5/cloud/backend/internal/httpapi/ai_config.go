@@ -63,7 +63,12 @@ func (s *AIConfigService) UpdateSystem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用认证服务校验登录态；管理员权限后续在这里继续收紧。
-	if _, ok := s.currentSession(w, r); !ok {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
 		return
 	}
 

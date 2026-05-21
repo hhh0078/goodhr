@@ -20,6 +20,7 @@ type AuthService struct {
 	mailer          Mailer
 	exposeDebugCode bool
 	tenantStore     TenantStore
+	superAdmins     map[string]struct{}
 }
 
 type sendCodeRequest struct {
@@ -31,12 +32,21 @@ type loginRequest struct {
 	Code  string `json:"code"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, superAdmins []string) *AuthService {
+	superAdminMap := make(map[string]struct{}, len(superAdmins))
+	for _, email := range superAdmins {
+		normalized, ok := normalizeEmail(email)
+		if !ok {
+			continue
+		}
+		superAdminMap[normalized] = struct{}{}
+	}
 	return &AuthService{
 		store:           store,
 		mailer:          mailer,
 		exposeDebugCode: exposeDebugCode,
 		tenantStore:     tenantStore,
+		superAdmins:     superAdminMap,
 	}
 }
 
@@ -140,8 +150,11 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		"token_type":   "Bearer",
 		"expires_in":   int(sessionTTL.Seconds()),
 		"user": map[string]any{
-			"id":    email,
-			"email": email,
+			"id":             email,
+			"email":          email,
+			"role":           s.userRole(email),
+			"role_label":     s.userRoleLabel(email),
+			"is_super_admin": s.IsSuperAdmin(email),
 		},
 	})
 }
@@ -166,9 +179,11 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true,
 		"user": map[string]any{
-			"id":    session.Email,
-			"email": session.Email,
-			"role":  s.userRole(session.Email),
+			"id":             session.Email,
+			"email":          session.Email,
+			"role":           s.userRole(session.Email),
+			"role_label":     s.userRoleLabel(session.Email),
+			"is_super_admin": s.IsSuperAdmin(session.Email),
 		},
 		"session": map[string]any{
 			"created_at": session.CreatedAt,
@@ -238,6 +253,9 @@ func bearerToken(value string) string {
 }
 
 func (s *AuthService) userRole(email string) string {
+	if s.IsSuperAdmin(email) {
+		return "super_admin"
+	}
 	if s.tenantStore == nil {
 		return "user"
 	}
@@ -253,4 +271,26 @@ func (s *AuthService) userRole(email string) string {
 		return "admin"
 	}
 	return "user"
+}
+
+// IsSuperAdmin 判断邮箱是否为系统超管。
+func (s *AuthService) IsSuperAdmin(email string) bool {
+	normalized, ok := normalizeEmail(email)
+	if !ok {
+		return false
+	}
+	_, exists := s.superAdmins[normalized]
+	return exists
+}
+
+// userRoleLabel 返回给前端展示的中文角色名。
+func (s *AuthService) userRoleLabel(email string) string {
+	switch s.userRole(email) {
+	case "super_admin":
+		return "超管"
+	case "admin":
+		return "管理员"
+	default:
+		return "成员"
+	}
 }

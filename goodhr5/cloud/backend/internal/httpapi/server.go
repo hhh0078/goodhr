@@ -18,7 +18,6 @@ type Server struct {
 	tasks            *TaskService
 	taskLogs         *TaskLogService
 	systemConfigs    SystemConfigStore
-	tenantStore      TenantStore
 	tenants          *TenantService
 	cookies          *CookieService
 }
@@ -33,7 +32,7 @@ func NewServer() (*Server, error) {
 	}
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
-	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore)
+	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	agentStore := config.AgentStore(db)
@@ -54,7 +53,6 @@ func NewServer() (*Server, error) {
 		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
 		systemConfigs:    systemConfigStore,
-		tenantStore:      tenantStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
@@ -194,8 +192,8 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
 		return
 	}
-	if !s.isTenantAdmin(session.Email) {
-		writeError(w, http.StatusForbidden, "admin access required")
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
 		return
 	}
 
@@ -209,22 +207,6 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 		"ok":      true,
 		"configs": configs,
 	})
-}
-
-// isTenantAdmin 判断当前邮箱是否为所属租户管理员。
-func (s *Server) isTenantAdmin(email string) bool {
-	if s.tenantStore == nil {
-		return false
-	}
-	tenant, err := s.tenantStore.GetOrCreateTenant(email)
-	if err != nil {
-		return false
-	}
-	ok, err := s.tenantStore.IsTenantAdmin(tenant.ID, email)
-	if err != nil {
-		return false
-	}
-	return ok
 }
 
 func (s *Server) tenantMember(w http.ResponseWriter, r *http.Request) {

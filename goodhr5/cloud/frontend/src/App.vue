@@ -30,6 +30,8 @@
         <span class="spacer"></span>
         <span class="top-info">{{ user?.email }}</span
         ><span class="sep">|</span>
+        <span class="top-info">{{ currentRoleLabel }}</span
+        ><span class="sep">|</span>
         <span :class="['top-info', agentStatusColor]">{{
           agent.status.value
         }}</span
@@ -71,7 +73,7 @@
           :agent="agent"
         />
         <PlatformConfigViewer
-          v-else-if="activeMenu === 'platform-config' && isAdmin"
+          v-else-if="activeMenu === 'platform-config' && isSuperAdmin"
         />
       </div>
     </main>
@@ -103,7 +105,8 @@ const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const activeMenu = ref(localStorage.getItem(ACTIVE_MENU_KEY) || "agent");
-const isAdmin = computed(() => user.value?.role === "admin");
+const isSuperAdmin = computed(() => user.value?.role === "super_admin");
+const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "本地 Agent" },
@@ -113,7 +116,7 @@ const menuItems = computed(() => {
     { id: "personal-config", label: "个人配置" },
     { id: "task-list", label: "任务列表" },
   ];
-  if (isAdmin.value) {
+  if (isSuperAdmin.value) {
     items.push({ id: "platform-config", label: "平台配置" });
   }
   return items;

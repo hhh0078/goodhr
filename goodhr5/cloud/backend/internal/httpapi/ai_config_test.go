@@ -13,7 +13,7 @@ import (
 func TestAIConfigEffectiveOverride(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "ai@example.com")
+	token := loginForTest(t, routes, "1224299352@qq.com")
 
 	// 调用系统配置接口，设置任务默认使用的 AI 服务参数。
 	updateSystem := httptest.NewRequest(
