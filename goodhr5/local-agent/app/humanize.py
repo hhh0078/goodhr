@@ -14,7 +14,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from playwright.async_api import Locator, Page
+from playwright.async_api import Frame, Locator, Page
 
 logger = logging.getLogger("goodhr5.humanize")
 
@@ -145,7 +145,26 @@ async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool
         return False
 
 
-async def find_first_visible_locator(container: Page | Locator, selectors: list[str], label: str) -> tuple[Locator, str]:
+def _iter_search_containers(container: Page | Frame | Locator) -> list[Page | Frame | Locator]:
+    """
+    返回用于元素查找的容器列表。
+
+    - Page：先查主文档，再遍历当前页面所有 iframe
+    - Frame：只查当前 frame
+    - Locator：只查当前定位器范围
+    """
+    if isinstance(container, Page):
+        frames = list(container.frames)
+        ordered: list[Page | Frame | Locator] = [container]
+        for frame in frames:
+            if frame == container.main_frame:
+                continue
+            ordered.append(frame)
+        return ordered
+    return [container]
+
+
+async def find_first_visible_locator(container: Page | Frame | Locator, selectors: list[str], label: str) -> tuple[Locator, str]:
     """
     在页面或父元素中，按顺序查找第一个可见元素。
 
@@ -157,18 +176,19 @@ async def find_first_visible_locator(container: Page | Locator, selectors: list[
     Returns:
         tuple[Locator, str]: 命中的定位器和选择器
     """
-    for selector in selectors:
-        try:
-            locator = container.locator(selector).first
-            if await locator.is_visible(timeout=1500):
-                return locator, selector
-        except Exception as exc:
-            logger.debug("查找%s失败 selector=%s err=%s", label, selector, exc)
-            continue
+    for search_container in _iter_search_containers(container):
+        for selector in selectors:
+            try:
+                locator = search_container.locator(selector).first
+                if await locator.is_visible(timeout=1500):
+                    return locator, selector
+            except Exception as exc:
+                logger.debug("查找%s失败 selector=%s err=%s", label, selector, exc)
+                continue
     raise ValueError(f"找不到{label}: {' / '.join(selectors)}")
 
 
-async def locate_element_by_spec(container: Page | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
+async def locate_element_by_spec(container: Page | Frame | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
     """
     按统一协议先找父级，再找目标元素。
 
@@ -178,7 +198,7 @@ async def locate_element_by_spec(container: Page | Locator, spec: ElementLocator
     if not spec.target_classes:
         raise ValueError(f"{target_label}的 target_classes 不能为空")
 
-    parent_locator: Page | Locator = container
+    parent_locator: Page | Frame | Locator = container
     matched_parent = ""
     if spec.parent_classes:
         parent_locator, matched_parent = await find_first_visible_locator(container, spec.parent_classes, "父级元素")
@@ -201,7 +221,7 @@ async def move_mouse_to_element_spec(page: Page, spec: ElementLocatorSpec, targe
     return moved, matched_parent, matched_target
 
 
-async def find_all_locators_by_spec(container: Page | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
+async def find_all_locators_by_spec(container: Page | Frame | Locator, spec: ElementLocatorSpec, target_label: str = "目标元素") -> tuple[Locator, str, str]:
     """
     按统一协议定位一组元素，返回匹配集合定位器。
 
@@ -211,19 +231,20 @@ async def find_all_locators_by_spec(container: Page | Locator, spec: ElementLoca
     if not spec.target_classes:
         raise ValueError(f"{target_label}的 target_classes 不能为空")
 
-    parent_locator: Page | Locator = container
+    parent_locator: Page | Frame | Locator = container
     matched_parent = ""
     if spec.parent_classes:
         parent_locator, matched_parent = await find_first_visible_locator(container, spec.parent_classes, "父级元素")
 
-    for selector in spec.target_classes:
-        try:
-            locators = parent_locator.locator(selector)
-            if await locators.count() > 0:
-                return locators, matched_parent, selector
-        except Exception as exc:
-            logger.debug("查找%s集合失败 selector=%s err=%s", target_label, selector, exc)
-            continue
+    for search_container in _iter_search_containers(parent_locator):
+        for selector in spec.target_classes:
+            try:
+                locators = search_container.locator(selector)
+                if await locators.count() > 0:
+                    return locators, matched_parent, selector
+            except Exception as exc:
+                logger.debug("查找%s集合失败 selector=%s err=%s", target_label, selector, exc)
+                continue
     raise ValueError(f"找不到{target_label}: {' / '.join(spec.target_classes)}")
 
 
