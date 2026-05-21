@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // TaskService 处理任务创建、列表、详情和执行请求。
@@ -100,7 +101,7 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 	tenantID, _ := s.getTenantInfo(session.Email)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, saved),
+		"task": s.publicTaskRunWithAccount(tenantID, saved, TaskCountSummary{}),
 	})
 }
 
@@ -119,10 +120,16 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
+	todayStart := startOfToday()
+	todaySummaries, err := s.taskLogs.logStore.SummarizeTaskCounts(tenantID, session.Email, isAdmin, &todayStart)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to summarize task stats")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
-		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks),
+		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks, todaySummaries),
 	})
 }
 
@@ -167,7 +174,7 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, task),
+		"task": s.publicTaskRunWithAccount(tenantID, task, TaskCountSummary{}),
 	})
 }
 
@@ -254,7 +261,7 @@ func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, updated),
+		"task": s.publicTaskRunWithAccount(tenantID, updated, TaskCountSummary{}),
 	})
 }
 
@@ -334,16 +341,20 @@ func publicTaskRun(item TaskRun) map[string]any {
 	}
 }
 
-func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun) []map[string]any {
+func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun, todaySummaries map[string]TaskCountSummary) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, s.publicTaskRunWithAccount(tenantID, item))
+		result = append(result, s.publicTaskRunWithAccount(tenantID, item, todaySummaries[item.ID]))
 	}
 	return result
 }
 
-func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
+func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun, todaySummary TaskCountSummary) map[string]any {
 	result := publicTaskRun(item)
+	result["today_scanned_count"] = todaySummary.ScannedCount
+	result["today_greeted_count"] = todaySummary.GreetedCount
+	result["today_skipped_count"] = todaySummary.SkippedCount
+	result["today_failed_count"] = todaySummary.FailedCount
 	if item.PlatformAccountID != "" && tenantID != "" {
 		account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
 		if err == nil {
@@ -411,8 +422,7 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 禁止重复执行已在运行或已完成的任务
-	if task.Status == "running" || task.Status == "done" {
+	if task.Status == "running" {
 		log.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=任务状态已是%s", task.ID, session.Email, task.Status)
 		writeError(w, http.StatusBadRequest, "task is already "+task.Status)
 		return
@@ -536,7 +546,11 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, claimedCookie, log)
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, claimedCookie, log, func(scanned, greeted, skipped, failed int) {
+		if err := s.store.IncrementTaskCounts(task.ID, scanned, greeted, skipped, failed); err != nil {
+			log("warn", fmt.Sprintf("更新任务统计失败: %v", err))
+		}
+	})
 	if err := executor.Run(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			log("warn", "任务已取消")
@@ -546,8 +560,8 @@ func (s *TaskService) executeTask(task TaskRun) {
 		log("error", fmt.Sprintf("任务执行失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 	} else {
-		log("info", "任务执行完成")
-		_ = s.store.UpdateTaskStatus(task.ID, "done")
+		log("info", "本轮任务执行完成，可再次开始")
+		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 	}
 }
 
@@ -583,6 +597,11 @@ func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
 	return t.ID, isAdmin
+}
+
+func startOfToday() time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
 // sessionEmail 模拟从 session 获取 email（用于内部调用）。

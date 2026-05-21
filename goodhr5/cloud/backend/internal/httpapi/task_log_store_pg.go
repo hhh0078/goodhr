@@ -100,3 +100,52 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 	}
 	return items, rows.Err()
 }
+
+// SummarizeTaskCounts 汇总 PostgreSQL 中各任务的扫描/打招呼/跳过/失败数量。
+func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	query := `
+		SELECT tl.task_id, tl.message
+		FROM task_logs tl
+		INNER JOIN task_runs tr ON tr.id = tl.task_id
+		INNER JOIN users u ON u.id = tr.user_id
+		WHERE u.tenant_id = $1
+	`
+	args := []any{tenantID}
+	if !isAdmin {
+		query += ` AND u.email = $2`
+		args = append(args, userEmail)
+	}
+	if since != nil {
+		query += ` AND tl.created_at >= $` + intString(len(args)+1)
+		args = append(args, *since)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := map[string]TaskCountSummary{}
+	for rows.Next() {
+		var taskID string
+		var message string
+		if err := rows.Scan(&taskID, &message); err != nil {
+			return nil, err
+		}
+		scanned, greeted, skipped, failed := classifyTaskLogMessage(message)
+		if scanned == 0 && greeted == 0 && skipped == 0 && failed == 0 {
+			continue
+		}
+		item := result[taskID]
+		item.ScannedCount += scanned
+		item.GreetedCount += greeted
+		item.SkippedCount += skipped
+		item.FailedCount += failed
+		result[taskID] = item
+	}
+	return result, rows.Err()
+}

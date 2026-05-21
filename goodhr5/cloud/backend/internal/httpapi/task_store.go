@@ -84,10 +84,11 @@ func (s *MemoryTaskStore) UpdateTaskStatus(taskID, status string) error {
 	}
 	now := s.now()
 	task.Status = status
-	if status == "running" && task.StartedAt == nil {
+	if status == "running" {
 		task.StartedAt = &now
+		task.FinishedAt = nil
 	}
-	if status == "done" || status == "failed" || status == "stopped" {
+	if status == "failed" || status == "stopped" {
 		task.FinishedAt = &now
 	}
 	s.tasks[taskID] = task

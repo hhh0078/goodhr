@@ -411,8 +411,8 @@ func (s *PostgresTaskStore) UpdateTaskStatus(taskID string, status string) error
 		UPDATE task_runs
 		SET
 			status=$1,
-			started_at=CASE WHEN $1='running' AND started_at IS NULL THEN NOW() ELSE started_at END,
-			finished_at=CASE WHEN $1 IN ('done','failed','stopped') THEN NOW() ELSE finished_at END
+			started_at=CASE WHEN $1='running' THEN NOW() ELSE started_at END,
+			finished_at=CASE WHEN $1 IN ('failed','stopped') THEN NOW() WHEN $1='running' THEN NULL ELSE finished_at END
 		WHERE id=$2
 	`, status, taskID)
 	return err

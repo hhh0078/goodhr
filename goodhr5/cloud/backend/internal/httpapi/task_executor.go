@@ -30,6 +30,7 @@ type TaskExecutor struct {
 	agentWS       *AgentWSHub
 	httpClient    *http.Client
 	logCallback   func(level, message string)
+	countCallback func(scanned, greeted, skipped, failed int)
 	cookies       []map[string]any
 	claimedCookie *claimedTaskCookie
 }
@@ -44,6 +45,7 @@ func NewTaskExecutor(
 	userPrefs UserPreferences,
 	claimedCookie *claimedTaskCookie,
 	logCallback func(level, message string),
+	countCallback func(scanned, greeted, skipped, failed int),
 ) *TaskExecutor {
 	var filter *KeywordFilter
 	if task.Mode != "ai" && position != nil {
@@ -66,6 +68,7 @@ func NewTaskExecutor(
 		agentWS:       agentWS,
 		httpClient:    &http.Client{Timeout: 120 * time.Second},
 		logCallback:   logCallback,
+		countCallback: countCallback,
 		claimedCookie: claimedCookie,
 	}
 }
@@ -266,6 +269,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 		}
 
 		e.log("info", fmt.Sprintf("处理候选人 %d/%d", i+1, len(candidates)))
+		e.incrementCounts(1, 0, 0, 0)
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
@@ -274,10 +278,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			decision, err := e.callAI(jobDesc, text)
 			if err != nil {
 				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
+				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
 			if !decision.IsOK {
 				e.log("info", fmt.Sprintf("候选人 %d AI 筛选跳过: %s", i+1, decision.Msg))
+				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %d AI 通过: %s", i+1, decision.Msg))
@@ -286,6 +292,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			result := e.filter.Filter(text)
 			if !result.Passed {
 				e.log("info", fmt.Sprintf("候选人 %d 被筛选跳过: %s", i+1, result.Reason))
+				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %d 通过筛选: %s", i+1, result.Reason))
@@ -294,8 +301,11 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 		// 打招呼：点击 greeting 按钮
 		if err := e.clickGreet(); err != nil {
 			e.log("error", fmt.Sprintf("候选人 %d 打招呼失败: %v", i+1, err))
+			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
+		e.log("info", fmt.Sprintf("候选人 %d 打招呼成功", i+1))
+		e.incrementCounts(0, 1, 0, 0)
 		if e.task.EnableSound {
 			if err := e.playSuccessSound(); err != nil {
 				e.log("warn", fmt.Sprintf("播放成功提示音失败: %v", err))
@@ -303,6 +313,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 		}
 	}
 	return nil
+}
+
+func (e *TaskExecutor) incrementCounts(scanned, greeted, skipped, failed int) {
+	if e.countCallback != nil {
+		e.countCallback(scanned, greeted, skipped, failed)
+	}
 }
 
 // clickGreet 点击打招呼按钮。

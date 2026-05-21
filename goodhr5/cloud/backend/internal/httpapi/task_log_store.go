@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,10 +17,18 @@ type TaskLog struct {
 	CreatedAt time.Time
 }
 
+type TaskCountSummary struct {
+	ScannedCount int
+	GreetedCount int
+	SkippedCount int
+	FailedCount  int
+}
+
 // TaskLogStore 定义任务日志摘要的持久化能力。
 type TaskLogStore interface {
 	AddTaskLog(log TaskLog) (TaskLog, error)
 	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error)
+	SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error)
 }
 
 // MemoryTaskLogStore 提供开发期使用的内存任务日志存储。
@@ -73,4 +82,46 @@ func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, is
 		items = append(items, log)
 	}
 	return items, nil
+}
+
+// SummarizeTaskCounts 汇总指定时间范围内各任务的扫描/打招呼/跳过/失败数量。
+func (s *MemoryTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := map[string]TaskCountSummary{}
+	for _, log := range s.logs {
+		if !isAdmin && log.UserEmail != userEmail {
+			continue
+		}
+		if since != nil && log.CreatedAt.Before(*since) {
+			continue
+		}
+		scanned, greeted, skipped, failed := classifyTaskLogMessage(log.Message)
+		if scanned == 0 && greeted == 0 && skipped == 0 && failed == 0 {
+			continue
+		}
+		item := result[log.TaskID]
+		item.ScannedCount += scanned
+		item.GreetedCount += greeted
+		item.SkippedCount += skipped
+		item.FailedCount += failed
+		result[log.TaskID] = item
+	}
+	return result, nil
+}
+
+func classifyTaskLogMessage(message string) (int, int, int, int) {
+	switch {
+	case strings.HasPrefix(message, "处理候选人 "):
+		return 1, 0, 0, 0
+	case strings.Contains(message, "打招呼成功"):
+		return 0, 1, 0, 0
+	case strings.Contains(message, "筛选跳过"):
+		return 0, 0, 1, 0
+	case strings.Contains(message, "打招呼失败"), strings.Contains(message, "AI 筛选失败"):
+		return 0, 0, 0, 1
+	default:
+		return 0, 0, 0, 0
+	}
 }

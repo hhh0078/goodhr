@@ -32,10 +32,15 @@ func NewTaskLogService(auth *AuthService, tasks TaskStore, logStore TaskLogStore
 
 // WriteLog 写入任务日志摘要（内部调用，不验证 session）。
 func (s *TaskLogService) WriteLog(taskID, level, message string) error {
+	userEmail := ""
+	if task, err := s.tasks.TaskByID("", "", taskID, true); err == nil {
+		userEmail = task.UserEmail
+	}
 	_, err := s.logStore.AddTaskLog(TaskLog{
-		TaskID:  taskID,
-		Level:   level,
-		Message: message,
+		TaskID:    taskID,
+		UserEmail: userEmail,
+		Level:     level,
+		Message:   message,
 	})
 	return err
 }

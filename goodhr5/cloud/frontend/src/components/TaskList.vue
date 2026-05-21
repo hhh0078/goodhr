@@ -15,6 +15,16 @@
       </div>
       <button class="ghost" @click="tasks.load">刷新</button>
     </div>
+    <div class="task-range">
+      <label class="range-option">
+        <input v-model="statRange" type="radio" value="today" />
+        <span>仅看今天</span>
+      </label>
+      <label class="range-option">
+        <input v-model="statRange" type="radio" value="all" />
+        <span>全部时间</span>
+      </label>
+    </div>
 
     <!-- 创建任务折叠 -->
 
@@ -90,10 +100,10 @@
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
           </div>
           <div class="task-stats">
-            <span class="stat-chip">扫描 {{ task.scanned_count }}</span>
-            <span class="stat-chip">打招呼 {{ task.greeted_count }}</span>
-            <span class="stat-chip">跳过 {{ task.skipped_count }}</span>
-            <span class="stat-chip">失败 {{ task.failed_count }}</span>
+            <span class="stat-chip">扫描 {{ displayTaskCount(task, "scanned") }}</span>
+            <span class="stat-chip">打招呼 {{ displayTaskCount(task, "greeted") }}</span>
+            <span class="stat-chip">跳过 {{ displayTaskCount(task, "skipped") }}</span>
+            <span class="stat-chip">失败 {{ displayTaskCount(task, "failed") }}</span>
           </div>
         </div>
 
@@ -327,6 +337,7 @@ const props = defineProps({
   agent: Object,
 });
 const showCreate = ref(false);
+const statRange = ref("today");
 const accounts = ref<any[]>([]);
 const accountsError = ref("");
 const editingTaskId = ref("");
@@ -398,10 +409,16 @@ function taskStatusLabel(status: string) {
   const key = String(status || "").toLowerCase();
   if (key === "created") return "待运行";
   if (key === "running") return "运行中";
-  if (key === "done") return "已完成";
+  if (key === "done") return "已停止";
   if (key === "failed") return "失败";
   if (key === "stopped") return "已停止";
   return status || "未知";
+}
+function displayTaskCount(task: any, key: string) {
+  if (statRange.value === "today") {
+    return Number(task?.[`today_${key}_count`] || 0);
+  }
+  return Number(task?.[`${key}_count`] || 0);
 }
 onMounted(loadAccounts);
 </script>
@@ -475,6 +492,23 @@ onMounted(loadAccounts);
 <style scoped>
 .task-card {
   display: block;
+}
+.task-range {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 12px;
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.range-option {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+.range-option input {
+  margin: 0;
 }
 .task-main {
   /* display: flex;
