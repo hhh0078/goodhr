@@ -29,6 +29,41 @@ CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent.ws")
 
 
+def _payload_summary(payload: Any) -> str:
+    """生成适合日志查看的消息摘要，避免整包 payload 过大。"""
+    if not isinstance(payload, dict):
+        return str(payload)
+    path = str(payload.get("path") or "")
+    body = payload.get("body") or {}
+    if not isinstance(body, dict):
+        body = {}
+    parts: list[str] = []
+    if path:
+        parts.append(f"path={path}")
+    if "url" in body:
+        parts.append(f"url={body.get('url')}")
+    if "selector" in body:
+        parts.append(f"selector={body.get('selector')}")
+    if "card_selector" in body:
+        parts.append(f"card_selector={body.get('card_selector')}")
+    if "user_data_dir" in body:
+        parts.append(f"user_data_dir={body.get('user_data_dir')}")
+    cookies = body.get("cookies")
+    if isinstance(cookies, list):
+        parts.append(f"cookies={len(cookies)}条")
+    if "encrypted_data" in body:
+        parts.append("encrypted_data=已传")
+    encrypted_keys = body.get("encrypted_keys")
+    if isinstance(encrypted_keys, dict):
+        parts.append(f"encrypted_keys={len(encrypted_keys)}个机器")
+    selectors = body.get("selectors")
+    if isinstance(selectors, dict):
+        parts.append(f"selectors={list(selectors.keys())}")
+    if "max_scrolls" in body:
+        parts.append(f"max_scrolls={body.get('max_scrolls')}")
+    return ", ".join(parts) if parts else str(sorted(body.keys()))
+
+
 def _message_id() -> str:
     """
     生成 WebSocket 消息 ID。
@@ -181,7 +216,7 @@ class WSAgentClient:
                     logger.info("[任务WS] 云端WS已连接")
                     await self._send_nowait("agent.status", "", {"status": "online"})
                     async for raw in ws:
-                        logger.info("[任务WS] 收到原始消息 raw=%s", raw)
+                        logger.info("[任务WS] 收到原始消息长度=%d", len(raw))
                         await self._handle_raw(raw)
                     self.state.connected = False
                     self.state.status = "重连中"
@@ -326,7 +361,7 @@ class WSAgentClient:
         body = payload.get("body") or {}
         if not isinstance(body, dict):
             body = {}
-        logger.info("[任务WS] 执行本地命令 path=%s body=%s", path, body)
+        logger.info("[任务WS] 执行本地命令 %s", _payload_summary(payload))
         if path == "/api/v1/browser/start":
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
@@ -432,7 +467,9 @@ class WSAgentClient:
         card_selector = str(body.get("card_selector") or "").strip()
         if mode == "batch" and card_selector:
             js_code = """
-            (selector, fields) => {
+            (input) => {
+                const selector = input.selector;
+                const fields = input.fields || {};
                 const cards = document.querySelectorAll(selector);
                 if (!cards || cards.length === 0) return [];
                 const results = [];
@@ -447,7 +484,7 @@ class WSAgentClient:
                 return results;
             }
             """
-            candidates = await page.evaluate(js_code, card_selector, selectors)
+            candidates = await page.evaluate(js_code, {"selector": card_selector, "fields": selectors})
             if not isinstance(candidates, list):
                 candidates = []
             return {"ok": True, "candidates": candidates, "count": len(candidates)}
@@ -516,10 +553,10 @@ class WSAgentClient:
             future = asyncio.get_running_loop().create_future()
             self._pending[message_id] = future
             try:
-                logger.info("[任务WS] 发送消息 type=%s task=%s attempt=%d message_id=%s payload=%s", msg_type, task_id, attempt, message_id, payload)
+                logger.info("[任务WS] 发送消息 type=%s task=%s attempt=%d message_id=%s 摘要=%s", msg_type, task_id, attempt, message_id, _payload_summary(payload))
                 await self._ws.send(json.dumps(message, ensure_ascii=False))
                 reply = await asyncio.wait_for(future, timeout=REPLY_TIMEOUT_SECONDS)
-                logger.info("[任务WS] 收到消息回复 type=%s task=%s attempt=%d message_id=%s reply=%s", msg_type, task_id, attempt, message_id, reply)
+                logger.info("[任务WS] 收到消息回复 type=%s task=%s attempt=%d message_id=%s ok=%s error=%s", msg_type, task_id, attempt, message_id, reply.get("ok"), reply.get("error", ""))
                 if not reply.get("ok", False):
                     raise RuntimeError(str(reply.get("error") or "云端返回失败"))
                 return reply
@@ -552,7 +589,7 @@ class WSAgentClient:
             "error": error,
             "payload": payload,
         }
-        logger.info("[任务WS] 发送回复 type=%s task=%s reply_to=%s ok=%s error=%s payload=%s", msg_type, task_id, reply_to, ok, error, payload)
+        logger.info("[任务WS] 发送回复 type=%s task=%s reply_to=%s ok=%s error=%s 摘要=%s", msg_type, task_id, reply_to, ok, error, _payload_summary(payload))
         await self._ws.send(json.dumps(reply_message, ensure_ascii=False))
 
     async def _send_nowait(self, msg_type: str, task_id: str, payload: dict) -> None:

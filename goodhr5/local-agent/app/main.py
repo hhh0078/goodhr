@@ -575,7 +575,9 @@ async def _extract_batch(page, card_selector: str, selectors: dict) -> dict:
     """从页面批量提取多个候选人卡片的字段。"""
     # 使用 JS 在页面内批量提取，避免单次 DOM 往返
     js_code = """
-    (selector, fields) => {
+    (input) => {
+        const selector = input.selector;
+        const fields = input.fields || {};
         const cards = document.querySelectorAll(selector);
         if (!cards || cards.length === 0) return [];
         const results = [];
@@ -591,7 +593,7 @@ async def _extract_batch(page, card_selector: str, selectors: dict) -> dict:
     }
     """
     try:
-        candidates = await page.evaluate(js_code, card_selector, selectors)
+        candidates = await page.evaluate(js_code, {"selector": card_selector, "fields": selectors})
     except Exception as e:
         raise HTTPException(500, f"批量提取失败: {e}")
 

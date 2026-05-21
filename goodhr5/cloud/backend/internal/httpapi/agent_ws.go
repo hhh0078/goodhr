@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,12 +124,12 @@ func (h *AgentWSHub) SendCommand(userEmail string, msg AgentWSMessage, retries i
 	if msg.MessageID == "" {
 		msg.MessageID = newWSMessageID()
 	}
-	log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, msg.Payload)
+	log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, wsPayloadSummary(msg.Payload))
 	for attempt := 1; attempt <= retries; attempt++ {
 		msg.Attempt = attempt
 		reply, err := client.sendAndWait(msg, agentWSReplyTimeout)
 		if err == nil {
-			log.Printf("[云端WS] 收到命令回复 user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s payload=%v", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, reply.Payload)
+			log.Printf("[云端WS] 收到命令回复 user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, wsPayloadSummary(reply.Payload))
 			if !reply.OK {
 				return reply, fmt.Errorf("local agent returned error: %s", reply.Error)
 			}
@@ -197,7 +199,7 @@ func (c *AgentWSClient) readLoop() {
 			log.Printf("[云端WS] 读取连接关闭 user=%s err=%v", c.userEmail, err)
 			return
 		}
-		log.Printf("[云端WS] 收到消息 user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, msg.Payload)
+		log.Printf("[云端WS] 收到消息 user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s 摘要=%s", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, wsPayloadSummary(msg.Payload))
 		if msg.ReplyTo != "" {
 			c.resolvePending(msg)
 			continue
@@ -218,13 +220,62 @@ func (c *AgentWSClient) readLoop() {
 // 连接写入失败时会关闭连接并清理在线状态。
 func (c *AgentWSClient) writeLoop() {
 	for msg := range c.send {
-		log.Printf("[云端WS] 发送消息 user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d payload=%v", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, msg.Payload)
+		log.Printf("[云端WS] 发送消息 user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d 摘要=%s", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, wsPayloadSummary(msg.Payload))
 		if err := c.conn.WriteJSON(msg); err != nil {
 			log.Printf("[云端WS] 写入消息失败 user=%s err=%v", c.userEmail, err)
 			c.close()
 			return
 		}
 	}
+}
+
+func wsPayloadSummary(payload map[string]any) string {
+	if len(payload) == 0 {
+		return "-"
+	}
+	path, _ := payload["path"].(string)
+	body, _ := payload["body"].(map[string]any)
+	if path == "" || body == nil {
+		return fmt.Sprintf("keys=%v", sortedMapKeys(payload))
+	}
+	parts := []string{fmt.Sprintf("path=%s", path)}
+	if url, ok := body["url"].(string); ok && url != "" {
+		parts = append(parts, fmt.Sprintf("url=%s", url))
+	}
+	if selector, ok := body["selector"].(string); ok && selector != "" {
+		parts = append(parts, fmt.Sprintf("selector=%s", selector))
+	}
+	if cardSelector, ok := body["card_selector"].(string); ok && cardSelector != "" {
+		parts = append(parts, fmt.Sprintf("card_selector=%s", cardSelector))
+	}
+	if userDataDir, ok := body["user_data_dir"].(string); ok && userDataDir != "" {
+		parts = append(parts, fmt.Sprintf("user_data_dir=%s", userDataDir))
+	}
+	if cookies, ok := body["cookies"].([]any); ok {
+		parts = append(parts, fmt.Sprintf("cookies=%d条", len(cookies)))
+	}
+	if _, ok := body["encrypted_data"]; ok {
+		parts = append(parts, "encrypted_data=已传")
+	}
+	if encryptedKeys, ok := body["encrypted_keys"].(map[string]any); ok {
+		parts = append(parts, fmt.Sprintf("encrypted_keys=%d个机器", len(encryptedKeys)))
+	}
+	if selectors, ok := body["selectors"].(map[string]any); ok {
+		parts = append(parts, fmt.Sprintf("selectors=%v", sortedMapKeys(selectors)))
+	}
+	if maxScrolls, ok := body["max_scrolls"]; ok {
+		parts = append(parts, fmt.Sprintf("max_scrolls=%v", maxScrolls))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // sendAndWait 发送一条命令并等待对应 reply_to 回复。
