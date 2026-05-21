@@ -117,14 +117,22 @@
             </button>
           </div>
           <div class="task-actions-right">
-            <label class="sound-toggle">
+            <label
+              :class="[
+                'sound-toggle',
+                { enabled: Boolean(task.enable_sound), disabled: tasks.loading.value || task.status === 'running' },
+              ]"
+            >
+              <span class="sound-toggle-label">提示音</span>
               <input
                 type="checkbox"
                 :checked="Boolean(task.enable_sound)"
                 :disabled="tasks.loading.value || task.status === 'running'"
                 @change="onSoundToggle(task, $event)"
               />
-              <span>提示音</span>
+              <span class="sound-toggle-track">
+                <span class="sound-toggle-thumb"></span>
+              </span>
             </label>
             <button class="text-action" @click="tasks.toggleLogs(task.id)">
               {{
@@ -400,13 +408,65 @@ onMounted(loadAccounts);
 .sound-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
-  color: #475467;
+  color: var(--fg-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
 }
 
 .sound-toggle input {
-  margin: 0;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sound-toggle-label {
+  line-height: 1;
+}
+
+.sound-toggle-track {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: #2b2b2b;
+  border: 1px solid #3a3a3a;
+  transition: background-color 0.2s ease;
+  flex: 0 0 auto;
+}
+
+.sound-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #d0d5dd;
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.sound-toggle.enabled {
+  color: #0f0;
+}
+
+.sound-toggle.enabled .sound-toggle-track {
+  background: rgba(0, 255, 0, 0.18);
+  border-color: rgba(0, 255, 0, 0.35);
+}
+
+.sound-toggle.enabled .sound-toggle-thumb {
+  transform: translateX(14px);
+  background: #0f0;
+}
+
+.sound-toggle.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>
 
