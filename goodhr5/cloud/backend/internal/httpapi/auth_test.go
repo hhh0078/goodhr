@@ -64,6 +64,22 @@ func TestAuthCodeLogin(t *testing.T) {
 	if meResp.Code != http.StatusOK {
 		t.Fatalf("me status = %d, body = %s", meResp.Code, meResp.Body.String())
 	}
+
+	var mePayload struct {
+		User struct {
+			Email string `json:"email"`
+			Role  string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(meResp.Body).Decode(&mePayload); err != nil {
+		t.Fatal(err)
+	}
+	if mePayload.User.Email != "user@example.com" {
+		t.Fatalf("me email = %q", mePayload.User.Email)
+	}
+	if mePayload.User.Role != "admin" {
+		t.Fatalf("me role = %q, want admin", mePayload.User.Role)
+	}
 }
 
 // TestAuthRejectsWrongCode 验证错误验证码不能登录。

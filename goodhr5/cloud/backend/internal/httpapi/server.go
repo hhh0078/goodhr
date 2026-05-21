@@ -18,6 +18,7 @@ type Server struct {
 	tasks            *TaskService
 	taskLogs         *TaskLogService
 	systemConfigs    SystemConfigStore
+	tenantStore      TenantStore
 	tenants          *TenantService
 	cookies          *CookieService
 }
@@ -53,6 +54,7 @@ func NewServer() (*Server, error) {
 		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, agentWS),
 		taskLogs:         taskLogs,
 		systemConfigs:    systemConfigStore,
+		tenantStore:      tenantStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
@@ -91,6 +93,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
+	mux.HandleFunc("/api/admin/platforms/config/", s.ListAdminPlatformConfigs)
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
 	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
@@ -152,8 +155,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
-// cors 为本地开发和云端前端调用添加基础跨域响应头。
-// ListPlatformConfigs 返回所有已启用的平台配置。
+// ListPlatformConfigs 返回业务流程可读取的已启用平台配置。
 func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -178,6 +180,51 @@ func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"configs": configs,
 	})
+}
+
+// ListAdminPlatformConfigs 返回管理员可查看的原始平台配置 JSON。
+func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if !s.isTenantAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	configs, err := s.systemConfigs.List("platform.")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load platform configs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"configs": configs,
+	})
+}
+
+// isTenantAdmin 判断当前邮箱是否为所属租户管理员。
+func (s *Server) isTenantAdmin(email string) bool {
+	if s.tenantStore == nil {
+		return false
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(email)
+	if err != nil {
+		return false
+	}
+	ok, err := s.tenantStore.IsTenantAdmin(tenant.ID, email)
+	if err != nil {
+		return false
+	}
+	return ok
 }
 
 func (s *Server) tenantMember(w http.ResponseWriter, r *http.Request) {

@@ -130,6 +130,15 @@ export async function listPlatformConfigs() {
   return data.configs
 }
 
+/**
+ * 读取管理员可见的平台原始配置 JSON。
+ * @returns {Promise<any[]>} 返回平台配置列表。
+ */
+export async function listAdminPlatformConfigs() {
+  const data = await api('/api/admin/platforms/config/')
+  return data.configs
+}
+
 export async function getUserPreferences() {
   const data = await api('/api/config/user-preferences')
   return data.config

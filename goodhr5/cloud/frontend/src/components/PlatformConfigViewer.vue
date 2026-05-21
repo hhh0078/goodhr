@@ -1,3 +1,4 @@
+<!-- 平台配置查看页，仅供管理员浏览云端保存的原始平台 JSON。 -->
 <template>
   <section class="panel">
     <div class="panel-header">
@@ -33,7 +34,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { listPlatformConfigs } from "../services/cloudApi";
+import { listAdminPlatformConfigs } from "../services/cloudApi";
 import JsonTree from "./JsonTree.vue";
 
 const configs = ref<any[]>([]);
@@ -44,7 +45,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    configs.value = await listPlatformConfigs();
+    configs.value = await listAdminPlatformConfigs();
   } catch (e: any) {
     error.value = e?.message || "加载平台配置失败";
   } finally {

@@ -1,3 +1,4 @@
+<!-- 递归展示 JSON 结构的树形组件。 -->
 <template>
   <div class="json-tree">
     <template v-if="isObject(value)">
