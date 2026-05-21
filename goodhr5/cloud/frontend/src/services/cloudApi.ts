@@ -14,6 +14,16 @@ export async function currentUser() {
   return data.user
 }
 
+export async function getUserAIConfig() {
+  const data = await api('/api/config/user-ai')
+  return data.config
+}
+
+export async function updateUserAIConfig(payload: any) {
+  const data = await api('/api/config/user-ai', { method: 'PUT', body: payload })
+  return data.config
+}
+
 export async function listPositions() {
   const data = await api('/api/positions')
   return data.positions

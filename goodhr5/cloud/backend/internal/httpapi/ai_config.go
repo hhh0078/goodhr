@@ -141,8 +141,16 @@ func (s *AIConfigService) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	configToSave := req.toConfig()
+	if configToSave.APIKey == "" {
+		current, err := s.store.UserConfig(session.Email)
+		if err == nil && current.APIKey != "" {
+			configToSave.APIKey = current.APIKey
+		}
+	}
+
 	// 调用 AIConfigStore 保存用户配置，任务运行时会优先使用它。
-	config, err := s.store.SaveUserConfig(session.Email, req.toConfig())
+	config, err := s.store.SaveUserConfig(session.Email, configToSave)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save user ai config")
 		return

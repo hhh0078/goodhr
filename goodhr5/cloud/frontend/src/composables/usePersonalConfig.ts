@@ -1,5 +1,10 @@
 import { ref } from "vue";
-import { getUserPreferences, updateUserPreferences } from "../services/cloudApi";
+import {
+  getUserAIConfig,
+  getUserPreferences,
+  updateUserAIConfig,
+  updateUserPreferences,
+} from "../services/cloudApi";
 
 export function usePersonalConfig() {
   const loading = ref(false);
@@ -12,8 +17,13 @@ export function usePersonalConfig() {
     error.value = "";
     try {
       const data = await getUserPreferences();
+      const ai = await getUserAIConfig();
       form.value = {
-        aiModel: data?.ai_model || "",
+        aiBaseURL: ai?.base_url || "",
+        aiModel: ai?.model || data?.ai_model || "",
+        aiAPIKey: "",
+        aiAPIKeyMasked: ai?.api_key_masked || "",
+        aiAPIKeySet: Boolean(ai?.api_key_set),
         clickFrequency: data?.click_frequency ?? 80,
         scrollDelayMin: data?.scroll_delay_min ?? 3,
         scrollDelayMax: data?.scroll_delay_max ?? 8,
@@ -42,6 +52,14 @@ export function usePersonalConfig() {
     error.value = "";
     message.value = "";
     try {
+      await updateUserAIConfig({
+        base_url: form.value.aiBaseURL,
+        model: form.value.aiModel,
+        api_key: form.value.aiAPIKey.trim(),
+        temperature: 0,
+        prompt_template: "",
+        enabled: true,
+      });
       await updateUserPreferences({
         ai_model: form.value.aiModel,
         click_frequency: Number(form.value.clickFrequency || 0),
@@ -60,6 +78,11 @@ export function usePersonalConfig() {
         rest_duration_min: Number(form.value.restDurationMin || 0),
         rest_duration_max: Number(form.value.restDurationMax || 0),
       });
+      if (form.value.aiAPIKey.trim()) {
+        form.value.aiAPIKey = "";
+        form.value.aiAPIKeySet = true;
+        form.value.aiAPIKeyMasked = "已更新";
+      }
       message.value = "个人配置已保存";
     } catch (e: any) {
       error.value = e.message;
@@ -73,7 +96,11 @@ export function usePersonalConfig() {
 
 function defaultForm() {
   return {
+    aiBaseURL: "",
     aiModel: "",
+    aiAPIKey: "",
+    aiAPIKeyMasked: "",
+    aiAPIKeySet: false,
     clickFrequency: 80,
     scrollDelayMin: 3,
     scrollDelayMax: 8,
