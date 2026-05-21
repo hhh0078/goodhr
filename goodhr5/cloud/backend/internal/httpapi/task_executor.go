@@ -19,11 +19,6 @@ type claimedTaskCookie struct {
 	DisplayName   string
 }
 
-type localElementItem struct {
-	Ref   string `json:"ref"`
-	Index int    `json:"index"`
-}
-
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
 	task           TaskRun
@@ -198,24 +193,7 @@ func (e *TaskExecutor) stopBrowser() {
 
 // openPage 打开平台推荐页。
 func (e *TaskExecutor) openPage() error {
-	pages := e.platformCfg.Pages
-	if len(pages) == 0 {
-		return fmt.Errorf("平台配置中没有合法页面")
-	}
-	url := pages[0].URL
-	e.log("info", fmt.Sprintf("正在打开页面: %s", url))
-
-	body := map[string]any{
-		"url": url,
-	}
-	if len(e.cookies) > 0 {
-		e.log("info", fmt.Sprintf("打开页面前补充注入 %d 条 cookie", len(e.cookies)))
-		body["cookies"] = e.cookies
-	}
-	if err := e.post("/api/v1/page/open", body, nil); err != nil {
-		return err
-	}
-	return nil
+	return e.platformCfg.OpenEntryPage(e, e.cookies)
 }
 
 func (e *TaskExecutor) prepareCookies() error {
@@ -245,71 +223,12 @@ func (e *TaskExecutor) prepareCookies() error {
 
 // scrollPage 滚动加载候选人列表。
 func (e *TaskExecutor) scrollPage() error {
-	e.log("info", "正在滚动到下一屏候选人列表")
-	body := map[string]any{
-		"scroll_delay_min": e.userPrefs.ScrollDelayMin,
-		"scroll_delay_max": e.userPrefs.ScrollDelayMax,
-		"max_scrolls":      1,
-	}
-	if element := e.platformCfg.Card.ScrollElement(); element != nil {
-		body["element"] = element
-	}
-	return e.post("/api/v1/page/scroll", body, nil)
+	return e.platformCfg.ScrollCandidateList(e, e.userPrefs)
 }
 
 // extractCandidates 从页面提取候选人卡片。
 func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
-	e.log("info", "正在查找当前可见候选人卡片")
-
-	fieldRequests := e.platformCfg.Card.ExtractFieldRequests()
-	cardElement := e.platformCfg.Card.CardElement()
-	if len(fieldRequests) == 0 {
-		return nil, fmt.Errorf("平台配置中无候选人字段选择器")
-	}
-	if cardElement == nil {
-		return nil, fmt.Errorf("平台配置中无候选人卡片定位配置")
-	}
-
-	var findResp struct {
-		Ok    bool               `json:"ok"`
-		Items []localElementItem `json:"items"`
-		Count int                `json:"count"`
-	}
-	body := map[string]any{
-		"element":      cardElement,
-		"visible_only": true,
-	}
-	if err := e.post("/api/v1/page/find-elements", body, &findResp); err != nil {
-		return nil, err
-	}
-	if findResp.Items == nil {
-		findResp.Items = []localElementItem{}
-	}
-	e.log("info", fmt.Sprintf("查找到 %d 个当前可见候选人卡片", len(findResp.Items)))
-
-	candidates := make([]map[string]any, 0, len(findResp.Items))
-	for _, item := range findResp.Items {
-		if err := e.platformCfg.EnsureCandidateVisible(e, item.Ref); err != nil {
-			return nil, err
-		}
-		var extractResp struct {
-			Ok     bool           `json:"ok"`
-			Fields map[string]any `json:"fields"`
-		}
-		if err := e.post("/api/v1/page/extract-fields", map[string]any{
-			"element_ref": item.Ref,
-			"fields":      fieldRequests,
-		}, &extractResp); err != nil {
-			return nil, err
-		}
-		if extractResp.Fields == nil {
-			extractResp.Fields = map[string]any{}
-		}
-		extractResp.Fields["_index"] = item.Index
-		extractResp.Fields["element_ref"] = item.Ref
-		candidates = append(candidates, extractResp.Fields)
-	}
-	return candidates, nil
+	return e.platformCfg.ListVisibleCandidates(e)
 }
 
 // processCandidates 逐候选人筛选和打招呼。
