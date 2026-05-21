@@ -161,19 +161,62 @@ async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool
         bool: 是否成功移动
     """
     try:
+        await locator.scroll_into_view_if_needed(timeout=1500)
         box = await locator.bounding_box()
         if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
             logger.warning("%s 无法获取有效位置", label)
             return False
-        x = box["x"] + box["width"] / 2
-        y = box["y"] + box["height"] / 2
         page = locator.page
+        viewport = page.viewport_size or {"width": 1280, "height": 800}
+        vw = float(viewport.get("width") or 1280)
+        vh = float(viewport.get("height") or 800)
+        visible_left = max(0.0, float(box["x"]))
+        visible_top = max(0.0, float(box["y"]))
+        visible_right = min(vw, float(box["x"] + box["width"]))
+        visible_bottom = min(vh, float(box["y"] + box["height"]))
+        if visible_right <= visible_left or visible_bottom <= visible_top:
+            logger.warning("%s 当前不在可视区域内，无法移动鼠标", label)
+            return False
+        x = visible_left + (visible_right - visible_left) / 2
+        y = visible_top + (visible_bottom - visible_top) / 2
         await page.mouse.move(x, y)
         await asyncio.sleep(random.uniform(0.05, 0.2))
         logger.info("已移动鼠标到%s中心: (%.1f, %.1f)", label, x, y)
         return True
     except Exception as exc:
         logger.warning("移动鼠标到%s失败: %s", label, exc)
+        return False
+
+
+async def is_locator_in_viewport(locator: Locator, visible_ratio: float = 0.35) -> bool:
+    """
+    判断元素是否位于当前可视区域内。
+
+    Args:
+        locator: Playwright 元素定位器
+        visible_ratio: 最小可见面积比例，默认 35%
+
+    Returns:
+        bool: 元素是否有足够区域位于当前视口内
+    """
+    try:
+        if not await locator.is_visible(timeout=500):
+            return False
+        box = await locator.bounding_box()
+        if not box or box.get("width", 0) <= 0 or box.get("height", 0) <= 0:
+            return False
+        page = locator.page
+        viewport = page.viewport_size or {"width": 1280, "height": 800}
+        vw = float(viewport.get("width") or 1280)
+        vh = float(viewport.get("height") or 800)
+        visible_width = min(float(box["x"] + box["width"]), vw) - max(float(box["x"]), 0.0)
+        visible_height = min(float(box["y"] + box["height"]), vh) - max(float(box["y"]), 0.0)
+        if visible_width <= 0 or visible_height <= 0:
+            return False
+        required_width = float(box["width"]) * visible_ratio
+        required_height = min(float(box["height"]) * visible_ratio, 120.0)
+        return visible_width >= required_width and visible_height >= required_height
+    except Exception:
         return False
 
 

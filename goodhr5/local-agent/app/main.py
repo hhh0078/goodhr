@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
-from app.humanize import find_all_locators_by_spec, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load
+from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async
@@ -488,10 +488,7 @@ async def _find_element_items(page, spec, visible_only: bool = True) -> list[dic
     for index in range(count):
         locator = locators.nth(index)
         if visible_only:
-            try:
-                if not await locator.is_visible(timeout=500):
-                    continue
-            except Exception:
+            if not await is_locator_in_viewport(locator):
                 continue
         items.append(ELEMENT_REFS.register(locator, index))
     return items
