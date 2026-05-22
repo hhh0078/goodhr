@@ -40,6 +40,7 @@ func NewServer() (*Server, error) {
 	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
+	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
 	cookieStore := config.CookieStore(db)
 	positionStore := config.PositionStore(db)
@@ -55,7 +56,7 @@ func NewServer() (*Server, error) {
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore),
-		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, agentWS),
+		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS),
 		taskLogs:         taskLogs,
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),

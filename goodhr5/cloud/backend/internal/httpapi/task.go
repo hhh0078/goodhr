@@ -25,6 +25,7 @@ type TaskService struct {
 	userPrefsStore UserPreferencesStore
 	tenantStore    TenantStore
 	cookieStore    CookieStore
+	candidateStore CandidateStore
 	agentWS        *AgentWSHub
 	runningMu      sync.Mutex
 	runningCancels map[string]context.CancelFunc
@@ -40,7 +41,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, agentWS *AgentWSHub) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -51,6 +52,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		userPrefsStore: userPrefsStore,
 		tenantStore:    tenantStore,
 		cookieStore:    cookieStore,
+		candidateStore: candidateStore,
 		agentWS:        agentWS,
 		runningCancels: map[string]context.CancelFunc{},
 	}
@@ -559,7 +561,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, defaultPrompts, userPrefs, claimedCookie, log, func(scanned, greeted, skipped, failed int) {
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, defaultPrompts, userPrefs, claimedCookie, s.candidateStore, log, func(scanned, greeted, skipped, failed int) {
 		if err := s.store.IncrementTaskCounts(task.ID, scanned, greeted, skipped, failed); err != nil {
 			log("warn", fmt.Sprintf("更新任务统计失败: %v", err))
 		}

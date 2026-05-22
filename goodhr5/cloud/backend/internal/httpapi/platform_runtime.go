@@ -51,7 +51,7 @@ func (cfg PlatformConfig) OpenEntryPage(exec platformViewportExecutor, cookies [
 }
 
 // ListVisibleCandidates 由平台运行时逻辑提取当前可见候选人摘要。
-func (cfg PlatformConfig) ListVisibleCandidates(exec platformViewportExecutor) ([]map[string]any, error) {
+func (cfg PlatformConfig) ListVisibleCandidates(exec platformViewportExecutor) ([]Candidate, error) {
 	switch strings.TrimSpace(cfg.ID) {
 	case "boss":
 		return cfg.listVisibleCandidatesWithElements(exec, "Boss候选人卡片")
@@ -71,7 +71,7 @@ func (cfg PlatformConfig) ScrollCandidateList(exec platformViewportExecutor, pre
 }
 
 // GreetCandidate 由平台运行时逻辑执行打招呼动作。
-func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any) error {
+func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate) error {
 	switch strings.TrimSpace(cfg.ID) {
 	case "boss":
 		return cfg.greetCandidateWithActions(exec, prefs, candidate, "Boss候选人")
@@ -81,7 +81,7 @@ func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs Us
 }
 
 // OpenCandidateDetail 由平台运行时逻辑打开候选人详情。
-func (cfg PlatformConfig) OpenCandidateDetail(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any) error {
+func (cfg PlatformConfig) OpenCandidateDetail(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate) error {
 	switch strings.TrimSpace(cfg.ID) {
 	case "boss":
 		return cfg.openCandidateDetailWithActions(exec, prefs, candidate, "Boss候选人详情")
@@ -101,7 +101,7 @@ func (cfg PlatformConfig) CloseCandidateDetail(exec platformViewportExecutor, pr
 }
 
 // FetchCandidateDetailText 由平台运行时逻辑返回用于筛选的一段详情文本。
-func (cfg PlatformConfig) FetchCandidateDetailText(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, detailMode string) (string, error) {
+func (cfg PlatformConfig) FetchCandidateDetailText(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, detailMode string) (string, error) {
 	switch strings.TrimSpace(cfg.ID) {
 	case "boss":
 		return cfg.fetchCandidateDetailTextWithActions(exec, prefs, candidate, detailMode, "Boss候选人详情")
@@ -188,7 +188,7 @@ func (cfg PlatformConfig) authEntryURL() string {
 }
 
 // listVisibleCandidatesWithElements 使用通用元素协议提取当前可见候选人摘要。
-func (cfg PlatformConfig) listVisibleCandidatesWithElements(exec platformViewportExecutor, label string) ([]map[string]any, error) {
+func (cfg PlatformConfig) listVisibleCandidatesWithElements(exec platformViewportExecutor, label string) ([]Candidate, error) {
 	fieldRequests := cfg.Card.ExtractFieldRequests()
 	cardElement := cfg.Card.CardElement()
 	if len(fieldRequests) == 0 {
@@ -210,7 +210,7 @@ func (cfg PlatformConfig) listVisibleCandidatesWithElements(exec platformViewpor
 	}
 	exec.log("info", fmt.Sprintf("查找到 %d 个当前可见%s", len(findResp.Items), label))
 
-	candidates := make([]map[string]any, 0, len(findResp.Items))
+	candidates := make([]Candidate, 0, len(findResp.Items))
 	for _, item := range findResp.Items {
 		if err := cfg.EnsureCandidateVisible(exec, item.Ref); err != nil {
 			return nil, err
@@ -227,7 +227,7 @@ func (cfg PlatformConfig) listVisibleCandidatesWithElements(exec platformViewpor
 		}
 		extractResp.Fields["_index"] = item.Index
 		extractResp.Fields["element_ref"] = item.Ref
-		candidates = append(candidates, extractResp.Fields)
+		candidates = append(candidates, mapFieldsToCandidate(cfg.ID, extractResp.Fields))
 	}
 	return candidates, nil
 }
@@ -247,7 +247,7 @@ func (cfg PlatformConfig) scrollCandidateListWithElement(exec platformViewportEx
 }
 
 // greetCandidateWithActions 使用平台动作配置执行打招呼及后续确认按钮点击。
-func (cfg PlatformConfig) greetCandidateWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, label string) error {
+func (cfg PlatformConfig) greetCandidateWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, label string) error {
 	exec.log("info", fmt.Sprintf("正在执行%s打招呼动作", label))
 	if err := clickRequiredAction(exec, cfg.Actions.GreetBtn.AsPayload(), greetDelayBefore(prefs), "打招呼按钮"); err != nil {
 		return err
@@ -289,11 +289,11 @@ func clickOptionalAction(exec platformViewportExecutor, element map[string]any, 
 }
 
 // clickActionWithinCandidate 在候选人卡片内部点击某个动作元素。
-func clickActionWithinCandidate(exec platformViewportExecutor, candidate map[string]any, element map[string]any, delayBefore float64, label string) error {
+func clickActionWithinCandidate(exec platformViewportExecutor, candidate Candidate, element map[string]any, delayBefore float64, label string) error {
 	if element == nil {
 		return fmt.Errorf("无%s选择器", label)
 	}
-	elementRef, _ := candidate["element_ref"].(string)
+	elementRef := strings.TrimSpace(candidate.ElementRef)
 	if strings.TrimSpace(elementRef) == "" {
 		return fmt.Errorf("%s缺少 element_ref", label)
 	}
@@ -307,23 +307,24 @@ func clickActionWithinCandidate(exec platformViewportExecutor, candidate map[str
 }
 
 // CandidateFilterText 由平台运行时逻辑拼接候选人筛选文本。
-func (cfg PlatformConfig) CandidateFilterText(candidate map[string]any) string {
+func (cfg PlatformConfig) CandidateFilterText(candidate Candidate) string {
 	switch strings.TrimSpace(cfg.ID) {
 	case "boss":
-		return buildCandidateText(candidate, []string{"name", "basic_info", "education", "university", "description"})
+		return strings.TrimSpace(firstNonEmpty(candidate.FilterText, candidate.RawText))
 	default:
-		return buildCandidateText(candidate, nil)
+		return strings.TrimSpace(firstNonEmpty(candidate.FilterText, candidate.RawText))
 	}
 }
 
 // CandidateFingerprint 由平台运行时逻辑生成候选人的去重指纹。
-func (cfg PlatformConfig) CandidateFingerprint(candidate map[string]any) string {
-	switch strings.TrimSpace(cfg.ID) {
-	case "boss":
-		return buildCandidateFingerprint(candidate, []string{"name", "basic_info", "education", "university", "description"})
-	default:
-		return buildCandidateFingerprint(candidate, nil)
-	}
+func (cfg PlatformConfig) CandidateFingerprint(candidate Candidate) string {
+	return strings.Join([]string{
+		"name=" + strings.TrimSpace(candidate.Name),
+		"basic_info=" + strings.TrimSpace(candidate.BasicInfo),
+		"edu=" + strings.TrimSpace(candidate.EducationLevel),
+		"desc=" + strings.TrimSpace(candidate.PersonalDescription),
+		"raw=" + strings.TrimSpace(candidate.RawText),
+	}, "|")
 }
 
 // DetailContentText 返回详情定位配置提取出的整段文本。
@@ -348,7 +349,7 @@ func (cfg PlatformConfig) DetailContentText(exec platformViewportExecutor, prefs
 }
 
 // openCandidateDetailWithActions 使用平台详情配置打开候选人详情。
-func (cfg PlatformConfig) openCandidateDetailWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, label string) error {
+func (cfg PlatformConfig) openCandidateDetailWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, label string) error {
 	exec.log("info", fmt.Sprintf("正在打开%s", label))
 	if err := clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget.AsPayload(), detailDelayBefore(prefs), "详情打开按钮"); err != nil {
 		return err
@@ -367,7 +368,7 @@ func (cfg PlatformConfig) closeCandidateDetailWithActions(exec platformViewportE
 }
 
 // fetchCandidateDetailTextWithActions 打开详情、提取文本并负责关闭详情弹框。
-func (cfg PlatformConfig) fetchCandidateDetailTextWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, detailMode string, label string) (string, error) {
+func (cfg PlatformConfig) fetchCandidateDetailTextWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, detailMode string, label string) (string, error) {
 	if !cfg.Behavior.NeedsDetailPage {
 		exec.log("info", fmt.Sprintf("%s无需详情页，跳过详情提取", label))
 		return "", nil
@@ -386,6 +387,39 @@ func (cfg PlatformConfig) fetchCandidateDetailTextWithActions(exec platformViewp
 	}
 	exec.log("info", fmt.Sprintf("%s文本提取完成，长度=%d", label, len(text)))
 	return text, nil
+}
+
+func mapFieldsToCandidate(platformID string, fields map[string]any) Candidate {
+	name, _ := fields["name"].(string)
+	basicInfo, _ := fields["basic_info"].(string)
+	education, _ := fields["education"].(string)
+	university, _ := fields["university"].(string)
+	description, _ := fields["description"].(string)
+	raw := buildCandidateText(fields, nil)
+	if strings.TrimSpace(raw) == "" {
+		raw = strings.Join([]string{
+			strings.TrimSpace(name),
+			strings.TrimSpace(basicInfo),
+			strings.TrimSpace(education),
+			strings.TrimSpace(university),
+			strings.TrimSpace(description),
+		}, " ")
+	}
+	index, _ := fields["_index"].(int)
+	elementRef, _ := fields["element_ref"].(string)
+	return Candidate{
+		PlatformID:          strings.TrimSpace(platformID),
+		PlatformCandidateID: "",
+		Name:                strings.TrimSpace(name),
+		BasicInfo:           strings.TrimSpace(firstNonEmpty(basicInfo, education)),
+		EducationLevel:      strings.TrimSpace(education),
+		PersonalDescription: strings.TrimSpace(description),
+		RawText:             strings.TrimSpace(raw),
+		FilterText:          strings.TrimSpace(raw),
+		ElementRef:          strings.TrimSpace(elementRef),
+		CardIndex:           index,
+		Ext:                 map[string]any{"raw_fields": fields},
+	}
 }
 
 // buildCandidateText 按字段顺序拼接候选人文本；不传字段时退化为全部字符串字段。

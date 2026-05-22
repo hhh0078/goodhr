@@ -36,6 +36,7 @@ type TaskExecutor struct {
 	countCallback  func(scanned, greeted, skipped, failed int)
 	cookies        []map[string]any
 	claimedCookie  *claimedTaskCookie
+	candidateStore CandidateStore
 	seenCandidates map[string]struct{}
 	scannedCount   int
 	greetedCount   int
@@ -53,6 +54,7 @@ func NewTaskExecutor(
 	defaultPrompts DefaultPrompts,
 	userPrefs UserPreferences,
 	claimedCookie *claimedTaskCookie,
+	candidateStore CandidateStore,
 	logCallback func(level, message string),
 	countCallback func(scanned, greeted, skipped, failed int),
 ) *TaskExecutor {
@@ -80,6 +82,7 @@ func NewTaskExecutor(
 		logCallback:    logCallback,
 		countCallback:  countCallback,
 		claimedCookie:  claimedCookie,
+		candidateStore: candidateStore,
 		seenCandidates: make(map[string]struct{}),
 	}
 }
@@ -232,12 +235,12 @@ func (e *TaskExecutor) scrollPage() error {
 }
 
 // extractCandidates 从页面提取候选人卡片。
-func (e *TaskExecutor) extractCandidates() ([]map[string]any, error) {
+func (e *TaskExecutor) extractCandidates() ([]Candidate, error) {
 	return e.platformCfg.ListVisibleCandidates(e)
 }
 
 // processCandidates 逐候选人筛选和打招呼。
-func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[string]any) error {
+func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candidate) error {
 	for i := range candidates {
 		select {
 		case <-ctx.Done():
@@ -249,24 +252,26 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 			return nil
 		}
 
-		e.log("info", fmt.Sprintf("处理候选人 %d/%d", i+1, len(candidates)))
+		candidate := candidates[i]
+		candidateName := candidate.DisplayName()
+		e.log("info", fmt.Sprintf("处理候选人 %s（%d/%d）", candidateName, i+1, len(candidates)))
 		e.incrementCounts(1, 0, 0, 0)
 
-		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidates[i]))
+		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
 		shouldOpenDetail, detailReason, tokenUsage, err := e.decideOpenDetail(baseText)
 		if err != nil {
-			e.log("error", fmt.Sprintf("候选人 %d 详情决策失败: %v", i+1, err))
+			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
 			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
 		if detailReason != "" {
-			e.log("info", fmt.Sprintf("候选人 %d 详情决策: %s（token=%d）", i+1, detailReason, tokenUsage))
+			e.log("info", fmt.Sprintf("候选人 %s 详情决策: %s（token=%d）", candidateName, detailReason, tokenUsage))
 		}
 		detailText := ""
 		if shouldOpenDetail {
-			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidates[i], e.positionDetailMode())
+			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode())
 			if err != nil {
-				e.log("error", fmt.Sprintf("候选人 %d 详情提取失败: %v", i+1, err))
+				e.log("error", fmt.Sprintf("候选人 %s 详情提取失败: %v", candidateName, err))
 				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
@@ -283,28 +288,29 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []map[s
 				continue
 			}
 			if !decision.IsOK {
-				e.log("info", fmt.Sprintf("候选人 %d AI 筛选跳过: %s", i+1, decision.Msg))
+				e.log("info", fmt.Sprintf("候选人 %s AI 筛选跳过: %s", candidateName, decision.Msg))
 				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %d AI 通过: %s", i+1, decision.Msg))
+			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s", candidateName, decision.Msg))
 		} else if e.filter != nil {
 			result := e.filter.Filter(filterText)
 			if !result.Passed {
-				e.log("info", fmt.Sprintf("候选人 %d 被筛选跳过: %s", i+1, result.Reason))
+				e.log("info", fmt.Sprintf("候选人 %s 被筛选跳过: %s", candidateName, result.Reason))
 				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %d 通过筛选: %s", i+1, result.Reason))
+			e.log("info", fmt.Sprintf("候选人 %s 通过筛选: %s", candidateName, result.Reason))
 		}
 
 		// 打招呼：交由平台动作实现
-		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidates[i]); err != nil {
-			e.log("error", fmt.Sprintf("候选人 %d 打招呼失败: %v", i+1, err))
+		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidate); err != nil {
+			e.log("error", fmt.Sprintf("候选人 %s 打招呼失败: %v", candidateName, err))
 			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
-		e.log("info", fmt.Sprintf("候选人 %d 打招呼成功", i+1))
+		e.log("info", fmt.Sprintf("候选人 %s 打招呼成功", candidateName))
+		e.saveCandidateAfterGreet(candidate, baseText, filterText, detailText)
 		e.incrementCounts(0, 1, 0, 0)
 		if e.task.EnableSound {
 			if err := e.playSuccessSound(); err != nil {
@@ -374,8 +380,8 @@ func (e *TaskExecutor) reachedMatchLimit() bool {
 }
 
 // filterNewCandidates 过滤掉当前任务轮次里已经处理过的候选人。
-func (e *TaskExecutor) filterNewCandidates(candidates []map[string]any) []map[string]any {
-	result := make([]map[string]any, 0, len(candidates))
+func (e *TaskExecutor) filterNewCandidates(candidates []Candidate) []Candidate {
+	result := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		key := e.platformCfg.CandidateFingerprint(candidate)
 		if key == "" {
@@ -389,6 +395,42 @@ func (e *TaskExecutor) filterNewCandidates(candidates []map[string]any) []map[st
 		result = append(result, candidate)
 	}
 	return result
+}
+
+// saveCandidateAfterGreet 在打招呼成功后持久化候选人基础信息。
+func (e *TaskExecutor) saveCandidateAfterGreet(candidate Candidate, baseText, filterText, detailText string) {
+	if e.candidateStore == nil {
+		return
+	}
+	_, err := e.candidateStore.SaveTaskCandidate(TaskCandidate{
+		TaskID:              e.task.ID,
+		UserEmail:           e.task.UserEmail,
+		PlatformID:          e.task.PlatformID,
+		PlatformCandidateID: strings.TrimSpace(candidate.PlatformCandidateID),
+		CandidateName:       candidate.DisplayName(),
+		BasicInfo:           strings.TrimSpace(firstNonEmpty(candidate.BasicInfo, baseText)),
+		EducationLevel:      strings.TrimSpace(candidate.EducationLevel),
+		PersonalDescription: strings.TrimSpace(candidate.PersonalDescription),
+		RawText:             strings.TrimSpace(firstNonEmpty(candidate.RawText, baseText)),
+		FilterText:          strings.TrimSpace(firstNonEmpty(candidate.FilterText, filterText)),
+	})
+	if err != nil {
+		e.log("warn", fmt.Sprintf("候选人 %s 入库失败: %v", candidate.DisplayName(), err))
+		return
+	}
+	if strings.TrimSpace(detailText) != "" {
+		e.log("info", fmt.Sprintf("候选人 %s 已入库（含详情文本）", candidate.DisplayName()))
+		return
+	}
+	e.log("info", fmt.Sprintf("候选人 %s 已入库", candidate.DisplayName()))
+}
+
+func firstNonEmpty(primary, fallback string) string {
+	text := strings.TrimSpace(primary)
+	if text != "" {
+		return text
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func (e *TaskExecutor) playSuccessSound() error {

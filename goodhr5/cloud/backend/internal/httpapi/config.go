@@ -163,6 +163,14 @@ func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
 	return NewMemoryTaskLogStore()
 }
 
+// CandidateStore 创建候选人存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) CandidateStore(db *sql.DB) CandidateStore {
+	if db != nil {
+		return NewPostgresCandidateStore(db)
+	}
+	return NewMemoryCandidateStore()
+}
+
 // envInt 从环境变量读取整数，读取失败时返回默认值。
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)
