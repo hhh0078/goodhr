@@ -524,9 +524,13 @@ func (s *TaskService) executeTask(task TaskRun) {
 		if err == nil {
 			// 确保位置不为 nil
 			position = map[string]any{
-				"name":     pos.Name,
-				"keywords": pos.Keywords,
-				"exclude":  pos.ExcludeKeywords,
+				"name":           pos.Name,
+				"keywords":       pos.Keywords,
+				"exclude":        pos.ExcludeKeywords,
+				"is_and_mode":    pos.IsAndMode,
+				"common_config":  pos.CommonConfig,
+				"ai_config":      pos.AIConfig,
+				"keyword_config": pos.KeywordConfig,
 			}
 		}
 	}
@@ -534,11 +538,20 @@ func (s *TaskService) executeTask(task TaskRun) {
 	// 读取 AI 配置（供 AI 筛选模式使用）
 	var aiConfig AIConfig
 	if task.Mode == "ai" && s.aiConfigStore != nil {
-		cfg, err := s.aiConfigStore.SystemConfig()
-		if err == nil {
-			aiConfig = cfg
+		cfg, err := s.aiConfigStore.UserConfig(task.UserEmail)
+		if err != nil {
+			log("error", "当前用户未配置 AI，请先在个人配置中填写 AI 服务参数")
+			_ = s.store.UpdateTaskStatus(task.ID, "failed")
+			return
 		}
+		if !cfg.Enabled {
+			log("error", "当前用户 AI 配置未启用，请先在个人配置中启用 AI")
+			_ = s.store.UpdateTaskStatus(task.ID, "failed")
+			return
+		}
+		aiConfig = cfg
 	}
+	defaultPrompts := loadDefaultPrompts(s.systemConfigs)
 	userPrefs := DefaultUserPreferences()
 	if s.userPrefsStore != nil {
 		if prefs, err := s.userPrefsStore.UserPreferences(task.UserEmail); err == nil {
@@ -546,7 +559,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}
 
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, userPrefs, claimedCookie, log, func(scanned, greeted, skipped, failed int) {
+	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, defaultPrompts, userPrefs, claimedCookie, log, func(scanned, greeted, skipped, failed int) {
 		if err := s.store.IncrementTaskCounts(task.ID, scanned, greeted, skipped, failed); err != nil {
 			log("warn", fmt.Sprintf("更新任务统计失败: %v", err))
 		}

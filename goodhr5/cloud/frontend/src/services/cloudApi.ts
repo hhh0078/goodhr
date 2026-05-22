@@ -152,20 +152,35 @@ export async function listPlatformConfigs() {
 }
 
 /**
- * 读取管理员可见的平台原始配置 JSON。
- * @returns {Promise<any[]>} 返回平台配置列表。
+ * 读取管理员可见的系统原始配置 JSON。
+ * @returns {Promise<any[]>} 返回系统配置列表。
  */
-export async function listAdminPlatformConfigs() {
-  const data = await api('/api/admin/platforms/config/')
+export async function listAdminSystemConfigs() {
+  const data = await api('/api/admin/system/configs/')
   return data.configs
 }
 
-export async function updateAdminPlatformConfig(configKey: string, configValue: string) {
-  const data = await api(`/api/admin/platforms/config/${encodeURIComponent(configKey)}`, {
+/**
+ * 保存管理员可见的系统原始配置 JSON。
+ * @param {string} configKey - 系统配置键。
+ * @param {string} configValue - JSON 字符串形式的配置值。
+ * @returns {Promise<any>} 返回保存后的系统配置。
+ */
+export async function updateAdminSystemConfig(configKey: string, configValue: string) {
+  const data = await api(`/api/admin/system/configs/${encodeURIComponent(configKey)}`, {
     method: 'PUT',
     body: { config_value: configValue },
   })
   return data.config
+}
+
+/**
+ * 读取系统默认 AI 提示词。
+ * @returns {Promise<any>} 返回 filter_prompt 和 open_detail_prompt。
+ */
+export async function getDefaultPrompts() {
+  const data = await api('/api/system/default-prompts')
+  return data.prompts || {}
 }
 
 export async function getUserPreferences() {

@@ -105,19 +105,18 @@ GET /api/agents/current
 当前已提供：
 
 ```http
-GET /api/config/system-ai
-PUT /api/admin/config/system-ai
 GET /api/config/user-ai
 PUT /api/config/user-ai
 GET /api/config/effective-ai
+GET /api/system/default-prompts
 ```
 
 所有接口都需要 `Authorization: Bearer <token>`。
 
-配置优先级：
+AI 连接参数只来自用户 AI 配置；系统只在 `system_configs` 中提供默认提示词：
 
 ```text
-用户 AI 配置 > 系统默认 AI 配置
+system_configs.ai.default_prompts
 ```
 
 第一版使用内存 `AIConfigStore`，后续替换为 PostgreSQL 实现。

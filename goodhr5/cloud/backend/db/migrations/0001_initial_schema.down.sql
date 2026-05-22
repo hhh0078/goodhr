@@ -4,7 +4,6 @@
 DROP TABLE IF EXISTS task_logs;
 DROP TABLE IF EXISTS task_runs;
 DROP TABLE IF EXISTS user_ai_configs;
-DROP TABLE IF EXISTS system_ai_configs;
 DROP TABLE IF EXISTS positions;
 DROP TABLE IF EXISTS platform_accounts;
 DROP TABLE IF EXISTS local_agents;

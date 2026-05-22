@@ -1,9 +1,9 @@
-<!-- 超级管理员平台配置页：直接编辑云端保存的原始 JSON。 -->
+<!-- 超级管理员系统配置页：直接编辑云端保存的原始 JSON。 -->
 <template>
   <section class="panel platform-config-panel">
     <div class="panel-header">
       <div>
-        <h2>平台配置</h2>
+        <h2>系统配置</h2>
         <p class="hint">超级管理员可直接编辑原始 JSON。</p>
       </div>
       <div class="actions compact">
@@ -54,7 +54,7 @@
     </div>
 
     <p v-else-if="loading" class="hint">加载中...</p>
-    <p v-else class="hint">暂无平台配置</p>
+    <p v-else class="hint">暂无系统配置</p>
   </section>
 </template>
 
@@ -63,8 +63,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { createJSONEditor } from "vanilla-jsoneditor";
 import "vanilla-jsoneditor/themes/jse-theme-dark.css";
 import {
-  listAdminPlatformConfigs,
-  updateAdminPlatformConfig,
+  listAdminSystemConfigs,
+  updateAdminSystemConfig,
 } from "../services/cloudApi";
 
 const configs = ref<any[]>([]);
@@ -86,7 +86,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await listAdminPlatformConfigs();
+    const data = await listAdminSystemConfigs();
     configs.value = data;
     if (!activeKey.value && data.length) {
       activeKey.value = data[0].config_key;
@@ -98,7 +98,7 @@ async function load() {
       }
     }
   } catch (e: any) {
-    error.value = e?.message || "加载平台配置失败";
+    error.value = e?.message || "加载系统配置失败";
   } finally {
     loading.value = false;
   }
@@ -127,7 +127,7 @@ async function save() {
   saving.value = true;
   error.value = "";
   try {
-    const saved = await updateAdminPlatformConfig(
+    const saved = await updateAdminSystemConfig(
       activeConfig.value.config_key,
       draftText.value,
     );
@@ -139,7 +139,7 @@ async function save() {
     }
     setEditorText(saved.config_value || "{}");
   } catch (e: any) {
-    error.value = e?.message || "保存平台配置失败";
+    error.value = e?.message || "保存系统配置失败";
   } finally {
     saving.value = false;
   }

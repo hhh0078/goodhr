@@ -5,7 +5,7 @@
       <button class="ghost" @click="config.load">刷新</button>
     </div>
 
-    <h3>AI 默认配置</h3>
+    <h3>AI 配置</h3>
     <div class="personal-grid">
       <label class="field">
         API 地址

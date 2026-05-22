@@ -67,7 +67,16 @@
             >
           </label>
           <label class="field field-full"
-            >打开详情提示词<textarea
+            ><span class="field-title"
+              >打开详情提示词<button
+                type="button"
+                class="ghost tiny"
+                :disabled="positions.loading.value"
+                @click="positions.resetOpenDetailPrompt"
+              >
+                重置为系统默认
+              </button></span
+            ><textarea
               v-model="positions.form.value.aiOpenDetailPrompt"
               rows="2"
             />
@@ -76,7 +85,16 @@
             >
           </label>
           <label class="field field-full"
-            >最终筛选提示词<textarea
+            ><span class="field-title"
+              >最终筛选提示词<button
+                type="button"
+                class="ghost tiny"
+                :disabled="positions.loading.value"
+                @click="positions.resetFilterPrompt"
+              >
+                重置为系统默认
+              </button></span
+            ><textarea
               v-model="positions.form.value.aiFilterPrompt"
               rows="2"
             />
@@ -199,6 +217,19 @@ function edit(pos: any) {
   props.positions.edit(pos);
 }
 </script>
+
+<style scoped>
+.field-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tiny {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+</style>
 
 <style scoped>
 .position-form-grid {

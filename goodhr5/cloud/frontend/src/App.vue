@@ -73,7 +73,7 @@
           :agent="agent"
         />
         <PlatformConfigViewer
-          v-else-if="activeMenu === 'platform-config' && isSuperAdmin"
+          v-else-if="activeMenu === 'system-config' && isSuperAdmin"
         />
       </div>
     </main>
@@ -104,7 +104,8 @@ const personalConfig = usePersonalConfig();
 const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
-const activeMenu = ref(localStorage.getItem(ACTIVE_MENU_KEY) || "agent");
+const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
+const activeMenu = ref(savedMenu === "platform-config" ? "system-config" : savedMenu || "agent");
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
@@ -117,7 +118,7 @@ const menuItems = computed(() => {
     { id: "task-list", label: "任务列表" },
   ];
   if (isSuperAdmin.value) {
-    items.push({ id: "platform-config", label: "平台配置" });
+    items.push({ id: "system-config", label: "系统配置" });
   }
   return items;
 });

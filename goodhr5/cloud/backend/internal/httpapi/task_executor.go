@@ -28,6 +28,7 @@ type TaskExecutor struct {
 	filter         *KeywordFilter
 	position       map[string]any
 	aiConfig       AIConfig
+	defaultPrompts DefaultPrompts
 	userPrefs      UserPreferences
 	agentWS        *AgentWSHub
 	httpClient     *http.Client
@@ -49,6 +50,7 @@ func NewTaskExecutor(
 	position map[string]any,
 	agentWS *AgentWSHub,
 	aiConfig AIConfig,
+	defaultPrompts DefaultPrompts,
 	userPrefs UserPreferences,
 	claimedCookie *claimedTaskCookie,
 	logCallback func(level, message string),
@@ -71,6 +73,7 @@ func NewTaskExecutor(
 		filter:         filter,
 		position:       position,
 		aiConfig:       aiConfig,
+		defaultPrompts: defaultPrompts,
 		userPrefs:      userPrefs,
 		agentWS:        agentWS,
 		httpClient:     &http.Client{Timeout: 120 * time.Second},
@@ -589,20 +592,12 @@ func (e *TaskExecutor) positionAIConfigString(keys ...string) string {
 
 // aiRequestConfig 返回当前任务使用的 AI 请求配置。
 func (e *TaskExecutor) aiRequestConfig() (string, string, float64) {
-	model := "gpt-5.1-chat"
-	baseURL := "https://ai.58it.cn/v1/chat/completions"
-	temperature := 0.3
+	model := strings.TrimSpace(e.aiConfig.Model)
+	baseURL := strings.TrimSpace(e.aiConfig.BaseURL)
+	temperature := e.aiConfig.Temperature
 
 	if e.userPrefs.AIModel != "" {
 		model = e.userPrefs.AIModel
-	} else if e.aiConfig.Model != "" {
-		model = e.aiConfig.Model
-	}
-	if e.aiConfig.BaseURL != "" {
-		baseURL = e.aiConfig.BaseURL
-	}
-	if e.aiConfig.Temperature > 0 {
-		temperature = e.aiConfig.Temperature
 	}
 	return model, baseURL, temperature
 }
@@ -610,6 +605,15 @@ func (e *TaskExecutor) aiRequestConfig() (string, string, float64) {
 // doAIChat 调用 AI API，返回原始文本和 token 消耗。
 func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, error) {
 	model, baseURL, temperature := e.aiRequestConfig()
+	if baseURL == "" {
+		return "", 0, fmt.Errorf("AI 配置缺少 base_url")
+	}
+	if model == "" {
+		return "", 0, fmt.Errorf("AI 配置缺少 model")
+	}
+	if e.aiConfig.APIKey == "" {
+		return "", 0, fmt.Errorf("AI 配置缺少 API Key")
+	}
 	reqBody := AIRequest{
 		Model:       model,
 		Messages:    []AIMsg{{Role: "user", Content: prompt}},
@@ -621,9 +625,7 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 	data, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest(http.MethodPost, baseURL, bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/json")
-	if e.aiConfig.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+e.aiConfig.APIKey)
-	}
+	req.Header.Set("Authorization", "Bearer "+e.aiConfig.APIKey)
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("AI API 请求失败: %w", err)
@@ -665,8 +667,8 @@ func (e *TaskExecutor) decodeJSONWithRetry(raw string, target any) error {
 // callAI 调用 AI API 对候选人进行筛选。
 func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error) {
 	prompt := fmt.Sprintf(defaultAIFilterPrompt, jobDesc, candidateText)
-	if extraPrompt := e.positionAIConfigString("filter_prompt", "click_prompt"); extraPrompt != "" {
-		prompt += "\n\n补充规则：\n" + extraPrompt
+	if customPrompt := e.effectivePrompt(e.defaultPrompts.FilterPrompt, "filter_prompt", "click_prompt"); customPrompt != "" {
+		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "补充规则")
 	}
 	content, _, err := e.doAIChat(prompt, true)
 	if err != nil {
@@ -682,8 +684,8 @@ func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error)
 // callOpenDetailAI 调用 AI 判断是否需要打开详情。
 func (e *TaskExecutor) callOpenDetailAI(jobDesc, candidateText string) (OpenDetailDecision, error) {
 	prompt := fmt.Sprintf(defaultOpenDetailPrompt, jobDesc, candidateText)
-	if extraPrompt := e.positionAIConfigString("open_detail_prompt"); extraPrompt != "" {
-		prompt += "\n\n补充要求：\n" + extraPrompt
+	if customPrompt := e.effectivePrompt(e.defaultPrompts.OpenDetailPrompt, "open_detail_prompt"); customPrompt != "" {
+		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "补充要求")
 	}
 	content, tokens, err := e.doAIChat(prompt, true)
 	if err != nil {
@@ -696,6 +698,28 @@ func (e *TaskExecutor) callOpenDetailAI(jobDesc, candidateText string) (OpenDeta
 	decision.Reason = truncateText(strings.TrimSpace(decision.Reason), 20)
 	decision.TokenUsage = tokens
 	return decision, nil
+}
+
+// effectivePrompt 读取岗位模板提示词，为空时使用系统默认提示词。
+func (e *TaskExecutor) effectivePrompt(systemDefault string, keys ...string) string {
+	if prompt := e.positionAIConfigString(keys...); prompt != "" {
+		return prompt
+	}
+	return strings.TrimSpace(systemDefault)
+}
+
+// buildPromptFromTemplate 根据占位符判断提示词是完整模板还是补充规则。
+func buildPromptFromTemplate(template, jobDesc, candidateText, fallback, extraTitle string) string {
+	text := strings.TrimSpace(template)
+	if text == "" {
+		return fallback
+	}
+	if strings.Contains(text, "${岗位信息}") || strings.Contains(text, "${候选人信息}") {
+		text = strings.ReplaceAll(text, "${岗位信息}", jobDesc)
+		text = strings.ReplaceAll(text, "${候选人信息}", candidateText)
+		return text
+	}
+	return fallback + "\n\n" + extraTitle + "：\n" + text
 }
 
 // tryDecodeJSON 尝试从 AI 文本中解析 JSON。

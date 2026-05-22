@@ -67,23 +67,7 @@ COMMENT ON COLUMN positions.keywords IS '正向关键词数组';
 COMMENT ON COLUMN positions.exclude_keywords IS '排除关键词数组';
 COMMENT ON COLUMN positions.is_and_mode IS '关键词是否使用 AND 匹配';
 
--- system_ai_configs 保存系统默认 AI 配置。
-CREATE TABLE IF NOT EXISTS system_ai_configs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    base_url TEXT NOT NULL,
-    model TEXT NOT NULL,
-    api_key_encrypted TEXT NOT NULL DEFAULT '',
-    temperature NUMERIC(3, 2) NOT NULL DEFAULT 0.20,
-    prompt_template TEXT NOT NULL DEFAULT '',
-    enabled BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-COMMENT ON TABLE system_ai_configs IS '系统默认 AI 配置';
-COMMENT ON COLUMN system_ai_configs.api_key_encrypted IS '加密后的系统 API Key';
-
--- user_ai_configs 保存用户自定义 AI 配置，字段为空时由系统默认配置兜底。
+-- user_ai_configs 保存用户自定义 AI 配置。
 CREATE TABLE IF NOT EXISTS user_ai_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,

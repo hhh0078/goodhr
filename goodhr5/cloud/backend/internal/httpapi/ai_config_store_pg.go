@@ -1,4 +1,4 @@
-// 本文件负责提供 AI 配置的 PostgreSQL 存储实现。
+// 本文件负责提供用户 AI 配置的 PostgreSQL 存储实现。
 package httpapi
 
 import (
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// PostgresAIConfigStore 使用 PostgreSQL 持久化系统和用户 AI 配置。
+// PostgresAIConfigStore 使用 PostgreSQL 持久化用户 AI 配置。
 type PostgresAIConfigStore struct {
 	db *sql.DB
 }
@@ -16,73 +16,6 @@ type PostgresAIConfigStore struct {
 // NewPostgresAIConfigStore 创建 PostgreSQL AI 配置存储。
 func NewPostgresAIConfigStore(db *sql.DB) *PostgresAIConfigStore {
 	return &PostgresAIConfigStore{db: db}
-}
-
-// SystemConfig 读取 PostgreSQL 中的系统默认 AI 配置。
-func (s *PostgresAIConfigStore) SystemConfig() (AIConfig, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	var config AIConfig
-	err := s.db.QueryRowContext(
-		ctx,
-		`
-		SELECT base_url, model, api_key_encrypted, temperature, prompt_template, enabled, updated_at
-		FROM system_ai_configs
-		ORDER BY updated_at DESC, created_at DESC
-		LIMIT 1
-		`,
-	).Scan(
-		&config.BaseURL,
-		&config.Model,
-		&config.APIKey,
-		&config.Temperature,
-		&config.PromptTemplate,
-		&config.Enabled,
-		&config.UpdatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		defaultConfig := DefaultSystemAIConfig()
-		return s.SaveSystemConfig(defaultConfig)
-	}
-	if err != nil {
-		return AIConfig{}, err
-	}
-	return config, nil
-}
-
-// SaveSystemConfig 保存 PostgreSQL 中的系统默认 AI 配置。
-func (s *PostgresAIConfigStore) SaveSystemConfig(config AIConfig) (AIConfig, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	var saved AIConfig
-	err := s.db.QueryRowContext(
-		ctx,
-		`
-		INSERT INTO system_ai_configs (base_url, model, api_key_encrypted, temperature, prompt_template, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING base_url, model, api_key_encrypted, temperature, prompt_template, enabled, updated_at
-		`,
-		config.BaseURL,
-		config.Model,
-		config.APIKey,
-		config.Temperature,
-		config.PromptTemplate,
-		config.Enabled,
-	).Scan(
-		&saved.BaseURL,
-		&saved.Model,
-		&saved.APIKey,
-		&saved.Temperature,
-		&saved.PromptTemplate,
-		&saved.Enabled,
-		&saved.UpdatedAt,
-	)
-	if err != nil {
-		return AIConfig{}, err
-	}
-	return saved, nil
 }
 
 // UserConfig 读取 PostgreSQL 中指定用户的自定义 AI 配置。

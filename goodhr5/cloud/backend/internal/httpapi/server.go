@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-type updateAdminPlatformConfigRequest struct {
+type updateAdminSystemConfigRequest struct {
 	ConfigValue string `json:"config_value"`
 }
 
@@ -77,9 +77,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
 	mux.HandleFunc("/api/agents/ws", s.agentWS.ServeWS)
 	mux.HandleFunc("/api/agents/ws-status", s.agentWS.Status)
-	// 注册 AI 配置接口，用于读取系统默认、用户自定义和最终生效配置。
-	mux.HandleFunc("/api/config/system-ai", s.ai.System)
-	mux.HandleFunc("/api/admin/config/system-ai", s.ai.UpdateSystem)
+	// 注册 AI 配置接口，用于读取用户自定义和最终生效配置。
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
@@ -96,6 +94,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
+	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
+	mux.HandleFunc("/api/admin/system/configs/", s.adminSystemConfigs)
 	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
@@ -185,7 +185,7 @@ func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListAdminPlatformConfigs 返回管理员可查看的原始平台配置 JSON。
+// ListAdminPlatformConfigs 返回管理员可查看的原始系统配置 JSON。
 func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -202,9 +202,9 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	configs, err := s.systemConfigs.List("platform.")
+	configs, err := s.systemConfigs.List("")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load platform configs")
+		writeError(w, http.StatusInternalServerError, "failed to load system configs")
 		return
 	}
 
@@ -225,7 +225,18 @@ func (s *Server) adminPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UpdateAdminPlatformConfig 允许超管直接保存平台原始 JSON。
+func (s *Server) adminSystemConfigs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.ListAdminPlatformConfigs(w, r)
+	case http.MethodPut:
+		s.UpdateAdminPlatformConfig(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// UpdateAdminPlatformConfig 允许超管直接保存系统原始 JSON。
 func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
@@ -237,7 +248,10 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	configKey := strings.TrimPrefix(r.URL.Path, "/api/admin/platforms/config/")
+	configKey := strings.TrimPrefix(r.URL.Path, "/api/admin/system/configs/")
+	if configKey == r.URL.Path {
+		configKey = strings.TrimPrefix(r.URL.Path, "/api/admin/platforms/config/")
+	}
 	configKey = strings.TrimSpace(strings.Trim(configKey, "/"))
 	if configKey == "" {
 		writeError(w, http.StatusBadRequest, "config key is required")
@@ -247,14 +261,14 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	existing, err := s.systemConfigs.Get(configKey)
 	if err != nil {
 		if errors.Is(err, ErrConfigNotFound) {
-			writeError(w, http.StatusNotFound, "platform config not found")
+			writeError(w, http.StatusNotFound, "system config not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to load platform config")
+		writeError(w, http.StatusInternalServerError, "failed to load system config")
 		return
 	}
 
-	var req updateAdminPlatformConfigRequest
+	var req updateAdminSystemConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
@@ -271,7 +285,7 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 
 	existing.ConfigValue = raw
 	if err := s.systemConfigs.Save(existing); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save platform config")
+		writeError(w, http.StatusInternalServerError, "failed to save system config")
 		return
 	}
 

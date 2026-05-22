@@ -1,4 +1,4 @@
-// 本文件负责提供系统默认和用户自定义 AI 配置的 HTTP API。
+// 本文件负责提供用户自定义 AI 配置的 HTTP API。
 package httpapi
 
 import (
@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-// AIConfigService 处理 AI 配置读取、保存和合并请求。
+// AIConfigService 处理用户 AI 配置读取和保存请求。
 type AIConfigService struct {
 	auth  *AuthService
 	store AIConfigStore
@@ -28,66 +28,6 @@ func NewAIConfigService(auth *AuthService, store AIConfigStore) *AIConfigService
 		auth:  auth,
 		store: store,
 	}
-}
-
-// System 返回系统默认 AI 配置。
-func (s *AIConfigService) System(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// 调用认证服务校验登录态，避免匿名用户读取系统配置。
-	if _, ok := s.currentSession(w, r); !ok {
-		return
-	}
-
-	// 调用 AIConfigStore 读取系统默认配置，用于任务配置兜底。
-	config, err := s.store.SystemConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load system ai config")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":     true,
-		"config": publicAIConfig(config),
-	})
-}
-
-// UpdateSystem 保存系统默认 AI 配置。
-func (s *AIConfigService) UpdateSystem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// 调用认证服务校验登录态；管理员权限后续在这里继续收紧。
-	session, ok := s.currentSession(w, r)
-	if !ok {
-		return
-	}
-	if !s.auth.IsSuperAdmin(session.Email) {
-		writeError(w, http.StatusForbidden, "super admin access required")
-		return
-	}
-
-	req, ok := s.readConfigRequest(w, r)
-	if !ok {
-		return
-	}
-
-	// 调用 AIConfigStore 保存系统默认配置，供未配置用户使用。
-	config, err := s.store.SaveSystemConfig(req.toConfig())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save system ai config")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":     true,
-		"config": publicAIConfig(config),
-	})
 }
 
 // User 按请求方法读取或保存当前登录用户的自定义 AI 配置。
@@ -174,25 +114,18 @@ func (s *AIConfigService) Effective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用认证服务读取当前用户，用于合并该用户自己的配置。
+	// 调用认证服务读取当前用户，用于返回该用户自己的配置。
 	session, ok := s.currentSession(w, r)
 	if !ok {
 		return
 	}
 
-	// 调用 AIConfigStore 读取系统默认配置，作为最终配置的基础。
-	system, err := s.store.SystemConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load system ai config")
-		return
-	}
-
-	// 调用 AIConfigStore 读取用户配置；未配置时直接使用系统默认配置。
+	// 调用 AIConfigStore 读取用户配置；AI 连接参数不再使用系统默认兜底。
 	user, err := s.store.UserConfig(session.Email)
 	if errors.Is(err, ErrNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":     true,
-			"config": publicAIConfig(system),
+			"config": nil,
 		})
 		return
 	}
@@ -203,7 +136,7 @@ func (s *AIConfigService) Effective(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"config": publicAIConfig(EffectiveAIConfig(system, user)),
+		"config": publicAIConfig(user),
 	})
 }
 

@@ -1,16 +1,22 @@
 /** 岗位模板管理 */
 import { ref } from 'vue'
-import { listPositions, savePosition, deletePosition } from '../services/cloudApi'
+import { getDefaultPrompts, listPositions, savePosition, deletePosition } from '../services/cloudApi'
 
 export function usePositions() {
   const positions = ref<any[]>([])
   const loading = ref(false)
   const error = ref('')
   const form = ref(defaultForm())
+  const defaultPrompts = ref({ filter_prompt: '', open_detail_prompt: '' })
 
   async function load() {
     loading.value = true; error.value = ''
-    try { positions.value = await listPositions() } catch (e: any) { error.value = e.message; positions.value = [] }
+    try {
+      const [list, prompts] = await Promise.all([listPositions(), getDefaultPrompts()])
+      positions.value = list
+      defaultPrompts.value = normalizeDefaultPrompts(prompts)
+      fillEmptyDefaultPrompts()
+    } catch (e: any) { error.value = e.message; positions.value = [] }
     finally { loading.value = false }
   }
 
@@ -18,6 +24,7 @@ export function usePositions() {
     if (!form.value.name) return
     loading.value = true; error.value = ''
     try {
+      fillEmptyDefaultPrompts()
       const kw = form.value.keywords.split(/[,\s]+/).filter(Boolean)
       const ek = form.value.excludeKeywords.split(/[,\s]+/).filter(Boolean)
       await savePosition({
@@ -51,7 +58,31 @@ export function usePositions() {
     finally { loading.value = false }
   }
 
-  function resetForm() { form.value = defaultForm() }
+  /**
+   * 清空岗位模板表单，并自动填入系统默认提示词。
+   * @returns {void} 无返回值。
+   */
+  function resetForm() {
+    form.value = defaultForm()
+    fillEmptyDefaultPrompts()
+  }
+
+  /**
+   * 将打开详情提示词重置为系统默认值。
+   * @returns {void} 无返回值。
+   */
+  function resetOpenDetailPrompt() {
+    form.value.aiOpenDetailPrompt = defaultPrompts.value.open_detail_prompt || ''
+  }
+
+  /**
+   * 将最终筛选提示词重置为系统默认值。
+   * @returns {void} 无返回值。
+   */
+  function resetFilterPrompt() {
+    form.value.aiFilterPrompt = defaultPrompts.value.filter_prompt || ''
+  }
+
   function edit(pos: any) {
     const common = pos.common_config || {}
     const ai = pos.ai_config || {}
@@ -70,9 +101,36 @@ export function usePositions() {
       aiFilterPrompt: ai.filter_prompt || ai.click_prompt || '',
       aiOpenDetailPrompt: ai.open_detail_prompt || '',
     }
+    fillEmptyDefaultPrompts()
   }
 
-  return { positions, loading, error, form, load, save, remove, resetForm, edit }
+  /**
+   * 空提示词字段自动补齐系统默认值。
+   * @returns {void} 无返回值。
+   */
+  function fillEmptyDefaultPrompts() {
+    if (!form.value.aiFilterPrompt && defaultPrompts.value.filter_prompt) {
+      form.value.aiFilterPrompt = defaultPrompts.value.filter_prompt
+    }
+    if (!form.value.aiOpenDetailPrompt && defaultPrompts.value.open_detail_prompt) {
+      form.value.aiOpenDetailPrompt = defaultPrompts.value.open_detail_prompt
+    }
+  }
+
+  return {
+    positions,
+    loading,
+    error,
+    form,
+    defaultPrompts,
+    load,
+    save,
+    remove,
+    resetForm,
+    edit,
+    resetOpenDetailPrompt,
+    resetFilterPrompt,
+  }
 }
 
 function defaultForm() {
@@ -89,5 +147,17 @@ function defaultForm() {
     aiPositionRequirement: '',
     aiFilterPrompt: '',
     aiOpenDetailPrompt: '',
+  }
+}
+
+/**
+ * 标准化后端返回的系统默认提示词。
+ * @param {any} value - 后端提示词对象。
+ * @returns {{filter_prompt: string; open_detail_prompt: string}} 标准化后的提示词。
+ */
+function normalizeDefaultPrompts(value: any) {
+  return {
+    filter_prompt: String(value?.filter_prompt || ''),
+    open_detail_prompt: String(value?.open_detail_prompt || ''),
   }
 }

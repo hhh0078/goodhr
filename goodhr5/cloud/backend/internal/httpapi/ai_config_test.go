@@ -9,30 +9,17 @@ import (
 	"testing"
 )
 
-// TestAIConfigEffectiveOverride 验证用户配置会覆盖系统默认配置。
-func TestAIConfigEffectiveOverride(t *testing.T) {
+// TestAIConfigEffectiveUserOnly 验证最终生效 AI 配置只来自用户配置。
+func TestAIConfigEffectiveUserOnly(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "1224299352@qq.com")
 
-	// 调用系统配置接口，设置任务默认使用的 AI 服务参数。
-	updateSystem := httptest.NewRequest(
-		http.MethodPut,
-		"/api/admin/config/system-ai",
-		bytes.NewBufferString(`{"base_url":"https://system.example.com","model":"system-model","api_key":"system-key","temperature":0.2,"prompt_template":"system prompt","enabled":true}`),
-	)
-	updateSystem.Header.Set("Authorization", "Bearer "+token)
-	updateSystemResp := httptest.NewRecorder()
-	routes.ServeHTTP(updateSystemResp, updateSystem)
-	if updateSystemResp.Code != http.StatusOK {
-		t.Fatalf("update system status = %d, body = %s", updateSystemResp.Code, updateSystemResp.Body.String())
-	}
-
-	// 调用用户配置接口，只覆盖用户自己希望修改的 AI 服务参数。
+	// 调用用户配置接口，保存当前用户自己的 AI 服务参数。
 	updateUser := httptest.NewRequest(
 		http.MethodPut,
 		"/api/config/user-ai",
-		bytes.NewBufferString(`{"base_url":"","model":"user-model","api_key":"user-secret-key","temperature":0.7,"prompt_template":"","enabled":true}`),
+		bytes.NewBufferString(`{"base_url":"https://user.example.com","model":"user-model","api_key":"user-secret-key","temperature":0.7,"prompt_template":"user prompt","enabled":true}`),
 	)
 	updateUser.Header.Set("Authorization", "Bearer "+token)
 	updateUserResp := httptest.NewRecorder()
@@ -41,7 +28,7 @@ func TestAIConfigEffectiveOverride(t *testing.T) {
 		t.Fatalf("update user status = %d, body = %s", updateUserResp.Code, updateUserResp.Body.String())
 	}
 
-	// 调用最终生效配置接口，确认用户配置优先、系统配置兜底。
+	// 调用最终生效配置接口，确认返回用户配置。
 	effectiveReq := httptest.NewRequest(http.MethodGet, "/api/config/effective-ai", nil)
 	effectiveReq.Header.Set("Authorization", "Bearer "+token)
 	effectiveResp := httptest.NewRecorder()
@@ -63,13 +50,13 @@ func TestAIConfigEffectiveOverride(t *testing.T) {
 	if err := json.NewDecoder(effectiveResp.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Config.BaseURL != "https://system.example.com" {
+	if payload.Config.BaseURL != "https://user.example.com" {
 		t.Fatalf("base_url = %q", payload.Config.BaseURL)
 	}
 	if payload.Config.Model != "user-model" {
 		t.Fatalf("model = %q", payload.Config.Model)
 	}
-	if payload.Config.Prompt != "system prompt" {
+	if payload.Config.Prompt != "user prompt" {
 		t.Fatalf("prompt = %q", payload.Config.Prompt)
 	}
 	if !payload.Config.KeySet || payload.Config.KeyMasked != "user****-key" {
