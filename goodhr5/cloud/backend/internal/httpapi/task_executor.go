@@ -513,6 +513,11 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	}, 3)
 	if err != nil {
 		e.log("error", fmt.Sprintf("本地程序请求失败：%s，err=%v", path, err))
+		if payloadJSON, marshalErr := json.Marshal(payload); marshalErr == nil {
+			e.log("error", fmt.Sprintf("本地程序失败请求参数：%s", string(payloadJSON)))
+		} else {
+			e.log("error", fmt.Sprintf("本地程序失败请求参数序列化失败：%v", marshalErr))
+		}
 		if detail := localAgentReplyDetail(resp); detail != "" {
 			e.log("error", fmt.Sprintf("本地程序详细错误：%s", detail))
 		}
