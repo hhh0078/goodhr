@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 from collections.abc import Iterable
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
@@ -643,7 +644,7 @@ async def page_click(payload: dict) -> dict:
         locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
     if await locator.is_visible(timeout=timeout):
         await move_mouse_to_locator(locator, matched_target)
-        await locator.click(delay=int(delay_before * 1000))
+        await locator.click(delay=random.randint(100, 300))
         success = True
     else:
         raise HTTPException(400, f"点击目标元素不可见: {matched_target}")

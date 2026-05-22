@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import secrets
 import traceback
 from dataclasses import dataclass, field
@@ -530,7 +531,7 @@ class WSAgentClient:
             if not await locator.is_visible(timeout=timeout):
                 raise ValueError(f"点击目标元素不可见: {matched_target}")
             await move_mouse_to_locator(locator, matched_target)
-            await locator.click(delay=int(delay_before * 1000))
+            await locator.click(delay=random.randint(100, 300))
             clicked = True
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/sound/play":
