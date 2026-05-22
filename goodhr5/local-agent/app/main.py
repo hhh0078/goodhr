@@ -436,6 +436,13 @@ async def browser_start(payload: dict) -> dict:
             await _browser_manager.stop()
             ELEMENT_REFS.clear()
         else:
+            global _cookie_sync_config
+            _cookie_sync_config = cookie_sync
+            if isinstance(cookies, list) and cookies:
+                try:
+                    await _browser_manager.add_cookies(cookies)
+                except Exception as exc:
+                    raise HTTPException(400, f"cookie 注入失败: {exc}")
             return {"ok": True, "status": "already_running"}
 
     ELEMENT_REFS.clear()
@@ -451,7 +458,6 @@ async def browser_start(payload: dict) -> dict:
             await _browser_manager.add_cookies(cookies)
         except Exception as exc:
             raise HTTPException(400, f"cookie 注入失败: {exc}")
-    global _cookie_sync_config
     _cookie_sync_config = cookie_sync
     return {"ok": True, "status": "started"}
 
