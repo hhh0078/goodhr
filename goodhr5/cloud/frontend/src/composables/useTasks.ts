@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { cloudApiBase, getAccessToken } from "../services/apiClient";
 import {
+  clearTaskLogs,
   createTask,
   deleteTask,
   listTasks,
@@ -209,6 +210,27 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     startTaskLogPolling(taskId);
   }
 
+  /**
+   * 清空指定任务的云端日志，并同步刷新当前面板数据。
+   * @param {string} taskId - 任务 ID。
+   * @returns {Promise<void>} 无返回值。
+   */
+  async function clearLogs(taskId: string) {
+    loading.value = true;
+    error.value = "";
+    message.value = "";
+    try {
+      if (!confirm("确认清空该任务日志吗？")) return;
+      await clearTaskLogs(taskId);
+      taskLogs.value = { ...taskLogs.value, [taskId]: [] };
+      message.value = "日志已清空";
+    } catch (e: any) {
+      error.value = e.message;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   async function refreshLogs(taskId: string) {
     try {
       const existing = taskLogs.value[taskId] || [];
@@ -276,12 +298,17 @@ export function useTasks(agentBaseUrl: Ref<string>) {
 
   function sortTaskLogs(logs: any[]) {
     return [...logs].sort((a: any, b: any) => {
-      const aTime = String(a?.created_at || "");
-      const bTime = String(b?.created_at || "");
+      const aTime = Date.parse(String(a?.created_at || ""));
+      const bTime = Date.parse(String(b?.created_at || ""));
       if (aTime === bTime) {
         return String(b?.id || "").localeCompare(String(a?.id || ""));
       }
-      return bTime.localeCompare(aTime);
+      if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+        return bTime - aTime;
+      }
+      const aRaw = String(a?.created_at || "");
+      const bRaw = String(b?.created_at || "");
+      return bRaw.localeCompare(aRaw);
     });
   }
 
@@ -381,6 +408,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     stop,
     remove,
     toggleLogs,
+    clearLogs,
     refreshLogs,
     toggleCandidates,
     loadCandidates,

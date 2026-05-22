@@ -100,6 +100,52 @@ func TestTaskLogListSupportsSince(t *testing.T) {
 	}
 }
 
+// TestTaskLogClear 验证任务日志可以被清空。
+func TestTaskLogClear(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "task-log-clear@example.com")
+	taskID := createTaskForTest(t, routes, token)
+
+	addReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/tasks/"+taskID+"/logs",
+		bytes.NewBufferString(`{"level":"info","message":"待清空日志"}`),
+	)
+	addReq.Header.Set("Authorization", "Bearer "+token)
+	addResp := httptest.NewRecorder()
+	routes.ServeHTTP(addResp, addReq)
+	if addResp.Code != http.StatusOK {
+		t.Fatalf("add log status = %d, body = %s", addResp.Code, addResp.Body.String())
+	}
+
+	clearReq := httptest.NewRequest(http.MethodDelete, "/api/tasks/"+taskID+"/logs", nil)
+	clearReq.Header.Set("Authorization", "Bearer "+token)
+	clearResp := httptest.NewRecorder()
+	routes.ServeHTTP(clearResp, clearReq)
+	if clearResp.Code != http.StatusOK {
+		t.Fatalf("clear logs status = %d, body = %s", clearResp.Code, clearResp.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/logs", nil)
+	listReq.Header.Set("Authorization", "Bearer "+token)
+	listResp := httptest.NewRecorder()
+	routes.ServeHTTP(listResp, listReq)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list logs status = %d, body = %s", listResp.Code, listResp.Body.String())
+	}
+
+	var payload struct {
+		Logs []any `json:"logs"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Logs) != 0 {
+		t.Fatalf("unexpected logs after clear: %+v", payload.Logs)
+	}
+}
+
 // TestTaskLogRejectsMissingTask 验证不存在的任务不能写入日志。
 func TestTaskLogRejectsMissingTask(t *testing.T) {
 	server := mustNewServer(t)

@@ -99,6 +99,15 @@ export async function listTaskLogs(taskID: string, since?: string) {
   return data.logs
 }
 
+/**
+ * 清空指定任务的云端日志摘要。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<void>} 无返回值。
+ */
+export async function clearTaskLogs(taskID: string) {
+  await api(`/api/tasks/${taskID}/logs`, { method: 'DELETE' })
+}
+
 export async function listCookies() {
   const data = await api('/api/cookies')
   return data.cookies

@@ -232,6 +232,15 @@
 
         <!-- 日志面板 -->
         <div v-if="tasks.expandedTaskId.value === task.id" class="log-panel">
+          <div class="log-panel-header">
+            <button
+              class="text-action danger-text"
+              :disabled="tasks.loading.value"
+              @click="tasks.clearLogs(task.id)"
+            >
+              清空日志
+            </button>
+          </div>
           <p
             v-if="
               !tasks.taskLogs.value[task.id] ||
@@ -568,6 +577,11 @@ onMounted(loadAccounts);
 }
 .danger-text:hover {
   color: #f97066;
+}
+.log-panel-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 @media (max-width: 900px) {
   .task-main {

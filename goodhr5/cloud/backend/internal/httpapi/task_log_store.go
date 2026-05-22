@@ -28,6 +28,7 @@ type TaskCountSummary struct {
 type TaskLogStore interface {
 	AddTaskLog(log TaskLog) (TaskLog, error)
 	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error)
+	ClearTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) error
 	SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error)
 }
 
@@ -82,6 +83,24 @@ func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, is
 		items = append(items, log)
 	}
 	return items, nil
+}
+
+// ClearTaskLogs 清空当前用户某个任务的日志摘要。
+func (s *MemoryTaskLogStore) ClearTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	filtered := make([]TaskLog, 0, len(s.logs))
+	for _, log := range s.logs {
+		isTargetTask := log.TaskID == taskID
+		isTargetUser := isAdmin || log.UserEmail == userEmail
+		if isTargetTask && isTargetUser {
+			continue
+		}
+		filtered = append(filtered, log)
+	}
+	s.logs = filtered
+	return nil
 }
 
 // SummarizeTaskCounts 汇总指定时间范围内各任务的扫描/打招呼/跳过/失败数量。

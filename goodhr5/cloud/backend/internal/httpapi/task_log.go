@@ -50,6 +50,8 @@ func (s *TaskLogService) Collection(w http.ResponseWriter, r *http.Request) {
 		s.List(w, r)
 	case http.MethodPost:
 		s.Add(w, r)
+	case http.MethodDelete:
+		s.Clear(w, r)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -147,6 +149,37 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"logs": publicTaskLogs(logs),
+	})
+}
+
+// Clear 清空某个任务的日志摘要。
+func (s *TaskLogService) Clear(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+
+	taskID, ok := taskIDFromLogsPath(w, r.URL.Path)
+	if !ok {
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+
+	if _, err := s.tasks.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+
+	if err := s.logStore.ClearTaskLogs(tenantID, session.Email, taskID, isAdmin); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to clear task logs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true,
 	})
 }
 

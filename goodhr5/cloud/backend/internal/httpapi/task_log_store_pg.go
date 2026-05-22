@@ -101,6 +101,30 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 	return items, rows.Err()
 }
 
+// ClearTaskLogs 清空 PostgreSQL 中当前用户某个任务的日志摘要。
+func (s *PostgresTaskLogStore) ClearTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	query := `
+		DELETE FROM task_logs tl
+		USING users u
+		WHERE tl.user_id = u.id
+		  AND tl.task_id = $1
+		  AND u.email = $2
+	`
+	args := []any{taskID, userEmail}
+	if isAdmin {
+		query = `
+			DELETE FROM task_logs
+			WHERE task_id = $1
+		`
+		args = []any{taskID}
+	}
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
 // SummarizeTaskCounts 汇总 PostgreSQL 中各任务的扫描/打招呼/跳过/失败数量。
 func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
