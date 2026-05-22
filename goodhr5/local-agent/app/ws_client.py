@@ -19,7 +19,7 @@ import httpx
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
 from app.element_refs import ELEMENT_REFS
-from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
+from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
 from app.machine import load_machine
 from app.ocr import ocr_image_async
 from app.paths import data_dir
@@ -531,7 +531,17 @@ class WSAgentClient:
             if not await locator.is_visible(timeout=timeout):
                 raise ValueError(f"点击目标元素不可见: {matched_target}")
             await move_mouse_to_locator(locator, matched_target)
-            await locator.click(delay=random.randint(100, 300))
+            try:
+                await locator.click(delay=random.randint(100, 300))
+            except Exception as exc:
+                # cloakbrowser 人工点击链偶发 “Element not found while scrolling into view”，
+                # 这里回退为对已定位元素盒子随机点点击，避免二次定位失败导致中断。
+                if "Element not found while scrolling into view" not in str(exc):
+                    raise
+                box = await locator.bounding_box()
+                if not await click_box_random_point(page, box, matched_target):
+                    raise
+                logger.warning("点击%s时触发滚动定位异常，已使用随机点点击回退", matched_target)
             clicked = True
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/sound/play":
