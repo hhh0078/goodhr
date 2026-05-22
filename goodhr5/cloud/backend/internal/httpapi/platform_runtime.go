@@ -4,6 +4,8 @@ package httpapi
 import (
 	"fmt"
 	"strings"
+
+	"goodhr5/cloud/backend/internal/platforms/boss"
 )
 
 type localViewportResp struct {
@@ -389,9 +391,10 @@ func (cfg PlatformConfig) fetchCandidateDetailTextWithActions(exec platformViewp
 	return text, nil
 }
 
+// mapFieldsToCandidate 将平台原始字段映射为统一候选人模型。
 func mapFieldsToCandidate(platformID string, fields map[string]any) Candidate {
 	if strings.EqualFold(strings.TrimSpace(platformID), "boss") {
-		return mapBossFieldsToCandidate(platformID, fields)
+		return boss.MapFieldsToCandidate(platformID, fields)
 	}
 	name, _ := fields["name"].(string)
 	basicInfo, _ := fields["basic_info"].(string)

@@ -1,13 +1,16 @@
-// 本文件负责 Boss 平台候选人字段组装实现。
-package httpapi
+// Package boss 负责 Boss 平台候选人字段组装实现。
+package boss
 
 import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"goodhr5/cloud/backend/internal/platformcore"
 )
 
-func mapBossFieldsToCandidate(platformID string, fields map[string]any) Candidate {
+// MapFieldsToCandidate 将 Boss 抽取字段映射为统一候选人模型。
+func MapFieldsToCandidate(platformID string, fields map[string]any) platformcore.Candidate {
 	name, _ := fields["name"].(string)
 	basicInfo, _ := fields["basic_info"].(string)
 	education, _ := fields["education"].(string)
@@ -25,7 +28,7 @@ func mapBossFieldsToCandidate(platformID string, fields map[string]any) Candidat
 	}
 	index, _ := fields["_index"].(int)
 	elementRef, _ := fields["element_ref"].(string)
-	candidate := Candidate{
+	candidate := platformcore.Candidate{
 		PlatformID:          strings.TrimSpace(platformID),
 		PlatformCandidateID: "",
 		Name:                strings.TrimSpace(name),
@@ -34,21 +37,22 @@ func mapBossFieldsToCandidate(platformID string, fields map[string]any) Candidat
 		PersonalDescription: strings.TrimSpace(description),
 		RawText:             strings.TrimSpace(raw),
 		FilterText:          strings.TrimSpace(raw),
-		BasicProfile: CandidateBasicProfile{
+		BasicProfile: platformcore.CandidateBasicProfile{
 			PersonalDescription: strings.TrimSpace(description),
 		},
-		Runtime: CandidateRuntime{
+		Runtime: platformcore.CandidateRuntime{
 			ElementRef:  strings.TrimSpace(elementRef),
 			CardIndex:   index,
 			Fingerprint: "",
 		},
 		Ext: map[string]any{"raw_fields": fields},
 	}
-	applyBossBasicProfile(&candidate, basicInfo, education, university, raw)
+	applyBasicProfile(&candidate, basicInfo, education, university, raw)
 	return candidate
 }
 
-func applyBossBasicProfile(candidate *Candidate, basicInfo, education, university, raw string) {
+// applyBasicProfile 根据 Boss 原始文案补齐候选人基础档案字段。
+func applyBasicProfile(candidate *platformcore.Candidate, basicInfo, education, university, raw string) {
 	combined := strings.Join([]string{
 		strings.TrimSpace(basicInfo),
 		strings.TrimSpace(education),
@@ -73,7 +77,7 @@ func applyBossBasicProfile(candidate *Candidate, basicInfo, education, universit
 		}
 	}
 	if len(profile.Educations) == 0 && (strings.TrimSpace(university) != "" || strings.TrimSpace(education) != "") {
-		profile.Educations = []CandidateEducation{
+		profile.Educations = []platformcore.CandidateEducation{
 			{
 				SchoolName:     strings.TrimSpace(university),
 				EducationLevel: strings.TrimSpace(firstNonEmpty(education, candidate.EducationLevel)),
@@ -83,6 +87,7 @@ func applyBossBasicProfile(candidate *Candidate, basicInfo, education, universit
 	candidate.BasicProfile = profile
 }
 
+// parseWorkYears 从文本中提取工作年限描述。
 func parseWorkYears(text string) string {
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`\d{1,2}\s*-\s*\d{1,2}\s*年`),
@@ -97,6 +102,7 @@ func parseWorkYears(text string) string {
 	return ""
 }
 
+// parseWorkStatus 从文本中提取候选人工作状态。
 func parseWorkStatus(text string) string {
 	keywords := []string{"离职", "在职", "看机会"}
 	for _, keyword := range keywords {
@@ -107,6 +113,7 @@ func parseWorkStatus(text string) string {
 	return ""
 }
 
+// parseOnlineStatus 从文本中提取在线状态描述。
 func parseOnlineStatus(text string) string {
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`\d+\s*分钟前在线`),
@@ -121,6 +128,7 @@ func parseOnlineStatus(text string) string {
 	return ""
 }
 
+// parseSalaryRange 从文本中提取期望薪资区间并转换为元/月。
 func parseSalaryRange(text string) (*int, *int) {
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`(\d{1,3})\s*[kKＫ]\s*-\s*(\d{1,3})\s*[kKＫ]`),
@@ -141,4 +149,35 @@ func parseSalaryRange(text string) (*int, *int) {
 		return &minSalary, &maxSalary
 	}
 	return nil, nil
+}
+
+// firstNonEmpty 返回首个非空字符串值。
+func firstNonEmpty(primary, fallback string) string {
+	text := strings.TrimSpace(primary)
+	if text != "" {
+		return text
+	}
+	return strings.TrimSpace(fallback)
+}
+
+// buildCandidateText 按字段顺序拼接候选人文本；未传顺序时拼接全部字符串字段。
+func buildCandidateText(candidate map[string]any, orderedKeys []string) string {
+	if len(orderedKeys) == 0 {
+		parts := make([]string, 0, len(candidate))
+		for _, value := range candidate {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				parts = append(parts, strings.TrimSpace(text))
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	parts := make([]string, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		value, _ := candidate[key].(string)
+		value = strings.TrimSpace(value)
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " ")
 }
