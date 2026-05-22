@@ -112,6 +112,14 @@ export async function createCookie(payload: any) {
   return data.cookie
 }
 
+export async function updateCookie(cookieID: string, payload: any) {
+  const data = await api(`/api/cookies/${encodeURIComponent(cookieID)}`, {
+    method: 'PUT',
+    body: payload,
+  })
+  return data.cookie
+}
+
 export async function claimCookie(cookieID: string, payload: any = {}) {
   return api(`/api/cookies/${encodeURIComponent(cookieID)}/claim`, {
     method: 'POST',

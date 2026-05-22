@@ -10,6 +10,12 @@ type PlatformAuthConfig = {
 
 type PlatformLoginFlowOptions = {
   userDataDir?: string
+  cookieSync?: {
+    cookie_id?: string
+    platform_id: string
+    display_name: string
+    cloud_api_base: string
+  }
 }
 
 const URL_CHECK_INTERVAL_MS = 3000
@@ -33,8 +39,9 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
     user_data_dir: options.userDataDir || `platform_${platformId}`,
     headless: false,
     humanize: true,
+    cookie_sync: options.cookieSync,
   })
-  await openPage(agentBaseUrl, { url: entryUrl })
+  await openPage(agentBaseUrl, { url: entryUrl, cookie_sync: options.cookieSync })
   let sawLoginPage = false
   let loggedInHits = 0
   for (let index = 0; index < 10; index += 1) {

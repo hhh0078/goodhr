@@ -22,6 +22,7 @@ type CookieRecord struct {
 
 type CookieStore interface {
 	Create(rec CookieRecord) (CookieRecord, error)
+	Update(rec CookieRecord) (CookieRecord, error)
 	List(tenantID string) ([]CookieRecord, error)
 	GetByID(tenantID, cookieID string) (CookieRecord, error)
 	UpdateStatus(tenantID, cookieID, status, taskID string) error
@@ -57,6 +58,26 @@ func (s *MemoryCookieStore) Create(rec CookieRecord) (CookieRecord, error) {
 	}
 	s.items[rec.ID] = rec
 	return rec, nil
+}
+func (s *MemoryCookieStore) Update(rec CookieRecord) (CookieRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.items[rec.ID]
+	if !ok || current.TenantID != rec.TenantID {
+		return CookieRecord{}, ErrCookieNotFound
+	}
+	current.UserID = rec.UserID
+	current.PlatformID = rec.PlatformID
+	current.DisplayName = rec.DisplayName
+	current.CookieType = rec.CookieType
+	current.EncryptedData = rec.EncryptedData
+	current.EncryptedKeys = rec.EncryptedKeys
+	current.Status = rec.Status
+	current.FileName = rec.FileName
+	current.SizeBytes = rec.SizeBytes
+	current.UpdatedAt = s.now()
+	s.items[rec.ID] = current
+	return current, nil
 }
 func (s *MemoryCookieStore) List(tenantID string) ([]CookieRecord, error) {
 	s.mu.Lock()
@@ -153,6 +174,55 @@ func (s *PostgresCookieStore) Create(rec CookieRecord) (CookieRecord, error) {
 	rec.ID = id
 	rec.UpdatedAt = rec.CreatedAt
 	return rec, nil
+}
+func (s *PostgresCookieStore) Update(rec CookieRecord) (CookieRecord, error) {
+	if rec.EncryptedData == nil {
+		rec.EncryptedData = []byte{}
+	}
+	if rec.EncryptedKeys == nil {
+		rec.EncryptedKeys = map[string]string{}
+	}
+	if rec.Status == "" {
+		rec.Status = "available"
+	}
+	userID := sql.NullString{}
+	if rec.UserID != "" {
+		id, err := ensureUserID(context.Background(), s.db, rec.UserID)
+		if err != nil {
+			return CookieRecord{}, err
+		}
+		userID = sql.NullString{String: id, Valid: true}
+	}
+	keysJSON, _ := json.Marshal(rec.EncryptedKeys)
+	var updated CookieRecord
+	updated.TenantID = rec.TenantID
+	err := s.db.QueryRow(`
+		UPDATE cookie_data
+		SET user_id=$3, platform_id=$4, display_name=$5, cookie_type=$6,
+		    encrypted_data=$7, encrypted_keys=$8, status=$9, file_name=$10, size_bytes=$11, updated_at=NOW()
+		WHERE tenant_id=$1 AND id=$2
+		RETURNING id, tenant_id, COALESCE(user_id::text,''), platform_id, display_name, cookie_type, status,
+		          COALESCE(used_by_task_id::text,''), file_name, size_bytes, encrypted_data, encrypted_keys, created_at, updated_at
+	`,
+		rec.TenantID, rec.ID, userID, rec.PlatformID, rec.DisplayName, rec.CookieType,
+		rec.EncryptedData, keysJSON, rec.Status, rec.FileName, rec.SizeBytes,
+	).Scan(
+		&updated.ID, &updated.TenantID, &updated.UserID, &updated.PlatformID, &updated.DisplayName, &updated.CookieType, &updated.Status,
+		&updated.UsedByTaskID, &updated.FileName, &updated.SizeBytes, &updated.EncryptedData, &keysJSON, &updated.CreatedAt, &updated.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CookieRecord{}, ErrCookieNotFound
+	}
+	if err != nil {
+		return CookieRecord{}, err
+	}
+	if err := json.Unmarshal(keysJSON, &updated.EncryptedKeys); err != nil {
+		return CookieRecord{}, err
+	}
+	if updated.EncryptedKeys == nil {
+		updated.EncryptedKeys = map[string]string{}
+	}
+	return updated, nil
 }
 func (s *PostgresCookieStore) List(tenantID string) ([]CookieRecord, error) {
 	rows, err := s.db.Query(`SELECT id,tenant_id,COALESCE(user_id::text,''),platform_id,display_name,cookie_type,status,COALESCE(used_by_task_id::text,''),file_name,size_bytes,created_at,updated_at FROM cookie_data WHERE tenant_id=$1 ORDER BY created_at DESC`, tenantID)

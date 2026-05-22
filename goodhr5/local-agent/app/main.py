@@ -83,12 +83,14 @@ def _extract_cookie_sync(payload: dict) -> dict | None:
     sync = payload.get("cookie_sync")
     if not isinstance(sync, dict):
         return None
+    cookie_id = str(sync.get("cookie_id", "")).strip()
     platform_id = str(sync.get("platform_id", "")).strip()
     display_name = str(sync.get("display_name", "")).strip()
     cloud_api_base = str(sync.get("cloud_api_base", "")).strip().rstrip("/")
     if not platform_id or not display_name or not cloud_api_base:
         return None
     return {
+        "cookie_id": cookie_id,
         "platform_id": platform_id,
         "display_name": display_name,
         "cloud_api_base": cloud_api_base,
@@ -121,15 +123,24 @@ async def _sync_cookie_after_browser_closed(reason: str) -> None:
         return
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{config['cloud_api_base']}/api/cookies/create",
-                headers={"Authorization": f"Bearer {account['agent_token']}"},
-                json={
-                    "platform_id": config["platform_id"],
-                    "display_name": config["display_name"],
-                    "cookies": cookies,
-                },
-            )
+            request_json = {
+                "platform_id": config["platform_id"],
+                "display_name": config["display_name"],
+                "cookies": cookies,
+            }
+            cookie_id = str(config.get("cookie_id", "")).strip()
+            if cookie_id:
+                resp = await client.put(
+                    f"{config['cloud_api_base']}/api/cookies/{cookie_id}",
+                    headers={"Authorization": f"Bearer {account['agent_token']}"},
+                    json=request_json,
+                )
+            else:
+                resp = await client.post(
+                    f"{config['cloud_api_base']}/api/cookies/create",
+                    headers={"Authorization": f"Bearer {account['agent_token']}"},
+                    json=request_json,
+                )
         if resp.status_code >= 400:
             logger.error("[cookie-sync] upload failed: status=%s body=%s", resp.status_code, resp.text)
         else:

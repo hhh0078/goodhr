@@ -16,6 +16,7 @@ type BrowserRuntimeOptions = {
   proxy?: string
   cookies?: any[]
   cookie_sync?: {
+    cookie_id?: string
     platform_id: string
     display_name: string
     cloud_api_base: string

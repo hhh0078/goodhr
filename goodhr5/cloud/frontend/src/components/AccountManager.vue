@@ -96,7 +96,9 @@ import {
   listPlatformConfigs,
   listPlatformAccounts,
   releaseCookie,
+  updateCookie,
 } from "../services/cloudApi";
+import { cloudApiBase } from "../services/apiClient";
 import { getLocalHealth, openPage } from "../services/localAgentApi";
 import {
   decryptCookieByAgent,
@@ -182,14 +184,22 @@ async function refreshCookie(account: any) {
         msg.value = message;
         msgType.value = "success";
       },
-      { userDataDir: account.local_profile_id || account.id },
+      {
+        userDataDir: account.local_profile_id || account.id,
+        cookieSync: {
+          cookie_id: account.id,
+          platform_id: account.platform_id,
+          display_name: account.display_name,
+          cloud_api_base: cloudApiBase(),
+        },
+      },
     );
-    await createCookie({
+    const updated = await updateCookie(account.id, {
       platform_id: account.platform_id,
       display_name: account.display_name,
       cookies,
     });
-    msg.value = "cookie 已更新";
+    msg.value = `cookie 已更新，最近时间 ${String(updated?.updated_at || "").slice(0, 16) || "已刷新"}`;
     msgType.value = "success";
     await load();
   } catch (e: any) {

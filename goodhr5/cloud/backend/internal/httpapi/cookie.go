@@ -128,6 +128,10 @@ func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func isCookieNameDuplicate(store CookieStore, tenantID string, displayName string) bool {
+	return isCookieNameDuplicateExcept(store, tenantID, displayName, "")
+}
+
+func isCookieNameDuplicateExcept(store CookieStore, tenantID string, displayName string, excludeID string) bool {
 	target := normalizeCookieName(displayName)
 	if target == "" {
 		return false
@@ -137,11 +141,100 @@ func isCookieNameDuplicate(store CookieStore, tenantID string, displayName strin
 		return false
 	}
 	for _, item := range items {
+		if excludeID != "" && item.ID == excludeID {
+			continue
+		}
 		if normalizeCookieName(item.DisplayName) == target {
 			return true
 		}
 	}
 	return false
+}
+
+// Update Cookie (更新已有记录，状态=available)
+func (s *CookieService) Update(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, 401, "unauthorized")
+		return
+	}
+	tenantID, ok := s.currentTenant(w, r)
+	if !ok {
+		return
+	}
+	cookieID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/cookies/"))
+	if cookieID == "" {
+		writeError(w, 400, "id required")
+		return
+	}
+	existing, err := s.store.GetByID(tenantID, cookieID)
+	if err != nil {
+		writeError(w, 404, "cookie not found")
+		return
+	}
+	var req struct {
+		PlatformID  string `json:"platform_id"`
+		DisplayName string `json:"display_name"`
+		Cookies     any    `json:"cookies"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, 400, "invalid json")
+		return
+	}
+	if req.PlatformID == "" {
+		writeError(w, 400, "platform_id required")
+		return
+	}
+	if strings.TrimSpace(req.DisplayName) == "" {
+		writeError(w, 400, "display_name required")
+		return
+	}
+	if isCookieNameDuplicateExcept(s.store, tenantID, req.DisplayName, cookieID) {
+		writeError(w, http.StatusConflict, "display_name already exists")
+		return
+	}
+	if req.Cookies == nil {
+		writeError(w, 400, "cookies required")
+		return
+	}
+	cookieJSON, err := json.Marshal(req.Cookies)
+	if err != nil {
+		writeError(w, 400, "invalid cookies")
+		return
+	}
+	encryptedData, encryptedKeys, err := s.encryptCookieForTenant(tenantID, cookieJSON)
+	if err != nil {
+		log.Printf("[cookies] update encrypt failed: %v", err)
+		if errors.Is(err, errNoAgentPublicKey) {
+			writeError(w, http.StatusConflict, "no local agent public key registered")
+			return
+		}
+		writeError(w, 500, "failed to encrypt cookie")
+		return
+	}
+	rec, err := s.store.Update(CookieRecord{
+		ID:            existing.ID,
+		TenantID:      tenantID,
+		UserID:        session.Email,
+		PlatformID:    req.PlatformID,
+		DisplayName:   req.DisplayName,
+		CookieType:    "json",
+		Status:        "available",
+		EncryptedData: encryptedData,
+		EncryptedKeys: encryptedKeys,
+		FileName:      existing.FileName,
+		SizeBytes:     int64(len(cookieJSON)),
+	})
+	if err != nil {
+		writeError(w, 500, "failed to update cookie")
+		return
+	}
+	log.Printf("[cookies] update success cookie=%s tenant=%s platform=%s name=%s size=%d", rec.ID, tenantID, req.PlatformID, req.DisplayName, len(cookieJSON))
+	writeJSON(w, 200, map[string]any{"ok": true, "cookie": rec})
 }
 
 func normalizeCookieName(name string) string {
