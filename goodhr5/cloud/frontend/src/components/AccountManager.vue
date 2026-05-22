@@ -194,6 +194,8 @@ async function refreshCookie(account: any) {
         },
       },
     );
+    msg.value = `已导出 ${cookies.length} 条 cookie，正在更新云端`;
+    msgType.value = "success";
     const updated = await updateCookie(account.id, {
       platform_id: account.platform_id,
       display_name: account.display_name,

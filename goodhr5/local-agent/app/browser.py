@@ -298,6 +298,7 @@ class BrowserManager:
         self._browser_data_dir = browser_data_dir
         self._closed_callbacks: list = []
         self._closed_notified = False
+        self._last_exported_cookies: list[dict] = []
 
     async def start(
         self,
@@ -421,6 +422,14 @@ class BrowserManager:
         按顺序执行：关闭页面 → 关闭上下文/浏览器 → 清理残留进程 → 清理状态。
         每一步都独立 try-except，确保某步失败不影响后续清理。
         """
+        if self._context or self._pages:
+            try:
+                await self.export_cookies()
+                if self._last_exported_cookies:
+                    logger.info("浏览器关闭前已缓存 cookies: %d 条", len(self._last_exported_cookies))
+            except Exception as exc:
+                logger.warning("浏览器关闭前缓存 cookies 失败: %s", exc)
+
         for name, page in list(self._pages.items()):
             try:
                 await page.close()
@@ -468,6 +477,7 @@ class BrowserManager:
         if context is None:
             raise RuntimeError("浏览器未启动，无法注入 cookies")
         await context.add_cookies(cookies)
+        self._last_exported_cookies = list(cookies)
 
     async def export_cookies(self) -> list[dict]:
         """导出当前浏览器上下文 cookies。"""
@@ -476,5 +486,15 @@ class BrowserManager:
             page = next(iter(self._pages.values()))
             context = page.context if page else None
         if context is None:
-            return []
-        return await context.cookies()
+            if self._last_exported_cookies:
+                logger.info("浏览器上下文不存在，使用最近缓存 cookies: %d 条", len(self._last_exported_cookies))
+            return list(self._last_exported_cookies)
+        try:
+            cookies = await context.cookies()
+        except Exception as exc:
+            if self._last_exported_cookies:
+                logger.warning("导出 cookies 失败，使用最近缓存 cookies: %s", exc)
+                return list(self._last_exported_cookies)
+            raise
+        self._last_exported_cookies = list(cookies)
+        return cookies
