@@ -63,7 +63,7 @@
             {{ a.platform_id }} | cookie:{{
               a.status === "available" ? "已登录" : "未登录"
             }}
-            | 最近时间:{{ a.updated_at.slice(0, 16) || "未更新" }}
+            | 最近时间:{{ formatLocalTime(a.updated_at) }}
           </p>
         </div>
         <div class="account-actions">
@@ -117,6 +117,23 @@ const platformConfigs = ref<any[]>([]);
 const pendingCookies = ref<any[] | null>(null);
 const refreshingAccountId = ref("");
 const openingAccountId = ref("");
+
+/**
+ * 将后端时间转换为当前电脑本地时间显示。
+ * @param {string} value - 后端返回的时间字符串。
+ * @returns {string} 本地时间文本。
+ */
+function formatLocalTime(value: string) {
+  if (!value) return "未更新";
+  const source = String(value);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(source)
+    ? source
+    : `${source}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return source.slice(0, 16) || "未更新";
+  const pad = (num: number) => String(num).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 async function load() {
   try {
@@ -201,7 +218,7 @@ async function refreshCookie(account: any) {
       display_name: account.display_name,
       cookies,
     });
-    msg.value = `cookie 已更新，最近时间 ${String(updated?.updated_at || "").slice(0, 16) || "已刷新"}`;
+    msg.value = `cookie 已更新，最近时间 ${formatLocalTime(updated?.updated_at)}`;
     msgType.value = "success";
     await load();
   } catch (e: any) {
