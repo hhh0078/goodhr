@@ -279,7 +279,17 @@
                 }"
                 >{{ log.level }}</span
               >
-              <strong>{{ log.message }}</strong>
+              <strong
+                :style="{
+                  color:
+                    log.level === 'error'
+                      ? 'red'
+                      : log.level === 'warn'
+                        ? 'orange'
+                        : 'inherit',
+                }"
+                >{{ log.message }}</strong
+              >
             </li>
           </ol>
         </div>
