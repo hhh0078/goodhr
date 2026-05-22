@@ -8,3 +8,5 @@ goodhrpy/.venv/
 **/.venv/
 **/cookies/
 **/logs/**
+goodhr5/cloud/backend/logs/backend.log
+goodhr5/local-agent/logs/agent.log
