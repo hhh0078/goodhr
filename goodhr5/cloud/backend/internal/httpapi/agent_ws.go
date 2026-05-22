@@ -124,7 +124,7 @@ func (h *AgentWSHub) SendCommand(userEmail string, msg AgentWSMessage, retries i
 	if msg.MessageID == "" {
 		msg.MessageID = newWSMessageID()
 	}
-	log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, wsPayloadSummary(msg.Payload))
+	// log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, wsPayloadSummary(msg.Payload))
 	for attempt := 1; attempt <= retries; attempt++ {
 		msg.Attempt = attempt
 		reply, err := client.sendAndWait(msg, agentWSReplyTimeout)

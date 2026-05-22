@@ -112,10 +112,18 @@
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
           </div>
           <div class="task-stats">
-            <span class="stat-chip">扫描 {{ displayTaskCount(task, "scanned") }}</span>
-            <span class="stat-chip">打招呼 {{ displayTaskCount(task, "greeted") }}</span>
-            <span class="stat-chip">跳过 {{ displayTaskCount(task, "skipped") }}</span>
-            <span class="stat-chip">失败 {{ displayTaskCount(task, "failed") }}</span>
+            <span class="stat-chip"
+              >扫描 {{ displayTaskCount(task, "scanned") }}</span
+            >
+            <span class="stat-chip"
+              >打招呼 {{ displayTaskCount(task, "greeted") }}</span
+            >
+            <span class="stat-chip"
+              >跳过 {{ displayTaskCount(task, "skipped") }}</span
+            >
+            <span class="stat-chip"
+              >失败 {{ displayTaskCount(task, "failed") }}</span
+            >
           </div>
         </div>
 
@@ -519,7 +527,7 @@ onMounted(loadAccounts);
   align-items: center;
   gap: 0;
   border: 1px solid #2f2f2f;
-  border-radius: 4px;
+
   margin-bottom: 12px;
   background: transparent;
 }

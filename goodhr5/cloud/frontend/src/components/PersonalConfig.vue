@@ -11,17 +11,22 @@
         API 地址
         <input
           v-model="config.form.value.aiBaseURL"
-          placeholder="如: https://api.siliconflow.cn/v1"
+          placeholder="如: https://api.deepseek.com/chat/completions"
         />
-        <small class="field-help">用于调用 AI 服务的基础地址。</small>
+        <small class="field-help"
+          >用于调用 AI 服务的基础地址。推荐使用 Deepseek。地址为
+          https://api.deepseek.com/chat/completions</small
+        >
       </label>
       <label class="field">
         模型
         <input
           v-model="config.form.value.aiModel"
-          placeholder="如: gpt-5.1-chat"
+          placeholder="如: deepseek-v4-flash"
         />
-        <small class="field-help">任务使用的默认模型名称。</small>
+        <small class="field-help"
+          >任务使用的默认模型名称。deepseek-v4-flash或者deepseek-v4-pro</small
+        >
       </label>
       <label class="field">
         API Key
@@ -34,7 +39,12 @@
           "
         />
         <small class="field-help"
-          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。</small
+          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。deepseek
+          你可以看这个文章获取 Key<a
+            href="https://www.explinks.com/blog/how-to-get-deepseek-api-key-step-by-step-guide/"
+            target="_blank"
+            >获取秘钥教程</a
+          ></small
         >
       </label>
     </div>
@@ -54,10 +64,11 @@
           type="number"
           min="0"
           max="100"
-      />
+        />
         <small class="field-help"
           >关键词模式下，用这个概率决定是否打开详情再继续筛选。</small
-        ></label>
+        ></label
+      >
       <label class="field field-small"
         >滚动延迟最小(秒)<input
           v-model="config.form.value.scrollDelayMin"

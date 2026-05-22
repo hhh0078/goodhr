@@ -265,7 +265,7 @@ class WSAgentClient:
                     logger.info("[任务WS] 云端WS已连接")
                     await self._send_nowait("agent.status", "", {"status": "online"})
                     async for raw in ws:
-                        logger.info("[任务WS] 收到原始消息长度=%d", len(raw))
+                        # logger.info("[任务WS] 收到原始消息长度=%d", len(raw))
                         await self._handle_raw(raw)
                     self.state.connected = False
                     self.state.status = "重连中"
@@ -369,7 +369,7 @@ class WSAgentClient:
         message_id = str(message.get("message_id") or "")
         task_id = str(message.get("task_id") or "")
         msg_type = str(message.get("type") or "")
-        logger.info("[任务WS] 开始处理命令 type=%s task=%s message_id=%s", msg_type, task_id, message_id)
+        # logger.info("[任务WS] 开始处理命令 type=%s task=%s message_id=%s", msg_type, task_id, message_id)
         try:
             payload = message.get("payload") or {}
             result = await self._execute_command(msg_type, task_id, payload)
