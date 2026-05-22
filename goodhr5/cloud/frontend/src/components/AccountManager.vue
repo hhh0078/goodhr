@@ -99,7 +99,11 @@ import {
   updateCookie,
 } from "../services/cloudApi";
 import { cloudApiBase } from "../services/apiClient";
-import { getLocalHealth, openPage } from "../services/localAgentApi";
+import {
+  configureCookieSync,
+  getLocalHealth,
+  openPage,
+} from "../services/localAgentApi";
 import {
   decryptCookieByAgent,
   pickDecryptPayload,
@@ -255,6 +259,12 @@ async function openWithCookie(account: any) {
       user_data_dir: account.local_profile_id || account.id,
       headless: false,
       humanize: true,
+      cookie_sync: {
+        cookie_id: account.id,
+        platform_id: account.platform_id,
+        display_name: account.display_name,
+        cloud_api_base: cloudApiBase(),
+      },
     };
 
     let claimed = false;
@@ -285,6 +295,7 @@ async function openWithCookie(account: any) {
       }
     }
 
+    await configureCookieSync(props.agentBaseUrl, openPayload.cookie_sync);
     await openPage(props.agentBaseUrl, openPayload);
     msg.value = "已打开推荐页";
     msgType.value = "success";

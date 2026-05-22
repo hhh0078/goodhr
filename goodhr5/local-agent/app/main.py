@@ -81,6 +81,8 @@ _cookie_sync_config: dict | None = None
 
 def _extract_cookie_sync(payload: dict) -> dict | None:
     sync = payload.get("cookie_sync")
+    if sync is None:
+        sync = payload
     if not isinstance(sync, dict):
         return None
     cookie_id = str(sync.get("cookie_id", "")).strip()
@@ -95,6 +97,31 @@ def _extract_cookie_sync(payload: dict) -> dict | None:
         "display_name": display_name,
         "cloud_api_base": cloud_api_base,
     }
+
+
+def _set_cookie_sync_config(payload: dict) -> dict:
+    """
+    设置浏览器关闭后自动同步 cookie 的配置。
+
+    Args:
+        payload: 包含 cookie_id、platform_id、display_name 和 cloud_api_base 的参数。
+
+    Returns:
+        已标准化的同步配置。
+    """
+    global _cookie_sync_config
+    config = _extract_cookie_sync(payload)
+    if not config:
+        raise HTTPException(400, "cookie sync config is invalid")
+    _cookie_sync_config = config
+    logger.info(
+        "[cookie-sync] config set: cookie=%s platform=%s name=%s api=%s",
+        config.get("cookie_id", ""),
+        config.get("platform_id", ""),
+        config.get("display_name", ""),
+        config.get("cloud_api_base", ""),
+    )
+    return config
 
 
 async def _sync_cookie_after_browser_closed(reason: str) -> None:
@@ -474,6 +501,13 @@ async def browser_stop() -> dict:
 async def browser_status() -> dict:
     """查询浏览器运行状态。"""
     return {"ok": True, "is_running": _browser_manager.is_running}
+
+
+@app.post("/api/v1/cookie-sync/config")
+async def cookie_sync_config(payload: dict) -> dict:
+    """设置当前浏览器关闭后的 cookie 自动同步配置。"""
+    config = _set_cookie_sync_config(payload)
+    return {"ok": True, "config": config}
 
 
 async def _require_page():
