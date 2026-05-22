@@ -827,8 +827,10 @@ async def page_url() -> dict:
 @app.get("/api/v1/page/cookies")
 async def page_cookies() -> dict:
     """导出当前浏览器上下文 cookies JSON。"""
-    page = await _require_page()
-    cookies = await page.context.cookies()
+    await _require_page()
+    logger.info("[cookie-export] request received from /api/v1/page/cookies")
+    cookies = await _browser_manager.export_cookies()
+    logger.info("[cookie-export] success cookies=%d", len(cookies))
     return {"ok": True, "cookies": cookies}
 
 @app.post("/api/v1/page/load-profile")

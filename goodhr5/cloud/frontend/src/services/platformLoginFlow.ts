@@ -56,8 +56,7 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
     if (isLoggedInURL(url, auth)) {
       loggedInHits += 1
       if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
-        onStatus('已检测到登录状态，正在导出 cookie')
-        return exportPageCookies(agentBaseUrl)
+        return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
       }
       continue
     }
@@ -65,8 +64,7 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
   }
   if (!sawLoginPage) {
     if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
-      onStatus('已检测到登录状态，正在导出 cookie')
-      return exportPageCookies(agentBaseUrl)
+      return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
     }
     throw new Error('未确认登录状态，请重试')
   }
@@ -77,8 +75,7 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
     if (isLoggedInURL(url, auth)) {
       loggedInHits += 1
       if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
-        onStatus('登录成功，正在导出 cookie')
-        return exportPageCookies(agentBaseUrl)
+        return exportCookiesAfterLogin(agentBaseUrl, onStatus, '登录成功')
       }
       continue
     }
@@ -99,4 +96,21 @@ function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
 
 function delay(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+/**
+ * 登录确认后调用本地程序导出 cookie，并输出可见状态。
+ * @param {string} agentBaseUrl - Local Agent HTTP 基础地址。
+ * @param {(message: string) => void} onStatus - 状态提示回调。
+ * @param {string} reason - 触发导出的登录判断原因。
+ * @returns {Promise<any[]>} 返回导出的 cookies。
+ */
+async function exportCookiesAfterLogin(agentBaseUrl: string, onStatus: (message: string) => void, reason: string) {
+  onStatus(`${reason}，正在请求本地程序导出 cookie`)
+  const cookies = await exportPageCookies(agentBaseUrl)
+  onStatus(`本地程序已导出 ${cookies.length} 条 cookie`)
+  if (!Array.isArray(cookies) || cookies.length === 0) {
+    throw new Error('本地程序没有导出 cookie，请确认浏览器仍处于登录状态')
+  }
+  return cookies
 }
