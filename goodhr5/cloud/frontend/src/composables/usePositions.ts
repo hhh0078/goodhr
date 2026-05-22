@@ -76,7 +76,7 @@ export function usePositions() {
    * @returns {void} 无返回值。
    */
   function resetOpenDetailPrompt() {
-    form.value.aiOpenDetailPrompt = defaultPrompts.value.open_detail_prompt || ''
+    form.value.aiOpenDetailPrompt = normalizePromptText(defaultPrompts.value.open_detail_prompt || '')
   }
 
   /**
@@ -84,7 +84,7 @@ export function usePositions() {
    * @returns {void} 无返回值。
    */
   function resetFilterPrompt() {
-    form.value.aiFilterPrompt = defaultPrompts.value.filter_prompt || ''
+    form.value.aiFilterPrompt = normalizePromptText(defaultPrompts.value.filter_prompt || '')
   }
 
   /**
@@ -92,7 +92,7 @@ export function usePositions() {
    * @returns {void} 无返回值。
    */
   function resetReviewPrompt() {
-    form.value.aiReviewPrompt = defaultPrompts.value.review_prompt || ''
+    form.value.aiReviewPrompt = normalizePromptText(defaultPrompts.value.review_prompt || '')
   }
 
   function edit(pos: any) {
@@ -110,9 +110,9 @@ export function usePositions() {
       modeDefault: common.mode_default || 'ai',
       detailMode: common.detail_mode || keyword.detail_mode || 'dom',
       aiPositionRequirement: ai.position_requirement || '',
-      aiFilterPrompt: ai.greet_prompt || ai.filter_prompt || ai.click_prompt || '',
-      aiOpenDetailPrompt: ai.open_detail_prompt || '',
-      aiReviewPrompt: ai.review_prompt || '',
+      aiFilterPrompt: normalizePromptText(ai.greet_prompt || ai.filter_prompt || ai.click_prompt || ''),
+      aiOpenDetailPrompt: normalizePromptText(ai.open_detail_prompt || ''),
+      aiReviewPrompt: normalizePromptText(ai.review_prompt || ''),
       detailScoreThreshold: String(ai.detail_score_threshold ?? 60),
       greetScoreThreshold: String(ai.greet_score_threshold ?? 70),
     }
@@ -125,10 +125,10 @@ export function usePositions() {
    */
   function fillEmptyDefaultPrompts() {
     if (!form.value.aiFilterPrompt && defaultPrompts.value.filter_prompt) {
-      form.value.aiFilterPrompt = defaultPrompts.value.filter_prompt
+      form.value.aiFilterPrompt = normalizePromptText(defaultPrompts.value.filter_prompt)
     }
     if (!form.value.aiOpenDetailPrompt && defaultPrompts.value.open_detail_prompt) {
-      form.value.aiOpenDetailPrompt = defaultPrompts.value.open_detail_prompt
+      form.value.aiOpenDetailPrompt = normalizePromptText(defaultPrompts.value.open_detail_prompt)
     }
   }
 
@@ -176,8 +176,17 @@ function defaultForm() {
  */
 function normalizeDefaultPrompts(value: any) {
   return {
-    filter_prompt: String(value?.filter_prompt || ''),
-    open_detail_prompt: String(value?.open_detail_prompt || ''),
-    review_prompt: String(value?.review_prompt || ''),
+    filter_prompt: normalizePromptText(String(value?.filter_prompt || '')),
+    open_detail_prompt: normalizePromptText(String(value?.open_detail_prompt || '')),
+    review_prompt: normalizePromptText(String(value?.review_prompt || '')),
   }
+}
+
+/**
+ * 将字面量 \n 还原为真实换行，兼容历史脏数据展示。
+ * @param {string} text - 原始提示词文本。
+ * @returns {string} 处理后的多行文本。
+ */
+function normalizePromptText(text: string) {
+  return String(text || '').replace(/\\n/g, '\n')
 }
