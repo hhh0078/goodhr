@@ -9,6 +9,22 @@ import (
 )
 
 const defaultPromptsConfigKey = "ai.default_prompts"
+const builtinReviewPrompt = `你是一个资深的HR专家。当前候选人分数接近岗位阈值，请做打招呼前二次复核评分。
+
+重要提示：
+1. 仅输出 JSON，不能输出其它内容。
+2. 返回字段必须是 score 和 reason。
+3. score 范围是 0-100，可以是小数。
+4. reason 控制在30字以内。
+5. 评分更关注风险点与关键硬指标。
+
+岗位要求：
+${岗位信息}
+
+候选人信息：
+${候选人信息}
+
+请返回JSON：{"score": 72, "reason": "边界候选人可谨慎通过"}`
 
 // DefaultPrompts 表示系统级 AI 默认提示词配置。
 type DefaultPrompts struct {
@@ -33,6 +49,9 @@ func loadDefaultPrompts(store SystemConfigStore) DefaultPrompts {
 	prompts.FilterPrompt = strings.TrimSpace(prompts.FilterPrompt)
 	prompts.OpenDetailPrompt = strings.TrimSpace(prompts.OpenDetailPrompt)
 	prompts.ReviewPrompt = strings.TrimSpace(prompts.ReviewPrompt)
+	if prompts.ReviewPrompt == "" {
+		prompts.ReviewPrompt = builtinReviewPrompt
+	}
 	return prompts
 }
 
