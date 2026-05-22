@@ -258,14 +258,16 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		e.incrementCounts(1, 0, 0, 0)
 
 		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
-		shouldOpenDetail, detailReason, tokenUsage, err := e.decideOpenDetail(baseText)
+		shouldOpenDetail, detailScoreDecision, err := e.decideOpenDetail(baseText)
 		if err != nil {
 			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
 			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
-		if detailReason != "" {
-			e.log("info", fmt.Sprintf("候选人 %s 详情决策: %s（token=%d）", candidateName, detailReason, tokenUsage))
+		candidate.AI.Detail.Score = float64Ptr(detailScoreDecision.Score)
+		candidate.AI.Detail.Reason = strings.TrimSpace(detailScoreDecision.Reason)
+		if detailScoreDecision.Reason != "" {
+			e.log("info", fmt.Sprintf("候选人 %s 看详情评分: %.1f，原因: %s（token=%d）", candidateName, detailScoreDecision.Score, detailScoreDecision.Reason, detailScoreDecision.TokenUsage))
 		}
 		detailText := ""
 		if shouldOpenDetail {
@@ -280,19 +282,27 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
-			jobDesc := e.positionDescription()
-			decision, err := e.callAI(jobDesc, filterText)
+			greetDecision, err := e.callGreetScoreAI(e.positionDescription(), filterText)
 			if err != nil {
 				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
 				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
-			if !decision.IsOK {
-				e.log("info", fmt.Sprintf("候选人 %s AI 筛选跳过: %s", candidateName, decision.Msg))
+			candidate.AI.Greet.Score = float64Ptr(greetDecision.Score)
+			candidate.AI.Greet.Reason = strings.TrimSpace(greetDecision.Reason)
+			e.log("info", fmt.Sprintf("候选人 %s 打招呼评分: %.1f，原因: %s", candidateName, greetDecision.Score, greetDecision.Reason))
+			shouldGreet, finalGreetScore, finalGreetReason, reviewDecision, usedReview := e.evaluateGreetScore(greetDecision, filterText)
+			if usedReview {
+				candidate.AI.Review.Score = float64Ptr(reviewDecision.Score)
+				candidate.AI.Review.Reason = strings.TrimSpace(reviewDecision.Reason)
+				e.log("info", fmt.Sprintf("候选人 %s 复核评分: %.1f，原因: %s（token=%d）", candidateName, reviewDecision.Score, reviewDecision.Reason, reviewDecision.TokenUsage))
+			}
+			if !shouldGreet {
+				e.log("info", fmt.Sprintf("候选人 %s AI 筛选跳过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
 				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s", candidateName, decision.Msg))
+			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
 		} else if e.filter != nil {
 			result := e.filter.Filter(filterText)
 			if !result.Passed {
@@ -322,18 +332,20 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 }
 
 // decideOpenDetail 根据任务模式决定本次是否需要打开详情。
-func (e *TaskExecutor) decideOpenDetail(baseText string) (bool, string, int, error) {
+func (e *TaskExecutor) decideOpenDetail(baseText string) (bool, AIScoreDecision, error) {
 	if strings.TrimSpace(baseText) == "" {
-		return false, "基础信息为空，跳过详情", 0, nil
+		return false, AIScoreDecision{Score: 0, Reason: "基础信息为空，跳过详情", TokenUsage: 0}, nil
 	}
 	if e.task.Mode == "ai" {
-		decision, err := e.callOpenDetailAI(e.positionDescription(), baseText)
+		decision, err := e.callOpenDetailScoreAI(e.positionDescription(), baseText)
 		if err != nil {
-			return false, "", 0, err
+			return false, AIScoreDecision{}, err
 		}
-		return decision.ShouldOpenDetail, decision.Reason, decision.TokenUsage, nil
+		threshold := e.detailThreshold()
+		return decision.Score >= threshold, decision, nil
 	}
-	return rollDetailOpenByProbability(e.userPrefs.DetailOpenProbability)
+	shouldOpen, reason, token, err := rollDetailOpenByProbability(e.userPrefs.DetailOpenProbability)
+	return shouldOpen, AIScoreDecision{Score: 0, Reason: reason, TokenUsage: token}, err
 }
 
 // mergeCandidateTexts 合并候选人基础信息和详情文本，供筛选流程使用。
@@ -603,41 +615,36 @@ type AIResponse struct {
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 }
-type AIDecision struct {
-	IsOK bool   `json:"isok"`
-	Msg  string `json:"msg"`
+type AIScoreDecision struct {
+	Score      float64 `json:"score"`
+	Reason     string  `json:"reason"`
+	TokenUsage int     `json:"token_usage"`
 }
 
-type OpenDetailDecision struct {
-	ShouldOpenDetail bool   `json:"should_open_detail"`
-	Reason           string `json:"reason"`
-	TokenUsage       int    `json:"token_usage"`
-}
-
-const defaultAIFilterPrompt = `你是一个资深的HR专家。请根据岗位要求判断候选人是否值得继续沟通。
+const defaultAIGreetScorePrompt = `你是一个资深的HR专家。请根据岗位要求给候选人打“打招呼建议分”。
 
 重要提示：
-1. 这个API仅用于岗位与候选人的筛选。
-2. 请根据岗位要求判断候选人是否值得继续沟通。
-3. 必须返回JSON格式，包含isok和msg两个字段。
-4. isok字段只能是true或false。
-5. msg字段是决策原因，10个字以内。
+1. 仅输出 JSON，不能输出其它内容。
+2. 返回字段必须是 score 和 reason。
+3. score 范围是 0-100，可以是小数。
+4. reason 控制在30字以内。
 
 岗位要求：
 %s
 
-候选人基本信息：
+候选人信息：
 %s
 
-请判断是否值得继续沟通，返回JSON格式：{"isok": true, "msg": "符合基本要求"}`
+请返回JSON：{"score": 78, "reason": "匹配核心要求"}`
 
-const defaultOpenDetailPrompt = `你是一个资深的HR专家。请根据岗位要求和候选人的基础信息，判断这次是否值得打开候选人详情。
+const defaultOpenDetailScorePrompt = `你是一个资深的HR专家。请根据岗位要求给候选人打“查看详情建议分”。
 
 重要提示：
-1. 仅根据“当前基础信息”来决定是否需要打开详情，不要直接给出最终录用判断。
-2. 必须返回JSON格式，包含should_open_detail和reason两个字段。
-3. should_open_detail字段只能是true或false。
-4. reason字段控制在20字以内。
+1. 仅根据候选人基础信息评估是否值得打开详情。
+2. 仅输出 JSON，不能输出其它内容。
+3. 返回字段必须是 score 和 reason。
+4. score 范围是 0-100，可以是小数。
+5. reason 控制在30字以内。
 
 岗位要求：
 %s
@@ -645,7 +652,24 @@ const defaultOpenDetailPrompt = `你是一个资深的HR专家。请根据岗位
 候选人基础信息：
 %s
 
-请返回JSON：{"should_open_detail": true, "reason": "基础信息值得深看"}`
+请返回JSON：{"score": 66, "reason": "可进一步确认细节"}`
+
+const defaultAIReviewScorePrompt = `你是一个资深的HR专家。当前候选人分数接近岗位阈值，请做“打招呼前二次复核评分”。
+
+重要提示：
+1. 仅输出 JSON，不能输出其它内容。
+2. 返回字段必须是 score 和 reason。
+3. score 范围是 0-100，可以是小数。
+4. reason 控制在30字以内。
+5. 评分更关注风险点与关键硬指标。
+
+岗位要求：
+%s
+
+候选人信息：
+%s
+
+请返回JSON：{"score": 72, "reason": "边界候选人可谨慎通过"}`
 
 // positionDescription 从岗位信息中提取职位要求文本。
 func (e *TaskExecutor) positionDescription() string {
@@ -749,40 +773,97 @@ func (e *TaskExecutor) decodeJSONWithRetry(raw string, target any) error {
 	return nil
 }
 
-// callAI 调用 AI API 对候选人进行筛选。
-func (e *TaskExecutor) callAI(jobDesc, candidateText string) (AIDecision, error) {
-	prompt := fmt.Sprintf(defaultAIFilterPrompt, jobDesc, candidateText)
-	if customPrompt := e.effectivePrompt(e.defaultPrompts.FilterPrompt, "filter_prompt", "click_prompt"); customPrompt != "" {
-		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "补充规则")
-	}
-	content, _, err := e.doAIChat(prompt, true)
-	if err != nil {
-		return AIDecision{}, err
-	}
-	var decision AIDecision
-	if err := e.decodeJSONWithRetry(content, &decision); err != nil {
-		return AIDecision{}, err
-	}
-	return decision, nil
-}
-
-// callOpenDetailAI 调用 AI 判断是否需要打开详情。
-func (e *TaskExecutor) callOpenDetailAI(jobDesc, candidateText string) (OpenDetailDecision, error) {
-	prompt := fmt.Sprintf(defaultOpenDetailPrompt, jobDesc, candidateText)
+// callOpenDetailScoreAI 调用 AI 返回查看详情评分。
+func (e *TaskExecutor) callOpenDetailScoreAI(jobDesc, candidateText string) (AIScoreDecision, error) {
+	prompt := fmt.Sprintf(defaultOpenDetailScorePrompt, jobDesc, candidateText)
 	if customPrompt := e.effectivePrompt(e.defaultPrompts.OpenDetailPrompt, "open_detail_prompt"); customPrompt != "" {
 		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "补充要求")
 	}
 	content, tokens, err := e.doAIChat(prompt, true)
 	if err != nil {
-		return OpenDetailDecision{}, err
+		return AIScoreDecision{}, err
 	}
-	var decision OpenDetailDecision
+	var decision AIScoreDecision
 	if err := e.decodeJSONWithRetry(content, &decision); err != nil {
-		return OpenDetailDecision{}, err
+		return AIScoreDecision{}, err
 	}
-	decision.Reason = truncateText(strings.TrimSpace(decision.Reason), 20)
+	decision.Score = clampScore(decision.Score)
+	decision.Reason = truncateText(strings.TrimSpace(decision.Reason), 30)
 	decision.TokenUsage = tokens
 	return decision, nil
+}
+
+// callGreetScoreAI 调用 AI 返回打招呼评分。
+func (e *TaskExecutor) callGreetScoreAI(jobDesc, candidateText string) (AIScoreDecision, error) {
+	prompt := fmt.Sprintf(defaultAIGreetScorePrompt, jobDesc, candidateText)
+	if customPrompt := e.effectivePrompt(e.defaultPrompts.FilterPrompt, "greet_prompt", "filter_prompt", "click_prompt"); customPrompt != "" {
+		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "补充规则")
+	}
+	content, tokens, err := e.doAIChat(prompt, true)
+	if err != nil {
+		return AIScoreDecision{}, err
+	}
+	var decision AIScoreDecision
+	if err := e.decodeJSONWithRetry(content, &decision); err != nil {
+		return AIScoreDecision{}, err
+	}
+	decision.Score = clampScore(decision.Score)
+	decision.Reason = truncateText(strings.TrimSpace(decision.Reason), 30)
+	decision.TokenUsage = tokens
+	return decision, nil
+}
+
+// callReviewScoreAI 调用 AI 返回临界分复核评分。
+func (e *TaskExecutor) callReviewScoreAI(jobDesc, candidateText string) (AIScoreDecision, error) {
+	prompt := fmt.Sprintf(defaultAIReviewScorePrompt, jobDesc, candidateText)
+	if customPrompt := e.positionAIConfigString("review_prompt"); customPrompt != "" {
+		prompt = buildPromptFromTemplate(customPrompt, jobDesc, candidateText, prompt, "复核规则")
+	}
+	content, tokens, err := e.doAIChat(prompt, true)
+	if err != nil {
+		return AIScoreDecision{}, err
+	}
+	var decision AIScoreDecision
+	if err := e.decodeJSONWithRetry(content, &decision); err != nil {
+		return AIScoreDecision{}, err
+	}
+	decision.Score = clampScore(decision.Score)
+	decision.Reason = truncateText(strings.TrimSpace(decision.Reason), 30)
+	decision.TokenUsage = tokens
+	return decision, nil
+}
+
+// evaluateGreetScore 根据打招呼评分和阈值决定是否打招呼，并在临界区间执行复核。
+func (e *TaskExecutor) evaluateGreetScore(initial AIScoreDecision, candidateText string) (bool, float64, string, AIScoreDecision, bool) {
+	threshold := e.greetThreshold()
+	finalScore := initial.Score
+	finalReason := firstNonEmpty(strings.TrimSpace(initial.Reason), "评分低于阈值")
+	if e.shouldRunReview(initial.Score, threshold) {
+		reviewDecision, err := e.callReviewScoreAI(e.positionDescription(), candidateText)
+		if err != nil {
+			e.log("warn", fmt.Sprintf("候选人复核评分失败，沿用首次评分：%v", err))
+		} else {
+			finalScore = reviewDecision.Score
+			if strings.TrimSpace(reviewDecision.Reason) != "" {
+				finalReason = strings.TrimSpace(reviewDecision.Reason)
+			}
+			return finalScore >= threshold, finalScore, finalReason, reviewDecision, true
+		}
+	}
+	return finalScore >= threshold, finalScore, finalReason, AIScoreDecision{}, false
+}
+
+// shouldRunReview 判断是否需要触发复核评分。
+func (e *TaskExecutor) shouldRunReview(score, threshold float64) bool {
+	reviewPrompt := strings.TrimSpace(e.positionAIConfigString("review_prompt"))
+	if reviewPrompt == "" {
+		return false
+	}
+	delta := score - threshold
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= 10
 }
 
 // effectivePrompt 读取岗位模板提示词，为空时使用系统默认提示词。
@@ -848,4 +929,61 @@ func truncateText(text string, maxLen int) string {
 		return value
 	}
 	return string([]rune(value)[:maxLen])
+}
+
+// detailThreshold 返回岗位模板里的详情查看阈值。
+func (e *TaskExecutor) detailThreshold() float64 {
+	return e.positionAIConfigNumber(60, "detail_score_threshold")
+}
+
+// greetThreshold 返回岗位模板里的打招呼阈值。
+func (e *TaskExecutor) greetThreshold() float64 {
+	return e.positionAIConfigNumber(70, "greet_score_threshold")
+}
+
+// positionAIConfigNumber 从岗位 AI 配置读取数值参数。
+func (e *TaskExecutor) positionAIConfigNumber(fallback float64, keys ...string) float64 {
+	if e.position == nil {
+		return fallback
+	}
+	aiConfig, _ := e.position["ai_config"].(map[string]any)
+	for _, key := range keys {
+		value, ok := aiConfig[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case float64:
+			return clampScore(v)
+		case int:
+			return clampScore(float64(v))
+		case string:
+			parsed := strings.TrimSpace(v)
+			if parsed == "" {
+				continue
+			}
+			var num float64
+			if _, err := fmt.Sscanf(parsed, "%f", &num); err == nil {
+				return clampScore(num)
+			}
+		}
+	}
+	return fallback
+}
+
+// clampScore 将分数限制在 0-100 区间。
+func clampScore(score float64) float64 {
+	if score < 0 {
+		return 0
+	}
+	if score > 100 {
+		return 100
+	}
+	return score
+}
+
+// float64Ptr 返回 float64 的指针。
+func float64Ptr(v float64) *float64 {
+	value := v
+	return &value
 }

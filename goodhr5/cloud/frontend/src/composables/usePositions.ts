@@ -7,7 +7,7 @@ export function usePositions() {
   const loading = ref(false)
   const error = ref('')
   const form = ref(defaultForm())
-  const defaultPrompts = ref({ filter_prompt: '', open_detail_prompt: '' })
+  const defaultPrompts = ref({ filter_prompt: '', open_detail_prompt: '', review_prompt: '' })
 
   async function load() {
     loading.value = true; error.value = ''
@@ -42,8 +42,12 @@ export function usePositions() {
         ai_config: {
           position_requirement: form.value.aiPositionRequirement,
           filter_prompt: form.value.aiFilterPrompt,
+          greet_prompt: form.value.aiFilterPrompt,
           click_prompt: form.value.aiFilterPrompt,
           open_detail_prompt: form.value.aiOpenDetailPrompt,
+          review_prompt: form.value.aiReviewPrompt,
+          detail_score_threshold: Number(form.value.detailScoreThreshold || 0),
+          greet_score_threshold: Number(form.value.greetScoreThreshold || 0),
         },
         keyword_config: {},
       })
@@ -83,6 +87,14 @@ export function usePositions() {
     form.value.aiFilterPrompt = defaultPrompts.value.filter_prompt || ''
   }
 
+  /**
+   * 将复核提示词重置为系统默认值。
+   * @returns {void} 无返回值。
+   */
+  function resetReviewPrompt() {
+    form.value.aiReviewPrompt = defaultPrompts.value.review_prompt || ''
+  }
+
   function edit(pos: any) {
     const common = pos.common_config || {}
     const ai = pos.ai_config || {}
@@ -98,8 +110,11 @@ export function usePositions() {
       modeDefault: common.mode_default || 'ai',
       detailMode: common.detail_mode || keyword.detail_mode || 'dom',
       aiPositionRequirement: ai.position_requirement || '',
-      aiFilterPrompt: ai.filter_prompt || ai.click_prompt || '',
+      aiFilterPrompt: ai.greet_prompt || ai.filter_prompt || ai.click_prompt || '',
       aiOpenDetailPrompt: ai.open_detail_prompt || '',
+      aiReviewPrompt: ai.review_prompt || '',
+      detailScoreThreshold: String(ai.detail_score_threshold ?? 60),
+      greetScoreThreshold: String(ai.greet_score_threshold ?? 70),
     }
     fillEmptyDefaultPrompts()
   }
@@ -130,6 +145,7 @@ export function usePositions() {
     edit,
     resetOpenDetailPrompt,
     resetFilterPrompt,
+    resetReviewPrompt,
   }
 }
 
@@ -147,17 +163,21 @@ function defaultForm() {
     aiPositionRequirement: '',
     aiFilterPrompt: '',
     aiOpenDetailPrompt: '',
+    aiReviewPrompt: '',
+    detailScoreThreshold: '60',
+    greetScoreThreshold: '70',
   }
 }
 
 /**
  * 标准化后端返回的系统默认提示词。
  * @param {any} value - 后端提示词对象。
- * @returns {{filter_prompt: string; open_detail_prompt: string}} 标准化后的提示词。
+ * @returns {{filter_prompt: string; open_detail_prompt: string; review_prompt: string}} 标准化后的提示词。
  */
 function normalizeDefaultPrompts(value: any) {
   return {
     filter_prompt: String(value?.filter_prompt || ''),
     open_detail_prompt: String(value?.open_detail_prompt || ''),
+    review_prompt: String(value?.review_prompt || ''),
   }
 }

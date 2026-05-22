@@ -14,6 +14,7 @@ const defaultPromptsConfigKey = "ai.default_prompts"
 type DefaultPrompts struct {
 	FilterPrompt     string `json:"filter_prompt"`
 	OpenDetailPrompt string `json:"open_detail_prompt"`
+	ReviewPrompt     string `json:"review_prompt"`
 }
 
 // loadDefaultPrompts 从 system_configs 中读取 AI 默认提示词。
@@ -31,6 +32,7 @@ func loadDefaultPrompts(store SystemConfigStore) DefaultPrompts {
 	}
 	prompts.FilterPrompt = strings.TrimSpace(prompts.FilterPrompt)
 	prompts.OpenDetailPrompt = strings.TrimSpace(prompts.OpenDetailPrompt)
+	prompts.ReviewPrompt = strings.TrimSpace(prompts.ReviewPrompt)
 	return prompts
 }
 

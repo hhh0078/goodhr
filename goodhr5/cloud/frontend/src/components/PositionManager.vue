@@ -84,6 +84,16 @@
               >先用候选人基础信息让 AI 判断“这次值不值得打开详情”，要求 AI 返回是否查看和简短原因。</small
             >
           </label>
+          <label class="field field-small"
+            >看详情阈值分<input
+              v-model="positions.form.value.detailScoreThreshold"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+          />
+            <small class="field-help">看详情评分大于等于该值时，才会打开详情。</small>
+          </label>
           <label class="field field-full"
             ><span class="field-title"
               >最终筛选提示词<button
@@ -100,6 +110,34 @@
             />
             <small class="field-help"
               >详情文本拿到后，再给 AI 的最终筛选补充规则。这里和“打开详情提示词”是两套不同提示词。</small
+            >
+          </label>
+          <label class="field field-small"
+            >打招呼阈值分<input
+              v-model="positions.form.value.greetScoreThreshold"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+          />
+            <small class="field-help">最终评分大于等于该值时，才会执行打招呼。</small>
+          </label>
+          <label class="field field-full"
+            ><span class="field-title"
+              >复核提示词<button
+                type="button"
+                class="ghost tiny"
+                :disabled="positions.loading.value"
+                @click="positions.resetReviewPrompt"
+              >
+                设置默认值
+              </button></span
+            ><textarea
+              v-model="positions.form.value.aiReviewPrompt"
+              rows="2"
+            />
+            <small class="field-help"
+              >该提示词仅用于打招呼前二次筛选得分。打招呼评分与阈值差值不超过10分时触发复核，并以复核分数作为最终打招呼依据。</small
             >
           </label>
         </div>
