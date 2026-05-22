@@ -758,6 +758,11 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 	if len(aiResp.Choices) == 0 {
 		return "", aiResp.Usage.TotalTokens, fmt.Errorf("AI 未返回结果")
 	}
+
+	// 输出响应体，便于排查模型输出。
+	if bodyPreview, err := json.Marshal(aiResp); err == nil {
+		e.log("info", fmt.Sprintf("AI响应体：%s", string(bodyPreview)))
+	}
 	return strings.TrimSpace(aiResp.Choices[0].Message.Content), aiResp.Usage.TotalTokens, nil
 }
 
