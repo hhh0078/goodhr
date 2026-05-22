@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -15,11 +16,38 @@ type TaskCandidate struct {
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	BirthYM             string
+	Phone               string
+	Email               string
+	WorkRegion          string
+	WorkYears           string
+	ExpectedSalaryMin   *int
+	ExpectedSalaryMax   *int
 	BasicInfo           string
 	EducationLevel      string
+	ExpectedPosition    string
+	OnlineStatus        string
 	PersonalDescription string
 	RawText             string
 	FilterText          string
+	WorkExperiences     []CandidateWorkExperience
+	Educations          []CandidateEducation
+	Certificates        []string
+	Honors              []string
+	ProjectExperiences  []CandidateProjectExperience
+	Communications      []CandidateCommunication
+	ResumeURL           string
+	ResumeText          string
+	AIDetailReason      string
+	AIDetailScore       *float64
+	AIGreetReason       string
+	AIGreetScore        *float64
+	AIReviewReason      string
+	AIReviewScore       *float64
+	Ext                 map[string]any
+	FirstSeenAt         *time.Time
+	DetailFetchedAt     *time.Time
+	GreetedAt           *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -61,4 +89,12 @@ func (s *MemoryCandidateStore) SaveTaskCandidate(item TaskCandidate) (TaskCandid
 	item.UpdatedAt = now
 	s.items[item.ID] = item
 	return item, nil
+}
+
+func toJSONB(value any) []byte {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return []byte("null")
+	}
+	return raw
 }

@@ -293,7 +293,7 @@ func clickActionWithinCandidate(exec platformViewportExecutor, candidate Candida
 	if element == nil {
 		return fmt.Errorf("无%s选择器", label)
 	}
-	elementRef := strings.TrimSpace(candidate.ElementRef)
+	elementRef := strings.TrimSpace(candidate.Runtime.ElementRef)
 	if strings.TrimSpace(elementRef) == "" {
 		return fmt.Errorf("%s缺少 element_ref", label)
 	}
@@ -416,9 +416,15 @@ func mapFieldsToCandidate(platformID string, fields map[string]any) Candidate {
 		PersonalDescription: strings.TrimSpace(description),
 		RawText:             strings.TrimSpace(raw),
 		FilterText:          strings.TrimSpace(raw),
-		ElementRef:          strings.TrimSpace(elementRef),
-		CardIndex:           index,
-		Ext:                 map[string]any{"raw_fields": fields},
+		BasicProfile: CandidateBasicProfile{
+			PersonalDescription: strings.TrimSpace(description),
+		},
+		Runtime: CandidateRuntime{
+			ElementRef:  strings.TrimSpace(elementRef),
+			CardIndex:   index,
+			Fingerprint: "",
+		},
+		Ext: map[string]any{"raw_fields": fields},
 	}
 }
 

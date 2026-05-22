@@ -402,17 +402,48 @@ func (e *TaskExecutor) saveCandidateAfterGreet(candidate Candidate, baseText, fi
 	if e.candidateStore == nil {
 		return
 	}
+	now := time.Now().UTC()
+	if strings.TrimSpace(candidate.Detail.Text) == "" && strings.TrimSpace(detailText) != "" {
+		candidate.Detail.Text = strings.TrimSpace(detailText)
+	}
 	_, err := e.candidateStore.SaveTaskCandidate(TaskCandidate{
 		TaskID:              e.task.ID,
 		UserEmail:           e.task.UserEmail,
 		PlatformID:          e.task.PlatformID,
 		PlatformCandidateID: strings.TrimSpace(candidate.PlatformCandidateID),
 		CandidateName:       candidate.DisplayName(),
+		BirthYM:             strings.TrimSpace(candidate.BasicProfile.BirthYM),
+		Phone:               strings.TrimSpace(candidate.BasicProfile.Phone),
+		Email:               strings.TrimSpace(candidate.BasicProfile.Email),
+		WorkRegion:          strings.TrimSpace(candidate.BasicProfile.WorkRegion),
+		WorkYears:           strings.TrimSpace(candidate.BasicProfile.WorkYears),
+		ExpectedSalaryMin:   candidate.BasicProfile.ExpectedSalary.Min,
+		ExpectedSalaryMax:   candidate.BasicProfile.ExpectedSalary.Max,
 		BasicInfo:           strings.TrimSpace(firstNonEmpty(candidate.BasicInfo, baseText)),
 		EducationLevel:      strings.TrimSpace(candidate.EducationLevel),
+		ExpectedPosition:    strings.TrimSpace(candidate.BasicProfile.ExpectedPosition),
+		OnlineStatus:        strings.TrimSpace(candidate.BasicProfile.OnlineStatus),
 		PersonalDescription: strings.TrimSpace(candidate.PersonalDescription),
 		RawText:             strings.TrimSpace(firstNonEmpty(candidate.RawText, baseText)),
 		FilterText:          strings.TrimSpace(firstNonEmpty(candidate.FilterText, filterText)),
+		WorkExperiences:     candidate.BasicProfile.WorkExperiences,
+		Educations:          candidate.BasicProfile.Educations,
+		Certificates:        candidate.BasicProfile.Certificates,
+		Honors:              candidate.BasicProfile.Honors,
+		ProjectExperiences:  candidate.BasicProfile.ProjectExperiences,
+		Communications:      candidate.BasicProfile.ColleagueCommunications,
+		ResumeURL:           strings.TrimSpace(candidate.ResumeAttachment.URL),
+		ResumeText:          strings.TrimSpace(candidate.ResumeAttachment.ExtractedText),
+		AIDetailReason:      strings.TrimSpace(candidate.AI.Detail.Reason),
+		AIDetailScore:       candidate.AI.Detail.Score,
+		AIGreetReason:       strings.TrimSpace(candidate.AI.Greet.Reason),
+		AIGreetScore:        candidate.AI.Greet.Score,
+		AIReviewReason:      strings.TrimSpace(candidate.AI.Review.Reason),
+		AIReviewScore:       candidate.AI.Review.Score,
+		Ext:                 candidate.Ext,
+		FirstSeenAt:         parseOptionalRFC3339(candidate.Timestamps.FirstSeenAt),
+		DetailFetchedAt:     parseOptionalRFC3339(candidate.Timestamps.DetailFetchedAt),
+		GreetedAt:           &now,
 	})
 	if err != nil {
 		e.log("warn", fmt.Sprintf("候选人 %s 入库失败: %v", candidate.DisplayName(), err))
@@ -431,6 +462,18 @@ func firstNonEmpty(primary, fallback string) string {
 		return text
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func parseOptionalRFC3339(raw string) *time.Time {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil
+	}
+	value, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return nil
+	}
+	return &value
 }
 
 func (e *TaskExecutor) playSuccessSound() error {
