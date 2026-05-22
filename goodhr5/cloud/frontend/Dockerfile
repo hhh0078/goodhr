@@ -1,7 +1,7 @@
 FROM node:22-alpine
-RUN npm config set registry https://registry.npmmirror.com
+RUN yarn config set registry https://registry.npmmirror.com
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm install
+COPY package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
 COPY . .
-CMD ["npx", "vite", "--host", "0.0.0.0"]
+CMD ["yarn", "vite", "--host", "0.0.0.0"]
