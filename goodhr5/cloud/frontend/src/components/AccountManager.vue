@@ -312,18 +312,41 @@ function platformAuthConfig(platformId: string) {
   const item = platformConfigs.value.find(
     (config: any) => config.config_key === `platform.${platformId}`,
   );
-  if (!item?.config_value) return {};
+  if (!item?.config_value) return defaultPlatformAuthConfig(platformId);
   try {
     const parsed = JSON.parse(item.config_value);
-    return (
-      parsed.auth || {
-        entry_url: parsed.pages?.[0]?.url,
-        logged_in_url_prefix: parsed.pages?.[0]?.url,
-      }
-    );
+    return {
+      ...defaultPlatformAuthConfig(platformId, parsed),
+      ...(parsed.auth || {}),
+    };
   } catch {
-    return {};
+    return defaultPlatformAuthConfig(platformId);
   }
+}
+
+/**
+ * 返回平台登录检测默认配置，兼容数据库旧版平台配置。
+ * @param {string} platformId - 平台 ID。
+ * @param {any} parsed - 已解析的平台配置。
+ * @returns {any} 登录检测配置。
+ */
+function defaultPlatformAuthConfig(platformId: string, parsed: any = {}) {
+  const firstPageURL = parsed.pages?.[0]?.url || "";
+  if (platformId === "boss") {
+    return {
+      entry_url: firstPageURL || "https://www.zhipin.com/web/chat/recommend",
+      logged_in_url_prefix: "https://www.zhipin.com/web/chat",
+      logged_in_url_contains: ["www.zhipin.com/web/chat"],
+      login_url_prefixes: [
+        "https://login.zhipin.com",
+        "https://www.zhipin.com/web/user/",
+      ],
+    };
+  }
+  return {
+    entry_url: firstPageURL,
+    logged_in_url_prefix: firstPageURL,
+  };
 }
 async function del(a: any) {
   try {

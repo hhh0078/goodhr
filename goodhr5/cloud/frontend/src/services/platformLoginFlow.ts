@@ -47,19 +47,23 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
   for (let index = 0; index < 10; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS)
     const url = await currentPageURL(agentBaseUrl)
-    if (isLoginURL(url, auth)) {
+    const loginURL = isLoginURL(url, auth)
+    const loggedInURL = isLoggedInURL(url, auth)
+    if (loginURL) {
       sawLoginPage = true
       loggedInHits = 0
       onStatus('请在打开的浏览器中扫码登录')
       break
     }
-    if (isLoggedInURL(url, auth)) {
+    if (loggedInURL) {
       loggedInHits += 1
+      onStatus(`正在确认登录状态 ${loggedInHits}/${LOGIN_SUCCESS_CONFIRM_TIMES}`)
       if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
         return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
       }
       continue
     }
+    onStatus(`等待页面跳转到登录页或已登录页面：${shortURL(url)}`)
     loggedInHits = 0
   }
   if (!sawLoginPage) {
@@ -74,11 +78,13 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
     const url = await currentPageURL(agentBaseUrl)
     if (isLoggedInURL(url, auth)) {
       loggedInHits += 1
+      onStatus(`扫码后正在确认登录状态 ${loggedInHits}/${LOGIN_SUCCESS_CONFIRM_TIMES}`)
       if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
         return exportCookiesAfterLogin(agentBaseUrl, onStatus, '登录成功')
       }
       continue
     }
+    onStatus(`等待扫码登录完成：${shortURL(url)}`)
     loggedInHits = 0
   }
   throw new Error('扫码登录超时')
@@ -96,6 +102,16 @@ function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
 
 function delay(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+/**
+ * 缩短 URL 用于界面状态展示。
+ * @param {string} url - 完整页面 URL。
+ * @returns {string} 缩短后的 URL。
+ */
+function shortURL(url: string) {
+  if (!url) return '空地址'
+  return url.length > 72 ? `${url.slice(0, 72)}...` : url
 }
 
 /**
