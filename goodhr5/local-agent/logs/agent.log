@@ -1,0 +1,677 @@
+2026-05-23 00:44:55,701 INFO goodhr5.local-agent: [任务开始] 本地收到开始请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:44:55,702 INFO goodhr5.local-agent.ws: [任务WS] 收到开始任务请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:44:55,702 INFO goodhr5.local-agent.ws: [任务WS] 第 1/3 次尝试建立连接
+2026-05-23 00:44:55,702 INFO goodhr5.local-agent.ws: [任务WS] 收到连接请求 cloud_ws_url=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:44:55,702 INFO goodhr5.local-agent.ws: [任务WS] 已手动断开连接
+2026-05-23 00:44:55,702 INFO goodhr5.local-agent.ws: [任务WS] 正在连接云端WS url=ws://127.0.0.1:8084/api/agents/ws?token=gh5_b6f004218cb1b3460b92c54abec3bb392adc5af33ffc88f07cdcf4a17d897646
+2026-05-23 00:44:55,749 INFO goodhr5.local-agent.ws: [任务WS] 云端WS已连接
+2026-05-23 00:44:55,749 INFO goodhr5.local-agent.ws: [任务WS] 发送无需等待回复的消息 type=agent.status task= message_id=msg_c96ce6a3bec2660512aeb8be24e115d4 payload={'status': 'online'}
+2026-05-23 00:44:55,751 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=140
+2026-05-23 00:44:55,752 INFO goodhr5.local-agent.ws: [任务WS] 收到回复 reply_to=msg_c96ce6a3bec2660512aeb8be24e115d4 ok=True type=agent.status.ack task=None
+2026-05-23 00:44:55,904 INFO goodhr5.local-agent.ws: [任务WS] 第 1 次连接成功
+2026-05-23 00:44:55,947 INFO goodhr5.local-agent.ws: [任务WS] 正在调用云端任务接口 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d url=http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run
+2026-05-23 00:44:55,967 INFO httpx: HTTP Request: POST http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run "HTTP/1.1 200 OK"
+2026-05-23 00:44:55,968 INFO goodhr5.local-agent.ws: [任务WS] 云端任务接口返回 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d status=200 body={'ok': True, 'status': 'running'}
+2026-05-23 00:44:55,970 INFO goodhr5.local-agent.ws: [任务WS] 开始任务成功 task=6d80f19e-292d-423b-af4b-0462e6a5f75d active_tasks=['6d80f19e-292d-423b-af4b-0462e6a5f75d']
+2026-05-23 00:44:56,002 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2931
+2026-05-23 00:44:56,002 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_41b2c72c2c8098c83cf8d09e6c441460
+2026-05-23 00:44:56,002 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/cookies/decrypt, encrypted_data=已传, encrypted_keys=1个机器
+2026-05-23 00:44:56,023 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_41b2c72c2c8098c83cf8d09e6c441460 ok=True error= 摘要=cookies=10条
+2026-05-23 00:44:56,039 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2083
+2026-05-23 00:44:56,039 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1bed36f19167aa1e9c76e3a7a8dd760d
+2026-05-23 00:44:56,039 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/browser/start, user_data_dir=e8a07c47-9852-41d3-bad5-a59abb5992f8, cookies=10条
+2026-05-23 00:44:56,039 INFO goodhr5.browser: 正在启动持久化 CloakBrowser (data_dir=/Users/Zhuanz/Downloads/goodHR/goodhr5/local-agent/cookies/e8a07c47-9852-41d3-bad5-a59abb5992f8)
+2026-05-23 00:44:57,294 INFO httpx: HTTP Request: GET https://api.github.com/repos/CloakHQ/cloakbrowser/releases?per_page=10 "HTTP/1.1 200 OK"
+2026-05-23 00:45:01,180 INFO goodhr5.browser: 持久化 CloakBrowser 已启动
+2026-05-23 00:45:01,234 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1bed36f19167aa1e9c76e3a7a8dd760d ok=True error= 摘要=[]
+2026-05-23 00:45:01,250 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2023
+2026-05-23 00:45:01,250 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_3c7c8bec25fa69aba0e641ce97690db9
+2026-05-23 00:45:01,250 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/open, url=https://www.zhipin.com/web/chat/recommend, cookies=10条
+2026-05-23 00:45:01,331 INFO goodhr5.browser: 已创建页面: default
+2026-05-23 00:45:03,700 INFO goodhr5.humanize: 已导航到 https://www.zhipin.com/web/chat/recommend
+2026-05-23 00:45:03,806 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_3c7c8bec25fa69aba0e641ce97690db9 ok=True error= 摘要=[]
+2026-05-23 00:45:03,819 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 00:45:03,819 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8b66d0da7b6edd46e9fa8a62443f5e83
+2026-05-23 00:45:03,819 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 00:45:05,400 INFO goodhr5.humanize: 第 4 次交叉查找命中目标元素集合集合: parent=.card-list target=.candidate-card-wrap
+2026-05-23 00:45:05,532 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8b66d0da7b6edd46e9fa8a62443f5e83 ok=True error= 摘要=items=5个, refs=['el_5cd794052586cd28d5324f8a', 'el_818b951c968cebc24d797971', 'el_ba39aed35dca562f1f2497b6']
+2026-05-23 00:45:05,544 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:05,544 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_dfa710e8fb4594de623749cdd3069d16
+2026-05-23 00:45:05,544 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_5cd794052586cd28d5324f8a
+2026-05-23 00:45:05,550 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_dfa710e8fb4594de623749cdd3069d16 ok=True error= 摘要=in_viewport=True, matched=el_5cd794052586cd28d5324f8a
+2026-05-23 00:45:05,557 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:05,557 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fd47d51bc8eb9dcc75c5129318926d69
+2026-05-23 00:45:05,557 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_5cd794052586cd28d5324f8a
+2026-05-23 00:45:08,123 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fd47d51bc8eb9dcc75c5129318926d69 ok=True error= 摘要=fields命中=4/5, name=徐女士, basic_info=空, education=24岁 4年 离职-随时到岗 大专, university=深呼吸女装 带货主播, description=成都 带货主播
+2026-05-23 00:45:08,143 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:08,143 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_27d468aa9167d59a6bb8f974f041ae36
+2026-05-23 00:45:08,143 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_818b951c968cebc24d797971
+2026-05-23 00:45:08,151 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_27d468aa9167d59a6bb8f974f041ae36 ok=True error= 摘要=in_viewport=True, matched=el_818b951c968cebc24d797971
+2026-05-23 00:45:08,159 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:08,159 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_7dced915d0a0f0b6ed3a2ebf4207528e
+2026-05-23 00:45:08,160 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_818b951c968cebc24d797971
+2026-05-23 00:45:10,782 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_7dced915d0a0f0b6ed3a2ebf4207528e ok=True error= 摘要=fields命中=4/5, name=余佳璐, basic_info=空, education=22岁 3年 离职-随时到岗 本科, university=青蓝聚合传媒 带货主播, description=成都 带货主播
+2026-05-23 00:45:10,792 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:10,792 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_d0bce2a3c4e96ea216159565b7d58177
+2026-05-23 00:45:10,793 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_ba39aed35dca562f1f2497b6
+2026-05-23 00:45:10,803 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_d0bce2a3c4e96ea216159565b7d58177 ok=True error= 摘要=in_viewport=True, matched=el_ba39aed35dca562f1f2497b6
+2026-05-23 00:45:10,816 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:10,816 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_bd7aedb3933c460989216f95dbcfc621
+2026-05-23 00:45:10,817 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_ba39aed35dca562f1f2497b6
+2026-05-23 00:45:13,406 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_bd7aedb3933c460989216f95dbcfc621 ok=True error= 摘要=fields命中=4/5, name=芸朵, basic_info=空, education=23岁 2年 在职-月内到岗 大专, university=成都独唱团电子商务 带货主播, description=成都 带货主播
+2026-05-23 00:45:13,414 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:13,415 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_be3c6c484608791ed49c25f043eff23d
+2026-05-23 00:45:13,415 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_18a94b3eff41c7aa5147510e
+2026-05-23 00:45:13,421 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_be3c6c484608791ed49c25f043eff23d ok=True error= 摘要=in_viewport=True, matched=el_18a94b3eff41c7aa5147510e
+2026-05-23 00:45:13,429 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:13,429 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_74962778f481ce1c351ad38d1247e4dc
+2026-05-23 00:45:13,429 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_18a94b3eff41c7aa5147510e
+2026-05-23 00:45:16,010 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_74962778f481ce1c351ad38d1247e4dc ok=True error= 摘要=fields命中=4/5, name=江孟娇, basic_info=空, education=25岁 4年 离职-随时到岗 大专, university=声云文化传播 主播, description=成都 带货主播
+2026-05-23 00:45:16,028 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:16,028 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_59d0c47eb8903322921e65e737634c55
+2026-05-23 00:45:16,028 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_9eaba7182e62b8944beec8c0
+2026-05-23 00:45:16,037 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_59d0c47eb8903322921e65e737634c55 ok=True error= 摘要=in_viewport=True, matched=el_9eaba7182e62b8944beec8c0
+2026-05-23 00:45:16,049 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:16,050 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_4a364390788bf9ddd20d8cc8e98d486c
+2026-05-23 00:45:16,050 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_9eaba7182e62b8944beec8c0
+2026-05-23 00:45:18,621 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_4a364390788bf9ddd20d8cc8e98d486c ok=True error= 摘要=fields命中=4/5, name=王萱, basic_info=空, education=29岁 8年 离职-随时到岗 大专, university=宁波方太厨具有限公司 销售专员, description=成都 主播
+2026-05-23 00:45:40,506 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 00:45:40,507 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_6951b89da09a7ecd9c0c50782a326f46
+2026-05-23 00:45:40,507 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 00:45:41,796 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 453.0)
+2026-05-23 00:45:41,796 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 00:45:46,079 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 00:45:46,080 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_6951b89da09a7ecd9c0c50782a326f46 ok=True error= 摘要=[]
+2026-05-23 00:45:46,102 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 00:45:46,102 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_5e5afc3efc60313a646edfc16529fc94
+2026-05-23 00:45:46,103 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 00:45:46,216 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_5e5afc3efc60313a646edfc16529fc94 ok=True error= 摘要=items=5个, refs=['el_401f0a5597ed437e46909336', 'el_594a96a672bc2714b34d3375', 'el_be71f1b3751f2546875b8f1d']
+2026-05-23 00:45:46,225 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:46,225 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_aff55e2b497cea4120cb6ce632a57355
+2026-05-23 00:45:46,225 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_401f0a5597ed437e46909336
+2026-05-23 00:45:46,231 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_aff55e2b497cea4120cb6ce632a57355 ok=True error= 摘要=in_viewport=True, matched=el_401f0a5597ed437e46909336
+2026-05-23 00:45:46,238 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:46,238 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e05358e054fee4f14cad1537f2063431
+2026-05-23 00:45:46,238 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_401f0a5597ed437e46909336
+2026-05-23 00:45:48,805 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e05358e054fee4f14cad1537f2063431 ok=True error= 摘要=fields命中=4/5, name=余佳璐, basic_info=空, education=22岁 3年 离职-随时到岗 本科, university=青蓝聚合传媒 带货主播, description=成都 带货主播
+2026-05-23 00:45:48,828 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:48,828 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_12acb7cf3a7361ebbd24521d03a6ae42
+2026-05-23 00:45:48,828 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_594a96a672bc2714b34d3375
+2026-05-23 00:45:48,840 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_12acb7cf3a7361ebbd24521d03a6ae42 ok=True error= 摘要=in_viewport=True, matched=el_594a96a672bc2714b34d3375
+2026-05-23 00:45:48,854 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:48,854 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ff05bd5368c922a34473ad4cca361aed
+2026-05-23 00:45:48,854 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_594a96a672bc2714b34d3375
+2026-05-23 00:45:51,426 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_ff05bd5368c922a34473ad4cca361aed ok=True error= 摘要=fields命中=4/5, name=芸朵, basic_info=空, education=23岁 2年 在职-月内到岗 大专, university=成都独唱团电子商务 带货主播, description=成都 带货主播
+2026-05-23 00:45:51,440 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:51,441 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1f571005b475be4c798606199c210d61
+2026-05-23 00:45:51,441 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_be71f1b3751f2546875b8f1d
+2026-05-23 00:45:51,449 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1f571005b475be4c798606199c210d61 ok=True error= 摘要=in_viewport=True, matched=el_be71f1b3751f2546875b8f1d
+2026-05-23 00:45:51,459 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:51,459 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2322a3e036d897298c1bcd9cda7fb4bb
+2026-05-23 00:45:51,460 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_be71f1b3751f2546875b8f1d
+2026-05-23 00:45:54,056 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2322a3e036d897298c1bcd9cda7fb4bb ok=True error= 摘要=fields命中=4/5, name=江孟娇, basic_info=空, education=25岁 4年 离职-随时到岗 大专, university=声云文化传播 主播, description=成都 带货主播
+2026-05-23 00:45:54,071 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:54,071 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e8547ce03078c81837269f9d513d9069
+2026-05-23 00:45:54,071 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_7075139db2ee42ddb509cf79
+2026-05-23 00:45:54,077 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e8547ce03078c81837269f9d513d9069 ok=True error= 摘要=in_viewport=True, matched=el_7075139db2ee42ddb509cf79
+2026-05-23 00:45:54,084 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:54,085 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_5dcd9b2151bbeb0e64fd1c21d558d33c
+2026-05-23 00:45:54,085 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_7075139db2ee42ddb509cf79
+2026-05-23 00:45:56,642 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_5dcd9b2151bbeb0e64fd1c21d558d33c ok=True error= 摘要=fields命中=4/5, name=王萱, basic_info=空, education=29岁 8年 离职-随时到岗 大专, university=宁波方太厨具有限公司 销售专员, description=成都 主播
+2026-05-23 00:45:56,653 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:45:56,653 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_cf6c0769ed132c5fdc237e274aeef829
+2026-05-23 00:45:56,653 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_378fb1c914006bedbd55b660
+2026-05-23 00:45:56,659 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_cf6c0769ed132c5fdc237e274aeef829 ok=True error= 摘要=in_viewport=True, matched=el_378fb1c914006bedbd55b660
+2026-05-23 00:45:56,666 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:45:56,666 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_bc71cb82afc56c898219e5c1e1fd69c6
+2026-05-23 00:45:56,666 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_378fb1c914006bedbd55b660
+2026-05-23 00:45:59,233 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_bc71cb82afc56c898219e5c1e1fd69c6 ok=True error= 摘要=fields命中=4/5, name=张女士, basic_info=空, education=25岁 5年 离职-随时到岗 大专, university=四川斯莱曼蒂鞋业 带货主播, description=成都 带货主播
+2026-05-23 00:46:17,350 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 00:46:17,351 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_79bb1643e0f3c5f17545e3d15a46372b
+2026-05-23 00:46:17,351 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 00:46:18,119 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 00:46:18,119 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 00:46:21,953 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 00:46:21,953 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_79bb1643e0f3c5f17545e3d15a46372b ok=True error= 摘要=[]
+2026-05-23 00:46:21,984 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 00:46:21,986 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_960f7d562ddcf46465532b03f9490106
+2026-05-23 00:46:21,986 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 00:46:22,107 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_960f7d562ddcf46465532b03f9490106 ok=True error= 摘要=items=6个, refs=['el_393b398d4f85cf420624add7', 'el_a58f19644881cbea1624251e', 'el_98ed550f5d69c011a299b643']
+2026-05-23 00:46:22,122 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:46:22,122 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_c473626e0e92dc515fa81a726491ab90
+2026-05-23 00:46:22,122 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_393b398d4f85cf420624add7
+2026-05-23 00:46:22,128 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_c473626e0e92dc515fa81a726491ab90 ok=True error= 摘要=in_viewport=True, matched=el_393b398d4f85cf420624add7
+2026-05-23 00:46:22,143 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:46:22,143 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_5903d80656cefc5c16699eb8ed115efd
+2026-05-23 00:46:22,143 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_393b398d4f85cf420624add7
+2026-05-23 00:46:23,812 INFO goodhr5.local-agent.ws: [任务WS] 连接循环已取消
+2026-05-23 00:46:23,874 ERROR asyncio: Future exception was never retrieved
+future: <Future finished exception=Exception('Connection closed while reading from the driver')>
+Exception: Connection closed while reading from the driver
+2026-05-23 00:58:34,078 INFO goodhr5.local-agent: GoodHR 5 Local Agent log file: /Users/Zhuanz/Downloads/goodHR/goodhr5/local-agent/logs/agent.log
+2026-05-23 00:58:34,078 INFO goodhr5.local-agent: GoodHR 5 Local Agent starting on http://127.0.0.1:9001
+2026-05-23 00:58:46,639 INFO goodhr5.local-agent: [任务开始] 本地收到开始请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:58:46,639 INFO goodhr5.local-agent.ws: [任务WS] 收到开始任务请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:58:46,640 INFO goodhr5.local-agent.ws: [任务WS] 第 1/3 次尝试建立连接
+2026-05-23 00:58:46,640 INFO goodhr5.local-agent.ws: [任务WS] 收到连接请求 cloud_ws_url=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 00:58:46,640 INFO goodhr5.local-agent.ws: [任务WS] 已手动断开连接
+2026-05-23 00:58:46,640 INFO goodhr5.local-agent.ws: [任务WS] 正在连接云端WS url=ws://127.0.0.1:8084/api/agents/ws?token=gh5_b6f004218cb1b3460b92c54abec3bb392adc5af33ffc88f07cdcf4a17d897646
+2026-05-23 00:58:46,660 INFO goodhr5.local-agent.ws: [任务WS] 云端WS已连接
+2026-05-23 00:58:46,660 INFO goodhr5.local-agent.ws: [任务WS] 发送无需等待回复的消息 type=agent.status task= message_id=msg_f4b950892752b678da9f438c12222294 payload={'status': 'online'}
+2026-05-23 00:58:46,661 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=140
+2026-05-23 00:58:46,661 INFO goodhr5.local-agent.ws: [任务WS] 收到回复 reply_to=msg_f4b950892752b678da9f438c12222294 ok=True type=agent.status.ack task=None
+2026-05-23 00:58:46,842 INFO goodhr5.local-agent.ws: [任务WS] 第 1 次连接成功
+2026-05-23 00:58:46,883 INFO goodhr5.local-agent.ws: [任务WS] 正在调用云端任务接口 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d url=http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run
+2026-05-23 00:58:46,900 INFO httpx: HTTP Request: POST http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run "HTTP/1.1 200 OK"
+2026-05-23 00:58:46,901 INFO goodhr5.local-agent.ws: [任务WS] 云端任务接口返回 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d status=200 body={'ok': True, 'status': 'running'}
+2026-05-23 00:58:46,902 INFO goodhr5.local-agent.ws: [任务WS] 开始任务成功 task=6d80f19e-292d-423b-af4b-0462e6a5f75d active_tasks=['6d80f19e-292d-423b-af4b-0462e6a5f75d']
+2026-05-23 00:58:46,930 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2931
+2026-05-23 00:58:46,930 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_73b79b3d2f198cfcc2d8f4000fb32b18
+2026-05-23 00:58:46,930 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/cookies/decrypt, encrypted_data=已传, encrypted_keys=1个机器
+2026-05-23 00:58:46,943 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_73b79b3d2f198cfcc2d8f4000fb32b18 ok=True error= 摘要=cookies=10条
+2026-05-23 00:58:46,957 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2083
+2026-05-23 00:58:46,957 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_4a6b507cdd4c10cd55e20b3ea641e86a
+2026-05-23 00:58:46,957 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/browser/start, user_data_dir=e8a07c47-9852-41d3-bad5-a59abb5992f8, cookies=10条
+2026-05-23 00:58:46,957 INFO goodhr5.browser: 正在启动持久化 CloakBrowser (data_dir=/Users/Zhuanz/Downloads/goodHR/goodhr5/local-agent/cookies/e8a07c47-9852-41d3-bad5-a59abb5992f8)
+2026-05-23 00:58:51,850 INFO goodhr5.browser: 持久化 CloakBrowser 已启动
+2026-05-23 00:58:51,865 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_4a6b507cdd4c10cd55e20b3ea641e86a ok=True error= 摘要=[]
+2026-05-23 00:58:51,892 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2023
+2026-05-23 00:58:51,893 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_69771a9220693853c5f3b1c514f14358
+2026-05-23 00:58:51,893 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/open, url=https://www.zhipin.com/web/chat/recommend, cookies=10条
+2026-05-23 00:58:52,004 INFO goodhr5.browser: 已创建页面: default
+2026-05-23 00:58:54,426 INFO goodhr5.humanize: 已导航到 https://www.zhipin.com/web/chat/recommend
+2026-05-23 00:58:54,732 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_69771a9220693853c5f3b1c514f14358 ok=True error= 摘要=[]
+2026-05-23 00:58:54,764 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 00:58:54,764 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1383d414daebf400bc1c3164790d4014
+2026-05-23 00:58:54,764 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 00:58:56,499 INFO goodhr5.humanize: 第 4 次交叉查找命中目标元素集合集合: parent=.card-list target=.candidate-card-wrap
+2026-05-23 00:58:56,592 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1383d414daebf400bc1c3164790d4014 ok=True error= 摘要=items=5个, refs=['el_bd94def814576814da6ac0c8', 'el_e78d97e5f4b242f7ac5e22b4', 'el_f8e9bcd04328acf95bce78fe']
+2026-05-23 00:58:56,604 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:58:56,604 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_a9530e998633a35a877317b6dcd9c162
+2026-05-23 00:58:56,604 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_bd94def814576814da6ac0c8
+2026-05-23 00:58:56,609 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_a9530e998633a35a877317b6dcd9c162 ok=True error= 摘要=in_viewport=True, matched=el_bd94def814576814da6ac0c8
+2026-05-23 00:58:56,615 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:58:56,615 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_95a18e1c725d3a97592808ff14f6a0bd
+2026-05-23 00:58:56,615 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_bd94def814576814da6ac0c8
+2026-05-23 00:58:59,179 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_95a18e1c725d3a97592808ff14f6a0bd ok=True error= 摘要=fields命中=4/5, name=刘晓燕, basic_info=空, education=28岁 9年 离职-随时到岗 中专/..., university=都爱玩儿 主播, description=成都 带货主播
+2026-05-23 00:58:59,202 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:58:59,202 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1dff19288e70bb52b60d73c9915c830b
+2026-05-23 00:58:59,202 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_e78d97e5f4b242f7ac5e22b4
+2026-05-23 00:58:59,251 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1dff19288e70bb52b60d73c9915c830b ok=True error= 摘要=in_viewport=True, matched=el_e78d97e5f4b242f7ac5e22b4
+2026-05-23 00:58:59,259 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:58:59,259 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_29df9524daa3fbab3a4e27355ebb5467
+2026-05-23 00:58:59,259 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_e78d97e5f4b242f7ac5e22b4
+2026-05-23 00:59:04,350 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_29df9524daa3fbab3a4e27355ebb5467 ok=True error= 摘要=fields命中=3/5, name=廖甬婷, basic_info=空, education=21岁 1年以内 在职-考虑机会 大..., university=空, description=成都 带货主播
+2026-05-23 00:59:04,365 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:04,366 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_51566e8732cb4c46d9d7e7b2a2fa9213
+2026-05-23 00:59:04,366 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_f8e9bcd04328acf95bce78fe
+2026-05-23 00:59:04,376 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_51566e8732cb4c46d9d7e7b2a2fa9213 ok=True error= 摘要=in_viewport=True, matched=el_f8e9bcd04328acf95bce78fe
+2026-05-23 00:59:04,389 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:04,389 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_4915f666ac8956042f4a0ec4e544baae
+2026-05-23 00:59:04,389 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_f8e9bcd04328acf95bce78fe
+2026-05-23 00:59:06,961 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_4915f666ac8956042f4a0ec4e544baae ok=True error= 摘要=fields命中=4/5, name=芸朵, basic_info=空, education=23岁 2年 在职-月内到岗 大专, university=成都独唱团电子商务 带货主播, description=成都 带货主播
+2026-05-23 00:59:06,973 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:06,973 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_21e6aefdce281cd525c5e4300c1d2fcd
+2026-05-23 00:59:06,973 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_9a717355004de25e81a8b105
+2026-05-23 00:59:06,980 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_21e6aefdce281cd525c5e4300c1d2fcd ok=True error= 摘要=in_viewport=True, matched=el_9a717355004de25e81a8b105
+2026-05-23 00:59:06,989 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:06,989 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_0beca0d477b98aff7359ce74b5740e8e
+2026-05-23 00:59:06,989 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_9a717355004de25e81a8b105
+2026-05-23 00:59:09,550 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_0beca0d477b98aff7359ce74b5740e8e ok=True error= 摘要=fields命中=4/5, name=王萱, basic_info=空, education=29岁 8年 离职-随时到岗 大专, university=宁波方太厨具有限公司 销售专员, description=成都 主播
+2026-05-23 00:59:09,560 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:09,560 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1ae7f76e4a01cf47733a55b5771ada56
+2026-05-23 00:59:09,560 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_136442f2854fcffd58f282aa
+2026-05-23 00:59:09,567 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1ae7f76e4a01cf47733a55b5771ada56 ok=True error= 摘要=in_viewport=True, matched=el_136442f2854fcffd58f282aa
+2026-05-23 00:59:09,574 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:09,575 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_7e07f950e8fec091a5f894988f39bfb3
+2026-05-23 00:59:09,575 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_136442f2854fcffd58f282aa
+2026-05-23 00:59:12,138 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_7e07f950e8fec091a5f894988f39bfb3 ok=True error= 摘要=fields命中=4/5, name=何女士, basic_info=空, education=22岁 4年 离职-随时到岗 高中, university=猫爪草服饰 带货主播, description=成都 带货主播
+2026-05-23 00:59:30,458 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 00:59:30,458 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_229fa8969e0483533ce102413f6abd83
+2026-05-23 00:59:30,458 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 00:59:31,636 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 453.0)
+2026-05-23 00:59:31,636 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 00:59:36,064 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 00:59:36,066 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_229fa8969e0483533ce102413f6abd83 ok=True error= 摘要=[]
+2026-05-23 00:59:36,093 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 00:59:36,093 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f06e346425a000c90b37b9d8b9285a12
+2026-05-23 00:59:36,093 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 00:59:36,208 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f06e346425a000c90b37b9d8b9285a12 ok=True error= 摘要=items=5个, refs=['el_01e79c387d47e33b5d52c8f2', 'el_671b76f40846d1409b120109', 'el_b60d494238dcaa5872ab3882']
+2026-05-23 00:59:36,216 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:36,216 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_6beabe3d08d7e1053f5c04dd549a0a03
+2026-05-23 00:59:36,216 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_01e79c387d47e33b5d52c8f2
+2026-05-23 00:59:36,222 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_6beabe3d08d7e1053f5c04dd549a0a03 ok=True error= 摘要=in_viewport=True, matched=el_01e79c387d47e33b5d52c8f2
+2026-05-23 00:59:36,229 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:36,229 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_0e479f1318985ffaaa38c2b3c4ed114f
+2026-05-23 00:59:36,229 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_01e79c387d47e33b5d52c8f2
+2026-05-23 00:59:38,805 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_0e479f1318985ffaaa38c2b3c4ed114f ok=True error= 摘要=fields命中=4/5, name=芸朵, basic_info=空, education=23岁 2年 在职-月内到岗 大专, university=成都独唱团电子商务 带货主播, description=成都 带货主播
+2026-05-23 00:59:38,812 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:38,812 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_068652f60be0039a492271e9f8eae145
+2026-05-23 00:59:38,812 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_671b76f40846d1409b120109
+2026-05-23 00:59:38,821 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_068652f60be0039a492271e9f8eae145 ok=True error= 摘要=in_viewport=True, matched=el_671b76f40846d1409b120109
+2026-05-23 00:59:38,831 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:38,831 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_7c72863bf520c43ba29d450b3a1d6500
+2026-05-23 00:59:38,832 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_671b76f40846d1409b120109
+2026-05-23 00:59:41,386 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_7c72863bf520c43ba29d450b3a1d6500 ok=True error= 摘要=fields命中=4/5, name=王萱, basic_info=空, education=29岁 8年 离职-随时到岗 大专, university=宁波方太厨具有限公司 销售专员, description=成都 主播
+2026-05-23 00:59:41,398 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:41,398 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ecffde320b235d9e1af51f7c012a0609
+2026-05-23 00:59:41,398 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_b60d494238dcaa5872ab3882
+2026-05-23 00:59:41,403 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_ecffde320b235d9e1af51f7c012a0609 ok=True error= 摘要=in_viewport=True, matched=el_b60d494238dcaa5872ab3882
+2026-05-23 00:59:41,411 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:41,411 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_544d97b2a2585e940e29f1a061a24c9c
+2026-05-23 00:59:41,411 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_b60d494238dcaa5872ab3882
+2026-05-23 00:59:43,976 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_544d97b2a2585e940e29f1a061a24c9c ok=True error= 摘要=fields命中=4/5, name=何女士, basic_info=空, education=22岁 4年 离职-随时到岗 高中, university=猫爪草服饰 带货主播, description=成都 带货主播
+2026-05-23 00:59:43,996 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:43,996 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_97cd40cb32bfee3e97edaa3a9568b5cd
+2026-05-23 00:59:43,996 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_a5070bbf8b6f064cb330aee5
+2026-05-23 00:59:44,006 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_97cd40cb32bfee3e97edaa3a9568b5cd ok=True error= 摘要=in_viewport=True, matched=el_a5070bbf8b6f064cb330aee5
+2026-05-23 00:59:44,019 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:44,019 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fc7f650cd1d0356c8ef4ab64c4182678
+2026-05-23 00:59:44,019 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_a5070bbf8b6f064cb330aee5
+2026-05-23 00:59:46,575 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fc7f650cd1d0356c8ef4ab64c4182678 ok=True error= 摘要=fields命中=4/5, name=唐女士, basic_info=空, education=25岁 5年 离职-随时到岗 大专, university=三德子好甄选农业 带货主播, description=成都 兼职·带货主播
+2026-05-23 00:59:46,587 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 00:59:46,588 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_23a4cfa338a0e8b5011db05f4536e2c3
+2026-05-23 00:59:46,588 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_a23bed33d1ca56cac5b12d9f
+2026-05-23 00:59:46,594 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_23a4cfa338a0e8b5011db05f4536e2c3 ok=True error= 摘要=in_viewport=True, matched=el_a23bed33d1ca56cac5b12d9f
+2026-05-23 00:59:46,600 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 00:59:46,600 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8f653e9a21bd1b6b45a9384deb3e3581
+2026-05-23 00:59:46,600 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_a23bed33d1ca56cac5b12d9f
+2026-05-23 00:59:49,170 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8f653e9a21bd1b6b45a9384deb3e3581 ok=True error= 摘要=fields命中=4/5, name=马女士, basic_info=空, education=25岁 6年 离职-随时到岗 大专, university=安踏 带货主播/电商主播, description=成都 带货主播
+2026-05-23 01:00:12,967 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:00:12,967 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2ca1f30769fee6d525e27f9a8532608c
+2026-05-23 01:00:12,967 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:00:13,543 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:00:13,544 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:00:21,267 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:00:21,269 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2ca1f30769fee6d525e27f9a8532608c ok=True error= 摘要=[]
+2026-05-23 01:00:21,286 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:00:21,286 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fd9383193e1d80adf136046b3f8826c9
+2026-05-23 01:00:21,286 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:00:21,386 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fd9383193e1d80adf136046b3f8826c9 ok=True error= 摘要=items=5个, refs=['el_40486ad93ec3080487d53a12', 'el_4ee5054201389cfe799f9333', 'el_47b40361f127177d438711ff']
+2026-05-23 01:00:21,403 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:00:21,403 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_767a1c9db437de7da33653deee2a1e96
+2026-05-23 01:00:21,403 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_40486ad93ec3080487d53a12
+2026-05-23 01:00:21,408 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_767a1c9db437de7da33653deee2a1e96 ok=True error= 摘要=in_viewport=True, matched=el_40486ad93ec3080487d53a12
+2026-05-23 01:00:21,415 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:00:21,415 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b4f5276200cd6d33db5fa60853974c8b
+2026-05-23 01:00:21,415 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_40486ad93ec3080487d53a12
+2026-05-23 01:00:23,970 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b4f5276200cd6d33db5fa60853974c8b ok=True error= 摘要=fields命中=4/5, name=唐女士, basic_info=空, education=25岁 5年 离职-随时到岗 大专, university=三德子好甄选农业 带货主播, description=成都 兼职·带货主播
+2026-05-23 01:00:23,983 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:00:23,983 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f641d37e06fb53a86b2bd46db3671cc8
+2026-05-23 01:00:23,983 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_4ee5054201389cfe799f9333
+2026-05-23 01:00:23,989 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f641d37e06fb53a86b2bd46db3671cc8 ok=True error= 摘要=in_viewport=True, matched=el_4ee5054201389cfe799f9333
+2026-05-23 01:00:23,997 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:00:23,997 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fe6b3754e6be4253211713741cceaf4d
+2026-05-23 01:00:23,997 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_4ee5054201389cfe799f9333
+2026-05-23 01:00:26,549 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fe6b3754e6be4253211713741cceaf4d ok=True error= 摘要=fields命中=4/5, name=马女士, basic_info=空, education=25岁 6年 离职-随时到岗 大专, university=安踏 带货主播/电商主播, description=成都 带货主播
+2026-05-23 01:00:26,562 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:00:26,562 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_75b2e449a5d2f7afdfeac0f4eba9d09c
+2026-05-23 01:00:26,562 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_47b40361f127177d438711ff
+2026-05-23 01:00:26,569 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_75b2e449a5d2f7afdfeac0f4eba9d09c ok=True error= 摘要=in_viewport=True, matched=el_47b40361f127177d438711ff
+2026-05-23 01:00:26,579 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:00:26,579 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_aec47d01fa6e570d467925c94e938322
+2026-05-23 01:00:26,579 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_47b40361f127177d438711ff
+2026-05-23 01:00:29,171 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_aec47d01fa6e570d467925c94e938322 ok=True error= 摘要=fields命中=4/5, name=冯女士, basic_info=空, education=23岁 2年 离职-随时到岗 本科, university=海和月锅物料理 带货主播, description=成都 带货主播
+2026-05-23 01:00:29,190 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:00:29,190 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_faab3de23c4d81f415fed7b5620ff097
+2026-05-23 01:00:29,190 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_33d50c1f5c0b8ed0d9f52bea
+2026-05-23 01:00:29,199 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_faab3de23c4d81f415fed7b5620ff097 ok=True error= 摘要=in_viewport=True, matched=el_33d50c1f5c0b8ed0d9f52bea
+2026-05-23 01:00:29,208 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:00:29,208 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ae81297ad08fa35b818e76230e758a7c
+2026-05-23 01:00:29,208 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_33d50c1f5c0b8ed0d9f52bea
+2026-05-23 01:00:30,804 INFO goodhr5.local-agent.ws: [任务WS] 连接循环已取消
+2026-05-23 01:00:30,861 ERROR asyncio: Future exception was never retrieved
+future: <Future finished exception=Exception('Connection closed while reading from the driver')>
+Exception: Connection closed while reading from the driver
+2026-05-23 01:07:12,930 INFO goodhr5.local-agent: GoodHR 5 Local Agent log file: /Users/Zhuanz/Downloads/goodHR/goodhr5/local-agent/logs/agent.log
+2026-05-23 01:07:12,930 INFO goodhr5.local-agent: GoodHR 5 Local Agent starting on http://127.0.0.1:9001
+2026-05-23 01:07:27,059 INFO goodhr5.local-agent: [任务开始] 本地收到开始请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 01:07:27,060 INFO goodhr5.local-agent.ws: [任务WS] 收到开始任务请求 task=6d80f19e-292d-423b-af4b-0462e6a5f75d api=http://127.0.0.1:8084 ws=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 01:07:27,060 INFO goodhr5.local-agent.ws: [任务WS] 第 1/3 次尝试建立连接
+2026-05-23 01:07:27,060 INFO goodhr5.local-agent.ws: [任务WS] 收到连接请求 cloud_ws_url=ws://127.0.0.1:8084/api/agents/ws
+2026-05-23 01:07:27,060 INFO goodhr5.local-agent.ws: [任务WS] 已手动断开连接
+2026-05-23 01:07:27,060 INFO goodhr5.local-agent.ws: [任务WS] 正在连接云端WS url=ws://127.0.0.1:8084/api/agents/ws?token=gh5_b6f004218cb1b3460b92c54abec3bb392adc5af33ffc88f07cdcf4a17d897646
+2026-05-23 01:07:27,075 INFO goodhr5.local-agent.ws: [任务WS] 云端WS已连接
+2026-05-23 01:07:27,076 INFO goodhr5.local-agent.ws: [任务WS] 发送无需等待回复的消息 type=agent.status task= message_id=msg_96d15ca0aa341b94b61f14c4cc9d26a8 payload={'status': 'online'}
+2026-05-23 01:07:27,076 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=140
+2026-05-23 01:07:27,076 INFO goodhr5.local-agent.ws: [任务WS] 收到回复 reply_to=msg_96d15ca0aa341b94b61f14c4cc9d26a8 ok=True type=agent.status.ack task=None
+2026-05-23 01:07:27,261 INFO goodhr5.local-agent.ws: [任务WS] 第 1 次连接成功
+2026-05-23 01:07:27,303 INFO goodhr5.local-agent.ws: [任务WS] 正在调用云端任务接口 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d url=http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run
+2026-05-23 01:07:27,319 INFO httpx: HTTP Request: POST http://127.0.0.1:8084/api/tasks/6d80f19e-292d-423b-af4b-0462e6a5f75d/run "HTTP/1.1 200 OK"
+2026-05-23 01:07:27,320 INFO goodhr5.local-agent.ws: [任务WS] 云端任务接口返回 action=run task=6d80f19e-292d-423b-af4b-0462e6a5f75d status=200 body={'ok': True, 'status': 'running'}
+2026-05-23 01:07:27,320 INFO goodhr5.local-agent.ws: [任务WS] 开始任务成功 task=6d80f19e-292d-423b-af4b-0462e6a5f75d active_tasks=['6d80f19e-292d-423b-af4b-0462e6a5f75d']
+2026-05-23 01:07:27,353 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2931
+2026-05-23 01:07:27,353 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2fe2fefdaac92bb443d4e107efdf8786
+2026-05-23 01:07:27,353 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/cookies/decrypt, encrypted_data=已传, encrypted_keys=1个机器
+2026-05-23 01:07:27,365 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2fe2fefdaac92bb443d4e107efdf8786 ok=True error= 摘要=cookies=10条
+2026-05-23 01:07:27,379 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2083
+2026-05-23 01:07:27,379 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_700424d9e09fdca6fd1d39b3e045ea27
+2026-05-23 01:07:27,379 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/browser/start, user_data_dir=e8a07c47-9852-41d3-bad5-a59abb5992f8, cookies=10条
+2026-05-23 01:07:27,379 INFO goodhr5.browser: 正在启动持久化 CloakBrowser (data_dir=/Users/Zhuanz/Downloads/goodHR/goodhr5/local-agent/cookies/e8a07c47-9852-41d3-bad5-a59abb5992f8)
+2026-05-23 01:07:29,546 INFO goodhr5.browser: 持久化 CloakBrowser 已启动
+2026-05-23 01:07:29,557 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_700424d9e09fdca6fd1d39b3e045ea27 ok=True error= 摘要=[]
+2026-05-23 01:07:29,612 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=2023
+2026-05-23 01:07:29,612 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b2cc384e1eb71abf6bddd15841633a59
+2026-05-23 01:07:29,613 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/open, url=https://www.zhipin.com/web/chat/recommend, cookies=10条
+2026-05-23 01:07:29,710 INFO goodhr5.browser: 已创建页面: default
+2026-05-23 01:07:32,136 INFO goodhr5.humanize: 已导航到 https://www.zhipin.com/web/chat/recommend
+2026-05-23 01:07:32,146 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b2cc384e1eb71abf6bddd15841633a59 ok=True error= 摘要=[]
+2026-05-23 01:07:32,169 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:07:32,169 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_815742eb14db73ba725186428a7b39b2
+2026-05-23 01:07:32,169 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:07:33,851 INFO goodhr5.humanize: 第 4 次交叉查找命中目标元素集合集合: parent=.card-list target=.candidate-card-wrap
+2026-05-23 01:07:33,987 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_815742eb14db73ba725186428a7b39b2 ok=True error= 摘要=items=5个, refs=['el_a87baa4875da911813e014dd', 'el_0ce0bbabacec812a83b32f96', 'el_45d320f8a15e6d2359305519']
+2026-05-23 01:07:34,004 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:07:34,004 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e07b56c53a09112a32606b2446bcb29d
+2026-05-23 01:07:34,004 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_a87baa4875da911813e014dd
+2026-05-23 01:07:34,010 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e07b56c53a09112a32606b2446bcb29d ok=True error= 摘要=in_viewport=True, matched=el_a87baa4875da911813e014dd
+2026-05-23 01:07:34,018 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:07:34,018 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_3e9f3550c1ffb76d517a612f278dcb09
+2026-05-23 01:07:34,018 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_a87baa4875da911813e014dd
+2026-05-23 01:07:36,574 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_3e9f3550c1ffb76d517a612f278dcb09 ok=True error= 摘要=fields命中=4/5, name=小姚, basic_info=空, education=27岁 1年以内 离职-随时到岗 本..., university=逐浪时代传媒 带货主播, description=成都 带货主播
+2026-05-23 01:07:36,586 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:07:36,586 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2ef19f03638969d3599b3af26c6424ae
+2026-05-23 01:07:36,586 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_0ce0bbabacec812a83b32f96
+2026-05-23 01:07:36,594 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2ef19f03638969d3599b3af26c6424ae ok=True error= 摘要=in_viewport=True, matched=el_0ce0bbabacec812a83b32f96
+2026-05-23 01:07:36,601 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:07:36,601 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_9676c16b86d8d226bf154b57be764e0d
+2026-05-23 01:07:36,602 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_0ce0bbabacec812a83b32f96
+2026-05-23 01:07:39,166 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_9676c16b86d8d226bf154b57be764e0d ok=True error= 摘要=fields命中=4/5, name=冯女士, basic_info=空, education=23岁 2年 离职-随时到岗 本科, university=海和月锅物料理 带货主播, description=成都 带货主播
+2026-05-23 01:07:39,195 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:07:39,195 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_11ff14e3493a55ec5f15207e06b3e473
+2026-05-23 01:07:39,196 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_45d320f8a15e6d2359305519
+2026-05-23 01:07:39,203 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_11ff14e3493a55ec5f15207e06b3e473 ok=True error= 摘要=in_viewport=True, matched=el_45d320f8a15e6d2359305519
+2026-05-23 01:07:39,212 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:07:39,212 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f2fda823304f7ad9fc5bb1a51e2d42d3
+2026-05-23 01:07:39,213 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_45d320f8a15e6d2359305519
+2026-05-23 01:07:41,764 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f2fda823304f7ad9fc5bb1a51e2d42d3 ok=True error= 摘要=fields命中=4/5, name=舒茂月, basic_info=空, education=22岁 3年 离职-随时到岗 大专, university=本地团购 带货主播, description=成都 带货主播
+2026-05-23 01:07:41,777 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:07:41,777 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8a64402445bc52dc104629436a5c716e
+2026-05-23 01:07:41,777 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_2f3c1ef5a3fa3efdc4ee3865
+2026-05-23 01:07:41,782 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8a64402445bc52dc104629436a5c716e ok=True error= 摘要=in_viewport=True, matched=el_2f3c1ef5a3fa3efdc4ee3865
+2026-05-23 01:07:41,795 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:07:41,795 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_9eee311fc675525a32125e54fd4db42a
+2026-05-23 01:07:41,795 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_2f3c1ef5a3fa3efdc4ee3865
+2026-05-23 01:07:44,378 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_9eee311fc675525a32125e54fd4db42a ok=True error= 摘要=fields命中=4/5, name=Freya, basic_info=空, education=25岁 4年 在职-月内到岗 大专, university=中润世金传媒 带货主播, description=成都 兼职·带货主播
+2026-05-23 01:07:44,394 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:07:44,394 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_49a4f4d1f306c3fa55b9fdfc1118cecd
+2026-05-23 01:07:44,395 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_fb1bab7cb913f518a3e3a96a
+2026-05-23 01:07:44,403 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_49a4f4d1f306c3fa55b9fdfc1118cecd ok=True error= 摘要=in_viewport=True, matched=el_fb1bab7cb913f518a3e3a96a
+2026-05-23 01:07:44,411 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:07:44,412 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2ea88d54334856e6d7fcfbe06bfd0b8b
+2026-05-23 01:07:44,412 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_fb1bab7cb913f518a3e3a96a
+2026-05-23 01:07:46,988 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2ea88d54334856e6d7fcfbe06bfd0b8b ok=True error= 摘要=fields命中=4/5, name=温相娟, basic_info=空, education=31岁 8年 离职-随时到岗 大专, university=马路边边 主播, description=成都 带货主播
+2026-05-23 01:08:09,769 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:08:09,770 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8497bdf2954b2751dc21292cd157dd8d
+2026-05-23 01:08:09,770 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:08:10,927 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 453.0)
+2026-05-23 01:08:10,927 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:08:16,048 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:08:16,049 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8497bdf2954b2751dc21292cd157dd8d ok=True error= 摘要=[]
+2026-05-23 01:08:16,071 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:08:16,072 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_3aa91d5caca71b706319f279217700c9
+2026-05-23 01:08:16,072 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:08:16,178 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_3aa91d5caca71b706319f279217700c9 ok=True error= 摘要=items=5个, refs=['el_d4d5896f8960e6e435335cc7', 'el_abc3e150c3a9dc88962ca74b', 'el_32f7f57c14d5b1f2dbe2308e']
+2026-05-23 01:08:16,188 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:16,188 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_680ae92da87e5d3792fb3b0c31297bf1
+2026-05-23 01:08:16,188 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_d4d5896f8960e6e435335cc7
+2026-05-23 01:08:16,194 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_680ae92da87e5d3792fb3b0c31297bf1 ok=True error= 摘要=in_viewport=True, matched=el_d4d5896f8960e6e435335cc7
+2026-05-23 01:08:16,201 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:16,201 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fd0cf0c143e25e4c161c7c28d6699885
+2026-05-23 01:08:16,201 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_d4d5896f8960e6e435335cc7
+2026-05-23 01:08:18,952 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fd0cf0c143e25e4c161c7c28d6699885 ok=True error= 摘要=fields命中=4/5, name=舒茂月, basic_info=空, education=22岁 3年 离职-随时到岗 大专, university=本地团购 带货主播, description=成都 带货主播
+2026-05-23 01:08:18,957 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:18,957 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_913ff8dd5bf6e7379e9213e1370ed48e
+2026-05-23 01:08:18,957 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_abc3e150c3a9dc88962ca74b
+2026-05-23 01:08:18,962 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_913ff8dd5bf6e7379e9213e1370ed48e ok=True error= 摘要=in_viewport=True, matched=el_abc3e150c3a9dc88962ca74b
+2026-05-23 01:08:18,969 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:18,969 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8ac9bd1131f165ee3a4c4471356b3517
+2026-05-23 01:08:18,969 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_abc3e150c3a9dc88962ca74b
+2026-05-23 01:08:21,530 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8ac9bd1131f165ee3a4c4471356b3517 ok=True error= 摘要=fields命中=4/5, name=Freya, basic_info=空, education=25岁 4年 在职-月内到岗 大专, university=中润世金传媒 带货主播, description=成都 兼职·带货主播
+2026-05-23 01:08:21,557 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:21,557 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_356d6c83e9209534355e2f570a80f6ef
+2026-05-23 01:08:21,557 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_32f7f57c14d5b1f2dbe2308e
+2026-05-23 01:08:21,571 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_356d6c83e9209534355e2f570a80f6ef ok=True error= 摘要=in_viewport=True, matched=el_32f7f57c14d5b1f2dbe2308e
+2026-05-23 01:08:21,584 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:21,585 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_86f995c576b62523ef21fdf1a7f6a4a0
+2026-05-23 01:08:21,585 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_32f7f57c14d5b1f2dbe2308e
+2026-05-23 01:08:24,178 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_86f995c576b62523ef21fdf1a7f6a4a0 ok=True error= 摘要=fields命中=4/5, name=温相娟, basic_info=空, education=31岁 8年 离职-随时到岗 大专, university=马路边边 主播, description=成都 带货主播
+2026-05-23 01:08:24,184 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:24,184 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_9b3193eb7470d41312b3d0760424a47f
+2026-05-23 01:08:24,184 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_0d443360378997aa76f2144a
+2026-05-23 01:08:24,191 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_9b3193eb7470d41312b3d0760424a47f ok=True error= 摘要=in_viewport=True, matched=el_0d443360378997aa76f2144a
+2026-05-23 01:08:24,199 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:24,199 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e46d805ea4edf1f6498f906cc8c75dd1
+2026-05-23 01:08:24,199 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_0d443360378997aa76f2144a
+2026-05-23 01:08:26,762 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e46d805ea4edf1f6498f906cc8c75dd1 ok=True error= 摘要=fields命中=4/5, name=森森, basic_info=空, education=26岁 8年 离职-随时到岗 本科, university=戴维贝拉 主播, description=成都 带货主播
+2026-05-23 01:08:26,775 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:26,776 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_fadac02d36bac0b8363f309ae5e5f775
+2026-05-23 01:08:26,776 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_7e8daed270a1f49083d7a86f
+2026-05-23 01:08:26,785 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_fadac02d36bac0b8363f309ae5e5f775 ok=True error= 摘要=in_viewport=True, matched=el_7e8daed270a1f49083d7a86f
+2026-05-23 01:08:26,794 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:26,794 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ff2aad30896d4a40dbd86ea9b96aba2c
+2026-05-23 01:08:26,794 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_7e8daed270a1f49083d7a86f
+2026-05-23 01:08:29,364 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_ff2aad30896d4a40dbd86ea9b96aba2c ok=True error= 摘要=fields命中=4/5, name=陈廷琴, basic_info=空, education=27岁 4年 离职-随时到岗 本科, university=迪丝嫚苓服饰（杭州） 服装助播, description=成都 带货主播
+2026-05-23 01:08:46,177 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:08:46,177 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_15393aa558b7ad55f42253c44d1c6ca4
+2026-05-23 01:08:46,177 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:08:46,789 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:08:46,790 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:08:55,503 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:08:55,504 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_15393aa558b7ad55f42253c44d1c6ca4 ok=True error= 摘要=[]
+2026-05-23 01:08:55,519 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:08:55,520 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f765c2223365878a17385ec3a82a627e
+2026-05-23 01:08:55,520 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:08:55,632 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f765c2223365878a17385ec3a82a627e ok=True error= 摘要=items=5个, refs=['el_d0e2c882aaeae16d1743ac42', 'el_afb1575cd3315d9b2d941da6', 'el_2562643f0ba427c7d7352837']
+2026-05-23 01:08:55,641 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:55,642 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_493336a17f6c4a5f6e7e776e20949f00
+2026-05-23 01:08:55,642 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_d0e2c882aaeae16d1743ac42
+2026-05-23 01:08:55,647 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_493336a17f6c4a5f6e7e776e20949f00 ok=True error= 摘要=in_viewport=True, matched=el_d0e2c882aaeae16d1743ac42
+2026-05-23 01:08:55,655 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:55,655 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_4a838c40bd4e9f0058da909ece3eb3d1
+2026-05-23 01:08:55,655 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_d0e2c882aaeae16d1743ac42
+2026-05-23 01:08:58,190 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_4a838c40bd4e9f0058da909ece3eb3d1 ok=True error= 摘要=fields命中=4/5, name=温相娟, basic_info=空, education=31岁 8年 离职-随时到岗 大专, university=马路边边 主播, description=成都 带货主播
+2026-05-23 01:08:58,201 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:08:58,201 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_7a8f0c5c0a73fce91150248b72ee676c
+2026-05-23 01:08:58,201 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_afb1575cd3315d9b2d941da6
+2026-05-23 01:08:58,207 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_7a8f0c5c0a73fce91150248b72ee676c ok=True error= 摘要=in_viewport=True, matched=el_afb1575cd3315d9b2d941da6
+2026-05-23 01:08:58,215 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:08:58,215 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_c6147d25c4ee48adaeef2838746f848e
+2026-05-23 01:08:58,215 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_afb1575cd3315d9b2d941da6
+2026-05-23 01:09:00,770 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_c6147d25c4ee48adaeef2838746f848e ok=True error= 摘要=fields命中=4/5, name=森森, basic_info=空, education=26岁 8年 离职-随时到岗 本科, university=戴维贝拉 主播, description=成都 带货主播
+2026-05-23 01:09:00,781 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:00,781 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_12b6940501029978b79146622dd6ea6e
+2026-05-23 01:09:00,781 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_2562643f0ba427c7d7352837
+2026-05-23 01:09:00,788 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_12b6940501029978b79146622dd6ea6e ok=True error= 摘要=in_viewport=True, matched=el_2562643f0ba427c7d7352837
+2026-05-23 01:09:00,797 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:00,797 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_34adf4583a7685341a92d0cf704647ae
+2026-05-23 01:09:00,797 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_2562643f0ba427c7d7352837
+2026-05-23 01:09:03,353 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_34adf4583a7685341a92d0cf704647ae ok=True error= 摘要=fields命中=4/5, name=陈廷琴, basic_info=空, education=27岁 4年 离职-随时到岗 本科, university=迪丝嫚苓服饰（杭州） 服装助播, description=成都 带货主播
+2026-05-23 01:09:03,361 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:03,361 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_9cec37c392d32b819b6c3088d75ee665
+2026-05-23 01:09:03,361 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_f6cad592d9e4348915e08e01
+2026-05-23 01:09:03,366 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_9cec37c392d32b819b6c3088d75ee665 ok=True error= 摘要=in_viewport=True, matched=el_f6cad592d9e4348915e08e01
+2026-05-23 01:09:03,373 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:03,373 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b7be1f63e45392abde39a077757cd70c
+2026-05-23 01:09:03,373 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_f6cad592d9e4348915e08e01
+2026-05-23 01:09:05,953 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b7be1f63e45392abde39a077757cd70c ok=True error= 摘要=fields命中=4/5, name=杨济瑜, basic_info=空, education=27岁 5年 离职-随时到岗 本科, university=吴大叔女鞋 带货主播, description=成都 带货主播
+2026-05-23 01:09:05,968 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:05,968 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_dc8e105618b5d6791ff4e96a2ff029dd
+2026-05-23 01:09:05,968 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_5fe2705325b2a77e6c1eef58
+2026-05-23 01:09:05,979 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_dc8e105618b5d6791ff4e96a2ff029dd ok=True error= 摘要=in_viewport=True, matched=el_5fe2705325b2a77e6c1eef58
+2026-05-23 01:09:05,993 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:05,993 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f29120762589e600542aa9ed90bd6c3e
+2026-05-23 01:09:05,994 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_5fe2705325b2a77e6c1eef58
+2026-05-23 01:09:08,564 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f29120762589e600542aa9ed90bd6c3e ok=True error= 摘要=fields命中=4/5, name=小古, basic_info=空, education=27岁 9年 离职-随时到岗 大专, university=钟灵记文化传播 主播, description=成都 主播
+2026-05-23 01:09:27,708 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:09:27,709 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b9f4f563bd3629cb6b974db6d0f532ed
+2026-05-23 01:09:27,709 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:09:27,819 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:09:27,820 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:09:36,658 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:09:36,660 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b9f4f563bd3629cb6b974db6d0f532ed ok=True error= 摘要=[]
+2026-05-23 01:09:36,676 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:09:36,677 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b807c439b6f1d91be4b0673c0720bfa4
+2026-05-23 01:09:36,677 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:09:36,782 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b807c439b6f1d91be4b0673c0720bfa4 ok=True error= 摘要=items=5个, refs=['el_ad0a2a1f889e669141e7f110', 'el_8078615ef3a6a61dd6963a54', 'el_3756928dc901e49c3e3be2f4']
+2026-05-23 01:09:36,793 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:36,793 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_7430b0b07efc4fb9cd55110ffe3d24b6
+2026-05-23 01:09:36,793 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_ad0a2a1f889e669141e7f110
+2026-05-23 01:09:36,798 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_7430b0b07efc4fb9cd55110ffe3d24b6 ok=True error= 摘要=in_viewport=True, matched=el_ad0a2a1f889e669141e7f110
+2026-05-23 01:09:36,804 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:36,804 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b8b60cdab4038cce57c2cd3d2920134e
+2026-05-23 01:09:36,804 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_ad0a2a1f889e669141e7f110
+2026-05-23 01:09:39,371 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b8b60cdab4038cce57c2cd3d2920134e ok=True error= 摘要=fields命中=4/5, name=陈廷琴, basic_info=空, education=27岁 4年 离职-随时到岗 本科, university=迪丝嫚苓服饰（杭州） 服装助播, description=成都 带货主播
+2026-05-23 01:09:39,386 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:39,386 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_62905e47a066e4662ef0f48c04cd1179
+2026-05-23 01:09:39,386 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_8078615ef3a6a61dd6963a54
+2026-05-23 01:09:39,395 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_62905e47a066e4662ef0f48c04cd1179 ok=True error= 摘要=in_viewport=True, matched=el_8078615ef3a6a61dd6963a54
+2026-05-23 01:09:39,403 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:39,404 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_141f9fc268e956c71202d9489555d70d
+2026-05-23 01:09:39,404 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_8078615ef3a6a61dd6963a54
+2026-05-23 01:09:41,959 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_141f9fc268e956c71202d9489555d70d ok=True error= 摘要=fields命中=4/5, name=杨济瑜, basic_info=空, education=27岁 5年 离职-随时到岗 本科, university=吴大叔女鞋 带货主播, description=成都 带货主播
+2026-05-23 01:09:41,969 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:41,969 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_07ce52928015ca88b354acaee41216e0
+2026-05-23 01:09:41,970 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_3756928dc901e49c3e3be2f4
+2026-05-23 01:09:41,975 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_07ce52928015ca88b354acaee41216e0 ok=True error= 摘要=in_viewport=True, matched=el_3756928dc901e49c3e3be2f4
+2026-05-23 01:09:41,980 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:41,981 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_a20dba468639a30b0f1ccdb888a3ed3d
+2026-05-23 01:09:41,981 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_3756928dc901e49c3e3be2f4
+2026-05-23 01:09:44,542 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_a20dba468639a30b0f1ccdb888a3ed3d ok=True error= 摘要=fields命中=4/5, name=小古, basic_info=空, education=27岁 9年 离职-随时到岗 大专, university=钟灵记文化传播 主播, description=成都 主播
+2026-05-23 01:09:44,553 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:44,553 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b18bbbb01a19d217743bcd068f1a257e
+2026-05-23 01:09:44,553 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_4336ac3e2a1bfbcfe2901bae
+2026-05-23 01:09:44,561 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b18bbbb01a19d217743bcd068f1a257e ok=True error= 摘要=in_viewport=True, matched=el_4336ac3e2a1bfbcfe2901bae
+2026-05-23 01:09:44,569 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:44,570 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_4fdd428b3eca7dd97280a4735bcfd525
+2026-05-23 01:09:44,570 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_4336ac3e2a1bfbcfe2901bae
+2026-05-23 01:09:47,238 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_4fdd428b3eca7dd97280a4735bcfd525 ok=True error= 摘要=fields命中=4/5, name=程子怡, basic_info=空, education=23岁 2年 离职-随时到岗 大专, university=凯乐石 兼职主播, description=成都 兼职·带货主播
+2026-05-23 01:09:47,351 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:09:47,353 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ea33969dedb8b8641e228b1717609ecc
+2026-05-23 01:09:47,353 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_e16334f6d0e2a5915963f553
+2026-05-23 01:09:47,399 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_ea33969dedb8b8641e228b1717609ecc ok=True error= 摘要=in_viewport=True, matched=el_e16334f6d0e2a5915963f553
+2026-05-23 01:09:47,418 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:09:47,418 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_a7fe6656cc5b1968c0420676ac6a5b81
+2026-05-23 01:09:47,418 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_e16334f6d0e2a5915963f553
+2026-05-23 01:09:50,036 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_a7fe6656cc5b1968c0420676ac6a5b81 ok=True error= 摘要=fields命中=4/5, name=陈思妍, basic_info=空, education=27岁 5年 离职-随时到岗 大专, university=ugentle 主播, description=成都 主播
+2026-05-23 01:10:19,068 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:10:19,069 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_797e5838fc5e43c4c42c79511045bd6a
+2026-05-23 01:10:19,070 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:10:19,187 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:10:19,187 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:10:26,279 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:10:26,280 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_797e5838fc5e43c4c42c79511045bd6a ok=True error= 摘要=[]
+2026-05-23 01:10:26,305 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:10:26,307 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e79793b3eef63651db9e3ec884d22d3a
+2026-05-23 01:10:26,308 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:10:26,440 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e79793b3eef63651db9e3ec884d22d3a ok=True error= 摘要=items=5个, refs=['el_f0df99d5578d5cad66988f91', 'el_2b5f090c6303437aa15314f9', 'el_371504e2ebf4ace344ccf85b']
+2026-05-23 01:10:26,452 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:10:26,452 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_6a2eed14f281f94014c1a8db80f86386
+2026-05-23 01:10:26,453 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_f0df99d5578d5cad66988f91
+2026-05-23 01:10:26,458 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_6a2eed14f281f94014c1a8db80f86386 ok=True error= 摘要=in_viewport=True, matched=el_f0df99d5578d5cad66988f91
+2026-05-23 01:10:26,466 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:10:26,466 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_c47267e90e4da6079f59f04110f7f375
+2026-05-23 01:10:26,466 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_f0df99d5578d5cad66988f91
+2026-05-23 01:10:29,031 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_c47267e90e4da6079f59f04110f7f375 ok=True error= 摘要=fields命中=4/5, name=小古, basic_info=空, education=27岁 9年 离职-随时到岗 大专, university=钟灵记文化传播 主播, description=成都 主播
+2026-05-23 01:10:29,043 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:10:29,044 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_e4cb3892a4a86ee9ce04344b31e5d8c2
+2026-05-23 01:10:29,044 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_2b5f090c6303437aa15314f9
+2026-05-23 01:10:29,052 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_e4cb3892a4a86ee9ce04344b31e5d8c2 ok=True error= 摘要=in_viewport=True, matched=el_2b5f090c6303437aa15314f9
+2026-05-23 01:10:29,062 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:10:29,062 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_d2b2dcca9cb4cfec9acf70a3d4039352
+2026-05-23 01:10:29,062 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_2b5f090c6303437aa15314f9
+2026-05-23 01:10:31,636 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_d2b2dcca9cb4cfec9acf70a3d4039352 ok=True error= 摘要=fields命中=4/5, name=程子怡, basic_info=空, education=23岁 2年 离职-随时到岗 大专, university=凯乐石 兼职主播, description=成都 兼职·带货主播
+2026-05-23 01:10:31,653 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:10:31,653 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_44252cd90bdd4172d85e961097e1779c
+2026-05-23 01:10:31,653 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_371504e2ebf4ace344ccf85b
+2026-05-23 01:10:31,662 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_44252cd90bdd4172d85e961097e1779c ok=True error= 摘要=in_viewport=True, matched=el_371504e2ebf4ace344ccf85b
+2026-05-23 01:10:31,672 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:10:31,672 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_3ebc767386e4841073ec56c1ab1bd8c7
+2026-05-23 01:10:31,672 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_371504e2ebf4ace344ccf85b
+2026-05-23 01:10:34,270 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_3ebc767386e4841073ec56c1ab1bd8c7 ok=True error= 摘要=fields命中=4/5, name=陈思妍, basic_info=空, education=27岁 5年 离职-随时到岗 大专, university=ugentle 主播, description=成都 主播
+2026-05-23 01:10:34,287 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:10:34,287 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_54930a3ad83bb849d9427ae0e8281414
+2026-05-23 01:10:34,287 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_3d336cb73e6043ce109f6476
+2026-05-23 01:10:34,298 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_54930a3ad83bb849d9427ae0e8281414 ok=True error= 摘要=in_viewport=True, matched=el_3d336cb73e6043ce109f6476
+2026-05-23 01:10:34,312 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:10:34,312 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_8f4aa29677422efc300f4f057c1802f8
+2026-05-23 01:10:34,312 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_3d336cb73e6043ce109f6476
+2026-05-23 01:10:36,882 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_8f4aa29677422efc300f4f057c1802f8 ok=True error= 摘要=fields命中=4/5, name=杨春晓, basic_info=空, education=27岁 5年 在职-考虑机会 大专, university=斐乐服饰有限公司 带货主播, description=成都 带货主播
+2026-05-23 01:10:36,896 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:10:36,896 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_56d294d84dd24f58292f4b39632a0ab0
+2026-05-23 01:10:36,896 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_8de85b1bf55df9473020f789
+2026-05-23 01:10:36,903 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_56d294d84dd24f58292f4b39632a0ab0 ok=True error= 摘要=in_viewport=True, matched=el_8de85b1bf55df9473020f789
+2026-05-23 01:10:36,910 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:10:36,910 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b1493ab13105ba8258808bef5d4d61d8
+2026-05-23 01:10:36,911 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_8de85b1bf55df9473020f789
+2026-05-23 01:10:39,470 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_b1493ab13105ba8258808bef5d4d61d8 ok=True error= 摘要=fields命中=4/5, name=周羲然, basic_info=空, education=26岁 4年 离职-随时到岗 本科, university=凯洁电商 中控/场控/助播, description=成都 带货主播
+2026-05-23 01:11:01,396 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:11:01,396 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_22fd346f7673c4da170ee115e7ccc170
+2026-05-23 01:11:01,396 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:11:01,618 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:11:01,618 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:11:07,549 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:11:07,549 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_22fd346f7673c4da170ee115e7ccc170 ok=True error= 摘要=[]
+2026-05-23 01:11:07,565 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:11:07,566 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_ac7468d54b5f763bfd3097c862bd493d
+2026-05-23 01:11:07,566 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:11:07,786 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_ac7468d54b5f763bfd3097c862bd493d ok=True error= 摘要=items=5个, refs=['el_97bea8aafae470643109bed3', 'el_6cdd9577d35517caeec9aa58', 'el_845a50b004ac443c59a4e5f6']
+2026-05-23 01:11:07,801 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:07,801 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_1f2ec079dabb4a991a552e4f82dc821b
+2026-05-23 01:11:07,801 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_97bea8aafae470643109bed3
+2026-05-23 01:11:07,808 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_1f2ec079dabb4a991a552e4f82dc821b ok=True error= 摘要=in_viewport=True, matched=el_97bea8aafae470643109bed3
+2026-05-23 01:11:07,815 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:07,815 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_af742b788cfaf75dc78838d18e247b30
+2026-05-23 01:11:07,815 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_97bea8aafae470643109bed3
+2026-05-23 01:11:10,379 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_af742b788cfaf75dc78838d18e247b30 ok=True error= 摘要=fields命中=4/5, name=陈思妍, basic_info=空, education=27岁 5年 离职-随时到岗 大专, university=ugentle 主播, description=成都 主播
+2026-05-23 01:11:10,389 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:10,389 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2243698b85e933f168ece321ce6c4253
+2026-05-23 01:11:10,389 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_6cdd9577d35517caeec9aa58
+2026-05-23 01:11:10,396 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2243698b85e933f168ece321ce6c4253 ok=True error= 摘要=in_viewport=True, matched=el_6cdd9577d35517caeec9aa58
+2026-05-23 01:11:10,404 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:10,404 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_bb94f42ae13ce85a61614cb229ff0486
+2026-05-23 01:11:10,404 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_6cdd9577d35517caeec9aa58
+2026-05-23 01:11:12,977 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_bb94f42ae13ce85a61614cb229ff0486 ok=True error= 摘要=fields命中=4/5, name=杨春晓, basic_info=空, education=27岁 5年 在职-考虑机会 大专, university=斐乐服饰有限公司 带货主播, description=成都 带货主播
+2026-05-23 01:11:12,989 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:12,989 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_84a9bf325e5bb23c41e1127dfd87b825
+2026-05-23 01:11:12,989 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_845a50b004ac443c59a4e5f6
+2026-05-23 01:11:13,001 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_84a9bf325e5bb23c41e1127dfd87b825 ok=True error= 摘要=in_viewport=True, matched=el_845a50b004ac443c59a4e5f6
+2026-05-23 01:11:13,011 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:13,011 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_d7659e5fa3606eece0cf229d0544372d
+2026-05-23 01:11:13,011 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_845a50b004ac443c59a4e5f6
+2026-05-23 01:11:15,586 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_d7659e5fa3606eece0cf229d0544372d ok=True error= 摘要=fields命中=4/5, name=周羲然, basic_info=空, education=26岁 4年 离职-随时到岗 本科, university=凯洁电商 中控/场控/助播, description=成都 带货主播
+2026-05-23 01:11:15,598 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:15,598 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_c7f2c1c08ce28d5c27579338adcc1962
+2026-05-23 01:11:15,598 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_4eae8e03e91c7c42e55d0b59
+2026-05-23 01:11:15,609 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_c7f2c1c08ce28d5c27579338adcc1962 ok=True error= 摘要=in_viewport=True, matched=el_4eae8e03e91c7c42e55d0b59
+2026-05-23 01:11:15,619 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:15,619 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_2775198d907f9d9d1c78de439020094b
+2026-05-23 01:11:15,619 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_4eae8e03e91c7c42e55d0b59
+2026-05-23 01:11:18,191 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_2775198d907f9d9d1c78de439020094b ok=True error= 摘要=fields命中=4/5, name=小泉, basic_info=空, education=24岁 5年 离职-随时到岗 大专, university=凌傲实业 带货主播, description=成都 带货主播
+2026-05-23 01:11:18,200 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:18,200 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f314d211969079d7fc203d4c207d8437
+2026-05-23 01:11:18,200 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_124f166b4fc37ae4b3251640
+2026-05-23 01:11:18,207 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f314d211969079d7fc203d4c207d8437 ok=True error= 摘要=in_viewport=True, matched=el_124f166b4fc37ae4b3251640
+2026-05-23 01:11:18,215 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:18,215 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_843aba7f88fbc28bd0d09eb94c5ced04
+2026-05-23 01:11:18,216 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_124f166b4fc37ae4b3251640
+2026-05-23 01:11:20,802 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_843aba7f88fbc28bd0d09eb94c5ced04 ok=True error= 摘要=fields命中=4/5, name=王方永, basic_info=空, education=27岁 6年 离职-随时到岗 大专, university=四川江见山服饰 带货主播, description=成都 带货主播
+2026-05-23 01:11:39,817 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=305
+2026-05-23 01:11:39,817 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_35df8e473c7aba6c4ce4618f82d3121a
+2026-05-23 01:11:39,817 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/scroll, target_classes=[['.card-list']], max_scrolls=1
+2026-05-23 01:11:40,032 INFO goodhr5.humanize: 已移动鼠标到.card-list中心: (721.0, 400.0)
+2026-05-23 01:11:40,033 INFO goodhr5.humanize: 滚动前已命中目标元素: .card-list
+2026-05-23 01:11:46,464 INFO goodhr5.humanize: 滚动加载完成，共滚动 1 屏
+2026-05-23 01:11:46,467 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_35df8e473c7aba6c4ce4618f82d3121a ok=True error= 摘要=[]
+2026-05-23 01:11:46,484 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=404
+2026-05-23 01:11:46,484 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_dbf272b8543bff50eec86b9cf79d4a72
+2026-05-23 01:11:46,484 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/find-elements, parent_classes=[['.card-list']], target_classes=[['.candidate-card-wrap', '.geek-info-card', '.card-container', '.card-inner.clear-fix', '.card-inner.common-wrap']]
+2026-05-23 01:11:46,957 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_dbf272b8543bff50eec86b9cf79d4a72 ok=True error= 摘要=items=6个, refs=['el_bdd1a4234ecb9e85914fa4ac', 'el_b1ddb6e48e268262bef9fe8a', 'el_70c199f8a9e11c1aae4e75fd']
+2026-05-23 01:11:46,968 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=250
+2026-05-23 01:11:46,968 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_f8670551fd2c046a04c05be2207674e5
+2026-05-23 01:11:46,968 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/in-viewport, element_ref=el_bdd1a4234ecb9e85914fa4ac
+2026-05-23 01:11:46,980 INFO goodhr5.local-agent.ws: [任务WS] 发送回复 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d reply_to=msg_f8670551fd2c046a04c05be2207674e5 ok=True error= 摘要=in_viewport=True, matched=el_bdd1a4234ecb9e85914fa4ac
+2026-05-23 01:11:46,994 INFO goodhr5.local-agent.ws: [任务WS] 收到原始消息长度=558
+2026-05-23 01:11:46,994 INFO goodhr5.local-agent.ws: [任务WS] 开始处理命令 type=local.http.post task=6d80f19e-292d-423b-af4b-0462e6a5f75d message_id=msg_b0ec03083090e56f78869f6de20c156c
+2026-05-23 01:11:46,994 INFO goodhr5.local-agent.ws: [任务WS] 执行本地命令 path=/api/v1/page/extract-fields, fields=['name', 'basic_info', 'education', 'university', 'description'], element_ref=el_bdd1a4234ecb9e85914fa4ac
+2026-05-23 01:11:47,594 INFO goodhr5.local-agent.ws: [任务WS] 连接循环已取消

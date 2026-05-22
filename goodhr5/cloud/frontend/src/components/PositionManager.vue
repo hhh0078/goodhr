@@ -1,7 +1,10 @@
 <template>
   <section class="panel">
     <div class="panel-header">
-      <h2>岗位模板</h2>
+      <!-- 底部对齐 -->
+      <div style="display: flex; gap: 10px; align-items: center">
+        <h2>岗位模板</h2>
+      </div>
       <div style="display: flex; gap: 8px">
         <button v-if="!showForm" class="ghost" @click="showForm = true">
           + 新建模板
@@ -12,7 +15,19 @@
     </div>
 
     <template v-if="showForm">
-      <h3>基础信息</h3>
+      <div style="display: flex; gap: 10px; align-items: center">
+        <h3>基础信息</h3>
+        <div style="font-size: 12px; color: red">
+          虽然下面的内容看起来又臭又长、但是算我求你了，一定要认真看完下面的提示。非常重要😭
+        </div>
+      </div>
+      <div style="font-size: 12px; margin-bottom: 12px" class="hint">
+        运行逻辑:
+        拿候选人基础信息后，再结合岗位要求，详情提示词,让ai进行打分。如果大于你设置的分数那就
+        会执行点击候选人详情 拿到候选人的详细信息。
+        再根据你岗位要求、打招呼提示词，让ai进行打分，如果大于你设置的分数那就
+        会执行点击打招呼按钮。
+      </div>
       <div class="position-form-grid">
         <label class="field field-medium"
           >岗位名称<input
@@ -62,8 +77,11 @@
               v-model="positions.form.value.aiPositionRequirement"
               rows="4"
             />
-            <small class="field-help"
-              >1 年龄、学历等基础条件 请尽量用平台自带的筛选提前筛选好。</small
+            <small class="field-help" style="color: red"
+              >1 年龄、学历、工作城市等基础条件
+              请尽量用平台自带的筛选提前筛选好。尽量不要包含以下内容
+              例如:要有上进心、要有团队合作精神等
+              因为该条件在候选人信息中不能体现。所以ai无法判断。(也就是尽量写候选人简历上大概率会出现的内容)</small
             >
             <small class="field-help"
               >2
@@ -71,6 +89,20 @@
             >
             <small class="field-help"
               >3 哪些条件是不值得继续查看详情和沟通的也最好写清楚</small
+            >
+            <small class="field-help"> 4 正确的示范: </small>
+            <div class="" style="margin-left: 12px">
+              <p class="field-help">1 求职意向必须是数学老师岗位</p>
+              <p class="field-help">2 必须有3年以上数学教学经验</p>
+              <p class="field-help">3 必须有教师资格证</p>
+              <p class="field-help">4 必须是离职状态</p>
+              <p class="field-help">
+                聪明的你应该懂了。我写了这么多 你应该知道重要性了吧😄
+              </p>
+            </div>
+            <small class="field-help"
+              >5
+              如果您实在不清楚怎么写。建议把你的岗位jd。还有上面的文字一起发给AI.让他给您写。虽然也不一定正确。哈哈哈哈😄</small
             >
           </label>
           <label class="field field-full"
@@ -87,12 +119,12 @@
               v-model="positions.form.value.aiOpenDetailPrompt"
               rows="4"
             />
-            <small class="field-help"
-              >先用候选人基础信息让 AI 判断“这次值不值得打开详情”，要求 AI
-              返回是否查看和简短原因。</small
+            <small class="field-help" style="color: red"
+              >该提示词的作用
+              仅用于判断是否值得打开详情，各行各业都有不同的判断标准。普通岗位建议宽度点。高级岗位建议严苛点。如果效果不佳，请自行调整。这个没有唯一答案。就像写作文一样的难。你也可以让ai帮你写。</small
             >
           </label>
-          <label class="field field-small"
+          <label class="field field-full"
             >看详情阈值分<input
               v-model="positions.form.value.detailScoreThreshold"
               type="number"
@@ -101,7 +133,7 @@
               step="1"
             />
             <small class="field-help"
-              >看详情评分大于等于该值时，才会打开详情。</small
+              >看详情评分大于等于该值时，才会打开详情。说直白点，候选人薪资低就设置地点。高就高点。至于高多少，请根据提示词里的内容自行调整。</small
             >
           </label>
           <label class="field field-full"
@@ -116,11 +148,11 @@
               </button></span
             ><textarea v-model="positions.form.value.aiFilterPrompt" rows="4" />
             <small class="field-help"
-              >详情文本拿到后，再给 AI
-              的最终筛选补充规则。这里和“打开详情提示词”是两套不同提示词。</small
+              >这个提示词
+              的作用就决定了候选人的分数高低。跟上面的提示词逻辑一样。只是作用不同。</small
             >
           </label>
-          <label class="field field-small"
+          <label class="field field-full"
             >打招呼阈值分<input
               v-model="positions.form.value.greetScoreThreshold"
               type="number"
@@ -129,7 +161,7 @@
               step="1"
             />
             <small class="field-help"
-              >最终评分大于等于该值时，才会执行打招呼。</small
+              >候选人打招呼评分大于等于该值时，才会执行打招呼。跟上面逻辑一样。薪资低就低点。高就高点。至于高多少，请根据提示词里的内容自行调整。</small
             >
           </label>
           <label class="field field-full"
@@ -144,7 +176,9 @@
               </button></span
             ><textarea v-model="positions.form.value.aiReviewPrompt" rows="2" />
             <small class="field-help"
-              >该提示词仅用于打招呼前二次筛选得分。打招呼评分与阈值差值不超过10分时触发复核，并以复核分数作为最终打招呼依据。</small
+              >作用是
+              当候选人打招呼评分与阈值差值不超过10分时，触发复核，并以复核分数作为最终打招呼依据。如果你不填
+              就不会执行这一步。这一步加上会更加保险</small
             >
           </label>
         </div>
