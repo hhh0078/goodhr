@@ -61,7 +61,7 @@
           <strong>{{ a.display_name || a.id }}</strong>
           <p class="card-meta">
             {{ a.platform_id }} | cookie:{{
-              a.status === "available" ? "已登录" : "未登录"
+              cookieStatusLabel(a.status)
             }}
             | 最近时间:{{ formatLocalTime(a.updated_at) }}
           </p>
@@ -97,18 +97,16 @@ import {
   listPlatformAccounts,
   releaseCookie,
   updateCookie,
+  updateCookieStatus,
 } from "../services/cloudApi";
-import { cloudApiBase } from "../services/apiClient";
-import {
-  configureCookieSync,
-  getLocalHealth,
-  openPage,
-} from "../services/localAgentApi";
+import { getLocalHealth, openPage } from "../services/localAgentApi";
 import {
   decryptCookieByAgent,
   pickDecryptPayload,
 } from "../services/cookieCrypto";
 import {
+  detectCookieExpiredByURL,
+  pickPlatformAuthConfig,
   pickAuthEntryURL,
   runPlatformLoginFlow,
   type PlatformAuthConfig,
@@ -141,6 +139,19 @@ function formatLocalTime(value: string) {
   if (Number.isNaN(date.getTime())) return source.slice(0, 16) || "未更新";
   const pad = (num: number) => String(num).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * 返回 cookie 状态中文文案。
+ * @param {string} status - 后端 cookie 状态。
+ * @returns {string} 中文状态。
+ */
+function cookieStatusLabel(status: string) {
+  const key = String(status || "").toLowerCase();
+  if (key === "available") return "已登录";
+  if (key === "expired") return "已过期";
+  if (key === "in_use") return "使用中";
+  return "未登录";
 }
 
 async function load() {
@@ -211,11 +222,8 @@ async function refreshCookie(account: any) {
       },
       {
         userDataDir: account.local_profile_id || account.id,
-        cookieSync: {
-          cookie_id: account.id,
-          platform_id: account.platform_id,
-          display_name: account.display_name,
-          cloud_api_base: cloudApiBase(),
+        onExpired: async () => {
+          await markAccountExpired(account, "检测到登录页，已将账号标记为过期");
         },
       },
     );
@@ -263,12 +271,6 @@ async function openWithCookie(account: any) {
       user_data_dir: account.local_profile_id || account.id,
       headless: false,
       humanize: true,
-      cookie_sync: {
-        cookie_id: account.id,
-        platform_id: account.platform_id,
-        display_name: account.display_name,
-        cloud_api_base: cloudApiBase(),
-      },
     };
 
     let claimed = false;
@@ -299,8 +301,19 @@ async function openWithCookie(account: any) {
       }
     }
 
-    await configureCookieSync(props.agentBaseUrl, openPayload.cookie_sync);
     await openPage(props.agentBaseUrl, openPayload);
+    const status = await detectCookieExpiredByURL(
+      props.agentBaseUrl,
+      authConfig,
+      (message) => {
+        msg.value = message;
+        msgType.value = "success";
+      },
+    );
+    if (status.expired) {
+      await markAccountExpired(account, "检测到登录页，账号已标记为过期");
+      return;
+    }
     msg.value = "已打开推荐页";
     msgType.value = "success";
   } catch (e: any) {
@@ -312,31 +325,22 @@ async function openWithCookie(account: any) {
   }
 }
 
+/**
+ * 将平台账号标记为过期，并刷新账号列表。
+ * @param {any} account - 平台账号记录。
+ * @param {string} message - 成功提示。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function markAccountExpired(account: any, message: string) {
+  if (!account?.id) return;
+  await updateCookieStatus(account.id, "expired");
+  msg.value = message;
+  msgType.value = "error";
+  await load();
+}
+
 function platformAuthConfig(platformId: string): PlatformAuthConfig {
-  const item = platformConfigs.value.find(
-    (config: any) => config.config_key === `platform.${platformId}`,
-  );
-  if (!item?.config_value) throw new Error(`平台 ${platformId} 缺少配置`);
-  try {
-    const parsed = JSON.parse(item.config_value);
-    const authPages = parsed.auth?.pages;
-    const publicPages = parsed.public?.pages;
-    if (!Array.isArray(authPages) || authPages.length === 0) {
-      throw new Error(`平台 ${platformId} 配置缺少 auth.pages`);
-    }
-    if (!Array.isArray(publicPages)) {
-      throw new Error(`平台 ${platformId} 配置缺少 public.pages`);
-    }
-    return {
-      pages: authPages,
-      public_pages: publicPages,
-    };
-  } catch (e: any) {
-    if (e?.message?.includes("平台")) {
-      throw e;
-    }
-    throw new Error(`平台 ${platformId} 配置不是合法 JSON`);
-  }
+  return pickPlatformAuthConfig(platformConfigs.value, platformId);
 }
 async function del(a: any) {
   try {

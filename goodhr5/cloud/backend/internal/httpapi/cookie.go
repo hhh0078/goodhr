@@ -323,6 +323,40 @@ func (s *CookieService) Release(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// Status 更新 cookie 登录状态，用于前端检测到平台登录过期后标记账号。
+func (s *CookieService) Status(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	tenantID, ok := s.currentTenant(w, r)
+	if !ok {
+		return
+	}
+	cookieID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/cookies/"), "/status")
+	if cookieID == "" {
+		writeError(w, 400, "id required")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, 400, "invalid json")
+		return
+	}
+	status := strings.TrimSpace(req.Status)
+	if status != "available" && status != "expired" && status != "in_use" {
+		writeError(w, 400, "invalid status")
+		return
+	}
+	if err := s.store.UpdateStatus(tenantID, cookieID, status, ""); err != nil {
+		writeError(w, 404, "cookie not found")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "status": status})
+}
+
 // Delete
 func (s *CookieService) Delete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {

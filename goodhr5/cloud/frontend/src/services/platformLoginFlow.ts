@@ -1,4 +1,5 @@
 // 本文件负责封装创建平台账号时的本地登录检测和 cookie 导出流程。
+import { listPlatformConfigs } from './cloudApi'
 import { currentPageURL, exportPageCookies, openPage, startBrowser } from './localAgentApi'
 
 export type PlatformPageRule = {
@@ -15,16 +16,68 @@ export type PlatformAuthConfig = {
 
 type PlatformLoginFlowOptions = {
   userDataDir?: string
-  cookieSync?: {
-    cookie_id?: string
-    platform_id: string
-    display_name: string
-    cloud_api_base: string
-  }
+  onExpired?: (result: CookieExpiredCheckResult) => void | Promise<void>
 }
 
 const URL_CHECK_INTERVAL_MS = 3000
 const LOGIN_SUCCESS_CONFIRM_TIMES = 3
+const COOKIE_EXPIRED_CHECK_TIMES = 10
+
+export type CookieExpiredCheckResult = {
+  expired: boolean
+  loggedIn: boolean
+  unknown: boolean
+  url: string
+  attempts: number
+}
+
+/**
+ * 从平台配置列表中加载指定平台的登录检测配置。
+ * @param {any[]} configs - 云端 system_configs 返回的平台配置列表。
+ * @param {string} platformId - 平台 ID。
+ * @returns {PlatformAuthConfig} 平台登录检测配置。
+ */
+export function pickPlatformAuthConfig(configs: any[], platformId: string): PlatformAuthConfig {
+  const item = (configs || []).find(
+    (config: any) => config.config_key === `platform.${platformId}`,
+  )
+  if (!item?.config_value) throw new Error(`平台 ${platformId} 缺少配置`)
+  return parsePlatformAuthConfig(item.config_value, platformId)
+}
+
+/**
+ * 从云端加载指定平台的登录检测配置。
+ * @param {string} platformId - 平台 ID。
+ * @returns {Promise<PlatformAuthConfig>} 平台登录检测配置。
+ */
+export async function loadPlatformAuthConfig(platformId: string): Promise<PlatformAuthConfig> {
+  const configs = await listPlatformConfigs()
+  return pickPlatformAuthConfig(configs, platformId)
+}
+
+/**
+ * 解析平台配置 JSON 中的 auth/public 页面规则。
+ * @param {string | Record<string, any>} configValue - 平台配置 JSON 字符串或对象。
+ * @param {string} platformId - 平台 ID，用于生成错误提示。
+ * @returns {PlatformAuthConfig} 平台登录检测配置。
+ */
+export function parsePlatformAuthConfig(configValue: string | Record<string, any>, platformId: string): PlatformAuthConfig {
+  let parsed: any
+  try {
+    parsed = typeof configValue === 'string' ? JSON.parse(configValue) : configValue
+  } catch {
+    throw new Error(`平台 ${platformId} 配置不是合法 JSON`)
+  }
+  const authPages = parsed?.auth?.pages
+  const publicPages = parsed?.public?.pages
+  if (!Array.isArray(authPages) || authPages.length === 0) {
+    throw new Error(`平台 ${platformId} 配置缺少 auth.pages`)
+  }
+  if (!Array.isArray(publicPages)) {
+    throw new Error(`平台 ${platformId} 配置缺少 public.pages`)
+  }
+  return { pages: authPages, public_pages: publicPages }
+}
 
 /**
  * 执行 Boss 等招聘平台的扫码登录检测流程。
@@ -44,40 +97,18 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
     user_data_dir: options.userDataDir || `platform_${platformId}`,
     headless: false,
     humanize: true,
-    cookie_sync: options.cookieSync,
   })
-  await openPage(agentBaseUrl, { url: entryUrl, cookie_sync: options.cookieSync })
-  let sawLoginPage = false
-  let loggedInHits = 0
-  for (let index = 0; index < 10; index += 1) {
-    await delay(URL_CHECK_INTERVAL_MS)
-    const url = await currentPageURL(agentBaseUrl)
-    const loginURL = isLoginURL(url, auth)
-    const loggedInURL = isLoggedInURL(url, auth)
-    if (loginURL) {
-      sawLoginPage = true
-      loggedInHits = 0
-      onStatus('请在打开的浏览器中扫码登录')
-      break
-    }
-    if (loggedInURL) {
-      loggedInHits += 1
-      onStatus(`正在确认登录状态 ${loggedInHits}/${LOGIN_SUCCESS_CONFIRM_TIMES}`)
-      if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
-        return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
-      }
-      continue
-    }
-    onStatus(`等待页面跳转到登录页或已登录页面：${shortURL(url)}`)
-    loggedInHits = 0
+  await openPage(agentBaseUrl, { url: entryUrl })
+  const status = await detectCookieExpiredByURL(agentBaseUrl, auth, onStatus)
+  if (status.loggedIn) {
+    return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
   }
-  if (!sawLoginPage) {
-    if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
-      return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')
-    }
+  if (!status.expired) {
     throw new Error('未确认登录状态，请重试')
   }
-  loggedInHits = 0
+  await options.onExpired?.(status)
+  onStatus('请在打开的浏览器中扫码登录')
+  let loggedInHits = 0
   for (let index = 0; index < 180; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS)
     const url = await currentPageURL(agentBaseUrl)
@@ -99,7 +130,7 @@ function isLoginURL(url: string, auth: PlatformAuthConfig) {
   return (auth.public_pages || []).some(page => matchPageURL(url, page))
 }
 
-function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
+export function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
   return (auth.pages || []).some(page => matchPageURL(url, page))
 }
 
@@ -115,6 +146,38 @@ function delay(ms: number) {
 function shortURL(url: string) {
   if (!url) return '空地址'
   return url.length > 72 ? `${url.slice(0, 72)}...` : url
+}
+
+/**
+ * 最多轮询 10 次当前 URL，判断当前平台账号 cookie 是否已过期。
+ * @param {string} agentBaseUrl - Local Agent HTTP 基础地址。
+ * @param {PlatformAuthConfig} auth - 平台登录配置。
+ * @param {(message: string) => void} onStatus - 状态提示回调。
+ * @returns {Promise<CookieExpiredCheckResult>} 登录状态检测结果。
+ */
+export async function detectCookieExpiredByURL(agentBaseUrl: string, auth: PlatformAuthConfig, onStatus?: (message: string) => void): Promise<CookieExpiredCheckResult> {
+  let lastURL = ''
+  let loggedInHits = 0
+  for (let index = 0; index < COOKIE_EXPIRED_CHECK_TIMES; index += 1) {
+    await delay(URL_CHECK_INTERVAL_MS)
+    const url = await currentPageURL(agentBaseUrl)
+    lastURL = url
+    if (isLoginURL(url, auth)) {
+      onStatus?.(`检测到登录页，账号 cookie 可能已过期：${shortURL(url)}`)
+      return { expired: true, loggedIn: false, unknown: false, url, attempts: index + 1 }
+    }
+    if (isLoggedInURL(url, auth)) {
+      loggedInHits += 1
+      onStatus?.(`正在确认登录状态 ${loggedInHits}/${LOGIN_SUCCESS_CONFIRM_TIMES}`)
+      if (loggedInHits >= LOGIN_SUCCESS_CONFIRM_TIMES) {
+        return { expired: false, loggedIn: true, unknown: false, url, attempts: index + 1 }
+      }
+      continue
+    }
+    loggedInHits = 0
+    onStatus?.(`等待页面跳转到登录页或已登录页面：${shortURL(url)}`)
+  }
+  return { expired: false, loggedIn: false, unknown: true, url: lastURL, attempts: COOKIE_EXPIRED_CHECK_TIMES }
 }
 
 /**

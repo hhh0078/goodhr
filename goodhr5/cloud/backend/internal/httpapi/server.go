@@ -301,6 +301,10 @@ func (s *Server) cookieRoute(w http.ResponseWriter, r *http.Request) {
 		s.cookies.Release(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/status") {
+		s.cookies.Status(w, r)
+		return
+	}
 	if r.Method == http.MethodPut {
 		s.cookies.Update(w, r)
 		return

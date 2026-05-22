@@ -15,19 +15,6 @@ type BrowserRuntimeOptions = {
   humanize?: boolean
   proxy?: string
   cookies?: any[]
-  cookie_sync?: {
-    cookie_id?: string
-    platform_id: string
-    display_name: string
-    cloud_api_base: string
-  }
-}
-
-export type CookieSyncPayload = {
-  cookie_id?: string
-  platform_id: string
-  display_name: string
-  cloud_api_base: string
 }
 
 export type StartBrowserPayload = BrowserRuntimeOptions & {
@@ -153,16 +140,6 @@ export async function startBrowser(base: string, payload: StartBrowserPayload) {
  */
 export async function openPage(base: string, payload: OpenPagePayload) {
   return req(base, '/api/v1/page/open', { method: 'POST', body: payload })
-}
-
-/**
- * 设置浏览器关闭后的 cookie 自动同步配置。
- * @param {string} base - Local Agent HTTP 基础地址。
- * @param {CookieSyncPayload} payload - cookie 同步配置。
- * @returns {Promise<any>} 返回设置结果。
- */
-export async function configureCookieSync(base: string, payload: CookieSyncPayload) {
-  return req(base, '/api/v1/cookie-sync/config', { method: 'POST', body: payload })
 }
 
 /**

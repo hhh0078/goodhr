@@ -120,6 +120,19 @@ export async function updateCookie(cookieID: string, payload: any) {
   return data.cookie
 }
 
+/**
+ * 更新平台账号 cookie 的登录状态。
+ * @param {string} cookieID - cookie 账号 ID。
+ * @param {string} status - 目标状态，支持 available、expired、in_use。
+ * @returns {Promise<any>} 返回后端状态更新结果。
+ */
+export async function updateCookieStatus(cookieID: string, status: string) {
+  return api(`/api/cookies/${encodeURIComponent(cookieID)}/status`, {
+    method: 'PUT',
+    body: { status },
+  })
+}
+
 export async function claimCookie(cookieID: string, payload: any = {}) {
   return api(`/api/cookies/${encodeURIComponent(cookieID)}/claim`, {
     method: 'POST',

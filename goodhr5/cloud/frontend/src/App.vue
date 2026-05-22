@@ -162,7 +162,7 @@ const detectLocalAgent = () => {
   //3秒运行一次
   setInterval(() => {
     agent.detect(auth.user.value, auth.token.value);
-  }, 3000);
+  }, 10000);
 };
 </script>
 

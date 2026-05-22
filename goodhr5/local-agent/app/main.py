@@ -72,114 +72,10 @@ app.add_middleware(
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
 _ws_agent = WSAgentClient(_browser_manager)
-_cookie_sync_config: dict | None = None
 
 # ---------------------------------------------------------------------------
 # 路由处理函数
 # ---------------------------------------------------------------------------
-
-
-def _extract_cookie_sync(payload: dict) -> dict | None:
-    sync = payload.get("cookie_sync")
-    if sync is None:
-        sync = payload
-    if not isinstance(sync, dict):
-        return None
-    cookie_id = str(sync.get("cookie_id", "")).strip()
-    platform_id = str(sync.get("platform_id", "")).strip()
-    display_name = str(sync.get("display_name", "")).strip()
-    cloud_api_base = str(sync.get("cloud_api_base", "")).strip().rstrip("/")
-    if not platform_id or not display_name or not cloud_api_base:
-        return None
-    return {
-        "cookie_id": cookie_id,
-        "platform_id": platform_id,
-        "display_name": display_name,
-        "cloud_api_base": cloud_api_base,
-    }
-
-
-def _set_cookie_sync_config(payload: dict) -> dict:
-    """
-    设置浏览器关闭后自动同步 cookie 的配置。
-
-    Args:
-        payload: 包含 cookie_id、platform_id、display_name 和 cloud_api_base 的参数。
-
-    Returns:
-        已标准化的同步配置。
-    """
-    global _cookie_sync_config
-    config = _extract_cookie_sync(payload)
-    if not config:
-        raise HTTPException(400, "cookie sync config is invalid")
-    _cookie_sync_config = config
-    logger.info(
-        "[cookie-sync] config set: cookie=%s platform=%s name=%s api=%s",
-        config.get("cookie_id", ""),
-        config.get("platform_id", ""),
-        config.get("display_name", ""),
-        config.get("cloud_api_base", ""),
-    )
-    return config
-
-
-async def _sync_cookie_after_browser_closed(reason: str) -> None:
-    global _cookie_sync_config
-    config = _cookie_sync_config
-    if not config:
-        logger.info("[cookie-sync] skip: no config, reason=%s", reason)
-        return
-    logger.info(
-        "[cookie-sync] triggered: reason=%s platform=%s name=%s",
-        reason,
-        config.get("platform_id", ""),
-        config.get("display_name", ""),
-    )
-    account = load_cloud_account()
-    if not account or not account.get("agent_token"):
-        logger.warning("[cookie-sync] skip: cloud account not bound")
-        return
-    try:
-        cookies = await _browser_manager.export_cookies()
-    except Exception as exc:
-        logger.exception("[cookie-sync] export cookies failed: %s", exc)
-        cookies = []
-    if not cookies:
-        logger.warning("[cookie-sync] skip: no cookies exported")
-        return
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            request_json = {
-                "platform_id": config["platform_id"],
-                "display_name": config["display_name"],
-                "cookies": cookies,
-            }
-            cookie_id = str(config.get("cookie_id", "")).strip()
-            if cookie_id:
-                resp = await client.put(
-                    f"{config['cloud_api_base']}/api/cookies/{cookie_id}",
-                    headers={"Authorization": f"Bearer {account['agent_token']}"},
-                    json=request_json,
-                )
-            else:
-                resp = await client.post(
-                    f"{config['cloud_api_base']}/api/cookies/create",
-                    headers={"Authorization": f"Bearer {account['agent_token']}"},
-                    json=request_json,
-                )
-        if resp.status_code >= 400:
-            logger.error("[cookie-sync] upload failed: status=%s body=%s", resp.status_code, resp.text)
-        else:
-            logger.info("[cookie-sync] upload success: status=%s cookies=%d", resp.status_code, len(cookies))
-    except Exception as exc:
-        logger.exception("[cookie-sync] upload error: %s", exc)
-        return
-    finally:
-        _cookie_sync_config = None
-
-
-_browser_manager.add_closed_callback(_sync_cookie_after_browser_closed)
 
 
 @app.get("/health")
@@ -454,7 +350,6 @@ async def browser_start(payload: dict) -> dict:
         user_data_dir = str(_profile_dir(user_data_dir))
     persistent = bool(payload.get("persistent", False))
     cookies = payload.get("cookies")
-    cookie_sync = _extract_cookie_sync(payload)
 
     # 浏览器已运行时，如果目标 profile 不同则先重启，确保切到对应 cookie 目录。
     if _browser_manager.is_running:
@@ -463,8 +358,6 @@ async def browser_start(payload: dict) -> dict:
             await _browser_manager.stop()
             ELEMENT_REFS.clear()
         else:
-            global _cookie_sync_config
-            _cookie_sync_config = cookie_sync
             if isinstance(cookies, list) and cookies:
                 try:
                     await _browser_manager.add_cookies(cookies)
@@ -485,7 +378,6 @@ async def browser_start(payload: dict) -> dict:
             await _browser_manager.add_cookies(cookies)
         except Exception as exc:
             raise HTTPException(400, f"cookie 注入失败: {exc}")
-    _cookie_sync_config = cookie_sync
     return {"ok": True, "status": "started"}
 
 
@@ -505,9 +397,9 @@ async def browser_status() -> dict:
 
 @app.post("/api/v1/cookie-sync/config")
 async def cookie_sync_config(payload: dict) -> dict:
-    """设置当前浏览器关闭后的 cookie 自动同步配置。"""
-    config = _set_cookie_sync_config(payload)
-    return {"ok": True, "config": config}
+    """兼容旧前端接口；关闭浏览器自动回传 cookie 已停用。"""
+    logger.info("[cookie-sync] close sync disabled, ignore config request")
+    return {"ok": True, "disabled": True}
 
 
 async def _require_page():
@@ -614,7 +506,6 @@ async def page_open(payload: dict) -> dict:
                 "humanize": bool(payload.get("humanize", True)),
                 "proxy": str(payload.get("proxy", "")),
                 "cookies": payload.get("cookies"),
-                "cookie_sync": payload.get("cookie_sync"),
             }
         )
 

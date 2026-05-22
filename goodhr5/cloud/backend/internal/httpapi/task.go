@@ -619,6 +619,9 @@ func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(le
 	if rec.Status == "in_use" && (!rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID) {
 		return nil, nil, fmt.Errorf("该平台账号正在被其他任务占用")
 	}
+	if rec.Status == "expired" {
+		return nil, nil, fmt.Errorf("该平台账号登录已过期，请重新登录后再开始任务")
+	}
 	if rec.Status != "in_use" || !rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID {
 		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "in_use", task.ID); err != nil {
 			return nil, nil, err
@@ -632,6 +635,11 @@ func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(le
 			return
 		}
 		released = true
+		current, err := s.cookieStore.GetByID(tenantID, rec.ID)
+		if err == nil && current.Status == "expired" {
+			log("info", fmt.Sprintf("任务 cookie 已标记过期，跳过恢复可用状态：账号=%s cookie=%s", rec.DisplayName, rec.ID))
+			return
+		}
 		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "available", ""); err != nil {
 			log("error", fmt.Sprintf("释放任务 cookie 失败：cookie=%s err=%v", rec.ID, err))
 			return

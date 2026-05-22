@@ -282,8 +282,15 @@ func (s *PostgresCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, 
 	return r, nil
 }
 func (s *PostgresCookieStore) UpdateStatus(tenantID, cookieID, status, taskID string) error {
-	_, err := s.db.Exec(`UPDATE cookie_data SET status=$1,used_by_task_id=NULLIF($2,'')::uuid,updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, status, taskID, tenantID, cookieID)
-	return err
+	result, err := s.db.Exec(`UPDATE cookie_data SET status=$1,used_by_task_id=NULLIF($2,'')::uuid,updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, status, taskID, tenantID, cookieID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrCookieNotFound
+	}
+	return nil
 }
 func (s *PostgresCookieStore) AddEncryptedKey(tenantID, cookieID, agentID, encKey string) error {
 	_, err := s.db.Exec(`UPDATE cookie_data SET encrypted_keys=COALESCE(encrypted_keys,'{}') || jsonb_build_object($1,$2),updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, agentID, encKey, tenantID, cookieID)
