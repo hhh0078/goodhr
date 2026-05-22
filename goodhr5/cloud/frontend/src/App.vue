@@ -105,7 +105,9 @@ const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
-const activeMenu = ref(savedMenu === "platform-config" ? "system-config" : savedMenu || "agent");
+const activeMenu = ref(
+  savedMenu === "platform-config" ? "system-config" : savedMenu || "agent",
+);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
@@ -276,7 +278,8 @@ const detectLocalAgent = () => {
   flex: 1;
 }
 .top-bar .sep {
-  color: var(--border);
+  /* color: var(--border); */
+  color: #fff;
 }
 .top-info {
   color: var(--fg-dim);

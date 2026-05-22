@@ -60,10 +60,17 @@
           <label class="field field-full"
             >岗位要求<textarea
               v-model="positions.form.value.aiPositionRequirement"
-              rows="2"
+              rows="4"
             />
             <small class="field-help"
-              >写清楚这个岗位最看重的经验、行业、年限、技术栈或学历要求。</small
+              >1 年龄、学历等基础条件 请尽量用平台自带的筛选提前筛选好。</small
+            >
+            <small class="field-help"
+              >2
+              尽量写清楚这个岗位最看重的经验、行业、年限、技术栈或学历要求。</small
+            >
+            <small class="field-help"
+              >3 哪些条件是不值得继续查看详情和沟通的也最好写清楚</small
             >
           </label>
           <label class="field field-full"
@@ -78,10 +85,11 @@
               </button></span
             ><textarea
               v-model="positions.form.value.aiOpenDetailPrompt"
-              rows="2"
+              rows="4"
             />
             <small class="field-help"
-              >先用候选人基础信息让 AI 判断“这次值不值得打开详情”，要求 AI 返回是否查看和简短原因。</small
+              >先用候选人基础信息让 AI 判断“这次值不值得打开详情”，要求 AI
+              返回是否查看和简短原因。</small
             >
           </label>
           <label class="field field-small"
@@ -91,8 +99,10 @@
               min="0"
               max="100"
               step="1"
-          />
-            <small class="field-help">看详情评分大于等于该值时，才会打开详情。</small>
+            />
+            <small class="field-help"
+              >看详情评分大于等于该值时，才会打开详情。</small
+            >
           </label>
           <label class="field field-full"
             ><span class="field-title"
@@ -104,12 +114,10 @@
               >
                 重置为系统默认
               </button></span
-            ><textarea
-              v-model="positions.form.value.aiFilterPrompt"
-              rows="2"
-            />
+            ><textarea v-model="positions.form.value.aiFilterPrompt" rows="4" />
             <small class="field-help"
-              >详情文本拿到后，再给 AI 的最终筛选补充规则。这里和“打开详情提示词”是两套不同提示词。</small
+              >详情文本拿到后，再给 AI
+              的最终筛选补充规则。这里和“打开详情提示词”是两套不同提示词。</small
             >
           </label>
           <label class="field field-small"
@@ -119,8 +127,10 @@
               min="0"
               max="100"
               step="1"
-          />
-            <small class="field-help">最终评分大于等于该值时，才会执行打招呼。</small>
+            />
+            <small class="field-help"
+              >最终评分大于等于该值时，才会执行打招呼。</small
+            >
           </label>
           <label class="field field-full"
             ><span class="field-title"
@@ -132,10 +142,7 @@
               >
                 设置默认值
               </button></span
-            ><textarea
-              v-model="positions.form.value.aiReviewPrompt"
-              rows="2"
-            />
+            ><textarea v-model="positions.form.value.aiReviewPrompt" rows="2" />
             <small class="field-help"
               >该提示词仅用于打招呼前二次筛选得分。打招呼评分与阈值差值不超过10分时触发复核，并以复核分数作为最终打招呼依据。</small
             >
@@ -162,7 +169,7 @@
             >关键词<input
               v-model="positions.form.value.keywords"
               placeholder="Java Spring，支持空格、逗号或换行分隔"
-          />
+            />
             <small class="field-help"
               >可用空格、中文逗号、英文逗号或换行分隔多个关键词。</small
             ></label
@@ -171,7 +178,7 @@
             >排除词<input
               v-model="positions.form.value.excludeKeywords"
               placeholder="实习 应届，支持空格、逗号或换行分隔"
-          />
+            />
             <small class="field-help"
               >命中这些词会被排除，适合过滤实习、应届、转行等不匹配人群。</small
             ></label
