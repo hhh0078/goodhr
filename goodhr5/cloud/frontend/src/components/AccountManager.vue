@@ -252,8 +252,7 @@ async function openWithCookie(account: any) {
     const openPayload: any = {
       url: targetURL,
       persistent: true,
-      user_data_dir:
-        account.local_profile_id || account.display_name || account.id,
+      user_data_dir: account.local_profile_id || account.id,
       headless: false,
       humanize: true,
     };
@@ -274,8 +273,8 @@ async function openWithCookie(account: any) {
           openPayload.cookies = cookies;
         }
       }
-    } catch (e) {
-      console.warn("openWithCookie fallback to open without cookies", e);
+    } catch (e: any) {
+      throw new Error(`cookie 解密失败，无法打开账号：${e?.message || e}`);
     } finally {
       if (claimed) {
         try {
