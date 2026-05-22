@@ -518,28 +518,29 @@ onMounted(loadAccounts);
   display: inline-flex;
   align-items: center;
   gap: 0;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  overflow: hidden;
+  border: 1px solid #2f2f2f;
+  border-radius: 4px;
   margin-bottom: 12px;
+  background: transparent;
 }
 .range-tab {
   border: none;
   background: transparent;
-  color: #9fa3aa;
-  padding: 6px 14px;
+  color: var(--fg-dim);
+  padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
+  line-height: 1.2;
 }
 .range-tab + .range-tab {
-  border-left: 1px solid #2a2a2a;
+  border-left: 1px solid #2f2f2f;
 }
 .range-tab.active {
-  background: #1f2937;
-  color: #fff;
+  color: #0f0;
+  box-shadow: inset 0 -1px 0 #0f0;
 }
 .range-tab:hover {
-  color: #fff;
+  color: #ddd;
 }
 .task-main {
   /* display: flex;
