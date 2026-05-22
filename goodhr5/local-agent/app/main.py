@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -512,6 +513,16 @@ async def _extract_fields_from_container(container, field_requests: list[tuple[s
     return fields
 
 
+async def _extract_text_from_locator(locator, mode: str, delay_before: float) -> str:
+    """按模式从目标元素提取整段文本。"""
+    if delay_before > 0:
+        await asyncio.sleep(delay_before)
+    if mode == "ocr":
+        screenshot_bytes = await locator.screenshot(type="png")
+        return (await ocr_image_async(screenshot_bytes)).strip()
+    return (await locator.inner_text(timeout=3000)).strip()
+
+
 async def _resolve_locator_from_payload(page, payload: dict, label: str):
     """按 element_ref 或 element 解析单个目标元素定位器。"""
     element_ref = str(payload.get("element_ref", "")).strip()
@@ -626,6 +637,19 @@ async def page_extract_fields(payload: dict) -> dict:
         container = await _require_page()
     fields = await _extract_fields_from_container(container, field_requests)
     return {"ok": True, "fields": fields}
+
+
+@app.post("/api/v1/page/extract-text")
+async def page_extract_text(payload: dict) -> dict:
+    """提取目标元素的整段文本，支持 DOM 或 OCR 模式。"""
+    page = await _require_page()
+    locator, matched = await _resolve_locator_from_payload(page, payload, "文本提取元素")
+    mode = str(payload.get("mode", "dom")).strip().lower() or "dom"
+    if mode not in {"dom", "ocr"}:
+        raise HTTPException(400, "mode must be dom or ocr")
+    delay_before = float(payload.get("delay_before", 0))
+    text = await _extract_text_from_locator(locator, mode, delay_before)
+    return {"ok": True, "text": text, "matched": matched, "mode": mode}
 
 
 @app.post("/api/v1/page/in-viewport")

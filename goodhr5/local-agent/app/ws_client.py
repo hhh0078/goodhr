@@ -20,6 +20,7 @@ from app.cookie_crypto import decrypt_cookie_payload
 from app.element_refs import ELEMENT_REFS
 from app.humanize import find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
 from app.machine import load_machine
+from app.ocr import ocr_image_async
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 
@@ -57,6 +58,10 @@ def _payload_summary(payload: Any) -> str:
         if refs:
             return f"items={count or len(items)}个, refs={refs}"
         return f"items={count or len(items)}个"
+    if "text" in payload:
+        text = str(payload.get("text") or "").strip().replace("\n", " ")
+        preview = text[:48] + "..." if len(text) > 48 else text
+        return f"text_len={len(text)}, text={preview or '空'}"
     if "cookies" in payload and isinstance(payload.get("cookies"), list):
         return f"cookies={payload.get('count') or len(payload.get('cookies') or [])}条"
     path = str(payload.get("path") or "")
@@ -482,6 +487,15 @@ class WSAgentClient:
                 container = await self._require_page()
             fields = await self._extract_fields_from_container(container, field_requests)
             return {"ok": True, "fields": fields}
+        if path == "/api/v1/page/extract-text":
+            page = await self._require_page()
+            locator, matched = await self._resolve_locator_from_payload(page, body, "文本提取元素")
+            mode = str(body.get("mode", "dom") or "dom").strip().lower()
+            if mode not in {"dom", "ocr"}:
+                raise ValueError("mode must be dom or ocr")
+            delay_before = float(body.get("delay_before", 0))
+            text = await self._extract_text_from_locator(locator, mode, delay_before)
+            return {"ok": True, "text": text, "matched": matched, "mode": mode}
         if path == "/api/v1/page/in-viewport":
             page = await self._require_page()
             locator, matched = await self._resolve_locator_from_payload(page, body, "视口判断元素")
@@ -595,6 +609,15 @@ class WSAgentClient:
             except Exception:
                 fields[field_name] = ""
         return fields
+
+    async def _extract_text_from_locator(self, locator: Any, mode: str, delay_before: float) -> str:
+        """按模式从目标元素提取整段文本。"""
+        if delay_before > 0:
+            await asyncio.sleep(delay_before)
+        if mode == "ocr":
+            screenshot_bytes = await locator.screenshot(type="png")
+            return (await ocr_image_async(screenshot_bytes)).strip()
+        return (await locator.inner_text(timeout=3000)).strip()
 
     async def _resolve_locator_from_payload(self, page: Any, body: dict, label: str):
         """按 element_ref 或 element 解析单个目标元素定位器。"""

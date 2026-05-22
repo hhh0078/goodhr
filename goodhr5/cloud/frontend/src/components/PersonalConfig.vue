@@ -49,6 +49,16 @@
           max="100"
       /></label>
       <label class="field field-small"
+        >详情查看概率(%)<input
+          v-model="config.form.value.detailOpenProbability"
+          type="number"
+          min="0"
+          max="100"
+      />
+        <small class="field-help"
+          >关键词模式下，用这个概率决定是否打开详情再继续筛选。</small
+        ></label>
+      <label class="field field-small"
         >滚动延迟最小(秒)<input
           v-model="config.form.value.scrollDelayMin"
           type="number"

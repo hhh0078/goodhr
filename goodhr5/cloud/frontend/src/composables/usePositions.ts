@@ -34,11 +34,11 @@ export function usePositions() {
         },
         ai_config: {
           position_requirement: form.value.aiPositionRequirement,
-          click_prompt: form.value.aiClickPrompt,
+          filter_prompt: form.value.aiFilterPrompt,
+          click_prompt: form.value.aiFilterPrompt,
+          open_detail_prompt: form.value.aiOpenDetailPrompt,
         },
-        keyword_config: {
-          keyword_detail_open_probability: Number(form.value.keywordDetailOpenProbability),
-        },
+        keyword_config: {},
       })
       await load(); resetForm()
     } catch (e: any) { error.value = e.message; positions.value = [] }
@@ -67,8 +67,8 @@ export function usePositions() {
       modeDefault: common.mode_default || 'ai',
       detailMode: common.detail_mode || keyword.detail_mode || 'dom',
       aiPositionRequirement: ai.position_requirement || '',
-      aiClickPrompt: ai.click_prompt || '',
-      keywordDetailOpenProbability: keyword.keyword_detail_open_probability ?? 30,
+      aiFilterPrompt: ai.filter_prompt || ai.click_prompt || '',
+      aiOpenDetailPrompt: ai.open_detail_prompt || '',
     }
   }
 
@@ -87,7 +87,7 @@ function defaultForm() {
     modeDefault: 'ai',
     detailMode: 'dom',
     aiPositionRequirement: '',
-    aiClickPrompt: '',
-    keywordDetailOpenProbability: 30,
+    aiFilterPrompt: '',
+    aiOpenDetailPrompt: '',
   }
 }

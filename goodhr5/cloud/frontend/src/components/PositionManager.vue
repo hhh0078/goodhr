@@ -67,12 +67,21 @@
             >
           </label>
           <label class="field field-full"
-            >AI提示词<textarea
-              v-model="positions.form.value.aiClickPrompt"
+            >打开详情提示词<textarea
+              v-model="positions.form.value.aiOpenDetailPrompt"
               rows="2"
             />
             <small class="field-help"
-              >给 AI 的补充判断规则。比如更看重稳定性、项目深度，或必须有某类经验。</small
+              >先用候选人基础信息让 AI 判断“这次值不值得打开详情”，要求 AI 返回是否查看和简短原因。</small
+            >
+          </label>
+          <label class="field field-full"
+            >最终筛选提示词<textarea
+              v-model="positions.form.value.aiFilterPrompt"
+              rows="2"
+            />
+            <small class="field-help"
+              >详情文本拿到后，再给 AI 的最终筛选补充规则。这里和“打开详情提示词”是两套不同提示词。</small
             >
           </label>
         </div>
@@ -81,6 +90,9 @@
       <template v-if="positions.form.value.modeDefault === 'keyword'">
         <h3>关键词模式专属</h3>
         <div class="position-form-grid">
+          <p class="hint field field-full">
+            关键词模式是否打开详情，已改到“个人配置”的详情查看概率里控制。
+          </p>
           <label class="field field-small"
             >匹配方式<select v-model="positions.form.value.isAndMode">
               <option :value="false">满足任一关键词</option>
@@ -106,17 +118,6 @@
           />
             <small class="field-help"
               >命中这些词会被排除，适合过滤实习、应届、转行等不匹配人群。</small
-            ></label
-          >
-          <label class="field field-small"
-            >关键词模式详情打开概率(%)<input
-              v-model="positions.form.value.keywordDetailOpenProbability"
-              type="number"
-              min="0"
-              max="100"
-          />
-            <small class="field-help"
-              >0 表示几乎不主动打开详情，100 表示每次都打开详情后再判断。</small
             ></label
           >
         </div>

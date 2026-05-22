@@ -217,8 +217,8 @@ func (c ElementLocatorConfig) AsPayload() map[string]any {
 
 // PlatformCard 定义候选人卡片、滚动目标和字段定位配置。
 type PlatformCard struct {
-	Scroll ElementLocatorConfig `json:"scroll"`
-	Item   ElementLocatorConfig `json:"item"`
+	Scroll ElementLocatorConfig              `json:"scroll"`
+	Item   ElementLocatorConfig              `json:"item"`
 	Fields []map[string]ElementLocatorConfig `json:"fields"`
 }
 
@@ -236,6 +236,7 @@ type PlatformActions struct {
 type PlatformDetail struct {
 	OpenTarget  ElementLocatorConfig `json:"openTarget"`
 	CloseBtn    ElementLocatorConfig `json:"closeBtn"`
+	Content     ElementLocatorConfig `json:"content"`
 	MessageTip  ElementLocatorConfig `json:"messageTip"`
 	MessageItem ElementLocatorConfig `json:"messageItem"`
 }

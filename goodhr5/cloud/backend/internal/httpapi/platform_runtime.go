@@ -28,6 +28,13 @@ type localExtractFieldsResp struct {
 	Fields map[string]any `json:"fields"`
 }
 
+type localExtractTextResp struct {
+	Ok      bool   `json:"ok"`
+	Text    string `json:"text"`
+	Matched string `json:"matched"`
+	Mode    string `json:"mode"`
+}
+
 type platformViewportExecutor interface {
 	post(path string, body any, result any) error
 	log(level, message string)
@@ -90,6 +97,16 @@ func (cfg PlatformConfig) CloseCandidateDetail(exec platformViewportExecutor, pr
 		return cfg.closeCandidateDetailWithActions(exec, prefs, "Boss候选人详情")
 	default:
 		return cfg.closeCandidateDetailWithActions(exec, prefs, "候选人详情")
+	}
+}
+
+// FetchCandidateDetailText 由平台运行时逻辑返回用于筛选的一段详情文本。
+func (cfg PlatformConfig) FetchCandidateDetailText(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, detailMode string) (string, error) {
+	switch strings.TrimSpace(cfg.ID) {
+	case "boss":
+		return cfg.fetchCandidateDetailTextWithActions(exec, prefs, candidate, detailMode, "Boss候选人详情")
+	default:
+		return cfg.fetchCandidateDetailTextWithActions(exec, prefs, candidate, detailMode, "候选人详情")
 	}
 }
 
@@ -294,6 +311,27 @@ func (cfg PlatformConfig) CandidateFingerprint(candidate map[string]any) string 
 	}
 }
 
+// DetailContentText 返回详情定位配置提取出的整段文本。
+func (cfg PlatformConfig) DetailContentText(exec platformViewportExecutor, prefs UserPreferences, detailMode string) (string, error) {
+	content := cfg.Detail.Content.AsPayload()
+	if content == nil {
+		return "", fmt.Errorf("平台配置中无详情文本定位配置")
+	}
+	mode := strings.TrimSpace(detailMode)
+	if mode == "" {
+		mode = "dom"
+	}
+	var resp localExtractTextResp
+	if err := exec.post("/api/v1/page/extract-text", map[string]any{
+		"element":      content,
+		"mode":         mode,
+		"delay_before": detailDelayBefore(prefs),
+	}, &resp); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(resp.Text), nil
+}
+
 // openCandidateDetailWithActions 使用平台详情配置打开候选人详情。
 func (cfg PlatformConfig) openCandidateDetailWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, label string) error {
 	exec.log("info", fmt.Sprintf("正在打开%s", label))
@@ -311,6 +349,28 @@ func (cfg PlatformConfig) closeCandidateDetailWithActions(exec platformViewportE
 		return nil
 	}
 	return clickRequiredAction(exec, cfg.Detail.CloseBtn.AsPayload(), 0.3, "详情关闭按钮")
+}
+
+// fetchCandidateDetailTextWithActions 打开详情、提取文本并负责关闭详情弹框。
+func (cfg PlatformConfig) fetchCandidateDetailTextWithActions(exec platformViewportExecutor, prefs UserPreferences, candidate map[string]any, detailMode string, label string) (string, error) {
+	if !cfg.Behavior.NeedsDetailPage {
+		exec.log("info", fmt.Sprintf("%s无需详情页，跳过详情提取", label))
+		return "", nil
+	}
+	if err := cfg.OpenCandidateDetail(exec, prefs, candidate); err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := cfg.CloseCandidateDetail(exec, prefs); err != nil {
+			exec.log("warn", fmt.Sprintf("关闭%s失败：%v", label, err))
+		}
+	}()
+	text, err := cfg.DetailContentText(exec, prefs, detailMode)
+	if err != nil {
+		return "", err
+	}
+	exec.log("info", fmt.Sprintf("%s文本提取完成，长度=%d", label, len(text)))
+	return text, nil
 }
 
 // buildCandidateText 按字段顺序拼接候选人文本；不传字段时退化为全部字符串字段。

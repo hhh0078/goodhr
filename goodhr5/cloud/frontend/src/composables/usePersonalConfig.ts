@@ -25,6 +25,7 @@ export function usePersonalConfig() {
         aiAPIKeyMasked: ai?.api_key_masked || "",
         aiAPIKeySet: Boolean(ai?.api_key_set),
         clickFrequency: data?.click_frequency ?? 80,
+        detailOpenProbability: data?.detail_open_probability ?? 30,
         scrollDelayMin: data?.scroll_delay_min ?? 3,
         scrollDelayMax: data?.scroll_delay_max ?? 8,
         listViewDelayMin: data?.list_view_delay_min ?? 1,
@@ -63,6 +64,7 @@ export function usePersonalConfig() {
       await updateUserPreferences({
         ai_model: form.value.aiModel,
         click_frequency: Number(form.value.clickFrequency || 0),
+        detail_open_probability: Number(form.value.detailOpenProbability || 0),
         scroll_delay_min: Number(form.value.scrollDelayMin || 0),
         scroll_delay_max: Number(form.value.scrollDelayMax || 0),
         list_view_delay_min: Number(form.value.listViewDelayMin || 0),
@@ -102,6 +104,7 @@ function defaultForm() {
     aiAPIKeyMasked: "",
     aiAPIKeySet: false,
     clickFrequency: 80,
+    detailOpenProbability: 30,
     scrollDelayMin: 3,
     scrollDelayMax: 8,
     listViewDelayMin: 1,

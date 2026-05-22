@@ -15,6 +15,7 @@ type UserPreferencesService struct {
 type userPreferencesRequest struct {
 	AIModel                string  `json:"ai_model"`
 	ClickFrequency         int     `json:"click_frequency"`
+	DetailOpenProbability  int     `json:"detail_open_probability"`
 	ScrollDelayMin         int     `json:"scroll_delay_min"`
 	ScrollDelayMax         int     `json:"scroll_delay_max"`
 	ListViewDelayMin       float64 `json:"list_view_delay_min"`
@@ -112,6 +113,7 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 	prefs := DefaultUserPreferences()
 	prefs.AIModel = strings.TrimSpace(r.AIModel)
 	prefs.ClickFrequency = r.ClickFrequency
+	prefs.DetailOpenProbability = r.DetailOpenProbability
 	prefs.ScrollDelayMin = r.ScrollDelayMin
 	prefs.ScrollDelayMax = r.ScrollDelayMax
 	prefs.ListViewDelayMin = r.ListViewDelayMin
@@ -130,6 +132,10 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 		writeError(w, http.StatusBadRequest, "click_frequency must be between 0 and 100")
 		return UserPreferences{}, false
 	}
+	if prefs.DetailOpenProbability < 0 || prefs.DetailOpenProbability > 100 {
+		writeError(w, http.StatusBadRequest, "detail_open_probability must be between 0 and 100")
+		return UserPreferences{}, false
+	}
 	if prefs.ScrollDelayMin < 0 || prefs.ScrollDelayMax < prefs.ScrollDelayMin {
 		writeError(w, http.StatusBadRequest, "invalid scroll delay range")
 		return UserPreferences{}, false
@@ -145,6 +151,7 @@ func publicUserPreferences(prefs UserPreferences) map[string]any {
 	return map[string]any{
 		"ai_model":                  prefs.AIModel,
 		"click_frequency":           prefs.ClickFrequency,
+		"detail_open_probability":   prefs.DetailOpenProbability,
 		"scroll_delay_min":          prefs.ScrollDelayMin,
 		"scroll_delay_max":          prefs.ScrollDelayMax,
 		"list_view_delay_min":       prefs.ListViewDelayMin,
