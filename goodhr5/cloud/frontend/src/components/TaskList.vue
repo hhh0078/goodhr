@@ -15,15 +15,27 @@
       </div>
       <button class="ghost" @click="tasks.load">刷新</button>
     </div>
-    <div class="task-range">
-      <label class="range-option">
-        <input v-model="statRange" type="radio" value="today" />
-        <span>仅看今天</span>
-      </label>
-      <label class="range-option">
-        <input v-model="statRange" type="radio" value="all" />
-        <span>全部时间</span>
-      </label>
+    <div class="task-range-tabs" role="tablist" aria-label="任务统计范围">
+      <button
+        type="button"
+        class="range-tab"
+        :class="{ active: statRange === 'today' }"
+        role="tab"
+        :aria-selected="statRange === 'today'"
+        @click="statRange = 'today'"
+      >
+        仅看今天
+      </button>
+      <button
+        type="button"
+        class="range-tab"
+        :class="{ active: statRange === 'all' }"
+        role="tab"
+        :aria-selected="statRange === 'all'"
+        @click="statRange = 'all'"
+      >
+        全部时间
+      </button>
     </div>
 
     <!-- 创建任务折叠 -->
@@ -502,22 +514,32 @@ onMounted(loadAccounts);
 .task-card {
   display: block;
 }
-.task-range {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  margin-bottom: 12px;
-  color: var(--fg-dim);
-  font-size: 13px;
-}
-.range-option {
+.task-range-tabs {
   display: inline-flex;
-  gap: 6px;
   align-items: center;
+  gap: 0;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.range-tab {
+  border: none;
+  background: transparent;
+  color: #9fa3aa;
+  padding: 6px 14px;
+  font-size: 13px;
   cursor: pointer;
 }
-.range-option input {
-  margin: 0;
+.range-tab + .range-tab {
+  border-left: 1px solid #2a2a2a;
+}
+.range-tab.active {
+  background: #1f2937;
+  color: #fff;
+}
+.range-tab:hover {
+  color: #fff;
 }
 .task-main {
   /* display: flex;
