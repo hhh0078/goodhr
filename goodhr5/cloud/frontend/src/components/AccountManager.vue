@@ -315,10 +315,7 @@ function platformAuthConfig(platformId: string) {
   if (!item?.config_value) return defaultPlatformAuthConfig(platformId);
   try {
     const parsed = JSON.parse(item.config_value);
-    return {
-      ...defaultPlatformAuthConfig(platformId, parsed),
-      ...(parsed.auth || {}),
-    };
+    return mergePlatformAuthConfig(platformId, parsed, parsed.auth || {});
   } catch {
     return defaultPlatformAuthConfig(platformId);
   }
@@ -347,6 +344,40 @@ function defaultPlatformAuthConfig(platformId: string, parsed: any = {}) {
     entry_url: firstPageURL,
     logged_in_url_prefix: firstPageURL,
   };
+}
+
+/**
+ * 合并平台登录配置，避免数据库旧配置覆盖掉关键默认判断。
+ * @param {string} platformId - 平台 ID。
+ * @param {any} parsed - 已解析的平台配置。
+ * @param {any} auth - 数据库中的登录配置。
+ * @returns {any} 合并后的登录检测配置。
+ */
+function mergePlatformAuthConfig(platformId: string, parsed: any, auth: any) {
+  const defaults = defaultPlatformAuthConfig(platformId, parsed);
+  const merged = {
+    ...defaults,
+    ...auth,
+  };
+  const defaultContains = Array.isArray(defaults.logged_in_url_contains)
+    ? defaults.logged_in_url_contains
+    : [];
+  const authContains = Array.isArray(auth.logged_in_url_contains)
+    ? auth.logged_in_url_contains
+    : [];
+  const defaultLoginPrefixes = Array.isArray(defaults.login_url_prefixes)
+    ? defaults.login_url_prefixes
+    : [];
+  const authLoginPrefixes = Array.isArray(auth.login_url_prefixes)
+    ? auth.login_url_prefixes
+    : [];
+  merged.logged_in_url_contains = [
+    ...new Set([...defaultContains, ...authContains].filter(Boolean)),
+  ];
+  merged.login_url_prefixes = [
+    ...new Set([...defaultLoginPrefixes, ...authLoginPrefixes].filter(Boolean)),
+  ];
+  return merged;
 }
 async function del(a: any) {
   try {
