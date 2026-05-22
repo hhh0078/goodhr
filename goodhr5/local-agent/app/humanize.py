@@ -303,6 +303,20 @@ async def _find_first_visible_locator_once(
     selectors: list[str],
     label: str,
 ) -> tuple[Page | Frame | Locator, Locator, str] | None:
+    # 当容器本身是 Locator 时，先尝试“匹配自身”，避免在容器内查找后代导致漏匹配。
+    if isinstance(container, Locator):
+        for selector in selectors:
+            try:
+                is_self_match = await container.evaluate(
+                    "(el, selector) => !!(el && el.matches && el.matches(selector))",
+                    selector,
+                )
+                if is_self_match and await container.is_visible(timeout=1500):
+                    return container, container, selector
+            except Exception as exc:
+                logger.debug("匹配%s自身失败 selector=%s err=%s", label, selector, exc)
+                continue
+
     for search_container in _iter_search_containers(container):
         for selector in selectors:
             try:
