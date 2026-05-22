@@ -108,7 +108,11 @@ import {
   decryptCookieByAgent,
   pickDecryptPayload,
 } from "../services/cookieCrypto";
-import { runPlatformLoginFlow } from "../services/platformLoginFlow";
+import {
+  pickAuthEntryURL,
+  runPlatformLoginFlow,
+  type PlatformAuthConfig,
+} from "../services/platformLoginFlow";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
 const accounts = ref<any[]>([]);
@@ -251,7 +255,7 @@ async function openWithCookie(account: any) {
   msg.value = "";
   try {
     const authConfig = platformAuthConfig(account.platform_id);
-    const targetURL = authConfig.entry_url || authConfig.logged_in_url_prefix;
+    const targetURL = pickAuthEntryURL(authConfig);
     if (!targetURL) throw new Error("平台配置缺少入口地址");
     const openPayload: any = {
       url: targetURL,
@@ -308,76 +312,31 @@ async function openWithCookie(account: any) {
   }
 }
 
-function platformAuthConfig(platformId: string) {
+function platformAuthConfig(platformId: string): PlatformAuthConfig {
   const item = platformConfigs.value.find(
     (config: any) => config.config_key === `platform.${platformId}`,
   );
-  if (!item?.config_value) return defaultPlatformAuthConfig(platformId);
+  if (!item?.config_value) throw new Error(`平台 ${platformId} 缺少配置`);
   try {
     const parsed = JSON.parse(item.config_value);
-    return mergePlatformAuthConfig(platformId, parsed, parsed.auth || {});
-  } catch {
-    return defaultPlatformAuthConfig(platformId);
-  }
-}
-
-/**
- * 返回平台登录检测默认配置，兼容数据库旧版平台配置。
- * @param {string} platformId - 平台 ID。
- * @param {any} parsed - 已解析的平台配置。
- * @returns {any} 登录检测配置。
- */
-function defaultPlatformAuthConfig(platformId: string, parsed: any = {}) {
-  const firstPageURL = parsed.pages?.[0]?.url || "";
-  if (platformId === "boss") {
+    const authPages = parsed.auth?.pages;
+    const publicPages = parsed.public?.pages;
+    if (!Array.isArray(authPages) || authPages.length === 0) {
+      throw new Error(`平台 ${platformId} 配置缺少 auth.pages`);
+    }
+    if (!Array.isArray(publicPages)) {
+      throw new Error(`平台 ${platformId} 配置缺少 public.pages`);
+    }
     return {
-      entry_url: firstPageURL || "https://www.zhipin.com/web/chat/recommend",
-      logged_in_url_prefix: "https://www.zhipin.com/web/chat",
-      logged_in_url_contains: ["www.zhipin.com/web/chat"],
-      login_url_prefixes: [
-        "https://login.zhipin.com",
-        "https://www.zhipin.com/web/user/",
-      ],
+      pages: authPages,
+      public_pages: publicPages,
     };
+  } catch (e: any) {
+    if (e?.message?.includes("平台")) {
+      throw e;
+    }
+    throw new Error(`平台 ${platformId} 配置不是合法 JSON`);
   }
-  return {
-    entry_url: firstPageURL,
-    logged_in_url_prefix: firstPageURL,
-  };
-}
-
-/**
- * 合并平台登录配置，避免数据库旧配置覆盖掉关键默认判断。
- * @param {string} platformId - 平台 ID。
- * @param {any} parsed - 已解析的平台配置。
- * @param {any} auth - 数据库中的登录配置。
- * @returns {any} 合并后的登录检测配置。
- */
-function mergePlatformAuthConfig(platformId: string, parsed: any, auth: any) {
-  const defaults = defaultPlatformAuthConfig(platformId, parsed);
-  const merged = {
-    ...defaults,
-    ...auth,
-  };
-  const defaultContains = Array.isArray(defaults.logged_in_url_contains)
-    ? defaults.logged_in_url_contains
-    : [];
-  const authContains = Array.isArray(auth.logged_in_url_contains)
-    ? auth.logged_in_url_contains
-    : [];
-  const defaultLoginPrefixes = Array.isArray(defaults.login_url_prefixes)
-    ? defaults.login_url_prefixes
-    : [];
-  const authLoginPrefixes = Array.isArray(auth.login_url_prefixes)
-    ? auth.login_url_prefixes
-    : [];
-  merged.logged_in_url_contains = [
-    ...new Set([...defaultContains, ...authContains].filter(Boolean)),
-  ];
-  merged.login_url_prefixes = [
-    ...new Set([...defaultLoginPrefixes, ...authLoginPrefixes].filter(Boolean)),
-  ];
-  return merged;
 }
 async function del(a: any) {
   try {

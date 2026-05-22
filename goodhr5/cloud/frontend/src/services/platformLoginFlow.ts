@@ -1,11 +1,16 @@
 // 本文件负责封装创建平台账号时的本地登录检测和 cookie 导出流程。
 import { currentPageURL, exportPageCookies, openPage, startBrowser } from './localAgentApi'
 
-type PlatformAuthConfig = {
-  entry_url?: string
-  logged_in_url_prefix?: string
-  logged_in_url_contains?: string[]
-  login_url_prefixes?: string[]
+export type PlatformPageRule = {
+  url: string
+  title?: string
+  match?: 'contains' | 'prefix' | 'exact'
+  entry?: boolean
+}
+
+export type PlatformAuthConfig = {
+  pages: PlatformPageRule[]
+  public_pages: PlatformPageRule[]
 }
 
 type PlatformLoginFlowOptions = {
@@ -32,7 +37,7 @@ const LOGIN_SUCCESS_CONFIRM_TIMES = 3
  */
 export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: string, auth: PlatformAuthConfig, onStatus: (message: string) => void, options: PlatformLoginFlowOptions = {}) {
   if (!agentBaseUrl) throw new Error('未检测到本地程序')
-  const entryUrl = auth.entry_url || auth.logged_in_url_prefix
+  const entryUrl = pickAuthEntryURL(auth)
   if (!entryUrl) throw new Error('平台登录配置缺少入口地址')
   await startBrowser(agentBaseUrl, {
     persistent: true,
@@ -91,13 +96,11 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
 }
 
 function isLoginURL(url: string, auth: PlatformAuthConfig) {
-  return (auth.login_url_prefixes || []).some(prefix => url.startsWith(prefix))
+  return (auth.public_pages || []).some(page => matchPageURL(url, page))
 }
 
 function isLoggedInURL(url: string, auth: PlatformAuthConfig) {
-  const contains = auth.logged_in_url_contains || []
-  if (contains.some(keyword => keyword && url.includes(keyword))) return true
-  return !!auth.logged_in_url_prefix && url.startsWith(auth.logged_in_url_prefix)
+  return (auth.pages || []).some(page => matchPageURL(url, page))
 }
 
 function delay(ms: number) {
@@ -112,6 +115,32 @@ function delay(ms: number) {
 function shortURL(url: string) {
   if (!url) return '空地址'
   return url.length > 72 ? `${url.slice(0, 72)}...` : url
+}
+
+/**
+ * 从 auth.pages 中选择默认打开的登录后页面。
+ * @param {PlatformAuthConfig} auth - 平台登录配置。
+ * @returns {string} 可导航页面 URL。
+ */
+export function pickAuthEntryURL(auth: PlatformAuthConfig) {
+  const pages = auth.pages || []
+  const page = pages.find(item => item.entry && item.url) || pages.find(item => item.url)
+  return page?.url || ''
+}
+
+/**
+ * 按页面规则判断当前 URL 是否命中。
+ * @param {string} currentURL - 当前浏览器 URL。
+ * @param {PlatformPageRule} page - 平台页面规则。
+ * @returns {boolean} 是否命中。
+ */
+function matchPageURL(currentURL: string, page: PlatformPageRule) {
+  const target = String(page?.url || '').trim()
+  if (!target || !currentURL) return false
+  const match = page.match || (target.startsWith('http') ? 'prefix' : 'contains')
+  if (match === 'exact') return currentURL === target
+  if (match === 'contains') return currentURL.includes(target.replace(/^https?:\/\//, ''))
+  return currentURL.startsWith(target)
 }
 
 /**

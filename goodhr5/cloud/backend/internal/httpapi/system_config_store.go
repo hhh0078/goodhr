@@ -162,7 +162,8 @@ type PlatformConfig struct {
 	ID       string           `json:"id"`
 	Name     string           `json:"name"`
 	Domain   string           `json:"domain"`
-	Pages    []PlatformPage   `json:"pages,omitempty"`
+	Auth     PlatformSection  `json:"auth"`
+	Public   PlatformSection  `json:"public"`
 	Card     PlatformCard     `json:"card"`
 	Actions  PlatformActions  `json:"actions"`
 	Detail   PlatformDetail   `json:"detail"`
@@ -170,10 +171,17 @@ type PlatformConfig struct {
 	Behavior PlatformBehavior `json:"behavior"`
 }
 
+// PlatformSection 定义平台按登录状态分组的页面配置。
+type PlatformSection struct {
+	Pages []PlatformPage `json:"pages"`
+}
+
 // PlatformPage 定义平台的合法页面。
 type PlatformPage struct {
 	URL   string `json:"url"`
 	Title string `json:"title"`
+	Match string `json:"match,omitempty"`
+	Entry bool   `json:"entry,omitempty"`
 }
 
 // ElementLocatorConfig 定义统一元素定位协议的配置结构。

@@ -157,10 +157,10 @@ func ensureCandidateVisibleWithViewport(exec platformViewportExecutor, elementRe
 
 // openDefaultEntryPage 打开平台默认入口页。
 func (cfg PlatformConfig) openDefaultEntryPage(exec platformViewportExecutor, cookies []map[string]any, label string) error {
-	if len(cfg.Pages) == 0 || strings.TrimSpace(cfg.Pages[0].URL) == "" {
-		return fmt.Errorf("平台配置中没有合法页面")
+	url := cfg.authEntryURL()
+	if strings.TrimSpace(url) == "" {
+		return fmt.Errorf("平台配置中没有合法 auth.pages 入口页面")
 	}
-	url := cfg.Pages[0].URL
 	exec.log("info", fmt.Sprintf("正在打开%s: %s", label, url))
 	body := map[string]any{
 		"url": url,
@@ -170,6 +170,21 @@ func (cfg PlatformConfig) openDefaultEntryPage(exec platformViewportExecutor, co
 		body["cookies"] = cookies
 	}
 	return exec.post("/api/v1/page/open", body, nil)
+}
+
+// authEntryURL 返回 auth.pages 中标记 entry 的页面；未标记时取第一条有 URL 的页面。
+func (cfg PlatformConfig) authEntryURL() string {
+	for _, page := range cfg.Auth.Pages {
+		if page.Entry && strings.TrimSpace(page.URL) != "" {
+			return page.URL
+		}
+	}
+	for _, page := range cfg.Auth.Pages {
+		if strings.TrimSpace(page.URL) != "" {
+			return page.URL
+		}
+	}
+	return ""
 }
 
 // listVisibleCandidatesWithElements 使用通用元素协议提取当前可见候选人摘要。
