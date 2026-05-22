@@ -544,6 +544,13 @@ class WSAgentClient:
                 logger.warning("点击%s时触发滚动定位异常，已使用随机点点击回退", matched_target)
             clicked = True
             return {"ok": True, "clicked": clicked}
+        if path == "/api/v1/page/press-key":
+            page = await self._require_page()
+            key = str(body.get("key") or "").strip()
+            if not key:
+                raise ValueError("key is required")
+            await page.keyboard.press(key)
+            return {"ok": True, "key": key}
         if path == "/api/v1/sound/play":
             kind = str(body.get("kind") or "").strip().lower()
             url = str(body.get("url") or "").strip()

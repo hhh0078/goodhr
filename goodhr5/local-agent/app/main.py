@@ -661,6 +661,21 @@ async def page_click(payload: dict) -> dict:
     return {"ok": True, "clicked": success}
 
 
+@app.post("/api/v1/page/press-key")
+async def page_press_key(payload: dict) -> dict:
+    """在当前页面发送键盘按键。
+
+    请求体参数：
+        key: 按键名，例如 Escape、Enter、ArrowDown。
+    """
+    page = await _require_page()
+    key = str(payload.get("key", "")).strip()
+    if not key:
+        raise HTTPException(400, "key is required")
+    await page.keyboard.press(key)
+    return {"ok": True, "key": key}
+
+
 @app.post("/api/v1/page/screenshot")
 async def page_screenshot(payload: dict) -> dict:
     """截取当前页面弹框区域，支持滚动拼接。

@@ -134,12 +134,10 @@ func (r *Runtime) OpenCandidateDetail(exec platformcore.RuntimeExecutor, cfg pla
 
 // CloseCandidateDetail 关闭 Boss 候选人详情。
 func (r *Runtime) CloseCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
-	exec.Log("info", "正在关闭Boss候选人详情")
-	if cfg.Detail.CloseBtn == nil {
-		exec.Log("info", "Boss候选人详情未配置关闭按钮，跳过关闭动作")
-		return nil
-	}
-	return clickRequiredAction(exec, cfg.Detail.CloseBtn, 0.3, "详情关闭按钮")
+	exec.Log("info", "正在关闭Boss候选人详情（发送ESC）")
+	return exec.Post("/api/v1/page/press-key", map[string]any{
+		"key": "Escape",
+	}, nil)
 }
 
 // FetchCandidateDetailText 读取 Boss 候选人详情文本。
