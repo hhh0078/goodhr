@@ -63,6 +63,7 @@ type RuntimePreferences struct {
 	GreetDelayMax  float64
 	DetailDelayMin float64
 	DetailDelayMax float64
+	GreetMessage   string
 }
 
 // PlatformRuntime 定义主流程调用的平台运行时能力。

@@ -339,7 +339,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 
 		// 打招呼：交由平台动作实现
-		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidate); err != nil {
+		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidate, e.positionGreetMessage()); err != nil {
 			e.log("error", fmt.Sprintf("候选人 %s 打招呼失败: %v", candidateName, err))
 			e.incrementCounts(0, 0, 0, 1)
 			continue
@@ -391,6 +391,17 @@ func (e *TaskExecutor) precomputeOpenDetailDecisions(ctx context.Context, candid
 	}
 	e.log("info", fmt.Sprintf("%d 个候选人的看详情评分计算完成", len(candidates)))
 	return results, nil
+}
+
+// positionGreetMessage 返回岗位模板配置的打招呼语。
+func (e *TaskExecutor) positionGreetMessage() string {
+	if e.position == nil {
+		return ""
+	}
+	if message, ok := e.position["greet_message"].(string); ok {
+		return strings.TrimSpace(message)
+	}
+	return ""
 }
 
 // previewDetailLog 生成详情文本日志预览，避免日志过长。

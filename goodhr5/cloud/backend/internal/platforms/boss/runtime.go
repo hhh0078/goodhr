@@ -123,6 +123,10 @@ func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platform
 	if err := clickRequiredAction(exec, cfg.Actions.GreetBtn, greetDelayBefore(prefs), "打招呼按钮"); err != nil {
 		return err
 	}
+	if strings.TrimSpace(prefs.GreetMessage) == "" {
+		exec.Log("info", "Boss岗位模板未配置打招呼语，跳过继续沟通/确认按钮")
+		return nil
+	}
 	_ = clickOptionalAction(exec, cfg.Actions.ContinueBtn, 0.6, "继续沟通按钮")
 	_ = clickOptionalAction(exec, cfg.Actions.ConfirmBtn, 0.6, "确认按钮")
 	return nil

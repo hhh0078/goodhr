@@ -69,12 +69,14 @@ func (cfg PlatformConfig) ScrollCandidateList(exec platformViewportExecutor, pre
 }
 
 // GreetCandidate 由平台运行时逻辑执行打招呼动作。
-func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate) error {
+func (cfg PlatformConfig) GreetCandidate(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, greetMessage string) error {
 	rt, err := runtimeByPlatformID(cfg.ID)
 	if err != nil {
 		return err
 	}
-	return rt.GreetCandidate(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), toRuntimePreferences(prefs), candidate)
+	runtimePrefs := toRuntimePreferences(prefs)
+	runtimePrefs.GreetMessage = strings.TrimSpace(greetMessage)
+	return rt.GreetCandidate(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), runtimePrefs, candidate)
 }
 
 // OpenCandidateDetail 由平台运行时逻辑打开候选人详情。
