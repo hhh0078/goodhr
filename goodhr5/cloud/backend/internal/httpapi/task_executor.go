@@ -277,6 +277,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
+			e.log("info", fmt.Sprintf("候选人 %s 详情文本: %s", candidateName, previewDetailLog(detailText, 800)))
 		}
 		filterText := e.mergeCandidateTexts(baseText, detailText)
 
@@ -329,6 +330,19 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 	}
 	return nil
+}
+
+// previewDetailLog 生成详情文本日志预览，避免日志过长。
+func previewDetailLog(text string, maxRunes int) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "（空）"
+	}
+	runes := []rune(trimmed)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return fmt.Sprintf("len=%d, content=%s", len(runes), trimmed)
+	}
+	return fmt.Sprintf("len=%d, preview=%s...(已截断)", len(runes), string(runes[:maxRunes]))
 }
 
 // decideOpenDetail 根据任务模式决定本次是否需要打开详情。
