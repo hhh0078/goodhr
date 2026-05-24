@@ -591,28 +591,25 @@ async def page_extract_text(payload: dict) -> dict:
         raise HTTPException(400, "mode must be dom or ocr")
     delay_before = float(payload.get("delay_before", 0))
     raw_elements = payload.get("elements")
-    if isinstance(raw_elements, list) and raw_elements:
-        texts: list[str] = []
-        matched_list: list[str] = []
-        for index, element_raw in enumerate(raw_elements):
-            if not isinstance(element_raw, dict):
-                raise HTTPException(400, f"elements[{index}] must be an object")
-            locator, matched = await _resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
-            text = await _extract_text_from_locator(locator, mode, delay_before)
-            texts.append(text)
-            matched_list.append(matched)
-        return {
-            "ok": True,
-            "text": "\n\n".join([t for t in texts if str(t).strip() != ""]),
-            "texts": texts,
-            "matched": ",".join(matched_list),
-            "matched_list": matched_list,
-            "mode": mode,
-        }
-
-    locator, matched = await _resolve_locator_from_payload(page, payload, "文本提取元素")
-    text = await _extract_text_from_locator(locator, mode, delay_before)
-    return {"ok": True, "text": text, "texts": [text], "matched": matched, "matched_list": [matched], "mode": mode}
+    if not isinstance(raw_elements, list) or not raw_elements:
+        raise HTTPException(400, "elements is required and must be a non-empty array")
+    texts: list[str] = []
+    matched_list: list[str] = []
+    for index, element_raw in enumerate(raw_elements):
+        if not isinstance(element_raw, dict):
+            raise HTTPException(400, f"elements[{index}] must be an object")
+        locator, matched = await _resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
+        text = await _extract_text_from_locator(locator, mode, delay_before)
+        texts.append(text)
+        matched_list.append(matched)
+    return {
+        "ok": True,
+        "text": "\n\n".join([t for t in texts if str(t).strip() != ""]),
+        "texts": texts,
+        "matched": ",".join(matched_list),
+        "matched_list": matched_list,
+        "mode": mode,
+    }
 
 
 @app.post("/api/v1/page/in-viewport")

@@ -215,19 +215,16 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 }
 
 // buildDetailExtractPayload 构建详情文本提取请求。
-// OCR 模式下会将 target_classes 分组拆成多个元素，分别截图识别后返回数组文本。
+// 始终使用 elements 数组请求本地程序，返回数组文本。
+// OCR 模式下会将 target_classes 分组拆成多个元素，分别截图识别。
 func buildDetailExtractPayload(content map[string]any, mode string, delayBefore float64) map[string]any {
 	payload := map[string]any{
 		"mode":         mode,
 		"delay_before": delayBefore,
 	}
-	if mode != "ocr" {
-		payload["element"] = content
-		return payload
-	}
 	targetGroups, ok := content["target_classes"].([][]string)
-	if !ok || len(targetGroups) <= 1 {
-		payload["element"] = content
+	if !ok || len(targetGroups) == 0 || mode != "ocr" {
+		payload["elements"] = []map[string]any{content}
 		return payload
 	}
 	elements := make([]map[string]any, 0, len(targetGroups))
