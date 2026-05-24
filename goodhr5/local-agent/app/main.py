@@ -630,6 +630,7 @@ async def page_find_elements(payload: dict) -> dict:
     if not spec.target_classes:
         raise HTTPException(400, "element.target_classes is required")
     visible_only = bool(payload.get("visible_only", True))
+    ELEMENT_REFS.clear()
     items = await _find_element_items(page, spec, visible_only=visible_only)
     return {"ok": True, "items": items, "count": len(items)}
 

@@ -474,6 +474,7 @@ class WSAgentClient:
             if not element_spec.target_classes:
                 raise ValueError("element.target_classes is required")
             visible_only = bool(body.get("visible_only", True))
+            ELEMENT_REFS.clear()
             items = await self._find_element_items(page, element_spec, visible_only=visible_only)
             return {"ok": True, "items": items, "count": len(items)}
         if path == "/api/v1/page/extract-fields":
