@@ -500,13 +500,26 @@ class WSAgentClient:
                 raise ValueError("elements is required and must be a non-empty array")
             texts: list[str] = []
             matched_list: list[str] = []
+            request_start = time.perf_counter()
+            logger.info("开始提取详情文本 mode=%s elements=%d delay_before=%.2fs", mode, len(raw_elements), delay_before)
             for index, element_raw in enumerate(raw_elements):
                 if not isinstance(element_raw, dict):
                     raise ValueError(f"elements[{index}] must be an object")
+                item_start = time.perf_counter()
                 locator, matched = await self._resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
                 text = await self._extract_text_from_locator(locator, mode, delay_before)
+                item_ms = int((time.perf_counter() - item_start) * 1000)
+                logger.info(
+                    "详情文本元素提取完成 index=%d matched=%s 耗时=%dms 文本长度=%d",
+                    index,
+                    matched,
+                    item_ms,
+                    len(text),
+                )
                 texts.append(text)
                 matched_list.append(matched)
+            request_ms = int((time.perf_counter() - request_start) * 1000)
+            logger.info("详情文本提取请求完成 mode=%s elements=%d 总耗时=%dms", mode, len(raw_elements), request_ms)
             return {
                 "ok": True,
                 "text": "\n\n".join([t for t in texts if str(t).strip() != ""]),
@@ -652,12 +665,22 @@ class WSAgentClient:
 
     async def _extract_text_from_locator(self, locator: Any, mode: str, delay_before: float) -> str:
         """按模式从目标元素提取整段文本。"""
+        total_start = time.perf_counter()
         if delay_before > 0:
             await asyncio.sleep(delay_before)
         if mode == "ocr":
+            screenshot_start = time.perf_counter()
             screenshot_bytes = await locator.screenshot(type="png")
-            return (await ocr_image_async(screenshot_bytes)).strip()
-        return (await locator.inner_text(timeout=3000)).strip()
+            screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
+            logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms", len(screenshot_bytes), screenshot_ms)
+            text = (await ocr_image_async(screenshot_bytes)).strip()
+            total_ms = int((time.perf_counter() - total_start) * 1000)
+            logger.info("OCR 文本提取完成 总耗时=%dms 文本长度=%d", total_ms, len(text))
+            return text
+        text = (await locator.inner_text(timeout=3000)).strip()
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        logger.debug("DOM 文本提取完成 总耗时=%dms 文本长度=%d", total_ms, len(text))
+        return text
 
     async def _probe_click_state(self, locator: Any) -> dict[str, Any]:
         """采样目标元素点击状态，便于区分遮挡与节点变化。"""

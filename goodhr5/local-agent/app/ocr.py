@@ -20,6 +20,7 @@ from PIL import Image
 logger = logging.getLogger("goodhr5.ocr")
 
 _ocr_engine = None
+_ocr_call_count = 0
 _PADDLEX_DIR = os.path.expanduser("~/.paddlex")
 
 
@@ -71,8 +72,17 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     Returns:
         str: 识别出的文字
     """
+    global _ocr_call_count
+    _ocr_call_count += 1
+    call_no = _ocr_call_count
+    start = time.perf_counter()
+    image_size = "unknown"
+    image_mode = "unknown"
+    text = ""
     try:
         image = Image.open(io.BytesIO(image_bytes))
+        image_size = f"{image.width}x{image.height}"
+        image_mode = image.mode
         img_array = np.array(image)
         image.close()
         engine = _get_engine()
@@ -88,7 +98,8 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
                 res_obj = r0.json.get("res", r0.json)
                 rec_texts = res_obj.get("rec_texts", [])
                 lines = [t.strip() for t in rec_texts if t and t.strip()]
-                return "\n".join(lines)
+                text = "\n".join(lines)
+                return text
             return ""
 
         result = engine.ocr(img_array)
@@ -102,10 +113,33 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
                 text = str(line[1][0]).strip()
                 if text:
                     lines.append(text)
-        return "\n".join(lines)
+        text = "\n".join(lines)
+        return text
     except Exception as e:
-        logger.error("OCR 识别失败: %s", e)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "OCR 识别失败 call=%d 耗时=%dms 图片=%s mode=%s bytes=%d err=%s",
+            call_no,
+            elapsed_ms,
+            image_size,
+            image_mode,
+            len(image_bytes),
+            e,
+        )
         return ""
+    finally:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        line_count = len([line for line in text.splitlines() if line.strip()])
+        logger.info(
+            "OCR 识别完成 call=%d 耗时=%dms 图片=%s mode=%s bytes=%d 文本行数=%d 文本长度=%d",
+            call_no,
+            elapsed_ms,
+            image_size,
+            image_mode,
+            len(image_bytes),
+            line_count,
+            len(text),
+        )
 
 
 async def ocr_image_async(image_bytes: bytes) -> str:
