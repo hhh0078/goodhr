@@ -530,9 +530,10 @@ async def click_box_random_point(
     x = box["x"] + box["width"] * ratio_x
     y = box["y"] + box["height"] * ratio_y
 
+    delay_ms = random.randint(100, 300)
     await page.mouse.move(x, y)
-    await page.mouse.click(x, y)
-    logger.debug("随机点击%s: point=(%.1f,%.1f)", label, x, y)
+    await page.mouse.click(x, y, delay=delay_ms)
+    logger.debug("随机点击%s: point=(%.1f,%.1f), delay=%dms", label, x, y, delay_ms)
     return True
 
 

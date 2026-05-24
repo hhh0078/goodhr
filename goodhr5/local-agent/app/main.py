@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import os
-import random
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -514,6 +513,28 @@ async def _probe_click_state(locator) -> dict:
     return {"ok": False, "reason": "probe_unknown"}
 
 
+async def _safe_random_click(page, locator, matched_target: str) -> None:
+    """使用最新元素位置执行随机点点击，跳过底层 human click 的二次滚动定位。"""
+    latest_probe = await _probe_click_state(locator)
+    latest_box = await locator.bounding_box()
+    logger.info("快速点击前复查 target=%s probe=%s box=%s", matched_target, latest_probe, latest_box)
+    if not latest_probe.get("ok"):
+        raise HTTPException(400, f"点击目标元素状态检查失败: {matched_target}, probe={latest_probe}")
+    if not latest_probe.get("connected", False):
+        raise HTTPException(400, f"点击目标元素节点已失效: {matched_target}, probe={latest_probe}")
+    if not latest_probe.get("inViewport", False):
+        raise HTTPException(400, f"点击目标元素不在视口内: {matched_target}, probe={latest_probe}")
+    if not latest_probe.get("centerHit", False):
+        raise HTTPException(400, f"点击目标元素中心点被遮挡: {matched_target}, probe={latest_probe}")
+    if not latest_box or latest_box.get("width", 0) <= 0 or latest_box.get("height", 0) <= 0:
+        raise HTTPException(400, f"点击目标元素位置无效: {matched_target}, box={latest_box}")
+    click_start = time.perf_counter()
+    if not await click_box_random_point(page, latest_box, matched_target):
+        raise HTTPException(400, f"点击目标元素随机点失败: {matched_target}, box={latest_box}")
+    elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+    logger.info("点击成功 target=%s phase=safe_random_click elapsed_ms=%d box=%s", matched_target, elapsed_ms, latest_box)
+
+
 async def _resolve_locator_from_payload(page, payload: dict, label: str):
     """按 element_ref 或 element 解析单个目标元素定位器。"""
     element_ref = str(payload.get("element_ref", "")).strip()
@@ -720,36 +741,9 @@ async def page_click(payload: dict) -> dict:
             timeout,
         )
         await move_mouse_to_locator(locator, matched_target)
-        click_start = time.perf_counter()
-        try:
-            await locator.click(delay=random.randint(100, 300))
-            click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
-            logger.info("点击成功 target=%s phase=human_click elapsed_ms=%d", matched_target, click_elapsed_ms)
-        except Exception as exc:
-            # cloakbrowser 人工点击链偶发 “Element not found while scrolling into view”，
-            # 回退为盒子内随机点点击，避免点击流程中断。
-            click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
-            probe_after = await _probe_click_state(locator)
-            logger.warning(
-                "点击失败 target=%s phase=human_click elapsed_ms=%d err=%r probe_after=%s",
-                matched_target,
-                click_elapsed_ms,
-                exc,
-                probe_after,
-            )
-            if "Element not found while scrolling into view" not in str(exc):
-                raise
-            box = await locator.bounding_box()
-            fallback_start = time.perf_counter()
-            if not await click_box_random_point(page, box, matched_target):
-                raise
-            fallback_elapsed_ms = int((time.perf_counter() - fallback_start) * 1000)
-            logger.warning(
-                "点击%s触发滚动定位异常，已回退随机点点击 fallback_elapsed_ms=%d box=%s",
-                matched_target,
-                fallback_elapsed_ms,
-                box,
-            )
+        # 旧方案会进入底层 human click 的二次滚动定位，异常时可能固定等待约 30 秒。
+        # await locator.click(delay=100-300ms)
+        await _safe_random_click(page, locator, matched_target)
         success = True
     else:
         raise HTTPException(400, f"点击目标元素不可见: {matched_target}")
