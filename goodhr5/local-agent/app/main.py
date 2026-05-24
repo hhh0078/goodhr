@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import random
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
@@ -27,7 +28,7 @@ from app.element_refs import ELEMENT_REFS
 from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_locator_into_view, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import load_machine
-from app.ocr import is_available as ocr_available, ocr_image_async
+from app.ocr import is_available as ocr_available, ocr_image_async, warmup_ocr_async
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.screenshot import screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -77,6 +78,18 @@ _ws_agent = WSAgentClient(_browser_manager)
 # ---------------------------------------------------------------------------
 # 路由处理函数
 # ---------------------------------------------------------------------------
+
+
+@app.on_event("startup")
+async def warmup_ocr_on_startup() -> None:
+    """程序启动时预热 OCR 引擎，减少任务执行时首次识别等待。"""
+    if not ocr_available():
+        logger.warning("OCR 依赖不可用，跳过启动预热")
+        return
+    logger.info("开始 OCR 启动预热")
+    ok = await warmup_ocr_async()
+    if not ok:
+        logger.warning("OCR 启动预热未成功，后续将按需再次初始化")
 
 
 @app.get("/health")
@@ -660,18 +673,45 @@ async def page_click(payload: dict) -> dict:
             raise HTTPException(400, "element.target_classes is required")
         locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
     if await locator.is_visible(timeout=timeout):
+        in_viewport_before = await is_locator_in_viewport(locator)
+        box_before = await locator.bounding_box()
+        logger.info(
+            "点击前状态 target=%s visible=true in_viewport=%s box=%s delay_before=%.2fs timeout=%dms",
+            matched_target,
+            in_viewport_before,
+            box_before,
+            delay_before,
+            timeout,
+        )
         await move_mouse_to_locator(locator, matched_target)
+        click_start = time.perf_counter()
         try:
             await locator.click(delay=random.randint(100, 300))
+            click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+            logger.info("点击成功 target=%s phase=human_click elapsed_ms=%d", matched_target, click_elapsed_ms)
         except Exception as exc:
             # cloakbrowser 人工点击链偶发 “Element not found while scrolling into view”，
             # 回退为盒子内随机点点击，避免点击流程中断。
+            click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+            logger.warning(
+                "点击失败 target=%s phase=human_click elapsed_ms=%d err=%r",
+                matched_target,
+                click_elapsed_ms,
+                exc,
+            )
             if "Element not found while scrolling into view" not in str(exc):
                 raise
             box = await locator.bounding_box()
+            fallback_start = time.perf_counter()
             if not await click_box_random_point(page, box, matched_target):
                 raise
-            logger.warning("点击%s时触发滚动定位异常，已使用随机点点击回退", matched_target)
+            fallback_elapsed_ms = int((time.perf_counter() - fallback_start) * 1000)
+            logger.warning(
+                "点击%s触发滚动定位异常，已回退随机点点击 fallback_elapsed_ms=%d box=%s",
+                matched_target,
+                fallback_elapsed_ms,
+                box,
+            )
         success = True
     else:
         raise HTTPException(400, f"点击目标元素不可见: {matched_target}")

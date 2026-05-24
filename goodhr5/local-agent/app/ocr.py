@@ -12,6 +12,7 @@ import gc
 import io
 import logging
 import os
+import time
 
 import numpy as np
 from PIL import Image
@@ -42,6 +43,20 @@ def _get_engine():
     )
     logger.info("PaddleOCR 引擎初始化完成")
     return _ocr_engine
+
+
+async def warmup_ocr_async() -> bool:
+    """启动阶段预热 OCR 引擎，避免任务首次调用冷启动。"""
+    start = time.perf_counter()
+    try:
+        await asyncio.to_thread(_get_engine)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.info("OCR 预热完成，耗时 %dms", elapsed_ms)
+        return True
+    except Exception as e:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.error("OCR 预热失败，耗时 %dms, err=%s", elapsed_ms, e)
+        return False
 
 
 def ocr_image_bytes(image_bytes: bytes) -> str:
