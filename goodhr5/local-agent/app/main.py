@@ -480,6 +480,40 @@ async def _extract_text_from_locator(locator, mode: str, delay_before: float) ->
     return (await locator.inner_text(timeout=3000)).strip()
 
 
+async def _probe_click_state(locator) -> dict:
+    """采样目标元素点击状态，便于区分遮挡与节点变化。"""
+    try:
+        state = await locator.evaluate(
+            """(el) => {
+                if (!el) return { ok:false, reason:"no_element" };
+                const connected = !!el.isConnected;
+                const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                if (!rect) return { ok:true, connected, reason:"no_rect" };
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const top = document.elementFromPoint(cx, cy);
+                const centerHit = !!top && (top === el || el.contains(top));
+                return {
+                    ok: true,
+                    connected,
+                    center: { x: cx, y: cy },
+                    centerHit,
+                    topAtCenter: top ? {
+                        tag: (top.tagName || "").toLowerCase(),
+                        id: top.id || "",
+                        className: typeof top.className === "string" ? top.className : ""
+                    } : null
+                };
+            }"""
+        )
+        if isinstance(state, dict):
+            state["inViewport"] = await is_locator_in_viewport(locator)
+            return state
+    except Exception as exc:
+        return {"ok": False, "reason": "probe_exception", "error": repr(exc)}
+    return {"ok": False, "reason": "probe_unknown"}
+
+
 async def _resolve_locator_from_payload(page, payload: dict, label: str):
     """按 element_ref 或 element 解析单个目标元素定位器。"""
     element_ref = str(payload.get("element_ref", "")).strip()
@@ -675,11 +709,13 @@ async def page_click(payload: dict) -> dict:
     if await locator.is_visible(timeout=timeout):
         in_viewport_before = await is_locator_in_viewport(locator)
         box_before = await locator.bounding_box()
+        probe_before = await _probe_click_state(locator)
         logger.info(
-            "点击前状态 target=%s visible=true in_viewport=%s box=%s delay_before=%.2fs timeout=%dms",
+            "点击前状态 target=%s visible=true in_viewport=%s box=%s probe=%s delay_before=%.2fs timeout=%dms",
             matched_target,
             in_viewport_before,
             box_before,
+            probe_before,
             delay_before,
             timeout,
         )
@@ -693,11 +729,13 @@ async def page_click(payload: dict) -> dict:
             # cloakbrowser 人工点击链偶发 “Element not found while scrolling into view”，
             # 回退为盒子内随机点点击，避免点击流程中断。
             click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+            probe_after = await _probe_click_state(locator)
             logger.warning(
-                "点击失败 target=%s phase=human_click elapsed_ms=%d err=%r",
+                "点击失败 target=%s phase=human_click elapsed_ms=%d err=%r probe_after=%s",
                 matched_target,
                 click_elapsed_ms,
                 exc,
+                probe_after,
             )
             if "Element not found while scrolling into view" not in str(exc):
                 raise

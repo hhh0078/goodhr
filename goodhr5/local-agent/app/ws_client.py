@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import secrets
+import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -547,18 +548,49 @@ class WSAgentClient:
                 locator, _matched_parent, matched_target = await locate_element_by_spec(page, element_spec, "点击目标元素")
             if not await locator.is_visible(timeout=timeout):
                 raise ValueError(f"点击目标元素不可见: {matched_target}")
+            in_viewport_before = await is_locator_in_viewport(locator)
+            box_before = await locator.bounding_box()
+            probe_before = await self._probe_click_state(locator)
+            logger.info(
+                "点击前状态 target=%s visible=true in_viewport=%s box=%s probe=%s delay_before=%.2fs timeout=%dms",
+                matched_target,
+                in_viewport_before,
+                box_before,
+                probe_before,
+                delay_before,
+                timeout,
+            )
             await move_mouse_to_locator(locator, matched_target)
+            click_start = time.perf_counter()
             try:
                 await locator.click(delay=random.randint(100, 300))
+                click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+                logger.info("点击成功 target=%s phase=human_click elapsed_ms=%d", matched_target, click_elapsed_ms)
             except Exception as exc:
                 # cloakbrowser 人工点击链偶发 “Element not found while scrolling into view”，
                 # 这里回退为对已定位元素盒子随机点点击，避免二次定位失败导致中断。
+                click_elapsed_ms = int((time.perf_counter() - click_start) * 1000)
+                probe_after = await self._probe_click_state(locator)
+                logger.warning(
+                    "点击失败 target=%s phase=human_click elapsed_ms=%d err=%r probe_after=%s",
+                    matched_target,
+                    click_elapsed_ms,
+                    exc,
+                    probe_after,
+                )
                 if "Element not found while scrolling into view" not in str(exc):
                     raise
                 box = await locator.bounding_box()
+                fallback_start = time.perf_counter()
                 if not await click_box_random_point(page, box, matched_target):
                     raise
-                logger.warning("点击%s时触发滚动定位异常，已使用随机点点击回退", matched_target)
+                fallback_elapsed_ms = int((time.perf_counter() - fallback_start) * 1000)
+                logger.warning(
+                    "点击%s触发滚动定位异常，已回退随机点点击 fallback_elapsed_ms=%d box=%s",
+                    matched_target,
+                    fallback_elapsed_ms,
+                    box,
+                )
             clicked = True
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/page/press-key":
@@ -653,6 +685,39 @@ class WSAgentClient:
             screenshot_bytes = await locator.screenshot(type="png")
             return (await ocr_image_async(screenshot_bytes)).strip()
         return (await locator.inner_text(timeout=3000)).strip()
+
+    async def _probe_click_state(self, locator: Any) -> dict[str, Any]:
+        """采样目标元素点击状态，便于区分遮挡与节点变化。"""
+        try:
+            state = await locator.evaluate(
+                """(el) => {
+                    if (!el) return { ok:false, reason:"no_element" };
+                    const connected = !!el.isConnected;
+                    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+                    if (!rect) return { ok:true, connected, reason:"no_rect" };
+                    const cx = rect.left + rect.width / 2;
+                    const cy = rect.top + rect.height / 2;
+                    const top = document.elementFromPoint(cx, cy);
+                    const centerHit = !!top && (top === el || el.contains(top));
+                    return {
+                        ok: true,
+                        connected,
+                        center: { x: cx, y: cy },
+                        centerHit,
+                        topAtCenter: top ? {
+                            tag: (top.tagName || "").toLowerCase(),
+                            id: top.id || "",
+                            className: typeof top.className === "string" ? top.className : ""
+                        } : null
+                    };
+                }"""
+            )
+            if isinstance(state, dict):
+                state["inViewport"] = await is_locator_in_viewport(locator)
+                return state
+        except Exception as exc:
+            return {"ok": False, "reason": "probe_exception", "error": repr(exc)}
+        return {"ok": False, "reason": "probe_unknown"}
 
     async def _resolve_locator_from_payload(self, page: Any, body: dict, label: str):
         """按 element_ref 或 element 解析单个目标元素定位器。"""
