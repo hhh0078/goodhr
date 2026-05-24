@@ -42,7 +42,17 @@ def _normalize_class_name(class_name: str) -> str:
     value = str(class_name).strip()
     if not value:
         return ""
-    return value if value.startswith(".") else f".{value}"
+    # 兼容完整 CSS 选择器：
+    # - class: .foo
+    # - id: #foo
+    # - attribute: [class*=foo]
+    # - 伪类/组合器等：:scope / > .child / div.foo
+    # 仅当传入纯类名时，才自动补 "."。
+    if value.startswith((".", "#", "[", ":", ">", "~", "+")):
+        return value
+    if any(token in value for token in (" ", ">", "~", "+", ":", "[", "]", "(", ")", "=")):
+        return value
+    return f".{value}"
 
 
 def _normalize_class_array(items: Any) -> list[str]:

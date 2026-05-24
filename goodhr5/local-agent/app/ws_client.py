@@ -490,13 +490,33 @@ class WSAgentClient:
             return {"ok": True, "fields": fields}
         if path == "/api/v1/page/extract-text":
             page = await self._require_page()
-            locator, matched = await self._resolve_locator_from_payload(page, body, "文本提取元素")
             mode = str(body.get("mode", "dom") or "dom").strip().lower()
             if mode not in {"dom", "ocr"}:
                 raise ValueError("mode must be dom or ocr")
             delay_before = float(body.get("delay_before", 0))
+            raw_elements = body.get("elements")
+            if isinstance(raw_elements, list) and raw_elements:
+                texts: list[str] = []
+                matched_list: list[str] = []
+                for index, element_raw in enumerate(raw_elements):
+                    if not isinstance(element_raw, dict):
+                        raise ValueError(f"elements[{index}] must be an object")
+                    locator, matched = await self._resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
+                    text = await self._extract_text_from_locator(locator, mode, delay_before)
+                    texts.append(text)
+                    matched_list.append(matched)
+                return {
+                    "ok": True,
+                    "text": "\n\n".join([t for t in texts if str(t).strip() != ""]),
+                    "texts": texts,
+                    "matched": ",".join(matched_list),
+                    "matched_list": matched_list,
+                    "mode": mode,
+                }
+
+            locator, matched = await self._resolve_locator_from_payload(page, body, "文本提取元素")
             text = await self._extract_text_from_locator(locator, mode, delay_before)
-            return {"ok": True, "text": text, "matched": matched, "mode": mode}
+            return {"ok": True, "text": text, "texts": [text], "matched": matched, "matched_list": [matched], "mode": mode}
         if path == "/api/v1/page/in-viewport":
             page = await self._require_page()
             locator, matched = await self._resolve_locator_from_payload(page, body, "视口判断元素")

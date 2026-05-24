@@ -31,10 +31,12 @@ type localExtractFieldsResp struct {
 }
 
 type localExtractTextResp struct {
-	Ok      bool   `json:"ok"`
-	Text    string `json:"text"`
-	Matched string `json:"matched"`
-	Mode    string `json:"mode"`
+	Ok          bool     `json:"ok"`
+	Text        string   `json:"text"`
+	Texts       []string `json:"texts"`
+	Matched     string   `json:"matched"`
+	MatchedList []string `json:"matched_list"`
+	Mode        string   `json:"mode"`
 }
 
 // Runtime 实现 Boss 平台运行时能力。
@@ -193,14 +195,59 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 		mode = "dom"
 	}
 	var resp localExtractTextResp
-	if err := exec.Post("/api/v1/page/extract-text", map[string]any{
-		"element":      cfg.Detail.Content,
-		"mode":         mode,
-		"delay_before": detailDelayBefore(prefs),
-	}, &resp); err != nil {
+	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, detailDelayBefore(prefs))
+	if err := exec.Post("/api/v1/page/extract-text", payload, &resp); err != nil {
 		return "", err
 	}
+	if len(resp.Texts) > 0 {
+		parts := make([]string, 0, len(resp.Texts))
+		for _, item := range resp.Texts {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				parts = append(parts, item)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n\n"), nil
+		}
+	}
 	return strings.TrimSpace(resp.Text), nil
+}
+
+// buildDetailExtractPayload 构建详情文本提取请求。
+// OCR 模式下会将 target_classes 分组拆成多个元素，分别截图识别后返回数组文本。
+func buildDetailExtractPayload(content map[string]any, mode string, delayBefore float64) map[string]any {
+	payload := map[string]any{
+		"mode":         mode,
+		"delay_before": delayBefore,
+	}
+	if mode != "ocr" {
+		payload["element"] = content
+		return payload
+	}
+	targetGroups, ok := content["target_classes"].([][]string)
+	if !ok || len(targetGroups) <= 1 {
+		payload["element"] = content
+		return payload
+	}
+	elements := make([]map[string]any, 0, len(targetGroups))
+	for _, group := range targetGroups {
+		item := map[string]any{
+			"target_classes": [][]string{group},
+		}
+		if parentGroups, ok := content["parent_classes"]; ok {
+			item["parent_classes"] = parentGroups
+		}
+		if findAttempts, ok := content["find_attempts"]; ok {
+			item["find_attempts"] = findAttempts
+		}
+		if findInterval, ok := content["find_interval_ms"]; ok {
+			item["find_interval_ms"] = findInterval
+		}
+		elements = append(elements, item)
+	}
+	payload["elements"] = elements
+	return payload
 }
 
 // ensureCandidateVisible 确保候选人卡片进入可视区域。
