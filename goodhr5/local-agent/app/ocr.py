@@ -15,13 +15,14 @@ import os
 import time
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 
 logger = logging.getLogger("goodhr5.ocr")
 
 _ocr_engine = None
 _ocr_call_count = 0
 _PADDLEX_DIR = os.path.expanduser("~/.paddlex")
+_OCR_CONTRAST_FACTOR = 1.6
 
 
 def _ensure_paddlex_dir() -> None:
@@ -44,6 +45,25 @@ def _get_engine():
     )
     logger.info("PaddleOCR 引擎初始化完成")
     return _ocr_engine
+
+
+def _preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    """
+    对 OCR 图片做灰度和对比度增强。
+
+    将网页截图先转成灰度图，减少颜色干扰，再提升文字和背景的对比度。
+    最后转回 RGB，保证 PaddleOCR 接收稳定的三通道图片。
+
+    Args:
+        image: 原始截图图片。
+
+    Returns:
+        Image.Image: 预处理后的 RGB 图片。
+    """
+    rgb_image = image.convert("RGB")
+    gray_image = ImageOps.grayscale(rgb_image)
+    enhanced_image = ImageEnhance.Contrast(gray_image).enhance(_OCR_CONTRAST_FACTOR)
+    return enhanced_image.convert("RGB")
 
 
 async def warmup_ocr_async() -> bool:
@@ -78,13 +98,17 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     start = time.perf_counter()
     image_size = "unknown"
     image_mode = "unknown"
+    processed_mode = "unknown"
     text = ""
     try:
         image = Image.open(io.BytesIO(image_bytes))
         image_size = f"{image.width}x{image.height}"
         image_mode = image.mode
-        img_array = np.array(image)
+        processed_image = _preprocess_image_for_ocr(image)
+        processed_mode = processed_image.mode
+        img_array = np.array(processed_image)
         image.close()
+        processed_image.close()
         engine = _get_engine()
 
         if hasattr(engine, "predict"):
@@ -118,11 +142,12 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "OCR 识别失败 call=%d 耗时=%dms 图片=%s mode=%s bytes=%d err=%s",
+            "OCR 识别失败 call=%d 耗时=%dms 图片=%s 原mode=%s 处理mode=%s bytes=%d err=%s",
             call_no,
             elapsed_ms,
             image_size,
             image_mode,
+            processed_mode,
             len(image_bytes),
             e,
         )
@@ -131,11 +156,13 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         line_count = len([line for line in text.splitlines() if line.strip()])
         logger.info(
-            "OCR 识别完成 call=%d 耗时=%dms 图片=%s mode=%s bytes=%d 文本行数=%d 文本长度=%d",
+            "OCR 识别完成 call=%d 耗时=%dms 图片=%s 原mode=%s 处理mode=%s 对比度=%.1f bytes=%d 文本行数=%d 文本长度=%d",
             call_no,
             elapsed_ms,
             image_size,
             image_mode,
+            processed_mode,
+            _OCR_CONTRAST_FACTOR,
             len(image_bytes),
             line_count,
             len(text),
