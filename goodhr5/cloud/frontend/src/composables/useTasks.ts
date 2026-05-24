@@ -36,6 +36,8 @@ export function useTasks(agentBaseUrl: Ref<string>) {
   });
   const expandedTaskId = ref("");
   const taskLogs = ref<Record<string, any[]>>({});
+  const taskLogHasMore = ref<Record<string, boolean>>({});
+  const taskLogLoadingMore = ref<Record<string, boolean>>({});
   const candidateExpandedTaskId = ref("");
   const taskCandidates = ref<Record<string, any>>({});
   const candidateLoadingTaskId = ref("");
@@ -223,6 +225,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       if (!confirm("确认清空该任务日志吗？")) return;
       await clearTaskLogs(taskId);
       taskLogs.value = { ...taskLogs.value, [taskId]: [] };
+      taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: false };
       message.value = "日志已清空";
     } catch (e: any) {
       error.value = e.message;
@@ -235,9 +238,16 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     try {
       const existing = taskLogs.value[taskId] || [];
       const since = latestTaskLogTime(existing);
-      const logs = await listTaskLogs(taskId, since || undefined);
+      const data = await listTaskLogs(taskId, {
+        since: since || undefined,
+        limit: 100,
+      });
+      const logs = data.logs || [];
       const merged = mergeTaskLogs(existing, logs, Boolean(since));
       taskLogs.value = { ...taskLogs.value, [taskId]: merged };
+      if (!since) {
+        taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: Boolean(data.has_more) };
+      }
       console.info("[goodhr5][task-logs] refreshed", {
         taskId,
         incremental: Boolean(since),
@@ -246,6 +256,25 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       });
     } catch (e) {
       console.error("[goodhr5][task-logs] refresh failed", { taskId, error: e });
+    }
+  }
+
+  async function loadOlderLogs(taskId: string) {
+    if (taskLogLoadingMore.value[taskId] || taskLogHasMore.value[taskId] === false) return;
+    const existing = taskLogs.value[taskId] || [];
+    const before = oldestTaskLogTime(existing);
+    if (!before) return;
+    taskLogLoadingMore.value = { ...taskLogLoadingMore.value, [taskId]: true };
+    try {
+      const data = await listTaskLogs(taskId, { before, limit: 100 });
+      const logs = data.logs || [];
+      const merged = mergeTaskLogs(existing, logs, true);
+      taskLogs.value = { ...taskLogs.value, [taskId]: merged };
+      taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: Boolean(data.has_more) };
+    } catch (e) {
+      console.error("[goodhr5][task-logs] load older failed", { taskId, error: e });
+    } finally {
+      taskLogLoadingMore.value = { ...taskLogLoadingMore.value, [taskId]: false };
     }
   }
 
@@ -278,6 +307,15 @@ export function useTasks(agentBaseUrl: Ref<string>) {
       const createdAt = String(item?.created_at || "");
       if (!createdAt) return latest;
       return !latest || createdAt > latest ? createdAt : latest;
+    }, "");
+  }
+
+  function oldestTaskLogTime(logs: any[]) {
+    if (!logs || logs.length === 0) return "";
+    return logs.reduce((oldest: string, item: any) => {
+      const createdAt = String(item?.created_at || "");
+      if (!createdAt) return oldest;
+      return !oldest || createdAt < oldest ? createdAt : oldest;
     }, "");
   }
 
@@ -397,6 +435,8 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     form,
     expandedTaskId,
     taskLogs,
+    taskLogHasMore,
+    taskLogLoadingMore,
     candidateExpandedTaskId,
     taskCandidates,
     candidateLoadingTaskId,
@@ -410,6 +450,7 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     toggleLogs,
     clearLogs,
     refreshLogs,
+    loadOlderLogs,
     toggleCandidates,
     loadCandidates,
     removeCandidate,

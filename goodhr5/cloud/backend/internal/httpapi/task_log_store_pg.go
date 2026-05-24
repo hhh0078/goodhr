@@ -59,7 +59,7 @@ func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 }
 
 // ListTaskLogs 列出 PostgreSQL 中当前用户某个任务的日志摘要。
-func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error) {
+func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, logQuery TaskLogQuery) ([]TaskLog, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -70,16 +70,23 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 		WHERE u.email = $1 AND tl.task_id = $2
 	`
 	args := []any{userEmail, taskID}
-	if since != nil {
-		query += ` AND tl.created_at >= $3`
-		args = append(args, *since)
+	if logQuery.Since != nil {
+		query += ` AND tl.created_at >= $` + intString(len(args)+1)
+		args = append(args, *logQuery.Since)
+	}
+	if logQuery.Before != nil {
+		query += ` AND tl.created_at < $` + intString(len(args)+1)
+		args = append(args, *logQuery.Before)
 	}
 	query += `
 		ORDER BY tl.created_at DESC
+		LIMIT $` + intString(len(args)+1) + `
 	`
+	limit := normalizeTaskLogLimit(logQuery.Limit)
+	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
@@ -94,11 +101,18 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 			&item.Message,
 			&item.CreatedAt,
 		); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return items, hasMore, nil
 }
 
 // ClearTaskLogs 清空 PostgreSQL 中当前用户某个任务的日志摘要。

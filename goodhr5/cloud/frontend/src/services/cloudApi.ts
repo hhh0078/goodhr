@@ -93,10 +93,17 @@ export async function stopTask(taskID: string) {
   return data
 }
 
-export async function listTaskLogs(taskID: string, since?: string) {
-  const query = since ? `?since=${encodeURIComponent(since)}` : ''
+export async function listTaskLogs(
+  taskID: string,
+  params: { since?: string; before?: string; limit?: number } = {},
+) {
+  const queryParams = new URLSearchParams()
+  if (params.since) queryParams.set('since', params.since)
+  if (params.before) queryParams.set('before', params.before)
+  if (params.limit) queryParams.set('limit', String(params.limit))
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : ''
   const data = await api(`/api/tasks/${taskID}/logs${query}`)
-  return data.logs
+  return data
 }
 
 /**

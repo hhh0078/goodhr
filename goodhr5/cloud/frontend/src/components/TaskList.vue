@@ -270,7 +270,11 @@
           >
             暂无日志
           </p>
-          <ol v-else>
+          <ol
+            v-else
+            class="log-list"
+            @scroll="onLogScroll(task.id, $event)"
+          >
             <li v-for="log in tasks.taskLogs.value[task.id]" :key="log.id">
               <span
                 :class="{
@@ -290,6 +294,18 @@
                 }"
                 >{{ log.message }}</strong
               >
+            </li>
+            <li
+              v-if="tasks.taskLogLoadingMore.value[task.id]"
+              class="log-more"
+            >
+              正在加载更多日志...
+            </li>
+            <li
+              v-else-if="tasks.taskLogHasMore.value[task.id]"
+              class="log-more"
+            >
+              继续向下滚动加载更多
             </li>
           </ol>
         </div>
@@ -459,6 +475,15 @@ function displayTaskCount(task: any, key: string) {
   }
   return Number(task?.[`${key}_count`] || 0);
 }
+function onLogScroll(taskId: string, event: Event) {
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  const distanceToBottom =
+    target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (distanceToBottom <= 24) {
+    void tasks.loadOlderLogs(taskId);
+  }
+}
 onMounted(loadAccounts);
 </script>
 
@@ -623,6 +648,15 @@ onMounted(loadAccounts);
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+.log-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.log-more {
+  color: var(--fg-dim);
+  text-align: center;
 }
 @media (max-width: 900px) {
   .task-main {

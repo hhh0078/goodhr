@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -134,21 +135,22 @@ func (s *TaskLogService) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调用任务日志存储读取摘要，用于前端展开任务卡片。
-	since, err := parseTaskLogSince(r)
+	logQuery, err := parseTaskLogQuery(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	logs, err := s.logStore.ListTaskLogs(tenantID, session.Email, taskID, isAdmin, since)
+	logs, hasMore, err := s.logStore.ListTaskLogs(tenantID, session.Email, taskID, isAdmin, logQuery)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list task logs")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"logs": publicTaskLogs(logs),
+		"ok":       true,
+		"logs":     publicTaskLogs(logs),
+		"has_more": hasMore,
 	})
 }
 
@@ -183,16 +185,41 @@ func (s *TaskLogService) Clear(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func parseTaskLogSince(r *http.Request) (*time.Time, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get("since"))
-	if raw == "" {
-		return nil, nil
+func parseTaskLogQuery(r *http.Request) (TaskLogQuery, error) {
+	values := r.URL.Query()
+	result := TaskLogQuery{Limit: normalizeTaskLogLimit(0)}
+	if raw := strings.TrimSpace(values.Get("since")); raw != "" {
+		value, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return TaskLogQuery{}, errors.New("since must be RFC3339 time")
+		}
+		result.Since = &value
 	}
-	value, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return nil, errors.New("since must be RFC3339 time")
+	if raw := strings.TrimSpace(values.Get("before")); raw != "" {
+		value, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return TaskLogQuery{}, errors.New("before must be RFC3339 time")
+		}
+		result.Before = &value
 	}
-	return &value, nil
+	if raw := strings.TrimSpace(values.Get("limit")); raw != "" {
+		var limit int
+		if _, err := fmt.Sscanf(raw, "%d", &limit); err != nil {
+			return TaskLogQuery{}, errors.New("limit must be integer")
+		}
+		result.Limit = normalizeTaskLogLimit(limit)
+	}
+	return result, nil
+}
+
+func normalizeTaskLogLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 300 {
+		return 300
+	}
+	return limit
 }
 
 // currentSession 从请求中解析登录会话。

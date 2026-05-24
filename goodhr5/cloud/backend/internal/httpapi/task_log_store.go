@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,10 +25,17 @@ type TaskCountSummary struct {
 	FailedCount  int
 }
 
+// TaskLogQuery 定义任务日志分页查询条件。
+type TaskLogQuery struct {
+	Since  *time.Time
+	Before *time.Time
+	Limit  int
+}
+
 // TaskLogStore 定义任务日志摘要的持久化能力。
 type TaskLogStore interface {
 	AddTaskLog(log TaskLog) (TaskLog, error)
-	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error)
+	ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, query TaskLogQuery) ([]TaskLog, bool, error)
 	ClearTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) error
 	SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error)
 }
@@ -68,7 +76,7 @@ func (s *MemoryTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 }
 
 // ListTaskLogs 列出当前用户某个任务的日志摘要。
-func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, since *time.Time) ([]TaskLog, error) {
+func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, query TaskLogQuery) ([]TaskLog, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -77,12 +85,23 @@ func (s *MemoryTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, is
 		if (!isAdmin && log.UserEmail != userEmail) || log.TaskID != taskID {
 			continue
 		}
-		if since != nil && log.CreatedAt.Before(*since) {
+		if query.Since != nil && log.CreatedAt.Before(*query.Since) {
+			continue
+		}
+		if query.Before != nil && !log.CreatedAt.Before(*query.Before) {
 			continue
 		}
 		items = append(items, log)
 	}
-	return items, nil
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	limit := normalizeTaskLogLimit(query.Limit)
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return items, hasMore, nil
 }
 
 // ClearTaskLogs 清空当前用户某个任务的日志摘要。
