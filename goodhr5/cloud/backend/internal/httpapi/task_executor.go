@@ -738,9 +738,9 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 	}
 
 	// 输出请求体，便于排查模型入参。
-	if bodyPreview, err := json.Marshal(reqBody); err == nil {
-		e.log("info", fmt.Sprintf("AI请求体：%s", string(bodyPreview)))
-	}
+	// if bodyPreview, err := json.Marshal(reqBody); err == nil {
+	// 	e.log("info", fmt.Sprintf("AI请求体：%s", string(bodyPreview)))
+	// }
 
 	reqBody.Model = model
 	data, _ := json.Marshal(reqBody)
