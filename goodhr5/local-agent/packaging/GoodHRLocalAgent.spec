@@ -25,7 +25,7 @@ hiddenimports = (
 datas = (
     collect_data_files("rapidocr")
     + [
-        (f"../vendor/downloads/{cloakbrowser_zip}", f"vendor/downloads/{cloakbrowser_zip}"),
+        (f"../vendor/downloads/{cloakbrowser_zip}", "vendor/downloads"),
         ("../assets", "assets"),
         ("../pyproject.toml", "."),
     ]
