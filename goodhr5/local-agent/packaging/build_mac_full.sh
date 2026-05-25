@@ -28,8 +28,9 @@ echo "==> 使用 Python：$("$SYSTEM_PYTHON" --version)"
 
 if [ -x ".venv/bin/python" ]; then
   VENV_VERSION="$(".venv/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-  if [ "$(printf '%s\n' "3.10" "$VENV_VERSION" | sort -V | head -n1)" != "3.10" ]; then
-    echo "==> 当前 .venv Python 版本为 $VENV_VERSION，低于 3.10，删除后重建"
+  VENV_OK="$(".venv/bin/python" -c 'import sys; print("yes" if sys.version_info >= (3, 10) else "no")')"
+  if [ "$VENV_OK" != "yes" ]; then
+    echo "==> 当前 .venv Python 版本为 ${VENV_VERSION}，低于 3.10，删除后重建"
     rm -rf .venv
   fi
 fi
