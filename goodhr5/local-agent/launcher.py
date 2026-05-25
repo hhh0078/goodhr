@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import platform
 import subprocess
@@ -48,15 +49,52 @@ def bundle_root() -> Path:
     """
     获取程序资源根目录。
 
-    PyInstaller 打包后资源位于 sys._MEIPASS；源码运行时资源位于 local-agent 目录。
+    PyInstaller 打包后资源可能位于 sys._MEIPASS，也可能在 macOS .app 的
+    Contents/Resources；源码运行时资源位于 local-agent 目录。
 
     Returns:
         Path: 程序资源根目录。
     """
     frozen_root = getattr(sys, "_MEIPASS", "")
     if frozen_root:
-        return Path(frozen_root)
+        root = Path(frozen_root)
+        exe_path = Path(sys.executable).resolve()
+        candidates = resource_root_candidates(root, exe_path)
+        archive_name = platform_archive_name()
+        for candidate in candidates:
+            if (candidate / "vendor" / "downloads" / archive_name).exists():
+                return candidate
+            if (candidate / "vendor" / "cloakbrowser").exists():
+                return candidate
+        return root
     return Path(__file__).resolve().parent
+
+
+def resource_root_candidates(frozen_root: Path, executable_path: Path) -> list[Path]:
+    """
+    生成打包后可能的资源根目录。
+
+    Args:
+        frozen_root: PyInstaller 提供的内部资源目录。
+        executable_path: 当前可执行文件路径。
+
+    Returns:
+        list[Path]: 去重后的资源候选目录。
+    """
+    candidates: list[Path] = []
+
+    def add(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved not in candidates:
+            candidates.append(resolved)
+
+    for base in [frozen_root, executable_path.parent, *frozen_root.parents, *executable_path.parents]:
+        add(base)
+        add(base / "Resources")
+        if base.name == "Contents":
+            add(base / "Resources")
+
+    return candidates
 
 
 def ensure_runtime_dirs(base_dir: Path) -> dict[str, Path]:
@@ -113,6 +151,26 @@ def find_cloakbrowser_binary(root: Path) -> Path | None:
     return None
 
 
+def ensure_executable_permission(binary: Path | None) -> Path | None:
+    """
+    确保浏览器文件具备可执行权限。
+
+    Args:
+        binary: 浏览器可执行文件路径。
+
+    Returns:
+        Path | None: 原始浏览器路径；为空时返回 None。
+    """
+    if binary is None:
+        return None
+    if platform.system().lower() != "windows":
+        try:
+            binary.chmod(binary.stat().st_mode | 0o755)
+        except OSError:
+            return binary
+    return binary
+
+
 def platform_archive_name() -> str:
     """
     获取当前系统对应的 CloakBrowser 压缩包名称。
@@ -142,18 +200,19 @@ def ensure_cloakbrowser_binary(root: Path, runtime_vendor_dir: Path) -> Path | N
     Returns:
         Path | None: CloakBrowser 可执行文件路径。
     """
-    existing = find_cloakbrowser_binary(runtime_vendor_dir.parent)
+    runtime_root = runtime_vendor_dir.parent.parent
+    existing = find_cloakbrowser_binary(runtime_root)
     if existing is not None:
-        return existing
+        return ensure_executable_permission(existing)
 
     archive = root / "vendor" / "downloads" / platform_archive_name()
     if not archive.exists():
-        return find_cloakbrowser_binary(root)
+        return ensure_executable_permission(find_cloakbrowser_binary(root))
 
     runtime_vendor_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zip_file:
         zip_file.extractall(runtime_vendor_dir)
-    return find_cloakbrowser_binary(runtime_vendor_dir.parent)
+    return ensure_executable_permission(find_cloakbrowser_binary(runtime_root))
 
 
 class GoodHRLauncher:
@@ -253,19 +312,24 @@ class GoodHRLauncher:
         env["GOODHR_AGENT_LOG_FILE"] = str(self.log_file)
         env["CLOAKBROWSER_BINARY_PATH"] = str(browser_binary)
 
-        command = [sys.executable, str(Path(__file__).resolve()), "--agent-server"]
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--agent-server"]
+        else:
+            command = [sys.executable, str(Path(__file__).resolve()), "--agent-server"]
         self.status_var.set("启动中")
         self.detail_var.set(f"CloakBrowser：{browser_binary}")
         self._append_log(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
 
-        self.process = subprocess.Popen(
-            command,
-            cwd=str(bundle_root()),
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
+        env["PYTHONUNBUFFERED"] = "1"
+        with self.log_file.open("a", encoding="utf-8") as log_handle:
+            self.process = subprocess.Popen(
+                command,
+                cwd=str(bundle_root()),
+                env=env,
+                stdout=log_handle,
+                stderr=log_handle,
+                text=True,
+            )
 
     def _stop_agent(self) -> None:
         """停止 Local Agent 子进程。"""
@@ -363,7 +427,8 @@ class GoodHRLauncher:
 
 
 def main() -> None:
-    """启动桌面窗口。"""
+    """启动桌面窗口或 Local Agent 服务。"""
+    multiprocessing.freeze_support()
     if "--agent-server" in sys.argv:
         from app.main import main as run_agent
 
