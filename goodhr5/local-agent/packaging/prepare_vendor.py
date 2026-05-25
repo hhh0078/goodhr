@@ -77,7 +77,7 @@ def prepare_cloakbrowser(target_platform: str, force: bool) -> Path:
 
     root = project_root()
     vendor_dir = root / "vendor" / "cloakbrowser"
-    archive_path = root / "vendor" / f"cloakbrowser_{target_platform}.zip"
+    archive_path = root / "vendor" / "downloads" / f"cloakbrowser_{target_platform}.zip"
 
     if force and vendor_dir.exists():
         shutil.rmtree(vendor_dir)
