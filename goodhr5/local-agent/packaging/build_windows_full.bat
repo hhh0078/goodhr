@@ -28,7 +28,7 @@ echo ==^> 安装运行和打包依赖
 if errorlevel 1 exit /b 1
 
 echo ==^> 准备 Windows CloakBrowser
-"%PYTHON%" packaging\prepare_vendor.py --platform win
+"%PYTHON%" packaging\prepare_vendor.py --platform win --no-extract
 if errorlevel 1 exit /b 1
 
 echo ==^> 开始 PyInstaller 打包

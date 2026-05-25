@@ -61,13 +61,14 @@ def download_file(url: str, target: Path) -> None:
             shutil.copyfileobj(response, file)
 
 
-def prepare_cloakbrowser(target_platform: str, force: bool) -> Path:
+def prepare_cloakbrowser(target_platform: str, force: bool, extract: bool) -> Path:
     """
     下载并解压 CloakBrowser。
 
     Args:
         target_platform: 目标平台，mac 或 win。
         force: 是否强制重新下载和解压。
+        extract: 是否解压到 vendor/cloakbrowser。
 
     Returns:
         Path: 解压后的浏览器目录。
@@ -88,6 +89,10 @@ def prepare_cloakbrowser(target_platform: str, force: bool) -> Path:
         print(f"下载 CloakBrowser：{URLS[target_platform]}")
         download_file(URLS[target_platform], archive_path)
 
+    if not extract:
+        print(f"CloakBrowser 压缩包已准备：{archive_path}")
+        return archive_path
+
     if not vendor_dir.exists():
         vendor_dir.mkdir(parents=True, exist_ok=True)
         print(f"解压 CloakBrowser 到：{vendor_dir}")
@@ -104,10 +109,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="准备 GoodHR Local Agent 打包资源")
     parser.add_argument("--platform", choices=["mac", "win"], default=current_target())
     parser.add_argument("--force", action="store_true", help="强制重新下载和解压")
+    parser.add_argument("--no-extract", action="store_true", help="只准备 zip 包，不解压")
     args = parser.parse_args()
 
     try:
-        vendor_dir = prepare_cloakbrowser(args.platform, args.force)
+        vendor_dir = prepare_cloakbrowser(args.platform, args.force, not args.no_extract)
     except Exception as exc:
         print(f"准备失败：{exc}", file=sys.stderr)
         raise

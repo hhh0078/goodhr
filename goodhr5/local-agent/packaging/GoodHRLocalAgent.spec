@@ -1,10 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 """GoodHR Local Agent 的 PyInstaller 打包配置。"""
 
+import platform
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 block_cipher = None
+
+cloakbrowser_zip = "cloakbrowser_win.zip" if platform.system() == "Windows" else "cloakbrowser_mac.zip"
 
 hiddenimports = (
     collect_submodules("app")
@@ -21,7 +25,7 @@ hiddenimports = (
 datas = (
     collect_data_files("rapidocr")
     + [
-        ("../vendor/cloakbrowser", "vendor/cloakbrowser"),
+        (f"../vendor/downloads/{cloakbrowser_zip}", f"vendor/downloads/{cloakbrowser_zip}"),
         ("../assets", "assets"),
         ("../pyproject.toml", "."),
     ]

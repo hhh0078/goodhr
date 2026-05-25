@@ -17,6 +17,7 @@ import tkinter as tk
 import urllib.error
 import urllib.request
 import webbrowser
+import zipfile
 from pathlib import Path
 from tkinter import messagebox, scrolledtext
 
@@ -77,6 +78,7 @@ def ensure_runtime_dirs(base_dir: Path) -> dict[str, Path]:
         "profiles": base_dir / "profiles",
         "tasks": base_dir / "tasks",
         "screenshots": base_dir / "screenshots",
+        "vendor": base_dir / "vendor",
     }
     for path in dirs.values():
         path.mkdir(parents=True, exist_ok=True)
@@ -109,6 +111,49 @@ def find_cloakbrowser_binary(root: Path) -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def platform_archive_name() -> str:
+    """
+    获取当前系统对应的 CloakBrowser 压缩包名称。
+
+    Returns:
+        str: 当前平台压缩包文件名。
+    """
+    system = platform.system().lower()
+    if system == "darwin":
+        return "cloakbrowser_mac.zip"
+    if system == "windows":
+        return "cloakbrowser_win.zip"
+    return "cloakbrowser_linux.zip"
+
+
+def ensure_cloakbrowser_binary(root: Path, runtime_vendor_dir: Path) -> Path | None:
+    """
+    确保 CloakBrowser 可执行文件存在。
+
+    优先使用运行数据目录中已经解压的浏览器；如果不存在，则从打包内置 zip
+    解压到运行数据目录，避免 PyInstaller 直接扫描 Chromium.app 内部 framework。
+
+    Args:
+        root: 程序资源根目录。
+        runtime_vendor_dir: 运行时浏览器目录。
+
+    Returns:
+        Path | None: CloakBrowser 可执行文件路径。
+    """
+    existing = find_cloakbrowser_binary(runtime_vendor_dir.parent)
+    if existing is not None:
+        return existing
+
+    archive = root / "vendor" / "downloads" / platform_archive_name()
+    if not archive.exists():
+        return find_cloakbrowser_binary(root)
+
+    runtime_vendor_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as zip_file:
+        zip_file.extractall(runtime_vendor_dir)
+    return find_cloakbrowser_binary(runtime_vendor_dir.parent)
 
 
 class GoodHRLauncher:
@@ -196,11 +241,11 @@ class GoodHRLauncher:
             self.status_var.set("运行中")
             return
 
-        browser_binary = find_cloakbrowser_binary(bundle_root())
+        browser_binary = ensure_cloakbrowser_binary(bundle_root(), self.dirs["vendor"] / "cloakbrowser")
         if browser_binary is None:
             self.status_var.set("缺少 CloakBrowser")
-            self.detail_var.set("未找到包内 CloakBrowser，请确认打包时已包含 vendor/cloakbrowser。")
-            self._append_log("未找到包内 CloakBrowser，Local Agent 未启动。\n")
+            self.detail_var.set("未找到包内 CloakBrowser 压缩包，请确认打包时已包含 vendor/downloads。")
+            self._append_log("未找到包内 CloakBrowser 压缩包，Local Agent 未启动。\n")
             return
 
         env = os.environ.copy()
