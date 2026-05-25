@@ -10,3 +10,6 @@ goodhrpy/.venv/
 **/logs/**
 goodhr5/cloud/backend/logs/backend.log
 goodhr5/local-agent/logs/agent.log
+goodhr5/local-agent/vendor/cloakbrowser/
+goodhr5/local-agent/build/
+goodhr5/local-agent/dist/

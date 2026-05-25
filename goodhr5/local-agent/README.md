@@ -21,6 +21,57 @@ source .venv/bin/activate
 python3 -m app.main
 ```
 
+## 桌面启动器
+
+开发环境可直接运行桌面启动器：
+
+```bash
+python3 launcher.py
+```
+
+启动器会自动：
+
+- 创建运行数据目录。
+- 清空本次日志文件。
+- 启动 Local Agent 服务。
+- 在窗口中显示当前状态和日志。
+- 提供打开官网、停止服务、清除日志、重新启动按钮。
+
+默认运行数据目录：
+
+```text
+macOS: ~/Library/Application Support/GoodHRLocalAgent/
+Windows: %APPDATA%/GoodHRLocalAgent/
+```
+
+目录内保存：
+
+```text
+agent_data/   本地任务、机器码、绑定信息
+cookies/      浏览器登录 profile
+logs/         agent.log
+config/       配置文件
+screenshots/  预留截图目录
+```
+
+打包前需要把当前平台的 CloakBrowser 放入 `vendor/cloakbrowser/`：
+
+```bash
+python3 packaging/prepare_vendor.py --platform mac
+```
+
+macOS 打包：
+
+```bash
+sh packaging/build_mac.sh
+```
+
+Windows 打包请在 Windows 机器上执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
+```
+
 默认从 `127.0.0.1:9001` 到 `127.0.0.1:9009` 自动尝试，遇到端口占用会继续尝试下一个端口。
 
 如果设置了 `GOODHR_AGENT_PORT`，会优先尝试该端口，然后继续尝试默认端口范围。
