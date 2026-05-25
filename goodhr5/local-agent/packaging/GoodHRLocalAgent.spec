@@ -28,8 +28,8 @@ datas = (
 )
 
 a = Analysis(
-    ["launcher.py"],
-    pathex=["."],
+    ["../launcher.py"],
+    pathex=[".."],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

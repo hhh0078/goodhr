@@ -32,7 +32,7 @@ echo ==^> 准备 Windows CloakBrowser
 if errorlevel 1 exit /b 1
 
 echo ==^> 开始 PyInstaller 打包
-"%PYTHON%" -m PyInstaller --clean --noconfirm packaging\GoodHRLocalAgent.spec
+"%PYTHON%" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 if errorlevel 1 exit /b 1
 
 echo ==^> 打包完成

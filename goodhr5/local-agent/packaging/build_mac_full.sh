@@ -56,7 +56,7 @@ echo "==> 准备 macOS CloakBrowser"
 "$PYTHON" packaging/prepare_vendor.py --platform mac
 
 echo "==> 开始 PyInstaller 打包"
-"$PYTHON" -m PyInstaller --clean --noconfirm packaging/GoodHRLocalAgent.spec
+"$PYTHON" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging/GoodHRLocalAgent.spec
 
 echo "==> 打包完成"
 echo "产物位置：$(pwd)/dist/GoodHRLocalAgent.app"
