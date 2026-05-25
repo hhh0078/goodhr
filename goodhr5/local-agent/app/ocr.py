@@ -1,19 +1,15 @@
 """
 本文件负责候选人详情弹框截图的 OCR 文字识别。
 
-优先使用 RapidOCR + ONNXRuntime 识别，失败时回退 PaddleOCR。
-两个 OCR 引擎都采用懒加载方式，首次调用时才初始化。
-沿用 goodhrpy 的已验证可用代码，迁入 GoodHR 5 Local Agent 执行层。
+基于 RapidOCR + ONNXRuntime 实现，采用懒加载方式首次调用时初始化引擎。
 """
 
 from __future__ import annotations
 
 import asyncio
-import gc
 import importlib.util
 import io
 import logging
-import os
 import time
 
 import numpy as np
@@ -22,32 +18,8 @@ from PIL import Image, ImageEnhance, ImageOps
 logger = logging.getLogger("goodhr5.ocr")
 
 _rapid_ocr_engine = None
-_paddle_ocr_engine = None
 _ocr_call_count = 0
-_PADDLEX_DIR = os.path.expanduser("~/.paddlex")
 _OCR_CONTRAST_FACTOR = 1.6
-
-
-def _ensure_paddlex_dir() -> None:
-    """确保 PaddleX 缓存目录存在。"""
-    os.makedirs(os.path.join(_PADDLEX_DIR, "temp"), exist_ok=True)
-
-
-def _get_paddle_engine():
-    """获取 PaddleOCR 引擎实例（懒加载）。"""
-    global _paddle_ocr_engine
-    if _paddle_ocr_engine is not None:
-        return _paddle_ocr_engine
-    _ensure_paddlex_dir()
-    from paddleocr import PaddleOCR
-    _paddle_ocr_engine = PaddleOCR(
-        lang="ch",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
-    )
-    logger.info("PaddleOCR 引擎初始化完成")
-    return _paddle_ocr_engine
 
 
 def _get_rapid_engine():
@@ -66,7 +38,7 @@ def _preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
     对 OCR 图片做灰度和对比度增强。
 
     将网页截图先转成灰度图，减少颜色干扰，再提升文字和背景的对比度。
-    最后转回 RGB，保证 PaddleOCR 接收稳定的三通道图片。
+    最后转回 RGB，保证 OCR 引擎接收稳定的三通道图片。
 
     Args:
         image: 原始截图图片。
@@ -90,15 +62,7 @@ async def warmup_ocr_async() -> bool:
         return True
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
-        logger.warning("RapidOCR 预热失败，耗时 %dms, err=%s，尝试预热 PaddleOCR", elapsed_ms, e)
-    try:
-        await asyncio.to_thread(_get_paddle_engine)
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        logger.info("PaddleOCR 预热完成，耗时 %dms", elapsed_ms)
-        return True
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        logger.error("OCR 预热失败，耗时 %dms, err=%s", elapsed_ms, e)
+        logger.error("RapidOCR 预热失败，耗时 %dms, err=%s", elapsed_ms, e)
         return False
 
 
@@ -126,46 +90,10 @@ def _recognize_with_rapidocr(img_array: np.ndarray) -> tuple[str, dict[str, obje
     return "\n".join(lines), meta
 
 
-def _recognize_with_paddleocr(img_array: np.ndarray) -> tuple[str, dict[str, object]]:
-    """
-    使用 PaddleOCR 识别图片文字。
-
-    Args:
-        img_array: 已预处理的 RGB 图片数组。
-
-    Returns:
-        tuple[str, dict[str, object]]: 识别文本和调试信息。
-    """
-    engine = _get_paddle_engine()
-
-    if hasattr(engine, "predict"):
-        result = engine.predict(img_array)
-        if not result:
-            return "", {"line_count": 0}
-        r0 = result[0]
-        if hasattr(r0, "json"):
-            res_obj = r0.json.get("res", r0.json)
-            rec_texts = res_obj.get("rec_texts", [])
-            lines = [t.strip() for t in rec_texts if t and t.strip()]
-            return "\n".join(lines), {"line_count": len(lines)}
-        return "", {"line_count": 0}
-
-    result = engine.ocr(img_array)
-    if not result or not result[0]:
-        return "", {"line_count": 0}
-    lines = []
-    for line in result[0]:
-        if line and len(line) >= 2:
-            text = str(line[1][0]).strip()
-            if text:
-                lines.append(text)
-    return "\n".join(lines), {"line_count": len(lines)}
-
-
 def ocr_image_bytes(image_bytes: bytes) -> str:
     """对图片字节数据进行 OCR 识别。
 
-    优先使用 RapidOCR 识别；RapidOCR 异常或识别为空时回退 PaddleOCR。
+    使用 RapidOCR 识别，失败时返回空字符串，不抛异常。
     OCR 失败时返回空字符串，不抛异常。
 
     Args:
@@ -181,7 +109,6 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     image_size = "unknown"
     image_mode = "unknown"
     processed_mode = "unknown"
-    engine_name = "rapidocr"
     engine_meta: dict[str, object] = {}
     text = ""
     try:
@@ -194,26 +121,14 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         image.close()
         processed_image.close()
 
-        try:
-            text, engine_meta = _recognize_with_rapidocr(img_array)
-        except Exception as rapid_error:
-            logger.warning("RapidOCR 识别失败，准备回退 PaddleOCR call=%d err=%s", call_no, rapid_error)
-            text = ""
-            engine_meta = {"rapid_error": str(rapid_error)}
-        if text.strip():
-            return text
-
-        engine_name = "paddleocr"
-        text, engine_meta = _recognize_with_paddleocr(img_array)
+        text, engine_meta = _recognize_with_rapidocr(img_array)
         del img_array
-        gc.collect()
         return text
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "OCR 识别失败 call=%d engine=%s 耗时=%dms 图片=%s 原mode=%s 处理mode=%s bytes=%d err=%s",
+            "OCR 识别失败 call=%d engine=rapidocr 耗时=%dms 图片=%s 原mode=%s 处理mode=%s bytes=%d err=%s",
             call_no,
-            engine_name,
             elapsed_ms,
             image_size,
             image_mode,
@@ -226,9 +141,8 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         line_count = len([line for line in text.splitlines() if line.strip()])
         logger.info(
-            "OCR 识别完成 call=%d engine=%s 耗时=%dms 图片=%s 原mode=%s 处理mode=%s 对比度=%.1f bytes=%d 文本行数=%d 文本长度=%d 引擎信息=%s",
+            "OCR 识别完成 call=%d engine=rapidocr 耗时=%dms 图片=%s 原mode=%s 处理mode=%s 对比度=%.1f bytes=%d 文本行数=%d 文本长度=%d 引擎信息=%s",
             call_no,
-            engine_name,
             elapsed_ms,
             image_size,
             image_mode,
@@ -248,22 +162,12 @@ async def ocr_image_async(image_bytes: bytes) -> str:
 
 def close_ocr() -> None:
     """释放 OCR 引擎内存。"""
-    global _rapid_ocr_engine, _paddle_ocr_engine
+    global _rapid_ocr_engine
     if _rapid_ocr_engine is not None:
         _rapid_ocr_engine = None
         logger.info("RapidOCR 引擎已释放")
-    if _paddle_ocr_engine is not None:
-        _paddle_ocr_engine = None
-        gc.collect()
-        logger.info("PaddleOCR 引擎已释放")
 
 
 def is_available() -> bool:
     """检查 OCR 是否可用。"""
-    if importlib.util.find_spec("rapidocr") is not None:
-        return True
-    try:
-        _ensure_paddlex_dir()
-        return importlib.util.find_spec("paddleocr") is not None
-    except Exception:
-        return False
+    return importlib.util.find_spec("rapidocr") is not None

@@ -59,8 +59,8 @@
 | 本地 Agent | 页面基础操作 API | DONE | 查找、滚动、随机位置点击（humanize.py + base.py 点击方法） |
 | 本地 Agent | 浏览器控制 API 注册 | DONE | POST browser/start、stop、status、page/open、scroll、extract、click、screenshot 全部同步等待 |
 | 本地 Agent | Boss 平台执行能力迁移 | TODO | iframe 内查找、当前可见候选人 |
-| 本地 Agent | 截图能力迁移 | DOING | 截图拼接逻辑已迁入 base.py，PaddleOCR 待迁移 |
-| 本地 Agent | PaddleOCR 能力迁移 | DONE | 从 goodhrpy 迁移 ocr.py，懒加载、线程池异步、v3/v2 双 API 兼容 |
+| 本地 Agent | 截图能力迁移 | DONE | 截图拼接逻辑已迁入 screenshot.py |
+| 本地 Agent | RapidOCR 能力接入 | DONE | 使用 RapidOCR + ONNXRuntime，懒加载、线程池异步、灰度与对比度预处理 |
 | 本地 Agent | OCR API 注册 | DONE | GET /api/v1/ocr/status、POST /api/v1/ocr/recognize（Base64 输入）|
 | 本地 Agent | 批量候选人提取 | DONE | 先 find-elements 查询当前可见卡片，再 extract-fields 逐卡提取字段 |
 | 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
@@ -95,13 +95,13 @@
   - 注册 `GET /api/platforms/config/` 返回已启用的平台选择器配置。
   - Go 编译通过。
 
-- **迁移 PaddleOCR 模块（app/ocr.py）**：从 goodhrpy 迁入完整 OCR 能力。
-  - 懒加载机制，首次调用时初始化 PaddleOCR 引擎。
-  - 支持 PaddleOCR v3（predict）和旧版（ocr）双 API。
+- **接入 RapidOCR 模块（app/ocr.py）**：替换旧 OCR 实现。
+  - 懒加载机制，首次调用时初始化 RapidOCR 引擎。
+  - 使用 ONNXRuntime 本地推理，不上传候选人截图。
   - `ocr_image_async` 通过 `asyncio.to_thread` 在线程池执行，不阻塞事件循环。
   - 提供 `is_available()` 检测和 `close_ocr()` 内存释放。
   - 注册 `GET /api/v1/ocr/status` + `POST /api/v1/ocr/recognize`（接收 Base64 图片）。
-  - 安装 paddlepaddle + paddleocr 依赖，更新 pyproject.toml。
+  - 安装 rapidocr + onnxruntime 依赖，更新 pyproject.toml。
 
 - **注册浏览器控制 API**：在 Local Agent FastAPI 中注册 8 个浏览器操作路由。
   - `POST /api/v1/browser/start` — 启动 CloakBrowser（支持持久化、无头、代理配置）

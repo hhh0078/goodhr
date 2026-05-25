@@ -891,7 +891,7 @@ async def page_export_profile() -> dict:
 
 @app.get("/api/v1/ocr/status")
 async def ocr_status() -> dict:
-    """检查 PaddleOCR 是否可用。"""
+    """检查 OCR 是否可用。"""
     return {"ok": True, "available": ocr_available()}
 
 
