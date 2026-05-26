@@ -5,6 +5,7 @@ import {
   updateUserAIConfig,
   updateUserPreferences,
 } from "../services/cloudApi";
+import { markOnboardingStep } from "../services/onboarding";
 
 export function usePersonalConfig() {
   const loading = ref(false);
@@ -86,6 +87,7 @@ export function usePersonalConfig() {
         form.value.aiAPIKeyMasked = "已更新";
       }
       message.value = "个人配置已保存";
+      await markOnboardingStep("personal_config");
     } catch (e: any) {
       error.value = e.message;
     } finally {

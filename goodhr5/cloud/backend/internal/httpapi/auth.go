@@ -20,6 +20,7 @@ type AuthService struct {
 	mailer          Mailer
 	exposeDebugCode bool
 	tenantStore     TenantStore
+	onboardingStore OnboardingStore
 	superAdmins     map[string]struct{}
 }
 
@@ -32,7 +33,7 @@ type loginRequest struct {
 	Code  string `json:"code"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, superAdmins []string) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, superAdmins []string) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -46,6 +47,7 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		mailer:          mailer,
 		exposeDebugCode: exposeDebugCode,
 		tenantStore:     tenantStore,
+		onboardingStore: onboardingStore,
 		superAdmins:     superAdminMap,
 	}
 }
@@ -149,13 +151,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_in":   int(sessionTTL.Seconds()),
-		"user": map[string]any{
-			"id":             email,
-			"email":          email,
-			"role":           s.userRole(email),
-			"role_label":     s.userRoleLabel(email),
-			"is_super_admin": s.IsSuperAdmin(email),
-		},
+		"user":         s.publicUser(email),
 	})
 }
 
@@ -177,19 +173,31 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": true,
-		"user": map[string]any{
-			"id":             session.Email,
-			"email":          session.Email,
-			"role":           s.userRole(session.Email),
-			"role_label":     s.userRoleLabel(session.Email),
-			"is_super_admin": s.IsSuperAdmin(session.Email),
-		},
+		"ok":   true,
+		"user": s.publicUser(session.Email),
 		"session": map[string]any{
 			"created_at": session.CreatedAt,
 			"expires_at": session.ExpiresAt,
 		},
 	})
+}
+
+// publicUser 返回前端可见的用户基础信息。
+func (s *AuthService) publicUser(email string) map[string]any {
+	onboarding := OnboardingState{}
+	if s.onboardingStore != nil {
+		if state, err := s.onboardingStore.Get(email); err == nil {
+			onboarding = state
+		}
+	}
+	return map[string]any{
+		"id":             email,
+		"email":          email,
+		"role":           s.userRole(email),
+		"role_label":     s.userRoleLabel(email),
+		"is_super_admin": s.IsSuperAdmin(email),
+		"onboarding":     onboarding,
+	}
 }
 
 // SessionFromRequest 从请求头 Bearer token 中读取当前登录会话。

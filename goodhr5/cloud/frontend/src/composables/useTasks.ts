@@ -22,6 +22,7 @@ import {
   detectCookieExpiredByURL,
   loadPlatformAuthConfig,
 } from "../services/platformLoginFlow";
+import { markOnboardingStep } from "../services/onboarding";
 
 export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () => void) {
   const tasks = ref<any[]>([]);
@@ -156,6 +157,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
       }
       console.info("[goodhr5][task-start] frontend success", { taskId, data });
       message.value = data.message || "任务开始，请关注日志";
+      await markOnboardingStep("task_started");
       await load();
     } catch (e: any) {
       console.error("[goodhr5][task-start] frontend failed", { taskId, error: e });

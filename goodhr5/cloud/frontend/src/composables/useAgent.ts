@@ -6,6 +6,7 @@ import {
   getCloudWSStatus,
   getLocalHealth,
 } from "../services/localAgentApi";
+import { markOnboardingStep } from "../services/onboarding";
 
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009];
 
@@ -34,6 +35,7 @@ export function useAgent() {
         info.value = data;
         status.value = `已连接 (端口 ${port})`;
         baseUrl.value = candidateBaseUrl;
+        await markOnboardingStep("local_agent");
 
         await bind(user, token);
         await refreshWSStatus();

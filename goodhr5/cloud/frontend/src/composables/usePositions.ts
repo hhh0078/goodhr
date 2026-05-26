@@ -1,6 +1,7 @@
 /** 岗位模板管理 */
 import { ref } from 'vue'
 import { getDefaultPrompts, listPositions, savePosition, deletePosition } from '../services/cloudApi'
+import { markOnboardingStep } from '../services/onboarding'
 
 export function usePositions() {
   const positions = ref<any[]>([])
@@ -51,6 +52,7 @@ export function usePositions() {
         },
         keyword_config: {},
       })
+      await markOnboardingStep('position_template')
       await load(); resetForm()
     } catch (e: any) { error.value = e.message; positions.value = [] }
     finally { loading.value = false }

@@ -111,6 +111,7 @@ import {
   runPlatformLoginFlow,
   type PlatformAuthConfig,
 } from "../services/platformLoginFlow";
+import { markOnboardingStep } from "../services/onboarding";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
 const accounts = ref<any[]>([]);
@@ -190,6 +191,7 @@ async function create() {
     pendingCookies.value = null;
     msg.value = "创建成功";
     msgType.value = "success";
+    await markOnboardingStep("platform_account");
     await load();
   } catch (e: any) {
     msg.value = e.message;

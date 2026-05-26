@@ -6,7 +6,7 @@
         <span class="bar-btn bar-close"></span
         ><span class="bar-btn bar-min"></span
         ><span class="bar-btn bar-max"></span
-        ><span class="bar-title">goodhr5 — menu</span>
+        ><span class="bar-title">GoodHR — menu</span>
       </div>
       <div class="menu-body">
         <div
@@ -26,13 +26,15 @@
     </aside>
     <main class="main-area">
       <div class="top-bar">
-        <span class="prompt">$</span><span class="cmd">goodhr@cloud:~$</span>
+        <span class="prompt">$</span><span class="cmd">百度搜GoodHR</span>
         <span class="spacer"></span>
         <span class="top-info">{{ user?.email }}</span
         ><span class="sep">|</span>
         <span class="top-info">{{ currentRoleLabel }}</span
         ><span class="sep">|</span>
-        <span :class="['top-info', subscriptionStatusColor]">{{ subscriptionText }}</span
+        <span :class="['top-info', subscriptionStatusColor]">{{
+          subscriptionText
+        }}</span
         ><span class="sep">|</span>
         <span :class="['top-info', agentStatusColor]">{{
           agent.status.value
@@ -41,6 +43,12 @@
         <span class="top-info">PID {{ agent.info?.value?.port || "---" }}</span>
       </div>
       <div class="content-area">
+        <OnboardingGuide
+          v-if="!onboardingProgress.completed"
+          :progress="onboardingProgress"
+          :config="onboardingConfig"
+          @go="goOnboardingMenu"
+        />
         <AgentPanel
           v-if="activeMenu === 'agent'"
           :agent="agent"
@@ -126,8 +134,15 @@ import PaymentRecords from "./components/PaymentRecords.vue";
 import PositionManager from "./components/PositionManager.vue";
 import PersonalConfig from "./components/PersonalConfig.vue";
 import SubscriptionPanel from "./components/SubscriptionPanel.vue";
+import OnboardingGuide from "./components/OnboardingGuide.vue";
 import TaskList from "./components/TaskList.vue";
-import { getSubscriptionStatus } from "./services/cloudApi";
+import { getOnboardingStatus, getSubscriptionStatus } from "./services/cloudApi";
+import {
+  initOnboarding,
+  markOnboardingStep,
+  ONBOARDING_EVENT,
+  readOnboardingProgress,
+} from "./services/onboarding";
 
 const auth = useAuth();
 const agent = useAgent();
@@ -141,6 +156,8 @@ const systemAppConfig = ref({
 });
 const dismissedSessionAnnouncements = ref<string[]>([]);
 const subscription = ref<any>(null);
+const onboardingProgress = ref<any>({ completed: true, steps: {} });
+const onboardingConfig = ref<any>({ local_agent_download_url: "", trial_days: 3 });
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
@@ -175,7 +192,9 @@ const agentStatusColor = computed(() => {
   if (s.includes("检测中")) return "warn";
   return "error";
 });
-const subscriptionStatusColor = computed(() => (subscription.value?.active ? "success" : "warn"));
+const subscriptionStatusColor = computed(() =>
+  subscription.value?.active ? "success" : "warn",
+);
 const subscriptionText = computed(() => {
   if (!subscription.value) return "会员 --";
   const memberType = subscription.value.member_type || "plus";
@@ -187,7 +206,8 @@ const visibleAnnouncements = computed(() => {
   const sessionDismissed = dismissedSessionAnnouncements.value;
   return (systemAppConfig.value.announcements || []).filter((item: any) => {
     const id = String(item?.id || "");
-    if (!id || !item?.enabled || !String(item?.content || "").trim()) return false;
+    if (!id || !item?.enabled || !String(item?.content || "").trim())
+      return false;
     if (sessionDismissed.includes(id)) return false;
     if (item.once && dismissed.includes(id)) return false;
     return true;
@@ -195,6 +215,9 @@ const visibleAnnouncements = computed(() => {
 });
 watch(user, async (u) => {
   if (u) {
+    initOnboarding(u);
+    refreshOnboardingProgress();
+    await loadOnboardingStatus();
     await loadSystemAppConfig();
     await loadSubscriptionStatus();
     agent.detect(u, auth.token.value);
@@ -205,6 +228,9 @@ watch(user, async (u) => {
 });
 watch(activeMenu, (menu) => {
   localStorage.setItem(ACTIVE_MENU_KEY, menu);
+  if (menu === "subscription") {
+    markOnboardingStep("subscription_viewed");
+  }
 });
 watch(
   [user, menuItems],
@@ -216,8 +242,12 @@ watch(
   { immediate: true },
 );
 onMounted(async () => {
+  window.addEventListener(ONBOARDING_EVENT, refreshOnboardingProgress);
   await auth.loadCurrentUser();
   if (auth.user.value) {
+    initOnboarding(auth.user.value);
+    refreshOnboardingProgress();
+    await loadOnboardingStatus();
     await loadSystemAppConfig();
     await loadSubscriptionStatus();
     agent.detect(auth.user.value, auth.token.value);
@@ -227,6 +257,42 @@ onMounted(async () => {
     tasks.load();
   }
 });
+
+/**
+ * 读取服务端教学状态和教学配置。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function loadOnboardingStatus() {
+  try {
+    const data = await getOnboardingStatus();
+    onboardingConfig.value = data.config || onboardingConfig.value;
+    if (data.onboarding?.completed) {
+      onboardingProgress.value = { ...onboardingProgress.value, completed: true };
+    }
+  } catch {
+    onboardingConfig.value = { local_agent_download_url: "", trial_days: 3 };
+  }
+}
+
+/**
+ * 从本地缓存刷新教学进度。
+ * @returns {void} 无返回值。
+ */
+function refreshOnboardingProgress() {
+  onboardingProgress.value = readOnboardingProgress();
+}
+
+/**
+ * 跳转到教学卡片对应菜单。
+ * @param {string} menu - 菜单 ID。
+ * @returns {void} 无返回值。
+ */
+function goOnboardingMenu(menu: string) {
+  activeMenu.value = menu;
+  if (menu === "subscription") {
+    markOnboardingStep("subscription_viewed");
+  }
+}
 
 /**
  * 读取前端公共系统配置。
@@ -253,7 +319,9 @@ async function loadSystemAppConfig() {
  */
 function loadDismissedAnnouncements() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(ANNOUNCEMENT_DISMISSED_KEY) || "[]");
+    const parsed = JSON.parse(
+      localStorage.getItem(ANNOUNCEMENT_DISMISSED_KEY) || "[]",
+    );
     return Array.isArray(parsed) ? parsed.map(String) : [];
   } catch {
     return [];
@@ -266,7 +334,10 @@ function loadDismissedAnnouncements() {
  * @returns {void} 无返回值。
  */
 function saveDismissedAnnouncements(ids: string[]) {
-  localStorage.setItem(ANNOUNCEMENT_DISMISSED_KEY, JSON.stringify(Array.from(new Set(ids))));
+  localStorage.setItem(
+    ANNOUNCEMENT_DISMISSED_KEY,
+    JSON.stringify(Array.from(new Set(ids))),
+  );
 }
 
 /**
@@ -275,7 +346,9 @@ function saveDismissedAnnouncements(ids: string[]) {
  */
 function closeAnnouncements() {
   const current = visibleAnnouncements.value;
-  const onceIDs = current.filter((item: any) => item.once).map((item: any) => String(item.id));
+  const onceIDs = current
+    .filter((item: any) => item.once)
+    .map((item: any) => String(item.id));
   if (onceIDs.length) {
     saveDismissedAnnouncements([...loadDismissedAnnouncements(), ...onceIDs]);
   }

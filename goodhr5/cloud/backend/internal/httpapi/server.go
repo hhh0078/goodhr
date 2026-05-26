@@ -24,6 +24,7 @@ type Server struct {
 	taskLogs         *TaskLogService
 	subscriptions    *SubscriptionService
 	payments         *PaymentService
+	onboarding       *OnboardingService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
 	cookies          *CookieService
@@ -39,7 +40,8 @@ func NewServer() (*Server, error) {
 	}
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
-	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, config.SuperAdmins)
+	onboardingStore := config.OnboardingStore(db)
+	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, onboardingStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	candidateStore := config.CandidateStore(db)
@@ -65,6 +67,7 @@ func NewServer() (*Server, error) {
 		taskLogs:         taskLogs,
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:         paymentService,
+		onboarding:       NewOnboardingService(auth, onboardingStore, systemConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
@@ -95,6 +98,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/haoshoumi", s.payments.HaoshoumiNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
+	mux.HandleFunc("/api/onboarding/status", s.onboarding.Status)
+	mux.HandleFunc("/api/onboarding/complete", s.onboarding.Complete)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)

@@ -184,6 +184,14 @@ func (c Config) PaymentStore(db *sql.DB) PaymentStore {
 	return NewMemoryPaymentStore()
 }
 
+// OnboardingStore 创建新手教学状态存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) OnboardingStore(db *sql.DB) OnboardingStore {
+	if db != nil {
+		return NewPostgresOnboardingStore(db)
+	}
+	return NewMemoryOnboardingStore()
+}
+
 func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
 	if db != nil {
 		return NewPostgresTaskLogStore(db)

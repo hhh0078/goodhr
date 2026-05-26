@@ -104,6 +104,15 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "订阅套餐配置，供前端订阅页面展示",
 			Enabled:     true,
 		},
+		"system.onboarding_config": {
+			ConfigKey: "system.onboarding_config",
+			ConfigValue: `{
+				"local_agent_download_url": "",
+				"trial_days": 3
+			}`,
+			Description: "新手教学配置，包含本地程序下载链接和注册赠送会员天数",
+			Enabled:     true,
+		},
 	}
 }
 
