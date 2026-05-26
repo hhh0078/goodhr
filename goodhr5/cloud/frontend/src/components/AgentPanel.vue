@@ -1,7 +1,7 @@
 <template>
   <section class="panel">
     <div class="panel-header">
-      <h2>本地 Agent</h2>
+      <h2>控制台</h2>
       <button class="ghost" :disabled="agent.checking.value" @click="agent.detect(agent.user, agent.token)">重新检测</button>
     </div>
     <div class="agent-info">

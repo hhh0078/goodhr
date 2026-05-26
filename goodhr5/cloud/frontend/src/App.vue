@@ -43,19 +43,20 @@
         <span class="top-info">PID {{ agent.info?.value?.port || "---" }}</span>
       </div>
       <div class="content-area">
-        <OnboardingGuide
-          v-if="!onboardingProgress.completed"
-          :progress="onboardingProgress"
-          :config="onboardingConfig"
-          @go="goOnboardingMenu"
-        />
-        <AgentPanel
-          v-if="activeMenu === 'agent'"
-          :agent="agent"
-          :app-config="systemAppConfig"
-          :user="user"
-          :token="auth.token"
-        />
+        <template v-if="activeMenu === 'agent'">
+          <OnboardingGuide
+            v-if="!onboardingProgress.completed"
+            :progress="onboardingProgress"
+            :config="onboardingConfig"
+            @go="goOnboardingMenu"
+          />
+          <AgentPanel
+            :agent="agent"
+            :app-config="systemAppConfig"
+            :user="user"
+            :token="auth.token"
+          />
+        </template>
         <TenantManager
           v-else-if="activeMenu === 'tenant'"
           :token="auth.token.value"
@@ -172,7 +173,7 @@ const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
   const items = [
-    { id: "agent", label: "本地 Agent" },
+    { id: "agent", label: "控制台" },
     { id: "tenant", label: "团队管理" },
     { id: "account", label: "平台账号" },
     { id: "position", label: "岗位模板" },
