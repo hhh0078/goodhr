@@ -79,6 +79,9 @@
         <PlatformConfigViewer
           v-else-if="activeMenu === 'system-config' && isSuperAdmin"
         />
+        <PaymentRecords
+          v-else-if="activeMenu === 'payment-records' && isSuperAdmin"
+        />
       </div>
     </main>
     <div v-if="visibleAnnouncements.length" class="announcement-mask">
@@ -119,6 +122,7 @@ import TenantManager from "./components/TenantManager.vue";
 
 import AccountManager from "./components/AccountManager.vue";
 import PlatformConfigViewer from "./components/PlatformConfigViewer.vue";
+import PaymentRecords from "./components/PaymentRecords.vue";
 import PositionManager from "./components/PositionManager.vue";
 import PersonalConfig from "./components/PersonalConfig.vue";
 import SubscriptionPanel from "./components/SubscriptionPanel.vue";
@@ -161,6 +165,7 @@ const menuItems = computed(() => {
   ];
   if (isSuperAdmin.value) {
     items.push({ id: "system-config", label: "系统配置" });
+    items.push({ id: "payment-records", label: "支付记录" });
   }
   return items;
 });

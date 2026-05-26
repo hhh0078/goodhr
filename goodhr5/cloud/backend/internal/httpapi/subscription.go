@@ -23,6 +23,8 @@ type Subscription struct {
 type SubscriptionStore interface {
 	// UserSubscription 读取指定邮箱的订阅信息，不存在时创建默认试用订阅。
 	UserSubscription(email string) (Subscription, error)
+	// ExtendSubscription 按会员类型和天数延长指定用户订阅。
+	ExtendSubscription(email string, memberType string, days int) (Subscription, error)
 }
 
 // SubscriptionService 处理订阅状态和套餐接口。
@@ -132,6 +134,22 @@ func (s *MemorySubscriptionStore) UserSubscription(email string) (Subscription, 
 	return item, nil
 }
 
+// ExtendSubscription 按当前到期时间或当前时间延长内存订阅。
+func (s *MemorySubscriptionStore) ExtendSubscription(email string, memberType string, days int) (Subscription, error) {
+	current, _ := s.UserSubscription(email)
+	base := s.now()
+	if current.ExpiresAt.After(base) {
+		base = current.ExpiresAt
+	}
+	if memberType == "" {
+		memberType = defaultMemberType
+	}
+	current.MemberType = memberType
+	current.ExpiresAt = base.Add(time.Duration(days) * 24 * time.Hour)
+	s.items[email] = current
+	return current, nil
+}
+
 // ---------- PostgreSQL 实现 ----------
 
 type PostgresSubscriptionStore struct {
@@ -154,6 +172,37 @@ func (s *PostgresSubscriptionStore) UserSubscription(email string) (Subscription
 		return Subscription{}, err
 	}
 	return parseSubscription(raw)
+}
+
+// ExtendSubscription 按当前到期时间或当前时间延长 PostgreSQL 用户订阅。
+func (s *PostgresSubscriptionStore) ExtendSubscription(email string, memberType string, days int) (Subscription, error) {
+	if memberType == "" {
+		memberType = defaultMemberType
+	}
+	if days <= 0 {
+		return s.UserSubscription(email)
+	}
+	if _, err := ensureUserID(context.Background(), s.db, email); err != nil {
+		return Subscription{}, err
+	}
+	nextExpires := time.Now().Add(time.Duration(days) * 24 * time.Hour)
+	current, err := s.UserSubscription(email)
+	if err == nil && current.ExpiresAt.After(time.Now()) {
+		nextExpires = current.ExpiresAt.Add(time.Duration(days) * 24 * time.Hour)
+	}
+	payload, err := json.Marshal(Subscription{MemberType: memberType, ExpiresAt: nextExpires})
+	if err != nil {
+		return Subscription{}, err
+	}
+	_, err = s.db.Exec(
+		`UPDATE users SET subscription=$2::jsonb WHERE email=$1`,
+		email,
+		string(payload),
+	)
+	if err != nil {
+		return Subscription{}, err
+	}
+	return Subscription{MemberType: memberType, ExpiresAt: nextExpires}, nil
 }
 
 // parseSubscription 解析数据库中的订阅 JSON。

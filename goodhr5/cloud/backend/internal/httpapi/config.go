@@ -12,31 +12,43 @@ import (
 )
 
 type Config struct {
-	PostgresDSN   string
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
-	SuperAdmins   []string
-	SMTPHost      string
-	SMTPPort      int
-	SMTPUsername  string
-	SMTPPassword  string
-	SMTPFrom      string
+	PostgresDSN                 string
+	RedisAddr                   string
+	RedisPassword               string
+	RedisDB                     int
+	SuperAdmins                 []string
+	SMTPHost                    string
+	SMTPPort                    int
+	SMTPUsername                string
+	SMTPPassword                string
+	SMTPFrom                    string
+	HaoshoumiMerchantID         string
+	HaoshoumiMerchantKey        string
+	HaoshoumiAPIURL             string
+	HaoshoumiNotifyURL          string
+	HaoshoumiReturnURL          string
+	HaoshoumiDefaultPaymentType string
 }
 
 // LoadConfigFromEnv 从环境变量读取云端后端配置。
 func LoadConfigFromEnv() Config {
 	return Config{
-		PostgresDSN:   os.Getenv("GOODHR_PG_DSN"),
-		RedisAddr:     os.Getenv("GOODHR_REDIS_ADDR"),
-		RedisPassword: os.Getenv("GOODHR_REDIS_PASSWORD"),
-		RedisDB:       envInt("GOODHR_REDIS_DB", 0),
-		SuperAdmins:   envList("GOODHR_SUPER_ADMINS", []string{"1224299352@qq.com"}),
-		SMTPHost:      os.Getenv("GOODHR_SMTP_HOST"),
-		SMTPPort:      envInt("GOODHR_SMTP_PORT", 465),
-		SMTPUsername:  os.Getenv("GOODHR_SMTP_USERNAME"),
-		SMTPPassword:  os.Getenv("GOODHR_SMTP_PASSWORD"),
-		SMTPFrom:      os.Getenv("GOODHR_SMTP_FROM"),
+		PostgresDSN:                 os.Getenv("GOODHR_PG_DSN"),
+		RedisAddr:                   os.Getenv("GOODHR_REDIS_ADDR"),
+		RedisPassword:               os.Getenv("GOODHR_REDIS_PASSWORD"),
+		RedisDB:                     envInt("GOODHR_REDIS_DB", 0),
+		SuperAdmins:                 envList("GOODHR_SUPER_ADMINS", []string{"1224299352@qq.com"}),
+		SMTPHost:                    os.Getenv("GOODHR_SMTP_HOST"),
+		SMTPPort:                    envInt("GOODHR_SMTP_PORT", 465),
+		SMTPUsername:                os.Getenv("GOODHR_SMTP_USERNAME"),
+		SMTPPassword:                os.Getenv("GOODHR_SMTP_PASSWORD"),
+		SMTPFrom:                    os.Getenv("GOODHR_SMTP_FROM"),
+		HaoshoumiMerchantID:         os.Getenv("GOODHR_HAOSHOUMI_MERCHANT_ID"),
+		HaoshoumiMerchantKey:        os.Getenv("GOODHR_HAOSHOUMI_MERCHANT_KEY"),
+		HaoshoumiAPIURL:             envString("GOODHR_HAOSHOUMI_API_URL", "https://api.kuaixiaopu.com/submit.php"),
+		HaoshoumiNotifyURL:          os.Getenv("GOODHR_HAOSHOUMI_NOTIFY_URL"),
+		HaoshoumiReturnURL:          os.Getenv("GOODHR_HAOSHOUMI_RETURN_URL"),
+		HaoshoumiDefaultPaymentType: os.Getenv("GOODHR_HAOSHOUMI_DEFAULT_TYPE"),
 	}
 }
 
@@ -164,6 +176,14 @@ func (c Config) SubscriptionStore(db *sql.DB) SubscriptionStore {
 	return NewMemorySubscriptionStore()
 }
 
+// PaymentStore 创建支付记录存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) PaymentStore(db *sql.DB) PaymentStore {
+	if db != nil {
+		return NewPostgresPaymentStore(db)
+	}
+	return NewMemoryPaymentStore()
+}
+
 func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
 	if db != nil {
 		return NewPostgresTaskLogStore(db)
@@ -191,6 +211,15 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// envString 从环境变量读取字符串，空值时返回默认值。
+func envString(key string, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // envList 从环境变量读取逗号分隔字符串列表，读取失败时返回默认值。

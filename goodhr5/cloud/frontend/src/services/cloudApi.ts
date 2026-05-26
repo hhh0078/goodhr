@@ -111,6 +111,33 @@ export async function listSubscriptionPlans() {
   return data.plans || []
 }
 
+/**
+ * 创建订阅支付订单。
+ * @param {string} planID - 订阅套餐 ID。
+ * @returns {Promise<any>} 返回支付订单和支付平台提交参数。
+ */
+export async function createPaymentOrder(planID: string) {
+  return api('/api/payment/orders', { method: 'POST', body: { plan_id: planID } })
+}
+
+/**
+ * 读取当前用户支付记录。
+ * @returns {Promise<any[]>} 返回当前用户支付记录数组。
+ */
+export async function listPaymentOrders() {
+  const data = await api('/api/payment/orders')
+  return data.orders || []
+}
+
+/**
+ * 读取超级管理员可见的全部支付记录。
+ * @returns {Promise<any[]>} 返回全部支付记录数组。
+ */
+export async function listAdminPaymentOrders() {
+  const data = await api('/api/admin/payment/orders')
+  return data.orders || []
+}
+
 export async function listTaskLogs(
   taskID: string,
   params: { since?: string; before?: string; limit?: number } = {},

@@ -36,20 +36,46 @@
         <ul>
           <li v-for="feature in plan.features || []" :key="feature">{{ feature }}</li>
         </ul>
-        <button class="ghost primary" disabled>暂未开放支付</button>
+        <button class="ghost primary" :disabled="payingPlanId === plan.id" @click="pay(plan)">
+          {{ payingPlanId === plan.id ? "下单中..." : "立即支付" }}
+        </button>
       </article>
     </div>
+
+    <div class="records-head">
+      <h3>支付记录</h3>
+      <button class="ghost" :disabled="loading" @click="loadOrders">刷新记录</button>
+    </div>
+    <div v-if="orders.length" class="record-list">
+      <div v-for="order in orders" :key="order.order_no" class="record-row">
+        <div>
+          <strong>{{ order.plan_name }}</strong>
+          <p class="hint">{{ order.order_no }}</p>
+        </div>
+        <span>{{ formatMoney(order.amount_cents) }}</span>
+        <span :class="['status', order.status]">{{ statusText(order.status) }}</span>
+        <span class="hint">{{ formatDate(order.created_at) }}</span>
+      </div>
+    </div>
+    <p v-else class="hint">暂无支付记录</p>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { getSubscriptionStatus, listSubscriptionPlans } from "../services/cloudApi";
+import {
+  createPaymentOrder,
+  getSubscriptionStatus,
+  listPaymentOrders,
+  listSubscriptionPlans,
+} from "../services/cloudApi";
 
 const subscription = ref<any>(null);
 const plans = ref<any[]>([]);
+const orders = ref<any[]>([]);
 const loading = ref(false);
 const error = ref("");
+const payingPlanId = ref("");
 const memberLabel = computed(() => `${subscription.value?.member_type || "plus"} 会员`);
 
 /**
@@ -60,16 +86,51 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [nextSubscription, nextPlans] = await Promise.all([
+    const [nextSubscription, nextPlans, nextOrders] = await Promise.all([
       getSubscriptionStatus(),
       listSubscriptionPlans(),
+      listPaymentOrders(),
     ]);
     subscription.value = nextSubscription;
     plans.value = nextPlans;
+    orders.value = nextOrders;
   } catch (e: any) {
     error.value = e.message || "读取订阅信息失败";
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * 读取当前用户支付记录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function loadOrders() {
+  error.value = "";
+  try {
+    orders.value = await listPaymentOrders();
+  } catch (e: any) {
+    error.value = e.message || "读取支付记录失败";
+  }
+}
+
+/**
+ * 创建订阅订单，并打开好收米支付页面。
+ * @param {any} plan - 订阅套餐配置。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function pay(plan: any) {
+  if (!plan?.id) return;
+  payingPlanId.value = plan.id;
+  error.value = "";
+  try {
+    const data = await createPaymentOrder(plan.id);
+    await loadOrders();
+    submitPaymentForm(data.payment);
+  } catch (e: any) {
+    error.value = e.message || "创建支付订单失败";
+  } finally {
+    payingPlanId.value = "";
   }
 }
 
@@ -80,6 +141,52 @@ async function load() {
  */
 function finalPrice(plan: any) {
   return Math.max(0, Number(plan?.original_price || 0) - Number(plan?.discount_amount || 0));
+}
+
+/**
+ * 提交第三方支付表单。
+ * @param {any} payment - 后端返回的支付提交参数。
+ * @returns {void} 无返回值。
+ */
+function submitPaymentForm(payment: any) {
+  if (!payment?.submit_url) {
+    error.value = "支付平台没有返回可打开的支付地址";
+    return;
+  }
+  const form = document.createElement("form");
+  form.method = payment.submit_method || "POST";
+  form.action = payment.submit_url;
+  form.target = "_blank";
+  Object.entries(payment.submit_fields || {}).forEach(([key, value]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = key;
+    input.value = String(value ?? "");
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
+
+/**
+ * 格式化金额分为人民币文案。
+ * @param {number} cents - 金额，单位分。
+ * @returns {string} 金额文案。
+ */
+function formatMoney(cents: number) {
+  return `￥${(Number(cents || 0) / 100).toFixed(2)}`;
+}
+
+/**
+ * 转换订单状态为中文。
+ * @param {string} status - 订单状态。
+ * @returns {string} 中文状态。
+ */
+function statusText(status: string) {
+  if (status === "paid") return "已支付";
+  if (status === "closed") return "已关闭";
+  return "待支付";
 }
 
 /**
@@ -145,5 +252,36 @@ ul {
   margin: 10px 0;
   padding-left: 18px;
   color: var(--fg-dim);
+}
+.records-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 8px;
+}
+.record-list {
+  border: 1px solid #333;
+  background: #050505;
+}
+.record-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 90px 80px 170px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #222;
+}
+.record-row:last-child {
+  border-bottom: 0;
+}
+.status.paid {
+  color: #0f0;
+}
+.status.pending {
+  color: #fa0;
+}
+.status.closed {
+  color: #f33;
 }
 </style>

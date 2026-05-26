@@ -23,6 +23,7 @@ type Server struct {
 	tasks            *TaskService
 	taskLogs         *TaskLogService
 	subscriptions    *SubscriptionService
+	payments         *PaymentService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
 	cookies          *CookieService
@@ -49,7 +50,9 @@ func NewServer() (*Server, error) {
 	userPreferencesStore := config.UserPreferencesStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
 	subscriptionStore := config.SubscriptionStore(db)
+	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, NewHaoshoumiProvider(config))
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, agentStore),
@@ -61,6 +64,7 @@ func NewServer() (*Server, error) {
 		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS, subscriptionStore),
 		taskLogs:         taskLogs,
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
+		payments:         paymentService,
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
@@ -87,6 +91,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
+	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
+	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
+	mux.HandleFunc("/api/payment/notify/haoshoumi", s.payments.HaoshoumiNotify)
+	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
