@@ -32,6 +32,8 @@
         ><span class="sep">|</span>
         <span class="top-info">{{ currentRoleLabel }}</span
         ><span class="sep">|</span>
+        <span :class="['top-info', subscriptionStatusColor]">{{ subscriptionText }}</span
+        ><span class="sep">|</span>
         <span :class="['top-info', agentStatusColor]">{{
           agent.status.value
         }}</span
@@ -65,6 +67,7 @@
           v-else-if="activeMenu === 'personal-config'"
           :config="personalConfig"
         />
+        <SubscriptionPanel v-else-if="activeMenu === 'subscription'" />
 
         <TaskList
           v-else-if="activeMenu === 'task-list'"
@@ -118,13 +121,14 @@ import AccountManager from "./components/AccountManager.vue";
 import PlatformConfigViewer from "./components/PlatformConfigViewer.vue";
 import PositionManager from "./components/PositionManager.vue";
 import PersonalConfig from "./components/PersonalConfig.vue";
+import SubscriptionPanel from "./components/SubscriptionPanel.vue";
 import TaskList from "./components/TaskList.vue";
+import { getSubscriptionStatus } from "./services/cloudApi";
 
 const auth = useAuth();
 const agent = useAgent();
 const positions = usePositions();
 const personalConfig = usePersonalConfig();
-const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
 const systemAppConfig = ref({
   local_agent_version: "5.0.0",
@@ -132,12 +136,17 @@ const systemAppConfig = ref({
   announcements: [],
 });
 const dismissedSessionAnnouncements = ref<string[]>([]);
+const subscription = ref<any>(null);
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
 const activeMenu = ref(
   savedMenu === "platform-config" ? "system-config" : savedMenu || "agent",
 );
+const tasks = useTasks(agent.baseUrl, () => {
+  activeMenu.value = "subscription";
+  loadSubscriptionStatus();
+});
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
@@ -147,6 +156,7 @@ const menuItems = computed(() => {
     { id: "account", label: "平台账号" },
     { id: "position", label: "岗位模板" },
     { id: "personal-config", label: "个人配置" },
+    { id: "subscription", label: "订阅" },
     { id: "task-list", label: "任务列表" },
   ];
   if (isSuperAdmin.value) {
@@ -159,6 +169,12 @@ const agentStatusColor = computed(() => {
   if (s.includes("连接")) return "success";
   if (s.includes("检测中")) return "warn";
   return "error";
+});
+const subscriptionStatusColor = computed(() => (subscription.value?.active ? "success" : "warn"));
+const subscriptionText = computed(() => {
+  if (!subscription.value) return "会员 --";
+  const memberType = subscription.value.member_type || "plus";
+  return `${memberType} 到期 ${formatShortDate(subscription.value.expires_at)}`;
 });
 const visibleAnnouncements = computed(() => {
   if (!systemAppConfig.value?.announcements_enabled) return [];
@@ -175,6 +191,7 @@ const visibleAnnouncements = computed(() => {
 watch(user, async (u) => {
   if (u) {
     await loadSystemAppConfig();
+    await loadSubscriptionStatus();
     agent.detect(u, auth.token.value);
     positions.load();
     personalConfig.load();
@@ -197,6 +214,7 @@ onMounted(async () => {
   await auth.loadCurrentUser();
   if (auth.user.value) {
     await loadSystemAppConfig();
+    await loadSubscriptionStatus();
     agent.detect(auth.user.value, auth.token.value);
     detectLocalAgent();
     positions.load();
@@ -260,6 +278,30 @@ function closeAnnouncements() {
     ...dismissedSessionAnnouncements.value,
     ...current.map((item: any) => String(item.id)),
   ];
+}
+
+/**
+ * 读取当前用户订阅状态。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function loadSubscriptionStatus() {
+  try {
+    subscription.value = await getSubscriptionStatus();
+  } catch {
+    subscription.value = null;
+  }
+}
+
+/**
+ * 格式化顶部订阅到期日期。
+ * @param {string} value - ISO日期字符串。
+ * @returns {string} 短日期文案。
+ */
+function formatShortDate(value: string) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return date.toLocaleDateString();
 }
 
 const detectLocalAgent = () => {

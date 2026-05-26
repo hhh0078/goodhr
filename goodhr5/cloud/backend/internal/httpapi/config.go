@@ -156,6 +156,14 @@ func (c Config) SystemConfigStore(db *sql.DB) SystemConfigStore {
 	return NewMemorySystemConfigStore()
 }
 
+// SubscriptionStore 创建订阅存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) SubscriptionStore(db *sql.DB) SubscriptionStore {
+	if db != nil {
+		return NewPostgresSubscriptionStore(db)
+	}
+	return NewMemorySubscriptionStore()
+}
+
 func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
 	if db != nil {
 		return NewPostgresTaskLogStore(db)

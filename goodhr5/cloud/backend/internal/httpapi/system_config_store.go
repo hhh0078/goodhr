@@ -64,6 +64,46 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "前端公共系统配置：本地执行器版本要求和系统公告列表",
 			Enabled:     true,
 		},
+		"system.subscription_plans": {
+			ConfigKey: "system.subscription_plans",
+			ConfigValue: `[
+				{
+					"id": "monthly",
+					"name": "按月订阅",
+					"member_type": "plus",
+					"duration_days": 30,
+					"original_price": 70,
+					"discount_amount": 0,
+					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动"],
+					"description": "适合短期招聘任务使用，按月开通Plus会员。",
+					"created_at": "2026-05-26"
+				},
+				{
+					"id": "quarterly",
+					"name": "按季度订阅",
+					"member_type": "plus",
+					"duration_days": 90,
+					"original_price": 210,
+					"discount_amount": 30,
+					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动", "季度优惠"],
+					"description": "适合连续招聘使用，季度订阅原价210元，优惠30元。",
+					"created_at": "2026-05-26"
+				},
+				{
+					"id": "yearly",
+					"name": "按年订阅",
+					"member_type": "plus",
+					"duration_days": 365,
+					"original_price": 840,
+					"discount_amount": 240,
+					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动", "年度优惠"],
+					"description": "适合长期招聘团队使用，年度订阅原价840元，优惠240元。",
+					"created_at": "2026-05-26"
+				}
+			]`,
+			Description: "订阅套餐配置，供前端订阅页面展示",
+			Enabled:     true,
+		},
 	}
 }
 

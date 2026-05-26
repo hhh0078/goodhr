@@ -93,6 +93,24 @@ export async function stopTask(taskID: string) {
   return data
 }
 
+/**
+ * 读取当前用户订阅状态。
+ * @returns {Promise<any>} 返回会员类型、到期时间和有效状态。
+ */
+export async function getSubscriptionStatus() {
+  const data = await api('/api/subscription/status')
+  return data.subscription
+}
+
+/**
+ * 读取系统订阅套餐列表。
+ * @returns {Promise<any[]>} 返回订阅套餐数组。
+ */
+export async function listSubscriptionPlans() {
+  const data = await api('/api/subscription/plans')
+  return data.plans || []
+}
+
 export async function listTaskLogs(
   taskID: string,
   params: { since?: string; before?: string; limit?: number } = {},

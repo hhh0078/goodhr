@@ -27,6 +27,7 @@ type TaskService struct {
 	cookieStore    CookieStore
 	candidateStore CandidateStore
 	agentWS        *AgentWSHub
+	subscriptions  SubscriptionStore
 	runningMu      sync.Mutex
 	runningCancels map[string]context.CancelFunc
 }
@@ -41,7 +42,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub, subscriptions SubscriptionStore) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -54,6 +55,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		cookieStore:    cookieStore,
 		candidateStore: candidateStore,
 		agentWS:        agentWS,
+		subscriptions:  subscriptions,
 		runningCancels: map[string]context.CancelFunc{},
 	}
 }
@@ -105,6 +107,28 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 		"ok":   true,
 		"task": s.publicTaskRunWithAccount(tenantID, saved, TaskCountSummary{}),
 	})
+}
+
+// ensureSubscriptionActive 校验当前用户订阅是否可启动任务。
+func (s *TaskService) ensureSubscriptionActive(w http.ResponseWriter, email string) bool {
+	if s.subscriptions == nil {
+		return true
+	}
+	subscription, err := s.subscriptions.UserSubscription(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load subscription")
+		return false
+	}
+	if subscriptionActive(subscription) {
+		return true
+	}
+	writeJSON(w, http.StatusPaymentRequired, map[string]any{
+		"ok":           false,
+		"error":        "subscription_expired",
+		"message":      "会员已到期，请先订阅后再开始任务",
+		"subscription": publicSubscription(subscription),
+	})
+	return false
 }
 
 // List 返回当前登录用户的任务列表。
@@ -401,6 +425,9 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 
 	session, ok := s.currentSession(w, r)
 	if !ok {
+		return
+	}
+	if !s.ensureSubscriptionActive(w, session.Email) {
 		return
 	}
 

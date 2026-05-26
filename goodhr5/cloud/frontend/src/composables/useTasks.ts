@@ -1,10 +1,11 @@
 /** 任务和候选人管理 */
-import { ref } from "vue";
+import { ref, type Ref } from "vue";
 import { cloudApiBase, getAccessToken } from "../services/apiClient";
 import {
   clearTaskLogs,
   createTask,
   deleteTask,
+  getSubscriptionStatus,
   listTasks,
   listTaskLogs,
   updateTask,
@@ -22,7 +23,7 @@ import {
   loadPlatformAuthConfig,
 } from "../services/platformLoginFlow";
 
-export function useTasks(agentBaseUrl: Ref<string>) {
+export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () => void) {
   const tasks = ref<any[]>([]);
   const loading = ref(false);
   const error = ref("");
@@ -114,6 +115,11 @@ export function useTasks(agentBaseUrl: Ref<string>) {
     try {
       //弹框确认
       if (!confirm("确认开始任务吗？")) return;
+      const subscription = await getSubscriptionStatus();
+      if (!subscription?.active) {
+        onSubscriptionExpired?.();
+        throw new Error("会员已到期，请先订阅后再开始任务");
+      }
 
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
       console.info("[goodhr5][task-start] frontend requested", {

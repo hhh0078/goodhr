@@ -22,6 +22,7 @@ type Server struct {
 	positions        *PositionService
 	tasks            *TaskService
 	taskLogs         *TaskLogService
+	subscriptions    *SubscriptionService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
 	cookies          *CookieService
@@ -47,6 +48,7 @@ func NewServer() (*Server, error) {
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
+	subscriptionStore := config.SubscriptionStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
 	return &Server{
 		auth:             auth,
@@ -56,8 +58,9 @@ func NewServer() (*Server, error) {
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore),
-		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS),
+		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS, subscriptionStore),
 		taskLogs:         taskLogs,
+		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
 		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
@@ -82,6 +85,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
+	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
+	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
