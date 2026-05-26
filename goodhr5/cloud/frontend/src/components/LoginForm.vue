@@ -18,8 +18,8 @@
       </p>
       <div class="intro-points">
         <span>减少重复点击</span>
-        <span>优先跟进匹配候选人</span>
-        <span>每天看清打招呼结果</span>
+        <span>AI自动筛选打招呼</span>
+        <span>AI自动沟通确认</span>
       </div>
       <p class="intro-note">
         准备好本地程序、平台账号、岗位模板和个人 AI 配置后，任务就能自动执行。

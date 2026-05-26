@@ -18,6 +18,11 @@
         <p>{{ formatDate(subscription?.expires_at) }}</p>
       </div>
     </div>
+    <div style="margin-bottom: 20px">
+      <p>
+        充值后，您在任何时间都可以退费。我们将按原价/套餐天数作为单价*剩余天数=退费金额。还会收取5%的退费手续费，因为我们使用的充值渠道是有百分之5%的手续费。继续充值视为您同意充值协议。
+      </p>
+    </div>
 
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="loading" class="hint">正在读取订阅信息...</p>
@@ -30,13 +35,21 @@
         </div>
         <div class="plan-price">
           <span class="final-price">￥{{ finalPrice(plan) }}</span>
-          <span class="original-price">原价 ￥{{ Number(plan.original_price || 0) }}</span>
+          <span class="original-price"
+            >原价 ￥{{ Number(plan.original_price || 0) }}</span
+          >
         </div>
         <p class="hint">{{ plan.description }}</p>
         <ul>
-          <li v-for="feature in plan.features || []" :key="feature">{{ feature }}</li>
+          <li v-for="feature in plan.features || []" :key="feature">
+            {{ feature }}
+          </li>
         </ul>
-        <button class="ghost primary" :disabled="payingPlanId === plan.id" @click="pay(plan)">
+        <button
+          class="ghost primary"
+          :disabled="payingPlanId === plan.id"
+          @click="pay(plan)"
+        >
           {{ payingPlanId === plan.id ? "下单中..." : "立即支付" }}
         </button>
       </article>
@@ -44,7 +57,9 @@
 
     <div class="records-head">
       <h3>支付记录</h3>
-      <button class="ghost" :disabled="loading" @click="loadOrders">刷新记录</button>
+      <button class="ghost" :disabled="loading" @click="loadOrders">
+        刷新记录
+      </button>
     </div>
     <div v-if="orders.length" class="record-list">
       <div v-for="order in orders" :key="order.order_no" class="record-row">
@@ -53,7 +68,9 @@
           <p class="hint">{{ order.order_no }}</p>
         </div>
         <span>{{ formatMoney(order.amount_cents) }}</span>
-        <span :class="['status', order.status]">{{ statusText(order.status) }}</span>
+        <span :class="['status', order.status]">{{
+          statusText(order.status)
+        }}</span>
         <span class="hint">{{ formatDate(order.created_at) }}</span>
       </div>
     </div>
@@ -76,7 +93,9 @@ const orders = ref<any[]>([]);
 const loading = ref(false);
 const error = ref("");
 const payingPlanId = ref("");
-const memberLabel = computed(() => `${subscription.value?.member_type || "plus"} 会员`);
+const memberLabel = computed(
+  () => `${subscription.value?.member_type || "plus"} 会员`,
+);
 
 /**
  * 读取订阅状态和套餐列表。
@@ -140,7 +159,10 @@ async function pay(plan: any) {
  * @returns {number} 实付价格。
  */
 function finalPrice(plan: any) {
-  return Math.max(0, Number(plan?.original_price || 0) - Number(plan?.discount_amount || 0));
+  return Math.max(
+    0,
+    Number(plan?.original_price || 0) - Number(plan?.discount_amount || 0),
+  );
 }
 
 /**

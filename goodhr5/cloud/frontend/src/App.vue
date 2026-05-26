@@ -19,6 +19,9 @@
         </div>
       </div>
       <div class="menu-footer">
+        <div class="menu-item" @click="goContact">
+          <span class="prompt">&gt;</span><span>联系我17607080935</span>
+        </div>
         <div class="menu-item" @click="auth.logout">
           <span class="prompt">&gt;</span><span>登出</span>
         </div>
@@ -139,7 +142,10 @@ import SubscriptionPanel from "./components/SubscriptionPanel.vue";
 import OnboardingGuide from "./components/OnboardingGuide.vue";
 import GreetingDashboard from "./components/GreetingDashboard.vue";
 import TaskList from "./components/TaskList.vue";
-import { getOnboardingStatus, getSubscriptionStatus } from "./services/cloudApi";
+import {
+  getOnboardingStatus,
+  getSubscriptionStatus,
+} from "./services/cloudApi";
 import {
   initOnboarding,
   markOnboardingStep,
@@ -160,7 +166,10 @@ const systemAppConfig = ref({
 const dismissedSessionAnnouncements = ref<string[]>([]);
 const subscription = ref<any>(null);
 const onboardingProgress = ref<any>({ completed: true, steps: {} });
-const onboardingConfig = ref<any>({ local_agent_download_url: "", trial_days: 3 });
+const onboardingConfig = ref<any>({
+  local_agent_download_url: "",
+  trial_days: 3,
+});
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
@@ -262,6 +271,13 @@ onMounted(async () => {
 });
 
 /**
+ * 跳转到联系我页面。
+ * @returns {void} 无返回值。
+ */
+function goContact() {
+  window.open("https://goodhr.58it.cn", "_blank");
+}
+/**
  * 读取服务端教学状态和教学配置。
  * @returns {Promise<void>} 无返回值。
  */
@@ -270,7 +286,10 @@ async function loadOnboardingStatus() {
     const data = await getOnboardingStatus();
     onboardingConfig.value = data.config || onboardingConfig.value;
     if (data.onboarding?.completed) {
-      onboardingProgress.value = { ...onboardingProgress.value, completed: true };
+      onboardingProgress.value = {
+        ...onboardingProgress.value,
+        completed: true,
+      };
     }
   } catch {
     onboardingConfig.value = { local_agent_download_url: "", trial_days: 3 };
