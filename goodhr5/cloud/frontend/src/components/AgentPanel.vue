@@ -8,6 +8,8 @@
       <dl>
         <dt>状态</dt>
         <dd :class="{ success: agent.status.value.includes('连接'), error: agent.status.value.includes('未检测到') }">{{ agent.status.value }}</dd>
+        <dt v-if="requiresUpdate">更新</dt>
+        <dd v-if="requiresUpdate" class="warn">请更新本地程序到 {{ requiredVersion }} 或更高版本</dd>
         <dt v-if="agent.info">版本</dt>
         <dd v-if="agent.info">{{ agent.info.value?.version }}</dd>
         <dt>绑定</dt>
@@ -29,5 +31,44 @@
 </template>
 
 <script setup lang="ts">
-defineProps({ agent: Object })
+import { computed } from "vue";
+
+const props = defineProps({ agent: Object, appConfig: Object })
+
+const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "5.0.0"));
+const localVersion = computed(() => String(props.agent?.info?.value?.version || ""));
+const requiresUpdate = computed(() => {
+  if (!localVersion.value) return false;
+  return compareVersions(localVersion.value, requiredVersion.value) < 0;
+});
+
+/**
+ * 比较两个版本号大小。
+ * @param {string} current - 当前版本号。
+ * @param {string} required - 要求版本号。
+ * @returns {number} 当前版本低于要求时返回 -1，相等返回 0，高于返回 1。
+ */
+function compareVersions(current: string, required: string) {
+  const currentParts = parseVersion(current);
+  const requiredParts = parseVersion(required);
+  const length = Math.max(currentParts.length, requiredParts.length);
+  for (let i = 0; i < length; i += 1) {
+    const left = currentParts[i] || 0;
+    const right = requiredParts[i] || 0;
+    if (left < right) return -1;
+    if (left > right) return 1;
+  }
+  return 0;
+}
+
+/**
+ * 将版本号转换为数字数组。
+ * @param {string} version - 原始版本号。
+ * @returns {number[]} 数字版本片段。
+ */
+function parseVersion(version: string) {
+  return String(version)
+    .split(".")
+    .map((part) => Number.parseInt(part.replace(/\D+.*/, "") || "0", 10));
+}
 </script>

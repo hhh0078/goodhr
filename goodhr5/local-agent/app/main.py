@@ -46,6 +46,7 @@ from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
+LOCAL_AGENT_VERSION = "5.0.0"
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent")
@@ -56,7 +57,7 @@ logger = logging.getLogger("goodhr5.local-agent")
 
 app = FastAPI(
     title="GoodHR 5 Local Agent",
-    version="0.4.0",
+    version=LOCAL_AGENT_VERSION,
     docs_url=None,
     redoc_url=None,
 )
@@ -98,7 +99,7 @@ async def get_health() -> dict:
     return {
         "ok": True,
         "name": "GoodHR 5 Local Agent",
-        "version": "0.4.0",
+        "version": LOCAL_AGENT_VERSION,
         "port": app.state.port,
         "machine_id": MACHINE["machine_id"],
         "public_key": CRYPTO_KEYS.get("public_key", ""),

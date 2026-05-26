@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "goodhr5-local-agent"
-version = "0.1.0"
+version = "5.0.0"
 description = "GoodHR 5 本地执行器 - 负责 CloakBrowser 控制、页面操作、截图、OCR"
 
 requires-python = ">=3.10"

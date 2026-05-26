@@ -38,7 +38,32 @@ type MemorySystemConfigStore struct {
 // NewMemorySystemConfigStore 创建内存系统配置存储实例。
 func NewMemorySystemConfigStore() *MemorySystemConfigStore {
 	return &MemorySystemConfigStore{
-		configs: map[string]SystemConfig{},
+		configs: defaultMemorySystemConfigs(),
+	}
+}
+
+// defaultMemorySystemConfigs 返回开发环境默认系统配置。
+func defaultMemorySystemConfigs() map[string]SystemConfig {
+	return map[string]SystemConfig{
+		"system.app_config": {
+			ConfigKey: "system.app_config",
+			ConfigValue: `{
+				"local_agent_version": "5.0.0",
+				"announcements_enabled": true,
+				"announcements": [
+					{
+						"id": "2026-05-26-v1",
+						"title": "GoodHR 5 更新公告",
+						"content": "GoodHR 5 本地执行器版本从 5.0.0 起步，低版本请及时更新。",
+						"once": true,
+						"enabled": true,
+						"created_at": "2026-05-26"
+					}
+				]
+			}`,
+			Description: "前端公共系统配置：本地执行器版本要求和系统公告列表",
+			Enabled:     true,
+		},
 	}
 }
 

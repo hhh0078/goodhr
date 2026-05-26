@@ -168,6 +168,15 @@ export async function listPlatformConfigs() {
 }
 
 /**
+ * 读取前端公共系统配置。
+ * @returns {Promise<any>} 返回本地执行器版本要求和公告列表。
+ */
+export async function getSystemAppConfig() {
+  const data = await api('/api/system/app-config')
+  return data.config || {}
+}
+
+/**
  * 读取管理员可见的系统原始配置 JSON。
  * @returns {Promise<any[]>} 返回系统配置列表。
  */

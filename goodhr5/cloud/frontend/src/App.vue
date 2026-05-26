@@ -42,6 +42,7 @@
         <AgentPanel
           v-if="activeMenu === 'agent'"
           :agent="agent"
+          :app-config="systemAppConfig"
           :user="user"
           :token="auth.token"
         />
@@ -77,11 +78,33 @@
         />
       </div>
     </main>
+    <div v-if="visibleAnnouncements.length" class="announcement-mask">
+      <section class="announcement-panel">
+        <div class="panel-header">
+          <h2>系统公告</h2>
+          <button class="ghost" @click="closeAnnouncements">关闭</button>
+        </div>
+        <div class="announcement-list">
+          <article
+            v-for="item in visibleAnnouncements"
+            :key="item.id"
+            class="announcement-item"
+          >
+            <div class="announcement-title">
+              <strong>{{ item.title || "公告" }}</strong>
+              <span v-if="item.created_at">{{ item.created_at }}</span>
+            </div>
+            <p>{{ item.content }}</p>
+          </article>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { getSystemAppConfig } from "./services/cloudApi";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
 import { usePositions } from "./composables/usePositions";
@@ -103,7 +126,14 @@ const positions = usePositions();
 const personalConfig = usePersonalConfig();
 const tasks = useTasks(agent.baseUrl);
 const { user } = auth;
+const systemAppConfig = ref({
+  local_agent_version: "5.0.0",
+  announcements_enabled: false,
+  announcements: [],
+});
+const dismissedSessionAnnouncements = ref<string[]>([]);
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
+const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
 const activeMenu = ref(
   savedMenu === "platform-config" ? "system-config" : savedMenu || "agent",
@@ -130,8 +160,21 @@ const agentStatusColor = computed(() => {
   if (s.includes("检测中")) return "warn";
   return "error";
 });
+const visibleAnnouncements = computed(() => {
+  if (!systemAppConfig.value?.announcements_enabled) return [];
+  const dismissed = loadDismissedAnnouncements();
+  const sessionDismissed = dismissedSessionAnnouncements.value;
+  return (systemAppConfig.value.announcements || []).filter((item: any) => {
+    const id = String(item?.id || "");
+    if (!id || !item?.enabled || !String(item?.content || "").trim()) return false;
+    if (sessionDismissed.includes(id)) return false;
+    if (item.once && dismissed.includes(id)) return false;
+    return true;
+  });
+});
 watch(user, async (u) => {
   if (u) {
+    await loadSystemAppConfig();
     agent.detect(u, auth.token.value);
     positions.load();
     personalConfig.load();
@@ -153,6 +196,7 @@ watch(
 onMounted(async () => {
   await auth.loadCurrentUser();
   if (auth.user.value) {
+    await loadSystemAppConfig();
     agent.detect(auth.user.value, auth.token.value);
     detectLocalAgent();
     positions.load();
@@ -160,6 +204,63 @@ onMounted(async () => {
     tasks.load();
   }
 });
+
+/**
+ * 读取前端公共系统配置。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function loadSystemAppConfig() {
+  try {
+    systemAppConfig.value = {
+      ...systemAppConfig.value,
+      ...(await getSystemAppConfig()),
+    };
+  } catch {
+    systemAppConfig.value = {
+      local_agent_version: "5.0.0",
+      announcements_enabled: false,
+      announcements: [],
+    };
+  }
+}
+
+/**
+ * 读取已关闭的一次性公告 ID。
+ * @returns {string[]} 公告 ID 列表。
+ */
+function loadDismissedAnnouncements() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ANNOUNCEMENT_DISMISSED_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 保存已关闭的一次性公告 ID。
+ * @param {string[]} ids - 公告 ID 列表。
+ * @returns {void} 无返回值。
+ */
+function saveDismissedAnnouncements(ids: string[]) {
+  localStorage.setItem(ANNOUNCEMENT_DISMISSED_KEY, JSON.stringify(Array.from(new Set(ids))));
+}
+
+/**
+ * 关闭当前可见公告。
+ * @returns {void} 无返回值。
+ */
+function closeAnnouncements() {
+  const current = visibleAnnouncements.value;
+  const onceIDs = current.filter((item: any) => item.once).map((item: any) => String(item.id));
+  if (onceIDs.length) {
+    saveDismissedAnnouncements([...loadDismissedAnnouncements(), ...onceIDs]);
+  }
+  dismissedSessionAnnouncements.value = [
+    ...dismissedSessionAnnouncements.value,
+    ...current.map((item: any) => String(item.id)),
+  ];
+}
 
 const detectLocalAgent = () => {
   //3秒运行一次
@@ -297,5 +398,48 @@ const detectLocalAgent = () => {
 .content-area {
   flex: 1;
   overflow-y: auto;
+}
+.announcement-mask {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 72px 16px 16px;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 20;
+}
+.announcement-panel {
+  width: min(620px, 100%);
+  max-height: 72vh;
+  overflow-y: auto;
+  border: 1px solid #333;
+  background: #0d0d0d;
+  padding: 12px;
+}
+.announcement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.announcement-item {
+  border: 1px solid #333;
+  background: #050505;
+  padding: 10px;
+}
+.announcement-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.announcement-title span {
+  color: var(--fg-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.announcement-item p {
+  color: var(--fg-dim);
+  white-space: pre-wrap;
 }
 </style>

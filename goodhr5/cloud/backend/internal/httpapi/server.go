@@ -95,6 +95,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
+	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
 	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
 	mux.HandleFunc("/api/admin/system/configs/", s.adminSystemConfigs)
 	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
@@ -159,6 +160,40 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+// GetAppConfig 返回前端公共系统配置。
+func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if _, err := s.auth.SessionFromRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+
+	cfg, err := s.systemConfigs.Get("system.app_config")
+	if err != nil {
+		if errors.Is(err, ErrConfigNotFound) {
+			writeError(w, http.StatusNotFound, "system app config not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load system app config")
+		return
+	}
+
+	var value any
+	if err := json.Unmarshal([]byte(cfg.ConfigValue), &value); err != nil {
+		writeError(w, http.StatusInternalServerError, "system app config is invalid")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"config": value,
+	})
+}
+
 // ListPlatformConfigs 返回业务流程可读取的已启用平台配置。
 func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -203,7 +238,7 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	configs, err := s.systemConfigs.List("")
+	configs, err := s.systemConfigs.List("platform.")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load system configs")
 		return
@@ -229,12 +264,41 @@ func (s *Server) adminPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminSystemConfigs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.ListAdminPlatformConfigs(w, r)
+		s.ListAdminSystemConfigs(w, r)
 	case http.MethodPut:
 		s.UpdateAdminPlatformConfig(w, r)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// ListAdminSystemConfigs 返回管理员可查看的全部系统配置 JSON。
+func (s *Server) ListAdminSystemConfigs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
+		return
+	}
+
+	configs, err := s.systemConfigs.List("")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load system configs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"configs": configs,
+	})
 }
 
 // UpdateAdminPlatformConfig 允许超管直接保存系统原始 JSON。
