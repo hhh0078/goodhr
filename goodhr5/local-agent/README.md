@@ -90,7 +90,7 @@ local-agent/agent_data/
 local-agent/agent_data/machine.json
 ```
 
-`machine_id` 由系统类型、主机名、用户目录、安装 ID 等信息哈希生成。本地只保存哈希后的机器码和随机安装 ID，不保存用于上传的明文硬件信息。
+`machine_id` 优先由系统稳定硬件 UUID 哈希生成：macOS 使用 `IOPlatformUUID`，Windows 使用系统硬件 UUID。重装 Local Agent 后，同一台电脑会得到相同机器码；硬件 UUID 不可用时，会用系统类型、主机名、用户目录等信息兜底。本地只保存哈希后的机器码，不保存原始硬件 UUID。
 
 绑定云端账号后会生成：
 

@@ -54,7 +54,7 @@ def decrypt_aes_gcm(encrypted_data: bytes, key: bytes) -> bytes:
 
 def decrypt_cookie_payload(
     private_key_pem: str,
-    machine_id: str,
+    machine_id: str | list[str],
     encrypted_data_b64: str,
     encrypted_keys: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -63,7 +63,7 @@ def decrypt_cookie_payload(
 
     Args:
         private_key_pem: Local Agent 本地私钥 PEM。
-        machine_id: 当前机器标识，用于挑选 encrypted_keys 中对应条目。
+        machine_id: 当前机器标识，或可兼容的机器标识列表。
         encrypted_data_b64: Base64 编码的 cookie 密文。
         encrypted_keys: 云端返回的 machine_id -> wrapped key 映射。
 
@@ -72,12 +72,13 @@ def decrypt_cookie_payload(
     """
     if not encrypted_data_b64:
         raise ValueError("encrypted_data is required")
-    if not machine_id:
+    machine_ids = normalize_machine_ids(machine_id)
+    if not machine_ids:
         raise ValueError("machine_id is required")
     if not isinstance(encrypted_keys, dict) or not encrypted_keys:
         raise ValueError("encrypted_keys is required")
 
-    wrapped_key = encrypted_keys.get(machine_id)
+    wrapped_key = next((encrypted_keys.get(item) for item in machine_ids if encrypted_keys.get(item)), None)
     if not wrapped_key:
         raise ValueError("当前机器未找到可用 cookie 密钥")
 
@@ -87,3 +88,22 @@ def decrypt_cookie_payload(
     if not isinstance(data, list):
         raise ValueError("cookie 数据格式不正确")
     return data
+
+
+def normalize_machine_ids(machine_id: str | list[str]) -> list[str]:
+    """
+    规范化可用于解密的机器码列表。
+
+    Args:
+        machine_id: 单个机器码或机器码列表。
+
+    Returns:
+        list[str]: 去重后的机器码列表。
+    """
+    values = machine_id if isinstance(machine_id, list) else [machine_id]
+    result: list[str] = []
+    for item in values:
+        value = str(item).strip()
+        if value and value not in result:
+            result.append(value)
+    return result

@@ -26,7 +26,7 @@ from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_w
 from app.element_refs import ELEMENT_REFS
 from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_locator_into_view, scroll_to_load
 from app.crypto_keys import load_or_generate as load_crypto_keys
-from app.machine import load_machine
+from app.machine import cookie_machine_ids, load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async, warmup_ocr_async
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.screenshot import screenshot_modal
@@ -835,7 +835,7 @@ async def cookies_decrypt(payload: dict) -> dict:
     try:
         cookies = decrypt_cookie_payload(
             CRYPTO_KEYS["private_key"],
-            MACHINE["machine_id"],
+            cookie_machine_ids(MACHINE),
             encrypted_data_b64,
             encrypted_keys,
         )
@@ -1038,10 +1038,11 @@ def main() -> None:
     root_logger.handlers.clear()
     file_handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
     file_handler.setFormatter(formatter)
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
-    root_logger.addHandler(stream_handler)
+    if os.getenv("GOODHR_AGENT_LOG_TO_STDOUT", "1") != "0":
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
 
     port = find_port()
     app.state.port = port  # 保存到应用状态，供 /health 返回

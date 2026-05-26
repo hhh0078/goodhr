@@ -20,7 +20,7 @@ from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
 from app.element_refs import ELEMENT_REFS
 from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
-from app.machine import load_machine
+from app.machine import cookie_machine_ids, load_machine
 from app.ocr import ocr_image_async
 from app.paths import data_dir
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -601,7 +601,7 @@ class WSAgentClient:
                 raise ValueError("encrypted_data and encrypted_keys are required")
             cookies = decrypt_cookie_payload(
                 CRYPTO_KEYS["private_key"],
-                MACHINE["machine_id"],
+                cookie_machine_ids(MACHINE),
                 encrypted_data,
                 encrypted_keys,
             )

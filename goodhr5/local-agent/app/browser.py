@@ -18,6 +18,7 @@ from typing import Optional
 from cloakbrowser import launch_async as _cloak_launch_async
 from cloakbrowser import launch_persistent_context_async as _cloak_persistent_async
 from playwright.async_api import Browser, BrowserContext, Page
+from playwright._impl._errors import TargetClosedError
 
 logger = logging.getLogger("goodhr5.browser")
 
@@ -387,12 +388,20 @@ class BrowserManager:
         Raises:
             RuntimeError: 浏览器未启动
         """
-        if self._context:
-            page = await self._context.new_page()
-        elif self._browser:
-            page = await self._browser.new_page()
-        else:
-            raise RuntimeError("浏览器未启动，请先调用 start()")
+        try:
+            if self._context:
+                page = await self._context.new_page()
+            elif self._browser:
+                page = await self._browser.new_page()
+            else:
+                raise RuntimeError("浏览器未启动，请先调用 start()")
+        except TargetClosedError as exc:
+            self._context = None
+            self._browser = None
+            self._pages.clear()
+            self._notify_closed("target_closed")
+            logger.exception("浏览器已关闭，无法创建新页面")
+            raise RuntimeError("浏览器启动后已关闭，请检查 CloakBrowser 文件权限或重新启动本地执行器") from exc
 
         self._pages[name] = page
         logger.info("已创建页面: %s", name)

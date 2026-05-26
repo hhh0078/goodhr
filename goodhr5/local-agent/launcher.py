@@ -164,11 +164,74 @@ def ensure_executable_permission(binary: Path | None) -> Path | None:
     if binary is None:
         return None
     if platform.system().lower() != "windows":
-        try:
-            binary.chmod(binary.stat().st_mode | 0o755)
-        except OSError:
-            return binary
+        ensure_macos_app_permissions(binary)
     return binary
+
+
+def ensure_macos_app_permissions(binary: Path) -> None:
+    """
+    修复 macOS Chromium.app 内部可执行文件权限。
+
+    zip 解压后可能丢失 Chromium Helper、GPU、Network 等子进程文件的执行权限，
+    导致浏览器启动后创建页面时立刻关闭。
+
+    Args:
+        binary: Chromium 主程序路径。
+    """
+    app_dir = find_parent_app_dir(binary)
+    targets = [binary]
+    if app_dir is not None:
+        targets.extend(path for path in app_dir.rglob("*") if should_chmod_executable(path))
+
+    for target in targets:
+        try:
+            target.chmod(target.stat().st_mode | 0o755)
+        except OSError:
+            continue
+
+
+def find_parent_app_dir(path: Path) -> Path | None:
+    """
+    查找路径所属的 macOS .app 目录。
+
+    Args:
+        path: 任意文件路径。
+
+    Returns:
+        Path | None: 找到的 .app 目录；找不到时返回 None。
+    """
+    for parent in [path, *path.parents]:
+        if parent.suffix == ".app":
+            return parent
+    return None
+
+
+def should_chmod_executable(path: Path) -> bool:
+    """
+    判断文件是否应补充执行权限。
+
+    Args:
+        path: 待检查文件路径。
+
+    Returns:
+        bool: 是否应添加执行权限。
+    """
+    if not path.is_file():
+        return False
+    if path.parent.name in {"MacOS", "Helpers"}:
+        return True
+    try:
+        header = path.read_bytes()[:4]
+    except OSError:
+        return False
+    return header in {
+        b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe",
+        b"\xca\xfe\xba\xbf",
+        b"\xfe\xed\xfa\xcf",
+        b"\xfe\xed\xfa\xce",
+        b"\xce\xfa\xed\xfe",
+    } or header.startswith(b"#!")
 
 
 def platform_archive_name() -> str:
@@ -310,6 +373,7 @@ class GoodHRLauncher:
         env = os.environ.copy()
         env["GOODHR_AGENT_DATA_DIR"] = str(self.dirs["agent_data"])
         env["GOODHR_AGENT_LOG_FILE"] = str(self.log_file)
+        env["GOODHR_AGENT_LOG_TO_STDOUT"] = "0"
         env["CLOAKBROWSER_BINARY_PATH"] = str(browser_binary)
 
         if getattr(sys, "frozen", False):
