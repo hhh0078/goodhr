@@ -50,6 +50,7 @@
             :config="onboardingConfig"
             @go="goOnboardingMenu"
           />
+          <GreetingDashboard :tasks="tasks" />
           <AgentPanel
             :agent="agent"
             :app-config="systemAppConfig"
@@ -136,6 +137,7 @@ import PositionManager from "./components/PositionManager.vue";
 import PersonalConfig from "./components/PersonalConfig.vue";
 import SubscriptionPanel from "./components/SubscriptionPanel.vue";
 import OnboardingGuide from "./components/OnboardingGuide.vue";
+import GreetingDashboard from "./components/GreetingDashboard.vue";
 import TaskList from "./components/TaskList.vue";
 import { getOnboardingStatus, getSubscriptionStatus } from "./services/cloudApi";
 import {
