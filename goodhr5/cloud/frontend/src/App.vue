@@ -103,6 +103,9 @@
         <ActivationCodeManager
           v-else-if="activeMenu === 'activation-codes' && isSuperAdmin"
         />
+        <UserManager
+          v-else-if="activeMenu === 'user-management' && isSuperAdmin"
+        />
       </div>
     </main>
     <div v-if="visibleAnnouncements.length" class="announcement-mask">
@@ -152,6 +155,7 @@ import OnboardingGuide from "./components/OnboardingGuide.vue";
 import GreetingDashboard from "./components/GreetingDashboard.vue";
 import HelpCenter from "./components/HelpCenter.vue";
 import ActivationCodeManager from "./components/ActivationCodeManager.vue";
+import UserManager from "./components/UserManager.vue";
 import TaskList from "./components/TaskList.vue";
 import {
   getOnboardingStatus,
@@ -209,6 +213,7 @@ const menuItems = computed(() => {
     items.push({ id: "system-config", label: "系统配置" });
     items.push({ id: "payment-records", label: "支付记录" });
     items.push({ id: "activation-codes", label: "激活码管理" });
+    items.push({ id: "user-management", label: "用户管理" });
   }
   return items;
 });

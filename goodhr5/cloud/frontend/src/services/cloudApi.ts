@@ -176,6 +176,24 @@ export async function listAdminPaymentOrders() {
 }
 
 /**
+ * 读取超级管理员可见的用户列表。
+ * @returns {Promise<any[]>} 返回用户数组。
+ */
+export async function listAdminUsers() {
+  const data = await api('/api/admin/users')
+  return data.users || []
+}
+
+/**
+ * 超级管理员调整指定用户会员天数。
+ * @param {any} payload - 包含 email、days 和 reason。
+ * @returns {Promise<any>} 返回新的订阅状态。
+ */
+export async function adjustAdminUserSubscription(payload: any) {
+  return api('/api/admin/users', { method: 'POST', body: payload })
+}
+
+/**
  * 读取当前用户教学状态和教学配置。
  * @returns {Promise<any>} 返回教学状态和配置。
  */

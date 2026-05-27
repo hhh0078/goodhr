@@ -14,7 +14,7 @@ type Mailer interface {
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
 }
 
-// SubscriptionRewardNotice 表示会员天数奖励提醒邮件内容。
+// SubscriptionRewardNotice 表示会员天数变动提醒邮件内容。
 type SubscriptionRewardNotice struct {
 	Reason       string
 	Days         int
@@ -30,9 +30,9 @@ func (m DevMailer) SendLoginCode(email string, code string) error {
 	return nil
 }
 
-// SendSubscriptionReward 在开发模式下记录会员天数奖励提醒。
+// SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
-	log.Printf("GoodHR dev subscription reward for %s: reason=%s days=%d expires=%s related=%s", email, notice.Reason, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
+	log.Printf("GoodHR dev subscription changed for %s: reason=%s days=%d expires=%s related=%s", email, notice.Reason, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
 	return nil
 }
 
@@ -51,20 +51,21 @@ func (m SMTPMailer) SendLoginCode(email string, code string) error {
 	})
 }
 
-// SendSubscriptionReward 发送会员天数奖励提醒邮件。
+// SendSubscriptionReward 发送会员天数变动提醒邮件。
 func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
 	reason := strings.TrimSpace(notice.Reason)
 	if reason == "" {
-		reason = "会员天数奖励"
+		reason = "会员时间调整"
 	}
 	memberType := strings.TrimSpace(notice.MemberType)
 	if memberType == "" {
 		memberType = defaultMemberType
 	}
+	daysText := fmt.Sprintf("%+d 天", notice.Days)
 	lines := []string{
-		"你好，你获得了 GoodHR 会员天数奖励。",
-		"奖励来源：" + reason,
-		fmt.Sprintf("奖励天数：%d 天", notice.Days),
+		"你好，你的 GoodHR 会员时间有变动。",
+		"变动原因：" + reason,
+		"变动天数：" + daysText,
 		"会员类型：" + memberType,
 		"新的到期时间：" + notice.ExpiresAt.Format("2006-01-02 15:04:05"),
 	}
@@ -72,7 +73,7 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 		lines = append(lines, "关联用户："+strings.TrimSpace(notice.RelatedEmail))
 	}
 	lines = append(lines, "感谢使用 GoodHR。")
-	return m.sendMessage(email, "GoodHR 会员天数奖励提醒", lines)
+	return m.sendMessage(email, "GoodHR 会员时间变动提醒", lines)
 }
 
 // sendMessage 发送一封纯文本邮件。

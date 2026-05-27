@@ -176,6 +176,18 @@ func (c Config) SubscriptionStore(db *sql.DB) SubscriptionStore {
 	return NewMemorySubscriptionStore()
 }
 
+// AdminUserStore 创建超级管理员用户管理存储；配置 PostgreSQL 时使用 PostgreSQL，否则复用内存订阅数据。
+func (c Config) AdminUserStore(db *sql.DB, subscriptions SubscriptionStore) AdminUserStore {
+	if db != nil {
+		return NewPostgresAdminUserStore(db)
+	}
+	memorySubscriptions, ok := subscriptions.(*MemorySubscriptionStore)
+	if !ok || memorySubscriptions == nil {
+		memorySubscriptions = NewMemorySubscriptionStore()
+	}
+	return NewMemoryAdminUserStore(memorySubscriptions)
+}
+
 // InvitationStore 创建邀请关系存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) InvitationStore(db *sql.DB) InvitationStore {
 	if db != nil {

@@ -300,9 +300,9 @@ func (s *PaymentService) applyInvitePaymentReward(order PaymentOrder) error {
 	})
 }
 
-// sendSubscriptionRewardNotice 发送会员天数奖励提醒邮件。
+// sendSubscriptionRewardNotice 发送会员天数变动提醒邮件。
 func sendSubscriptionRewardNotice(mailer Mailer, email string, notice SubscriptionRewardNotice) error {
-	if mailer == nil || notice.Days <= 0 {
+	if mailer == nil || notice.Days == 0 {
 		return nil
 	}
 	return mailer.SendSubscriptionReward(email, notice)

@@ -25,6 +25,8 @@ type SubscriptionStore interface {
 	UserSubscription(email string) (Subscription, error)
 	// ExtendSubscription 按会员类型和天数延长指定用户订阅。
 	ExtendSubscription(email string, memberType string, days int) (Subscription, error)
+	// AdjustSubscriptionDays 按正负天数调整指定用户订阅。
+	AdjustSubscriptionDays(email string, memberType string, days int) (Subscription, error)
 }
 
 // SubscriptionService 处理订阅状态和套餐接口。
@@ -136,6 +138,9 @@ func (s *MemorySubscriptionStore) UserSubscription(email string) (Subscription, 
 
 // ExtendSubscription 按当前到期时间或当前时间延长内存订阅。
 func (s *MemorySubscriptionStore) ExtendSubscription(email string, memberType string, days int) (Subscription, error) {
+	if days <= 0 {
+		return s.UserSubscription(email)
+	}
 	current, _ := s.UserSubscription(email)
 	base := s.now()
 	if current.ExpiresAt.After(base) {
@@ -143,6 +148,25 @@ func (s *MemorySubscriptionStore) ExtendSubscription(email string, memberType st
 	}
 	if memberType == "" {
 		memberType = defaultMemberType
+	}
+	current.MemberType = memberType
+	current.ExpiresAt = base.Add(time.Duration(days) * 24 * time.Hour)
+	s.items[email] = current
+	return current, nil
+}
+
+// AdjustSubscriptionDays 按正负天数调整内存订阅。
+func (s *MemorySubscriptionStore) AdjustSubscriptionDays(email string, memberType string, days int) (Subscription, error) {
+	if days == 0 {
+		return s.UserSubscription(email)
+	}
+	current, _ := s.UserSubscription(email)
+	if memberType == "" {
+		memberType = defaultMemberType
+	}
+	base := current.ExpiresAt
+	if days > 0 && base.Before(s.now()) {
+		base = s.now()
 	}
 	current.MemberType = memberType
 	current.ExpiresAt = base.Add(time.Duration(days) * 24 * time.Hour)
@@ -190,6 +214,41 @@ func (s *PostgresSubscriptionStore) ExtendSubscription(email string, memberType 
 	if err == nil && current.ExpiresAt.After(time.Now()) {
 		nextExpires = current.ExpiresAt.Add(time.Duration(days) * 24 * time.Hour)
 	}
+	payload, err := json.Marshal(Subscription{MemberType: memberType, ExpiresAt: nextExpires})
+	if err != nil {
+		return Subscription{}, err
+	}
+	_, err = s.db.Exec(
+		`UPDATE users SET subscription=$2::jsonb WHERE email=$1`,
+		email,
+		string(payload),
+	)
+	if err != nil {
+		return Subscription{}, err
+	}
+	return Subscription{MemberType: memberType, ExpiresAt: nextExpires}, nil
+}
+
+// AdjustSubscriptionDays 按正负天数调整 PostgreSQL 用户订阅。
+func (s *PostgresSubscriptionStore) AdjustSubscriptionDays(email string, memberType string, days int) (Subscription, error) {
+	if memberType == "" {
+		memberType = defaultMemberType
+	}
+	if days == 0 {
+		return s.UserSubscription(email)
+	}
+	if _, err := ensureUserID(context.Background(), s.db, email); err != nil {
+		return Subscription{}, err
+	}
+	current, err := s.UserSubscription(email)
+	if err != nil {
+		return Subscription{}, err
+	}
+	base := current.ExpiresAt
+	if days > 0 && base.Before(time.Now()) {
+		base = time.Now()
+	}
+	nextExpires := base.Add(time.Duration(days) * 24 * time.Hour)
 	payload, err := json.Marshal(Subscription{MemberType: memberType, ExpiresAt: nextExpires})
 	if err != nil {
 		return Subscription{}, err
