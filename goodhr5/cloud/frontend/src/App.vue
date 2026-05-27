@@ -81,6 +81,10 @@
           :config="personalConfig"
         />
         <SubscriptionPanel v-else-if="activeMenu === 'subscription'" />
+        <HelpCenter
+          v-else-if="activeMenu === 'help'"
+          :user-email="user?.email"
+        />
 
         <TaskList
           v-else-if="activeMenu === 'task-list'"
@@ -141,6 +145,7 @@ import PersonalConfig from "./components/PersonalConfig.vue";
 import SubscriptionPanel from "./components/SubscriptionPanel.vue";
 import OnboardingGuide from "./components/OnboardingGuide.vue";
 import GreetingDashboard from "./components/GreetingDashboard.vue";
+import HelpCenter from "./components/HelpCenter.vue";
 import TaskList from "./components/TaskList.vue";
 import {
   getOnboardingStatus,
@@ -191,6 +196,7 @@ const menuItems = computed(() => {
     { id: "personal-config", label: "个人配置" },
     { id: "subscription", label: "订阅" },
     { id: "task-list", label: "任务列表" },
+    { id: "help", label: "帮助中心" },
   ];
   if (isSuperAdmin.value) {
     items.push({ id: "system-config", label: "系统配置" });

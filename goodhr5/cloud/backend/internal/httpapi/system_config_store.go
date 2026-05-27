@@ -113,7 +113,164 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "新手教学配置，包含本地程序下载链接和注册赠送会员天数",
 			Enabled:     true,
 		},
+		"system.guide": {
+			ConfigKey:   "system.guide",
+			ConfigValue: defaultSystemGuideConfig(),
+			Description: "系统指南配置，供帮助中心和 AI 助手使用",
+			Enabled:     true,
+		},
 	}
+}
+
+// defaultSystemGuideConfig 返回帮助中心默认系统指南 JSON。
+func defaultSystemGuideConfig() string {
+	return `{
+		"version": "2026-05-27",
+		"title": "GoodHR 5 系统指南",
+		"summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、任务、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
+		"cards": [
+			{
+				"id": "quick-start",
+				"title": "第一次使用",
+				"summary": "先启动本地程序，再创建平台账号、岗位模板和任务。",
+				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写 DeepSeek API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
+			},
+			{
+				"id": "local-agent",
+				"title": "本地程序",
+				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
+				"content": "前端会检测 http://127.0.0.1:9001/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+			},
+			{
+				"id": "platform-account",
+				"title": "平台账号",
+				"summary": "平台账号保存为加密 cookie，用于自动打开招聘平台。",
+				"content": "创建平台账号时，本地浏览器会打开招聘平台登录页。扫码登录后，系统导出 cookie 并加密保存。cookie 会按团队成员已绑定的本地程序公钥分别加密。新成员后加入时，旧 cookie 可能需要重新登录或更新。"
+			},
+			{
+				"id": "task-run",
+				"title": "任务运行",
+				"summary": "任务会按平台、账号、岗位模板和筛选模式执行。",
+				"content": "任务开始前会检查订阅是否有效，并锁定平台账号 cookie。运行中会扫描候选人、打开详情、AI 或关键词筛选、打招呼并记录日志。任务列表可查看扫描、打招呼、跳过和失败数量。"
+			},
+			{
+				"id": "ai-config",
+				"title": "AI 配置",
+				"summary": "个人配置里填写 AI 地址、模型和 Key。",
+				"content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，例如 DeepSeek 的 https://api.deepseek.com/chat/completions。模型是实际调用的模型名。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
+			},
+			{
+				"id": "errors",
+				"title": "常见异常",
+				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
+				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已绑定，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+			}
+		],
+		"sections": [
+			{
+				"id": "intro",
+				"title": "系统介绍",
+				"items": [
+					"GoodHR 5 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
+					"系统分为云端前端、云端 Go 后端和本地 Python Agent。",
+					"云端保存用户、团队、系统配置、任务、日志摘要、订阅和支付记录。",
+					"本地 Agent 负责浏览器启动、页面点击、文本提取、截图、OCR、声音提醒和 cookie 解密。"
+				]
+			},
+			{
+				"id": "quick-start",
+				"title": "系统使用指南",
+				"items": [
+					"登录后先进入控制台，确认本地 Agent 状态为已连接。",
+					"进入平台账号，选择平台并扫码登录，登录成功后保存账号。",
+					"进入岗位模板，填写岗位名称、岗位要求、问候语、关键词、排除词和 AI 筛选提示。",
+					"进入个人配置，填写 AI API 地址、模型、API Key，以及模拟点击、滚动、休息等延迟参数。",
+					"进入任务列表，选择平台账号、岗位模板、筛选模式和匹配上限，然后点击开始。"
+				]
+			},
+			{
+				"id": "console",
+				"title": "控制台说明",
+				"items": [
+					"控制台展示本地 Agent 连接状态、版本、绑定状态、WebSocket 状态、机器码和端口。",
+					"如果本地版本低于系统配置要求，顶部和控制台会提醒更新。",
+					"控制台还展示今日打招呼概览，便于 HR 快速知道当前自动化效果。"
+				]
+			},
+			{
+				"id": "account-cookie",
+				"title": "平台账号和 Cookie",
+				"items": [
+					"平台账号底层使用 cookie_data 保存，不在前端暴露 cookie 明文。",
+					"cookie 内容使用 AES-GCM 加密，数据密钥再用每台本地 Agent 的公钥加密。",
+					"同一团队成员如果在保存 cookie 前已经绑定过本地 Agent，后续可以共享解密。",
+					"如果成员或电脑在 cookie 保存后才绑定，需要让可用账号重新登录或更新一次 cookie。"
+				]
+			},
+			{
+				"id": "position",
+				"title": "岗位模板说明",
+				"items": [
+					"岗位模板包含岗位名称、问候语、岗位描述、关键词、排除词、匹配方式和 AI 配置。",
+					"关键词模式会先看排除词，再按 AND 或 OR 匹配关键词。",
+					"AI 模式会把岗位要求和候选人文本发送给模型，让模型返回分数和原因。",
+					"详情建议分用于判断是否打开候选人详情，打招呼建议分用于判断是否发送问候。"
+				]
+			},
+			{
+				"id": "personal-config",
+				"title": "个人配置说明",
+				"items": [
+					"API 地址是 AI 服务接口地址，必须是 chat/completions 兼容接口。",
+					"模型是 AI 服务支持的模型名，例如 deepseek-v4-flash 或 deepseek-v4-pro。",
+					"API Key 是调用 AI 的密钥，保存后前端只显示脱敏值。",
+					"点击频率、滚动延迟、查看延迟、打招呼延迟和休息参数用于模拟正常人工操作节奏。"
+				]
+			},
+			{
+				"id": "task",
+				"title": "任务参数说明",
+				"items": [
+					"平台决定任务进入哪个招聘站点，目前页面可选 Boss直聘、智联招聘、猎聘。",
+					"账号是已保存的平台账号 cookie。",
+					"岗位模板决定筛选条件和问候语。",
+					"筛选模式包括关键词筛选和 AI 筛选。",
+					"匹配上限表示本次任务最多打招呼的人数。"
+				]
+			},
+			{
+				"id": "subscription",
+				"title": "订阅说明",
+				"items": [
+					"新用户注册默认赠送试用会员，赠送天数来自系统配置。",
+					"开始任务前后端会校验订阅是否有效。",
+					"订阅过期后，用户会被引导到订阅页面，续费后才能继续开始任务。",
+					"支付记录用户可查看自己的记录，超级管理员可查看全部记录。"
+				]
+			},
+			{
+				"id": "errors",
+				"title": "异常处理",
+				"items": [
+					"本地 Agent 未连接：确认本地程序已启动，端口 9001 到 9009 没被占用。",
+					"版本过低：下载并替换新版 GoodHRLocalAgent。",
+					"cookie 解密失败：确认本机已绑定；旧 cookie 需要重新登录或更新。",
+					"平台账号过期：重新扫码登录并保存 cookie。",
+					"AI API 错误：检查 API 地址、模型名、API Key 和余额。",
+					"任务卡住或失败：打开任务日志，查看浏览器启动、页面选择器、OCR、AI 请求和打招呼动作的错误。"
+				]
+			},
+			{
+				"id": "logs",
+				"title": "日志和排查",
+				"items": [
+					"前端任务列表可以展开任务日志，查看云端编排摘要。",
+					"本地程序窗口会展示 Local Agent 日志，也会写入本地日志文件。",
+					"排查问题时优先看任务日志，再看本地程序日志。"
+				]
+			}
+		]
+	}`
 }
 
 // Get 按配置键读取一条配置。
