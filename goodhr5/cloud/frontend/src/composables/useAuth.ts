@@ -3,6 +3,8 @@ import { ref } from "vue";
 import { ApiError, cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
 import { currentUser, loginByCode, sendLoginCode } from "../services/cloudApi";
 
+const INVITE_CACHE_KEY = "goodhr5_invite_id";
+
 export function useAuth() {
   const email = ref("");
   const code = ref("");
@@ -95,7 +97,12 @@ export function useAuth() {
  */
 function readInviteID() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("invite") || "";
+  const inviteID = params.get("invite") || "";
+  if (inviteID) {
+    localStorage.setItem(INVITE_CACHE_KEY, inviteID);
+    return inviteID;
+  }
+  return localStorage.getItem(INVITE_CACHE_KEY) || "";
 }
 
 function delay(ms: number) {
