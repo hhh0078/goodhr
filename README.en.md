@@ -7,7 +7,7 @@ GoodJob AI Assistant is a browser extension designed to help HR professionals sc
 - **Free Mode**: Screens candidates using keyword matching
 - **AI Mode**: Uses artificial intelligence for intelligent screening and evaluation
 
-## Core Features
+## Core Features 测试
 
 1. **Multi-platform Support**: Compatible with multiple job platforms including BOSS Zhipin, Lagou, Liepin, and Zhaopin
 2. **Intelligent Screening**:
@@ -56,6 +56,7 @@ This project follows a modular design with the following main code structure:
 ## Version Updates
 
 This version includes the following improvements:
+
 - Added AI-powered intelligent screening
 - Enhanced multi-platform compatibility
 - Improved accuracy of candidate information extraction
