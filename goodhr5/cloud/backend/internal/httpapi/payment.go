@@ -37,11 +37,12 @@ type PaymentService struct {
 	subscriptions SubscriptionStore
 	systemConfigs SystemConfigStore
 	invitations   InvitationStore
+	mailer        Mailer
 	providers     map[string]PaymentProvider
 }
 
 // NewPaymentService 创建支付服务。
-func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, invitations InvitationStore, providers ...PaymentProvider) *PaymentService {
+func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, invitations InvitationStore, mailer Mailer, providers ...PaymentProvider) *PaymentService {
 	providerMap := map[string]PaymentProvider{}
 	for _, provider := range providers {
 		if provider == nil {
@@ -55,6 +56,7 @@ func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions Sub
 		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		invitations:   invitations,
+		mailer:        mailer,
 		providers:     providerMap,
 	}
 }
@@ -247,7 +249,16 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 		return err
 	}
 	if changed {
-		if _, err = s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays); err != nil {
+		subscription, err := s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays)
+		if err != nil {
+			return err
+		}
+		if err := sendSubscriptionRewardNotice(s.mailer, paidOrder.UserEmail, SubscriptionRewardNotice{
+			Reason:     "充值会员成功",
+			Days:       paidOrder.DurationDays,
+			MemberType: subscription.MemberType,
+			ExpiresAt:  subscription.ExpiresAt,
+		}); err != nil {
 			return err
 		}
 		err = s.applyInvitePaymentReward(paidOrder)
@@ -275,8 +286,26 @@ func (s *PaymentService) applyInvitePaymentReward(order PaymentOrder) error {
 	if months <= 0 {
 		months = 1
 	}
-	_, err = s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.PaidMonthRewardDays*months)
-	return err
+	rewardDays := config.PaidMonthRewardDays * months
+	subscription, err := s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, rewardDays)
+	if err != nil {
+		return err
+	}
+	return sendSubscriptionRewardNotice(s.mailer, inviterEmail, SubscriptionRewardNotice{
+		Reason:       "邀请好友充值成功奖励",
+		Days:         rewardDays,
+		MemberType:   subscription.MemberType,
+		ExpiresAt:    subscription.ExpiresAt,
+		RelatedEmail: order.UserEmail,
+	})
+}
+
+// sendSubscriptionRewardNotice 发送会员天数奖励提醒邮件。
+func sendSubscriptionRewardNotice(mailer Mailer, email string, notice SubscriptionRewardNotice) error {
+	if mailer == nil || notice.Days <= 0 {
+		return nil
+	}
+	return mailer.SendSubscriptionReward(email, notice)
 }
 
 // subscriptionPlanByID 从系统配置中读取指定订阅套餐。

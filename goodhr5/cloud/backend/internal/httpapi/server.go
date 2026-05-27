@@ -59,7 +59,7 @@ func NewServer() (*Server, error) {
 	userPreferencesStore := config.UserPreferencesStore(db)
 	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
-	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, NewHaoshoumiProvider(config))
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, NewHaoshoumiProvider(config))
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, agentStore),
@@ -74,7 +74,7 @@ func NewServer() (*Server, error) {
 		payments:         paymentService,
 		onboarding:       NewOnboardingService(auth, onboardingStore, systemConfigStore),
 		invitations:      NewInvitationService(auth, invitationStore, systemConfigStore),
-		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore),
+		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		help:             NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),

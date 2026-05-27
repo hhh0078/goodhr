@@ -232,8 +232,17 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 	if config.RegisterRewardDays <= 0 || s.subscriptions == nil {
 		return nil
 	}
-	_, err = s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.RegisterRewardDays)
-	return err
+	subscription, err := s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.RegisterRewardDays)
+	if err != nil {
+		return err
+	}
+	return sendSubscriptionRewardNotice(s.mailer, inviterEmail, SubscriptionRewardNotice{
+		Reason:       "邀请好友注册成功奖励",
+		Days:         config.RegisterRewardDays,
+		MemberType:   subscription.MemberType,
+		ExpiresAt:    subscription.ExpiresAt,
+		RelatedEmail: email,
+	})
 }
 
 // SessionFromRequest 从请求头 Bearer token 中读取当前登录会话。

@@ -52,11 +52,12 @@ type ActivationCodeService struct {
 	auth          *AuthService
 	store         ActivationCodeStore
 	subscriptions SubscriptionStore
+	mailer        Mailer
 }
 
 // NewActivationCodeService 创建激活码服务。
-func NewActivationCodeService(auth *AuthService, store ActivationCodeStore, subscriptions SubscriptionStore) *ActivationCodeService {
-	return &ActivationCodeService{auth: auth, store: store, subscriptions: subscriptions}
+func NewActivationCodeService(auth *AuthService, store ActivationCodeStore, subscriptions SubscriptionStore, mailer Mailer) *ActivationCodeService {
+	return &ActivationCodeService{auth: auth, store: store, subscriptions: subscriptions, mailer: mailer}
 }
 
 // AdminCollection 按请求方法处理超管激活码列表和生成请求。
@@ -151,6 +152,15 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 	subscription, err := s.subscriptions.ExtendSubscription(session.Email, defaultMemberType, code.Days)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to extend subscription")
+		return
+	}
+	if err := sendSubscriptionRewardNotice(s.mailer, session.Email, SubscriptionRewardNotice{
+		Reason:     "激活码兑换成功",
+		Days:       code.Days,
+		MemberType: subscription.MemberType,
+		ExpiresAt:  subscription.ExpiresAt,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send reward email")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code": code, "subscription": publicSubscription(subscription)})
