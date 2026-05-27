@@ -59,10 +59,12 @@
           :key="`${message.role}-${index}`"
           :class="['chat-message', message.role]"
         >
-          <span class="chat-role">{{
-            message.role === "user" ? "我" : "助手"
-          }}</span>
-          <p>{{ message.content }}</p>
+          <div class="chat-bubble">
+            <span class="chat-role">{{
+              message.role === "user" ? "我" : "助手"
+            }}</span>
+            <p>{{ message.content }}</p>
+          </div>
         </div>
       </div>
 
@@ -372,24 +374,44 @@ onMounted(initHelpCenter);
 }
 
 .chat-message {
-  display: grid;
-  grid-template-columns: 48px 1fr;
-  gap: 8px;
+  display: flex;
   padding: 8px 0;
-  border-bottom: 1px solid #151515;
+}
+
+.chat-message.assistant {
+  justify-content: flex-start;
+}
+
+.chat-message.user {
+  justify-content: flex-end;
+}
+
+.chat-bubble {
+  max-width: min(78%, 620px);
+  border: 1px solid #242424;
+  background: #050505;
+  padding: 8px 10px;
+}
+
+.chat-message.user .chat-bubble {
+  border-color: #0a0;
+  background: #071007;
 }
 
 .chat-role {
+  display: block;
   color: var(--fg);
   font-size: 12px;
+  margin-bottom: 4px;
 }
 
-.chat-message p {
+.chat-bubble p {
   color: var(--fg-dim);
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.chat-message.user p {
+.chat-message.user .chat-bubble p {
   color: var(--fg);
 }
 
