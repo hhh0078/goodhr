@@ -4,6 +4,9 @@ import { resolve } from 'node:path'
 
 export default defineConfig({
   plugins: [vue()],
+  server: {
+    allowedHosts: ['goodhr5.58it.cn']
+  },
   build: {
     rollupOptions: {
       input: {
