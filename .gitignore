@@ -1,0 +1,16 @@
+.DS_Store
+goodhr-sidebar-vue/node_modules/
+goodhr-sidebar-vue/extension/
+goodhr4/frontend/node_modules/
+goodhr4/site/node_modules/
+goodhr4/**/.next/
+goodhrpy/.venv/
+**/.venv/
+**/cookies/
+**/logs/**
+goodhr5/cloud/backend/logs/backend.log
+goodhr5/local-agent/logs/agent.log
+goodhr5/local-agent/vendor/cloakbrowser/
+goodhr5/local-agent/vendor/downloads/
+goodhr5/local-agent/build/
+goodhr5/local-agent/dist/

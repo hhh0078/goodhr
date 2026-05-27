@@ -1,0 +1,81 @@
+// 本文件负责测试超级管理员用户管理和会员天数调整接口。
+package httpapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+// TestAdminUserManagementAdjustsSubscription 验证超管可以查看用户并调整会员天数。
+func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	userToken := loginForTest(t, routes, "managed-user@example.com")
+	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/subscription/status", nil)
+	statusReq.Header.Set("Authorization", "Bearer "+userToken)
+	statusResp := httptest.NewRecorder()
+	routes.ServeHTTP(statusResp, statusReq)
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("status code = %d, body = %s", statusResp.Code, statusResp.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	listReq.Header.Set("Authorization", "Bearer "+adminToken)
+	listResp := httptest.NewRecorder()
+	routes.ServeHTTP(listResp, listReq)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list code = %d, body = %s", listResp.Code, listResp.Body.String())
+	}
+
+	var listPayload struct {
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(listPayload.Users) == 0 {
+		t.Fatal("admin users list is empty")
+	}
+
+	adjustReq := httptest.NewRequest(http.MethodPost, "/api/admin/users", bytes.NewBufferString(`{"email":"managed-user@example.com","days":-5,"reason":"测试扣减"}`))
+	adjustReq.Header.Set("Authorization", "Bearer "+adminToken)
+	adjustResp := httptest.NewRecorder()
+	routes.ServeHTTP(adjustResp, adjustReq)
+	if adjustResp.Code != http.StatusOK {
+		t.Fatalf("adjust code = %d, body = %s", adjustResp.Code, adjustResp.Body.String())
+	}
+
+	var adjustPayload struct {
+		Subscription struct {
+			MemberType string `json:"member_type"`
+		} `json:"subscription"`
+	}
+	if err := json.NewDecoder(adjustResp.Body).Decode(&adjustPayload); err != nil {
+		t.Fatal(err)
+	}
+	if adjustPayload.Subscription.MemberType != defaultMemberType {
+		t.Fatalf("member type = %q", adjustPayload.Subscription.MemberType)
+	}
+}
+
+// TestAdminUserManagementRejectsNormalUser 验证普通用户不能访问用户管理接口。
+func TestAdminUserManagementRejectsNormalUser(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "normal-admin-users@example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("admin users status = %d, want %d", resp.Code, http.StatusForbidden)
+	}
+}

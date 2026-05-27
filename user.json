@@ -1,589 +1,194 @@
 {
-    "activeTimeDesc": "刚刚活跃",
-    "anonymousGeek": 0,
-    "blur": 0,
-    "blurGeek": false,
-    "canUseDirectCall": false,
-    "chatHelperEnable": 0,
-    "cooperate": 2,
-    "encryptGeekId": "b86861cfc0a542940XF43Ni9FVVQ",
-    "encryptShareId": null,
-    "feedback": [
-        {
-            "code": 13,
-            "feedbackL2List": null,
-            "memo": "牛人距离远",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 3,
-            "feedbackL2List": null,
-            "memo": "不考虑本科",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 4,
-            "feedbackL2List": null,
-            "memo": "期望薪资偏高",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 16,
-            "feedbackL2List": null,
-            "memo": "期望（语文教师）与职位不符",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 15,
-            "feedbackL2List": null,
-            "memo": "年龄不合适",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 2,
-            "feedbackL2List": null,
-            "memo": "工作经历和销售专员无关",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 36,
-            "feedbackL2List": null,
-            "memo": "重复推荐",
-            "showType": 0,
-            "titleL2": null
-        },
-        {
-            "code": 5,
-            "feedbackL2List": null,
-            "memo": "其他原因",
-            "showType": 1,
-            "titleL2": null
-        }
-    ],
-    "feedbackTitle": "选择不喜欢的原因，为您优化推荐",
-    "friendGeek": false,
-    "geekCallStatus": 0,
-    "geekCard": {
-        "actionDateDesc": null,
-        "activeTime": 0,
-        "ageDesc": "21岁",
-        "ageLight": {
-            "content": "21岁",
-            "highlight": false
-        },
-        "applyStatus": 0,
-        "applyStatusDesc": "离职-随时到岗",
-        "birthday": null,
-        "chatButtonFlag": null,
-        "completeType": 0,
-        "eliteGeek": 0,
-        "encGeekId": "b86861cfc0a542940XF43Ni9FVVQ",
-        "encryptGeekId": "b86861cfc0a542940XF43Ni9FVVQ",
-        "encryptJobId": "845393da5f43a63f03x_3NW0E1NU",
-        "expectId": 1320422433,
-        "expectLocationCode": 101040100,
-        "expectLocationName": "重庆",
-        "expectPositionCode": 190316,
-        "expectPositionName": "兼职·语文教师",
-        "expectPositionNameLv2": "",
-        "expectPositionType": 0,
-        "expectSubLocation": 0,
-        "expectSubLocationName": null,
-        "expectType": 0,
-        "freshGraduate": 0,
-        "geekAvatar": "https://img.dianzhangzhipin.com/blueapp/header/image/20250729/08f7fd7e95a9ad92417b58ea096a0b8078b8fb7468f980e2daadf79c9a8342cca63528ef1648db48_s.jpg.webp",
-        "geekDegree": "本科",
-        "geekDesc": {
-            "content": "1.拥有热情活力，对事业充满热情，积极且责任心强。2.亲和力强，易与同事建立良好关系，理解客户需求助力个性化沟通。3.学习积极性强，处于职业初期，对新工作技术好奇，愿尝试探索。4.严于律己，以身作则。",
-            "indexList": [],
-            "newValue": null,
-            "oldDisplayValue": null,
-            "oldValue": null,
-            "type": null
-        },
-        "geekDoneWorks": null,
-        "geekEdu": {
-            "addTime": null,
-            "degree": 0,
-            "degreeName": "本科",
-            "eduDescription": null,
-            "eduType": 0,
-            "endDate": "20250101",
-            "id": 0,
-            "major": "健康服务与管理",
-            "school": "重庆城市科技学院",
-            "schoolId": 0,
-            "startDate": "20230101",
-            "timeSlot": null,
-            "updateTime": null,
-            "userId": 0
-        },
-        "geekEdus": [
-            {
-                "addTime": null,
-                "degree": 0,
-                "degreeName": "本科",
-                "eduDescription": null,
-                "eduType": 0,
-                "endDate": "2025.01",
-                "id": 0,
-                "major": "健康服务与管理",
-                "school": "重庆城市科技学院",
-                "schoolId": 0,
-                "startDate": "2023.01",
-                "timeSlot": null,
-                "updateTime": null,
-                "userId": 0
-            },
-            {
-                "addTime": null,
-                "degree": 0,
-                "degreeName": "大专",
-                "eduDescription": null,
-                "eduType": 0,
-                "endDate": "2023.01",
-                "id": 0,
-                "major": "幼儿发展与健康管理",
-                "school": "重庆工商职业学院",
-                "schoolId": 0,
-                "startDate": "2020.01",
-                "timeSlot": null,
-                "updateTime": null,
-                "userId": 0
-            }
-        ],
-        "geekGender": 0,
-        "geekHighLightInfo": null,
-        "geekHighestDegreeEdu": null,
-        "geekId": 652750570,
-        "geekName": "张洁",
-        "geekSource": 0,
-        "geekWorkYear": "1年以内",
-        "geekWorks": [
-            {
-                "addTime": null,
-                "blueCollarPosition": false,
-                "certStatus": 0,
-                "company": "渝中酷优教育",
-                "companyHighlight": {
-                    "content": "渝中酷优教育",
-                    "indexList": [],
-                    "newValue": null,
-                    "oldDisplayValue": null,
-                    "oldValue": null,
-                    "type": null
-                },
-                "current": false,
-                "customIndustryId": 0,
-                "customPositionId": 0,
-                "department": null,
-                "endDate": "2025.09",
-                "geekId": 0,
-                "id": 0,
-                "industry": "",
-                "industryCategory": null,
-                "industryCode": 0,
-                "isPublic": 0,
-                "position": 0,
-                "positionCategory": "语文教师",
-                "positionLv2": 0,
-                "positionName": "小学语文教师",
-                "positionNameHighlight": {
-                    "content": "小学语文教师",
-                    "indexList": [],
-                    "newValue": null,
-                    "oldDisplayValue": null,
-                    "oldValue": null,
-                    "type": null
-                },
-                "responsibility": "1.开展教学工作，按既定课程计划授课，保障教学质量与学生学习效果\n\n2.前往学校外指定区域，进行课程地推，向目标人群介绍课程优势、报名方式等\n\n3.参与集体电话邀约工作，联系学生家长，沟通课程相关信息，促进收单",
-                "startDate": "2025.08",
-                "updateTime": null,
-                "workDesc": "渝中酷优教育 · 小学语文教师",
-                "workEmphasisList": [
-                    "普通话资格证",
-                    "助教",
-                    "小学教育",
-                    "教师资格证",
-                    "线下授课"
-                ],
-                "workMonths": 0,
-                "workPerformance": "",
-                "workTime": "1个月",
-                "workType": 0
-            },
-            {
-                "addTime": null,
-                "blueCollarPosition": false,
-                "certStatus": 0,
-                "company": "南岸区美佳尔艺术培训中心",
-                "companyHighlight": {
-                    "content": "南岸区美佳尔艺术培训中心",
-                    "indexList": [],
-                    "newValue": null,
-                    "oldDisplayValue": null,
-                    "oldValue": null,
-                    "type": null
-                },
-                "current": false,
-                "customIndustryId": 0,
-                "customPositionId": 0,
-                "department": null,
-                "endDate": "2025.06",
-                "geekId": 0,
-                "id": 0,
-                "industry": "",
-                "industryCategory": null,
-                "industryCode": 0,
-                "isPublic": 0,
-                "position": 0,
-                "positionCategory": "托管老师",
-                "positionLv2": 0,
-                "positionName": "托管老师",
-                "positionNameHighlight": {
-                    "content": "托管老师",
-                    "indexList": [],
-                    "newValue": null,
-                    "oldDisplayValue": null,
-                    "oldValue": null,
-                    "type": null
-                },
-                "responsibility": "1. 负责安全接送孩子放学，确保每位小朋友安全到达指定地点。\n2. 提供作业托管服务，帮助一年级小朋友完成日常作业，提升其学习能力和自信心。\n3. 积极与家长沟通，了解家长需求，提供专业建议，确保家长对课程的满意度，促进续费。",
-                "startDate": "2025.03",
-                "updateTime": null,
-                "workDesc": "南岸区美佳尔艺术培训中心 · 托管老师",
-                "workEmphasisList": null,
-                "workMonths": 0,
-                "workPerformance": "",
-                "workTime": "3个月",
-                "workType": 0
-            }
-        ],
-        "groupName": null,
-        "groupNumber": 0,
-        "hasDesignResume": false,
-        "hasDesignWorks": false,
-        "highSalary": 0,
-        "hlmatches": [
-            {
-                "content": "家长沟通",
-                "indexList": null,
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            {
-                "content": "课程计划",
-                "indexList": null,
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            {
-                "content": "开展教学",
-                "indexList": null,
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            {
-                "content": "小学教育",
-                "indexList": null,
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            {
-                "content": "线下授课",
-                "indexList": null,
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            }
-        ],
-        "interestedExpectType": 0,
-        "jobId": 485789314,
-        "lid": "f18e7006-ab7e-4489-8ef8-7a4c65e8c031.f1:common.eyJzZXNzaW9uSWQiOiJmZmRhYjVkOC0zNTY1LTQ2ZWUtYmFiYi05YzVhMmU0ZDQ5NTgiLCJyY2RCelR5cGUiOiJmMV9icmNkIn0.4",
-        "lowSalary": 0,
-        "markWords": [
-            {
-                "content": "家长沟通",
-                "highlight": false
-            },
-            {
-                "content": "课程计划",
-                "highlight": false
-            },
-            {
-                "content": "开展教学",
-                "highlight": false
-            },
-            {
-                "content": "小学教育",
-                "highlight": false
-            },
-            {
-                "content": "线下授课",
-                "highlight": false
-            }
-        ],
-        "matches": [
-            "家长沟通",
-            "课程计划",
-            "开展教学",
-            "小学教育",
-            "线下授课"
-        ],
-        "middleContent": {
-            "content": "期望职位 语文教师",
-            "indexList": [],
-            "newValue": null,
-            "oldDisplayValue": null,
-            "oldValue": null,
-            "type": null
-        },
-        "oldDetailed": false,
-        "productPictureList": null,
-        "recOnline": null,
-        "salary": "",
-        "securityId": "6vHPzMwzNYHnU-w1Wsj2greI2zXdQcebS-fOYeOoZXAoYT3gkvicS9xMXYO2Y-BRoKqzZX5rUSh1XtMBCPGR6mWFmud_wLHQU3VVdxW2Ssu_9sg6G3U5sm--_eiD0yiTi0KXEDqXIGQZk1KdS0b73KEgmGFUfQB1pKJoRd7CtXiDy3XouIQS3mTler1FJCurZH0_PCmA2X71Z2HNUTyf3SYAgaKccnfx202QzqRiEekp4PoruBFve9hiXFfK5Z96CUli8Fjccs5lMcTVkNIAEarW5mbM9SwF4d68C_tPnUUggCOm4M490wZncuGmFHK-a08_Vh6viKAxMEKQ3InU-DXxN8Tp4E79EqYqwjcrspVXyHKegjj0AVx3IYqy1pb0cak8mgr6c1NRNUejcXCiZvhVY5dFRYfAnStEfNwi9K0doAdFUmh_kbvOUNXspX5ZuEqvAYY72WYjq74sUy3uEAkwkCBokHUzlYP_QLrGP1ZNTTtROc74HlP3DkkACHLXLsV-UV3CiO29FjWWWPpY9JWI6xl6qnf-3sKed-Lpitc0SIh-zyeyb4t0Ddc8oLo4pI86EEVwi4XVLq-PIJi1mzuojdyN6Krg2nXi6SDtPCr-KxtYsqMKpvtIUNnjQ7j4",
-        "showEyeBrow": false,
-        "viewExpect": {
-            "buriedPoint": false,
-            "expectId": 0,
-            "expectType": 0,
-            "eyeBrowCode": 0,
-            "eyeBrowName": null,
-            "highSalary": 0,
-            "hypoTag": null,
-            "industryExpect": false,
-            "location": 101040100,
-            "locationName": "重庆",
-            "lowSalary": 0,
-            "position": 190316,
-            "positionName": "语文教师",
-            "positionNameLv2": "教师",
-            "positionTagName": null,
-            "positionType": 1,
-            "reasonUnchange": null,
-            "replaceReason": null,
-            "showExpect": false,
-            "source": 0,
-            "subLocation": 0,
-            "subLocationName": null
-        },
-        "viewed": false
+  // 候选人全局唯一ID（系统内ID，建议由平台+时间戳或UUID生成）
+  "id": "candidate_20260522163000123",
+
+  // 任务id
+  "task_id": "task_20260522163000123",
+
+  // 创建时间（系统内时间，建议由数据库自动生成）
+  "created_at": "2026-05-22T16:30:05Z",
+  // 最后更新时间（每次写入候选人对象都应刷新）
+  "updated_at": "2026-05-22T16:30:05Z",
+
+  // 租户ID（系统内ID，建议由平台+时间戳或UUID生成）
+  "tenant_id": "tenant_20260522163000123",
+
+  // 创建人（系统内ID，建议由平台+时间戳或UUID生成）
+  "created_by": "user_20260522163000123",
+
+  // 平台标识（boss / zhaopin / liepin ...）
+  "platform_id": "boss",
+
+  // 平台侧原始候选人ID（如果页面能拿到就填，拿不到可空）
+  "platform_candidate_id": "",
+
+  //   候选人姓名（日志优先展示这个字段）
+  "name": "张三",
+
+  // 候选人基础信息摘要（兼容字段：现有流程可继续使用）
+  "basic_info": "男 | 26岁 | 3年经验 | 本科",
+
+  // 学历信息（兼容字段：与 basic_profile.education_level 语义重合）
+  "education": "本科",
+
+  // 候选人亮点/简介（兼容字段：与 basic_profile.personal_description 语义重合）
+  "description": "Go后端开发，做过高并发服务",
+
+  // 在线简历结构化信息（你本次确认的主字段）
+  "basic_profile": {
+    // 出生年月（YYYY-MM；未知可空）
+    "birth_ym": "1998-03",
+    // 手机号（原文；脱敏逻辑由展示层处理）
+    "phone": "13800000000",
+    // 邮箱
+    "email": "zhangsan@example.com",
+    // 当前工作地区（文本）
+    "work_region": "深圳",
+    // 工作年限（文本；如“3年”“3-5年”）
+    "work_years": "3年",
+    // 期望薪资
+    "expected_salary": {
+      // 最低期望薪资（数字；单位建议统一为元/月）
+      "min": 25000,
+      // 最高期望薪资（数字；单位建议统一为元/月）
+      "max": 35000
     },
-    "geekLastWork": {
-        "addTime": null,
-        "blueCollarPosition": false,
-        "certStatus": 0,
-        "company": "渝中酷优教育",
-        "companyHighlight": {
-            "content": "渝中酷优教育",
-            "indexList": [],
-            "newValue": null,
-            "oldDisplayValue": null,
-            "oldValue": null,
-            "type": null
-        },
-        "current": false,
-        "customIndustryId": 0,
-        "customPositionId": 0,
-        "department": null,
-        "endDate": "2025.09",
-        "geekId": 0,
-        "id": 0,
-        "industry": "",
-        "industryCategory": null,
-        "industryCode": 0,
-        "isPublic": 0,
-        "position": 0,
-        "positionCategory": "语文教师",
-        "positionLv2": 0,
-        "positionName": "小学语文教师",
-        "positionNameHighlight": {
-            "content": "小学语文教师",
-            "indexList": [],
-            "newValue": null,
-            "oldDisplayValue": null,
-            "oldValue": null,
-            "type": null
-        },
-        "responsibility": "1.开展教学工作，按既定课程计划授课，保障教学质量与学生学习效果\n\n2.前往学校外指定区域，进行课程地推，向目标人群介绍课程优势、报名方式等\n\n3.参与集体电话邀约工作，联系学生家长，沟通课程相关信息，促进收单",
-        "startDate": "2025.08",
-        "updateTime": null,
-        "workDesc": "渝中酷优教育 · 小学语文教师",
-        "workEmphasisList": [
-            "普通话资格证",
-            "助教",
-            "小学教育",
-            "教师资格证",
-            "线下授课"
-        ],
-        "workMonths": 0,
-        "workPerformance": "",
-        "workTime": "1个月",
-        "workType": 0
+    // 个人描述（结构化主字段）
+    "personal_description": "Go后端开发，做过高并发服务",
+    // 工作状态（如：离职、在职、看机会）
+    "work_status": "在职",
+    // 期望职位
+    "expected_position": "高级后端工程师",
+    // 在线状态（字符串，无统一枚举；如“在线”“10分钟前在线”“无”）
+    "online_status": "10分钟前在线",
+    // 工作经历列表
+    "work_experiences": [
+      {
+        // 公司名称
+        "company_name": "某科技有限公司",
+        // 职位名称
+        "position_name": "后端工程师",
+        // 工作内容
+        "content": "负责订单系统与风控服务开发",
+        // 开始年月（YYYY-MM）
+        "start_ym": "2021-07",
+        // 结束年月（YYYY-MM；在职可空）
+        "end_ym": ""
+      }
+    ],
+    // 教育经历列表（替代旧 schools 字段作为主字段）
+    "educations": [
+      {
+        // 学校名称
+        "school_name": "华中科技大学",
+        // 专业名称
+        "major_name": "软件工程",
+        // 学历（如：本科/硕士）
+        "education_level": "本科",
+        // 在校经历
+        "campus_experience": "ACM校队，校级奖学金",
+        // 开始年月（YYYY-MM）
+        "start_ym": "2016-09",
+        // 结束年月（YYYY-MM；在读可空）
+        "end_ym": "2020-06"
+      }
+    ],
+    // 资格证书列表
+    "certificates": ["软考中级（软件设计师）"],
+    // 所得荣誉列表
+    "honors": ["年度优秀员工"],
+    // 项目经验列表
+    "project_experiences": [
+      {
+        // 公司名称
+        "company_name": "某科技有限公司",
+        // 项目期间职位
+        "position_name": "后端工程师",
+        // 经验内容
+        "content": "主导高并发网关改造，QPS提升40%",
+        // 开始年月（YYYY-MM）
+        "start_ym": "2023-01",
+        // 结束年月（YYYY-MM）
+        "end_ym": "2023-12"
+      }
+    ],
+    // 同事沟通记录
+    "colleague_communications": [
+      {
+        // 沟通内容
+        "content": "候选人沟通顺畅，反馈积极",
+        // 沟通时间（ISO8601）
+        "time": "2026-05-22T09:30:00Z"
+      }
+    ]
+  },
+
+  // 简历附件信息（文件链接与附件解析文本）
+  "resume_attachment": {
+    // 附件文件URL（通常为平台或OSS地址）
+    "url": "",
+    // 附件提取文本（OCR/解析后文本）
+    "extracted_text": ""
+  },
+
+  // 平台抓取到的原始拼接文本（保留原味，便于追溯）
+  "raw_text": "张三 男 26岁 3年经验 本科 华中科技大学 Go后端开发，做过高并发服务",
+
+  // 用于筛选的基础文本（主流程可直接消费，不含详情时就是基础信息）
+  "filter_text": "张三 男 26岁 3年经验 本科 华中科技大学 Go后端开发，做过高并发服务",
+
+  // 候选人详情相关信息（打开详情后的结果统一放这里）
+  "detail": {
+    // 是否执行过“打开详情”动作
+    "opened": false,
+
+    // 打开详情的原因（AI或概率决策给出的理由）
+    "open_reason": "",
+
+    // 详情正文文本（DOM提取或OCR合并后的详情文本）
+    "text": "",
+
+    // 详情结构化字段（平台可自定义，如工作经历/项目/期望薪资等）
+    "fields": {},
+
+    // 详情截图相对路径数组（本地任务目录下截图文件）
+    "screenshot_paths": [],
+
+    // OCR文本文件路径（相对任务目录）
+    "ocr_path": "",
+
+    // 详情决策或详情处理阶段消耗的token
+    "token_usage": 0
+  },
+
+  // AI评分结果信息（AI模式可写，关键词模式可留空）
+  // 说明：AI先返回各阶段分数，再由岗位模板阈值决定是否执行动作。
+  "ai": {
+    // 详情阶段评分：用于决定是否打开候选人详情
+    "detail": {
+      // 详情阶段原因（用于日志/审计）
+      "reason": "",
+      // 详情阶段分数（建议 0-100；无结果可为null）
+      "score": null
     },
-    "hasAttachmentResume": 0,
-    "hasBg": 0,
-    "hasJobCompetitive": true,
-    "haveChatted": 0,
-    "isFriend": 0,
-    "mateName": null,
-    "recLabels": null,
-    "recommendReason": null,
-    "searchChatCardCostCount": 0,
-    "shareMessage": 0,
-    "shareNote": null,
-    "showEdus": [
-        {
-            "addTime": null,
-            "degree": 0,
-            "degreeName": "本科",
-            "eduDescription": null,
-            "eduType": 0,
-            "endDate": "2025.01",
-            "id": 0,
-            "major": "健康服务与管理",
-            "school": "重庆城市科技学院",
-            "schoolId": 0,
-            "startDate": "2023.01",
-            "timeSlot": null,
-            "updateTime": null,
-            "userId": 0
-        },
-        {
-            "addTime": null,
-            "degree": 0,
-            "degreeName": "大专",
-            "eduDescription": null,
-            "eduType": 0,
-            "endDate": "2023.01",
-            "id": 0,
-            "major": "幼儿发展与健康管理",
-            "school": "重庆工商职业学院",
-            "schoolId": 0,
-            "startDate": "2020.01",
-            "timeSlot": null,
-            "updateTime": null,
-            "userId": 0
-        }
-    ],
-    "showSelectJob": false,
-    "showWorks": [
-        {
-            "addTime": null,
-            "blueCollarPosition": false,
-            "certStatus": 0,
-            "company": "渝中酷优教育",
-            "companyHighlight": {
-                "content": "渝中酷优教育",
-                "indexList": [],
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            "current": false,
-            "customIndustryId": 0,
-            "customPositionId": 0,
-            "department": null,
-            "endDate": "2025.09",
-            "geekId": 0,
-            "id": 0,
-            "industry": "",
-            "industryCategory": null,
-            "industryCode": 0,
-            "isPublic": 0,
-            "position": 0,
-            "positionCategory": "语文教师",
-            "positionLv2": 0,
-            "positionName": "小学语文教师",
-            "positionNameHighlight": {
-                "content": "小学语文教师",
-                "indexList": [],
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            "responsibility": "1.开展教学工作，按既定课程计划授课，保障教学质量与学生学习效果\n\n2.前往学校外指定区域，进行课程地推，向目标人群介绍课程优势、报名方式等\n\n3.参与集体电话邀约工作，联系学生家长，沟通课程相关信息，促进收单",
-            "startDate": "2025.08",
-            "updateTime": null,
-            "workDesc": "渝中酷优教育 · 小学语文教师",
-            "workEmphasisList": [
-                "普通话资格证",
-                "助教",
-                "小学教育",
-                "教师资格证",
-                "线下授课"
-            ],
-            "workMonths": 0,
-            "workPerformance": "",
-            "workTime": "1个月",
-            "workType": 0
-        },
-        {
-            "addTime": null,
-            "blueCollarPosition": false,
-            "certStatus": 0,
-            "company": "南岸区美佳尔艺术培训中心",
-            "companyHighlight": {
-                "content": "南岸区美佳尔艺术培训中心",
-                "indexList": [],
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            "current": false,
-            "customIndustryId": 0,
-            "customPositionId": 0,
-            "department": null,
-            "endDate": "2025.06",
-            "geekId": 0,
-            "id": 0,
-            "industry": "",
-            "industryCategory": null,
-            "industryCode": 0,
-            "isPublic": 0,
-            "position": 0,
-            "positionCategory": "托管老师",
-            "positionLv2": 0,
-            "positionName": "托管老师",
-            "positionNameHighlight": {
-                "content": "托管老师",
-                "indexList": [],
-                "newValue": null,
-                "oldDisplayValue": null,
-                "oldValue": null,
-                "type": null
-            },
-            "responsibility": "1. 负责安全接送孩子放学，确保每位小朋友安全到达指定地点。\n2. 提供作业托管服务，帮助一年级小朋友完成日常作业，提升其学习能力和自信心。\n3. 积极与家长沟通，了解家长需求，提供专业建议，确保家长对课程的满意度，促进续费。",
-            "startDate": "2025.03",
-            "updateTime": null,
-            "workDesc": "南岸区美佳尔艺术培训中心 · 托管老师",
-            "workEmphasisList": null,
-            "workMonths": 0,
-            "workPerformance": "",
-            "workTime": "3个月",
-            "workType": 0
-        }
-    ],
-    "suid": null,
-    "talkTimeDesc": null,
-    "webRecommendReason": null
+
+    // 打招呼阶段评分：用于决定是否执行打招呼动作
+    "greet": {
+      // 打招呼阶段原因（用于日志/审计）
+      "reason": "",
+      // 打招呼阶段分数（建议 0-100；无结果可为null）
+      "score": null
+    },
+
+    // 复核阶段评分：用于人工复核/二次判断
+    "review": {
+      // 复核阶段原因（用于日志/审计）
+      "reason": "",
+      // 复核阶段分数（建议 0-100；无结果可为null）
+      "score": null
+    }
+  },
+
+  // 扩展字段（平台个性化字段放这里，避免频繁改主结构）
+  "ext": {}
 }

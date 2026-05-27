@@ -1,0 +1,20 @@
+{
+  "name": "goodhr4-frontend",
+  "private": true,
+  "version": "4.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.42",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^6.0.3",
+    "vite": "^5.4.12",
+    "vue-tsc": "^3.2.8"
+  }
+}

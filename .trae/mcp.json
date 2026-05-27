@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "PostgreSQL": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://postgres:postgres..@127.0.0.1:5432/goodhr4"
+      ],
+      "env": {}
+    },
+    "Redis": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-redis",
+        "redis://127.0.0.1:6379"
+      ],
+      "env": {}
+    }
+  }
+}

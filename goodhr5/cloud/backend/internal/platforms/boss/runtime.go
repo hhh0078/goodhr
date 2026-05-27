@@ -1,0 +1,350 @@
+// Package boss 负责 Boss 平台运行时实现。
+package boss
+
+import (
+	"fmt"
+	"strings"
+
+	"goodhr5/cloud/backend/internal/platformcore"
+)
+
+type localViewportResp struct {
+	Ok         bool   `json:"ok"`
+	InViewport bool   `json:"in_viewport"`
+	Matched    string `json:"matched"`
+}
+
+type localElementItem struct {
+	Ref   string `json:"ref"`
+	Index int    `json:"index"`
+}
+
+type localFindElementsResp struct {
+	Ok    bool               `json:"ok"`
+	Items []localElementItem `json:"items"`
+	Count int                `json:"count"`
+}
+
+type localExtractFieldsResp struct {
+	Ok     bool           `json:"ok"`
+	Fields map[string]any `json:"fields"`
+}
+
+type localExtractTextResp struct {
+	Ok          bool     `json:"ok"`
+	Text        string   `json:"text"`
+	Texts       []string `json:"texts"`
+	Matched     string   `json:"matched"`
+	MatchedList []string `json:"matched_list"`
+	Mode        string   `json:"mode"`
+}
+
+// Runtime 实现 Boss 平台运行时能力。
+type Runtime struct{}
+
+// NewRuntime 创建 Boss 平台运行时实例。
+func NewRuntime() *Runtime {
+	return &Runtime{}
+}
+
+// OpenEntryPage 打开 Boss 入口页面。
+func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, cookies []map[string]any) error {
+	url := authEntryURL(cfg.EntryPages)
+	if strings.TrimSpace(url) == "" {
+		return fmt.Errorf("平台配置中没有合法 auth.pages 入口页面")
+	}
+	exec.Log("info", fmt.Sprintf("正在打开Boss推荐页: %s", url))
+	body := map[string]any{"url": url}
+	if len(cookies) > 0 {
+		exec.Log("info", fmt.Sprintf("打开Boss推荐页前补充注入 %d 条 cookie", len(cookies)))
+		body["cookies"] = cookies
+	}
+	return exec.Post("/api/v1/page/open", body, nil)
+}
+
+// ListVisibleCandidates 提取当前可见 Boss 候选人摘要。
+func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig) ([]platformcore.Candidate, error) {
+	if len(cfg.Card.FieldRequests) == 0 {
+		return nil, fmt.Errorf("平台配置中无候选人字段选择器")
+	}
+	if cfg.Card.CardElement == nil {
+		return nil, fmt.Errorf("平台配置中无候选人卡片定位配置")
+	}
+	var findResp localFindElementsResp
+	if err := exec.Post("/api/v1/page/find-elements", map[string]any{
+		"element":      cfg.Card.CardElement,
+		"visible_only": true,
+	}, &findResp); err != nil {
+		return nil, err
+	}
+	if findResp.Items == nil {
+		findResp.Items = []localElementItem{}
+	}
+	exec.Log("info", fmt.Sprintf("查找到 %d 个当前可见Boss候选人卡片", len(findResp.Items)))
+	candidates := make([]platformcore.Candidate, 0, len(findResp.Items))
+	for _, item := range findResp.Items {
+		if err := r.ensureCandidateVisible(exec, item.Ref, "Boss候选人卡片"); err != nil {
+			return nil, err
+		}
+		var extractResp localExtractFieldsResp
+		if err := exec.Post("/api/v1/page/extract-fields", map[string]any{
+			"element_ref": item.Ref,
+			"fields":      cfg.Card.FieldRequests,
+		}, &extractResp); err != nil {
+			return nil, err
+		}
+		if extractResp.Fields == nil {
+			extractResp.Fields = map[string]any{}
+		}
+		extractResp.Fields["_index"] = item.Index
+		extractResp.Fields["element_ref"] = item.Ref
+		candidates = append(candidates, r.MapFieldsToCandidate(cfg.PlatformID, extractResp.Fields))
+	}
+	return candidates, nil
+}
+
+// ScrollCandidateList 滚动到下一屏 Boss 候选人列表。
+func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
+	exec.Log("info", "正在滚动到下一屏Boss候选人列表")
+	body := map[string]any{
+		"scroll_delay_min": prefs.ScrollDelayMin,
+		"scroll_delay_max": prefs.ScrollDelayMax,
+		"max_scrolls":      1,
+	}
+	if cfg.Card.ScrollElement != nil {
+		body["element"] = cfg.Card.ScrollElement
+	}
+	return exec.Post("/api/v1/page/scroll", body, nil)
+}
+
+// GreetCandidate 执行 Boss 候选人打招呼动作。
+func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
+	exec.Log("info", "正在执行Boss候选人打招呼动作")
+	if err := clickRequiredAction(exec, cfg.Actions.GreetBtn, greetDelayBefore(prefs), "打招呼按钮"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(prefs.GreetMessage) == "" {
+		exec.Log("info", "Boss岗位模板未配置打招呼语，跳过继续沟通/确认按钮")
+		return nil
+	}
+	_ = clickOptionalAction(exec, cfg.Actions.ContinueBtn, 0.6, "继续沟通按钮")
+	_ = clickOptionalAction(exec, cfg.Actions.ConfirmBtn, 0.6, "确认按钮")
+	return nil
+}
+
+// OpenCandidateDetail 打开 Boss 候选人详情。
+func (r *Runtime) OpenCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
+	exec.Log("info", "正在打开Boss候选人详情")
+	return clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget, detailDelayBefore(prefs), "详情打开按钮")
+}
+
+// CloseCandidateDetail 关闭 Boss 候选人详情。
+func (r *Runtime) CloseCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
+	exec.Log("info", "正在关闭Boss候选人详情（发送ESC）")
+	return exec.Post("/api/v1/page/press-key", map[string]any{
+		"key": "Escape",
+	}, nil)
+}
+
+// FetchCandidateDetailText 读取 Boss 候选人详情文本。
+func (r *Runtime) FetchCandidateDetailText(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate, detailMode string) (string, error) {
+	if !cfg.Behavior.NeedsDetailPage {
+		exec.Log("info", "Boss候选人详情无需详情页，跳过详情提取")
+		return "", nil
+	}
+	if err := r.OpenCandidateDetail(exec, cfg, prefs, candidate); err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := r.CloseCandidateDetail(exec, cfg, prefs); err != nil {
+			exec.Log("warn", fmt.Sprintf("关闭Boss候选人详情失败：%v", err))
+		}
+	}()
+	text, err := r.DetailContentText(exec, cfg, prefs, detailMode)
+	if err != nil {
+		return "", err
+	}
+	exec.Log("info", fmt.Sprintf("Boss候选人详情文本提取完成，长度=%d", len(text)))
+	return text, nil
+}
+
+// CandidateFilterText 返回 Boss 候选人筛选文本。
+func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
+	return strings.TrimSpace(firstNonEmpty(candidate.FilterText, candidate.RawText))
+}
+
+// CandidateFingerprint 返回 Boss 候选人去重指纹。
+func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
+	return strings.Join([]string{
+		"name=" + strings.TrimSpace(candidate.Name),
+		"basic_info=" + strings.TrimSpace(candidate.BasicInfo),
+		"edu=" + strings.TrimSpace(candidate.EducationLevel),
+		"desc=" + strings.TrimSpace(candidate.PersonalDescription),
+		"raw=" + strings.TrimSpace(candidate.RawText),
+	}, "|")
+}
+
+// MapFieldsToCandidate 将 Boss 原始字段映射为统一候选人模型。
+func (r *Runtime) MapFieldsToCandidate(platformID string, fields map[string]any) platformcore.Candidate {
+	return MapFieldsToCandidate(platformID, fields)
+}
+
+// DetailContentText 读取详情定位配置提取出的整段文本。
+func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, detailMode string) (string, error) {
+	if cfg.Detail.Content == nil {
+		return "", fmt.Errorf("平台配置中无详情文本定位配置")
+	}
+	mode := strings.TrimSpace(detailMode)
+	if mode == "" {
+		mode = "dom"
+	}
+	var resp localExtractTextResp
+	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, detailDelayBefore(prefs))
+	if err := exec.Post("/api/v1/page/extract-text", payload, &resp); err != nil {
+		return "", err
+	}
+	if len(resp.Texts) > 0 {
+		parts := make([]string, 0, len(resp.Texts))
+		for _, item := range resp.Texts {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				parts = append(parts, item)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n\n"), nil
+		}
+	}
+	return strings.TrimSpace(resp.Text), nil
+}
+
+// buildDetailExtractPayload 构建详情文本提取请求。
+// 始终使用 elements 数组请求本地程序，返回数组文本。
+// OCR 模式下会将 target_classes 分组拆成多个元素，分别截图识别。
+func buildDetailExtractPayload(content map[string]any, mode string, delayBefore float64) map[string]any {
+	payload := map[string]any{
+		"mode":         mode,
+		"delay_before": delayBefore,
+	}
+	targetGroups, ok := content["target_classes"].([][]string)
+	if !ok || len(targetGroups) == 0 || mode != "ocr" {
+		payload["elements"] = []map[string]any{content}
+		return payload
+	}
+	elements := make([]map[string]any, 0, len(targetGroups))
+	for _, group := range targetGroups {
+		item := map[string]any{
+			"target_classes": [][]string{group},
+		}
+		if parentGroups, ok := content["parent_classes"]; ok {
+			item["parent_classes"] = parentGroups
+		}
+		if findAttempts, ok := content["find_attempts"]; ok {
+			item["find_attempts"] = findAttempts
+		}
+		if findInterval, ok := content["find_interval_ms"]; ok {
+			item["find_interval_ms"] = findInterval
+		}
+		elements = append(elements, item)
+	}
+	payload["elements"] = elements
+	return payload
+}
+
+// ensureCandidateVisible 确保候选人卡片进入可视区域。
+func (r *Runtime) ensureCandidateVisible(exec platformcore.RuntimeExecutor, elementRef string, label string) error {
+	if strings.TrimSpace(elementRef) == "" {
+		return nil
+	}
+	var viewportResp localViewportResp
+	if err := exec.Post("/api/v1/page/in-viewport", map[string]any{"element_ref": elementRef}, &viewportResp); err != nil {
+		return err
+	}
+	if viewportResp.InViewport {
+		exec.Log("info", fmt.Sprintf("%s已在当前视口内：%s", label, elementRef))
+		return nil
+	}
+	exec.Log("info", fmt.Sprintf("%s不在当前视口内，准备滚动到视口：%s", label, elementRef))
+	if err := exec.Post("/api/v1/page/scroll-into-view", map[string]any{"element_ref": elementRef}, &viewportResp); err != nil {
+		return err
+	}
+	exec.Log("info", fmt.Sprintf("%s已滚动到视口内：%s", label, viewportResp.Matched))
+	return nil
+}
+
+// authEntryURL 解析平台入口 URL，优先 entry 标记页面。
+func authEntryURL(pages []platformcore.RuntimePage) string {
+	for _, page := range pages {
+		if page.Entry && strings.TrimSpace(page.URL) != "" {
+			return page.URL
+		}
+	}
+	for _, page := range pages {
+		if strings.TrimSpace(page.URL) != "" {
+			return page.URL
+		}
+	}
+	return ""
+}
+
+// clickRequiredAction 点击必须成功的动作按钮。
+func clickRequiredAction(exec platformcore.RuntimeExecutor, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return fmt.Errorf("无%s选择器", label)
+	}
+	return exec.Post("/api/v1/page/click", map[string]any{
+		"timeout":      10000,
+		"delay_before": delayBefore,
+		"element":      element,
+	}, nil)
+}
+
+// clickOptionalAction 尝试点击可选动作按钮，失败时只记录日志。
+func clickOptionalAction(exec platformcore.RuntimeExecutor, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return nil
+	}
+	if err := exec.Post("/api/v1/page/click", map[string]any{
+		"timeout":      2000,
+		"delay_before": delayBefore,
+		"element":      element,
+	}, nil); err != nil {
+		exec.Log("info", fmt.Sprintf("%s未命中，已跳过：%v", label, err))
+		return err
+	}
+	exec.Log("info", fmt.Sprintf("%s点击成功", label))
+	return nil
+}
+
+// clickActionWithinCandidate 在候选人卡片内点击动作元素。
+func clickActionWithinCandidate(exec platformcore.RuntimeExecutor, candidate platformcore.Candidate, element map[string]any, delayBefore float64, label string) error {
+	if element == nil {
+		return fmt.Errorf("无%s选择器", label)
+	}
+	elementRef := strings.TrimSpace(candidate.Runtime.ElementRef)
+	if elementRef == "" {
+		return fmt.Errorf("%s缺少 element_ref", label)
+	}
+	return exec.Post("/api/v1/page/click", map[string]any{
+		"timeout":      10000,
+		"delay_before": delayBefore,
+		"element_ref":  elementRef,
+		"element":      element,
+	}, nil)
+}
+
+// greetDelayBefore 返回打招呼动作前延迟秒数。
+func greetDelayBefore(prefs platformcore.RuntimePreferences) float64 {
+	if prefs.GreetDelayMax <= prefs.GreetDelayMin {
+		return prefs.GreetDelayMin
+	}
+	return (prefs.GreetDelayMin + prefs.GreetDelayMax) / 2
+}
+
+// detailDelayBefore 返回详情动作前延迟秒数。
+func detailDelayBefore(prefs platformcore.RuntimePreferences) float64 {
+	if prefs.DetailDelayMax <= prefs.DetailDelayMin {
+		return prefs.DetailDelayMin
+	}
+	return (prefs.DetailDelayMin + prefs.DetailDelayMax) / 2
+}

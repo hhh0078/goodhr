@@ -70,6 +70,9 @@ class BossParser extends BaseParser {
         "card-container",
         "geek-info-card",
         "card-inner new-geek-wrap",
+        "btn btn-greet",
+        "candidate-card-wrap css-type-1",
+        "card-inner common-wrap css-type-1",
       ],
       closeButton: [
         "boss-popup__close",
@@ -98,7 +101,7 @@ class BossParser extends BaseParser {
     return true;
 
     let messageTip = window.parent.document.getElementsByClassName(
-      this.detailSelectors.messageTip
+      this.detailSelectors.messageTip,
     );
     if (messageTip.length > 0) {
       messageTip = messageTip[0];
@@ -132,7 +135,7 @@ class BossParser extends BaseParser {
           parseInt(
             messageListItems[i]
               .getElementsByClassName("badge-count badge-count-common-less")[0]
-              .textContent.trim()
+              .textContent.trim(),
           ) || 0;
       } catch (error) {}
       if (messageCount <= 0) {
@@ -160,7 +163,7 @@ class BossParser extends BaseParser {
    */
   async clickPhoneButton(phone, wechat, resume) {
     const suoyaolist = window.parent.document.querySelectorAll(
-      `[class^="${this.selectors.phoneButton}"]`
+      `[class^="${this.selectors.phoneButton}"]`,
     );
 
     if (!suoyaolist) {
@@ -179,7 +182,7 @@ class BossParser extends BaseParser {
       suoyaolist[3].click();
       await new Promise((resolve) => setTimeout(resolve, 200));
       const confirmphoneButton = document.querySelector(
-        `[class^="boss-btn-primary boss-btn"]`
+        `[class^="boss-btn-primary boss-btn"]`,
       );
 
       if (confirmphoneButton) {
@@ -191,7 +194,7 @@ class BossParser extends BaseParser {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const confirmphoneButton = document.querySelector(
-        `[class^="boss-btn-primary boss-btn"]`
+        `[class^="boss-btn-primary boss-btn"]`,
       );
 
       if (confirmphoneButton) {
@@ -203,7 +206,7 @@ class BossParser extends BaseParser {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const confirmphoneButton = document.querySelector(
-        `[class^="boss-btn-primary boss-btn"]`
+        `[class^="boss-btn-primary boss-btn"]`,
       );
       if (confirmphoneButton) {
         confirmphoneButton.click();
@@ -220,7 +223,7 @@ class BossParser extends BaseParser {
       for (let i = 0; i < this.selectors.continueButton.length; i++) {
         //先点击继续沟通
         const continueButton = element.querySelectorAll(
-          `[class^="${this.selectors.continueButton[i]}"]`
+          `[class^="${this.selectors.continueButton[i]}"]`,
         );
         for (let j = 0; j < continueButton.length; j++) {
           // console.log(continueButton[j].textContent.trim());
@@ -242,7 +245,7 @@ class BossParser extends BaseParser {
 
       //点击确认按钮
       const closeButton = document.querySelector(
-        `[class^="iboss iboss-close"]`
+        `[class^="iboss iboss-close"]`,
       );
       // console.log("关闭按钮",closeButton);
 
@@ -251,7 +254,7 @@ class BossParser extends BaseParser {
       }
 
       const closeButton2 = document.querySelector(
-        `[class^="km-icon sati ignore-im-widget-click sati-times"]`
+        `[class^="km-icon sati ignore-im-widget-click sati-times"]`,
       );
       // console.log("关闭按钮2",closeButton2);
       if (closeButton2) {
@@ -276,7 +279,7 @@ class BossParser extends BaseParser {
       ) {
         if (event.data.data) {
           this.processInterceptedData(
-            event.data.data.zpData.geekList || event.data.data.zpData.geeks
+            event.data.data.zpData.geekList || event.data.data.zpData.geeks,
           );
         }
       }
@@ -303,7 +306,7 @@ class BossParser extends BaseParser {
                 console.log("候选人数据直接缓存完成");
                 resolve();
               }
-            }
+            },
           );
         });
       }
@@ -351,7 +354,7 @@ class BossParser extends BaseParser {
     if (items.length === 0) {
       for (const item of this.fullClasses.items) {
         items = document.querySelectorAll(
-          `[class^="${item}"], [class*=" ${this.selectors.items}"]`
+          `[class^="${item}"], [class*=" ${this.selectors.items}"]`,
         );
         if (items.length > 0) {
           break;
@@ -382,7 +385,7 @@ class BossParser extends BaseParser {
     if (!cachedData || !candidateName) return null;
 
     for (const candidate of cachedData) {
-      console.log(candidate.geekCard);
+      // console.log(candidate.geekCard);
       if (
         candidate.geekCard &&
         candidate.geekCard.geekName
@@ -433,7 +436,7 @@ class BossParser extends BaseParser {
           const candidate = await this.processCandidate(
             item,
             candidateName,
-            cachedData
+            cachedData,
           );
           if (candidate) {
             candidates.push(candidate);
@@ -486,7 +489,7 @@ class BossParser extends BaseParser {
       const pageActiveText =
         (await this.findElement(
           this.fullClasses.activeText,
-          this.selectors.activeText
+          this.selectors.activeText,
         )(item)?.textContent?.trim()) || "离线";
 
       if (pageActiveText && pageActiveText !== "离线") {
@@ -506,27 +509,27 @@ class BossParser extends BaseParser {
         name: candidateName,
         age: this.extractAge(
           await this.findElement(this.fullClasses.age, this.selectors.age)(item)
-            ?.textContent
+            ?.textContent,
         ),
         education:
           (await this.findElement(
             this.fullClasses.education,
-            this.selectors.education
+            this.selectors.education,
           )(item)?.textContent?.trim()) || "",
         university:
           (await this.findElement(
             this.fullClasses.university,
-            this.selectors.university
+            this.selectors.university,
           )(item)?.textContent?.trim()) || "",
         description:
           (await this.findElement(
             this.fullClasses.description,
-            this.selectors.description
+            this.selectors.description,
           )(item)?.textContent?.trim()) || "",
         activeText: await this.getActiveText(item),
         extraInfo: await this.extractExtraInfo(
           item,
-          this.selectors.extraSelectors
+          this.selectors.extraSelectors,
         ),
         timestamp: Date.now(),
       };
@@ -539,7 +542,7 @@ class BossParser extends BaseParser {
   async processCandidate(item, candidateName, cachedData) {
     const cachedCandidate = this.findCandidateFromCache(
       cachedData,
-      candidateName
+      candidateName,
     );
     if (cachedCandidate) {
       // console.log(`使用缓存数据: ${candidateName}`);
@@ -553,7 +556,7 @@ class BossParser extends BaseParser {
   getActiveText(item) {
     let activeTextElement = findElement(
       this.fullClasses.activeText,
-      this.selectors.activeText
+      this.selectors.activeText,
     );
     if (!activeTextElement) {
       let onlineMarker = findElement("online-marker", "online-marker");
@@ -580,7 +583,7 @@ class BossParser extends BaseParser {
           view: window,
           bubbles: true,
           cancelable: true,
-        })
+        }),
       );
 
       //this.selectors.clickTarget 是数组
@@ -613,6 +616,7 @@ class BossParser extends BaseParser {
 
   // 实现点击候选人详情方法
   async clickCandidateDetail(element) {
+    console.log("点击候选人详情:");
     try {
       let detailLink = null;
       //this.detailSelectors.detailLink 是数组
@@ -633,6 +637,9 @@ class BossParser extends BaseParser {
       }
       return false;
     } catch (error) {
+      alert(
+        "goodhr提醒您 插件打招呼失败,请联系作者。错误原因为 找不到打招呼按钮",
+      );
       console.error("点击候选人详情失败:", error);
       return false;
     }
@@ -699,7 +706,7 @@ class BossParser extends BaseParser {
         document,
         null,
         XPathResult.FIRST_ORDERED_NODE_TYPE,
-        null
+        null,
       ).singleNodeValue;
       if (element) {
         console.log(`发现未关闭的弹框: ${xpath}`);
@@ -716,7 +723,7 @@ class BossParser extends BaseParser {
       //参考boss_resume_downloader.js中的processNextCandidate方法
       for (let i = 0; i <= this.selectors.isContacted.length; i++) {
         let aaa = document.getElementsByClassName(
-          this.selectors.isContacted[i]
+          this.selectors.isContacted[i],
         );
         if (aaa.length > 0) {
           return aaa[0].textContent.trim();
@@ -758,7 +765,7 @@ class BossParser extends BaseParser {
       info.push("\n工作经历:");
       candidate.geekCard.geekWorks.forEach((work) => {
         info.push(
-          `- ${work.company || "未知公司"} · ${work.positionName || "未知职位"}`
+          `- ${work.company || "未知公司"} · ${work.positionName || "未知职位"}`,
         );
         info.push(`  时间: ${work.startDate} 至 ${work.endDate || "至今"}`);
         info.push(`  职责: ${work.responsibility || "无描述"}`);
@@ -776,7 +783,7 @@ class BossParser extends BaseParser {
         info.push(
           `  学历: ${edu.degreeName || "未知"} (${edu.startDate} 至 ${
             edu.endDate
-          })`
+          })`,
         );
       });
     }

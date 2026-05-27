@@ -1,119 +1,104 @@
 {
-	"manifest_version": 3,
-	"name": "GoodHR 助手",
-	"version": "2.8.1",
-	"description": "世界上最漂亮的HR,让我来解放你的双手吧!",
-	"icons": {
-		"16": "icons/16.png",
-		"32": "icons/32.png",
-		"48": "icons/48.png",
-		"128": "icons/128.png"
-	},
-	"permissions": [
-		"activeTab",
-		"tabs",
-		"storage",
-		"downloads"
-	],
-	"host_permissions": [
-		"*://*.zhipin.com/*",
-		"*://*.lagou.com/*",
-		"*://*.zhaopin.com/*",
-		"*://*.liepin.com/*",
-		"*://*.siliconflow.cn/*",
-		"*://*.58it.cn/*",
-		"*://*.58.com/*"
-	],
-	"web_accessible_resources": [
-		{
-			"resources": [
-				"content_scripts/sites/*.js",
-				"sounds/*.mp3",
-				"config.js",
-				"ads.json",
-				"utils/fp.min.js"
-			],
-			"matches": [
-				"<all_urls>"
-			]
-		}
-	],
-	"content_scripts": [
-		{
-			"matches": [
-				"*://*.zhipin.com/*"
-			],
-			"js": [
-				"content_scripts/sites/boss_injector.js"
-			],
-			"run_at": "document_start",
-			"all_frames": true,
-			"match_about_blank": true
-		},
-			{
-			"matches": [
-				"*://h.liepin.com/*"
-			],
-			"js": [
-				"content_scripts/sites/hliepin_injector.js"
-			],
-			"run_at": "document_start",
-			"all_frames": true,
-			"match_about_blank": true
-		},
+  "manifest_version": 3,
+  "name": "GoodHR 3.2.1",
+  "version": "3.2.1",
+  "description": "世界上最漂亮的HR,让我来解放你的双手吧!",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "permissions": ["activeTab", "tabs", "storage", "downloads"],
+  "host_permissions": [
+    "*://*.zhipin.com/*",
+    "*://*.lagou.com/*",
+    "*://*.zhaopin.com/*",
+    "*://*.liepin.com/*",
+    "*://*.siliconflow.cn/*",
+    "*://*.58it.cn/*",
+    "*://*.58.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content_scripts/sites/*.js",
+        "sounds/*.mp3",
+        "config.js",
+        "ads.json",
+        "utils/fp.min.js",
+        "utils/api.js",
+        "utils/button-injector.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.zhipin.com/*"],
+      "js": ["content_scripts/sites/boss_injector.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["*://h.liepin.com/*"],
+      "js": ["content_scripts/sites/hliepin_injector.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
 
-		{
-			"matches": [
-				"*://employer.58.com/*"
-			],
-			"js": [
-				"content_scripts/sites/employer58_injector.js"
-			],
-			"run_at": "document_start",
-			"all_frames": true,
-			"match_about_blank": true
-		},
-		{
-			"matches": [
-				"*://*.zhipin.com/*"
-			],
-			"js": [
-				"config.js",
-				"content_scripts/sites/boss.js",
-				"content_scripts/sites/boss_resume_downloader.js",
-				"content_scripts/resume_downloader.js",
-				"content_scripts/index.js"
-			],
-			"all_frames": true,
-			"match_about_blank": true
-		},
-		{
-			"matches": [
-				"*://*.lagou.com/*",
-				"*://*.zhaopin.com/*",
-				"*://*.liepin.com/*",
-				"*://*.58it.cn/*",
-				"*://*.58.com/*"
-			],
-			"js": [
-				"config.js",
-				"content_scripts/index.js"
-			],
-			"all_frames": true,
-			"match_about_blank": true
-		}
-	],
-	"action": {
-		"default_icon": {
-			"16": "icons/16.png",
-			"32": "icons/32.png",
-			"48": "icons/48.png",
-			"128": "icons/128.png"
-		},
-		"default_title": "Good!HR 助手",
-		"default_popup": "popup/index.html"
-	},
-	"background": {
-		"service_worker": "background.js"
-	}
+    {
+      "matches": ["*://employer.58.com/*"],
+      "js": ["content_scripts/sites/employer58_injector.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["*://*.zhipin.com/*"],
+      "js": [
+        "config.js",
+        "content_scripts/sites/boss.js",
+        "content_scripts/sites/boss_resume_downloader.js",
+        "content_scripts/resume_downloader.js",
+        "content_scripts/index.js"
+      ],
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": [
+        "*://*.lagou.com/*",
+        "*://*.zhaopin.com/*",
+        "*://*.liepin.com/*",
+        "*://*.58it.cn/*",
+        "*://*.58.com/*"
+      ],
+      "js": [
+        "config.js",
+        "content_scripts/sites/lagou_injector.js",
+        "content_scripts/sites/zhilian_injector.js",
+        "content_scripts/sites/liepin_injector.js",
+        "content_scripts/sites/58_injector.js",
+        "content_scripts/index.js"
+      ],
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    },
+    "default_title": "Good!HR 助手",
+    "default_popup": "popup/index.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
 }

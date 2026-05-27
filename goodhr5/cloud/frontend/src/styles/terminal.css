@@ -1,0 +1,41 @@
+/* GoodHR 5 终端风格主题 */
+:root{--bg:#0a0a0a;--bg-panel:#0d0d0d;--bg-input:#111;--fg:#0f0;--fg-dim:#ddd;--fg-error:#f33;--fg-warn:#fa0;--border:#333;--border-focus:#0f0;--font:'Courier New','Source Code Pro',monospace;--radius:0;--gap:12px}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.5}
+#app{max-width:1024px;margin:0 auto;padding:var(--gap)}
+input,textarea,select{font-family:inherit;font-size:inherit;background:var(--bg-input);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;width:100%}
+input:focus,textarea:focus,select:focus{border-color:var(--border-focus);outline:none}
+textarea{resize:vertical;min-height:60px}
+button{font-family:inherit;font-size:inherit;cursor:pointer;background:transparent;border:1px solid var(--fg);color:var(--fg);padding:8px 20px;border-radius:var(--radius);transition:all .15s}
+button:hover{background:var(--fg);color:var(--bg)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.ghost{border-color:var(--border);color:var(--fg-dim)}
+button.ghost:hover{border-color:var(--fg);color:var(--fg);background:transparent}
+button.ghost.primary{border-color:var(--fg);color:var(--fg)}
+button.ghost.primary:hover{background:var(--fg);color:var(--bg)}
+button.danger{border-color:var(--fg-error);color:var(--fg-error)}
+button.danger:hover{background:var(--fg-error);color:var(--bg)}
+select option{background:var(--bg-input);color:var(--fg)}
+h1,h2,h3{color:var(--fg);font-weight:normal;margin-bottom:8px}
+h1{font-size:24px}h2{font-size:18px}h3{font-size:14px}
+p+p{margin-top:4px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--fg-dim)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:13px}
+dl dt{color:var(--fg-dim)}dl dd{color:var(--fg)}
+.panel{background:var(--bg-panel);border:1px solid var(--border);padding:var(--gap);margin-bottom:var(--gap)}
+.panel-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--gap);border-bottom:1px solid var(--border);padding-bottom:8px}
+.panel-header h2{margin-bottom:0}
+.error{color:var(--fg-error)}.hint{color:var(--fg-dim);font-style:italic}.warn{color:var(--fg-warn)}.success{color:var(--fg)}
+.form-grid{display:grid;gap:8px;grid-template-columns:1fr 1fr}
+.actions{display:flex;gap:8px;margin-top:var(--gap)}.actions.compact{gap:4px}
+.card-list{display:flex;flex-direction:column;gap:8px}
+.card{background:var(--bg);border:1px solid var(--border);padding:10px;display:flex;justify-content:space-between;align-items:flex-start}
+.card strong{display:block;margin-bottom:4px}.card-meta{font-size:13px;color:var(--fg-dim)}.card-actions{display:flex;gap:4px;flex-shrink:0}
+.log-panel{margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
+.log-panel ol{list-style:none;max-height:300px;overflow-y:auto}
+.log-panel li{padding:4px 0;border-bottom:1px solid #1a1a1a;font-size:13px}
+.log-panel li span{display:inline-block;width:50px;color:var(--fg-dim)}
+.snapshot{background:var(--bg);border:1px solid var(--border);padding:8px;margin-top:8px;font-size:13px}
+.snapshot strong{display:block;margin-bottom:4px}.snapshot-meta{color:var(--fg-dim)}
+.candidate-detail{margin-top:4px;white-space:pre-wrap;font-size:12px;color:var(--fg-dim)}
+@media(max-width:600px){.form-grid{grid-template-columns:1fr}#app{padding:8px}}
