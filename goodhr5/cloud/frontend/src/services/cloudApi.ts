@@ -5,8 +5,8 @@ export async function sendLoginCode(email: string) {
   return api('/api/auth/send-code', { method: 'POST', auth: false, body: { email } })
 }
 
-export async function loginByCode(email: string, code: string) {
-  return api('/api/auth/login', { method: 'POST', auth: false, body: { email, code } })
+export async function loginByCode(email: string, code: string, inviterID = '') {
+  return api('/api/auth/login', { method: 'POST', auth: false, body: { email, code, inviter_id: inviterID } })
 }
 
 export async function currentUser() {
@@ -109,6 +109,43 @@ export async function getSubscriptionStatus() {
 export async function listSubscriptionPlans() {
   const data = await api('/api/subscription/plans')
   return data.plans || []
+}
+
+/**
+ * 兑换会员激活码。
+ * @param {string} code - 用户输入的激活码。
+ * @returns {Promise<any>} 返回新的订阅状态。
+ */
+export async function redeemActivationCode(code: string) {
+  const data = await api('/api/activation-codes/redeem', { method: 'POST', body: { code } })
+  return data.subscription
+}
+
+/**
+ * 读取当前用户邀请信息。
+ * @returns {Promise<any>} 返回邀请配置、邀请ID和邀请列表。
+ */
+export async function getInvitationSummary() {
+  return api('/api/invitations/summary')
+}
+
+/**
+ * 读取超级管理员可见的激活码列表。
+ * @returns {Promise<any[]>} 返回激活码数组。
+ */
+export async function listAdminActivationCodes() {
+  const data = await api('/api/admin/activation-codes')
+  return data.codes || []
+}
+
+/**
+ * 超级管理员批量生成激活码。
+ * @param {any} payload - 包含天数、备注和数量。
+ * @returns {Promise<any[]>} 返回生成的激活码数组。
+ */
+export async function createAdminActivationCodes(payload: any) {
+  const data = await api('/api/admin/activation-codes', { method: 'POST', body: payload })
+  return data.codes || []
 }
 
 /**

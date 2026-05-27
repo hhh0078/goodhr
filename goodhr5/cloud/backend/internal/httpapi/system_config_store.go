@@ -113,6 +113,17 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "新手教学配置，包含本地程序下载链接和注册赠送会员天数",
 			Enabled:     true,
 		},
+		"system.invite_config": {
+			ConfigKey: "system.invite_config",
+			ConfigValue: `{
+				"register_reward_days": 3,
+				"paid_month_reward_days": 5,
+				"activity_title": "邀请好友奖励会员天数",
+				"activity_description": "邀请好友注册成功后，邀请人可获得注册奖励；好友充值会员后，邀请人还可按购买月份获得额外会员天数。"
+			}`,
+			Description: "邀请奖励配置，包含注册奖励天数和按月充值奖励天数",
+			Enabled:     true,
+		},
 		"system.guide": {
 			ConfigKey:   "system.guide",
 			ConfigValue: defaultSystemGuideConfig(),

@@ -25,7 +25,22 @@
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="message" class="success">{{ message }}</p>
     <p v-if="loading" class="hint">正在读取订阅信息...</p>
+
+    <div class="activation-box">
+      <label>
+        激活码
+        <input v-model="activationCode" placeholder="输入会员激活码" />
+      </label>
+      <button
+        class="ghost primary"
+        :disabled="activating || !activationCode.trim()"
+        @click="redeemCode"
+      >
+        {{ activating ? "激活中..." : "确认激活" }}
+      </button>
+    </div>
 
     <div class="plan-grid">
       <article v-for="plan in plans" :key="plan.id" class="plan-card">
@@ -85,6 +100,7 @@ import {
   getSubscriptionStatus,
   listPaymentOrders,
   listSubscriptionPlans,
+  redeemActivationCode,
 } from "../services/cloudApi";
 
 const subscription = ref<any>(null);
@@ -92,7 +108,10 @@ const plans = ref<any[]>([]);
 const orders = ref<any[]>([]);
 const loading = ref(false);
 const error = ref("");
+const message = ref("");
 const payingPlanId = ref("");
+const activationCode = ref("");
+const activating = ref(false);
 const memberLabel = computed(
   () => `${subscription.value?.member_type || "plus"} 会员`,
 );
@@ -104,6 +123,7 @@ const memberLabel = computed(
 async function load() {
   loading.value = true;
   error.value = "";
+  message.value = "";
   try {
     const [nextSubscription, nextPlans, nextOrders] = await Promise.all([
       getSubscriptionStatus(),
@@ -117,6 +137,27 @@ async function load() {
     error.value = e.message || "读取订阅信息失败";
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * 兑换会员激活码。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function redeemCode() {
+  const code = activationCode.value.trim();
+  if (!code) return;
+  activating.value = true;
+  error.value = "";
+  message.value = "";
+  try {
+    subscription.value = await redeemActivationCode(code);
+    activationCode.value = "";
+    message.value = "激活成功，会员时间已增加";
+  } catch (e: any) {
+    error.value = e.message || "激活码兑换失败";
+  } finally {
+    activating.value = false;
   }
 }
 
@@ -242,6 +283,16 @@ onMounted(load);
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
+.activation-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid #333;
+  background: #050505;
+  padding: 10px;
+  margin-bottom: 12px;
+}
 .plan-card {
   border: 1px solid #333;
   background: #050505;
@@ -305,5 +356,12 @@ ul {
 }
 .status.closed {
   color: #f33;
+}
+
+@media (max-width: 640px) {
+  .activation-box,
+  .record-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

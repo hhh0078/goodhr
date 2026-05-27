@@ -21,6 +21,9 @@ type AuthService struct {
 	exposeDebugCode bool
 	tenantStore     TenantStore
 	onboardingStore OnboardingStore
+	invitations     InvitationStore
+	subscriptions   SubscriptionStore
+	systemConfigs   SystemConfigStore
 	superAdmins     map[string]struct{}
 }
 
@@ -29,11 +32,12 @@ type sendCodeRequest struct {
 }
 
 type loginRequest struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
+	Email     string `json:"email"`
+	Code      string `json:"code"`
+	InviterID string `json:"inviter_id"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, superAdmins []string) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, superAdmins []string) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -48,6 +52,9 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		exposeDebugCode: exposeDebugCode,
 		tenantStore:     tenantStore,
 		onboardingStore: onboardingStore,
+		invitations:     invitations,
+		subscriptions:   subscriptions,
+		systemConfigs:   systemConfigs,
 		superAdmins:     superAdminMap,
 	}
 }
@@ -146,6 +153,11 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.applyInviteOnLogin(email, strings.TrimSpace(req.InviterID)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to apply invite reward")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,
 		"access_token": token,
@@ -190,14 +202,38 @@ func (s *AuthService) publicUser(email string) map[string]any {
 			onboarding = state
 		}
 	}
+	inviteID := email
+	if s.invitations != nil {
+		if id, err := s.invitations.InviteID(email); err == nil && id != "" {
+			inviteID = id
+		}
+	}
 	return map[string]any{
-		"id":             email,
+		"id":             inviteID,
+		"invite_id":      inviteID,
 		"email":          email,
 		"role":           s.userRole(email),
 		"role_label":     s.userRoleLabel(email),
 		"is_super_admin": s.IsSuperAdmin(email),
 		"onboarding":     onboarding,
 	}
+}
+
+// applyInviteOnLogin 在用户登录时绑定邀请人并发放注册奖励。
+func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
+	if s.invitations == nil {
+		return nil
+	}
+	inviterEmail, bound, err := s.invitations.BindInviterIfPossible(email, inviterID)
+	if err != nil || !bound || inviterEmail == "" {
+		return err
+	}
+	config := loadInviteConfig(s.systemConfigs)
+	if config.RegisterRewardDays <= 0 || s.subscriptions == nil {
+		return nil
+	}
+	_, err = s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.RegisterRewardDays)
+	return err
 }
 
 // SessionFromRequest 从请求头 Bearer token 中读取当前登录会话。

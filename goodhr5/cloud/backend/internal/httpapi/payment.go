@@ -36,11 +36,12 @@ type PaymentService struct {
 	orders        PaymentStore
 	subscriptions SubscriptionStore
 	systemConfigs SystemConfigStore
+	invitations   InvitationStore
 	providers     map[string]PaymentProvider
 }
 
 // NewPaymentService 创建支付服务。
-func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, providers ...PaymentProvider) *PaymentService {
+func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, invitations InvitationStore, providers ...PaymentProvider) *PaymentService {
 	providerMap := map[string]PaymentProvider{}
 	for _, provider := range providers {
 		if provider == nil {
@@ -53,6 +54,7 @@ func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions Sub
 		orders:        orders,
 		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
+		invitations:   invitations,
 		providers:     providerMap,
 	}
 }
@@ -245,8 +247,35 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 		return err
 	}
 	if changed {
-		_, err = s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays)
+		if _, err = s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays); err != nil {
+			return err
+		}
+		err = s.applyInvitePaymentReward(paidOrder)
 	}
+	return err
+}
+
+// applyInvitePaymentReward 在被邀请用户支付成功后给邀请人发放奖励。
+func (s *PaymentService) applyInvitePaymentReward(order PaymentOrder) error {
+	if s.invitations == nil || s.subscriptions == nil {
+		return nil
+	}
+	inviterEmail, err := s.invitations.InviterEmailByInvitee(order.UserEmail)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	config := loadInviteConfig(s.systemConfigs)
+	if config.PaidMonthRewardDays <= 0 {
+		return nil
+	}
+	months := order.DurationDays / 30
+	if months <= 0 {
+		months = 1
+	}
+	_, err = s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.PaidMonthRewardDays*months)
 	return err
 }
 

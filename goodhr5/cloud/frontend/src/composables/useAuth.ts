@@ -11,6 +11,7 @@ export function useAuth() {
   const user = ref(null);
   const error = ref("");
   const loading = ref(false);
+  const inviterID = ref(readInviteID());
 
   async function sendCode() {
     loading.value = true;
@@ -33,7 +34,7 @@ export function useAuth() {
     loading.value = true;
     error.value = "";
     try {
-      const data = await loginByCode(email.value, code.value);
+      const data = await loginByCode(email.value, code.value, inviterID.value);
       token.value = data.access_token;
       setAccessToken(data.access_token);
       user.value = data.user;
@@ -79,12 +80,22 @@ export function useAuth() {
     user,
     error,
     loading,
+    inviterID,
     sendCode,
     login,
     loadCurrentUser,
     logout,
     CLOUD_API_BASE: cloudApiBase(),
   };
+}
+
+/**
+ * 从当前链接中读取邀请人 ID。
+ * @returns {string} 邀请人 ID。
+ */
+function readInviteID() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("invite") || "";
 }
 
 function delay(ms: number) {

@@ -65,6 +65,9 @@
         <div v-if="auth.devCode.value" class="line dim">
           [dev] {{ auth.devCode.value }}
         </div>
+        <div v-if="auth.inviterID?.value" class="line dim">
+          invite: {{ auth.inviterID.value.slice(0, 18) }}...
+        </div>
         <div v-if="auth.error.value" class="line error">
           {{ auth.error.value }}
         </div>

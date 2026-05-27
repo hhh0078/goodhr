@@ -176,6 +176,22 @@ func (c Config) SubscriptionStore(db *sql.DB) SubscriptionStore {
 	return NewMemorySubscriptionStore()
 }
 
+// InvitationStore 创建邀请关系存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) InvitationStore(db *sql.DB) InvitationStore {
+	if db != nil {
+		return NewPostgresInvitationStore(db)
+	}
+	return NewMemoryInvitationStore()
+}
+
+// ActivationCodeStore 创建激活码存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) ActivationCodeStore(db *sql.DB) ActivationCodeStore {
+	if db != nil {
+		return NewPostgresActivationCodeStore(db)
+	}
+	return NewMemoryActivationCodeStore()
+}
+
 // PaymentStore 创建支付记录存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) PaymentStore(db *sql.DB) PaymentStore {
 	if db != nil {

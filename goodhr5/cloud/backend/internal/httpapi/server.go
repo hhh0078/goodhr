@@ -25,6 +25,8 @@ type Server struct {
 	subscriptions    *SubscriptionService
 	payments         *PaymentService
 	onboarding       *OnboardingService
+	invitations      *InvitationService
+	activationCodes  *ActivationCodeService
 	help             *HelpService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
@@ -42,7 +44,11 @@ func NewServer() (*Server, error) {
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
 	onboardingStore := config.OnboardingStore(db)
-	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, onboardingStore, config.SuperAdmins)
+	systemConfigStore := config.SystemConfigStore(db)
+	subscriptionStore := config.SubscriptionStore(db)
+	invitationStore := config.InvitationStore(db)
+	activationCodeStore := config.ActivationCodeStore(db)
+	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	candidateStore := config.CandidateStore(db)
@@ -51,11 +57,9 @@ func NewServer() (*Server, error) {
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
-	systemConfigStore := config.SystemConfigStore(db)
-	subscriptionStore := config.SubscriptionStore(db)
 	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
-	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, NewHaoshoumiProvider(config))
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, NewHaoshoumiProvider(config))
 	return &Server{
 		auth:             auth,
 		agent:            NewAgentService(auth, agentStore),
@@ -69,6 +73,8 @@ func NewServer() (*Server, error) {
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:         paymentService,
 		onboarding:       NewOnboardingService(auth, onboardingStore, systemConfigStore),
+		invitations:      NewInvitationService(auth, invitationStore, systemConfigStore),
+		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore),
 		help:             NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
@@ -102,6 +108,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
 	mux.HandleFunc("/api/onboarding/status", s.onboarding.Status)
 	mux.HandleFunc("/api/onboarding/complete", s.onboarding.Complete)
+	mux.HandleFunc("/api/invitations/summary", s.invitations.Summary)
+	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)
+	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。
