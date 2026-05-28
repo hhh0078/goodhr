@@ -14,7 +14,7 @@ export class ApiError extends Error {
 }
 
 export function cloudApiBase() {
-  return window.GOODHR_CLOUD_API || 'http://127.0.0.1:8084'
+  return window.GOODHR_CLOUD_API || 'https://goodhr5.58it.cn'
 }
 
 export function getAccessToken() {
