@@ -14,7 +14,8 @@ export class ApiError extends Error {
 }
 
 export function cloudApiBase() {
-  return window.GOODHR_CLOUD_API || 'https://goodhr5.58it.cn'
+  if (window.GOODHR_CLOUD_API) return window.GOODHR_CLOUD_API
+  return import.meta.env.DEV ? 'http://127.0.0.1:8084' : 'https://goodhr5.58it.cn'
 }
 
 export function getAccessToken() {
