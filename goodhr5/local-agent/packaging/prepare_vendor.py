@@ -17,8 +17,14 @@ from pathlib import Path
 
 
 URLS = {
-    "mac": "https://goodhr.58it.cn/cloakbrowser_mac.zip",
-    "win": "https://goodhr.58it.cn/cloakbrowser_win.zip",
+    "mac": [
+        "https://goodhr.58it.cn/cloakbrowser_mac.zip",
+    ],
+    "win": [
+        "https://cloakbrowser.dev/chromium-v146.0.7680.177.5/cloakbrowser-windows-x64.zip",
+        "https://github.com/CloakHQ/cloakbrowser/releases/download/chromium-v146.0.7680.177.5/cloakbrowser-windows-x64.zip",
+        "https://goodhr.58it.cn/cloakbrowser_win.zip",
+    ],
 }
 
 
@@ -61,6 +67,28 @@ def download_file(url: str, target: Path) -> None:
             shutil.copyfileobj(response, file)
 
 
+def download_first_available(urls: list[str], target: Path) -> None:
+    """
+    从候选地址中下载第一个可用文件。
+
+    Args:
+        urls: 候选下载地址列表。
+        target: 保存路径。
+    """
+    errors: list[str] = []
+    for url in urls:
+        try:
+            print(f"下载 CloakBrowser：{url}")
+            download_file(url, target)
+            return
+        except Exception as exc:
+            if target.exists():
+                target.unlink()
+            errors.append(f"{url} -> {exc}")
+            print(f"下载失败，尝试下一个地址：{exc}", file=sys.stderr)
+    raise RuntimeError("所有 CloakBrowser 下载地址都失败：" + "；".join(errors))
+
+
 def prepare_cloakbrowser(target_platform: str, force: bool, extract: bool) -> Path:
     """
     下载并解压 CloakBrowser。
@@ -86,8 +114,7 @@ def prepare_cloakbrowser(target_platform: str, force: bool, extract: bool) -> Pa
         archive_path.unlink()
 
     if not archive_path.exists():
-        print(f"下载 CloakBrowser：{URLS[target_platform]}")
-        download_file(URLS[target_platform], archive_path)
+        download_first_available(URLS[target_platform], archive_path)
 
     if not extract:
         print(f"CloakBrowser 压缩包已准备：{archive_path}")
