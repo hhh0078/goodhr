@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -88,6 +89,7 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("GoodHR 登录验证码已生成 email=%s code_length=%d", email, len(code))
 	if err := s.mailer.SendLoginCode(email, code); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send code")
 		return

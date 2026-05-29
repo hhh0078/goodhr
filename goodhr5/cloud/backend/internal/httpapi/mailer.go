@@ -91,8 +91,7 @@ func (m SMTPMailer) sendMessage(email string, subject string, bodyLines []string
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=UTF-8",
-		"",
-	}, "\r\n") + strings.Join(bodyLines, "\r\n")
+	}, "\r\n") + "\r\n\r\n" + strings.Join(bodyLines, "\r\n")
 
 	if m.Port == 465 {
 		return m.sendTLS(addr, auth, from, email, message)
