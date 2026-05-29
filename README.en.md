@@ -2,6 +2,8 @@
 
 ## Project Overview
 
+1ces
+
 GoodJob AI Assistant is a browser extension designed to help HR professionals screen and evaluate candidate profiles more efficiently. The extension supports multiple job platforms and offers two modes: Free and AI.
 
 - **Free Mode**: Screens candidates using keyword matching
