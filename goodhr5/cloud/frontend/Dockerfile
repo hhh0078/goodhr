@@ -4,4 +4,5 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --include=optional --no-package-lock
 COPY . .
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+RUN npm run build
+CMD ["npm", "run", "preview"]
