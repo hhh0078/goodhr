@@ -77,7 +77,7 @@
       <span>共 {{ total }} 条，第 {{ page }} / {{ totalPages }} 页</span>
       <button class="ghost" :disabled="loading || page <= 1" @click="goPage(page - 1)">上一页</button>
       <button class="ghost" :disabled="loading || page >= totalPages" @click="goPage(page + 1)">下一页</button>
-      <select v-model.number="pageSize" @change="applyFilters">
+      <select class="page-size-select" v-model.number="pageSize" @change="applyFilters">
         <option :value="12">12条/页</option>
         <option :value="24">24条/页</option>
         <option :value="48">48条/页</option>
@@ -300,7 +300,7 @@ onMounted(init);
 }
 .resume-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 .resume-card {
@@ -308,7 +308,7 @@ onMounted(init);
   background: #060606;
   padding: 12px;
   cursor: pointer;
-  min-height: 150px;
+  min-height: 118px;
 }
 .resume-card:hover {
   border-color: #0f0;
@@ -348,10 +348,15 @@ onMounted(init);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   margin-top: 14px;
   color: var(--fg-dim);
   font-size: 13px;
+}
+.page-size-select {
+  width: 92px;
+  min-width: 92px;
+  flex: 0 0 92px;
 }
 @media (max-width: 980px) {
   .filter-panel {
