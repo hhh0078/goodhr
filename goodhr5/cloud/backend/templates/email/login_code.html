@@ -1,0 +1,32 @@
+<!-- 本文件是 GoodHR 登录验证码邮件 HTML 模板。 -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GoodHR 登录验证码</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f6f3ee;font-family:Arial,'Microsoft YaHei',sans-serif;color:#2f2a24;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f3ee;padding:28px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="width:560px;max-width:92%;background:#ffffff;border:1px solid #e6ddd2;border-radius:8px;">
+            <tr>
+              <td style="padding:28px 32px 12px 32px;font-size:22px;font-weight:bold;color:#1f1a15;">GoodHR 登录验证码</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 32px 0 32px;font-size:15px;line-height:1.8;color:#5a5148;">你正在登录 GoodHR，请使用下面的验证码完成验证。</td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:26px 32px;">
+                <div style="display:inline-block;padding:14px 30px;background:#f2eadf;border-radius:8px;font-size:34px;font-weight:bold;letter-spacing:8px;color:#2f2a24;">{{.Code}}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 28px 32px;font-size:14px;line-height:1.8;color:#7a6f64;">验证码 5 分钟内有效，请勿转发给他人。如果不是你本人操作，可以忽略这封邮件。</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

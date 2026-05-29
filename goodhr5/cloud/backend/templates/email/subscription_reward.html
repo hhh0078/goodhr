@@ -1,0 +1,55 @@
+<!-- 本文件是 GoodHR 会员时间变动提醒邮件 HTML 模板。 -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GoodHR 会员时间变动提醒</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f6f3ee;font-family:Arial,'Microsoft YaHei',sans-serif;color:#2f2a24;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f3ee;padding:28px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="width:560px;max-width:92%;background:#ffffff;border:1px solid #e6ddd2;border-radius:8px;">
+            <tr>
+              <td style="padding:28px 32px 12px 32px;font-size:22px;font-weight:bold;color:#1f1a15;">GoodHR 会员时间变动提醒</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 32px 18px 32px;font-size:15px;line-height:1.8;color:#5a5148;">你好，你的 GoodHR 会员时间有变动。</td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 24px 32px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px;color:#4d463f;">
+                  <tr>
+                    <td style="padding:12px;border-top:1px solid #eee5da;background:#fbf8f3;width:120px;">变动原因</td>
+                    <td style="padding:12px;border-top:1px solid #eee5da;">{{.Reason}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px;border-top:1px solid #eee5da;background:#fbf8f3;">变动天数</td>
+                    <td style="padding:12px;border-top:1px solid #eee5da;">{{.DaysText}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px;border-top:1px solid #eee5da;background:#fbf8f3;">会员类型</td>
+                    <td style="padding:12px;border-top:1px solid #eee5da;">{{.MemberType}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px;border-top:1px solid #eee5da;background:#fbf8f3;">到期时间</td>
+                    <td style="padding:12px;border-top:1px solid #eee5da;">{{.ExpiresAt}}</td>
+                  </tr>
+                  {{if .RelatedEmail}}
+                  <tr>
+                    <td style="padding:12px;border-top:1px solid #eee5da;background:#fbf8f3;">关联用户</td>
+                    <td style="padding:12px;border-top:1px solid #eee5da;">{{.RelatedEmail}}</td>
+                  </tr>
+                  {{end}}
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 28px 32px;font-size:14px;line-height:1.8;color:#7a6f64;">感谢使用 GoodHR。</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
