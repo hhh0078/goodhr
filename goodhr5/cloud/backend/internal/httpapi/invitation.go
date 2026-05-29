@@ -33,7 +33,7 @@ type InvitationStore interface {
 	// InviteID 读取或创建用户，并返回可用于邀请链接的用户ID。
 	InviteID(email string) (string, error)
 	// BindInviterIfPossible 在用户首次登录时绑定邀请人。
-	BindInviterIfPossible(email string, inviterID string) (string, bool, error)
+	BindInviterIfPossible(email string, inviterID string) (string, bool, string, error)
 	// ListInvitees 列出当前用户邀请来的用户。
 	ListInvitees(email string) ([]Invitee, error)
 	// InviterEmailByInvitee 读取指定用户的邀请人邮箱。
@@ -137,21 +137,24 @@ func (s *MemoryInvitationStore) InviteID(email string) (string, error) {
 }
 
 // BindInviterIfPossible 绑定内存邀请人。
-func (s *MemoryInvitationStore) BindInviterIfPossible(email string, inviterID string) (string, bool, error) {
+func (s *MemoryInvitationStore) BindInviterIfPossible(email string, inviterID string) (string, bool, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	inviteeID := s.inviteIDLocked(email)
-	if inviteeID == inviterID || s.inviters[email] != "" {
-		return "", false, nil
+	if inviteeID == inviterID {
+		return "", false, "self_invite", nil
+	}
+	if s.inviters[email] != "" {
+		return "", false, "already_bound", nil
 	}
 	inviterEmail := s.emails[inviterID]
 	if inviterEmail == "" {
-		return "", false, nil
+		return "", false, "inviter_not_found", nil
 	}
 	now := time.Now()
 	s.inviters[email] = inviterEmail
 	s.rewarded[email] = now
-	return inviterEmail, true, nil
+	return inviterEmail, true, "", nil
 }
 
 // ListInvitees 列出内存邀请用户。
@@ -210,12 +213,12 @@ func (s *PostgresInvitationStore) InviteID(email string) (string, error) {
 }
 
 // BindInviterIfPossible 首次登录时写入邀请人并返回邀请人邮箱。
-func (s *PostgresInvitationStore) BindInviterIfPossible(email string, inviterID string) (string, bool, error) {
+func (s *PostgresInvitationStore) BindInviterIfPossible(email string, inviterID string) (string, bool, string, error) {
 	if inviterID == "" {
 		if _, err := ensureUserID(context.Background(), s.db, email); err != nil {
-			return "", false, err
+			return "", false, "empty_inviter_id", err
 		}
-		return "", false, nil
+		return "", false, "empty_inviter_id", nil
 	}
 	var inviterEmail string
 	err := s.db.QueryRow(`
@@ -233,16 +236,47 @@ func (s *PostgresInvitationStore) BindInviterIfPossible(email string, inviterID 
 		  AND inviter.id::text = $2
 		  AND invitee.id <> inviter.id
 		  AND invitee.inviter_id IS NULL
-		  AND invitee.invite_registered_rewarded_at IS NULL
 		RETURNING inviter.email
 		`, email, inviterID).Scan(&inviterEmail)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+		reason, reasonErr := s.inviteBindSkipReason(email, inviterID)
+		if reasonErr != nil {
+			return "", false, "unknown", reasonErr
+		}
+		return "", false, reason, nil
 	}
 	if err != nil {
-		return "", false, err
+		return "", false, "query_failed", err
 	}
-	return inviterEmail, true, nil
+	return inviterEmail, true, "", nil
+}
+
+// inviteBindSkipReason 查询 PostgreSQL 邀请绑定被跳过的具体原因。
+func (s *PostgresInvitationStore) inviteBindSkipReason(email string, inviterID string) (string, error) {
+	var inviteeID sql.NullString
+	var currentInviterID sql.NullString
+	var inviterExists bool
+	err := s.db.QueryRow(`
+		SELECT invitee.id::text, invitee.inviter_id::text, EXISTS(SELECT 1 FROM users inviter WHERE inviter.id::text = $2)
+		FROM users invitee
+		WHERE invitee.email = $1
+		`, email, inviterID).Scan(&inviteeID, &currentInviterID, &inviterExists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "invitee_not_found", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !inviterExists {
+		return "inviter_not_found", nil
+	}
+	if inviteeID.Valid && inviteeID.String == inviterID {
+		return "self_invite", nil
+	}
+	if currentInviterID.Valid && currentInviterID.String != "" {
+		return "already_bound", nil
+	}
+	return "not_matched", nil
 }
 
 // ListInvitees 列出 PostgreSQL 邀请用户。

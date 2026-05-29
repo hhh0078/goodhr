@@ -270,12 +270,12 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 	if s.invitations == nil {
 		return nil
 	}
-	inviterEmail, bound, err := s.invitations.BindInviterIfPossible(email, inviterID)
+	inviterEmail, bound, reason, err := s.invitations.BindInviterIfPossible(email, inviterID)
 	if err != nil {
 		return err
 	}
 	if !bound || inviterEmail == "" {
-		log.Printf("邀请绑定跳过 invitee=%s inviter_id=%s", email, inviterID)
+		log.Printf("邀请绑定跳过 invitee=%s inviter_id=%s reason=%s", email, inviterID, reason)
 		return nil
 	}
 	log.Printf("邀请绑定成功 invitee=%s inviter=%s inviter_id=%s", email, inviterEmail, inviterID)
