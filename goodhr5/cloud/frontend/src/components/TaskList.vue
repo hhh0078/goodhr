@@ -42,17 +42,13 @@
 
     <div v-if="showCreate" class="form-grid" style="margin-bottom: 12px">
       <label
-        >平台<select v-model="tasks.form.value.platformId">
-          <option value="boss">Boss直聘</option>
-          <option value="zhaopin">智联招聘</option>
-          <option value="liepin">猎聘</option>
-        </select></label
-      >
-      <label
-        >账号<select v-model="tasks.form.value.platformAccountId">
+        >账号<select
+          v-model="tasks.form.value.platformAccountId"
+          @change="onCreateAccountChange"
+        >
           <option value="">请选择账号</option>
           <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
-            {{ acc.display_name }}
+            {{ accountLabel(acc) }}
           </option>
         </select></label
       >
@@ -64,12 +60,24 @@
           </option>
         </select></label
       >
-      <label
-        >筛选模式<select v-model="tasks.form.value.mode">
-          <option value="keyword">关键词筛选</option>
-          <option value="ai">AI筛选</option>
-        </select></label
-      >
+      <div class="mode-field">
+        <span class="field-title">筛选模式</span>
+        <div class="mode-cards" role="radiogroup" aria-label="筛选模式">
+          <button
+            v-for="option in modeOptions"
+            :key="option.value"
+            type="button"
+            class="mode-card"
+            :class="{ active: tasks.form.value.mode === option.value }"
+            role="radio"
+            :aria-checked="tasks.form.value.mode === option.value"
+            @click="tasks.form.value.mode = option.value"
+          >
+            <strong>{{ option.label }}</strong>
+            <span>{{ option.description }}</span>
+          </button>
+        </div>
+      </div>
       <label
         >匹配上限<input
           v-model="tasks.form.value.matchLimit"
@@ -198,24 +206,17 @@
         <div v-if="editingTaskId === task.id" class="log-panel">
           <div class="form-grid">
             <label
-              >平台<select
-                v-model="editForm.platformId"
-                @change="onEditPlatformChange"
+              >账号<select
+                v-model="editForm.platformAccountId"
+                @change="onEditAccountChange"
               >
-                <option value="boss">Boss直聘</option>
-                <option value="zhaopin">智联招聘</option>
-                <option value="liepin">猎聘</option>
-              </select></label
-            >
-            <label
-              >账号<select v-model="editForm.platformAccountId">
                 <option value="">请选择账号</option>
                 <option
-                  v-for="acc in editAccounts"
+                  v-for="acc in accounts"
                   :key="acc.id"
                   :value="acc.id"
                 >
-                  {{ acc.display_name }}
+                  {{ accountLabel(acc) }}
                 </option>
               </select></label
             >
@@ -227,12 +228,24 @@
                 </option>
               </select></label
             >
-            <label
-              >筛选模式<select v-model="editForm.mode">
-                <option value="keyword">关键词筛选</option>
-                <option value="ai">AI筛选</option>
-              </select></label
-            >
+            <div class="mode-field">
+              <span class="field-title">筛选模式</span>
+              <div class="mode-cards" role="radiogroup" aria-label="筛选模式">
+                <button
+                  v-for="option in modeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="mode-card"
+                  :class="{ active: editForm.mode === option.value }"
+                  role="radio"
+                  :aria-checked="editForm.mode === option.value"
+                  @click="editForm.mode = option.value"
+                >
+                  <strong>{{ option.label }}</strong>
+                  <span>{{ option.description }}</span>
+                </button>
+              </div>
+            </div>
             <label
               >匹配上限<input
                 v-model="editForm.matchLimit"
@@ -383,7 +396,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { listPlatformAccounts } from "../services/cloudApi";
 const props = defineProps({
   tasks: Object,
@@ -395,6 +408,18 @@ const showCreate = ref(false);
 const statRange = ref("today");
 const accounts = ref<any[]>([]);
 const accountsError = ref("");
+const modeOptions = [
+  {
+    value: "keyword",
+    label: "关键词筛选",
+    description: "按关键词和排除词快速判断，免费且稳定。",
+  },
+  {
+    value: "ai",
+    label: "AI筛选",
+    description: "结合岗位要求打分，适合更细的候选人判断。",
+  },
+];
 const editingTaskId = ref("");
 const editForm = ref({
   platformId: "boss",
@@ -412,7 +437,25 @@ async function loadAccounts() {
     accountsError.value = e.message;
   }
 }
+function accountLabel(account: any) {
+  const platform = platformLabel(account?.platform_id);
+  return `${account?.display_name || account?.id || "未命名账号"} · ${platform}`;
+}
+function platformLabel(platformId: string) {
+  if (platformId === "boss") return "Boss直聘";
+  if (platformId === "zhaopin") return "智联招聘";
+  if (platformId === "liepin") return "猎聘";
+  return platformId || "未知平台";
+}
+function selectedAccount(accountId: string) {
+  return accounts.value.find((account: any) => account.id === accountId);
+}
+function onCreateAccountChange() {
+  const account = selectedAccount(tasks.form.value.platformAccountId);
+  tasks.form.value.platformId = account?.platform_id || "";
+}
 async function createTask() {
+  onCreateAccountChange();
   if (props.tasks) await props.tasks.create();
   showCreate.value = false;
   await loadAccounts();
@@ -432,16 +475,13 @@ function startEdit(task: any) {
     enableSound: Boolean(task.enable_sound),
   };
 }
-function onEditPlatformChange() {
-  editForm.value.platformAccountId = "";
+function onEditAccountChange() {
+  const account = selectedAccount(editForm.value.platformAccountId);
+  editForm.value.platformId = account?.platform_id || "";
 }
-const editAccounts = computed(() =>
-  accounts.value.filter(
-    (a: any) => a.platform_id === editForm.value.platformId,
-  ),
-);
 async function saveEdit(taskId: string) {
   if (!props.tasks) return;
+  onEditAccountChange();
   await props.tasks.update(taskId, editForm.value);
   editingTaskId.value = "";
 }
@@ -585,6 +625,51 @@ onMounted(loadAccounts);
 .range-tab:hover {
   color: #ddd;
 }
+.mode-field {
+  grid-column: 1 / -1;
+}
+.field-title {
+  display: block;
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mode-card {
+  min-height: 74px;
+  border: 1px solid #333;
+  background: #050505;
+  color: #ddd;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.mode-card strong {
+  display: block;
+  color: #fff;
+  margin-bottom: 6px;
+}
+.mode-card span {
+  display: block;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.mode-card:hover {
+  border-color: #0f0;
+}
+.mode-card.active {
+  border-color: #0f0;
+  box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.35);
+}
+.mode-card.active strong {
+  color: #0f0;
+}
 .task-main {
   /* display: flex;
   align-items: center;
@@ -659,6 +744,9 @@ onMounted(loadAccounts);
   text-align: center;
 }
 @media (max-width: 900px) {
+  .mode-cards {
+    grid-template-columns: 1fr;
+  }
   .task-main {
     flex-direction: column;
     align-items: flex-start;
