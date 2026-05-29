@@ -221,21 +221,21 @@ const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
-    { id: "tenant", label: "团队管理" },
     { id: "account", label: "平台账号" },
     { id: "position", label: "岗位模板" },
-    { id: "personal-config", label: "个人配置" },
-    { id: "subscription", label: "订阅" },
-    { id: "invitation", label: "邀请" },
     { id: "task-list", label: "任务列表" },
     { id: "resume-library", label: "简历库" },
+    { id: "tenant", label: "团队管理" },
+    { id: "invitation", label: "邀请" },
+    { id: "personal-config", label: "个人配置" },
+    { id: "subscription", label: "订阅" },
     { id: "help", label: "帮助中心" },
   ];
   if (isSuperAdmin.value) {
-    items.push({ id: "system-config", label: "系统配置" });
-    items.push({ id: "payment-records", label: "支付记录" });
-    items.push({ id: "activation-codes", label: "激活码管理" });
     items.push({ id: "user-management", label: "用户管理" });
+    items.push({ id: "activation-codes", label: "激活码管理" });
+    items.push({ id: "payment-records", label: "支付记录" });
+    items.push({ id: "system-config", label: "系统配置" });
   }
   return items;
 });
