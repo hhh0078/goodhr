@@ -56,6 +56,8 @@ export const router = createRouter({
   ],
 });
 
+let savedMenuApplied = false;
+
 router.beforeEach((to) => normalizeLegacyRoute(to));
 
 /**
@@ -77,7 +79,8 @@ function normalizeLegacyRoute(to: RouteLocationNormalized) {
   if (menu && menuRouteMap[menu]) {
     return { name: menuRouteMap[menu] };
   }
-  if (to.path === "/" && Object.keys(to.query).length === 0) {
+  if (!savedMenuApplied && to.path === "/" && Object.keys(to.query).length === 0) {
+    savedMenuApplied = true;
     const savedMenu = localStorage.getItem(MENU_CACHE_KEY) || "";
     if (savedMenu && savedMenu !== "agent" && menuRouteMap[savedMenu]) {
       return { name: menuRouteMap[savedMenu] };
