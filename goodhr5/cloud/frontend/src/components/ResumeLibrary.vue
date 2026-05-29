@@ -5,7 +5,9 @@
       <div>
         <h2>{{ filters.taskId ? "任务候选人" : "简历库" }}</h2>
         <p class="sub-title">
-          {{ filters.taskId ? "按任务筛选候选人" : "当前团队和当前用户的全部简历" }}
+          {{
+            filters.taskId ? "按任务筛选候选人" : "当前团队和当前用户的全部简历"
+          }}
         </p>
       </div>
       <button class="ghost" :disabled="loading" @click="load">
@@ -35,14 +37,20 @@
         岗位模板
         <select v-model="filters.positionId">
           <option value="">全部岗位</option>
-          <option v-for="position in positions" :key="position.id" :value="position.id">
+          <option
+            v-for="position in positions"
+            :key="position.id"
+            :value="position.id"
+          >
             {{ position.name }}
           </option>
         </select>
       </label>
       <div class="filter-actions">
         <button :disabled="loading" @click="applyFilters">查询</button>
-        <button class="ghost" :disabled="loading" @click="resetFilters">重置</button>
+        <button class="ghost" :disabled="loading" @click="resetFilters">
+          重置
+        </button>
       </div>
     </div>
 
@@ -58,26 +66,49 @@
       >
         <div class="resume-card-head">
           <strong>{{ candidateName(item) }}</strong>
-          <span>{{ platformLabel(item.platform_id) }}</span>
+          <span
+            >{{
+              item.position_name || item.expected_position || "未关联岗位"
+            }}
+            | {{ platformLabel(item.platform_id) }}</span
+          >
         </div>
         <p class="resume-meta">{{ compactInfo(item) }}</p>
-        <p class="resume-position">{{ item.position_name || item.expected_position || "未关联岗位" }}</p>
-        <div class="score-row">
-          <span>打招呼 {{ scoreText(item.ai_greet_score) }}</span>
-          <span>详情 {{ scoreText(item.ai_detail_score) }}</span>
+
+        <div class="score-row"></div>
+        <p class="resume-time">
+          {{ formatDate(item.created_at) }} |
           <span :class="item.greeted_at ? 'ok' : 'muted'">
             {{ item.greeted_at ? "已打招呼" : "未打招呼" }}
           </span>
-        </div>
-        <p class="resume-time">{{ formatDate(item.created_at) }}</p>
+
+          <span> | 打招呼分 {{ scoreText(item.ai_greet_score) }}</span>
+          <span> | 详情分 {{ scoreText(item.ai_detail_score) }}</span>
+        </p>
       </article>
     </div>
 
     <div class="pager">
       <span>共 {{ total }} 条，第 {{ page }} / {{ totalPages }} 页</span>
-      <button class="ghost" :disabled="loading || page <= 1" @click="goPage(page - 1)">上一页</button>
-      <button class="ghost" :disabled="loading || page >= totalPages" @click="goPage(page + 1)">下一页</button>
-      <select class="page-size-select" v-model.number="pageSize" @change="applyFilters">
+      <button
+        class="ghost"
+        :disabled="loading || page <= 1"
+        @click="goPage(page - 1)"
+      >
+        上一页
+      </button>
+      <button
+        class="ghost"
+        :disabled="loading || page >= totalPages"
+        @click="goPage(page + 1)"
+      >
+        下一页
+      </button>
+      <select
+        class="page-size-select"
+        v-model.number="pageSize"
+        @change="applyFilters"
+      >
         <option :value="12">12条/页</option>
         <option :value="24">24条/页</option>
         <option :value="48">48条/页</option>
@@ -107,7 +138,9 @@ const error = ref("");
 const page = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(total.value / pageSize.value)),
+);
 
 watch(
   () => props.initialTaskId,
@@ -132,7 +165,10 @@ async function init() {
  */
 async function loadFilterOptions() {
   try {
-    const [taskItems, positionItems] = await Promise.all([listTasks(), listPositions()]);
+    const [taskItems, positionItems] = await Promise.all([
+      listTasks(),
+      listPositions(),
+    ]);
     tasks.value = Array.isArray(taskItems) ? taskItems : [];
     positions.value = Array.isArray(positionItems) ? positionItems : [];
   } catch {
@@ -215,7 +251,11 @@ function openDetail(item: any) {
  */
 function taskLabel(task: any) {
   const name = task?.position_name || task?.position?.name || "未命名岗位";
-  const account = task?.platform_account_name || task?.platform_account?.display_name || task?.platform_id || "";
+  const account =
+    task?.platform_account_name ||
+    task?.platform_account?.display_name ||
+    task?.platform_id ||
+    "";
   return `${name} · ${account}`;
 }
 
@@ -246,9 +286,11 @@ function platformLabel(platformId: string) {
  * @returns {string} 摘要文案。
  */
 function compactInfo(item: any) {
-  return [item?.work_region, item?.work_years, item?.education_level]
-    .filter(Boolean)
-    .join(" / ") || "暂无摘要";
+  return (
+    [item?.work_region, item?.work_years, item?.education_level]
+      .filter(Boolean)
+      .join(" / ") || "暂无摘要"
+  );
 }
 
 /**
