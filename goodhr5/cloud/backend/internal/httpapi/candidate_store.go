@@ -55,6 +55,13 @@ type TaskCandidate struct {
 // CandidateStore 定义任务候选人入库能力。
 type CandidateStore interface {
 	SaveTaskCandidate(item TaskCandidate) (TaskCandidate, error)
+	ListTaskCandidates(tenantID string, query TaskCandidateQuery) ([]TaskCandidate, error)
+}
+
+// TaskCandidateQuery 表示候选人列表查询条件。
+type TaskCandidateQuery struct {
+	TaskID string
+	Limit  int
 }
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
@@ -89,6 +96,38 @@ func (s *MemoryCandidateStore) SaveTaskCandidate(item TaskCandidate) (TaskCandid
 	item.UpdatedAt = now
 	s.items[item.ID] = item
 	return item, nil
+}
+
+// ListTaskCandidates 按条件列出内存候选人记录。
+// tenantID 为团队 ID，内存实现不区分团队；query 为任务筛选和数量限制。
+func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) ([]TaskCandidate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	limit := normalizeCandidateLimit(query.Limit)
+	items := make([]TaskCandidate, 0)
+	for _, item := range s.items {
+		if query.TaskID != "" && item.TaskID != query.TaskID {
+			continue
+		}
+		items = append(items, item)
+		if len(items) >= limit {
+			break
+		}
+	}
+	return items, nil
+}
+
+// normalizeCandidateLimit 规范候选人列表返回数量。
+// value 为前端传入数量，返回安全范围内的数量。
+func normalizeCandidateLimit(value int) int {
+	if value <= 0 {
+		return 200
+	}
+	if value > 500 {
+		return 500
+	}
+	return value
 }
 
 func toJSONB(value any) []byte {

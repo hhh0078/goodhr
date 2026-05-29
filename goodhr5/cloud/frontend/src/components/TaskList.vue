@@ -179,12 +179,8 @@
                 tasks.expandedTaskId.value === task.id ? "收起日志" : "展开日志"
               }}
             </button>
-            <button class="text-action" @click="tasks.toggleCandidates(task)">
-              {{
-                tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)
-                  ? "收起候选人"
-                  : "查看候选人"
-              }}
+            <button class="text-action" @click="openCandidates(task)">
+              查看候选人
             </button>
             <button
               class="text-action"
@@ -323,73 +319,6 @@
           </ol>
         </div>
 
-        <!-- 候选人面板 -->
-        <div
-          v-if="tasks.candidateExpandedTaskId.value === tasks.localTaskID(task)"
-          class="log-panel"
-        >
-          <button
-            class="ghost"
-            :disabled="
-              tasks.candidateLoadingTaskId.value === tasks.localTaskID(task)
-            "
-            @click="tasks.loadCandidates(task, tasks.localTaskID(task))"
-            style="margin-bottom: 8px"
-          >
-            {{
-              tasks.candidateLoadingTaskId.value === tasks.localTaskID(task)
-                ? "读取中..."
-                : "刷新候选人"
-            }}
-          </button>
-
-          <p v-if="tasks.candidateError.value" class="error">
-            {{ tasks.candidateError.value }}
-          </p>
-
-          <div v-if="tasks.taskPositionSnapshot(task).name" class="snapshot">
-            <strong>{{ tasks.taskPositionSnapshot(task).name }}</strong>
-            <p class="snapshot-meta">
-              关键词：{{
-                (tasks.taskPositionSnapshot(task).keywords || []).join(" / ") ||
-                "无"
-              }}
-            </p>
-            <p class="snapshot-meta">
-              排除词：{{
-                (tasks.taskPositionSnapshot(task).exclude_keywords || []).join(
-                  " / ",
-                ) || "无"
-              }}
-            </p>
-          </div>
-
-          <p v-if="tasks.candidateItems(task).length === 0" class="hint">
-            暂无候选人数据
-          </p>
-
-          <div v-else class="card-list" style="margin-top: 8px">
-            <article
-              v-for="c in tasks.candidateItems(task)"
-              :key="c.id"
-              class="card"
-            >
-              <div>
-                <strong>{{ tasks.candidateTitle(c) }}</strong>
-                <p class="card-meta">{{ tasks.candidateSubtitle(c) }}</p>
-                <p v-if="tasks.candidateDetail(c)" class="candidate-detail">
-                  {{ tasks.candidateDetail(c) }}
-                </p>
-              </div>
-              <button
-                class="ghost danger"
-                @click="tasks.removeCandidate(task, c)"
-              >
-                删除
-              </button>
-            </article>
-          </div>
-        </div>
       </article>
     </div>
   </section>
@@ -404,6 +333,7 @@ const props = defineProps({
   token: String,
   agent: Object,
 });
+const emit = defineEmits(["open-candidates"]);
 const showCreate = ref(false);
 const statRange = ref("today");
 const accounts = ref<any[]>([]);
@@ -499,6 +429,14 @@ async function toggleSound(task: any, enableSound: boolean) {
 function onSoundToggle(task: any, event: Event) {
   const target = event.target as HTMLInputElement | null;
   void toggleSound(task, Boolean(target?.checked));
+}
+/**
+ * 打开指定任务的候选人简历页面。
+ * @param {any} task - 当前任务对象。
+ * @returns {void} 无返回值。
+ */
+function openCandidates(task: any) {
+  emit("open-candidates", task?.id || "");
 }
 function taskStatusLabel(status: string) {
   const key = String(status || "").toLowerCase();

@@ -81,6 +81,20 @@ export async function listTasks() {
   return data.tasks
 }
 
+/**
+ * 读取简历库候选人列表。
+ * @param {{ taskId?: string; limit?: number }} params - 可选任务 ID 和数量限制。
+ * @returns {Promise<any[]>} 返回候选人简历数组。
+ */
+export async function listCandidates(params: { taskId?: string; limit?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.taskId) query.set('task_id', params.taskId)
+  if (params.limit) query.set('limit', String(params.limit))
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const data = await api(`/api/candidates${suffix}`)
+  return data.candidates || []
+}
+
 export async function runTask(taskID: string) {
   const data = await api(`/api/tasks/${taskID}/run`, {
     method: 'POST',

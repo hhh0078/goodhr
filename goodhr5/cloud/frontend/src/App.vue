@@ -93,6 +93,11 @@
           :positions="positions.positions.value"
           :token="auth.token.value"
           :agent="agent"
+          @open-candidates="openTaskCandidates"
+        />
+        <ResumeLibrary
+          v-else-if="activeMenu === 'resume-library'"
+          :initial-task-id="resumeTaskId"
         />
         <PlatformConfigViewer
           v-else-if="activeMenu === 'system-config' && isSuperAdmin"
@@ -157,6 +162,7 @@ import HelpCenter from "./components/HelpCenter.vue";
 import ActivationCodeManager from "./components/ActivationCodeManager.vue";
 import UserManager from "./components/UserManager.vue";
 import TaskList from "./components/TaskList.vue";
+import ResumeLibrary from "./components/ResumeLibrary.vue";
 import {
   getOnboardingStatus,
   getSubscriptionStatus,
@@ -187,10 +193,12 @@ const onboardingConfig = ref<any>({
 });
 const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
+const pageParams = new URLSearchParams(window.location.search);
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
 const activeMenu = ref(
-  savedMenu === "platform-config" ? "system-config" : savedMenu || "agent",
+  normalizeInitialMenu(pageParams.get("menu") || (pageParams.get("task_id") ? "resume-library" : savedMenu)),
 );
+const resumeTaskId = ref(pageParams.get("task_id") || "");
 const tasks = useTasks(agent.baseUrl, () => {
   activeMenu.value = "subscription";
   loadSubscriptionStatus();
@@ -207,6 +215,7 @@ const menuItems = computed(() => {
     { id: "subscription", label: "订阅" },
     { id: "invitation", label: "邀请" },
     { id: "task-list", label: "任务列表" },
+    { id: "resume-library", label: "简历库" },
     { id: "help", label: "帮助中心" },
   ];
   if (isSuperAdmin.value) {
@@ -295,6 +304,30 @@ onMounted(async () => {
  */
 function goContact() {
   window.open("https://goodhr.58it.cn", "_blank");
+}
+
+/**
+ * 标准化初始菜单 ID。
+ * @param {string | null} menu - URL 或本地缓存中的菜单值。
+ * @returns {string} 可用菜单 ID。
+ */
+function normalizeInitialMenu(menu: string | null) {
+  if (menu === "platform-config") return "system-config";
+  if (menu === "resume-library") return "resume-library";
+  return menu || "agent";
+}
+
+/**
+ * 从任务列表打开指定任务候选人页面。
+ * @param {string} taskId - 云端任务 ID。
+ * @returns {void} 无返回值。
+ */
+function openTaskCandidates(taskId: string) {
+  if (!taskId) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("menu", "resume-library");
+  url.searchParams.set("task_id", taskId);
+  window.open(url.toString(), "_blank");
 }
 /**
  * 读取服务端教学状态和教学配置。
