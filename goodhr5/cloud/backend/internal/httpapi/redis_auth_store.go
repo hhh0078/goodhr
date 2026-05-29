@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,6 +21,16 @@ func NewRedisAuthStore(addr string, password string, db int) *RedisAuthStore {
 			DB:       db,
 		}),
 	}
+}
+
+// Ping 检查 Redis 客户端是否能正常连接。
+func (s *RedisAuthStore) Ping(ctx context.Context) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := s.client.Ping(pingCtx).Err(); err != nil {
+		return fmt.Errorf("Redis 连接失败: %w", err)
+	}
+	return nil
 }
 
 func (s *RedisAuthStore) SaveLoginCode(email string, code string, ttl time.Duration) error {

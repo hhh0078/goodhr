@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -42,6 +43,9 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if db != nil {
+		log.Print("PostgreSQL 连接检查成功")
+	}
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
 	onboardingStore := config.OnboardingStore(db)
@@ -50,7 +54,14 @@ func NewServer() (*Server, error) {
 	adminUserStore := config.AdminUserStore(db, subscriptionStore)
 	invitationStore := config.InvitationStore(db)
 	activationCodeStore := config.ActivationCodeStore(db)
-	auth := NewAuthService(config.AuthStore(), mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.SuperAdmins)
+	authStore, err := config.AuthStore()
+	if err != nil {
+		return nil, err
+	}
+	if config.RedisAddr != "" {
+		log.Print("Redis 连接检查成功")
+	}
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	candidateStore := config.CandidateStore(db)

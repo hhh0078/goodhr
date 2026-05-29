@@ -2,7 +2,9 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -67,22 +69,28 @@ func (c Config) PostgresDB() (*sql.DB, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	// 调用数据库连接的 Ping，保证显式开启 PostgreSQL 时启动阶段就能发现配置错误。
-	// 自动执行数据库迁移
-	RunMigrations(db)
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("PostgreSQL 连接失败: %w", err)
 	}
+
+	// 自动执行数据库迁移；连接检查通过后再迁移，避免连接配置错误时日志不清晰。
+	RunMigrations(db)
 	return db, nil
 }
 
-// AuthStore 创建认证存储；配置 Redis 时使用 Redis，否则使用内存实现。
-func (c Config) AuthStore() AuthStore {
+// AuthStore 创建认证存储；配置 Redis 时先检查连接，未配置时使用内存实现。
+func (c Config) AuthStore() (AuthStore, error) {
 	if c.RedisAddr != "" {
-		return NewRedisAuthStore(c.RedisAddr, c.RedisPassword, c.RedisDB)
+		store := NewRedisAuthStore(c.RedisAddr, c.RedisPassword, c.RedisDB)
+		if err := store.Ping(context.Background()); err != nil {
+			return nil, err
+		}
+		return store, nil
 	}
-	return NewMemoryAuthStore()
+	return NewMemoryAuthStore(), nil
 }
 
 // Mailer 创建验证码发信器；配置 SMTP 时真实发信，否则使用开发模式。
