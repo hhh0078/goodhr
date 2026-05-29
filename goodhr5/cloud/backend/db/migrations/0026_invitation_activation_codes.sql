@@ -46,7 +46,4 @@ VALUES (
   '邀请奖励配置，包含注册奖励天数和按月充值奖励天数',
   true
 )
-ON CONFLICT (config_key) DO UPDATE
-SET config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    enabled = EXCLUDED.enabled;
+ON CONFLICT (config_key) DO NOTHING;

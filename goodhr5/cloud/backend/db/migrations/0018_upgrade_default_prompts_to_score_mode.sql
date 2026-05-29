@@ -22,4 +22,5 @@ SET config_value = jsonb_set(
   ),
   true
 )
-WHERE config_key = 'ai.default_prompts';
+WHERE config_key = 'ai.default_prompts'
+  AND coalesce(config_value->>'filter_prompt', '') NOT LIKE '%"score"%';

@@ -49,9 +49,6 @@ ${候选人信息}
   'AI 模式默认提示词',
   true
 )
-ON CONFLICT (config_key) DO UPDATE
-SET config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    enabled = EXCLUDED.enabled;
+ON CONFLICT (config_key) DO NOTHING;
 
 DROP TABLE IF EXISTS system_ai_configs;

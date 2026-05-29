@@ -17,7 +17,4 @@ VALUES (
   '新手教学配置，包含本地程序下载链接和注册赠送会员天数',
   true
 )
-ON CONFLICT (config_key) DO UPDATE
-SET config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    enabled = EXCLUDED.enabled;
+ON CONFLICT (config_key) DO NOTHING;

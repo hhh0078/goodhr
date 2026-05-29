@@ -58,7 +58,4 @@ VALUES (
   '订阅套餐配置，供前端订阅页面展示',
   true
 )
-ON CONFLICT (config_key) DO UPDATE
-SET config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    enabled = EXCLUDED.enabled;
+ON CONFLICT (config_key) DO NOTHING;

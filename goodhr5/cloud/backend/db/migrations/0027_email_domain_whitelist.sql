@@ -28,5 +28,5 @@ SET config_value = CASE
       jsonb_build_array('qq.com', 'foxmail.com', '163.com', '126.com', 'yeah.net', 'sina.com', 'sina.cn', 'sohu.com', 'aliyun.com', '139.com', '189.cn', 'wo.cn', 'gmail.com', 'outlook.com', 'hotmail.com', 'live.com', 'icloud.com', 'yahoo.com', 'proton.me', 'protonmail.com')
     )
   END,
-    description = '前端公共系统配置：本地执行器版本要求、邮箱域名白名单和系统公告列表',
-    enabled = true;
+    description = system_configs.description,
+    enabled = system_configs.enabled;

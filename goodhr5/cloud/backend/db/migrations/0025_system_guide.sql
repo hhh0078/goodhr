@@ -152,7 +152,4 @@ VALUES (
   '系统指南配置，供帮助中心和 AI 助手使用',
   true
 )
-ON CONFLICT (config_key) DO UPDATE
-SET config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    enabled = EXCLUDED.enabled;
+ON CONFLICT (config_key) DO NOTHING;
