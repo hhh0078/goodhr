@@ -1,132 +1,163 @@
-<!-- 本文件负责展示团队简历库和指定任务下的候选人简历。 -->
+<!-- 本文件负责展示简历库卡片列表、搜索筛选和分页。 -->
 <template>
   <section class="panel">
     <div class="panel-header">
       <div>
-        <h2>{{ taskId ? "任务候选人" : "简历库" }}</h2>
+        <h2>{{ filters.taskId ? "任务候选人" : "简历库" }}</h2>
         <p class="sub-title">
-          {{ taskId ? `当前任务：${taskId}` : "当前团队和当前用户的全部简历" }}
+          {{ filters.taskId ? "按任务筛选候选人" : "当前团队和当前用户的全部简历" }}
         </p>
       </div>
-      <div class="header-actions">
-        <button v-if="taskId" class="ghost" @click="showAll">查看全部简历</button>
-        <button class="ghost" :disabled="loading" @click="load">
-          {{ loading ? "刷新中..." : "刷新" }}
-        </button>
+      <button class="ghost" :disabled="loading" @click="load">
+        {{ loading ? "刷新中..." : "刷新" }}
+      </button>
+    </div>
+
+    <div class="filter-panel">
+      <label>
+        搜索
+        <input
+          v-model.trim="filters.keyword"
+          placeholder="姓名、手机号、邮箱、地区、简历内容"
+          @keyup.enter="applyFilters"
+        />
+      </label>
+      <label>
+        任务
+        <select v-model="filters.taskId">
+          <option value="">全部任务</option>
+          <option v-for="task in tasks" :key="task.id" :value="task.id">
+            {{ taskLabel(task) }}
+          </option>
+        </select>
+      </label>
+      <label>
+        岗位模板
+        <select v-model="filters.positionId">
+          <option value="">全部岗位</option>
+          <option v-for="position in positions" :key="position.id" :value="position.id">
+            {{ position.name }}
+          </option>
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button :disabled="loading" @click="applyFilters">查询</button>
+        <button class="ghost" :disabled="loading" @click="resetFilters">重置</button>
       </div>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="!loading && candidates.length === 0" class="hint">
-      暂无简历数据
-    </p>
+    <p v-if="!loading && candidates.length === 0" class="hint">暂无简历数据</p>
 
-    <div v-else class="resume-layout">
-      <div class="resume-list">
-        <article
-          v-for="item in candidates"
-          :key="item.id"
-          class="resume-card"
-          :class="{ active: selected?.id === item.id }"
-          @click="selectCandidate(item)"
-        >
-          <div class="resume-card-main">
-            <strong>{{ candidateName(item) }}</strong>
-            <span>{{ platformLabel(item.platform_id) }}</span>
-          </div>
-          <p class="resume-meta">
-            {{ compactInfo(item) }}
-          </p>
-          <div class="score-row">
-            <span>详情 {{ scoreText(item.ai_detail_score) }}</span>
-            <span>打招呼 {{ scoreText(item.ai_greet_score) }}</span>
-            <span v-if="item.greeted_at">已打招呼</span>
-          </div>
-        </article>
-      </div>
-
-      <aside v-if="selected" class="resume-detail">
-        <div class="detail-header">
-          <div>
-            <h3>{{ candidateName(selected) }}</h3>
-            <p>{{ compactInfo(selected) }}</p>
-          </div>
-          <span class="platform-tag">{{ platformLabel(selected.platform_id) }}</span>
+    <div v-else class="resume-grid">
+      <article
+        v-for="item in candidates"
+        :key="item.id"
+        class="resume-card"
+        @click="openDetail(item)"
+      >
+        <div class="resume-card-head">
+          <strong>{{ candidateName(item) }}</strong>
+          <span>{{ platformLabel(item.platform_id) }}</span>
         </div>
-
-        <div class="detail-grid">
-          <div><span>所属账号</span><strong>{{ selected.user_email || "--" }}</strong></div>
-          <div><span>任务ID</span><strong>{{ selected.task_id || "--" }}</strong></div>
-          <div><span>期望岗位</span><strong>{{ selected.expected_position || "--" }}</strong></div>
-          <div><span>在线状态</span><strong>{{ selected.online_status || "--" }}</strong></div>
-          <div><span>期望薪资</span><strong>{{ salaryText(selected) }}</strong></div>
-          <div><span>创建时间</span><strong>{{ formatDate(selected.created_at) }}</strong></div>
+        <p class="resume-meta">{{ compactInfo(item) }}</p>
+        <p class="resume-position">{{ item.position_name || item.expected_position || "未关联岗位" }}</p>
+        <div class="score-row">
+          <span>打招呼 {{ scoreText(item.ai_greet_score) }}</span>
+          <span>详情 {{ scoreText(item.ai_detail_score) }}</span>
+          <span :class="item.greeted_at ? 'ok' : 'muted'">
+            {{ item.greeted_at ? "已打招呼" : "未打招呼" }}
+          </span>
         </div>
+        <p class="resume-time">{{ formatDate(item.created_at) }}</p>
+      </article>
+    </div>
 
-        <div class="score-panel">
-          <div>
-            <span>详情评分</span>
-            <strong>{{ scoreText(selected.ai_detail_score) }}</strong>
-            <p>{{ selected.ai_detail_reason || "无原因" }}</p>
-          </div>
-          <div>
-            <span>打招呼评分</span>
-            <strong>{{ scoreText(selected.ai_greet_score) }}</strong>
-            <p>{{ selected.ai_greet_reason || "无原因" }}</p>
-          </div>
-          <div>
-            <span>复核评分</span>
-            <strong>{{ scoreText(selected.ai_review_score) }}</strong>
-            <p>{{ selected.ai_review_reason || "无原因" }}</p>
-          </div>
-        </div>
-
-        <section class="detail-section">
-          <h4>基础信息</h4>
-          <p>{{ selected.basic_info || selected.personal_description || "暂无基础信息" }}</p>
-        </section>
-
-        <section class="detail-section">
-          <h4>候选人文本</h4>
-          <pre>{{ selected.resume_text || selected.raw_text || selected.filter_text || "暂无文本" }}</pre>
-        </section>
-      </aside>
+    <div class="pager">
+      <span>共 {{ total }} 条，第 {{ page }} / {{ totalPages }} 页</span>
+      <button class="ghost" :disabled="loading || page <= 1" @click="goPage(page - 1)">上一页</button>
+      <button class="ghost" :disabled="loading || page >= totalPages" @click="goPage(page + 1)">下一页</button>
+      <select v-model.number="pageSize" @change="applyFilters">
+        <option :value="12">12条/页</option>
+        <option :value="24">24条/页</option>
+        <option :value="48">48条/页</option>
+      </select>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
-import { listCandidates } from "../services/cloudApi";
+import { computed, onMounted, ref, watch } from "vue";
+import { listCandidates, listPositions, listTasks } from "../services/cloudApi";
 
 const props = defineProps({
   initialTaskId: String,
 });
 
-const taskId = ref(props.initialTaskId || "");
+const filters = ref({
+  keyword: "",
+  taskId: props.initialTaskId || "",
+  positionId: "",
+});
 const candidates = ref<any[]>([]);
-const selected = ref<any>(null);
+const tasks = ref<any[]>([]);
+const positions = ref<any[]>([]);
 const loading = ref(false);
 const error = ref("");
+const page = ref(1);
+const pageSize = ref(12);
+const total = ref(0);
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 
 watch(
   () => props.initialTaskId,
   (value) => {
-    taskId.value = value || "";
+    filters.value.taskId = value || "";
+    page.value = 1;
     void load();
   },
 );
 
 /**
- * 读取简历库数据。
+ * 初始化筛选项和简历列表。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function init() {
+  await Promise.all([loadFilterOptions(), load()]);
+}
+
+/**
+ * 读取任务和岗位筛选项。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function loadFilterOptions() {
+  try {
+    const [taskItems, positionItems] = await Promise.all([listTasks(), listPositions()]);
+    tasks.value = Array.isArray(taskItems) ? taskItems : [];
+    positions.value = Array.isArray(positionItems) ? positionItems : [];
+  } catch {
+    tasks.value = [];
+    positions.value = [];
+  }
+}
+
+/**
+ * 读取简历库分页数据。
  * @returns {Promise<void>} 无返回值。
  */
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    candidates.value = await listCandidates({ taskId: taskId.value, limit: 300 });
-    selected.value = candidates.value[0] || null;
+    const data = await listCandidates({
+      keyword: filters.value.keyword,
+      taskId: filters.value.taskId,
+      positionId: filters.value.positionId,
+      page: page.value,
+      pageSize: pageSize.value,
+    });
+    candidates.value = data.items || [];
+    total.value = data.total || 0;
   } catch (e: any) {
     error.value = e?.message || "读取简历库失败";
   } finally {
@@ -135,25 +166,57 @@ async function load() {
 }
 
 /**
- * 选择当前查看的候选人。
- * @param {any} item - 候选人简历对象。
+ * 应用当前筛选条件。
  * @returns {void} 无返回值。
  */
-function selectCandidate(item: any) {
-  selected.value = item;
+function applyFilters() {
+  page.value = 1;
+  void load();
 }
 
 /**
- * 切换到全部简历视图。
+ * 重置筛选条件。
  * @returns {void} 无返回值。
  */
-function showAll() {
-  taskId.value = "";
-  const url = new URL(window.location.href);
-  url.searchParams.set("menu", "resume-library");
-  url.searchParams.delete("task_id");
-  window.history.replaceState({}, "", url.toString());
+function resetFilters() {
+  filters.value = { keyword: "", taskId: "", positionId: "" };
+  page.value = 1;
   void load();
+}
+
+/**
+ * 跳转到指定分页。
+ * @param {number} nextPage - 目标页码。
+ * @returns {void} 无返回值。
+ */
+function goPage(nextPage: number) {
+  page.value = Math.min(Math.max(1, nextPage), totalPages.value);
+  void load();
+}
+
+/**
+ * 新开页面查看候选人详情。
+ * @param {any} item - 候选人简历对象。
+ * @returns {void} 无返回值。
+ */
+function openDetail(item: any) {
+  if (!item?.id) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("menu", "resume-detail");
+  url.searchParams.set("candidate_id", item.id);
+  url.searchParams.delete("task_id");
+  window.open(url.toString(), "_blank");
+}
+
+/**
+ * 返回任务筛选展示名。
+ * @param {any} task - 任务对象。
+ * @returns {string} 展示文案。
+ */
+function taskLabel(task: any) {
+  const name = task?.position_name || task?.position?.name || "未命名岗位";
+  const account = task?.platform_account_name || task?.platform_account?.display_name || task?.platform_id || "";
+  return `${name} · ${account}`;
 }
 
 /**
@@ -183,12 +246,7 @@ function platformLabel(platformId: string) {
  * @returns {string} 摘要文案。
  */
 function compactInfo(item: any) {
-  return [
-    item?.work_region,
-    item?.work_years,
-    item?.education_level,
-    item?.expected_position,
-  ]
+  return [item?.work_region, item?.work_years, item?.education_level]
     .filter(Boolean)
     .join(" / ") || "暂无摘要";
 }
@@ -206,20 +264,6 @@ function scoreText(score: number | null | undefined) {
 }
 
 /**
- * 格式化薪资展示。
- * @param {any} item - 候选人简历对象。
- * @returns {string} 薪资文案。
- */
-function salaryText(item: any) {
-  const min = item?.expected_salary_min;
-  const max = item?.expected_salary_max;
-  if (min && max) return `${min}-${max}`;
-  if (min) return `${min}起`;
-  if (max) return `${max}以内`;
-  return "--";
-}
-
-/**
  * 格式化日期展示。
  * @param {string} value - 日期字符串。
  * @returns {string} 本地日期时间。
@@ -231,7 +275,7 @@ function formatDate(value: string) {
   return date.toLocaleString();
 }
 
-onMounted(load);
+onMounted(init);
 </script>
 
 <style scoped>
@@ -240,136 +284,82 @@ onMounted(load);
   color: var(--fg-dim);
   font-size: 13px;
 }
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-.resume-layout {
+.filter-panel {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 12px;
-  min-height: 0;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #333;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #050505;
 }
-.resume-list {
+.filter-actions {
   display: flex;
-  flex-direction: column;
   gap: 8px;
-  max-height: calc(100vh - 170px);
-  overflow: auto;
+}
+.resume-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
 }
 .resume-card {
   border: 1px solid #333;
   background: #060606;
-  padding: 10px;
+  padding: 12px;
   cursor: pointer;
+  min-height: 150px;
 }
-.resume-card:hover,
-.resume-card.active {
+.resume-card:hover {
   border-color: #0f0;
 }
-.resume-card-main {
+.resume-card-head {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   color: #eee;
 }
-.resume-card-main span,
+.resume-card-head span,
 .resume-meta,
-.score-row {
+.resume-position,
+.score-row,
+.resume-time {
   color: var(--fg-dim);
   font-size: 12px;
 }
-.resume-meta {
-  margin: 6px 0;
+.resume-meta,
+.resume-position,
+.resume-time {
+  margin: 8px 0 0;
 }
 .score-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 10px;
 }
-.resume-detail {
-  border: 1px solid #333;
-  background: #050505;
-  padding: 14px;
-  max-height: calc(100vh - 170px);
-  overflow: auto;
-}
-.detail-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #333;
-  padding-bottom: 12px;
-}
-.detail-header h3 {
-  margin: 0;
-}
-.detail-header p {
-  color: var(--fg-dim);
-  margin: 6px 0 0;
-}
-.platform-tag {
+.score-row .ok {
   color: #0f0;
-  white-space: nowrap;
 }
-.detail-grid,
-.score-panel {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.score-row .muted {
+  color: #777;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
-}
-.detail-grid div,
-.score-panel div {
-  border: 1px solid #2d2d2d;
-  padding: 10px;
-  min-width: 0;
-}
-.detail-grid span,
-.score-panel span {
-  display: block;
-  color: var(--fg-dim);
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-.detail-grid strong,
-.score-panel strong {
-  color: #eee;
-  overflow-wrap: anywhere;
-}
-.score-panel p,
-.detail-section p {
-  margin: 6px 0 0;
-  color: var(--fg-dim);
-  line-height: 1.6;
-}
-.detail-section {
   margin-top: 14px;
-}
-.detail-section h4 {
-  margin: 0 0 8px;
-  color: #eee;
-}
-.detail-section pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  border: 1px solid #2d2d2d;
-  background: #030303;
-  padding: 10px;
   color: var(--fg-dim);
-  line-height: 1.6;
-  max-height: 320px;
-  overflow: auto;
+  font-size: 13px;
 }
 @media (max-width: 980px) {
-  .resume-layout,
-  .detail-grid,
-  .score-panel {
+  .filter-panel {
     grid-template-columns: 1fr;
   }
-  .resume-list,
-  .resume-detail {
-    max-height: none;
+  .pager {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 </style>

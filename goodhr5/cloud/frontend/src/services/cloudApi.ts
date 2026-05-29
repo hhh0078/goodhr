@@ -83,16 +83,34 @@ export async function listTasks() {
 
 /**
  * 读取简历库候选人列表。
- * @param {{ taskId?: string; limit?: number }} params - 可选任务 ID 和数量限制。
- * @returns {Promise<any[]>} 返回候选人简历数组。
+ * @param {{ taskId?: string; positionId?: string; keyword?: string; page?: number; pageSize?: number }} params - 搜索和分页条件。
+ * @returns {Promise<any>} 返回候选人简历分页结果。
  */
-export async function listCandidates(params: { taskId?: string; limit?: number } = {}) {
+export async function listCandidates(params: { taskId?: string; positionId?: string; keyword?: string; page?: number; pageSize?: number } = {}) {
   const query = new URLSearchParams()
   if (params.taskId) query.set('task_id', params.taskId)
-  if (params.limit) query.set('limit', String(params.limit))
+  if (params.positionId) query.set('position_id', params.positionId)
+  if (params.keyword) query.set('keyword', params.keyword)
+  if (params.page) query.set('page', String(params.page))
+  if (params.pageSize) query.set('page_size', String(params.pageSize))
   const suffix = query.toString() ? `?${query.toString()}` : ''
   const data = await api(`/api/candidates${suffix}`)
-  return data.candidates || []
+  return {
+    items: data.candidates || [],
+    total: Number(data.total || 0),
+    page: Number(data.page || params.page || 1),
+    pageSize: Number(data.page_size || params.pageSize || 20),
+  }
+}
+
+/**
+ * 读取候选人详情。
+ * @param {string} candidateID - 候选人 ID。
+ * @returns {Promise<any>} 返回候选人详情。
+ */
+export async function getCandidate(candidateID: string) {
+  const data = await api(`/api/candidates/${encodeURIComponent(candidateID)}`)
+  return data.candidate
 }
 
 export async function runTask(taskID: string) {

@@ -43,17 +43,59 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := TaskCandidateQuery{
-		TaskID: strings.TrimSpace(r.URL.Query().Get("task_id")),
-		Limit:  parsePositiveInt(r.URL.Query().Get("limit")),
+		TaskID:     strings.TrimSpace(r.URL.Query().Get("task_id")),
+		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
+		Keyword:    strings.TrimSpace(r.URL.Query().Get("keyword")),
+		Page:       parsePositiveInt(r.URL.Query().Get("page")),
+		PageSize:   parsePositiveInt(r.URL.Query().Get("page_size")),
 	}
-	items, err := s.store.ListTaskCandidates(tenant.ID, query)
+	result, err := s.store.ListTaskCandidates(tenant.ID, query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
-		"candidates": publicTaskCandidates(items),
+		"candidates": publicTaskCandidates(result.Items),
+		"total":      result.Total,
+		"page":       result.Page,
+		"page_size":  result.PageSize,
+	})
+}
+
+// Detail 处理单个候选人详情请求。
+// 路径格式为 /api/candidates/{id}，只允许查看当前团队内候选人。
+func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	candidateID := strings.TrimPrefix(r.URL.Path, "/api/candidates/")
+	if candidateID == "" || candidateID == r.URL.Path {
+		writeError(w, http.StatusBadRequest, "candidate id is required")
+		return
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "candidate not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load candidate")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"candidate": publicTaskCandidate(item),
 	})
 }
 
@@ -95,6 +137,8 @@ func publicTaskCandidate(item TaskCandidate) map[string]any {
 	return map[string]any{
 		"id":                    item.ID,
 		"task_id":               item.TaskID,
+		"position_id":           item.PositionID,
+		"position_name":         item.PositionName,
 		"user_email":            item.UserEmail,
 		"platform_id":           item.PlatformID,
 		"platform_candidate_id": item.PlatformCandidateID,

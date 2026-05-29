@@ -99,6 +99,10 @@
           v-else-if="activeMenu === 'resume-library'"
           :initial-task-id="resumeTaskId"
         />
+        <ResumeDetail
+          v-else-if="activeMenu === 'resume-detail'"
+          :candidate-id="resumeCandidateId"
+        />
         <PlatformConfigViewer
           v-else-if="activeMenu === 'system-config' && isSuperAdmin"
         />
@@ -163,6 +167,7 @@ import ActivationCodeManager from "./components/ActivationCodeManager.vue";
 import UserManager from "./components/UserManager.vue";
 import TaskList from "./components/TaskList.vue";
 import ResumeLibrary from "./components/ResumeLibrary.vue";
+import ResumeDetail from "./components/ResumeDetail.vue";
 import {
   getOnboardingStatus,
   getSubscriptionStatus,
@@ -196,9 +201,17 @@ const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
 const pageParams = new URLSearchParams(window.location.search);
 const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
 const activeMenu = ref(
-  normalizeInitialMenu(pageParams.get("menu") || (pageParams.get("task_id") ? "resume-library" : savedMenu)),
+  normalizeInitialMenu(
+    pageParams.get("menu") ||
+      (pageParams.get("candidate_id")
+        ? "resume-detail"
+        : pageParams.get("task_id")
+          ? "resume-library"
+          : savedMenu),
+  ),
 );
 const resumeTaskId = ref(pageParams.get("task_id") || "");
+const resumeCandidateId = ref(pageParams.get("candidate_id") || "");
 const tasks = useTasks(agent.baseUrl, () => {
   activeMenu.value = "subscription";
   loadSubscriptionStatus();
@@ -267,7 +280,9 @@ watch(user, async (u) => {
   }
 });
 watch(activeMenu, (menu) => {
-  localStorage.setItem(ACTIVE_MENU_KEY, menu);
+  if (menu !== "resume-detail") {
+    localStorage.setItem(ACTIVE_MENU_KEY, menu);
+  }
   if (menu === "subscription") {
     markOnboardingStep("subscription_viewed");
   }
@@ -275,7 +290,10 @@ watch(activeMenu, (menu) => {
 watch(
   [user, menuItems],
   () => {
-    if (!menuItems.value.some((item) => item.id === activeMenu.value)) {
+    if (
+      activeMenu.value !== "resume-detail" &&
+      !menuItems.value.some((item) => item.id === activeMenu.value)
+    ) {
       activeMenu.value = "agent";
     }
   },
@@ -314,6 +332,7 @@ function goContact() {
 function normalizeInitialMenu(menu: string | null) {
   if (menu === "platform-config") return "system-config";
   if (menu === "resume-library") return "resume-library";
+  if (menu === "resume-detail") return "resume-detail";
   return menu || "agent";
 }
 

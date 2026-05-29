@@ -143,6 +143,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册简历库接口，用于查看当前团队或指定任务下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
+	mux.HandleFunc("/api/candidates/", s.candidates.Detail)
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)

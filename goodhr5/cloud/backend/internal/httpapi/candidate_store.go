@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -12,6 +13,8 @@ import (
 type TaskCandidate struct {
 	ID                  string
 	TaskID              string
+	PositionID          string
+	PositionName        string
 	UserEmail           string
 	PlatformID          string
 	PlatformCandidateID string
@@ -55,13 +58,25 @@ type TaskCandidate struct {
 // CandidateStore 定义任务候选人入库能力。
 type CandidateStore interface {
 	SaveTaskCandidate(item TaskCandidate) (TaskCandidate, error)
-	ListTaskCandidates(tenantID string, query TaskCandidateQuery) ([]TaskCandidate, error)
+	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
+	GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error)
 }
 
 // TaskCandidateQuery 表示候选人列表查询条件。
 type TaskCandidateQuery struct {
-	TaskID string
-	Limit  int
+	TaskID     string
+	PositionID string
+	Keyword    string
+	Page       int
+	PageSize   int
+}
+
+// TaskCandidateListResult 表示候选人分页查询结果。
+type TaskCandidateListResult struct {
+	Items    []TaskCandidate
+	Total    int
+	Page     int
+	PageSize int
 }
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
@@ -98,36 +113,82 @@ func (s *MemoryCandidateStore) SaveTaskCandidate(item TaskCandidate) (TaskCandid
 	return item, nil
 }
 
-// ListTaskCandidates 按条件列出内存候选人记录。
+// ListTaskCandidates 按条件分页列出内存候选人记录。
 // tenantID 为团队 ID，内存实现不区分团队；query 为任务筛选和数量限制。
-func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) ([]TaskCandidate, error) {
+func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	limit := normalizeCandidateLimit(query.Limit)
+	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	items := make([]TaskCandidate, 0)
 	for _, item := range s.items {
 		if query.TaskID != "" && item.TaskID != query.TaskID {
 			continue
 		}
-		items = append(items, item)
-		if len(items) >= limit {
-			break
+		if query.PositionID != "" && item.PositionID != query.PositionID {
+			continue
 		}
+		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
+			continue
+		}
+		items = append(items, item)
 	}
-	return items, nil
+	total := len(items)
+	start := (page - 1) * pageSize
+	if start >= total {
+		items = []TaskCandidate{}
+	} else {
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		items = items[start:end]
+	}
+	return TaskCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-// normalizeCandidateLimit 规范候选人列表返回数量。
-// value 为前端传入数量，返回安全范围内的数量。
-func normalizeCandidateLimit(value int) int {
-	if value <= 0 {
-		return 200
+// GetTaskCandidate 读取单个内存候选人记录。
+// tenantID 为团队 ID，内存实现不区分团队；candidateID 为候选人 ID。
+func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.items[candidateID]
+	if !ok {
+		return TaskCandidate{}, ErrNotFound
 	}
-	if value > 500 {
-		return 500
+	return item, nil
+}
+
+// normalizeCandidatePage 规范候选人分页参数。
+// page 和 pageSize 为前端传入分页值，返回安全范围内的分页值。
+func normalizeCandidatePage(page int, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
 	}
-	return value
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
+}
+
+// candidateContainsKeyword 判断候选人是否命中搜索关键词。
+// item 为候选人记录，keyword 为前端搜索词。
+func candidateContainsKeyword(item TaskCandidate, keyword string) bool {
+	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
+	return containsFold(text, keyword)
+}
+
+// containsFold 判断文本是否包含关键词且忽略大小写。
+// value 为被搜索文本，keyword 为搜索词。
+func containsFold(value string, keyword string) bool {
+	if keyword == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(value), strings.ToLower(keyword))
 }
 
 func toJSONB(value any) []byte {

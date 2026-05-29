@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -165,18 +167,30 @@ func (s *PostgresCandidateStore) SaveTaskCandidate(item TaskCandidate) (TaskCand
 	return saved, nil
 }
 
-// ListTaskCandidates 按团队和任务条件读取候选人记录。
-// tenantID 为当前用户团队 ID，query 可传任务 ID 和返回数量限制。
-func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) ([]TaskCandidate, error) {
+// ListTaskCandidates 按团队和筛选条件分页读取候选人记录。
+// tenantID 为当前用户团队 ID，query 可传搜索词、任务 ID、岗位 ID 和分页条件。
+func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
+	where, args := buildCandidateWhere(tenantID, query)
+	countSQL := "SELECT COUNT(*) FROM task_candidates tc INNER JOIN users u ON u.id = tc.user_id INNER JOIN task_runs tr ON tr.id = tc.task_id LEFT JOIN positions p ON p.id = tr.position_id WHERE " + where
+	var total int
+	if err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
+		return TaskCandidateListResult{}, err
+	}
+
+	offset := (page - 1) * pageSize
+	listArgs := append(args, pageSize, offset)
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
 		SELECT
 			tc.id,
 			tc.task_id,
+			COALESCE(tr.position_id::text, ''),
+			COALESCE(p.name, ''),
 			u.email,
 			tc.platform_id,
 			tc.platform_candidate_id,
@@ -217,17 +231,17 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 			tc.updated_at
 		FROM task_candidates tc
 		INNER JOIN users u ON u.id = tc.user_id
-		WHERE u.tenant_id = $1
-		  AND ($2 = '' OR tc.task_id::text = $2)
+		INNER JOIN task_runs tr ON tr.id = tc.task_id
+		LEFT JOIN positions p ON p.id = tr.position_id
+		WHERE `+where+`
 		ORDER BY tc.created_at DESC
-		LIMIT $3
+		LIMIT $`+fmt.Sprint(len(args)+1)+`
+		OFFSET $`+fmt.Sprint(len(args)+2)+`
 		`,
-		tenantID,
-		query.TaskID,
-		normalizeCandidateLimit(query.Limit),
+		listArgs...,
 	)
 	if err != nil {
-		return nil, err
+		return TaskCandidateListResult{}, err
 	}
 	defer rows.Close()
 
@@ -235,11 +249,113 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 	for rows.Next() {
 		item, err := scanTaskCandidate(rows)
 		if err != nil {
-			return nil, err
+			return TaskCandidateListResult{}, err
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return TaskCandidateListResult{}, err
+	}
+	return TaskCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// GetTaskCandidate 按 ID 读取当前团队内的候选人详情。
+// tenantID 为当前用户团队 ID，candidateID 为候选人 ID。
+func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	item, err := scanTaskCandidate(s.db.QueryRowContext(
+		ctx,
+		`
+		SELECT
+			tc.id,
+			tc.task_id,
+			COALESCE(tr.position_id::text, ''),
+			COALESCE(p.name, ''),
+			u.email,
+			tc.platform_id,
+			tc.platform_candidate_id,
+			tc.candidate_name,
+			tc.birth_ym,
+			tc.phone,
+			tc.email,
+			tc.work_region,
+			tc.work_years,
+			tc.expected_salary_min,
+			tc.expected_salary_max,
+			tc.basic_info,
+			tc.education_level,
+			tc.expected_position,
+			tc.online_status,
+			tc.personal_description,
+			tc.raw_text,
+			tc.filter_text,
+			tc.work_experiences,
+			tc.educations,
+			tc.certificates,
+			tc.honors,
+			tc.project_experiences,
+			tc.colleague_communications,
+			tc.resume_attachment_url,
+			tc.resume_attachment_extracted_text,
+			tc.ai_detail_reason,
+			tc.ai_detail_score,
+			tc.ai_greet_reason,
+			tc.ai_greet_score,
+			tc.ai_review_reason,
+			tc.ai_review_score,
+			tc.ext,
+			tc.first_seen_at,
+			tc.detail_fetched_at,
+			tc.greeted_at,
+			tc.created_at,
+			tc.updated_at
+		FROM task_candidates tc
+		INNER JOIN users u ON u.id = tc.user_id
+		INNER JOIN task_runs tr ON tr.id = tc.task_id
+		LEFT JOIN positions p ON p.id = tr.position_id
+		WHERE u.tenant_id = $1 AND tc.id::text = $2
+		`,
+		tenantID,
+		candidateID,
+	))
+	if err == sql.ErrNoRows {
+		return TaskCandidate{}, ErrNotFound
+	}
+	return item, err
+}
+
+// buildCandidateWhere 组装候选人查询条件和参数。
+// tenantID 为当前团队 ID，query 为前端传入筛选条件。
+func buildCandidateWhere(tenantID string, query TaskCandidateQuery) (string, []any) {
+	clauses := []string{"u.tenant_id = $1"}
+	args := []any{tenantID}
+	if query.TaskID != "" {
+		args = append(args, query.TaskID)
+		clauses = append(clauses, fmt.Sprintf("tc.task_id::text = $%d", len(args)))
+	}
+	if query.PositionID != "" {
+		args = append(args, query.PositionID)
+		clauses = append(clauses, fmt.Sprintf("tr.position_id::text = $%d", len(args)))
+	}
+	if query.Keyword != "" {
+		args = append(args, "%"+query.Keyword+"%")
+		placeholder := fmt.Sprintf("$%d", len(args))
+		clauses = append(clauses, `(tc.candidate_name ILIKE `+placeholder+`
+			OR tc.phone ILIKE `+placeholder+`
+			OR tc.email ILIKE `+placeholder+`
+			OR tc.work_region ILIKE `+placeholder+`
+			OR tc.work_years ILIKE `+placeholder+`
+			OR tc.education_level ILIKE `+placeholder+`
+			OR tc.expected_position ILIKE `+placeholder+`
+			OR tc.basic_info ILIKE `+placeholder+`
+			OR tc.personal_description ILIKE `+placeholder+`
+			OR tc.raw_text ILIKE `+placeholder+`
+			OR tc.filter_text ILIKE `+placeholder+`
+			OR tc.resume_attachment_extracted_text ILIKE `+placeholder+`)`)
+	}
+	return strings.Join(clauses, " AND "), args
 }
 
 // candidateScanner 抽象 QueryRow 和 Rows 的 Scan 能力。
@@ -261,6 +377,8 @@ func scanTaskCandidate(scanner candidateScanner) (TaskCandidate, error) {
 	err := scanner.Scan(
 		&item.ID,
 		&item.TaskID,
+		&item.PositionID,
+		&item.PositionName,
 		&item.UserEmail,
 		&item.PlatformID,
 		&item.PlatformCandidateID,
