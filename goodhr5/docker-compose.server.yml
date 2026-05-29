@@ -1,0 +1,18 @@
+# 本文件用于 Linux 服务器部署 GoodHR 5；后端使用宿主机网络，方便访问服务器本机暴露的 PostgreSQL 和 Redis。
+services:
+  backend:
+    build: ./cloud/backend
+    network_mode: host
+    env_file: ./cloud/backend/.env
+    volumes: ["./cloud/backend:/app", "/app/tmp"]
+
+  frontend:
+    build: ./cloud/frontend
+    ports: ["5173:5173"]
+    volumes:
+      [
+        "./cloud/frontend/src:/app/src",
+        "./cloud/frontend/index.html:/app/index.html",
+        "./cloud/frontend/vite.config.ts:/app/vite.config.ts",
+        "./cloud/frontend/tsconfig.json:/app/tsconfig.json",
+      ]

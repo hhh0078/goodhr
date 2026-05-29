@@ -8,6 +8,7 @@ LOG_FILE="$PROJECT_DIR/deploy.log"
 LOCK_DIR="$PROJECT_DIR/.deploy.lock"
 BRANCH="${DEPLOY_BRANCH:-main}"
 REMOTE="${DEPLOY_REMOTE:-origin}"
+COMPOSE_FILE="${DEPLOY_COMPOSE_FILE:-docker-compose.server.yml}"
 
 # log 写入带时间的部署日志。
 log() {
@@ -39,7 +40,7 @@ fi
 trap cleanup_lock EXIT INT TERM
 
 cd "$PROJECT_DIR"
-log "开始检查更新 branch=$BRANCH remote=$REMOTE"
+log "开始检查更新 branch=$BRANCH remote=$REMOTE compose=$COMPOSE_FILE"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   log "当前目录不是 Git 仓库，部署终止"
@@ -71,10 +72,10 @@ COMPOSE="$(compose_cmd)" || {
 }
 
 log "开始 Docker 构建"
-$COMPOSE build --no-cache >> "$LOG_FILE" 2>&1
+$COMPOSE -f "$COMPOSE_FILE" build --no-cache >> "$LOG_FILE" 2>&1
 
 log "开始 Docker 重启"
-$COMPOSE up -d --remove-orphans >> "$LOG_FILE" 2>&1
+$COMPOSE -f "$COMPOSE_FILE" up -d --remove-orphans >> "$LOG_FILE" 2>&1
 
 log "开始清理 Docker 缓存"
 docker image prune -f >> "$LOG_FILE" 2>&1 || true
