@@ -65,7 +65,7 @@ const defaultDescription =
   "邀请好友注册成功后，邀请人可获得注册奖励；好友充值会员后，邀请人还可按购买月份获得额外会员天数。";
 
 const inviteURL = computed(() => {
-  const url = new URL(window.location.origin + window.location.pathname);
+  const url = new URL(window.location.origin);
   if (inviteID.value) url.searchParams.set("invite", inviteID.value);
   return url.toString();
 });
