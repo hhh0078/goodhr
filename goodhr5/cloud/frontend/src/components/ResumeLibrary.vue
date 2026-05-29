@@ -119,11 +119,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { listCandidates, listPositions, listTasks } from "../services/cloudApi";
+import { useRouter } from "vue-router";
+import { listCandidates } from "../services/api/candidateApi";
+import { listPositions } from "../services/api/positionApi";
+import { listTasks } from "../services/api/taskApi";
 
 const props = defineProps({
   initialTaskId: String,
 });
+const router = useRouter();
 
 const filters = ref({
   keyword: "",
@@ -237,11 +241,11 @@ function goPage(nextPage: number) {
  */
 function openDetail(item: any) {
   if (!item?.id) return;
-  const url = new URL(window.location.href);
-  url.searchParams.set("menu", "resume-detail");
-  url.searchParams.set("candidate_id", item.id);
-  url.searchParams.delete("task_id");
-  window.open(url.toString(), "_blank");
+  const route = router.resolve({
+    name: "resume-detail",
+    query: { candidate_id: item.id },
+  });
+  window.open(route.href, "_blank");
 }
 
 /**

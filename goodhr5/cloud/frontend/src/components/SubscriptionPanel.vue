@@ -103,7 +103,7 @@ import {
   listPaymentOrders,
   listSubscriptionPlans,
   redeemActivationCode,
-} from "../services/cloudApi";
+} from "../services/api/subscriptionApi";
 
 const subscription = ref<any>(null);
 const plans = ref<any[]>([]);

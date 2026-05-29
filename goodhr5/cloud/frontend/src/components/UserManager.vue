@@ -72,7 +72,7 @@ import { onMounted, ref } from "vue";
 import {
   adjustAdminUserSubscription,
   listAdminUsers,
-} from "../services/cloudApi";
+} from "../services/api/adminApi";
 
 const users = ref<any[]>([]);
 const loading = ref(false);

@@ -98,7 +98,7 @@ import {
   releaseCookie,
   updateCookie,
   updateCookieStatus,
-} from "../services/cloudApi";
+} from "../services/api/accountApi";
 import { getLocalHealth, openPage } from "../services/localAgentApi";
 import {
   decryptCookieByAgent,

@@ -61,7 +61,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   createAdminActivationCodes,
   listAdminActivationCodes,
-} from "../services/cloudApi";
+} from "../services/api/adminApi";
 
 const loading = ref(false);
 const error = ref("");

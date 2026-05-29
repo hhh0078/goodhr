@@ -326,7 +326,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { listPlatformAccounts } from "../services/cloudApi";
+import { listPlatformAccounts } from "../services/api/accountApi";
 const props = defineProps({
   tasks: Object,
   positions: Object,

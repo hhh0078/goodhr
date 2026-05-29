@@ -4,7 +4,7 @@ import {
   getUserPreferences,
   updateUserAIConfig,
   updateUserPreferences,
-} from "../services/cloudApi";
+} from "../services/api/personalConfigApi";
 import { markOnboardingStep } from "../services/onboarding";
 
 export function usePersonalConfig() {

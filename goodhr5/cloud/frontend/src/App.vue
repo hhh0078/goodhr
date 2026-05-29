@@ -13,7 +13,7 @@
           v-for="item in menuItems"
           :key="item.id"
           :class="['menu-item', { active: activeMenu === item.id }]"
-          @click="activeMenu = item.id"
+          @click="goMenu(item.id)"
         >
           <span class="prompt">&gt;</span><span>{{ item.label }}</span>
         </div>
@@ -46,75 +46,7 @@
         <span class="top-info">PID {{ agent.info?.value?.port || "---" }}</span>
       </div>
       <div class="content-area">
-        <template v-if="activeMenu === 'agent'">
-          <OnboardingGuide
-            v-if="!onboardingProgress.completed"
-            :progress="onboardingProgress"
-            :config="onboardingConfig"
-            @go="goOnboardingMenu"
-          />
-          <GreetingDashboard :tasks="tasks" />
-          <AgentPanel
-            :agent="agent"
-            :app-config="systemAppConfig"
-            :user="user"
-            :token="auth.token"
-          />
-        </template>
-        <TenantManager
-          v-else-if="activeMenu === 'tenant'"
-          :token="auth.token.value"
-          :user-email="user?.email"
-        />
-
-        <AccountManager
-          v-else-if="activeMenu === 'account'"
-          :token="auth.token.value"
-          :agent-base-url="agent.baseUrl.value"
-        />
-        <PositionManager
-          v-else-if="activeMenu === 'position'"
-          :positions="positions"
-        />
-        <PersonalConfig
-          v-else-if="activeMenu === 'personal-config'"
-          :config="personalConfig"
-        />
-        <SubscriptionPanel v-else-if="activeMenu === 'subscription'" />
-        <InvitationPanel v-else-if="activeMenu === 'invitation'" />
-        <HelpCenter
-          v-else-if="activeMenu === 'help'"
-          :user-email="user?.email"
-        />
-
-        <TaskList
-          v-else-if="activeMenu === 'task-list'"
-          :tasks="tasks"
-          :positions="positions.positions.value"
-          :token="auth.token.value"
-          :agent="agent"
-          @open-candidates="openTaskCandidates"
-        />
-        <ResumeLibrary
-          v-else-if="activeMenu === 'resume-library'"
-          :initial-task-id="resumeTaskId"
-        />
-        <ResumeDetail
-          v-else-if="activeMenu === 'resume-detail'"
-          :candidate-id="resumeCandidateId"
-        />
-        <PlatformConfigViewer
-          v-else-if="activeMenu === 'system-config' && isSuperAdmin"
-        />
-        <PaymentRecords
-          v-else-if="activeMenu === 'payment-records' && isSuperAdmin"
-        />
-        <ActivationCodeManager
-          v-else-if="activeMenu === 'activation-codes' && isSuperAdmin"
-        />
-        <UserManager
-          v-else-if="activeMenu === 'user-management' && isSuperAdmin"
-        />
+        <RouterView />
       </div>
     </main>
     <div v-if="visibleAnnouncements.length" class="announcement-mask">
@@ -143,35 +75,18 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { getSystemAppConfig } from "./services/cloudApi";
+import { RouterView, useRoute, useRouter } from "vue-router";
+import { getSystemAppConfig } from "./services/api/systemApi";
+import { getSubscriptionStatus } from "./services/api/subscriptionApi";
+import { getOnboardingStatus } from "./services/api/onboardingApi";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
 import { usePositions } from "./composables/usePositions";
 import { usePersonalConfig } from "./composables/usePersonalConfig";
 import { useTasks } from "./composables/useTasks";
+import { provideAppContext } from "./composables/useAppContext";
+import { MENU_CACHE_KEY, menuRouteMap } from "./router";
 import LoginForm from "./components/LoginForm.vue";
-import AgentPanel from "./components/AgentPanel.vue";
-import TenantManager from "./components/TenantManager.vue";
-
-import AccountManager from "./components/AccountManager.vue";
-import PlatformConfigViewer from "./components/PlatformConfigViewer.vue";
-import PaymentRecords from "./components/PaymentRecords.vue";
-import PositionManager from "./components/PositionManager.vue";
-import PersonalConfig from "./components/PersonalConfig.vue";
-import SubscriptionPanel from "./components/SubscriptionPanel.vue";
-import InvitationPanel from "./components/InvitationPanel.vue";
-import OnboardingGuide from "./components/OnboardingGuide.vue";
-import GreetingDashboard from "./components/GreetingDashboard.vue";
-import HelpCenter from "./components/HelpCenter.vue";
-import ActivationCodeManager from "./components/ActivationCodeManager.vue";
-import UserManager from "./components/UserManager.vue";
-import TaskList from "./components/TaskList.vue";
-import ResumeLibrary from "./components/ResumeLibrary.vue";
-import ResumeDetail from "./components/ResumeDetail.vue";
-import {
-  getOnboardingStatus,
-  getSubscriptionStatus,
-} from "./services/cloudApi";
 import {
   initOnboarding,
   markOnboardingStep,
@@ -180,6 +95,8 @@ import {
 } from "./services/onboarding";
 
 const auth = useAuth();
+const route = useRoute();
+const router = useRouter();
 const agent = useAgent();
 const positions = usePositions();
 const personalConfig = usePersonalConfig();
@@ -196,28 +113,14 @@ const onboardingConfig = ref<any>({
   local_agent_download_url: "",
   trial_days: 3,
 });
-const ACTIVE_MENU_KEY = "goodhr5_active_menu";
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
-const pageParams = new URLSearchParams(window.location.search);
-const savedMenu = localStorage.getItem(ACTIVE_MENU_KEY);
-const activeMenu = ref(
-  normalizeInitialMenu(
-    pageParams.get("menu") ||
-      (pageParams.get("candidate_id")
-        ? "resume-detail"
-        : pageParams.get("task_id")
-          ? "resume-library"
-          : savedMenu),
-  ),
-);
-const resumeTaskId = ref(pageParams.get("task_id") || "");
-const resumeCandidateId = ref(pageParams.get("candidate_id") || "");
 const tasks = useTasks(agent.baseUrl, () => {
-  activeMenu.value = "subscription";
+  goMenu("subscription");
   loadSubscriptionStatus();
 });
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
+const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
@@ -238,6 +141,19 @@ const menuItems = computed(() => {
     items.push({ id: "system-config", label: "系统配置" });
   }
   return items;
+});
+provideAppContext({
+  auth,
+  agent,
+  positions,
+  personalConfig,
+  tasks,
+  user,
+  systemAppConfig,
+  onboardingProgress,
+  onboardingConfig,
+  goMenu,
+  loadSubscriptionStatus,
 });
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
@@ -280,9 +196,7 @@ watch(user, async (u) => {
   }
 });
 watch(activeMenu, (menu) => {
-  if (menu !== "resume-detail") {
-    localStorage.setItem(ACTIVE_MENU_KEY, menu);
-  }
+  localStorage.setItem(MENU_CACHE_KEY, menu);
   if (menu === "subscription") {
     markOnboardingStep("subscription_viewed");
   }
@@ -290,11 +204,11 @@ watch(activeMenu, (menu) => {
 watch(
   [user, menuItems],
   () => {
+    if (!user.value) return;
     if (
-      activeMenu.value !== "resume-detail" &&
       !menuItems.value.some((item) => item.id === activeMenu.value)
     ) {
-      activeMenu.value = "agent";
+      goMenu("agent");
     }
   },
   { immediate: true },
@@ -325,30 +239,6 @@ function goContact() {
 }
 
 /**
- * 标准化初始菜单 ID。
- * @param {string | null} menu - URL 或本地缓存中的菜单值。
- * @returns {string} 可用菜单 ID。
- */
-function normalizeInitialMenu(menu: string | null) {
-  if (menu === "platform-config") return "system-config";
-  if (menu === "resume-library") return "resume-library";
-  if (menu === "resume-detail") return "resume-detail";
-  return menu || "agent";
-}
-
-/**
- * 从任务列表打开指定任务候选人页面。
- * @param {string} taskId - 云端任务 ID。
- * @returns {void} 无返回值。
- */
-function openTaskCandidates(taskId: string) {
-  if (!taskId) return;
-  const url = new URL(window.location.href);
-  url.searchParams.set("menu", "resume-library");
-  url.searchParams.set("task_id", taskId);
-  window.open(url.toString(), "_blank");
-}
-/**
  * 读取服务端教学状态和教学配置。
  * @returns {Promise<void>} 无返回值。
  */
@@ -376,12 +266,13 @@ function refreshOnboardingProgress() {
 }
 
 /**
- * 跳转到教学卡片对应菜单。
+ * 跳转到指定菜单页面。
  * @param {string} menu - 菜单 ID。
  * @returns {void} 无返回值。
  */
-function goOnboardingMenu(menu: string) {
-  activeMenu.value = menu;
+function goMenu(menu: string) {
+  const routeName = menuRouteMap[menu] || "dashboard";
+  void router.push({ name: routeName });
   if (menu === "subscription") {
     markOnboardingStep("subscription_viewed");
   }

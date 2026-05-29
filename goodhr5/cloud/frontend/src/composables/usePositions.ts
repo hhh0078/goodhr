@@ -1,6 +1,6 @@
 /** 岗位模板管理 */
 import { ref } from 'vue'
-import { getDefaultPrompts, listPositions, savePosition, deletePosition } from '../services/cloudApi'
+import { getDefaultPrompts, listPositions, savePosition, deletePosition } from '../services/api/positionApi'
 import { markOnboardingStep } from '../services/onboarding'
 
 export function usePositions() {

@@ -64,7 +64,7 @@ import {
   inviteTenantMember,
   listTenantMembers,
   updateTenantMember,
-} from "../services/cloudApi";
+} from "../services/api/tenantApi";
 
 const props = defineProps<{ token: string; userEmail: string }>();
 const members = ref<any[]>([]);

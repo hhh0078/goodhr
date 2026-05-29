@@ -1,5 +1,5 @@
 // 本文件负责封装创建平台账号时的本地登录检测和 cookie 导出流程。
-import { listPlatformConfigs } from './cloudApi'
+import { listPlatformConfigs } from './api/accountApi'
 import { currentPageURL, exportPageCookies, openPage, startBrowser } from './localAgentApi'
 
 export type PlatformPageRule = {

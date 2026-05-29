@@ -1,4 +1,4 @@
-// GoodHR 5 云端请求工具。业务接口统一从 cloudApi.ts 调用这里。
+// GoodHR 5 云端请求工具。业务 API 模块统一调用这里。
 export const TOKEN_KEY = 'goodhr5_access_token'
 
 export class ApiError extends Error {

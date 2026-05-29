@@ -100,7 +100,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { getCandidate } from "../services/cloudApi";
+import { getCandidate } from "../services/api/candidateApi";
 
 const props = defineProps({
   candidateId: String,

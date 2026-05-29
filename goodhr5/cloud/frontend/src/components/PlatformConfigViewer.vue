@@ -80,7 +80,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import {
   listAdminSystemConfigs,
   updateAdminSystemConfig,
-} from "../services/cloudApi";
+} from "../services/api/adminApi";
 
 const configs = ref<any[]>([]);
 const loading = ref(false);

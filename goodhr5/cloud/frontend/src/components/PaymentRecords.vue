@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { listAdminPaymentOrders } from "../services/cloudApi";
+import { listAdminPaymentOrders } from "../services/api/adminApi";
 
 const orders = ref<any[]>([]);
 const loading = ref(false);

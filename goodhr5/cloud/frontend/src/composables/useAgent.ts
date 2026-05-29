@@ -1,6 +1,6 @@
 /** 本地 Agent 探测和绑定 */
 import { ref } from "vue";
-import { bindAgent } from "../services/cloudApi";
+import { bindAgent } from "../services/api/agentApi";
 import {
   bindCloudUser,
   getCloudWSStatus,

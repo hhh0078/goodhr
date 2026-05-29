@@ -1,7 +1,7 @@
 /** 云端认证逻辑 */
 import { computed, ref } from "vue";
 import { ApiError, cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
-import { currentUser, loginByCode, sendLoginCode } from "../services/cloudApi";
+import { currentUser, loginByCode, sendLoginCode } from "../services/api/authApi";
 
 const INVITE_CACHE_KEY = "goodhr5_invite_id";
 

@@ -1,16 +1,16 @@
 /** 任务和候选人管理 */
 import { ref, type Ref } from "vue";
 import { cloudApiBase, getAccessToken } from "../services/apiClient";
+import { updateCookieStatus } from "../services/api/accountApi";
+import { getSubscriptionStatus } from "../services/api/subscriptionApi";
 import {
   clearTaskLogs,
   createTask,
   deleteTask,
-  getSubscriptionStatus,
   listTasks,
   listTaskLogs,
   updateTask,
-  updateCookieStatus,
-} from "../services/cloudApi";
+} from "../services/api/taskApi";
 import {
   initLocalTask,
   listLocalCandidates,

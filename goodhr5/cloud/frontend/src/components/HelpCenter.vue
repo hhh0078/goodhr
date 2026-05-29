@@ -87,7 +87,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
-import { getSystemGuide, streamHelpChat } from "../services/cloudApi";
+import { getSystemGuide, streamHelpChat } from "../services/api/helpApi";
 
 const props = defineProps({
   userEmail: String,

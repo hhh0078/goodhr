@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { getInvitationSummary } from "../services/cloudApi";
+import { getInvitationSummary } from "../services/api/invitationApi";
 
 const loading = ref(false);
 const error = ref("");

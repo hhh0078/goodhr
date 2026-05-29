@@ -1,5 +1,5 @@
 /** 本文件负责维护前端新手教学本地步骤缓存，并在全部完成后通知后端。 */
-import { completeOnboarding } from "./cloudApi";
+import { completeOnboarding } from "./api/onboardingApi";
 
 export const ONBOARDING_EVENT = "goodhr5:onboarding";
 export const ONBOARDING_STEPS = [
