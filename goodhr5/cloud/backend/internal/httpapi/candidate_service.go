@@ -136,9 +136,11 @@ func publicTaskCandidates(items []TaskCandidate) []map[string]any {
 func publicTaskCandidate(item TaskCandidate) map[string]any {
 	return map[string]any{
 		"id":                    item.ID,
+		"engagement_id":         item.EngagementID,
 		"task_id":               item.TaskID,
 		"position_id":           item.PositionID,
 		"position_name":         item.PositionName,
+		"platform_account_id":   item.PlatformAccountID,
 		"user_email":            item.UserEmail,
 		"platform_id":           item.PlatformID,
 		"platform_candidate_id": item.PlatformCandidateID,
@@ -177,6 +179,7 @@ func publicTaskCandidate(item TaskCandidate) map[string]any {
 		"greeted_at":            item.GreetedAt,
 		"created_at":            item.CreatedAt,
 		"updated_at":            item.UpdatedAt,
+		"events":                safeSlice(item.Events),
 	}
 }
 

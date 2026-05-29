@@ -248,6 +248,12 @@ type openDetailPrecheck struct {
 	Err              error
 }
 
+// candidatePersistenceContext 保存当前候选人的持久化上下文。
+type candidatePersistenceContext struct {
+	Profile    TaskCandidate
+	Engagement CandidateEngagement
+}
+
 // processCandidates 逐候选人筛选和打招呼。
 func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candidate) error {
 	openDetailPrechecks, err := e.precomputeOpenDetailDecisions(ctx, candidates)
@@ -271,9 +277,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		e.incrementCounts(1, 0, 0, 0)
 
 		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
+		persistence, err := e.prepareCandidatePersistence(candidate, baseText, baseText, "")
+		if err != nil {
+			e.log("warn", fmt.Sprintf("候选人 %s 初始化简历库记录失败: %v", candidateName, err))
+		}
 		var shouldOpenDetail bool
 		var detailScoreDecision AIScoreDecision
-		var err error
 		if i < len(openDetailPrechecks) && openDetailPrechecks[i] != nil {
 			precheck := openDetailPrechecks[i]
 			baseText = precheck.BaseText
@@ -290,9 +299,23 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 		candidate.AI.Detail.Score = float64Ptr(detailScoreDecision.Score)
 		candidate.AI.Detail.Reason = strings.TrimSpace(detailScoreDecision.Reason)
+		e.saveCandidateEvent(persistence, CandidateEvent{
+			EventType:  "detail_analysis",
+			Score:      float64Ptr(detailScoreDecision.Score),
+			Reason:     strings.TrimSpace(detailScoreDecision.Reason),
+			InputText:  baseText,
+			OutputText: scoreDecisionOutput(detailScoreDecision),
+			Model:      e.aiConfig.Model,
+			TokenUsage: detailScoreDecision.TokenUsage,
+			Metadata: map[string]any{
+				"should_open_detail": shouldOpenDetail,
+				"threshold":          e.detailThreshold(),
+			},
+		})
 		if detailScoreDecision.Reason != "" {
 			e.log("info", fmt.Sprintf("候选人 %s 看详情评分: %.1f，原因: %s（token=%d）", candidateName, detailScoreDecision.Score, detailScoreDecision.Reason, detailScoreDecision.TokenUsage))
 		}
+		detailFetchedAt := (*time.Time)(nil)
 		detailText := ""
 		if shouldOpenDetail {
 			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode())
@@ -302,8 +325,25 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s 详情文本: %s", candidateName, previewDetailLog(detailText, 800)))
+			now := time.Now().UTC()
+			detailFetchedAt = &now
+			e.saveCandidateEvent(persistence, CandidateEvent{
+				EventType:   "detail_fetched",
+				InputText:   baseText,
+				OutputText:  detailText,
+				MessageText: previewDetailLog(detailText, 300),
+				Metadata: map[string]any{
+					"detail_mode": e.positionDetailMode(),
+				},
+			})
 		}
 		filterText := e.mergeCandidateTexts(baseText, detailText)
+		if updated, err := e.prepareCandidatePersistence(candidate, baseText, filterText, detailText); err == nil {
+			persistence = updated
+		}
+		if persistence != nil && detailFetchedAt != nil {
+			_ = e.candidateStore.UpdateCandidateEngagementStatus(persistence.Engagement.ID, "analyzed", detailFetchedAt, nil)
+		}
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
@@ -315,15 +355,50 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			}
 			candidate.AI.Greet.Score = float64Ptr(greetDecision.Score)
 			candidate.AI.Greet.Reason = strings.TrimSpace(greetDecision.Reason)
+			e.saveCandidateEvent(persistence, CandidateEvent{
+				EventType:  "greet_analysis",
+				Score:      float64Ptr(greetDecision.Score),
+				Reason:     strings.TrimSpace(greetDecision.Reason),
+				InputText:  filterText,
+				OutputText: scoreDecisionOutput(greetDecision),
+				Model:      e.aiConfig.Model,
+				TokenUsage: greetDecision.TokenUsage,
+				Metadata: map[string]any{
+					"threshold": e.greetThreshold(),
+				},
+			})
 			e.log("info", fmt.Sprintf("候选人 %s 打招呼评分: %.1f，原因: %s", candidateName, greetDecision.Score, greetDecision.Reason))
 			shouldGreet, finalGreetScore, finalGreetReason, reviewDecision, usedReview := e.evaluateGreetScore(greetDecision, filterText)
 			if usedReview {
 				candidate.AI.Review.Score = float64Ptr(reviewDecision.Score)
 				candidate.AI.Review.Reason = strings.TrimSpace(reviewDecision.Reason)
+				e.saveCandidateEvent(persistence, CandidateEvent{
+					EventType:  "review_analysis",
+					Score:      float64Ptr(reviewDecision.Score),
+					Reason:     strings.TrimSpace(reviewDecision.Reason),
+					InputText:  filterText,
+					OutputText: scoreDecisionOutput(reviewDecision),
+					Model:      e.aiConfig.Model,
+					TokenUsage: reviewDecision.TokenUsage,
+					Metadata: map[string]any{
+						"threshold": e.greetThreshold(),
+					},
+				})
 				e.log("info", fmt.Sprintf("候选人 %s 复核评分: %.1f，原因: %s（token=%d）", candidateName, reviewDecision.Score, reviewDecision.Reason, reviewDecision.TokenUsage))
 			}
 			if !shouldGreet {
 				e.log("info", fmt.Sprintf("候选人 %s AI 筛选跳过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
+				e.saveCandidateEvent(persistence, CandidateEvent{
+					EventType: "candidate_skipped",
+					Score:     float64Ptr(finalGreetScore),
+					Reason:    finalGreetReason,
+					InputText: filterText,
+					Metadata: map[string]any{
+						"mode":      "ai",
+						"threshold": e.greetThreshold(),
+					},
+				})
+				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
@@ -332,6 +407,13 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			result := e.filter.Filter(filterText)
 			if !result.Passed {
 				e.log("info", fmt.Sprintf("候选人 %s 被筛选跳过: %s", candidateName, result.Reason))
+				e.saveCandidateEvent(persistence, CandidateEvent{
+					EventType: "candidate_skipped",
+					Reason:    result.Reason,
+					InputText: filterText,
+					Metadata:  map[string]any{"mode": "keyword"},
+				})
+				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
 				continue
 			}
@@ -345,7 +427,17 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			continue
 		}
 		e.log("info", fmt.Sprintf("候选人 %s 打招呼成功", candidateName))
-		e.saveCandidateAfterGreet(candidate, baseText, filterText, detailText)
+		now := time.Now().UTC()
+		e.saveCandidateEvent(persistence, CandidateEvent{
+			EventType:   "greet_success",
+			Reason:      "打招呼成功",
+			InputText:   filterText,
+			MessageText: e.positionGreetMessage(),
+			Metadata: map[string]any{
+				"candidate_name": candidateName,
+			},
+		})
+		e.updateEngagementStatus(persistence, "greeted", detailFetchedAt, &now)
 		e.incrementCounts(0, 1, 0, 0)
 		if e.task.EnableSound {
 			if err := e.playSuccessSound(); err != nil {
@@ -495,17 +587,16 @@ func (e *TaskExecutor) filterNewCandidates(candidates []Candidate) []Candidate {
 	return result
 }
 
-// saveCandidateAfterGreet 在打招呼成功后持久化候选人基础信息。
-func (e *TaskExecutor) saveCandidateAfterGreet(candidate Candidate, baseText, filterText, detailText string) {
+// prepareCandidatePersistence 保存候选人主体并创建本次触达上下文。
+// candidate 为平台候选人对象，baseText/filterText/detailText 为本次抽取文本。
+func (e *TaskExecutor) prepareCandidatePersistence(candidate Candidate, baseText, filterText, detailText string) (*candidatePersistenceContext, error) {
 	if e.candidateStore == nil {
-		return
+		return nil, nil
 	}
-	now := time.Now().UTC()
 	if strings.TrimSpace(candidate.Detail.Text) == "" && strings.TrimSpace(detailText) != "" {
 		candidate.Detail.Text = strings.TrimSpace(detailText)
 	}
-	_, err := e.candidateStore.SaveTaskCandidate(TaskCandidate{
-		TaskID:              e.task.ID,
+	profile, err := e.candidateStore.SaveCandidateProfile(CandidateProfileInput{
 		UserEmail:           e.task.UserEmail,
 		PlatformID:          e.task.PlatformID,
 		PlatformCandidateID: strings.TrimSpace(candidate.PlatformCandidateID),
@@ -531,27 +622,69 @@ func (e *TaskExecutor) saveCandidateAfterGreet(candidate Candidate, baseText, fi
 		ProjectExperiences:  candidate.BasicProfile.ProjectExperiences,
 		Communications:      candidate.BasicProfile.ColleagueCommunications,
 		ResumeURL:           strings.TrimSpace(candidate.ResumeAttachment.URL),
-		ResumeText:          strings.TrimSpace(candidate.ResumeAttachment.ExtractedText),
-		AIDetailReason:      strings.TrimSpace(candidate.AI.Detail.Reason),
-		AIDetailScore:       candidate.AI.Detail.Score,
-		AIGreetReason:       strings.TrimSpace(candidate.AI.Greet.Reason),
-		AIGreetScore:        candidate.AI.Greet.Score,
-		AIReviewReason:      strings.TrimSpace(candidate.AI.Review.Reason),
-		AIReviewScore:       candidate.AI.Review.Score,
+		ResumeText:          strings.TrimSpace(firstNonEmpty(candidate.ResumeAttachment.ExtractedText, detailText)),
 		Ext:                 candidate.Ext,
 		FirstSeenAt:         parseOptionalRFC3339(candidate.Timestamps.FirstSeenAt),
-		DetailFetchedAt:     parseOptionalRFC3339(candidate.Timestamps.DetailFetchedAt),
-		GreetedAt:           &now,
 	})
 	if err != nil {
-		e.log("warn", fmt.Sprintf("候选人 %s 入库失败: %v", candidate.DisplayName(), err))
+		return nil, err
+	}
+	engagement, err := e.candidateStore.UpsertCandidateEngagement(CandidateEngagement{
+		CandidateID:       profile.ID,
+		UserEmail:         e.task.UserEmail,
+		TaskID:            e.task.ID,
+		PositionID:        e.task.PositionID,
+		PlatformAccountID: e.task.PlatformAccountID,
+		PlatformID:        e.task.PlatformID,
+		Status:            "created",
+		FirstSeenAt:       profile.FirstSeenAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &candidatePersistenceContext{Profile: profile, Engagement: engagement}, nil
+}
+
+// saveCandidateEvent 保存候选人事件流水。
+// persistence 为当前候选人上下文，event 为要写入的事件。
+func (e *TaskExecutor) saveCandidateEvent(persistence *candidatePersistenceContext, event CandidateEvent) {
+	if e.candidateStore == nil || persistence == nil {
 		return
 	}
-	if strings.TrimSpace(detailText) != "" {
-		e.log("info", fmt.Sprintf("候选人 %s 已入库（含详情文本）", candidate.DisplayName()))
+	event.CandidateID = persistence.Profile.ID
+	event.EngagementID = persistence.Engagement.ID
+	event.TaskID = e.task.ID
+	event.PositionID = e.task.PositionID
+	event.PlatformAccountID = e.task.PlatformAccountID
+	event.PlatformID = e.task.PlatformID
+	if _, err := e.candidateStore.SaveCandidateEvent(event); err != nil {
+		e.log("warn", fmt.Sprintf("候选人事件保存失败 type=%s candidate=%s err=%v", event.EventType, persistence.Profile.CandidateName, err))
+	}
+}
+
+// updateEngagementStatus 更新触达上下文状态。
+// persistence 为当前候选人上下文，status 为目标状态。
+func (e *TaskExecutor) updateEngagementStatus(persistence *candidatePersistenceContext, status string, detailFetchedAt *time.Time, greetedAt *time.Time) {
+	if e.candidateStore == nil || persistence == nil {
 		return
 	}
-	e.log("info", fmt.Sprintf("候选人 %s 已入库", candidate.DisplayName()))
+	if err := e.candidateStore.UpdateCandidateEngagementStatus(persistence.Engagement.ID, status, detailFetchedAt, greetedAt); err != nil {
+		e.log("warn", fmt.Sprintf("候选人触达状态更新失败 engagement=%s status=%s err=%v", persistence.Engagement.ID, status, err))
+	}
+}
+
+// scoreDecisionOutput 将 AI 评分结果转换成 JSON 文本。
+// decision 为评分结果，返回用于事件流水保存的输出文本。
+func scoreDecisionOutput(decision AIScoreDecision) string {
+	raw, err := json.Marshal(map[string]any{
+		"score":       decision.Score,
+		"reason":      decision.Reason,
+		"token_usage": decision.TokenUsage,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func firstNonEmpty(primary, fallback string) string {

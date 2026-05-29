@@ -78,6 +78,22 @@
         <h3>候选人文本</h3>
         <pre>{{ candidate.resume_text || candidate.raw_text || candidate.filter_text || "暂无文本" }}</pre>
       </section>
+
+      <section class="detail-section">
+        <h3>事件流水</h3>
+        <div v-if="candidate.events?.length" class="event-list">
+          <article v-for="event in candidate.events" :key="event.id">
+            <div class="event-head">
+              <strong>{{ eventTypeLabel(event.event_type) }}</strong>
+              <span>{{ formatDate(event.created_at) }}</span>
+            </div>
+            <p v-if="event.score !== null && event.score !== undefined">评分：{{ scoreText(event.score) }}</p>
+            <p v-if="event.reason">原因：{{ event.reason }}</p>
+            <p v-if="event.message_text">消息：{{ event.message_text }}</p>
+          </article>
+        </div>
+        <p v-else>暂无事件记录</p>
+      </section>
     </template>
   </section>
 </template>
@@ -145,6 +161,23 @@ function platformLabel(platformId: string) {
   if (platformId === "zhaopin") return "智联招聘";
   if (platformId === "liepin") return "猎聘";
   return platformId || "未知平台";
+}
+
+/**
+ * 返回事件类型中文名称。
+ * @param {string} eventType - 事件类型。
+ * @returns {string} 展示名称。
+ */
+function eventTypeLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    detail_analysis: "详情分析",
+    detail_fetched: "详情读取",
+    greet_analysis: "打招呼分析",
+    review_analysis: "复核分析",
+    candidate_skipped: "候选人跳过",
+    greet_success: "打招呼成功",
+  };
+  return labels[eventType] || eventType || "未知事件";
 }
 
 /**
@@ -248,6 +281,25 @@ function closePage() {
 .sub-list {
   display: grid;
   gap: 8px;
+}
+.event-list {
+  display: grid;
+  gap: 8px;
+}
+.event-list article {
+  border: 1px solid #333;
+  background: #050505;
+  padding: 10px;
+}
+.event-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #eee;
+}
+.event-head span {
+  color: var(--fg-dim);
+  font-size: 12px;
 }
 .detail-section pre {
   white-space: pre-wrap;

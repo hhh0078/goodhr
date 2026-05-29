@@ -1,4 +1,4 @@
-// 本文件负责候选人入库存储接口及内存实现。
+// 本文件负责候选人主体、触达上下文和事件流水的存储接口及内存实现。
 package httpapi
 
 import (
@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
-// TaskCandidate 表示任务候选人入库记录。
+// TaskCandidate 表示简历库候选人展示记录。
 type TaskCandidate struct {
 	ID                  string
+	EngagementID        string
 	TaskID              string
 	PositionID          string
 	PositionName        string
+	PlatformAccountID   string
 	UserEmail           string
 	PlatformID          string
 	PlatformCandidateID string
@@ -31,6 +33,7 @@ type TaskCandidate struct {
 	ExpectedPosition    string
 	OnlineStatus        string
 	PersonalDescription string
+	WorkStatus          string
 	RawText             string
 	FilterText          string
 	WorkExperiences     []CandidateWorkExperience
@@ -53,11 +56,87 @@ type TaskCandidate struct {
 	GreetedAt           *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	Events              []CandidateEvent
 }
 
-// CandidateStore 定义任务候选人入库能力。
+// CandidateProfileInput 表示候选人主体保存参数。
+type CandidateProfileInput struct {
+	UserEmail           string
+	PlatformID          string
+	PlatformCandidateID string
+	CandidateName       string
+	BirthYM             string
+	Phone               string
+	Email               string
+	WorkRegion          string
+	WorkYears           string
+	ExpectedSalaryMin   *int
+	ExpectedSalaryMax   *int
+	BasicInfo           string
+	EducationLevel      string
+	ExpectedPosition    string
+	OnlineStatus        string
+	PersonalDescription string
+	WorkStatus          string
+	RawText             string
+	FilterText          string
+	WorkExperiences     []CandidateWorkExperience
+	Educations          []CandidateEducation
+	Certificates        []string
+	Honors              []string
+	ProjectExperiences  []CandidateProjectExperience
+	Communications      []CandidateCommunication
+	ResumeURL           string
+	ResumeText          string
+	Ext                 map[string]any
+	FirstSeenAt         *time.Time
+}
+
+// CandidateEngagement 表示一次岗位、账号和任务下的触达上下文。
+type CandidateEngagement struct {
+	ID                string
+	CandidateID       string
+	UserEmail         string
+	TaskID            string
+	PositionID        string
+	PlatformAccountID string
+	PlatformID        string
+	Status            string
+	FirstSeenAt       *time.Time
+	DetailFetchedAt   *time.Time
+	GreetedAt         *time.Time
+	LastEventAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// CandidateEvent 表示候选人触达过程中的一条事件流水。
+type CandidateEvent struct {
+	ID                string         `json:"id"`
+	EngagementID      string         `json:"engagement_id"`
+	CandidateID       string         `json:"candidate_id"`
+	TaskID            string         `json:"task_id"`
+	PositionID        string         `json:"position_id"`
+	PlatformAccountID string         `json:"platform_account_id"`
+	PlatformID        string         `json:"platform_id"`
+	EventType         string         `json:"event_type"`
+	Score             *float64       `json:"score"`
+	Reason            string         `json:"reason"`
+	InputText         string         `json:"input_text"`
+	OutputText        string         `json:"output_text"`
+	MessageText       string         `json:"message_text"`
+	Model             string         `json:"model"`
+	TokenUsage        int            `json:"token_usage"`
+	Metadata          map[string]any `json:"metadata"`
+	CreatedAt         time.Time      `json:"created_at"`
+}
+
+// CandidateStore 定义候选人主体、触达上下文和事件流水能力。
 type CandidateStore interface {
-	SaveTaskCandidate(item TaskCandidate) (TaskCandidate, error)
+	SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error)
+	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
+	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
+	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
 	GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error)
 }
@@ -81,53 +160,136 @@ type TaskCandidateListResult struct {
 
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
-	mu     sync.Mutex
-	items  map[string]TaskCandidate
-	now    func() time.Time
-	nextID func() string
+	mu          sync.Mutex
+	profiles    map[string]TaskCandidate
+	engagements map[string]CandidateEngagement
+	events      map[string][]CandidateEvent
+	now         func() time.Time
+	nextID      func(prefix string) string
 }
 
 // NewMemoryCandidateStore 创建候选人内存存储。
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		items: map[string]TaskCandidate{},
-		now:   time.Now,
-		nextID: func() string {
+		profiles:    map[string]TaskCandidate{},
+		engagements: map[string]CandidateEngagement{},
+		events:      map[string][]CandidateEvent{},
+		now:         time.Now,
+		nextID: func(prefix string) string {
 			seq++
-			return fmt.Sprintf("task_candidate_%d", seq)
+			return fmt.Sprintf("%s_%d", prefix, seq)
 		},
 	}
 }
 
-// SaveTaskCandidate 新增候选人记录。
-func (s *MemoryCandidateStore) SaveTaskCandidate(item TaskCandidate) (TaskCandidate, error) {
+// SaveCandidateProfile 新增或更新候选人主体。
+// item 为候选人简历字段，返回保存后的简历库记录。
+func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
-	item.ID = s.nextID()
+	id := s.nextID("candidate")
+	profile := TaskCandidate{
+		ID:                  id,
+		UserEmail:           item.UserEmail,
+		PlatformID:          item.PlatformID,
+		PlatformCandidateID: item.PlatformCandidateID,
+		CandidateName:       item.CandidateName,
+		BirthYM:             item.BirthYM,
+		Phone:               item.Phone,
+		Email:               item.Email,
+		WorkRegion:          item.WorkRegion,
+		WorkYears:           item.WorkYears,
+		ExpectedSalaryMin:   item.ExpectedSalaryMin,
+		ExpectedSalaryMax:   item.ExpectedSalaryMax,
+		BasicInfo:           item.BasicInfo,
+		EducationLevel:      item.EducationLevel,
+		ExpectedPosition:    item.ExpectedPosition,
+		OnlineStatus:        item.OnlineStatus,
+		PersonalDescription: item.PersonalDescription,
+		WorkStatus:          item.WorkStatus,
+		RawText:             item.RawText,
+		FilterText:          item.FilterText,
+		WorkExperiences:     item.WorkExperiences,
+		Educations:          item.Educations,
+		Certificates:        item.Certificates,
+		Honors:              item.Honors,
+		ProjectExperiences:  item.ProjectExperiences,
+		Communications:      item.Communications,
+		ResumeURL:           item.ResumeURL,
+		ResumeText:          item.ResumeText,
+		Ext:                 item.Ext,
+		FirstSeenAt:         item.FirstSeenAt,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	s.profiles[id] = profile
+	return profile, nil
+}
+
+// UpsertCandidateEngagement 新增或更新触达上下文。
+// item 为任务、岗位和账号上下文，返回保存后的触达记录。
+func (s *MemoryCandidateStore) UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	item.ID = s.nextID("engagement")
 	item.CreatedAt = now
 	item.UpdatedAt = now
-	s.items[item.ID] = item
+	s.engagements[item.ID] = item
 	return item, nil
 }
 
+// SaveCandidateEvent 保存候选人事件流水。
+// item 为事件内容，返回保存后的事件。
+func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item.ID = s.nextID("event")
+	item.CreatedAt = s.now()
+	s.events[item.CandidateID] = append(s.events[item.CandidateID], item)
+	return item, nil
+}
+
+// UpdateCandidateEngagementStatus 更新触达上下文状态。
+// engagementID 为触达ID，status 为目标状态，时间字段为空时不覆盖。
+func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.engagements[engagementID]
+	if !ok {
+		return ErrNotFound
+	}
+	if status != "" {
+		item.Status = status
+	}
+	if detailFetchedAt != nil {
+		item.DetailFetchedAt = detailFetchedAt
+	}
+	if greetedAt != nil {
+		item.GreetedAt = greetedAt
+	}
+	now := s.now()
+	item.LastEventAt = &now
+	item.UpdatedAt = now
+	s.engagements[engagementID] = item
+	return nil
+}
+
 // ListTaskCandidates 按条件分页列出内存候选人记录。
-// tenantID 为团队 ID，内存实现不区分团队；query 为任务筛选和数量限制。
+// tenantID 为团队 ID，内存实现不区分团队；query 为任务、岗位和关键词筛选。
 func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	items := make([]TaskCandidate, 0)
-	for _, item := range s.items {
-		if query.TaskID != "" && item.TaskID != query.TaskID {
-			continue
-		}
-		if query.PositionID != "" && item.PositionID != query.PositionID {
-			continue
-		}
+	for _, item := range s.profiles {
 		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
 			continue
 		}
@@ -153,10 +315,11 @@ func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID str
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	item, ok := s.items[candidateID]
+	item, ok := s.profiles[candidateID]
 	if !ok {
 		return TaskCandidate{}, ErrNotFound
 	}
+	item.Events = append([]CandidateEvent{}, s.events[candidateID]...)
 	return item, nil
 }
 
@@ -179,16 +342,7 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 // item 为候选人记录，keyword 为前端搜索词。
 func candidateContainsKeyword(item TaskCandidate, keyword string) bool {
 	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
-	return containsFold(text, keyword)
-}
-
-// containsFold 判断文本是否包含关键词且忽略大小写。
-// value 为被搜索文本，keyword 为搜索词。
-func containsFold(value string, keyword string) bool {
-	if keyword == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(value), strings.ToLower(keyword))
+	return strings.Contains(strings.ToLower(text), strings.ToLower(keyword))
 }
 
 func toJSONB(value any) []byte {
