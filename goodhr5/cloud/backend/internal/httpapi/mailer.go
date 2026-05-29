@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"mime"
 	"net/smtp"
 	"strings"
 	"time"
@@ -84,14 +86,17 @@ func (m SMTPMailer) sendMessage(email string, subject string, bodyLines []string
 	if from == "" {
 		from = m.Username
 	}
+	fromHeader := formatAddress("GoodHR", from)
 
 	message := strings.Join([]string{
-		"From: " + from,
+		"From: " + fromHeader,
 		"To: " + email,
-		"Subject: " + subject,
+		"Subject: " + mime.QEncoding.Encode("UTF-8", subject),
 		"MIME-Version: 1.0",
+		"Date: " + time.Now().Format(time.RFC1123Z),
+		"Content-Transfer-Encoding: base64",
 		"Content-Type: text/plain; charset=UTF-8",
-	}, "\r\n") + "\r\n\r\n" + strings.Join(bodyLines, "\r\n")
+	}, "\r\n") + "\r\n\r\n" + encodeMailBody(bodyLines)
 
 	if m.Port == 465 {
 		return m.sendTLS(addr, auth, from, email, message)
@@ -99,6 +104,28 @@ func (m SMTPMailer) sendMessage(email string, subject string, bodyLines []string
 	return smtp.SendMail(addr, auth, from, []string{email}, []byte(message))
 }
 
+// formatAddress 生成带中文显示名的邮件地址头。
+func formatAddress(name string, email string) string {
+	encodedName := mime.QEncoding.Encode("UTF-8", name)
+	return fmt.Sprintf("%s <%s>", encodedName, email)
+}
+
+// encodeMailBody 将邮件正文按 UTF-8 base64 编码，提升不同邮箱客户端兼容性。
+func encodeMailBody(bodyLines []string) string {
+	body := strings.Join(bodyLines, "\r\n")
+	encoded := base64.StdEncoding.EncodeToString([]byte(body))
+	chunks := make([]string, 0, len(encoded)/76+1)
+	for len(encoded) > 76 {
+		chunks = append(chunks, encoded[:76])
+		encoded = encoded[76:]
+	}
+	if encoded != "" {
+		chunks = append(chunks, encoded)
+	}
+	return strings.Join(chunks, "\r\n")
+}
+
+// sendTLS 通过 SMTPS 发送邮件。
 func (m SMTPMailer) sendTLS(addr string, auth smtp.Auth, from string, to string, message string) error {
 	conn, err := tls.Dial("tcp", addr, &tls.Config{
 		MinVersion: tls.VersionTLS12,
