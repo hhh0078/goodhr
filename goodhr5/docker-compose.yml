@@ -3,6 +3,8 @@ services:
     build: ./cloud/backend
     ports: ["8084:8084"]
     env_file: ./cloud/backend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes: ["./cloud/backend:/app", "/app/tmp"]
 
   frontend:
