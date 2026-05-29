@@ -12,5 +12,13 @@ func mustNewServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := server.systemConfigs.Save(SystemConfig{
+		ConfigKey:   "system.app_config",
+		ConfigValue: `{"local_agent_version":"5.0.0","email_domain_whitelist":["example.com","qq.com"]}`,
+		Description: "测试环境其它配置",
+		Enabled:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return server
 }

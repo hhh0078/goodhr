@@ -49,6 +49,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{
 				"local_agent_version": "5.0.0",
+				"email_domain_whitelist": ["qq.com", "foxmail.com", "163.com", "126.com", "yeah.net", "sina.com", "sina.cn", "sohu.com", "aliyun.com", "139.com", "189.cn", "wo.cn", "gmail.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "yahoo.com", "proton.me", "protonmail.com"],
 				"announcements_enabled": true,
 				"announcements": [
 					{

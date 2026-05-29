@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,23 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 
 	if loginResp.Code != http.StatusUnauthorized {
 		t.Fatalf("login status = %d, want %d", loginResp.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestAuthRejectsEmailDomainNotAllowed 验证发送验证码时会拦截非白名单邮箱域名。
+func TestAuthRejectsEmailDomainNotAllowed(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	sendReq := httptest.NewRequest(http.MethodPost, "/api/auth/send-code", bytes.NewBufferString(`{"email":"temp@mailto.plus"}`))
+	sendResp := httptest.NewRecorder()
+	routes.ServeHTTP(sendResp, sendReq)
+
+	if sendResp.Code != http.StatusForbidden {
+		t.Fatalf("send code status = %d, want %d, body = %s", sendResp.Code, http.StatusForbidden, sendResp.Body.String())
+	}
+	if !strings.Contains(sendResp.Body.String(), "该邮箱不在白名单内，请联系站长") {
+		t.Fatalf("unexpected body: %s", sendResp.Body.String())
 	}
 }
 

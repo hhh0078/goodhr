@@ -77,6 +77,10 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
+	if !s.emailDomainAllowed(email) {
+		writeError(w, http.StatusForbidden, "该邮箱不在白名单内，请联系站长")
+		return
+	}
 
 	code, err := randomDigits(4)
 	if err != nil {
@@ -219,6 +223,46 @@ func (s *AuthService) publicUser(email string) map[string]any {
 		"is_super_admin": s.IsSuperAdmin(email),
 		"onboarding":     onboarding,
 	}
+}
+
+// emailDomainAllowed 判断邮箱域名是否在系统其它配置的白名单中。
+func (s *AuthService) emailDomainAllowed(email string) bool {
+	domain := emailDomain(email)
+	if domain == "" || s.systemConfigs == nil {
+		return false
+	}
+	cfg, err := s.systemConfigs.Get("system.app_config")
+	if err != nil {
+		log.Printf("读取邮箱白名单失败 email=%s err=%v", email, err)
+		return false
+	}
+	var appConfig struct {
+		EmailDomainWhitelist []string `json:"email_domain_whitelist"`
+	}
+	if err := json.Unmarshal([]byte(cfg.ConfigValue), &appConfig); err != nil {
+		log.Printf("解析邮箱白名单失败 email=%s err=%v", email, err)
+		return false
+	}
+	if len(appConfig.EmailDomainWhitelist) == 0 {
+		return true
+	}
+	for _, item := range appConfig.EmailDomainWhitelist {
+		allowedDomain := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(item)), "@")
+		if allowedDomain == domain {
+			return true
+		}
+	}
+	log.Printf("邮箱域名不在白名单 email=%s domain=%s", email, domain)
+	return false
+}
+
+// emailDomain 提取标准邮箱地址中的域名。
+func emailDomain(email string) string {
+	index := strings.LastIndex(email, "@")
+	if index < 0 || index == len(email)-1 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(email[index+1:]))
 }
 
 // applyInviteOnLogin 在用户登录时绑定邀请人并发放注册奖励。
