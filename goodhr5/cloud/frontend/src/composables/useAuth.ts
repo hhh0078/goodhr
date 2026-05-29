@@ -1,5 +1,5 @@
 /** 云端认证逻辑 */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { ApiError, cloudApiBase, getAccessToken, setAccessToken } from "../services/apiClient";
 import { currentUser, loginByCode, sendLoginCode } from "../services/cloudApi";
 
@@ -12,15 +12,23 @@ export function useAuth() {
   const token = ref(getAccessToken());
   const user = ref(null);
   const error = ref("");
+  const message = ref("");
   const loading = ref(false);
+  const sendCodeCooldown = ref(0);
+  let sendCodeTimer = 0;
   const inviterID = ref(readInviteID());
+  const canSendCode = computed(() => !loading.value && !!email.value && sendCodeCooldown.value <= 0);
 
   async function sendCode() {
+    if (!canSendCode.value) return;
     loading.value = true;
     error.value = "";
+    message.value = "";
     devCode.value = "";
     try {
       const data = await sendLoginCode(email.value);
+      message.value = "验证码已发送，请查收邮箱";
+      startSendCodeCooldown();
       if (data.debug_code) {
         devCode.value = data.debug_code;
         code.value = data.debug_code;
@@ -35,6 +43,7 @@ export function useAuth() {
   async function login() {
     loading.value = true;
     error.value = "";
+    message.value = "";
     try {
       const data = await loginByCode(email.value, code.value, inviterID.value);
       token.value = data.access_token;
@@ -74,6 +83,23 @@ export function useAuth() {
     setAccessToken("");
   }
 
+  /**
+   * 启动发送验证码倒计时。
+   * @returns {void} 无返回值。
+   */
+  function startSendCodeCooldown() {
+    sendCodeCooldown.value = 30;
+    if (sendCodeTimer) window.clearInterval(sendCodeTimer);
+    sendCodeTimer = window.setInterval(() => {
+      sendCodeCooldown.value -= 1;
+      if (sendCodeCooldown.value <= 0) {
+        sendCodeCooldown.value = 0;
+        window.clearInterval(sendCodeTimer);
+        sendCodeTimer = 0;
+      }
+    }, 1000);
+  }
+
   return {
     email,
     code,
@@ -81,7 +107,10 @@ export function useAuth() {
     token,
     user,
     error,
+    message,
     loading,
+    sendCodeCooldown,
+    canSendCode,
     inviterID,
     sendCode,
     login,

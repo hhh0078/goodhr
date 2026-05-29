@@ -220,24 +220,22 @@ func (s *PostgresInvitationStore) BindInviterIfPossible(email string, inviterID 
 		}
 		return "", false, "empty_inviter_id", nil
 	}
+	inviteeID, err := ensureUserID(context.Background(), s.db, email)
+	if err != nil {
+		return "", false, "ensure_invitee_failed", err
+	}
 	var inviterEmail string
-	err := s.db.QueryRow(`
-		WITH invitee_row AS (
-			INSERT INTO users (email)
-			VALUES ($1)
-			ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-			RETURNING id
-		)
+	err = s.db.QueryRow(`
 		UPDATE users invitee
 		SET inviter_id = inviter.id,
 		    invite_registered_rewarded_at = now()
-		FROM users inviter, invitee_row
-		WHERE invitee.email = $1
+		FROM users inviter
+		WHERE invitee.id::text = $1
 		  AND inviter.id::text = $2
 		  AND invitee.id <> inviter.id
 		  AND invitee.inviter_id IS NULL
 		RETURNING inviter.email
-		`, email, inviterID).Scan(&inviterEmail)
+		`, inviteeID, inviterID).Scan(&inviterEmail)
 	if errors.Is(err, sql.ErrNoRows) {
 		reason, reasonErr := s.inviteBindSkipReason(email, inviterID)
 		if reasonErr != nil {

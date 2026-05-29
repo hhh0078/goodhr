@@ -71,13 +71,16 @@
         <div v-if="auth.error.value" class="line error">
           {{ auth.error.value }}
         </div>
+        <div v-if="auth.message.value" class="line success">
+          {{ auth.message.value }}
+        </div>
         <div class="line" style="margin-top: 16px">
           <button
             class="terminal-btn"
-            :disabled="auth.loading.value || !auth.email.value"
+            :disabled="!auth.canSendCode.value"
             @click="auth.sendCode"
           >
-            [ 发送验证码 ]
+            [ {{ auth.sendCodeCooldown.value > 0 ? `${auth.sendCodeCooldown.value}s后重试` : "发送验证码" }} ]
           </button>
           <button
             class="terminal-btn primary"
@@ -266,6 +269,10 @@ watch(
 }
 .line.error {
   color: #f33;
+  margin-top: 8px;
+}
+.line.success {
+  color: #0f0;
   margin-top: 8px;
 }
 .prompt {
