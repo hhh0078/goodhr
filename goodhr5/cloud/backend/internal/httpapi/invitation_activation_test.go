@@ -64,6 +64,61 @@ func TestInvitationBindOnLogin(t *testing.T) {
 	}
 }
 
+// TestInvitationBindExistingUserOnLogin 验证已存在但未绑定邀请人的用户登录时仍可绑定邀请关系。
+func TestInvitationBindExistingUserOnLogin(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	inviterToken := loginForTest(t, routes, "existing-inviter@example.com")
+
+	summaryReq := httptest.NewRequest(http.MethodGet, "/api/invitations/summary", nil)
+	summaryReq.Header.Set("Authorization", "Bearer "+inviterToken)
+	summaryResp := httptest.NewRecorder()
+	routes.ServeHTTP(summaryResp, summaryReq)
+	if summaryResp.Code != http.StatusOK {
+		t.Fatalf("summary status = %d, body = %s", summaryResp.Code, summaryResp.Body.String())
+	}
+	var summaryPayload struct {
+		InviteID string `json:"invite_id"`
+	}
+	if err := json.NewDecoder(summaryResp.Body).Decode(&summaryPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	code := sendLoginCodeForTest(t, routes, "existing-invitee@example.com")
+	if _, err := server.invitations.store.InviteID("existing-invitee@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	loginReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/login",
+		bytes.NewBufferString(`{"email":"existing-invitee@example.com","code":"`+code+`","inviter_id":"`+summaryPayload.InviteID+`"}`),
+	)
+	loginResp := httptest.NewRecorder()
+	routes.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("invitee login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/invitations/summary", nil)
+	listReq.Header.Set("Authorization", "Bearer "+inviterToken)
+	listResp := httptest.NewRecorder()
+	routes.ServeHTTP(listResp, listReq)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResp.Code, listResp.Body.String())
+	}
+	var listPayload struct {
+		Invitees []struct {
+			Email string `json:"email"`
+		} `json:"invitees"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(listPayload.Invitees) != 1 || listPayload.Invitees[0].Email != "existing-invitee@example.com" {
+		t.Fatalf("unexpected invitees: %+v", listPayload.Invitees)
+	}
+}
+
 // TestActivationCodeCreateAndRedeem 验证超管生成激活码后普通用户可以兑换。
 func TestActivationCodeCreateAndRedeem(t *testing.T) {
 	server := mustNewServer(t)

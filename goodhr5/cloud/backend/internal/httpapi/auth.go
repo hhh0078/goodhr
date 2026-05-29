@@ -227,9 +227,14 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 		return nil
 	}
 	inviterEmail, bound, err := s.invitations.BindInviterIfPossible(email, inviterID)
-	if err != nil || !bound || inviterEmail == "" {
+	if err != nil {
 		return err
 	}
+	if !bound || inviterEmail == "" {
+		log.Printf("邀请绑定跳过 invitee=%s inviter_id=%s", email, inviterID)
+		return nil
+	}
+	log.Printf("邀请绑定成功 invitee=%s inviter=%s inviter_id=%s", email, inviterEmail, inviterID)
 	config := loadInviteConfig(s.systemConfigs)
 	if config.RegisterRewardDays <= 0 || s.subscriptions == nil {
 		return nil

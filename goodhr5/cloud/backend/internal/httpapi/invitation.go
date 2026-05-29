@@ -140,12 +140,8 @@ func (s *MemoryInvitationStore) InviteID(email string) (string, error) {
 func (s *MemoryInvitationStore) BindInviterIfPossible(email string, inviterID string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, existed := s.ids[email]
 	inviteeID := s.inviteIDLocked(email)
 	if inviteeID == inviterID || s.inviters[email] != "" {
-		return "", false, nil
-	}
-	if existed {
 		return "", false, nil
 	}
 	inviterEmail := s.emails[inviterID]
@@ -223,16 +219,16 @@ func (s *PostgresInvitationStore) BindInviterIfPossible(email string, inviterID 
 	}
 	var inviterEmail string
 	err := s.db.QueryRow(`
-		WITH inserted AS (
+		WITH invitee_row AS (
 			INSERT INTO users (email)
 			VALUES ($1)
-			ON CONFLICT (email) DO NOTHING
+			ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
 			RETURNING id
 		)
 		UPDATE users invitee
 		SET inviter_id = inviter.id,
 		    invite_registered_rewarded_at = now()
-		FROM users inviter, inserted
+		FROM users inviter, invitee_row
 		WHERE invitee.email = $1
 		  AND inviter.id::text = $2
 		  AND invitee.id <> inviter.id
