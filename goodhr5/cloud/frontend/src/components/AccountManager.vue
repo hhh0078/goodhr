@@ -34,14 +34,14 @@
             <option value="liepin">猎聘</option>
           </select></label
         >
-        <label v-if="pendingCookies"
-          >名称<input v-model="form.displayName" placeholder="我的Boss"
+        <label
+          >名称<input v-model="form.displayName" placeholder="我的Boss" :disabled="!!pendingCookies"
         /></label>
       </div>
       <p v-if="msg" :class="msgType">{{ msg }}</p>
       <div class="actions">
         <button
-          :disabled="loading || (pendingCookies && !form.displayName)"
+          :disabled="loading || !form.displayName.trim()"
           @click="create"
         >
           {{
@@ -166,6 +166,8 @@ async function create() {
   loading.value = true;
   msg.value = "";
   try {
+    const displayName = form.value.displayName.trim();
+    if (!displayName) throw new Error("请先填写账号名称");
     if (!pendingCookies.value) {
       msg.value = "正在检查平台登录状态";
       msgType.value = "success";
@@ -177,14 +179,15 @@ async function create() {
           msg.value = message;
           msgType.value = "success";
         },
+        { userDataDir: displayName },
       );
-      msg.value = "已获取 cookie，请输入账号名称";
+      msg.value = "已获取 cookie，请保存账号";
       msgType.value = "success";
       return;
     }
     await createCookie({
       platform_id: form.value.platformId,
-      display_name: form.value.displayName,
+      display_name: displayName,
       cookies: pendingCookies.value,
     });
     form.value.displayName = "";

@@ -20,6 +20,8 @@ from cloakbrowser import launch_persistent_context_async as _cloak_persistent_as
 from playwright.async_api import Browser, BrowserContext, Page
 from playwright._impl._errors import TargetClosedError
 
+from app.browser_profile import configure_default_bing_search
+
 logger = logging.getLogger("goodhr5.browser")
 
 # ---------- 浏览器默认配置 ----------
@@ -254,6 +256,7 @@ async def create_persistent_browser(
 
     _cleanup_profile_lock(user_data_dir)
     _kill_orphan_chromium(user_data_dir)
+    configure_default_bing_search(user_data_dir)
 
     kwargs: dict = {
         "user_data_dir": user_data_dir,
