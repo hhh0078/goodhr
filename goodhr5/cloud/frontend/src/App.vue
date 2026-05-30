@@ -22,6 +22,9 @@
         <div class="menu-item" @click="goContact">
           <span class="prompt">&gt;</span><span>联系我17607080935</span>
         </div>
+        <div class="menu-item impert" @click="goInvitation">
+          <span class="prompt">&gt;</span><span>不想付钱?点我</span>
+        </div>
         <div class="menu-item" @click="auth.logout">
           <span class="prompt">&gt;</span><span>登出</span>
         </div>
@@ -132,7 +135,7 @@ const menuItems = computed(() => {
     { id: "invitation", label: "邀请" },
     { id: "personal-config", label: "个人配置" },
     { id: "subscription", label: "订阅" },
-    { id: "help", label: "帮助中心" },
+    { id: "help", label: "常见问题" },
   ];
   if (isSuperAdmin.value) {
     items.push({ id: "user-management", label: "用户管理" });
@@ -205,9 +208,7 @@ watch(
   [user, menuItems],
   () => {
     if (!user.value) return;
-    if (
-      !menuItems.value.some((item) => item.id === activeMenu.value)
-    ) {
+    if (!menuItems.value.some((item) => item.id === activeMenu.value)) {
       goMenu("agent");
     }
   },
@@ -236,6 +237,10 @@ onMounted(async () => {
  */
 function goContact() {
   window.open("https://goodhr.58it.cn", "_blank");
+}
+
+function goInvitation() {
+  window.location.href = "/admin/invitations";
 }
 
 /**
@@ -443,6 +448,10 @@ const detectLocalAgent = () => {
 .menu-item .prompt {
   color: var(--border);
   font-size: 12px;
+}
+
+.impert {
+  color: #0f0 !important;
 }
 .menu-item:hover {
   color: #0f0;

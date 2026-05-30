@@ -3,7 +3,7 @@
   <section class="panel help-center">
     <div class="panel-header">
       <div>
-        <h2>帮助中心</h2>
+        <h2>常见问题</h2>
         <p class="help-subtitle">
           常见功能、参数说明和报错处理都可以在这里查。
         </p>
@@ -33,16 +33,16 @@
         <strong>{{ activeCard.title }}</strong>
       </div>
       <p>{{ activeCard.content }}</p>
-      <button class="ghost" @click="askCard(activeCard)">
-        问 AI 这个问题
-      </button>
+      <button class="ghost" @click="askCard(activeCard)">问 AI 这个问题</button>
     </article>
 
     <div class="assistant-box">
       <div class="assistant-header">
         <div>
           <h3>AI 帮助助手</h3>
-          <p class="hint">回答会结合系统指南，不保存到数据库。</p>
+          <p class="hint">
+            我的主人很忙，有问题可以先问我，如果我回答不了 再问主人。
+          </p>
         </div>
         <button class="ghost" :disabled="chatLoading" @click="clearChat">
           清空对话
