@@ -1,6 +1,7 @@
 // 本文件负责 GoodHR 后台菜单页面路由配置。
 import { createRouter, createWebHistory, type RouteLocationNormalized } from "vue-router";
 import DashboardView from "../views/DashboardView.vue";
+import AgentDownloadView from "../views/AgentDownloadView.vue";
 import AccountView from "../views/AccountView.vue";
 import PositionView from "../views/PositionView.vue";
 import TaskListView from "../views/TaskListView.vue";
@@ -20,6 +21,7 @@ export const MENU_CACHE_KEY = "goodhr5_active_menu";
 
 export const menuRouteMap: Record<string, string> = {
   agent: "dashboard",
+  "agent-download": "agent-download",
   account: "accounts",
   position: "positions",
   "task-list": "tasks",
@@ -39,6 +41,7 @@ export const router = createRouter({
   history: createWebHistory("/admin/"),
   routes: [
     { path: "/", name: "dashboard", component: DashboardView, meta: { menuId: "agent" } },
+    { path: "/agent-download", name: "agent-download", component: AgentDownloadView, meta: { menuId: "agent-download" } },
     { path: "/accounts", name: "accounts", component: AccountView, meta: { menuId: "account" } },
     { path: "/positions", name: "positions", component: PositionView, meta: { menuId: "position" } },
     { path: "/tasks", name: "tasks", component: TaskListView, meta: { menuId: "task-list" } },

@@ -42,11 +42,16 @@
           subscriptionText
         }}</span
         ><span class="sep">|</span>
-        <span :class="['top-info', agentStatusColor]">{{
-          agent.status.value
-        }}</span
+        <button
+          :class="['top-info', 'top-link', agentStatusColor]"
+          @click="goMenu('agent-download')"
+        >
+          {{ agent.status.value }}
+        </button>
         ><span class="sep">|</span>
-        <span class="top-info">PID {{ agent.info?.value?.port || "---" }}</span>
+        <button class="top-info top-link" @click="goMenu('agent-download')">
+          PID {{ agent.info?.value?.port || "---" }}
+        </button>
       </div>
       <div class="content-area">
         <RouterView />
@@ -127,6 +132,7 @@ const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
+    { id: "agent-download", label: "本地程序下载" },
     { id: "account", label: "平台账号" },
     { id: "position", label: "岗位模板" },
     { id: "task-list", label: "任务列表" },
@@ -515,6 +521,16 @@ const detectLocalAgent = () => {
 .top-info {
   color: var(--fg-dim);
   font-size: 12px;
+}
+.top-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.top-link:hover {
+  color: #0f0;
 }
 .top-info.success {
   color: #0f0;
