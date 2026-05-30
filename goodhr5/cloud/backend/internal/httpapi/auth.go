@@ -159,6 +159,11 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.notifyInitialSubscription(email, now); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send trial reward email")
+		return
+	}
+
 	if err := s.applyInviteOnLogin(email, strings.TrimSpace(req.InviterID)); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to apply invite reward")
 		return
@@ -198,6 +203,38 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"expires_at": session.ExpiresAt,
 		},
 	})
+}
+
+// notifyInitialSubscription 在新用户首次获得试用会员时发送邮件通知。
+func (s *AuthService) notifyInitialSubscription(email string, now time.Time) error {
+	if s.subscriptions == nil {
+		return nil
+	}
+	subscription, created, err := s.subscriptions.UserSubscriptionWithCreated(email)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return nil
+	}
+	return sendSubscriptionRewardNotice(s.mailer, email, SubscriptionRewardNotice{
+		Reason:     "新用户注册赠送会员",
+		Days:       subscriptionNoticeDays(subscription.ExpiresAt, now),
+		MemberType: subscription.MemberType,
+		ExpiresAt:  subscription.ExpiresAt,
+	})
+}
+
+// subscriptionNoticeDays 根据到期时间估算本次赠送天数。
+func subscriptionNoticeDays(expiresAt time.Time, now time.Time) int {
+	if !expiresAt.After(now) {
+		return 0
+	}
+	days := int((expiresAt.Sub(now) + 12*time.Hour) / (24 * time.Hour))
+	if days < 1 {
+		return 1
+	}
+	return days
 }
 
 // publicUser 返回前端可见的用户基础信息。

@@ -112,8 +112,7 @@ func (m SMTPMailer) renderHTML(templateName string, data map[string]any) string 
 	if strings.TrimSpace(templateName) == "" {
 		return ""
 	}
-	templatePath := filepath.Join("templates", "email", templateName)
-	body, err := os.ReadFile(templatePath)
+	body, err := readEmailTemplate(templateName)
 	if err != nil {
 		log.Printf("读取邮件模板失败 template=%s err=%v", templateName, err)
 		return ""
@@ -129,6 +128,27 @@ func (m SMTPMailer) renderHTML(templateName string, data map[string]any) string 
 		return ""
 	}
 	return rendered.String()
+}
+
+// readEmailTemplate 从常见运行目录读取邮件模板。
+func readEmailTemplate(templateName string) ([]byte, error) {
+	var lastErr error
+	for _, templatePath := range emailTemplatePaths(templateName) {
+		body, err := os.ReadFile(templatePath)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// emailTemplatePaths 返回邮件模板可能存在的位置。
+func emailTemplatePaths(templateName string) []string {
+	return []string{
+		filepath.Join("templates", "email", templateName),
+		filepath.Join("..", "..", "templates", "email", templateName),
+	}
 }
 
 // buildMailMessage 组装标准 MIME 邮件内容。

@@ -23,6 +23,8 @@ type Subscription struct {
 type SubscriptionStore interface {
 	// UserSubscription 读取指定邮箱的订阅信息，不存在时创建默认试用订阅。
 	UserSubscription(email string) (Subscription, error)
+	// UserSubscriptionWithCreated 读取或创建订阅，并返回是否本次创建了默认试用订阅。
+	UserSubscriptionWithCreated(email string) (Subscription, bool, error)
 	// ExtendSubscription 按会员类型和天数延长指定用户订阅。
 	ExtendSubscription(email string, memberType string, days int) (Subscription, error)
 	// AdjustSubscriptionDays 按正负天数调整指定用户订阅。
@@ -128,12 +130,18 @@ func NewMemorySubscriptionStore() *MemorySubscriptionStore {
 
 // UserSubscription 读取或创建内存订阅。
 func (s *MemorySubscriptionStore) UserSubscription(email string) (Subscription, error) {
+	item, _, err := s.UserSubscriptionWithCreated(email)
+	return item, err
+}
+
+// UserSubscriptionWithCreated 读取或创建内存订阅，并返回是否本次创建。
+func (s *MemorySubscriptionStore) UserSubscriptionWithCreated(email string) (Subscription, bool, error) {
 	if item, ok := s.items[email]; ok {
-		return item, nil
+		return item, false, nil
 	}
 	item := Subscription{MemberType: defaultMemberType, ExpiresAt: s.now().Add(defaultTrialDuration)}
 	s.items[email] = item
-	return item, nil
+	return item, true, nil
 }
 
 // ExtendSubscription 按当前到期时间或当前时间延长内存订阅。
@@ -187,15 +195,36 @@ func NewPostgresSubscriptionStore(db *sql.DB) *PostgresSubscriptionStore {
 
 // UserSubscription 读取或创建 PostgreSQL 用户订阅信息。
 func (s *PostgresSubscriptionStore) UserSubscription(email string) (Subscription, error) {
-	if _, err := ensureUserID(context.Background(), s.db, email); err != nil {
-		return Subscription{}, err
-	}
+	subscription, _, err := s.UserSubscriptionWithCreated(email)
+	return subscription, err
+}
+
+// UserSubscriptionWithCreated 读取或创建 PostgreSQL 用户订阅，并返回是否本次创建。
+func (s *PostgresSubscriptionStore) UserSubscriptionWithCreated(email string) (Subscription, bool, error) {
 	var raw []byte
-	err := s.db.QueryRow(`SELECT subscription FROM users WHERE email=$1`, email).Scan(&raw)
-	if err != nil {
-		return Subscription{}, err
+	err := s.db.QueryRow(
+		`INSERT INTO users (email)
+		 VALUES ($1)
+		 ON CONFLICT (email) DO NOTHING
+		 RETURNING subscription`,
+		email,
+	).Scan(&raw)
+	if err == nil {
+		subscription, parseErr := parseSubscription(raw)
+		return subscription, true, parseErr
 	}
-	return parseSubscription(raw)
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Subscription{}, false, err
+	}
+	if _, err := ensureUserID(context.Background(), s.db, email); err != nil {
+		return Subscription{}, false, err
+	}
+	err = s.db.QueryRow(`SELECT subscription FROM users WHERE email=$1`, email).Scan(&raw)
+	if err != nil {
+		return Subscription{}, false, err
+	}
+	subscription, parseErr := parseSubscription(raw)
+	return subscription, false, parseErr
 }
 
 // ExtendSubscription 按当前到期时间或当前时间延长 PostgreSQL 用户订阅。

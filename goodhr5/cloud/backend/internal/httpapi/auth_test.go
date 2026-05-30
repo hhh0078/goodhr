@@ -83,6 +83,33 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestAuthLoginSendsInitialSubscriptionRewardOnce 验证新用户首次登录会收到试用会员赠送邮件且不会重复发送。
+func TestAuthLoginSendsInitialSubscriptionRewardOnce(t *testing.T) {
+	server := mustNewServer(t)
+	mailer := &recordingMailer{}
+	server.auth.mailer = mailer
+	routes := server.Routes()
+
+	loginForTest(t, routes, "trial-reward@example.com")
+	if len(mailer.rewards) != 1 {
+		t.Fatalf("reward email count = %d, want 1", len(mailer.rewards))
+	}
+	if mailer.rewards[0].email != "trial-reward@example.com" {
+		t.Fatalf("reward email sent to %q", mailer.rewards[0].email)
+	}
+	if mailer.rewards[0].notice.Reason != "新用户注册赠送会员" {
+		t.Fatalf("reward reason = %q", mailer.rewards[0].notice.Reason)
+	}
+	if mailer.rewards[0].notice.Days != 3 {
+		t.Fatalf("reward days = %d, want 3", mailer.rewards[0].notice.Days)
+	}
+
+	loginForTest(t, routes, "trial-reward@example.com")
+	if len(mailer.rewards) != 1 {
+		t.Fatalf("reward email repeated, count = %d", len(mailer.rewards))
+	}
+}
+
 // TestAuthRejectsWrongCode 验证错误验证码不能登录。
 func TestAuthRejectsWrongCode(t *testing.T) {
 	server := mustNewServer(t)
@@ -99,6 +126,35 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	if loginResp.Code != http.StatusUnauthorized {
 		t.Fatalf("login status = %d, want %d", loginResp.Code, http.StatusUnauthorized)
 	}
+}
+
+type recordingMailer struct {
+	loginCodes []struct {
+		email string
+		code  string
+	}
+	rewards []struct {
+		email  string
+		notice SubscriptionRewardNotice
+	}
+}
+
+// SendLoginCode 记录验证码邮件发送请求。
+func (m *recordingMailer) SendLoginCode(email string, code string) error {
+	m.loginCodes = append(m.loginCodes, struct {
+		email string
+		code  string
+	}{email: email, code: code})
+	return nil
+}
+
+// SendSubscriptionReward 记录会员时间变动邮件发送请求。
+func (m *recordingMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
+	m.rewards = append(m.rewards, struct {
+		email  string
+		notice SubscriptionRewardNotice
+	}{email: email, notice: notice})
+	return nil
 }
 
 // TestAuthRejectsEmailDomainNotAllowed 验证发送验证码时会拦截非白名单邮箱域名。
