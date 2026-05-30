@@ -284,13 +284,22 @@
             class="log-list"
             @scroll="onLogScroll(task.id, $event)"
           >
-            <li v-for="log in tasks.taskLogs.value[task.id]" :key="log.id">
+            <li
+              v-for="(log, index) in tasks.taskLogs.value[task.id]"
+              :key="log.id"
+            >
               <span
                 :class="{
                   error: log.level === 'error',
                   warn: log.level === 'warn',
                 }"
                 >{{ log.level }}</span
+              >
+              <time class="log-time">{{ formatLogTime(log.created_at) }}</time>
+              <em
+                v-if="formatLogGap(tasks.taskLogs.value[task.id], index)"
+                class="log-gap"
+                >{{ formatLogGap(tasks.taskLogs.value[task.id], index) }}</em
               >
               <strong
                 :style="{
@@ -461,6 +470,51 @@ function onLogScroll(taskId: string, event: Event) {
   if (distanceToBottom <= 24) {
     void tasks.loadOlderLogs(taskId);
   }
+}
+/**
+ * 格式化日志创建时间，精确到毫秒。
+ * @param {string} value - 后端日志创建时间。
+ * @returns {string} 本地时间文本。
+ */
+function formatLogTime(value: string) {
+  const time = parseLogTime(value);
+  if (!time) return "--";
+  const date = new Date(time);
+  const pad = (num: number, size = 2) => String(num).padStart(size, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+/**
+ * 计算当前日志和下一条日志之间的时间间隔。
+ * @param {any[]} logs - 当前任务的日志列表。
+ * @param {number} index - 当前日志下标。
+ * @returns {string} 间隔文本。
+ */
+function formatLogGap(logs: any[], index: number) {
+  const current = parseLogTime(logs?.[index]?.created_at);
+  const previous = parseLogTime(logs?.[index + 1]?.created_at);
+  if (!current || !previous) return "";
+  const gap = Math.abs(current - previous);
+  if (gap < 1000) return `+${gap}ms`;
+  if (gap < 60000) return `+${(gap / 1000).toFixed(2)}s`;
+  const minutes = Math.floor(gap / 60000);
+  const seconds = ((gap % 60000) / 1000).toFixed(1).padStart(4, "0");
+  return `+${minutes}m${seconds}s`;
+}
+
+/**
+ * 解析日志时间，兼容后端缺少时区的时间字符串。
+ * @param {string} value - 后端日志创建时间。
+ * @returns {number} 时间戳毫秒值。
+ */
+function parseLogTime(value: string) {
+  if (!value) return 0;
+  const source = String(value);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(source)
+    ? source
+    : `${source}Z`;
+  const time = Date.parse(normalized);
+  return Number.isNaN(time) ? 0 : time;
 }
 onMounted(loadAccounts);
 </script>
@@ -680,6 +734,22 @@ onMounted(loadAccounts);
 .log-more {
   color: var(--fg-dim);
   text-align: center;
+}
+.log-time,
+.log-gap {
+  display: inline-block;
+  color: var(--fg-dim);
+  font-size: 12px;
+  font-style: normal;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.log-time {
+  min-width: 86px;
+}
+.log-gap {
+  min-width: 54px;
+  color: #8fd18f;
 }
 @media (max-width: 900px) {
   .mode-cards {
