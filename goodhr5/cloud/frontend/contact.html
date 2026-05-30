@@ -6,20 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>联系我们 - GoodHR</title>
     <link rel="stylesheet" href="/official-site.css" />
-    <script defer src="/official-site.js"></script>
+    <script defer src="/official-layout.js"></script>
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="/">GoodHR</a>
-      <nav>
-        <a href="/">首页</a>
-        <a href="/features.html">功能介绍</a>
-        <a href="/videos.html">安装视频教程</a>
-        <a href="/pricing.html">产品定价</a>
-        <a class="active" href="/contact.html">联系我们</a>
-      </nav>
-      <a class="admin-link" href="/admin/">进入后台</a>
-    </header>
+    <div data-site-header></div>
 
     <main>
       <section class="page-title">
@@ -28,7 +18,13 @@
         <p>如果你想了解永久免费版、AI 付费能力、部署或排查本地程序，可以直接联系我。</p>
       </section>
 
-      <section class="contact-panel">
+      <section class="contact-panel terminal-window">
+        <div class="window-bar">
+          <span class="window-dot dot-close"></span>
+          <span class="window-dot dot-min"></span>
+          <span class="window-dot dot-max"></span>
+          <span class="window-title">联系方式</span>
+        </div>
         <div>
           <span class="card-no">手机</span>
           <h2>17607080935</h2>
@@ -47,9 +43,6 @@
       </section>
     </main>
 
-    <footer class="site-footer">
-      <span>GoodHR 招聘自动化工具</span>
-      <span>联系：17607080935</span>
-    </footer>
+    <div data-site-footer></div>
   </body>
 </html>

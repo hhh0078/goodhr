@@ -138,6 +138,61 @@ main {
   backdrop-filter: blur(1px);
 }
 
+.terminal-window {
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-window .window-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  margin: calc(clamp(22px, 5vw, 54px) * -1) calc(clamp(22px, 5vw, 54px) * -1)
+    clamp(18px, 3vw, 28px);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(13, 13, 13, 0.72);
+}
+
+.terminal-window .window-bar.compact {
+  align-self: stretch;
+  min-height: 26px;
+  margin: 0 0 12px;
+  padding: 7px 8px;
+}
+
+.window-dot {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+}
+
+.dot-close {
+  background: #e33;
+}
+
+.dot-min {
+  background: #e83;
+}
+
+.dot-max {
+  background: #3a3;
+  opacity: 0.58;
+}
+
+.window-title {
+  flex: 1;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 48px;
+}
+
+.window-content {
+  position: relative;
+}
+
 .kicker,
 .card-no {
   color: var(--green);
@@ -199,6 +254,32 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.feature-list.terminal-window,
+.contact-panel.terminal-window {
+  border: 1px solid var(--line);
+  background: rgba(2, 2, 2, 0.3);
+  padding: 0;
+}
+
+.feature-list.terminal-window .window-bar,
+.contact-panel.terminal-window .window-bar {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.feature-list.terminal-window article,
+.contact-panel.terminal-window > div {
+  margin: 0 12px 12px;
+}
+
+.feature-list.terminal-window article:nth-of-type(1),
+.feature-list.terminal-window article:nth-of-type(2),
+.contact-panel.terminal-window > div:nth-of-type(1),
+.contact-panel.terminal-window > div:nth-of-type(2),
+.contact-panel.terminal-window > div:nth-of-type(3) {
+  margin-top: 12px;
+}
+
 article,
 .contact-panel > div {
   border: 1px solid var(--line);
@@ -217,10 +298,18 @@ article:hover,
   border: 1px solid #222;
   background: rgba(13, 13, 13, 0.3);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   color: var(--green);
   margin-bottom: 12px;
+}
+
+.video-box > span {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
 }
 
 .price {
@@ -239,6 +328,14 @@ article:hover,
   padding: 18px;
   margin-top: 16px;
   backdrop-filter: blur(1px);
+}
+
+.compare-section.terminal-window {
+  padding-top: 0;
+}
+
+.compare-section.terminal-window .window-bar {
+  margin: 0 -18px 16px;
 }
 
 .compare-head {

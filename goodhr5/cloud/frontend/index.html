@@ -6,23 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoodHR - 招聘自动化工具</title>
     <link rel="stylesheet" href="/official-site.css" />
-    <script defer src="/official-site.js"></script>
+    <script defer src="/official-layout.js"></script>
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="/">GoodHR</a>
-      <nav>
-        <a class="active" href="/">首页</a>
-        <a href="/features.html">功能介绍</a>
-        <a href="/videos.html">安装视频教程</a>
-        <a href="/pricing.html">产品定价</a>
-        <a href="/contact.html">联系我们</a>
-      </nav>
-      <a class="admin-link" href="/admin/">进入后台</a>
-    </header>
+    <div data-site-header></div>
 
     <main>
-      <section class="hero">
+      <section class="hero terminal-window">
+        <div class="window-bar">
+          <span class="window-dot dot-close"></span>
+          <span class="window-dot dot-min"></span>
+          <span class="window-dot dot-max"></span>
+          <span class="window-title">GoodHR 控制台预览</span>
+        </div>
+        <div class="window-content">
         <p class="kicker">关键词筛选永久免费</p>
         <h1>HR和猎头的自动招聘助手</h1>
         <p class="hero-text">
@@ -40,6 +37,7 @@
           <span>$ AI分析、关键词筛选</span>
           <span>$ 自动打招呼</span>
           <span>$ 自动回复消息、自动聊天跟进、邀约面试</span>
+        </div>
         </div>
       </section>
 
@@ -77,9 +75,6 @@
       </section>
     </main>
 
-    <footer class="site-footer">
-      <span>GoodHR 招聘自动化工具</span>
-      <span>联系：17607080935</span>
-    </footer>
+    <div data-site-footer></div>
   </body>
 </html>
