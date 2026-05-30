@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
-  plugins: [vue(), adminHistoryFallbackPlugin()],
+  plugins: [vue(), officialLayoutPlugin(), adminHistoryFallbackPlugin()],
   server: {
     allowedHosts: ['goodhr5.58it.cn']
   },
@@ -25,6 +25,77 @@ export default defineConfig({
     __VUE_PROD_DEVTOOLS__: false
   }
 })
+
+const officialNavItems = [
+  { href: '/', label: '首页', match: ['', 'index.html'] },
+  { href: '/features.html', label: '功能介绍', match: ['features.html'] },
+  { href: '/videos.html', label: '安装视频教程', match: ['videos.html'] },
+  { href: '/pricing.html', label: '产品定价', match: ['pricing.html'] },
+  { href: '/contact.html', label: '联系我们', match: ['contact.html'] },
+]
+
+/**
+ * 在构建阶段注入官网公共导航和底部，避免页面依赖 JS 才能显示导航。
+ * @returns {any} Vite 插件配置。
+ */
+function officialLayoutPlugin() {
+  return {
+    name: 'goodhr-official-layout',
+    transformIndexHtml(html: string, context: any) {
+      if (!html.includes('data-site-header') && !html.includes('data-site-footer')) {
+        return html
+      }
+      const pageName = officialPageName(context?.path || '')
+      return html
+        .replace('<div data-site-header></div>', buildOfficialHeader(pageName))
+        .replace('<div data-site-footer></div>', buildOfficialFooter())
+    },
+  }
+}
+
+/**
+ * 生成官网公共导航栏 HTML。
+ * @param {string} pageName - 当前页面文件名。
+ * @returns {string} 导航栏 HTML。
+ */
+function buildOfficialHeader(pageName: string) {
+  const navHTML = officialNavItems
+    .map((item) => {
+      const active = item.match.includes(pageName) ? ' class="active"' : ''
+      return `<a${active} href="${item.href}">${item.label}</a>`
+    })
+    .join('')
+  return [
+    '<header class="site-header">',
+    '<a class="brand" href="/">GoodHR</a>',
+    `<nav>${navHTML}</nav>`,
+    '<a class="admin-link" href="/admin/">进入后台</a>',
+    '</header>',
+  ].join('')
+}
+
+/**
+ * 生成官网公共底部 HTML。
+ * @returns {string} 底部 HTML。
+ */
+function buildOfficialFooter() {
+  return [
+    '<footer class="site-footer">',
+    '<span>GoodHR 招聘自动化工具</span>',
+    '<span>联系：17607080935</span>',
+    '</footer>',
+  ].join('')
+}
+
+/**
+ * 根据 Vite 当前路径返回官网页面文件名。
+ * @param {string} path - 当前页面路径。
+ * @returns {string} 页面文件名。
+ */
+function officialPageName(path: string) {
+  const pathname = path.split('?')[0].replace(/\/+$/, '')
+  return pathname.split('/').pop() || ''
+}
 
 /**
  * 为后台子路由提供 HTML 回退，避免刷新 /admin/accounts 时进入官网首页。
