@@ -165,13 +165,17 @@ const agentStatusColor = computed(() => {
   return "error";
 });
 const subscriptionStatusColor = computed(() =>
-  subscription.value?.active ? "success" : "warn",
+  subscriptionExpired.value ? "error" : subscription.value?.active ? "success" : "warn",
 );
 const subscriptionText = computed(() => {
   if (!subscription.value) return "会员 --";
   const memberType = subscription.value.member_type || "plus";
+  if (subscriptionExpired.value) {
+    return `${memberType} 已过期 ${formatShortDate(subscription.value.expires_at)}`;
+  }
   return `${memberType} 到期 ${formatShortDate(subscription.value.expires_at)}`;
 });
+const subscriptionExpired = computed(() => isSubscriptionExpired(subscription.value));
 const visibleAnnouncements = computed(() => {
   if (!systemAppConfig.value?.announcements_enabled) return [];
   const dismissed = loadDismissedAnnouncements();
@@ -369,6 +373,19 @@ function formatShortDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleDateString();
+}
+
+/**
+ * 判断会员是否已经过期。
+ * @param {any} value - 订阅状态数据。
+ * @returns {boolean} 是否已过期。
+ */
+function isSubscriptionExpired(value: any) {
+  if (!value) return false;
+  if (value.active === false) return true;
+  const expiresAt = new Date(value.expires_at);
+  if (Number.isNaN(expiresAt.getTime())) return false;
+  return Date.now() >= expiresAt.getTime();
 }
 
 const detectLocalAgent = () => {
