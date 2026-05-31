@@ -24,7 +24,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.browser import BrowserManager
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
-from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, random_delay, scroll_locator_into_view, scroll_to_load
+from app.humanize import (
+    click_box_random_point,
+    find_all_locators_by_spec,
+    human_type_focused,
+    is_locator_in_viewport,
+    locate_element_by_spec,
+    move_mouse_to_locator,
+    navigate_to_page,
+    parse_element_locator_spec,
+    random_delay,
+    scroll_locator_into_view,
+    scroll_to_load,
+)
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import cookie_machine_ids, load_machine
 from app.ocr import is_available as ocr_available, ocr_image_async, warmup_ocr_async
@@ -52,6 +64,24 @@ CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent")
 FIELD_FAST_VISIBLE_TIMEOUT_MS = 120
 FIELD_FAST_TEXT_TIMEOUT_MS = 300
+
+
+def _parse_int(raw: object, default: int) -> int:
+    """
+    将请求参数转换为整数。
+
+    Args:
+        raw: 原始参数值
+        default: 参数为空或格式错误时使用的默认值
+
+    Returns:
+        转换后的整数。
+    """
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
 
 # ---------------------------------------------------------------------------
 # FastAPI 应用与中间件
@@ -864,6 +894,33 @@ async def page_press_key(payload: dict) -> dict:
         raise HTTPException(400, "key is required")
     await page.keyboard.press(key)
     return {"ok": True, "key": key}
+
+
+@app.post("/api/v1/page/type-text")
+async def page_type_text(payload: dict) -> dict:
+    """
+    向当前已聚焦输入框分段输入文字。
+
+    请求体参数：
+        text: 必填，要输入的文本。
+        chunk_min: 可选，每段最少字符数，默认 1。
+        chunk_max: 可选，每段最多字符数，默认 2。
+        delay_min_ms: 可选，每段输入后的最小等待毫秒数，默认 80。
+        delay_max_ms: 可选，每段输入后的最大等待毫秒数，默认 220。
+    """
+    page = await _require_page()
+    text = str(payload.get("text", ""))
+    if not text:
+        raise HTTPException(400, "text is required")
+    result = await human_type_focused(
+        page,
+        text,
+        chunk_min=_parse_int(payload.get("chunk_min"), 1),
+        chunk_max=_parse_int(payload.get("chunk_max"), 2),
+        delay_min_ms=_parse_int(payload.get("delay_min_ms"), 80),
+        delay_max_ms=_parse_int(payload.get("delay_max_ms"), 220),
+    )
+    return {"ok": True, **result}
 
 
 @app.post("/api/v1/page/screenshot")

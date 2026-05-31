@@ -19,7 +19,18 @@ import httpx
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.cookie_crypto import decrypt_cookie_payload
 from app.element_refs import ELEMENT_REFS
-from app.humanize import click_box_random_point, find_all_locators_by_spec, is_locator_in_viewport, locate_element_by_spec, move_mouse_to_locator, navigate_to_page, parse_element_locator_spec, scroll_locator_into_view, scroll_to_load
+from app.humanize import (
+    click_box_random_point,
+    find_all_locators_by_spec,
+    human_type_focused,
+    is_locator_in_viewport,
+    locate_element_by_spec,
+    move_mouse_to_locator,
+    navigate_to_page,
+    parse_element_locator_spec,
+    scroll_locator_into_view,
+    scroll_to_load,
+)
 from app.machine import cookie_machine_ids, load_machine
 from app.ocr import ocr_image_async
 from app.paths import data_dir
@@ -590,6 +601,20 @@ class WSAgentClient:
                 raise ValueError("key is required")
             await page.keyboard.press(key)
             return {"ok": True, "key": key}
+        if path == "/api/v1/page/type-text":
+            page = await self._require_page()
+            text = str(body.get("text") or "")
+            if not text:
+                raise ValueError("text is required")
+            result = await human_type_focused(
+                page,
+                text,
+                chunk_min=self._parse_int(body.get("chunk_min"), 1),
+                chunk_max=self._parse_int(body.get("chunk_max"), 2),
+                delay_min_ms=self._parse_int(body.get("delay_min_ms"), 80),
+                delay_max_ms=self._parse_int(body.get("delay_max_ms"), 220),
+            )
+            return {"ok": True, **result}
         if path == "/api/v1/sound/play":
             kind = str(body.get("kind") or "").strip().lower()
             url = str(body.get("url") or "").strip()
@@ -637,6 +662,22 @@ class WSAgentClient:
                 raise ValueError("field name is required")
             requests.append((field, spec))
         return requests
+
+    def _parse_int(self, raw: Any, default: int) -> int:
+        """
+        将云端下发的数字参数转换为整数。
+
+        Args:
+            raw: 原始参数值
+            default: 参数为空或格式错误时使用的默认值
+
+        Returns:
+            转换后的整数。
+        """
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
 
     def _make_fast_field_spec(self, spec_raw: Any) -> Any:
         """

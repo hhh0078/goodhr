@@ -57,6 +57,23 @@ def _normalize_class_name(class_name: str) -> str:
     return f".{value}"
 
 
+def _int_or_default(raw: Any, default: int) -> int:
+    """
+    将任意参数转换为整数，失败时返回默认值。
+
+    Args:
+        raw: 原始参数值
+        default: 默认整数
+
+    Returns:
+        转换后的整数。
+    """
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_class_array(items: Any) -> list[str]:
     if not isinstance(items, list):
         return []
@@ -518,6 +535,49 @@ async def human_type(page: Page, selector: str, text: str, delay: Optional[int] 
             await asyncio.sleep(random.uniform(0.3, 0.8))
 
     logger.debug("已输入文本: %s...", text[:20])
+
+
+async def human_type_focused(
+    page: Page,
+    text: str,
+    chunk_min: int = 1,
+    chunk_max: int = 2,
+    delay_min_ms: int = 80,
+    delay_max_ms: int = 220,
+) -> dict[str, int]:
+    """
+    向当前已聚焦输入框分段输入文字。
+
+    Args:
+        page: Playwright Page 实例
+        text: 要输入的文本
+        chunk_min: 每段最少字符数
+        chunk_max: 每段最多字符数
+        delay_min_ms: 每段输入后的最小等待毫秒数
+        delay_max_ms: 每段输入后的最大等待毫秒数
+
+    Returns:
+        输入统计信息，包含字符数和分段数。
+    """
+    safe_text = str(text or "")
+    safe_chunk_min = max(1, min(_int_or_default(chunk_min, 1), 10))
+    safe_chunk_max = max(safe_chunk_min, min(_int_or_default(chunk_max, 2), 10))
+    safe_delay_min = max(0, min(_int_or_default(delay_min_ms, 80), 5000))
+    safe_delay_max = max(safe_delay_min, min(_int_or_default(delay_max_ms, 220), 5000))
+
+    offset = 0
+    chunk_count = 0
+    while offset < len(safe_text):
+        chunk_size = random.randint(safe_chunk_min, safe_chunk_max)
+        chunk = safe_text[offset : offset + chunk_size]
+        await page.keyboard.type(chunk, delay=random.randint(25, 90))
+        chunk_count += 1
+        offset += len(chunk)
+        if offset < len(safe_text) and safe_delay_max > 0:
+            await asyncio.sleep(random.uniform(safe_delay_min, safe_delay_max) / 1000)
+
+    logger.info("已向当前焦点输入文本 chars=%d chunks=%d", len(safe_text), chunk_count)
+    return {"chars": len(safe_text), "chunks": chunk_count}
 
 
 async def click_box_random_point(
