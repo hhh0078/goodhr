@@ -229,18 +229,7 @@ async def screenshot_locator_full(page: Page, locator, platform_name: str = "") 
             scroll_height = float(metrics.get("scrollHeight") or 0)
             client_height = float(metrics.get("clientHeight") or 0)
             if scroll_height > client_height + 20 and client_height > 20:
-                logger.info(
-                    "[%s] OCR截图命中目标元素自身滚动区 scrollHeight=%d clientHeight=%d",
-                    platform_name,
-                    int(scroll_height),
-                    int(client_height),
-                )
                 return await _scroll_element_and_stitch(locator, metrics, platform_name)
-
-        scrollable_child = await _find_scrollable_child_locator(locator, platform_name)
-        if scrollable_child is not None:
-            child_locator, child_metrics = scrollable_child
-            return await _scroll_element_and_stitch(child_locator, child_metrics, platform_name)
 
         viewport = page.viewport_size
         vh = viewport["height"] if viewport else 1080
@@ -250,79 +239,6 @@ async def screenshot_locator_full(page: Page, locator, platform_name: str = "") 
         return await locator.screenshot(type="png")
     except Exception as exc:
         logger.warning("[%s] 元素完整截图失败: %s", platform_name, exc)
-        return None
-
-
-async def _find_scrollable_child_locator(locator, platform_name: str):
-    """
-    在目标元素内部查找最适合截图的可滚动子容器。
-
-    Args:
-        locator: 目标元素定位器
-        platform_name: 平台名或日志标签
-
-    Returns:
-        命中的子元素 Locator 和滚动信息；未命中返回 None。
-    """
-    try:
-        result = await locator.evaluate(
-            """(root) => {
-                const items = Array.from(root.querySelectorAll("*"));
-                let best = null;
-                for (let i = 0; i < items.length; i += 1) {
-                    const el = items[i];
-                    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-                    if (!rect || rect.width < 80 || rect.height < 80) continue;
-                    const style = window.getComputedStyle(el);
-                    const overflowY = style ? style.overflowY : "";
-                    const canScroll = el.scrollHeight > el.clientHeight + 20;
-                    const overflowLooksScrollable = ["auto", "scroll", "overlay"].includes(overflowY);
-                    if (!canScroll && !overflowLooksScrollable) continue;
-                    const score = (el.scrollHeight - el.clientHeight) * Math.max(1, rect.width) * Math.max(1, rect.height);
-                    if (!best || score > best.score) {
-                        best = {
-                            index: i,
-                            score,
-                            scrollTop: Number(el.scrollTop || 0),
-                            scrollHeight: Number(el.scrollHeight || 0),
-                            clientHeight: Number(el.clientHeight || 0),
-                            tagName: (el.tagName || "").toLowerCase(),
-                            className: typeof el.className === "string" ? el.className : "",
-                            rect: { width: rect.width, height: rect.height }
-                        };
-                    }
-                }
-                return best;
-            }"""
-        )
-        if not isinstance(result, dict):
-            logger.info("[%s] OCR截图未找到可滚动子容器", platform_name)
-            return None
-        index = int(result.get("index", -1))
-        scroll_height = int(float(result.get("scrollHeight") or 0))
-        client_height = int(float(result.get("clientHeight") or 0))
-        if index < 0 or scroll_height <= client_height + 20:
-            logger.info(
-                "[%s] OCR截图可滚动子容器无效 index=%d scrollHeight=%d clientHeight=%d",
-                platform_name,
-                index,
-                scroll_height,
-                client_height,
-            )
-            return None
-        logger.info(
-            "[%s] OCR截图命中可滚动子容器 index=%d tag=%s class=%s scrollHeight=%d clientHeight=%d",
-            platform_name,
-            index,
-            str(result.get("tagName") or ""),
-            str(result.get("className") or "")[:120],
-            scroll_height,
-            client_height,
-        )
-        child_locator = locator.locator("*").nth(index)
-        return child_locator, result
-    except Exception as exc:
-        logger.warning("[%s] 查找可滚动子容器失败: %s", platform_name, exc)
         return None
 
 
