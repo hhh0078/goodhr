@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	stdlog "log"
 	"net/http"
 	"strings"
 	"sync"
@@ -446,19 +446,19 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.agentWS == nil || !s.agentWS.IsOnline(session.Email) {
-		log.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=本地WS未连接", task.ID, session.Email)
+		stdlog.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=本地WS未连接", task.ID, session.Email)
 		writeError(w, http.StatusConflict, "local agent websocket is not connected")
 		return
 	}
 
 	if task.Status == "running" {
-		log.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=任务状态已是%s", task.ID, session.Email, task.Status)
+		stdlog.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=任务状态已是%s", task.ID, session.Email, task.Status)
 		writeError(w, http.StatusBadRequest, "task is already "+task.Status)
 		return
 	}
 
 	// 异步执行任务，不阻塞 HTTP 响应
-	log.Printf("[任务开始] 已接受执行 task=%s user=%s platform=%s account=%s position=%s mode=%s", task.ID, session.Email, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode)
+	stdlog.Printf("[任务开始] 已接受执行 task=%s user=%s platform=%s account=%s position=%s mode=%s", task.ID, session.Email, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode)
 	go s.executeTask(task)
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -491,7 +491,7 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cancelTask(task.ID)
-	log.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
+	stdlog.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
 	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 	_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -505,30 +505,37 @@ func (s *TaskService) executeTask(task TaskRun) {
 	ctx, cancel := context.WithCancel(context.Background())
 	if !s.registerTaskCancel(task.ID, cancel) {
 		cancel()
-		log.Printf("[任务流程] task=%s 注册取消器失败：任务已在运行", task.ID)
+		stdlog.Printf("[任务流程] task=%s 注册取消器失败：任务已在运行", task.ID)
 		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已在运行中")
 		return
 	}
 	defer s.unregisterTaskCancel(task.ID)
 
 	log := func(level, message string) {
-		log.Printf("[任务流程] task=%s level=%s message=%s", task.ID, level, message)
+		stdlog.Printf("[任务流程] task=%s level=%s message=%s", task.ID, level, message)
 		// 调用任务日志存储写入日志，供前端展示运行摘要
 		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
 	}
 
 	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
+	var releaseClaim func()
+	defer func() {
+		if releaseClaim != nil {
+			releaseClaim()
+		}
+		if err := s.taskLogs.FlushLogs(task.ID, task.UserEmail); err != nil {
+			stdlog.Printf("[任务流程] task=%s 刷新缓存日志失败: %v", task.ID, err)
+		}
+	}()
 
 	tenantID, _ := s.getTenantInfo(task.UserEmail)
-	claimedCookie, releaseClaim, err := s.claimTaskCookie(tenantID, task, log)
+	claimedCookie, release, err := s.claimTaskCookie(tenantID, task, log)
 	if err != nil {
 		log("error", fmt.Sprintf("准备任务 cookie 失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
 	}
-	if releaseClaim != nil {
-		defer releaseClaim()
-	}
+	releaseClaim = release
 
 	// 更新任务状态为 running
 	_ = s.store.UpdateTaskStatus(task.ID, "running")
@@ -537,12 +544,14 @@ func (s *TaskService) executeTask(task TaskRun) {
 	cfg, err := s.systemConfigs.Get("platform." + task.PlatformID)
 	if err != nil {
 		log("error", fmt.Sprintf("读取平台配置失败: %v", err))
+		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
 	}
 
 	platformCfg, err := ParsePlatformConfig(cfg.ConfigValue)
 	if err != nil {
 		log("error", fmt.Sprintf("解析平台配置失败: %v", err))
+		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
 	}
 

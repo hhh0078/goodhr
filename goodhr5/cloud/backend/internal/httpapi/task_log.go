@@ -44,6 +44,15 @@ func (s *TaskLogService) WriteLog(taskID, userEmail, level, message string) erro
 	return err
 }
 
+// FlushLogs 将指定任务的缓存日志写入持久化存储。
+func (s *TaskLogService) FlushLogs(taskID, userEmail string) error {
+	flusher, ok := s.logStore.(TaskLogFlushStore)
+	if !ok {
+		return nil
+	}
+	return flusher.FlushTaskLogs(taskID, userEmail)
+}
+
 // Collection 按请求方法处理任务日志集合资源。
 func (s *TaskLogService) Collection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

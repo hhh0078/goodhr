@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const maxTaskLogsPerTask = 1000
+
 // TaskLog 表示一条云端任务日志摘要。
 type TaskLog struct {
 	ID        string
@@ -40,6 +42,11 @@ type TaskLogStore interface {
 	SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error)
 }
 
+// TaskLogFlushStore 定义任务日志缓存落库能力。
+type TaskLogFlushStore interface {
+	FlushTaskLogs(taskID, userEmail string) error
+}
+
 // MemoryTaskLogStore 提供开发期使用的内存任务日志存储。
 type MemoryTaskLogStore struct {
 	mu     sync.Mutex
@@ -67,10 +74,13 @@ func (s *MemoryTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 	defer s.mu.Unlock()
 
 	log.ID = s.nextID()
-	log.CreatedAt = s.now()
+	if log.CreatedAt.IsZero() {
+		log.CreatedAt = s.now()
+	}
 	if log.Level == "" {
 		log.Level = "info"
 	}
+	s.trimTaskLogsLocked(log.TaskID, log.UserEmail, 1)
 	s.logs = append(s.logs, log)
 	return log, nil
 }
@@ -147,6 +157,41 @@ func (s *MemoryTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, isA
 		result[log.TaskID] = item
 	}
 	return result, nil
+}
+
+// trimTaskLogsLocked 写入前检查内存日志数量，超过上限时删除最早日志。
+func (s *MemoryTaskLogStore) trimTaskLogsLocked(taskID string, userEmail string, incoming int) {
+	count := 0
+	for _, item := range s.logs {
+		if item.TaskID == taskID && item.UserEmail == userEmail {
+			count++
+		}
+	}
+	removeCount := count + incoming - maxTaskLogsPerTask
+	if removeCount <= 0 {
+		return
+	}
+	targets := make([]TaskLog, 0, count)
+	for _, item := range s.logs {
+		if item.TaskID == taskID && item.UserEmail == userEmail {
+			targets = append(targets, item)
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		return targets[i].CreatedAt.Before(targets[j].CreatedAt)
+	})
+	removeIDs := map[string]struct{}{}
+	for i := 0; i < removeCount && i < len(targets); i++ {
+		removeIDs[targets[i].ID] = struct{}{}
+	}
+	kept := make([]TaskLog, 0, len(s.logs))
+	for _, item := range s.logs {
+		if _, ok := removeIDs[item.ID]; ok {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	s.logs = kept
 }
 
 func classifyTaskLogMessage(message string) (int, int, int, int) {

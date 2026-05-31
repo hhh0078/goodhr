@@ -229,10 +229,16 @@ func (c Config) OnboardingStore(db *sql.DB) OnboardingStore {
 }
 
 func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
+	var persistent TaskLogStore
 	if db != nil {
-		return NewPostgresTaskLogStore(db)
+		persistent = NewPostgresTaskLogStore(db)
+	} else {
+		persistent = NewMemoryTaskLogStore()
 	}
-	return NewMemoryTaskLogStore()
+	if c.RedisAddr != "" {
+		return NewRedisTaskLogStore(c.RedisAddr, c.RedisPassword, c.RedisDB, persistent)
+	}
+	return persistent
 }
 
 // CandidateStore 创建候选人存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。

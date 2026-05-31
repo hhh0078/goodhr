@@ -100,6 +100,29 @@ func TestTaskLogListSupportsSince(t *testing.T) {
 	}
 }
 
+// TestMemoryTaskLogStoreKeepsLatestThousand 验证内存日志最多保留每个任务最新 1000 条。
+func TestMemoryTaskLogStoreKeepsLatestThousand(t *testing.T) {
+	store := NewMemoryTaskLogStore()
+	for i := 0; i < maxTaskLogsPerTask+5; i++ {
+		if _, err := store.AddTaskLog(TaskLog{
+			TaskID:    "task_limit",
+			UserEmail: "limit@example.com",
+			Level:     "info",
+			Message:   "日志" + intString(i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := len(store.logs); got != maxTaskLogsPerTask {
+		t.Fatalf("log count = %d, want %d", got, maxTaskLogsPerTask)
+	}
+	for _, item := range store.logs {
+		if item.Message == "日志0" {
+			t.Fatalf("oldest log was not trimmed")
+		}
+	}
+}
+
 // TestTaskLogClear 验证任务日志可以被清空。
 func TestTaskLogClear(t *testing.T) {
 	server := mustNewServer(t)

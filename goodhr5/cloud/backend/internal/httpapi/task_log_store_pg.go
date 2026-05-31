@@ -31,20 +31,28 @@ func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
 	if level == "" {
 		level = "info"
 	}
+	if err := s.trimTaskLogs(ctx, log.TaskID, log.UserEmail, 1); err != nil {
+		return TaskLog{}, err
+	}
+	createdAt := log.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
 
 	var saved TaskLog
 	saved.UserEmail = log.UserEmail
 	err = s.db.QueryRowContext(
 		ctx,
 		`
-		INSERT INTO task_logs (task_id, user_id, level, message)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO task_logs (task_id, user_id, level, message, created_at)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, task_id, level, message, created_at
 		`,
 		log.TaskID,
 		userID,
 		level,
 		log.Message,
+		createdAt,
 	).Scan(
 		&saved.ID,
 		&saved.TaskID,
@@ -186,4 +194,42 @@ func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, i
 		result[taskID] = item
 	}
 	return result, rows.Err()
+}
+
+// trimTaskLogs 写入前检查当前任务日志数量，超过上限时删除最早日志。
+func (s *PostgresTaskLogStore) trimTaskLogs(ctx context.Context, taskID, userEmail string, incoming int) error {
+	userID, err := ensureUserID(ctx, s.db, userEmail)
+	if err != nil {
+		return err
+	}
+	var count int
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM task_logs WHERE task_id=$1 AND user_id=$2`,
+		taskID,
+		userID,
+	).Scan(&count); err != nil {
+		return err
+	}
+	removeCount := count + incoming - maxTaskLogsPerTask
+	if removeCount <= 0 {
+		return nil
+	}
+	_, err = s.db.ExecContext(
+		ctx,
+		`
+		DELETE FROM task_logs
+		WHERE id IN (
+			SELECT id
+			FROM task_logs
+			WHERE task_id=$1 AND user_id=$2
+			ORDER BY created_at ASC
+			LIMIT $3
+		)
+		`,
+		taskID,
+		userID,
+		removeCount,
+	)
+	return err
 }
