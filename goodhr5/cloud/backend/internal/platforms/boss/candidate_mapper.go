@@ -16,7 +16,7 @@ func MapFieldsToCandidate(platformID string, fields map[string]any) platformcore
 	education, _ := fields["education"].(string)
 	university, _ := fields["university"].(string)
 	description, _ := fields["description"].(string)
-	raw := buildCandidateText(fields, nil)
+	raw := buildCandidateText(fields, []string{"name", "basic_info", "education", "university", "description"})
 	if strings.TrimSpace(raw) == "" {
 		raw = strings.Join([]string{
 			strings.TrimSpace(name),
@@ -160,11 +160,14 @@ func firstNonEmpty(primary, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-// buildCandidateText 按字段顺序拼接候选人文本；未传顺序时拼接全部字符串字段。
+// buildCandidateText 按字段顺序拼接候选人文本；未传顺序时拼接稳定字符串字段。
 func buildCandidateText(candidate map[string]any, orderedKeys []string) string {
 	if len(orderedKeys) == 0 {
 		parts := make([]string, 0, len(candidate))
-		for _, value := range candidate {
+		for key, value := range candidate {
+			if isRuntimeField(key) {
+				continue
+			}
 			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
 				parts = append(parts, strings.TrimSpace(text))
 			}
@@ -180,4 +183,15 @@ func buildCandidateText(candidate map[string]any, orderedKeys []string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+// isRuntimeField 判断字段是否为本地运行时临时字段。
+// key 为字段名，返回 true 表示不应进入候选人文本和指纹。
+func isRuntimeField(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "_index", "element_ref":
+		return true
+	default:
+		return false
+	}
 }

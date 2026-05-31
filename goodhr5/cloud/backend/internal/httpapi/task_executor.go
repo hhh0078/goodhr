@@ -600,12 +600,27 @@ func (e *TaskExecutor) filterNewCandidates(candidates []Candidate) []Candidate {
 			continue
 		}
 		if _, exists := e.seenCandidates[key]; exists {
+			e.log("info", fmt.Sprintf("候选人已处理过，跳过：%s fingerprint=%s", candidate.DisplayName(), previewFingerprint(key)))
 			continue
 		}
 		e.seenCandidates[key] = struct{}{}
 		result = append(result, candidate)
 	}
 	return result
+}
+
+// previewFingerprint 生成指纹日志预览，避免日志过长。
+// fingerprint 为候选人去重指纹。
+func previewFingerprint(fingerprint string) string {
+	text := strings.TrimSpace(fingerprint)
+	if text == "" {
+		return "空"
+	}
+	runes := []rune(text)
+	if len(runes) <= 120 {
+		return text
+	}
+	return string(runes[:120]) + "..."
 }
 
 // prepareCandidatePersistence 保存候选人主体并创建本次触达上下文。

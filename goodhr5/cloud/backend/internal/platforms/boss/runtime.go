@@ -164,13 +164,17 @@ func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
 
 // CandidateFingerprint 返回 Boss 候选人去重指纹。
 func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
-	return strings.Join([]string{
-		"name=" + strings.TrimSpace(candidate.Name),
-		"basic_info=" + strings.TrimSpace(candidate.BasicInfo),
-		"edu=" + strings.TrimSpace(candidate.EducationLevel),
-		"desc=" + strings.TrimSpace(candidate.PersonalDescription),
-		"raw=" + strings.TrimSpace(candidate.RawText),
-	}, "|")
+	parts := []string{
+		"name=" + normalizeFingerprintText(candidate.Name),
+		"edu=" + normalizeFingerprintText(candidate.EducationLevel),
+		"university=" + normalizeFingerprintText(firstEducationSchool(candidate)),
+		"desc=" + normalizeFingerprintText(candidate.PersonalDescription),
+	}
+	fingerprint := strings.Join(parts, "|")
+	if strings.Trim(fingerprint, "| =") != "" {
+		return fingerprint
+	}
+	return "raw=" + normalizeFingerprintText(candidate.RawText)
 }
 
 // MapFieldsToCandidate 将 Boss 原始字段映射为统一候选人模型。
@@ -326,6 +330,21 @@ func previewFieldValue(value any, maxRunes int) string {
 		return string(runes[:maxRunes]) + "..."
 	}
 	return text
+}
+
+// normalizeFingerprintText 规范化指纹字段文本。
+// value 为候选人稳定字段，返回去掉多余空白后的文本。
+func normalizeFingerprintText(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+// firstEducationSchool 返回候选人首个教育/公司字段。
+// candidate 为候选人对象，返回可用于去重的稳定学校或公司信息。
+func firstEducationSchool(candidate platformcore.Candidate) string {
+	if len(candidate.BasicProfile.Educations) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(candidate.BasicProfile.Educations[0].SchoolName)
 }
 
 // shortRef 压缩本地元素引用，避免任务日志太长。
