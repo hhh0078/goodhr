@@ -28,6 +28,16 @@ APP_DATA_DIR_NAME = "GoodHR"
 OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
+THEME_BG = "#0a0a0a"
+THEME_PANEL = "#0d0d0d"
+THEME_INPUT = "#111111"
+THEME_FG = "#00ff00"
+THEME_DIM = "#dddddd"
+THEME_BORDER = "#333333"
+THEME_ACTIVE = "#063f06"
+THEME_FONT = ("Courier New", 10)
+THEME_TITLE_FONT = ("Courier New", 20, "bold")
+THEME_SECTION_FONT = ("Courier New", 12, "bold")
 
 
 def app_support_dir() -> Path:
@@ -284,6 +294,7 @@ class GoodHRLauncher:
         """初始化窗口、运行目录和状态。"""
         self.root = tk.Tk()
         self.root.title(APP_NAME)
+        self.root.configure(bg=THEME_BG)
         self.icon_image: tk.PhotoImage | None = None
         self._apply_window_icon()
         self.root.geometry("780x560")
@@ -304,36 +315,113 @@ class GoodHRLauncher:
 
     def _build_ui(self) -> None:
         """创建窗口组件。"""
-        wrapper = tk.Frame(self.root, padx=14, pady=12)
+        wrapper = tk.Frame(
+            self.root,
+            padx=16,
+            pady=14,
+            bg=THEME_PANEL,
+            highlightbackground=THEME_BORDER,
+            highlightthickness=1,
+        )
         wrapper.pack(fill=tk.BOTH, expand=True)
 
-        title = tk.Label(wrapper, text=APP_NAME, font=("Arial", 18, "bold"))
+        title = self._make_label(wrapper, text=APP_NAME, font=THEME_TITLE_FONT, fg=THEME_FG)
         title.pack(anchor="w")
 
-        desc = tk.Label(
+        desc = self._make_label(
             wrapper,
             text="本程序负责启动本地浏览器、执行平台页面操作、截图 OCR 和任务数据保存。",
             anchor="w",
+            fg=THEME_DIM,
         )
         desc.pack(anchor="w", pady=(6, 10))
 
-        status_row = tk.Frame(wrapper)
+        status_row = tk.Frame(wrapper, bg=THEME_PANEL)
         status_row.pack(fill=tk.X)
-        tk.Label(status_row, text="当前状态：", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
-        tk.Label(status_row, textvariable=self.status_var, fg="#166534", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
+        self._make_label(status_row, text="当前状态：", font=THEME_SECTION_FONT).pack(side=tk.LEFT)
+        self._make_label(status_row, textvariable=self.status_var, fg=THEME_FG, font=THEME_SECTION_FONT).pack(
+            side=tk.LEFT
+        )
 
-        tk.Label(wrapper, textvariable=self.detail_var, anchor="w", fg="#555").pack(fill=tk.X, pady=(6, 10))
+        self._make_label(wrapper, textvariable=self.detail_var, anchor="w", fg=THEME_DIM).pack(fill=tk.X, pady=(6, 10))
 
-        button_row = tk.Frame(wrapper)
+        button_row = tk.Frame(wrapper, bg=THEME_PANEL)
         button_row.pack(fill=tk.X, pady=(0, 10))
-        tk.Button(button_row, text="打开官网", command=self._open_site, width=12).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(button_row, text="停止服务", command=self._stop_agent, width=12).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(button_row, text="清除日志", command=self._clear_logs, width=12).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Button(button_row, text="重新启动", command=self._restart_agent, width=12).pack(side=tk.LEFT)
+        self._make_button(button_row, text="打开官网", command=self._open_site).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="停止服务", command=self._stop_agent).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="清除日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT)
 
-        tk.Label(wrapper, text="运行日志", font=("Arial", 12, "bold")).pack(anchor="w")
-        self.log_view = scrolledtext.ScrolledText(wrapper, height=20, wrap=tk.WORD, state=tk.DISABLED)
+        self._make_label(wrapper, text="运行日志", font=THEME_SECTION_FONT).pack(anchor="w")
+        self.log_view = scrolledtext.ScrolledText(
+            wrapper,
+            height=20,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            bg=THEME_INPUT,
+            fg=THEME_FG,
+            insertbackground=THEME_FG,
+            selectbackground=THEME_ACTIVE,
+            selectforeground=THEME_FG,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=THEME_BORDER,
+            highlightcolor=THEME_FG,
+            font=THEME_FONT,
+        )
         self.log_view.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+
+    def _make_label(self, parent: tk.Widget, **kwargs: object) -> tk.Label:
+        """
+        创建统一主题的文本标签。
+
+        Args:
+            parent: 标签所属的父组件。
+            **kwargs: 传给 Tk Label 的额外参数。
+
+        Returns:
+            tk.Label: 已应用 GoodHR 主题的标签组件。
+        """
+        options = {
+            "bg": THEME_PANEL,
+            "fg": THEME_FG,
+            "font": THEME_FONT,
+        }
+        options.update(kwargs)
+        return tk.Label(parent, **options)
+
+    def _make_button(self, parent: tk.Widget, text: str, command: object, width: int = 12) -> tk.Button:
+        """
+        创建统一主题的操作按钮。
+
+        Args:
+            parent: 按钮所属的父组件。
+            text: 按钮显示文字。
+            command: 点击按钮时执行的回调。
+            width: 按钮宽度。
+
+        Returns:
+            tk.Button: 已应用 GoodHR 主题的按钮组件。
+        """
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            width=width,
+            bg=THEME_INPUT,
+            fg=THEME_FG,
+            activebackground=THEME_ACTIVE,
+            activeforeground=THEME_FG,
+            disabledforeground=THEME_BORDER,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=THEME_BORDER,
+            highlightcolor=THEME_FG,
+            cursor="hand2",
+            font=THEME_FONT,
+        )
 
     def _apply_window_icon(self) -> None:
         """给桌面窗口设置 GoodHR 图标。"""
