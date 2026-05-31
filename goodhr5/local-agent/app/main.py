@@ -734,8 +734,8 @@ async def page_scroll(payload: dict) -> dict:
     """滚动当前页面，模拟人工浏览加载候选人列表。
 
     请求体参数：
-        scroll_delay_min: 滚动最小延迟秒数（默认 3）
-        scroll_delay_max: 滚动最大延迟秒数（默认 8）
+        scroll_delay_min: 滚动最小延迟秒数（默认 0.1）
+        scroll_delay_max: 滚动最大延迟秒数（默认 0.9）
         max_scrolls: 最大滚动次数（默认 20）
         element: 可选统一元素定位对象，支持 parent_classes 和 target_classes
     """
@@ -745,8 +745,8 @@ async def page_scroll(payload: dict) -> dict:
         raise HTTPException(400, "element.target_classes is required")
     await scroll_to_load(
         page,
-        scroll_delay_min=int(payload.get("scroll_delay_min", 3)),
-        scroll_delay_max=int(payload.get("scroll_delay_max", 8)),
+        scroll_delay_min=float(payload.get("scroll_delay_min", 0.1)),
+        scroll_delay_max=float(payload.get("scroll_delay_max", 0.9)),
         max_scrolls=int(payload.get("max_scrolls", 20)),
         element_spec=element_spec,
     )

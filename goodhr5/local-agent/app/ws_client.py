@@ -487,8 +487,8 @@ class WSAgentClient:
                 raise ValueError("element.target_classes is required")
             await scroll_to_load(
                 page,
-                scroll_delay_min=int(body.get("scroll_delay_min", 3)),
-                scroll_delay_max=int(body.get("scroll_delay_max", 8)),
+                scroll_delay_min=float(body.get("scroll_delay_min", 0.1)),
+                scroll_delay_max=float(body.get("scroll_delay_max", 0.9)),
                 max_scrolls=int(body.get("max_scrolls", 20)),
                 element_spec=element_spec,
             )
