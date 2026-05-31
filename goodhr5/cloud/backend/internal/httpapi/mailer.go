@@ -18,6 +18,7 @@ import (
 type Mailer interface {
 	SendLoginCode(email string, code string) error
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
+	SendTaskStatus(email string, notice TaskStatusNotice) error
 }
 
 // SubscriptionRewardNotice 表示会员天数变动提醒邮件内容。
@@ -27,6 +28,23 @@ type SubscriptionRewardNotice struct {
 	MemberType   string
 	ExpiresAt    time.Time
 	RelatedEmail string
+}
+
+// TaskStatusNotice 表示任务完成或失败邮件内容。
+type TaskStatusNotice struct {
+	TaskID          string
+	Status          string
+	StatusLabel     string
+	PlatformID      string
+	PlatformAccount string
+	Mode            string
+	MatchLimit      int
+	ScannedCount    int
+	GreetedCount    int
+	SkippedCount    int
+	FailedCount     int
+	FinishedAt      time.Time
+	ErrorMessage    string
 }
 
 type DevMailer struct{}
@@ -39,6 +57,12 @@ func (m DevMailer) SendLoginCode(email string, code string) error {
 // SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
 	log.Printf("GoodHR dev subscription changed for %s: reason=%s days=%d expires=%s related=%s", email, notice.Reason, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
+	return nil
+}
+
+// SendTaskStatus 在开发模式下记录任务状态提醒。
+func (m DevMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+	log.Printf("GoodHR dev task status for %s: task=%s status=%s error=%s", email, notice.TaskID, notice.StatusLabel, notice.ErrorMessage)
 	return nil
 }
 
@@ -87,6 +111,49 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 		"MemberType":   memberType,
 		"ExpiresAt":    notice.ExpiresAt.Format("2006-01-02 15:04:05"),
 		"RelatedEmail": strings.TrimSpace(notice.RelatedEmail),
+	}, lines)
+}
+
+// SendTaskStatus 发送任务完成或失败提醒邮件。
+func (m SMTPMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+	statusLabel := strings.TrimSpace(notice.StatusLabel)
+	if statusLabel == "" {
+		statusLabel = "任务结束"
+	}
+	finishedAt := notice.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = time.Now()
+	}
+	subject := "GoodHR " + statusLabel + "提醒"
+	lines := []string{
+		"你好，你的 GoodHR 任务状态已更新。",
+		"任务状态：" + statusLabel,
+		"任务 ID：" + notice.TaskID,
+		"平台：" + notice.PlatformID,
+		"平台账号：" + notice.PlatformAccount,
+		"任务模式：" + notice.Mode,
+		"打招呼上限：" + intString(notice.MatchLimit),
+		"扫描/打招呼/跳过/失败：" + intString(notice.ScannedCount) + "/" + intString(notice.GreetedCount) + "/" + intString(notice.SkippedCount) + "/" + intString(notice.FailedCount),
+		"完成时间：" + finishedAt.Format("2006-01-02 15:04:05"),
+	}
+	if strings.TrimSpace(notice.ErrorMessage) != "" {
+		lines = append(lines, "失败原因："+strings.TrimSpace(notice.ErrorMessage))
+	}
+	lines = append(lines, "你可以回到 GoodHR 控制台查看任务日志。")
+	return m.sendMessage(email, subject, "task_status.html", map[string]any{
+		"TaskID":          notice.TaskID,
+		"Status":          notice.Status,
+		"StatusLabel":     statusLabel,
+		"PlatformID":      notice.PlatformID,
+		"PlatformAccount": notice.PlatformAccount,
+		"Mode":            notice.Mode,
+		"MatchLimit":      notice.MatchLimit,
+		"ScannedCount":    notice.ScannedCount,
+		"GreetedCount":    notice.GreetedCount,
+		"SkippedCount":    notice.SkippedCount,
+		"FailedCount":     notice.FailedCount,
+		"FinishedAt":      finishedAt.Format("2006-01-02 15:04:05"),
+		"ErrorMessage":    strings.TrimSpace(notice.ErrorMessage),
 	}, lines)
 }
 

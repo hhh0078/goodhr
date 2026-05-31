@@ -157,6 +157,11 @@ func (m *recordingMailer) SendSubscriptionReward(email string, notice Subscripti
 	return nil
 }
 
+// SendTaskStatus 忽略任务状态邮件发送请求。
+func (m *recordingMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+	return nil
+}
+
 // TestAuthRejectsEmailDomainNotAllowed 验证发送验证码时会拦截非白名单邮箱域名。
 func TestAuthRejectsEmailDomainNotAllowed(t *testing.T) {
 	server := mustNewServer(t)

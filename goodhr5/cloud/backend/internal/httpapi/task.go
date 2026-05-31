@@ -28,6 +28,7 @@ type TaskService struct {
 	candidateStore CandidateStore
 	agentWS        *AgentWSHub
 	subscriptions  SubscriptionStore
+	mailer         Mailer
 	runningMu      sync.Mutex
 	runningCancels map[string]context.CancelFunc
 }
@@ -42,7 +43,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub, subscriptions SubscriptionStore) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -56,6 +57,7 @@ func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConf
 		candidateStore: candidateStore,
 		agentWS:        agentWS,
 		subscriptions:  subscriptions,
+		mailer:         mailer,
 		runningCancels: map[string]context.CancelFunc{},
 	}
 }
@@ -528,7 +530,10 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}()
 
-	tenantID, _ := s.getTenantInfo(task.UserEmail)
+	tenantID := ""
+	if s.tenantStore != nil {
+		tenantID, _ = s.getTenantInfo(task.UserEmail)
+	}
 	claimedCookie, release, err := s.claimTaskCookie(tenantID, task, log)
 	if err != nil {
 		log("error", fmt.Sprintf("准备任务 cookie 失败: %v", err))
@@ -608,12 +613,61 @@ func (s *TaskService) executeTask(task TaskRun) {
 			_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 			return
 		}
-		log("error", fmt.Sprintf("任务执行失败: %v", err))
+		errMessage := fmt.Sprintf("任务执行失败: %v", err)
+		log("error", errMessage)
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
+		s.sendTaskStatusNotice(task, "failed", errMessage)
 	} else {
 		log("info", "本轮任务执行完成，可再次开始")
 		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
+		s.sendTaskStatusNotice(task, "stopped", "")
 	}
+}
+
+// sendTaskStatusNotice 发送任务结束或失败邮件提醒。
+func (s *TaskService) sendTaskStatusNotice(task TaskRun, status string, errorMessage string) {
+	if s.mailer == nil || strings.TrimSpace(task.UserEmail) == "" {
+		return
+	}
+	tenantID := ""
+	if s.tenantStore != nil {
+		tenantID, _ = s.getTenantInfo(task.UserEmail)
+	}
+	notice := TaskStatusNotice{
+		TaskID:       task.ID,
+		Status:       status,
+		StatusLabel:  taskStatusNoticeLabel(status),
+		PlatformID:   task.PlatformID,
+		Mode:         task.Mode,
+		MatchLimit:   task.MatchLimit,
+		FinishedAt:   time.Now(),
+		ErrorMessage: strings.TrimSpace(errorMessage),
+	}
+	if tenantID != "" && task.PlatformAccountID != "" && s.cookieStore != nil {
+		if account, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID); err == nil {
+			notice.PlatformAccount = account.DisplayName
+		}
+	}
+	if notice.PlatformAccount == "" {
+		notice.PlatformAccount = task.PlatformAccountID
+	}
+	if current, err := s.store.TaskByID(tenantID, task.UserEmail, task.ID, true); err == nil {
+		notice.ScannedCount = current.ScannedCount
+		notice.GreetedCount = current.GreetedCount
+		notice.SkippedCount = current.SkippedCount
+		notice.FailedCount = current.FailedCount
+	}
+	if err := s.mailer.SendTaskStatus(task.UserEmail, notice); err != nil {
+		stdlog.Printf("[任务邮件] 发送任务状态提醒失败 task=%s user=%s err=%v", task.ID, task.UserEmail, err)
+	}
+}
+
+// taskStatusNoticeLabel 返回任务状态邮件里的中文状态。
+func taskStatusNoticeLabel(status string) string {
+	if status == "failed" {
+		return "任务失败"
+	}
+	return "任务结束"
 }
 
 func (s *TaskService) registerTaskCancel(taskID string, cancel context.CancelFunc) bool {

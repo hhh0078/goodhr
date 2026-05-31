@@ -1,0 +1,80 @@
+<!-- 本文件是 GoodHR 任务状态提醒邮件 HTML 模板，使用黑绿终端风并适配移动端。 -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="supported-color-schemes" content="dark" />
+    <title>GoodHR 任务状态提醒</title>
+    <style>
+      @media only screen and (max-width: 620px) {
+        .wrap { padding: 14px !important; }
+        .panel { width: 100% !important; }
+        .content { padding: 22px 18px !important; }
+        .title { font-size: 24px !important; }
+        .label, .value { display: block !important; width: auto !important; }
+        .label { padding-bottom: 4px !important; border-bottom: 0 !important; }
+        .value { padding-top: 0 !important; }
+      }
+    </style>
+  </head>
+  <body bgcolor="#020202" style="margin:0;padding:0;background-color:#020202;background:#020202;font-family:'Courier New','Microsoft YaHei',monospace;color:#00ff66;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#020202" style="background-color:#020202;background:#020202;padding:28px 0;">
+      <tr>
+        <td class="wrap" align="center" bgcolor="#020202" style="padding:0 16px;background-color:#020202;background:#020202;">
+          <table class="panel" role="presentation" width="580" cellspacing="0" cellpadding="0" bgcolor="#050505" style="width:580px;max-width:100%;background-color:#050505;background:#050505;border:1px solid #333333;">
+            <tr>
+              <td bgcolor="#0d0d0d" style="padding:9px 12px;background-color:#0d0d0d;background:#0d0d0d;border-bottom:1px solid #333333;">
+                <span style="display:inline-block;width:10px;height:10px;background:#e33;margin-right:7px;"></span>
+                <span style="display:inline-block;width:10px;height:10px;background:#e83;margin-right:7px;"></span>
+                <span style="display:inline-block;width:10px;height:10px;background:#3a3;margin-right:12px;"></span>
+                <span style="font-size:12px;color:#dddddd;">GoodHR 任务终端</span>
+              </td>
+            </tr>
+            <tr>
+              <td class="content" bgcolor="#050505" style="padding:30px 34px;background-color:#050505;background:#050505;">
+                <div style="font-size:13px;color:#00ff66;margin-bottom:10px;">$ task --status {{.Status}}</div>
+                <h1 class="title" style="margin:0 0 14px;font-size:30px;line-height:1.25;font-weight:400;color:#ffffff;">{{.StatusLabel}}</h1>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.8;color:#dddddd;">你的 GoodHR 任务状态已更新，详情如下。</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#050505" style="border-collapse:collapse;font-size:14px;color:#dddddd;background-color:#050505;background:#050505;">
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">任务 ID</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.TaskID}}</td>
+                  </tr>
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">平台</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.PlatformID}}</td>
+                  </tr>
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">平台账号</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.PlatformAccount}}</td>
+                  </tr>
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">任务模式</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.Mode}}</td>
+                  </tr>
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">统计</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">扫描 {{.ScannedCount}} / 打招呼 {{.GreetedCount}} / 跳过 {{.SkippedCount}} / 失败 {{.FailedCount}}</td>
+                  </tr>
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#00ff66;">结束时间</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.FinishedAt}}</td>
+                  </tr>
+                  {{if .ErrorMessage}}
+                  <tr>
+                    <td class="label" style="width:120px;padding:13px 12px;border-top:1px solid #222222;background:#0d0d0d;color:#ff6b6b;">失败原因</td>
+                    <td class="value" style="padding:13px 12px;border-top:1px solid #222222;color:#ffffff;">{{.ErrorMessage}}</td>
+                  </tr>
+                  {{end}}
+                </table>
+                <p style="margin:22px 0 0;font-size:13px;line-height:1.8;color:#888888;">你可以回到 GoodHR 控制台查看完整任务日志。</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

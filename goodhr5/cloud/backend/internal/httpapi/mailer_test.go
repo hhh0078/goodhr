@@ -25,6 +25,25 @@ func TestMailTemplatesRender(t *testing.T) {
 	if !strings.Contains(rewardHTML, "新用户注册赠送会员") || !strings.Contains(rewardHTML, "3 天") {
 		t.Fatalf("reward template did not render expected content: %s", rewardHTML)
 	}
+
+	taskHTML := mailer.renderHTML("task_status.html", map[string]any{
+		"TaskID":          "task_1",
+		"Status":          "failed",
+		"StatusLabel":     "任务失败",
+		"PlatformID":      "boss",
+		"PlatformAccount": "测试账号",
+		"Mode":            "keyword",
+		"MatchLimit":      20,
+		"ScannedCount":    10,
+		"GreetedCount":    3,
+		"SkippedCount":    6,
+		"FailedCount":     1,
+		"FinishedAt":      time.Date(2026, 6, 2, 12, 0, 0, 0, time.Local).Format("2006-01-02 15:04:05"),
+		"ErrorMessage":    "本地程序断开",
+	})
+	if !strings.Contains(taskHTML, "任务失败") || !strings.Contains(taskHTML, "本地程序断开") {
+		t.Fatalf("task template did not render expected content: %s", taskHTML)
+	}
 }
 
 // TestBuildMailMessageHasSingleSubject 验证邮件只包含一个主题头。
