@@ -33,7 +33,7 @@ func DefaultUserPreferences() UserPreferences {
 	return UserPreferences{
 		AIModel:                "",
 		ClickFrequency:         80,
-		DetailOpenProbability:  30,
+		DetailOpenProbability:  80,
 		ScrollDelayMin:         3,
 		ScrollDelayMax:         8,
 		ListViewDelayMin:       1,
