@@ -34,6 +34,7 @@ type TaskService struct {
 }
 
 type createTaskRequest struct {
+	Name              string `json:"name"`
 	PlatformID        string `json:"platform_id"`
 	PlatformAccountID string `json:"platform_account_id"`
 	PositionID        string `json:"position_id"`
@@ -90,6 +91,9 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 
 	task, ok := req.toTask(w, session.Email)
 	if !ok {
+		return
+	}
+	if !s.applyPositionDefaults(w, session.Email, &task) {
 		return
 	}
 
@@ -278,6 +282,9 @@ func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.applyPositionDefaults(w, session.Email, &next) {
+		return
+	}
 	updated, err := s.store.UpdateTask(taskID, next)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "platform account not found")
@@ -311,6 +318,7 @@ func (s *TaskService) currentSession(w http.ResponseWriter, r *http.Request) (Se
 // toTask 将任务创建请求转换为任务模型。
 func (r createTaskRequest) toTask(w http.ResponseWriter, userEmail string) (TaskRun, bool) {
 	task := TaskRun{
+		Name:              strings.TrimSpace(r.Name),
 		UserEmail:         userEmail,
 		PlatformID:        strings.TrimSpace(r.PlatformID),
 		PlatformAccountID: strings.TrimSpace(r.PlatformAccountID),
@@ -352,6 +360,7 @@ func publicTaskRun(item TaskRun) map[string]any {
 	return map[string]any{
 		"id":                  item.ID,
 		"platform_id":         item.PlatformID,
+		"name":                item.Name,
 		"platform_account_id": item.PlatformAccountID,
 		"position_id":         item.PositionID,
 		"mode":                item.Mode,
@@ -416,6 +425,65 @@ func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun, to
 		}
 	}
 	return result
+}
+
+// applyPositionDefaults 根据岗位模板补齐任务模式和默认任务名称。
+// email 为当前用户邮箱，task 为待保存任务；岗位不存在时返回 false。
+func (s *TaskService) applyPositionDefaults(w http.ResponseWriter, email string, task *TaskRun) bool {
+	if task == nil {
+		writeError(w, http.StatusBadRequest, "task is required")
+		return false
+	}
+	if strings.TrimSpace(task.PositionID) == "" {
+		if strings.TrimSpace(task.Name) == "" {
+			task.Name = "未命名任务"
+		}
+		return true
+	}
+	position, err := s.positionStore.PositionByID("", email, task.PositionID, false)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "position not found")
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load position")
+		return false
+	}
+	task.Mode = positionDefaultMode(position)
+	if strings.TrimSpace(task.Name) == "" {
+		task.Name = defaultTaskName(position.Name, task.Mode)
+	}
+	return true
+}
+
+// positionDefaultMode 返回岗位模板配置的默认筛选模式。
+// position 为岗位模板，返回 ai 或 keyword。
+func positionDefaultMode(position Position) string {
+	mode, _ := position.CommonConfig["mode_default"].(string)
+	mode = strings.TrimSpace(mode)
+	if mode == "keyword" {
+		return "keyword"
+	}
+	return "ai"
+}
+
+// defaultTaskName 生成任务默认名称。
+// positionName 为岗位模板名称，mode 为筛选模式。
+func defaultTaskName(positionName string, mode string) string {
+	name := strings.TrimSpace(positionName)
+	if name == "" {
+		name = "未命名岗位"
+	}
+	return name + " " + modeLabel(mode)
+}
+
+// modeLabel 返回筛选模式中文名称。
+// mode 为内部模式值。
+func modeLabel(mode string) string {
+	if mode == "keyword" {
+		return "关键词筛选"
+	}
+	return "AI筛选"
 }
 
 // Run 启动任务异步执行。

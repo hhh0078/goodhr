@@ -44,6 +44,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		`
 		INSERT INTO task_runs (
 			user_id,
+			name,
 			platform_account_id,
 			position_id,
 			platform_id,
@@ -57,9 +58,10 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			failed_count,
 			local_task_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'created', 0, 0, 0, 0, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'created', 0, 0, 0, 0, $9)
 		RETURNING
 			id,
+			name,
 			platform_id,
 			COALESCE(platform_account_id::text, ''),
 			COALESCE(position_id::text, ''),
@@ -77,6 +79,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			finished_at
 		`,
 		userID,
+		task.Name,
 		platformAccountID,
 		positionID,
 		task.PlatformID,
@@ -86,6 +89,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		localTaskID(task),
 	).Scan(
 		&saved.ID,
+		&saved.Name,
 		&saved.PlatformID,
 		&saved.PlatformAccountID,
 		&saved.PositionID,
@@ -124,6 +128,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		`
 		SELECT
 			tr.id,
+			tr.name,
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
@@ -158,6 +163,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		item.UserEmail = userEmail
 		if err := rows.Scan(
 			&item.ID,
+			&item.Name,
 			&item.PlatformID,
 			&item.PlatformAccountID,
 			&item.PositionID,
@@ -193,6 +199,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		`
 		SELECT
 			tr.id,
+			tr.name,
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
@@ -215,6 +222,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		tenantID, userEmail, isAdmin, taskID,
 	).Scan(
 		&item.ID,
+		&item.Name,
 		&item.PlatformID,
 		&item.PlatformAccountID,
 		&item.PositionID,
@@ -296,10 +304,11 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		ctx,
 		`
 		UPDATE task_runs
-		SET platform_account_id=$1, position_id=$2, platform_id=$3, mode=$4, match_limit=$5, enable_sound=$6
-		WHERE id=$7
+		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7
+		WHERE id=$8
 		RETURNING
 			id,
+			name,
 			platform_id,
 			COALESCE(platform_account_id::text, ''),
 			COALESCE(position_id::text, ''),
@@ -316,6 +325,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 			started_at,
 			finished_at
 		`,
+		task.Name,
 		platformAccountID,
 		positionID,
 		task.PlatformID,
@@ -325,6 +335,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		taskID,
 	).Scan(
 		&saved.ID,
+		&saved.Name,
 		&saved.PlatformID,
 		&saved.PlatformAccountID,
 		&saved.PositionID,

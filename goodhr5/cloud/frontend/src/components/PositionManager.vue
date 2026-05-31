@@ -34,13 +34,24 @@
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
         /></label>
-        <label class="field field-small"
-          >默认模式
-          <select v-model="positions.form.value.modeDefault">
-            <option value="ai">AI筛选</option>
-            <option value="keyword">关键词筛选</option>
-          </select>
-        </label>
+        <div class="field field-medium">
+          <span class="field-label">默认模式</span>
+          <div class="mode-cards" role="radiogroup" aria-label="默认模式">
+            <button
+              v-for="option in modeOptions"
+              :key="option.value"
+              type="button"
+              class="mode-card"
+              :class="{ active: positions.form.value.modeDefault === option.value }"
+              role="radio"
+              :aria-checked="positions.form.value.modeDefault === option.value"
+              @click="positions.form.value.modeDefault = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.description }}</span>
+            </button>
+          </div>
+        </div>
         <label class="field field-full"
           >问候语<textarea
             v-model="positions.form.value.greetMessage"
@@ -291,6 +302,18 @@
 import { ref } from "vue";
 const props = defineProps({ positions: Object });
 const showForm = ref(false);
+const modeOptions = [
+  {
+    value: "ai",
+    label: "AI筛选",
+    description: "先看详情评分，再做打招呼评分，适合精细判断。",
+  },
+  {
+    value: "keyword",
+    label: "关键词筛选",
+    description: "按关键词和排除词判断，永久免费且速度快。",
+  },
+];
 function edit(pos: any) {
   showForm.value = true;
   props.positions.edit(pos);
@@ -323,6 +346,11 @@ function edit(pos: any) {
   gap: 6px;
 }
 
+.field-label {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+
 .field-small {
   grid-column: span 3;
 }
@@ -348,10 +376,56 @@ function edit(pos: any) {
   line-height: 1.5;
 }
 
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-card {
+  min-height: 74px;
+  border: 1px solid #333;
+  background: #050505;
+  color: #ddd;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.mode-card strong {
+  display: block;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.mode-card span {
+  display: block;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mode-card:hover {
+  border-color: #0f0;
+}
+
+.mode-card.active {
+  border-color: #0f0;
+  box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.35);
+}
+
+.mode-card.active strong {
+  color: #0f0;
+}
+
 @media (max-width: 900px) {
   .field-small,
   .field-medium {
     grid-column: span 6;
+  }
+  .mode-cards {
+    grid-template-columns: 1fr;
   }
 }
 

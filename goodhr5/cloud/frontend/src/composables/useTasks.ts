@@ -29,10 +29,11 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
   const loading = ref(false);
   const error = ref("");
   const form = ref({
+    name: "",
     platformId: "boss",
     platformAccountId: "",
     positionId: "",
-    mode: "keyword",
+    mode: "ai",
     matchLimit: 20,
     enableSound: false,
   });
@@ -73,6 +74,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     error.value = "";
     try {
       await createTask({
+        name: form.value.name,
         platform_id: form.value.platformId,
         platform_account_id: form.value.platformAccountId,
         position_id: form.value.positionId || "",
@@ -81,7 +83,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         enable_sound: Boolean(form.value.enableSound),
       });
       await load();
-      form.value = { ...form.value, positionId: "", enableSound: false };
+      form.value = { ...form.value, name: "", positionId: "", enableSound: false };
     } catch (e: any) {
       error.value = e.message;
     } finally {
@@ -94,6 +96,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     error.value = "";
     try {
       await updateTask(taskId, {
+        name: payload.name,
         platform_id: payload.platformId,
         platform_account_id: payload.platformAccountId,
         position_id: payload.positionId || "",

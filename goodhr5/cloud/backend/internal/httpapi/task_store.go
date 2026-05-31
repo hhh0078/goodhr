@@ -7,11 +7,11 @@ import (
 )
 
 type TaskRun struct {
-	ID, UserEmail, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
-	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount                   int
-	EnableSound                                                                         bool
-	CreatedAt                                                                           time.Time
-	StartedAt, FinishedAt                                                               *time.Time
+	ID, UserEmail, Name, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
+	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount                         int
+	EnableSound                                                                               bool
+	CreatedAt                                                                                 time.Time
+	StartedAt, FinishedAt                                                                     *time.Time
 }
 type TaskStore interface {
 	CreateTask(task TaskRun) (TaskRun, error)
@@ -103,6 +103,7 @@ func (s *MemoryTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, erro
 		return TaskRun{}, ErrNotFound
 	}
 	existing.PlatformID = task.PlatformID
+	existing.Name = task.Name
 	existing.PlatformAccountID = task.PlatformAccountID
 	existing.PositionID = task.PositionID
 	existing.Mode = task.Mode

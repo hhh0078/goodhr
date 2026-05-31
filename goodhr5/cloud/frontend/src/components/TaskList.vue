@@ -53,31 +53,25 @@
         </select></label
       >
       <label
-        >岗位模板<select v-model="tasks.form.value.positionId">
-          <option value="">不使用模板</option>
+        >岗位模板<select
+          v-model="tasks.form.value.positionId"
+          @change="onCreatePositionChange"
+        >
+          <option value="">请选择岗位模板</option>
           <option v-for="pos in positions" :key="pos.id" :value="pos.id">
             {{ pos.name }}
           </option>
         </select></label
       >
-      <div class="mode-field">
-        <span class="field-title">筛选模式</span>
-        <div class="mode-cards" role="radiogroup" aria-label="筛选模式">
-          <button
-            v-for="option in modeOptions"
-            :key="option.value"
-            type="button"
-            class="mode-card"
-            :class="{ active: tasks.form.value.mode === option.value }"
-            role="radio"
-            :aria-checked="tasks.form.value.mode === option.value"
-            @click="tasks.form.value.mode = option.value"
-          >
-            <strong>{{ option.label }}</strong>
-            <span>{{ option.description }}</span>
-          </button>
-        </div>
-      </div>
+      <label
+        >任务名称<input
+          v-model.trim="tasks.form.value.name"
+          @input="createNameEdited = true"
+          placeholder="不填则自动使用岗位模板名称+默认模式"
+      /></label>
+      <p class="hint field-wide">
+        默认模式：{{ positionModeLabel(selectedCreatePosition()) }}，来自岗位模板配置。
+      </p>
       <label
         >匹配上限<input
           v-model="tasks.form.value.matchLimit"
@@ -87,7 +81,7 @@
     </div>
     <div v-if="showCreate" class="actions">
       <button
-        :disabled="tasks.loading.value || !tasks.form.value.platformAccountId"
+        :disabled="tasks.loading.value || !tasks.form.value.platformAccountId || !tasks.form.value.positionId"
         @click="createTask"
       >
         {{ tasks.loading.value ? "创建中..." : "创建任务" }}
@@ -107,10 +101,10 @@
         <div class="task-main">
           <div class="task-title">
             <div>
-              {{ task.position.name }}
+              {{ task.name || task.position?.name || "未命名任务" }}
               |
               {{
-                task.platform_account.display_name || task.platform_account_id
+                task.platform_account?.display_name || task.platform_account_id
               }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }} |
@@ -217,31 +211,24 @@
               </select></label
             >
             <label
-              >岗位模板<select v-model="editForm.positionId">
-                <option value="">不使用模板</option>
+              >岗位模板<select
+                v-model="editForm.positionId"
+                @change="onEditPositionChange"
+              >
+                <option value="">请选择岗位模板</option>
                 <option v-for="pos in positions" :key="pos.id" :value="pos.id">
                   {{ pos.name }}
                 </option>
               </select></label
             >
-            <div class="mode-field">
-              <span class="field-title">筛选模式</span>
-              <div class="mode-cards" role="radiogroup" aria-label="筛选模式">
-                <button
-                  v-for="option in modeOptions"
-                  :key="option.value"
-                  type="button"
-                  class="mode-card"
-                  :class="{ active: editForm.mode === option.value }"
-                  role="radio"
-                  :aria-checked="editForm.mode === option.value"
-                  @click="editForm.mode = option.value"
-                >
-                  <strong>{{ option.label }}</strong>
-                  <span>{{ option.description }}</span>
-                </button>
-              </div>
-            </div>
+            <label
+              >任务名称<input
+                v-model.trim="editForm.name"
+                placeholder="不填则自动使用岗位模板名称+默认模式"
+            /></label>
+            <p class="hint field-wide">
+              默认模式：{{ positionModeLabel(selectedEditPosition()) }}，来自岗位模板配置。
+            </p>
             <label
               >匹配上限<input
                 v-model="editForm.matchLimit"
@@ -251,7 +238,7 @@
           </div>
           <div class="actions compact">
             <button
-              :disabled="tasks.loading.value || !editForm.platformAccountId"
+              :disabled="tasks.loading.value || !editForm.platformAccountId || !editForm.positionId"
               @click="saveEdit(task.id)"
             >
               保存参数
@@ -345,26 +332,16 @@ const props = defineProps({
 const emit = defineEmits(["open-candidates"]);
 const showCreate = ref(false);
 const statRange = ref("today");
+const createNameEdited = ref(false);
 const accounts = ref<any[]>([]);
 const accountsError = ref("");
-const modeOptions = [
-  {
-    value: "keyword",
-    label: "关键词筛选",
-    description: "按关键词和排除词快速判断，免费且稳定。",
-  },
-  {
-    value: "ai",
-    label: "AI筛选",
-    description: "结合岗位要求打分，适合更细的候选人判断。",
-  },
-];
 const editingTaskId = ref("");
 const editForm = ref({
+  name: "",
   platformId: "boss",
   platformAccountId: "",
   positionId: "",
-  mode: "keyword",
+  mode: "ai",
   matchLimit: 20,
   enableSound: false,
 });
@@ -389,14 +366,76 @@ function platformLabel(platformId: string) {
 function selectedAccount(accountId: string) {
   return accounts.value.find((account: any) => account.id === accountId);
 }
+/**
+ * 按 ID 查找岗位模板。
+ * @param {string} positionId - 岗位模板 ID。
+ * @returns {any} 岗位模板对象。
+ */
+function selectedPosition(positionId: string) {
+  const items = Array.isArray(props.positions) ? props.positions : [];
+  return items.find((position: any) => position.id === positionId);
+}
+/**
+ * 返回新建任务当前选择的岗位模板。
+ * @returns {any} 岗位模板对象。
+ */
+function selectedCreatePosition() {
+  return selectedPosition(props.tasks?.form?.value?.positionId || "");
+}
+/**
+ * 返回编辑任务当前选择的岗位模板。
+ * @returns {any} 岗位模板对象。
+ */
+function selectedEditPosition() {
+  return selectedPosition(editForm.value.positionId);
+}
+/**
+ * 返回岗位模板默认模式。
+ * @param {any} position - 岗位模板对象。
+ * @returns {string} 默认模式。
+ */
+function positionMode(position: any) {
+  return position?.common_config?.mode_default === "keyword" ? "keyword" : "ai";
+}
+/**
+ * 返回岗位模板默认模式中文名。
+ * @param {any} position - 岗位模板对象。
+ * @returns {string} 默认模式中文名。
+ */
+function positionModeLabel(position: any) {
+  return positionMode(position) === "keyword" ? "关键词筛选" : "AI筛选";
+}
+/**
+ * 生成任务默认名称。
+ * @param {any} position - 岗位模板对象。
+ * @returns {string} 默认任务名称。
+ */
+function defaultTaskName(position: any) {
+  if (!position) return "";
+  return `${position.name || "未命名岗位"} ${positionModeLabel(position)}`;
+}
 function onCreateAccountChange() {
   if (!props.tasks?.form?.value) return;
   const account = selectedAccount(props.tasks.form.value.platformAccountId);
   props.tasks.form.value.platformId = account?.platform_id || "";
 }
+/**
+ * 新建任务切换岗位模板时补齐默认模式和默认名称。
+ * @returns {void} 无返回值。
+ */
+function onCreatePositionChange() {
+  if (!props.tasks?.form?.value) return;
+  const position = selectedCreatePosition();
+  props.tasks.form.value.mode = positionMode(position);
+  if (!createNameEdited.value) {
+    props.tasks.form.value.name = defaultTaskName(position);
+  }
+}
 async function createTask() {
   onCreateAccountChange();
+  onCreatePositionChange();
   if (props.tasks) await props.tasks.create();
+  createNameEdited.value = false;
   showCreate.value = false;
   await loadAccounts();
 }
@@ -407,6 +446,7 @@ function startEdit(task: any) {
   }
   editingTaskId.value = task.id;
   editForm.value = {
+    name: task.name || "",
     platformId: task.platform_id || "boss",
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
@@ -419,15 +459,28 @@ function onEditAccountChange() {
   const account = selectedAccount(editForm.value.platformAccountId);
   editForm.value.platformId = account?.platform_id || "";
 }
+/**
+ * 编辑任务切换岗位模板时同步默认模式，并在名称为空时补齐默认名称。
+ * @returns {void} 无返回值。
+ */
+function onEditPositionChange() {
+  const position = selectedEditPosition();
+  editForm.value.mode = positionMode(position);
+  if (!editForm.value.name) {
+    editForm.value.name = defaultTaskName(position);
+  }
+}
 async function saveEdit(taskId: string) {
   if (!props.tasks) return;
   onEditAccountChange();
+  onEditPositionChange();
   await props.tasks.update(taskId, editForm.value);
   editingTaskId.value = "";
 }
 async function toggleSound(task: any, enableSound: boolean) {
   if (!props.tasks) return;
   await props.tasks.update(task.id, {
+    name: task.name || "",
     platformId: task.platform_id || "boss",
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
@@ -469,7 +522,7 @@ function onLogScroll(taskId: string, event: Event) {
   const distanceToBottom =
     target.scrollHeight - target.scrollTop - target.clientHeight;
   if (distanceToBottom <= 24) {
-    void tasks.loadOlderLogs(taskId);
+    void props.tasks?.loadOlderLogs(taskId);
   }
 }
 /**
@@ -626,6 +679,10 @@ onMounted(loadAccounts);
   color: var(--fg-dim);
   font-size: 13px;
   margin-bottom: 6px;
+}
+.field-wide {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .mode-cards {
   display: grid;
