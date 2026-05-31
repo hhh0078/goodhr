@@ -23,7 +23,9 @@ from app.humanize import click_box_random_point, find_all_locators_by_spec, is_l
 from app.machine import cookie_machine_ids, load_machine
 from app.ocr import ocr_image_async
 from app.paths import data_dir
+from app.screenshot import screenshot_locator_full
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
+from app.tasks import screenshot_path
 
 
 REPLY_TIMEOUT_SECONDS = 8
@@ -491,6 +493,7 @@ class WSAgentClient:
                 raise ValueError("elements is required and must be a non-empty array")
             texts: list[str] = []
             matched_list: list[str] = []
+            task_id_for_screenshot = str(body.get("task_id") or "").strip()
             request_start = time.perf_counter()
             logger.info("开始提取详情文本 mode=%s elements=%d delay_before=%.2fs", mode, len(raw_elements), delay_before)
             for index, element_raw in enumerate(raw_elements):
@@ -498,7 +501,7 @@ class WSAgentClient:
                     raise ValueError(f"elements[{index}] must be an object")
                 item_start = time.perf_counter()
                 locator, matched = await self._resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
-                text = await self._extract_text_from_locator(locator, mode, delay_before)
+                text = await self._extract_text_from_locator(page, locator, mode, delay_before, task_id_for_screenshot, f"element_{index}")
                 item_ms = int((time.perf_counter() - item_start) * 1000)
                 logger.info(
                     "详情文本元素提取完成 index=%d matched=%s 耗时=%dms 文本长度=%d",
@@ -707,16 +710,41 @@ class WSAgentClient:
                 )
         return fields
 
-    async def _extract_text_from_locator(self, locator: Any, mode: str, delay_before: float) -> str:
+    def _save_ocr_debug_screenshot(self, task_id: str, screenshot_bytes: bytes, label: str) -> str:
+        """
+        保存 OCR 合并截图到本地任务截图目录。
+
+        Args:
+            task_id: 云端任务 ID
+            screenshot_bytes: PNG 图片字节
+            label: 文件名标签
+
+        Returns:
+            保存后的相对路径；未保存时返回空字符串。
+        """
+        safe_task_id = str(task_id or "").strip()
+        if not safe_task_id or not screenshot_bytes:
+            return ""
+        safe_label = "".join(ch if ch.isalnum() else "_" for ch in str(label or "detail"))[:40] or "detail"
+        filename = f"ocr_detail_{safe_label}_{int(time.time() * 1000)}.png"
+        path = screenshot_path(safe_task_id, filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(screenshot_bytes)
+        return "screenshots/" + path.name
+
+    async def _extract_text_from_locator(self, page: Any, locator: Any, mode: str, delay_before: float, task_id: str = "", label: str = "detail") -> str:
         """按模式从目标元素提取整段文本。"""
         total_start = time.perf_counter()
         if delay_before > 0:
             await asyncio.sleep(delay_before)
         if mode == "ocr":
             screenshot_start = time.perf_counter()
-            screenshot_bytes = await locator.screenshot(type="png")
+            screenshot_bytes = await screenshot_locator_full(page, locator, "detail-ocr")
+            if screenshot_bytes is None:
+                screenshot_bytes = await locator.screenshot(type="png")
+            saved_path = self._save_ocr_debug_screenshot(task_id, screenshot_bytes, label)
             screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-            logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms", len(screenshot_bytes), screenshot_ms)
+            logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, saved_path or "未保存")
             text = (await ocr_image_async(screenshot_bytes)).strip()
             total_ms = int((time.perf_counter() - total_start) * 1000)
             logger.info("OCR 文本提取完成 总耗时=%dms 文本长度=%d", total_ms, len(text))

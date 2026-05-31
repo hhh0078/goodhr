@@ -757,6 +757,13 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 		return fmt.Errorf("Local Agent WebSocket 未初始化")
 	}
 	e.log("info", fmt.Sprintf("正在请求本地程序：%s", path))
+	if path == "/api/v1/page/extract-text" {
+		if item, ok := body.(map[string]any); ok {
+			if _, exists := item["task_id"]; !exists {
+				item["task_id"] = e.task.ID
+			}
+		}
+	}
 	payload := map[string]any{
 		"path": path,
 		"body": body,
