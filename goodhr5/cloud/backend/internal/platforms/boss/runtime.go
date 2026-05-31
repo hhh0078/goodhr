@@ -84,6 +84,7 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 		if fields == nil {
 			fields = map[string]any{}
 		}
+		exec.Log("info", fmt.Sprintf("Boss候选人卡片字段：index=%d ref=%s %s", item.Index, shortRef(item.Ref), summarizeCandidateFields(fields, cfg.Card.FieldRequests)))
 		fields["_index"] = item.Index
 		fields["element_ref"] = item.Ref
 		candidates = append(candidates, r.MapFieldsToCandidate(cfg.PlatformID, fields))
@@ -273,6 +274,72 @@ func authEntryURL(pages []platformcore.RuntimePage) string {
 		}
 	}
 	return ""
+}
+
+// summarizeCandidateFields 生成候选人卡片字段日志摘要。
+// fields 为本地程序提取出的字段，fieldRequests 为平台配置中的字段顺序。
+func summarizeCandidateFields(fields map[string]any, fieldRequests []map[string]any) string {
+	keys := orderedFieldKeys(fieldRequests)
+	seen := make(map[string]struct{}, len(keys))
+	parts := make([]string, 0, len(fields))
+	for _, key := range keys {
+		seen[key] = struct{}{}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, previewFieldValue(fields[key], 80)))
+	}
+	for key, value := range fields {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, previewFieldValue(value, 80)))
+	}
+	if len(parts) == 0 {
+		return "字段=空"
+	}
+	return strings.Join(parts, "；")
+}
+
+// orderedFieldKeys 按平台配置顺序返回字段名。
+// fieldRequests 为形如 [{"name": {...}}] 的字段配置数组。
+func orderedFieldKeys(fieldRequests []map[string]any) []string {
+	keys := make([]string, 0, len(fieldRequests))
+	for _, item := range fieldRequests {
+		for key := range item {
+			trimmed := strings.TrimSpace(key)
+			if trimmed != "" {
+				keys = append(keys, trimmed)
+			}
+		}
+	}
+	return keys
+}
+
+// previewFieldValue 将字段值转成短日志文本。
+// value 为任意字段值，maxRunes 控制最大展示长度。
+func previewFieldValue(value any, maxRunes int) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return "空"
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if maxRunes > 0 && len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "..."
+	}
+	return text
+}
+
+// shortRef 压缩本地元素引用，避免任务日志太长。
+// ref 为 Local Agent 返回的元素引用。
+func shortRef(ref string) string {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "空"
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= 12 {
+		return trimmed
+	}
+	return string(runes[:12]) + "..."
 }
 
 // clickRequiredAction 点击必须成功的动作按钮。

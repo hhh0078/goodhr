@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -240,14 +239,6 @@ func (e *TaskExecutor) extractCandidates() ([]Candidate, error) {
 	return e.platformCfg.ListVisibleCandidates(e)
 }
 
-// openDetailPrecheck 保存候选人查看详情评分的预计算结果。
-type openDetailPrecheck struct {
-	BaseText         string
-	ShouldOpenDetail bool
-	Decision         AIScoreDecision
-	Err              error
-}
-
 // candidatePersistenceContext 保存当前候选人的持久化上下文。
 type candidatePersistenceContext struct {
 	Profile    TaskCandidate
@@ -256,10 +247,6 @@ type candidatePersistenceContext struct {
 
 // processCandidates 逐候选人筛选和打招呼。
 func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candidate) error {
-	openDetailPrechecks, err := e.precomputeOpenDetailDecisions(ctx, candidates)
-	if err != nil {
-		return err
-	}
 	for i := range candidates {
 		select {
 		case <-ctx.Done():
@@ -281,17 +268,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		if err != nil {
 			e.log("warn", fmt.Sprintf("候选人 %s 初始化简历库记录失败: %v", candidateName, err))
 		}
-		var shouldOpenDetail bool
-		var detailScoreDecision AIScoreDecision
-		if i < len(openDetailPrechecks) && openDetailPrechecks[i] != nil {
-			precheck := openDetailPrechecks[i]
-			baseText = precheck.BaseText
-			shouldOpenDetail = precheck.ShouldOpenDetail
-			detailScoreDecision = precheck.Decision
-			err = precheck.Err
-		} else {
-			shouldOpenDetail, detailScoreDecision, err = e.decideOpenDetail(baseText)
-		}
+		shouldOpenDetail, detailScoreDecision, err := e.decideOpenDetail(baseText)
 		if err != nil {
 			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
 			e.incrementCounts(0, 0, 0, 1)
@@ -446,43 +423,6 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 	}
 	return nil
-}
-
-// precomputeOpenDetailDecisions 并发预计算当前候选人列表的查看详情评分。
-func (e *TaskExecutor) precomputeOpenDetailDecisions(ctx context.Context, candidates []Candidate) ([]*openDetailPrecheck, error) {
-	if e.task.Mode != "ai" || len(candidates) == 0 {
-		return nil, nil
-	}
-	results := make([]*openDetailPrecheck, len(candidates))
-	var wg sync.WaitGroup
-	e.log("info", fmt.Sprintf("开始并发计算 %d 个候选人的看详情评分", len(candidates)))
-	for i := range candidates {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		i := i
-		candidate := candidates[i]
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
-			shouldOpen, decision, err := e.decideOpenDetail(baseText)
-			results[i] = &openDetailPrecheck{
-				BaseText:         baseText,
-				ShouldOpenDetail: shouldOpen,
-				Decision:         decision,
-				Err:              err,
-			}
-		}()
-	}
-	wg.Wait()
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	e.log("info", fmt.Sprintf("%d 个候选人的看详情评分计算完成", len(candidates)))
-	return results, nil
 }
 
 // positionGreetMessage 返回岗位模板配置的打招呼语。
