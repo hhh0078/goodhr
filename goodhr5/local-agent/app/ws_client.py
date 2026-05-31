@@ -487,8 +487,8 @@ class WSAgentClient:
                 raise ValueError("element.target_classes is required")
             await scroll_to_load(
                 page,
-                scroll_delay_min=int(body.get("scroll_delay_min", 3)),
-                scroll_delay_max=int(body.get("scroll_delay_max", 8)),
+                scroll_delay_min=int(body.get("scroll_delay_min", 0)),
+                scroll_delay_max=int(body.get("scroll_delay_max", 0)),
                 max_scrolls=int(body.get("max_scrolls", 20)),
                 element_spec=element_spec,
             )
@@ -558,7 +558,7 @@ class WSAgentClient:
         if path == "/api/v1/page/click":
             page = await self._require_page()
             timeout = int(body.get("timeout", 10000))
-            delay_before = float(body.get("delay_before", 0.5))
+            delay_before = float(body.get("delay_before", 0))
             element_ref = str(body.get("element_ref") or "").strip()
             if element_ref:
                 entry = ELEMENT_REFS.get(element_ref)
@@ -611,8 +611,8 @@ class WSAgentClient:
                 text,
                 chunk_min=self._parse_int(body.get("chunk_min"), 1),
                 chunk_max=self._parse_int(body.get("chunk_max"), 2),
-                delay_min_ms=self._parse_int(body.get("delay_min_ms"), 80),
-                delay_max_ms=self._parse_int(body.get("delay_max_ms"), 220),
+                delay_min_ms=self._parse_int(body.get("delay_min_ms"), 0),
+                delay_max_ms=self._parse_int(body.get("delay_max_ms"), 0),
             )
             return {"ok": True, **result}
         if path == "/api/v1/sound/play":
@@ -786,8 +786,7 @@ class WSAgentClient:
     async def _extract_text_from_locator(self, page: Any, locator: Any, mode: str, delay_before: float, task_id: str = "", label: str = "detail") -> str:
         """按模式从目标元素提取整段文本。"""
         total_start = time.perf_counter()
-        if delay_before > 0:
-            await asyncio.sleep(delay_before)
+        _ = delay_before
         if mode == "ocr":
             screenshot_start = time.perf_counter()
             screenshot_bytes = await screenshot_locator_full(page, locator, "detail-ocr")
