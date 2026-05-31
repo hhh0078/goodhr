@@ -7,6 +7,8 @@ import "fmt"
 type RuntimeExecutor interface {
 	// Post 向本地 Agent 发送请求并解析响应。
 	Post(path string, body any, result any) error
+	// Delay 在云端后端等待指定业务动作延时。
+	Delay(label string, minSeconds float64, maxSeconds float64) error
 	// Log 输出运行日志。
 	Log(level, message string)
 }
@@ -57,13 +59,13 @@ type RuntimeBehaviorConfig struct {
 
 // RuntimePreferences 定义运行时需要的偏好设置。
 type RuntimePreferences struct {
-	ScrollDelayMin int
-	ScrollDelayMax int
-	GreetDelayMin  float64
-	GreetDelayMax  float64
-	DetailDelayMin float64
-	DetailDelayMax float64
-	GreetMessage   string
+	DetailOpenDelayMin  float64
+	DetailOpenDelayMax  float64
+	DetailCloseDelayMin float64
+	DetailCloseDelayMax float64
+	GreetBeforeDelayMin float64
+	GreetBeforeDelayMax float64
+	GreetMessage        string
 }
 
 // PlatformRuntime 定义主流程调用的平台运行时能力。

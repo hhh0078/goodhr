@@ -69,56 +69,56 @@
           >关键词模式下，用这个概率决定是否打开详情再继续筛选。</small
         ></label
       >
-      <label class="field field-small"
-        >滚动延迟最小(秒)<input
-          v-model="config.form.value.scrollDelayMin"
+      <label class="field"
+        >点击详情前延时最小(秒)<input
+          v-model="config.form.value.detailOpenDelayMin"
           type="number"
           min="0"
-      /></label>
-      <label class="field field-small"
-        >滚动延迟最大(秒)<input
-          v-model="config.form.value.scrollDelayMax"
-          type="number"
-          min="0"
-      /></label>
-      <label class="field field-small"
-        >列表查看最小(秒)<input
-          v-model="config.form.value.listViewDelayMin"
+          step="0.1"
+        />
+        <small class="field-help"
+          >点击候选人详情按钮前等待，系统会在最小和最大值之间随机。</small
+        ></label
+      >
+      <label class="field"
+        >点击详情前延时最大(秒)<input
+          v-model="config.form.value.detailOpenDelayMax"
           type="number"
           min="0"
           step="0.1"
       /></label>
-      <label class="field field-small"
-        >列表查看最大(秒)<input
-          v-model="config.form.value.listViewDelayMax"
+      <label class="field"
+        >关闭详情前延时最小(秒)<input
+          v-model="config.form.value.detailCloseDelayMin"
+          type="number"
+          min="0"
+          step="0.1"
+        />
+        <small class="field-help"
+          >详情文本提取完成后，关闭详情页之前等待，像真人看完再关闭。</small
+        ></label
+      >
+      <label class="field"
+        >关闭详情前延时最大(秒)<input
+          v-model="config.form.value.detailCloseDelayMax"
           type="number"
           min="0"
           step="0.1"
       /></label>
-      <label class="field field-small"
-        >详情查看最小(秒)<input
-          v-model="config.form.value.detailViewDelayMin"
+      <label class="field"
+        >打招呼前延时最小(秒)<input
+          v-model="config.form.value.greetBeforeDelayMin"
           type="number"
           min="0"
           step="0.1"
-      /></label>
-      <label class="field field-small"
-        >详情查看最大(秒)<input
-          v-model="config.form.value.detailViewDelayMax"
-          type="number"
-          min="0"
-          step="0.1"
-      /></label>
-      <label class="field field-small"
-        >打招呼延迟最小(秒)<input
-          v-model="config.form.value.greetDelayMin"
-          type="number"
-          min="0"
-          step="0.1"
-      /></label>
-      <label class="field field-small"
-        >打招呼延迟最大(秒)<input
-          v-model="config.form.value.greetDelayMax"
+        />
+        <small class="field-help"
+          >决定候选人通过筛选后，点击打招呼按钮前等待多久。</small
+        ></label
+      >
+      <label class="field"
+        >打招呼前延时最大(秒)<input
+          v-model="config.form.value.greetBeforeDelayMax"
           type="number"
           min="0"
           step="0.1"
@@ -127,38 +127,50 @@
 
     <h3>模拟休息</h3>
     <div class="personal-grid">
-      <label class="field field-small"
-        >处理后休息阈值最小(人)<input
+      <label class="field"
+        >处理多少人后休息最小(人)<input
           v-model="config.form.value.restAfterCandidatesMin"
           type="number"
           min="0"
-      /></label>
-      <label class="field field-small"
-        >处理后休息阈值最大(人)<input
+        />
+        <small class="field-help"
+          >系统会随机决定处理多少个候选人后休息一次，例如 40-70 人。</small
+        ></label
+      >
+      <label class="field"
+        >处理多少人后休息最大(人)<input
           v-model="config.form.value.restAfterCandidatesMax"
           type="number"
           min="0"
       /></label>
-      <label class="field field-small"
-        >单次任务休息次数最小<input
+      <label class="field"
+        >单次任务最多休息最小(次)<input
           v-model="config.form.value.restTimesMin"
           type="number"
           min="0"
-      /></label>
-      <label class="field field-small"
-        >单次任务休息次数最大<input
+        />
+        <small class="field-help"
+          >任务启动时会随机决定本次最多休息几次，到次数后不再休息。</small
+        ></label
+      >
+      <label class="field"
+        >单次任务最多休息最大(次)<input
           v-model="config.form.value.restTimesMax"
           type="number"
           min="0"
       /></label>
-      <label class="field field-small"
+      <label class="field"
         >每次休息时长最小(分钟)<input
           v-model="config.form.value.restDurationMin"
           type="number"
           min="0"
           step="0.1"
-      /></label>
-      <label class="field field-small"
+        />
+        <small class="field-help"
+          >每次摸鱼休息会在这个分钟范围内随机，并写入任务日志。</small
+        ></label
+      >
+      <label class="field"
         >每次休息时长最大(分钟)<input
           v-model="config.form.value.restDurationMax"
           type="number"

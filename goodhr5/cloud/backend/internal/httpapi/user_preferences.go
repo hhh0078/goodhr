@@ -24,6 +24,12 @@ type userPreferencesRequest struct {
 	DetailViewDelayMax     float64 `json:"detail_view_delay_max"`
 	GreetDelayMin          float64 `json:"greet_delay_min"`
 	GreetDelayMax          float64 `json:"greet_delay_max"`
+	DetailOpenDelayMin     float64 `json:"detail_open_delay_min"`
+	DetailOpenDelayMax     float64 `json:"detail_open_delay_max"`
+	DetailCloseDelayMin    float64 `json:"detail_close_delay_min"`
+	DetailCloseDelayMax    float64 `json:"detail_close_delay_max"`
+	GreetBeforeDelayMin    float64 `json:"greet_before_delay_min"`
+	GreetBeforeDelayMax    float64 `json:"greet_before_delay_max"`
 	RestAfterCandidatesMin int     `json:"rest_after_candidates_min"`
 	RestAfterCandidatesMax int     `json:"rest_after_candidates_max"`
 	RestTimesMin           int     `json:"rest_times_min"`
@@ -122,6 +128,12 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 	prefs.DetailViewDelayMax = r.DetailViewDelayMax
 	prefs.GreetDelayMin = r.GreetDelayMin
 	prefs.GreetDelayMax = r.GreetDelayMax
+	prefs.DetailOpenDelayMin = r.DetailOpenDelayMin
+	prefs.DetailOpenDelayMax = r.DetailOpenDelayMax
+	prefs.DetailCloseDelayMin = r.DetailCloseDelayMin
+	prefs.DetailCloseDelayMax = r.DetailCloseDelayMax
+	prefs.GreetBeforeDelayMin = r.GreetBeforeDelayMin
+	prefs.GreetBeforeDelayMax = r.GreetBeforeDelayMax
 	prefs.RestAfterCandidatesMin = r.RestAfterCandidatesMin
 	prefs.RestAfterCandidatesMax = r.RestAfterCandidatesMax
 	prefs.RestTimesMin = r.RestTimesMin
@@ -144,7 +156,36 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 		writeError(w, http.StatusBadRequest, "invalid greet delay range")
 		return UserPreferences{}, false
 	}
+	if !validFloatRange(prefs.DetailOpenDelayMin, prefs.DetailOpenDelayMax) {
+		writeError(w, http.StatusBadRequest, "invalid detail open delay range")
+		return UserPreferences{}, false
+	}
+	if !validFloatRange(prefs.DetailCloseDelayMin, prefs.DetailCloseDelayMax) {
+		writeError(w, http.StatusBadRequest, "invalid detail close delay range")
+		return UserPreferences{}, false
+	}
+	if !validFloatRange(prefs.GreetBeforeDelayMin, prefs.GreetBeforeDelayMax) {
+		writeError(w, http.StatusBadRequest, "invalid greet before delay range")
+		return UserPreferences{}, false
+	}
+	if prefs.RestAfterCandidatesMin < 0 || prefs.RestAfterCandidatesMax < prefs.RestAfterCandidatesMin {
+		writeError(w, http.StatusBadRequest, "invalid rest candidate range")
+		return UserPreferences{}, false
+	}
+	if prefs.RestTimesMin < 0 || prefs.RestTimesMax < prefs.RestTimesMin {
+		writeError(w, http.StatusBadRequest, "invalid rest times range")
+		return UserPreferences{}, false
+	}
+	if !validFloatRange(prefs.RestDurationMin, prefs.RestDurationMax) {
+		writeError(w, http.StatusBadRequest, "invalid rest duration range")
+		return UserPreferences{}, false
+	}
 	return prefs, true
+}
+
+// validFloatRange 判断浮点范围是否为非负且最大值不小于最小值。
+func validFloatRange(minValue float64, maxValue float64) bool {
+	return minValue >= 0 && maxValue >= minValue
 }
 
 func publicUserPreferences(prefs UserPreferences) map[string]any {
@@ -160,6 +201,12 @@ func publicUserPreferences(prefs UserPreferences) map[string]any {
 		"detail_view_delay_max":     prefs.DetailViewDelayMax,
 		"greet_delay_min":           prefs.GreetDelayMin,
 		"greet_delay_max":           prefs.GreetDelayMax,
+		"detail_open_delay_min":     prefs.DetailOpenDelayMin,
+		"detail_open_delay_max":     prefs.DetailOpenDelayMax,
+		"detail_close_delay_min":    prefs.DetailCloseDelayMin,
+		"detail_close_delay_max":    prefs.DetailCloseDelayMax,
+		"greet_before_delay_min":    prefs.GreetBeforeDelayMin,
+		"greet_before_delay_max":    prefs.GreetBeforeDelayMax,
 		"rest_after_candidates_min": prefs.RestAfterCandidatesMin,
 		"rest_after_candidates_max": prefs.RestAfterCandidatesMax,
 		"rest_times_min":            prefs.RestTimesMin,

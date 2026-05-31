@@ -27,6 +27,17 @@ func (a runtimeExecutorAdapter) Log(level, message string) {
 	a.exec.log(level, message)
 }
 
+// Delay 调用 httpapi 执行器执行业务延时。
+// label 为延时场景，minSeconds/maxSeconds 为秒数范围。
+func (a runtimeExecutorAdapter) Delay(label string, minSeconds float64, maxSeconds float64) error {
+	if exec, ok := a.exec.(interface {
+		Delay(label string, minSeconds float64, maxSeconds float64) error
+	}); ok {
+		return exec.Delay(label, minSeconds, maxSeconds)
+	}
+	return nil
+}
+
 var platformRuntimeRegistry = map[string]platformcore.PlatformRuntime{
 	"boss": boss.NewRuntime(),
 }
@@ -171,11 +182,11 @@ func (cfg PlatformConfig) toRuntimeConfig() platformcore.RuntimeConfig {
 // toRuntimePreferences 将用户偏好转换为 runtime 公共偏好。
 func toRuntimePreferences(prefs UserPreferences) platformcore.RuntimePreferences {
 	return platformcore.RuntimePreferences{
-		ScrollDelayMin: prefs.ScrollDelayMin,
-		ScrollDelayMax: prefs.ScrollDelayMax,
-		GreetDelayMin:  prefs.GreetDelayMin,
-		GreetDelayMax:  prefs.GreetDelayMax,
-		DetailDelayMin: prefs.DetailViewDelayMin,
-		DetailDelayMax: prefs.DetailViewDelayMax,
+		DetailOpenDelayMin:  prefs.DetailOpenDelayMin,
+		DetailOpenDelayMax:  prefs.DetailOpenDelayMax,
+		DetailCloseDelayMin: prefs.DetailCloseDelayMin,
+		DetailCloseDelayMax: prefs.DetailCloseDelayMax,
+		GreetBeforeDelayMin: prefs.GreetBeforeDelayMin,
+		GreetBeforeDelayMax: prefs.GreetBeforeDelayMax,
 	}
 }

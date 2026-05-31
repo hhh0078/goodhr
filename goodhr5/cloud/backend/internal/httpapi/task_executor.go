@@ -39,10 +39,15 @@ type TaskExecutor struct {
 	claimedCookie  *claimedTaskCookie
 	candidateStore CandidateStore
 	seenCandidates map[string]struct{}
+	ctx            context.Context
 	scannedCount   int
 	greetedCount   int
 	skippedCount   int
 	failedCount    int
+	restMaxTimes   int
+	restUsed       int
+	restNextAfter  int
+	restSinceLast  int
 }
 
 // NewTaskExecutor 创建任务编排器实例。
@@ -91,6 +96,8 @@ func NewTaskExecutor(
 // Run 执行任务编排主流程。
 func (e *TaskExecutor) Run(ctx context.Context) error {
 	e.log("info", "任务执行开始")
+	e.ctx = ctx
+	e.initRestPlan()
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -296,6 +303,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
 			e.logCandidateFlowEnd(candidateName, "详情决策失败")
 			e.incrementCounts(0, 0, 0, 1)
+			if err := e.maybeRest(ctx); err != nil {
+				return err
+			}
 			continue
 		}
 		candidate.AI.Detail.Score = float64Ptr(detailScoreDecision.Score)
@@ -324,6 +334,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.log("error", fmt.Sprintf("候选人 %s 详情提取失败: %v", candidateName, err))
 				e.logCandidateFlowEnd(candidateName, "详情提取失败")
 				e.incrementCounts(0, 0, 0, 1)
+				if err := e.maybeRest(ctx); err != nil {
+					return err
+				}
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s 详情文本: %s", candidateName, previewDetailLog(detailText, 800)))
@@ -354,6 +367,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
 				e.logCandidateFlowEnd(candidateName, "AI筛选失败")
 				e.incrementCounts(0, 0, 0, 1)
+				if err := e.maybeRest(ctx); err != nil {
+					return err
+				}
 				continue
 			}
 			candidate.AI.Greet.Score = float64Ptr(greetDecision.Score)
@@ -404,6 +420,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
 				e.logCandidateFlowEnd(candidateName, "AI筛选跳过")
+				if err := e.maybeRest(ctx); err != nil {
+					return err
+				}
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
@@ -420,6 +439,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
 				e.logCandidateFlowEnd(candidateName, "关键词筛选跳过")
+				if err := e.maybeRest(ctx); err != nil {
+					return err
+				}
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s 通过筛选: %s", candidateName, result.Reason))
@@ -430,6 +452,9 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			e.log("error", fmt.Sprintf("候选人 %s 打招呼失败: %v", candidateName, err))
 			e.logCandidateFlowEnd(candidateName, "打招呼失败")
 			e.incrementCounts(0, 0, 0, 1)
+			if err := e.maybeRest(ctx); err != nil {
+				return err
+			}
 			continue
 		}
 		e.log("info", fmt.Sprintf("候选人 %s 打招呼成功", candidateName))
@@ -451,6 +476,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			}
 		}
 		e.logCandidateFlowEnd(candidateName, "打招呼成功")
+		if e.reachedMatchLimit() {
+			return nil
+		}
+		if err := e.maybeRest(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -580,6 +611,115 @@ func (e *TaskExecutor) incrementCounts(scanned, greeted, skipped, failed int) {
 	if e.countCallback != nil {
 		e.countCallback(scanned, greeted, skipped, failed)
 	}
+}
+
+// Delay 在云端后端执行业务动作前延时，并写入任务日志。
+// label 为延时场景，minSeconds/maxSeconds 为秒数范围。
+func (e *TaskExecutor) Delay(label string, minSeconds float64, maxSeconds float64) error {
+	seconds := randomFloatRange(minSeconds, maxSeconds)
+	if seconds <= 0 {
+		return nil
+	}
+	name := strings.TrimSpace(label)
+	if name == "" {
+		name = "任务动作"
+	}
+	e.log("info", fmt.Sprintf("%s延时 %.1f 秒", name, seconds))
+	return e.waitDuration(time.Duration(seconds * float64(time.Second)))
+}
+
+// initRestPlan 初始化本次任务的摸鱼休息计划。
+func (e *TaskExecutor) initRestPlan() {
+	e.restMaxTimes = randomIntRange(e.userPrefs.RestTimesMin, e.userPrefs.RestTimesMax)
+	if e.restMaxTimes <= 0 || e.userPrefs.RestAfterCandidatesMax <= 0 || e.userPrefs.RestDurationMax <= 0 {
+		return
+	}
+	e.restNextAfter = randomIntRange(e.userPrefs.RestAfterCandidatesMin, e.userPrefs.RestAfterCandidatesMax)
+	if e.restNextAfter <= 0 {
+		e.restMaxTimes = 0
+		return
+	}
+	e.log("info", fmt.Sprintf("本次任务摸鱼休息计划：最多休息 %d 次，首次处理 %d 人后休息", e.restMaxTimes, e.restNextAfter))
+}
+
+// maybeRest 在候选人处理完成后按随机阈值执行摸鱼休息。
+func (e *TaskExecutor) maybeRest(ctx context.Context) error {
+	if e.restMaxTimes <= 0 || e.restUsed >= e.restMaxTimes || e.restNextAfter <= 0 {
+		return nil
+	}
+	e.restSinceLast++
+	if e.restSinceLast < e.restNextAfter {
+		return nil
+	}
+	minutes := randomFloatRange(e.userPrefs.RestDurationMin, e.userPrefs.RestDurationMax)
+	if minutes <= 0 {
+		return nil
+	}
+	e.restUsed++
+	e.log("info", fmt.Sprintf("已处理 %d 人，开始摸鱼休息 %.1f 分钟（第 %d/%d 次）", e.scannedCount, minutes, e.restUsed, e.restMaxTimes))
+	if err := waitWithContext(ctx, time.Duration(minutes*float64(time.Minute))); err != nil {
+		return err
+	}
+	e.log("info", "摸鱼休息结束，继续处理候选人")
+	e.restSinceLast = 0
+	if e.restUsed < e.restMaxTimes {
+		e.restNextAfter = randomIntRange(e.userPrefs.RestAfterCandidatesMin, e.userPrefs.RestAfterCandidatesMax)
+		e.log("info", fmt.Sprintf("下次摸鱼休息阈值：再处理 %d 人后休息", e.restNextAfter))
+	}
+	return nil
+}
+
+// waitDuration 等待指定时长，任务取消时提前返回。
+func (e *TaskExecutor) waitDuration(duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	ctx := e.ctx
+	if ctx == nil {
+		time.Sleep(duration)
+		return nil
+	}
+	return waitWithContext(ctx, duration)
+}
+
+// waitWithContext 等待指定时长，context 取消时返回取消原因。
+func waitWithContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// randomFloatRange 从浮点范围里随机一个值。
+func randomFloatRange(minValue float64, maxValue float64) float64 {
+	if minValue < 0 {
+		minValue = 0
+	}
+	if maxValue < minValue {
+		maxValue = minValue
+	}
+	if maxValue == minValue {
+		return minValue
+	}
+	return minValue + rand.Float64()*(maxValue-minValue)
+}
+
+// randomIntRange 从整数范围里随机一个值。
+func randomIntRange(minValue int, maxValue int) int {
+	if minValue < 0 {
+		minValue = 0
+	}
+	if maxValue < minValue {
+		maxValue = minValue
+	}
+	if maxValue == minValue {
+		return minValue
+	}
+	return minValue + rand.Intn(maxValue-minValue+1)
 }
 
 // reachedMatchLimit 判断当前任务是否已经达到打招呼上限。
@@ -836,26 +976,6 @@ func toStringSlice(v any) []string {
 		}
 	}
 	return result
-}
-
-func greetDelayBefore(prefs UserPreferences) float64 {
-	if prefs.GreetDelayMax > prefs.GreetDelayMin && prefs.GreetDelayMin >= 0 {
-		return (prefs.GreetDelayMin + prefs.GreetDelayMax) / 2
-	}
-	if prefs.GreetDelayMin >= 0 {
-		return prefs.GreetDelayMin
-	}
-	return 1
-}
-
-func detailDelayBefore(prefs UserPreferences) float64 {
-	if prefs.DetailViewDelayMax > prefs.DetailViewDelayMin && prefs.DetailViewDelayMin >= 0 {
-		return (prefs.DetailViewDelayMin + prefs.DetailViewDelayMax) / 2
-	}
-	if prefs.DetailViewDelayMin >= 0 {
-		return prefs.DetailViewDelayMin
-	}
-	return 1
 }
 
 // ---------- AI 筛选 ----------

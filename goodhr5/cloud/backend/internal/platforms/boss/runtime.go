@@ -96,9 +96,7 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
 	exec.Log("info", "正在滚动到下一屏Boss候选人列表")
 	body := map[string]any{
-		"scroll_delay_min": prefs.ScrollDelayMin,
-		"scroll_delay_max": prefs.ScrollDelayMax,
-		"max_scrolls":      1,
+		"max_scrolls": 1,
 	}
 	if cfg.Card.ScrollElement != nil {
 		body["element"] = cfg.Card.ScrollElement
@@ -109,7 +107,7 @@ func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg pla
 // GreetCandidate 执行 Boss 候选人打招呼动作。
 func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
 	exec.Log("info", fmt.Sprintf("正在执行Boss候选人打招呼动作 candidate=%s element_ref=%s", candidate.DisplayName(), shortRef(candidate.Runtime.ElementRef)))
-	if err := clickActionWithinCandidate(exec, candidate, cfg.Actions.GreetBtn, greetDelayBefore(prefs), "打招呼按钮"); err != nil {
+	if err := clickActionWithinCandidate(exec, candidate, cfg.Actions.GreetBtn, prefs.GreetBeforeDelayMin, prefs.GreetBeforeDelayMax, "打招呼按钮"); err != nil {
 		return err
 	}
 	if strings.TrimSpace(prefs.GreetMessage) == "" {
@@ -124,12 +122,15 @@ func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platform
 // OpenCandidateDetail 打开 Boss 候选人详情。
 func (r *Runtime) OpenCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
 	exec.Log("info", "正在打开Boss候选人详情")
-	return clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget, detailDelayBefore(prefs), "详情打开按钮")
+	return clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget, prefs.DetailOpenDelayMin, prefs.DetailOpenDelayMax, "详情打开按钮")
 }
 
 // CloseCandidateDetail 关闭 Boss 候选人详情。
 func (r *Runtime) CloseCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
 	exec.Log("info", "正在关闭Boss候选人详情（发送ESC）")
+	if err := exec.Delay("关闭详情前", prefs.DetailCloseDelayMin, prefs.DetailCloseDelayMax); err != nil {
+		return err
+	}
 	return exec.Post("/api/v1/page/press-key", map[string]any{
 		"key": "Escape",
 	}, nil)
@@ -197,7 +198,7 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 		mode = "dom"
 	}
 	var resp localExtractTextResp
-	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, detailDelayBefore(prefs))
+	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, 0)
 	if err := exec.Post("/api/v1/page/extract-text", payload, &resp); err != nil {
 		return "", err
 	}
@@ -411,7 +412,7 @@ func clickOptionalAction(exec platformcore.RuntimeExecutor, element map[string]a
 }
 
 // clickActionWithinCandidate 在候选人卡片内点击动作元素。
-func clickActionWithinCandidate(exec platformcore.RuntimeExecutor, candidate platformcore.Candidate, element map[string]any, delayBefore float64, label string) error {
+func clickActionWithinCandidate(exec platformcore.RuntimeExecutor, candidate platformcore.Candidate, element map[string]any, delayMin float64, delayMax float64, label string) error {
 	if element == nil {
 		return fmt.Errorf("无%s选择器", label)
 	}
@@ -419,26 +420,12 @@ func clickActionWithinCandidate(exec platformcore.RuntimeExecutor, candidate pla
 	if elementRef == "" {
 		return fmt.Errorf("%s缺少 element_ref", label)
 	}
+	if err := exec.Delay(label+"前", delayMin, delayMax); err != nil {
+		return err
+	}
 	return exec.Post("/api/v1/page/click", map[string]any{
-		"timeout":      10000,
-		"delay_before": delayBefore,
-		"element_ref":  elementRef,
-		"element":      element,
+		"timeout":     10000,
+		"element_ref": elementRef,
+		"element":     element,
 	}, nil)
-}
-
-// greetDelayBefore 返回打招呼动作前延迟秒数。
-func greetDelayBefore(prefs platformcore.RuntimePreferences) float64 {
-	if prefs.GreetDelayMax <= prefs.GreetDelayMin {
-		return prefs.GreetDelayMin
-	}
-	return (prefs.GreetDelayMin + prefs.GreetDelayMax) / 2
-}
-
-// detailDelayBefore 返回详情动作前延迟秒数。
-func detailDelayBefore(prefs platformcore.RuntimePreferences) float64 {
-	if prefs.DetailDelayMax <= prefs.DetailDelayMin {
-		return prefs.DetailDelayMin
-	}
-	return (prefs.DetailDelayMin + prefs.DetailDelayMax) / 2
 }

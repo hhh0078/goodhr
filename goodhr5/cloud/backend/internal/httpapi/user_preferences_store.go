@@ -20,6 +20,12 @@ type UserPreferences struct {
 	DetailViewDelayMax     float64
 	GreetDelayMin          float64
 	GreetDelayMax          float64
+	DetailOpenDelayMin     float64
+	DetailOpenDelayMax     float64
+	DetailCloseDelayMin    float64
+	DetailCloseDelayMax    float64
+	GreetBeforeDelayMin    float64
+	GreetBeforeDelayMax    float64
 	RestAfterCandidatesMin int
 	RestAfterCandidatesMax int
 	RestTimesMin           int
@@ -42,12 +48,18 @@ func DefaultUserPreferences() UserPreferences {
 		DetailViewDelayMax:     2,
 		GreetDelayMin:          1,
 		GreetDelayMax:          2,
-		RestAfterCandidatesMin: 0,
-		RestAfterCandidatesMax: 0,
-		RestTimesMin:           0,
-		RestTimesMax:           0,
-		RestDurationMin:        0,
-		RestDurationMax:        0,
+		DetailOpenDelayMin:     1,
+		DetailOpenDelayMax:     2,
+		DetailCloseDelayMin:    1,
+		DetailCloseDelayMax:    2,
+		GreetBeforeDelayMin:    1,
+		GreetBeforeDelayMax:    2,
+		RestAfterCandidatesMin: 40,
+		RestAfterCandidatesMax: 70,
+		RestTimesMin:           2,
+		RestTimesMax:           3,
+		RestDurationMin:        2,
+		RestDurationMax:        7,
 	}
 }
 
@@ -108,6 +120,9 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		       up.list_view_delay_min, up.list_view_delay_max,
 		       up.detail_view_delay_min, up.detail_view_delay_max,
 		       up.greet_delay_min, up.greet_delay_max,
+		       up.detail_open_delay_min, up.detail_open_delay_max,
+		       up.detail_close_delay_min, up.detail_close_delay_max,
+		       up.greet_before_delay_min, up.greet_before_delay_max,
 		       up.rest_after_candidates_min, up.rest_after_candidates_max,
 		       up.rest_times_min, up.rest_times_max,
 		       up.rest_duration_min, up.rest_duration_max,
@@ -129,6 +144,12 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		&prefs.DetailViewDelayMax,
 		&prefs.GreetDelayMin,
 		&prefs.GreetDelayMax,
+		&prefs.DetailOpenDelayMin,
+		&prefs.DetailOpenDelayMax,
+		&prefs.DetailCloseDelayMin,
+		&prefs.DetailCloseDelayMax,
+		&prefs.GreetBeforeDelayMin,
+		&prefs.GreetBeforeDelayMax,
 		&prefs.RestAfterCandidatesMin,
 		&prefs.RestAfterCandidatesMax,
 		&prefs.RestTimesMin,
@@ -165,11 +186,14 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			list_view_delay_min, list_view_delay_max,
 			detail_view_delay_min, detail_view_delay_max,
 			greet_delay_min, greet_delay_max,
+			detail_open_delay_min, detail_open_delay_max,
+			detail_close_delay_min, detail_close_delay_max,
+			greet_before_delay_min, greet_before_delay_max,
 			rest_after_candidates_min, rest_after_candidates_max,
 			rest_times_min, rest_times_max,
 			rest_duration_min, rest_duration_max
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		ON CONFLICT (user_id)
 		DO UPDATE SET
 			ai_model = EXCLUDED.ai_model,
@@ -183,6 +207,12 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			detail_view_delay_max = EXCLUDED.detail_view_delay_max,
 			greet_delay_min = EXCLUDED.greet_delay_min,
 			greet_delay_max = EXCLUDED.greet_delay_max,
+			detail_open_delay_min = EXCLUDED.detail_open_delay_min,
+			detail_open_delay_max = EXCLUDED.detail_open_delay_max,
+			detail_close_delay_min = EXCLUDED.detail_close_delay_min,
+			detail_close_delay_max = EXCLUDED.detail_close_delay_max,
+			greet_before_delay_min = EXCLUDED.greet_before_delay_min,
+			greet_before_delay_max = EXCLUDED.greet_before_delay_max,
 			rest_after_candidates_min = EXCLUDED.rest_after_candidates_min,
 			rest_after_candidates_max = EXCLUDED.rest_after_candidates_max,
 			rest_times_min = EXCLUDED.rest_times_min,
@@ -195,6 +225,9 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		          list_view_delay_min, list_view_delay_max,
 		          detail_view_delay_min, detail_view_delay_max,
 		          greet_delay_min, greet_delay_max,
+		          detail_open_delay_min, detail_open_delay_max,
+		          detail_close_delay_min, detail_close_delay_max,
+		          greet_before_delay_min, greet_before_delay_max,
 		          rest_after_candidates_min, rest_after_candidates_max,
 		          rest_times_min, rest_times_max,
 		          rest_duration_min, rest_duration_max,
@@ -212,6 +245,12 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		prefs.DetailViewDelayMax,
 		prefs.GreetDelayMin,
 		prefs.GreetDelayMax,
+		prefs.DetailOpenDelayMin,
+		prefs.DetailOpenDelayMax,
+		prefs.DetailCloseDelayMin,
+		prefs.DetailCloseDelayMax,
+		prefs.GreetBeforeDelayMin,
+		prefs.GreetBeforeDelayMax,
 		prefs.RestAfterCandidatesMin,
 		prefs.RestAfterCandidatesMax,
 		prefs.RestTimesMin,
@@ -230,6 +269,12 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		&saved.DetailViewDelayMax,
 		&saved.GreetDelayMin,
 		&saved.GreetDelayMax,
+		&saved.DetailOpenDelayMin,
+		&saved.DetailOpenDelayMax,
+		&saved.DetailCloseDelayMin,
+		&saved.DetailCloseDelayMax,
+		&saved.GreetBeforeDelayMin,
+		&saved.GreetBeforeDelayMax,
 		&saved.RestAfterCandidatesMin,
 		&saved.RestAfterCandidatesMax,
 		&saved.RestTimesMin,
