@@ -36,3 +36,12 @@ export async function getCandidate(candidateID: string, engagementID = "") {
   const data = await api(`/api/candidates/${encodeURIComponent(candidateID)}${query}`);
   return data.candidate;
 }
+
+/**
+ * 清空当前团队的全部候选人数据。
+ * @returns {Promise<number>} 返回删除的候选人数量。
+ */
+export async function clearTeamCandidates() {
+  const data = await api("/api/candidates", { method: "DELETE" });
+  return Number(data.deleted || 0);
+}

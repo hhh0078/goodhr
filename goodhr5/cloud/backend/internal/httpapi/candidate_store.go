@@ -139,6 +139,7 @@ type CandidateStore interface {
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
 	GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error)
+	DeleteTeamCandidates(tenantID string) (int, error)
 }
 
 // TaskCandidateQuery 表示候选人列表查询条件。
@@ -330,6 +331,19 @@ func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID str
 	}
 	item.Events = append([]CandidateEvent{}, events...)
 	return item, nil
+}
+
+// DeleteTeamCandidates 清空团队候选人数据。
+// tenantID 为团队 ID，内存实现会清空全部候选人、触达和事件记录。
+func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deleted := len(s.profiles)
+	s.profiles = map[string]TaskCandidate{}
+	s.engagements = map[string]CandidateEngagement{}
+	s.events = map[string][]CandidateEvent{}
+	return deleted, nil
 }
 
 // normalizeCandidatePage 规范候选人分页参数。

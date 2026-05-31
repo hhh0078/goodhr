@@ -24,6 +24,10 @@ func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore Te
 // Collection 处理简历库候选人列表请求。
 // 支持通过 task_id 查询某个任务下的候选人，否则返回当前团队候选人。
 func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.ClearTeam(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -60,6 +64,33 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 		"total":      result.Total,
 		"page":       result.Page,
 		"page_size":  result.PageSize,
+	})
+}
+
+// ClearTeam 清空当前团队的全部候选人数据。
+// 会删除候选人主体，关联的 AI 事件和触达记录由数据库级联删除。
+func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.store == nil || s.tenantStore == nil {
+		writeError(w, http.StatusInternalServerError, "candidate store is not ready")
+		return
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	deleted, err := s.store.DeleteTeamCandidates(tenant.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to clear candidates")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"deleted": deleted,
 	})
 }
 

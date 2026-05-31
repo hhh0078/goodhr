@@ -10,9 +10,18 @@
           }}
         </p>
       </div>
-      <button class="ghost" :disabled="loading" @click="load">
-        {{ loading ? "刷新中..." : "刷新" }}
-      </button>
+      <div class="header-actions">
+        <button class="ghost" :disabled="loading || clearing" @click="load">
+          {{ loading ? "刷新中..." : "刷新" }}
+        </button>
+        <button
+          class="danger"
+          :disabled="loading || clearing || total <= 0"
+          @click="clearAllCandidates"
+        >
+          {{ clearing ? "清空中..." : "清空" }}
+        </button>
+      </div>
     </div>
 
     <div class="filter-panel">
@@ -120,7 +129,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { listCandidates } from "../services/api/candidateApi";
+import { clearTeamCandidates, listCandidates } from "../services/api/candidateApi";
 import { listPositions } from "../services/api/positionApi";
 import { listTasks } from "../services/api/taskApi";
 
@@ -138,6 +147,7 @@ const candidates = ref<any[]>([]);
 const tasks = ref<any[]>([]);
 const positions = ref<any[]>([]);
 const loading = ref(false);
+const clearing = ref(false);
 const error = ref("");
 const page = ref(1);
 const pageSize = ref(12);
@@ -235,6 +245,29 @@ function goPage(nextPage: number) {
 }
 
 /**
+ * 清空当前团队的全部候选人数据。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function clearAllCandidates() {
+  const confirmed = window.confirm(
+    "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
+  );
+  if (!confirmed) return;
+  clearing.value = true;
+  error.value = "";
+  try {
+    await clearTeamCandidates();
+    candidates.value = [];
+    total.value = 0;
+    page.value = 1;
+  } catch (e: any) {
+    error.value = e?.message || "清空简历库失败";
+  } finally {
+    clearing.value = false;
+  }
+}
+
+/**
  * 新开页面查看候选人详情。
  * @param {any} item - 候选人简历对象。
  * @returns {void} 无返回值。
@@ -329,6 +362,19 @@ onMounted(init);
   margin: 4px 0 0;
   color: var(--fg-dim);
   font-size: 13px;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.danger {
+  border-color: #7f1d1d;
+  background: #180606;
+  color: #fecaca;
+}
+.danger:hover:not(:disabled) {
+  border-color: #ef4444;
 }
 .filter-panel {
   display: grid;

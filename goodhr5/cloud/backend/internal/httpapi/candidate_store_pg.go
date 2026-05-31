@@ -388,6 +388,19 @@ func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID s
 	return items[0], nil
 }
 
+// DeleteTeamCandidates 清空团队候选人数据。
+// tenantID 为当前团队 ID，返回删除的候选人主体数量；事件和触达记录由外键级联删除。
+func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `DELETE FROM candidate_profiles WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
 // listCandidateEvents 读取候选人事件流水。
 // tenantID 为团队 ID，candidateID 为候选人主体 ID，engagementID 为空时读取该候选人全部事件。
 func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenantID string, candidateID string, engagementID string) ([]CandidateEvent, error) {
