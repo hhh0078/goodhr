@@ -32,7 +32,7 @@
           class="ghost primary"
           @click="openDownload"
         >
-          下载本地程序
+          {{ primaryDownload.label }}
         </button>
         <button
           v-else-if="card.menu"
@@ -48,6 +48,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { buildAgentDownloadOptions } from "../services/agentDownload";
 import { ONBOARDING_STEPS } from "../services/onboarding";
 
 const props = defineProps<{ progress: any; config: any }>();
@@ -131,6 +132,7 @@ const doneCount = computed(
 const activeKey = computed(
   () => cards.find((card) => !isDone(card.key))?.key || "",
 );
+const primaryDownload = computed(() => buildAgentDownloadOptions(props.config).primary);
 
 /**
  * 判断指定步骤是否完成。
@@ -146,7 +148,7 @@ function isDone(key: string) {
  * @returns {void} 无返回值。
  */
 function openDownload() {
-  const url = String(props.config?.local_agent_download_url || "").trim();
+  const url = primaryDownload.value.url;
   if (url) window.open(url, "_blank", "noopener,noreferrer");
 }
 </script>

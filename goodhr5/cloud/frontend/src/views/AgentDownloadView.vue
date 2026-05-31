@@ -37,11 +37,16 @@
         <p>
           下载后双击启动，回到后台右上角显示“已连接”就可以开始创建平台账号和任务。
         </p>
-        <button :disabled="!downloadURL" @click="openDownload">
-          {{ downloadURL ? "下载本地程序" : "暂未配置下载链接" }}
+        <button :disabled="!primaryDownload.url" @click="openDownload(primaryDownload.url)">
+          {{ primaryDownload.url ? primaryDownload.label : "暂未配置下载链接" }}
         </button>
-        <p v-if="!downloadURL" class="warn">
-          请到系统配置里的 system.onboarding_config 配置 local_agent_download_url。
+        <p v-if="secondaryDownload.url" class="alt-download">
+          <button class="text-link" @click="openDownload(secondaryDownload.url)">
+            {{ secondaryDownload.label }}
+          </button>
+        </p>
+        <p v-if="!primaryDownload.url" class="warn">
+          请到系统配置里的 system.onboarding_config 配置 Mac 或 Windows 下载链接。
         </p>
       </article>
     </div>
@@ -51,11 +56,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useAppContext } from "../composables/useAppContext";
+import { buildAgentDownloadOptions } from "../services/agentDownload";
 
 const app = useAppContext();
-const downloadURL = computed(() =>
-  String(app.onboardingConfig.value?.local_agent_download_url || "").trim(),
-);
+const downloadOptions = computed(() => buildAgentDownloadOptions(app.onboardingConfig.value));
+const primaryDownload = computed(() => downloadOptions.value.primary);
+const secondaryDownload = computed(() => downloadOptions.value.secondary);
 const connected = computed(() => app.agent.status.value.includes("连接"));
 
 /**
@@ -68,11 +74,12 @@ function redetect() {
 
 /**
  * 打开本地程序下载链接。
+ * @param {string} url - 下载链接。
  * @returns {void} 无返回值。
  */
-function openDownload() {
-  if (!downloadURL.value) return;
-  window.open(downloadURL.value, "_blank", "noopener,noreferrer");
+function openDownload(url: string) {
+  if (!url) return;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 </script>
 
@@ -119,6 +126,21 @@ dd {
 }
 .warn {
   color: #fa0;
+}
+.alt-download {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.text-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #aaa;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.text-link:hover {
+  color: #eee;
 }
 @media (max-width: 900px) {
   .download-layout {

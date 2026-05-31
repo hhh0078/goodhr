@@ -119,6 +119,8 @@ const subscription = ref<any>(null);
 const onboardingProgress = ref<any>({ completed: true, steps: {} });
 const onboardingConfig = ref<any>({
   local_agent_download_url: "",
+  local_agent_download_url_mac: "",
+  local_agent_download_url_windows: "",
   trial_days: 3,
 });
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
@@ -268,7 +270,12 @@ async function loadOnboardingStatus() {
       };
     }
   } catch {
-    onboardingConfig.value = { local_agent_download_url: "", trial_days: 3 };
+    onboardingConfig.value = {
+      local_agent_download_url: "",
+      local_agent_download_url_mac: "",
+      local_agent_download_url_windows: "",
+      trial_days: 3,
+    };
   }
 }
 

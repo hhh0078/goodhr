@@ -109,9 +109,11 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
 				"local_agent_download_url": "",
+				"local_agent_download_url_mac": "",
+				"local_agent_download_url_windows": "",
 				"trial_days": 3
 			}`,
-			Description: "新手教学配置，包含本地程序下载链接和注册赠送会员天数",
+			Description: "新手教学配置，包含本地程序下载链接、Mac/Windows 下载链接和注册赠送会员天数",
 			Enabled:     true,
 		},
 		"system.invite_config": {

@@ -53,7 +53,12 @@ func (s *OnboardingService) Status(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load onboarding")
 		return
 	}
-	config := map[string]any{"local_agent_download_url": "", "trial_days": 3}
+	config := map[string]any{
+		"local_agent_download_url":         "",
+		"local_agent_download_url_mac":     "",
+		"local_agent_download_url_windows": "",
+		"trial_days":                       3,
+	}
 	if cfg, err := s.systemConfigs.Get("system.onboarding_config"); err == nil {
 		_ = json.Unmarshal([]byte(cfg.ConfigValue), &config)
 	}
