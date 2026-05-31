@@ -29,12 +29,12 @@ export type OpenPagePayload = BrowserRuntimeOptions & {
 
 async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
   const { body, ...rest } = opts;
-  console.info("[goodhr5][local-agent][request]", {
-    base,
-    path,
-    method: rest.method || "GET",
-    body,
-  });
+  // console.info("[goodhr5][local-agent][request]", {
+  //   base,
+  //   path,
+  //   method: rest.method || "GET",
+  //   body,
+  // });
   const res = await fetch(agentURL(base, path), {
     headers: {
       "Content-Type": "application/json",
