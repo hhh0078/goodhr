@@ -1,7 +1,9 @@
 """
-本文件负责本地浏览器基础操作。
+本文件负责仿真人操作行为模拟。
 
-只保留滚动、打字、点击、元素定位等原子能力；任务节奏延时由云端后端统一控制。
+提供随机延迟、滚动、打字、点击等辅助函数，
+配合 CloakBrowser 的 humanize 参数实现更真实的自动化行为。
+沿用 goodhrpy 的已验证可用代码，迁入 GoodHR 5 Local Agent。
 """
 
 from __future__ import annotations
@@ -18,8 +20,8 @@ logger = logging.getLogger("goodhr5.humanize")
 
 # ---------- 默认参数 ----------
 
-DEFAULT_DELAY_MIN = 0
-DEFAULT_DELAY_MAX = 0
+DEFAULT_DELAY_MIN = 3
+DEFAULT_DELAY_MAX = 8
 DEFAULT_SCROLL_DISTANCE = 300
 DEFAULT_MAX_SCROLLS = 20
 DEFAULT_FIND_ATTEMPTS = 6
@@ -135,16 +137,20 @@ def parse_element_locator_spec(raw: Any, *, default_target_classes: Optional[lis
     )
 
 
+# ---------- 延迟 ----------
+
+
 async def random_delay(min_seconds: int = DEFAULT_DELAY_MIN, max_seconds: int = DEFAULT_DELAY_MAX) -> None:
     """
-    保留兼容入口，不在本地程序内执行模拟延时。
+    随机等待一段时间，模拟人工操作间隔。
 
     Args:
         min_seconds: 最小等待秒数
         max_seconds: 最大等待秒数
     """
-    _ = (min_seconds, max_seconds)
-    return None
+    delay = random.uniform(min_seconds, max_seconds)
+    logger.debug("等待 %.1f 秒...", delay)
+    await asyncio.sleep(delay)
 
 
 # ---------- 滚动 ----------
@@ -170,6 +176,7 @@ async def human_scroll(
     for _i in range(steps):
         jitter = random.uniform(-10, 10)
         await page.mouse.wheel(0, step_distance + jitter)
+        await asyncio.sleep(random.uniform(0.05, 0.2))
 
     logger.debug("已完成滚动，总距离: %dpx，分 %d 步", distance, steps)
 
@@ -204,6 +211,7 @@ async def move_mouse_to_locator(locator: Locator, label: str = "元素") -> bool
         x = visible_left + (visible_right - visible_left) / 2
         y = visible_top + (visible_bottom - visible_top) / 2
         await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.05, 0.2))
         logger.info("已移动鼠标到%s中心: (%.1f, %.1f)", label, x, y)
         return True
     except Exception as exc:
@@ -224,6 +232,7 @@ async def scroll_locator_into_view(locator: Locator, label: str = "元素") -> b
     """
     try:
         await locator.scroll_into_view_if_needed(timeout=3000)
+        await asyncio.sleep(random.uniform(0.1, 0.25))
         in_viewport = await is_locator_in_viewport(locator)
         if in_viewport:
             logger.info("%s 已滚动到可视区域内", label)
@@ -462,14 +471,15 @@ async def scroll_to_load(
     stop_condition: Optional[Callable[..., bool]] = None,
 ) -> None:
     """
-    滚动加载候选人列表。
+    滚动加载候选人列表，模拟人工浏览行为。
 
-    逐屏向下滚动，可设置停止条件（如检测到已无新候选人加载）。
+    逐屏向下滚动，每屏之间加入随机延迟，
+    可设置停止条件（如检测到已无新候选人加载）。
 
     Args:
         page: Playwright Page 实例
-        scroll_delay_min: 兼容旧参数，延时由云端控制
-        scroll_delay_max: 兼容旧参数，延时由云端控制
+        scroll_delay_min: 滚动间最小延迟秒数
+        scroll_delay_max: 滚动间最大延迟秒数
         max_scrolls: 最大滚动次数
         element_spec: 可选元素定位协议；传入后先定位元素并移动到其上方再滚动
         stop_condition: 停止条件回调，返回 True 则停止滚动
@@ -494,7 +504,7 @@ async def scroll_to_load(
             except Exception as e:
                 logger.warning("检查停止条件时出错: %s", e)
 
-        _ = (scroll_delay_min, scroll_delay_max)
+        await random_delay(scroll_delay_min, scroll_delay_max)
 
     logger.info("滚动加载完成，共滚动 %d 屏", max_scrolls)
 
@@ -504,7 +514,7 @@ async def scroll_to_load(
 
 async def human_type(page: Page, selector: str, text: str, delay: Optional[int] = None) -> None:
     """
-    输入文字。
+    仿真人输入文字，逐字符随机延迟。
 
     Args:
         page: Playwright Page 实例
@@ -512,12 +522,17 @@ async def human_type(page: Page, selector: str, text: str, delay: Optional[int] 
         text: 要输入的文本
         delay: 每字符基础延迟（毫秒），None 则随机
     """
-    _ = delay
+    if delay is None:
+        delay = random.randint(50, 150)
+
     locator = page.locator(selector)
     await locator.click()
+    await asyncio.sleep(random.uniform(0.1, 0.3))
 
     for char in text:
-        await page.keyboard.type(char, delay=0)
+        await page.keyboard.type(char, delay=random.randint(max(30, delay - 30), delay + 50))
+        if random.random() < 0.05:
+            await asyncio.sleep(random.uniform(0.3, 0.8))
 
     logger.debug("已输入文本: %s...", text[:20])
 
@@ -527,8 +542,8 @@ async def human_type_focused(
     text: str,
     chunk_min: int = 1,
     chunk_max: int = 2,
-    delay_min_ms: int = 0,
-    delay_max_ms: int = 0,
+    delay_min_ms: int = 80,
+    delay_max_ms: int = 220,
 ) -> dict[str, int]:
     """
     向当前已聚焦输入框分段输入文字。
@@ -538,8 +553,8 @@ async def human_type_focused(
         text: 要输入的文本
         chunk_min: 每段最少字符数
         chunk_max: 每段最多字符数
-        delay_min_ms: 兼容旧参数，延时由云端控制
-        delay_max_ms: 兼容旧参数，延时由云端控制
+        delay_min_ms: 每段输入后的最小等待毫秒数
+        delay_max_ms: 每段输入后的最大等待毫秒数
 
     Returns:
         输入统计信息，包含字符数和分段数。
@@ -547,16 +562,19 @@ async def human_type_focused(
     safe_text = str(text or "")
     safe_chunk_min = max(1, min(_int_or_default(chunk_min, 1), 10))
     safe_chunk_max = max(safe_chunk_min, min(_int_or_default(chunk_max, 2), 10))
-    _ = (delay_min_ms, delay_max_ms)
+    safe_delay_min = max(0, min(_int_or_default(delay_min_ms, 80), 5000))
+    safe_delay_max = max(safe_delay_min, min(_int_or_default(delay_max_ms, 220), 5000))
 
     offset = 0
     chunk_count = 0
     while offset < len(safe_text):
         chunk_size = random.randint(safe_chunk_min, safe_chunk_max)
         chunk = safe_text[offset : offset + chunk_size]
-        await page.keyboard.type(chunk, delay=0)
+        await page.keyboard.type(chunk, delay=random.randint(25, 90))
         chunk_count += 1
         offset += len(chunk)
+        if offset < len(safe_text) and safe_delay_max > 0:
+            await asyncio.sleep(random.uniform(safe_delay_min, safe_delay_max) / 1000)
 
     logger.info("已向当前焦点输入文本 chars=%d chunks=%d", len(safe_text), chunk_count)
     return {"chars": len(safe_text), "chunks": chunk_count}
@@ -590,9 +608,10 @@ async def click_box_random_point(
     x = box["x"] + box["width"] * ratio_x
     y = box["y"] + box["height"] * ratio_y
 
+    delay_ms = random.randint(100, 300)
     await page.mouse.move(x, y)
-    await page.mouse.click(x, y, delay=0)
-    logger.debug("点击%s: point=(%.1f,%.1f)", label, x, y)
+    await page.mouse.click(x, y, delay=delay_ms)
+    logger.debug("随机点击%s: point=(%.1f,%.1f), delay=%dms", label, x, y, delay_ms)
     return True
 
 
@@ -610,6 +629,7 @@ async def navigate_to_page(page: Page, url: str, timeout: int = 30000) -> bool:
     """
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        await page.wait_for_timeout(2000)
         logger.info("已导航到 %s", url)
         return True
     except Exception as e:
@@ -645,16 +665,16 @@ async def wait_and_click(
     page: Page,
     selector: str,
     timeout: int = 10000,
-    delay_before: float = 0,
+    delay_before: float = 0.5,
 ) -> bool:
     """
-    等待元素出现后点击。
+    等待元素出现后点击，带前后延迟。
 
     Args:
         page: Playwright Page 实例
         selector: 目标元素选择器
         timeout: 等待超时时间（毫秒）
-        delay_before: 兼容旧参数，延时由云端控制
+        delay_before: 点击前延迟（秒）
 
     Returns:
         bool: 是否成功点击
@@ -662,7 +682,7 @@ async def wait_and_click(
     try:
         locator = page.locator(selector)
         await locator.wait_for(state="visible", timeout=timeout)
-        _ = delay_before
+        await asyncio.sleep(delay_before + random.uniform(0, 0.5))
         await locator.click()
         logger.debug("已点击: %s", selector)
         return True

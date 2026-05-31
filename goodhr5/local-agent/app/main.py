@@ -33,6 +33,7 @@ from app.humanize import (
     move_mouse_to_locator,
     navigate_to_page,
     parse_element_locator_spec,
+    random_delay,
     scroll_locator_into_view,
     scroll_to_load,
 )
@@ -581,7 +582,8 @@ def _save_ocr_debug_screenshot(task_id: str, screenshot_bytes: bytes, label: str
 async def _extract_text_from_locator(page, locator, mode: str, delay_before: float, task_id: str = "", label: str = "detail") -> str:
     """按模式从目标元素提取整段文本。"""
     total_start = time.perf_counter()
-    _ = delay_before
+    if delay_before > 0:
+        await asyncio.sleep(delay_before)
     if mode == "ocr":
         screenshot_start = time.perf_counter()
         screenshot_bytes = await screenshot_locator_full(page, locator, "detail-ocr")
@@ -729,11 +731,11 @@ async def page_open(payload: dict) -> dict:
 
 @app.post("/api/v1/page/scroll")
 async def page_scroll(payload: dict) -> dict:
-    """滚动当前页面加载候选人列表。
+    """滚动当前页面，模拟人工浏览加载候选人列表。
 
     请求体参数：
-        scroll_delay_min: 兼容旧参数，延时由云端后端控制
-        scroll_delay_max: 兼容旧参数，延时由云端后端控制
+        scroll_delay_min: 滚动最小延迟秒数（默认 3）
+        scroll_delay_max: 滚动最大延迟秒数（默认 8）
         max_scrolls: 最大滚动次数（默认 20）
         element: 可选统一元素定位对象，支持 parent_classes 和 target_classes
     """
@@ -743,8 +745,8 @@ async def page_scroll(payload: dict) -> dict:
         raise HTTPException(400, "element.target_classes is required")
     await scroll_to_load(
         page,
-        scroll_delay_min=int(payload.get("scroll_delay_min", 0)),
-        scroll_delay_max=int(payload.get("scroll_delay_max", 0)),
+        scroll_delay_min=int(payload.get("scroll_delay_min", 3)),
+        scroll_delay_max=int(payload.get("scroll_delay_max", 8)),
         max_scrolls=int(payload.get("max_scrolls", 20)),
         element_spec=element_spec,
     )
@@ -836,11 +838,11 @@ async def page_click(payload: dict) -> dict:
     请求体参数：
         element: 统一元素定位对象
         timeout: 等待超时毫秒数（默认 10000）
-        delay_before: 兼容旧参数，延时由云端后端控制
+        delay_before: 点击前延迟秒数（默认 0.5）
     """
     page = await _require_page()
     timeout = int(payload.get("timeout", 10000))
-    delay_before = float(payload.get("delay_before", 0))
+    delay_before = float(payload.get("delay_before", 0.5))
     element_ref = str(payload.get("element_ref", "")).strip()
     if element_ref:
         entry = ELEMENT_REFS.get(element_ref)
@@ -903,8 +905,8 @@ async def page_type_text(payload: dict) -> dict:
         text: 必填，要输入的文本。
         chunk_min: 可选，每段最少字符数，默认 1。
         chunk_max: 可选，每段最多字符数，默认 2。
-        delay_min_ms: 兼容旧参数，默认 0。
-        delay_max_ms: 兼容旧参数，默认 0。
+        delay_min_ms: 可选，每段输入后的最小等待毫秒数，默认 80。
+        delay_max_ms: 可选，每段输入后的最大等待毫秒数，默认 220。
     """
     page = await _require_page()
     text = str(payload.get("text", ""))
@@ -915,8 +917,8 @@ async def page_type_text(payload: dict) -> dict:
         text,
         chunk_min=_parse_int(payload.get("chunk_min"), 1),
         chunk_max=_parse_int(payload.get("chunk_max"), 2),
-        delay_min_ms=_parse_int(payload.get("delay_min_ms"), 0),
-        delay_max_ms=_parse_int(payload.get("delay_max_ms"), 0),
+        delay_min_ms=_parse_int(payload.get("delay_min_ms"), 80),
+        delay_max_ms=_parse_int(payload.get("delay_max_ms"), 220),
     )
     return {"ok": True, **result}
 
