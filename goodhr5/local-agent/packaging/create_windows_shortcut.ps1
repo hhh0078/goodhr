@@ -4,10 +4,39 @@ $ErrorActionPreference = "Stop"
 
 $AppName = "GoodHR招聘助手"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$ExePath = Join-Path $ProjectRoot "dist\$AppName\$AppName.exe"
 
-if (-not (Test-Path $ExePath)) {
-    throw "未找到可执行文件：$ExePath"
+<#
+查找 PyInstaller 实际生成的 Windows 可执行文件。
+参数 DistDir 表示打包输出目录。
+返回找到的 exe 完整路径。
+#>
+function Find-GoodHRExecutable {
+    param (
+        [string]$DistDir
+    )
+
+    if (-not (Test-Path $DistDir)) {
+        throw "Dist directory not found: $DistDir"
+    }
+
+    $PreferredNames = @(
+        "$AppName.exe",
+        "GoodHRLocalAgent.exe"
+    )
+
+    foreach ($Name in $PreferredNames) {
+        $Match = Get-ChildItem -Path $DistDir -Filter $Name -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($Match) {
+            return $Match.FullName
+        }
+    }
+
+    $AnyExe = Get-ChildItem -Path $DistDir -Filter "*.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($AnyExe) {
+        return $AnyExe.FullName
+    }
+
+    throw "Executable file not found in dist directory: $DistDir"
 }
 
 <#
@@ -32,8 +61,11 @@ function New-GoodHRDesktopShortcut {
     $Shortcut.Save()
 }
 
+$DistDir = Join-Path $ProjectRoot "dist"
+$ExePath = Find-GoodHRExecutable -DistDir $DistDir
 $Desktop = [Environment]::GetFolderPath("Desktop")
 $ShortcutPath = Join-Path $Desktop "$AppName.lnk"
 New-GoodHRDesktopShortcut -ShortcutPath $ShortcutPath -TargetPath $ExePath -WorkingDirectory (Split-Path $ExePath)
 
-Write-Host "桌面快捷方式已创建：$ShortcutPath"
+Write-Host "Desktop shortcut created: $ShortcutPath"
+Write-Host "Shortcut target: $ExePath"
