@@ -33,7 +33,7 @@ func TestMailTemplatesRender(t *testing.T) {
 		"PlatformID":      "boss",
 		"PlatformAccount": "测试账号",
 		"Mode":            "keyword",
-		"MatchLimit":      20,
+		"MatchLimit":      50,
 		"ScannedCount":    10,
 		"GreetedCount":    3,
 		"SkippedCount":    6,

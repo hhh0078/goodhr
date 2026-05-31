@@ -41,7 +41,7 @@ func TestSendTaskStatusNotice(t *testing.T) {
 		PlatformID:        "boss",
 		PlatformAccountID: "account_1",
 		Mode:              "keyword",
-		MatchLimit:        20,
+		MatchLimit:        50,
 	})
 	if err != nil {
 		t.Fatal(err)

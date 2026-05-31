@@ -54,7 +54,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if createPayload.Task.ID == "" || createPayload.Task.Status != "created" {
 		t.Fatalf("unexpected task payload: %+v", createPayload.Task)
 	}
-	if createPayload.Task.Scanned != 0 || createPayload.Task.MatchLimit != 20 {
+	if createPayload.Task.Scanned != 0 || createPayload.Task.MatchLimit != 50 {
 		t.Fatalf("unexpected task stats: %+v", createPayload.Task)
 	}
 	if createPayload.Task.PositionID != positionID {

@@ -70,7 +70,9 @@
           placeholder="不填则自动使用岗位模板名称+默认模式"
       /></label>
       <p class="hint field-wide">
-        默认模式：{{ positionModeLabel(selectedCreatePosition()) }}，来自岗位模板配置。
+        默认模式：{{
+          positionModeLabel(selectedCreatePosition())
+        }}，来自岗位模板配置。
       </p>
       <label
         >匹配上限<input
@@ -81,7 +83,11 @@
     </div>
     <div v-if="showCreate" class="actions">
       <button
-        :disabled="tasks.loading.value || !tasks.form.value.platformAccountId || !tasks.form.value.positionId"
+        :disabled="
+          tasks.loading.value ||
+          !tasks.form.value.platformAccountId ||
+          !tasks.form.value.positionId
+        "
         @click="createTask"
       >
         {{ tasks.loading.value ? "创建中..." : "创建任务" }}
@@ -201,11 +207,7 @@
                 @change="onEditAccountChange"
               >
                 <option value="">请选择账号</option>
-                <option
-                  v-for="acc in accounts"
-                  :key="acc.id"
-                  :value="acc.id"
-                >
+                <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
                   {{ accountLabel(acc) }}
                 </option>
               </select></label
@@ -227,7 +229,9 @@
                 placeholder="不填则自动使用岗位模板名称+默认模式"
             /></label>
             <p class="hint field-wide">
-              默认模式：{{ positionModeLabel(selectedEditPosition()) }}，来自岗位模板配置。
+              默认模式：{{
+                positionModeLabel(selectedEditPosition())
+              }}，来自岗位模板配置。
             </p>
             <label
               >匹配上限<input
@@ -238,7 +242,11 @@
           </div>
           <div class="actions compact">
             <button
-              :disabled="tasks.loading.value || !editForm.platformAccountId || !editForm.positionId"
+              :disabled="
+                tasks.loading.value ||
+                !editForm.platformAccountId ||
+                !editForm.positionId
+              "
               @click="saveEdit(task.id)"
             >
               保存参数
@@ -266,11 +274,7 @@
           >
             暂无日志
           </p>
-          <ol
-            v-else
-            class="log-list"
-            @scroll="onLogScroll(task.id, $event)"
-          >
+          <ol v-else class="log-list" @scroll="onLogScroll(task.id, $event)">
             <li
               v-for="(log, index) in tasks.taskLogs.value[task.id]"
               :key="log.id"
@@ -300,10 +304,7 @@
                 >{{ log.message }}</strong
               >
             </li>
-            <li
-              v-if="tasks.taskLogLoadingMore.value[task.id]"
-              class="log-more"
-            >
+            <li v-if="tasks.taskLogLoadingMore.value[task.id]" class="log-more">
               正在加载更多日志...
             </li>
             <li
@@ -314,7 +315,6 @@
             </li>
           </ol>
         </div>
-
       </article>
     </div>
   </section>
@@ -342,7 +342,7 @@ const editForm = ref({
   platformAccountId: "",
   positionId: "",
   mode: "ai",
-  matchLimit: 20,
+  matchLimit: 50,
   enableSound: false,
 });
 async function loadAccounts() {
@@ -451,7 +451,7 @@ function startEdit(task: any) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 20,
+    matchLimit: task.match_limit || 50,
     enableSound: Boolean(task.enable_sound),
   };
 }
@@ -485,7 +485,7 @@ async function toggleSound(task: any, enableSound: boolean) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 20,
+    matchLimit: task.match_limit || 50,
     enableSound,
   });
 }
