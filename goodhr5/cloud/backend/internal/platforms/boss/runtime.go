@@ -15,19 +15,15 @@ type localViewportResp struct {
 }
 
 type localElementItem struct {
-	Ref   string `json:"ref"`
-	Index int    `json:"index"`
+	Ref    string         `json:"ref"`
+	Index  int            `json:"index"`
+	Fields map[string]any `json:"fields"`
 }
 
 type localFindElementsResp struct {
 	Ok    bool               `json:"ok"`
 	Items []localElementItem `json:"items"`
 	Count int                `json:"count"`
-}
-
-type localExtractFieldsResp struct {
-	Ok     bool           `json:"ok"`
-	Fields map[string]any `json:"fields"`
 }
 
 type localExtractTextResp struct {
@@ -74,6 +70,7 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 	if err := exec.Post("/api/v1/page/find-elements", map[string]any{
 		"element":      cfg.Card.CardElement,
 		"visible_only": true,
+		"fields":       cfg.Card.FieldRequests,
 	}, &findResp); err != nil {
 		return nil, err
 	}
@@ -83,22 +80,13 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 	exec.Log("info", fmt.Sprintf("查找到 %d 个当前可见Boss候选人卡片", len(findResp.Items)))
 	candidates := make([]platformcore.Candidate, 0, len(findResp.Items))
 	for _, item := range findResp.Items {
-		if err := r.ensureCandidateVisible(exec, item.Ref, "Boss候选人卡片"); err != nil {
-			return nil, err
+		fields := item.Fields
+		if fields == nil {
+			fields = map[string]any{}
 		}
-		var extractResp localExtractFieldsResp
-		if err := exec.Post("/api/v1/page/extract-fields", map[string]any{
-			"element_ref": item.Ref,
-			"fields":      cfg.Card.FieldRequests,
-		}, &extractResp); err != nil {
-			return nil, err
-		}
-		if extractResp.Fields == nil {
-			extractResp.Fields = map[string]any{}
-		}
-		extractResp.Fields["_index"] = item.Index
-		extractResp.Fields["element_ref"] = item.Ref
-		candidates = append(candidates, r.MapFieldsToCandidate(cfg.PlatformID, extractResp.Fields))
+		fields["_index"] = item.Index
+		fields["element_ref"] = item.Ref
+		candidates = append(candidates, r.MapFieldsToCandidate(cfg.PlatformID, fields))
 	}
 	return candidates, nil
 }

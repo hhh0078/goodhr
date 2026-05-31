@@ -31,6 +31,8 @@ MAX_RETRIES = 3
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent.ws")
+FIELD_FAST_VISIBLE_TIMEOUT_MS = 120
+FIELD_FAST_TEXT_TIMEOUT_MS = 300
 
 
 def _payload_summary(payload: Any) -> str:
@@ -474,21 +476,10 @@ class WSAgentClient:
             if not element_spec.target_classes:
                 raise ValueError("element.target_classes is required")
             visible_only = bool(body.get("visible_only", True))
+            field_requests = self._parse_field_requests(body.get("fields")) if body.get("fields") else None
             ELEMENT_REFS.clear()
-            items = await self._find_element_items(page, element_spec, visible_only=visible_only)
+            items = await self._find_element_items(page, element_spec, visible_only=visible_only, field_requests=field_requests)
             return {"ok": True, "items": items, "count": len(items)}
-        if path == "/api/v1/page/extract-fields":
-            field_requests = self._parse_field_requests(body.get("fields"))
-            element_ref = str(body.get("element_ref") or "").strip()
-            if element_ref:
-                entry = ELEMENT_REFS.get(element_ref)
-                if entry is None:
-                    raise ValueError("element_ref not found")
-                container = entry.locator
-            else:
-                container = await self._require_page()
-            fields = await self._extract_fields_from_container(container, field_requests)
-            return {"ok": True, "fields": fields}
         if path == "/api/v1/page/extract-text":
             page = await self._require_page()
             mode = str(body.get("mode", "dom") or "dom").strip().lower()
@@ -634,33 +625,86 @@ class WSAgentClient:
             requests.append((field, spec))
         return requests
 
-    async def _find_element_items(self, page: Any, spec: Any, visible_only: bool = True) -> list[dict[str, int | str]]:
+    def _make_fast_field_spec(self, spec_raw: Any) -> Any:
+        """
+        生成字段快速提取用的定位配置。
+
+        Args:
+            spec_raw: 云端下发的字段定位配置
+
+        Returns:
+            已压缩等待时间的元素定位配置。
+        """
+        spec = parse_element_locator_spec(spec_raw)
+        spec.find_attempts = 1
+        spec.find_interval_ms = 0
+        spec.visible_timeout_ms = min(spec.visible_timeout_ms, FIELD_FAST_VISIBLE_TIMEOUT_MS)
+        return spec
+
+    async def _find_element_items(self, page: Any, spec: Any, visible_only: bool = True, field_requests: list[tuple[str, Any]] | None = None) -> list[dict[str, Any]]:
+        """
+        查找元素列表，并可选提取每个元素内的字段。
+
+        Args:
+            page: 当前页面
+            spec: 元素定位配置
+            visible_only: 是否只返回当前视口内元素
+            field_requests: 可选字段提取配置
+
+        Returns:
+            元素引用数组；传入字段配置时每项会包含 fields。
+        """
         locators, _matched_parent, _matched_target = await find_all_locators_by_spec(page, spec, "目标元素集合")
         count = await locators.count()
-        items: list[dict[str, int | str]] = []
+        items: list[dict[str, Any]] = []
         for index in range(count):
             locator = locators.nth(index)
             if visible_only:
                 if not await is_locator_in_viewport(locator):
                     continue
-            items.append(ELEMENT_REFS.register(locator, index))
+            item = dict(ELEMENT_REFS.register(locator, index))
+            if field_requests:
+                item["fields"] = await self._extract_fields_from_container(locator, field_requests, f"元素[{index}]")
+            items.append(item)
         return items
 
-    async def _extract_fields_from_container(self, container: Any, field_requests: list[tuple[str, Any]]) -> dict[str, str]:
+    async def _extract_fields_from_container(self, container: Any, field_requests: list[tuple[str, Any]], container_label: str = "元素") -> dict[str, str]:
+        """
+        在指定元素内快速提取字段文本。
+
+        Args:
+            container: 页面或元素定位器
+            field_requests: 字段名和定位规则列表
+            container_label: 日志中展示的父级元素名称
+
+        Returns:
+            字段名到文本内容的映射。
+        """
         fields: dict[str, str] = {}
         for field_name, selector in field_requests:
+            field_start = time.perf_counter()
+            matched_target = ""
             try:
-                spec = parse_element_locator_spec(selector)
+                spec = self._make_fast_field_spec(selector)
                 if not spec.target_classes:
                     fields[field_name] = ""
                     continue
                 locator, _matched_parent, _matched_target = await locate_element_by_spec(container, spec, f"字段 {field_name}")
-                if await locator.is_visible(timeout=3000):
-                    fields[field_name] = await locator.inner_text(timeout=3000)
-                else:
-                    fields[field_name] = ""
-            except Exception:
+                matched_target = _matched_target
+                fields[field_name] = (await locator.inner_text(timeout=FIELD_FAST_TEXT_TIMEOUT_MS)).strip()
+            except Exception as exc:
                 fields[field_name] = ""
+                logger.debug("字段快速提取失败 container=%s field=%s err=%s", container_label, field_name, exc)
+            finally:
+                elapsed_ms = int((time.perf_counter() - field_start) * 1000)
+                logger.info(
+                    "字段快速提取完成 container=%s field=%s matched=%s 耗时=%dms 文本长度=%d",
+                    container_label,
+                    field_name,
+                    matched_target or "-",
+                    elapsed_ms,
+                    len(fields.get(field_name, "")),
+                )
         return fields
 
     async def _extract_text_from_locator(self, locator: Any, mode: str, delay_before: float) -> str:

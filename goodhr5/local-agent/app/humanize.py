@@ -26,6 +26,7 @@ DEFAULT_SCROLL_DISTANCE = 300
 DEFAULT_MAX_SCROLLS = 20
 DEFAULT_FIND_ATTEMPTS = 6
 DEFAULT_FIND_INTERVAL_MS = 500
+DEFAULT_VISIBLE_TIMEOUT_MS = 1500
 
 
 @dataclass
@@ -36,6 +37,7 @@ class ElementLocatorSpec:
     parent_classes: list[list[str]]
     find_attempts: int
     find_interval_ms: int
+    visible_timeout_ms: int
 
 
 def _normalize_class_name(class_name: str) -> str:
@@ -97,11 +99,13 @@ def parse_element_locator_spec(raw: Any, *, default_target_classes: Optional[lis
         parent_classes = _normalize_class_groups(raw.get("parent_classes", []))
         find_attempts = max(1, int(raw.get("find_attempts", DEFAULT_FIND_ATTEMPTS) or DEFAULT_FIND_ATTEMPTS))
         find_interval_ms = max(0, int(raw.get("find_interval_ms", DEFAULT_FIND_INTERVAL_MS) or DEFAULT_FIND_INTERVAL_MS))
+        visible_timeout_ms = max(0, int(raw.get("visible_timeout_ms", DEFAULT_VISIBLE_TIMEOUT_MS) or DEFAULT_VISIBLE_TIMEOUT_MS))
     else:
         target_classes = _normalize_class_groups(raw)
         parent_classes = []
         find_attempts = DEFAULT_FIND_ATTEMPTS
         find_interval_ms = DEFAULT_FIND_INTERVAL_MS
+        visible_timeout_ms = DEFAULT_VISIBLE_TIMEOUT_MS
 
     if not target_classes and default_target_classes:
         fallback_group = [_normalize_class_name(item) for item in default_target_classes if _normalize_class_name(item)]
@@ -112,6 +116,7 @@ def parse_element_locator_spec(raw: Any, *, default_target_classes: Optional[lis
         parent_classes=parent_classes,
         find_attempts=find_attempts,
         find_interval_ms=find_interval_ms,
+        visible_timeout_ms=visible_timeout_ms,
     )
 
 
@@ -312,7 +317,20 @@ async def _find_first_visible_locator_once(
     container: Page | Frame | Locator,
     selectors: list[str],
     label: str,
+    visible_timeout_ms: int = DEFAULT_VISIBLE_TIMEOUT_MS,
 ) -> tuple[Page | Frame | Locator, Locator, str] | None:
+    """
+    单轮查找第一个可见元素。
+
+    Args:
+        container: 页面、Frame 或父级元素
+        selectors: 需要依次尝试的选择器
+        label: 日志中的元素名称
+        visible_timeout_ms: 判断可见时最多等待的毫秒数
+
+    Returns:
+        命中的搜索容器、定位器和选择器；未命中返回 None。
+    """
     # 当容器本身是 Locator 时，先尝试“匹配自身”，避免在容器内查找后代导致漏匹配。
     if isinstance(container, Locator):
         for selector in selectors:
@@ -321,7 +339,7 @@ async def _find_first_visible_locator_once(
                     "(el, selector) => !!(el && el.matches && el.matches(selector))",
                     selector,
                 )
-                if is_self_match and await container.is_visible(timeout=1500):
+                if is_self_match and await container.is_visible(timeout=visible_timeout_ms):
                     return container, container, selector
             except Exception as exc:
                 logger.debug("匹配%s自身失败 selector=%s err=%s", label, selector, exc)
@@ -331,7 +349,7 @@ async def _find_first_visible_locator_once(
         for selector in selectors:
             try:
                 locator = search_container.locator(selector).first
-                if await locator.is_visible(timeout=1500):
+                if await locator.is_visible(timeout=visible_timeout_ms):
                     return search_container, locator, selector
             except Exception as exc:
                 logger.debug("查找%s失败 selector=%s err=%s", label, selector, exc)
@@ -356,12 +374,12 @@ async def locate_element_by_spec(container: Page | Frame | Locator, spec: Elemen
             parent_locator: Page | Frame | Locator = container
             matched_parent = ""
             if parent_group:
-                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素")
+                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素", spec.visible_timeout_ms)
                 if not found_parent:
                     continue
                 _parent_container, parent_locator, matched_parent = found_parent
             for target_group in spec.target_classes:
-                found_target = await _find_first_visible_locator_once(parent_locator, target_group, target_label)
+                found_target = await _find_first_visible_locator_once(parent_locator, target_group, target_label, spec.visible_timeout_ms)
                 if found_target:
                     _target_container, target_locator, matched_target = found_target
                     if attempt > 1:
@@ -404,7 +422,7 @@ async def find_all_locators_by_spec(container: Page | Frame | Locator, spec: Ele
             parent_locator: Page | Frame | Locator = container
             matched_parent = ""
             if parent_group:
-                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素")
+                found_parent = await _find_first_visible_locator_once(container, parent_group, "父级元素", spec.visible_timeout_ms)
                 if not found_parent:
                     continue
                 _parent_container, parent_locator, matched_parent = found_parent

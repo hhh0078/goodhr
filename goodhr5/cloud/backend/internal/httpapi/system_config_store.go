@@ -519,7 +519,7 @@ func normalizeSelectorList(items []string) []string {
 }
 
 // ExtractFieldRequests 提取 PlatformCard 中所有字段定位规则，
-// 用于调用 Local Agent POST /api/v1/page/extract-fields。
+// 用于调用 Local Agent POST /api/v1/page/find-elements 时同步提取字段。
 func (pc *PlatformCard) ExtractFieldRequests() []map[string]any {
 	fields := make([]map[string]any, 0, len(pc.Fields))
 	for _, item := range pc.Fields {
