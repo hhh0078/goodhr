@@ -300,6 +300,7 @@ class BrowserManager:
         self._closed_callbacks: list = []
         self._closed_notified = False
         self._last_exported_cookies: list[dict] = []
+        self._state_lock = asyncio.Lock()
 
     async def start(
         self,
@@ -323,40 +324,41 @@ class BrowserManager:
             human_preset: 仿真人预设
             proxy: 代理地址
         """
-        if self._browser or self._context:
-            logger.warning("浏览器已在运行中，先关闭旧实例")
-            await self.stop()
+        async with self._state_lock:
+            if self._browser or self._context:
+                logger.warning("浏览器已在运行中，先关闭旧实例")
+                await self._stop_unlocked()
 
-        self._last_user_data_dir = user_data_dir
-        self._closed_notified = False
+            self._last_user_data_dir = user_data_dir
+            self._closed_notified = False
 
-        if persistent:
-            if not user_data_dir:
-                raise ValueError("持久化模式必须指定 user_data_dir")
-            self._context = await create_persistent_browser(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                humanize=humanize,
-                human_preset=human_preset,
-                proxy=proxy,
-            )
-        else:
-            self._browser = await create_browser(
-                headless=headless,
-                humanize=humanize,
-                human_preset=human_preset,
-                proxy=proxy,
-                user_data_dir=user_data_dir,
-            )
-            try:
-                self._browser.on("disconnected", lambda *_: self._notify_closed("disconnected"))
-            except Exception:
-                pass
-        if self._context:
-            try:
-                self._context.on("close", lambda *_: self._notify_closed("context_closed"))
-            except Exception:
-                pass
+            if persistent:
+                if not user_data_dir:
+                    raise ValueError("持久化模式必须指定 user_data_dir")
+                self._context = await create_persistent_browser(
+                    user_data_dir=user_data_dir,
+                    headless=headless,
+                    humanize=humanize,
+                    human_preset=human_preset,
+                    proxy=proxy,
+                )
+            else:
+                self._browser = await create_browser(
+                    headless=headless,
+                    humanize=humanize,
+                    human_preset=human_preset,
+                    proxy=proxy,
+                    user_data_dir=user_data_dir,
+                )
+                try:
+                    self._browser.on("disconnected", lambda *_: self._notify_closed("disconnected"))
+                except Exception:
+                    pass
+            if self._context:
+                try:
+                    self._context.on("close", lambda *_: self._notify_closed("context_closed"))
+                except Exception:
+                    pass
 
     def add_closed_callback(self, callback) -> None:
         """注册浏览器关闭回调。"""
@@ -388,6 +390,21 @@ class BrowserManager:
         Raises:
             RuntimeError: 浏览器未启动
         """
+        async with self._state_lock:
+            page = await self._new_page_unlocked(name)
+
+        return page
+
+    async def _new_page_unlocked(self, name: str = "default") -> Page:
+        """
+        在已持有状态锁时创建新页面。
+
+        Args:
+            name: 页面名称标识
+
+        Returns:
+            Page: Playwright Page 实例
+        """
         try:
             if self._context:
                 page = await self._context.new_page()
@@ -417,7 +434,30 @@ class BrowserManager:
         Returns:
             Page 或 None
         """
-        return self._pages.get(name)
+        page = self._pages.get(name)
+        if page is not None and page.is_closed():
+            self._pages.pop(name, None)
+            return None
+        return page
+
+    async def ensure_page(self, name: str = "default") -> Optional[Page]:
+        """
+        获取页面；浏览器已启动但页面缺失时自动创建。
+
+        Args:
+            name: 页面名称标识
+
+        Returns:
+            Page 或 None；浏览器未启动时返回 None
+        """
+        async with self._state_lock:
+            page = self._pages.get(name)
+            if page is not None and not page.is_closed():
+                return page
+            self._pages.pop(name, None)
+            if self._browser is None and self._context is None:
+                return None
+            return await self._new_page_unlocked(name)
 
     @property
     def is_running(self) -> bool:
@@ -430,6 +470,15 @@ class BrowserManager:
 
         按顺序执行：关闭页面 → 关闭上下文/浏览器 → 清理残留进程 → 清理状态。
         每一步都独立 try-except，确保某步失败不影响后续清理。
+        """
+        async with self._state_lock:
+            await self._stop_unlocked()
+
+    async def _stop_unlocked(self) -> None:
+        """
+        在已持有状态锁时关闭浏览器并清理状态。
+
+        该方法只由 start/stop 内部调用，避免启动和关闭并发时状态被交叉修改。
         """
         if self._context or self._pages:
             try:

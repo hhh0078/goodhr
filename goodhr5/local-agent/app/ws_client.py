@@ -447,6 +447,16 @@ class WSAgentClient:
             await self.browser_manager.stop()
             return {"ok": True, "status": "stopped"}
         if path == "/api/v1/page/open":
+            user_data_dir = str(body.get("user_data_dir") or "").strip()
+            if user_data_dir:
+                body["user_data_dir"] = str(_profile_dir(user_data_dir))
+                await self.browser_manager.start(
+                    persistent=bool(body.get("persistent", True)),
+                    user_data_dir=body.get("user_data_dir"),
+                    headless=bool(body.get("headless", False)),
+                    humanize=bool(body.get("humanize", True)),
+                    proxy=str(body.get("proxy", "")),
+                )
             page = await self.browser_manager.new_page("default")
             ELEMENT_REFS.clear()
             url = str(body.get("url") or "").strip()
@@ -609,7 +619,7 @@ class WSAgentClient:
         Returns:
             返回 Playwright Page 实例。
         """
-        page = await self.browser_manager.get_page("default")
+        page = await self.browser_manager.ensure_page("default")
         if page is None:
             raise RuntimeError("浏览器未启动")
         return page

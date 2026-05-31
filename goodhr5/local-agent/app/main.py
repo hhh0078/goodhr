@@ -420,7 +420,7 @@ async def cookie_sync_config(payload: dict) -> dict:
 
 async def _require_page():
     """获取当前默认页面，浏览器未启动时返回 400 错误。"""
-    page = await _browser_manager.get_page("default")
+    page = await _browser_manager.ensure_page("default")
     if page is None:
         raise HTTPException(400, "浏览器未启动，请先调用 POST /api/v1/browser/start")
     return page
