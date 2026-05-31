@@ -104,6 +104,7 @@ import { getCandidate } from "../services/api/candidateApi";
 
 const props = defineProps({
   candidateId: String,
+  engagementId: String,
 });
 
 const candidate = ref<any>(null);
@@ -122,7 +123,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    candidate.value = await getCandidate(props.candidateId);
+    candidate.value = await getCandidate(props.candidateId, props.engagementId || "");
   } catch (e: any) {
     error.value = e?.message || "读取候选人详情失败";
   } finally {

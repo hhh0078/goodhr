@@ -79,12 +79,13 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "candidate id is required")
 		return
 	}
+	engagementID := strings.TrimSpace(r.URL.Query().Get("engagement_id"))
 	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
 		return
 	}
-	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID)
+	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID, engagementID)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "candidate not found")
 		return

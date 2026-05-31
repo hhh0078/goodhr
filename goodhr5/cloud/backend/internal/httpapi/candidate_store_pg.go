@@ -338,7 +338,7 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 	listArgs := append(args, pageSize, offset)
 	rows, err := s.db.QueryContext(
 		ctx,
-		candidateSelectSQL("WHERE "+where)+`
+		candidateSelectSQL("WHERE "+where, candidateEngagementScope(query))+`
 		ORDER BY COALESCE(latest_engagement.created_at, cp.created_at) DESC
 		LIMIT $`+fmt.Sprint(len(args)+1)+`
 		OFFSET $`+fmt.Sprint(len(args)+2),
@@ -356,11 +356,19 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 }
 
 // GetTaskCandidate 按 ID 读取当前团队内的候选人详情。
-// tenantID 为当前用户团队 ID，candidateID 为候选人主体 ID。
-func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error) {
+// tenantID 为当前用户团队 ID，candidateID 为候选人主体 ID，engagementID 为空时使用最近一次触达。
+func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, candidateSelectSQL("WHERE cp.tenant_id = $1 AND cp.id::text = $2"), tenantID, candidateID)
+	args := []any{tenantID, candidateID}
+	whereClause := "WHERE cp.tenant_id = $1 AND cp.id::text = $2"
+	engagementScope := ""
+	if strings.TrimSpace(engagementID) != "" {
+		args = append(args, strings.TrimSpace(engagementID))
+		whereClause += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM candidate_engagements ce_match WHERE ce_match.candidate_id = cp.id AND ce_match.id::text = $%d)", len(args))
+		engagementScope = fmt.Sprintf("AND ce2.id::text = $%d", len(args))
+	}
+	rows, err := s.db.QueryContext(ctx, candidateSelectSQL(whereClause, engagementScope), args...)
 	if err != nil {
 		return TaskCandidate{}, err
 	}
@@ -372,7 +380,7 @@ func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID s
 	if len(items) == 0 {
 		return TaskCandidate{}, ErrNotFound
 	}
-	events, err := s.listCandidateEvents(ctx, tenantID, candidateID)
+	events, err := s.listCandidateEvents(ctx, tenantID, candidateID, items[0].EngagementID)
 	if err != nil {
 		return TaskCandidate{}, err
 	}
@@ -381,8 +389,14 @@ func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID s
 }
 
 // listCandidateEvents 读取候选人事件流水。
-// tenantID 为团队 ID，candidateID 为候选人主体 ID。
-func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenantID string, candidateID string) ([]CandidateEvent, error) {
+// tenantID 为团队 ID，candidateID 为候选人主体 ID，engagementID 为空时读取该候选人全部事件。
+func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenantID string, candidateID string, engagementID string) ([]CandidateEvent, error) {
+	args := []any{tenantID, candidateID}
+	whereClause := "tenant_id = $1 AND candidate_id::text = $2"
+	if strings.TrimSpace(engagementID) != "" {
+		args = append(args, strings.TrimSpace(engagementID))
+		whereClause += fmt.Sprintf(" AND engagement_id::text = $%d", len(args))
+	}
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
@@ -390,12 +404,11 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 			COALESCE(platform_account_id::text,''), platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata, created_at
 		FROM candidate_events
-		WHERE tenant_id = $1 AND candidate_id::text = $2
+		WHERE `+whereClause+`
 		ORDER BY created_at DESC
 		LIMIT 200
 		`,
-		tenantID,
-		candidateID,
+		args...,
 	)
 	if err != nil {
 		return nil, err
@@ -432,7 +445,7 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 
 // candidateSelectSQL 返回简历库候选人列表查询 SQL。
 // whereClause 为调用方传入的 WHERE 条件。
-func candidateSelectSQL(whereClause string) string {
+func candidateSelectSQL(whereClause string, engagementScope string) string {
 	return `
 	SELECT
 		cp.id,
@@ -484,6 +497,7 @@ func candidateSelectSQL(whereClause string) string {
 	LEFT JOIN LATERAL (
 		SELECT * FROM candidate_engagements ce2
 		WHERE ce2.candidate_id = cp.id
+		` + engagementScope + `
 		ORDER BY ce2.created_at DESC
 		LIMIT 1
 	) latest_engagement ON true
@@ -491,24 +505,39 @@ func candidateSelectSQL(whereClause string) string {
 	LEFT JOIN positions p ON p.id = latest_engagement.position_id
 	LEFT JOIN LATERAL (
 		SELECT score, reason FROM candidate_events ev
-		WHERE ev.candidate_id = cp.id AND ev.event_type = 'detail_analysis'
+		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'detail_analysis'
 		ORDER BY ev.created_at DESC
 		LIMIT 1
 	) detail_event ON true
 	LEFT JOIN LATERAL (
 		SELECT score, reason FROM candidate_events ev
-		WHERE ev.candidate_id = cp.id AND ev.event_type = 'greet_analysis'
+		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'greet_analysis'
 		ORDER BY ev.created_at DESC
 		LIMIT 1
 	) greet_event ON true
 	LEFT JOIN LATERAL (
 		SELECT score, reason FROM candidate_events ev
-		WHERE ev.candidate_id = cp.id AND ev.event_type = 'review_analysis'
+		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'review_analysis'
 		ORDER BY ev.created_at DESC
 		LIMIT 1
 	) review_event ON true
 	` + whereClause + `
 	`
+}
+
+// candidateEngagementScope 生成候选人触达上下文筛选条件。
+// query 为简历库筛选条件，返回用于 latest_engagement 的 SQL 片段。
+func candidateEngagementScope(query TaskCandidateQuery) string {
+	parts := make([]string, 0, 2)
+	nextArg := 2
+	if strings.TrimSpace(query.TaskID) != "" {
+		parts = append(parts, fmt.Sprintf("AND ce2.task_id::text = $%d", nextArg))
+		nextArg++
+	}
+	if strings.TrimSpace(query.PositionID) != "" {
+		parts = append(parts, fmt.Sprintf("AND ce2.position_id::text = $%d", nextArg))
+	}
+	return strings.Join(parts, "\n\t\t")
 }
 
 // scanCandidateRows 解析候选人查询结果集。

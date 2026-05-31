@@ -138,7 +138,7 @@ type CandidateStore interface {
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
-	GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error)
+	GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error)
 }
 
 // TaskCandidateQuery 表示候选人列表查询条件。
@@ -310,8 +310,8 @@ func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCan
 }
 
 // GetTaskCandidate 读取单个内存候选人记录。
-// tenantID 为团队 ID，内存实现不区分团队；candidateID 为候选人 ID。
-func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string) (TaskCandidate, error) {
+// tenantID 为团队 ID，candidateID 为候选人 ID，engagementID 为空时返回全部事件。
+func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -319,7 +319,16 @@ func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID str
 	if !ok {
 		return TaskCandidate{}, ErrNotFound
 	}
-	item.Events = append([]CandidateEvent{}, s.events[candidateID]...)
+	events := s.events[candidateID]
+	if strings.TrimSpace(engagementID) != "" {
+		events = make([]CandidateEvent, 0, len(s.events[candidateID]))
+		for _, event := range s.events[candidateID] {
+			if event.EngagementID == engagementID {
+				events = append(events, event)
+			}
+		}
+	}
+	item.Events = append([]CandidateEvent{}, events...)
 	return item, nil
 }
 
