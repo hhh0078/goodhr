@@ -108,8 +108,8 @@ func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg pla
 
 // GreetCandidate 执行 Boss 候选人打招呼动作。
 func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
-	exec.Log("info", "正在执行Boss候选人打招呼动作")
-	if err := clickRequiredAction(exec, cfg.Actions.GreetBtn, greetDelayBefore(prefs), "打招呼按钮"); err != nil {
+	exec.Log("info", fmt.Sprintf("正在执行Boss候选人打招呼动作 candidate=%s element_ref=%s", candidate.DisplayName(), shortRef(candidate.Runtime.ElementRef)))
+	if err := clickActionWithinCandidate(exec, candidate, cfg.Actions.GreetBtn, greetDelayBefore(prefs), "打招呼按钮"); err != nil {
 		return err
 	}
 	if strings.TrimSpace(prefs.GreetMessage) == "" {
