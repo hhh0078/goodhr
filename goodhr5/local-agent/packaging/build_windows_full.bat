@@ -62,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File packaging\create_windows_shortcut.ps1
 if errorlevel 1 exit /b 1
 
 echo ==^> Build complete
-echo Output: %CD%\dist\GoodHR招聘助手
+echo Output: %CD%\dist\GoodHR
 
 endlocal
 exit /b 0

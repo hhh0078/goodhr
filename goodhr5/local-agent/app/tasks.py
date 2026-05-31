@@ -21,9 +21,7 @@ def init_task(
     task_id = _clean_id(task_id, "task")
     task_path = task_dir(task_id)
     task_path.mkdir(parents=True, exist_ok=True)
-    (task_path / "screenshots").mkdir(exist_ok=True)
     (task_path / "ocr").mkdir(exist_ok=True)
-    (task_path / "logs.jsonl").touch(exist_ok=True)
 
     if candidates_path(task_id).exists():
         return load_candidates(task_id)

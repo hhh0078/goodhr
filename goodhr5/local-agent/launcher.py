@@ -1,7 +1,7 @@
 """GoodHR Local Agent 桌面启动器。
 
-本文件提供双击运行时的小窗口，用于启动/停止 Local Agent、查看日志、
-清理日志，并打开 GoodHR 官网。打包为 macOS app 或 Windows exe 时，
+本文件提供双击运行时的小窗口，用于启动/停止 Local Agent、查看运行日志、
+清理窗口日志，并打开 GoodHR 官网。打包为 macOS app 或 Windows exe 时，
 该文件作为图形界面入口。
 """
 
@@ -23,8 +23,8 @@ from pathlib import Path
 from tkinter import messagebox, scrolledtext
 
 
-APP_NAME = "GoodHR招聘助手"
-APP_DATA_DIR_NAME = "GoodHRLocalAgent"
+APP_NAME = "GoodHR"
+APP_DATA_DIR_NAME = "GoodHR"
 OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
@@ -113,10 +113,8 @@ def ensure_runtime_dirs(base_dir: Path) -> dict[str, Path]:
         "agent_data": base_dir / "agent_data",
         "config": base_dir / "config",
         "cookies": base_dir / "cookies",
-        "logs": base_dir / "logs",
         "profiles": base_dir / "profiles",
         "tasks": base_dir / "tasks",
-        "screenshots": base_dir / "screenshots",
         "vendor": base_dir / "vendor",
     }
     for path in dirs.values():
@@ -293,16 +291,13 @@ class GoodHRLauncher:
 
         self.base_dir = app_support_dir()
         self.dirs = ensure_runtime_dirs(self.base_dir)
-        self.log_file = self.dirs["logs"] / "agent.log"
         self.process: subprocess.Popen[str] | None = None
-        self.log_offset = 0
         self.running_port: int | None = None
 
         self.status_var = tk.StringVar(value="准备启动")
         self.detail_var = tk.StringVar(value=f"数据目录：{self.base_dir}")
 
         self._build_ui()
-        self._clear_log_file()
         self._start_agent()
         self._schedule_refresh()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -352,12 +347,6 @@ class GoodHRLauncher:
         except tk.TclError:
             self.icon_image = None
 
-    def _clear_log_file(self) -> None:
-        """清空本次运行日志文件。"""
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self.log_file.write_text("", encoding="utf-8")
-        self.log_offset = 0
-
     def _append_log(self, text: str) -> None:
         """
         向日志窗口追加文本。
@@ -387,8 +376,7 @@ class GoodHRLauncher:
 
         env = os.environ.copy()
         env["GOODHR_AGENT_DATA_DIR"] = str(self.dirs["agent_data"])
-        env["GOODHR_AGENT_LOG_FILE"] = str(self.log_file)
-        env["GOODHR_AGENT_LOG_TO_STDOUT"] = "0"
+        env["GOODHR_AGENT_LOG_TO_STDOUT"] = "1"
         env["CLOAKBROWSER_BINARY_PATH"] = str(browser_binary)
 
         if getattr(sys, "frozen", False):
@@ -400,15 +388,17 @@ class GoodHRLauncher:
         self._append_log(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
 
         env["PYTHONUNBUFFERED"] = "1"
-        with self.log_file.open("a", encoding="utf-8") as log_handle:
-            self.process = subprocess.Popen(
-                command,
-                cwd=str(bundle_root()),
-                env=env,
-                stdout=log_handle,
-                stderr=log_handle,
-                text=True,
-            )
+        self.process = subprocess.Popen(
+            command,
+            cwd=str(bundle_root()),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        self._start_stdout_reader()
 
     def _stop_agent(self) -> None:
         """停止 Local Agent 子进程。"""
@@ -433,8 +423,7 @@ class GoodHRLauncher:
         self._start_agent()
 
     def _clear_logs(self) -> None:
-        """清空日志窗口和日志文件。"""
-        self._clear_log_file()
+        """清空日志窗口。"""
         self.log_view.configure(state=tk.NORMAL)
         self.log_view.delete("1.0", tk.END)
         self.log_view.configure(state=tk.DISABLED)
@@ -473,23 +462,21 @@ class GoodHRLauncher:
                 continue
         return None
 
-    def _refresh_log_view(self) -> None:
-        """从日志文件读取新增内容并显示到窗口。"""
-        if not self.log_file.exists():
+    def _start_stdout_reader(self) -> None:
+        """启动后台线程读取子进程输出并显示到窗口。"""
+        process = self.process
+        if process is None or process.stdout is None:
             return
-        try:
-            with self.log_file.open("r", encoding="utf-8", errors="ignore") as handle:
-                handle.seek(self.log_offset)
-                content = handle.read()
-                self.log_offset = handle.tell()
-        except OSError:
-            return
-        self._append_log(content)
+
+        def reader() -> None:
+            for line in process.stdout:
+                self.root.after(0, self._append_log, line)
+
+        threading.Thread(target=reader, daemon=True).start()
 
     def _schedule_refresh(self) -> None:
-        """定时刷新状态和日志。"""
+        """定时刷新状态。"""
         self._refresh_status()
-        self._refresh_log_view()
         self.root.after(800, self._schedule_refresh)
 
     def _on_close(self) -> None:

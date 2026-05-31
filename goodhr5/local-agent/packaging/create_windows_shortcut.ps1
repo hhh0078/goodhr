@@ -2,7 +2,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$AppName = "GoodHR招聘助手"
+$AppName = "GoodHR"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 <#

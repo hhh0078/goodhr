@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 block_cipher = None
-app_name = "GoodHR招聘助手"
+app_name = "GoodHR"
 
 cloakbrowser_zip = "cloakbrowser_win.zip" if platform.system() == "Windows" else "cloakbrowser_mac.zip"
 app_icon = "../assets/icons/goodhr-logo.ico" if platform.system() == "Windows" else "../assets/icons/goodhr-logo.icns"

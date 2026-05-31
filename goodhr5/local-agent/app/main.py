@@ -13,8 +13,6 @@ import logging
 import os
 import time
 from collections.abc import Iterable
-from pathlib import Path
-from logging.handlers import RotatingFileHandler
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -556,29 +554,6 @@ async def _extract_fields_from_container(container, field_requests: list[tuple[s
     return fields
 
 
-def _save_ocr_debug_screenshot(task_id: str, screenshot_bytes: bytes, label: str) -> str:
-    """
-    保存 OCR 合并截图到本地任务截图目录。
-
-    Args:
-        task_id: 云端任务 ID
-        screenshot_bytes: PNG 图片字节
-        label: 文件名标签
-
-    Returns:
-        保存后的相对路径；未保存时返回空字符串。
-    """
-    safe_task_id = str(task_id or "").strip()
-    if not safe_task_id or not screenshot_bytes:
-        return ""
-    safe_label = "".join(ch if ch.isalnum() else "_" for ch in str(label or "detail"))[:40] or "detail"
-    filename = f"ocr_detail_{safe_label}_{int(time.time() * 1000)}.png"
-    path = screenshot_path(safe_task_id, filename)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(screenshot_bytes)
-    return "screenshots/" + path.name
-
-
 async def _extract_text_from_locator(page, locator, mode: str, delay_before: float, task_id: str = "", label: str = "detail") -> str:
     """按模式从目标元素提取整段文本。"""
     total_start = time.perf_counter()
@@ -589,9 +564,8 @@ async def _extract_text_from_locator(page, locator, mode: str, delay_before: flo
         screenshot_bytes = await screenshot_locator_full(page, locator, "detail-ocr")
         if screenshot_bytes is None:
             screenshot_bytes = await locator.screenshot(type="png")
-        saved_path = _save_ocr_debug_screenshot(task_id, screenshot_bytes, label)
         screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-        logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, saved_path or "未保存")
+        logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms 保存=未保存", len(screenshot_bytes), screenshot_ms)
         text = (await ocr_image_async(screenshot_bytes)).strip()
         total_ms = int((time.perf_counter() - total_start) * 1000)
         logger.info("OCR 文本提取完成 总耗时=%dms 文本长度=%d", total_ms, len(text))
@@ -1163,16 +1137,10 @@ def main() -> None:
     """
     import uvicorn
 
-    log_file = os.getenv("GOODHR_AGENT_LOG_FILE", str(Path(__file__).resolve().parents[1] / "logs" / "agent.log"))
-    log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.handlers.clear()
-    file_handler = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
     if os.getenv("GOODHR_AGENT_LOG_TO_STDOUT", "1") != "0":
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
@@ -1181,7 +1149,6 @@ def main() -> None:
     port = find_port()
     app.state.port = port  # 保存到应用状态，供 /health 返回
 
-    logger.info("GoodHR 5 Local Agent log file: %s", log_path)
     logger.info("GoodHR 5 Local Agent starting on http://%s:%s", HOST, port)
     uvicorn.run(app, host=HOST, port=port, log_level="warning", access_log=False)
 

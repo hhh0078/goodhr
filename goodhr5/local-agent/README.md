@@ -32,7 +32,7 @@ python3 launcher.py
 启动器会自动：
 
 - 创建运行数据目录。
-- 清空本次日志文件。
+- 清空窗口中的本次运行日志。
 - 启动 Local Agent 服务。
 - 在窗口中显示当前状态和日志。
 - 提供打开官网、停止服务、清除日志、重新启动按钮。
@@ -40,8 +40,8 @@ python3 launcher.py
 默认运行数据目录：
 
 ```text
-macOS: ~/Library/Application Support/GoodHRLocalAgent/
-Windows: %APPDATA%/GoodHRLocalAgent/
+macOS: ~/Library/Application Support/GoodHR/
+Windows: %APPDATA%/GoodHR/
 ```
 
 目录内保存：
@@ -49,9 +49,8 @@ Windows: %APPDATA%/GoodHRLocalAgent/
 ```text
 agent_data/   本地任务、机器码、绑定信息
 cookies/      浏览器登录 profile
-logs/         agent.log
 config/       配置文件
-screenshots/  预留截图目录
+vendor/       CloakBrowser 运行文件
 ```
 
 打包前需要把当前平台的 CloakBrowser 放入 `vendor/cloakbrowser/`：
@@ -140,14 +139,12 @@ local-agent/agent_data/tasks/{task_id}/
 
 ```text
 candidates.json
-logs.jsonl
-screenshots/
 ocr/
 ```
 
 `candidates.json` 里除候选人列表外，还会保存任务创建时同步下来的岗位模板快照。
 
-候选人详情、截图路径、OCR 文本和任务岗位模板快照都只写入本地任务目录。
+候选人详情、OCR 文本和任务岗位模板快照只写入本地任务目录；截图仅作为内存中的中间数据使用，不长期保存到本地。
 
 ## 截图/OCR 文件管理
 
@@ -160,7 +157,7 @@ DELETE /api/v1/tasks/{task_id}/screenshots/{filename}
 POST /api/v1/tasks/{task_id}/ocr
 ```
 
-截图文件只允许读取和删除当前任务 `screenshots/` 目录内的文件。
+当前版本默认不再长期保存截图文件；截图接口仅保留兼容能力。
 
 OCR 文本写入：
 
