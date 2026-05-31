@@ -23,8 +23,9 @@ from pathlib import Path
 from tkinter import messagebox, scrolledtext
 
 
-APP_NAME = "GoodHRLocalAgent"
-OFFICIAL_SITE_URL = "https://goodhr.58it.cn/"
+APP_NAME = "GoodHR招聘助手"
+APP_DATA_DIR_NAME = "GoodHRLocalAgent"
+OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
 
@@ -38,11 +39,11 @@ def app_support_dir() -> Path:
     """
     system = platform.system().lower()
     if system == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
+        return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
     if system == "windows":
         appdata = os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(appdata) / APP_NAME
-    return Path.home() / f".{APP_NAME.lower()}"
+        return Path(appdata) / APP_DATA_DIR_NAME
+    return Path.home() / f".{APP_DATA_DIR_NAME.lower()}"
 
 
 def bundle_root() -> Path:
@@ -284,7 +285,9 @@ class GoodHRLauncher:
     def __init__(self) -> None:
         """初始化窗口、运行目录和状态。"""
         self.root = tk.Tk()
-        self.root.title("GoodHR Local Agent")
+        self.root.title(APP_NAME)
+        self.icon_image: tk.PhotoImage | None = None
+        self._apply_window_icon()
         self.root.geometry("780x560")
         self.root.minsize(680, 460)
 
@@ -309,7 +312,7 @@ class GoodHRLauncher:
         wrapper = tk.Frame(self.root, padx=14, pady=12)
         wrapper.pack(fill=tk.BOTH, expand=True)
 
-        title = tk.Label(wrapper, text="GoodHR 本地执行器", font=("Arial", 18, "bold"))
+        title = tk.Label(wrapper, text=APP_NAME, font=("Arial", 18, "bold"))
         title.pack(anchor="w")
 
         desc = tk.Label(
@@ -336,6 +339,18 @@ class GoodHRLauncher:
         tk.Label(wrapper, text="运行日志", font=("Arial", 12, "bold")).pack(anchor="w")
         self.log_view = scrolledtext.ScrolledText(wrapper, height=20, wrap=tk.WORD, state=tk.DISABLED)
         self.log_view.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+
+    def _apply_window_icon(self) -> None:
+        """给桌面窗口设置 GoodHR 图标。"""
+        icon_path = bundle_root() / "assets" / "icons" / "goodhr-logo.png"
+        if not icon_path.exists():
+            return
+
+        try:
+            self.icon_image = tk.PhotoImage(file=str(icon_path))
+            self.root.iconphoto(True, self.icon_image)
+        except tk.TclError:
+            self.icon_image = None
 
     def _clear_log_file(self) -> None:
         """清空本次运行日志文件。"""

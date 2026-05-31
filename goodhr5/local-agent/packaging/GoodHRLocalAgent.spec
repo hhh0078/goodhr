@@ -7,8 +7,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 block_cipher = None
+app_name = "GoodHR招聘助手"
 
 cloakbrowser_zip = "cloakbrowser_win.zip" if platform.system() == "Windows" else "cloakbrowser_mac.zip"
+app_icon = "../assets/icons/goodhr-logo.ico" if platform.system() == "Windows" else "../assets/icons/goodhr-logo.icns"
 
 hiddenimports = (
     collect_submodules("app")
@@ -53,7 +55,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="GoodHRLocalAgent",
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -64,6 +66,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=app_icon,
 )
 
 coll = COLLECT(
@@ -74,12 +77,12 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="GoodHRLocalAgent",
+    name=app_name,
 )
 
 app = BUNDLE(
     coll,
-    name="GoodHRLocalAgent.app",
-    icon=None,
+    name=f"{app_name}.app",
+    icon=app_icon,
     bundle_identifier="cn.58it.goodhr.localagent",
 )

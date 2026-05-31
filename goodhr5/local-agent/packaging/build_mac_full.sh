@@ -59,4 +59,4 @@ echo "==> 开始 PyInstaller 打包"
 "$PYTHON" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging/GoodHRLocalAgent.spec
 
 echo "==> 打包完成"
-echo "产物位置：$(pwd)/dist/GoodHRLocalAgent.app"
+echo "产物位置：$(pwd)/dist/GoodHR招聘助手.app"
