@@ -390,8 +390,9 @@ function selectedAccount(accountId: string) {
   return accounts.value.find((account: any) => account.id === accountId);
 }
 function onCreateAccountChange() {
-  const account = selectedAccount(tasks.form.value.platformAccountId);
-  tasks.form.value.platformId = account?.platform_id || "";
+  if (!props.tasks?.form?.value) return;
+  const account = selectedAccount(props.tasks.form.value.platformAccountId);
+  props.tasks.form.value.platformId = account?.platform_id || "";
 }
 async function createTask() {
   onCreateAccountChange();
