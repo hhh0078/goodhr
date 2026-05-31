@@ -202,7 +202,7 @@ async def screenshot_modal(
 
 async def screenshot_locator_full(page: Page, locator, platform_name: str = "") -> Optional[bytes]:
     """
-    对指定元素截图；元素可滚动或超出视口时会滚动拼接为长图。
+    对指定元素截图；元素超出视口时会通过鼠标滚轮拼接为长图。
 
     Args:
         page: Playwright Page 实例
@@ -218,18 +218,6 @@ async def screenshot_locator_full(page: Page, locator, platform_name: str = "") 
         box = await locator.bounding_box()
         if not box or box["width"] < 20 or box["height"] < 20:
             return None
-        metrics = await locator.evaluate(
-            """(el) => ({
-                scrollTop: Number(el.scrollTop || 0),
-                scrollHeight: Number(el.scrollHeight || 0),
-                clientHeight: Number(el.clientHeight || 0)
-            })"""
-        )
-        if isinstance(metrics, dict):
-            scroll_height = float(metrics.get("scrollHeight") or 0)
-            client_height = float(metrics.get("clientHeight") or 0)
-            if scroll_height > client_height + 20 and client_height > 20:
-                return await _scroll_element_and_stitch(locator, metrics, platform_name)
 
         viewport = page.viewport_size
         vh = viewport["height"] if viewport else 1080
@@ -240,82 +228,6 @@ async def screenshot_locator_full(page: Page, locator, platform_name: str = "") 
     except Exception as exc:
         logger.warning("[%s] 元素完整截图失败: %s", platform_name, exc)
         return None
-
-
-async def _scroll_element_and_stitch(locator, metrics: dict, platform_name: str) -> Optional[bytes]:
-    """
-    滚动元素自身并逐段截图拼接。
-
-    Args:
-        locator: 可滚动元素定位器
-        metrics: 元素滚动高度信息
-        platform_name: 平台名或日志标签
-
-    Returns:
-        Optional[bytes]: 拼接后的 PNG 图片。
-    """
-    original_top = int(float(metrics.get("scrollTop") or 0))
-    scroll_height = int(float(metrics.get("scrollHeight") or 0))
-    client_height = int(float(metrics.get("clientHeight") or 0))
-    if scroll_height <= client_height or client_height <= 0:
-        return await locator.screenshot(type="png")
-
-    scroll_delta = max(100, int(client_height * 0.7))
-    overlap = max(0, client_height - scroll_delta)
-    max_scrolls = min(40, max(2, scroll_height // max(1, scroll_delta) + 3))
-    screenshots = []
-    prev_image = None
-    opened_images = []
-
-    try:
-        await locator.evaluate("(el) => { el.scrollTop = 0; }")
-        await locator.page.wait_for_timeout(250)
-        for i in range(max_scrolls):
-            current_screenshot = await locator.screenshot(type="png")
-            current_image = Image.open(io.BytesIO(current_screenshot))
-            opened_images.append(current_image)
-            if prev_image is not None and images_are_same(prev_image, current_image):
-                logger.debug("[%s] 元素滚动第 %d 次后内容未变化，已到底部", platform_name, i)
-                break
-            screenshots.append(current_screenshot)
-            if prev_image is not None:
-                prev_image.close()
-            prev_image = current_image
-
-            state = await locator.evaluate(
-                """(el, delta) => {
-                    const before = Number(el.scrollTop || 0);
-                    const maxTop = Math.max(0, Number(el.scrollHeight || 0) - Number(el.clientHeight || 0));
-                    el.scrollTop = Math.min(maxTop, before + delta);
-                    return {
-                        before,
-                        after: Number(el.scrollTop || 0),
-                        maxTop
-                    };
-                }""",
-                scroll_delta,
-            )
-            if isinstance(state, dict) and float(state.get("after") or 0) >= float(state.get("maxTop") or 0) - 2:
-                await locator.page.wait_for_timeout(250)
-                if float(state.get("before") or 0) >= float(state.get("maxTop") or 0) - 2:
-                    break
-            await locator.page.wait_for_timeout(350)
-    finally:
-        try:
-            await locator.evaluate("(el, top) => { el.scrollTop = top; }", original_top)
-        except Exception:
-            pass
-        for img in opened_images:
-            try:
-                img.close()
-            except Exception:
-                pass
-
-    if not screenshots:
-        return None
-    if len(screenshots) == 1:
-        return screenshots[0]
-    return stitch_screenshots(screenshots, overlap, platform_name)
 
 
 async def _scroll_and_stitch(
