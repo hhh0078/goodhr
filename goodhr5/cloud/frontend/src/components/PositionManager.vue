@@ -102,7 +102,9 @@
             <div
               style="display: flex; gap: 8px; justify-content: space-between"
             >
-              <span class="field-title">岗位要求</span>
+              <span class="field-title"
+                >岗位要求 - 也可以复制岗位JD进来。点右边的AI优化</span
+              >
               <button
                 type="button"
                 class="ghost tiny"
@@ -118,7 +120,7 @@
             </div>
             <textarea
               v-model="positions.form.value.aiPositionRequirement"
-              rows="4"
+              rows="14"
             />
             <small class="field-help" style="color: red"
               >1 年龄、学历、工作城市等基础条件
@@ -160,7 +162,7 @@
               </button></span
             ><textarea
               v-model="positions.form.value.aiOpenDetailPrompt"
-              rows="4"
+              rows="14"
             />
             <small class="field-help" style="color: red"
               >该提示词的作用
@@ -189,7 +191,10 @@
               >
                 重置为系统默认
               </button></span
-            ><textarea v-model="positions.form.value.aiFilterPrompt" rows="4" />
+            ><textarea
+              v-model="positions.form.value.aiFilterPrompt"
+              rows="14"
+            />
             <small class="field-help"
               >这个提示词
               的作用就决定了候选人的分数高低。跟上面的提示词逻辑一样。只是作用不同。</small
@@ -217,7 +222,10 @@
               >
                 设置默认值
               </button></span
-            ><textarea v-model="positions.form.value.aiReviewPrompt" rows="2" />
+            ><textarea
+              v-model="positions.form.value.aiReviewPrompt"
+              rows="14"
+            />
             <small class="field-help"
               >作用是
               当候选人打招呼评分与阈值差值不超过10分时，触发复核，并以复核分数作为最终打招呼依据。如果你不填
