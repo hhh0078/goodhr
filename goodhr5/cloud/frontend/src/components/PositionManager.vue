@@ -68,16 +68,27 @@
         <p class="hint field field-full">
           运行节奏、模型等参数已移到“个人配置”，这里仅保留岗位本身的筛选规则。
         </p>
-        <label class="field field-small"
-          >详情模式
-          <select v-model="positions.form.value.detailMode">
-            <option value="dom">页面解析</option>
-            <option value="ocr">图片识别</option>
-          </select>
+        <div class="field field-medium">
+          <span class="field-label">详情模式</span>
+          <div class="mode-cards" role="radiogroup" aria-label="详情模式">
+            <button
+              v-for="option in detailModeOptions"
+              :key="option.value"
+              type="button"
+              class="mode-card"
+              :class="{ active: positions.form.value.detailMode === option.value }"
+              role="radio"
+              :aria-checked="positions.form.value.detailMode === option.value"
+              @click="positions.form.value.detailMode = option.value"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.description }}</span>
+            </button>
+          </div>
           <small class="field-help"
             >页面解析更快；图片识别适合页面文字不稳定、需要读截图内容时使用。</small
           >
-        </label>
+        </div>
       </div>
 
       <template v-if="positions.form.value.modeDefault === 'ai'">
@@ -201,15 +212,27 @@
           <p class="hint field field-full">
             关键词模式是否打开详情，已改到“个人配置”的详情查看概率里控制。
           </p>
-          <label class="field field-small"
-            >匹配方式<select v-model="positions.form.value.isAndMode">
-              <option :value="false">满足任一关键词</option>
-              <option :value="true">必须同时满足</option>
-            </select>
+          <div class="field field-medium">
+            <span class="field-label">匹配方式</span>
+            <div class="mode-cards" role="radiogroup" aria-label="匹配方式">
+              <button
+                v-for="option in keywordMatchOptions"
+                :key="String(option.value)"
+                type="button"
+                class="mode-card"
+                :class="{ active: positions.form.value.isAndMode === option.value }"
+                role="radio"
+                :aria-checked="positions.form.value.isAndMode === option.value"
+                @click="positions.form.value.isAndMode = option.value"
+              >
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.description }}</span>
+              </button>
+            </div>
             <small class="field-help"
               >满足任一关键词更宽松；必须同时满足更严格。</small
-            ></label
-          >
+            >
+          </div>
           <label class="field field-medium"
             >关键词<input
               v-model="positions.form.value.keywords"
@@ -312,6 +335,30 @@ const modeOptions = [
     value: "keyword",
     label: "关键词筛选",
     description: "按关键词和排除词判断，永久免费且速度快。",
+  },
+];
+const detailModeOptions = [
+  {
+    value: "dom",
+    label: "页面解析",
+    description: "速度更快，适合页面文字结构稳定的招聘平台。",
+  },
+  {
+    value: "ocr",
+    label: "图片识别",
+    description: "读取截图文字，适合页面结构不稳定或文本难提取时使用。",
+  },
+];
+const keywordMatchOptions = [
+  {
+    value: false,
+    label: "满足任一关键词",
+    description: "命中任意一个关键词即可通过，适合先放宽筛选。",
+  },
+  {
+    value: true,
+    label: "必须同时满足",
+    description: "需要命中全部关键词才通过，适合更严格的岗位。",
   },
 ];
 function edit(pos: any) {
