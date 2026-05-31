@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -239,6 +240,14 @@ func (e *TaskExecutor) extractCandidates() ([]Candidate, error) {
 	return e.platformCfg.ListVisibleCandidates(e)
 }
 
+// openDetailPrecheck 保存候选人查看详情评分的预计算结果。
+type openDetailPrecheck struct {
+	BaseText         string
+	ShouldOpenDetail bool
+	Decision         AIScoreDecision
+	Err              error
+}
+
 // candidatePersistenceContext 保存当前候选人的持久化上下文。
 type candidatePersistenceContext struct {
 	Profile    TaskCandidate
@@ -247,6 +256,10 @@ type candidatePersistenceContext struct {
 
 // processCandidates 逐候选人筛选和打招呼。
 func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candidate) error {
+	openDetailPrechecks, err := e.precomputeOpenDetailDecisions(ctx, candidates)
+	if err != nil {
+		return err
+	}
 	for i := range candidates {
 		select {
 		case <-ctx.Done():
@@ -260,7 +273,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 
 		candidate := candidates[i]
 		candidateName := candidate.DisplayName()
-		e.log("info", fmt.Sprintf("处理候选人 %s（%d/%d）", candidateName, i+1, len(candidates)))
+		e.log("info", fmt.Sprintf("候选人流程开始：%s（%d/%d）", candidateName, i+1, len(candidates)))
 		e.incrementCounts(1, 0, 0, 0)
 
 		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
@@ -268,9 +281,20 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		if err != nil {
 			e.log("warn", fmt.Sprintf("候选人 %s 初始化简历库记录失败: %v", candidateName, err))
 		}
-		shouldOpenDetail, detailScoreDecision, err := e.decideOpenDetail(baseText)
+		var shouldOpenDetail bool
+		var detailScoreDecision AIScoreDecision
+		if i < len(openDetailPrechecks) && openDetailPrechecks[i] != nil {
+			precheck := openDetailPrechecks[i]
+			baseText = precheck.BaseText
+			shouldOpenDetail = precheck.ShouldOpenDetail
+			detailScoreDecision = precheck.Decision
+			err = precheck.Err
+		} else {
+			shouldOpenDetail, detailScoreDecision, err = e.decideOpenDetail(baseText)
+		}
 		if err != nil {
 			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
+			e.logCandidateFlowEnd(candidateName, "详情决策失败")
 			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
@@ -298,6 +322,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode())
 			if err != nil {
 				e.log("error", fmt.Sprintf("候选人 %s 详情提取失败: %v", candidateName, err))
+				e.logCandidateFlowEnd(candidateName, "详情提取失败")
 				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
@@ -327,6 +352,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			greetDecision, err := e.callGreetScoreAI(e.positionDescription(), filterText)
 			if err != nil {
 				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
+				e.logCandidateFlowEnd(candidateName, "AI筛选失败")
 				e.incrementCounts(0, 0, 0, 1)
 				continue
 			}
@@ -377,6 +403,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				})
 				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
+				e.logCandidateFlowEnd(candidateName, "AI筛选跳过")
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
@@ -392,6 +419,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				})
 				e.updateEngagementStatus(persistence, "skipped", nil, nil)
 				e.incrementCounts(0, 0, 1, 0)
+				e.logCandidateFlowEnd(candidateName, "关键词筛选跳过")
 				continue
 			}
 			e.log("info", fmt.Sprintf("候选人 %s 通过筛选: %s", candidateName, result.Reason))
@@ -400,6 +428,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		// 打招呼：交由平台动作实现
 		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidate, e.positionGreetMessage()); err != nil {
 			e.log("error", fmt.Sprintf("候选人 %s 打招呼失败: %v", candidateName, err))
+			e.logCandidateFlowEnd(candidateName, "打招呼失败")
 			e.incrementCounts(0, 0, 0, 1)
 			continue
 		}
@@ -421,8 +450,60 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				e.log("warn", fmt.Sprintf("播放成功提示音失败: %v", err))
 			}
 		}
+		e.logCandidateFlowEnd(candidateName, "打招呼成功")
 	}
 	return nil
+}
+
+// precomputeOpenDetailDecisions 并发预计算当前候选人列表的查看详情评分。
+func (e *TaskExecutor) precomputeOpenDetailDecisions(ctx context.Context, candidates []Candidate) ([]*openDetailPrecheck, error) {
+	if e.task.Mode != "ai" || len(candidates) == 0 {
+		return nil, nil
+	}
+	results := make([]*openDetailPrecheck, len(candidates))
+	var wg sync.WaitGroup
+	e.log("info", fmt.Sprintf("开始并发计算 %d 个候选人的看详情评分", len(candidates)))
+	for i := range candidates {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		i := i
+		candidate := candidates[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
+			shouldOpen, decision, err := e.decideOpenDetail(baseText)
+			results[i] = &openDetailPrecheck{
+				BaseText:         baseText,
+				ShouldOpenDetail: shouldOpen,
+				Decision:         decision,
+				Err:              err,
+			}
+		}()
+	}
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	e.log("info", fmt.Sprintf("%d 个候选人的看详情评分计算完成，开始逐个执行后续流程", len(candidates)))
+	return results, nil
+}
+
+// logCandidateFlowEnd 打印单个候选人的流程结束日志。
+// candidateName 为候选人展示名，result 为本次处理结果。
+func (e *TaskExecutor) logCandidateFlowEnd(candidateName string, result string) {
+	name := strings.TrimSpace(candidateName)
+	if name == "" {
+		name = "未知候选人"
+	}
+	text := strings.TrimSpace(result)
+	if text == "" {
+		text = "未知结果"
+	}
+	e.log("info", fmt.Sprintf("候选人流程结束：%s，结果=%s", name, text))
 }
 
 // positionGreetMessage 返回岗位模板配置的打招呼语。
