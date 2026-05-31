@@ -138,7 +138,6 @@ const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
-    { id: "agent-download", label: "本地程序下载" },
     { id: "account", label: "平台账号" },
     { id: "position", label: "岗位模板" },
     { id: "task-list", label: "任务列表" },
@@ -148,6 +147,7 @@ const menuItems = computed(() => {
     { id: "personal-config", label: "个人配置" },
     { id: "subscription", label: "订阅" },
     { id: "help", label: "常见问题" },
+    { id: "agent-download", label: "本地程序下载" },
   ];
   if (isSuperAdmin.value) {
     items.push({ id: "user-management", label: "用户管理" });
@@ -177,7 +177,11 @@ const agentStatusColor = computed(() => {
   return "error";
 });
 const subscriptionStatusColor = computed(() =>
-  subscriptionExpired.value ? "error" : subscription.value?.active ? "success" : "warn",
+  subscriptionExpired.value
+    ? "error"
+    : subscription.value?.active
+      ? "success"
+      : "warn",
 );
 const subscriptionText = computed(() => {
   if (!subscription.value) return "会员 --";
@@ -187,7 +191,9 @@ const subscriptionText = computed(() => {
   }
   return `${memberType} 到期 ${formatShortDate(subscription.value.expires_at)}`;
 });
-const subscriptionExpired = computed(() => isSubscriptionExpired(subscription.value));
+const subscriptionExpired = computed(() =>
+  isSubscriptionExpired(subscription.value),
+);
 const visibleAnnouncements = computed(() => {
   if (!systemAppConfig.value?.announcements_enabled) return [];
   const dismissed = loadDismissedAnnouncements();
