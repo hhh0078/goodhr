@@ -48,6 +48,15 @@ export async function adjustAdminUserSubscription(payload: any) {
 }
 
 /**
+ * 超级管理员解除指定用户的本地程序机器绑定。
+ * @param {string} email - 要解除绑定的用户邮箱。
+ * @returns {Promise<any>} 返回解除结果。
+ */
+export async function unbindAdminUserAgent(email: string) {
+  return api("/api/admin/users/unbind-agent", { method: "POST", body: { email } });
+}
+
+/**
  * 读取管理员可见的系统原始配置 JSON。
  * @returns {Promise<any[]>} 返回系统配置列表。
  */

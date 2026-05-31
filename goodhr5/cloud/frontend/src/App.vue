@@ -48,8 +48,12 @@
         >
           {{ agent.status.value }}
         </button>
-        ><span class="sep">|</span>
-        <button class="top-info top-link" @click="goMenu('agent-download')">
+        ><span v-if="!agent.machineConflict.value" class="sep">|</span>
+        <button
+          v-if="!agent.machineConflict.value"
+          class="top-info top-link"
+          @click="goMenu('agent-download')"
+        >
           PID {{ agent.info?.value?.port || "---" }}
         </button>
       </div>

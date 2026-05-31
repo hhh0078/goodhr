@@ -94,11 +94,17 @@ db/migrations/0001_initial_schema.down.sql
 ```http
 POST /api/agents/bind
 GET /api/agents/current
+POST /api/admin/users/unbind-agent
 ```
 
-两个接口都需要 `Authorization: Bearer <token>`。
+`/api/agents/*` 需要普通登录态；`/api/admin/users/unbind-agent` 需要超级管理员登录态。
 
-第一版使用内存 `AgentStore`，后续替换为 PostgreSQL 实现。
+绑定规则：
+
+- 一个云端账号同一时间只允许绑定一台本地程序机器。
+- 同一台电脑重复启动或重装后，只要机器码一致，可以继续更新绑定信息。
+- 如果当前账号已经绑定其它机器，`POST /api/agents/bind` 返回 `409`，错误文案为 `该账号已经绑定其它电脑`。
+- 超级管理员可在用户管理中解除绑定，解除后用户可以在新电脑重新绑定。
 
 ## AI 配置
 

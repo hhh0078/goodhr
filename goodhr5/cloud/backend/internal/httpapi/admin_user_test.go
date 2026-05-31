@@ -65,6 +65,50 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	}
 }
 
+// TestAdminUserManagementUnbindsAgent 验证超管可以解除用户本地程序绑定。
+func TestAdminUserManagementUnbindsAgent(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	userToken := loginForTest(t, routes, "agent-unbind@example.com")
+	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+
+	bindReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-old","agent_version":"5.0.0","local_port":9001}`),
+	)
+	bindReq.Header.Set("Authorization", "Bearer "+userToken)
+	bindResp := httptest.NewRecorder()
+	routes.ServeHTTP(bindResp, bindReq)
+	if bindResp.Code != http.StatusOK {
+		t.Fatalf("bind code = %d, body = %s", bindResp.Code, bindResp.Body.String())
+	}
+
+	unbindReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/admin/users/unbind-agent",
+		bytes.NewBufferString(`{"email":"agent-unbind@example.com"}`),
+	)
+	unbindReq.Header.Set("Authorization", "Bearer "+adminToken)
+	unbindResp := httptest.NewRecorder()
+	routes.ServeHTTP(unbindResp, unbindReq)
+	if unbindResp.Code != http.StatusOK {
+		t.Fatalf("unbind code = %d, body = %s", unbindResp.Code, unbindResp.Body.String())
+	}
+
+	nextBindReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-new","agent_version":"5.0.0","local_port":9002}`),
+	)
+	nextBindReq.Header.Set("Authorization", "Bearer "+userToken)
+	nextBindResp := httptest.NewRecorder()
+	routes.ServeHTTP(nextBindResp, nextBindReq)
+	if nextBindResp.Code != http.StatusOK {
+		t.Fatalf("next bind code = %d, body = %s", nextBindResp.Code, nextBindResp.Body.String())
+	}
+}
+
 // TestAdminUserManagementRejectsNormalUser 验证普通用户不能访问用户管理接口。
 func TestAdminUserManagementRejectsNormalUser(t *testing.T) {
 	server := mustNewServer(t)

@@ -1,6 +1,6 @@
 /** 本地 Agent 探测和绑定 */
 import { ref } from "vue";
-import { bindAgent } from "../services/api/agentApi";
+import { bindAgent, currentAgent } from "../services/api/agentApi";
 import {
   bindCloudUser,
   getCloudWSStatus,
@@ -19,6 +19,7 @@ export function useAgent() {
   const wsError = ref("");
   const checking = ref(false);
   const baseUrl = ref("");
+  const machineConflict = ref(false);
 
   async function detect(user, token) {
     if (!user) return;
@@ -27,16 +28,31 @@ export function useAgent() {
     bindStatus.value = "未绑定";
     bindError.value = "";
     status.value = "检测中";
+    machineConflict.value = false;
 
     for (const port of LOCAL_PORTS) {
       try {
         const candidateBaseUrl = `http://127.0.0.1:${port}`;
         const data = await getLocalHealth(candidateBaseUrl);
         info.value = data;
+        const machineID = String(data?.machine_id || "").trim();
+        const boundAgent = await currentAgent();
+        const boundMachineID = String(boundAgent?.machine_id || "").trim();
+        if (boundMachineID && machineID && boundMachineID !== machineID) {
+          machineConflict.value = true;
+          status.value = "该账号已经绑定其它电脑";
+          bindStatus.value = "绑定失败";
+          bindError.value = "该账号已经绑定其它电脑，请联系管理员解除绑定";
+          baseUrl.value = "";
+          wsStatus.value = "未连接";
+          wsError.value = "";
+          checking.value = false;
+          return;
+        }
+
         status.value = `已连接 (端口 ${port})`;
         baseUrl.value = candidateBaseUrl;
         await markOnboardingStep("local_agent");
-
         await bind(user, token);
         await refreshWSStatus();
         return;
@@ -50,6 +66,7 @@ export function useAgent() {
     baseUrl.value = "";
     checking.value = false;
     wsStatus.value = "未连接";
+    machineConflict.value = false;
   }
 
   //
@@ -109,6 +126,7 @@ export function useAgent() {
     wsError,
     checking,
     baseUrl,
+    machineConflict,
     detect,
     refreshWSStatus,
   };

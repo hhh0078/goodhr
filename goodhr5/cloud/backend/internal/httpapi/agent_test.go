@@ -50,6 +50,37 @@ func TestAgentBindAndCurrent(t *testing.T) {
 	}
 }
 
+// TestAgentBindRejectsAnotherMachine 验证同一账号不能绑定第二台电脑。
+func TestAgentBindRejectsAnotherMachine(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "agent-conflict@example.com")
+
+	firstReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-first","agent_version":"5.0.0","local_port":9001}`),
+	)
+	firstReq.Header.Set("Authorization", "Bearer "+token)
+	firstResp := httptest.NewRecorder()
+	routes.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("first bind status = %d, body = %s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-second","agent_version":"5.0.0","local_port":9002}`),
+	)
+	secondReq.Header.Set("Authorization", "Bearer "+token)
+	secondResp := httptest.NewRecorder()
+	routes.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusConflict {
+		t.Fatalf("second bind status = %d, want %d, body = %s", secondResp.Code, http.StatusConflict, secondResp.Body.String())
+	}
+}
+
 // TestAgentBindRejectsAnonymous 验证未登录请求不能绑定机器。
 func TestAgentBindRejectsAnonymous(t *testing.T) {
 	server := mustNewServer(t)

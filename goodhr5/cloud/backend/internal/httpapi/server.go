@@ -90,7 +90,7 @@ func NewServer() (*Server, error) {
 		onboarding:       NewOnboardingService(auth, onboardingStore, systemConfigStore),
 		invitations:      NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
-		adminUsers:       NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer),
+		adminUsers:       NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
 		help:             NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
@@ -128,6 +128,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
+	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
 	// 注册平台账号兼容接口，底层统一读取 cookie_data。

@@ -12,14 +12,15 @@ import (
 
 // AdminUser 表示超级管理员页面可见的用户信息。
 type AdminUser struct {
-	ID           string       `json:"id"`
-	Email        string       `json:"email"`
-	Role         string       `json:"role"`
-	Status       string       `json:"status"`
-	InviterEmail string       `json:"inviter_email"`
-	Subscription Subscription `json:"subscription"`
-	CreatedAt    time.Time    `json:"created_at"`
-	LastLoginAt  *time.Time   `json:"last_login_at,omitempty"`
+	ID           string        `json:"id"`
+	Email        string        `json:"email"`
+	Role         string        `json:"role"`
+	Status       string        `json:"status"`
+	InviterEmail string        `json:"inviter_email"`
+	Agent        *AgentBinding `json:"agent,omitempty"`
+	Subscription Subscription  `json:"subscription"`
+	CreatedAt    time.Time     `json:"created_at"`
+	LastLoginAt  *time.Time    `json:"last_login_at,omitempty"`
 }
 
 // AdminUserStore 定义用户管理读取接口。
@@ -34,17 +35,22 @@ type adjustUserSubscriptionRequest struct {
 	Reason string `json:"reason"`
 }
 
+type unbindUserAgentRequest struct {
+	Email string `json:"email"`
+}
+
 // AdminUserService 处理超级管理员用户管理接口。
 type AdminUserService struct {
 	auth          *AuthService
 	users         AdminUserStore
 	subscriptions SubscriptionStore
 	mailer        Mailer
+	agents        AgentStore
 }
 
 // NewAdminUserService 创建超级管理员用户管理服务。
-func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, mailer Mailer) *AdminUserService {
-	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, mailer: mailer}
+func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, mailer Mailer, agents AgentStore) *AdminUserService {
+	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, mailer: mailer, agents: agents}
 }
 
 // Collection 根据请求方法分发用户列表读取和会员天数调整。
@@ -80,6 +86,11 @@ func (s *AdminUserService) list(w http.ResponseWriter, _ *http.Request) {
 	for _, user := range users {
 		if s.auth.IsSuperAdmin(user.Email) {
 			user.Role = "super_admin"
+		}
+		if s.agents != nil {
+			if binding, err := s.agents.CurrentBinding(user.Email); err == nil {
+				user.Agent = &binding
+			}
 		}
 		result = append(result, publicAdminUser(user))
 	}
@@ -128,6 +139,43 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// UnbindAgent 解除指定用户当前本地程序机器绑定。
+func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req unbindUserAgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	if s.agents == nil {
+		writeError(w, http.StatusInternalServerError, "agent store is not ready")
+		return
+	}
+	if err := s.agents.DisableBindings(email); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to unbind agent")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // publicAdminUser 转换用户信息为前端响应。
 func publicAdminUser(user AdminUser) map[string]any {
 	return map[string]any{
@@ -136,9 +184,25 @@ func publicAdminUser(user AdminUser) map[string]any {
 		"role":          user.Role,
 		"status":        user.Status,
 		"inviter_email": user.InviterEmail,
+		"agent":         publicAdminAgent(user.Agent),
 		"subscription":  publicSubscription(user.Subscription),
 		"created_at":    user.CreatedAt,
 		"last_login_at": user.LastLoginAt,
+	}
+}
+
+// publicAdminAgent 转换本地程序绑定信息为前端响应。
+func publicAdminAgent(agent *AgentBinding) map[string]any {
+	if agent == nil {
+		return nil
+	}
+	return map[string]any{
+		"machine_id":    agent.MachineID,
+		"agent_version": agent.AgentVersion,
+		"public_key":    agent.PublicKey,
+		"bind_status":   agent.BindStatus,
+		"last_seen_at":  agent.LastSeenAt,
+		"created_at":    agent.CreatedAt,
 	}
 }
 

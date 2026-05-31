@@ -33,6 +33,26 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 		status = "active"
 	}
 
+	var activeMachineID string
+	err = s.db.QueryRowContext(
+		ctx,
+		`
+		SELECT machine_id
+		FROM local_agents
+		WHERE user_id = $1 AND bind_status = 'active' AND machine_id <> $2
+		ORDER BY last_seen_at DESC NULLS LAST, created_at DESC
+		LIMIT 1
+		`,
+		userID,
+		binding.MachineID,
+	).Scan(&activeMachineID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return AgentBinding{}, err
+	}
+	if activeMachineID != "" && activeMachineID != binding.MachineID {
+		return AgentBinding{}, ErrAgentAlreadyBound
+	}
+
 	var saved AgentBinding
 	saved.UserEmail = binding.UserEmail
 	err = s.db.QueryRowContext(
@@ -81,7 +101,7 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 		SELECT la.machine_id, la.agent_version, la.public_key, la.bind_status, la.last_seen_at, la.created_at
 		FROM local_agents la
 		INNER JOIN users u ON u.id = la.user_id
-		WHERE u.email = $1
+		WHERE u.email = $1 AND la.bind_status = 'active'
 		ORDER BY la.last_seen_at DESC NULLS LAST, la.created_at DESC
 		LIMIT 1
 		`,
@@ -101,4 +121,22 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 		return AgentBinding{}, err
 	}
 	return binding, nil
+}
+
+// DisableBindings 解除 PostgreSQL 中指定用户的全部本地机器绑定。
+func (s *PostgresAgentStore) DisableBindings(userEmail string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`
+		UPDATE local_agents la
+		SET bind_status = 'disabled', last_seen_at = now()
+		FROM users u
+		WHERE la.user_id = u.id AND u.email = $1 AND la.bind_status = 'active'
+		`,
+		userEmail,
+	)
+	return err
 }

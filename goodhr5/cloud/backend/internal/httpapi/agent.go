@@ -62,6 +62,10 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		LocalPort:    req.LocalPort,
 		PublicKey:    strings.TrimSpace(req.PublicKey),
 	})
+	if errors.Is(err, ErrAgentAlreadyBound) {
+		writeError(w, http.StatusConflict, "该账号已经绑定其它电脑")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to bind agent")
 		return

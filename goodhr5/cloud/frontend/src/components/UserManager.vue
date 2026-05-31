@@ -41,6 +41,7 @@
         <span>角色</span>
         <span>会员</span>
         <span>状态</span>
+        <span>本地程序</span>
         <span>邀请人</span>
         <span>注册时间</span>
         <span>操作</span>
@@ -55,11 +56,18 @@
         <span :class="item.subscription?.active ? 'success' : 'warn'">
           {{ item.subscription?.active ? "有效" : "已过期" }}
         </span>
+        <span>
+          {{ item.agent?.machine_id ? shortMachine(item.agent.machine_id) : "--" }}
+          <small>{{ item.agent?.agent_version || "" }}</small>
+        </span>
         <span class="hint">{{ item.inviter_email || "--" }}</span>
         <span>{{ formatDate(item.created_at) }}</span>
         <span class="row-actions">
           <button class="ghost" @click="selectUser(item, 7)">加天数</button>
           <button class="ghost" @click="selectUser(item, -7)">减天数</button>
+          <button class="ghost danger" :disabled="!item.agent?.machine_id || unbinding" @click="unbindAgent(item)">
+            解绑本地程序
+          </button>
         </span>
       </div>
     </div>
@@ -72,11 +80,13 @@ import { onMounted, ref } from "vue";
 import {
   adjustAdminUserSubscription,
   listAdminUsers,
+  unbindAdminUserAgent,
 } from "../services/api/adminApi";
 
 const users = ref<any[]>([]);
 const loading = ref(false);
 const adjusting = ref(false);
+const unbinding = ref(false);
 const error = ref("");
 const message = ref("");
 const form = ref({ email: "", days: 7, reason: "" });
@@ -142,6 +152,32 @@ async function adjustDays() {
 }
 
 /**
+ * 解除用户当前本地程序机器绑定。
+ * @param {any} user - 用户列表项。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function unbindAgent(user: any) {
+  error.value = "";
+  message.value = "";
+  const email = String(user?.email || "").trim();
+  if (!email) {
+    error.value = "用户邮箱为空，无法解除绑定";
+    return;
+  }
+  if (!window.confirm(`确定解除 ${email} 的本地程序绑定吗？`)) return;
+  unbinding.value = true;
+  try {
+    await unbindAdminUserAgent(email);
+    message.value = `已解除 ${email} 的本地程序绑定`;
+    await load();
+  } catch (e: any) {
+    error.value = e?.message || "解除本地程序绑定失败";
+  } finally {
+    unbinding.value = false;
+  }
+}
+
+/**
  * 清空调整表单。
  * @returns {void} 无返回值。
  */
@@ -170,6 +206,16 @@ function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleString();
+}
+
+/**
+ * 缩短机器码展示，避免用户列表过宽。
+ * @param {string} value - 完整机器码。
+ * @returns {string} 缩短后的机器码。
+ */
+function shortMachine(value: string) {
+  if (!value) return "--";
+  return value.length > 18 ? `${value.slice(0, 18)}...` : value;
 }
 
 onMounted(load);
@@ -201,10 +247,10 @@ onMounted(load);
 
 .user-row {
   display: grid;
-  grid-template-columns: 230px 80px 180px 80px 180px 180px 160px;
+  grid-template-columns: 230px 80px 180px 80px 190px 180px 180px 260px;
   gap: 10px;
   align-items: center;
-  min-width: 1100px;
+  min-width: 1400px;
   padding: 10px;
   border-bottom: 1px solid #222;
 }

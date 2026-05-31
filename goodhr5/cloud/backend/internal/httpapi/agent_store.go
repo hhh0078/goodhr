@@ -2,9 +2,12 @@
 package httpapi
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+var ErrAgentAlreadyBound = errors.New("agent already bound to another machine")
 
 // AgentBinding 表示一个云端账号和一台本地机器的绑定关系。
 type AgentBinding struct {
@@ -22,6 +25,7 @@ type AgentBinding struct {
 type AgentStore interface {
 	SaveBinding(binding AgentBinding) (AgentBinding, error)
 	CurrentBinding(userEmail string) (AgentBinding, error)
+	DisableBindings(userEmail string) error
 }
 
 // MemoryAgentStore 提供开发期使用的内存机器绑定存储。
@@ -44,6 +48,11 @@ func (s *MemoryAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	current, ok := s.bindings[binding.UserEmail]
+	if ok && current.BindStatus == "active" && current.MachineID != "" && current.MachineID != binding.MachineID {
+		return AgentBinding{}, ErrAgentAlreadyBound
+	}
+
 	now := s.now()
 	if binding.CreatedAt.IsZero() {
 		binding.CreatedAt = now
@@ -63,8 +72,23 @@ func (s *MemoryAgentStore) CurrentBinding(userEmail string) (AgentBinding, error
 	defer s.mu.Unlock()
 
 	binding, ok := s.bindings[userEmail]
-	if !ok {
+	if !ok || binding.BindStatus != "active" {
 		return AgentBinding{}, ErrNotFound
 	}
 	return binding, nil
+}
+
+// DisableBindings 解除当前用户所有本地机器绑定。
+func (s *MemoryAgentStore) DisableBindings(userEmail string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	binding, ok := s.bindings[userEmail]
+	if !ok {
+		return nil
+	}
+	binding.BindStatus = "disabled"
+	binding.LastSeenAt = s.now()
+	s.bindings[userEmail] = binding
+	return nil
 }
