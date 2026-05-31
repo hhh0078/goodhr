@@ -1,11 +1,12 @@
 /** 岗位模板管理 */
 import { ref } from 'vue'
-import { getDefaultPrompts, listPositions, savePosition, deletePosition } from '../services/api/positionApi'
+import { getDefaultPrompts, listPositions, savePosition, deletePosition, optimizePositionRequirement } from '../services/api/positionApi'
 import { markOnboardingStep } from '../services/onboarding'
 
 export function usePositions() {
   const positions = ref<any[]>([])
   const loading = ref(false)
+  const optimizeLoading = ref(false)
   const error = ref('')
   const form = ref(defaultForm())
   const defaultPrompts = ref({ filter_prompt: '', open_detail_prompt: '', review_prompt: '' })
@@ -97,6 +98,27 @@ export function usePositions() {
     form.value.aiReviewPrompt = normalizePromptText(defaultPrompts.value.review_prompt || '')
   }
 
+  /**
+   * 调用 AI 优化岗位要求文本。
+   * @returns {Promise<void>} 无返回值。
+   */
+  async function optimizeRequirement() {
+    const text = form.value.aiPositionRequirement.trim()
+    if (!text || optimizeLoading.value) return
+    optimizeLoading.value = true
+    error.value = ''
+    try {
+      const optimized = await optimizePositionRequirement(text)
+      if (optimized) {
+        form.value.aiPositionRequirement = optimized
+      }
+    } catch (e: any) {
+      error.value = e.message || 'AI优化岗位要求失败'
+    } finally {
+      optimizeLoading.value = false
+    }
+  }
+
   function edit(pos: any) {
     const common = pos.common_config || {}
     const ai = pos.ai_config || {}
@@ -137,6 +159,7 @@ export function usePositions() {
   return {
     positions,
     loading,
+    optimizeLoading,
     error,
     form,
     defaultPrompts,
@@ -148,6 +171,7 @@ export function usePositions() {
     resetOpenDetailPrompt,
     resetFilterPrompt,
     resetReviewPrompt,
+    optimizeRequirement,
   }
 }
 

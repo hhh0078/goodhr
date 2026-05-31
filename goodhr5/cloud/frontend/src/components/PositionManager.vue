@@ -42,7 +42,9 @@
               :key="option.value"
               type="button"
               class="mode-card"
-              :class="{ active: positions.form.value.modeDefault === option.value }"
+              :class="{
+                active: positions.form.value.modeDefault === option.value,
+              }"
               role="radio"
               :aria-checked="positions.form.value.modeDefault === option.value"
               @click="positions.form.value.modeDefault = option.value"
@@ -76,7 +78,9 @@
               :key="option.value"
               type="button"
               class="mode-card"
-              :class="{ active: positions.form.value.detailMode === option.value }"
+              :class="{
+                active: positions.form.value.detailMode === option.value,
+              }"
               role="radio"
               :aria-checked="positions.form.value.detailMode === option.value"
               @click="positions.form.value.detailMode = option.value"
@@ -94,8 +98,25 @@
       <template v-if="positions.form.value.modeDefault === 'ai'">
         <h3>AI 模式专属</h3>
         <div class="position-form-grid">
-          <label class="field field-full"
-            >岗位要求<textarea
+          <label class="field field-full">
+            <div
+              style="display: flex; gap: 8px; justify-content: space-between"
+            >
+              <span class="field-title">岗位要求</span>
+              <button
+                type="button"
+                class="ghost tiny"
+                :disabled="
+                  positions.loading.value ||
+                  positions.optimizeLoading.value ||
+                  !positions.form.value.aiPositionRequirement.trim()
+                "
+                @click="positions.optimizeRequirement"
+              >
+                {{ positions.optimizeLoading.value ? "优化中..." : "AI优化" }}
+              </button>
+            </div>
+            <textarea
               v-model="positions.form.value.aiPositionRequirement"
               rows="4"
             />
@@ -220,7 +241,9 @@
                 :key="String(option.value)"
                 type="button"
                 class="mode-card"
-                :class="{ active: positions.form.value.isAndMode === option.value }"
+                :class="{
+                  active: positions.form.value.isAndMode === option.value,
+                }"
                 role="radio"
                 :aria-checked="positions.form.value.isAndMode === option.value"
                 @click="positions.form.value.isAndMode = option.value"
@@ -233,6 +256,9 @@
               >满足任一关键词更宽松；必须同时满足更严格。</small
             >
           </div>
+          <p class="hint field field-full">
+            关键词模式是否打开详情，已改到“个人配置”的详情查看概率里控制。
+          </p>
           <label class="field field-medium"
             >关键词<input
               v-model="positions.form.value.keywords"

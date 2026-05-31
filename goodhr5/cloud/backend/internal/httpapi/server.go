@@ -81,7 +81,7 @@ func NewServer() (*Server, error) {
 		ai:               NewAIConfigService(auth, aiConfigStore),
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
-		positions:        NewPositionService(auth, positionStore),
+		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
 		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS, subscriptionStore, mailer),
 		taskLogs:         taskLogs,
 		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
@@ -136,6 +136,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
 	// 注册岗位配置接口，用于复用岗位关键词和问候语模板。
 	mux.HandleFunc("/api/positions", s.positions.Collection)
+	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
 	mux.HandleFunc("/api/positions/", s.positions.Delete)
 	// 注册任务接口，用于创建任务和展示任务统计摘要。
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)

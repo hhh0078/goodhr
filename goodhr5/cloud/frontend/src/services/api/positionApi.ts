@@ -37,3 +37,16 @@ export async function getDefaultPrompts() {
   const data = await api("/api/system/default-prompts");
   return data.prompts || {};
 }
+
+/**
+ * 使用当前用户个人 AI 配置优化岗位要求。
+ * @param {string} text - 用户输入的原始岗位要求。
+ * @returns {Promise<string>} 返回优化后的岗位要求。
+ */
+export async function optimizePositionRequirement(text: string) {
+  const data = await api("/api/positions/optimize-requirement", {
+    method: "POST",
+    body: { text },
+  });
+  return String(data.optimized || "");
+}
