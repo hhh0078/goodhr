@@ -153,6 +153,11 @@ func (r *Runtime) FetchCandidateDetailText(exec platformcore.RuntimeExecutor, cf
 	if err != nil {
 		return "", err
 	}
+	cleanedText := trimSimilarCandidateTail(text)
+	if len(cleanedText) != len(strings.TrimSpace(text)) {
+		exec.Log("info", "Boss候选人详情文本已截断：命中固定尾部文案=其他相似经历的牛人")
+	}
+	text = cleanedText
 	exec.Log("info", fmt.Sprintf("Boss候选人详情文本提取完成，长度=%d", len(text)))
 	return text, nil
 }
@@ -209,6 +214,21 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 		}
 	}
 	return strings.TrimSpace(resp.Text), nil
+}
+
+// trimSimilarCandidateTail 截断 Boss 详情中混入的相似候选人推荐内容。
+// text 为详情原文；未命中固定尾部文案时原样去空白返回。
+func trimSimilarCandidateTail(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	const marker = "其他相似经历的牛人"
+	index := strings.Index(trimmed, marker)
+	if index < 0 {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:index])
 }
 
 // buildDetailExtractPayload 构建详情文本提取请求。
