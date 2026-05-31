@@ -61,14 +61,15 @@ export const router = createRouter({
 
 let savedMenuApplied = false;
 
-router.beforeEach((to) => normalizeLegacyRoute(to));
+router.beforeEach((to, from) => normalizeLegacyRoute(to, from));
 
 /**
  * 把旧的 menu 查询参数和旧缓存转换为新路由。
  * @param {RouteLocationNormalized} to - 即将进入的路由。
+ * @param {RouteLocationNormalized} from - 当前离开的路由。
  * @returns {any} 返回重定向位置或 undefined。
  */
-function normalizeLegacyRoute(to: RouteLocationNormalized) {
+function normalizeLegacyRoute(to: RouteLocationNormalized, from?: RouteLocationNormalized) {
   if (to.query.candidate_id && to.name !== "resume-detail") {
     return { name: "resume-detail", query: { candidate_id: to.query.candidate_id } };
   }
@@ -82,7 +83,7 @@ function normalizeLegacyRoute(to: RouteLocationNormalized) {
   if (menu && menuRouteMap[menu]) {
     return { name: menuRouteMap[menu] };
   }
-  if (!savedMenuApplied && to.path === "/" && Object.keys(to.query).length === 0) {
+  if (!savedMenuApplied && !from?.name && to.path === "/" && Object.keys(to.query).length === 0) {
     savedMenuApplied = true;
     const savedMenu = localStorage.getItem(MENU_CACHE_KEY) || "";
     if (savedMenu && savedMenu !== "agent" && menuRouteMap[savedMenu]) {
