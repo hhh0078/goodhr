@@ -759,101 +759,31 @@ class WSAgentClient:
             return {"ok": False, "reason": "probe_exception", "error": repr(exc)}
         return {"ok": False, "reason": "probe_unknown"}
 
-    async def _show_click_marker(self, page: Any, matched_target: str, probe: dict[str, Any], box: Any, status: str, hold_ms: int = 1800) -> None:
-        """
-        在页面上显示点击调试标记。
-
-        Args:
-            page: 当前页面
-            matched_target: 命中的选择器
-            probe: 点击状态采样结果
-            box: 元素边界框
-            status: 当前点击阶段说明
-            hold_ms: 标记保留毫秒数
-        """
-        try:
-            await page.evaluate(
-                """({ target, probe, box, status, holdMs }) => {
-                    const old = document.getElementById("__goodhr_click_marker__");
-                    if (old) old.remove();
-                    const center = probe && probe.center ? probe.center : null;
-                    const viewportW = window.innerWidth || document.documentElement.clientWidth || 1280;
-                    const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
-                    const rawX = center ? Number(center.x) : (box ? Number(box.x) + Number(box.width || 0) / 2 : viewportW / 2);
-                    const rawY = center ? Number(center.y) : (box ? Number(box.y) + Number(box.height || 0) / 2 : viewportH / 2);
-                    const visible = !!(probe && probe.inViewport);
-                    const x = Math.max(16, Math.min(viewportW - 16, rawX));
-                    const y = Math.max(16, Math.min(viewportH - 16, rawY));
-                    const root = document.createElement("div");
-                    root.id = "__goodhr_click_marker__";
-                    root.style.cssText = "position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;font-family:Arial,'PingFang SC',sans-serif;";
-                    const ring = document.createElement("div");
-                    ring.style.cssText = `position:fixed;left:${x - 18}px;top:${y - 18}px;width:36px;height:36px;border:4px solid #ff2d20;border-radius:50%;box-shadow:0 0 0 9999px rgba(255,45,32,.04),0 0 16px rgba(255,45,32,.85);`;
-                    const h = document.createElement("div");
-                    h.style.cssText = `position:fixed;left:${x - 28}px;top:${y - 1}px;width:56px;height:2px;background:#ff2d20;`;
-                    const v = document.createElement("div");
-                    v.style.cssText = `position:fixed;left:${x - 1}px;top:${y - 28}px;width:2px;height:56px;background:#ff2d20;`;
-                    const label = document.createElement("div");
-                    const labelY = rawY < 0 ? 18 : (rawY > viewportH ? viewportH - 86 : Math.min(viewportH - 86, y + 26));
-                    label.style.cssText = `position:fixed;left:${Math.min(Math.max(12, x + 22), viewportW - 360)}px;top:${labelY}px;max-width:340px;background:rgba(18,18,18,.92);color:#fff;padding:8px 10px;border-radius:6px;font-size:13px;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.25);`;
-                    label.textContent = `${status}：${target} | 坐标 ${Math.round(rawX)}, ${Math.round(rawY)} | ${visible ? "视口内" : "视口外"}`;
-                    root.appendChild(ring);
-                    root.appendChild(h);
-                    root.appendChild(v);
-                    root.appendChild(label);
-                    document.body.appendChild(root);
-                    window.setTimeout(() => {
-                        const current = document.getElementById("__goodhr_click_marker__");
-                        if (current) current.remove();
-                    }, Math.max(500, Number(holdMs) || 1800));
-                }""",
-                {
-                    "target": matched_target,
-                    "probe": probe,
-                    "box": box,
-                    "status": status,
-                    "holdMs": hold_ms,
-                },
-            )
-        except Exception as exc:
-            logger.debug("显示点击标记失败 target=%s err=%s", matched_target, exc)
-
     async def _safe_random_click(self, page: Any, locator: Any, matched_target: str) -> None:
         """使用最新元素位置执行随机点点击，跳过底层 human click 的二次滚动定位。"""
         latest_probe = await self._probe_click_state(locator)
         latest_box = await locator.bounding_box()
         logger.info("快速点击前复查 target=%s probe=%s box=%s", matched_target, latest_probe, latest_box)
-        await self._show_click_marker(page, matched_target, latest_probe, latest_box, "准备点击")
         if not latest_probe.get("ok"):
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-状态异常", 5000)
             raise ValueError(f"点击目标元素状态检查失败: {matched_target}, probe={latest_probe}")
         if not latest_probe.get("connected", False):
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-节点失效", 5000)
             raise ValueError(f"点击目标元素节点已失效: {matched_target}, probe={latest_probe}")
         if not latest_probe.get("inViewport", False):
             logger.info("点击目标不在视口内，准备滚动后重试 target=%s probe=%s", matched_target, latest_probe)
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "目标在视口外，准备滚动", 2600)
             if not await scroll_locator_into_view(locator, matched_target):
                 latest_probe = await self._probe_click_state(locator)
-                latest_box = await locator.bounding_box()
-                await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-滚动后仍在视口外", 6000)
                 raise ValueError(f"点击目标元素不在视口内: {matched_target}, probe={latest_probe}")
             latest_probe = await self._probe_click_state(locator)
             latest_box = await locator.bounding_box()
             logger.info("点击目标滚动后复查 target=%s probe=%s box=%s", matched_target, latest_probe, latest_box)
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "滚动后准备点击")
             if not latest_probe.get("inViewport", False):
-                await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-滚动后仍在视口外", 6000)
                 raise ValueError(f"点击目标元素不在视口内: {matched_target}, probe={latest_probe}")
         if not latest_probe.get("centerHit", False):
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-中心被遮挡", 6000)
             raise ValueError(f"点击目标元素中心点被遮挡: {matched_target}, probe={latest_probe}")
         if not latest_box or latest_box.get("width", 0) <= 0 or latest_box.get("height", 0) <= 0:
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-位置无效", 6000)
             raise ValueError(f"点击目标元素位置无效: {matched_target}, box={latest_box}")
         click_start = time.perf_counter()
         if not await click_box_random_point(page, latest_box, matched_target):
-            await self._show_click_marker(page, matched_target, latest_probe, latest_box, "点击失败-随机点失败", 6000)
             raise ValueError(f"点击目标元素随机点失败: {matched_target}, box={latest_box}")
         elapsed_ms = int((time.perf_counter() - click_start) * 1000)
         logger.info("点击成功 target=%s phase=safe_random_click elapsed_ms=%d box=%s", matched_target, elapsed_ms, latest_box)
