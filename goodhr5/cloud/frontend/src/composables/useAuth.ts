@@ -70,9 +70,13 @@ export function useAuth() {
 
   async function loadCurrentUser() {
     if (!token.value) return;
+    const requestToken = token.value;
     for (let i = 0; i < 3; i += 1) {
       try {
         const me = await currentUser();
+        if (token.value !== requestToken) {
+          return;
+        }
         if (!me?.email) {
           logout();
           return;
@@ -80,6 +84,9 @@ export function useAuth() {
         user.value = me;
         return;
       } catch (e: any) {
+        if (token.value !== requestToken) {
+          return;
+        }
         const status = e instanceof ApiError ? e.status : 0;
         if (status === 401 || status === 403) {
           logout();
