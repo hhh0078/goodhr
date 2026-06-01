@@ -489,6 +489,11 @@ class WSAgentClient:
             if not ok:
                 raise RuntimeError("页面导航失败")
             return {"ok": True, "url": url, "title": await page.title()}
+        if path == "/api/v1/page/close-by-url":
+            url_contains = str(body.get("url_contains") or "").strip()
+            if not url_contains:
+                raise ValueError("url_contains is required")
+            return await self.browser_manager.close_pages_by_url_contains(url_contains)
         if path == "/api/v1/page/scroll":
             page = await self._require_page()
             element_spec = parse_element_locator_spec(body.get("element"))

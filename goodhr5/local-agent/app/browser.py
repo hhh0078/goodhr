@@ -459,6 +459,73 @@ class BrowserManager:
                 return None
             return await self._new_page_unlocked(name)
 
+    async def close_pages_by_url_contains(self, url_contains: str) -> dict:
+        """
+        关闭 URL 包含指定文本的所有页面。
+
+        Args:
+            url_contains: URL 中需要包含的文本。
+
+        Returns:
+            dict: 关闭数量和关闭页面 URL 列表。
+        """
+        keyword = (url_contains or "").strip()
+        if not keyword:
+            raise ValueError("url_contains is required")
+
+        async with self._state_lock:
+            pages = self._all_open_pages_unlocked()
+            closed_urls: list[str] = []
+            for page in pages:
+                if page.is_closed():
+                    continue
+                url = page.url or ""
+                if keyword not in url:
+                    continue
+                try:
+                    await page.close()
+                    closed_urls.append(url)
+                except Exception as exc:
+                    logger.warning("关闭页面失败 url=%s err=%s", url, exc)
+
+            self._pages = {
+                name: page
+                for name, page in self._pages.items()
+                if page is not None and not page.is_closed()
+            }
+            logger.info("按 URL 关键字关闭页面 keyword=%s closed=%d", keyword, len(closed_urls))
+            return {"ok": True, "url_contains": keyword, "closed_count": len(closed_urls), "closed_urls": closed_urls}
+
+    def _all_open_pages_unlocked(self) -> list[Page]:
+        """
+        读取当前浏览器里的全部未关闭页面。
+
+        Returns:
+            list[Page]: 去重后的页面列表。
+        """
+        pages: list[Page] = []
+        seen: set[int] = set()
+
+        def add(page: Page | None) -> None:
+            if page is None or page.is_closed():
+                return
+            marker = id(page)
+            if marker in seen:
+                return
+            seen.add(marker)
+            pages.append(page)
+
+        for page in self._pages.values():
+            add(page)
+        if self._context is not None:
+            for page in self._context.pages:
+                add(page)
+        if self._browser is not None:
+            for context in self._browser.contexts:
+                for page in context.pages:
+                    add(page)
+        return pages
+
     @property
     def is_running(self) -> bool:
         """浏览器是否正在运行。"""

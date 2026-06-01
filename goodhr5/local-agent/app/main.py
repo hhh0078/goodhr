@@ -704,6 +704,22 @@ async def page_open(payload: dict) -> dict:
     return {"ok": True, "url": url, "title": await page.title()}
 
 
+@app.post("/api/v1/page/close-by-url")
+async def page_close_by_url(payload: dict) -> dict:
+    """按 URL 关键字关闭所有匹配页面。
+
+    请求体参数：
+        url_contains: URL 中需要包含的文本，命中后关闭对应页面
+    """
+    url_contains = str(payload.get("url_contains", "")).strip()
+    if not url_contains:
+        raise HTTPException(400, "url_contains is required")
+    try:
+        return await _browser_manager.close_pages_by_url_contains(url_contains)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @app.post("/api/v1/page/scroll")
 async def page_scroll(payload: dict) -> dict:
     """滚动当前页面，模拟人工浏览加载候选人列表。
