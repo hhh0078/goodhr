@@ -27,7 +27,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-		SELECT p.id, p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
+		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
 		       p.common_config, p.ai_config, p.keyword_config, p.created_at, p.updated_at
 		FROM positions p
 		INNER JOIN users u ON u.id = p.user_id
@@ -52,6 +52,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 		item.UserEmail = userEmail
 		if err := rows.Scan(
 			&item.ID,
+			&item.PlatformID,
 			&item.Name,
 			&keywordsJSON,
 			&excludeKeywordsJSON,
@@ -124,11 +125,12 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		row = s.db.QueryRowContext(
 			ctx,
 			`
-			INSERT INTO positions (user_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config)
-			VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)
-			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
+			INSERT INTO positions (user_id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config)
+			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb)
+			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
 			`,
 			userID,
+			position.PlatformID,
 			position.Name,
 			string(keywordsJSON),
 			string(excludeKeywordsJSON),
@@ -145,21 +147,23 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			`
 			UPDATE positions
 			SET
-				name = $3,
-				keywords = $4::jsonb,
-				exclude_keywords = $5::jsonb,
-				description = $6,
-				greet_message = $7,
-				is_and_mode = $8,
-				common_config = $9::jsonb,
-				ai_config = $10::jsonb,
-				keyword_config = $11::jsonb,
+				platform_id = $3,
+				name = $4,
+				keywords = $5::jsonb,
+				exclude_keywords = $6::jsonb,
+				description = $7,
+				greet_message = $8,
+				is_and_mode = $9,
+				common_config = $10::jsonb,
+				ai_config = $11::jsonb,
+				keyword_config = $12::jsonb,
 				updated_at = now()
 			WHERE id = $1 AND user_id = $2
-			RETURNING id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
+			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, created_at, updated_at
 			`,
 			position.ID,
 			userID,
+			position.PlatformID,
 			position.Name,
 			string(keywordsJSON),
 			string(excludeKeywordsJSON),
@@ -179,6 +183,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 	var savedKeywordConfigJSON []byte
 	err = row.Scan(
 		&saved.ID,
+		&saved.PlatformID,
 		&saved.Name,
 		&savedKeywordsJSON,
 		&savedExcludeKeywordsJSON,
@@ -227,7 +232,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT p.id, p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
+		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
 		       p.description, p.greet_message, p.is_and_mode, CAST(p.common_config AS text), CAST(p.ai_config AS text), CAST(p.keyword_config AS text), p.created_at, p.updated_at
 		FROM positions p
 		JOIN users u ON p.user_id = u.id
@@ -235,7 +240,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		`,
 		userEmail, positionID,
 	).Scan(
-		&item.ID, &item.Name, &rawKeywords, &rawExclude,
+		&item.ID, &item.PlatformID, &item.Name, &rawKeywords, &rawExclude,
 		&item.Description, &item.GreetMessage, &item.IsAndMode,
 		&rawCommonConfig, &rawAIConfig, &rawKeywordConfig,
 		&item.CreatedAt, &item.UpdatedAt,

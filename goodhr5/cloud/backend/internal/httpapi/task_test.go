@@ -54,7 +54,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if createPayload.Task.ID == "" || createPayload.Task.Status != "created" {
 		t.Fatalf("unexpected task payload: %+v", createPayload.Task)
 	}
-	if createPayload.Task.Scanned != 0 || createPayload.Task.MatchLimit != 50 {
+	if createPayload.Task.Scanned != 0 || createPayload.Task.MatchLimit != 20 {
 		t.Fatalf("unexpected task stats: %+v", createPayload.Task)
 	}
 	if createPayload.Task.PositionID != positionID {
@@ -133,6 +133,41 @@ func createPositionForTest(t *testing.T, routes http.Handler, token string) stri
 		t.Fatal(err)
 	}
 	return payload.Position.ID
+}
+
+// TestBossPositionForcesOCRDetailMode 验证 Boss 岗位模板保存时强制使用 OCR 详情模式。
+func TestBossPositionForcesOCRDetailMode(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "position-boss@example.com")
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/positions",
+		bytes.NewBufferString(`{"platform_id":"boss","name":"课程顾问","common_config":{"detail_mode":"dom","mode_default":"ai"}}`),
+	)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		Position struct {
+			PlatformID   string         `json:"platform_id"`
+			CommonConfig map[string]any `json:"common_config"`
+		} `json:"position"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Position.PlatformID != "boss" {
+		t.Fatalf("platform_id = %q", payload.Position.PlatformID)
+	}
+	if payload.Position.CommonConfig["detail_mode"] != "ocr" {
+		t.Fatalf("detail_mode = %v, want ocr", payload.Position.CommonConfig["detail_mode"])
+	}
 }
 
 // TestTaskCreateRejectsMissingAccount 验证创建任务时必须选择平台账号。

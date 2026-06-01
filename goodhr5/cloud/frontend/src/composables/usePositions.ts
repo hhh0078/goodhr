@@ -29,8 +29,10 @@ export function usePositions() {
       fillEmptyDefaultPrompts()
       const kw = form.value.keywords.split(/[,\s]+/).filter(Boolean)
       const ek = form.value.excludeKeywords.split(/[,\s]+/).filter(Boolean)
+      const platformID = normalizePlatformID(form.value.platformId)
       await savePosition({
         id: form.value.id,
+        platform_id: platformID,
         name: form.value.name,
         keywords: kw,
         exclude_keywords: ek,
@@ -39,7 +41,7 @@ export function usePositions() {
         is_and_mode: form.value.isAndMode,
         common_config: {
           mode_default: form.value.modeDefault,
-          detail_mode: form.value.detailMode,
+          detail_mode: normalizeDetailMode(platformID, form.value.detailMode),
         },
         ai_config: {
           position_requirement: form.value.aiPositionRequirement,
@@ -132,7 +134,8 @@ export function usePositions() {
       greetMessage: pos.greet_message || '',
       isAndMode: pos.is_and_mode || false,
       modeDefault: common.mode_default || 'ai',
-      detailMode: common.detail_mode || keyword.detail_mode || 'dom',
+      platformId: normalizePlatformID(pos.platform_id),
+      detailMode: normalizeDetailMode(normalizePlatformID(pos.platform_id), common.detail_mode || keyword.detail_mode || 'dom'),
       aiPositionRequirement: ai.position_requirement || '',
       aiFilterPrompt: normalizePromptText(ai.greet_prompt || ai.filter_prompt || ai.click_prompt || ''),
       aiOpenDetailPrompt: normalizePromptText(ai.open_detail_prompt || ''),
@@ -185,7 +188,8 @@ function defaultForm() {
     greetMessage: '',
     isAndMode: false,
     modeDefault: 'ai',
-    detailMode: 'dom',
+    platformId: 'boss',
+    detailMode: 'ocr',
     aiPositionRequirement: '',
     aiFilterPrompt: '',
     aiOpenDetailPrompt: '',
@@ -193,6 +197,27 @@ function defaultForm() {
     detailScoreThreshold: '60',
     greetScoreThreshold: '70',
   }
+}
+
+/**
+ * 标准化岗位模板平台标识。
+ * @param {string} value - 原始平台标识。
+ * @returns {string} 标准平台标识。
+ */
+function normalizePlatformID(value: string) {
+  return String(value || '').trim().toLowerCase() || 'boss'
+}
+
+/**
+ * 根据平台修正详情读取模式。
+ * @param {string} platformID - 平台标识。
+ * @param {string} detailMode - 原始详情模式。
+ * @returns {string} 修正后的详情模式。
+ */
+function normalizeDetailMode(platformID: string, detailMode: string) {
+  if (normalizePlatformID(platformID) === 'boss') return 'ocr'
+  const mode = String(detailMode || '').trim().toLowerCase()
+  return mode === 'ocr' ? 'ocr' : 'dom'
 }
 
 /**

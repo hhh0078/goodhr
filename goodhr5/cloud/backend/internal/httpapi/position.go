@@ -35,6 +35,7 @@ type PositionService struct {
 
 type positionRequest struct {
 	ID              string         `json:"id"`
+	PlatformID      string         `json:"platform_id"`
 	Name            string         `json:"name"`
 	Keywords        []string       `json:"keywords"`
 	ExcludeKeywords []string       `json:"exclude_keywords"`
@@ -290,6 +291,7 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 	position := Position{
 		ID:              strings.TrimSpace(r.ID),
 		UserEmail:       userEmail,
+		PlatformID:      normalizePositionPlatformID(r.PlatformID),
 		Name:            strings.TrimSpace(r.Name),
 		Keywords:        trimStringList(r.Keywords),
 		ExcludeKeywords: trimStringList(r.ExcludeKeywords),
@@ -305,7 +307,32 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 		writeError(w, http.StatusBadRequest, "name is required")
 		return Position{}, false
 	}
+	applyPositionPlatformRules(&position)
 	return position, true
+}
+
+// normalizePositionPlatformID 标准化岗位模板所属平台。
+// platformID 为空时默认使用 boss，返回标准平台标识。
+func normalizePositionPlatformID(platformID string) string {
+	value := strings.TrimSpace(strings.ToLower(platformID))
+	if value == "" {
+		return "boss"
+	}
+	return value
+}
+
+// applyPositionPlatformRules 根据平台修正岗位模板参数。
+// position 为岗位模板；Boss 平台详情页只允许使用 OCR 图片识别。
+func applyPositionPlatformRules(position *Position) {
+	if position == nil {
+		return
+	}
+	if position.CommonConfig == nil {
+		position.CommonConfig = map[string]any{}
+	}
+	if strings.EqualFold(position.PlatformID, "boss") {
+		position.CommonConfig["detail_mode"] = "ocr"
+	}
 }
 
 // publicPositions 将岗位配置列表转换为前端响应结构。
@@ -321,6 +348,7 @@ func publicPositions(items []Position) []map[string]any {
 func publicPosition(item Position) map[string]any {
 	return map[string]any{
 		"id":               item.ID,
+		"platform_id":      normalizePositionPlatformID(item.PlatformID),
 		"name":             item.Name,
 		"keywords":         item.Keywords,
 		"exclude_keywords": item.ExcludeKeywords,

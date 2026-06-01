@@ -34,7 +34,26 @@
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
         /></label>
-        <p></p>
+        <div class="field field-medium">
+          <span class="field-label">招聘平台</span>
+          <div class="mode-cards" role="radiogroup" aria-label="招聘平台">
+            <button
+              v-for="option in platformOptions"
+              :key="option.value"
+              type="button"
+              class="mode-card"
+              :class="{
+                active: positions.form.value.platformId === option.value,
+              }"
+              role="radio"
+              :aria-checked="positions.form.value.platformId === option.value"
+              @click="selectPlatform(option.value)"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.description }}</span>
+            </button>
+          </div>
+        </div>
         <div class="field field-medium">
           <span class="field-label">默认模式</span>
           <div class="mode-cards" role="radiogroup" aria-label="默认模式">
@@ -75,7 +94,7 @@
           <span class="field-label">详情模式</span>
           <div class="mode-cards" role="radiogroup" aria-label="详情模式">
             <button
-              v-for="option in detailModeOptions"
+              v-for="option in availableDetailModeOptions"
               :key="option.value"
               type="button"
               class="mode-card"
@@ -84,14 +103,14 @@
               }"
               role="radio"
               :aria-checked="positions.form.value.detailMode === option.value"
-              @click="positions.form.value.detailMode = option.value"
+              @click="selectDetailMode(option.value)"
             >
               <strong>{{ option.label }}</strong>
               <span>{{ option.description }}</span>
             </button>
           </div>
           <small class="field-help"
-            >页面解析更快；图片识别适合页面文字不稳定、需要读截图内容时使用。</small
+            >Boss 详情页固定使用图片识别；其它平台可按页面稳定性选择。</small
           >
         </div>
       </div>
@@ -332,11 +351,11 @@
         <div>
           <strong>{{ pos.name }}</strong>
           <p class="card-meta">
-            默认模式:
-            {{
-              pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
-            }}
-            | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
+            平台: {{ platformLabel(pos.platform_id) }} | 默认模式:
+            {{ pos.common_config?.mode_default === "keyword" ? "关键词" : "AI" }}
+            | 详情:{{
+              pos.common_config?.detail_mode === "ocr" ? "图片识别" : "页面解析"
+            }} | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
               (pos.exclude_keywords || []).join(" / ") || "无"
             }}
           </p>
@@ -357,9 +376,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 const props = defineProps({ positions: Object });
 const showForm = ref(false);
+const platformOptions = [
+  {
+    value: "boss",
+    label: "Boss直聘",
+    description: "Boss 详情页固定使用图片识别。",
+  },
+  {
+    value: "zhaopin",
+    label: "智联招聘",
+    description: "可按页面效果选择解析方式。",
+  },
+  {
+    value: "liepin",
+    label: "猎聘",
+    description: "可按页面效果选择解析方式。",
+  },
+];
 const modeOptions = [
   {
     value: "ai",
@@ -384,6 +420,12 @@ const detailModeOptions = [
     description: "读取截图文字，适合页面结构不稳定或文本难提取时使用。",
   },
 ];
+const availableDetailModeOptions = computed(() => {
+  if (props.positions.form.value.platformId === "boss") {
+    return detailModeOptions.filter((option) => option.value === "ocr");
+  }
+  return detailModeOptions;
+});
 const keywordMatchOptions = [
   {
     value: false,
@@ -399,6 +441,37 @@ const keywordMatchOptions = [
 function edit(pos: any) {
   showForm.value = true;
   props.positions.edit(pos);
+}
+
+/**
+ * 选择岗位模板所属平台，并按平台修正详情模式。
+ * @param {string} platformID - 平台标识。
+ * @returns {void} 无返回值。
+ */
+function selectPlatform(platformID: string) {
+  props.positions.form.value.platformId = platformID;
+  if (platformID === "boss") {
+    props.positions.form.value.detailMode = "ocr";
+  }
+}
+
+/**
+ * 选择详情读取模式，Boss 平台固定为 OCR。
+ * @param {string} detailMode - 详情读取模式。
+ * @returns {void} 无返回值。
+ */
+function selectDetailMode(detailMode: string) {
+  props.positions.form.value.detailMode =
+    props.positions.form.value.platformId === "boss" ? "ocr" : detailMode;
+}
+
+/**
+ * 返回平台中文名称。
+ * @param {string} platformID - 平台标识。
+ * @returns {string} 平台名称。
+ */
+function platformLabel(platformID: string) {
+  return platformOptions.find((item) => item.value === platformID)?.label || "Boss直聘";
 }
 </script>
 

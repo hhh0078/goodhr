@@ -10,6 +10,7 @@ import (
 type Position struct {
 	ID              string
 	UserEmail       string
+	PlatformID      string
 	Name            string
 	Keywords        []string
 	ExcludeKeywords []string
@@ -69,10 +70,15 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 
 // PositionByID 读取当前用户的单个岗位配置。
 func (s *MemoryPositionStore) ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	items := make([]Position, 0)
 	for _, p := range s.positions {
-		if isAdmin { items = append(items, p) } else if p.UserEmail == userEmail { items = append(items, p) }
+		if isAdmin {
+			items = append(items, p)
+		} else if p.UserEmail == userEmail {
+			items = append(items, p)
+		}
 	}
 	return items, nil
 }
