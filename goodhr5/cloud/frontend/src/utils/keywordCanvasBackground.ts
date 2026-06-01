@@ -16,6 +16,11 @@ type KeywordCanvasOptions = {
   opacity?: number;
 };
 
+type KeywordLine = Container & {
+  direction: number;
+  speed: number;
+};
+
 const DEFAULT_ROWS = [
   ["招聘", "候选人", "简历", "打招呼", "沟通", "面试", "筛选", "匹配"],
   ["Boss直聘", "猎聘", "智联", "58同城", "HR", "岗位模板", "AI评分"],
@@ -127,9 +132,36 @@ function buildKeywordRows(pixi: typeof import("pixi.js"), config: ReturnType<typ
   const stage = new pixi.Container();
   for (let index = 0; index < config.rowCount; index += 1) {
     const row = config.rows[index % config.rows.length];
-    const text = Array.from({ length: 5 }, () => row.join("   ")).join("      ");
-    const line = new pixi.Text({
-      text,
+    const line = new pixi.Container() as KeywordLine;
+    line.alpha = (index % 2 === 0 ? 0.38 : 0.32) * config.opacity;
+    line.rotation = -0.14;
+    line.eventMode = "none";
+    line.direction = index % 2 === 0 ? -1 : 1;
+    line.speed = config.speed + index * 0.035;
+    buildKeywordLineWords(pixi, line, row, index);
+    stage.addChild(line);
+  }
+  return stage;
+}
+
+/**
+ * 为单行创建多个短词文本，避免生成超宽纹理。
+ *
+ * @param pixi - PixiJS 运行时模块。
+ * @param line - 当前关键词行容器。
+ * @param row - 当前行关键词。
+ * @param index - 当前行序号。
+ */
+function buildKeywordLineWords(
+  pixi: typeof import("pixi.js"),
+  line: KeywordLine,
+  row: string[],
+  index: number,
+) {
+  const words = Array.from({ length: 8 }, () => row).flat();
+  words.forEach((word) => {
+    const item = new pixi.Text({
+      text: word,
       style: {
         fill: index % 2 === 0 ? "#174a17" : "#2a332a",
         fontFamily: "Arial, Helvetica, sans-serif",
@@ -138,12 +170,9 @@ function buildKeywordRows(pixi: typeof import("pixi.js"), config: ReturnType<typ
         letterSpacing: 0,
       },
     });
-    line.alpha = (index % 2 === 0 ? 0.38 : 0.32) * config.opacity;
-    line.rotation = -0.14;
-    line.eventMode = "none";
-    stage.addChild(line);
-  }
-  return stage;
+    item.eventMode = "none";
+    line.addChild(item);
+  });
 }
 
 /**
@@ -164,10 +193,28 @@ function layoutKeywordRows(
   const gap = Math.max(44, height / Math.max(stage.children.length - 2, 1));
 
   stage.children.forEach((child, index) => {
-    const line = child as Text;
-    line.style.fontSize = fontSize;
+    const line = child as KeywordLine;
+    layoutKeywordLineWords(line, fontSize, Math.max(30, fontSize * 0.42));
     line.x = index % 2 === 0 ? width * 0.16 : -width * 0.6;
     line.y = -height * 0.36 + index * gap;
+  });
+}
+
+/**
+ * 重新排列单行里的每个词。
+ *
+ * @param line - 当前关键词行容器。
+ * @param fontSize - 当前字号。
+ * @param wordGap - 词语之间的间距。
+ */
+function layoutKeywordLineWords(line: KeywordLine, fontSize: number, wordGap: number) {
+  let cursor = 0;
+  line.children.forEach((child) => {
+    const item = child as Text;
+    item.style.fontSize = fontSize;
+    item.x = cursor;
+    item.y = 0;
+    cursor += item.width + wordGap;
   });
 }
 
@@ -187,14 +234,13 @@ function moveKeywordRows(
 ) {
   const width = app.screen.width;
   stage.children.forEach((child, index) => {
-    const line = child as Text;
-    const direction = index % 2 === 0 ? -1 : 1;
-    const speed = (config.speed + index * 0.035) * ticker.deltaTime;
-    line.x += speed * direction;
-    if (direction < 0 && line.x < -line.width * 0.58) {
+    const line = child as KeywordLine;
+    const speed = line.speed * ticker.deltaTime;
+    line.x += speed * line.direction;
+    if (line.direction < 0 && line.x < -line.width * 0.58) {
       line.x = width * 0.2;
     }
-    if (direction > 0 && line.x > width * 0.22) {
+    if (line.direction > 0 && line.x > width * 0.22) {
       line.x = -line.width * 0.58;
     }
   });
