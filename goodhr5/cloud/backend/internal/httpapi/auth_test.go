@@ -83,6 +83,25 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestAuthSessionsKeepSeparateUsers 验证多个用户同时登录时 token 不会串号。
+func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	userToken := loginForTest(t, routes, "normal-user@example.com")
+
+	adminEmail := currentUserEmailForTest(t, routes, adminToken)
+	if adminEmail != "1224299352@qq.com" {
+		t.Fatalf("admin token email = %q", adminEmail)
+	}
+
+	userEmail := currentUserEmailForTest(t, routes, userToken)
+	if userEmail != "normal-user@example.com" {
+		t.Fatalf("user token email = %q", userEmail)
+	}
+}
+
 // TestAuthLoginSendsInitialSubscriptionRewardOnce 验证新用户首次登录会收到试用会员赠送邮件且不会重复发送。
 func TestAuthLoginSendsInitialSubscriptionRewardOnce(t *testing.T) {
 	server := mustNewServer(t)
@@ -108,6 +127,29 @@ func TestAuthLoginSendsInitialSubscriptionRewardOnce(t *testing.T) {
 	if len(mailer.rewards) != 1 {
 		t.Fatalf("reward email repeated, count = %d", len(mailer.rewards))
 	}
+}
+
+// currentUserEmailForTest 使用指定 token 调用 /api/auth/me 并返回邮箱。
+func currentUserEmailForTest(t *testing.T, routes http.Handler, token string) string {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("me status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		User struct {
+			Email string `json:"email"`
+		} `json:"user"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload.User.Email
 }
 
 // TestAuthRejectsWrongCode 验证错误验证码不能登录。

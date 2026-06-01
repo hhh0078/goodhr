@@ -27,9 +27,13 @@ export async function loginByCode(email: string, code: string, inviterID = "") {
 
 /**
  * 读取当前登录用户。
+ * @param {string} token - 指定 access_token；为空时使用本地保存的 token。
  * @returns {Promise<any>} 返回当前用户信息。
  */
-export async function currentUser() {
-  const data = await api("/api/auth/me");
+export async function currentUser(token = "") {
+  const data = await api(
+    "/api/auth/me",
+    token ? { headers: { Authorization: `Bearer ${token}` } } : {},
+  );
   return data.user;
 }

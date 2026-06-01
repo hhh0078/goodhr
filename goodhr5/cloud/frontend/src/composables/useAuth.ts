@@ -58,7 +58,7 @@ export function useAuth() {
       token.value = nextToken;
       setAccessToken(nextToken);
       setSessionEmail(targetEmail);
-      const me = await currentUser();
+      const me = await currentUser(nextToken);
       assertSameLoginUser(targetEmail, me);
       user.value = me;
     } catch (e) {
@@ -78,7 +78,7 @@ export function useAuth() {
     const expectedEmail = getSessionEmail();
     for (let i = 0; i < 3; i += 1) {
       try {
-        const me = await currentUser();
+        const me = await currentUser(requestToken);
         if (token.value !== requestToken) {
           return;
         }
