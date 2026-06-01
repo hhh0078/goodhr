@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import multiprocessing
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -326,7 +328,55 @@ def desktop_dir() -> Path:
     Returns:
         Path: 当前系统桌面路径。
     """
+    if platform.system().lower() == "windows":
+        windows_desktop = windows_known_desktop_dir()
+        if windows_desktop is not None:
+            return windows_desktop
+        user_profile = os.environ.get("USERPROFILE")
+        if user_profile:
+            return Path(user_profile) / "Desktop"
     return Path.home() / "Desktop"
+
+
+def windows_known_desktop_dir() -> Path | None:
+    """
+    读取 Windows 系统登记的真实桌面目录。
+
+    Returns:
+        Path | None: 读取成功时返回桌面路径，失败时返回 None。
+    """
+    if platform.system().lower() != "windows":
+        return None
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_uint32),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    folder_id_desktop = GUID(
+        0xB4BFCC3A,
+        0xDB2C,
+        0x424C,
+        (ctypes.c_ubyte * 8)(0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41),
+    )
+    path_ptr = ctypes.c_wchar_p()
+    try:
+        result = ctypes.windll.shell32.SHGetKnownFolderPath(  # type: ignore[attr-defined]
+            ctypes.byref(folder_id_desktop),
+            0,
+            None,
+            ctypes.byref(path_ptr),
+        )
+        if result != 0 or not path_ptr.value:
+            return None
+        return Path(path_ptr.value)
+    except Exception:
+        return None
+    finally:
+        if path_ptr.value:
+            ctypes.windll.ole32.CoTaskMemFree(path_ptr)  # type: ignore[attr-defined]
 
 
 def ensure_desktop_shortcut(base_dir: Path) -> str:
@@ -391,12 +441,34 @@ def create_windows_desktop_shortcut(shortcut_path: Path, target: Path) -> None:
         f"$Shortcut.IconLocation = '{escape_powershell(target)},0'; "
         "$Shortcut.Save()"
     )
-    subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    powershell = windows_powershell_path()
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(detail or f"PowerShell 创建快捷方式失败，退出码={result.returncode}")
+
+
+def windows_powershell_path() -> str:
+    """
+    获取 Windows PowerShell 可执行文件路径。
+
+    Returns:
+        str: PowerShell 可执行文件路径或命令名。
+    """
+    found = shutil.which("powershell.exe") or shutil.which("powershell")
+    if found:
+        return found
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    candidate = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    return str(candidate)
 
 
 def create_unix_desktop_shortcut(shortcut_path: Path, target: Path) -> None:
