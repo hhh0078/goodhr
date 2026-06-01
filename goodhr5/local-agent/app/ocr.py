@@ -23,6 +23,7 @@ _OCR_CONTRAST_FACTOR = 1.6
 _OCR_SHARPEN_RADIUS = 1.0
 _OCR_SHARPEN_PERCENT = 80
 _OCR_SHARPEN_THRESHOLD = 3
+_OCR_MAX_WIDTH = 1200
 
 
 def _get_rapid_engine():
@@ -38,10 +39,11 @@ def _get_rapid_engine():
 
 def _preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
     """
-    对 OCR 图片做灰度、对比度增强和轻微锐化。
+    对 OCR 图片做灰度、对比度增强、轻微锐化和等比例高清缩放。
 
     将网页截图先转成灰度图，减少颜色干扰，再提升文字和背景的对比度。
-    最后用轻微锐化增强文字边缘，并转回 RGB，保证 OCR 引擎接收稳定的三通道图片。
+    再用轻微锐化增强文字边缘。图片过宽时使用 LANCZOS 等比例缩放，
+    最后转回 RGB，保证 OCR 引擎接收稳定的三通道图片。
 
     Args:
         image: 原始截图图片。
@@ -59,7 +61,25 @@ def _preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
             threshold=_OCR_SHARPEN_THRESHOLD,
         )
     )
-    return sharpened_image.convert("RGB")
+    resized_image = _resize_image_for_ocr(sharpened_image)
+    return resized_image.convert("RGB")
+
+
+def _resize_image_for_ocr(image: Image.Image) -> Image.Image:
+    """
+    对 OCR 图片做等比例高清缩放。
+
+    Args:
+        image: 已完成灰度、对比和锐化的图片。
+
+    Returns:
+        Image.Image: 宽度不超过 OCR 限制的图片。
+    """
+    if image.width <= _OCR_MAX_WIDTH:
+        return image
+    ratio = _OCR_MAX_WIDTH / image.width
+    target_height = max(1, int(round(image.height * ratio)))
+    return image.resize((_OCR_MAX_WIDTH, target_height), Image.Resampling.LANCZOS)
 
 
 async def warmup_ocr_async() -> bool:
@@ -118,6 +138,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     start = time.perf_counter()
     image_size = "unknown"
     image_mode = "unknown"
+    processed_size = "unknown"
     processed_mode = "unknown"
     engine_meta: dict[str, object] = {}
     preprocess_ms = 0
@@ -129,6 +150,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         image_size = f"{image.width}x{image.height}"
         image_mode = image.mode
         processed_image = _preprocess_image_for_ocr(image)
+        processed_size = f"{processed_image.width}x{processed_image.height}"
         processed_mode = processed_image.mode
         img_array = np.array(processed_image)
         image.close()
@@ -143,12 +165,14 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "OCR 识别失败 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 原mode=%s 处理mode=%s bytes=%d err=%s",
+            "OCR 识别失败 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 处理后=%s 缩放=%s 原mode=%s 处理mode=%s bytes=%d err=%s",
             call_no,
             elapsed_ms,
             preprocess_ms,
             engine_ms,
             image_size,
+            processed_size,
+            image_size != processed_size,
             image_mode,
             processed_mode,
             len(image_bytes),
@@ -159,12 +183,15 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         line_count = len([line for line in text.splitlines() if line.strip()])
         logger.info(
-            "OCR 识别完成 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 原mode=%s 处理mode=%s 对比度=%.1f 锐化=radius%.1f/percent%d/threshold%d bytes=%d 文本行数=%d 文本长度=%d 引擎信息=%s",
+            "OCR 识别完成 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 处理后=%s 缩放=%s 算法=LANCZOS 最大宽度=%d 原mode=%s 处理mode=%s 对比度=%.1f 锐化=radius%.1f/percent%d/threshold%d bytes=%d 文本行数=%d 文本长度=%d 引擎信息=%s",
             call_no,
             elapsed_ms,
             preprocess_ms,
             engine_ms,
             image_size,
+            processed_size,
+            image_size != processed_size,
+            _OCR_MAX_WIDTH,
             image_mode,
             processed_mode,
             _OCR_CONTRAST_FACTOR,
