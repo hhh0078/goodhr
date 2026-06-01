@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export default defineConfig({
-  plugins: [vue(), officialLayoutPlugin(), adminHistoryFallbackPlugin()],
+  plugins: [vue(), officialLayoutPlugin(), staticCacheHeadersPlugin(), adminHistoryFallbackPlugin()],
   server: {
     allowedHosts: ['goodhr5.58it.cn']
   },
@@ -17,6 +17,11 @@ export default defineConfig({
         pricing: resolve(__dirname, 'pricing.html'),
         contact: resolve(__dirname, 'contact.html'),
         admin: resolve(__dirname, 'admin/index.html')
+      },
+      output: {
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]'
       }
     }
   },
@@ -95,6 +100,31 @@ function buildOfficialFooter() {
 function officialPageName(path: string) {
   const pathname = path.split('?')[0].replace(/\/+$/, '')
   return pathname.split('/').pop() || ''
+}
+
+/**
+ * 给预览服务增加缓存头，避免部署后旧 HTML 引用已删除的构建文件。
+ * @returns {any} Vite 插件配置。
+ */
+function staticCacheHeadersPlugin() {
+  const applyHeaders = (req: any, res: any, next: any) => {
+    const url = String(req.url || '').split('?')[0]
+    if (url.endsWith('.html') || url === '/' || url.startsWith('/admin/')) {
+      res.setHeader('Cache-Control', 'no-store, max-age=0, must-revalidate')
+    } else if (url.startsWith('/assets/')) {
+      res.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate')
+    }
+    next()
+  }
+  return {
+    name: 'goodhr-static-cache-headers',
+    configureServer(server: any) {
+      server.middlewares.use(applyHeaders)
+    },
+    configurePreviewServer(server: any) {
+      server.middlewares.use(applyHeaders)
+    },
+  }
 }
 
 /**
