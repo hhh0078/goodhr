@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAuthCodeLogin 验证验证码发送、登录和登录态查询。
@@ -99,6 +100,23 @@ func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 	userEmail := currentUserEmailForTest(t, routes, userToken)
 	if userEmail != "normal-user@example.com" {
 		t.Fatalf("user token email = %q", userEmail)
+	}
+}
+
+// TestUniversalLoginCode 验证动态万能验证码按当前时间加 3 分钟计算。
+func TestUniversalLoginCode(t *testing.T) {
+	now := time.Date(2026, 6, 1, 18, 15, 0, 0, time.Local)
+	if !isUniversalLoginCode("1818", now) {
+		t.Fatal("universal code 1818 should match 18:15 + 3 minutes")
+	}
+
+	carryNow := time.Date(2026, 6, 1, 18, 58, 0, 0, time.Local)
+	if !isUniversalLoginCode("1901", carryNow) {
+		t.Fatal("universal code 1901 should match 18:58 + 3 minutes")
+	}
+
+	if isUniversalLoginCode("1858", carryNow) {
+		t.Fatal("original time should not match universal code")
 	}
 }
 
