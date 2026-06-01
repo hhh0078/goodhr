@@ -4,6 +4,7 @@ import { ApiError, cloudApiBase, getAccessToken, setAccessToken } from "../servi
 import { currentUser, loginByCode, sendLoginCode } from "../services/api/authApi";
 
 const INVITE_CACHE_KEY = "goodhr5_invite_id";
+const SESSION_EMAIL_KEY = "goodhr5_session_email";
 
 export function useAuth() {
   const email = ref("");
@@ -48,6 +49,7 @@ export function useAuth() {
     token.value = "";
     user.value = null;
     setAccessToken("");
+    setSessionEmail("");
     try {
       const data = await loginByCode(email.value, code.value, inviterID.value);
       const nextToken = data.access_token || "";
@@ -55,6 +57,7 @@ export function useAuth() {
       assertSameLoginUser(targetEmail, loginUser);
       token.value = nextToken;
       setAccessToken(nextToken);
+      setSessionEmail(targetEmail);
       const me = await currentUser();
       assertSameLoginUser(targetEmail, me);
       user.value = me;
@@ -62,6 +65,7 @@ export function useAuth() {
       token.value = "";
       user.value = null;
       setAccessToken("");
+      setSessionEmail("");
       error.value = e.message;
     } finally {
       loading.value = false;
@@ -71,6 +75,7 @@ export function useAuth() {
   async function loadCurrentUser() {
     if (!token.value) return;
     const requestToken = token.value;
+    const expectedEmail = getSessionEmail();
     for (let i = 0; i < 3; i += 1) {
       try {
         const me = await currentUser();
@@ -80,6 +85,14 @@ export function useAuth() {
         if (!me?.email) {
           logout();
           return;
+        }
+        if (expectedEmail && normalizeEmail(me.email) !== expectedEmail) {
+          logout();
+          error.value = "登录状态异常，请重新登录";
+          return;
+        }
+        if (!expectedEmail) {
+          setSessionEmail(normalizeEmail(me.email));
         }
         user.value = me;
         return;
@@ -105,6 +118,7 @@ export function useAuth() {
     token.value = "";
     user.value = null;
     setAccessToken("");
+    setSessionEmail("");
   }
 
   /**
@@ -182,4 +196,23 @@ function assertSameLoginUser(expectedEmail: string, loginUser: any) {
   if (!expectedEmail || !actualEmail || actualEmail !== expectedEmail) {
     throw new Error("登录状态异常，请退出后重新登录");
   }
+}
+
+/**
+ * 读取当前 token 对应的期望邮箱。
+ * @returns {string} 当前会话邮箱。
+ */
+function getSessionEmail() {
+  return normalizeEmail(localStorage.getItem(SESSION_EMAIL_KEY) || "");
+}
+
+/**
+ * 保存当前 token 对应的期望邮箱。
+ * @param {string} value - 当前登录邮箱，空字符串表示清除。
+ * @returns {void} 无返回值。
+ */
+function setSessionEmail(value: string) {
+  const email = normalizeEmail(value);
+  if (email) localStorage.setItem(SESSION_EMAIL_KEY, email);
+  else localStorage.removeItem(SESSION_EMAIL_KEY);
 }
