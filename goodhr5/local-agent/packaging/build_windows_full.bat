@@ -53,6 +53,10 @@ echo ==^> Pin Windows greenlet
 "%PYTHON%" -m pip install --force-reinstall --no-cache-dir greenlet==3.1.1
 if errorlevel 1 exit /b 1
 
+echo ==^> Pin Windows native dependencies
+"%PYTHON%" -m pip install --force-reinstall --no-cache-dir numpy==1.26.4 onnxruntime==1.18.1
+if errorlevel 1 exit /b 1
+
 echo ==^> Prepare Windows CloakBrowser
 "%PYTHON%" packaging\prepare_vendor.py --platform win --no-extract
 if errorlevel 1 exit /b 1
