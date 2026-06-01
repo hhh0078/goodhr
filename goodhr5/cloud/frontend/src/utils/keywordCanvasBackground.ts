@@ -19,6 +19,7 @@ type KeywordCanvasOptions = {
 type KeywordLine = Container & {
   direction: number;
   speed: number;
+  wordGap: number;
 };
 
 const DEFAULT_ROWS = [
@@ -138,6 +139,7 @@ function buildKeywordRows(pixi: typeof import("pixi.js"), config: ReturnType<typ
     line.eventMode = "none";
     line.direction = index % 2 === 0 ? -1 : 1;
     line.speed = config.speed + index * 0.035;
+    line.wordGap = 34;
     buildKeywordLineWords(pixi, line, row, index);
     stage.addChild(line);
   }
@@ -190,13 +192,15 @@ function layoutKeywordRows(
   const width = app.screen.width;
   const height = app.screen.height;
   const fontSize = Math.max(config.minFontSize, Math.min(config.maxFontSize, width * config.fontScale));
-  const gap = Math.max(44, height / Math.max(stage.children.length - 2, 1));
+  const verticalPadding = fontSize * 1.1;
+  const gap = (height + verticalPadding * 2) / Math.max(stage.children.length - 1, 1);
 
   stage.children.forEach((child, index) => {
     const line = child as KeywordLine;
-    layoutKeywordLineWords(line, fontSize, Math.max(30, fontSize * 0.42));
-    line.x = index % 2 === 0 ? width * 0.16 : -width * 0.6;
-    line.y = -height * 0.36 + index * gap;
+    line.wordGap = Math.max(30, fontSize * 0.42);
+    layoutKeywordLineWords(line, fontSize, line.wordGap, width);
+    line.x = 0;
+    line.y = -verticalPadding + index * gap;
   });
 }
 
@@ -206,15 +210,19 @@ function layoutKeywordRows(
  * @param line - 当前关键词行容器。
  * @param fontSize - 当前字号。
  * @param wordGap - 词语之间的间距。
+ * @param viewportWidth - 当前画布宽度。
  */
-function layoutKeywordLineWords(line: KeywordLine, fontSize: number, wordGap: number) {
-  let cursor = 0;
+function layoutKeywordLineWords(line: KeywordLine, fontSize: number, wordGap: number, viewportWidth: number) {
+  const words = line.children as Text[];
+  if (words.length === 0) return;
+
+  let cursor = line.direction < 0 ? -viewportWidth * 0.08 : viewportWidth * 1.08;
   line.children.forEach((child) => {
     const item = child as Text;
     item.style.fontSize = fontSize;
     item.x = cursor;
     item.y = 0;
-    cursor += item.width + wordGap;
+    cursor += line.direction < 0 ? item.width + wordGap : -(item.width + wordGap);
   });
 }
 
@@ -233,15 +241,44 @@ function moveKeywordRows(
   ticker: { deltaTime: number },
 ) {
   const width = app.screen.width;
-  stage.children.forEach((child, index) => {
+  stage.children.forEach((child) => {
     const line = child as KeywordLine;
     const speed = line.speed * ticker.deltaTime;
-    line.x += speed * line.direction;
-    if (line.direction < 0 && line.x < -line.width * 0.58) {
-      line.x = width * 0.2;
-    }
-    if (line.direction > 0 && line.x > width * 0.22) {
-      line.x = -line.width * 0.58;
+    recycleKeywordLineWords(line, width, speed);
+  });
+}
+
+/**
+ * 循环回收单行里的词，避免整行跑完后出现空白。
+ *
+ * @param line - 当前关键词行容器。
+ * @param viewportWidth - 当前画布宽度。
+ * @param speed - 当前帧移动距离。
+ */
+function recycleKeywordLineWords(line: KeywordLine, viewportWidth: number, speed: number) {
+  const words = line.children as Text[];
+  if (words.length === 0) return;
+
+  words.forEach((word) => {
+    word.x += speed * line.direction;
+  });
+
+  if (line.direction < 0) {
+    let rightMost = Math.max(...words.map((word) => word.x + word.width));
+    words.forEach((word) => {
+      if (word.x + word.width < -viewportWidth * 0.18) {
+        word.x = rightMost + line.wordGap;
+        rightMost = word.x + word.width;
+      }
+    });
+    return;
+  }
+
+  let leftMost = Math.min(...words.map((word) => word.x));
+  words.forEach((word) => {
+    if (word.x > viewportWidth * 1.18) {
+      word.x = leftMost - word.width - line.wordGap;
+      leftMost = word.x;
     }
   });
 }
