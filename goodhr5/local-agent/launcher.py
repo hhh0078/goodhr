@@ -41,6 +41,20 @@ THEME_TITLE_FONT = ("Courier New", 20, "bold")
 THEME_SECTION_FONT = ("Courier New", 12, "bold")
 
 
+def configure_utf8_stdio() -> None:
+    """
+    配置当前进程标准输出为 UTF-8。
+
+    Windows 打包后如果没有提前设置，部分三方库日志可能按系统默认编码写出，
+    导致桌面日志框看到中文乱码。
+    """
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def app_support_dir() -> Path:
     """
     获取 Local Agent 运行数据目录。
@@ -723,6 +737,7 @@ class GoodHRLauncher:
 
 def main() -> None:
     """启动桌面窗口或 Local Agent 服务。"""
+    configure_utf8_stdio()
     multiprocessing.freeze_support()
     if "--agent-server" in sys.argv:
         from app.main import main as run_agent

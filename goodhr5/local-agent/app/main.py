@@ -1155,6 +1155,8 @@ def main() -> None:
     import uvicorn
 
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "reconfigure"):

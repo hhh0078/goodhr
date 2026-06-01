@@ -57,10 +57,6 @@ echo ==^> Build with PyInstaller
 "%PYTHON%" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 if errorlevel 1 exit /b 1
 
-echo ==^> Create desktop shortcut
-powershell -ExecutionPolicy Bypass -File packaging\create_windows_shortcut.ps1
-if errorlevel 1 exit /b 1
-
 echo ==^> Build complete
 echo Output: %CD%\dist\GoodHR
 
