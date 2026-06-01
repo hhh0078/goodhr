@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -50,8 +51,17 @@ async def ensure_audio_from_url(url: str) -> Path:
 
 
 def play_once(path: Path) -> None:
+    """
+    播放一次提示音。
+
+    Args:
+        path: 要播放的音频文件路径。
+    """
     if not path.exists():
         raise FileNotFoundError(f"audio file not found: {path}")
+    if platform.system().lower() == "windows":
+        play_windows_sound(path)
+        return
     player = _pick_player()
     if not player:
         raise RuntimeError("no supported audio player found (afplay/mpg123/ffplay)")
@@ -61,7 +71,28 @@ def play_once(path: Path) -> None:
         subprocess.run([player, str(path)], check=True)
 
 
+def play_windows_sound(path: Path) -> None:
+    """
+    使用 Windows 自带能力播放提示音。
+
+    Args:
+        path: 要播放的音频文件路径。
+    """
+    import winsound
+
+    if path.suffix.lower() == ".wav":
+        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
+        return
+    winsound.MessageBeep(winsound.MB_OK)
+
+
 def _pick_player() -> str:
+    """
+    选择当前系统可用的命令行音频播放器。
+
+    Returns:
+        str: 播放器命令名；找不到时返回空字符串。
+    """
     for cmd in ("afplay", "mpg123", "ffplay"):
         if shutil.which(cmd):
             return cmd
