@@ -10,8 +10,8 @@ echo ==^> Current dir: %CD%
 
 call :find_python
 if errorlevel 1 (
-  echo ERROR: Python 3.10+ was not found.
-  echo Please install Python 3.12 from https://www.python.org/downloads/windows/
+  echo ERROR: Python 3.10+ 64-bit was not found.
+  echo Please install Python 3.12 x64 from https://www.python.org/downloads/windows/
   echo When installing, enable "Add python.exe to PATH".
   echo If Windows opens Microsoft Store, disable python.exe aliases in:
   echo Settings ^> Apps ^> Advanced app settings ^> App execution aliases
@@ -22,9 +22,9 @@ for /f "delims=" %%v in ('%SYSTEM_PYTHON% --version') do set "SYSTEM_PYTHON_VERS
 echo ==^> Using Python: %SYSTEM_PYTHON_VERSION%
 
 if exist ".venv\Scripts\python.exe" (
-  for /f "delims=" %%v in ('".venv\Scripts\python.exe" -c "import sys; print('yes' if sys.version_info >= (3, 10) else 'no')"') do set "VENV_OK=%%v"
+  for /f "delims=" %%v in ('".venv\Scripts\python.exe" -c "import sys, struct; ok = sys.version_info >= (3, 10) and struct.calcsize('P') * 8 == 64; print('yes' if ok else 'no')"') do set "VENV_OK=%%v"
   if not "!VENV_OK!"=="yes" (
-    echo ==^> Existing .venv Python is lower than 3.10, rebuilding
+    echo ==^> Existing .venv Python is not 3.10+ x64, rebuilding
     rmdir /s /q .venv
   )
 )
@@ -49,6 +49,10 @@ echo ==^> Install dependencies
 "%PYTHON%" -m pip install -e ".[packaging]"
 if errorlevel 1 exit /b 1
 
+echo ==^> Pin Windows greenlet
+"%PYTHON%" -m pip install --force-reinstall --no-cache-dir greenlet==3.1.1
+if errorlevel 1 exit /b 1
+
 echo ==^> Prepare Windows CloakBrowser
 "%PYTHON%" packaging\prepare_vendor.py --platform win --no-extract
 if errorlevel 1 exit /b 1
@@ -64,8 +68,8 @@ endlocal
 exit /b 0
 
 :find_python
-for %%C in ("py -3.12" "py -3.11" "py -3.10" "python" "python3") do (
-  %%~C -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>nul
+for %%C in ("py -3.12-64" "py -3.11-64" "py -3.10-64" "python" "python3") do (
+  %%~C -c "import sys, struct; raise SystemExit(0 if sys.version_info >= (3, 10) and struct.calcsize('P') * 8 == 64 else 1)" >nul 2>nul
   if not errorlevel 1 (
     set "SYSTEM_PYTHON=%%~C"
     exit /b 0
