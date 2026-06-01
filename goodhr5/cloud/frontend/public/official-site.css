@@ -32,7 +32,7 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.82;
+  opacity: 0.78;
 }
 
 .official-keyword-wall .keyword-canvas {
@@ -57,7 +57,6 @@ a {
   padding: 12px;
   position: relative;
   z-index: 1;
-  backdrop-filter: blur(2px);
 }
 
 .brand {
@@ -108,7 +107,6 @@ main {
   border: 1px solid var(--line);
   background: rgba(2, 2, 2, 0.18);
   padding: clamp(22px, 5vw, 54px);
-  backdrop-filter: blur(1px);
 }
 
 .terminal-window {
@@ -258,7 +256,6 @@ article,
   border: 1px solid var(--line);
   background: rgba(2, 2, 2, 0.3);
   padding: 18px;
-  backdrop-filter: blur(1px);
 }
 
 article:hover,
@@ -300,7 +297,6 @@ article:hover,
   background: rgba(2, 2, 2, 0.3);
   padding: 18px;
   margin-top: 16px;
-  backdrop-filter: blur(1px);
 }
 
 .compare-section.terminal-window {

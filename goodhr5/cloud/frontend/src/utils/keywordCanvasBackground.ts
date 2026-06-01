@@ -98,9 +98,9 @@ export async function createKeywordCanvasBackground(
  *
  * @param selector - 需要初始化的背景容器选择器。
  */
-export function mountKeywordCanvasBackgrounds(selector = "[data-keyword-canvas]") {
+export function mountKeywordCanvasBackgrounds(selector = "[data-keyword-canvas]", options: KeywordCanvasOptions = {}) {
   document.querySelectorAll<HTMLElement>(selector).forEach((host) => {
-    createKeywordCanvasBackground(host);
+    createKeywordCanvasBackground(host, options);
   });
 }
 
