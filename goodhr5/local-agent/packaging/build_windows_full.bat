@@ -65,6 +65,10 @@ echo ==^> Build with PyInstaller
 "%PYTHON%" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 if errorlevel 1 exit /b 1
 
+echo ==^> Copy startup failure guide
+copy /Y packaging\启动失败.txt dist\GoodHR\启动失败.txt >nul
+if errorlevel 1 exit /b 1
+
 echo ==^> Build complete
 echo Output: %CD%\dist\GoodHR
 

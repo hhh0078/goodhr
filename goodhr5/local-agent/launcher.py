@@ -26,6 +26,7 @@ from tkinter import messagebox, scrolledtext
 APP_NAME = "GoodHR"
 APP_DATA_DIR_NAME = "GoodHR"
 OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
+WINDOWS_RUNTIME_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
@@ -488,9 +489,22 @@ class GoodHRLauncher:
         button_row = tk.Frame(wrapper, bg=THEME_PANEL)
         button_row.pack(fill=tk.X, pady=(0, 10))
         self._make_button(button_row, text="打开官网", command=self._open_site).pack(side=tk.LEFT, padx=(0, 8))
+        if platform.system().lower() == "windows":
+            self._make_button(button_row, text="下载安装环境", command=self._open_windows_runtime, width=14).pack(
+                side=tk.LEFT,
+                padx=(0, 8),
+            )
         self._make_button(button_row, text="停止服务", command=self._stop_agent).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="清除日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT)
+
+        if platform.system().lower() == "windows":
+            self._make_label(
+                wrapper,
+                text="程序无法启动？请先下载安装环境包，安装后重启电脑。",
+                anchor="w",
+                fg=THEME_DIM,
+            ).pack(fill=tk.X, pady=(0, 10))
 
         self._make_label(wrapper, text="运行日志", font=THEME_SECTION_FONT).pack(anchor="w")
         self.log_view = scrolledtext.ScrolledText(
@@ -674,6 +688,10 @@ class GoodHRLauncher:
     def _open_site(self) -> None:
         """使用默认浏览器打开 GoodHR 官网。"""
         webbrowser.open(OFFICIAL_SITE_URL)
+
+    def _open_windows_runtime(self) -> None:
+        """使用默认浏览器打开 Windows 运行环境下载地址。"""
+        webbrowser.open(WINDOWS_RUNTIME_URL)
 
     def _refresh_status(self) -> None:
         """刷新子进程状态和健康检查状态。"""

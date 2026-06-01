@@ -1,0 +1,51 @@
+文件作用：本文件用于帮助 Windows 用户处理 GoodHR 启动失败问题。
+
+GoodHR 启动失败处理步骤
+
+如果 GoodHR 打不开，或者窗口里出现以下提示：
+
+1. 不是有效的 Win32 应用程序
+2. 动态链接库初始化失败
+3. DLL load failed
+4. Local Agent 启动失败
+
+请按下面步骤处理：
+
+第一步：安装运行环境
+
+请打开下面地址下载安装环境包：
+
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+安装完成后，请重启电脑。
+
+第二步：确认系统是 64 位
+
+GoodHR 当前 Windows 版本只支持 64 位系统。
+
+确认方法：
+
+1. 按 Win + R
+2. 输入 cmd
+3. 执行下面命令：
+
+wmic os get osarchitecture
+
+如果显示 64 位，说明系统符合要求。
+
+第三步：重新解压完整程序
+
+请不要只复制 GoodHR.exe。
+
+需要保留完整目录，例如：
+
+GoodHR
+  GoodHR.exe
+  _internal
+  启动失败.txt
+
+第四步：重新运行
+
+请双击 GoodHR.exe 重新启动。
+
+如果仍然失败，请把窗口里的完整错误内容发给客服或管理员。
