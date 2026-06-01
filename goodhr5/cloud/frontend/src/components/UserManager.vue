@@ -20,14 +20,19 @@
         </label>
         <label class="reason-field">
           调整原因
-          <input v-model="form.reason" placeholder="例如：售后补偿 / 手动扣减" />
+          <input
+            v-model="form.reason"
+            placeholder="例如：售后补偿 / 手动扣减"
+          />
         </label>
       </div>
       <div class="actions">
         <button :disabled="adjusting" @click="adjustDays">
           {{ adjusting ? "调整中..." : "确认调整" }}
         </button>
-        <button class="ghost" :disabled="adjusting" @click="resetForm">清空</button>
+        <button class="ghost" :disabled="adjusting" @click="resetForm">
+          清空
+        </button>
       </div>
     </div>
 
@@ -57,7 +62,9 @@
           {{ item.subscription?.active ? "有效" : "已过期" }}
         </span>
         <span>
-          {{ item.agent?.machine_id ? shortMachine(item.agent.machine_id) : "--" }}
+          {{
+            item.agent?.machine_id ? shortMachine(item.agent.machine_id) : "--"
+          }}
           <small>{{ item.agent?.agent_version || "" }}</small>
         </span>
         <span class="hint">{{ item.inviter_email || "--" }}</span>
@@ -65,7 +72,7 @@
         <span class="row-actions">
           <button class="ghost" @click="selectUser(item, 7)">加天数</button>
           <button class="ghost" @click="selectUser(item, -7)">减天数</button>
-          <button class="ghost danger" :disabled="!item.agent?.machine_id || unbinding" @click="unbindAgent(item)">
+          <button class="ghost danger" @click="unbindAgent(item)">
             解绑本地程序
           </button>
         </span>
@@ -116,7 +123,8 @@ async function load() {
 function selectUser(user: any, days: number) {
   form.value.email = user.email || "";
   form.value.days = days;
-  form.value.reason = days > 0 ? "超级管理员增加会员天数" : "超级管理员减少会员天数";
+  form.value.reason =
+    days > 0 ? "超级管理员增加会员天数" : "超级管理员减少会员天数";
 }
 
 /**

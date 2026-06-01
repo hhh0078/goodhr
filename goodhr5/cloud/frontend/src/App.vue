@@ -38,10 +38,13 @@
         ><span class="sep">|</span>
         <span class="top-info">{{ currentRoleLabel }}</span
         ><span class="sep">|</span>
-        <span :class="['top-info', subscriptionStatusColor]">{{
-          subscriptionText
-        }}</span
-        ><span class="sep">|</span>
+        <button
+          :class="['top-info', 'top-link', subscriptionStatusColor]"
+          @click="goSubscription"
+        >
+          {{ subscriptionText }}
+        </button>
+        <span class="sep">|</span>
         <button
           :class="['top-info', 'top-link', agentStatusColor]"
           @click="goMenu('agent-download')"
@@ -259,6 +262,14 @@ onMounted(async () => {
  */
 function goContact() {
   window.open("https://goodhr.58it.cn", "_blank");
+}
+
+/**
+ * 跳转到订阅页面。
+ * @returns {void} 无返回值。
+ */
+function goSubscription() {
+  window.location.href = "/admin/subscription";
 }
 
 function goInvitation() {
