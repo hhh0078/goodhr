@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from collections.abc import Iterable
 
@@ -1138,11 +1139,15 @@ def main() -> None:
     import uvicorn
 
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.handlers.clear()
     if os.getenv("GOODHR_AGENT_LOG_TO_STDOUT", "1") != "0":
-        stream_handler = logging.StreamHandler()
+        stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(formatter)
         root_logger.addHandler(stream_handler)
 

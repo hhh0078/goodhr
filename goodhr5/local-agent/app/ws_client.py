@@ -11,7 +11,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import websockets
 import httpx
@@ -145,6 +145,7 @@ class WSAgentState:
     status: str = "未连接"
     connected: bool = False
     cloud_ws_url: str = ""
+    cloud_ws_token: str = ""
     last_error: str = ""
     last_message: str = ""
 
@@ -174,6 +175,7 @@ class WSAgentClient:
         logger.info("[任务WS] 收到连接请求 cloud_ws_url=%s", cloud_ws_url)
         await self.disconnect()
         self.state.cloud_ws_url = self._url_with_token(cloud_ws_url, token)
+        self.state.cloud_ws_token = token
         self.state.status = "连接中"
         self.state.last_error = ""
         self._task = asyncio.create_task(self._run_forever())
@@ -247,6 +249,7 @@ class WSAgentClient:
         self._active_tasks.clear()
         self.state.connected = False
         self.state.status = "未连接"
+        self.state.cloud_ws_token = ""
         logger.info("[任务WS] 已手动断开连接")
         return self.status()
 
@@ -271,8 +274,15 @@ class WSAgentClient:
         """
         while True:
             try:
-                logger.info("[任务WS] 正在连接云端WS url=%s", self.state.cloud_ws_url)
-                async with websockets.connect(self.state.cloud_ws_url, ping_interval=20, ping_timeout=20) as ws:
+                logger.info("[任务WS] 正在连接云端WS url=%s", self._safe_ws_url(self.state.cloud_ws_url))
+                async with websockets.connect(
+                    self.state.cloud_ws_url,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    open_timeout=12,
+                    additional_headers=self._ws_headers(),
+                    proxy=None,
+                ) as ws:
                     self._ws = ws
                     self.state.connected = True
                     self.state.status = "已连接"
@@ -291,8 +301,8 @@ class WSAgentClient:
             except Exception as exc:
                 self.state.connected = False
                 self.state.status = "重连中"
-                self.state.last_error = str(exc)
-                logger.exception("[任务WS] 连接循环异常: %s", exc)
+                self.state.last_error = self._friendly_ws_error(exc)
+                logger.exception("[任务WS] 连接循环异常: %s", self.state.last_error)
                 await asyncio.sleep(3)
 
     async def _connect_with_retries(self, cloud_ws_url: str, token: str, retries: int) -> bool:
@@ -970,7 +980,7 @@ class WSAgentClient:
 
     def _url_with_token(self, cloud_ws_url: str, token: str) -> str:
         """
-        将 token 追加到云端 WebSocket 地址。
+        将 token 追加到云端 WebSocket 地址，并兼容误传的 HTTP 地址。
 
         Args:
             cloud_ws_url: 原始 WebSocket 地址。
@@ -979,8 +989,61 @@ class WSAgentClient:
         Returns:
             返回可直接连接的 WebSocket 地址。
         """
+        if cloud_ws_url.startswith("https://"):
+            cloud_ws_url = "wss://" + cloud_ws_url[len("https://") :]
+        elif cloud_ws_url.startswith("http://"):
+            cloud_ws_url = "ws://" + cloud_ws_url[len("http://") :]
         sep = "&" if "?" in cloud_ws_url else "?"
         return f"{cloud_ws_url}{sep}token={quote(token)}"
+
+    def _ws_headers(self) -> dict[str, str]:
+        """
+        生成 WebSocket 建连请求头。
+
+        Returns:
+            dict[str, str]: WebSocket 请求头。
+        """
+        headers = {"User-Agent": "GoodHRLocalAgent"}
+        if self.state.cloud_ws_token:
+            headers["Authorization"] = f"Bearer {self.state.cloud_ws_token}"
+        return headers
+
+    def _safe_ws_url(self, cloud_ws_url: str) -> str:
+        """
+        隐藏日志中的 WebSocket token。
+
+        Args:
+            cloud_ws_url: 可能包含 token 的 WebSocket 地址。
+
+        Returns:
+            str: 已隐藏 token 的地址。
+        """
+        try:
+            parts = urlsplit(cloud_ws_url)
+            query = [(key, "***" if key == "token" else value) for key, value in parse_qsl(parts.query)]
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+        except Exception:
+            return cloud_ws_url.replace(self.state.cloud_ws_token, "***") if self.state.cloud_ws_token else cloud_ws_url
+
+    def _friendly_ws_error(self, exc: Exception) -> str:
+        """
+        生成更容易理解的 WebSocket 错误信息。
+
+        Args:
+            exc: 原始异常。
+
+        Returns:
+            str: 面向用户和日志排查的错误说明。
+        """
+        message = str(exc)
+        if "HTTP 400" in message or exc.__class__.__name__ in {"InvalidStatus", "InvalidStatusCode"}:
+            return (
+                f"{message}；服务器拒绝 WebSocket 握手。"
+                "如果是线上域名，请检查 Nginx 的 /api/ 反代是否配置了 Upgrade 和 Connection 头。"
+            )
+        if "proxy" in message.lower():
+            return f"{message}；本地程序已禁用系统代理直连服务器，请检查网络或域名解析。"
+        return message
 
 
 def _profile_dir(name: str) -> Path:

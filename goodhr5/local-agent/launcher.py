@@ -26,6 +26,7 @@ from tkinter import messagebox, scrolledtext
 APP_NAME = "GoodHR"
 APP_DATA_DIR_NAME = "GoodHR"
 OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
+SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
 THEME_BG = "#0a0a0a"
@@ -287,6 +288,130 @@ def ensure_cloakbrowser_binary(root: Path, runtime_vendor_dir: Path) -> Path | N
     return ensure_executable_permission(find_cloakbrowser_binary(runtime_root))
 
 
+def packaged_app_target() -> Path | None:
+    """
+    获取打包程序本体路径。
+
+    Returns:
+        Path | None: 打包后的 exe 或 app 路径；源码运行时返回 None。
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    executable = Path(sys.executable).resolve()
+    if platform.system().lower() == "darwin":
+        app_dir = find_parent_app_dir(executable)
+        return app_dir or executable
+    return executable
+
+
+def desktop_dir() -> Path:
+    """
+    获取当前用户桌面目录。
+
+    Returns:
+        Path: 当前系统桌面路径。
+    """
+    return Path.home() / "Desktop"
+
+
+def ensure_desktop_shortcut(base_dir: Path) -> str:
+    """
+    首次运行时创建 GoodHR 桌面快捷方式。
+
+    Args:
+        base_dir: 应用数据根目录。
+
+    Returns:
+        str: 创建结果说明。
+    """
+    target = packaged_app_target()
+    if target is None:
+        return "源码运行，跳过桌面快捷方式创建。"
+
+    shortcut_path = desktop_shortcut_path(target)
+    marker = base_dir / "config" / SHORTCUT_MARKER_FILE
+    if marker.exists() and shortcut_path.exists():
+        return "桌面快捷方式已存在。"
+
+    shortcut_path.parent.mkdir(parents=True, exist_ok=True)
+    if platform.system().lower() == "windows":
+        create_windows_desktop_shortcut(shortcut_path, target)
+    else:
+        create_unix_desktop_shortcut(shortcut_path, target)
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(str(shortcut_path), encoding="utf-8")
+    return f"已创建桌面快捷方式：{shortcut_path}"
+
+
+def desktop_shortcut_path(target: Path) -> Path:
+    """
+    计算桌面快捷方式路径。
+
+    Args:
+        target: 打包程序本体路径。
+
+    Returns:
+        Path: 桌面快捷方式路径。
+    """
+    if platform.system().lower() == "windows":
+        return desktop_dir() / f"{APP_NAME}.lnk"
+    suffix = ".app" if target.suffix == ".app" else ""
+    return desktop_dir() / f"{APP_NAME}{suffix}"
+
+
+def create_windows_desktop_shortcut(shortcut_path: Path, target: Path) -> None:
+    """
+    创建 Windows 桌面 lnk 快捷方式。
+
+    Args:
+        shortcut_path: 快捷方式保存路径。
+        target: 快捷方式指向的 exe 路径。
+    """
+    script = (
+        "$Shell = New-Object -ComObject WScript.Shell; "
+        f"$Shortcut = $Shell.CreateShortcut('{escape_powershell(shortcut_path)}'); "
+        f"$Shortcut.TargetPath = '{escape_powershell(target)}'; "
+        f"$Shortcut.WorkingDirectory = '{escape_powershell(target.parent)}'; "
+        f"$Shortcut.IconLocation = '{escape_powershell(target)},0'; "
+        "$Shortcut.Save()"
+    )
+    subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def create_unix_desktop_shortcut(shortcut_path: Path, target: Path) -> None:
+    """
+    创建 macOS/Linux 桌面快捷入口。
+
+    Args:
+        shortcut_path: 快捷入口路径。
+        target: 快捷入口指向的 app 或可执行文件。
+    """
+    if shortcut_path.exists() or shortcut_path.is_symlink():
+        if not shortcut_path.is_symlink():
+            return
+        shortcut_path.unlink()
+    shortcut_path.symlink_to(target)
+
+
+def escape_powershell(value: Path) -> str:
+    """
+    转义 PowerShell 单引号字符串。
+
+    Args:
+        value: 需要放入 PowerShell 字符串的路径。
+
+    Returns:
+        str: 已转义路径。
+    """
+    return str(value).replace("'", "''")
+
+
 class GoodHRLauncher:
     """GoodHR Local Agent 图形启动器。"""
 
@@ -309,6 +434,7 @@ class GoodHRLauncher:
         self.detail_var = tk.StringVar(value=f"数据目录：{self.base_dir}")
 
         self._build_ui()
+        self._ensure_desktop_shortcut()
         self._start_agent()
         self._schedule_refresh()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -449,6 +575,15 @@ class GoodHRLauncher:
         self.log_view.see(tk.END)
         self.log_view.configure(state=tk.DISABLED)
 
+    def _ensure_desktop_shortcut(self) -> None:
+        """创建桌面快捷方式并把结果写入窗口日志。"""
+        try:
+            message = ensure_desktop_shortcut(self.base_dir)
+            if "已创建" in message:
+                self._append_log(f"{message}\n")
+        except Exception as exc:
+            self._append_log(f"创建桌面快捷方式失败：{exc}\n")
+
     def _start_agent(self) -> None:
         """启动 Local Agent 子进程。"""
         if self.process and self.process.poll() is None:
@@ -466,6 +601,8 @@ class GoodHRLauncher:
         env["GOODHR_AGENT_DATA_DIR"] = str(self.dirs["agent_data"])
         env["GOODHR_AGENT_LOG_TO_STDOUT"] = "1"
         env["CLOAKBROWSER_BINARY_PATH"] = str(browser_binary)
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
 
         if getattr(sys, "frozen", False):
             command = [sys.executable, "--agent-server"]
@@ -476,6 +613,9 @@ class GoodHRLauncher:
         self._append_log(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
 
         env["PYTHONUNBUFFERED"] = "1"
+        creationflags = 0
+        if platform.system().lower() == "windows" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+            creationflags = subprocess.CREATE_NO_WINDOW
         self.process = subprocess.Popen(
             command,
             cwd=str(bundle_root()),
@@ -485,6 +625,7 @@ class GoodHRLauncher:
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=creationflags,
         )
         self._start_stdout_reader()
 
