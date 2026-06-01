@@ -17,6 +17,8 @@ from app.paths import APP_ROOT
 AUDIO_DIR = APP_ROOT / "assets" / "audio"
 DEFAULT_SUCCESS = AUDIO_DIR / "success.mp3"
 DEFAULT_FAILED = AUDIO_DIR / "failed.mp3"
+DEFAULT_SUCCESS_WAV = AUDIO_DIR / "success.wav"
+DEFAULT_FAILED_WAV = AUDIO_DIR / "failed.wav"
 
 
 def ensure_audio_dir() -> Path:
@@ -27,9 +29,9 @@ def ensure_audio_dir() -> Path:
 def resolve_builtin_audio(kind: str) -> Path:
     key = (kind or "").strip().lower()
     if key == "success":
-        return DEFAULT_SUCCESS
+        return DEFAULT_SUCCESS_WAV if DEFAULT_SUCCESS_WAV.exists() else DEFAULT_SUCCESS
     if key == "failed":
-        return DEFAULT_FAILED
+        return DEFAULT_FAILED_WAV if DEFAULT_FAILED_WAV.exists() else DEFAULT_FAILED
     raise ValueError("kind must be success or failed")
 
 
