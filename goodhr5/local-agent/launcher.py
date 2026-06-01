@@ -379,12 +379,13 @@ def windows_known_desktop_dir() -> Path | None:
             ctypes.windll.ole32.CoTaskMemFree(path_ptr)  # type: ignore[attr-defined]
 
 
-def ensure_desktop_shortcut(base_dir: Path) -> str:
+def ensure_desktop_shortcut(base_dir: Path, force: bool = False) -> str:
     """
     首次运行时创建 GoodHR 桌面快捷方式。
 
     Args:
         base_dir: 应用数据根目录。
+        force: 是否强制重新创建快捷方式。
 
     Returns:
         str: 创建结果说明。
@@ -395,7 +396,7 @@ def ensure_desktop_shortcut(base_dir: Path) -> str:
 
     shortcut_path = desktop_shortcut_path(target)
     marker = base_dir / "config" / SHORTCUT_MARKER_FILE
-    if marker.exists() and shortcut_path.exists():
+    if not force and marker.exists() and shortcut_path.exists():
         return "桌面快捷方式已存在。"
 
     shortcut_path.parent.mkdir(parents=True, exist_ok=True)
@@ -566,6 +567,10 @@ class GoodHRLauncher:
                 side=tk.LEFT,
                 padx=(0, 8),
             )
+            self._make_button(button_row, text="创建快捷方式", command=self._create_desktop_shortcut, width=14).pack(
+                side=tk.LEFT,
+                padx=(0, 8),
+            )
         self._make_button(button_row, text="停止服务", command=self._stop_agent).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="清除日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT)
@@ -683,6 +688,16 @@ class GoodHRLauncher:
                 self._append_log(f"{message}\n")
         except Exception as exc:
             self._append_log(f"创建桌面快捷方式失败：{exc}\n")
+
+    def _create_desktop_shortcut(self) -> None:
+        """手动创建桌面快捷方式并显示结果。"""
+        try:
+            message = ensure_desktop_shortcut(self.base_dir, force=True)
+            self._append_log(f"{message}\n")
+            messagebox.showinfo("GoodHR", "桌面快捷方式已创建")
+        except Exception as exc:
+            self._append_log(f"创建桌面快捷方式失败：{exc}\n")
+            messagebox.showerror("GoodHR", f"创建桌面快捷方式失败：{exc}")
 
     def _start_agent(self) -> None:
         """启动 Local Agent 子进程。"""
