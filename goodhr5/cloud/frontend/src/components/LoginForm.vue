@@ -91,26 +91,16 @@
 </template>
 
 <script setup lang="ts">
-import type { Application, Container, Text } from "pixi.js";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  createKeywordCanvasBackground,
+  type KeywordCanvasBackground,
+} from "../utils/keywordCanvasBackground";
 const props = defineProps({ auth: Object });
 const emailRef = ref(null);
 const codeRef = ref(null);
 const keywordWallRef = ref<HTMLElement | null>(null);
-const keywordRows = [
-  ["招聘", "候选人", "简历", "打招呼", "沟通", "面试", "筛选", "匹配"],
-  ["Boss直聘", "猎聘", "智联", "58同城", "HR", "岗位模板", "AI评分"],
-  ["自动筛选", "自动打招呼", "人才库", "回复率", "复聊", "跟进", "Offer"],
-  ["薪资", "经验", "学历", "城市", "活跃候选人", "高匹配", "已沟通"],
-  ["今日打招呼", "跳过原因", "查看详情", "推荐列表", "招聘效率", "沟通记录"],
-  ["AI判断", "匹配分", "已扫描", "已跳过", "已回复", "待跟进", "高意向"],
-  ["成都招聘", "销售", "客服", "运营", "老师", "开发", "人事"],
-  ["自动化", "批量沟通", "精准筛选", "快速开聊", "职位匹配", "人才发现"],
-];
-let keywordApp: Application | null = null;
-let keywordStage: Container | null = null;
-let keywordResizeTimer = 0;
-let keywordDisposed = false;
+let keywordBackground: KeywordCanvasBackground | null = null;
 
 /**
  * 聚焦验证码输入框。
@@ -124,127 +114,22 @@ function focusCode() {
  */
 async function createKeywordWall() {
   const host = keywordWallRef.value;
-  if (!host || keywordApp) return;
-
-  keywordDisposed = false;
-  const pixi = await import("pixi.js");
-  if (keywordDisposed || !keywordWallRef.value) return;
-
-  const app = new pixi.Application();
-  await app.init({
-    resizeTo: host,
-    backgroundAlpha: 0,
-    antialias: true,
-    autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2),
-    powerPreference: "high-performance",
+  if (!host || keywordBackground) return;
+  keywordBackground = await createKeywordCanvasBackground(host, {
+    rowCount: 16,
+    speed: 1.46,
+    minFontSize: 46,
+    maxFontSize: 112,
+    fontScale: 0.082,
   });
-  if (keywordDisposed || !keywordWallRef.value) {
-    app.destroy(true);
-    return;
-  }
-
-  keywordApp = app;
-  keywordStage = buildKeywordRows(pixi);
-  app.canvas.className = "keyword-canvas";
-  app.stage.addChild(keywordStage);
-  host.appendChild(app.canvas);
-  layoutKeywordRows();
-  app.ticker.add(moveKeywordRows);
-  window.addEventListener("resize", scheduleKeywordLayout);
-}
-
-/**
- * 生成关键词行对象。
- *
- * @param pixi PixiJS 运行时模块。
- * @returns Pixi 容器，包含所有滚动文本行。
- */
-function buildKeywordRows(pixi: typeof import("pixi.js")) {
-  const stage = new pixi.Container();
-  keywordRows.forEach((row, index) => {
-    const line = new pixi.Text({
-      text: `${row.join("   ")}      ${row.join("   ")}      ${row.join("   ")}`,
-      style: {
-        fill: index % 2 === 0 ? "#174a17" : "#2a332a",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        fontSize: 72,
-        fontWeight: "700",
-        letterSpacing: 0,
-      },
-    });
-    line.alpha = index % 2 === 0 ? 0.34 : 0.28;
-    line.rotation = -0.14;
-    line.eventMode = "none";
-    line.label = `keyword-row-${index}`;
-    stage.addChild(line);
-  });
-  return stage;
-}
-
-/**
- * 按当前窗口尺寸重新布局关键词背景。
- */
-function layoutKeywordRows() {
-  if (!keywordApp || !keywordStage) return;
-
-  const width = keywordApp.screen.width;
-  const height = keywordApp.screen.height;
-  const fontSize = Math.max(40, Math.min(96, width * 0.072));
-  const gap = Math.max(60, height / Math.max(keywordStage.children.length, 1));
-
-  keywordStage.children.forEach((child, index) => {
-    const line = child as Text;
-    line.style.fontSize = fontSize;
-    line.x = index % 2 === 0 ? width * 0.18 : -width * 0.52;
-    line.y = -height * 0.24 + index * gap;
-  });
-}
-
-/**
- * 推动关键词背景逐帧移动。
- *
- * @param ticker Pixi 当前帧信息。
- */
-function moveKeywordRows(ticker: { deltaTime: number }) {
-  if (!keywordApp || !keywordStage) return;
-
-  const width = keywordApp.screen.width;
-  keywordStage.children.forEach((child, index) => {
-    const line = child as Text;
-    const direction = index % 2 === 0 ? -1 : 1;
-    const speed = (0.42 + index * 0.025) * ticker.deltaTime;
-    line.x += speed * direction;
-    if (direction < 0 && line.x < -line.width * 0.62) {
-      line.x = width * 0.22;
-    }
-    if (direction > 0 && line.x > width * 0.2) {
-      line.x = -line.width * 0.62;
-    }
-  });
-}
-
-/**
- * 延迟重排关键词背景，避免窗口缩放时频繁计算。
- */
-function scheduleKeywordLayout() {
-  window.clearTimeout(keywordResizeTimer);
-  keywordResizeTimer = window.setTimeout(layoutKeywordRows, 120);
 }
 
 /**
  * 销毁关键词背景，释放 WebGL/canvas 资源。
  */
 function destroyKeywordWall() {
-  keywordDisposed = true;
-  window.clearTimeout(keywordResizeTimer);
-  window.removeEventListener("resize", scheduleKeywordLayout);
-  if (keywordApp) {
-    keywordApp.ticker.remove(moveKeywordRows);
-    keywordApp.destroy(true);
-  }
-  keywordApp = null;
-  keywordStage = null;
+  keywordBackground?.destroy();
+  keywordBackground = null;
 }
 
 onMounted(() => {
