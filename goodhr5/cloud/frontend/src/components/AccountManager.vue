@@ -38,7 +38,6 @@
           >名称<input v-model="form.displayName" placeholder="我的Boss"
         /></label>
       </div>
-      <p v-if="msg" :class="msgType">{{ msg }}</p>
       <div class="actions">
         <button
           :disabled="loading || (pendingCookies && !form.displayName)"
@@ -54,6 +53,7 @@
         </button>
       </div></template
     >
+    <p v-if="msg" :class="msgType">{{ msg }}</p>
     <p v-if="accounts.length === 0" class="hint">暂无账号</p>
     <div v-else class="card-list" style="margin-top: 8px">
       <article v-for="a in accounts" :key="a.id" class="card">
@@ -160,7 +160,10 @@ async function load() {
     platformConfigs.value = await listPlatformConfigs();
     const list: any[] = await listPlatformAccounts();
     accounts.value = list;
-  } catch {}
+  } catch (e: any) {
+    msg.value = e?.message || "平台账号加载失败";
+    msgType.value = "error";
+  }
 }
 async function create() {
   loading.value = true;
@@ -350,7 +353,12 @@ async function del(a: any) {
     if (!confirm(`确定删除账号 ${a.display_name || a.id} 吗？`)) return;
     // 删除账号
     await deletePlatformAccount(a.id);
-  } catch {}
+    msg.value = "删除成功";
+    msgType.value = "success";
+  } catch (e: any) {
+    msg.value = e?.message || "删除失败";
+    msgType.value = "error";
+  }
   await load();
 }
 onMounted(load);

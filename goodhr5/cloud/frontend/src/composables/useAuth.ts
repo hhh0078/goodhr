@@ -44,12 +44,24 @@ export function useAuth() {
     loading.value = true;
     error.value = "";
     message.value = "";
+    const targetEmail = normalizeEmail(email.value);
+    token.value = "";
+    user.value = null;
+    setAccessToken("");
     try {
       const data = await loginByCode(email.value, code.value, inviterID.value);
-      token.value = data.access_token;
-      setAccessToken(data.access_token);
-      user.value = data.user;
+      const nextToken = data.access_token || "";
+      const loginUser = data.user || null;
+      assertSameLoginUser(targetEmail, loginUser);
+      token.value = nextToken;
+      setAccessToken(nextToken);
+      const me = await currentUser();
+      assertSameLoginUser(targetEmail, me);
+      user.value = me;
     } catch (e) {
+      token.value = "";
+      user.value = null;
+      setAccessToken("");
       error.value = e.message;
     } finally {
       loading.value = false;
@@ -60,7 +72,12 @@ export function useAuth() {
     if (!token.value) return;
     for (let i = 0; i < 3; i += 1) {
       try {
-        user.value = await currentUser();
+        const me = await currentUser();
+        if (!me?.email) {
+          logout();
+          return;
+        }
+        user.value = me;
         return;
       } catch (e: any) {
         const status = e instanceof ApiError ? e.status : 0;
@@ -136,4 +153,26 @@ function readInviteID() {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/**
+ * 标准化登录邮箱，避免大小写和空格导致前端校验误判。
+ * @param {string} value - 用户输入的邮箱。
+ * @returns {string} 标准化后的邮箱。
+ */
+function normalizeEmail(value: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+/**
+ * 校验登录接口返回的用户是否就是当前输入邮箱。
+ * @param {string} expectedEmail - 当前输入的登录邮箱。
+ * @param {any} loginUser - 接口返回的用户对象。
+ * @returns {void} 无返回值。
+ */
+function assertSameLoginUser(expectedEmail: string, loginUser: any) {
+  const actualEmail = normalizeEmail(loginUser?.email || "");
+  if (!expectedEmail || !actualEmail || actualEmail !== expectedEmail) {
+    throw new Error("登录状态异常，请退出后重新登录");
+  }
 }
