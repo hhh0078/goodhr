@@ -201,6 +201,9 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // writeJSON 将响应对象序列化为 JSON。
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Vary", "Authorization")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }

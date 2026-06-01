@@ -44,6 +44,7 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<any> {
   try {
     res = await fetch(`${cloudApiBase()}${path}`, {
       ...rest,
+      cache: 'no-store',
       headers: requestHeaders,
       body: serializeBody(body),
     })
