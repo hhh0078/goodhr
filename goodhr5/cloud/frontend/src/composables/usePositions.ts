@@ -23,7 +23,7 @@ export function usePositions() {
   }
 
   async function save() {
-    if (!form.value.name) return
+    if (!form.value.name) return false
     loading.value = true; error.value = ''
     try {
       fillEmptyDefaultPrompts()
@@ -57,7 +57,8 @@ export function usePositions() {
       })
       await markOnboardingStep('position_template')
       await load(); resetForm()
-    } catch (e: any) { error.value = e.message; positions.value = [] }
+      return true
+    } catch (e: any) { error.value = e.message; positions.value = []; return false }
     finally { loading.value = false }
   }
 

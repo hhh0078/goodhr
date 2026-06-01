@@ -11,7 +11,7 @@
         API 地址
         <input
           v-model="config.form.value.aiBaseURL"
-          placeholder="如: https://api.deepseek.com/chat/completions"
+          placeholder="https://api.deepseek.com/chat/completions"
         />
         <small class="field-help"
           >用于调用 AI 服务的基础地址。推荐使用 Deepseek。地址为
@@ -22,7 +22,7 @@
         模型
         <input
           v-model="config.form.value.aiModel"
-          placeholder="如: deepseek-v4-flash"
+          placeholder="deepseek-v4-flash"
         />
         <small class="field-help"
           >任务使用的默认模型名称。deepseek-v4-flash或者deepseek-v4-pro</small
@@ -32,6 +32,7 @@
         API Key
         <input
           v-model="config.form.value.aiAPIKey"
+          type="text"
           :placeholder="
             config.form.value.aiAPIKeySet
               ? `当前已设置：${config.form.value.aiAPIKeyMasked || '已隐藏'}；留空则保持不变`

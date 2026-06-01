@@ -319,7 +319,7 @@
       <div class="actions">
         <button
           :disabled="positions.loading.value || !positions.form.value.name"
-          @click="positions.save"
+          @click="savePosition"
         >
           {{
             positions.loading.value
@@ -441,6 +441,17 @@ const keywordMatchOptions = [
 function edit(pos: any) {
   showForm.value = true;
   props.positions.edit(pos);
+}
+
+/**
+ * 保存岗位模板并在成功后收起表单。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function savePosition() {
+  const ok = await props.positions.save();
+  if (ok) {
+    showForm.value = false;
+  }
 }
 
 /**

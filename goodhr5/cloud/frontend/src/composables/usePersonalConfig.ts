@@ -7,6 +7,9 @@ import {
 } from "../services/api/personalConfigApi";
 import { markOnboardingStep } from "../services/onboarding";
 
+const DEFAULT_AI_BASE_URL = "https://api.deepseek.com/chat/completions";
+const DEFAULT_AI_MODEL = "deepseek-v4-flash";
+
 export function usePersonalConfig() {
   const loading = ref(false);
   const error = ref("");
@@ -20,8 +23,8 @@ export function usePersonalConfig() {
       const data = await getUserPreferences();
       const ai = await getUserAIConfig();
       form.value = {
-        aiBaseURL: ai?.base_url || "",
-        aiModel: ai?.model || data?.ai_model || "",
+        aiBaseURL: ai?.base_url || DEFAULT_AI_BASE_URL,
+        aiModel: ai?.model || data?.ai_model || DEFAULT_AI_MODEL,
         aiAPIKey: "",
         aiAPIKeyMasked: ai?.api_key_masked || "",
         aiAPIKeySet: Boolean(ai?.api_key_set),
@@ -96,8 +99,8 @@ export function usePersonalConfig() {
 
 function defaultForm() {
   return {
-    aiBaseURL: "",
-    aiModel: "",
+    aiBaseURL: DEFAULT_AI_BASE_URL,
+    aiModel: DEFAULT_AI_MODEL,
     aiAPIKey: "",
     aiAPIKeyMasked: "",
     aiAPIKeySet: false,
