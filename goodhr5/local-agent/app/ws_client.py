@@ -446,6 +446,11 @@ class WSAgentClient:
         if not isinstance(body, dict):
             body = {}
         logger.info("[任务WS] 执行本地命令 %s", _payload_summary(payload))
+        if path == "/api/v1/ws/disconnect":
+            reason = str(body.get("reason") or "cloud_requested").strip()
+            logger.info("[任务WS] 收到云端断开请求 reason=%s", reason)
+            asyncio.create_task(self._disconnect_after_reply(reason))
+            return {"ok": True, "status": "disconnecting", "reason": reason}
         if path == "/api/v1/browser/start":
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
@@ -901,6 +906,17 @@ class WSAgentClient:
         self.state.last_message = f"已打开 {platform_id} 登录页面"
         await self.send_with_reply("cookie.capture.status", task_id, {"status": "opened", "url": url})
         return {"status": "opened", "url": url}
+
+    async def _disconnect_after_reply(self, reason: str) -> None:
+        """
+        在当前命令回复发送后断开云端 WebSocket。
+
+        Args:
+            reason: 云端要求断开的原因。
+        """
+        await asyncio.sleep(0.2)
+        logger.info("[任务WS] 准备按云端要求断开连接 reason=%s", reason)
+        await self.disconnect()
 
     async def send_with_reply(self, msg_type: str, task_id: str, payload: dict) -> dict:
         """

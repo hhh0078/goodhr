@@ -588,6 +588,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 	}
 
 	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
+	disconnectReason := "task_finished"
 	var releaseClaim func()
 	defer func() {
 		if releaseClaim != nil {
@@ -597,6 +598,9 @@ func (s *TaskService) executeTask(task TaskRun) {
 			stdlog.Printf("[任务流程] task=%s 刷新缓存日志失败: %v", task.ID, err)
 		}
 	}()
+	defer func() {
+		s.notifyLocalAgentDisconnect(task, disconnectReason, log)
+	}()
 
 	tenantID := ""
 	if s.tenantStore != nil {
@@ -604,6 +608,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 	}
 	claimedCookie, release, err := s.claimTaskCookie(tenantID, task, log)
 	if err != nil {
+		disconnectReason = "task_failed"
 		log("error", fmt.Sprintf("准备任务 cookie 失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
@@ -616,6 +621,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 	// 读取平台配置
 	cfg, err := s.systemConfigs.Get("platform." + task.PlatformID)
 	if err != nil {
+		disconnectReason = "task_failed"
 		log("error", fmt.Sprintf("读取平台配置失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
@@ -623,6 +629,7 @@ func (s *TaskService) executeTask(task TaskRun) {
 
 	platformCfg, err := ParsePlatformConfig(cfg.ConfigValue)
 	if err != nil {
+		disconnectReason = "task_failed"
 		log("error", fmt.Sprintf("解析平台配置失败: %v", err))
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		return
@@ -651,11 +658,13 @@ func (s *TaskService) executeTask(task TaskRun) {
 	if task.Mode == "ai" && s.aiConfigStore != nil {
 		cfg, err := s.aiConfigStore.UserConfig(task.UserEmail)
 		if err != nil {
+			disconnectReason = "task_failed"
 			log("error", "当前用户未配置 AI，请先在个人配置中填写 AI 服务参数")
 			_ = s.store.UpdateTaskStatus(task.ID, "failed")
 			return
 		}
 		if !cfg.Enabled {
+			disconnectReason = "task_failed"
 			log("error", "当前用户 AI 配置未启用，请先在个人配置中启用 AI")
 			_ = s.store.UpdateTaskStatus(task.ID, "failed")
 			return
@@ -677,18 +686,52 @@ func (s *TaskService) executeTask(task TaskRun) {
 	})
 	if err := executor.Run(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
+			disconnectReason = "task_stopped"
 			log("warn", "任务已取消")
 			_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 			return
 		}
+		disconnectReason = "task_failed"
 		errMessage := fmt.Sprintf("任务执行失败: %v", err)
 		log("error", errMessage)
 		_ = s.store.UpdateTaskStatus(task.ID, "failed")
 		s.sendTaskStatusNotice(task, "failed", errMessage)
 	} else {
+		disconnectReason = "task_finished"
 		log("info", "本轮任务执行完成，可再次开始")
 		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 		s.sendTaskStatusNotice(task, "stopped", "")
+	}
+}
+
+// notifyLocalAgentDisconnect 通知当前用户的本地程序断开任务 WebSocket。
+// reason 用于记录断开原因，logFn 用于把通知结果写入任务日志。
+func (s *TaskService) notifyLocalAgentDisconnect(task TaskRun, reason string, logFn func(string, string)) {
+	if s.agentWS == nil || !s.agentWS.IsOnline(task.UserEmail) {
+		return
+	}
+	payload := map[string]any{
+		"path": "/api/v1/ws/disconnect",
+		"body": map[string]any{
+			"reason": reason,
+		},
+	}
+	_, err := s.agentWS.SendCommand(task.UserEmail, AgentWSMessage{
+		Type:    "local.http.post",
+		TaskID:  task.ID,
+		Payload: payload,
+	}, 1)
+	if err != nil {
+		message := fmt.Sprintf("通知本地程序断开 WS 失败: %v", err)
+		if logFn != nil {
+			logFn("warn", message)
+		} else {
+			stdlog.Printf("[任务流程] task=%s %s", task.ID, message)
+		}
+		return
+	}
+	if logFn != nil {
+		logFn("info", "已通知本地程序断开 WS")
 	}
 }
 
