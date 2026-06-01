@@ -105,14 +105,20 @@ func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 
 // TestUniversalLoginCode 验证动态万能验证码按当前时间加 3 分钟计算。
 func TestUniversalLoginCode(t *testing.T) {
-	now := time.Date(2026, 6, 1, 18, 15, 0, 0, time.Local)
+	china := chinaLocation()
+	now := time.Date(2026, 6, 1, 18, 15, 0, 0, china)
 	if !isUniversalLoginCode("1818", now) {
 		t.Fatal("universal code 1818 should match 18:15 + 3 minutes")
 	}
 
-	carryNow := time.Date(2026, 6, 1, 18, 58, 0, 0, time.Local)
+	carryNow := time.Date(2026, 6, 1, 18, 58, 0, 0, china)
 	if !isUniversalLoginCode("1901", carryNow) {
 		t.Fatal("universal code 1901 should match 18:58 + 3 minutes")
+	}
+
+	utcNow := time.Date(2026, 6, 1, 10, 15, 0, 0, time.UTC)
+	if !isUniversalLoginCode("1818", utcNow) {
+		t.Fatal("universal code should use China timezone when server time is UTC")
 	}
 
 	if isUniversalLoginCode("1858", carryNow) {

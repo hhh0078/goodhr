@@ -51,7 +51,7 @@ export async function api(path: string, opts: ApiOptions = {}): Promise<any> {
     throw new ApiError(error?.message || '网络请求失败', 0, null)
   }
   const data = await parseJSON(res)
-  if (!res.ok || data.ok === false) throw new ApiError(data.error || '请求失败', res.status, data)
+  if (!res.ok || data.ok === false) throw new ApiError(normalizeApiErrorMessage(data.error), res.status, data)
   return data
 }
 
@@ -69,4 +69,22 @@ async function parseJSON(res: Response) {
   } catch {
     throw new ApiError('响应不是有效 JSON', res.status, null)
   }
+}
+
+/**
+ * 将后端旧英文错误转换成用户能看懂的中文提示。
+ * @param {string} message - 后端返回的错误信息。
+ * @returns {string} 前端展示的错误信息。
+ */
+function normalizeApiErrorMessage(message: string) {
+  const text = String(message || '').trim()
+  if (!text) return '请求失败'
+  const messageMap: Record<string, string> = {
+    'code is invalid or expired': '验证码错误或已过期',
+    'session is invalid or expired': '登录状态已过期，请重新登录',
+    'invalid code': '验证码格式不正确',
+    'invalid email': '邮箱格式不正确',
+    'failed to send code': '验证码发送失败，请稍后重试',
+  }
+  return messageMap[text] || text
 }

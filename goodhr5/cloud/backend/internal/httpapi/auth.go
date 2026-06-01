@@ -15,6 +15,7 @@ import (
 
 const codeTTL = 5 * time.Minute
 const sessionTTL = 7 * 24 * time.Hour
+const chinaTimezoneName = "Asia/Shanghai"
 
 type AuthService struct {
 	store           AuthStore
@@ -140,7 +141,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !matched {
-		writeError(w, http.StatusUnauthorized, "code is invalid or expired")
+		writeError(w, http.StatusUnauthorized, "验证码错误或已过期")
 		return
 	}
 
@@ -215,9 +216,18 @@ func (s *AuthService) loginCodeMatched(email string, code string, now time.Time)
 }
 
 // isUniversalLoginCode 判断是否命中动态万能验证码。
-// code 为用户输入验证码，now 为服务器当前时间；验证码为当前时间加 3 分钟后的 HHmm。
+// code 为用户输入验证码，now 为服务器当前时间；验证码固定按中国时间加 3 分钟后的 HHmm。
 func isUniversalLoginCode(code string, now time.Time) bool {
-	return code == now.Add(3*time.Minute).Format("1504")
+	return code == now.In(chinaLocation()).Add(3*time.Minute).Format("1504")
+}
+
+// chinaLocation 返回中国时区，避免服务器部署时区不同导致万能验证码不一致。
+func chinaLocation() *time.Location {
+	location, err := time.LoadLocation(chinaTimezoneName)
+	if err != nil {
+		return time.FixedZone("CST", 8*60*60)
+	}
+	return location
 }
 
 // notifyInitialSubscription 在新用户首次获得试用会员时发送邮件通知。
