@@ -20,6 +20,7 @@ const defaultPositionRequirementOptimizePrompt = `你是一个招聘筛选规则
 3. 优先保留硬性条件，例如：学历、专业、工作年限、行业经验、岗位经验、证书、技能、城市、年龄、到岗状态。
 4. 如果原文里有模糊条件，请改写成更清晰的筛选规则。
 5. 输出中文，按条目列出，不要解释，不要输出 JSON。
+6. 禁止输出 Markdown，禁止输出代码块。
 
 用户输入：
 {{input}}`
@@ -265,7 +266,7 @@ func (s *PositionService) callRequirementOptimizeAI(r *http.Request, aiConfig AI
 	if len(aiResp.Choices) == 0 {
 		return "", fmt.Errorf("AI 未返回结果")
 	}
-	optimized := stripThinkTags(aiResp.Choices[0].Message.Content)
+	optimized := cleanAITextOutput(aiResp.Choices[0].Message.Content)
 	if optimized == "" {
 		return "", fmt.Errorf("AI 返回内容为空")
 	}

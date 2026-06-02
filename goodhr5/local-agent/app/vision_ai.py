@@ -10,6 +10,19 @@ from typing import Any
 import httpx
 
 
+def clean_ai_text_output(text: str) -> str:
+    """
+    清理 AI 输出中的思考标签和单层 Markdown 代码块。
+
+    Args:
+        text: 模型原始输出。
+
+    Returns:
+        str: 可用于后端解析的正文。
+    """
+    return strip_markdown_code_fence(strip_think_tags(text)).strip()
+
+
 def strip_think_tags(text: str) -> str:
     """
     删除模型输出中的 <think> 思考内容。
@@ -21,6 +34,27 @@ def strip_think_tags(text: str) -> str:
         str: 删除思考标签后的正文。
     """
     return re.sub(r"(?is)<think>.*?</think>", "", str(text or "")).strip()
+
+
+def strip_markdown_code_fence(text: str) -> str:
+    """
+    删除模型输出外层的 Markdown 代码块。
+
+    Args:
+        text: 模型原始输出。
+
+    Returns:
+        str: 去掉外层代码块后的正文。
+    """
+    cleaned = str(text or "").strip()
+    if not cleaned.startswith("```"):
+        return cleaned
+    lines = cleaned.splitlines()
+    if len(lines) < 2:
+        return cleaned
+    if not lines[0].strip().startswith("```") or lines[-1].strip() != "```":
+        return cleaned
+    return "\n".join(lines[1:-1]).strip()
 
 
 def build_minimax_vision_content(prompt: str, image_bytes: bytes, image_format: str = "png") -> list[dict[str, Any]]:
@@ -68,7 +102,7 @@ def extract_chat_content(response_json: dict[str, Any]) -> str:
         if isinstance(message, dict):
             content = message.get("content")
             if isinstance(content, str):
-                return strip_think_tags(content)
+                return clean_ai_text_output(content)
             if isinstance(content, list):
                 parts = []
                 for item in content:
@@ -76,7 +110,7 @@ def extract_chat_content(response_json: dict[str, Any]) -> str:
                         parts.append(item["text"])
                     elif isinstance(item, str):
                         parts.append(item)
-                return strip_think_tags("\n".join(parts))
+                return clean_ai_text_output("\n".join(parts))
     return ""
 
 

@@ -3,6 +3,23 @@ package httpapi
 
 import "testing"
 
+// TestCleanAITextOutputRemovesMarkdownJSONFence 验证 AI 返回 Markdown JSON 代码块时可被清理解析。
+func TestCleanAITextOutputRemovesMarkdownJSONFence(t *testing.T) {
+	raw := "```json\n{\"score\": 50, \"reason\": \"客服有销售迁移可能，但缺乏明确销售或助教经验，需核验\"}\n```"
+	cleaned := cleanAITextOutput(raw)
+	want := "{\"score\": 50, \"reason\": \"客服有销售迁移可能，但缺乏明确销售或助教经验，需核验\"}"
+	if cleaned != want {
+		t.Fatalf("AI 输出代码块清理失败\nwant=%s\ngot=%s", want, cleaned)
+	}
+	var decision AIScoreDecision
+	if err := tryDecodeJSON(raw, &decision); err != nil {
+		t.Fatalf("代码块 JSON 应该可以解析: %v", err)
+	}
+	if decision.Score != 50 {
+		t.Fatalf("分数解析错误: %+v", decision)
+	}
+}
+
 // TestVisionDetailResumePersistsToCandidateStore 验证图片 AI 返回的结构化简历可以合并并入库。
 func TestVisionDetailResumePersistsToCandidateStore(t *testing.T) {
 	raw := `{

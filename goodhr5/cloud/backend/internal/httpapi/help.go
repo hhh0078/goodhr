@@ -186,7 +186,7 @@ func (s *HelpService) streamAIAnswer(w http.ResponseWriter, r *http.Request, gui
 	aiMessages := []AIMsg{
 		{
 			Role:    "system",
-			Content: "你是 GoodHR 5 的中文帮助助手。你只回答 GoodHR 5 使用、参数、报错排查、订阅、本地程序、平台账号、任务运行相关问题。回答要简洁、具体、适合代码小白。下面是系统指南 JSON：\n" + string(guideBytes),
+			Content: "你是 GoodHR 5 的中文帮助助手。你只回答 GoodHR 5 使用、参数、报错排查、订阅、本地程序、平台账号、任务运行相关问题。回答要简洁、具体、适合代码小白。禁止输出 <think> 思考内容，禁止输出 Markdown 代码块。下面是系统指南 JSON：\n" + string(guideBytes),
 		},
 	}
 	for _, item := range messages {
