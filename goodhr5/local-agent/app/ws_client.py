@@ -795,14 +795,14 @@ class WSAgentClient:
                 logger.debug("字段快速提取失败 container=%s field=%s err=%s", container_label, field_name, exc)
             finally:
                 elapsed_ms = int((time.perf_counter() - field_start) * 1000)
-                logger.info(
-                    "字段快速提取完成 container=%s field=%s matched=%s 耗时=%dms 文本长度=%d",
-                    container_label,
-                    field_name,
-                    matched_target or "-",
-                    elapsed_ms,
-                    len(fields.get(field_name, "")),
-                )
+                # logger.info(
+                #     "字段快速提取完成 container=%s field=%s matched=%s 耗时=%dms 文本长度=%d",
+                #     container_label,
+                #     field_name,
+                #     matched_target or "-",
+                #     elapsed_ms,
+                #     len(fields.get(field_name, "")),
+                # )
         return fields
 
     async def _extract_text_from_locator(self, page: Any, locator: Any, mode: str, delay_before: float, task_id: str = "", label: str = "detail", ai_vision: dict | None = None) -> str:

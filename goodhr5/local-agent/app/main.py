@@ -546,14 +546,14 @@ async def _extract_fields_from_container(container, field_requests: list[tuple[s
             logger.debug("字段快速提取失败 container=%s field=%s err=%s", container_label, field_name, exc)
         finally:
             elapsed_ms = int((time.perf_counter() - field_start) * 1000)
-            logger.info(
-                "字段快速提取完成 container=%s field=%s matched=%s 耗时=%dms 文本长度=%d",
-                container_label,
-                field_name,
-                matched_target or "-",
-                elapsed_ms,
-                len(fields.get(field_name, "")),
-            )
+            # logger.info(
+            #     "字段快速提取完成 container=%s field=%s matched=%s 耗时=%dms 文本长度=%d",
+            #     container_label,
+            #     field_name,
+            #     matched_target or "-",
+            #     elapsed_ms,
+            #     len(fields.get(field_name, "")),
+            # )
     return fields
 
 
