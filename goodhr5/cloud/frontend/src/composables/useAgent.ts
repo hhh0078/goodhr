@@ -11,7 +11,7 @@ import { markOnboardingStep } from "../services/onboarding";
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009];
 
 export function useAgent() {
-  const status = ref("未检测");
+  const status = ref("未检测到本地程序");
   const info = ref(null);
   const bindStatus = ref("未绑定");
   const bindError = ref("");
@@ -28,7 +28,6 @@ export function useAgent() {
     info.value = null;
     bindStatus.value = "未绑定";
     bindError.value = "";
-    status.value = "检测中";
     machineConflict.value = false;
 
     for (const port of LOCAL_PORTS) {

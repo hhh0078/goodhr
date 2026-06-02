@@ -176,7 +176,6 @@ provideAppContext({
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
   if (s.includes("连接")) return "success";
-  if (s.includes("检测中")) return "warn";
   return "error";
 });
 const subscriptionStatusColor = computed(() =>
