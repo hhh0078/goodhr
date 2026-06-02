@@ -1,7 +1,13 @@
 // 本文件用于测试任务执行器中的图片 AI 简历结构化解析和候选人入库映射。
 package httpapi
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // TestCleanAITextOutputRemovesMarkdownJSONFence 验证 AI 返回 Markdown JSON 代码块时可被清理解析。
 func TestCleanAITextOutputRemovesMarkdownJSONFence(t *testing.T) {
@@ -17,6 +23,80 @@ func TestCleanAITextOutputRemovesMarkdownJSONFence(t *testing.T) {
 	}
 	if decision.Score != 50 {
 		t.Fatalf("分数解析错误: %+v", decision)
+	}
+}
+
+// TestProcessCandidatesSkipsWhenDetailScoreBelowThreshold 验证详情评分低于阈值后不会再次调用打招呼 AI。
+func TestProcessCandidatesSkipsWhenDetailScoreBelowThreshold(t *testing.T) {
+	aiCalls := 0
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		aiCalls++
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"score\":42,\"reason\":\"低于详情阈值\"}"}}],"usage":{"total_tokens":12}}`))
+	}))
+	defer aiServer.Close()
+
+	store := NewMemoryCandidateStore()
+	executor := &TaskExecutor{
+		task: TaskRun{
+			ID:                "task_skip_detail",
+			UserEmail:         "skip-detail@example.com",
+			PlatformID:        "boss",
+			PlatformAccountID: "account_001",
+			PositionID:        "position_001",
+			Mode:              "ai",
+		},
+		platformCfg: PlatformConfig{ID: "boss"},
+		aiConfig: AIConfig{
+			BaseURL: aiServer.URL,
+			Model:   "MiniMax-M3",
+			APIKey:  "test-key",
+			Enabled: true,
+		},
+		httpClient:     aiServer.Client(),
+		userPrefs:      DefaultUserPreferences(),
+		candidateStore: store,
+		position: map[string]any{
+			"name": "课程顾问",
+			"ai_config": map[string]any{
+				"detail_threshold": 70,
+				"greet_threshold":  70,
+			},
+		},
+	}
+	candidates := []Candidate{
+		{
+			PlatformCandidateID: "boss_skip_001",
+			Name:                "黄俊辉",
+			BasicInfo:           "24岁丨大专丨客服经验",
+			FilterText:          "黄俊辉 24岁 大专 客服经验 德阳",
+		},
+	}
+
+	if err := executor.processCandidates(context.Background(), candidates); err != nil {
+		t.Fatalf("处理候选人失败: %v", err)
+	}
+	if aiCalls != 1 {
+		t.Fatalf("详情分低于阈值后不应再次请求打招呼 AI，calls=%d", aiCalls)
+	}
+	var skippedEvents []CandidateEvent
+	for _, events := range store.events {
+		for _, event := range events {
+			if event.EventType == "candidate_skipped" {
+				skippedEvents = append(skippedEvents, event)
+			}
+			if event.EventType == "greet_analysis" {
+				t.Fatalf("低于详情阈值不应保存打招呼分析事件: %+v", event)
+			}
+		}
+	}
+	if len(skippedEvents) != 1 {
+		t.Fatalf("应保存一次跳过事件，got=%d", len(skippedEvents))
+	}
+	if skippedEvents[0].Reason != "低于详情阈值" {
+		t.Fatalf("跳过原因错误: %+v", skippedEvents[0])
+	}
+	if !strings.Contains(skippedEvents[0].InputText, "黄俊辉") {
+		t.Fatalf("跳过事件应记录基础信息: %+v", skippedEvents[0])
 	}
 }
 

@@ -330,6 +330,28 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		if detailScoreDecision.Reason != "" {
 			e.log("info", fmt.Sprintf("候选人 %s 看详情评分: %.1f，原因: %s（token=%d）", candidateName, detailScoreDecision.Score, detailScoreDecision.Reason, detailScoreDecision.TokenUsage))
 		}
+		if e.task.Mode == "ai" && !shouldOpenDetail {
+			reason := firstNonEmpty(strings.TrimSpace(detailScoreDecision.Reason), "看详情评分低于阈值")
+			e.log("info", fmt.Sprintf("候选人 %s 看详情评分低于阈值，直接跳过: %s（详情评分=%.1f，阈值=%.1f）", candidateName, reason, detailScoreDecision.Score, e.detailThreshold()))
+			e.saveCandidateEvent(persistence, CandidateEvent{
+				EventType: "candidate_skipped",
+				Score:     float64Ptr(detailScoreDecision.Score),
+				Reason:    reason,
+				InputText: baseText,
+				Metadata: map[string]any{
+					"mode":      "ai",
+					"stage":     "detail_analysis",
+					"threshold": e.detailThreshold(),
+				},
+			})
+			e.updateEngagementStatus(persistence, "skipped", nil, nil)
+			e.incrementCounts(0, 0, 1, 0)
+			e.logCandidateFlowEnd(candidateName, "看详情评分跳过")
+			if err := e.maybeRest(ctx); err != nil {
+				return err
+			}
+			continue
+		}
 		detailFetchedAt := (*time.Time)(nil)
 		detailText := ""
 		visionRawOutput := ""
