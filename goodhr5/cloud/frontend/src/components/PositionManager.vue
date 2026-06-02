@@ -34,6 +34,8 @@
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
         /></label>
+
+        <p></p>
         <div class="field field-medium">
           <span class="field-label">招聘平台</span>
           <div class="mode-cards" role="radiogroup" aria-label="招聘平台">
@@ -352,10 +354,13 @@
           <strong>{{ pos.name }}</strong>
           <p class="card-meta">
             平台: {{ platformLabel(pos.platform_id) }} | 默认模式:
-            {{ pos.common_config?.mode_default === "keyword" ? "关键词" : "AI" }}
+            {{
+              pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
+            }}
             | 详情:{{
               pos.common_config?.detail_mode === "ocr" ? "图片识别" : "页面解析"
-            }} | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
+            }}
+            | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
               (pos.exclude_keywords || []).join(" / ") || "无"
             }}
           </p>
@@ -482,7 +487,10 @@ function selectDetailMode(detailMode: string) {
  * @returns {string} 平台名称。
  */
 function platformLabel(platformID: string) {
-  return platformOptions.find((item) => item.value === platformID)?.label || "Boss直聘";
+  return (
+    platformOptions.find((item) => item.value === platformID)?.label ||
+    "Boss直聘"
+  );
 }
 </script>
 
