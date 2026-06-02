@@ -72,6 +72,12 @@ type RuntimePreferences struct {
 	VisionAIPrompt      string
 }
 
+// RuntimeScrollOptions 定义候选人列表滚动参数。
+type RuntimeScrollOptions struct {
+	DistanceMin int
+	DistanceMax int
+}
+
 // PlatformRuntime 定义主流程调用的平台运行时能力。
 type PlatformRuntime interface {
 	// OpenEntryPage 打开平台任务入口页面。
@@ -79,7 +85,7 @@ type PlatformRuntime interface {
 	// ListVisibleCandidates 提取当前可见候选人。
 	ListVisibleCandidates(exec RuntimeExecutor, cfg RuntimeConfig) ([]Candidate, error)
 	// ScrollCandidateList 滚动到下一屏候选人。
-	ScrollCandidateList(exec RuntimeExecutor, cfg RuntimeConfig, prefs RuntimePreferences) error
+	ScrollCandidateList(exec RuntimeExecutor, cfg RuntimeConfig, prefs RuntimePreferences, options RuntimeScrollOptions) error
 	// GreetCandidate 执行候选人打招呼动作。
 	GreetCandidate(exec RuntimeExecutor, cfg RuntimeConfig, prefs RuntimePreferences, candidate Candidate) error
 	// OpenCandidateDetail 打开候选人详情面板。

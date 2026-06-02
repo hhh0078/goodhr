@@ -14,6 +14,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"goodhr5/cloud/backend/internal/platformcore"
+)
+
+const (
+	defaultCandidateScrollDistance = 360
+	minCandidateScrollDistance     = 180
+	maxCandidateScrollDistance     = 700
+	candidateScrollStep            = 80
+	candidateScrollJitter          = 50
+	targetCandidateOverlap         = 1
 )
 
 type claimedTaskCookie struct {
@@ -25,30 +36,32 @@ type claimedTaskCookie struct {
 
 // TaskExecutor 负责任务的云端编排执行。
 type TaskExecutor struct {
-	task           TaskRun
-	platformCfg    PlatformConfig
-	filter         *KeywordFilter
-	position       map[string]any
-	aiConfig       AIConfig
-	defaultPrompts DefaultPrompts
-	userPrefs      UserPreferences
-	agentWS        *AgentWSHub
-	httpClient     *http.Client
-	logCallback    func(level, message string)
-	countCallback  func(scanned, greeted, skipped, failed int)
-	cookies        []map[string]any
-	claimedCookie  *claimedTaskCookie
-	candidateStore CandidateStore
-	seenCandidates map[string]struct{}
-	ctx            context.Context
-	scannedCount   int
-	greetedCount   int
-	skippedCount   int
-	failedCount    int
-	restMaxTimes   int
-	restUsed       int
-	restNextAfter  int
-	restSinceLast  int
+	task            TaskRun
+	platformCfg     PlatformConfig
+	filter          *KeywordFilter
+	position        map[string]any
+	aiConfig        AIConfig
+	defaultPrompts  DefaultPrompts
+	userPrefs       UserPreferences
+	agentWS         *AgentWSHub
+	httpClient      *http.Client
+	logCallback     func(level, message string)
+	countCallback   func(scanned, greeted, skipped, failed int)
+	cookies         []map[string]any
+	claimedCookie   *claimedTaskCookie
+	candidateStore  CandidateStore
+	seenCandidates  map[string]struct{}
+	ctx             context.Context
+	scannedCount    int
+	greetedCount    int
+	skippedCount    int
+	failedCount     int
+	restMaxTimes    int
+	restUsed        int
+	restNextAfter   int
+	restSinceLast   int
+	lastVisibleKeys []string
+	scrollDistance  int
 }
 
 // NewTaskExecutor 创建任务编排器实例。
@@ -91,6 +104,7 @@ func NewTaskExecutor(
 		claimedCookie:  claimedCookie,
 		candidateStore: candidateStore,
 		seenCandidates: make(map[string]struct{}),
+		scrollDistance: defaultCandidateScrollDistance,
 	}
 }
 
@@ -143,6 +157,7 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 		if len(candidates) == 0 {
 			e.log("warn", "当前可见区域未找到候选人")
 		}
+		e.updateScrollDistanceByOverlap(candidates)
 		newCandidates := e.filterNewCandidates(candidates)
 		if len(newCandidates) == 0 {
 			idleRounds++
@@ -240,7 +255,95 @@ func (e *TaskExecutor) prepareCookies() error {
 
 // scrollPage 滚动加载候选人列表。
 func (e *TaskExecutor) scrollPage() error {
-	return e.platformCfg.ScrollCandidateList(e, e.userPrefs)
+	return e.platformCfg.ScrollCandidateList(e, e.userPrefs, e.scrollOptions())
+}
+
+// scrollOptions 返回当前候选人列表的滚动距离参数。
+func (e *TaskExecutor) scrollOptions() platformcore.RuntimeScrollOptions {
+	distance := e.scrollDistance
+	if distance <= 0 {
+		distance = defaultCandidateScrollDistance
+	}
+	distanceMin := clampInt(distance-candidateScrollJitter, minCandidateScrollDistance, maxCandidateScrollDistance)
+	distanceMax := clampInt(distance+candidateScrollJitter, minCandidateScrollDistance, maxCandidateScrollDistance)
+	return platformcore.RuntimeScrollOptions{
+		DistanceMin: distanceMin,
+		DistanceMax: distanceMax,
+	}
+}
+
+// updateScrollDistanceByOverlap 根据相邻两屏候选人的重叠数量调整下一次滚动距离。
+// candidates 为当前屏可见候选人，目标是与上一屏保留 1 个候选人重叠。
+func (e *TaskExecutor) updateScrollDistanceByOverlap(candidates []Candidate) {
+	currentKeys := e.visibleCandidateKeys(candidates)
+	if len(currentKeys) == 0 {
+		return
+	}
+	if len(e.lastVisibleKeys) > 0 {
+		overlap := countKeyOverlap(e.lastVisibleKeys, currentKeys)
+		before := e.scrollDistance
+		switch {
+		case overlap == 0:
+			e.scrollDistance = clampInt(e.scrollDistance-candidateScrollStep, minCandidateScrollDistance, maxCandidateScrollDistance)
+		case overlap > targetCandidateOverlap:
+			e.scrollDistance = clampInt(e.scrollDistance+candidateScrollStep, minCandidateScrollDistance, maxCandidateScrollDistance)
+		}
+		if before != e.scrollDistance {
+			e.log("info", fmt.Sprintf("候选人列表滚动已自动调整：上屏重叠=%d，目标重叠=%d，下次滚动距离=%d", overlap, targetCandidateOverlap, e.scrollDistance))
+		} else {
+			e.log("info", fmt.Sprintf("候选人列表滚动保持当前距离：上屏重叠=%d，下次滚动距离=%d", overlap, e.scrollDistance))
+		}
+	}
+	e.lastVisibleKeys = currentKeys
+}
+
+// visibleCandidateKeys 提取当前屏可见候选人的去重指纹。
+// candidates 为当前屏候选人，返回值保留稳定顺序。
+func (e *TaskExecutor) visibleCandidateKeys(candidates []Candidate) []string {
+	keys := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		key := e.platformCfg.CandidateFingerprint(candidate)
+		if key == "" {
+			key = candidate.DisplayName()
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// countKeyOverlap 统计两组候选人指纹的重叠数量。
+// left/right 为相邻两屏候选人指纹数组，返回值为共同候选人数量。
+func countKeyOverlap(left []string, right []string) int {
+	if len(left) == 0 || len(right) == 0 {
+		return 0
+	}
+	set := make(map[string]struct{}, len(left))
+	for _, key := range left {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			set[key] = struct{}{}
+		}
+	}
+	count := 0
+	for _, key := range right {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := set[key]; ok {
+			count++
+		}
+	}
+	return count
 }
 
 // extractCandidates 从页面提取候选人卡片。
@@ -1906,6 +2009,21 @@ func clampScore(score float64) float64 {
 		return 100
 	}
 	return score
+}
+
+// clampInt 将整数限制在指定区间。
+// value 为原始值，minValue/maxValue 为允许范围。
+func clampInt(value int, minValue int, maxValue int) int {
+	if maxValue < minValue {
+		return minValue
+	}
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 // float64Ptr 返回 float64 的指针。

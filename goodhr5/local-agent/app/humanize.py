@@ -466,6 +466,8 @@ async def scroll_to_load(
     scroll_delay_min: float = DEFAULT_DELAY_MIN,
     scroll_delay_max: float = DEFAULT_DELAY_MAX,
     max_scrolls: int = DEFAULT_MAX_SCROLLS,
+    distance_min: int = 250,
+    distance_max: int = 450,
     element_spec: Optional[ElementLocatorSpec] = None,
     stop_condition: Optional[Callable[..., bool]] = None,
 ) -> None:
@@ -480,6 +482,8 @@ async def scroll_to_load(
         scroll_delay_min: 兼容旧参数，滚动内部固定使用 100-900ms
         scroll_delay_max: 兼容旧参数，滚动内部固定使用 100-900ms
         max_scrolls: 最大滚动次数
+        distance_min: 单次滚动最小距离，单位像素
+        distance_max: 单次滚动最大距离，单位像素
         element_spec: 可选元素定位协议；传入后先定位元素并移动到其上方再滚动
         stop_condition: 停止条件回调，返回 True 则停止滚动
     """
@@ -491,7 +495,9 @@ async def scroll_to_load(
             logger.info("滚动前已命中目标元素: %s", matched_target)
 
     for i in range(max_scrolls):
-        distance = random.randint(250, 450)
+        min_distance = max(int(distance_min), 1)
+        max_distance = max(int(distance_max), min_distance)
+        distance = random.randint(min_distance, max_distance)
         await human_scroll(page, distance=distance)
 
         if stop_condition:

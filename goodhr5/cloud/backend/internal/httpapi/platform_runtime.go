@@ -79,12 +79,13 @@ func (cfg PlatformConfig) ListVisibleCandidates(exec platformViewportExecutor) (
 }
 
 // ScrollCandidateList 由平台运行时逻辑滚动到候选人列表下一屏。
-func (cfg PlatformConfig) ScrollCandidateList(exec platformViewportExecutor, prefs UserPreferences) error {
+// options 为云端根据候选人重叠情况计算出的滚动距离参数。
+func (cfg PlatformConfig) ScrollCandidateList(exec platformViewportExecutor, prefs UserPreferences, options platformcore.RuntimeScrollOptions) error {
 	rt, err := runtimeByPlatformID(cfg.ID)
 	if err != nil {
 		return err
 	}
-	return rt.ScrollCandidateList(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), toRuntimePreferences(prefs))
+	return rt.ScrollCandidateList(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), toRuntimePreferences(prefs), options)
 }
 
 // GreetCandidate 由平台运行时逻辑执行打招呼动作。

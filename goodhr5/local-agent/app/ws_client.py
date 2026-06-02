@@ -129,6 +129,10 @@ def _payload_summary(payload: Any) -> str:
         parts.append(f"matched={payload.get('matched')}")
     if "max_scrolls" in body:
         parts.append(f"max_scrolls={body.get('max_scrolls')}")
+    if "distance_min" in body:
+        parts.append(f"distance_min={body.get('distance_min')}")
+    if "distance_max" in body:
+        parts.append(f"distance_max={body.get('distance_max')}")
     return ", ".join(parts) if parts else str(sorted(body.keys()))
 
 
@@ -534,6 +538,8 @@ class WSAgentClient:
                 scroll_delay_min=float(body.get("scroll_delay_min", 0.1)),
                 scroll_delay_max=float(body.get("scroll_delay_max", 0.9)),
                 max_scrolls=int(body.get("max_scrolls", 20)),
+                distance_min=int(body.get("distance_min", 250)),
+                distance_max=int(body.get("distance_max", 450)),
                 element_spec=element_spec,
             )
             return {"ok": True}

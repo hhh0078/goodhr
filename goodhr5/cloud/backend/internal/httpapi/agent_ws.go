@@ -287,6 +287,12 @@ func wsPayloadSummary(payload map[string]any) string {
 	if maxScrolls, ok := body["max_scrolls"]; ok {
 		parts = append(parts, fmt.Sprintf("max_scrolls=%v", maxScrolls))
 	}
+	if distanceMin, ok := body["distance_min"]; ok {
+		parts = append(parts, fmt.Sprintf("distance_min=%v", distanceMin))
+	}
+	if distanceMax, ok := body["distance_max"]; ok {
+		parts = append(parts, fmt.Sprintf("distance_max=%v", distanceMax))
+	}
 	return strings.Join(parts, ", ")
 }
 

@@ -195,3 +195,43 @@ func TestVisionDetailResumePersistsToCandidateStore(t *testing.T) {
 		t.Fatalf("同事沟通记录未入库，got=%+v", profile.Communications)
 	}
 }
+
+// TestCountKeyOverlap 验证候选人指纹重叠数量统计。
+func TestCountKeyOverlap(t *testing.T) {
+	count := countKeyOverlap([]string{"A", "B", "C"}, []string{"C", "D", "A"})
+	if count != 2 {
+		t.Fatalf("重叠数量错误，want=2 got=%d", count)
+	}
+}
+
+// TestUpdateScrollDistanceByOverlap 验证滚动距离会按相邻两屏重叠数量调整。
+func TestUpdateScrollDistanceByOverlap(t *testing.T) {
+	executor := &TaskExecutor{
+		platformCfg:    PlatformConfig{ID: "boss"},
+		scrollDistance: defaultCandidateScrollDistance,
+	}
+	firstScreen := []Candidate{
+		{Name: "A", EducationLevel: "本科", PersonalDescription: "销售"},
+		{Name: "B", EducationLevel: "本科", PersonalDescription: "行政"},
+	}
+	nextScreenWithoutOverlap := []Candidate{
+		{Name: "C", EducationLevel: "本科", PersonalDescription: "销售"},
+		{Name: "D", EducationLevel: "本科", PersonalDescription: "行政"},
+	}
+	nextScreenWithManyOverlap := []Candidate{
+		{Name: "C", EducationLevel: "本科", PersonalDescription: "销售"},
+		{Name: "D", EducationLevel: "本科", PersonalDescription: "行政"},
+		{Name: "E", EducationLevel: "本科", PersonalDescription: "文员"},
+	}
+
+	executor.updateScrollDistanceByOverlap(firstScreen)
+	executor.updateScrollDistanceByOverlap(nextScreenWithoutOverlap)
+	if executor.scrollDistance >= defaultCandidateScrollDistance {
+		t.Fatalf("无重叠时应调小滚动距离，got=%d", executor.scrollDistance)
+	}
+	reducedDistance := executor.scrollDistance
+	executor.updateScrollDistanceByOverlap(nextScreenWithManyOverlap)
+	if executor.scrollDistance <= reducedDistance {
+		t.Fatalf("重叠过多时应调大滚动距离，before=%d after=%d", reducedDistance, executor.scrollDistance)
+	}
+}

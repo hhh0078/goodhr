@@ -141,12 +141,18 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 }
 
 // ScrollCandidateList 滚动到下一屏 Boss 候选人列表。
-func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
+func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, options platformcore.RuntimeScrollOptions) error {
 	exec.Log("info", "正在加载下一屏候选人列表")
 	body := map[string]any{
 		"max_scrolls":  1,
 		"_log_start":   "正在加载下一屏候选人",
 		"_log_success": "下一屏候选人加载完成",
+	}
+	if options.DistanceMin > 0 {
+		body["distance_min"] = options.DistanceMin
+	}
+	if options.DistanceMax > 0 {
+		body["distance_max"] = options.DistanceMax
 	}
 	if cfg.Card.ScrollElement != nil {
 		body["element"] = cfg.Card.ScrollElement
