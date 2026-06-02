@@ -704,6 +704,25 @@ async def page_open(payload: dict) -> dict:
     return {"ok": True, "url": url, "title": await page.title()}
 
 
+@app.get("/api/v1/page/list")
+@app.post("/api/v1/page/list")
+async def page_list() -> dict:
+    """列出当前浏览器中所有打开页面。"""
+    return await _browser_manager.list_pages()
+
+
+@app.post("/api/v1/page/use")
+async def page_use(payload: dict) -> dict:
+    """将指定页面切换为默认操作页面。"""
+    page_id = str(payload.get("page_id", "")).strip()
+    try:
+        result = await _browser_manager.use_page(page_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    ELEMENT_REFS.clear()
+    return result
+
+
 @app.post("/api/v1/page/close-by-url")
 async def page_close_by_url(payload: dict) -> dict:
     """按 URL 关键字关闭所有匹配页面。

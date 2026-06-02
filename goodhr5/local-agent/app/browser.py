@@ -325,6 +325,9 @@ class BrowserManager:
             proxy: 代理地址
         """
         async with self._state_lock:
+            if (self._browser or self._context) and user_data_dir and self._last_user_data_dir == user_data_dir:
+                logger.info("浏览器已使用相同账号目录运行，复用现有实例: %s", user_data_dir)
+                return
             if self._browser or self._context:
                 logger.warning("浏览器已在运行中，先关闭旧实例")
                 await self._stop_unlocked()
@@ -458,6 +461,63 @@ class BrowserManager:
             if self._browser is None and self._context is None:
                 return None
             return await self._new_page_unlocked(name)
+
+    async def list_pages(self) -> dict:
+        """
+        列出当前浏览器中所有未关闭页面。
+
+        Returns:
+            dict: 页面列表，包含页面编号、URL、标题和是否默认页面。
+        """
+        async with self._state_lock:
+            pages = self._all_open_pages_unlocked()
+            default_page = self._pages.get("default")
+            items: list[dict[str, object]] = []
+            for index, page in enumerate(pages):
+                try:
+                    title = await page.title()
+                except Exception:
+                    title = ""
+                items.append(
+                    {
+                        "page_id": f"page_{index}",
+                        "url": page.url or "",
+                        "title": title,
+                        "is_default": page is default_page,
+                    }
+                )
+            return {"ok": True, "pages": items, "count": len(items)}
+
+    async def use_page(self, page_id: str) -> dict:
+        """
+        将指定页面设置为默认操作页面。
+
+        Args:
+            page_id: 页面编号，格式为 page_0。
+
+        Returns:
+            dict: 被设置为默认页面的信息。
+        """
+        raw_page_id = (page_id or "").strip()
+        if not raw_page_id.startswith("page_"):
+            raise ValueError("page_id is required")
+        try:
+            page_index = int(raw_page_id.replace("page_", "", 1))
+        except ValueError as exc:
+            raise ValueError("page_id is invalid") from exc
+
+        async with self._state_lock:
+            pages = self._all_open_pages_unlocked()
+            if page_index < 0 or page_index >= len(pages):
+                raise ValueError("page_id not found")
+            page = pages[page_index]
+            self._pages["default"] = page
+            try:
+                title = await page.title()
+            except Exception:
+                title = ""
+            logger.info("已切换默认页面 page_id=%s url=%s", raw_page_id, page.url)
+            return {"ok": True, "page_id": raw_page_id, "url": page.url or "", "title": title}
 
     async def close_pages_by_url_contains(self, url_contains: str) -> dict:
         """

@@ -35,6 +35,19 @@ type localExtractTextResp struct {
 	Mode        string   `json:"mode"`
 }
 
+type localPageItem struct {
+	PageID    string `json:"page_id"`
+	URL       string `json:"url"`
+	Title     string `json:"title"`
+	IsDefault bool   `json:"is_default"`
+}
+
+type localPageListResp struct {
+	Ok    bool            `json:"ok"`
+	Pages []localPageItem `json:"pages"`
+	Count int             `json:"count"`
+}
+
 // Runtime 实现 Boss 平台运行时能力。
 type Runtime struct{}
 
@@ -49,6 +62,11 @@ func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformc
 	if strings.TrimSpace(url) == "" {
 		return fmt.Errorf("平台配置中没有合法 auth.pages 入口页面")
 	}
+	if reused, err := r.useExistingEntryPage(exec, url); err != nil {
+		exec.Log("warn", fmt.Sprintf("复用已打开Boss推荐页检查失败，将重新打开页面: %v", err))
+	} else if reused {
+		return nil
+	}
 	exec.Log("info", fmt.Sprintf("正在打开Boss推荐页: %s", url))
 	body := map[string]any{"url": url}
 	if len(cookies) > 0 {
@@ -56,6 +74,29 @@ func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformc
 		body["cookies"] = cookies
 	}
 	return exec.Post("/api/v1/page/open", body, nil)
+}
+
+// useExistingEntryPage 尝试复用已经打开的 Boss 入口页。
+func (r *Runtime) useExistingEntryPage(exec platformcore.RuntimeExecutor, entryURL string) (bool, error) {
+	var listResp localPageListResp
+	if err := exec.Post("/api/v1/page/list", map[string]any{}, &listResp); err != nil {
+		return false, err
+	}
+	if len(listResp.Pages) == 0 {
+		return false, nil
+	}
+	matched := matchEntryPage(listResp.Pages, entryURL)
+	if strings.TrimSpace(matched.PageID) == "" {
+		return false, nil
+	}
+	exec.Log("info", fmt.Sprintf("检测到已打开Boss推荐页，复用当前页面 page=%s url=%s", matched.PageID, matched.URL))
+	var useResp struct {
+		Ok bool `json:"ok"`
+	}
+	if err := exec.Post("/api/v1/page/use", map[string]any{"page_id": matched.PageID}, &useResp); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ListVisibleCandidates 提取当前可见 Boss 候选人摘要。
@@ -380,6 +421,32 @@ func shortRef(ref string) string {
 		return trimmed
 	}
 	return string(runes[:12]) + "..."
+}
+
+// matchEntryPage 从页面列表中选择可复用的入口页。
+// pages 为本地程序返回的页面列表，entryURL 为平台入口地址。
+func matchEntryPage(pages []localPageItem, entryURL string) localPageItem {
+	target := strings.TrimRight(strings.TrimSpace(entryURL), "/")
+	if target == "" {
+		return localPageItem{}
+	}
+	var firstMatched localPageItem
+	for _, page := range pages {
+		pageURL := strings.TrimRight(strings.TrimSpace(page.URL), "/")
+		if pageURL == "" {
+			continue
+		}
+		if !strings.Contains(pageURL, target) {
+			continue
+		}
+		if page.IsDefault {
+			return page
+		}
+		if strings.TrimSpace(firstMatched.PageID) == "" {
+			firstMatched = page
+		}
+	}
+	return firstMatched
 }
 
 // clickRequiredAction 点击必须成功的动作按钮。

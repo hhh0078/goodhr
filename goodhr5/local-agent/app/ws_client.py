@@ -494,6 +494,13 @@ class WSAgentClient:
             if not ok:
                 raise RuntimeError("页面导航失败")
             return {"ok": True, "url": url, "title": await page.title()}
+        if path == "/api/v1/page/list":
+            return await self.browser_manager.list_pages()
+        if path == "/api/v1/page/use":
+            page_id = str(body.get("page_id") or "").strip()
+            result = await self.browser_manager.use_page(page_id)
+            ELEMENT_REFS.clear()
+            return result
         if path == "/api/v1/page/close-by-url":
             url_contains = str(body.get("url_contains") or "").strip()
             if not url_contains:
