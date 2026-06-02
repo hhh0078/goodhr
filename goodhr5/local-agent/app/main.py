@@ -578,6 +578,7 @@ async def _extract_text_from_locator(page, locator, mode: str, delay_before: flo
             ai_ms = int((time.perf_counter() - ai_start) * 1000)
             total_ms = int((time.perf_counter() - total_start) * 1000)
             logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
+            logger.info("图片AI详情分析原始返回: %s", text)
             return text
         screenshot_start = time.perf_counter()
         screenshot_parts = await screenshot_locator_parts(page, locator, "detail-ocr")
