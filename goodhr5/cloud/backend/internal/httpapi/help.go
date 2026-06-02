@@ -33,11 +33,12 @@ type helpChatMessage struct {
 }
 
 type helpAIRequest struct {
-	Model       string            `json:"model"`
-	Messages    []AIMsg           `json:"messages"`
-	Temperature float64           `json:"temperature"`
-	Stream      bool              `json:"stream"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Model          string            `json:"model"`
+	Messages       []AIMsg           `json:"messages"`
+	Temperature    float64           `json:"temperature"`
+	Stream         bool              `json:"stream"`
+	ReasoningSplit bool              `json:"reasoning_split,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 type helpAIStreamChunk struct {
@@ -192,10 +193,11 @@ func (s *HelpService) streamAIAnswer(w http.ResponseWriter, r *http.Request, gui
 		aiMessages = append(aiMessages, AIMsg{Role: item.Role, Content: item.Content})
 	}
 	reqBody := helpAIRequest{
-		Model:       strings.TrimSpace(aiConfig.Model),
-		Messages:    aiMessages,
-		Temperature: aiConfig.Temperature,
-		Stream:      true,
+		Model:          strings.TrimSpace(aiConfig.Model),
+		Messages:       aiMessages,
+		Temperature:    aiConfig.Temperature,
+		Stream:         true,
+		ReasoningSplit: true,
 	}
 	data, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimSpace(aiConfig.BaseURL), bytes.NewReader(data))

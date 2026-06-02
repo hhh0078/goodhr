@@ -1067,6 +1067,7 @@ type AIRequest struct {
 	Messages       []AIMsg           `json:"messages"`
 	Temperature    float64           `json:"temperature"`
 	ResponseFormat map[string]string `json:"response_format,omitempty"`
+	ReasoningSplit bool              `json:"reasoning_split,omitempty"`
 }
 type AIMsg struct {
 	Role    string `json:"role"`
@@ -1221,9 +1222,10 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 		return "", 0, fmt.Errorf("AI 配置缺少 API Key")
 	}
 	reqBody := AIRequest{
-		Model:       model,
-		Messages:    []AIMsg{{Role: "user", Content: prompt}},
-		Temperature: temperature,
+		Model:          model,
+		Messages:       []AIMsg{{Role: "user", Content: prompt}},
+		Temperature:    temperature,
+		ReasoningSplit: true,
 	}
 	if forceJSON {
 		reqBody.ResponseFormat = map[string]string{"type": "json_object"}
@@ -1260,7 +1262,7 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 	if bodyPreview, err := json.Marshal(aiResp); err == nil {
 		e.log("info", fmt.Sprintf("AI响应体：%s", string(bodyPreview)))
 	}
-	return strings.TrimSpace(aiResp.Choices[0].Message.Content), aiResp.Usage.TotalTokens, nil
+	return stripThinkTags(aiResp.Choices[0].Message.Content), aiResp.Usage.TotalTokens, nil
 }
 
 // decodeJSONWithRetry 解析 AI JSON 输出，失败时要求 AI 重新只输出一次合法 JSON。
