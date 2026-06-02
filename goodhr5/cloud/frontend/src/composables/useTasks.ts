@@ -41,6 +41,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
   const taskLogs = ref<Record<string, any[]>>({});
   const taskLogHasMore = ref<Record<string, boolean>>({});
   const taskLogLoadingMore = ref<Record<string, boolean>>({});
+  const taskLogClearedAt = ref<Record<string, string>>({});
   const candidateExpandedTaskId = ref("");
   const taskCandidates = ref<Record<string, any>>({});
   const candidateLoadingTaskId = ref("");
@@ -235,8 +236,10 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     try {
       if (!confirm("确认清空该任务日志吗？")) return;
       await clearTaskLogs(taskId);
+      const clearedAt = new Date().toISOString();
       taskLogs.value = { ...taskLogs.value, [taskId]: [] };
       taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: false };
+      taskLogClearedAt.value = { ...taskLogClearedAt.value, [taskId]: clearedAt };
       message.value = "日志已清空";
     } catch (e: any) {
       error.value = e.message;
@@ -248,7 +251,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
   async function refreshLogs(taskId: string) {
     try {
       const existing = taskLogs.value[taskId] || [];
-      const since = latestTaskLogTime(existing);
+      const since = latestTaskLogTime(existing) || taskLogClearedAt.value[taskId] || "";
       const data = await listTaskLogs(taskId, {
         since: since || undefined,
         limit: 100,
