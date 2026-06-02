@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
         default=500,
         help="控制台预览文字长度，默认 500",
     )
+    parser.add_argument(
+        "--rec-batch",
+        type=int,
+        default=0,
+        help="临时调整文字识别批量大小，例如 16 或 32；不填则使用 RapidOCR 默认值",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +121,28 @@ def format_engine_elapsed_list(value: object) -> str:
     return ", ".join(parts)
 
 
+def apply_rec_batch(rec_batch: int) -> int:
+    """
+    临时调整 RapidOCR 的文字识别批量大小。
+
+    Args:
+        rec_batch: 希望设置的批量大小，小于等于 0 时不调整。
+
+    Returns:
+        int: 当前实际生效的批量大小，无法获取时返回 0。
+    """
+    engine = _get_rapid_engine()
+    text_rec = getattr(engine, "text_rec", None)
+    if text_rec is None:
+        return 0
+    if rec_batch > 0:
+        text_rec.rec_batch_num = rec_batch
+    try:
+        return int(getattr(text_rec, "rec_batch_num", 0) or 0)
+    except Exception:
+        return 0
+
+
 def main() -> int:
     """
     执行 OCR 测试并打印耗时、尺寸和文本预览。
@@ -148,6 +176,7 @@ def main() -> int:
     preprocess_ms = int((time.perf_counter() - preprocess_start) * 1000)
 
     engine_start = time.perf_counter()
+    active_rec_batch = apply_rec_batch(args.rec_batch)
     text, engine_meta = _recognize_with_rapidocr(img_array)
     engine_ms = int((time.perf_counter() - engine_start) * 1000)
     elapsed = time.perf_counter() - total_start
@@ -164,6 +193,7 @@ def main() -> int:
     print(f"engine_ms={engine_ms}")
     print(f"engine_elapsed={engine_elapsed}")
     print(f"engine_elapsed_list={format_engine_elapsed_list(engine_elapsed_list)}")
+    print(f"rec_batch_num={active_rec_batch}")
     print(f"rapidocr_version={get_package_version('rapidocr')}")
     print(f"onnxruntime_version={get_package_version('onnxruntime')}")
     print(f"onnx_providers={get_onnx_provider_text()}")
