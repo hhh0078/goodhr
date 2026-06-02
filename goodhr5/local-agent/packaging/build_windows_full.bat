@@ -49,12 +49,13 @@ echo ==^> Install dependencies
 "%PYTHON%" -m pip install -e ".[packaging]"
 if errorlevel 1 exit /b 1
 
-echo ==^> Pin Windows greenlet
-"%PYTHON%" -m pip install --force-reinstall --no-cache-dir greenlet==3.1.1
+call :ensure_package greenlet 3.1.1
 if errorlevel 1 exit /b 1
 
-echo ==^> Pin Windows native dependencies
-"%PYTHON%" -m pip install --force-reinstall --no-cache-dir numpy==1.26.4 onnxruntime==1.18.1
+call :ensure_package numpy 1.26.4
+if errorlevel 1 exit /b 1
+
+call :ensure_package onnxruntime 1.18.1
 if errorlevel 1 exit /b 1
 
 echo ==^> Prepare Windows CloakBrowser
@@ -84,3 +85,16 @@ for %%C in ("py -3.12-64" "py -3.11-64" "py -3.10-64" "python" "python3") do (
   )
 )
 exit /b 1
+
+:ensure_package
+set "PKG_NAME=%~1"
+set "PKG_VERSION=%~2"
+set "PKG_OK="
+for /f "delims=" %%v in ('"%PYTHON%" -c "import importlib.metadata as m; import sys; name=sys.argv[1]; expected=sys.argv[2]; print('yes' if m.version(name)==expected else 'no')" "%PKG_NAME%" "%PKG_VERSION%" 2^>nul') do set "PKG_OK=%%v"
+if "%PKG_OK%"=="yes" (
+  echo ==^> %PKG_NAME% %PKG_VERSION% already installed
+  exit /b 0
+)
+echo ==^> Install %PKG_NAME%==%PKG_VERSION%
+"%PYTHON%" -m pip install "%PKG_NAME%==%PKG_VERSION%"
+exit /b %errorlevel%
