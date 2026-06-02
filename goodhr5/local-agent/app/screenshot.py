@@ -73,6 +73,39 @@ def images_are_same(img1: Image.Image, img2: Image.Image, threshold: float = 0.9
         return same_count / len(pixels1) >= threshold
 
 
+def images_are_scroll_duplicates(img1: Image.Image, img2: Image.Image, threshold: float = 0.94) -> bool:
+    """
+    判断两张滚动截图是否重复。
+
+    滚动到底后页面可能仍有光标、阴影或悬浮元素轻微变化，整图严格比较容易误判。
+    这里只比较中间主体区域，并使用更宽松阈值，用于过滤到底后的重复截图。
+
+    Args:
+        img1: 第一张滚动截图。
+        img2: 第二张滚动截图。
+        threshold: 相似度阈值。
+
+    Returns:
+        bool: 是否可视为重复截图。
+    """
+    if img1.size != img2.size:
+        return False
+    width, height = img1.size
+    if width <= 1 or height <= 1:
+        return images_are_same(img1, img2, threshold)
+    top = int(height * 0.12)
+    bottom = int(height * 0.88)
+    if bottom <= top:
+        return images_are_same(img1, img2, threshold)
+    crop1 = img1.crop((0, top, width, bottom))
+    crop2 = img2.crop((0, top, width, bottom))
+    try:
+        return images_are_same(crop1, crop2, threshold)
+    finally:
+        crop1.close()
+        crop2.close()
+
+
 def merge_two(top_img: Image.Image, bottom_img: Image.Image, max_overlap: int) -> Image.Image:
     """
     将两张图片按最佳匹配位置纵向合并。
@@ -147,6 +180,38 @@ def stitch_screenshots(screenshot_bytes_list: list, overlap_pixels: int, platfor
     except Exception as e:
         logger.warning("截图拼接失败: %s", e)
         return screenshot_bytes_list[0] if screenshot_bytes_list else None
+
+
+def remove_duplicate_scroll_screenshots(screenshot_bytes_list: list[bytes], platform_name: str = "") -> list[bytes]:
+    """
+    删除滚动到底后产生的相邻重复截图。
+
+    Args:
+        screenshot_bytes_list: 原始滚动截图列表。
+        platform_name: 平台名或日志标签。
+
+    Returns:
+        list[bytes]: 去重后的截图列表。
+    """
+    if len(screenshot_bytes_list) <= 1:
+        return screenshot_bytes_list
+    filtered: list[bytes] = []
+    prev_image: Image.Image | None = None
+    for index, screenshot_bytes in enumerate(screenshot_bytes_list):
+        current_image = Image.open(io.BytesIO(screenshot_bytes))
+        try:
+            if prev_image is not None and images_are_scroll_duplicates(prev_image, current_image):
+                logger.info("[%s] 删除重复滚动截图 index=%d", platform_name, index)
+                continue
+            filtered.append(screenshot_bytes)
+            if prev_image is not None:
+                prev_image.close()
+            prev_image = current_image.copy()
+        finally:
+            current_image.close()
+    if prev_image is not None:
+        prev_image.close()
+    return filtered
 
 
 async def screenshot_modal(
@@ -257,8 +322,8 @@ async def _scroll_and_stitch(
         current_image = Image.open(io.BytesIO(current_screenshot))
         all_opened_images.append(current_image)
 
-        if prev_clip_image is not None and images_are_same(prev_clip_image, current_image):
-            logger.debug("[%s] 滚动第 %d 次后内容未变化，已到底部", platform_name, i)
+        if prev_clip_image is not None and images_are_scroll_duplicates(prev_clip_image, current_image):
+            logger.info("[%s] 滚动第 %d 次后主体内容重复，已到底部，丢弃当前截图", platform_name, i)
             break
 
         screenshots.append(current_screenshot)
@@ -276,6 +341,7 @@ async def _scroll_and_stitch(
 
     if not screenshots:
         return None
+    screenshots = remove_duplicate_scroll_screenshots(screenshots, platform_name)
     if len(screenshots) == 1:
         return screenshots[0]
     return stitch_screenshots(screenshots, overlap, platform_name)
