@@ -23,6 +23,7 @@ export function useAgent() {
 
   async function detect(user, token) {
     if (!user) return;
+    if (checking.value) return;
     checking.value = true;
     info.value = null;
     bindStatus.value = "未绑定";
@@ -64,9 +65,9 @@ export function useAgent() {
     status.value = "未检测到本地程序";
     info.value = null;
     baseUrl.value = "";
-    checking.value = false;
     wsStatus.value = "未连接";
     machineConflict.value = false;
+    checking.value = false;
   }
 
   //

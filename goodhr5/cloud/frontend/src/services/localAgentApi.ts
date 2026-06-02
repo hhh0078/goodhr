@@ -62,10 +62,19 @@ function serializeBody(body: AgentRequestOptions["body"]) {
 }
 
 export async function getLocalHealth(base: string) {
-  const res = await fetch(agentURL(base, "/health"), { cache: "no-store" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Local Agent 不可用");
-  return data;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 1000);
+  try {
+    const res = await fetch(agentURL(base, "/health"), {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Local Agent 不可用");
+    return data;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export async function bindCloudUser(base: string, payload: any) {
