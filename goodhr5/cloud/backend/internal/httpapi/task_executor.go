@@ -244,6 +244,9 @@ func (e *TaskExecutor) scrollPage() error {
 
 // extractCandidates 从页面提取候选人卡片。
 func (e *TaskExecutor) extractCandidates() ([]Candidate, error) {
+	if err := e.Delay("查找候选人卡片前", 5, 5); err != nil {
+		return nil, err
+	}
 	return e.platformCfg.ListVisibleCandidates(e)
 }
 
