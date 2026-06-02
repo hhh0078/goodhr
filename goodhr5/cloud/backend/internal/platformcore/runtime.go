@@ -66,6 +66,10 @@ type RuntimePreferences struct {
 	GreetBeforeDelayMin float64
 	GreetBeforeDelayMax float64
 	GreetMessage        string
+	VisionAIBaseURL     string
+	VisionAIAPIKey      string
+	VisionAIModel       string
+	VisionAIPrompt      string
 }
 
 // PlatformRuntime 定义主流程调用的平台运行时能力。

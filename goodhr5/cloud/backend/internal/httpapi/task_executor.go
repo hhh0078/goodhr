@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -331,11 +332,32 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 		detailFetchedAt := (*time.Time)(nil)
 		detailText := ""
+		var visionGreetDecision *AIScoreDecision
+		visionShouldGreet := false
 		if shouldOpenDetail {
-			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode())
+			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode(), e.detailVisionAIConfig(baseText))
 			if err != nil {
 				e.log("error", fmt.Sprintf("候选人 %s 详情提取失败: %v", candidateName, err))
 				e.logCandidateFlowEnd(candidateName, "详情提取失败")
+				e.incrementCounts(0, 0, 0, 1)
+				if err := e.maybeRest(ctx); err != nil {
+					return err
+				}
+				continue
+			}
+			if visionResult, ok := parseVisionDetailDecision(detailText); ok {
+				detailText = strings.TrimSpace(visionResult.ResumeText)
+				visionShouldGreet = visionResult.ShouldGreet
+				visionGreetDecision = &AIScoreDecision{
+					Score:  clampScore(visionResult.Score),
+					Reason: truncateText(strings.TrimSpace(visionResult.Reason), 30),
+				}
+				if detailText == "" {
+					detailText = strings.TrimSpace(baseText)
+				}
+			} else if e.task.Mode == "ai" && e.positionDetailMode() == "ocr" {
+				e.log("error", fmt.Sprintf("候选人 %s 图片AI返回结果不是合法JSON", candidateName))
+				e.logCandidateFlowEnd(candidateName, "图片AI解析失败")
 				e.incrementCounts(0, 0, 0, 1)
 				if err := e.maybeRest(ctx); err != nil {
 					return err
@@ -365,15 +387,22 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 
 		// 筛选逻辑
 		if e.task.Mode == "ai" {
-			greetDecision, err := e.callGreetScoreAI(e.positionDescription(), filterText)
-			if err != nil {
-				e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
-				e.logCandidateFlowEnd(candidateName, "AI筛选失败")
-				e.incrementCounts(0, 0, 0, 1)
-				if err := e.maybeRest(ctx); err != nil {
-					return err
+			var greetDecision AIScoreDecision
+			usedVisionGreet := false
+			if visionGreetDecision != nil {
+				greetDecision = *visionGreetDecision
+				usedVisionGreet = true
+			} else {
+				greetDecision, err = e.callGreetScoreAI(e.positionDescription(), filterText)
+				if err != nil {
+					e.log("error", fmt.Sprintf("AI 筛选失败: %v", err))
+					e.logCandidateFlowEnd(candidateName, "AI筛选失败")
+					e.incrementCounts(0, 0, 0, 1)
+					if err := e.maybeRest(ctx); err != nil {
+						return err
+					}
+					continue
 				}
-				continue
 			}
 			candidate.AI.Greet.Score = float64Ptr(greetDecision.Score)
 			candidate.AI.Greet.Reason = strings.TrimSpace(greetDecision.Reason)
@@ -387,10 +416,20 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				TokenUsage: greetDecision.TokenUsage,
 				Metadata: map[string]any{
 					"threshold": e.greetThreshold(),
+					"source":    map[bool]string{true: "vision_detail", false: "text_ai"}[usedVisionGreet],
 				},
 			})
 			e.log("info", fmt.Sprintf("候选人 %s 打招呼评分: %.1f，原因: %s", candidateName, greetDecision.Score, greetDecision.Reason))
-			shouldGreet, finalGreetScore, finalGreetReason, reviewDecision, usedReview := e.evaluateGreetScore(greetDecision, filterText)
+			shouldGreet := false
+			finalGreetScore := greetDecision.Score
+			finalGreetReason := firstNonEmpty(strings.TrimSpace(greetDecision.Reason), "评分低于阈值")
+			var reviewDecision AIScoreDecision
+			usedReview := false
+			if usedVisionGreet {
+				shouldGreet = visionShouldGreet
+			} else {
+				shouldGreet, finalGreetScore, finalGreetReason, reviewDecision, usedReview = e.evaluateGreetScore(greetDecision, filterText)
+			}
 			if usedReview {
 				candidate.AI.Review.Score = float64Ptr(reviewDecision.Score)
 				candidate.AI.Review.Reason = strings.TrimSpace(reviewDecision.Reason)
@@ -592,6 +631,21 @@ func (e *TaskExecutor) mergeCandidateTexts(baseText, detailText string) string {
 		return detail
 	}
 	return base + "\n详情信息：\n" + detail
+}
+
+// detailVisionAIConfig 生成本地图片视觉分析所需的 AI 配置。
+func (e *TaskExecutor) detailVisionAIConfig(baseText string) DetailVisionAIConfig {
+	model, baseURL, _ := e.aiRequestConfig()
+	prompt := fmt.Sprintf(defaultVisionDetailAnalysisPrompt, e.positionDescription(), strings.TrimSpace(baseText), e.greetThreshold())
+	if customPrompt := e.positionAIConfigString("vision_detail_prompt", "image_extract_prompt"); customPrompt != "" {
+		prompt = buildPromptFromTemplate(customPrompt, e.positionDescription(), strings.TrimSpace(baseText), prompt, "补充图片识别规则")
+	}
+	return DetailVisionAIConfig{
+		BaseURL: baseURL,
+		APIKey:  e.aiConfig.APIKey,
+		Model:   model,
+		Prompt:  prompt,
+	}
 }
 
 // positionDetailMode 返回岗位模板配置的详情读取模式。
@@ -918,7 +972,7 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	}, 3)
 	if err != nil {
 		e.log("error", fmt.Sprintf("本地程序请求失败：%s，err=%v", path, err))
-		if payloadJSON, marshalErr := json.Marshal(payload); marshalErr == nil {
+		if payloadJSON, marshalErr := json.Marshal(maskSensitiveForLog(payload)); marshalErr == nil {
 			e.log("error", fmt.Sprintf("本地程序失败请求参数：%s", string(payloadJSON)))
 		} else {
 			e.log("error", fmt.Sprintf("本地程序失败请求参数序列化失败：%v", marshalErr))
@@ -981,6 +1035,31 @@ func toStringSlice(v any) []string {
 	return result
 }
 
+// maskSensitiveForLog 递归打码日志中的敏感字段。
+func maskSensitiveForLog(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		masked := make(map[string]any, len(typed))
+		for key, item := range typed {
+			lowerKey := strings.ToLower(strings.TrimSpace(key))
+			if lowerKey == "api_key" || lowerKey == "authorization" || lowerKey == "token" {
+				masked[key] = "已隐藏"
+				continue
+			}
+			masked[key] = maskSensitiveForLog(item)
+		}
+		return masked
+	case []any:
+		masked := make([]any, 0, len(typed))
+		for _, item := range typed {
+			masked = append(masked, maskSensitiveForLog(item))
+		}
+		return masked
+	default:
+		return value
+	}
+}
+
 // ---------- AI 筛选 ----------
 
 type AIRequest struct {
@@ -1009,6 +1088,13 @@ type AIScoreDecision struct {
 	Score      float64 `json:"score"`
 	Reason     string  `json:"reason"`
 	TokenUsage int     `json:"token_usage"`
+}
+
+type AIVisionDetailDecision struct {
+	ResumeText  string  `json:"resume_text"`
+	Score       float64 `json:"score"`
+	Reason      string  `json:"reason"`
+	ShouldGreet bool    `json:"should_greet"`
 }
 
 const defaultAIGreetScorePrompt = `你是一个资深的HR专家。请根据岗位要求给候选人打“打招呼建议分”。
@@ -1060,6 +1146,27 @@ const defaultAIReviewScorePrompt = `你是一个资深的HR专家。当前候选
 %s
 
 请返回JSON：{"score": 72, "reason": "边界候选人可谨慎通过"}`
+
+const defaultVisionDetailAnalysisPrompt = `你是资深招聘顾问。请阅读图片中的候选人详情页，并根据岗位要求直接完成简历文字提取和打招呼判断。
+
+重要要求：
+1. 必须只输出 JSON，不能输出解释、Markdown、代码块或 <think>。
+2. resume_text 填图片中能识别到的候选人简历文字，尽量保留姓名、年龄、学历、工作经历、期望职位、技能等关键内容。
+3. score 为 0-100 数字，用于判断是否适合打招呼。
+4. should_greet 为布尔值，表示是否建议打招呼，判断标准是 score 是否达到打招呼阈值。
+5. reason 控制在 30 字以内，只写最关键判断原因。
+6. 如果图片内容无法识别，resume_text 为空字符串，score 为 0，should_greet 为 false。
+
+岗位要求：
+%s
+
+候选人基础信息：
+%s
+
+打招呼阈值：%.1f
+
+请严格返回 JSON：
+{"resume_text":"识别出的简历文字","score":85,"reason":"符合核心要求","should_greet":true}`
 
 // positionDescription 从岗位信息中提取职位要求文本。
 func (e *TaskExecutor) positionDescription() string {
@@ -1305,6 +1412,29 @@ func tryDecodeJSON(raw string, target any) error {
 		return json.Unmarshal([]byte(text[start:end+1]), target)
 	}
 	return errors.New("json block not found")
+}
+
+// parseVisionDetailDecision 从图片 AI 返回内容中解析简历文字和打招呼判断。
+func parseVisionDetailDecision(raw string) (AIVisionDetailDecision, bool) {
+	cleaned := stripThinkTags(raw)
+	var result AIVisionDetailDecision
+	if err := tryDecodeJSON(cleaned, &result); err != nil {
+		return AIVisionDetailDecision{}, false
+	}
+	result.ResumeText = strings.TrimSpace(result.ResumeText)
+	result.Score = clampScore(result.Score)
+	result.Reason = truncateText(strings.TrimSpace(result.Reason), 30)
+	return result, true
+}
+
+// stripThinkTags 删除模型输出中的 <think> 思考内容。
+func stripThinkTags(raw string) string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
+	return strings.TrimSpace(re.ReplaceAllString(text, ""))
 }
 
 // rollDetailOpenByProbability 用概率决定关键词模式是否打开详情。

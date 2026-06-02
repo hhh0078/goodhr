@@ -240,6 +240,17 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 	}
 	var resp localExtractTextResp
 	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, 0)
+	if mode == "ocr" {
+		if strings.TrimSpace(prefs.VisionAIBaseURL) == "" || strings.TrimSpace(prefs.VisionAIAPIKey) == "" || strings.TrimSpace(prefs.VisionAIModel) == "" {
+			return "", fmt.Errorf("图片AI识别缺少 api_url/api_key/model 配置")
+		}
+		payload["ai_vision"] = map[string]any{
+			"api_url":  prefs.VisionAIBaseURL,
+			"api_key":  prefs.VisionAIAPIKey,
+			"model_id": prefs.VisionAIModel,
+			"prompt":   prefs.VisionAIPrompt,
+		}
+	}
 	if err := exec.Post("/api/v1/page/extract-text", payload, &resp); err != nil {
 		return "", err
 	}

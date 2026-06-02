@@ -34,9 +34,10 @@ from app.humanize import (
 from app.machine import cookie_machine_ids, load_machine
 from app.ocr import merge_ocr_texts, ocr_image_async
 from app.paths import data_dir
-from app.screenshot import screenshot_locator_parts
+from app.screenshot import screenshot_locator_full, screenshot_locator_parts
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 from app.tasks import save_screenshot_bytes, screenshot_path
+from app.vision_ai import analyze_image_with_ai
 
 
 REPLY_TIMEOUT_SECONDS = 8
@@ -118,6 +119,8 @@ def _payload_summary(payload: Any) -> str:
                 names.extend([str(key) for key in item.keys()])
         if names:
             parts.append(f"fields={names}")
+    if isinstance(body.get("ai_vision"), dict):
+        parts.append("ai_vision=已传")
     if "element_ref" in body:
         parts.append(f"element_ref={body.get('element_ref')}")
     if "in_viewport" in payload:
@@ -563,7 +566,7 @@ class WSAgentClient:
                     raise ValueError(f"elements[{index}] must be an object")
                 item_start = time.perf_counter()
                 locator, matched = await self._resolve_locator_from_payload(page, {"element": element_raw}, f"文本提取元素[{index}]")
-                text = await self._extract_text_from_locator(page, locator, mode, delay_before, task_id_for_screenshot, f"element_{index}")
+                text = await self._extract_text_from_locator(page, locator, mode, delay_before, task_id_for_screenshot, f"element_{index}", body.get("ai_vision"))
                 item_ms = int((time.perf_counter() - item_start) * 1000)
                 logger.info(
                     "详情文本元素提取完成 index=%d matched=%s 耗时=%dms 文本长度=%d",
@@ -802,12 +805,28 @@ class WSAgentClient:
                 )
         return fields
 
-    async def _extract_text_from_locator(self, page: Any, locator: Any, mode: str, delay_before: float, task_id: str = "", label: str = "detail") -> str:
+    async def _extract_text_from_locator(self, page: Any, locator: Any, mode: str, delay_before: float, task_id: str = "", label: str = "detail", ai_vision: dict | None = None) -> str:
         """按模式从目标元素提取整段文本。"""
         total_start = time.perf_counter()
         if delay_before > 0:
             await asyncio.sleep(delay_before)
         if mode == "ocr":
+            if isinstance(ai_vision, dict) and ai_vision:
+                screenshot_start = time.perf_counter()
+                screenshot_bytes = await screenshot_locator_full(page, locator, "detail-vision-ai")
+                if not screenshot_bytes:
+                    screenshot_bytes = await locator.screenshot(type="png")
+                screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
+                save_path = ""
+                if task_id:
+                    save_path = str(save_screenshot_bytes(task_id, "vision-detail-full.png", screenshot_bytes))
+                logger.info("图片AI详情分析截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, save_path or "未保存")
+                ai_start = time.perf_counter()
+                text, meta = await analyze_image_with_ai(ai_vision, screenshot_bytes)
+                ai_ms = int((time.perf_counter() - ai_start) * 1000)
+                total_ms = int((time.perf_counter() - total_start) * 1000)
+                logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
+                return text
             screenshot_start = time.perf_counter()
             screenshot_parts = await screenshot_locator_parts(page, locator, "detail-ocr")
             if not screenshot_parts:

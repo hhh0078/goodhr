@@ -17,6 +17,14 @@ type runtimeExecutorAdapter struct {
 	exec platformViewportExecutor
 }
 
+// DetailVisionAIConfig 定义详情页图片视觉分析所需的 AI 参数。
+type DetailVisionAIConfig struct {
+	BaseURL string
+	APIKey  string
+	Model   string
+	Prompt  string
+}
+
 // Post 调用 httpapi 执行器发送请求。
 func (a runtimeExecutorAdapter) Post(path string, body any, result any) error {
 	return a.exec.post(path, body, result)
@@ -109,12 +117,17 @@ func (cfg PlatformConfig) CloseCandidateDetail(exec platformViewportExecutor, pr
 }
 
 // FetchCandidateDetailText 由平台运行时逻辑返回详情文本。
-func (cfg PlatformConfig) FetchCandidateDetailText(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, detailMode string) (string, error) {
+func (cfg PlatformConfig) FetchCandidateDetailText(exec platformViewportExecutor, prefs UserPreferences, candidate Candidate, detailMode string, visionAI DetailVisionAIConfig) (string, error) {
 	rt, err := runtimeByPlatformID(cfg.ID)
 	if err != nil {
 		return "", err
 	}
-	return rt.FetchCandidateDetailText(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), toRuntimePreferences(prefs), candidate, detailMode)
+	runtimePrefs := toRuntimePreferences(prefs)
+	runtimePrefs.VisionAIBaseURL = strings.TrimSpace(visionAI.BaseURL)
+	runtimePrefs.VisionAIAPIKey = strings.TrimSpace(visionAI.APIKey)
+	runtimePrefs.VisionAIModel = strings.TrimSpace(visionAI.Model)
+	runtimePrefs.VisionAIPrompt = strings.TrimSpace(visionAI.Prompt)
+	return rt.FetchCandidateDetailText(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), runtimePrefs, candidate, detailMode)
 }
 
 // CandidateFilterText 由平台运行时逻辑拼接候选人筛选文本。
