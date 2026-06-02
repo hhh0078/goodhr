@@ -5,6 +5,12 @@
       <button class="ghost" @click="config.load">刷新</button>
     </div>
 
+    <div class="panel-header">
+      AI 可自行配置兼容openAI 的任意多模态模型，必须要支持图片视频。例如
+      硅基流动、MiniMax、千问、OpenAI 等。(目前deepseek
+      不支持图片视频，所以请不要使用deepseek)
+    </div>
+
     <h3>AI 配置</h3>
     <div class="personal-grid">
       <label class="field">
@@ -20,11 +26,10 @@
       </label>
       <label class="field">
         模型
-        <input
-          v-model="config.form.value.aiModel"
-          placeholder="MiniMax-M3"
-        />
-        <small class="field-help">任务使用的默认模型名称。默认 MiniMax-M3</small>
+        <input v-model="config.form.value.aiModel" placeholder="MiniMax-M3" />
+        <small class="field-help"
+          >任务使用的默认模型名称。默认 MiniMax-M3</small
+        >
       </label>
       <label class="field">
         API Key
