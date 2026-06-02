@@ -97,10 +97,10 @@ const cards = [
     index: "4",
     title: "保存个人配置",
     menu: "personal-config",
-    description: "建议填入 DeepSeek 的 API 地址、模型和 API Key。",
+    description: "建议填入 MiniMax 的 API 地址、模型和 API Key。",
     tips: [
-      "API地址可填 https://api.deepseek.com/chat/completions",
-      "模型可填 deepseek-v4-flash 或 deepseek-v4-pro",
+      "API地址可填 https://api.minimaxi.com/v1/chat/completions",
+      "模型可填 MiniMax-M3",
       "保存后 API Key 会隐藏",
     ],
   },

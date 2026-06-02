@@ -11,22 +11,20 @@
         API 地址
         <input
           v-model="config.form.value.aiBaseURL"
-          placeholder="https://api.deepseek.com/chat/completions"
+          placeholder="https://api.minimaxi.com/v1/chat/completions"
         />
         <small class="field-help"
-          >用于调用 AI 服务的基础地址。推荐使用 Deepseek。地址为
-          https://api.deepseek.com/chat/completions</small
+          >用于调用 MiniMax 多模态和对话模型。默认地址为
+          https://api.minimaxi.com/v1/chat/completions</small
         >
       </label>
       <label class="field">
         模型
         <input
           v-model="config.form.value.aiModel"
-          placeholder="deepseek-v4-flash"
+          placeholder="MiniMax-M3"
         />
-        <small class="field-help"
-          >任务使用的默认模型名称。deepseek-v4-flash或者deepseek-v4-pro</small
-        >
+        <small class="field-help">任务使用的默认模型名称。默认 MiniMax-M3</small>
       </label>
       <label class="field">
         API Key
@@ -40,11 +38,12 @@
           "
         />
         <small class="field-help"
-          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。deepseek
-          你可以看这个文章获取 Key<a
-            href="https://www.explinks.com/blog/how-to-get-deepseek-api-key-step-by-step-guide/"
+          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。MiniMax
+          需要先购买 token 套餐后再使用。<a
+            href="https://platform.minimaxi.com/subscribe/token-plan"
             target="_blank"
-            >获取秘钥教程</a
+            rel="noreferrer"
+            >前往购买</a
           ></small
         >
       </label>

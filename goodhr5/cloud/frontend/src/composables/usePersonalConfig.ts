@@ -7,8 +7,8 @@ import {
 } from "../services/api/personalConfigApi";
 import { markOnboardingStep } from "../services/onboarding";
 
-const DEFAULT_AI_BASE_URL = "https://api.deepseek.com/chat/completions";
-const DEFAULT_AI_MODEL = "deepseek-v4-flash";
+const DEFAULT_AI_BASE_URL = "https://api.minimaxi.com/v1/chat/completions";
+const DEFAULT_AI_MODEL = "MiniMax-M3";
 
 export function usePersonalConfig() {
   const loading = ref(false);
@@ -32,8 +32,8 @@ export function usePersonalConfig() {
         detailOpenProbability: data?.detail_open_probability ?? 80,
         detailOpenDelayMin: data?.detail_open_delay_min ?? 1,
         detailOpenDelayMax: data?.detail_open_delay_max ?? 2,
-        detailCloseDelayMin: data?.detail_close_delay_min ?? 1,
-        detailCloseDelayMax: data?.detail_close_delay_max ?? 2,
+        detailCloseDelayMin: data?.detail_close_delay_min ?? 0,
+        detailCloseDelayMax: data?.detail_close_delay_max ?? 0,
         greetBeforeDelayMin: data?.greet_before_delay_min ?? 1,
         greetBeforeDelayMax: data?.greet_before_delay_max ?? 2,
         restAfterCandidatesMin: data?.rest_after_candidates_min ?? 40,
@@ -108,8 +108,8 @@ function defaultForm() {
     detailOpenProbability: 80,
     detailOpenDelayMin: 1,
     detailOpenDelayMax: 2,
-    detailCloseDelayMin: 1,
-    detailCloseDelayMax: 2,
+    detailCloseDelayMin: 0,
+    detailCloseDelayMax: 0,
     greetBeforeDelayMin: 1,
     greetBeforeDelayMax: 2,
     restAfterCandidatesMin: 40,
