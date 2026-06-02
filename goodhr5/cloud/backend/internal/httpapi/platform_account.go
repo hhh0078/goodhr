@@ -114,15 +114,11 @@ func (s *PlatformAccountService) currentTenant(w http.ResponseWriter, r *http.Re
 
 // publicCookieAccount 将 cookie 记录转换为前端账号兼容结构。
 func publicCookieAccount(item CookieRecord) map[string]any {
-	localProfileID := item.DisplayName
-	if localProfileID == "" {
-		localProfileID = item.ID
-	}
 	return map[string]any{
 		"id":               item.ID,
 		"platform_id":      item.PlatformID,
 		"display_name":     item.DisplayName,
-		"local_profile_id": localProfileID,
+		"local_profile_id": item.ID,
 		"cookie_status":    item.Status,
 		"status":           item.Status,
 		"size_bytes":       item.SizeBytes,
