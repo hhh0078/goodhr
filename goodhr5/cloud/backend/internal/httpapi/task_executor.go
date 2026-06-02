@@ -284,14 +284,11 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 
 		candidate := candidates[i]
 		candidateName := candidate.DisplayName()
-		e.log("info", fmt.Sprintf("候选人流程开始：%s（%d/%d）", candidateName, i+1, len(candidates)))
+		e.log("info", fmt.Sprintf("开始处理%s（%d/%d）", candidateName, i+1, len(candidates)))
 		e.incrementCounts(1, 0, 0, 0)
 
 		baseText := strings.TrimSpace(e.platformCfg.CandidateFilterText(candidate))
-		persistence, err := e.prepareCandidatePersistence(candidate, baseText, baseText, "")
-		if err != nil {
-			e.log("warn", fmt.Sprintf("候选人 %s 初始化简历库记录失败: %v", candidateName, err))
-		}
+		var persistence *candidatePersistenceContext
 		var shouldOpenDetail bool
 		var detailScoreDecision AIScoreDecision
 		if i < len(openDetailPrechecks) && openDetailPrechecks[i] != nil {
@@ -304,7 +301,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			shouldOpenDetail, detailScoreDecision, err = e.decideOpenDetail(baseText)
 		}
 		if err != nil {
-			e.log("error", fmt.Sprintf("候选人 %s 详情决策失败: %v", candidateName, err))
+			e.log("error", fmt.Sprintf("%s详情决策失败: %v", candidateName, err))
 			e.logCandidateFlowEnd(candidateName, "详情决策失败")
 			e.incrementCounts(0, 0, 0, 1)
 			if err := e.maybeRest(ctx); err != nil {
@@ -314,37 +311,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 		candidate.AI.Detail.Score = float64Ptr(detailScoreDecision.Score)
 		candidate.AI.Detail.Reason = strings.TrimSpace(detailScoreDecision.Reason)
-		e.saveCandidateEvent(persistence, CandidateEvent{
-			EventType:  "detail_analysis",
-			Score:      float64Ptr(detailScoreDecision.Score),
-			Reason:     strings.TrimSpace(detailScoreDecision.Reason),
-			InputText:  baseText,
-			OutputText: scoreDecisionOutput(detailScoreDecision),
-			Model:      e.aiConfig.Model,
-			TokenUsage: detailScoreDecision.TokenUsage,
-			Metadata: map[string]any{
-				"should_open_detail": shouldOpenDetail,
-				"threshold":          e.detailThreshold(),
-			},
-		})
 		if detailScoreDecision.Reason != "" {
-			e.log("info", fmt.Sprintf("候选人 %s 看详情评分: %.1f，原因: %s（token=%d）", candidateName, detailScoreDecision.Score, detailScoreDecision.Reason, detailScoreDecision.TokenUsage))
+			e.log("info", fmt.Sprintf("%s看详情评分: %.1f，原因: %s（token=%d）", candidateName, detailScoreDecision.Score, detailScoreDecision.Reason, detailScoreDecision.TokenUsage))
 		}
 		if e.task.Mode == "ai" && !shouldOpenDetail {
 			reason := firstNonEmpty(strings.TrimSpace(detailScoreDecision.Reason), "看详情评分低于阈值")
-			e.log("info", fmt.Sprintf("候选人 %s 看详情评分低于阈值，直接跳过: %s（详情评分=%.1f，阈值=%.1f）", candidateName, reason, detailScoreDecision.Score, e.detailThreshold()))
-			e.saveCandidateEvent(persistence, CandidateEvent{
-				EventType: "candidate_skipped",
-				Score:     float64Ptr(detailScoreDecision.Score),
-				Reason:    reason,
-				InputText: baseText,
-				Metadata: map[string]any{
-					"mode":      "ai",
-					"stage":     "detail_analysis",
-					"threshold": e.detailThreshold(),
-				},
-			})
-			e.updateEngagementStatus(persistence, "skipped", nil, nil)
+			e.log("info", fmt.Sprintf("%s看详情评分低于阈值，直接跳过: %s（详情评分=%.1f，阈值=%.1f）", candidateName, reason, detailScoreDecision.Score, e.detailThreshold()))
 			e.incrementCounts(0, 0, 1, 0)
 			e.logCandidateFlowEnd(candidateName, "看详情评分跳过")
 			if err := e.maybeRest(ctx); err != nil {
@@ -354,13 +326,14 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 		}
 		detailFetchedAt := (*time.Time)(nil)
 		detailText := ""
+		var detailFetchedEvent *CandidateEvent
 		visionRawOutput := ""
 		var visionGreetDecision *AIScoreDecision
 		visionShouldGreet := false
 		if shouldOpenDetail {
 			detailText, err = e.platformCfg.FetchCandidateDetailText(e, e.userPrefs, candidate, e.positionDetailMode(), e.detailVisionAIConfig(baseText))
 			if err != nil {
-				e.log("error", fmt.Sprintf("候选人 %s 详情提取失败: %v", candidateName, err))
+				e.log("error", fmt.Sprintf("%s详情提取失败: %v", candidateName, err))
 				e.logCandidateFlowEnd(candidateName, "详情提取失败")
 				e.incrementCounts(0, 0, 0, 1)
 				if err := e.maybeRest(ctx); err != nil {
@@ -370,7 +343,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			}
 			if e.task.Mode == "ai" && e.positionDetailMode() == "ocr" {
 				visionRawOutput = strings.TrimSpace(detailText)
-				e.log("info", fmt.Sprintf("候选人 %s 图片AI完整返回: %s", candidateName, visionRawOutput))
+				e.log("info", fmt.Sprintf("%s图片AI完整返回: %s", candidateName, visionRawOutput))
 			}
 			if visionResult, ok := parseVisionDetailDecision(detailText); ok {
 				applyVisionResumeToCandidate(&candidate, visionResult.Resume)
@@ -384,7 +357,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 					detailText = strings.TrimSpace(baseText)
 				}
 			} else if e.task.Mode == "ai" && e.positionDetailMode() == "ocr" {
-				e.log("error", fmt.Sprintf("候选人 %s 图片AI返回结果不是合法JSON", candidateName))
+				e.log("error", fmt.Sprintf("%s图片AI返回结果不是合法JSON", candidateName))
 				e.logCandidateFlowEnd(candidateName, "图片AI解析失败")
 				e.incrementCounts(0, 0, 0, 1)
 				if err := e.maybeRest(ctx); err != nil {
@@ -392,10 +365,10 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				}
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %s 详情文本: %s", candidateName, previewDetailLog(detailText, 800)))
+			e.log("info", fmt.Sprintf("%s详情文本: %s", candidateName, previewDetailLog(detailText, 800)))
 			now := time.Now().UTC()
 			detailFetchedAt = &now
-			e.saveCandidateEvent(persistence, CandidateEvent{
+			detailFetchedEvent = &CandidateEvent{
 				EventType:   "detail_fetched",
 				InputText:   baseText,
 				OutputText:  firstNonEmpty(visionRawOutput, detailText),
@@ -404,11 +377,29 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 					"detail_mode":           e.positionDetailMode(),
 					"extracted_detail_text": previewDetailLog(detailText, 1000),
 				},
-			})
+			}
 		}
 		filterText := e.mergeCandidateTexts(baseText, detailText)
 		if updated, err := e.prepareCandidatePersistence(candidate, baseText, filterText, detailText); err == nil {
 			persistence = updated
+			if detailFetchedEvent != nil {
+				e.saveCandidateEvent(persistence, *detailFetchedEvent)
+			}
+			e.saveCandidateEvent(persistence, CandidateEvent{
+				EventType:  "detail_analysis",
+				Score:      float64Ptr(detailScoreDecision.Score),
+				Reason:     strings.TrimSpace(detailScoreDecision.Reason),
+				InputText:  baseText,
+				OutputText: scoreDecisionOutput(detailScoreDecision),
+				Model:      e.aiConfig.Model,
+				TokenUsage: detailScoreDecision.TokenUsage,
+				Metadata: map[string]any{
+					"should_open_detail": shouldOpenDetail,
+					"threshold":          e.detailThreshold(),
+				},
+			})
+		} else if err != nil {
+			e.log("warn", fmt.Sprintf("%s简历库入库失败: %v", candidateName, err))
 		}
 		if persistence != nil && detailFetchedAt != nil {
 			_ = e.candidateStore.UpdateCandidateEngagementStatus(persistence.Engagement.ID, "analyzed", detailFetchedAt, nil)
@@ -448,7 +439,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 					"source":    map[bool]string{true: "vision_detail", false: "text_ai"}[usedVisionGreet],
 				},
 			})
-			e.log("info", fmt.Sprintf("候选人 %s 打招呼评分: %.1f，原因: %s", candidateName, greetDecision.Score, greetDecision.Reason))
+			e.log("info", fmt.Sprintf("%s打招呼评分: %.1f，原因: %s", candidateName, greetDecision.Score, greetDecision.Reason))
 			shouldGreet := false
 			finalGreetScore := greetDecision.Score
 			finalGreetReason := firstNonEmpty(strings.TrimSpace(greetDecision.Reason), "评分低于阈值")
@@ -474,10 +465,10 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 						"threshold": e.greetThreshold(),
 					},
 				})
-				e.log("info", fmt.Sprintf("候选人 %s 复核评分: %.1f，原因: %s（token=%d）", candidateName, reviewDecision.Score, reviewDecision.Reason, reviewDecision.TokenUsage))
+				e.log("info", fmt.Sprintf("%s复核评分: %.1f，原因: %s（token=%d）", candidateName, reviewDecision.Score, reviewDecision.Reason, reviewDecision.TokenUsage))
 			}
 			if !shouldGreet {
-				e.log("info", fmt.Sprintf("候选人 %s AI 筛选跳过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
+				e.log("info", fmt.Sprintf("%sAI筛选跳过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
 				e.saveCandidateEvent(persistence, CandidateEvent{
 					EventType: "candidate_skipped",
 					Score:     float64Ptr(finalGreetScore),
@@ -496,11 +487,11 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				}
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %s AI 通过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
+			e.log("info", fmt.Sprintf("%sAI通过: %s（最终评分=%.1f，阈值=%.1f）", candidateName, finalGreetReason, finalGreetScore, e.greetThreshold()))
 		} else if e.filter != nil {
 			result := e.filter.Filter(filterText)
 			if !result.Passed {
-				e.log("info", fmt.Sprintf("候选人 %s 被筛选跳过: %s", candidateName, result.Reason))
+				e.log("info", fmt.Sprintf("%s被筛选跳过: %s", candidateName, result.Reason))
 				e.saveCandidateEvent(persistence, CandidateEvent{
 					EventType: "candidate_skipped",
 					Reason:    result.Reason,
@@ -515,12 +506,12 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 				}
 				continue
 			}
-			e.log("info", fmt.Sprintf("候选人 %s 通过筛选: %s", candidateName, result.Reason))
+			e.log("info", fmt.Sprintf("%s通过筛选: %s", candidateName, result.Reason))
 		}
 
 		// 打招呼：交由平台动作实现
 		if err := e.platformCfg.GreetCandidate(e, e.userPrefs, candidate, e.positionGreetMessage()); err != nil {
-			e.log("error", fmt.Sprintf("候选人 %s 打招呼失败: %v", candidateName, err))
+			e.log("error", fmt.Sprintf("%s打招呼失败: %v", candidateName, err))
 			e.logCandidateFlowEnd(candidateName, "打招呼失败")
 			e.incrementCounts(0, 0, 0, 1)
 			if err := e.maybeRest(ctx); err != nil {
@@ -528,7 +519,7 @@ func (e *TaskExecutor) processCandidates(ctx context.Context, candidates []Candi
 			}
 			continue
 		}
-		e.log("info", fmt.Sprintf("候选人 %s 打招呼成功", candidateName))
+		e.log("info", fmt.Sprintf("%s打招呼成功", candidateName))
 		now := time.Now().UTC()
 		e.saveCandidateEvent(persistence, CandidateEvent{
 			EventType:   "greet_success",
@@ -605,7 +596,7 @@ func (e *TaskExecutor) logCandidateFlowEnd(candidateName string, result string) 
 	if text == "" {
 		text = "未知结果"
 	}
-	e.log("info", fmt.Sprintf("候选人流程结束：%s，结果=%s", name, text))
+	e.log("info", fmt.Sprintf("%s流程结束，结果=%s", name, text))
 }
 
 // positionGreetMessage 返回岗位模板配置的打招呼语。
@@ -983,7 +974,10 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	if e.agentWS == nil {
 		return fmt.Errorf("Local Agent WebSocket 未初始化")
 	}
-	e.log("info", fmt.Sprintf("正在请求本地程序：%s", path))
+	startLog, successLog := localAgentLogMessages(path, body)
+	if startLog != "" {
+		e.log("info", startLog)
+	}
 	if path == "/api/v1/page/extract-text" {
 		if item, ok := body.(map[string]any); ok {
 			if _, exists := item["task_id"]; !exists {
@@ -1001,7 +995,7 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 		Payload: payload,
 	}, 3)
 	if err != nil {
-		e.log("error", fmt.Sprintf("本地程序请求失败：%s，err=%v", path, err))
+		e.log("error", fmt.Sprintf("%s失败：%v", firstNonEmpty(startLog, "本地程序请求"), err))
 		if payloadJSON, marshalErr := json.Marshal(maskSensitiveForLog(payload)); marshalErr == nil {
 			e.log("error", fmt.Sprintf("本地程序失败请求参数：%s", string(payloadJSON)))
 		} else {
@@ -1012,7 +1006,9 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 		}
 		return fmt.Errorf("请求 Local Agent 失败 (%s): %w", path, err)
 	}
-	e.log("info", fmt.Sprintf("本地程序响应成功：%s", path))
+	if successLog != "" {
+		e.log("info", successLog)
+	}
 
 	if result != nil {
 		respBytes, err := json.Marshal(resp.Payload)
@@ -1025,6 +1021,44 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 	}
 
 	return nil
+}
+
+// localAgentLogMessages 生成本地程序请求的用户可读日志。
+// path 为本地接口路径，body 为请求体；内部日志字段会在这里剥离，避免传给本地程序。
+func localAgentLogMessages(path string, body any) (string, string) {
+	if item, ok := body.(map[string]any); ok {
+		start := strings.TrimSpace(fmt.Sprint(item["_log_start"]))
+		success := strings.TrimSpace(fmt.Sprint(item["_log_success"]))
+		delete(item, "_log_start")
+		delete(item, "_log_success")
+		if start != "" && start != "<nil>" {
+			if success == "" || success == "<nil>" {
+				success = strings.TrimPrefix(start, "正在")
+				if success == start {
+					success = start + "完成"
+				} else {
+					success = success + "完成"
+				}
+			}
+			return start, success
+		}
+	}
+	switch path {
+	case "/api/v1/browser/start":
+		return "正在启动本地浏览器", "本地浏览器已启动"
+	case "/api/v1/browser/stop":
+		return "正在关闭本地浏览器", "本地浏览器已关闭"
+	case "/api/v1/cookies/decrypt":
+		return "正在准备平台登录状态", "平台登录状态准备完成"
+	case "/api/v1/page/open":
+		return "正在打开招聘平台页面", "招聘平台页面已打开"
+	case "/api/v1/page/scroll":
+		return "正在加载下一屏候选人", "下一屏候选人加载完成"
+	case "/api/v1/sound/play":
+		return "正在播放成功提示音", "成功提示音已播放"
+	default:
+		return "正在执行本地程序操作", "本地程序操作完成"
+	}
 }
 
 func localAgentReplyDetail(resp AgentWSMessage) string {

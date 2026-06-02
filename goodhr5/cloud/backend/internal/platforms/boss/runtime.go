@@ -68,7 +68,11 @@ func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformc
 		return nil
 	}
 	exec.Log("info", fmt.Sprintf("正在打开Boss推荐页: %s", url))
-	body := map[string]any{"url": url}
+	body := map[string]any{
+		"url":          url,
+		"_log_start":   "正在打开Boss推荐页",
+		"_log_success": "Boss推荐页已打开",
+	}
 	if len(cookies) > 0 {
 		exec.Log("info", fmt.Sprintf("打开Boss推荐页前补充注入 %d 条 cookie", len(cookies)))
 		body["cookies"] = cookies
@@ -79,7 +83,10 @@ func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformc
 // useExistingEntryPage 尝试复用已经打开的 Boss 入口页。
 func (r *Runtime) useExistingEntryPage(exec platformcore.RuntimeExecutor, entryURL string) (bool, error) {
 	var listResp localPageListResp
-	if err := exec.Post("/api/v1/page/list", map[string]any{}, &listResp); err != nil {
+	if err := exec.Post("/api/v1/page/list", map[string]any{
+		"_log_start":   "正在检查是否已打开Boss推荐页",
+		"_log_success": "Boss推荐页检查完成",
+	}, &listResp); err != nil {
 		return false, err
 	}
 	if len(listResp.Pages) == 0 {
@@ -118,14 +125,14 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 	if findResp.Items == nil {
 		findResp.Items = []localElementItem{}
 	}
-	exec.Log("info", fmt.Sprintf("查找到 %d 个当前可见Boss候选人卡片", len(findResp.Items)))
+	exec.Log("info", fmt.Sprintf("当前页面找到 %d 个可见候选人卡片", len(findResp.Items)))
 	candidates := make([]platformcore.Candidate, 0, len(findResp.Items))
 	for _, item := range findResp.Items {
 		fields := item.Fields
 		if fields == nil {
 			fields = map[string]any{}
 		}
-		exec.Log("info", fmt.Sprintf("Boss候选人卡片字段：index=%d ref=%s %s", item.Index, shortRef(item.Ref), summarizeCandidateFields(fields, cfg.Card.FieldRequests)))
+		exec.Log("info", fmt.Sprintf("候选人卡片字段：index=%d ref=%s %s", item.Index, shortRef(item.Ref), summarizeCandidateFields(fields, cfg.Card.FieldRequests)))
 		fields["_index"] = item.Index
 		fields["element_ref"] = item.Ref
 		candidates = append(candidates, r.MapFieldsToCandidate(cfg.PlatformID, fields))
@@ -135,9 +142,11 @@ func (r *Runtime) ListVisibleCandidates(exec platformcore.RuntimeExecutor, cfg p
 
 // ScrollCandidateList 滚动到下一屏 Boss 候选人列表。
 func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
-	exec.Log("info", "正在滚动到下一屏Boss候选人列表")
+	exec.Log("info", "正在加载下一屏候选人列表")
 	body := map[string]any{
-		"max_scrolls": 1,
+		"max_scrolls":  1,
+		"_log_start":   "正在加载下一屏候选人",
+		"_log_success": "下一屏候选人加载完成",
 	}
 	if cfg.Card.ScrollElement != nil {
 		body["element"] = cfg.Card.ScrollElement
@@ -147,7 +156,7 @@ func (r *Runtime) ScrollCandidateList(exec platformcore.RuntimeExecutor, cfg pla
 
 // GreetCandidate 执行 Boss 候选人打招呼动作。
 func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
-	exec.Log("info", fmt.Sprintf("正在执行Boss候选人打招呼动作 candidate=%s element_ref=%s", candidate.DisplayName(), shortRef(candidate.Runtime.ElementRef)))
+	exec.Log("info", fmt.Sprintf("正在准备点击%s打招呼", candidate.DisplayName()))
 	if err := clickActionWithinCandidate(exec, candidate, cfg.Actions.GreetBtn, prefs.GreetBeforeDelayMin, prefs.GreetBeforeDelayMax, "打招呼按钮"); err != nil {
 		return err
 	}
@@ -162,45 +171,57 @@ func (r *Runtime) GreetCandidate(exec platformcore.RuntimeExecutor, cfg platform
 
 // OpenCandidateDetail 打开 Boss 候选人详情。
 func (r *Runtime) OpenCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate) error {
-	exec.Log("info", "正在打开Boss候选人详情")
+	exec.Log("info", fmt.Sprintf("正在准备打开%s详情", candidate.DisplayName()))
 	return clickActionWithinCandidate(exec, candidate, cfg.Detail.OpenTarget, prefs.DetailOpenDelayMin, prefs.DetailOpenDelayMax, "详情打开按钮")
 }
 
 // CloseCandidateDetail 关闭 Boss 候选人详情。
 func (r *Runtime) CloseCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences) error {
-	exec.Log("info", "正在关闭Boss候选人详情（发送ESC）")
+	return r.closeCandidateDetail(exec, cfg, prefs, "")
+}
+
+// closeCandidateDetail 关闭 Boss 候选人详情，并尽量在日志中展示候选人名称。
+// candidateName 为候选人展示名，缺失时使用通用文案。
+func (r *Runtime) closeCandidateDetail(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidateName string) error {
+	name := strings.TrimSpace(candidateName)
+	if name == "" {
+		name = "候选人"
+	}
+	exec.Log("info", fmt.Sprintf("正在关闭%s详情", name))
 	if err := exec.Delay("关闭详情前", prefs.DetailCloseDelayMin, prefs.DetailCloseDelayMax); err != nil {
 		return err
 	}
 	return exec.Post("/api/v1/page/press-key", map[string]any{
-		"key": "Escape",
+		"key":          "Escape",
+		"_log_start":   fmt.Sprintf("正在关闭%s详情页", name),
+		"_log_success": fmt.Sprintf("%s详情页已关闭", name),
 	}, nil)
 }
 
 // FetchCandidateDetailText 读取 Boss 候选人详情文本。
 func (r *Runtime) FetchCandidateDetailText(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, candidate platformcore.Candidate, detailMode string) (string, error) {
 	if !cfg.Behavior.NeedsDetailPage {
-		exec.Log("info", "Boss候选人详情无需详情页，跳过详情提取")
+		exec.Log("info", fmt.Sprintf("%s详情无需打开详情页，跳过详情提取", candidate.DisplayName()))
 		return "", nil
 	}
 	if err := r.OpenCandidateDetail(exec, cfg, prefs, candidate); err != nil {
 		return "", err
 	}
 	defer func() {
-		if err := r.CloseCandidateDetail(exec, cfg, prefs); err != nil {
-			exec.Log("warn", fmt.Sprintf("关闭Boss候选人详情失败：%v", err))
+		if err := r.closeCandidateDetail(exec, cfg, prefs, candidate.DisplayName()); err != nil {
+			exec.Log("warn", fmt.Sprintf("关闭%s详情失败：%v", candidate.DisplayName(), err))
 		}
 	}()
-	text, err := r.DetailContentText(exec, cfg, prefs, detailMode)
+	text, err := r.DetailContentText(exec, cfg, prefs, detailMode, candidate.DisplayName())
 	if err != nil {
 		return "", err
 	}
 	cleanedText := trimSimilarCandidateTail(text)
 	if len(cleanedText) != len(strings.TrimSpace(text)) {
-		exec.Log("info", "Boss候选人详情文本已截断：命中固定尾部文案=其他相似经历的牛人")
+		exec.Log("info", fmt.Sprintf("%s详情文本已截断：命中固定尾部文案=其他相似经历的牛人", candidate.DisplayName()))
 	}
 	text = cleanedText
-	exec.Log("info", fmt.Sprintf("Boss候选人详情文本提取完成，长度=%d", len(text)))
+	exec.Log("info", fmt.Sprintf("%s详情文本提取完成，长度=%d", candidate.DisplayName(), len(text)))
 	return text, nil
 }
 
@@ -230,7 +251,7 @@ func (r *Runtime) MapFieldsToCandidate(platformID string, fields map[string]any)
 }
 
 // DetailContentText 读取详情定位配置提取出的整段文本。
-func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, detailMode string) (string, error) {
+func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, prefs platformcore.RuntimePreferences, detailMode string, candidateName string) (string, error) {
 	if cfg.Detail.Content == nil {
 		return "", fmt.Errorf("平台配置中无详情文本定位配置")
 	}
@@ -240,6 +261,12 @@ func (r *Runtime) DetailContentText(exec platformcore.RuntimeExecutor, cfg platf
 	}
 	var resp localExtractTextResp
 	payload := buildDetailExtractPayload(cfg.Detail.Content, mode, 0)
+	name := strings.TrimSpace(candidateName)
+	if name == "" {
+		name = "候选人"
+	}
+	payload["_log_start"] = fmt.Sprintf("正在查看%s详情", name)
+	payload["_log_success"] = fmt.Sprintf("%s详情查看完成", name)
 	if mode == "ocr" {
 		if strings.TrimSpace(prefs.VisionAIBaseURL) == "" || strings.TrimSpace(prefs.VisionAIAPIKey) == "" || strings.TrimSpace(prefs.VisionAIModel) == "" {
 			return "", fmt.Errorf("图片AI识别缺少 api_url/api_key/model 配置")
@@ -469,6 +496,8 @@ func clickRequiredAction(exec platformcore.RuntimeExecutor, element map[string]a
 		"timeout":      10000,
 		"delay_before": delayBefore,
 		"element":      element,
+		"_log_start":   fmt.Sprintf("正在点击%s", label),
+		"_log_success": fmt.Sprintf("%s点击完成", label),
 	}, nil)
 }
 
@@ -481,6 +510,8 @@ func clickOptionalAction(exec platformcore.RuntimeExecutor, element map[string]a
 		"timeout":      2000,
 		"delay_before": delayBefore,
 		"element":      element,
+		"_log_start":   fmt.Sprintf("正在点击%s", label),
+		"_log_success": fmt.Sprintf("%s点击完成", label),
 	}, nil); err != nil {
 		exec.Log("info", fmt.Sprintf("%s未命中，已跳过：%v", label, err))
 		return err
@@ -501,9 +532,19 @@ func clickActionWithinCandidate(exec platformcore.RuntimeExecutor, candidate pla
 	if err := exec.Delay(label+"前", delayMin, delayMax); err != nil {
 		return err
 	}
+	name := strings.TrimSpace(candidate.DisplayName())
+	action := label
+	switch label {
+	case "打招呼按钮":
+		action = "打招呼"
+	case "详情打开按钮":
+		action = "详情"
+	}
 	return exec.Post("/api/v1/page/click", map[string]any{
-		"timeout":     10000,
-		"element_ref": elementRef,
-		"element":     element,
+		"timeout":      10000,
+		"element_ref":  elementRef,
+		"element":      element,
+		"_log_start":   fmt.Sprintf("正在点击%s%s", name, action),
+		"_log_success": fmt.Sprintf("%s%s点击完成", name, action),
 	}, nil)
 }

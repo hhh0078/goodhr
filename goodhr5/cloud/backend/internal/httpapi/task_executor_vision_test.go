@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -78,25 +77,11 @@ func TestProcessCandidatesSkipsWhenDetailScoreBelowThreshold(t *testing.T) {
 	if aiCalls != 1 {
 		t.Fatalf("详情分低于阈值后不应再次请求打招呼 AI，calls=%d", aiCalls)
 	}
-	var skippedEvents []CandidateEvent
-	for _, events := range store.events {
-		for _, event := range events {
-			if event.EventType == "candidate_skipped" {
-				skippedEvents = append(skippedEvents, event)
-			}
-			if event.EventType == "greet_analysis" {
-				t.Fatalf("低于详情阈值不应保存打招呼分析事件: %+v", event)
-			}
-		}
+	if len(store.profiles) != 0 {
+		t.Fatalf("详情评分低于阈值不应入库，profiles=%d", len(store.profiles))
 	}
-	if len(skippedEvents) != 1 {
-		t.Fatalf("应保存一次跳过事件，got=%d", len(skippedEvents))
-	}
-	if skippedEvents[0].Reason != "低于详情阈值" {
-		t.Fatalf("跳过原因错误: %+v", skippedEvents[0])
-	}
-	if !strings.Contains(skippedEvents[0].InputText, "黄俊辉") {
-		t.Fatalf("跳过事件应记录基础信息: %+v", skippedEvents[0])
+	if len(store.events) != 0 {
+		t.Fatalf("详情评分低于阈值不应保存候选人事件，events=%d", len(store.events))
 	}
 }
 

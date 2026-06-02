@@ -196,13 +196,13 @@ func (s *MemoryTaskLogStore) trimTaskLogsLocked(taskID string, userEmail string,
 
 func classifyTaskLogMessage(message string) (int, int, int, int) {
 	switch {
-	case strings.HasPrefix(message, "处理候选人 "):
+	case strings.HasPrefix(message, "开始处理"):
 		return 1, 0, 0, 0
 	case strings.Contains(message, "打招呼成功"):
 		return 0, 1, 0, 0
 	case strings.Contains(message, "筛选跳过"):
 		return 0, 0, 1, 0
-	case strings.Contains(message, "打招呼失败"), strings.Contains(message, "AI 筛选失败"):
+	case strings.Contains(message, "打招呼失败"), strings.Contains(message, "AI筛选失败"), strings.Contains(message, "AI 筛选失败"):
 		return 0, 0, 0, 1
 	default:
 		return 0, 0, 0, 0
