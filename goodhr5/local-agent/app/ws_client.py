@@ -32,9 +32,9 @@ from app.humanize import (
     scroll_to_load,
 )
 from app.machine import cookie_machine_ids, load_machine
-from app.ocr import ocr_image_async
+from app.ocr import merge_ocr_texts, ocr_image_async
 from app.paths import data_dir
-from app.screenshot import screenshot_locator_full
+from app.screenshot import screenshot_locator_parts
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 
 
@@ -808,14 +808,30 @@ class WSAgentClient:
             await asyncio.sleep(delay_before)
         if mode == "ocr":
             screenshot_start = time.perf_counter()
-            screenshot_bytes = await screenshot_locator_full(page, locator, "detail-ocr")
-            if screenshot_bytes is None:
-                screenshot_bytes = await locator.screenshot(type="png")
+            screenshot_parts = await screenshot_locator_parts(page, locator, "detail-ocr")
+            if not screenshot_parts:
+                fallback_screenshot = await locator.screenshot(type="png")
+                screenshot_parts = [fallback_screenshot]
             screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-            logger.info("OCR 文本提取截图完成 bytes=%d 耗时=%dms 保存=未保存", len(screenshot_bytes), screenshot_ms)
-            text = (await ocr_image_async(screenshot_bytes)).strip()
+            total_bytes = sum(len(part) for part in screenshot_parts)
+            logger.info("OCR 文本提取分段截图完成 parts=%d bytes=%d 耗时=%dms 保存=未保存", len(screenshot_parts), total_bytes, screenshot_ms)
+            part_texts: list[str] = []
+            for part_index, screenshot_bytes in enumerate(screenshot_parts, start=1):
+                part_start = time.perf_counter()
+                part_text = (await ocr_image_async(screenshot_bytes)).strip()
+                part_ms = int((time.perf_counter() - part_start) * 1000)
+                logger.info(
+                    "OCR 分段识别完成 part=%d/%d bytes=%d 耗时=%dms 文本长度=%d",
+                    part_index,
+                    len(screenshot_parts),
+                    len(screenshot_bytes),
+                    part_ms,
+                    len(part_text),
+                )
+                part_texts.append(part_text)
+            text = merge_ocr_texts(part_texts)
             total_ms = int((time.perf_counter() - total_start) * 1000)
-            logger.info("OCR 文本提取完成 总耗时=%dms 文本长度=%d", total_ms, len(text))
+            logger.info("OCR 文本提取完成 parts=%d 总耗时=%dms 文本长度=%d", len(screenshot_parts), total_ms, len(text))
             return text
         text = (await locator.inner_text(timeout=3000)).strip()
         total_ms = int((time.perf_counter() - total_start) * 1000)

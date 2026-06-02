@@ -120,6 +120,113 @@ def _recognize_with_rapidocr(img_array: np.ndarray) -> tuple[str, dict[str, obje
     return "\n".join(lines), meta
 
 
+def _compact_text(text: str) -> str:
+    """
+    压缩文本空白字符，方便比较 OCR 重叠内容。
+
+    Args:
+        text: 原始 OCR 文本。
+
+    Returns:
+        str: 去掉空白后的文本。
+    """
+    return "".join(str(text or "").split())
+
+
+def _trim_prefix_by_compact_length(text: str, compact_length: int) -> str:
+    """
+    按压缩后字符长度裁掉原文前缀。
+
+    Args:
+        text: 原始文本。
+        compact_length: 需要裁掉的非空白字符数量。
+
+    Returns:
+        str: 裁掉重叠前缀后的文本。
+    """
+    if compact_length <= 0:
+        return text
+    seen = 0
+    for index, char in enumerate(text):
+        if not char.isspace():
+            seen += 1
+        if seen >= compact_length:
+            return text[index + 1:]
+    return ""
+
+
+def _find_compact_overlap(left: str, right: str, min_overlap: int = 20, max_window: int = 2000) -> int:
+    """
+    查找两段 OCR 文本边界的最大压缩字符重叠。
+
+    Args:
+        left: 已合并文本。
+        right: 下一段文本。
+        min_overlap: 最小有效重叠字符数。
+        max_window: 参与比较的最大窗口长度。
+
+    Returns:
+        int: 重叠的压缩字符数量。
+    """
+    left_compact = _compact_text(left)[-max_window:]
+    right_compact = _compact_text(right)[:max_window]
+    max_overlap = min(len(left_compact), len(right_compact))
+    for size in range(max_overlap, min_overlap - 1, -1):
+        if left_compact[-size:] == right_compact[:size]:
+            return size
+    return 0
+
+
+def _merge_ocr_text_pair(left: str, right: str) -> str:
+    """
+    合并两段 OCR 文本并去掉边界重叠。
+
+    Args:
+        left: 已合并文本。
+        right: 下一段 OCR 文本。
+
+    Returns:
+        str: 合并后的文本。
+    """
+    left = str(left or "").strip()
+    right = str(right or "").strip()
+    if not left:
+        return right
+    if not right:
+        return left
+
+    left_lines = [line.strip() for line in left.splitlines() if line.strip()]
+    right_lines = [line.strip() for line in right.splitlines() if line.strip()]
+    max_line_overlap = min(len(left_lines), len(right_lines), 20)
+    for count in range(max_line_overlap, 0, -1):
+        if [_compact_text(line) for line in left_lines[-count:]] == [_compact_text(line) for line in right_lines[:count]]:
+            remain = "\n".join(right_lines[count:]).strip()
+            return left if not remain else left + "\n" + remain
+
+    compact_overlap = _find_compact_overlap(left, right)
+    if compact_overlap > 0:
+        remain = _trim_prefix_by_compact_length(right, compact_overlap).strip()
+        return left if not remain else left + "\n" + remain
+
+    return left + "\n" + right
+
+
+def merge_ocr_texts(texts: list[str]) -> str:
+    """
+    合并多段 OCR 文本并去掉相邻截图的重复边界。
+
+    Args:
+        texts: 按截图顺序识别出的 OCR 文本列表。
+
+    Returns:
+        str: 去重合并后的 OCR 文本。
+    """
+    merged = ""
+    for text in texts:
+        merged = _merge_ocr_text_pair(merged, text)
+    return merged.strip()
+
+
 def ocr_image_bytes(image_bytes: bytes) -> str:
     """对图片字节数据进行 OCR 识别。
 

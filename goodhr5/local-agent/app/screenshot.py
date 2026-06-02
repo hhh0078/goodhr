@@ -296,17 +296,95 @@ async def screenshot_locator_full(page: Page, locator, platform_name: str = "") 
         return None
 
 
+async def screenshot_locator_parts(page: Page, locator, platform_name: str = "") -> list[bytes]:
+    """
+    对指定元素按当前视口分段截图。
+
+    元素超出视口时返回多张小图，供 OCR 分段识别，避免拼成长图后识别变慢。
+
+    Args:
+        page: Playwright Page 实例。
+        locator: 目标元素定位器。
+        platform_name: 平台名或日志标签。
+
+    Returns:
+        list[bytes]: 按页面顺序排列的 PNG 截图字节列表。
+    """
+    try:
+        if not await locator.is_visible(timeout=3000):
+            return []
+        box = await locator.bounding_box()
+        if not box or box["width"] < 20 or box["height"] < 20:
+            return []
+
+        viewport = page.viewport_size
+        vh = viewport["height"] if viewport else 1080
+        needs_scroll = box["y"] < 0 or box["y"] + box["height"] > vh
+        if needs_scroll:
+            return await _scroll_capture_parts(page, locator, box, vh, platform_name)
+        screenshot_bytes = await locator.screenshot(type="png")
+        logger.info("[%s] 元素无需滚动，返回单张截图 bytes=%d", platform_name, len(screenshot_bytes))
+        return [screenshot_bytes]
+    except Exception as exc:
+        logger.warning("[%s] 元素分段截图失败: %s", platform_name, exc)
+        return []
+
+
 async def _scroll_and_stitch(
     page: Page, locator, box: dict, viewport_height: int, platform_name: str
 ) -> Optional[bytes]:
     """通过鼠标滚轮滚动逐段截图后拼接成完整弹框。"""
+    screenshots, overlap = await _scroll_capture_parts_with_overlap(page, locator, box, viewport_height, platform_name)
+    if not screenshots:
+        return None
+    if len(screenshots) == 1:
+        return screenshots[0]
+    return stitch_screenshots(screenshots, overlap, platform_name)
+
+
+async def _scroll_capture_parts(
+    page: Page, locator, box: dict, viewport_height: int, platform_name: str
+) -> list[bytes]:
+    """
+    通过鼠标滚轮滚动逐段截图，返回去重后的小图列表。
+
+    Args:
+        page: Playwright Page 实例。
+        locator: 目标元素定位器。
+        box: 目标元素边界。
+        viewport_height: 当前视口高度。
+        platform_name: 平台名或日志标签。
+
+    Returns:
+        list[bytes]: 去重后的分段截图列表。
+    """
+    screenshots, _overlap = await _scroll_capture_parts_with_overlap(page, locator, box, viewport_height, platform_name)
+    return screenshots
+
+
+async def _scroll_capture_parts_with_overlap(
+    page: Page, locator, box: dict, viewport_height: int, platform_name: str
+) -> tuple[list[bytes], int]:
+    """
+    通过鼠标滚轮滚动逐段截图，并返回拼接需要的重叠高度。
+
+    Args:
+        page: Playwright Page 实例。
+        locator: 目标元素定位器。
+        box: 目标元素边界。
+        viewport_height: 当前视口高度。
+        platform_name: 平台名或日志标签。
+
+    Returns:
+        tuple[list[bytes], int]: 分段截图列表和重叠高度。
+    """
     clip_x = max(int(round(float(box["x"]))), 0)
     clip_y = max(int(round(float(box["y"]))), 0)
     clip_width = max(int(round(float(box["width"]))), 1)
     clip_bottom = min(int(round(float(box["y"]) + float(box["height"]))), int(viewport_height))
     clip_height = max(clip_bottom - clip_y, 0)
     if clip_height <= 0:
-        return None
+        return [], 0
 
     clip = {"x": clip_x, "y": clip_y, "width": clip_width, "height": clip_height}
     mouse_x = clip_x + clip_width / 2
@@ -376,7 +454,7 @@ async def _scroll_and_stitch(
             pass
 
     if not screenshots:
-        return None
+        return [], overlap
     before_dedupe_count = len(screenshots)
     screenshots = remove_duplicate_scroll_screenshots(screenshots, platform_name)
     logger.info(
@@ -388,8 +466,8 @@ async def _scroll_and_stitch(
         estimated_screenshots,
     )
     if len(screenshots) == 1:
-        return screenshots[0]
-    return stitch_screenshots(screenshots, overlap, platform_name)
+        return screenshots, overlap
+    return screenshots, overlap
 
 
 async def _fallback_screenshot(page: Page, platform_name: str) -> Optional[bytes]:
