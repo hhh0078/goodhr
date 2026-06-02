@@ -23,23 +23,33 @@ def strip_think_tags(text: str) -> str:
     return re.sub(r"(?is)<think>.*?</think>", "", str(text or "")).strip()
 
 
-def build_minimax_vision_prompt(prompt: str, image_bytes: bytes) -> str:
+def build_minimax_vision_content(prompt: str, image_bytes: bytes, image_format: str = "png") -> list[dict[str, Any]]:
     """
-    构建 MiniMax 多模态图片理解提示词。
+    构建 OpenAI 兼容的 MiniMax 多模态图片消息内容。
 
     Args:
         prompt: 云端传入的业务提示词。
-        image_bytes: PNG 图片字节。
+        image_bytes: 图片字节。
+        image_format: 图片格式，如 png、jpeg、webp。
 
     Returns:
-        str: 包含图片 base64 的完整提示词。
+        list[dict[str, Any]]: 多模态 content 数组。
     """
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
-    return (
-        str(prompt or "").strip()
-        + "\n\n请阅读下面这张图片并按要求输出。\n"
-        + f"[Image base64:{image_b64}]"
-    )
+    normalized_format = str(image_format or "png").strip().lower()
+    if normalized_format == "jpg":
+        normalized_format = "jpeg"
+    if normalized_format not in {"png", "jpeg", "webp"}:
+        normalized_format = "png"
+    return [
+        {"type": "text", "text": str(prompt or "").strip()},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/{normalized_format};base64,{image_b64}",
+            },
+        },
+    ]
 
 
 def extract_chat_content(response_json: dict[str, Any]) -> str:
@@ -94,10 +104,10 @@ async def analyze_image_with_ai(config: dict[str, Any], image_bytes: bytes) -> t
     if not prompt:
         raise ValueError("ai_vision.prompt is required")
 
-    full_prompt = build_minimax_vision_prompt(prompt, image_bytes)
+    content = build_minimax_vision_content(prompt, image_bytes, str(config.get("image_format") or "png"))
     request_body = {
         "model": model_id,
-        "messages": [{"role": "user", "content": full_prompt}],
+        "messages": [{"role": "user", "content": content}],
         "temperature": float(config.get("temperature", 0.1) or 0.1),
         "reasoning_split": True,
     }
