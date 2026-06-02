@@ -50,6 +50,7 @@ from app.tasks import (
     list_screenshots,
     load_candidates,
     save_candidate,
+    save_screenshot_bytes,
     save_ocr_text,
     screenshot_path,
 )
@@ -572,15 +573,23 @@ async def _extract_text_from_locator(page, locator, mode: str, delay_before: flo
         part_texts: list[str] = []
         for part_index, screenshot_bytes in enumerate(screenshot_parts, start=1):
             part_start = time.perf_counter()
-            part_text = (await ocr_image_async(screenshot_bytes)).strip()
+            raw_save_path = ""
+            processed_save_path = None
+            if task_id:
+                raw_path = save_screenshot_bytes(task_id, f"{part_index}-1.png", screenshot_bytes)
+                processed_save_path = screenshot_path(task_id, f"{part_index}-2.png")
+                raw_save_path = str(raw_path)
+            part_text = (await ocr_image_async(screenshot_bytes, processed_save_path)).strip()
             part_ms = int((time.perf_counter() - part_start) * 1000)
             logger.info(
-                "OCR 分段识别完成 part=%d/%d bytes=%d 耗时=%dms 文本长度=%d",
+                "OCR 分段识别完成 part=%d/%d bytes=%d 耗时=%dms 文本长度=%d 原图=%s 压缩图=%s",
                 part_index,
                 len(screenshot_parts),
                 len(screenshot_bytes),
                 part_ms,
                 len(part_text),
+                raw_save_path or "未保存",
+                str(processed_save_path) if processed_save_path else "未保存",
             )
             part_texts.append(part_text)
         text = merge_ocr_texts(part_texts)

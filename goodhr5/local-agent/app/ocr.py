@@ -10,7 +10,9 @@ import asyncio
 import importlib.util
 import io
 import logging
+import os
 import time
+from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -23,7 +25,28 @@ _OCR_CONTRAST_FACTOR = 1.6
 _OCR_SHARPEN_RADIUS = 1.0
 _OCR_SHARPEN_PERCENT = 80
 _OCR_SHARPEN_THRESHOLD = 3
-_OCR_MAX_WIDTH = 1200
+_OCR_MAX_WIDTH = 680
+
+
+def _get_ocr_max_width() -> int:
+    """
+    读取 OCR 图片最大宽度配置。
+
+    Returns:
+        int: OCR 预处理后的最大图片宽度。
+    """
+    raw_value = os.getenv("GOODHR_OCR_MAX_WIDTH", "").strip()
+    if not raw_value:
+        return _OCR_MAX_WIDTH
+    try:
+        value = int(raw_value)
+    except ValueError:
+        logger.warning("GOODHR_OCR_MAX_WIDTH 配置无效，使用默认值 %d: %s", _OCR_MAX_WIDTH, raw_value)
+        return _OCR_MAX_WIDTH
+    if value < 320:
+        logger.warning("GOODHR_OCR_MAX_WIDTH 过小，使用默认值 %d: %s", _OCR_MAX_WIDTH, raw_value)
+        return _OCR_MAX_WIDTH
+    return value
 
 
 def _get_rapid_engine():
@@ -75,11 +98,35 @@ def _resize_image_for_ocr(image: Image.Image) -> Image.Image:
     Returns:
         Image.Image: 宽度不超过 OCR 限制的图片。
     """
-    if image.width <= _OCR_MAX_WIDTH:
+    max_width = _get_ocr_max_width()
+    if image.width <= max_width:
         return image
-    ratio = _OCR_MAX_WIDTH / image.width
+    ratio = max_width / image.width
     target_height = max(1, int(round(image.height * ratio)))
-    return image.resize((_OCR_MAX_WIDTH, target_height), Image.Resampling.LANCZOS)
+    return image.resize((max_width, target_height), Image.Resampling.LANCZOS)
+
+
+def _save_processed_image_for_debug(image: Image.Image, save_path: str | Path | None) -> str:
+    """
+    保存 OCR 实际识别的压缩后图片。
+
+    Args:
+        image: OCR 预处理后的图片。
+        save_path: 调试图片保存路径，为空时不保存。
+
+    Returns:
+        str: 保存成功的路径，未保存时为空字符串。
+    """
+    if not save_path:
+        return ""
+    path = Path(save_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(path, format="PNG")
+        return str(path)
+    except Exception as exc:
+        logger.warning("OCR 压缩后调试图片保存失败 path=%s err=%s", path, exc)
+        return ""
 
 
 async def warmup_ocr_async() -> bool:
@@ -227,7 +274,7 @@ def merge_ocr_texts(texts: list[str]) -> str:
     return merged.strip()
 
 
-def ocr_image_bytes(image_bytes: bytes) -> str:
+def ocr_image_bytes(image_bytes: bytes, processed_save_path: str | Path | None = None) -> str:
     """对图片字节数据进行 OCR 识别。
 
     使用 RapidOCR 识别，失败时返回空字符串，不抛异常。
@@ -235,6 +282,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
 
     Args:
         image_bytes: PNG/JPEG 图片字节数据
+        processed_save_path: 压缩后的 OCR 调试图片保存路径
 
     Returns:
         str: 识别出的文字
@@ -251,6 +299,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
     preprocess_ms = 0
     engine_ms = 0
     text = ""
+    processed_debug_path = ""
     try:
         preprocess_start = time.perf_counter()
         image = Image.open(io.BytesIO(image_bytes))
@@ -259,6 +308,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         processed_image = _preprocess_image_for_ocr(image)
         processed_size = f"{processed_image.width}x{processed_image.height}"
         processed_mode = processed_image.mode
+        processed_debug_path = _save_processed_image_for_debug(processed_image, processed_save_path)
         img_array = np.array(processed_image)
         image.close()
         processed_image.close()
@@ -290,7 +340,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         line_count = len([line for line in text.splitlines() if line.strip()])
         logger.info(
-            "OCR 识别完成 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 处理后=%s 缩放=%s 算法=LANCZOS 最大宽度=%d 原mode=%s 处理mode=%s 对比度=%.1f 锐化=radius%.1f/percent%d/threshold%d bytes=%d 文本行数=%d 文本长度=%d 引擎信息=%s",
+            "OCR 识别完成 call=%d engine=rapidocr 总耗时=%dms 预处理=%dms 引擎=%dms 图片=%s 处理后=%s 缩放=%s 算法=LANCZOS 最大宽度=%d 原mode=%s 处理mode=%s 对比度=%.1f 锐化=radius%.1f/percent%d/threshold%d bytes=%d 文本行数=%d 文本长度=%d 保存=%s 引擎信息=%s",
             call_no,
             elapsed_ms,
             preprocess_ms,
@@ -298,7 +348,7 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
             image_size,
             processed_size,
             image_size != processed_size,
-            _OCR_MAX_WIDTH,
+            _get_ocr_max_width(),
             image_mode,
             processed_mode,
             _OCR_CONTRAST_FACTOR,
@@ -308,13 +358,14 @@ def ocr_image_bytes(image_bytes: bytes) -> str:
             len(image_bytes),
             line_count,
             len(text),
+            processed_debug_path or "未保存",
             engine_meta,
         )
 
 
-async def ocr_image_async(image_bytes: bytes) -> str:
+async def ocr_image_async(image_bytes: bytes, processed_save_path: str | Path | None = None) -> str:
     """异步版本 OCR，在线程池中执行避免阻塞事件循环。"""
-    return await asyncio.to_thread(ocr_image_bytes, image_bytes)
+    return await asyncio.to_thread(ocr_image_bytes, image_bytes, processed_save_path)
 
 
 def close_ocr() -> None:

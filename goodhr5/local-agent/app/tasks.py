@@ -105,6 +105,24 @@ def screenshot_path(task_id: str, filename: str) -> Path:
     return screenshots_dir(task_id) / safe_name
 
 
+def save_screenshot_bytes(task_id: str, filename: str, content: bytes) -> Path:
+    """
+    保存截图字节到任务 screenshots 目录。
+
+    Args:
+        task_id: 任务 ID。
+        filename: 截图文件名。
+        content: 图片字节内容。
+
+    Returns:
+        Path: 保存后的截图路径。
+    """
+    path = screenshot_path(task_id, filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
 def delete_screenshot(task_id: str, filename: str) -> bool:
     """删除任务截图文件。"""
     path = screenshot_path(task_id, filename)
