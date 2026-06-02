@@ -411,7 +411,7 @@ async def browser_start(payload: dict) -> dict:
             return {"ok": True, "status": "already_running"}
 
     ELEMENT_REFS.clear()
-    await _browser_manager.start(
+    status = await _browser_manager.start(
         persistent=persistent,
         user_data_dir=user_data_dir,
         headless=bool(payload.get("headless", False)),
@@ -423,7 +423,7 @@ async def browser_start(payload: dict) -> dict:
             await _browser_manager.add_cookies(cookies)
         except Exception as exc:
             raise HTTPException(400, f"cookie 注入失败: {exc}")
-    return {"ok": True, "status": "started"}
+    return {"ok": True, "status": status}
 
 
 @app.post("/api/v1/browser/stop")

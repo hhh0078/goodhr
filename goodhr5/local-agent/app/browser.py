@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import platform
 import subprocess
 import time
 from pathlib import Path
@@ -64,6 +65,9 @@ def _kill_orphan_chromium(user_data_dir: str) -> None:
     Args:
         user_data_dir: 浏览器用户数据目录路径
     """
+    if platform.system().lower() == "windows":
+        logger.info("Windows 环境跳过 pgrep 残留进程清理: %s", user_data_dir)
+        return
     try:
         result = subprocess.run(
             ["pgrep", "-af", user_data_dir],
@@ -121,6 +125,9 @@ def _kill_all_cloakbrowser_chromium(browser_dir: str) -> None:
     Args:
         browser_dir: CloakBrowser 的 Chromium 安装目录路径
     """
+    if platform.system().lower() == "windows":
+        logger.info("Windows 环境跳过 pgrep CloakBrowser 残留进程清理: %s", browser_dir)
+        return
     try:
         result = subprocess.run(
             ["pgrep", "-af", browser_dir],
@@ -310,7 +317,7 @@ class BrowserManager:
         humanize: bool = True,
         human_preset: str = "default",
         proxy: str = "",
-    ) -> None:
+    ) -> str:
         """
         启动浏览器。
 
@@ -327,7 +334,7 @@ class BrowserManager:
         async with self._state_lock:
             if (self._browser or self._context) and user_data_dir and self._last_user_data_dir == user_data_dir:
                 logger.info("浏览器已使用相同账号目录运行，复用现有实例: %s", user_data_dir)
-                return
+                return "already_running"
             if self._browser or self._context:
                 logger.warning("浏览器已在运行中，先关闭旧实例")
                 await self._stop_unlocked()
@@ -362,6 +369,7 @@ class BrowserManager:
                     self._context.on("close", lambda *_: self._notify_closed("context_closed"))
                 except Exception:
                     pass
+            return "started"
 
     def add_closed_callback(self, callback) -> None:
         """注册浏览器关闭回调。"""

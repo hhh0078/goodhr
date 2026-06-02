@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 from typing import Optional
 
 from PIL import Image
@@ -316,6 +317,21 @@ async def _scroll_and_stitch(
     scroll_delta = max(int(clip_height * 0.7), 1)
     overlap = max(int(clip_height - scroll_delta), 0)
     max_scrolls = 10
+    estimated_screenshots = max(1, math.ceil(max(float(box["height"]) - clip_height, 0) / scroll_delta) + 1)
+    logger.info(
+        "[%s] 滚动截图参数 selector_box=(x=%s,y=%s,w=%s,h=%s) viewport_height=%s clip=%s scroll_delta=%d overlap=%d estimated_screenshots=%d max_scrolls=%d",
+        platform_name,
+        box.get("x"),
+        box.get("y"),
+        box.get("width"),
+        box.get("height"),
+        viewport_height,
+        clip,
+        scroll_delta,
+        overlap,
+        estimated_screenshots,
+        max_scrolls,
+    )
     screenshots = []
     prev_clip_image = None
     all_opened_images = []
@@ -324,12 +340,29 @@ async def _scroll_and_stitch(
         current_screenshot = await page.screenshot(type="png", clip=clip)
         current_image = Image.open(io.BytesIO(current_screenshot))
         all_opened_images.append(current_image)
+        logger.info(
+            "[%s] 滚动截图 step=%d/%d bytes=%d image=%dx%d kept=%d estimated=%d",
+            platform_name,
+            i + 1,
+            max_scrolls,
+            len(current_screenshot),
+            current_image.width,
+            current_image.height,
+            len(screenshots),
+            estimated_screenshots,
+        )
 
         if prev_clip_image is not None and images_are_scroll_duplicates(prev_clip_image, current_image):
-            logger.info("[%s] 滚动第 %d 次后主体内容重复，已到底部，丢弃当前截图", platform_name, i)
+            logger.info(
+                "[%s] 滚动截图 step=%d 判定主体内容重复，已到底部，丢弃当前截图 bytes=%d",
+                platform_name,
+                i + 1,
+                len(current_screenshot),
+            )
             break
 
         screenshots.append(current_screenshot)
+        logger.info("[%s] 滚动截图 step=%d 已保留，准备滚动 delta=%d", platform_name, i + 1, scroll_delta)
         if prev_clip_image is not None:
             prev_clip_image.close()
         prev_clip_image = current_image
@@ -344,7 +377,16 @@ async def _scroll_and_stitch(
 
     if not screenshots:
         return None
+    before_dedupe_count = len(screenshots)
     screenshots = remove_duplicate_scroll_screenshots(screenshots, platform_name)
+    logger.info(
+        "[%s] 滚动截图完成 raw_count=%d kept_count=%d removed_count=%d estimated=%d",
+        platform_name,
+        before_dedupe_count,
+        len(screenshots),
+        before_dedupe_count - len(screenshots),
+        estimated_screenshots,
+    )
     if len(screenshots) == 1:
         return screenshots[0]
     return stitch_screenshots(screenshots, overlap, platform_name)

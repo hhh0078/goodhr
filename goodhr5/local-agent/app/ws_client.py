@@ -455,10 +455,24 @@ class WSAgentClient:
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
                 body["user_data_dir"] = str(_profile_dir(user_data_dir))
+            persistent = bool(body.get("persistent", False))
+            target_user_data_dir = str(body.get("user_data_dir") or "").strip()
+            if self.browser_manager.is_running:
+                current_dir = str(self.browser_manager._last_user_data_dir or "")
+                if persistent and target_user_data_dir and current_dir and current_dir != target_user_data_dir:
+                    logger.info("[任务WS] 浏览器账号目录不同，准备切换 current=%s target=%s", current_dir, target_user_data_dir)
+                    ELEMENT_REFS.clear()
+                    await self.browser_manager.stop()
+                else:
+                    cookies = body.get("cookies")
+                    if isinstance(cookies, list) and cookies:
+                        await self.browser_manager.add_cookies(cookies)
+                    logger.info("[任务WS] 浏览器已运行，复用现有实例 user_data_dir=%s", current_dir or target_user_data_dir)
+                    return {"ok": True, "status": "already_running"}
             ELEMENT_REFS.clear()
-            await self.browser_manager.start(
-                persistent=bool(body.get("persistent", False)),
-                user_data_dir=body.get("user_data_dir"),
+            status = await self.browser_manager.start(
+                persistent=persistent,
+                user_data_dir=target_user_data_dir,
                 headless=bool(body.get("headless", False)),
                 humanize=bool(body.get("humanize", True)),
                 proxy=str(body.get("proxy", "")),
@@ -466,7 +480,7 @@ class WSAgentClient:
             cookies = body.get("cookies")
             if isinstance(cookies, list) and cookies:
                 await self.browser_manager.add_cookies(cookies)
-            return {"ok": True, "status": "started"}
+            return {"ok": True, "status": status}
         if path == "/api/v1/browser/stop":
             ELEMENT_REFS.clear()
             await self.browser_manager.stop()
