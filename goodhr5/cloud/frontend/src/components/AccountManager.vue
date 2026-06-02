@@ -35,8 +35,9 @@
           </select></label
         >
         <label v-if="pendingCookies"
-          >名称<input v-model="form.displayName" placeholder="我的Boss"
-        /></label>
+          >名称<input v-model="form.displayName" placeholder="我的Boss" />
+          <span class="required-tip">已获取 Cookie，请输入账号名称后保存</span>
+        </label>
       </div>
       <div class="actions">
         <button
@@ -383,6 +384,13 @@ watch(
 }
 .top-info.error {
   color: #f33;
+}
+.required-tip {
+  display: block;
+  margin-top: 6px;
+  color: #d93025;
+  font-size: 12px;
+  font-weight: 700;
 }
 .account-actions {
   display: flex;

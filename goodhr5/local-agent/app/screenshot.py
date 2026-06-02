@@ -299,19 +299,22 @@ async def _scroll_and_stitch(
     page: Page, locator, box: dict, viewport_height: int, platform_name: str
 ) -> Optional[bytes]:
     """通过鼠标滚轮滚动逐段截图后拼接成完整弹框。"""
-    clip_y = max(box["y"], 0)
-    clip_height = min(box["y"] + box["height"], viewport_height) - clip_y
+    clip_x = max(int(round(float(box["x"]))), 0)
+    clip_y = max(int(round(float(box["y"]))), 0)
+    clip_width = max(int(round(float(box["width"]))), 1)
+    clip_bottom = min(int(round(float(box["y"]) + float(box["height"]))), int(viewport_height))
+    clip_height = max(clip_bottom - clip_y, 0)
     if clip_height <= 0:
         return None
 
-    clip = {"x": box["x"], "y": clip_y, "width": box["width"], "height": clip_height}
-    mouse_x = box["x"] + box["width"] / 2
+    clip = {"x": clip_x, "y": clip_y, "width": clip_width, "height": clip_height}
+    mouse_x = clip_x + clip_width / 2
     mouse_y = box["y"] + clip_height / 2
     await page.mouse.move(mouse_x, mouse_y)
     await page.wait_for_timeout(300)
 
-    scroll_delta = int(clip_height * 0.7)
-    overlap = clip_height - scroll_delta
+    scroll_delta = max(int(clip_height * 0.7), 1)
+    overlap = max(int(clip_height - scroll_delta), 0)
     max_scrolls = 10
     screenshots = []
     prev_clip_image = None
