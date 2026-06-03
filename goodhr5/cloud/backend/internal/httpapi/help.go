@@ -193,11 +193,10 @@ func (s *HelpService) streamAIAnswer(w http.ResponseWriter, r *http.Request, gui
 		aiMessages = append(aiMessages, AIMsg{Role: item.Role, Content: item.Content})
 	}
 	reqBody := helpAIRequest{
-		Model:          strings.TrimSpace(aiConfig.Model),
-		Messages:       aiMessages,
-		Temperature:    aiConfig.Temperature,
-		Stream:         true,
-		ReasoningSplit: true,
+		Model:       strings.TrimSpace(aiConfig.Model),
+		Messages:    aiMessages,
+		Temperature: aiConfig.Temperature,
+		Stream:      true,
 	}
 	data, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimSpace(aiConfig.BaseURL), bytes.NewReader(data))

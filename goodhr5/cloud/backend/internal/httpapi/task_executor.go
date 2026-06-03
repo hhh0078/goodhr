@@ -1436,10 +1436,9 @@ func (e *TaskExecutor) doAIChat(prompt string, forceJSON bool) (string, int, err
 		return "", 0, fmt.Errorf("AI 配置缺少 API Key")
 	}
 	reqBody := AIRequest{
-		Model:          model,
-		Messages:       []AIMsg{{Role: "user", Content: prompt}},
-		Temperature:    temperature,
-		ReasoningSplit: true,
+		Model:       model,
+		Messages:    []AIMsg{{Role: "user", Content: prompt}},
+		Temperature: temperature,
 	}
 	if forceJSON {
 		reqBody.ResponseFormat = map[string]string{"type": "json_object"}

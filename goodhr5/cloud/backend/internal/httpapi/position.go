@@ -238,10 +238,9 @@ func (s *PositionService) positionRequirementOptimizePrompt(input string) string
 // r 为当前请求，aiConfig 为用户个人 AI 配置，prompt 为完整提示词。
 func (s *PositionService) callRequirementOptimizeAI(r *http.Request, aiConfig AIConfig, prompt string) (string, error) {
 	reqBody := AIRequest{
-		Model:          strings.TrimSpace(aiConfig.Model),
-		Messages:       []AIMsg{{Role: "user", Content: prompt}},
-		Temperature:    aiConfig.Temperature,
-		ReasoningSplit: true,
+		Model:       strings.TrimSpace(aiConfig.Model),
+		Messages:    []AIMsg{{Role: "user", Content: prompt}},
+		Temperature: aiConfig.Temperature,
 	}
 	data, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimSpace(aiConfig.BaseURL), bytes.NewReader(data))
