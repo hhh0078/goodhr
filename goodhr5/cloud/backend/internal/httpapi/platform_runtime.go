@@ -165,6 +165,7 @@ func (cfg PlatformConfig) toRuntimeConfig() platformcore.RuntimeConfig {
 		pages = append(pages, platformcore.RuntimePage{
 			URL:   page.URL,
 			Title: page.Title,
+			Match: page.Match,
 			Entry: page.Entry,
 		})
 	}
@@ -186,11 +187,44 @@ func (cfg PlatformConfig) toRuntimeConfig() platformcore.RuntimeConfig {
 			CloseBtn:   cfg.Detail.CloseBtn.AsPayload(),
 			Content:    cfg.Detail.Content.AsPayload(),
 		},
+		Position: platformcore.RuntimePositionConfig{
+			Current:      cfg.Position.Current.AsPayload(),
+			SwitchButton: cfg.Position.SwitchButton.AsPayload(),
+			List:         cfg.Position.List.AsPayload(),
+			Item:         cfg.Position.Item.AsPayload(),
+		},
 		Behavior: platformcore.RuntimeBehaviorConfig{
 			NeedsDetailPage: cfg.Behavior.NeedsDetailPage,
 		},
 		PlatformName: cfg.Name,
 	}
+}
+
+// IsTaskEntryPage 判断当前默认页面是否仍是平台任务入口页。
+func (cfg PlatformConfig) IsTaskEntryPage(exec platformViewportExecutor) (bool, error) {
+	rt, err := runtimeByPlatformID(cfg.ID)
+	if err != nil {
+		return false, err
+	}
+	return rt.IsEntryPage(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig())
+}
+
+// CurrentPositionName 读取当前页面选中的岗位名称。
+func (cfg PlatformConfig) CurrentPositionName(exec platformViewportExecutor) (string, error) {
+	rt, err := runtimeByPlatformID(cfg.ID)
+	if err != nil {
+		return "", err
+	}
+	return rt.CurrentPositionName(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig())
+}
+
+// SelectPosition 让平台页面切换到指定岗位名称。
+func (cfg PlatformConfig) SelectPosition(exec platformViewportExecutor, positionName string) error {
+	rt, err := runtimeByPlatformID(cfg.ID)
+	if err != nil {
+		return err
+	}
+	return rt.SelectPosition(runtimeExecutorAdapter{exec: exec}, cfg.toRuntimeConfig(), positionName)
 }
 
 // toRuntimePreferences 将用户偏好转换为 runtime 公共偏好。

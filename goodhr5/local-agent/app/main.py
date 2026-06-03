@@ -516,15 +516,16 @@ def _make_fast_field_spec(spec_raw: object):
     return spec
 
 
-async def _find_element_items(page, spec, visible_only: bool = True, field_requests: list[tuple[str, object]] | None = None) -> list[dict[str, object]]:
+async def _find_element_items(page, spec, visible_only: bool = True, field_requests: list[tuple[str, object]] | None = None, include_text: bool = False) -> list[dict[str, object]]:
     """
     查找元素列表，并可选提取每个元素内的字段。
 
     Args:
         page: 当前页面
-        spec: 元素定位配置
-        visible_only: 是否只返回当前视口内元素
-        field_requests: 可选字段提取配置
+	        spec: 元素定位配置
+	        visible_only: 是否只返回当前视口内元素
+	        field_requests: 可选字段提取配置
+	        include_text: 是否返回元素自身文本
 
     Returns:
         元素引用数组；传入字段配置时每项会包含 fields。
@@ -538,6 +539,11 @@ async def _find_element_items(page, spec, visible_only: bool = True, field_reque
             if not await is_locator_in_viewport(locator):
                 continue
         item = dict(ELEMENT_REFS.register(locator, index))
+        if include_text:
+            try:
+                item["text"] = (await locator.inner_text(timeout=FIELD_FAST_TEXT_TIMEOUT_MS)).strip()
+            except Exception:
+                item["text"] = ""
         if field_requests:
             item["fields"] = await _extract_fields_from_container(locator, field_requests, f"元素[{index}]")
         items.append(item)
@@ -845,9 +851,10 @@ async def page_find_elements(payload: dict) -> dict:
     if not spec.target_classes:
         raise HTTPException(400, "element.target_classes is required")
     visible_only = bool(payload.get("visible_only", True))
+    include_text = bool(payload.get("include_text", False))
     field_requests = _parse_field_requests(payload.get("fields")) if payload.get("fields") else None
     ELEMENT_REFS.clear()
-    items = await _find_element_items(page, spec, visible_only=visible_only, field_requests=field_requests)
+    items = await _find_element_items(page, spec, visible_only=visible_only, field_requests=field_requests, include_text=include_text)
     return {"ok": True, "items": items, "count": len(items)}
 
 
@@ -934,9 +941,11 @@ async def page_click(payload: dict) -> dict:
             raise HTTPException(404, "element_ref not found")
         container = entry.locator
         element_spec = parse_element_locator_spec(payload.get("element"))
-        if not element_spec.target_classes:
-            raise HTTPException(400, "element.target_classes is required")
-        locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
+        if element_spec.target_classes:
+            locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
+        else:
+            locator = container
+            matched_target = element_ref
     else:
         element_spec = parse_element_locator_spec(payload.get("element"))
         if not element_spec.target_classes:

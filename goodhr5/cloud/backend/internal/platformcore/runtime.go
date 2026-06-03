@@ -20,6 +20,7 @@ type RuntimeConfig struct {
 	Card         RuntimeCardConfig
 	Actions      RuntimeActionsConfig
 	Detail       RuntimeDetailConfig
+	Position     RuntimePositionConfig
 	Behavior     RuntimeBehaviorConfig
 	PlatformName string
 }
@@ -28,6 +29,7 @@ type RuntimeConfig struct {
 type RuntimePage struct {
 	URL   string
 	Title string
+	Match string
 	Entry bool
 }
 
@@ -50,6 +52,14 @@ type RuntimeDetailConfig struct {
 	OpenTarget map[string]any
 	CloseBtn   map[string]any
 	Content    map[string]any
+}
+
+// RuntimePositionConfig 定义页面当前岗位和岗位切换所需定位配置。
+type RuntimePositionConfig struct {
+	Current      map[string]any
+	SwitchButton map[string]any
+	List         map[string]any
+	Item         map[string]any
 }
 
 // RuntimeBehaviorConfig 定义平台行为配置。
@@ -82,6 +92,12 @@ type RuntimeScrollOptions struct {
 type PlatformRuntime interface {
 	// OpenEntryPage 打开平台任务入口页面。
 	OpenEntryPage(exec RuntimeExecutor, cfg RuntimeConfig, cookies []map[string]any) error
+	// IsEntryPage 判断当前默认页面是否仍是平台任务入口页。
+	IsEntryPage(exec RuntimeExecutor, cfg RuntimeConfig) (bool, error)
+	// CurrentPositionName 读取当前页面选中的岗位名称。
+	CurrentPositionName(exec RuntimeExecutor, cfg RuntimeConfig) (string, error)
+	// SelectPosition 在平台页面切换到指定岗位名称。
+	SelectPosition(exec RuntimeExecutor, cfg RuntimeConfig, positionName string) error
 	// ListVisibleCandidates 提取当前可见候选人。
 	ListVisibleCandidates(exec RuntimeExecutor, cfg RuntimeConfig) ([]Candidate, error)
 	// ScrollCandidateList 滚动到下一屏候选人。

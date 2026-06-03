@@ -150,6 +150,9 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 		}
 
 		e.log("info", fmt.Sprintf("开始处理第 %d 轮当前可见候选人", round))
+		if err := e.ensureTaskPageReady(); err != nil {
+			return err
+		}
 		candidates, err := e.extractCandidates()
 		if err != nil {
 			return fmt.Errorf("提取候选人失败: %w", err)
@@ -362,6 +365,48 @@ func (e *TaskExecutor) extractCandidates() ([]Candidate, error) {
 		return nil, err
 	}
 	return e.platformCfg.ListVisibleCandidates(e)
+}
+
+// ensureTaskPageReady 确认当前页面和岗位仍与任务匹配。
+func (e *TaskExecutor) ensureTaskPageReady() error {
+	ok, err := e.platformCfg.IsTaskEntryPage(e)
+	if err != nil {
+		return fmt.Errorf("检查当前页面失败: %w", err)
+	}
+	if !ok {
+		message := "网页被切换了，请点击开始后继续。"
+		e.log("error", message)
+		return errors.New(message)
+	}
+
+	taskPositionName := e.taskPositionName()
+	if strings.TrimSpace(taskPositionName) == "" {
+		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
+	}
+	currentName, err := e.platformCfg.CurrentPositionName(e)
+	if err != nil {
+		return fmt.Errorf("获取页面当前岗位失败: %w", err)
+	}
+	if normalizeTaskPositionName(currentName) == normalizeTaskPositionName(taskPositionName) {
+		e.log("info", fmt.Sprintf("页面岗位匹配：%s", currentName))
+		return nil
+	}
+
+	e.log("warn", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, taskPositionName))
+	if err := e.platformCfg.SelectPosition(e, taskPositionName); err != nil {
+		return fmt.Errorf("切换页面岗位失败: %w", err)
+	}
+	confirmedName, err := e.platformCfg.CurrentPositionName(e)
+	if err != nil {
+		return fmt.Errorf("切换后确认页面岗位失败: %w", err)
+	}
+	if normalizeTaskPositionName(confirmedName) == normalizeTaskPositionName(taskPositionName) {
+		e.log("info", fmt.Sprintf("页面岗位已切换为：%s", confirmedName))
+		return nil
+	}
+	message := "页面切换岗位失败，请手动操作后再点击开始。"
+	e.log("error", fmt.Sprintf("%s 当前页面岗位=%s，任务岗位=%s", message, confirmedName, taskPositionName))
+	return errors.New(message)
 }
 
 // openDetailPrecheck 保存候选人查看详情评分的预计算结果。
@@ -1405,6 +1450,22 @@ func (e *TaskExecutor) positionDescription() string {
 		return desc
 	}
 	return ""
+}
+
+// taskPositionName 返回当前任务绑定的岗位模板名称。
+func (e *TaskExecutor) taskPositionName() string {
+	if e.position == nil {
+		return ""
+	}
+	if name, ok := e.position["name"].(string); ok {
+		return strings.TrimSpace(name)
+	}
+	return ""
+}
+
+// normalizeTaskPositionName 规范化岗位名，仅去除空白后用于完全相等比较。
+func normalizeTaskPositionName(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
 }
 
 // positionAIConfigString 读取岗位模板中的 AI 文本配置。

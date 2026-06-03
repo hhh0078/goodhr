@@ -17,6 +17,7 @@ type localViewportResp struct {
 type localElementItem struct {
 	Ref    string         `json:"ref"`
 	Index  int            `json:"index"`
+	Text   string         `json:"text"`
 	Fields map[string]any `json:"fields"`
 }
 
@@ -78,6 +79,95 @@ func (r *Runtime) OpenEntryPage(exec platformcore.RuntimeExecutor, cfg platformc
 		body["cookies"] = cookies
 	}
 	return exec.Post("/api/v1/page/open", body, nil)
+}
+
+// IsEntryPage 判断当前 Boss 默认页面是否仍是任务入口页。
+func (r *Runtime) IsEntryPage(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig) (bool, error) {
+	entry := taskEntryPage(cfg.EntryPages)
+	if strings.TrimSpace(entry.URL) == "" {
+		return false, fmt.Errorf("平台配置中没有合法任务入口页面")
+	}
+	var listResp localPageListResp
+	if err := exec.Post("/api/v1/page/list", map[string]any{
+		"_log_start":   "正在检查当前页面是否为Boss推荐页",
+		"_log_success": "Boss当前页面检查完成",
+	}, &listResp); err != nil {
+		return false, err
+	}
+	page := currentDefaultPage(listResp.Pages)
+	if strings.TrimSpace(page.URL) == "" {
+		return false, nil
+	}
+	return pageMatchesRuntimeEntry(page.URL, entry), nil
+}
+
+// CurrentPositionName 读取 Boss 当前选中的岗位名称。
+func (r *Runtime) CurrentPositionName(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig) (string, error) {
+	if cfg.Position.Current == nil {
+		return "", fmt.Errorf("平台配置中无当前岗位选择器")
+	}
+	var resp localExtractTextResp
+	payload := buildDetailExtractPayload(cfg.Position.Current, "dom", 0)
+	payload["_log_start"] = "正在读取页面当前岗位"
+	payload["_log_success"] = "页面当前岗位读取完成"
+	if err := exec.Post("/api/v1/page/extract-text", payload, &resp); err != nil {
+		return "", err
+	}
+	name := strings.TrimSpace(resp.Text)
+	if name == "" && len(resp.Texts) > 0 {
+		name = strings.TrimSpace(resp.Texts[0])
+	}
+	if name == "" {
+		return "", fmt.Errorf("页面当前岗位为空")
+	}
+	exec.Log("info", fmt.Sprintf("页面当前岗位：%s", name))
+	return name, nil
+}
+
+// SelectPosition 在 Boss 岗位下拉列表中选择指定岗位。
+func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platformcore.RuntimeConfig, positionName string) error {
+	targetName := strings.TrimSpace(positionName)
+	if targetName == "" {
+		return fmt.Errorf("任务岗位名称为空")
+	}
+	if err := clickRequiredAction(exec, cfg.Position.SwitchButton, 0.2, "岗位选择入口"); err != nil {
+		return err
+	}
+	if err := exec.Delay("等待岗位列表展开", 0.5, 0.5); err != nil {
+		return err
+	}
+	element := positionListItemElement(cfg.Position.List, cfg.Position.Item)
+	if element == nil {
+		return fmt.Errorf("平台配置中无岗位列表元素选择器")
+	}
+	var findResp localFindElementsResp
+	if err := exec.Post("/api/v1/page/find-elements", map[string]any{
+		"element":      element,
+		"visible_only": true,
+		"include_text": true,
+		"_log_start":   "正在查找岗位列表",
+		"_log_success": "岗位列表查找完成",
+	}, &findResp); err != nil {
+		return err
+	}
+	targetNormalized := normalizePositionName(targetName)
+	for _, item := range findResp.Items {
+		itemText := strings.TrimSpace(item.Text)
+		if itemText == "" {
+			itemText = firstFieldText(item.Fields)
+		}
+		if normalizePositionName(itemText) != targetNormalized {
+			continue
+		}
+		exec.Log("info", fmt.Sprintf("找到匹配岗位：%s，准备点击", itemText))
+		return exec.Post("/api/v1/page/click", map[string]any{
+			"timeout":      10000,
+			"element_ref":  item.Ref,
+			"_log_start":   fmt.Sprintf("正在点击岗位：%s", itemText),
+			"_log_success": fmt.Sprintf("岗位已点击：%s", itemText),
+		}, nil)
+	}
+	return fmt.Errorf("岗位列表中未找到岗位：%s", targetName)
 }
 
 // useExistingEntryPage 尝试复用已经打开的 Boss 入口页。
@@ -373,17 +463,22 @@ func (r *Runtime) ensureCandidateVisible(exec platformcore.RuntimeExecutor, elem
 
 // authEntryURL 解析平台入口 URL，优先 entry 标记页面。
 func authEntryURL(pages []platformcore.RuntimePage) string {
+	return taskEntryPage(pages).URL
+}
+
+// taskEntryPage 返回平台任务入口页配置，优先使用 entry=true 的页面。
+func taskEntryPage(pages []platformcore.RuntimePage) platformcore.RuntimePage {
 	for _, page := range pages {
 		if page.Entry && strings.TrimSpace(page.URL) != "" {
-			return page.URL
+			return page
 		}
 	}
 	for _, page := range pages {
 		if strings.TrimSpace(page.URL) != "" {
-			return page.URL
+			return page
 		}
 	}
-	return ""
+	return platformcore.RuntimePage{}
 }
 
 // summarizeCandidateFields 生成候选人卡片字段日志摘要。
@@ -491,6 +586,112 @@ func matchEntryPage(pages []localPageItem, entryURL string) localPageItem {
 		}
 	}
 	return firstMatched
+}
+
+// currentDefaultPage 返回当前默认操作页；缺失时返回第一个页面。
+func currentDefaultPage(pages []localPageItem) localPageItem {
+	for _, page := range pages {
+		if page.IsDefault {
+			return page
+		}
+	}
+	if len(pages) > 0 {
+		return pages[0]
+	}
+	return localPageItem{}
+}
+
+// pageMatchesRuntimeEntry 按平台配置判断页面 URL 是否匹配任务入口。
+func pageMatchesRuntimeEntry(rawURL string, entry platformcore.RuntimePage) bool {
+	pageURL := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	target := strings.TrimRight(strings.TrimSpace(entry.URL), "/")
+	if pageURL == "" || target == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(entry.Match)) {
+	case "prefix":
+		return strings.HasPrefix(pageURL, target)
+	case "contains", "":
+		return strings.Contains(pageURL, target)
+	default:
+		return pageURL == target
+	}
+}
+
+// normalizePositionName 规范化岗位名称，去除全部空白后用于严格相等比较。
+func normalizePositionName(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
+}
+
+// positionListItemElement 将岗位列表容器与岗位条目配置合并为查找条目所需定位。
+func positionListItemElement(list map[string]any, item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	merged := copyMap(item)
+	if list == nil {
+		return merged
+	}
+	parents := valueAsSliceList(merged["parent_classes"])
+	if listTargets := valueAsSliceList(list["target_classes"]); len(listTargets) > 0 {
+		parents = append(listTargets, parents...)
+	}
+	if len(parents) > 0 {
+		merged["parent_classes"] = parents
+	}
+	return merged
+}
+
+// copyMap 浅拷贝 map，避免修改原始平台配置。
+func copyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+// valueAsSliceList 将配置中的二维字符串数组转换为统一类型。
+func valueAsSliceList(value any) [][]string {
+	switch groups := value.(type) {
+	case [][]string:
+		return groups
+	case []any:
+		result := make([][]string, 0, len(groups))
+		for _, group := range groups {
+			switch items := group.(type) {
+			case []string:
+				result = append(result, items)
+			case []any:
+				row := make([]string, 0, len(items))
+				for _, item := range items {
+					if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
+						row = append(row, text)
+					}
+				}
+				if len(row) > 0 {
+					result = append(result, row)
+				}
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+// firstFieldText 返回字段 map 中的第一个非空文本。
+func firstFieldText(fields map[string]any) string {
+	for _, value := range fields {
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" && text != "<nil>" {
+			return text
+		}
+	}
+	return ""
 }
 
 // clickRequiredAction 点击必须成功的动作按钮。

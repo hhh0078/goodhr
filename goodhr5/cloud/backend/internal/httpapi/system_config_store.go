@@ -413,6 +413,7 @@ type PlatformConfig struct {
 	Card     PlatformCard     `json:"card"`
 	Actions  PlatformActions  `json:"actions"`
 	Detail   PlatformDetail   `json:"detail"`
+	Position PlatformPosition `json:"position,omitempty"`
 	Extras   []PlatformExtra  `json:"extras,omitempty"`
 	Behavior PlatformBehavior `json:"behavior"`
 }
@@ -493,6 +494,14 @@ type PlatformDetail struct {
 	Content     ElementLocatorConfig `json:"content"`
 	MessageTip  ElementLocatorConfig `json:"messageTip"`
 	MessageItem ElementLocatorConfig `json:"messageItem"`
+}
+
+// PlatformPosition 定义页面当前岗位读取和岗位切换定位配置。
+type PlatformPosition struct {
+	Current      ElementLocatorConfig `json:"current"`
+	SwitchButton ElementLocatorConfig `json:"switchBtn"`
+	List         ElementLocatorConfig `json:"list"`
+	Item         ElementLocatorConfig `json:"item"`
 }
 
 // PlatformExtra 定义额外提取字段的定位配置。
