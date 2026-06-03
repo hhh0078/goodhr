@@ -33,7 +33,12 @@
           >岗位名称<input
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
-        /></label>
+          />
+          <p class="hint field field-full">
+            该名称最好跟boss的岗位名称一致，因为后续会根据这个名称自动切换boss岗位。如果填错了
+            会启动失败
+          </p>
+        </label>
 
         <p></p>
         <div class="field field-medium">
