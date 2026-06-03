@@ -156,13 +156,15 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 	}, &findResp); err != nil {
 		return err
 	}
+	exec.Log("info", fmt.Sprintf("岗位列表共查找到 %d 个岗位项", len(findResp.Items)))
 	targetNormalized := normalizePositionName(targetName)
 	for _, item := range findResp.Items {
 		itemText := firstFieldText(item.Fields)
+		exec.Log("info", fmt.Sprintf("岗位列表项：index=%d ref=%s name=%s", item.Index, shortRef(item.Ref), previewFieldValue(itemText, 80)))
 		if normalizePositionName(itemText) != targetNormalized {
 			continue
 		}
-		exec.Log("info", fmt.Sprintf("找到匹配岗位：%s，准备点击", itemText))
+		exec.Log("info", fmt.Sprintf("找到匹配岗位：index=%d name=%s，准备点击", item.Index, itemText))
 		return exec.Post("/api/v1/page/click", map[string]any{
 			"timeout":      10000,
 			"element_ref":  item.Ref,
