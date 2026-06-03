@@ -192,6 +192,8 @@ func (cfg PlatformConfig) toRuntimeConfig() platformcore.RuntimeConfig {
 			SwitchButton: cfg.Position.SwitchButton.AsPayload(),
 			List:         cfg.Position.List.AsPayload(),
 			Item:         cfg.Position.Item.AsPayload(),
+			ItemText:     cfg.Position.ItemText.AsPayload(),
+			ClickTarget:  cfg.Position.ClickTarget.AsPayload(),
 		},
 		Behavior: platformcore.RuntimeBehaviorConfig{
 			NeedsDetailPage: cfg.Behavior.NeedsDetailPage,

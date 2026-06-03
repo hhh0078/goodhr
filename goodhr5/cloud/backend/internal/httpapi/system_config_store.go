@@ -502,6 +502,8 @@ type PlatformPosition struct {
 	SwitchButton ElementLocatorConfig `json:"switchBtn"`
 	List         ElementLocatorConfig `json:"list"`
 	Item         ElementLocatorConfig `json:"item"`
+	ItemText     ElementLocatorConfig `json:"itemText,omitempty"`
+	ClickTarget  ElementLocatorConfig `json:"clickTarget,omitempty"`
 }
 
 // PlatformExtra 定义额外提取字段的定位配置。

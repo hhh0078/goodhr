@@ -3,24 +3,58 @@
 
 UPDATE system_configs
 SET config_value = jsonb_set(
-    config_value,
-    '{position}',
-    '{
-      "current": {
-        "target_classes": [["当前岗位名称选择器，请改成真实CSS"]]
-      },
-      "switchBtn": {
-        "target_classes": [["岗位选择按钮选择器，请改成真实CSS"]]
-      },
-      "list": {
-        "target_classes": [["岗位列表容器选择器，请改成真实CSS"]]
-      },
-      "item": {
-        "target_classes": [["岗位列表岗位项选择器，请改成真实CSS"]]
-      }
-    }'::jsonb,
+    jsonb_set(
+        jsonb_set(
+            jsonb_set(
+                jsonb_set(
+                    jsonb_set(
+                        config_value,
+                        '{position,current}',
+                        COALESCE(
+                            config_value #> '{position,current}',
+                            '{"target_classes":[["当前岗位名称选择器，请改成真实CSS"]]}'::jsonb
+                        ),
+                        true
+                    ),
+                    '{position,switchBtn}',
+                    COALESCE(
+                        config_value #> '{position,switchBtn}',
+                        '{"target_classes":[["岗位选择按钮选择器，请改成真实CSS"]]}'::jsonb
+                    ),
+                    true
+                ),
+                '{position,list}',
+                COALESCE(
+                    config_value #> '{position,list}',
+                    '{"target_classes":[["岗位列表容器选择器，请改成真实CSS"]]}'::jsonb
+                ),
+                true
+            ),
+            '{position,item}',
+            COALESCE(
+                config_value #> '{position,item}',
+                '{"target_classes":[["岗位列表岗位项选择器，请改成真实CSS"]]}'::jsonb
+            ),
+            true
+        ),
+        '{position,itemText}',
+        COALESCE(
+            config_value #> '{position,itemText}',
+            '{"target_classes":[["岗位列表岗位名称文字选择器，请改成真实CSS"]]}'::jsonb
+        ),
+        true
+    ),
+    '{position,clickTarget}',
+    COALESCE(
+        config_value #> '{position,clickTarget}',
+        '{"target_classes":[["岗位列表岗位点击目标选择器，请改成真实CSS"]]}'::jsonb
+    ),
     true
 )
 WHERE config_key = 'platform.boss'
   AND enabled = true
-  AND NOT (config_value ? 'position');
+  AND (
+    NOT (config_value ? 'position')
+    OR NOT (config_value #> '{position}' ? 'itemText')
+    OR NOT (config_value #> '{position}' ? 'clickTarget')
+  );

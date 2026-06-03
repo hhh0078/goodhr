@@ -549,10 +549,9 @@ class WSAgentClient:
             if not element_spec.target_classes:
                 raise ValueError("element.target_classes is required")
             visible_only = bool(body.get("visible_only", True))
-            include_text = bool(body.get("include_text", False))
             field_requests = self._parse_field_requests(body.get("fields")) if body.get("fields") else None
             ELEMENT_REFS.clear()
-            items = await self._find_element_items(page, element_spec, visible_only=visible_only, field_requests=field_requests, include_text=include_text)
+            items = await self._find_element_items(page, element_spec, visible_only=visible_only, field_requests=field_requests)
             return {"ok": True, "items": items, "count": len(items)}
         if path == "/api/v1/page/extract-text":
             page = await self._require_page()
@@ -617,11 +616,9 @@ class WSAgentClient:
                     raise ValueError("element_ref not found")
                 container = entry.locator
                 element_spec = parse_element_locator_spec(body.get("element"))
-                if element_spec.target_classes:
-                    locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
-                else:
-                    locator = container
-                    matched_target = element_ref
+                if not element_spec.target_classes:
+                    raise ValueError("element.target_classes is required")
+                locator, _matched_parent, matched_target = await locate_element_by_spec(container, element_spec, "点击目标元素")
             else:
                 element_spec = parse_element_locator_spec(body.get("element"))
                 if not element_spec.target_classes:
@@ -748,7 +745,7 @@ class WSAgentClient:
         spec.visible_timeout_ms = min(spec.visible_timeout_ms, FIELD_FAST_VISIBLE_TIMEOUT_MS)
         return spec
 
-    async def _find_element_items(self, page: Any, spec: Any, visible_only: bool = True, field_requests: list[tuple[str, Any]] | None = None, include_text: bool = False) -> list[dict[str, Any]]:
+    async def _find_element_items(self, page: Any, spec: Any, visible_only: bool = True, field_requests: list[tuple[str, Any]] | None = None) -> list[dict[str, Any]]:
         """
         查找元素列表，并可选提取每个元素内的字段。
 
@@ -757,7 +754,6 @@ class WSAgentClient:
             spec: 元素定位配置
             visible_only: 是否只返回当前视口内元素
             field_requests: 可选字段提取配置
-            include_text: 是否返回元素自身文本
 
         Returns:
             元素引用数组；传入字段配置时每项会包含 fields。
@@ -771,11 +767,6 @@ class WSAgentClient:
                 if not await is_locator_in_viewport(locator):
                     continue
             item = dict(ELEMENT_REFS.register(locator, index))
-            if include_text:
-                try:
-                    item["text"] = (await locator.inner_text(timeout=FIELD_FAST_TEXT_TIMEOUT_MS)).strip()
-                except Exception:
-                    item["text"] = ""
             if field_requests:
                 item["fields"] = await self._extract_fields_from_container(locator, field_requests, f"元素[{index}]")
             items.append(item)

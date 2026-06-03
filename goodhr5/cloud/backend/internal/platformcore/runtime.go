@@ -60,6 +60,8 @@ type RuntimePositionConfig struct {
 	SwitchButton map[string]any
 	List         map[string]any
 	Item         map[string]any
+	ItemText     map[string]any
+	ClickTarget  map[string]any
 }
 
 // RuntimeBehaviorConfig 定义平台行为配置。

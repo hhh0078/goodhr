@@ -17,7 +17,6 @@ type localViewportResp struct {
 type localElementItem struct {
 	Ref    string         `json:"ref"`
 	Index  int            `json:"index"`
-	Text   string         `json:"text"`
 	Fields map[string]any `json:"fields"`
 }
 
@@ -140,11 +139,18 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 	if element == nil {
 		return fmt.Errorf("平台配置中无岗位列表元素选择器")
 	}
+	fieldRequests := positionListFieldRequests(cfg.Position.ItemText)
+	if len(fieldRequests) == 0 {
+		return fmt.Errorf("平台配置中无岗位列表文字选择器")
+	}
+	if cfg.Position.ClickTarget == nil {
+		return fmt.Errorf("平台配置中无岗位列表点击目标选择器")
+	}
 	var findResp localFindElementsResp
 	if err := exec.Post("/api/v1/page/find-elements", map[string]any{
 		"element":      element,
 		"visible_only": true,
-		"include_text": true,
+		"fields":       fieldRequests,
 		"_log_start":   "正在查找岗位列表",
 		"_log_success": "岗位列表查找完成",
 	}, &findResp); err != nil {
@@ -152,10 +158,7 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 	}
 	targetNormalized := normalizePositionName(targetName)
 	for _, item := range findResp.Items {
-		itemText := strings.TrimSpace(item.Text)
-		if itemText == "" {
-			itemText = firstFieldText(item.Fields)
-		}
+		itemText := firstFieldText(item.Fields)
 		if normalizePositionName(itemText) != targetNormalized {
 			continue
 		}
@@ -163,11 +166,20 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 		return exec.Post("/api/v1/page/click", map[string]any{
 			"timeout":      10000,
 			"element_ref":  item.Ref,
+			"element":      cfg.Position.ClickTarget,
 			"_log_start":   fmt.Sprintf("正在点击岗位：%s", itemText),
 			"_log_success": fmt.Sprintf("岗位已点击：%s", itemText),
 		}, nil)
 	}
 	return fmt.Errorf("岗位列表中未找到岗位：%s", targetName)
+}
+
+// positionListFieldRequests 构建岗位列表项内的岗位文字提取字段。
+func positionListFieldRequests(itemText map[string]any) []map[string]any {
+	if itemText == nil {
+		return nil
+	}
+	return []map[string]any{{"position_name": itemText}}
 }
 
 // useExistingEntryPage 尝试复用已经打开的 Boss 入口页。
