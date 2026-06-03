@@ -8,12 +8,14 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import multiprocessing
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import tkinter as tk
@@ -28,6 +30,11 @@ from tkinter import messagebox, scrolledtext
 APP_NAME = "GoodHR"
 APP_DATA_DIR_NAME = "GoodHR"
 OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
+BROWSER_DOWNLOAD_CONFIG_URL = f"{OFFICIAL_SITE_URL}/agent-browser-downloads.json"
+DEFAULT_BROWSER_DOWNLOADS = {
+    "mac": "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v145.0.7632.109.2/cloakbrowser-darwin-arm64.tar.gz",
+    "win": "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v146.0.7680.177.5/cloakbrowser-windows-x64.zip",
+}
 WINDOWS_RUNTIME_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
 HOST = "127.0.0.1"
@@ -270,22 +277,138 @@ def platform_archive_name() -> str:
     """
     system = platform.system().lower()
     if system == "darwin":
-        return "cloakbrowser_mac.zip"
+        return "cloakbrowser_mac.tar.gz"
     if system == "windows":
         return "cloakbrowser_win.zip"
     return "cloakbrowser_linux.zip"
 
 
-def ensure_cloakbrowser_binary(root: Path, runtime_vendor_dir: Path) -> Path | None:
+def browser_download_key() -> str:
+    """
+    获取当前系统在浏览器下载配置中的键名。
+
+    Returns:
+        str: mac、win 或 linux。
+    """
+    system = platform.system().lower()
+    if system == "darwin":
+        return "mac"
+    if system == "windows":
+        return "win"
+    return "linux"
+
+
+def load_browser_downloads() -> dict[str, str]:
+    """
+    读取浏览器下载地址配置。
+
+    优先读取官网公开 JSON；失败时使用程序内置默认地址，避免配置文件临时不可用时无法启动。
+
+    Returns:
+        dict[str, str]: 平台到下载地址的映射。
+    """
+    downloads = dict(DEFAULT_BROWSER_DOWNLOADS)
+    try:
+        request = urllib.request.Request(BROWSER_DOWNLOAD_CONFIG_URL, headers={"User-Agent": "GoodHRLocalAgent"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        if isinstance(data, dict):
+            for key, value in data.items():
+                url = str(value or "").strip()
+                if url:
+                    downloads[str(key)] = url
+    except Exception:
+        pass
+    return downloads
+
+
+def browser_archive_path(download_dir: Path, url: str) -> Path:
+    """
+    根据下载地址生成本地浏览器压缩包路径。
+
+    Args:
+        download_dir: 压缩包保存目录。
+        url: 浏览器下载地址。
+
+    Returns:
+        Path: 本地压缩包路径。
+    """
+    name = Path(urllib.request.url2pathname(url.split("?", 1)[0])).name
+    if not name:
+        name = platform_archive_name()
+    return download_dir / name
+
+
+def download_browser_archive(url: str, target: Path, progress_callback: object | None = None) -> None:
+    """
+    下载浏览器压缩包并上报进度。
+
+    Args:
+        url: 下载地址。
+        target: 保存路径。
+        progress_callback: 进度回调，参数为 downloaded 和 total。
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_target = target.with_suffix(target.suffix + ".part")
+    if temp_target.exists():
+        temp_target.unlink()
+
+    request = urllib.request.Request(url, headers={"User-Agent": "GoodHRLocalAgent"})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        total = int(response.headers.get("Content-Length") or 0)
+        downloaded = 0
+        with temp_target.open("wb") as file:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                file.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback:
+                    progress_callback(downloaded, total)
+    temp_target.replace(target)
+
+
+def extract_browser_archive(archive: Path, runtime_vendor_dir: Path) -> None:
+    """
+    解压浏览器压缩包到运行目录。
+
+    Args:
+        archive: 浏览器压缩包路径。
+        runtime_vendor_dir: 解压目标目录。
+    """
+    if runtime_vendor_dir.exists():
+        shutil.rmtree(runtime_vendor_dir)
+    runtime_vendor_dir.mkdir(parents=True, exist_ok=True)
+    suffix = archive.name.lower()
+    if suffix.endswith(".zip"):
+        with zipfile.ZipFile(archive) as zip_file:
+            zip_file.extractall(runtime_vendor_dir)
+        return
+    if suffix.endswith(".tar.gz") or suffix.endswith(".tgz"):
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(runtime_vendor_dir)
+        return
+    raise RuntimeError(f"不支持的浏览器压缩包格式：{archive.name}")
+
+
+def ensure_cloakbrowser_binary(
+    root: Path,
+    runtime_vendor_dir: Path,
+    progress_callback: object | None = None,
+    log_callback: object | None = None,
+) -> Path | None:
     """
     确保 CloakBrowser 可执行文件存在。
 
-    优先使用运行数据目录中已经解压的浏览器；如果不存在，则从打包内置 zip
-    解压到运行数据目录，避免 PyInstaller 直接扫描 Chromium.app 内部 framework。
+    优先使用运行数据目录中已经解压的浏览器；如果不存在，则读取官网公开 JSON
+    获取当前平台浏览器下载地址，下载到运行目录后解压。
 
     Args:
         root: 程序资源根目录。
         runtime_vendor_dir: 运行时浏览器目录。
+        progress_callback: 下载进度回调。
+        log_callback: 日志回调。
 
     Returns:
         Path | None: CloakBrowser 可执行文件路径。
@@ -295,13 +418,26 @@ def ensure_cloakbrowser_binary(root: Path, runtime_vendor_dir: Path) -> Path | N
     if existing is not None:
         return ensure_executable_permission(existing)
 
-    archive = root / "vendor" / "downloads" / platform_archive_name()
-    if not archive.exists():
+    downloads = load_browser_downloads()
+    url = downloads.get(browser_download_key(), "").strip()
+    if not url:
         return ensure_executable_permission(find_cloakbrowser_binary(root))
 
-    runtime_vendor_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive) as zip_file:
-        zip_file.extractall(runtime_vendor_dir)
+    download_dir = runtime_vendor_dir.parent / "downloads"
+    archive = browser_archive_path(download_dir, url)
+    if not archive.exists():
+        if log_callback:
+            log_callback(f"开始下载浏览器组件：{url}\n")
+        download_browser_archive(url, archive, progress_callback)
+
+    if log_callback:
+        log_callback(f"正在解压浏览器组件：{archive}\n")
+    try:
+        extract_browser_archive(archive, runtime_vendor_dir)
+    except Exception:
+        if archive.exists():
+            archive.unlink()
+        raise
     return ensure_executable_permission(find_cloakbrowser_binary(runtime_root))
 
 
@@ -521,13 +657,14 @@ class GoodHRLauncher:
         self.dirs = ensure_runtime_dirs(self.base_dir)
         self.process: subprocess.Popen[str] | None = None
         self.running_port: int | None = None
+        self.agent_starting = False
 
         self.status_var = tk.StringVar(value="准备启动")
         self.detail_var = tk.StringVar(value=f"数据目录：{self.base_dir}")
 
         self._build_ui()
         self._ensure_desktop_shortcut()
-        self._start_agent()
+        self.root.after(100, self._start_agent)
         self._schedule_refresh()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -684,6 +821,30 @@ class GoodHRLauncher:
         self.log_view.see(tk.END)
         self.log_view.configure(state=tk.DISABLED)
 
+    def _append_log_threadsafe(self, text: str) -> None:
+        """
+        从后台线程安全地追加日志。
+
+        Args:
+            text: 要追加的日志内容。
+        """
+        self.root.after(0, self._append_log, text)
+
+    def _set_status_threadsafe(self, status: str, detail: str = "") -> None:
+        """
+        从后台线程安全地更新状态文案。
+
+        Args:
+            status: 当前状态。
+            detail: 详情文案，为空时不更新详情。
+        """
+        def update() -> None:
+            self.status_var.set(status)
+            if detail:
+                self.detail_var.set(detail)
+
+        self.root.after(0, update)
+
     def _ensure_desktop_shortcut(self) -> None:
         """创建桌面快捷方式并把结果写入窗口日志。"""
         try:
@@ -708,12 +869,32 @@ class GoodHRLauncher:
         if self.process and self.process.poll() is None:
             self.status_var.set("运行中")
             return
+        if self.agent_starting:
+            return
 
-        browser_binary = ensure_cloakbrowser_binary(bundle_root(), self.dirs["vendor"] / "cloakbrowser")
+        self.agent_starting = True
+        self.status_var.set("准备浏览器")
+        threading.Thread(target=self._start_agent_worker, daemon=True).start()
+
+    def _start_agent_worker(self) -> None:
+        """在后台线程中准备浏览器并启动 Local Agent。"""
+        try:
+            browser_binary = ensure_cloakbrowser_binary(
+                bundle_root(),
+                self.dirs["vendor"] / "cloakbrowser",
+                progress_callback=self._on_browser_download_progress,
+                log_callback=self._append_log_threadsafe,
+            )
+        except Exception as exc:
+            self.agent_starting = False
+            self._set_status_threadsafe("浏览器准备失败", str(exc))
+            self._append_log_threadsafe(f"浏览器组件准备失败：{exc}\n")
+            return
+
         if browser_binary is None:
-            self.status_var.set("缺少 CloakBrowser")
-            self.detail_var.set("未找到包内 CloakBrowser 压缩包，请确认打包时已包含 vendor/downloads。")
-            self._append_log("未找到包内 CloakBrowser 压缩包，Local Agent 未启动。\n")
+            self.agent_starting = False
+            self._set_status_threadsafe("缺少 CloakBrowser", "未找到浏览器组件下载地址。")
+            self._append_log_threadsafe("未找到浏览器组件下载地址，Local Agent 未启动。\n")
             return
 
         env = os.environ.copy()
@@ -727,26 +908,49 @@ class GoodHRLauncher:
             command = [sys.executable, "--agent-server"]
         else:
             command = [sys.executable, str(Path(__file__).resolve()), "--agent-server"]
-        self.status_var.set("启动中")
-        self.detail_var.set(f"CloakBrowser：{browser_binary}")
-        self._append_log(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
+        self._set_status_threadsafe("启动中", f"CloakBrowser：{browser_binary}")
+        self._append_log_threadsafe(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
 
         env["PYTHONUNBUFFERED"] = "1"
         creationflags = 0
         if platform.system().lower() == "windows" and hasattr(subprocess, "CREATE_NO_WINDOW"):
             creationflags = subprocess.CREATE_NO_WINDOW
-        self.process = subprocess.Popen(
-            command,
-            cwd=str(bundle_root()),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=creationflags,
-        )
+        try:
+            self.process = subprocess.Popen(
+                command,
+                cwd=str(bundle_root()),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=creationflags,
+            )
+        except Exception as exc:
+            self.agent_starting = False
+            self._set_status_threadsafe("启动失败", str(exc))
+            self._append_log_threadsafe(f"Local Agent 启动失败：{exc}\n")
+            return
+        self.agent_starting = False
         self._start_stdout_reader()
+
+    def _on_browser_download_progress(self, downloaded: int, total: int) -> None:
+        """
+        显示浏览器组件下载进度。
+
+        Args:
+            downloaded: 已下载字节数。
+            total: 总字节数，为 0 时表示未知。
+        """
+        downloaded_mb = downloaded / 1024 / 1024
+        if total > 0:
+            total_mb = total / 1024 / 1024
+            percent = downloaded * 100 / total
+            detail = f"浏览器组件下载中：{percent:.1f}% ({downloaded_mb:.1f}/{total_mb:.1f} MB)"
+        else:
+            detail = f"浏览器组件下载中：{downloaded_mb:.1f} MB"
+        self._set_status_threadsafe("下载浏览器", detail)
 
     def _stop_agent(self) -> None:
         """停止 Local Agent 子进程。"""
