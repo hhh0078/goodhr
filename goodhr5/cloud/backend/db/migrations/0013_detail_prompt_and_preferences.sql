@@ -9,7 +9,7 @@ UPDATE system_configs
 SET config_value = jsonb_set(
     config_value,
     '{detail,content}',
-    '{"target_classes":[[".boss-popup__body",".resume-detail",".geek-detail","#resume","[class*=resume]","[class*=geek-detail]"]]}'::jsonb,
+    '{"target_classes":[["#resume"]]}'::jsonb,
     true
 )
 WHERE config_key = 'platform.boss'
