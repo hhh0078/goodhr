@@ -100,9 +100,36 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-GoodHR-Local-Token"],
-    expose_headers=["Content-Length", "Content-Type"],
+    allow_headers=["*"],
+    expose_headers=["Content-Length", "Content-Type", "Access-Control-Allow-Private-Network"],
 )
+
+
+@app.middleware("http")
+async def add_private_network_access_headers(request: Request, call_next):
+    """
+    为浏览器访问本机 Local Agent 补充 Private Network Access 响应头。
+
+    Args:
+        request: 当前 HTTP 请求
+        call_next: 后续请求处理器
+
+    Returns:
+        带有本地网络访问允许头的 HTTP 响应。
+    """
+    if request.method == "OPTIONS":
+        response = JSONResponse({"ok": True})
+    else:
+        response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = (
+        request.headers.get("access-control-request-headers")
+        or "Content-Type, Authorization, X-GoodHR-Local-Token, X-GoodHR-Agent-BaseURL"
+    )
+    return response
+
 
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
