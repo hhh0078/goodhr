@@ -387,7 +387,7 @@ func (e *TaskExecutor) ensureTaskPageReady() error {
 	if err != nil {
 		return fmt.Errorf("获取页面当前岗位失败: %w", err)
 	}
-	if normalizeTaskPositionName(currentName) == normalizeTaskPositionName(taskPositionName) {
+	if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(taskPositionName)) {
 		e.log("info", fmt.Sprintf("页面岗位匹配：%s", currentName))
 		return nil
 	}
@@ -400,7 +400,7 @@ func (e *TaskExecutor) ensureTaskPageReady() error {
 	if err != nil {
 		return fmt.Errorf("切换后确认页面岗位失败: %w", err)
 	}
-	if normalizeTaskPositionName(confirmedName) == normalizeTaskPositionName(taskPositionName) {
+	if strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(taskPositionName)) {
 		e.log("info", fmt.Sprintf("页面岗位已切换为：%s", confirmedName))
 		return nil
 	}
