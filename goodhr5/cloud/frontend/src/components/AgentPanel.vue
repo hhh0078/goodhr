@@ -24,6 +24,7 @@
     </div>
     <p v-if="agent.bindError.value" class="error">{{ agent.bindError.value }}</p>
     <p v-if="agent.wsError.value" class="error">{{ agent.wsError.value }}</p>
+    <p v-if="agent.info?.value?.version_warning" class="warn">{{ agent.info.value.version_warning }}</p>
     <p v-if="!agent.info && !agent.checking.value" class="hint">
       未检测到本地程序，请先下载并启动 GoodHR 5 Local Agent。
     </p>

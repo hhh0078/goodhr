@@ -55,6 +55,15 @@ export function useAgent() {
         await markOnboardingStep("local_agent");
         await bind(user, token);
         await refreshWSStatus();
+        try {
+          const cloudAgent = await currentAgent();
+          if (cloudAgent?.agent_version) {
+            info.value = { ...info.value, version: cloudAgent.agent_version };
+          }
+          if (cloudAgent?.version_warning) {
+            info.value = { ...info.value, version_warning: cloudAgent.version_warning };
+          }
+        } catch {}
         return;
       } catch {
         /* 端口不可达，继续下一个 */
