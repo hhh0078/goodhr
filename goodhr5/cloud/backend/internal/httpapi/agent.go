@@ -4,8 +4,10 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // AgentService 处理本地 Agent 机器绑定和查询请求。
@@ -73,6 +75,16 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 有本地端口时，实时从本地程序获取最新版本号
+	if binding.LocalPort > 0 {
+		if v := fetchLocalAgentVersion(binding.LocalPort); v != "" {
+			if v != binding.AgentVersion {
+				binding.AgentVersion = v
+				_, _ = s.store.SaveBinding(binding)
+			}
+		}
+	}
+
 	// 读取系统配置要求的版本，与 Agent 上报版本比较
 	versionWarning := ""
 	if s.systemConfigs != nil {
@@ -126,6 +138,16 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 有本地端口时，实时从本地程序获取最新版本号
+	if binding.LocalPort > 0 {
+		if v := fetchLocalAgentVersion(binding.LocalPort); v != "" {
+			if v != binding.AgentVersion {
+				binding.AgentVersion = v
+				_, _ = s.store.SaveBinding(binding)
+			}
+		}
+	}
+
 	// 读取系统配置要求的版本，与 Agent 上报版本比较
 	versionWarning := ""
 	if s.systemConfigs != nil {
@@ -160,6 +182,21 @@ func extractJSONString(raw, key string) string {
 		if s, ok := v.(string); ok { return s }
 	}
 	return ""
+}
+
+func fetchLocalAgentVersion(port int) string {
+	url := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var h struct {
+		Version string `json:"version"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&h)
+	return strings.TrimSpace(h.Version)
 }
 
 func (s *AgentService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
