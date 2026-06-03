@@ -42,7 +42,8 @@ SET config_value = '{
   ],
   "behavior":{"needsDetailPage":false,"supportsPaging":false,"nextPageBtn":"","nextPageDisabledClass":""}
 }'::jsonb
-WHERE config_key = 'platform.boss';
+WHERE config_key = 'platform.boss'
+  AND NOT (config_value ? 'auth');
 
 UPDATE system_configs
 SET config_value = '{
@@ -83,4 +84,5 @@ SET config_value = '{
   ],
   "behavior":{"needsDetailPage":true,"supportsPaging":false,"nextPageBtn":"","nextPageDisabledClass":""}
 }'::jsonb
-WHERE config_key = 'platform.zhaopin';
+WHERE config_key = 'platform.zhaopin'
+  AND NOT (config_value ? 'auth');

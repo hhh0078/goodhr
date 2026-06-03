@@ -34,7 +34,11 @@ SET config_value = (config_value - 'pages')
     }
   }'::jsonb
 WHERE config_key = 'platform.boss'
-  AND enabled = true;
+  AND enabled = true
+  AND (
+    NOT (config_value ? 'auth')
+    OR NOT (config_value ? 'public')
+  );
 
 UPDATE system_configs
 SET config_value = (config_value - 'pages')
@@ -65,4 +69,8 @@ SET config_value = (config_value - 'pages')
     }
   }'::jsonb
 WHERE config_key = 'platform.zhaopin'
-  AND enabled = true;
+  AND enabled = true
+  AND (
+    NOT (config_value ? 'auth')
+    OR NOT (config_value ? 'public')
+  );
