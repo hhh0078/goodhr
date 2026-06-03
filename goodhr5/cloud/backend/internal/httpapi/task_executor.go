@@ -1244,13 +1244,14 @@ func (e *TaskExecutor) log(level, message string) {
 
 // toStringSlice 将 interface{} 转为 []string。
 func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
+	if v == nil { return nil }
+	if arr, ok := v.([]string); ok {
+		out := make([]string, 0, len(arr))
+		for _, s := range arr { if s != "" { out = append(out, s) } }
+		return out
 	}
 	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
+	if !ok { return nil }
 	result := make([]string, 0, len(arr))
 	for _, item := range arr {
 		if s, ok := item.(string); ok {
