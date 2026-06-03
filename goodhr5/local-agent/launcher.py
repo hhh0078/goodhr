@@ -353,6 +353,14 @@ def download_browser_archive(url: str, target: Path, progress_callback: object |
     if temp_target.exists():
         temp_target.unlink()
 
+    if platform.system().lower() == "windows":
+        try:
+            download_browser_archive_with_powershell(url, temp_target, target, progress_callback)
+            return
+        except Exception:
+            if temp_target.exists():
+                temp_target.unlink()
+
     request = urllib.request.Request(url, headers={"User-Agent": "GoodHRLocalAgent"})
     with urllib.request.urlopen(request, timeout=120) as response:
         total = int(response.headers.get("Content-Length") or 0)
@@ -367,6 +375,109 @@ def download_browser_archive(url: str, target: Path, progress_callback: object |
                 if progress_callback:
                     progress_callback(downloaded, total)
     temp_target.replace(target)
+
+
+def download_browser_archive_with_powershell(
+    url: str,
+    temp_target: Path,
+    target: Path,
+    progress_callback: object | None = None,
+) -> None:
+    """
+    在 Windows 上使用 PowerShell/.NET 下载浏览器压缩包。
+
+    Python urllib 在部分 Windows 环境会遇到根证书校验失败；PowerShell/.NET
+    使用系统证书存储，成功率更高。
+
+    Args:
+        url: 下载地址。
+        temp_target: 临时保存路径。
+        target: 最终保存路径。
+        progress_callback: 进度回调，参数为 downloaded 和 total。
+    """
+    script_path = target.parent / "goodhr_download_browser.ps1"
+    script_path.write_text(
+        r'''
+param(
+    [Parameter(Mandatory=$true)][string]$Url,
+    [Parameter(Mandatory=$true)][string]$TempPath,
+    [Parameter(Mandatory=$true)][string]$TargetPath
+)
+
+$ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = `
+    [Net.SecurityProtocolType]::Tls12 -bor `
+    [Net.SecurityProtocolType]::Tls11 -bor `
+    [Net.SecurityProtocolType]::Tls
+
+if (Test-Path $TempPath) {
+    Remove-Item -Force $TempPath
+}
+
+$request = [System.Net.HttpWebRequest]::Create($Url)
+$request.UserAgent = "GoodHRLocalAgent"
+$request.AllowAutoRedirect = $true
+$response = $request.GetResponse()
+$total = [int64]$response.ContentLength
+$stream = $response.GetResponseStream()
+$file = [System.IO.File]::Open($TempPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+$buffer = New-Object byte[] 1048576
+$downloaded = [int64]0
+
+try {
+    while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        $file.Write($buffer, 0, $read)
+        $downloaded += $read
+        Write-Output "GOODHR_PROGRESS $downloaded $total"
+    }
+}
+finally {
+    $file.Close()
+    $stream.Close()
+    $response.Close()
+}
+
+Move-Item -Force $TempPath $TargetPath
+'''.strip(),
+        encoding="utf-8",
+    )
+    try:
+        result = subprocess.Popen(
+            [
+                windows_powershell_path(),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                url,
+                str(temp_target),
+                str(target),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        output_lines: list[str] = []
+        if result.stdout:
+            for line in result.stdout:
+                line = line.strip()
+                if line.startswith("GOODHR_PROGRESS "):
+                    parts = line.split()
+                    if len(parts) >= 3 and progress_callback:
+                        progress_callback(int(parts[1]), int(parts[2]))
+                elif line:
+                    output_lines.append(line)
+        exit_code = result.wait()
+        if exit_code != 0:
+            raise RuntimeError("\n".join(output_lines) or f"PowerShell 下载失败，退出码={exit_code}")
+    finally:
+        try:
+            script_path.unlink()
+        except OSError:
+            pass
 
 
 def extract_browser_archive(archive: Path, runtime_vendor_dir: Path) -> None:
