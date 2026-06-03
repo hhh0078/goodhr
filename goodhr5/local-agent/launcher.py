@@ -825,7 +825,8 @@ class GoodHRLauncher:
             )
         self._make_button(button_row, text="停止服务", command=self._stop_agent).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="清除日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 8))
-        self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT)
+        self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="重下浏览器", command=self._redownload_browser, width=14).pack(side=tk.LEFT)
 
         if platform.system().lower() == "windows":
             self._make_label(
@@ -974,6 +975,36 @@ class GoodHRLauncher:
         except Exception as exc:
             self._append_log(f"创建桌面快捷方式失败：{exc}\n")
             messagebox.showerror("GoodHR", f"创建桌面快捷方式失败：{exc}")
+
+    def _redownload_browser(self) -> None:
+        """清理浏览器组件并重新下载启动。"""
+        if self.agent_starting:
+            messagebox.showinfo("GoodHR", "浏览器组件正在准备中，请稍后再试。")
+            return
+        if not messagebox.askyesno("重新下载浏览器组件", "将停止服务并删除本地浏览器组件，然后重新下载。确认继续吗？"):
+            return
+        self._stop_agent()
+        try:
+            self._clear_browser_components()
+        except Exception as exc:
+            self.status_var.set("清理失败")
+            self.detail_var.set(str(exc))
+            self._append_log(f"清理浏览器组件失败：{exc}\n")
+            messagebox.showerror("GoodHR", f"清理浏览器组件失败：{exc}")
+            return
+        self._append_log("已清理浏览器组件，准备重新下载。\n")
+        self._start_agent()
+
+    def _clear_browser_components(self) -> None:
+        """
+        删除已下载和已解压的浏览器组件。
+
+        只清理 vendor 下的浏览器运行文件和压缩包，不影响账号、任务、cookie 等数据。
+        """
+        for path in [self.dirs["vendor"] / "cloakbrowser", self.dirs["vendor"] / "downloads"]:
+            if path.exists():
+                shutil.rmtree(path)
+            path.mkdir(parents=True, exist_ok=True)
 
     def _start_agent(self) -> None:
         """启动 Local Agent 子进程。"""
