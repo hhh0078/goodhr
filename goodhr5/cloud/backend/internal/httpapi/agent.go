@@ -73,15 +73,6 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 读取系统配置要求的版本，与数据库里的 Agent 版本比较
-	versionWarning := ""
-	if s.systemConfigs != nil {
-		if cfg, err := s.systemConfigs.Get("system.app_config"); err == nil {
-			if expected := extractJSONString(cfg.ConfigValue, "local_agent_version"); expected != "" && expected != binding.AgentVersion {
-				versionWarning = "本地程序版本 " + binding.AgentVersion + " 与系统要求 " + expected + " 不一致，请更新本地程序"
-			}
-		}
-	}
 	resp := map[string]any{
 		"ok": true,
 		"agent": map[string]any{
@@ -92,9 +83,6 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 			"bind_status":   binding.BindStatus,
 			"last_seen_at":  binding.LastSeenAt,
 		},
-	}
-	if versionWarning != "" {
-		resp["version_warning"] = versionWarning
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -126,15 +114,6 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 读取系统配置要求的版本，与数据库里的 Agent 版本比较
-	versionWarning := ""
-	if s.systemConfigs != nil {
-		if cfg, err := s.systemConfigs.Get("system.app_config"); err == nil {
-			if expected := extractJSONString(cfg.ConfigValue, "local_agent_version"); expected != "" && expected != binding.AgentVersion {
-				versionWarning = "本地程序版本 " + binding.AgentVersion + " 与系统要求 " + expected + " 不一致，请更新本地程序"
-			}
-		}
-	}
 	resp := map[string]any{
 		"ok": true,
 		"agent": map[string]any{
@@ -146,7 +125,6 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 			"last_seen_at":  binding.LastSeenAt,
 		},
 	}
-	if versionWarning != "" { resp["version_warning"] = versionWarning }
 	writeJSON(w, http.StatusOK, resp)
 }
 
