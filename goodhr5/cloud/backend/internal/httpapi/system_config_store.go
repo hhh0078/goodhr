@@ -148,7 +148,7 @@ func defaultSystemGuideConfig() string {
 				"id": "quick-start",
 				"title": "第一次使用",
 				"summary": "先启动本地程序，再创建平台账号、岗位模板和任务。",
-				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写 MiniMax API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
+				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写千问 API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
 			},
 			{
 				"id": "local-agent",
@@ -172,7 +172,7 @@ func defaultSystemGuideConfig() string {
 				"id": "ai-config",
 				"title": "AI 配置",
 				"summary": "个人配置里填写 AI 地址、模型和 Key。",
-				"content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，默认使用 MiniMax 的 https://api.minimaxi.com/v1/chat/completions。模型是实际调用的模型名，默认 MiniMax-M3。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
+				"content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，默认使用千问的 https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions。模型是实际调用的模型名，默认 qwen3.7-plus。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
 			},
 			{
 				"id": "errors",
@@ -237,7 +237,7 @@ func defaultSystemGuideConfig() string {
 				"title": "个人配置说明",
 				"items": [
 					"API 地址是 AI 服务接口地址，必须是 chat/completions 兼容接口。",
-					"模型是 AI 服务支持的模型名，默认 MiniMax-M3。",
+					"模型是 AI 服务支持的模型名，默认 qwen3.7-plus。",
 					"API Key 是调用 AI 的密钥，保存后前端只显示脱敏值。",
 					"点击详情前延时、关闭详情前延时、打招呼前延时和摸鱼休息参数用于模拟正常人工操作节奏。"
 				]

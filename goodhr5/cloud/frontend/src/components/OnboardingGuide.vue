@@ -97,10 +97,10 @@ const cards = [
     index: "4",
     title: "保存个人配置",
     menu: "personal-config",
-    description: "建议填入 MiniMax 的 API 地址、模型和 API Key。",
+    description: "建议填入千问的 API 地址、模型和 API Key。",
     tips: [
-      "API地址可填 https://api.minimaxi.com/v1/chat/completions",
-      "模型可填 MiniMax-M3",
+      "API地址可填 https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "模型可填 qwen3.7-plus",
       "保存后 API Key 会隐藏",
     ],
   },

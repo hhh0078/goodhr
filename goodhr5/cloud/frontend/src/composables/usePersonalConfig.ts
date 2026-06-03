@@ -7,8 +7,9 @@ import {
 } from "../services/api/personalConfigApi";
 import { markOnboardingStep } from "../services/onboarding";
 
-const DEFAULT_AI_BASE_URL = "https://api.minimaxi.com/v1/chat/completions";
-const DEFAULT_AI_MODEL = "MiniMax-M3";
+const DEFAULT_AI_BASE_URL =
+  "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+const DEFAULT_AI_MODEL = "qwen3.7-plus";
 
 export function usePersonalConfig() {
   const loading = ref(false);

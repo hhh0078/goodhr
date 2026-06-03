@@ -7,8 +7,24 @@
 
     <div class="panel-header">
       AI 可自行配置兼容openAI 的任意多模态模型，必须要支持图片视频。例如
-      硅基流动、MiniMax、千问、OpenAI 等。(目前deepseek
+      硅基流动、千问、OpenAI 等。(目前deepseek
       不支持图片视频，所以请不要使用deepseek)
+    </div>
+
+    <div class="quick-links">
+      <a
+        class="quick-card"
+        href="https://www.qianwenai.com/"
+        target="_blank"
+        rel="noreferrer"
+      >
+        <span class="quick-title">跳转AI平台</span>
+        <span class="quick-desc">打开千问官网，获取模型和 Key。</span>
+      </a>
+      <a class="quick-card" href="/videos.html" target="_blank" rel="noreferrer">
+        <span class="quick-title">跳转教程视频</span>
+        <span class="quick-desc">查看安装、使用和功能讲解。</span>
+      </a>
     </div>
 
     <h3>AI 配置</h3>
@@ -17,18 +33,18 @@
         API 地址
         <input
           v-model="config.form.value.aiBaseURL"
-          placeholder="https://api.minimaxi.com/v1/chat/completions"
+          placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
         />
         <small class="field-help"
-          >用于调用 MiniMax 多模态和对话模型。默认地址为
-          https://api.minimaxi.com/v1/chat/completions</small
+          >用于调用千问多模态和对话模型。默认地址为
+          https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</small
         >
       </label>
       <label class="field">
         模型
-        <input v-model="config.form.value.aiModel" placeholder="MiniMax-M3" />
+        <input v-model="config.form.value.aiModel" placeholder="qwen3.7-plus" />
         <small class="field-help"
-          >任务使用的默认模型名称。默认 MiniMax-M3</small
+          >任务使用的默认模型名称。默认 qwen3.7-plus</small
         >
       </label>
       <label class="field">
@@ -43,12 +59,12 @@
           "
         />
         <small class="field-help"
-          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。MiniMax
-          需要先购买 token 套餐后再使用。<a
-            href="https://platform.minimaxi.com/subscribe/token-plan"
+          >如果当前已经配置过 Key，这里留空会保留原值，不会清空。千问
+          需要先准备可用 API Key 后再使用。<a
+            href="https://www.qianwenai.com/"
             target="_blank"
             rel="noreferrer"
-            >前往购买</a
+            >前往千问</a
           ></small
         >
       </label>
@@ -265,6 +281,39 @@ defineProps({
   gap: 12px;
 }
 
+.quick-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+
+.quick-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.quick-card:hover {
+  border-color: var(--accent);
+}
+
+.quick-title {
+  font-weight: 700;
+}
+
+.quick-desc {
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -338,6 +387,10 @@ defineProps({
 }
 
 @media (max-width: 640px) {
+  .quick-links {
+    grid-template-columns: 1fr;
+  }
+
   .field-small,
   .field-medium {
     grid-column: 1 / -1;
