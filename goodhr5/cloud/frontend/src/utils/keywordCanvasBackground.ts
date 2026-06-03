@@ -1,6 +1,6 @@
-// 本文件负责渲染 GoodHR 登录页和官网共用的高性能关键词动态背景。
+// 本文件负责渲染 GoodHR 登录页和官网共用的 OGL 三层关键词 3D 背景。
 
-import type { Application, Container, Text } from "pixi.js";
+import { Geometry, Mesh, Program, Renderer, Texture } from "ogl";
 
 export type KeywordCanvasBackground = {
   destroy: () => void;
@@ -16,10 +16,11 @@ type KeywordCanvasOptions = {
   opacity?: number;
 };
 
-type KeywordLine = Container & {
-  direction: number;
+type KeywordLayer = {
+  mesh: Mesh;
+  texture: Texture;
+  program: Program;
   speed: number;
-  wordGap: number;
 };
 
 const DEFAULT_ROWS = [
@@ -28,10 +29,46 @@ const DEFAULT_ROWS = [
   ["自动筛选", "自动打招呼", "人才库", "回复率", "复聊", "跟进", "Offer"],
   ["薪资", "经验", "学历", "城市", "活跃候选人", "高匹配", "已沟通"],
   ["今日打招呼", "跳过原因", "查看详情", "推荐列表", "招聘效率", "沟通记录"],
-  ["AI判断", "匹配分", "已扫描", "已跳过", "已回复", "待跟进", "高意向"],
+  ["AI判断", "匹配分", "已扫描", "已跳过", "待跟进", "高意向"],
   ["成都招聘", "销售", "客服", "运营", "老师", "开发", "人事"],
   ["自动化", "批量沟通", "精准筛选", "快速开聊", "职位匹配", "人才发现"],
 ];
+
+const VERTEX_SHADER = `
+attribute vec2 position;
+attribute vec2 uv;
+
+uniform float uSkew;
+uniform float uDepthScale;
+
+varying vec2 vUv;
+
+void main() {
+  vec2 nextPosition = position * uDepthScale;
+  nextPosition.x += nextPosition.y * uSkew;
+  vUv = uv;
+  gl_Position = vec4(nextPosition, 0.0, 1.0);
+}
+`;
+
+const FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D tMap;
+uniform float uTime;
+uniform float uSpeed;
+uniform float uOpacity;
+uniform float uDirection;
+
+varying vec2 vUv;
+
+void main() {
+  vec2 nextUv = vUv;
+  nextUv.x = fract(nextUv.x + uTime * uSpeed * uDirection);
+  vec4 color = texture2D(tMap, nextUv);
+  gl_FragColor = vec4(color.rgb, color.a * uOpacity);
+}
+`;
 
 /**
  * 创建关键词动态背景。
@@ -46,49 +83,52 @@ export async function createKeywordCanvasBackground(
 ): Promise<KeywordCanvasBackground | null> {
   if (!host) return null;
 
-  let disposed = false;
-  let resizeTimer = 0;
-  const pixi = await import("pixi.js");
-  if (disposed || !host.isConnected) return null;
-
-  const app = new pixi.Application();
-  await app.init({
-    resizeTo: host,
-    backgroundAlpha: 0,
+  const config = normalizeOptions(options);
+  const renderer = new Renderer({
+    alpha: true,
     antialias: true,
-    autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2),
+    dpr: Math.min(window.devicePixelRatio || 1, 1.5),
     powerPreference: "high-performance",
   });
-  if (!host.isConnected) {
-    app.destroy(true);
-    return null;
-  }
+  const gl = renderer.gl;
+  gl.canvas.className = "keyword-canvas";
+  gl.clearColor(0, 0, 0, 0);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  host.appendChild(gl.canvas);
 
-  const config = normalizeOptions(options);
-  const stage = buildKeywordRows(pixi, config);
-  app.canvas.className = "keyword-canvas";
-  app.stage.addChild(stage);
-  host.appendChild(app.canvas);
+  const geometry = createFullscreenGeometry(gl);
+  const layers = createKeywordLayers(gl, geometry, config);
+  let disposed = false;
+  let frameID = 0;
 
-  const layout = () => layoutKeywordRows(app, stage, config);
-  const tick = (ticker: { deltaTime: number }) => moveKeywordRows(app, stage, config, ticker);
-  const scheduleLayout = () => {
-    window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(layout, 120);
+  const resize = () => {
+    renderer.setSize(host.clientWidth || window.innerWidth, host.clientHeight || window.innerHeight);
+  };
+  const animate = (time: number) => {
+    if (disposed) return;
+    frameID = window.requestAnimationFrame(animate);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const seconds = time * 0.001;
+    for (const layer of layers) {
+      layer.program.uniforms.uTime.value = seconds;
+      renderer.render({ scene: layer.mesh, clear: false });
+    }
   };
 
-  layout();
-  app.ticker.add(tick);
-  window.addEventListener("resize", scheduleLayout);
+  resize();
+  window.addEventListener("resize", resize);
+  frameID = window.requestAnimationFrame(animate);
 
   return {
     destroy: () => {
       disposed = true;
-      window.clearTimeout(resizeTimer);
-      window.removeEventListener("resize", scheduleLayout);
-      app.ticker.remove(tick);
-      app.destroy(true);
+      window.cancelAnimationFrame(frameID);
+      window.removeEventListener("resize", resize);
+      for (const layer of layers) {
+        layer.texture.image = null;
+      }
+      gl.canvas.remove();
     },
   };
 }
@@ -97,6 +137,7 @@ export async function createKeywordCanvasBackground(
  * 初始化页面中声明式配置的关键词背景。
  *
  * @param selector - 需要初始化的背景容器选择器。
+ * @param options - 背景配置。
  */
 export function mountKeywordCanvasBackgrounds(selector = "[data-keyword-canvas]", options: KeywordCanvasOptions = {}) {
   document.querySelectorAll<HTMLElement>(selector).forEach((host) => {
@@ -113,172 +154,113 @@ export function mountKeywordCanvasBackgrounds(selector = "[data-keyword-canvas]"
 function normalizeOptions(options: KeywordCanvasOptions) {
   return {
     rows: options.rows?.length ? options.rows : DEFAULT_ROWS,
-    rowCount: options.rowCount || 15,
-    speed: options.speed || 1.28,
-    minFontSize: options.minFontSize || 44,
-    maxFontSize: options.maxFontSize || 106,
+    rowCount: options.rowCount || 16,
+    speed: options.speed || 1.18,
+    minFontSize: options.minFontSize || 42,
+    maxFontSize: options.maxFontSize || 98,
     fontScale: options.fontScale || 0.078,
     opacity: options.opacity || 1,
   };
 }
 
 /**
- * 构建 Pixi 关键词文本行。
+ * 创建覆盖全屏的 WebGL 几何体。
  *
- * @param pixi - PixiJS 运行时模块。
- * @param config - 背景完整配置。
- * @returns Pixi 容器。
+ * @param gl - WebGL 上下文。
+ * @returns OGL 几何体。
  */
-function buildKeywordRows(pixi: typeof import("pixi.js"), config: ReturnType<typeof normalizeOptions>) {
-  const stage = new pixi.Container();
-  for (let index = 0; index < config.rowCount; index += 1) {
-    const row = config.rows[index % config.rows.length];
-    const line = new pixi.Container() as KeywordLine;
-    line.alpha = (index % 2 === 0 ? 0.38 : 0.32) * config.opacity;
-    line.rotation = -0.14;
-    line.eventMode = "none";
-    line.direction = index % 2 === 0 ? -1 : 1;
-    line.speed = config.speed + index * 0.035;
-    line.wordGap = 34;
-    buildKeywordLineWords(pixi, line, row, index);
-    stage.addChild(line);
-  }
-  return stage;
+function createFullscreenGeometry(gl: WebGLRenderingContext) {
+  return new Geometry(gl, {
+    position: {
+      size: 2,
+      data: new Float32Array([-1, -1, 3, -1, -1, 3]),
+    },
+    uv: {
+      size: 2,
+      data: new Float32Array([0, 0, 5, 0, 0, 3]),
+    },
+  });
 }
 
 /**
- * 为单行创建多个短词文本，避免生成超宽纹理。
+ * 创建三层关键词纹理平面。
  *
- * @param pixi - PixiJS 运行时模块。
- * @param line - 当前关键词行容器。
- * @param row - 当前行关键词。
- * @param index - 当前行序号。
+ * @param gl - WebGL 上下文。
+ * @param geometry - 共享几何体。
+ * @param config - 背景完整配置。
+ * @returns 关键词平面列表。
  */
-function buildKeywordLineWords(
-  pixi: typeof import("pixi.js"),
-  line: KeywordLine,
-  row: string[],
-  index: number,
+function createKeywordLayers(
+  gl: WebGLRenderingContext,
+  geometry: Geometry,
+  config: ReturnType<typeof normalizeOptions>,
 ) {
-  const words = Array.from({ length: 8 }, () => row).flat();
-  words.forEach((word) => {
-    const item = new pixi.Text({
-      text: word,
-      style: {
-        fill: index % 2 === 0 ? "#174a17" : "#2a332a",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        fontSize: 72,
-        fontWeight: "700",
-        letterSpacing: 0,
+  const layerConfigs = [
+    { scale: 1.2, fontSize: Math.min(config.maxFontSize, 74), color: "rgba(36, 255, 84, 0.38)", opacity: 0.82, speed: 0.018, direction: -1, skew: -0.18 },
+    { scale: 1.08, fontSize: Math.max(config.minFontSize, Math.min(config.maxFontSize * 0.62, 52)), color: "rgba(24, 150, 50, 0.3)", opacity: 0.66, speed: 0.012, direction: 1, skew: -0.12 },
+    { scale: 1.0, fontSize: Math.max(config.minFontSize * 0.72, Math.min(config.maxFontSize * 0.38, 34)), color: "rgba(12, 86, 28, 0.26)", opacity: 0.56, speed: 0.007, direction: -1, skew: -0.08 },
+  ];
+
+  return layerConfigs.map((layerConfig, index) => {
+    const texture = new Texture(gl, {
+      image: createKeywordTexture(config.rows, config.rowCount, layerConfig.fontSize, layerConfig.color, index),
+      generateMipmaps: false,
+      wrapS: gl.REPEAT,
+      wrapT: gl.REPEAT,
+    });
+    texture.needsUpdate = true;
+    const program = new Program(gl, {
+      vertex: VERTEX_SHADER,
+      fragment: FRAGMENT_SHADER,
+      transparent: true,
+      uniforms: {
+        tMap: { value: texture },
+        uTime: { value: 0 },
+        uSpeed: { value: layerConfig.speed * config.speed },
+        uOpacity: { value: layerConfig.opacity * config.opacity },
+        uDirection: { value: layerConfig.direction },
+        uSkew: { value: layerConfig.skew },
+        uDepthScale: { value: layerConfig.scale },
       },
     });
-    item.eventMode = "none";
-    line.addChild(item);
+    return {
+      mesh: new Mesh(gl, { geometry, program }),
+      texture,
+      program,
+      speed: layerConfig.speed,
+    };
   });
 }
 
 /**
- * 按容器尺寸重新排列关键词行。
+ * 将关键词绘制成可重复采样的 Canvas 纹理。
  *
- * @param app - Pixi 应用实例。
- * @param stage - Pixi 关键词行容器。
- * @param config - 背景完整配置。
+ * @param rows - 关键词行数据。
+ * @param rowCount - 行数。
+ * @param fontSize - 字号。
+ * @param color - 文本颜色。
+ * @param layerIndex - 当前层级。
+ * @returns Canvas 纹理。
  */
-function layoutKeywordRows(
-  app: Application,
-  stage: Container,
-  config: ReturnType<typeof normalizeOptions>,
-) {
-  const width = app.screen.width;
-  const height = app.screen.height;
-  const fontSize = Math.max(config.minFontSize, Math.min(config.maxFontSize, width * config.fontScale));
-  const verticalPadding = fontSize * 1.1;
-  const gap = (height + verticalPadding * 2) / Math.max(stage.children.length - 1, 1);
+function createKeywordTexture(rows: string[][], rowCount: number, fontSize: number, color: string, layerIndex: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2048;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
 
-  stage.children.forEach((child, index) => {
-    const line = child as KeywordLine;
-    line.wordGap = Math.max(30, fontSize * 0.42);
-    layoutKeywordLineWords(line, fontSize, line.wordGap, width);
-    line.x = 0;
-    line.y = -verticalPadding + index * gap;
-  });
-}
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = `700 ${fontSize}px Arial, Helvetica, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
 
-/**
- * 重新排列单行里的每个词。
- *
- * @param line - 当前关键词行容器。
- * @param fontSize - 当前字号。
- * @param wordGap - 词语之间的间距。
- * @param viewportWidth - 当前画布宽度。
- */
-function layoutKeywordLineWords(line: KeywordLine, fontSize: number, wordGap: number, viewportWidth: number) {
-  const words = line.children as Text[];
-  if (words.length === 0) return;
-
-  let cursor = line.direction < 0 ? -viewportWidth * 0.08 : viewportWidth * 1.08;
-  line.children.forEach((child) => {
-    const item = child as Text;
-    item.style.fontSize = fontSize;
-    item.x = cursor;
-    item.y = 0;
-    cursor += line.direction < 0 ? item.width + wordGap : -(item.width + wordGap);
-  });
-}
-
-/**
- * 推动关键词行逐帧滚动。
- *
- * @param app - Pixi 应用实例。
- * @param stage - Pixi 关键词行容器。
- * @param config - 背景完整配置。
- * @param ticker - Pixi 当前帧信息。
- */
-function moveKeywordRows(
-  app: Application,
-  stage: Container,
-  config: ReturnType<typeof normalizeOptions>,
-  ticker: { deltaTime: number },
-) {
-  const width = app.screen.width;
-  stage.children.forEach((child) => {
-    const line = child as KeywordLine;
-    const speed = line.speed * ticker.deltaTime;
-    recycleKeywordLineWords(line, width, speed);
-  });
-}
-
-/**
- * 循环回收单行里的词，避免整行跑完后出现空白。
- *
- * @param line - 当前关键词行容器。
- * @param viewportWidth - 当前画布宽度。
- * @param speed - 当前帧移动距离。
- */
-function recycleKeywordLineWords(line: KeywordLine, viewportWidth: number, speed: number) {
-  const words = line.children as Text[];
-  if (words.length === 0) return;
-
-  words.forEach((word) => {
-    word.x += speed * line.direction;
-  });
-
-  if (line.direction < 0) {
-    let rightMost = Math.max(...words.map((word) => word.x + word.width));
-    words.forEach((word) => {
-      if (word.x + word.width < -viewportWidth * 0.18) {
-        word.x = rightMost + line.wordGap;
-        rightMost = word.x + word.width;
-      }
-    });
-    return;
+  const lineHeight = canvas.height / Math.max(8, rowCount);
+  for (let index = 0; index < rowCount + 2; index += 1) {
+    const row = rows[(index + layerIndex) % rows.length];
+    const text = Array.from({ length: 7 }, () => row.join("   ")).join("   ");
+    const x = (index % 2 === 0 ? -120 : -520) - layerIndex * 90;
+    const y = (index + 0.35) * lineHeight;
+    ctx.fillText(text, x, y);
   }
-
-  let leftMost = Math.min(...words.map((word) => word.x));
-  words.forEach((word) => {
-    if (word.x > viewportWidth * 1.18) {
-      word.x = leftMost - word.width - line.wordGap;
-      leftMost = word.x;
-    }
-  });
+  return canvas;
 }

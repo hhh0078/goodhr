@@ -110,7 +110,7 @@ function focusCode() {
 }
 
 /**
- * 创建登录页 Pixi 关键词背景。
+ * 创建登录页 OGL 关键词背景。
  */
 async function createKeywordWall() {
   const host = keywordWallRef.value;
