@@ -20,13 +20,16 @@ from cloakbrowser import launch_async as _cloak_launch_async
 from cloakbrowser import launch_persistent_context_async as _cloak_persistent_async
 from playwright.async_api import Browser, BrowserContext, Page
 from playwright._impl._errors import TargetClosedError
+import tkinter as tk
+
+elf = tk.Tk()
 
 logger = logging.getLogger("goodhr5.browser")
 
 # ---------- 浏览器默认配置 ----------
 
-DEFAULT_VIEWPORT_WIDTH = 1280
-DEFAULT_VIEWPORT_HEIGHT = 800
+DEFAULT_VIEWPORT_WIDTH = int(elf.winfo_screenwidth()*1)
+DEFAULT_VIEWPORT_HEIGHT = int(elf.winfo_screenheight()*0.8)
 
 
 # ---------- profile 锁文件清理 ----------
