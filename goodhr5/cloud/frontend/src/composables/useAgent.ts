@@ -52,19 +52,6 @@ export function useAgent() {
         await markOnboardingStep("local_agent");
         await bind(user, token);
         await refreshWSStatus();
-        // 用云端存储的版本号覆盖 /health 的版本
-        try {
-          const ca = await currentAgent();
-          if (ca?.agent_version !== info.value?.version)
-            status.value = "版本过低，请更新本地程序";
-          info.value = null;
-          baseUrl.value = "";
-          wsStatus.value = "未连接";
-          machineConflict.value = false;
-          checking.value = false;
-          return;
-          // info.value = { ...info.value, version: ca.agent_version };
-        } catch {}
         return;
       } catch {}
     }
