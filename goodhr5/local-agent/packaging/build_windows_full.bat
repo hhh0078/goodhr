@@ -63,10 +63,6 @@ if errorlevel 1 exit /b 1
 call :ensure_package onnxruntime 1.18.1
 if errorlevel 1 exit /b 1
 
-echo ==^> Prepare Windows CloakBrowser
-"%PYTHON%" packaging\prepare_vendor.py --platform win --no-extract
-if errorlevel 1 exit /b 1
-
 echo ==^> Build with PyInstaller
 "%PYTHON%" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 if errorlevel 1 exit /b 1

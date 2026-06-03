@@ -53,10 +53,10 @@ config/       配置文件
 vendor/       CloakBrowser 运行文件
 ```
 
-打包前需要把当前平台的 CloakBrowser 放入 `vendor/cloakbrowser/`：
+打包产物不再内置 CloakBrowser。首次启动时，程序会请求官网公开 JSON 获取下载地址，自动下载并解压到运行数据目录：
 
-```bash
-python3 packaging/prepare_vendor.py --platform mac
+```text
+https://goodhr5.58it.cn/agent-browser-downloads.json
 ```
 
 macOS 打包：

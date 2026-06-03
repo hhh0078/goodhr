@@ -52,9 +52,6 @@ echo "==> 升级 pip"
 echo "==> 安装运行和打包依赖"
 "$PYTHON" -m pip install -e ".[packaging]"
 
-echo "==> 准备 macOS CloakBrowser"
-"$PYTHON" packaging/prepare_vendor.py --platform mac --no-extract
-
 echo "==> 开始 PyInstaller 打包"
 "$PYTHON" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging/GoodHRLocalAgent.spec
 

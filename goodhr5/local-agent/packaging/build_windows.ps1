@@ -4,7 +4,6 @@ $ErrorActionPreference = "Stop"
 
 Set-Location (Join-Path $PSScriptRoot "..")
 
-python packaging\prepare_vendor.py --platform win --no-extract
 python -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 
 Write-Host "打包完成：dist\GoodHR"
