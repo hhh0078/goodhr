@@ -644,6 +644,29 @@ class WSAgentClient:
             await self._safe_random_click(page, locator, matched_target)
             clicked = True
             return {"ok": True, "clicked": clicked}
+        if path == "/api/v1/page/list-click-by-index":
+            page = await self._require_page()
+            index = int(body.get("index", 0))
+            if index < 0: raise ValueError("index must be >= 0")
+            parent_spec = parse_element_locator_spec(body.get("parent"))
+            if not parent_spec.target_classes: raise ValueError("parent.target_classes is required")
+            item_spec = parse_element_locator_spec(body.get("item"))
+            if not item_spec.target_classes: raise ValueError("item.target_classes is required")
+            container, _mp, _ = await locate_element_by_spec(page, parent_spec, "列表容器")
+            all_items, _mp2, matched = await find_all_locators_by_spec(container, item_spec, "列表项")
+            count = await all_items.count()
+            if index >= count: raise ValueError(f"index {index} out of range, only {count} items found")
+            target = all_items.nth(index)
+            for _attempt in range(30):
+                if await is_locator_in_viewport(target): break
+                await move_mouse_to_locator(container, str(matched))
+                await page.mouse.wheel(0, 120)
+                await asyncio.sleep(0.15)
+            if not await is_locator_in_viewport(target):
+                raise ValueError(f"列表项 index={index} 未能滚动到可见区域")
+            await move_mouse_to_locator(target, str(matched))
+            await self._safe_random_click(page, target, str(matched))
+            return {"ok": True, "clicked": True, "index": index}
         if path == "/api/v1/page/press-key":
             page = await self._require_page()
             key = str(body.get("key") or "").strip()
