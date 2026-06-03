@@ -988,20 +988,25 @@ async def page_list_click_by_index(payload: dict) -> dict:
         raise HTTPException(400, f"index {index} out of range, only {count} items found")
 
     target = all_items.nth(index)
+    container_box = await container.bounding_box()
+    if container_box is None:
+        raise HTTPException(400, "列表容器定位失败")
+    logger.info("列表容器 box=(%.0f,%.0f,%.0f,%.0f)", container_box["x"], container_box["y"], container_box["width"], container_box["height"])
     await move_mouse_to_locator(container, str(matched))
-    viewport = page.viewport_size
-    vh = viewport["height"] if viewport else 1080
     for _attempt in range(30):
         box = await target.bounding_box()
         if not box: break
-        if box["y"] >= 0 and box["y"] + box["height"] * 0.5 <= vh: break
-        await page.mouse.wheel(0, 120)
-        await asyncio.sleep(0.15)
+        logger.info("目标[%d] box=(%.0f,%.0f,%.0f,%.0f) 容器=%.0f..%.0f", index, box["x"], box["y"], box["width"], box["height"], container_box["y"], container_box["y"] + container_box["height"])
+        if box["y"] >= container_box["y"] and box["y"] + box["height"] <= container_box["y"] + container_box["height"] + 5:
+            break
+        await page.mouse.wheel(0, 80)
+        await asyncio.sleep(0.1)
     box = await target.bounding_box()
     if not box or box["width"] <= 0:
         raise HTTPException(400, f"列表项 index={index} 定位失败")
     x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
     y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+    logger.info("点击坐标 index=%d (%.0f,%.0f)", index, x, y)
     await page.mouse.move(x, y)
     await page.mouse.click(x, y)
     return {"ok": True, "clicked": True, "index": index}
