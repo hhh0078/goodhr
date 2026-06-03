@@ -13,7 +13,8 @@ SET config_value = jsonb_set(
     true
 )
 WHERE config_key = 'platform.boss'
-  AND enabled = true;
+  AND enabled = true
+  AND config_value #> '{detail,content}' IS NULL;
 
 UPDATE system_configs
 SET config_value = jsonb_set(
@@ -33,4 +34,5 @@ SET config_value = jsonb_set(
     true
 )
 WHERE config_key = 'platform.zhaopin'
-  AND enabled = true;
+  AND enabled = true
+  AND config_value #> '{detail,content}' IS NULL;
