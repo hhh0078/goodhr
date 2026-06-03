@@ -59,7 +59,6 @@
         >
           PID {{ agent.info?.value?.port || "---" }}
         </button>
-
       </div>
       <div class="content-area">
         <RouterView />
@@ -331,6 +330,13 @@ async function loadSystemAppConfig() {
       ...systemAppConfig.value,
       ...(await getSystemAppConfig()),
     };
+
+    //加入缓存
+    const SYSTEM_APP_CONFIG_CACHE_KEY = "system_app_config";
+    localStorage.setItem(
+      SYSTEM_APP_CONFIG_CACHE_KEY,
+      JSON.stringify(systemAppConfig.value),
+    );
   } catch {
     systemAppConfig.value = {
       local_agent_version: "5.0.0",
