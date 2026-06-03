@@ -140,7 +140,7 @@
             <button
               v-if="task.status !== 'running'"
               class="ghost primary"
-              :disabled="tasks.loading.value"
+              :disabled="tasks.loading.value || !!agent.versionWarning()"
               @click="tasks.execute(task.id)"
             >
               开始
@@ -148,7 +148,7 @@
             <button
               v-else
               class="ghost danger"
-              :disabled="tasks.loading.value"
+              :disabled="tasks.loading.value || !!agent.versionWarning()"
               @click="tasks.stop(task.id)"
             >
               停止
@@ -259,7 +259,7 @@
           <div class="log-panel-header">
             <button
               class="text-action danger-text"
-              :disabled="tasks.loading.value"
+              :disabled="tasks.loading.value || !!agent.versionWarning()"
               @click="tasks.clearLogs(task.id)"
             >
               清空日志

@@ -136,6 +136,7 @@ export function useAgent() {
     checking,
     baseUrl,
     machineConflict,
+    versionWarning: () => info.value?.version_warning || "",
     detect,
     refreshWSStatus,
   };

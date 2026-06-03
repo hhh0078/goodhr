@@ -59,6 +59,8 @@
         >
           PID {{ agent.info?.value?.port || "---" }}
         </button>
+        <span v-if="agent.versionWarning()" class="sep">|</span>
+        <span v-if="agent.versionWarning()" class="top-info error" style="cursor:pointer" @click="goMenu('agent-download')">请点我更新本地程序</span>
       </div>
       <div class="content-area">
         <RouterView />
@@ -160,9 +162,12 @@ const menuItems = computed(() => {
   }
   return items;
 });
+const agentVersionOk = computed(() => !agent.versionWarning());
+
 provideAppContext({
   auth,
   agent,
+  agentVersionOk,
   positions,
   personalConfig,
   tasks,
