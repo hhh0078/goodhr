@@ -57,11 +57,14 @@ export function useAgent() {
         await refreshWSStatus();
         try {
           const cloudAgent = await currentAgent();
-          if (cloudAgent?.agent_version) {
-            info.value = { ...info.value, version: cloudAgent.agent_version };
-          }
           if (cloudAgent?.version_warning) {
-            info.value = { ...info.value, version_warning: cloudAgent.version_warning };
+            status.value = "版本过低，请更新本地程序";
+            info.value = null;
+            baseUrl.value = "";
+            wsStatus.value = "未连接";
+            machineConflict.value = false;
+            checking.value = false;
+            return;
           }
         } catch {}
         return;
@@ -136,7 +139,6 @@ export function useAgent() {
     checking,
     baseUrl,
     machineConflict,
-    versionWarning: () => info.value?.version_warning || "",
     detect,
     refreshWSStatus,
   };
