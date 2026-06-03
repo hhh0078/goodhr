@@ -59,7 +59,7 @@ from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
-LOCAL_AGENT_VERSION = "5.0.0"
+LOCAL_AGENT_VERSION = "5.1.0"
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent")

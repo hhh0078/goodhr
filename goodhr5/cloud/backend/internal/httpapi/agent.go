@@ -10,8 +10,9 @@ import (
 
 // AgentService 处理本地 Agent 机器绑定和查询请求。
 type AgentService struct {
-	auth  *AuthService
-	store AgentStore
+	auth          *AuthService
+	store         AgentStore
+	systemConfigs SystemConfigStore
 }
 
 type bindAgentRequest struct {
@@ -22,10 +23,11 @@ type bindAgentRequest struct {
 }
 
 // NewAgentService 创建 Agent API 服务，并注入认证服务和机器绑定存储。
-func NewAgentService(auth *AuthService, store AgentStore) *AgentService {
+func NewAgentService(auth *AuthService, store AgentStore, systemConfigs SystemConfigStore) *AgentService {
 	return &AgentService{
-		auth:  auth,
-		store: store,
+		auth:          auth,
+		store:         store,
+		systemConfigs: systemConfigs,
 	}
 }
 
@@ -71,7 +73,16 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	// 读取系统配置要求的版本，与 Agent 上报版本比较
+	versionWarning := ""
+	if s.systemConfigs != nil {
+		if cfg, err := s.systemConfigs.Get("system.app_config"); err == nil {
+			if expected := extractJSONString(cfg.ConfigValue, "local_agent_version"); expected != "" && expected != binding.AgentVersion {
+				versionWarning = "本地程序版本 " + binding.AgentVersion + " 与系统要求 " + expected + " 不一致，请更新本地程序"
+			}
+		}
+	}
+	resp := map[string]any{
 		"ok": true,
 		"agent": map[string]any{
 			"machine_id":    binding.MachineID,
@@ -81,7 +92,11 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 			"bind_status":   binding.BindStatus,
 			"last_seen_at":  binding.LastSeenAt,
 		},
-	})
+	}
+	if versionWarning != "" {
+		resp["version_warning"] = versionWarning
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // Current 返回当前登录用户已经绑定的本地 Agent 信息。
@@ -111,7 +126,16 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	// 读取系统配置要求的版本，与 Agent 上报版本比较
+	versionWarning := ""
+	if s.systemConfigs != nil {
+		if cfg, err := s.systemConfigs.Get("system.app_config"); err == nil {
+			if expected := extractJSONString(cfg.ConfigValue, "local_agent_version"); expected != "" && expected != binding.AgentVersion {
+				versionWarning = "本地程序版本 " + binding.AgentVersion + " 与系统要求 " + expected + " 不一致，请更新本地程序"
+			}
+		}
+	}
+	resp := map[string]any{
 		"ok": true,
 		"agent": map[string]any{
 			"machine_id":    binding.MachineID,
@@ -121,10 +145,23 @@ func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 			"bind_status":   binding.BindStatus,
 			"last_seen_at":  binding.LastSeenAt,
 		},
-	})
+	}
+	if versionWarning != "" { resp["version_warning"] = versionWarning }
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // currentSession 从请求头中读取 Bearer token 并返回当前登录会话。
+func extractJSONString(raw, key string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return ""
+	}
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok { return s }
+	}
+	return ""
+}
+
 func (s *AgentService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	// 调用认证服务解析请求会话，避免 Agent API 自己重复处理 token 规则。
 	session, err := s.auth.SessionFromRequest(r)

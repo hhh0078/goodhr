@@ -76,7 +76,7 @@ func NewServer() (*Server, error) {
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, NewHaoshoumiProvider(config))
 	return &Server{
 		auth:             auth,
-		agent:            NewAgentService(auth, agentStore),
+		agent:            NewAgentService(auth, agentStore, systemConfigStore),
 		agentWS:          agentWS,
 		ai:               NewAIConfigService(auth, aiConfigStore),
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),

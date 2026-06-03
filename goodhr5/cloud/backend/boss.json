@@ -1,0 +1,193 @@
+{
+  "id": "boss",
+  "auth": {
+    "pages": [
+      {
+        "url": "https://www.zhipin.com/web/chat",
+        "match": "contains",
+        "title": "登录后通用路由"
+      },
+      {
+        "url": "https://www.zhipin.com/web/chat/recommend",
+        "entry": true,
+        "match": "prefix",
+        "title": "推荐牛人"
+      }
+    ],
+    "entry_url": "https://www.zhipin.com/web/chat/recommend",
+    "login_url_prefixes": [
+      "https://login.zhipin.com",
+      "https://www.zhipin.com/web/user/"
+    ],
+    "logged_in_url_prefix": "https://www.zhipin.com/web/chat",
+    "logged_in_url_contains": ["www.zhipin.com/web/chat"]
+  },
+  "card": {
+    "item": {
+      "parent_classes": [[".card-list"]],
+      "target_classes": [
+        [
+          ".candidate-card-wrap",
+          ".geek-info-card",
+          ".card-container",
+          ".card-inner.clear-fix",
+          ".card-inner.common-wrap"
+        ]
+      ]
+    },
+    "fields": [
+      {
+        "name": {
+          "target_classes": [[".name"]]
+        }
+      },
+      {
+        "basic_info": {
+          "target_classes": [[".job-card-left"]]
+        }
+      },
+      {
+        "education": {
+          "target_classes": [[".base-info.join-text-wrap", ".geek-info-detail"]]
+        }
+      },
+      {
+        "university": {
+          "target_classes": [[".content.join-text-wrap"]]
+        }
+      },
+      {
+        "description": {
+          "target_classes": [[".content"]]
+        }
+      }
+    ],
+    "scroll": {
+      "target_classes": [[".card-list"]]
+    }
+  },
+  "name": "Boss直聘",
+  "pages": [],
+  "detail": {
+    "content": {
+      "target_classes": [["#resume"]]
+    },
+    "closeBtn": {
+      "target_classes": [[".boss-popup__close", ".resume-custom-close"]]
+    },
+    "messageTip": {
+      "target_classes": []
+    },
+    "openTarget": {
+      "target_classes": [
+        [
+          ".card-inner.common-wrap",
+          ".card-inner.clear-fix",
+          ".candidate-card-wrap"
+        ]
+      ]
+    },
+    "messageItem": {
+      "target_classes": []
+    }
+  },
+  "domain": "zhipin.com",
+  "extras": [
+    {
+      "label": "薪资",
+      "element": {
+        "target_classes": [[".salary-text"]]
+      }
+    },
+    {
+      "label": "基本信息",
+      "element": {
+        "target_classes": [[".job-info-primary"]]
+      }
+    },
+    {
+      "label": "标签",
+      "element": {
+        "target_classes": [[".tags-wrap"]]
+      }
+    },
+    {
+      "label": "公司信息",
+      "element": {
+        "target_classes": [[".content.join-text-wrap"]]
+      }
+    }
+  ],
+  "public": {
+    "pages": [
+      {
+        "url": "https://login.zhipin.com",
+        "match": "prefix",
+        "title": "Boss登录页"
+      },
+      {
+        "url": "https://www.zhipin.com/web/user/",
+        "match": "prefix",
+        "title": "Boss用户登录页"
+      }
+    ]
+  },
+  "actions": {
+    "greetBtn": {
+      "target_classes": [[".btn.btn-greet", ".btn.btn-getcontact"]]
+    },
+    "phoneBtn": {
+      "target_classes": []
+    },
+    "resumeBtn": {
+      "target_classes": []
+    },
+    "wechatBtn": {
+      "target_classes": []
+    },
+    "confirmBtn": {
+      "target_classes": []
+    },
+    "continueBtn": {
+      "target_classes": [[".btn.btn-continue.btn-outline"]]
+    }
+  },
+  "behavior": {
+    "nextPageBtn": "",
+    "supportsPaging": false,
+    "needsDetailPage": true,
+    "nextPageDisabledClass": ""
+  },
+  "position": {
+    "item": {
+      "parent_classes": [[".job-list"]],
+      "target_classes": [[".label"]]
+    },
+    "list": {
+      "parent_classes": [[".job-selecter-options"]],
+      "target_classes": [[".job-list"]]
+    },
+    "current": {
+      "parent_classes": [
+        [
+          ".ui-dropmenu.ui-dropmenu-label-arrow.ui-dropmenu-drop-arrow.job-selecter-wrap"
+        ]
+      ],
+      "target_classes": [[".ui-dropmenu-label"]]
+    },
+    "itemText": {
+      "target_classes": [[".label"]]
+    },
+    "switchBtn": {
+      "parent_classes": [
+        [
+          ".ui-dropmenu.ui-dropmenu-label-arrow.ui-dropmenu-drop-arrow.job-selecter-wrap"
+        ]
+      ],
+      "target_classes": [[".ui-dropmenu-label"]]
+    },
+    "clickTarget": {
+      "target_classes": [["岗位列表岗位点击目标选择器，请改成真实CSS"]]
+    }
+  }
+}
