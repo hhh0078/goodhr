@@ -128,7 +128,7 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 	if err := e.startBrowser(); err != nil {
 		return fmt.Errorf("启动浏览器失败: %w", err)
 	}
-	defer e.stopBrowser()
+	defer e.stopBrowserAfterRun(ctx)
 
 	// 2. 打开平台推荐页
 	if err := ctx.Err(); err != nil {
@@ -221,6 +221,16 @@ func (e *TaskExecutor) startBrowser() error {
 func (e *TaskExecutor) stopBrowser() {
 	e.log("info", "正在关闭浏览器")
 	_ = e.post("/api/v1/browser/stop", nil, nil)
+}
+
+// stopBrowserAfterRun 根据任务结束原因决定是否关闭浏览器。
+// ctx 为任务上下文；用户手动停止任务时保留浏览器，方便继续登录或重新开始任务。
+func (e *TaskExecutor) stopBrowserAfterRun(ctx context.Context) {
+	if ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+		e.log("info", "任务已停止，保留本地浏览器不关闭")
+		return
+	}
+	e.stopBrowser()
 }
 
 // openPage 打开平台推荐页。
