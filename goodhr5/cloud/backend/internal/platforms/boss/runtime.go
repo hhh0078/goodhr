@@ -644,10 +644,15 @@ func positionListItemElement(list map[string]any, item map[string]any) map[strin
 	if list == nil {
 		return merged
 	}
-	parents := valueAsSliceList(merged["parent_classes"])
-	if listTargets := valueAsSliceList(list["target_classes"]); len(listTargets) > 0 {
-		parents = append(listTargets, parents...)
+	itemParents := valueAsSliceList(merged["parent_classes"])
+	parents := make([][]string, 0, len(itemParents)+4)
+	if listParents := valueAsSliceList(list["parent_classes"]); len(listParents) > 0 {
+		parents = append(parents, listParents...)
 	}
+	if listTargets := valueAsSliceList(list["target_classes"]); len(listTargets) > 0 {
+		parents = append(parents, listTargets...)
+	}
+	parents = append(parents, itemParents...)
 	if len(parents) > 0 {
 		merged["parent_classes"] = parents
 	}
