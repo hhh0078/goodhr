@@ -11,6 +11,7 @@ import {
   listTaskLogs,
   updateTask,
 } from "../services/api/taskApi";
+import { getUserAIConfig } from "../services/api/personalConfigApi";
 import {
   initLocalTask,
   listLocalCandidates,
@@ -126,6 +127,8 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         throw new Error("会员已到期，请先订阅后再开始任务");
       }
 
+      const task = tasks.value.find((item: any) => item.id === taskId);
+      await ensureTaskAIConfigReady(task);
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
       console.info("[goodhr5][task-start] frontend requested", {
         taskId,
@@ -140,7 +143,6 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         taskId,
         taskWSPayload(),
       );
-      const task = tasks.value.find((item: any) => item.id === taskId);
       if (task?.platform_account_id && task?.platform_id) {
         const authConfig = await loadPlatformAuthConfig(task.platform_id);
         const status = await detectCookieExpiredByURL(
@@ -169,6 +171,30 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     } finally {
       loading.value = false;
     }
+  }
+
+  /**
+   * 开始任务前确认当前任务是否必须配置 AI Key。
+   * @param {any} task - 当前任务对象。
+   * @returns {Promise<void>} 已配置时返回；缺失时抛出错误。
+   */
+  async function ensureTaskAIConfigReady(task: any) {
+    if (!taskNeedsAIConfig(task)) return;
+    const aiConfig = await getUserAIConfig();
+    if (!aiConfig?.api_key_set || aiConfig?.enabled === false) {
+      throw new Error("当前任务需要 AI，请先在个人配置中填写并保存 AI Key");
+    }
+  }
+
+  /**
+   * 判断任务是否必须使用 AI 配置。
+   * @param {any} task - 当前任务对象。
+   * @returns {boolean} Boss 平台或 AI 模式返回 true。
+   */
+  function taskNeedsAIConfig(task: any) {
+    const platformID = String(task?.platform_id || "").trim().toLowerCase();
+    const mode = String(task?.mode || "").trim().toLowerCase();
+    return platformID === "boss" || mode === "ai";
   }
 
   async function stop(taskId: string) {

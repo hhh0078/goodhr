@@ -653,9 +653,9 @@ func (s *TaskService) executeTask(task TaskRun) {
 		}
 	}
 
-	// 读取 AI 配置（供 AI 筛选模式使用）
+	// 读取 AI 配置（供 AI 筛选模式和 Boss 图片详情识别使用）
 	var aiConfig AIConfig
-	if task.Mode == "ai" && s.aiConfigStore != nil {
+	if taskRequiresAIConfig(task) && s.aiConfigStore != nil {
 		cfg, err := s.aiConfigStore.UserConfig(task.UserEmail)
 		if err != nil {
 			disconnectReason = "task_failed"
@@ -702,6 +702,13 @@ func (s *TaskService) executeTask(task TaskRun) {
 		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 		s.sendTaskStatusNotice(task, "stopped", "")
 	}
+}
+
+// taskRequiresAIConfig 判断任务是否必须配置 AI。
+// Boss 平台详情需要图片 AI 识别，AI 模式也必须配置 AI。
+func taskRequiresAIConfig(task TaskRun) bool {
+	return strings.EqualFold(strings.TrimSpace(task.PlatformID), "boss") ||
+		strings.EqualFold(strings.TrimSpace(task.Mode), "ai")
 }
 
 // notifyLocalAgentDisconnect 通知当前用户的本地程序断开任务 WebSocket。

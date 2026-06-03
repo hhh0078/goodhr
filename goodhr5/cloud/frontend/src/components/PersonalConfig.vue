@@ -333,6 +333,10 @@ defineProps({
   box-sizing: border-box;
 }
 
+.error {
+  white-space: pre-wrap;
+}
+
 .settings-list {
   display: flex;
   flex-direction: column;

@@ -56,6 +56,7 @@ export function usePersonalConfig() {
     error.value = "";
     message.value = "";
     try {
+      await verifyAIBeforeSave();
       await updateUserAIConfig({
         base_url: form.value.aiBaseURL,
         model: form.value.aiModel,
@@ -95,7 +96,86 @@ export function usePersonalConfig() {
     }
   }
 
+  /**
+   * 保存个人配置前直接请求用户填写的 AI 平台，确认当前配置可用。
+   * @returns {Promise<void>} AI 返回包含“成功”时通过，否则抛出错误。
+   */
+  async function verifyAIBeforeSave() {
+    const apiURL = form.value.aiBaseURL.trim();
+    const model = form.value.aiModel.trim();
+    const apiKey = form.value.aiAPIKey.trim();
+    if (!apiURL) throw new Error("请先填写 AI API 地址");
+    if (!model) throw new Error("请先填写 AI 模型");
+    if (!apiKey) throw new Error("保存前请重新输入 AI Key，用于测试当前配置是否可用");
+
+    const response = await fetch(apiURL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: "请只返回两个字：成功",
+          },
+        ],
+        temperature: 0,
+        stream: false,
+      }),
+    });
+    const rawText = await response.text();
+    const parsed = parseAIResponse(rawText);
+    const resultText = extractAIContent(parsed) || rawText;
+    if (!response.ok || !String(resultText).includes("成功")) {
+      throw new Error(`AI 测试未通过，返回信息：\n${formatAIResponse(parsed, rawText)}`);
+    }
+  }
+
   return { form, loading, error, message, load, save };
+}
+
+/**
+ * 尝试解析 AI 平台响应 JSON。
+ * @param {string} rawText - AI 平台原始响应文本。
+ * @returns {any} JSON 对象或 null。
+ */
+function parseAIResponse(rawText: string) {
+  if (!rawText) return null;
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 从 OpenAI 兼容响应中提取助手返回文本。
+ * @param {any} data - AI 平台响应对象。
+ * @returns {string} 助手文本内容。
+ */
+function extractAIContent(data: any) {
+  const content = data?.choices?.[0]?.message?.content;
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => item?.text || item?.content || "")
+      .join("")
+      .trim();
+  }
+  return String(content || "").trim();
+}
+
+/**
+ * 格式化 AI 平台失败响应，方便用户排查。
+ * @param {any} data - 已解析响应。
+ * @param {string} rawText - 原始响应文本。
+ * @returns {string} 可展示的响应信息。
+ */
+function formatAIResponse(data: any, rawText: string) {
+  if (data) return JSON.stringify(data, null, 2);
+  return rawText || "无返回内容";
 }
 
 function defaultForm() {
