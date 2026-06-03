@@ -173,7 +173,7 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 			"_log_success": fmt.Sprintf("岗位已点击：%s", itemText),
 		}, nil)
 	}
-	return fmt.Errorf("岗位列表中未找到岗位：%s", targetName)
+	return fmt.Errorf("岗位列表中未找到岗位：%s，请正确岗位名称是否和Boss直聘岗位名称一致。不一致请在岗位模板中修改", targetName)
 }
 
 // positionListFieldRequests 构建岗位列表项内的岗位文字提取字段。
