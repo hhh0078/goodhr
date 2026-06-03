@@ -646,6 +646,7 @@ class WSAgentClient:
             return {"ok": True, "clicked": clicked}
         if path == "/api/v1/page/list-click-by-index":
             page = await self._require_page()
+            import random as _random
             index = int(body.get("index", 0))
             if index < 0: raise ValueError("index must be >= 0")
             parent_spec = parse_element_locator_spec(body.get("parent"))
@@ -657,15 +658,22 @@ class WSAgentClient:
             count = await all_items.count()
             if index >= count: raise ValueError(f"index {index} out of range, only {count} items found")
             target = all_items.nth(index)
+            await move_mouse_to_locator(container, str(matched))
+            viewport = page.viewport_size
+            vh = viewport["height"] if viewport else 1080
             for _attempt in range(30):
-                if await is_locator_in_viewport(target): break
-                await move_mouse_to_locator(container, str(matched))
+                box = await target.bounding_box()
+                if not box: break
+                if box["y"] >= 0 and box["y"] + box["height"] * 0.5 <= vh: break
                 await page.mouse.wheel(0, 120)
                 await asyncio.sleep(0.15)
-            if not await is_locator_in_viewport(target):
-                raise ValueError(f"列表项 index={index} 未能滚动到可见区域")
-            await move_mouse_to_locator(target, str(matched))
-            await self._safe_random_click(page, target, str(matched))
+            box = await target.bounding_box()
+            if not box or box["width"] <= 0:
+                raise ValueError(f"列表项 index={index} 定位失败")
+            x = box["x"] + box["width"] * _random.uniform(0.3, 0.7)
+            y = box["y"] + box["height"] * _random.uniform(0.3, 0.7)
+            await page.mouse.move(x, y)
+            await page.mouse.click(x, y)
             return {"ok": True, "clicked": True, "index": index}
         if path == "/api/v1/page/press-key":
             page = await self._require_page()
