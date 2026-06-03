@@ -165,10 +165,10 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 			continue
 		}
 		exec.Log("info", fmt.Sprintf("找到匹配岗位：index=%d name=%s，准备点击", item.Index, itemText))
-		return exec.Post("/api/v1/page/click", map[string]any{
-			"timeout":      10000,
-			"element_ref":  item.Ref,
-			"element":      cfg.Position.ClickTarget,
+		return exec.Post("/api/v1/page/list-click-by-index", map[string]any{
+			"index":        item.Index,
+			"parent":       cfg.Position.List,
+			"item":         cfg.Position.Item,
 			"_log_start":   fmt.Sprintf("正在点击岗位：%s", itemText),
 			"_log_success": fmt.Sprintf("岗位已点击：%s", itemText),
 		}, nil)

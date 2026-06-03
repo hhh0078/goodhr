@@ -965,6 +965,45 @@ async def page_click(payload: dict) -> dict:
     return {"ok": True, "clicked": success}
 
 
+@app.post("/api/v1/page/list-click-by-index")
+async def page_list_click_by_index(payload: dict) -> dict:
+    """在列表容器中按 index 滚动到对应项并点击。"""
+    page = await _require_page()
+    timeout = int(payload.get("timeout", 10000))
+    index = int(payload.get("index", 0))
+    if index < 0:
+        raise HTTPException(400, "index must be >= 0")
+
+    parent_spec = parse_element_locator_spec(payload.get("parent"))
+    if not parent_spec.target_classes:
+        raise HTTPException(400, "parent.target_classes is required")
+    container, _mp, _ = await locate_element_by_spec(page, parent_spec, "列表容器")
+
+    item_spec = parse_element_locator_spec(payload.get("item"))
+    if not item_spec.target_classes:
+        raise HTTPException(400, "item.target_classes is required")
+    all_items, _mp2, matched = await find_all_locators_by_spec(container, item_spec, "列表项")
+
+    count = await all_items.count()
+    if index >= count:
+        raise HTTPException(400, f"index {index} out of range, only {count} items found")
+
+    target = all_items.nth(index)
+    for _attempt in range(30):
+        if await is_locator_in_viewport(target):
+            break
+        await move_mouse_to_locator(container, str(matched))
+        await page.mouse.wheel(0, 120)
+        await asyncio.sleep(0.15)
+
+    if not await is_locator_in_viewport(target):
+        raise HTTPException(400, f"列表项 index={index} 未能滚动到可见区域")
+
+    await move_mouse_to_locator(target, str(matched))
+    await _safe_random_click(page, target, str(matched))
+    return {"ok": True, "clicked": True, "index": index}
+
+
 @app.post("/api/v1/page/press-key")
 async def page_press_key(payload: dict) -> dict:
     """在当前页面发送键盘按键。
