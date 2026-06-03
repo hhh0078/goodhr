@@ -161,7 +161,7 @@ func (r *Runtime) SelectPosition(exec platformcore.RuntimeExecutor, cfg platform
 	for _, item := range findResp.Items {
 		itemText := firstFieldText(item.Fields)
 		exec.Log("info", fmt.Sprintf("岗位列表项：index=%d ref=%s name=%s", item.Index, shortRef(item.Ref), previewFieldValue(itemText, 80)))
-		if normalizePositionName(itemText) != targetNormalized {
+		if targetNormalized == "" || !strings.Contains(normalizePositionName(itemText), targetNormalized) {
 			continue
 		}
 		exec.Log("info", fmt.Sprintf("找到匹配岗位：index=%d name=%s，准备点击", item.Index, itemText))
