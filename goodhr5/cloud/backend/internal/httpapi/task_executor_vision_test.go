@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -208,6 +209,29 @@ func TestParseVisionDetailDecisionWithAnalysisOnly(t *testing.T) {
 	}
 	if visionResult.ResumeText != "" {
 		t.Fatalf("未返回 resume 时不应生成简历文本，got=%q", visionResult.ResumeText)
+	}
+}
+
+// TestBuildVisionAnalysisOnlyPromptIgnoresResumeCustomPrompt 验证图片 AI 测速提示词不会被旧 resume 自定义模板覆盖。
+func TestBuildVisionAnalysisOnlyPromptIgnoresResumeCustomPrompt(t *testing.T) {
+	executor := &TaskExecutor{
+		position: map[string]any{
+			"name": "课程顾问",
+			"ai_config": map[string]any{
+				"vision_detail_prompt": "必须返回顶层只有 resume 和 analysis 的完整 JSON，包含 candidate_name 和 resume_attachment_extracted_text。",
+				"greet_threshold":      70,
+			},
+		},
+	}
+	prompt := executor.buildVisionAnalysisOnlyPrompt("张星 29岁 中专 超市收银")
+	forbidden := []string{"candidate_name", "resume_attachment_extracted_text", "必须返回顶层只有 resume 和 analysis"}
+	for _, item := range forbidden {
+		if strings.Contains(prompt, item) {
+			t.Fatalf("图片 AI 测速提示词不应包含旧 resume 模板内容: %s\nprompt=%s", item, prompt)
+		}
+	}
+	if !strings.Contains(prompt, `"analysis"`) || !strings.Contains(prompt, "只返回 analysis") {
+		t.Fatalf("图片 AI 测速提示词应要求只返回 analysis，prompt=%s", prompt)
 	}
 }
 

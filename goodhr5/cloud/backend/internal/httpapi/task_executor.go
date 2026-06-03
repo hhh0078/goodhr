@@ -759,16 +759,19 @@ func (e *TaskExecutor) mergeCandidateTexts(baseText, detailText string) string {
 // detailVisionAIConfig 生成本地图片视觉分析所需的 AI 配置。
 func (e *TaskExecutor) detailVisionAIConfig(baseText string) DetailVisionAIConfig {
 	model, baseURL, _ := e.aiRequestConfig()
-	prompt := fmt.Sprintf(defaultVisionDetailAnalysisPrompt, e.positionDescription(), strings.TrimSpace(baseText), e.greetThreshold())
-	if customPrompt := e.positionAIConfigString("vision_detail_prompt", "image_extract_prompt"); customPrompt != "" {
-		prompt = buildPromptFromTemplate(customPrompt, e.positionDescription(), strings.TrimSpace(baseText), prompt, "补充图片识别规则")
-	}
+	prompt := e.buildVisionAnalysisOnlyPrompt(baseText)
 	return DetailVisionAIConfig{
 		BaseURL: baseURL,
 		APIKey:  e.aiConfig.APIKey,
 		Model:   model,
 		Prompt:  prompt,
 	}
+}
+
+// buildVisionAnalysisOnlyPrompt 构建图片 AI 轻量分析提示词。
+// baseText 为候选人卡片基础信息；本轮测速强制不返回 resume，避免旧自定义提示词拖慢输出。
+func (e *TaskExecutor) buildVisionAnalysisOnlyPrompt(baseText string) string {
+	return fmt.Sprintf(defaultVisionDetailAnalysisPrompt, e.positionDescription(), strings.TrimSpace(baseText), e.greetThreshold())
 }
 
 // positionDetailMode 返回岗位模板配置的详情读取模式。
