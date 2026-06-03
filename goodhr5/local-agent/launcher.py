@@ -510,7 +510,11 @@ class GoodHRLauncher:
         self.root.configure(bg=THEME_BG)
         self.icon_image: tk.PhotoImage | None = None
         self._apply_window_icon()
-        self.root.geometry("780x560")
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        w = max(680, int(sw * 0.55))
+        h = max(460, int(sh * 0.65))
+        self.root.geometry(f"{w}x{h}")
         self.root.minsize(680, 460)
 
         self.base_dir = app_support_dir()
