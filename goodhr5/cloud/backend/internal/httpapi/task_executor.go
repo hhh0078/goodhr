@@ -128,7 +128,7 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 	if err := e.startBrowser(); err != nil {
 		return fmt.Errorf("启动浏览器失败: %w", err)
 	}
-	defer e.stopBrowserAfterRun(ctx)
+
 
 	// 2. 打开平台推荐页
 	if err := ctx.Err(); err != nil {
