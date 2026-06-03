@@ -196,6 +196,21 @@ func TestVisionDetailResumePersistsToCandidateStore(t *testing.T) {
 	}
 }
 
+// TestParseVisionDetailDecisionWithAnalysisOnly 验证图片 AI 只返回 analysis 时也能解析。
+func TestParseVisionDetailDecisionWithAnalysisOnly(t *testing.T) {
+	raw := `{"analysis":{"score":72,"reason":"经验接近可沟通","should_greet":true}}`
+	visionResult, ok := parseVisionDetailDecision(raw)
+	if !ok {
+		t.Fatal("仅 analysis 的图片 AI JSON 应该可以解析")
+	}
+	if visionResult.Score != 72 || visionResult.Reason != "经验接近可沟通" || !visionResult.ShouldGreet {
+		t.Fatalf("analysis 解析错误: %+v", visionResult)
+	}
+	if visionResult.ResumeText != "" {
+		t.Fatalf("未返回 resume 时不应生成简历文本，got=%q", visionResult.ResumeText)
+	}
+}
+
 // TestCountKeyOverlap 验证候选人指纹重叠数量统计。
 func TestCountKeyOverlap(t *testing.T) {
 	count := countKeyOverlap([]string{"A", "B", "C"}, []string{"C", "D", "A"})
