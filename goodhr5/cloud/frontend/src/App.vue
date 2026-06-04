@@ -59,6 +59,10 @@
         >
           PID {{ agent.info?.value?.port || "---" }}
         </button>
+        <span class="sep">|</span>
+        <button class="top-info top-link" @click="openThemeSelector">
+          主题
+        </button>
       </div>
       <div class="content-area">
         <RouterView />
@@ -85,6 +89,15 @@
         </div>
       </section>
     </div>
+    <ThemeSelector
+      v-if="themeSelectorVisible"
+      :themes="APP_THEMES"
+      :model-value="selectedTheme"
+      :allow-close="hasCachedTheme"
+      @select="selectTheme"
+      @confirm="confirmTheme"
+      @close="closeThemeSelector"
+    />
   </div>
 </template>
 
@@ -102,12 +115,20 @@ import { useTasks } from "./composables/useTasks";
 import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
 import LoginForm from "./components/LoginForm.vue";
+import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,
   markOnboardingStep,
   ONBOARDING_EVENT,
   readOnboardingProgress,
 } from "./services/onboarding";
+import {
+  APP_THEMES,
+  applyTheme,
+  loadCachedTheme,
+  saveTheme,
+  type ThemeID,
+} from "./services/theme";
 
 const auth = useAuth();
 const route = useRoute();
@@ -131,6 +152,11 @@ const onboardingConfig = ref<any>({
   trial_days: 3,
 });
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
+const cachedTheme = loadCachedTheme();
+const selectedTheme = ref<ThemeID>(cachedTheme || APP_THEMES[0].id);
+const hasCachedTheme = ref(Boolean(cachedTheme));
+const themeSelectorVisible = ref(!cachedTheme);
+applyTheme(selectedTheme.value);
 const tasks = useTasks(agent.baseUrl, () => {
   goMenu("subscription");
   loadSubscriptionStatus();
@@ -209,6 +235,44 @@ const visibleAnnouncements = computed(() => {
     return true;
   });
 });
+
+/**
+ * 实时预览主题。
+ * @param themeID - 用户选择的主题标识。
+ * @returns void。
+ */
+function selectTheme(themeID: ThemeID) {
+  selectedTheme.value = themeID;
+  applyTheme(themeID);
+}
+
+/**
+ * 确认并缓存当前主题。
+ * @returns void。
+ */
+function confirmTheme() {
+  saveTheme(selectedTheme.value);
+  hasCachedTheme.value = true;
+  themeSelectorVisible.value = false;
+}
+
+/**
+ * 打开主题选择弹窗。
+ * @returns void。
+ */
+function openThemeSelector() {
+  themeSelectorVisible.value = true;
+}
+
+/**
+ * 关闭主题选择弹窗。
+ * @returns void。
+ */
+function closeThemeSelector() {
+  if (!hasCachedTheme.value) return;
+  themeSelectorVisible.value = false;
+}
+
 watch(user, async (u) => {
   if (u) {
     initOnboarding(u);
@@ -449,8 +513,8 @@ const detectLocalAgent = () => {
   min-width: 200px;
   display: flex;
   flex-direction: column;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
   margin-top: 12px;
 }
 .menu-bar {
@@ -458,8 +522,8 @@ const detectLocalAgent = () => {
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
-  border-bottom: 1px solid #333;
-  background: #0d0d0d;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-input);
 }
 .bar-title {
   flex: 1;
@@ -474,13 +538,13 @@ const detectLocalAgent = () => {
   display: inline-block;
 }
 .bar-close {
-  background: #e33;
+  background: var(--window-close);
 }
 .bar-min {
-  background: #e83;
+  background: var(--window-min);
 }
 .bar-max {
-  background: #3a3;
+  background: var(--window-max);
   opacity: 0.5;
 }
 .menu-body {
@@ -489,7 +553,7 @@ const detectLocalAgent = () => {
   padding: 4px 0;
 }
 .menu-footer {
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border);
   padding: 4px 0;
 }
 .menu-item {
@@ -503,24 +567,24 @@ const detectLocalAgent = () => {
   border-left: 2px solid transparent;
 }
 .menu-item .prompt {
-  color: var(--border);
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
 .impert {
-  color: #0f0 !important;
+  color: var(--accent) !important;
 }
 .menu-item:hover {
-  color: #0f0;
-  background: #0a0a0a;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .menu-item.active {
-  color: #0f0;
-  border-left-color: #0f0;
-  background: #0d0d0d;
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
 }
 .menu-item.active .prompt {
-  color: #0f0;
+  color: var(--accent);
 }
 .main-area {
   flex: 1;
@@ -534,23 +598,22 @@ const detectLocalAgent = () => {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: 1px solid #333;
-  background: #0d0d0d;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
   font-size: 13px;
   margin-bottom: 12px;
 }
 .top-bar .prompt {
-  color: #0f0;
+  color: var(--accent);
 }
 .top-bar .cmd {
-  color: #0a0;
+  color: var(--success);
 }
 .top-bar .spacer {
   flex: 1;
 }
 .top-bar .sep {
-  /* color: var(--border); */
-  color: #fff;
+  color: var(--fg-muted);
 }
 .top-info {
   color: var(--fg-dim);
@@ -564,16 +627,16 @@ const detectLocalAgent = () => {
   font-family: inherit;
 }
 .top-link:hover {
-  color: #0f0;
+  color: var(--accent);
 }
 .top-info.success {
-  color: #0f0;
+  color: var(--success);
 }
 .top-info.warn {
-  color: #fa0;
+  color: var(--fg-warn);
 }
 .top-info.error {
-  color: #f33;
+  color: var(--fg-error);
 }
 .content-area {
   flex: 1;
@@ -593,8 +656,8 @@ const detectLocalAgent = () => {
   width: min(620px, 100%);
   max-height: 72vh;
   overflow-y: auto;
-  border: 1px solid #333;
-  background: #0d0d0d;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
   padding: 12px;
 }
 .announcement-list {
@@ -603,8 +666,8 @@ const detectLocalAgent = () => {
   gap: 10px;
 }
 .announcement-item {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 10px;
 }
 .announcement-title {

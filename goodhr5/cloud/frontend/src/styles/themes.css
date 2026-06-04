@@ -1,0 +1,64 @@
+/* GoodHR 后台主题变量 */
+:root,
+:root[data-theme="pine"] {
+  --bg: #0c1110;
+  --bg-panel: #111817;
+  --bg-input: #0f1514;
+  --fg: #b7e4cf;
+  --fg-dim: #c8d6d0;
+  --fg-muted: #7f938c;
+  --fg-error: #f87171;
+  --fg-warn: #fbbf24;
+  --border: #2b3a36;
+  --border-focus: #6fbf9b;
+  --accent: #6fbf9b;
+  --accent-soft: rgba(111, 191, 155, 0.14);
+  --accent-contrast: #07100d;
+  --success: #8bd6ad;
+  --danger: #f87171;
+  --window-close: #d96b63;
+  --window-min: #d6a85f;
+  --window-max: #79b980;
+}
+
+:root[data-theme="mist"] {
+  --bg: #0d1014;
+  --bg-panel: #121720;
+  --bg-input: #10151d;
+  --fg: #b8d8ee;
+  --fg-dim: #c8d3dc;
+  --fg-muted: #81909c;
+  --fg-error: #fb7185;
+  --fg-warn: #facc15;
+  --border: #2c3642;
+  --border-focus: #7fb7d6;
+  --accent: #7fb7d6;
+  --accent-soft: rgba(127, 183, 214, 0.14);
+  --accent-contrast: #071018;
+  --success: #93d8b8;
+  --danger: #fb7185;
+  --window-close: #d77583;
+  --window-min: #d8b86d;
+  --window-max: #80b99a;
+}
+
+:root[data-theme="copper"] {
+  --bg: #120f0d;
+  --bg-panel: #1a1511;
+  --bg-input: #15110e;
+  --fg: #e2c4a3;
+  --fg-dim: #d8cec1;
+  --fg-muted: #9c8a78;
+  --fg-error: #f87171;
+  --fg-warn: #f4b35e;
+  --border: #3f3329;
+  --border-focus: #d49b6a;
+  --accent: #d49b6a;
+  --accent-soft: rgba(212, 155, 106, 0.15);
+  --accent-contrast: #120804;
+  --success: #a8d59b;
+  --danger: #f87171;
+  --window-close: #d76d5f;
+  --window-min: #d49b6a;
+  --window-max: #8fbf83;
+}
