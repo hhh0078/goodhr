@@ -564,6 +564,9 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 	stdlog.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
 	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
 	_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+	s.releaseTaskCookieIfOwned(tenantID, task, "停止任务时释放占用的 cookie", func(level, message string) {
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"status": "stopped",
@@ -858,16 +861,7 @@ func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(le
 			return
 		}
 		released = true
-		current, err := s.cookieStore.GetByID(tenantID, rec.ID)
-		if err == nil && current.Status == "expired" {
-			log("info", fmt.Sprintf("任务 cookie 已标记过期，跳过恢复可用状态：账号=%s cookie=%s", rec.DisplayName, rec.ID))
-			return
-		}
-		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "available", ""); err != nil {
-			log("error", fmt.Sprintf("释放任务 cookie 失败：cookie=%s err=%v", rec.ID, err))
-			return
-		}
-		log("info", fmt.Sprintf("已释放任务 cookie：账号=%s cookie=%s", rec.DisplayName, rec.ID))
+		s.releaseTaskCookieIfOwned(tenantID, task, "任务结束释放 cookie", log)
 	}
 
 	return &claimedTaskCookie{
@@ -876,4 +870,41 @@ func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(le
 		EncryptedData: base64.StdEncoding.EncodeToString(rec.EncryptedData),
 		EncryptedKeys: rec.EncryptedKeys,
 	}, release, nil
+}
+
+func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, reason string, log func(level, message string)) {
+	if tenantID == "" || task.PlatformAccountID == "" || s.cookieStore == nil {
+		return
+	}
+	current, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID)
+	if err != nil {
+		if log != nil {
+			log("warn", fmt.Sprintf("%s失败：读取 cookie 失败 cookie=%s err=%v", reason, task.PlatformAccountID, err))
+		}
+		return
+	}
+	if current.Status == "expired" {
+		if log != nil {
+			log("info", fmt.Sprintf("任务 cookie 已标记过期，跳过恢复可用状态：账号=%s cookie=%s", current.DisplayName, current.ID))
+		}
+		return
+	}
+	if current.Status != "in_use" {
+		return
+	}
+	if !current.UsedByTaskID.Valid || current.UsedByTaskID.String != task.ID {
+		if log != nil {
+			log("warn", fmt.Sprintf("跳过释放非当前任务占用的 cookie：账号=%s cookie=%s used_by_task=%s", current.DisplayName, current.ID, current.UsedByTaskID.String))
+		}
+		return
+	}
+	if err := s.cookieStore.UpdateStatus(tenantID, current.ID, "available", ""); err != nil {
+		if log != nil {
+			log("error", fmt.Sprintf("释放任务 cookie 失败：cookie=%s err=%v", current.ID, err))
+		}
+		return
+	}
+	if log != nil {
+		log("info", fmt.Sprintf("%s：账号=%s cookie=%s", reason, current.DisplayName, current.ID))
+	}
 }
