@@ -259,7 +259,7 @@ function closePage() {
 }
 .detail-grid strong,
 .score-panel strong {
-  color: #eee;
+  color: var(--fg);
   overflow-wrap: anywhere;
 }
 .score-panel {
@@ -276,7 +276,7 @@ function closePage() {
 }
 .detail-section h3 {
   margin: 0 0 8px;
-  color: #eee;
+  color: var(--fg);
   font-size: 16px;
 }
 .sub-list {
@@ -296,7 +296,7 @@ function closePage() {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #eee;
+  color: var(--fg);
 }
 .event-head span {
   color: var(--fg-dim);

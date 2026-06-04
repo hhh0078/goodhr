@@ -409,7 +409,7 @@ onMounted(init);
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #eee;
+  color: var(--fg);
 }
 .resume-card-head span,
 .resume-meta,
@@ -434,7 +434,7 @@ onMounted(init);
   color: var(--accent);
 }
 .score-row .muted {
-  color: #777;
+  color: var(--fg-muted);
 }
 .pager {
   display: flex;

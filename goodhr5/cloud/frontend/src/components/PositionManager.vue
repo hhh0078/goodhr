@@ -566,7 +566,7 @@ function platformLabel(platformID: string) {
   min-height: 74px;
   border: 1px solid var(--border);
   background: var(--bg-input);
-  color: #ddd;
+  color: var(--fg-dim);
   text-align: left;
   padding: 10px 12px;
   cursor: pointer;
@@ -575,7 +575,7 @@ function platformLabel(platformID: string) {
 
 .mode-card strong {
   display: block;
-  color: #fff;
+  color: var(--fg);
   margin-bottom: 6px;
 }
 

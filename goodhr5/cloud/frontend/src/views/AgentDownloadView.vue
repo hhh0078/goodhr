@@ -197,7 +197,7 @@ function openDownload(url: string) {
 .status-card h3,
 .download-card h3 {
   margin: 0 0 12px;
-  color: #eee;
+  color: var(--fg);
 }
 .download-card p {
   color: var(--fg-dim);
@@ -214,7 +214,7 @@ dt {
 }
 dd {
   margin: 0;
-  color: #eee;
+  color: var(--fg);
   overflow-wrap: anywhere;
 }
 .success {
@@ -234,12 +234,12 @@ dd {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #aaa;
+  color: var(--fg-muted);
   font-size: 12px;
   text-decoration: underline;
 }
 .text-link:hover {
-  color: #eee;
+  color: var(--fg);
 }
 .help-section {
   margin-top: 14px;
@@ -256,7 +256,7 @@ dd {
 }
 .section-title h3 {
   margin: 0;
-  color: #eee;
+  color: var(--fg);
 }
 .help-list {
   display: grid;
@@ -270,7 +270,7 @@ dd {
 }
 .help-card strong {
   display: block;
-  color: #eee;
+  color: var(--fg);
   margin-bottom: 6px;
 }
 .help-card p {
@@ -281,7 +281,7 @@ dd {
 .help-card ol {
   margin: 0;
   padding-left: 18px;
-  color: #ddd;
+  color: var(--fg-dim);
   line-height: 1.7;
 }
 @media (max-width: 900px) {

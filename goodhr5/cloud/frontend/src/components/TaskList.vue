@@ -669,7 +669,7 @@ onMounted(loadAccounts);
   box-shadow: inset 0 -1px 0 var(--accent);
 }
 .range-tab:hover {
-  color: #ddd;
+  color: var(--fg-dim);
 }
 .mode-field {
   grid-column: 1 / -1;
@@ -693,7 +693,7 @@ onMounted(loadAccounts);
   min-height: 74px;
   border: 1px solid var(--border);
   background: var(--bg-input);
-  color: #ddd;
+  color: var(--fg-dim);
   text-align: left;
   padding: 10px 12px;
   cursor: pointer;
@@ -701,7 +701,7 @@ onMounted(loadAccounts);
 }
 .mode-card strong {
   display: block;
-  color: #fff;
+  color: var(--fg);
   margin-bottom: 6px;
 }
 .mode-card span {
@@ -741,7 +741,7 @@ onMounted(loadAccounts);
 }
 .stat-chip {
   border: 1px solid var(--border);
-  color: #ddd;
+  color: var(--fg-dim);
   padding: 4px 10px;
   font-size: 14px;
   font-weight: bold;
@@ -773,7 +773,7 @@ onMounted(loadAccounts);
   color: var(--accent);
 }
 .text-action:disabled {
-  color: #666;
+  color: var(--fg-muted);
   cursor: not-allowed;
 }
 .danger-text:hover {

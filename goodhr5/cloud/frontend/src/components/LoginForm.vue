@@ -189,14 +189,14 @@ watch(
   margin-bottom: 8px;
 }
 .product-intro h1 {
-  color: #fff;
+  color: var(--fg);
   font-size: 28px;
   line-height: 1.25;
   font-weight: normal;
   margin-bottom: 14px;
 }
 .product-intro p {
-  color: #ddd;
+  color: var(--fg-dim);
   line-height: 1.8;
 }
 .intro-points {
@@ -213,7 +213,7 @@ watch(
   background: var(--bg-input);
 }
 .intro-note {
-  color: #aaa;
+  color: var(--fg-muted);
   font-size: 13px;
 }
 .terminal-window {
@@ -236,7 +236,7 @@ watch(
   flex: 1;
   text-align: center;
   font-size: 12px;
-  color: #fff;
+  color: var(--fg);
   margin-right: 40px;
 }
 .bar-btn {
@@ -267,7 +267,7 @@ watch(
   gap: 4px;
 }
 .line.dim {
-  color: #555;
+  color: var(--fg-muted);
   margin: 2px 0;
 }
 .line.error {
@@ -287,16 +287,16 @@ watch(
   color: var(--success);
 }
 .placeholder {
-  color: #fff; /* 灰色，可换成 #666、#fff 等 */
+  color: var(--fg); /* 灰色，可换成 var(--fg-muted)、var(--fg) 等 */
 }
 .terminal-input {
   .placeholder {
-    color: #fff;
+    color: var(--fg);
   }
   width: 180px;
   background: transparent;
   border: none;
-  border-bottom: 1px dashed #b6b6b6;
+  border-bottom: 1px dashed var(--border);
   color: var(--accent);
   font-family: inherit;
   font-size: 14px;
@@ -312,14 +312,14 @@ watch(
   color: var(--border);
 }
 .field-label {
-  color: #fff;
+  color: var(--fg);
   font-size: 12px;
   margin-left: 4px;
 }
 .terminal-btn {
   background: transparent;
   border: 1px solid var(--border);
-  color: #fff;
+  color: var(--fg);
   font-family: inherit;
   font-size: 13px;
   padding: 6px 16px;
