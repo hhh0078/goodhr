@@ -1,6 +1,6 @@
 /** GoodHR 后台主题选择与本地缓存管理。 */
 
-export type ThemeID = "pine" | "mist" | "copper";
+export type ThemeID = "pine" | "mist" | "copper" | "paper" | "morning";
 
 export type AppTheme = {
   id: ThemeID;
@@ -29,6 +29,18 @@ export const APP_THEMES: AppTheme[] = [
     name: "赤铜",
     summary: "暖色深灰，界面更柔和，有一点工作台质感。",
     colors: ["#120f0d", "#1a1511", "#d49b6a", "#d8cec1"],
+  },
+  {
+    id: "paper",
+    name: "纸白",
+    summary: "温和浅色，适合白天办公和投屏演示。",
+    colors: ["#f7f4ee", "#fffdf8", "#3f7f68", "#24322c"],
+  },
+  {
+    id: "morning",
+    name: "晨雾",
+    summary: "清爽浅蓝灰，降低压迫感但保留工作感。",
+    colors: ["#eef3f6", "#fbfdff", "#3f789d", "#20303d"],
   },
 ];
 

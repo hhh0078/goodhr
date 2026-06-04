@@ -6,13 +6,13 @@ body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px
 input,textarea,select{font-family:inherit;font-size:inherit;background:var(--bg-input);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;width:100%}
 input:focus,textarea:focus,select:focus{border-color:var(--border-focus);outline:none}
 textarea{resize:vertical;min-height:60px}
-button{font-family:inherit;font-size:inherit;cursor:pointer;background:transparent;border:1px solid var(--fg);color:var(--fg);padding:8px 20px;border-radius:var(--radius);transition:all .15s}
-button:hover{background:var(--fg);color:var(--bg)}
+button{font-family:inherit;font-size:inherit;cursor:pointer;background:transparent;border:1px solid var(--accent);color:var(--accent);padding:8px 20px;border-radius:var(--radius);transition:all .15s}
+button:hover{background:var(--accent);color:var(--accent-contrast)}
 button:disabled{opacity:.35;cursor:not-allowed}
 button.ghost{border-color:var(--border);color:var(--fg-dim)}
-button.ghost:hover{border-color:var(--fg);color:var(--fg);background:transparent}
-button.ghost.primary{border-color:var(--fg);color:var(--fg)}
-button.ghost.primary:hover{background:var(--fg);color:var(--bg)}
+button.ghost:hover{border-color:var(--accent);color:var(--accent);background:transparent}
+button.ghost.primary{border-color:var(--accent);color:var(--accent)}
+button.ghost.primary:hover{background:var(--accent);color:var(--accent-contrast)}
 button.danger{border-color:var(--fg-error);color:var(--fg-error)}
 button.danger:hover{background:var(--fg-error);color:var(--bg)}
 select option{background:var(--bg-input);color:var(--fg)}
