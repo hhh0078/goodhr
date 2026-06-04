@@ -14,13 +14,14 @@ import os
 import sys
 import time
 from collections.abc import Iterable
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.browser import BrowserManager
+from app.browser import BrowserManager, browser_downloads_dir
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
 from app.humanize import (
@@ -374,6 +375,43 @@ async def delete_screenshot_route(task_id: str, filename: str) -> dict:
     if not deleted:
         raise HTTPException(404, "screenshot not found")
     return {"ok": True}
+
+
+@app.get("/api/v1/downloads")
+async def list_downloads() -> dict:
+    """列出浏览器下载文件和来源 URL。"""
+    directory = browser_downloads_dir()
+    items: list[dict[str, object]] = []
+    for path in sorted(directory.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+        if not path.is_file() or path.name.endswith(".json"):
+            continue
+        meta_path = path.with_name(path.name + ".json")
+        meta: dict[str, object] = {}
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+        items.append(
+            {
+                "filename": path.name,
+                "path": str(path),
+                "size": path.stat().st_size,
+                "source_url": str(meta.get("source_url") or ""),
+                "saved_at": str(meta.get("saved_at") or ""),
+            }
+        )
+    return {"ok": True, "downloads": items, "count": len(items)}
+
+
+@app.get("/api/v1/downloads/{filename}")
+async def get_download_file(filename: str):
+    """下载浏览器保存的单个文件。"""
+    safe_name = Path(filename).name
+    path = browser_downloads_dir() / safe_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "download not found")
+    return FileResponse(path, filename=path.name)
 
 
 @app.post("/api/v1/tasks/{task_id}/ocr")

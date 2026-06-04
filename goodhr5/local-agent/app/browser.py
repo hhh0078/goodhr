@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import platform
+import re
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +25,8 @@ from playwright.async_api import Browser, BrowserContext, Page
 from playwright._impl._errors import TargetClosedError
 import tkinter as tk
 
+from app.paths import data_dir
+
 elf = tk.Tk()
 
 logger = logging.getLogger("goodhr5.browser")
@@ -30,6 +35,126 @@ logger = logging.getLogger("goodhr5.browser")
 
 DEFAULT_VIEWPORT_WIDTH = int(elf.winfo_screenwidth()*1)
 DEFAULT_VIEWPORT_HEIGHT = int(elf.winfo_screenheight()*0.8)
+
+
+def browser_downloads_dir() -> Path:
+    """
+    返回浏览器下载文件保存目录。
+
+    Returns:
+        Path: Local Agent 数据目录下的 downloads 目录。
+    """
+    path = data_dir() / "downloads"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _safe_download_filename(filename: str, source_url: str = "") -> str:
+    """
+    清理浏览器建议的下载文件名，并在必要时从 URL 补充后缀。
+
+    Args:
+        filename: 浏览器提供的建议文件名。
+        source_url: 下载来源 URL。
+
+    Returns:
+        str: 可安全写入本地目录的文件名。
+    """
+    raw_name = Path(str(filename or "").strip()).name
+    if not raw_name:
+        raw_name = Path(str(source_url or "").split("?", 1)[0]).name
+    if not raw_name:
+        raw_name = "download"
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", raw_name).strip(" ._")
+    if not cleaned:
+        cleaned = "download"
+    if "." not in cleaned:
+        url_name = Path(str(source_url or "").split("?", 1)[0]).name
+        suffix = Path(url_name).suffix
+        if suffix:
+            cleaned += suffix
+    return cleaned
+
+
+def _unique_download_path(directory: Path, filename: str) -> Path:
+    """
+    生成不覆盖已有文件的下载保存路径。
+
+    Args:
+        directory: 下载目录。
+        filename: 目标文件名。
+
+    Returns:
+        Path: 不存在的目标路径。
+    """
+    path = directory / filename
+    if not path.exists():
+        return path
+    stem = path.stem or "download"
+    suffix = path.suffix
+    for index in range(1, 1000):
+        candidate = directory / f"{stem}-{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+    return directory / f"{stem}-{int(time.time())}{suffix}"
+
+
+async def _save_download(download) -> None:
+    """
+    保存浏览器下载文件，并记录来源 URL 和保存路径。
+
+    Args:
+        download: Playwright Download 对象。
+    """
+    directory = browser_downloads_dir()
+    source_url = getattr(download, "url", "") or ""
+    suggested = _safe_download_filename(getattr(download, "suggested_filename", "") or "", source_url)
+    target = _unique_download_path(directory, suggested)
+    try:
+        await download.save_as(str(target))
+        meta = {
+            "filename": target.name,
+            "path": str(target),
+            "source_url": source_url,
+            "suggested_filename": getattr(download, "suggested_filename", "") or "",
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        target.with_name(target.name + ".json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        logger.info("浏览器下载已保存 file=%s url=%s", target, source_url or "-")
+    except Exception as exc:
+        logger.warning("浏览器下载保存失败 file=%s url=%s err=%s", target, source_url or "-", exc)
+
+
+async def _call_cloak_launch(factory, kwargs: dict, label: str):
+    """
+    调用 CloakBrowser 启动函数，并兼容旧版本不支持下载参数的情况。
+
+    Args:
+        factory: CloakBrowser 启动函数。
+        kwargs: 启动参数。
+        label: 日志标签。
+
+    Returns:
+        CloakBrowser 启动结果。
+    """
+    try:
+        return await factory(**kwargs)
+    except TypeError as exc:
+        message = str(exc)
+        if "downloads_path" not in message and "accept_downloads" not in message:
+            raise
+        fallback_kwargs = dict(kwargs)
+        removed: list[str] = []
+        for key in ("downloads_path", "accept_downloads"):
+            if key in message:
+                fallback_kwargs.pop(key, None)
+                removed.append(key)
+        if not removed:
+            fallback_kwargs.pop("downloads_path", None)
+            fallback_kwargs.pop("accept_downloads", None)
+            removed = ["downloads_path", "accept_downloads"]
+        logger.warning("%s 不支持下载参数，已移除 %s 后重试: %s", label, ",".join(removed), exc)
+        return await factory(**fallback_kwargs)
 
 
 # ---------- profile 锁文件清理 ----------
@@ -214,6 +339,8 @@ async def create_browser(
         "headless": headless,
         "humanize": humanize,
         "viewport": {"width": viewport_width, "height": viewport_height},
+        "accept_downloads": True,
+        "downloads_path": str(browser_downloads_dir()),
     }
 
     if human_preset and human_preset != "default":
@@ -224,11 +351,11 @@ async def create_browser(
         logger.info("已配置代理: %s...", proxy[:20])
 
     if user_data_dir:
-        browser = await _cloak_launch_async(**kwargs)
+        browser = await _call_cloak_launch(_cloak_launch_async, kwargs, "CloakBrowser 标准模式")
         logger.info("CloakBrowser 已启动（标准模式）")
         return browser
 
-    browser = await _cloak_launch_async(**kwargs)
+    browser = await _call_cloak_launch(_cloak_launch_async, kwargs, "CloakBrowser 标准模式")
     logger.info("CloakBrowser 已启动")
     return browser
 
@@ -270,6 +397,8 @@ async def create_persistent_browser(
         "headless": headless,
         "humanize": humanize,
         "viewport": {"width": viewport_width, "height": viewport_height},
+        "accept_downloads": True,
+        "downloads_path": str(browser_downloads_dir()),
     }
 
     if human_preset and human_preset != "default":
@@ -278,7 +407,7 @@ async def create_persistent_browser(
     if proxy:
         kwargs["proxy"] = proxy
 
-    context = await _cloak_persistent_async(**kwargs)
+    context = await _call_cloak_launch(_cloak_persistent_async, kwargs, "CloakBrowser 持久化模式")
     logger.info("持久化 CloakBrowser 已启动")
     return context
 
@@ -311,6 +440,7 @@ class BrowserManager:
         self._closed_notified = False
         self._last_exported_cookies: list[dict] = []
         self._state_lock = asyncio.Lock()
+        self._download_registered_pages: set[int] = set()
 
     async def start(
         self,
@@ -372,6 +502,7 @@ class BrowserManager:
                     self._context.on("close", lambda *_: self._notify_closed("context_closed"))
                 except Exception:
                     pass
+                self._register_context_download_handlers(self._context)
             return "started"
 
     def add_closed_callback(self, callback) -> None:
@@ -435,8 +566,40 @@ class BrowserManager:
             raise RuntimeError("浏览器启动后已关闭，请检查 CloakBrowser 文件权限或重新启动本地执行器") from exc
 
         self._pages[name] = page
+        self._register_page_download_handler(page)
         logger.info("已创建页面: %s", name)
         return page
+
+    def _register_context_download_handlers(self, context: BrowserContext) -> None:
+        """
+        为浏览器上下文中的页面注册下载监听。
+
+        Args:
+            context: Playwright 浏览器上下文。
+        """
+        try:
+            context.on("page", self._register_page_download_handler)
+        except Exception as exc:
+            logger.debug("注册上下文页面下载监听失败: %s", exc)
+        for page in getattr(context, "pages", []) or []:
+            self._register_page_download_handler(page)
+
+    def _register_page_download_handler(self, page: Page) -> None:
+        """
+        为单个页面注册下载监听，避免下载文件落入未知临时目录。
+
+        Args:
+            page: Playwright Page 实例。
+        """
+        marker = id(page)
+        if marker in self._download_registered_pages:
+            return
+        self._download_registered_pages.add(marker)
+        try:
+            page.on("download", lambda download: asyncio.create_task(_save_download(download)))
+            logger.debug("已注册页面下载监听 url=%s", page.url or "-")
+        except Exception as exc:
+            logger.debug("注册页面下载监听失败: %s", exc)
 
     async def get_page(self, name: str = "default") -> Optional[Page]:
         """
@@ -632,6 +795,7 @@ class BrowserManager:
             except Exception:
                 pass
         self._pages.clear()
+        self._download_registered_pages.clear()
 
         user_data_dir = self._last_user_data_dir
 
