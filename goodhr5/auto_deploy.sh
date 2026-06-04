@@ -49,6 +49,7 @@ fi
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "检测到未提交改动，避免覆盖本地文件，本次部署终止"
+  git status --short --untracked-files=no >> "$LOG_FILE" 2>&1
   exit 1
 fi
 
