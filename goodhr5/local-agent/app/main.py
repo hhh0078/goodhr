@@ -1203,7 +1203,6 @@ def find_port() -> int:
     for port in candidate_ports():
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 sock.bind((HOST, port))
                 return port
         except OSError as exc:
