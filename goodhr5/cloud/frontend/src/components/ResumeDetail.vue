@@ -245,8 +245,8 @@ function closePage() {
 .detail-grid div,
 .score-panel div,
 .sub-list article {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 10px;
   min-width: 0;
 }
@@ -288,8 +288,8 @@ function closePage() {
   gap: 8px;
 }
 .event-list article {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 10px;
 }
 .event-head {
@@ -305,7 +305,7 @@ function closePage() {
 .detail-section pre {
   white-space: pre-wrap;
   word-break: break-word;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   background: #030303;
   padding: 12px;
   color: var(--fg-dim);

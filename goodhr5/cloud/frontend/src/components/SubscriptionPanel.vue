@@ -280,8 +280,8 @@ onMounted(load);
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 10px;
   margin-bottom: 12px;
 }
@@ -295,14 +295,14 @@ onMounted(load);
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 10px;
   margin-bottom: 12px;
 }
 .plan-card {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
 }
 .plan-title {
@@ -341,8 +341,8 @@ ul {
   margin: 18px 0 8px;
 }
 .record-list {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
 }
 .record-row {
   display: grid;
@@ -350,13 +350,13 @@ ul {
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 .record-row:last-child {
   border-bottom: 0;
 }
 .status.paid {
-  color: #0f0;
+  color: var(--accent);
 }
 .status.pending {
   color: #fa0;

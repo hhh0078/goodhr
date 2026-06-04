@@ -381,10 +381,10 @@ onMounted(init);
   grid-template-columns: 1.4fr 1fr 1fr auto;
   gap: 10px;
   align-items: end;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   padding: 12px;
   margin-bottom: 12px;
-  background: #050505;
+  background: var(--bg-input);
 }
 .filter-actions {
   display: flex;
@@ -396,14 +396,14 @@ onMounted(init);
   gap: 10px;
 }
 .resume-card {
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   background: #060606;
   padding: 12px;
   cursor: pointer;
   min-height: 118px;
 }
 .resume-card:hover {
-  border-color: #0f0;
+  border-color: var(--accent);
 }
 .resume-card-head {
   display: flex;
@@ -431,7 +431,7 @@ onMounted(init);
   margin-top: 10px;
 }
 .score-row .ok {
-  color: #0f0;
+  color: var(--accent);
 }
 .score-row .muted {
   color: #777;

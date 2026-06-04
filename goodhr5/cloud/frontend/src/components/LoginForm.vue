@@ -180,11 +180,11 @@ watch(
   z-index: 1;
   width: 420px;
   max-width: 100%;
-  border-left: 2px solid #0f0;
+  border-left: 2px solid var(--accent);
   padding: 8px 0 8px 18px;
 }
 .intro-kicker {
-  color: #0f0;
+  color: var(--accent);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -206,11 +206,11 @@ watch(
   margin: 16px 0;
 }
 .intro-points span {
-  border: 1px solid #333;
-  color: #0f0;
+  border: 1px solid var(--border);
+  color: var(--accent);
   padding: 6px 10px;
   font-size: 12px;
-  background: #050505;
+  background: var(--bg-input);
 }
 .intro-note {
   color: #aaa;
@@ -221,16 +221,16 @@ watch(
   z-index: 1;
   width: 480px;
   max-width: 100%;
-  border: 1px solid #0f0;
-  background: #050505;
+  border: 1px solid var(--accent);
+  background: var(--bg-input);
 }
 .terminal-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid #333;
-  background: #0d0d0d;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 .bar-title {
   flex: 1;
@@ -275,16 +275,16 @@ watch(
   margin-top: 8px;
 }
 .line.success {
-  color: #0f0;
+  color: var(--accent);
   margin-top: 8px;
 }
 .prompt {
-  color: #0f0;
+  color: var(--accent);
   margin-right: 4px;
   flex-shrink: 0;
 }
 .cmd {
-  color: #0a0;
+  color: var(--success);
 }
 .placeholder {
   color: #fff; /* 灰色，可换成 #666、#fff 等 */
@@ -297,7 +297,7 @@ watch(
   background: transparent;
   border: none;
   border-bottom: 1px dashed #b6b6b6;
-  color: #0f0;
+  color: var(--accent);
   font-family: inherit;
   font-size: 14px;
   padding: 2px 4px;
@@ -306,10 +306,10 @@ watch(
   /* 提示文字颜色 白色 */
 }
 .terminal-input:focus {
-  border-bottom-color: #0f0;
+  border-bottom-color: var(--accent);
 }
 .terminal-input::placeholder {
-  color: #333;
+  color: var(--border);
 }
 .field-label {
   color: #fff;
@@ -318,7 +318,7 @@ watch(
 }
 .terminal-btn {
   background: transparent;
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   color: #fff;
   font-family: inherit;
   font-size: 13px;
@@ -328,15 +328,15 @@ watch(
   border-radius: 0;
 }
 .terminal-btn:hover:not(:disabled) {
-  border-color: #0f0;
-  color: #0f0;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .terminal-btn.primary {
-  border-color: #0f0;
-  color: #0f0;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .terminal-btn.primary:hover:not(:disabled) {
-  background: #0f0;
+  background: var(--accent);
   color: #000;
 }
 .terminal-btn:disabled {

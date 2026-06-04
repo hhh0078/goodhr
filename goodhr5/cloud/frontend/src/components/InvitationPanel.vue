@@ -123,8 +123,8 @@ onMounted(load);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 130px 130px;
   gap: 12px;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
   margin-bottom: 12px;
 }
@@ -135,7 +135,7 @@ onMounted(load);
 }
 
 .reward-box {
-  border: 1px solid #222;
+  border: 1px solid var(--border);
   padding: 10px;
   text-align: center;
 }
@@ -166,8 +166,8 @@ onMounted(load);
 }
 
 .invite-list {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
 }
 
 .invite-row {
@@ -176,7 +176,7 @@ onMounted(load);
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 
 .invite-row:last-child {

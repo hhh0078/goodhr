@@ -190,8 +190,8 @@ function openDownload(url: string) {
 }
 .status-card,
 .download-card {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 14px;
 }
 .status-card h3,
@@ -218,7 +218,7 @@ dd {
   overflow-wrap: anywhere;
 }
 .success {
-  color: #0f0;
+  color: var(--accent);
 }
 .error {
   color: #f33;
@@ -243,8 +243,8 @@ dd {
 }
 .help-section {
   margin-top: 14px;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 14px;
 }
 .section-title {

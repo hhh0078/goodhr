@@ -185,8 +185,8 @@ function modeLabel(mode: string) {
   margin-bottom: 12px;
 }
 .metric-card {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
 }
 .metric-card span {
@@ -201,7 +201,7 @@ function modeLabel(mode: string) {
   line-height: 1.1;
 }
 .metric-card.primary {
-  border-color: #0f0;
+  border-color: var(--accent);
 }
 .metric-card.danger strong {
   color: var(--fg-error);
@@ -212,8 +212,8 @@ function modeLabel(mode: string) {
   gap: 12px;
 }
 .dashboard-block {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
   margin-bottom: 12px;
 }
@@ -238,7 +238,7 @@ function modeLabel(mode: string) {
   gap: 8px;
 }
 .mini-row {
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 .alert-list {

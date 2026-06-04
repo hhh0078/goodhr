@@ -1,5 +1,5 @@
 /* GoodHR 5 终端风格主题 */
-:root{--bg:#0a0a0a;--bg-panel:#0d0d0d;--bg-input:#111;--fg:#0f0;--fg-dim:#ddd;--fg-error:#f33;--fg-warn:#fa0;--border:#333;--border-focus:#0f0;--font:'Courier New','Source Code Pro',monospace;--radius:0;--gap:12px}
+:root{--bg:#0c1110;--bg-panel:#111817;--bg-input:#0f1514;--fg:#b7e4cf;--fg-dim:#c8d6d0;--fg-error:#f87171;--fg-warn:#fbbf24;--border:#2b3a36;--border-focus:#6fbf9b;--accent:#6fbf9b;--accent-contrast:#07100d;--font:'Courier New','Source Code Pro',monospace;--radius:0;--gap:12px}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.5}
 #app{max-width:1024px;margin:0 auto;padding:var(--gap)}
@@ -14,7 +14,7 @@ button.ghost:hover{border-color:var(--accent);color:var(--accent);background:tra
 button.ghost.primary{border-color:var(--accent);color:var(--accent)}
 button.ghost.primary:hover{background:var(--accent);color:var(--accent-contrast)}
 button.danger{border-color:var(--fg-error);color:var(--fg-error)}
-button.danger:hover{background:var(--fg-error);color:var(--bg)}
+button.danger:hover{background:var(--fg-error);color:var(--accent-contrast)}
 select option{background:var(--bg-input);color:var(--fg)}
 h1,h2,h3{color:var(--fg);font-weight:normal;margin-bottom:8px}
 h1{font-size:24px}h2{font-size:18px}h3{font-size:14px}

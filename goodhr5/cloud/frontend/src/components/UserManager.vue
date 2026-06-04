@@ -231,8 +231,8 @@ onMounted(load);
 
 <style scoped>
 .adjust-box {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
   margin-bottom: 14px;
 }
@@ -248,8 +248,8 @@ onMounted(load);
 }
 
 .user-table {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   overflow-x: auto;
 }
 
@@ -260,7 +260,7 @@ onMounted(load);
   align-items: center;
   min-width: 1400px;
   padding: 10px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 
 .user-row:last-child {
@@ -269,7 +269,7 @@ onMounted(load);
 
 .user-row.head {
   color: var(--fg-dim);
-  background: #0d0d0d;
+  background: var(--bg-panel);
 }
 
 .mono {

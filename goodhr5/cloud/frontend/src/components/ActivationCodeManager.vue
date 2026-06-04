@@ -163,8 +163,8 @@ onMounted(load);
 }
 
 .code-list {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
 }
 
 .code-row {
@@ -173,7 +173,7 @@ onMounted(load);
   gap: 10px;
   align-items: center;
   padding: 10px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 
 .code-row:last-child {

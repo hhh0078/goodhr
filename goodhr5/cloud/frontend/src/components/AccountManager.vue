@@ -373,11 +373,11 @@ watch(
 </script>
 <style scoped>
 .top-info {
-  color: #0a0;
+  color: var(--success);
   font-size: 12px;
 }
 .top-info.success {
-  color: #0f0;
+  color: var(--accent);
 }
 .top-info.warn {
   color: #fa0;

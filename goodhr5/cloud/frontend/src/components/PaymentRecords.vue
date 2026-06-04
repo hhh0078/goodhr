@@ -94,8 +94,8 @@ onMounted(load);
 
 <style scoped>
 .record-table {
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   overflow-x: auto;
 }
 .record-row {
@@ -105,20 +105,20 @@ onMounted(load);
   align-items: center;
   min-width: 900px;
   padding: 10px;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid var(--border);
 }
 .record-row:last-child {
   border-bottom: 0;
 }
 .record-row.head {
   color: var(--fg-dim);
-  background: #0d0d0d;
+  background: var(--bg-panel);
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 .status.paid {
-  color: #0f0;
+  color: var(--accent);
 }
 .status.pending {
   color: #fa0;

@@ -331,7 +331,7 @@ onMounted(initHelpCenter);
 
 .guide-detail {
   border: 1px solid var(--border);
-  background: #050505;
+  background: var(--bg-input);
   padding: 12px;
 }
 
@@ -347,7 +347,7 @@ onMounted(initHelpCenter);
 
 .assistant-box {
   border: 1px solid var(--border);
-  background: #050505;
+  background: var(--bg-input);
   padding: 12px;
 }
 
@@ -389,12 +389,12 @@ onMounted(initHelpCenter);
 .chat-bubble {
   max-width: min(78%, 620px);
   border: 1px solid #242424;
-  background: #050505;
+  background: var(--bg-input);
   padding: 8px 10px;
 }
 
 .chat-message.user .chat-bubble {
-  border-color: #0a0;
+  border-color: var(--success);
   background: #071007;
 }
 

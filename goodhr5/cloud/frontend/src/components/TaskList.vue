@@ -620,7 +620,7 @@ onMounted(loadAccounts);
 }
 
 .sound-toggle.enabled {
-  color: #0f0;
+  color: var(--accent);
 }
 
 .sound-toggle.enabled .sound-toggle-track {
@@ -630,7 +630,7 @@ onMounted(loadAccounts);
 
 .sound-toggle.enabled .sound-toggle-thumb {
   transform: translateX(14px);
-  background: #0f0;
+  background: var(--accent);
 }
 
 .sound-toggle.disabled {
@@ -665,8 +665,8 @@ onMounted(loadAccounts);
   border-left: 1px solid #2f2f2f;
 }
 .range-tab.active {
-  color: #0f0;
-  box-shadow: inset 0 -1px 0 #0f0;
+  color: var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
 }
 .range-tab:hover {
   color: #ddd;
@@ -691,8 +691,8 @@ onMounted(loadAccounts);
 }
 .mode-card {
   min-height: 74px;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   color: #ddd;
   text-align: left;
   padding: 10px 12px;
@@ -711,14 +711,14 @@ onMounted(loadAccounts);
   line-height: 1.5;
 }
 .mode-card:hover {
-  border-color: #0f0;
+  border-color: var(--accent);
 }
 .mode-card.active {
-  border-color: #0f0;
+  border-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.35);
 }
 .mode-card.active strong {
-  color: #0f0;
+  color: var(--accent);
 }
 .task-main {
   /* display: flex;
@@ -740,7 +740,7 @@ onMounted(loadAccounts);
   /* justify-content: flex-end; */
 }
 .stat-chip {
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   color: #ddd;
   padding: 4px 10px;
   font-size: 14px;
@@ -770,7 +770,7 @@ onMounted(loadAccounts);
   font-size: 13px;
 }
 .text-action:hover {
-  color: #0f0;
+  color: var(--accent);
 }
 .text-action:disabled {
   color: #666;

@@ -158,7 +158,7 @@ function openDownload() {
   min-height: 520px;
 }
 .progress {
-  color: #0f0;
+  color: var(--accent);
   font-weight: 700;
 }
 .onboarding-grid {
@@ -168,8 +168,8 @@ function openDownload() {
 }
 .guide-card {
   position: relative;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 16px;
   min-height: 220px;
   transition:
@@ -178,7 +178,7 @@ function openDownload() {
 }
 .guide-card.active {
   transform: scale(1.04);
-  border-color: #0f0;
+  border-color: var(--accent);
   z-index: 2;
 }
 .guide-card.done {
@@ -192,7 +192,7 @@ function openDownload() {
   font-size: 12px;
 }
 .guide-card.done .need {
-  color: #0f0;
+  color: var(--accent);
 }
 .card-title {
   display: flex;

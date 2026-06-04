@@ -564,8 +564,8 @@ function platformLabel(platformID: string) {
 
 .mode-card {
   min-height: 74px;
-  border: 1px solid #333;
-  background: #050505;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   color: #ddd;
   text-align: left;
   padding: 10px 12px;
@@ -587,16 +587,16 @@ function platformLabel(platformID: string) {
 }
 
 .mode-card:hover {
-  border-color: #0f0;
+  border-color: var(--accent);
 }
 
 .mode-card.active {
-  border-color: #0f0;
+  border-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(0, 255, 0, 0.35);
 }
 
 .mode-card.active strong {
-  color: #0f0;
+  color: var(--accent);
 }
 
 @media (max-width: 900px) {
