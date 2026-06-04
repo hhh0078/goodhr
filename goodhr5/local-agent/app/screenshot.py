@@ -300,7 +300,7 @@ async def screenshot_locator_parts(page: Page, locator, platform_name: str = "")
     """
     对指定元素按当前视口分段截图。
 
-    元素超出视口时返回多张小图，供 OCR 分段识别，避免拼成长图后识别变慢。
+    元素超出视口时返回多张小图，供需要分段处理的图片识别流程使用。
 
     Args:
         page: Playwright Page 实例。

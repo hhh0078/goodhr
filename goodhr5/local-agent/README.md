@@ -6,8 +6,8 @@
 - 招聘平台页面查找、滚动和点击（humanize.py + platform/base.py）。
 - 当前可见候选人提取（platform/ 各平台解析器）。
 - 详情弹框截图（platform/base.py 弹框截图拼接）。
-- OCR（后续迁移）。
-- 本地任务 JSON、截图和 OCR 文件管理。
+- AI 图片识别。
+- 本地任务 JSON、截图和图片识别文本文件管理。
 
 当前版本已升级为 FastAPI（v0.2.0），使用 uvicorn 启动。
 
@@ -139,14 +139,14 @@ local-agent/agent_data/tasks/{task_id}/
 
 ```text
 candidates.json
-ocr/
+ocr/        兼容旧路径，用于保存图片识别文本
 ```
 
 `candidates.json` 里除候选人列表外，还会保存任务创建时同步下来的岗位模板快照。
 
-候选人详情、OCR 文本和任务岗位模板快照只写入本地任务目录；截图仅作为内存中的中间数据使用，不长期保存到本地。
+候选人详情、图片识别文本和任务岗位模板快照只写入本地任务目录；截图仅作为内存中的中间数据使用，不长期保存到本地。
 
-## 截图/OCR 文件管理
+## 截图/识别文本文件管理
 
 当前已提供：
 
@@ -159,7 +159,7 @@ POST /api/v1/tasks/{task_id}/ocr
 
 当前版本默认不再长期保存截图文件；截图接口仅保留兼容能力。
 
-OCR 文本写入：
+图片识别文本写入：
 
 ```text
 local-agent/agent_data/tasks/{task_id}/ocr/{candidate_id}.txt

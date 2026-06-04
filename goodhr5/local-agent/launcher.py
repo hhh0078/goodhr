@@ -796,7 +796,7 @@ class GoodHRLauncher:
 
         desc = self._make_label(
             wrapper,
-            text="本程序负责启动本地浏览器、执行平台页面操作、截图 OCR 和任务数据保存。",
+            text="本程序负责启动本地浏览器、执行平台页面操作、AI 识图和任务数据保存。",
             anchor="w",
             fg=THEME_DIM,
         )

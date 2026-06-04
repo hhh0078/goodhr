@@ -132,8 +132,8 @@ def delete_screenshot(task_id: str, filename: str) -> bool:
     return True
 
 
-def save_ocr_text(task_id: str, candidate_id: str, text: str) -> dict[str, str]:
-    """保存候选人的 OCR 文本到本地任务目录。"""
+def save_recognition_text(task_id: str, candidate_id: str, text: str) -> dict[str, str]:
+    """保存候选人的图片识别文本到本地任务目录。"""
     task_id = _clean_id(task_id, "task")
     candidate_id = _clean_id(candidate_id, "candidate")
     path = ocr_dir(task_id) / f"{candidate_id}.txt"
@@ -161,7 +161,7 @@ def screenshots_dir(task_id: str) -> Path:
 
 
 def ocr_dir(task_id: str) -> Path:
-    """返回本地任务 OCR 目录路径。"""
+    """返回本地任务图片识别文本目录路径。"""
     return task_dir(task_id) / "ocr"
 
 

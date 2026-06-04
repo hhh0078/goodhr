@@ -60,9 +60,6 @@ if errorlevel 1 exit /b 1
 call :ensure_package numpy 1.26.4
 if errorlevel 1 exit /b 1
 
-call :ensure_package onnxruntime 1.18.1
-if errorlevel 1 exit /b 1
-
 echo ==^> Build with PyInstaller
 "%PYTHON%" -m PyInstaller --clean --noconfirm --distpath dist --workpath build packaging\GoodHRLocalAgent.spec
 if errorlevel 1 exit /b 1
@@ -88,7 +85,7 @@ for %%C in ("py -3.12-64" "py -3.11-64" "py -3.10-64" "python" "python3") do (
 exit /b 1
 
 :check_core_dependencies
-"%PYTHON%" -c "import importlib.util, sys; mods=['fastapi','uvicorn','cloakbrowser','playwright','PIL','rapidocr','cryptography','pydantic','httpx','websockets','PyInstaller']; missing=[m for m in mods if importlib.util.find_spec(m) is None]; print('missing: '+','.join(missing) if missing else 'ok'); sys.exit(1 if missing else 0)"
+"%PYTHON%" -c "import importlib.util, sys; mods=['fastapi','uvicorn','cloakbrowser','playwright','PIL','cryptography','pydantic','httpx','websockets','PyInstaller']; missing=[m for m in mods if importlib.util.find_spec(m) is None]; print('missing: '+','.join(missing) if missing else 'ok'); sys.exit(1 if missing else 0)"
 exit /b %errorlevel%
 
 :ensure_package

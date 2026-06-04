@@ -1,7 +1,7 @@
 """
 本文件负责启动 GoodHR 5 Local Agent FastAPI 服务并注册本地 API。
 
-提供健康检查、云端账号绑定、profile 管理、候选人 JSON 和截图/OCR 文件管理。
+提供健康检查、云端账号绑定、profile 管理、候选人 JSON 和截图/识别文本文件管理。
 后续浏览器控制和任务执行路由也在此注册。
 """
 
@@ -38,9 +38,8 @@ from app.humanize import (
 )
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.machine import cookie_machine_ids, load_machine
-from app.ocr import is_available as ocr_available, merge_ocr_texts, ocr_image_async, warmup_ocr_async
 from app.profiles import create_profile, delete_profile, list_profiles
-from app.screenshot import screenshot_locator_full, screenshot_locator_parts, screenshot_modal
+from app.screenshot import screenshot_locator_full, screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 from app.session import load_cloud_account, save_cloud_account
 from app.tasks import (
@@ -51,7 +50,7 @@ from app.tasks import (
     load_candidates,
     save_candidate,
     save_screenshot_bytes,
-    save_ocr_text,
+    save_recognition_text,
     screenshot_path,
 )
 from app.vision_ai import analyze_image_with_ai
@@ -138,18 +137,6 @@ _ws_agent = WSAgentClient(_browser_manager)
 # ---------------------------------------------------------------------------
 # 路由处理函数
 # ---------------------------------------------------------------------------
-
-
-@app.on_event("startup")
-async def warmup_ocr_on_startup() -> None:
-    """程序启动时预热 OCR 引擎，减少任务执行时首次识别等待。"""
-    if not ocr_available():
-        logger.warning("OCR 依赖不可用，跳过启动预热")
-        return
-    logger.info("开始 OCR 启动预热")
-    ok = await warmup_ocr_async()
-    if not ok:
-        logger.warning("OCR 启动预热未成功，后续将按需再次初始化")
 
 
 @app.get("/health")
@@ -390,14 +377,14 @@ async def delete_screenshot_route(task_id: str, filename: str) -> dict:
 
 @app.post("/api/v1/tasks/{task_id}/ocr")
 async def post_ocr(task_id: str, payload: dict) -> dict:
-    """保存本地任务 OCR 文本。
+    """保存本地任务图片识别文本。
 
-    OCR 原文只保存在本地任务目录，不进入云端数据库。
+    图片识别原文只保存在本地任务目录，不进入云端数据库。
     文本按 candidate_id 写入 ocr/{candidate_id}.txt。
     """
     candidate_id = str(payload.get("candidate_id", ""))
     text = str(payload.get("text", ""))
-    result = save_ocr_text(task_id, candidate_id, text)
+    result = save_recognition_text(task_id, candidate_id, text)
     return {"ok": True, "ocr": result}
 
 
@@ -590,56 +577,23 @@ async def _extract_text_from_locator(page, locator, mode: str, delay_before: flo
     if delay_before > 0:
         await asyncio.sleep(delay_before)
     if mode == "ocr":
-        if isinstance(ai_vision, dict) and ai_vision:
-            screenshot_start = time.perf_counter()
-            screenshot_bytes = await screenshot_locator_full(page, locator, "detail-vision-ai")
-            if not screenshot_bytes:
-                screenshot_bytes = await locator.screenshot(type="png")
-            screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-            save_path = ""
-            if task_id:
-                save_path = str(save_screenshot_bytes(task_id, "vision-detail-full.png", screenshot_bytes))
-            logger.info("图片AI详情分析截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, save_path or "未保存")
-            ai_start = time.perf_counter()
-            text, meta = await analyze_image_with_ai(ai_vision, screenshot_bytes)
-            ai_ms = int((time.perf_counter() - ai_start) * 1000)
-            total_ms = int((time.perf_counter() - total_start) * 1000)
-            logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
-            logger.info("图片AI详情分析原始返回: %s", text)
-            return text
+        if not isinstance(ai_vision, dict) or not ai_vision:
+            raise HTTPException(400, "ocr 模式需要 ai_vision 配置")
         screenshot_start = time.perf_counter()
-        screenshot_parts = await screenshot_locator_parts(page, locator, "detail-ocr")
-        if not screenshot_parts:
-            fallback_screenshot = await locator.screenshot(type="png")
-            screenshot_parts = [fallback_screenshot]
+        screenshot_bytes = await screenshot_locator_full(page, locator, "detail-vision-ai")
+        if not screenshot_bytes:
+            screenshot_bytes = await locator.screenshot(type="png")
         screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-        total_bytes = sum(len(part) for part in screenshot_parts)
-        logger.info("OCR 文本提取分段截图完成 parts=%d bytes=%d 耗时=%dms 保存=未保存", len(screenshot_parts), total_bytes, screenshot_ms)
-        part_texts: list[str] = []
-        for part_index, screenshot_bytes in enumerate(screenshot_parts, start=1):
-            part_start = time.perf_counter()
-            raw_save_path = ""
-            processed_save_path = None
-            if task_id:
-                raw_path = save_screenshot_bytes(task_id, f"{part_index}-1.png", screenshot_bytes)
-                processed_save_path = screenshot_path(task_id, f"{part_index}-2.png")
-                raw_save_path = str(raw_path)
-            part_text = (await ocr_image_async(screenshot_bytes, processed_save_path)).strip()
-            part_ms = int((time.perf_counter() - part_start) * 1000)
-            logger.info(
-                "OCR 分段识别完成 part=%d/%d bytes=%d 耗时=%dms 文本长度=%d 原图=%s 压缩图=%s",
-                part_index,
-                len(screenshot_parts),
-                len(screenshot_bytes),
-                part_ms,
-                len(part_text),
-                raw_save_path or "未保存",
-                str(processed_save_path) if processed_save_path else "未保存",
-            )
-            part_texts.append(part_text)
-        text = merge_ocr_texts(part_texts)
+        save_path = ""
+        if task_id:
+            save_path = str(save_screenshot_bytes(task_id, "vision-detail-full.png", screenshot_bytes))
+        logger.info("图片AI详情分析截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, save_path or "未保存")
+        ai_start = time.perf_counter()
+        text, meta = await analyze_image_with_ai(ai_vision, screenshot_bytes)
+        ai_ms = int((time.perf_counter() - ai_start) * 1000)
         total_ms = int((time.perf_counter() - total_start) * 1000)
-        logger.info("OCR 文本提取完成 parts=%d 总耗时=%dms 文本长度=%d", len(screenshot_parts), total_ms, len(text))
+        logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
+        logger.info("图片AI详情分析原始返回: %s", text)
         return text
     text = (await locator.inner_text(timeout=3000)).strip()
     total_ms = int((time.perf_counter() - total_start) * 1000)
@@ -853,7 +807,7 @@ async def page_find_elements(payload: dict) -> dict:
 
 @app.post("/api/v1/page/extract-text")
 async def page_extract_text(payload: dict) -> dict:
-    """提取目标元素的整段文本，支持 DOM 或 OCR 模式。"""
+    """提取目标元素的整段文本，支持 DOM 或 AI 识图模式。"""
     page = await _require_page()
     mode = str(payload.get("mode", "dom")).strip().lower() or "dom"
     if mode not in {"dom", "ocr"}:
@@ -1153,34 +1107,6 @@ async def page_export_profile() -> dict:
     with open(tmp, "rb") as f: data = base64.b64encode(f.read()).decode()
     os.remove(tmp)
     return {"ok": True, "data": data, "size": len(data)}
-
-@app.get("/api/v1/ocr/status")
-async def ocr_status() -> dict:
-    """检查 OCR 是否可用。"""
-    return {"ok": True, "available": ocr_available()}
-
-
-@app.post("/api/v1/ocr/recognize")
-async def ocr_recognize(payload: dict) -> dict:
-    """对图片字节数据进行 OCR 识别。
-
-    请求体参数：
-        image_b64: Base64 编码的图片数据（必填）
-    """
-    import base64
-
-    image_b64 = str(payload.get("image_b64", "")).strip()
-    if not image_b64:
-        raise HTTPException(400, "image_b64 is required")
-
-    try:
-        image_bytes = base64.b64decode(image_b64)
-    except Exception:
-        raise HTTPException(400, "invalid base64 data")
-
-    text = await ocr_image_async(image_bytes)
-    return {"ok": True, "text": text}
-
 
 @app.post("/api/v1/sound/play")
 async def sound_play(payload: dict) -> dict:

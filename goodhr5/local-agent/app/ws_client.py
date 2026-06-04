@@ -32,11 +32,10 @@ from app.humanize import (
     scroll_to_load,
 )
 from app.machine import cookie_machine_ids, load_machine
-from app.ocr import merge_ocr_texts, ocr_image_async
 from app.paths import data_dir
-from app.screenshot import screenshot_locator_full, screenshot_locator_parts
+from app.screenshot import screenshot_locator_full
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
-from app.tasks import save_screenshot_bytes, screenshot_path
+from app.tasks import save_screenshot_bytes
 from app.vision_ai import analyze_image_with_ai
 
 
@@ -852,56 +851,23 @@ class WSAgentClient:
         if delay_before > 0:
             await asyncio.sleep(delay_before)
         if mode == "ocr":
-            if isinstance(ai_vision, dict) and ai_vision:
-                screenshot_start = time.perf_counter()
-                screenshot_bytes = await screenshot_locator_full(page, locator, "detail-vision-ai")
-                if not screenshot_bytes:
-                    screenshot_bytes = await locator.screenshot(type="png")
-                screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-                save_path = ""
-                if task_id:
-                    save_path = str(save_screenshot_bytes(task_id, "vision-detail-full.png", screenshot_bytes))
-                logger.info("图片AI详情分析截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, save_path or "未保存")
-                ai_start = time.perf_counter()
-                text, meta = await analyze_image_with_ai(ai_vision, screenshot_bytes)
-                ai_ms = int((time.perf_counter() - ai_start) * 1000)
-                total_ms = int((time.perf_counter() - total_start) * 1000)
-                logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
-                logger.info("图片AI详情分析原始返回: %s", text)
-                return text
+            if not isinstance(ai_vision, dict) or not ai_vision:
+                raise ValueError("ocr 模式需要 ai_vision 配置")
             screenshot_start = time.perf_counter()
-            screenshot_parts = await screenshot_locator_parts(page, locator, "detail-ocr")
-            if not screenshot_parts:
-                fallback_screenshot = await locator.screenshot(type="png")
-                screenshot_parts = [fallback_screenshot]
+            screenshot_bytes = await screenshot_locator_full(page, locator, "detail-vision-ai")
+            if not screenshot_bytes:
+                screenshot_bytes = await locator.screenshot(type="png")
             screenshot_ms = int((time.perf_counter() - screenshot_start) * 1000)
-            total_bytes = sum(len(part) for part in screenshot_parts)
-            logger.info("OCR 文本提取分段截图完成 parts=%d bytes=%d 耗时=%dms 保存=未保存", len(screenshot_parts), total_bytes, screenshot_ms)
-            part_texts: list[str] = []
-            for part_index, screenshot_bytes in enumerate(screenshot_parts, start=1):
-                part_start = time.perf_counter()
-                raw_save_path = ""
-                processed_save_path = None
-                if task_id:
-                    raw_path = save_screenshot_bytes(task_id, f"{part_index}-1.png", screenshot_bytes)
-                    processed_save_path = screenshot_path(task_id, f"{part_index}-2.png")
-                    raw_save_path = str(raw_path)
-                part_text = (await ocr_image_async(screenshot_bytes, processed_save_path)).strip()
-                part_ms = int((time.perf_counter() - part_start) * 1000)
-                logger.info(
-                    "OCR 分段识别完成 part=%d/%d bytes=%d 耗时=%dms 文本长度=%d 原图=%s 压缩图=%s",
-                    part_index,
-                    len(screenshot_parts),
-                    len(screenshot_bytes),
-                    part_ms,
-                    len(part_text),
-                    raw_save_path or "未保存",
-                    str(processed_save_path) if processed_save_path else "未保存",
-                )
-                part_texts.append(part_text)
-            text = merge_ocr_texts(part_texts)
+            save_path = ""
+            if task_id:
+                save_path = str(save_screenshot_bytes(task_id, "vision-detail-full.png", screenshot_bytes))
+            logger.info("图片AI详情分析截图完成 bytes=%d 耗时=%dms 保存=%s", len(screenshot_bytes), screenshot_ms, save_path or "未保存")
+            ai_start = time.perf_counter()
+            text, meta = await analyze_image_with_ai(ai_vision, screenshot_bytes)
+            ai_ms = int((time.perf_counter() - ai_start) * 1000)
             total_ms = int((time.perf_counter() - total_start) * 1000)
-            logger.info("OCR 文本提取完成 parts=%d 总耗时=%dms 文本长度=%d", len(screenshot_parts), total_ms, len(text))
+            logger.info("图片AI详情分析完成 AI耗时=%dms 总耗时=%dms 文本长度=%d meta=%s", ai_ms, total_ms, len(text), meta)
+            logger.info("图片AI详情分析原始返回: %s", text)
             return text
         text = (await locator.inner_text(timeout=3000)).strip()
         total_ms = int((time.perf_counter() - total_start) * 1000)

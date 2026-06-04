@@ -3,7 +3,7 @@
 
 import platform
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_submodules
 
 
 block_cipher = None
@@ -13,7 +13,6 @@ app_icon = "../assets/icons/goodhr-logo.ico" if platform.system() == "Windows" e
 
 hiddenimports = (
     collect_submodules("app")
-    + collect_submodules("rapidocr")
     + [
         "uvicorn",
         "uvicorn.lifespan.on",
@@ -23,13 +22,10 @@ hiddenimports = (
     ]
 )
 
-datas = (
-    collect_data_files("rapidocr")
-    + [
-        ("../assets", "assets"),
-        ("../pyproject.toml", "."),
-    ]
-)
+datas = [
+    ("../assets", "assets"),
+    ("../pyproject.toml", "."),
+]
 
 a = Analysis(
     ["../launcher.py"],
