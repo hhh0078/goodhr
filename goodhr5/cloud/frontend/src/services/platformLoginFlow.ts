@@ -92,13 +92,20 @@ export async function runPlatformLoginFlow(agentBaseUrl: string, platformId: str
   if (!agentBaseUrl) throw new Error('未检测到本地程序')
   const entryUrl = pickAuthEntryURL(auth)
   if (!entryUrl) throw new Error('平台登录配置缺少入口地址')
+  const userDataDir = options.userDataDir || `platform_${platformId}`
   await startBrowser(agentBaseUrl, {
     persistent: true,
-    user_data_dir: options.userDataDir || `platform_${platformId}`,
+    user_data_dir: userDataDir,
     headless: false,
     humanize: true,
   })
-  await openPage(agentBaseUrl, { url: entryUrl })
+  await openPage(agentBaseUrl, {
+    url: entryUrl,
+    persistent: true,
+    user_data_dir: userDataDir,
+    headless: false,
+    humanize: true,
+  })
   const status = await detectCookieExpiredByURL(agentBaseUrl, auth, onStatus)
   if (status.loggedIn) {
     return exportCookiesAfterLogin(agentBaseUrl, onStatus, '已检测到登录状态')

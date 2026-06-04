@@ -1,7 +1,6 @@
 /** 任务和候选人管理 */
 import { ref, type Ref } from "vue";
 import { cloudApiBase, getAccessToken } from "../services/apiClient";
-import { updateCookieStatus } from "../services/api/accountApi";
 import { getSubscriptionStatus } from "../services/api/subscriptionApi";
 import {
   clearTaskLogs,
@@ -19,10 +18,6 @@ import {
   startTaskWS,
   stopTaskWS,
 } from "../services/localAgentApi";
-import {
-  detectCookieExpiredByURL,
-  loadPlatformAuthConfig,
-} from "../services/platformLoginFlow";
 import { markOnboardingStep } from "../services/onboarding";
 
 export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () => void) {
@@ -143,24 +138,6 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         taskId,
         taskWSPayload(),
       );
-      if (task?.platform_account_id && task?.platform_id) {
-        const authConfig = await loadPlatformAuthConfig(task.platform_id);
-        const status = await detectCookieExpiredByURL(
-          agentBaseUrl.value,
-          authConfig,
-          (statusMessage) => {
-            message.value = statusMessage;
-          },
-        );
-        if (status.expired) {
-          await updateCookieStatus(task.platform_account_id, "expired");
-          await stopTaskWS(agentBaseUrl.value, taskId, {
-            cloud_api_base: cloudApiBase(),
-            token: getAccessToken(),
-          });
-          throw new Error("平台账号登录已过期，已停止任务，请重新登录账号");
-        }
-      }
       console.info("[goodhr5][task-start] frontend success", { taskId, data });
       message.value = data.message || "任务开始，请关注日志";
       await markOnboardingStep("task_started");

@@ -129,7 +129,6 @@ func (e *TaskExecutor) Run(ctx context.Context) error {
 		return fmt.Errorf("启动浏览器失败: %w", err)
 	}
 
-
 	// 2. 打开平台推荐页
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1146,6 +1145,16 @@ func (e *TaskExecutor) post(path string, body any, result any) error {
 			}
 		}
 	}
+	if path == "/api/v1/page/open" {
+		if item, ok := body.(map[string]any); ok {
+			if _, exists := item["user_data_dir"]; !exists && strings.TrimSpace(e.task.PlatformAccountID) != "" {
+				item["persistent"] = true
+				item["user_data_dir"] = e.task.PlatformAccountID
+				item["headless"] = false
+				item["humanize"] = true
+			}
+		}
+	}
 	payload := map[string]any{
 		"path": path,
 		"body": body,
@@ -1244,14 +1253,22 @@ func (e *TaskExecutor) log(level, message string) {
 
 // toStringSlice 将 interface{} 转为 []string。
 func toStringSlice(v any) []string {
-	if v == nil { return nil }
+	if v == nil {
+		return nil
+	}
 	if arr, ok := v.([]string); ok {
 		out := make([]string, 0, len(arr))
-		for _, s := range arr { if s != "" { out = append(out, s) } }
+		for _, s := range arr {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
 		return out
 	}
 	arr, ok := v.([]any)
-	if !ok { return nil }
+	if !ok {
+		return nil
+	}
 	result := make([]string, 0, len(arr))
 	for _, item := range arr {
 		if s, ok := item.(string); ok {

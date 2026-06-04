@@ -41,6 +41,7 @@ from app.vision_ai import analyze_image_with_ai
 
 REPLY_TIMEOUT_SECONDS = 8
 MAX_RETRIES = 3
+BROWSER_START_TIMEOUT_SECONDS = 75
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent.ws")
@@ -477,13 +478,21 @@ class WSAgentClient:
                     logger.info("[任务WS] 浏览器已运行，复用现有实例 user_data_dir=%s", current_dir or target_user_data_dir)
                     return {"ok": True, "status": "already_running"}
             ELEMENT_REFS.clear()
-            status = await self.browser_manager.start(
-                persistent=persistent,
-                user_data_dir=target_user_data_dir,
-                headless=bool(body.get("headless", False)),
-                humanize=bool(body.get("humanize", True)),
-                proxy=str(body.get("proxy", "")),
-            )
+            try:
+                status = await asyncio.wait_for(
+                    self.browser_manager.start(
+                        persistent=persistent,
+                        user_data_dir=target_user_data_dir,
+                        headless=bool(body.get("headless", False)),
+                        humanize=bool(body.get("humanize", True)),
+                        proxy=str(body.get("proxy", "")),
+                    ),
+                    timeout=BROWSER_START_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.error("[任务WS] 浏览器启动超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, target_user_data_dir or "-")
+                raise RuntimeError("浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
+            logger.info("[任务WS] 浏览器启动完成 status=%s user_data_dir=%s", status, target_user_data_dir or "-")
             cookies = body.get("cookies")
             if isinstance(cookies, list) and cookies:
                 await self.browser_manager.add_cookies(cookies)
@@ -496,13 +505,20 @@ class WSAgentClient:
             user_data_dir = str(body.get("user_data_dir") or "").strip()
             if user_data_dir:
                 body["user_data_dir"] = str(_profile_dir(user_data_dir))
-                await self.browser_manager.start(
-                    persistent=bool(body.get("persistent", True)),
-                    user_data_dir=body.get("user_data_dir"),
-                    headless=bool(body.get("headless", False)),
-                    humanize=bool(body.get("humanize", True)),
-                    proxy=str(body.get("proxy", "")),
-                )
+                try:
+                    await asyncio.wait_for(
+                        self.browser_manager.start(
+                            persistent=bool(body.get("persistent", True)),
+                            user_data_dir=body.get("user_data_dir"),
+                            headless=bool(body.get("headless", False)),
+                            humanize=bool(body.get("humanize", True)),
+                            proxy=str(body.get("proxy", "")),
+                        ),
+                        timeout=BROWSER_START_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("[任务WS] 打开页面前启动浏览器超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, body.get("user_data_dir") or "-")
+                    raise RuntimeError("浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
             page = await self.browser_manager.new_page("default")
             ELEMENT_REFS.clear()
             url = str(body.get("url") or "").strip()

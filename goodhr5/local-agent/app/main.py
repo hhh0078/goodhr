@@ -64,6 +64,7 @@ CRYPTO_KEYS = load_crypto_keys()
 logger = logging.getLogger("goodhr5.local-agent")
 FIELD_FAST_VISIBLE_TIMEOUT_MS = 120
 FIELD_FAST_TEXT_TIMEOUT_MS = 300
+BROWSER_START_TIMEOUT_SECONDS = 75
 
 
 def _parse_int(raw: object, default: int) -> int:
@@ -411,11 +412,19 @@ async def browser_start(payload: dict) -> dict:
         user_data_dir = str(_profile_dir(user_data_dir))
     persistent = bool(payload.get("persistent", False))
     cookies = payload.get("cookies")
+    logger.info(
+        "收到浏览器启动请求 persistent=%s user_data_dir=%s headless=%s cookies=%s",
+        persistent,
+        user_data_dir or "-",
+        bool(payload.get("headless", False)),
+        len(cookies) if isinstance(cookies, list) else 0,
+    )
 
     # 浏览器已运行时，如果目标 profile 不同则先重启，确保切到对应 cookie 目录。
     if _browser_manager.is_running:
         current_dir = str(_browser_manager._last_user_data_dir or "")
         if persistent and user_data_dir and current_dir and current_dir != user_data_dir:
+            logger.info("浏览器账号目录不同，准备切换 current=%s target=%s", current_dir, user_data_dir)
             await _browser_manager.stop()
             ELEMENT_REFS.clear()
         else:
@@ -427,13 +436,21 @@ async def browser_start(payload: dict) -> dict:
             return {"ok": True, "status": "already_running"}
 
     ELEMENT_REFS.clear()
-    status = await _browser_manager.start(
-        persistent=persistent,
-        user_data_dir=user_data_dir,
-        headless=bool(payload.get("headless", False)),
-        humanize=bool(payload.get("humanize", True)),
-        proxy=str(payload.get("proxy", "")),
-    )
+    try:
+        status = await asyncio.wait_for(
+            _browser_manager.start(
+                persistent=persistent,
+                user_data_dir=user_data_dir,
+                headless=bool(payload.get("headless", False)),
+                humanize=bool(payload.get("humanize", True)),
+                proxy=str(payload.get("proxy", "")),
+            ),
+            timeout=BROWSER_START_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error("浏览器启动超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, user_data_dir or "-")
+        raise HTTPException(504, "浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
+    logger.info("浏览器启动请求完成 status=%s user_data_dir=%s", status, user_data_dir or "-")
     if isinstance(cookies, list) and cookies:
         try:
             await _browser_manager.add_cookies(cookies)
