@@ -24,7 +24,7 @@ import urllib.request
 import webbrowser
 import zipfile
 from pathlib import Path
-from tkinter import messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext
 
 
 APP_NAME = "GoodHR"
@@ -155,6 +155,83 @@ def ensure_runtime_dirs(base_dir: Path) -> dict[str, Path]:
     for path in dirs.values():
         path.mkdir(parents=True, exist_ok=True)
     return dirs
+
+
+def default_download_dir() -> Path:
+    """
+    获取系统默认下载目录。
+
+    Returns:
+        Path: 当前用户 Downloads 目录；不存在时返回用户主目录。
+    """
+    downloads = Path.home() / "Downloads"
+    return downloads if downloads.exists() else Path.home()
+
+
+def settings_file(config_dir: Path) -> Path:
+    """
+    获取启动器设置文件路径。
+
+    Args:
+        config_dir: 配置目录。
+
+    Returns:
+        Path: settings.json 文件路径。
+    """
+    return config_dir / "settings.json"
+
+
+def load_launcher_settings(config_dir: Path) -> dict:
+    """
+    读取启动器本地设置。
+
+    Args:
+        config_dir: 配置目录。
+
+    Returns:
+        dict: 设置内容；读取失败时返回空字典。
+    """
+    path = settings_file(config_dir)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_launcher_settings(config_dir: Path, settings: dict) -> None:
+    """
+    保存启动器本地设置。
+
+    Args:
+        config_dir: 配置目录。
+        settings: 要保存的设置内容。
+    """
+    config_dir.mkdir(parents=True, exist_ok=True)
+    settings_file(config_dir).write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def launcher_download_dir(config_dir: Path) -> Path:
+    """
+    获取启动器配置的浏览器下载目录。
+
+    Args:
+        config_dir: 配置目录。
+
+    Returns:
+        Path: 下载目录路径。
+    """
+    configured = str(load_launcher_settings(config_dir).get("browser_download_dir") or "").strip()
+    path = Path(configured).expanduser() if configured else default_download_dir()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path.resolve()
+    except Exception:
+        fallback = default_download_dir()
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback.resolve()
 
 
 def find_cloakbrowser_binary(root: Path) -> Path | None:
@@ -772,6 +849,7 @@ class GoodHRLauncher:
 
         self.status_var = tk.StringVar(value="准备启动")
         self.detail_var = tk.StringVar(value=f"数据目录：{self.base_dir}")
+        self.download_dir_var = tk.StringVar(value=f"下载目录：{launcher_download_dir(self.dirs['config'])}")
 
         self._build_ui()
         self._ensure_desktop_shortcut()
@@ -810,6 +888,7 @@ class GoodHRLauncher:
         )
 
         self._make_label(wrapper, textvariable=self.detail_var, anchor="w", fg=THEME_DIM).pack(fill=tk.X, pady=(6, 10))
+        self._make_label(wrapper, textvariable=self.download_dir_var, anchor="w", fg=THEME_DIM).pack(fill=tk.X, pady=(0, 10))
 
         button_row = tk.Frame(wrapper, bg=THEME_PANEL)
         button_row.pack(fill=tk.X, pady=(0, 10))
@@ -826,7 +905,8 @@ class GoodHRLauncher:
         self._make_button(button_row, text="停止服务", command=self._stop_agent).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="清除日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(0, 8))
         self._make_button(button_row, text="重新启动", command=self._restart_agent).pack(side=tk.LEFT, padx=(0, 8))
-        self._make_button(button_row, text="重下浏览器", command=self._redownload_browser, width=14).pack(side=tk.LEFT)
+        self._make_button(button_row, text="重下浏览器", command=self._redownload_browser, width=14).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="设置下载目录", command=self._choose_download_dir, width=14).pack(side=tk.LEFT)
 
         if platform.system().lower() == "windows":
             self._make_label(
@@ -995,6 +1075,30 @@ class GoodHRLauncher:
         self._append_log("已清理浏览器组件，准备重新下载。\n")
         self._start_agent()
 
+    def _choose_download_dir(self) -> None:
+        """选择浏览器下载目录并重启 Local Agent 生效。"""
+        current = launcher_download_dir(self.dirs["config"])
+        selected = filedialog.askdirectory(
+            title="选择浏览器下载目录",
+            initialdir=str(current),
+            mustexist=True,
+        )
+        if not selected:
+            return
+        path = Path(selected).expanduser()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            messagebox.showerror("GoodHR", f"下载目录不可用：{exc}")
+            return
+        settings = load_launcher_settings(self.dirs["config"])
+        settings["browser_download_dir"] = str(path.resolve())
+        save_launcher_settings(self.dirs["config"], settings)
+        self.download_dir_var.set(f"下载目录：{path.resolve()}")
+        self._append_log(f"浏览器下载目录已设置为：{path.resolve()}\n")
+        messagebox.showinfo("GoodHR", "下载目录已保存，将重启本地服务后生效。")
+        self._restart_agent()
+
     def _clear_browser_components(self) -> None:
         """
         删除已下载和已解压的浏览器组件。
@@ -1041,6 +1145,7 @@ class GoodHRLauncher:
 
         env = os.environ.copy()
         env["GOODHR_AGENT_DATA_DIR"] = str(self.dirs["agent_data"])
+        env["GOODHR_AGENT_DOWNLOAD_DIR"] = str(launcher_download_dir(self.dirs["config"]))
         env["GOODHR_AGENT_LOG_TO_STDOUT"] = "1"
         env["CLOAKBROWSER_BINARY_PATH"] = str(browser_binary)
         env["PYTHONIOENCODING"] = "utf-8"
@@ -1051,7 +1156,9 @@ class GoodHRLauncher:
         else:
             command = [sys.executable, str(Path(__file__).resolve()), "--agent-server"]
         self._set_status_threadsafe("启动中", f"CloakBrowser：{browser_binary}")
-        self._append_log_threadsafe(f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n浏览器：{browser_binary}\n")
+        self._append_log_threadsafe(
+            f"正在启动 Local Agent...\n数据目录：{self.base_dir}\n下载目录：{env['GOODHR_AGENT_DOWNLOAD_DIR']}\n浏览器：{browser_binary}\n"
+        )
 
         env["PYTHONUNBUFFERED"] = "1"
         creationflags = 0

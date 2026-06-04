@@ -25,7 +25,7 @@ from playwright.async_api import Browser, BrowserContext, Page
 from playwright._impl._errors import TargetClosedError
 import tkinter as tk
 
-from app.paths import data_dir
+from app.settings import browser_download_dir
 
 elf = tk.Tk()
 
@@ -42,11 +42,9 @@ def browser_downloads_dir() -> Path:
     返回浏览器下载文件保存目录。
 
     Returns:
-        Path: Local Agent 数据目录下的 downloads 目录。
+        Path: 用户配置的下载目录，默认使用系统 Downloads 目录。
     """
-    path = data_dir() / "downloads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return browser_download_dir()
 
 
 def _safe_download_filename(filename: str, source_url: str = "") -> str:
@@ -99,6 +97,56 @@ def _unique_download_path(directory: Path, filename: str) -> Path:
     return directory / f"{stem}-{int(time.time())}{suffix}"
 
 
+def _detect_download_suffix(path: Path) -> str:
+    """
+    根据文件头识别常见下载文件后缀。
+
+    Args:
+        path: 已保存的下载文件路径。
+
+    Returns:
+        str: 识别出的后缀，无法识别时返回空字符串。
+    """
+    try:
+        header = path.read_bytes()[:16]
+    except Exception:
+        return ""
+    if header.startswith(b"%PDF-"):
+        return ".pdf"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if header.startswith(b"PK\x03\x04"):
+        return ".zip"
+    if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
+        return ".gif"
+    return ""
+
+
+def _ensure_download_suffix(path: Path) -> Path:
+    """
+    为无后缀下载文件补充可打开的文件后缀。
+
+    Args:
+        path: 已保存的下载文件路径。
+
+    Returns:
+        Path: 最终文件路径。
+    """
+    if path.suffix:
+        return path
+    suffix = _detect_download_suffix(path)
+    if not suffix:
+        return path
+    target = _unique_download_path(path.parent, path.name + suffix)
+    try:
+        path.rename(target)
+        return target
+    except Exception:
+        return path
+
+
 async def _save_download(download) -> None:
     """
     保存浏览器下载文件，并记录来源 URL 和保存路径。
@@ -112,6 +160,7 @@ async def _save_download(download) -> None:
     target = _unique_download_path(directory, suggested)
     try:
         await download.save_as(str(target))
+        target = _ensure_download_suffix(target)
         meta = {
             "filename": target.name,
             "path": str(target),
@@ -123,6 +172,37 @@ async def _save_download(download) -> None:
         logger.info("浏览器下载已保存 file=%s url=%s", target, source_url or "-")
     except Exception as exc:
         logger.warning("浏览器下载保存失败 file=%s url=%s err=%s", target, source_url or "-", exc)
+
+
+async def _apply_page_download_behavior(page: Page) -> None:
+    """
+    通过 CDP 指定 Chromium 原生下载目录。
+
+    Args:
+        page: 需要配置下载行为的页面。
+    """
+    directory = str(browser_downloads_dir())
+    try:
+        session = await page.context.new_cdp_session(page)
+    except Exception as exc:
+        logger.debug("创建下载 CDP 会话失败: %s", exc)
+        return
+
+    try:
+        await session.send(
+            "Browser.setDownloadBehavior",
+            {"behavior": "allow", "downloadPath": directory, "eventsEnabled": True},
+        )
+        logger.debug("已设置浏览器下载目录: %s", directory)
+        return
+    except Exception as exc:
+        logger.debug("Browser.setDownloadBehavior 不可用，尝试 Page.setDownloadBehavior: %s", exc)
+
+    try:
+        await session.send("Page.setDownloadBehavior", {"behavior": "allow", "downloadPath": directory})
+        logger.debug("已设置页面下载目录: %s", directory)
+    except Exception as exc:
+        logger.debug("设置页面下载目录失败: %s", exc)
 
 
 async def _call_cloak_launch(factory, kwargs: dict, label: str):
@@ -575,6 +655,7 @@ class BrowserManager:
         self._pages[name] = page
         self._register_page_download_handler(page)
         self._register_page_close_handler(page)
+        await _apply_page_download_behavior(page)
         logger.info("已创建页面: %s", name)
         return page
 
@@ -592,6 +673,7 @@ class BrowserManager:
         for page in getattr(context, "pages", []) or []:
             self._register_page_download_handler(page)
             self._register_page_close_handler(page)
+            asyncio.create_task(_apply_page_download_behavior(page))
 
     def _register_page_download_handler(self, page: Page) -> None:
         """
