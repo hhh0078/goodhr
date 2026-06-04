@@ -519,7 +519,9 @@ class WSAgentClient:
                 except asyncio.TimeoutError:
                     logger.error("[任务WS] 打开页面前启动浏览器超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, body.get("user_data_dir") or "-")
                     raise RuntimeError("浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
-            page = await self.browser_manager.new_page("default")
+            page = await self.browser_manager.ensure_page("default")
+            if page is None:
+                raise RuntimeError("浏览器未启动，请先调用 POST /api/v1/browser/start")
             ELEMENT_REFS.clear()
             url = str(body.get("url") or "").strip()
             if not url:

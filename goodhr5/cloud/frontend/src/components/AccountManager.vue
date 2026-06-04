@@ -96,7 +96,6 @@ import {
   deletePlatformAccount,
   listPlatformConfigs,
   listPlatformAccounts,
-  releaseCookie,
   updateCookie,
   updateCookieStatus,
 } from "../services/api/accountApi";
@@ -279,13 +278,11 @@ async function openWithCookie(account: any) {
       humanize: true,
     };
 
-    let claimed = false;
     try {
       const health = await getLocalHealth(props.agentBaseUrl);
       const machineID = String(health.machine_id || "").trim();
       if (machineID) {
         const claimedPayload = await claimCookie(account.id, {});
-        claimed = true;
         const decryptPayload = pickDecryptPayload(claimedPayload, machineID);
         const cookies = await decryptCookieByAgent(
           props.agentBaseUrl,
@@ -297,14 +294,6 @@ async function openWithCookie(account: any) {
       }
     } catch (e: any) {
       throw new Error(`cookie 解密失败，无法打开账号：${e?.message || e}`);
-    } finally {
-      if (claimed) {
-        try {
-          await releaseCookie(account.id);
-        } catch (e) {
-          console.warn("release cookie claim failed", e);
-        }
-      }
     }
 
     await openPage(props.agentBaseUrl, openPayload);

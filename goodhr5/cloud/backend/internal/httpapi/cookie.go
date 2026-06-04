@@ -298,14 +298,30 @@ func (s *CookieService) Claim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "cookie not found")
 		return
 	}
-	if rec.Status != "available" {
-		writeError(w, 409, "cookie in use")
-		return
-	}
 	var req struct {
 		TaskID string `json:"task_id"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
+	req.TaskID = strings.TrimSpace(req.TaskID)
+	if req.TaskID == "" {
+		if rec.Status == "expired" {
+			writeError(w, 409, "cookie expired")
+			return
+		}
+		if rec.Status == "in_use" && rec.UsedByTaskID.Valid && rec.UsedByTaskID.String != "" {
+			writeError(w, 409, "cookie in use")
+			return
+		}
+		if rec.Status == "in_use" {
+			s.store.UpdateStatus(tenantID, cookieID, "available", "")
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "encrypted_data": base64.StdEncoding.EncodeToString(rec.EncryptedData), "encrypted_keys": rec.EncryptedKeys})
+		return
+	}
+	if rec.Status != "available" {
+		writeError(w, 409, "cookie in use")
+		return
+	}
 	s.store.UpdateStatus(tenantID, cookieID, "in_use", req.TaskID)
 	writeJSON(w, 200, map[string]any{"ok": true, "encrypted_data": base64.StdEncoding.EncodeToString(rec.EncryptedData), "encrypted_keys": rec.EncryptedKeys})
 }

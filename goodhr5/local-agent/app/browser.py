@@ -441,6 +441,7 @@ class BrowserManager:
         self._last_exported_cookies: list[dict] = []
         self._state_lock = asyncio.Lock()
         self._download_registered_pages: set[int] = set()
+        self._close_registered_pages: set[int] = set()
 
     async def start(
         self,
@@ -511,6 +512,12 @@ class BrowserManager:
 
     def _notify_closed(self, reason: str) -> None:
         """触发浏览器关闭回调（仅触发一次）。"""
+        if reason != "stopped":
+            self._browser = None
+            self._context = None
+            self._pages.clear()
+            self._download_registered_pages.clear()
+            self._close_registered_pages.clear()
         if self._closed_notified:
             return
         self._closed_notified = True
@@ -567,6 +574,7 @@ class BrowserManager:
 
         self._pages[name] = page
         self._register_page_download_handler(page)
+        self._register_page_close_handler(page)
         logger.info("已创建页面: %s", name)
         return page
 
@@ -583,6 +591,7 @@ class BrowserManager:
             logger.debug("注册上下文页面下载监听失败: %s", exc)
         for page in getattr(context, "pages", []) or []:
             self._register_page_download_handler(page)
+            self._register_page_close_handler(page)
 
     def _register_page_download_handler(self, page: Page) -> None:
         """
@@ -600,6 +609,33 @@ class BrowserManager:
             logger.debug("已注册页面下载监听 url=%s", page.url or "-")
         except Exception as exc:
             logger.debug("注册页面下载监听失败: %s", exc)
+
+    def _register_page_close_handler(self, page: Page) -> None:
+        """
+        为页面注册关闭监听，用户手动关闭窗口后及时清理默认页面引用。
+
+        Args:
+            page: Playwright Page 实例。
+        """
+        try:
+            marker = id(page)
+            if marker in self._close_registered_pages:
+                return
+            self._close_registered_pages.add(marker)
+            page.on("close", lambda *_: self._remove_page_reference(page))
+        except Exception as exc:
+            logger.debug("注册页面关闭监听失败: %s", exc)
+
+    def _remove_page_reference(self, page: Page) -> None:
+        """
+        删除已关闭页面在管理器中的引用。
+
+        Args:
+            page: 已关闭的 Playwright Page 实例。
+        """
+        self._pages = {name: item for name, item in self._pages.items() if item is not page}
+        self._download_registered_pages.discard(id(page))
+        self._close_registered_pages.discard(id(page))
 
     async def get_page(self, name: str = "default") -> Optional[Page]:
         """
@@ -796,6 +832,7 @@ class BrowserManager:
                 pass
         self._pages.clear()
         self._download_registered_pages.clear()
+        self._close_registered_pages.clear()
 
         user_data_dir = self._last_user_data_dir
 

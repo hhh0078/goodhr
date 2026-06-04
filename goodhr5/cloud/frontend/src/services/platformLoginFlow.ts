@@ -167,7 +167,13 @@ export async function detectCookieExpiredByURL(agentBaseUrl: string, auth: Platf
   let loggedInHits = 0
   for (let index = 0; index < COOKIE_EXPIRED_CHECK_TIMES; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS)
-    const url = await currentPageURL(agentBaseUrl)
+    let url = ''
+    try {
+      url = await currentPageURL(agentBaseUrl)
+    } catch (error: any) {
+      onStatus?.(`浏览器已关闭或当前页面不可用：${error?.message || error}`)
+      return { expired: false, loggedIn: false, unknown: true, url: lastURL, attempts: index + 1 }
+    }
     lastURL = url
     if (isLoginURL(url, auth)) {
       onStatus?.(`检测到登录页，账号 cookie 可能已过期：${shortURL(url)}`)

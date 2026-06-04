@@ -764,9 +764,11 @@ async def page_open(payload: dict) -> dict:
         )
 
     try:
-        page = await _browser_manager.new_page("default")
+        page = await _browser_manager.ensure_page("default")
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
+    if page is None:
+        raise HTTPException(400, "浏览器未启动，请先调用 POST /api/v1/browser/start")
     ELEMENT_REFS.clear()
     timeout = int(payload.get("timeout", 30000))
     cookies = payload.get("cookies")
@@ -1124,14 +1126,18 @@ async def cookies_decrypt(payload: dict) -> dict:
 @app.get("/api/v1/page/url")
 async def page_url() -> dict:
     """返回当前页面 URL。"""
-    page = await _require_page()
+    page = await _browser_manager.get_page("default")
+    if page is None:
+        raise HTTPException(400, "当前页面已关闭，请重新打开浏览器页面")
     return {"ok": True, "url": page.url}
 
 
 @app.get("/api/v1/page/cookies")
 async def page_cookies() -> dict:
     """导出当前浏览器上下文 cookies JSON。"""
-    await _require_page()
+    page = await _browser_manager.get_page("default")
+    if page is None:
+        raise HTTPException(400, "当前页面已关闭，请重新打开浏览器页面")
     logger.info("[cookie-export] request received from /api/v1/page/cookies")
     cookies = await _browser_manager.export_cookies()
     logger.info("[cookie-export] success cookies=%d", len(cookies))
