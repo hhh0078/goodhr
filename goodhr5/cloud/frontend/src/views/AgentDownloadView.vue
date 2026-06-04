@@ -264,8 +264,8 @@ dd {
   gap: 10px;
 }
 .help-card {
-  border: 1px solid #252525;
-  background: #090909;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
   padding: 12px;
 }
 .help-card strong {

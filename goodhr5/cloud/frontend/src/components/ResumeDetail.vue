@@ -306,7 +306,7 @@ function closePage() {
   white-space: pre-wrap;
   word-break: break-word;
   border: 1px solid var(--border);
-  background: #030303;
+  background: var(--bg-input);
   padding: 12px;
   color: var(--fg-dim);
   line-height: 1.6;

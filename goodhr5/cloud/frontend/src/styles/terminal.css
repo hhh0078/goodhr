@@ -33,7 +33,7 @@ dl dt{color:var(--fg-dim)}dl dd{color:var(--fg)}
 .card strong{display:block;margin-bottom:4px}.card-meta{font-size:13px;color:var(--fg-dim)}.card-actions{display:flex;gap:4px;flex-shrink:0}
 .log-panel{margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
 .log-panel ol{list-style:none;max-height:300px;overflow-y:auto}
-.log-panel li{padding:4px 0;border-bottom:1px solid #1a1a1a;font-size:13px}
+.log-panel li{padding:4px 0;border-bottom:1px solid var(--border);font-size:13px}
 .log-panel li span{display:inline-block;width:50px;color:var(--fg-dim)}
 .snapshot{background:var(--bg);border:1px solid var(--border);padding:8px;margin-top:8px;font-size:13px}
 .snapshot strong{display:block;margin-bottom:4px}.snapshot-meta{color:var(--fg-dim)}

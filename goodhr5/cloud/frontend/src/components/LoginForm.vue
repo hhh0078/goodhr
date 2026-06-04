@@ -161,7 +161,7 @@ watch(
   min-height: 100vh;
   width: 100vw;
   padding: 24px;
-  background: #020202;
+  background: var(--bg);
 }
 .keyword-wall {
   position: absolute;

@@ -647,7 +647,7 @@ onMounted(loadAccounts);
   display: inline-flex;
   align-items: center;
   gap: 0;
-  border: 1px solid #2f2f2f;
+  border: 1px solid var(--border);
 
   margin-bottom: 12px;
   background: transparent;
@@ -662,7 +662,7 @@ onMounted(loadAccounts);
   line-height: 1.2;
 }
 .range-tab + .range-tab {
-  border-left: 1px solid #2f2f2f;
+  border-left: 1px solid var(--border);
 }
 .range-tab.active {
   color: var(--accent);

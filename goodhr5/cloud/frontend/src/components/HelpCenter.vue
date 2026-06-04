@@ -363,7 +363,7 @@ onMounted(initHelpCenter);
 .chat-body {
   height: 340px;
   overflow-y: auto;
-  border: 1px solid #1a1a1a;
+  border: 1px solid var(--border);
   background: var(--bg);
   padding: 10px;
 }
@@ -388,7 +388,7 @@ onMounted(initHelpCenter);
 
 .chat-bubble {
   max-width: min(78%, 620px);
-  border: 1px solid #242424;
+  border: 1px solid var(--border);
   background: var(--bg-input);
   padding: 8px 10px;
 }

@@ -258,7 +258,7 @@ watch(draftText, (value) => {
 }
 .config-tab:hover,
 .config-tab.active {
-  background: #141414;
+  background: var(--bg-panel);
   color: var(--fg);
 }
 .config-tab strong {
@@ -287,7 +287,7 @@ watch(draftText, (value) => {
 }
 .json-code-editor {
   border: 1px solid var(--border);
-  background: #0b0b0b;
+  background: var(--bg-input);
   overflow: hidden;
 }
 .status-chip {

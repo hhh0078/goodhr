@@ -397,7 +397,7 @@ onMounted(init);
 }
 .resume-card {
   border: 1px solid var(--border);
-  background: #060606;
+  background: var(--bg-input);
   padding: 12px;
   cursor: pointer;
   min-height: 118px;
