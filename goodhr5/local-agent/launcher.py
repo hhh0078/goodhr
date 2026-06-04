@@ -33,7 +33,7 @@ OFFICIAL_SITE_URL = "https://goodhr5.58it.cn"
 BROWSER_DOWNLOAD_CONFIG_URL = f"{OFFICIAL_SITE_URL}/agent-browser-downloads.json"
 DEFAULT_BROWSER_DOWNLOADS = {
     "mac": "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v145.0.7632.109.2/cloakbrowser-darwin-arm64.tar.gz",
-    "win": "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v146.0.7680.177.5/cloakbrowser-windows-x64.zip",
+    "win": "https://oss.58it.cn/cloakbrowser-windows-x64.zip",
 }
 WINDOWS_RUNTIME_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
