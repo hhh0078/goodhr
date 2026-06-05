@@ -131,11 +131,14 @@ class LocalTaskRunner:
                 update_local_task_status(task_id, "stopped")
                 return
             candidates = await extract_visible_candidates(page)
+            candidates, skipped_count = self._apply_keyword_filter(task, candidates)
             for candidate in candidates:
                 save_local_candidate(task_id, candidate)
             if candidates:
-                increment_local_task_counts(task_id, scanned=len(candidates))
+                increment_local_task_counts(task_id, scanned=len(candidates), skipped=skipped_count)
                 add_local_task_log(task_id, "info", f"已提取并保存 {len(candidates)} 个可见候选人")
+                if skipped_count > 0:
+                    add_local_task_log(task_id, "info", f"关键词筛选跳过 {skipped_count} 个候选人")
             else:
                 add_local_task_log(task_id, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
             add_local_task_log(task_id, "warning", "Boss AI筛选和打招呼流程正在迁移中，当前版本先完成本地扫描入库")
@@ -158,6 +161,48 @@ class LocalTaskRunner:
             if running_task.done():
                 self._tasks.pop(task_id, None)
                 self._stop_events.pop(task_id, None)
+
+    def _apply_keyword_filter(self, task: dict, candidates: list[dict]) -> tuple[list[dict], int]:
+        """
+        对候选人执行本地关键词筛选。
+
+        Args:
+            task: 本地任务。
+            candidates: 候选人列表。
+
+        Returns:
+            tuple[list[dict], int]: 更新后的候选人列表和跳过数量。
+        """
+        if str(task.get("mode") or "").strip().lower() == "ai":
+            return candidates, 0
+        position = task.get("position_snapshot") or {}
+        keywords = _string_list(position.get("keywords"))
+        excludes = _string_list(position.get("exclude_keywords") or position.get("exclude"))
+        is_and_mode = bool(position.get("is_and_mode"))
+        skipped = 0
+        result: list[dict] = []
+        for candidate in candidates:
+            text = str(candidate.get("filter_text") or candidate.get("raw_text") or "").lower()
+            matched_excludes = [word for word in excludes if word.lower() in text]
+            if matched_excludes:
+                candidate["status"] = "skipped"
+                candidate["skip_reason"] = "命中排除词：" + "、".join(matched_excludes)
+                skipped += 1
+                result.append(candidate)
+                continue
+            if keywords:
+                matched_keywords = [word for word in keywords if word.lower() in text]
+                passed = len(matched_keywords) == len(keywords) if is_and_mode else len(matched_keywords) > 0
+                if not passed:
+                    candidate["status"] = "skipped"
+                    candidate["skip_reason"] = "未命中关键词"
+                    skipped += 1
+                    result.append(candidate)
+                    continue
+                candidate["matched_keywords"] = matched_keywords
+            candidate["status"] = "passed"
+            result.append(candidate)
+        return result, skipped
 
     async def _open_boss_entry(self, task: dict, stop_event: asyncio.Event):
         """
@@ -203,3 +248,20 @@ def _profile_dir(name: str) -> Path:
     """
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(name)).strip("_") or "default"
     return data_dir().parent / "cookies" / safe_name
+
+
+def _string_list(value) -> list[str]:
+    """
+    将配置值转换为字符串列表。
+
+    Args:
+        value: 原始配置值。
+
+    Returns:
+        list[str]: 字符串列表。
+    """
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [item.strip() for item in value.replace(",", " ").split() if item.strip()]
+    return []
