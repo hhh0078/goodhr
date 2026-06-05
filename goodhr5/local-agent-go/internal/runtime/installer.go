@@ -44,7 +44,7 @@ type InstallResult struct {
 // ctx 为请求上下文，manifestURL 为 manifest 地址。
 func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (InstallResult, error) {
 	if strings.TrimSpace(manifestURL) == "" {
-		return InstallResult{}, fmt.Errorf("运行组件清单地址不能为空")
+		manifestURL = m.cfg.ManifestURL
 	}
 	manifest, err := fetchManifest(ctx, manifestURL)
 	if err != nil {
@@ -65,6 +65,27 @@ func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (
 	}
 	installed = append(installed, "cloakbrowser")
 	return InstallResult{Platform: platform, Installed: installed, Status: m.Status()}, nil
+}
+
+// InstallLocalWorker 从仓库源码安装 Node Browser Worker。
+// sourceDir 为 worker-node 目录，主要用于本地开发阶段。
+func (m *Manager) InstallLocalWorker(sourceDir string) (InstallResult, error) {
+	sourceDir = strings.TrimSpace(sourceDir)
+	if sourceDir == "" {
+		return InstallResult{}, fmt.Errorf("Node Worker 源码目录不能为空")
+	}
+	info, err := os.Stat(sourceDir)
+	if err != nil || !info.IsDir() {
+		return InstallResult{}, fmt.Errorf("Node Worker 源码目录不存在：%s", sourceDir)
+	}
+	targetDir := filepath.Join(m.cfg.RuntimeDir, "browser-worker")
+	if err := os.RemoveAll(targetDir); err != nil {
+		return InstallResult{}, fmt.Errorf("清理旧 Node Worker 失败：%w", err)
+	}
+	if err := copyDir(sourceDir, targetDir); err != nil {
+		return InstallResult{}, fmt.Errorf("安装 Node Worker 失败：%w", err)
+	}
+	return InstallResult{Platform: platformKey(), Installed: []string{"node_worker"}, Status: m.Status()}, nil
 }
 
 // installAsset 下载并解压单个运行组件。
@@ -317,4 +338,52 @@ func archiveName(rawURL string, fallback string) string {
 		return fallback + ".zip"
 	}
 	return name
+}
+
+// copyDir 递归复制目录。
+// sourceDir 为源目录，targetDir 为目标目录。
+func copyDir(sourceDir string, targetDir string) error {
+	return filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(targetDir, 0o755)
+		}
+		targetPath := filepath.Join(targetDir, rel)
+		if entry.IsDir() {
+			if entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(targetPath, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			_ = src.Close()
+			return err
+		}
+		dst, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+		if err != nil {
+			_ = src.Close()
+			return err
+		}
+		_, copyErr := io.Copy(dst, src)
+		_ = src.Close()
+		closeErr := dst.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
 }

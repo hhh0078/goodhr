@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -62,6 +64,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/runtime/status", s.handleRuntimeStatus)
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
 	mux.HandleFunc("/api/v1/runtime/install", s.handleRuntimeInstall)
+	mux.HandleFunc("/api/v1/runtime/install-local-worker", s.handleRuntimeInstallLocalWorker)
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
@@ -85,6 +88,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version": "go-v2-dev",
 		"port":    s.cfg.Port,
 		"dataDir": s.cfg.DataDir,
+		"runtime": s.runtime.Status(),
 	})
 }
 
@@ -96,6 +100,30 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, s.runtime.Status())
+}
+
+// handleRuntimeInstallLocalWorker 从本地源码安装 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleRuntimeInstallLocalWorker(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sourceDir := stringValue(payload["source_dir"])
+	if sourceDir == "" {
+		sourceDir = defaultWorkerSourceDir()
+	}
+	result, err := s.runtime.InstallLocalWorker(sourceDir)
+	if err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, result)
 }
 
 // handleRuntimeEnsure 检查运行组件是否可用。
@@ -249,6 +277,34 @@ func readPayload(r *http.Request) (map[string]any, error) {
 		payload = map[string]any{}
 	}
 	return payload, nil
+}
+
+// stringValue 将请求字段转换为字符串。
+// value 为原始字段值。
+func stringValue(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
+}
+
+// defaultWorkerSourceDir 返回开发环境默认 Node Worker 源码目录。
+// 找不到时返回当前目录下的 worker-node。
+func defaultWorkerSourceDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "worker-node"
+	}
+	candidates := []string{
+		filepath.Join(wd, "worker-node"),
+		filepath.Join(wd, "goodhr5", "local-agent-go", "worker-node"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return filepath.Join(wd, "worker-node")
 }
 
 // withCORS 为本地 API 增加跨域响应头。

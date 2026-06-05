@@ -16,6 +16,8 @@ const (
 	MaxPort = 9009
 	// AppName 是本地数据目录名称。
 	AppName = "GoodHR"
+	// DefaultRuntimeManifestURL 是运行组件下载清单默认地址。
+	DefaultRuntimeManifestURL = "https://oss.58it.cn/goodhr-local-runtime-manifest.json"
 )
 
 // Config 保存本地程序运行配置。
@@ -25,6 +27,7 @@ type Config struct {
 	DataDir     string
 	RuntimeDir  string
 	FrontendDir string
+	ManifestURL string
 }
 
 // New 创建本地程序配置。
@@ -46,11 +49,21 @@ func New(host string, port int) (*Config, error) {
 		DataDir:     dataDir,
 		RuntimeDir:  filepath.Join(dataDir, "runtime"),
 		FrontendDir: filepath.Join(dataDir, "console"),
+		ManifestURL: envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// envOrDefault 读取环境变量，环境变量为空时返回默认值。
+// key 为环境变量名，fallback 为默认值。
+func envOrDefault(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // EnsureDirs 创建本地程序需要的基础目录。

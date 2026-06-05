@@ -53,6 +53,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	cmd.Env = append(os.Environ(),
 		"GOODHR_WORKER_ADDR=127.0.0.1:9101",
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
+		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

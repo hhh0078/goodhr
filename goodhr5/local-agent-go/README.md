@@ -9,6 +9,7 @@
 - `/health` 返回统一 JSON。
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
 - `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
+- `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
 - 已预留 Node Browser Worker 启动、停止和浏览器 API 转发入口。
 - `worker-node/` 已放入 Node Worker 初版代码，后续接 CloakBrowser 官方 Node SDK。
 
@@ -29,6 +30,12 @@ go run ./cmd/goodhr-local-agent --port 19001
 
 ```bash
 curl http://127.0.0.1:19001/health
+```
+
+开发阶段安装本地 Worker：
+
+```bash
+curl -X POST http://127.0.0.1:19001/api/v1/runtime/install-local-worker
 ```
 
 安装运行组件：
@@ -84,8 +91,8 @@ manifest 示例：
 
 ## 后续重点
 
-- 接入 OSS manifest 下载 Node runtime。
-- 接入 OSS manifest 下载 CloakBrowser。
-- 构建并安装 `worker-node` 到本地运行目录。
+- 增加 Node runtime 精简包制作脚本。
+- 增加 Node Worker 打包脚本。
+- 增加运行组件下载进度和版本记录。
 - 完成浏览器 API 和当前 Python 版本对齐。
 - 迁移本地任务、AI 配置、日志、下载记录和截图记录。

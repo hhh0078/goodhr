@@ -63,8 +63,8 @@ function failure(res, status, msg) {
 async function startBrowser(payload) {
   if (browser || context) return { running: true };
   const cloak = await import("cloakbrowser");
-  const launchPersistent = cloak.launchPersistentContext || cloak.launch_persistent_context || cloak.launch_persistent_context_async;
-  const launch = cloak.launch || cloak.launchAsync || cloak.launch_async;
+  const launchPersistent = cloak.launchPersistentContext;
+  const launch = cloak.launch;
   const userDataDir = String(payload.user_data_dir || "").trim();
   const options = {
     headless: Boolean(payload.headless),
@@ -76,8 +76,11 @@ async function startBrowser(payload) {
   if (payload.viewport_width && payload.viewport_height) {
     options.viewport = { width: Number(payload.viewport_width), height: Number(payload.viewport_height) };
   }
+  if (payload.timezone) options.timezone = String(payload.timezone);
+  if (payload.locale) options.locale = String(payload.locale);
+  if (payload.user_agent) options.userAgent = String(payload.user_agent);
   if (userDataDir && launchPersistent) {
-    context = await launchPersistent(userDataDir, options);
+    context = await launchPersistent({ ...options, userDataDir });
     page = context.pages?.()[0] || await context.newPage();
     return { running: true, persistent: true };
   }
