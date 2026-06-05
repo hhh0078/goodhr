@@ -20,6 +20,9 @@ BOSS_FIELD_SELECTORS = {
     "university": [".content.join-text-wrap"],
     "description": [".content"],
 }
+BOSS_GREET_SELECTORS = [".btn.btn-greet", ".btn.btn-getcontact"]
+BOSS_CONTINUE_SELECTORS = [".btn.btn-continue.btn-outline"]
+BOSS_CONFIRM_SELECTORS = [".btn.btn-sure", ".btn.btn-primary", ".boss-popup__footer .btn"]
 
 
 async def extract_visible_candidates(page: Any, max_items: int = 30) -> list[dict]:
@@ -53,6 +56,72 @@ async def extract_visible_candidates(page: Any, max_items: int = 30) -> list[dic
             }
         )
     return candidates
+
+
+async def greet_candidate_by_index(page: Any, card_index: int) -> None:
+    """
+    点击指定候选人的 Boss 打招呼按钮。
+
+    Args:
+        page: Playwright 页面对象。
+        card_index: 候选人卡片序号。
+    """
+    card = await _card_by_index(page, card_index)
+    if hasattr(card, "scroll_into_view_if_needed"):
+        await card.scroll_into_view_if_needed(timeout=1500)
+    clicked = await _click_first_visible(card, BOSS_GREET_SELECTORS, timeout=1500)
+    if not clicked:
+        raise RuntimeError("未找到可点击的打招呼按钮")
+    await _click_first_visible(page, BOSS_CONTINUE_SELECTORS, timeout=800)
+    await _click_first_visible(page, BOSS_CONFIRM_SELECTORS, timeout=800)
+
+
+async def _card_by_index(page: Any, card_index: int) -> Any:
+    """
+    按序号返回候选人卡片。
+
+    Args:
+        page: Playwright 页面对象。
+        card_index: 候选人卡片序号。
+
+    Returns:
+        Any: 候选人卡片 locator。
+    """
+    safe_index = max(0, int(card_index or 0))
+    locator = page.locator(", ".join(BOSS_CARD_SELECTORS))
+    count = await locator.count()
+    if safe_index >= count:
+        raise RuntimeError("候选人卡片已不在当前页面")
+    card = locator.nth(safe_index)
+    if not await card.is_visible():
+        raise RuntimeError("候选人卡片当前不可见")
+    return card
+
+
+async def _click_first_visible(scope: Any, selectors: list[str], timeout: int = 1000) -> bool:
+    """
+    点击选择器列表中第一个可见元素。
+
+    Args:
+        scope: 页面或卡片 locator。
+        selectors: CSS 选择器列表。
+        timeout: 单次点击超时时间。
+
+    Returns:
+        bool: 点击成功返回 true。
+    """
+    for selector in selectors:
+        try:
+            locator = scope.locator(selector).first
+            if await locator.count() <= 0:
+                continue
+            if hasattr(locator, "is_visible") and not await locator.is_visible():
+                continue
+            await locator.click(timeout=timeout)
+            return True
+        except Exception:
+            continue
+    return False
 
 
 async def _visible_cards(page: Any, max_items: int) -> list[Any]:

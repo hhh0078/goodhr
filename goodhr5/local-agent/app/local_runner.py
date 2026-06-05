@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
-from app.boss_runtime import extract_visible_candidates
+from app.boss_runtime import extract_visible_candidates, greet_candidate_by_index
 from app.local_tasks import (
     add_local_task_log,
     get_local_task,
@@ -132,13 +133,24 @@ class LocalTaskRunner:
                 return
             candidates = await extract_visible_candidates(page)
             candidates, skipped_count = self._apply_keyword_filter(task, candidates)
+            greeted_count, failed_count = await self._greet_keyword_candidates(task, page, candidates, stop_event)
             for candidate in candidates:
                 save_local_candidate(task_id, candidate)
             if candidates:
-                increment_local_task_counts(task_id, scanned=len(candidates), skipped=skipped_count)
+                increment_local_task_counts(
+                    task_id,
+                    scanned=len(candidates),
+                    greeted=greeted_count,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
                 add_local_task_log(task_id, "info", f"已提取并保存 {len(candidates)} 个可见候选人")
                 if skipped_count > 0:
                     add_local_task_log(task_id, "info", f"关键词筛选跳过 {skipped_count} 个候选人")
+                if greeted_count > 0:
+                    add_local_task_log(task_id, "info", f"关键词筛选通过并打招呼 {greeted_count} 个候选人")
+                if failed_count > 0:
+                    add_local_task_log(task_id, "warning", f"打招呼失败 {failed_count} 个候选人")
             else:
                 add_local_task_log(task_id, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
             add_local_task_log(task_id, "warning", "Boss AI筛选和打招呼流程正在迁移中，当前版本先完成本地扫描入库")
@@ -204,6 +216,55 @@ class LocalTaskRunner:
             result.append(candidate)
         return result, skipped
 
+    async def _greet_keyword_candidates(
+        self,
+        task: dict,
+        page,
+        candidates: list[dict],
+        stop_event: asyncio.Event,
+    ) -> tuple[int, int]:
+        """
+        对关键词筛选通过的候选人执行打招呼。
+
+        Args:
+            task: 本地任务。
+            page: Playwright 页面对象。
+            candidates: 候选人列表。
+            stop_event: 停止信号。
+
+        Returns:
+            tuple[int, int]: 打招呼成功数量和失败数量。
+        """
+        task_id = str(task.get("id") or "")
+        if str(task.get("mode") or "").strip().lower() == "ai":
+            return 0, 0
+        match_limit = int(task.get("match_limit") or 0)
+        greeted = 0
+        failed = 0
+        for candidate in candidates:
+            if stop_event.is_set():
+                break
+            if candidate.get("status") != "passed":
+                continue
+            if match_limit > 0 and greeted >= match_limit:
+                candidate["status"] = "skipped"
+                candidate["skip_reason"] = "已达到任务打招呼上限"
+                continue
+            name = str(candidate.get("name") or candidate.get("candidate_name") or "候选人")
+            try:
+                add_local_task_log(task_id, "info", f"正在给{name}打招呼")
+                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0))
+                candidate["status"] = "greeted"
+                candidate["greeted_at"] = _now_iso()
+                greeted += 1
+                add_local_task_log(task_id, "info", f"{name}打招呼成功")
+            except Exception as exc:
+                candidate["status"] = "failed"
+                candidate["error"] = str(exc)
+                failed += 1
+                add_local_task_log(task_id, "error", f"{name}打招呼失败：{exc}")
+        return greeted, failed
+
     async def _open_boss_entry(self, task: dict, stop_event: asyncio.Event):
         """
         启动浏览器并打开 Boss 推荐页。
@@ -265,3 +326,13 @@ def _string_list(value) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.replace(",", " ").split() if item.strip()]
     return []
+
+
+def _now_iso() -> str:
+    """
+    返回当前 UTC 时间字符串。
+
+    Returns:
+        str: ISO 格式时间。
+    """
+    return datetime.now(timezone.utc).isoformat()
