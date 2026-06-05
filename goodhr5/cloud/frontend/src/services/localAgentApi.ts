@@ -266,6 +266,37 @@ export async function verifyLocalSubscription(base: string, payload: any) {
 }
 
 /**
+ * 读取 Local Agent 本地明文 AI 配置。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回 AI 配置。
+ */
+export async function getLocalAIConfig(base: string) {
+  const data = await req(base, "/api/v1/local/ai/config");
+  return data.config || {};
+}
+
+/**
+ * 保存 Local Agent 本地明文 AI 配置。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - AI 配置参数。
+ * @returns {Promise<any>} 返回保存后的 AI 配置。
+ */
+export async function saveLocalAIConfig(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/ai/config", { method: "POST", body: payload });
+  return data.config || {};
+}
+
+/**
+ * 通过 Local Agent 统一调用本地 AI 聊天接口。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - OpenAI 兼容聊天参数。
+ * @returns {Promise<any>} 返回 AI 调用结果。
+ */
+export async function chatWithLocalAI(base: string, payload: any) {
+  return req(base, "/api/v1/local/ai/chat", { method: "POST", body: payload });
+}
+
+/**
  * 读取 SQLite 本地任务候选人。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。

@@ -40,6 +40,7 @@ from app.humanize import (
 )
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.local_db import database_path
+from app.local_ai import chat_with_local_ai, get_local_ai_config, save_local_ai_config
 from app.local_runner import LocalTaskRunner
 from app.local_tasks import (
     add_local_task_log,
@@ -198,6 +199,33 @@ async def get_health() -> dict:
 async def get_local_tasks() -> dict:
     """返回本地 SQLite 任务列表。"""
     return {"ok": True, "tasks": list_local_tasks()}
+
+
+@app.get("/api/v1/local/ai/config")
+async def get_local_ai_config_route() -> dict:
+    """返回本地明文 AI 配置。"""
+    return {"ok": True, "config": get_local_ai_config()}
+
+
+@app.post("/api/v1/local/ai/config")
+async def post_local_ai_config_route(payload: dict) -> dict:
+    """保存本地明文 AI 配置。"""
+    config = save_local_ai_config(payload)
+    return {"ok": True, "config": config}
+
+
+@app.post("/api/v1/local/ai/chat")
+async def post_local_ai_chat_route(payload: dict) -> dict:
+    """使用本地 AI 配置调用聊天接口。"""
+    try:
+        result = await chat_with_local_ai(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"AI 网络请求失败：{exc}")
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    return {"ok": True, **result}
 
 
 @app.post("/api/v1/local/tasks")

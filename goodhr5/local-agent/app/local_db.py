@@ -8,7 +8,7 @@ from pathlib import Path
 from app.paths import data_dir
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def database_path() -> Path:
@@ -96,6 +96,20 @@ def migrate(conn: sqlite3.Connection) -> None:
             platform_id TEXT PRIMARY KEY,
             version TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'active',
+            updated_at TEXT NOT NULL
+        );
+
+        -- 本地 AI 配置表，明文保存用户在本机填写的模型和密钥。
+        CREATE TABLE IF NOT EXISTS local_ai_config (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL DEFAULT '',
+            base_url TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            temperature REAL NOT NULL DEFAULT 0.2,
+            timeout INTEGER NOT NULL DEFAULT 120,
+            extra_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
         """
