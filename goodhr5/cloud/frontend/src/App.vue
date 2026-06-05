@@ -160,7 +160,7 @@ applyTheme(selectedTheme.value);
 const tasks = useTasks(agent.baseUrl, () => {
   goMenu("subscription");
   loadSubscriptionStatus();
-});
+}, resolvePositionSnapshot);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "成员");
 const activeMenu = computed(() => String(route.meta.menuId || "agent"));
@@ -199,6 +199,15 @@ provideAppContext({
   goMenu,
   loadSubscriptionStatus,
 });
+
+/**
+ * 根据岗位模板 ID 返回当前前端内存中的岗位快照。
+ * @param {string} positionID - 岗位模板 ID。
+ * @returns {any} 岗位模板快照。
+ */
+function resolvePositionSnapshot(positionID: string) {
+  return positions.positions.value.find((item: any) => item.id === positionID) || {};
+}
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
   if (s.includes("连接")) return "success";

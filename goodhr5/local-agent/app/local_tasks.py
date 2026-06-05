@@ -93,6 +93,23 @@ def list_local_tasks() -> list[dict]:
     return [_task_row_to_dict(row) for row in rows]
 
 
+def get_local_task(task_id: str) -> dict:
+    """
+    读取单个本地任务。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        dict: 任务字典。
+    """
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM local_tasks WHERE id=?", (task_id,)).fetchone()
+    if row is None:
+        raise FileNotFoundError("local task not found")
+    return _task_row_to_dict(row)
+
+
 def update_local_task(task_id: str, payload: dict) -> dict:
     """
     更新本地任务基础信息。

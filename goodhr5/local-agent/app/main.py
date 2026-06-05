@@ -40,6 +40,7 @@ from app.humanize import (
 )
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.local_db import database_path
+from app.local_runner import LocalTaskRunner
 from app.local_tasks import (
     add_local_task_log,
     clear_local_task_logs,
@@ -150,6 +151,7 @@ async def add_private_network_access_headers(request: Request, call_next):
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
 _ws_agent = WSAgentClient(_browser_manager)
+_local_runner = LocalTaskRunner()
 
 # ---------------------------------------------------------------------------
 # 路由处理函数
@@ -238,6 +240,59 @@ async def post_local_task_status(task_id: str, payload: dict) -> dict:
         raise HTTPException(404, "local task not found")
     add_local_task_log(task_id, "info", f"任务状态更新为 {status}")
     return {"ok": True, "task": task}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/run")
+async def run_local_task_route(task_id: str, payload: dict) -> dict:
+    """
+    启动本地任务运行器。
+
+    Args:
+        task_id: 本地任务 ID。
+        payload: 包含 cloud_api_base 和 token 的请求体。
+
+    Returns:
+        dict: 启动结果。
+    """
+    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not cloud_api_base:
+        raise HTTPException(400, "cloud_api_base is required")
+    if not token:
+        raise HTTPException(400, "token is required")
+
+    async def verify_subscription() -> dict:
+        """
+        执行当前任务的云端会员校验。
+
+        Returns:
+            dict: subscription 对象。
+        """
+        return await _fetch_cloud_subscription(cloud_api_base, token)
+
+    try:
+        return await _local_runner.start(task_id, verify_subscription)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    except PermissionError as exc:
+        raise HTTPException(402, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/v1/local/tasks/{task_id}/stop")
+async def stop_local_task_route(task_id: str) -> dict:
+    """停止本地任务运行器。"""
+    try:
+        return await _local_runner.stop(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+
+
+@app.get("/api/v1/local/tasks/{task_id}/runtime")
+async def get_local_task_runtime(task_id: str) -> dict:
+    """返回本地任务运行器状态。"""
+    return _local_runner.status(task_id)
 
 
 @app.get("/api/v1/local/tasks/{task_id}/logs")

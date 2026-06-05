@@ -12,7 +12,6 @@ import {
 } from "../services/api/taskApi";
 import { getUserAIConfig } from "../services/api/personalConfigApi";
 import {
-  addLocalTaskLog,
   clearLocalTaskLogs,
   createLocalTask,
   deleteLocalTask,
@@ -21,17 +20,22 @@ import {
   listLocalTasks,
   listLocalTaskCandidates,
   listLocalCandidates,
+  runLocalTask,
   deleteLocalTaskCandidate,
   deleteLocalCandidate,
   startTaskWS,
   stopTaskWS,
+  stopLocalTask,
   updateLocalTask,
-  updateLocalTaskStatus,
   verifyLocalSubscription,
 } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
-export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () => void) {
+export function useTasks(
+  agentBaseUrl: Ref<string>,
+  onSubscriptionExpired?: () => void,
+  positionSnapshotResolver?: (positionID: string) => any,
+) {
   const tasks = ref<any[]>([]);
   const loading = ref(false);
   const error = ref("");
@@ -89,6 +93,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         mode: form.value.mode,
         match_limit: Number(form.value.matchLimit || 0),
         enable_sound: Boolean(form.value.enableSound),
+        position_snapshot: resolvePositionSnapshot(form.value.positionId),
       };
       if (shouldUseLocalTasks()) {
         await createLocalTask(localTaskBase(), payload);
@@ -148,12 +153,13 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
       const task = tasks.value.find((item: any) => item.id === taskId);
       await ensureTaskAIConfigReady(task);
       if (shouldUseLocalTasks()) {
-        await addLocalTaskLog(localTaskBase(), taskId, {
-          level: "warning",
-          message: "本地任务执行主流程还在迁移中，当前先完成本地数据保存。",
-        });
+        expandedTaskId.value = taskId;
         await refreshLogs(taskId);
-        throw new Error("本地任务执行主流程还在迁移中，当前先完成本地数据保存");
+        startTaskLogPolling(taskId);
+        const data = await runLocalTask(localTaskBase(), taskId, taskCloudPayload());
+        message.value = data.message || "本地任务已启动";
+        await load();
+        return;
       }
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
       console.info("[goodhr5][task-start] frontend requested", {
@@ -213,9 +219,8 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
       //弹框确认
       if (!confirm("确认停止任务吗？")) return;
       if (shouldUseLocalTasks()) {
-        await updateLocalTaskStatus(localTaskBase(), taskId, "stopped");
-        await addLocalTaskLog(localTaskBase(), taskId, { level: "info", message: "任务已停止" });
-        message.value = "任务已停止";
+        const data = await stopLocalTask(localTaskBase(), taskId);
+        message.value = data.message || "任务已停止";
         await load();
         await refreshLogs(taskId);
         stopTaskLogPolling();
@@ -514,6 +519,17 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
       cloud_api_base: base,
       token: getAccessToken(),
     };
+  }
+
+  /**
+   * 返回岗位模板快照。
+   * @param {string} positionID - 岗位模板 ID。
+   * @returns {any} 岗位模板快照。
+   */
+  function resolvePositionSnapshot(positionID: string) {
+    if (!positionSnapshotResolver) return {};
+    const snapshot = positionSnapshotResolver(positionID);
+    return snapshot && typeof snapshot === "object" ? snapshot : {};
   }
 
   /**

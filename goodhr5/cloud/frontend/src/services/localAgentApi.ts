@@ -194,6 +194,30 @@ export async function updateLocalTaskStatus(base: string, taskID: string, status
 }
 
 /**
+ * 启动本地 SQLite 任务运行器。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {any} payload - 云端校验参数。
+ * @returns {Promise<any>} 返回启动结果。
+ */
+export async function runLocalTask(base: string, taskID: string, payload: any) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/run`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+/**
+ * 停止本地 SQLite 任务运行器。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<any>} 返回停止结果。
+ */
+export async function stopLocalTask(base: string, taskID: string) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/stop`, { method: "POST" });
+}
+
+/**
  * 读取本地任务日志。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。
