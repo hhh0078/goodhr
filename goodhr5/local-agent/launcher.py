@@ -61,6 +61,7 @@ def update_console_frontend_for_launcher(base_dir: Path, log_callback: Callable[
         log_callback: 日志回调。
     """
     try:
+        from app.console import has_source_frontend_build
         from app.console_update import update_console_frontend
     except Exception as exc:
         if log_callback:
@@ -70,6 +71,10 @@ def update_console_frontend_for_launcher(base_dir: Path, log_callback: Callable[
     old_install_dir = os.environ.get("GOODHR_INSTALL_DIR")
     os.environ["GOODHR_INSTALL_DIR"] = str(base_dir)
     try:
+        if has_source_frontend_build():
+            if log_callback:
+                log_callback("检测到源码前端构建产物，开发模式跳过远程控制台更新\n")
+            return
         result = update_console_frontend()
         if log_callback:
             if result.get("updated"):

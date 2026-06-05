@@ -68,3 +68,13 @@ def frontend_current_dir() -> Path:
         Path: frontend/current 目录。
     """
     return frontend_dir() / "current"
+
+
+def source_frontend_dist_dir() -> Path:
+    """
+    返回源码开发环境中的云端前端构建目录。
+
+    Returns:
+        Path: goodhr5/cloud/frontend/dist 目录。
+    """
+    return APP_ROOT.parent / "cloud" / "frontend" / "dist"

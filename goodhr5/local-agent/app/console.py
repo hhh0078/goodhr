@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
-from app.paths import frontend_current_dir
+from app.paths import frontend_current_dir, source_frontend_dist_dir
 
 
 FALLBACK_HTML = """<!doctype html>
@@ -42,7 +42,7 @@ def console_index_response():
     Returns:
         FileResponse | HTMLResponse: 已下载前端包时返回 index.html，否则返回内置初始化页面。
     """
-    index_path = frontend_current_dir() / "index.html"
+    index_path = _console_index_path()
     if index_path.exists():
         return FileResponse(index_path, media_type="text/html")
     return HTMLResponse(FALLBACK_HTML)
@@ -76,8 +76,44 @@ def _safe_frontend_path(path: str) -> Path:
     Returns:
         Path: 安全的本地文件路径。
     """
-    root = frontend_current_dir().resolve()
+    root = _console_root_dir().resolve()
     target = (root / str(path or "").lstrip("/")).resolve()
     if target != root and root not in target.parents:
         raise HTTPException(400, "invalid console asset path")
     return target
+
+
+def _console_index_path() -> Path:
+    """
+    返回当前本地控制台入口 HTML 路径。
+
+    Returns:
+        Path: index.html 路径。
+    """
+    dev_index = source_frontend_dist_dir() / "admin" / "index.html"
+    if dev_index.exists():
+        return dev_index
+    return frontend_current_dir() / "index.html"
+
+
+def _console_root_dir() -> Path:
+    """
+    返回当前本地控制台静态资源根目录。
+
+    Returns:
+        Path: 静态资源根目录。
+    """
+    dev_index = source_frontend_dist_dir() / "admin" / "index.html"
+    if dev_index.exists():
+        return source_frontend_dist_dir()
+    return frontend_current_dir()
+
+
+def has_source_frontend_build() -> bool:
+    """
+    判断源码前端是否已经构建。
+
+    Returns:
+        bool: 存在 dist/admin/index.html 时返回 true。
+    """
+    return (source_frontend_dist_dir() / "admin" / "index.html").exists()
