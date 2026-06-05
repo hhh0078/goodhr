@@ -22,7 +22,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager, browser_downloads_dir
-from app.console import console_asset_response, console_index_response
+from app.console import (
+    console_asset_response,
+    console_dev_proxy_response,
+    console_index_response,
+)
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
 from app.humanize import (
@@ -169,23 +173,59 @@ _local_runner = LocalTaskRunner(_browser_manager)
 
 
 @app.get("/")
-async def get_console_index():
+async def get_console_index(request: Request):
     """返回本地控制台入口页面。"""
-    return console_index_response()
+    return await console_index_response("/admin/", request.url.query)
 
 
 @app.get("/admin")
 @app.get("/admin/")
 @app.get("/admin/{path:path}")
-async def get_console_admin(path: str = ""):
+async def get_console_admin(request: Request, path: str = ""):
     """返回本地控制台后台页面，支持前端路由刷新。"""
-    return console_index_response()
+    return await console_index_response(request.url.path, request.url.query)
 
 
 @app.get("/assets/{path:path}")
-async def get_console_asset(path: str):
+async def get_console_asset(request: Request, path: str):
     """返回本地控制台静态资源。"""
-    return console_asset_response("assets/" + path)
+    return await console_asset_response("assets/" + path, request.url.query)
+
+
+@app.get("/favicon.ico")
+async def get_console_favicon(request: Request):
+    """返回本地控制台图标。"""
+    return await console_asset_response("favicon.ico", request.url.query)
+
+
+@app.get("/src/{path:path}")
+async def get_console_source_asset(request: Request, path: str):
+    """代理前端开发服务的源码模块资源。"""
+    return await console_dev_proxy_response("src/" + path, request.url.query)
+
+
+@app.get("/@vite/{path:path}")
+async def get_console_vite_asset(request: Request, path: str):
+    """代理前端开发服务的 Vite 客户端资源。"""
+    return await console_dev_proxy_response("@vite/" + path, request.url.query)
+
+
+@app.get("/@id/{path:path}")
+async def get_console_vite_id_asset(request: Request, path: str):
+    """代理前端开发服务的依赖模块 ID 资源。"""
+    return await console_dev_proxy_response("@id/" + path, request.url.query)
+
+
+@app.get("/@fs/{path:path}")
+async def get_console_vite_fs_asset(request: Request, path: str):
+    """代理前端开发服务的文件系统模块资源。"""
+    return await console_dev_proxy_response("@fs/" + path, request.url.query)
+
+
+@app.get("/node_modules/{path:path}")
+async def get_console_node_module_asset(request: Request, path: str):
+    """代理前端开发服务的 node_modules 资源。"""
+    return await console_dev_proxy_response("node_modules/" + path, request.url.query)
 
 
 @app.get("/health")
