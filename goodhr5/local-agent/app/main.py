@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.browser import BrowserManager, browser_downloads_dir
+from app.console import console_asset_response, console_index_response
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
 from app.humanize import (
@@ -38,6 +39,16 @@ from app.humanize import (
     scroll_to_load,
 )
 from app.crypto_keys import load_or_generate as load_crypto_keys
+from app.local_db import database_path
+from app.local_tasks import (
+    add_local_task_log,
+    create_local_task,
+    list_local_candidates,
+    list_local_task_logs,
+    list_local_tasks,
+    save_local_candidate,
+    update_local_task_status,
+)
 from app.machine import cookie_machine_ids, load_machine
 from app.profiles import create_profile, delete_profile, list_profiles
 from app.screenshot import screenshot_locator_full, screenshot_modal
@@ -141,6 +152,26 @@ _ws_agent = WSAgentClient(_browser_manager)
 # ---------------------------------------------------------------------------
 
 
+@app.get("/")
+async def get_console_index():
+    """返回本地控制台入口页面。"""
+    return console_index_response()
+
+
+@app.get("/admin")
+@app.get("/admin/")
+@app.get("/admin/{path:path}")
+async def get_console_admin(path: str = ""):
+    """返回本地控制台后台页面，支持前端路由刷新。"""
+    return console_index_response()
+
+
+@app.get("/assets/{path:path}")
+async def get_console_asset(path: str):
+    """返回本地控制台静态资源。"""
+    return console_asset_response("assets/" + path)
+
+
 @app.get("/health")
 async def get_health() -> dict:
     """返回 Local Agent 健康状态，包含版本、端口、机器码和云端绑定信息。"""
@@ -153,7 +184,68 @@ async def get_health() -> dict:
         "machine_id": MACHINE["machine_id"],
         "public_key": CRYPTO_KEYS.get("public_key", ""),
         "bound_cloud_user_id": account["cloud_user_id"] if account else "",
+        "local_db": str(database_path()),
     }
+
+
+@app.get("/api/v1/local/tasks")
+async def get_local_tasks() -> dict:
+    """返回本地 SQLite 任务列表。"""
+    return {"ok": True, "tasks": list_local_tasks()}
+
+
+@app.post("/api/v1/local/tasks")
+async def post_local_task(payload: dict) -> dict:
+    """创建本地 SQLite 任务。"""
+    task = create_local_task(payload)
+    add_local_task_log(task["id"], "info", "本地任务已创建")
+    return {"ok": True, "task": task}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/status")
+async def post_local_task_status(task_id: str, payload: dict) -> dict:
+    """更新本地任务状态。"""
+    status = str(payload.get("status") or "").strip()
+    if not status:
+        raise HTTPException(400, "status is required")
+    try:
+        task = update_local_task_status(task_id, status)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    add_local_task_log(task_id, "info", f"任务状态更新为 {status}")
+    return {"ok": True, "task": task}
+
+
+@app.get("/api/v1/local/tasks/{task_id}/logs")
+async def get_local_task_logs(task_id: str, limit: int = 100) -> dict:
+    """返回本地任务日志。"""
+    return {"ok": True, "logs": list_local_task_logs(task_id, limit)}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/logs")
+async def post_local_task_log(task_id: str, payload: dict) -> dict:
+    """写入本地任务日志。"""
+    try:
+        item = add_local_task_log(task_id, str(payload.get("level") or "info"), str(payload.get("message") or ""))
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "log": item}
+
+
+@app.get("/api/v1/local/tasks/{task_id}/candidates")
+async def get_local_task_candidates(task_id: str) -> dict:
+    """返回本地候选人列表。"""
+    return {"ok": True, "candidates": list_local_candidates(task_id)}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/candidates")
+async def post_local_task_candidate(task_id: str, payload: dict) -> dict:
+    """保存本地候选人。"""
+    try:
+        candidate = save_local_candidate(task_id, payload)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "candidate": candidate}
 
 
 @app.post("/api/v1/session/bind-cloud-user")

@@ -1,7 +1,7 @@
 """GoodHR Local Agent 桌面启动器。
 
 本文件提供双击运行时的小窗口，用于启动/停止 Local Agent、查看运行日志、
-清理窗口日志，并打开 GoodHR 官网。打包为 macOS app 或 Windows exe 时，
+清理窗口日志，并打开本地控制台。打包为 macOS app 或 Windows exe 时，
 该文件作为图形界面入口。
 """
 
@@ -25,6 +25,7 @@ import webbrowser
 import zipfile
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
+from typing import Callable
 
 
 APP_NAME = "GoodHR"
@@ -49,6 +50,40 @@ THEME_ACTIVE = "#063f06"
 THEME_FONT = ("Courier New", 10)
 THEME_TITLE_FONT = ("Courier New", 20, "bold")
 THEME_SECTION_FONT = ("Courier New", 12, "bold")
+
+
+def update_console_frontend_for_launcher(base_dir: Path, log_callback: Callable[[str], None] | None = None) -> None:
+    """
+    为启动器检查并更新本地控制台前端包。
+
+    Args:
+        base_dir: GoodHR 安装/运行根目录。
+        log_callback: 日志回调。
+    """
+    try:
+        from app.console_update import update_console_frontend
+    except Exception as exc:
+        if log_callback:
+            log_callback(f"控制台更新模块加载失败：{exc}\n")
+        return
+
+    old_install_dir = os.environ.get("GOODHR_INSTALL_DIR")
+    os.environ["GOODHR_INSTALL_DIR"] = str(base_dir)
+    try:
+        result = update_console_frontend()
+        if log_callback:
+            if result.get("updated"):
+                log_callback(f"控制台前端已更新：version={result.get('version')}\n")
+            else:
+                log_callback(f"控制台前端已是最新：version={result.get('version')}\n")
+    except Exception as exc:
+        if log_callback:
+            log_callback(f"控制台前端更新失败，将继续使用本地版本：{exc}\n")
+    finally:
+        if old_install_dir is None:
+            os.environ.pop("GOODHR_INSTALL_DIR", None)
+        else:
+            os.environ["GOODHR_INSTALL_DIR"] = old_install_dir
 
 
 def configure_utf8_stdio() -> None:
@@ -145,9 +180,10 @@ def ensure_runtime_dirs(base_dir: Path) -> dict[str, Path]:
     """
     dirs = {
         "base": base_dir,
-        "agent_data": base_dir / "agent_data",
+        "agent_data": base_dir / "data",
         "config": base_dir / "config",
         "cookies": base_dir / "cookies",
+        "frontend": base_dir / "frontend",
         "profiles": base_dir / "profiles",
         "tasks": base_dir / "tasks",
         "vendor": base_dir / "vendor",
@@ -892,7 +928,7 @@ class GoodHRLauncher:
 
         button_row = tk.Frame(wrapper, bg=THEME_PANEL)
         button_row.pack(fill=tk.X, pady=(0, 10))
-        self._make_button(button_row, text="打开官网", command=self._open_site).pack(side=tk.LEFT, padx=(0, 8))
+        self._make_button(button_row, text="打开控制台", command=self._open_console).pack(side=tk.LEFT, padx=(0, 8))
         if platform.system().lower() == "windows":
             self._make_button(button_row, text="下载安装环境", command=self._open_windows_runtime, width=14).pack(
                 side=tk.LEFT,
@@ -1144,6 +1180,7 @@ class GoodHRLauncher:
             return
 
         env = os.environ.copy()
+        env["GOODHR_INSTALL_DIR"] = str(self.base_dir)
         env["GOODHR_AGENT_DATA_DIR"] = str(self.dirs["agent_data"])
         env["GOODHR_AGENT_DOWNLOAD_DIR"] = str(launcher_download_dir(self.dirs["config"]))
         env["GOODHR_AGENT_LOG_TO_STDOUT"] = "1"
@@ -1183,6 +1220,11 @@ class GoodHRLauncher:
             return
         self.agent_starting = False
         self._start_stdout_reader()
+        threading.Thread(
+            target=update_console_frontend_for_launcher,
+            args=(self.base_dir, self._append_log_threadsafe),
+            daemon=True,
+        ).start()
 
     def _on_browser_download_progress(self, downloaded: int, total: int) -> None:
         """
@@ -1232,6 +1274,11 @@ class GoodHRLauncher:
     def _open_site(self) -> None:
         """使用默认浏览器打开 GoodHR 官网。"""
         webbrowser.open(OFFICIAL_SITE_URL)
+
+    def _open_console(self) -> None:
+        """使用默认浏览器打开本地控制台页面。"""
+        port = self.running_port or self._detect_running_port() or 9001
+        webbrowser.open(f"http://{HOST}:{port}/")
 
     def _open_windows_runtime(self) -> None:
         """使用默认浏览器打开 Windows 运行环境下载地址。"""
