@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
+    "build:agent-console": "npm run build && python3 scripts/build_agent_console_package.py",
     "preview": "vite preview --host 0.0.0.0 --port 5173"
   },
   "dependencies": {
