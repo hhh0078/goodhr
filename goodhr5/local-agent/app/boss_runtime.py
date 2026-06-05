@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
+
+from app.rules_update import local_rules_dir
 
 
 BOSS_CARD_SELECTORS = [
@@ -70,11 +73,11 @@ async def greet_candidate_by_index(page: Any, card_index: int) -> None:
     card = await _card_by_index(page, card_index)
     if hasattr(card, "scroll_into_view_if_needed"):
         await card.scroll_into_view_if_needed(timeout=1500)
-    clicked = await _click_first_visible(card, BOSS_GREET_SELECTORS, timeout=1500)
+    clicked = await _click_first_visible(card, _boss_selectors("greet_buttons", BOSS_GREET_SELECTORS), timeout=1500)
     if not clicked:
         raise RuntimeError("未找到可点击的打招呼按钮")
-    await _click_first_visible(page, BOSS_CONTINUE_SELECTORS, timeout=800)
-    await _click_first_visible(page, BOSS_CONFIRM_SELECTORS, timeout=800)
+    await _click_first_visible(page, _boss_selectors("continue_buttons", BOSS_CONTINUE_SELECTORS), timeout=800)
+    await _click_first_visible(page, _boss_selectors("confirm_buttons", BOSS_CONFIRM_SELECTORS), timeout=800)
 
 
 async def scroll_candidate_list(page: Any, distance: int = 720) -> None:
@@ -86,7 +89,7 @@ async def scroll_candidate_list(page: Any, distance: int = 720) -> None:
         distance: 滚动距离。
     """
     safe_distance = max(120, int(distance or 720))
-    for selector in BOSS_SCROLL_SELECTORS:
+    for selector in _boss_selectors("scroll_containers", BOSS_SCROLL_SELECTORS):
         try:
             locator = page.locator(selector).first
             if await locator.count() <= 0:
@@ -120,7 +123,7 @@ async def _card_by_index(page: Any, card_index: int) -> Any:
         Any: 候选人卡片 locator。
     """
     safe_index = max(0, int(card_index or 0))
-    locator = page.locator(", ".join(BOSS_CARD_SELECTORS))
+    locator = page.locator(", ".join(_boss_selectors("candidate_card", BOSS_CARD_SELECTORS)))
     count = await locator.count()
     if safe_index >= count:
         raise RuntimeError("候选人卡片已不在当前页面")
@@ -167,7 +170,7 @@ async def _visible_cards(page: Any, max_items: int) -> list[Any]:
     Returns:
         list[Any]: 可见卡片 locator 列表。
     """
-    locator = page.locator(", ".join(BOSS_CARD_SELECTORS))
+    locator = page.locator(", ".join(_boss_selectors("candidate_card", BOSS_CARD_SELECTORS)))
     count = await locator.count()
     cards: list[Any] = []
     for index in range(min(count, max(1, max_items))):
@@ -191,7 +194,7 @@ async def _extract_card_fields(card: Any) -> dict[str, str]:
         dict[str, str]: 字段字典。
     """
     fields: dict[str, str] = {}
-    for field, selectors in BOSS_FIELD_SELECTORS.items():
+    for field, selectors in _boss_field_selectors().items():
         fields[field] = await _first_text(card, selectors)
     if not fields.get("basic_info"):
         fields["basic_info"] = await _safe_inner_text(card)
@@ -267,3 +270,70 @@ def _candidate_id(fields: dict[str, str], raw_text: str, index: int) -> str:
     base = "|".join([fields.get("name", ""), raw_text, str(index)])
     digest = hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
     return f"boss_{digest}"
+
+
+def _boss_field_selectors() -> dict[str, list[str]]:
+    """
+    返回 Boss 候选人字段选择器。
+
+    Returns:
+        dict[str, list[str]]: 字段选择器字典。
+    """
+    rules = _boss_rules()
+    fields = rules.get("fields") if isinstance(rules.get("fields"), dict) else {}
+    result = dict(BOSS_FIELD_SELECTORS)
+    for field, value in fields.items():
+        selectors = _selector_list(value)
+        if selectors:
+            result[str(field)] = selectors
+    return result
+
+
+def _boss_selectors(key: str, fallback: list[str]) -> list[str]:
+    """
+    返回 Boss 运行时选择器。
+
+    Args:
+        key: 规则字段名。
+        fallback: 内置兜底选择器。
+
+    Returns:
+        list[str]: 选择器列表。
+    """
+    selectors = _selector_list(_boss_rules().get(key))
+    return selectors or fallback
+
+
+def _boss_rules() -> dict[str, Any]:
+    """
+    读取本地 Boss 规则包。
+
+    Returns:
+        dict[str, Any]: 规则字典。
+    """
+    path = local_rules_dir() / "boss.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    selectors = data.get("selectors")
+    return selectors if isinstance(selectors, dict) else data
+
+
+def _selector_list(value: Any) -> list[str]:
+    """
+    将规则值转换为选择器列表。
+
+    Args:
+        value: 规则值。
+
+    Returns:
+        list[str]: 选择器列表。
+    """
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
