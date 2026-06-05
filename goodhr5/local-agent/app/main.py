@@ -53,6 +53,13 @@ from app.local_records import (
     save_local_screenshot,
     save_local_settings,
 )
+from app.local_positions import (
+    default_local_prompts,
+    delete_local_position,
+    list_local_positions,
+    optimize_requirement_prompt,
+    save_local_position,
+)
 from app.local_runner import LocalTaskRunner
 from app.local_tasks import (
     add_local_task_log,
@@ -272,6 +279,60 @@ async def post_local_ai_chat_route(payload: dict) -> dict:
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     return {"ok": True, **result}
+
+
+@app.get("/api/v1/local/positions")
+async def get_local_positions_route() -> dict:
+    """返回本地岗位模板列表。"""
+    return {"ok": True, "positions": list_local_positions()}
+
+
+@app.post("/api/v1/local/positions")
+async def post_local_position_route(payload: dict) -> dict:
+    """保存本地岗位模板。"""
+    try:
+        position = save_local_position(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "position": position}
+
+
+@app.delete("/api/v1/local/positions/{position_id}")
+async def delete_local_position_route(position_id: str) -> dict:
+    """删除本地岗位模板。"""
+    try:
+        delete_local_position(position_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local position not found")
+    return {"ok": True}
+
+
+@app.get("/api/v1/local/positions/default-prompts")
+async def get_local_position_default_prompts_route() -> dict:
+    """返回本地岗位模板默认提示词。"""
+    return {"ok": True, "prompts": default_local_prompts()}
+
+
+@app.post("/api/v1/local/positions/optimize-requirement")
+async def post_local_position_optimize_requirement_route(payload: dict) -> dict:
+    """使用本地 AI 优化岗位要求。"""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        result = await chat_with_local_ai(
+            {
+                "messages": [{"role": "user", "content": optimize_requirement_prompt(text)}],
+                "temperature": 0.2,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"AI 网络请求失败：{exc}")
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    return {"ok": True, "optimized": str(result.get("content") or "").strip()}
 
 
 @app.get("/api/v1/local/settings")

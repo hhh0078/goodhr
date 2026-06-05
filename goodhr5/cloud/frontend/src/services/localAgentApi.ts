@@ -259,6 +259,61 @@ export async function chatWithLocalAI(base: string, payload: any) {
 }
 
 /**
+ * 读取 Local Agent 本地岗位模板列表。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any[]>} 返回本地岗位模板数组。
+ */
+export async function listLocalPositions(base: string) {
+  const data = await req(base, "/api/v1/local/positions");
+  return data.positions || [];
+}
+
+/**
+ * 保存 Local Agent 本地岗位模板。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 岗位模板参数。
+ * @returns {Promise<any>} 返回保存后的岗位模板。
+ */
+export async function saveLocalPosition(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/positions", { method: "POST", body: payload });
+  return data.position || {};
+}
+
+/**
+ * 删除 Local Agent 本地岗位模板。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} positionID - 岗位模板 ID。
+ * @returns {Promise<any>} 返回删除结果。
+ */
+export async function deleteLocalPosition(base: string, positionID: string) {
+  return req(base, `/api/v1/local/positions/${encodeURIComponent(positionID)}`, { method: "DELETE" });
+}
+
+/**
+ * 读取 Local Agent 本地岗位默认提示词。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回默认提示词。
+ */
+export async function getLocalPositionDefaultPrompts(base: string) {
+  const data = await req(base, "/api/v1/local/positions/default-prompts");
+  return data.prompts || {};
+}
+
+/**
+ * 使用 Local Agent 本地 AI 优化岗位要求。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} text - 原始岗位要求。
+ * @returns {Promise<string>} 返回优化后的岗位要求。
+ */
+export async function optimizeLocalPositionRequirement(base: string, text: string) {
+  const data = await req(base, "/api/v1/local/positions/optimize-requirement", {
+    method: "POST",
+    body: { text },
+  });
+  return String(data.optimized || "");
+}
+
+/**
  * 读取 Local Agent 本地设置。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @returns {Promise<any>} 返回本地设置。

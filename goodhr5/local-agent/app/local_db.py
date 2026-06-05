@@ -8,7 +8,7 @@ from pathlib import Path
 from app.paths import data_dir
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def database_path() -> Path:
@@ -67,6 +67,23 @@ def migrate(conn: sqlite3.Connection) -> None:
             failed_count INTEGER NOT NULL DEFAULT 0,
             enable_sound INTEGER NOT NULL DEFAULT 0,
             position_snapshot TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        -- 本地岗位模板表，保存用户在本机创建的岗位筛选规则和提示词。
+        CREATE TABLE IF NOT EXISTS local_positions (
+            id TEXT PRIMARY KEY,
+            platform_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            keywords_json TEXT NOT NULL DEFAULT '[]',
+            exclude_keywords_json TEXT NOT NULL DEFAULT '[]',
+            description TEXT NOT NULL DEFAULT '',
+            greet_message TEXT NOT NULL DEFAULT '',
+            is_and_mode INTEGER NOT NULL DEFAULT 0,
+            common_config_json TEXT NOT NULL DEFAULT '{}',
+            ai_config_json TEXT NOT NULL DEFAULT '{}',
+            keyword_config_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
