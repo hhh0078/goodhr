@@ -28,7 +28,6 @@ import {
   stopTaskWS,
   stopLocalTask,
   updateLocalTask,
-  verifyLocalSubscription,
 } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
@@ -143,9 +142,7 @@ export function useTasks(
     try {
       //弹框确认
       if (!confirm("确认开始任务吗？")) return;
-      const subscription = shouldUseLocalTasks()
-        ? (await verifyLocalSubscription(localTaskBase(), taskCloudPayload())).subscription
-        : await getSubscriptionStatus();
+      const subscription = await getSubscriptionStatus();
       if (!subscription?.active) {
         onSubscriptionExpired?.();
         throw new Error("会员已到期，请先订阅后再开始任务");
@@ -157,7 +154,7 @@ export function useTasks(
         expandedTaskId.value = taskId;
         await refreshLogs(taskId);
         startTaskLogPolling(taskId);
-        const data = await runLocalTask(localTaskBase(), taskId, taskCloudPayload());
+        const data = await runLocalTask(localTaskBase(), taskId);
         message.value = data.message || "本地任务已启动";
         await load();
         return;

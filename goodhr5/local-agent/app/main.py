@@ -72,7 +72,6 @@ from app.profiles import create_profile, delete_profile, list_profiles, update_p
 from app.rules_update import get_rules_status, update_rules
 from app.screenshot import screenshot_locator_full, screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
-from app.session import load_cloud_account, save_cloud_account
 from app.tasks import (
     delete_candidate,
     delete_screenshot,
@@ -230,8 +229,7 @@ async def get_console_node_module_asset(request: Request, path: str):
 
 @app.get("/health")
 async def get_health() -> dict:
-    """返回 Local Agent 健康状态，包含版本、端口、机器码和云端绑定信息。"""
-    account = load_cloud_account()
+    """返回 Local Agent 健康状态，包含版本、端口、机器码和本地数据库路径。"""
     return {
         "ok": True,
         "name": "GoodHR 5 Local Agent",
@@ -239,7 +237,6 @@ async def get_health() -> dict:
         "port": app.state.port,
         "machine_id": MACHINE["machine_id"],
         "public_key": CRYPTO_KEYS.get("public_key", ""),
-        "bound_cloud_user_id": account["cloud_user_id"] if account else "",
         "local_db": str(database_path()),
     }
 
@@ -372,32 +369,24 @@ async def post_local_task_status(task_id: str, payload: dict) -> dict:
 
 
 @app.post("/api/v1/local/tasks/{task_id}/run")
-async def run_local_task_route(task_id: str, payload: dict) -> dict:
+async def run_local_task_route(task_id: str) -> dict:
     """
     启动本地任务运行器。
 
     Args:
         task_id: 本地任务 ID。
-        payload: 包含 cloud_api_base 和 token 的请求体。
 
     Returns:
         dict: 启动结果。
     """
-    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
-    token = str(payload.get("token", "")).strip()
-    if not cloud_api_base:
-        raise HTTPException(400, "cloud_api_base is required")
-    if not token:
-        raise HTTPException(400, "token is required")
-
     async def verify_subscription() -> dict:
         """
-        执行当前任务的云端会员校验。
+        返回前端已完成会员校验的结果。
 
         Returns:
             dict: subscription 对象。
         """
-        return await _fetch_cloud_subscription(cloud_api_base, token)
+        return {"active": True}
 
     try:
         return await _local_runner.start(task_id, verify_subscription)
@@ -474,91 +463,6 @@ async def delete_local_task_candidate_route(task_id: str, candidate_id: str) -> 
     except FileNotFoundError:
         raise HTTPException(404, "local task not found")
     return {"ok": True}
-
-
-@app.post("/api/v1/session/bind-cloud-user")
-async def bind_cloud_user(payload: dict) -> dict:
-    """绑定当前 Local Agent 对应的云端账号。
-
-    绑定信息保存到 agent_data/cloud_account.json，
-    用于后续任务操作时验证用户身份。
-    """
-    cloud_user_id = str(payload.get("cloud_user_id", "")).strip()
-    cloud_email = str(payload.get("cloud_email", "")).strip().lower()
-    agent_token = str(payload.get("agent_token", "")).strip()
-
-    if not cloud_user_id:
-        raise HTTPException(400, "cloud_user_id is required")
-    if not cloud_email:
-        raise HTTPException(400, "cloud_email is required")
-    if not agent_token:
-        raise HTTPException(400, "agent_token is required")
-
-    account = save_cloud_account(cloud_user_id, cloud_email, agent_token)
-    return {
-        "ok": True,
-        "machine_id": MACHINE["machine_id"],
-        "cloud_user_id": account["cloud_user_id"],
-        "cloud_email": account["cloud_email"],
-        "bound_at": account["bound_at"],
-    }
-
-
-@app.post("/api/v1/ws/connect")
-async def ws_connect(payload: dict) -> dict:
-    """连接云端 WebSocket。
-
-    Args:
-        payload: 包含 cloud_ws_url 和 token 的请求体。
-
-    Returns:
-        返回当前 WebSocket 连接状态。
-    """
-    cloud_ws_url = str(payload.get("cloud_ws_url", "")).strip()
-    token = str(payload.get("token", "")).strip()
-    if not cloud_ws_url:
-        raise HTTPException(400, "cloud_ws_url is required")
-    if not token:
-        raise HTTPException(400, "token is required")
-    return await _ws_agent.connect(cloud_ws_url, token)
-
-
-@app.get("/api/v1/ws/status")
-async def ws_status() -> dict:
-    """返回 Local Agent 到云端 WebSocket 的连接状态。"""
-    return _ws_agent.status()
-
-
-@app.post("/api/v1/ws/disconnect")
-async def ws_disconnect() -> dict:
-    """断开 Local Agent 到云端 WebSocket 的连接。"""
-    return await _ws_agent.disconnect()
-
-
-@app.post("/api/v1/local/subscription/verify")
-async def verify_local_subscription(payload: dict) -> dict:
-    """
-    向云端校验当前用户会员状态。
-
-    Args:
-        payload: 包含 cloud_api_base 和 token 的请求体。
-
-    Returns:
-        dict: 云端订阅状态。
-    """
-    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
-    token = str(payload.get("token", "")).strip()
-    if not cloud_api_base:
-        raise HTTPException(400, "cloud_api_base is required")
-    if not token:
-        raise HTTPException(400, "token is required")
-    try:
-        subscription = await _fetch_cloud_subscription(cloud_api_base, token)
-    except RuntimeError as exc:
-        logger.error("[会员校验] 云端校验失败 err=%s", exc)
-        raise HTTPException(502, str(exc))
-    active = bool(subscription.get("active"))
-    return {"ok": True, "active": active, "subscription": subscription}
 
 
 @app.post("/api/v1/tasks/{task_id}/start-ws")

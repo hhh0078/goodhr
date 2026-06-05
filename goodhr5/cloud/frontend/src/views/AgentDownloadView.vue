@@ -25,10 +25,6 @@
           <dd>{{ app.agent.info.value?.version || "--" }}</dd>
           <dt>要求版本</dt>
           <dd>{{ app.systemAppConfig.value?.local_agent_version || "5.0.0" }}</dd>
-          <dt>绑定</dt>
-          <dd>{{ app.agent.bindStatus.value }}</dd>
-          <dt>WS</dt>
-          <dd>{{ app.agent.wsStatus.value }}</dd>
         </dl>
       </article>
 
@@ -168,7 +164,7 @@ const helpItems = [
  * @returns {void} 无返回值。
  */
 function redetect() {
-  void app.agent.detect(app.user.value, app.auth.token.value);
+  void app.agent.detect();
 }
 
 /**

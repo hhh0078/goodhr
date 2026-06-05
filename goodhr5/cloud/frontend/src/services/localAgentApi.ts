@@ -77,32 +77,6 @@ export async function getLocalHealth(base: string) {
   }
 }
 
-export async function bindCloudUser(base: string, payload: any) {
-  return req(base, "/api/v1/session/bind-cloud-user", {
-    method: "POST",
-    body: payload,
-  });
-}
-
-/**
- * 通知 Local Agent 主动连接云端 WebSocket。
- * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 包含 cloud_ws_url 和 token 的参数。
- * @returns {Promise<any>} 返回 Local Agent 的 WS 状态。
- */
-export async function connectCloudWS(base: string, payload: any) {
-  return req(base, "/api/v1/ws/connect", { method: "POST", body: payload });
-}
-
-/**
- * 查询 Local Agent 到云端 WebSocket 的连接状态。
- * @param {string} base - Local Agent HTTP 基础地址。
- * @returns {Promise<any>} 返回 WS 连接状态。
- */
-export async function getCloudWSStatus(base: string) {
-  return req(base, "/api/v1/ws/status");
-}
-
 /**
  * 通过 Local Agent 建立任务级 WebSocket 并启动云端任务。
  * @param {string} base - Local Agent HTTP 基础地址。
@@ -197,13 +171,11 @@ export async function updateLocalTaskStatus(base: string, taskID: string, status
  * 启动本地 SQLite 任务运行器。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。
- * @param {any} payload - 云端校验参数。
  * @returns {Promise<any>} 返回启动结果。
  */
-export async function runLocalTask(base: string, taskID: string, payload: any) {
+export async function runLocalTask(base: string, taskID: string) {
   return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/run`, {
     method: "POST",
-    body: payload,
   });
 }
 
@@ -253,16 +225,6 @@ export async function addLocalTaskLog(base: string, taskID: string, payload: any
     body: payload,
   });
   return data.log;
-}
-
-/**
- * 通过 Local Agent 向云端校验会员状态。
- * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 包含 cloud_api_base 和 token 的参数。
- * @returns {Promise<any>} 返回会员校验结果。
- */
-export async function verifyLocalSubscription(base: string, payload: any) {
-  return req(base, "/api/v1/local/subscription/verify", { method: "POST", body: payload });
 }
 
 /**

@@ -10,8 +10,6 @@
   <AgentPanel
     :agent="app.agent"
     :app-config="app.systemAppConfig.value"
-    :user="app.user.value"
-    :token="app.auth.token.value"
   />
 </template>
 

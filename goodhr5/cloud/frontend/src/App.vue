@@ -58,9 +58,8 @@
         >
           {{ agent.status.value }}
         </button>
-        ><span v-if="!agent.machineConflict.value" class="sep">|</span>
+        ><span class="sep">|</span>
         <button
-          v-if="!agent.machineConflict.value"
           class="top-info top-link"
           @click="goMenu('agent-download')"
         >
@@ -311,7 +310,7 @@ watch(user, async (u) => {
     await loadOnboardingStatus();
     await loadSystemAppConfig();
     await loadSubscriptionStatus();
-    agent.detect(u, auth.token.value);
+    agent.detect();
     positions.load();
     personalConfig.load();
     tasks.load();
@@ -349,7 +348,7 @@ onMounted(async () => {
     refreshOnboardingProgress();
     await loadOnboardingStatus();
     await loadSubscriptionStatus();
-    agent.detect(auth.user.value, auth.token.value);
+    agent.detect();
     positions.load();
     personalConfig.load();
     tasks.load();
@@ -559,9 +558,9 @@ function isSubscriptionExpired(value: any) {
 }
 
 const detectLocalAgent = () => {
-  agent.detect(auth.user.value, auth.token.value);
+  agent.detect();
   setInterval(() => {
-    agent.detect(auth.user.value, auth.token.value);
+    agent.detect();
   }, 10000);
 };
 </script>

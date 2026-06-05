@@ -46,7 +46,7 @@
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
 | 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
-| 本地 Agent | 云端账号绑定 | DONE | `POST /api/v1/session/bind-cloud-user` 写入 `cloud_account.json` |
+| 本地 Agent | 本地连接探测 | DONE | 前端只请求 `/health`，不再绑定云端账号、不连接云端 WS、不向本地程序传 token |
 | 本地 Agent | Profile/cookie 多账号管理 | DONE | 云端平台账号映射和本地 profile 元数据接口已完成；cookie 原文仍只在浏览器 profile |
 | 本地 Agent | FastAPI 改造 | DONE | 从 http.server 升级为 FastAPI + uvicorn，版本号 0.2.0 |
 | 本地 Agent | pyproject.toml 与依赖管理 | DONE | 包含 fastapi/uvicorn/playwright/cloakbrowser/Pillow/numpy/pydantic/httpx |
@@ -264,10 +264,10 @@
 - 新增最终生效 AI 配置接口，按“用户配置 > 系统默认配置”合并。
 - 当前使用内存 `AIConfigStore`，后续替换为 PostgreSQL store。
 
-- 云端前端在探测到本地 Agent 后自动初始化绑定。
-- 调用云端 `POST /api/agents/bind` 保存机器绑定。
-- 调用本地 `POST /api/v1/session/bind-cloud-user` 写入当前云端账号。
-- 前端显示本地 Agent 绑定状态和绑定错误。
+- 云端前端探测到本地 Agent 后只保存本地 HTTP 地址。
+- 不再调用云端 `POST /api/agents/bind` 绑定机器。
+- 不再调用本地云端账号绑定接口写入云端账号。
+- 前端只显示本地 Agent 连接状态、端口和版本。
 
 - 云端后端新增 Agent 机器绑定模块。
 - 新增 `POST /api/agents/bind` 保存当前登录账号和机器码绑定。
@@ -307,9 +307,9 @@
 - 保留重新检测按钮。
 - 下载链接暂用占位，后续由版本发布模块接真实下载地址。
 
-- 本地 Agent 增加 `POST /api/v1/session/bind-cloud-user`。
-- 绑定信息保存到 `agent_data/cloud_account.json`。
-- `/health` 返回 `bound_cloud_user_id`，方便云端页面识别本地绑定状态。
+- 本地 Agent 不再要求云端账号绑定。
+- 本地 Agent 不再保存登录 token。
+- `/health` 只用于判断本地程序是否在线。
 
 - 云端 Go API 增加 `POST /api/auth/send-code`。
 - 云端 Go API 增加 `POST /api/auth/login`。
