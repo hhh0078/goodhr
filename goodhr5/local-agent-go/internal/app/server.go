@@ -73,6 +73,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/open", s.handlePageOpen)
 	mux.HandleFunc("/api/v1/page/click", s.handlePageClick)
 	mux.HandleFunc("/api/v1/page/type", s.handlePageType)
+	mux.HandleFunc("/api/v1/page/scroll", s.handlePageScroll)
+	mux.HandleFunc("/api/v1/page/extract-text", s.handlePageExtractText)
+	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
+	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
+	mux.HandleFunc("/api/v1/downloads", s.handleDownloads)
 	mux.HandleFunc("/", s.handleConsole)
 }
 
@@ -230,6 +235,54 @@ func (s *Server) handlePageType(w http.ResponseWriter, r *http.Request) {
 	s.proxyWorkerPost(w, r, "/api/v1/page/type")
 }
 
+// handlePageScroll 转发页面滚动请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageScroll(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/scroll")
+}
+
+// handlePageExtractText 转发页面文本提取请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageExtractText(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/extract-text")
+}
+
+// handlePageScreenshot 转发页面截图请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageScreenshot(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/screenshot")
+}
+
+// handlePageCookies 导出或导入当前浏览器 Cookie。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageCookies(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		result, err := s.worker.CallGet(r.Context(), "/api/v1/page/cookies")
+		if err != nil {
+			response.Error(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		response.Success(w, workerData(result))
+		return
+	}
+	s.proxyWorkerPost(w, r, "/api/v1/page/cookies")
+}
+
+// handleDownloads 返回 Node Worker 记录的下载文件列表。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	result, err := s.worker.CallGet(r.Context(), "/api/v1/downloads")
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.Success(w, workerData(result))
+}
+
 // handleConsole 返回本地控制台占位页面。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +316,7 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		response.Error(w, http.StatusBadGateway, msg)
 		return
 	}
-	response.Success(w, result)
+	response.Success(w, workerData(result))
 }
 
 // readPayload 读取请求 JSON 参数。
@@ -286,6 +339,18 @@ func stringValue(value any) string {
 		return text
 	}
 	return ""
+}
+
+// workerData 提取 Worker 统一响应中的 data 字段。
+// result 为 Worker 原始响应。
+func workerData(result map[string]any) any {
+	if result == nil {
+		return nil
+	}
+	if data, ok := result["data"]; ok {
+		return data
+	}
+	return result
 }
 
 // defaultWorkerSourceDir 返回开发环境默认 Node Worker 源码目录。

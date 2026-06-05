@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,21 +106,39 @@ func (m *WorkerManager) Status() WorkerStatus {
 // Call 调用 Node Worker API。
 // path 为 Worker 路由，payload 为请求体，返回 Worker 原始 JSON。
 func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	return m.call(ctx, http.MethodPost, path, payload)
+}
+
+// CallGet 调用 Node Worker GET API。
+// path 为 Worker 路由，返回 Worker 原始 JSON。
+func (m *WorkerManager) CallGet(ctx context.Context, path string) (map[string]any, error) {
+	return m.call(ctx, http.MethodGet, path, nil)
+}
+
+// call 调用 Node Worker API。
+// method 为 HTTP 方法，path 为 Worker 路由，payload 为请求体。
+func (m *WorkerManager) call(ctx context.Context, method string, path string, payload any) (map[string]any, error) {
 	if path == "" {
 		return nil, fmt.Errorf("Worker 路径不能为空")
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("请求参数编码失败：%w", err)
+	var reader *bytes.Reader
+	if method == http.MethodGet {
+		reader = bytes.NewReader(nil)
+	} else {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("请求参数编码失败：%w", err)
+		}
+		reader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, m.baseURL+path, reader)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Worker 请求失败：%w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("调用 Node Browser Worker 失败：%w", err)
+		return nil, normalizeCallError(err)
 	}
 	defer resp.Body.Close()
 	var result map[string]any
@@ -130,6 +149,19 @@ func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map
 		return result, fmt.Errorf("Worker 请求失败")
 	}
 	return result, nil
+}
+
+// normalizeCallError 将 Worker 网络错误转换为中文提示。
+// err 为原始请求错误。
+func normalizeCallError(err error) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	if strings.Contains(text, "connection refused") || strings.Contains(text, "connect:") {
+		return fmt.Errorf("Node Browser Worker 未启动")
+	}
+	return fmt.Errorf("调用 Node Browser Worker 失败")
 }
 
 // isRunningLocked 判断 Worker 进程是否还在运行。

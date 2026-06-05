@@ -10,8 +10,9 @@
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
 - `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
 - `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
-- 已预留 Node Browser Worker 启动、停止和浏览器 API 转发入口。
-- `worker-node/` 已放入 Node Worker 初版代码，后续接 CloakBrowser 官方 Node SDK。
+- 已实现 Node Browser Worker 启动、停止和浏览器 API 转发入口。
+- `worker-node/` 已接入 CloakBrowser 官方 Node SDK。
+- 已提供基础浏览器 API：打开页面、点击、输入、滚动、提取文本、截图、Cookie、下载记录。
 
 ## 本地启动
 
@@ -94,5 +95,5 @@ manifest 示例：
 - 增加 Node runtime 精简包制作脚本。
 - 增加 Node Worker 打包脚本。
 - 增加运行组件下载进度和版本记录。
-- 完成浏览器 API 和当前 Python 版本对齐。
+- 继续补齐复杂浏览器 API：元素定位、随机人类操作、截图 OCR、文件下载后缀识别。
 - 迁移本地任务、AI 配置、日志、下载记录和截图记录。
