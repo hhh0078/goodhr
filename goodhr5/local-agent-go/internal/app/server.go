@@ -61,6 +61,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/runtime/status", s.handleRuntimeStatus)
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
+	mux.HandleFunc("/api/v1/runtime/install", s.handleRuntimeInstall)
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
@@ -110,6 +111,30 @@ func (s *Server) handleRuntimeEnsure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, status)
+}
+
+// handleRuntimeInstall 根据 manifest 下载并安装运行组件。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	manifestURL := ""
+	if value, ok := payload["manifest_url"].(string); ok {
+		manifestURL = value
+	}
+	result, err := s.runtime.InstallFromManifest(r.Context(), manifestURL)
+	if err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, result)
 }
 
 // handleWorkerStart 启动 Node Browser Worker。
@@ -196,12 +221,10 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
-		response.Error(w, http.StatusBadRequest, "请求参数不是有效 JSON")
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if payload == nil {
-		payload = map[string]any{}
 	}
 	result, err := s.worker.Call(r.Context(), path, payload)
 	if err != nil {
@@ -213,6 +236,19 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	response.Success(w, result)
+}
+
+// readPayload 读取请求 JSON 参数。
+// r 为 HTTP 请求对象，空 body 返回空 map。
+func readPayload(r *http.Request) (map[string]any, error) {
+	var payload map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		return nil, errors.New("请求参数不是有效 JSON")
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	return payload, nil
 }
 
 // withCORS 为本地 API 增加跨域响应头。

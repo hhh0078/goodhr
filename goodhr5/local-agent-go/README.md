@@ -8,6 +8,7 @@
 - 默认优先监听 `127.0.0.1:9001`，端口被占用时会尝试到 `9009`。
 - `/health` 返回统一 JSON。
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
+- `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
 - 已预留 Node Browser Worker 启动、停止和浏览器 API 转发入口。
 - `worker-node/` 已放入 Node Worker 初版代码，后续接 CloakBrowser 官方 Node SDK。
 
@@ -28,6 +29,57 @@ go run ./cmd/goodhr-local-agent --port 19001
 
 ```bash
 curl http://127.0.0.1:19001/health
+```
+
+安装运行组件：
+
+```bash
+curl -X POST http://127.0.0.1:19001/api/v1/runtime/install \
+  -H "Content-Type: application/json" \
+  -d '{"manifest_url":"https://oss.58it.cn/goodhr-local-runtime-manifest.json"}'
+```
+
+manifest 示例：
+
+```json
+{
+  "node_runtime": {
+    "darwin-arm64": {
+      "version": "22.0.0",
+      "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz",
+      "sha256": ""
+    },
+    "win-x64": {
+      "version": "22.0.0",
+      "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip",
+      "sha256": ""
+    }
+  },
+  "node_worker": {
+    "darwin-arm64": {
+      "version": "0.1.0",
+      "url": "https://oss.58it.cn/goodhr-browser-worker-darwin-arm64.zip",
+      "sha256": ""
+    },
+    "win-x64": {
+      "version": "0.1.0",
+      "url": "https://oss.58it.cn/goodhr-browser-worker-win-x64.zip",
+      "sha256": ""
+    }
+  },
+  "cloakbrowser": {
+    "darwin-arm64": {
+      "version": "146.0.7680.177.5",
+      "url": "https://oss.58it.cn/cloakbrowser-darwin-arm64.tar.gz",
+      "sha256": ""
+    },
+    "win-x64": {
+      "version": "146.0.7680.177.5",
+      "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip",
+      "sha256": ""
+    }
+  }
+}
 ```
 
 ## 后续重点

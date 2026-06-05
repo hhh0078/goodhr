@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"goodhr5/local-agent-go/internal/config"
 )
@@ -72,13 +73,27 @@ func (m *Manager) NodePath() string {
 	if runtime.GOOS == "windows" {
 		name = "node.exe"
 	}
-	return filepath.Join(m.cfg.RuntimeDir, "node", name)
+	root := filepath.Join(m.cfg.RuntimeDir, "node")
+	if found := findFile(root, name); found != "" {
+		return found
+	}
+	return filepath.Join(root, name)
 }
 
 // WorkerEntry 返回 Node Worker 入口文件路径。
 // 入口文件由 worker-node 构建后放入运行目录。
 func (m *Manager) WorkerEntry() string {
-	return filepath.Join(m.cfg.RuntimeDir, "browser-worker", "index.js")
+	root := filepath.Join(m.cfg.RuntimeDir, "browser-worker")
+	for _, name := range []string{"index.js", filepath.Join("dist", "index.js"), filepath.Join("src", "index.js")} {
+		path := filepath.Join(root, name)
+		if fileExists(path) {
+			return path
+		}
+	}
+	if found := findFile(root, "index.js"); found != "" {
+		return found
+	}
+	return filepath.Join(root, "index.js")
 }
 
 // CloakBrowserPath 返回当前系统 CloakBrowser 可执行文件路径。
@@ -87,10 +102,23 @@ func (m *Manager) CloakBrowserPath() string {
 	root := filepath.Join(m.cfg.RuntimeDir, "cloakbrowser")
 	switch runtime.GOOS {
 	case "darwin":
+		if found := findFile(root, "Chromium"); found != "" && strings.Contains(found, "Chromium.app") {
+			return found
+		}
 		return filepath.Join(root, "Chromium.app", "Contents", "MacOS", "Chromium")
 	case "windows":
+		for _, name := range []string{"chrome.exe", "chromium.exe"} {
+			if found := findFile(root, name); found != "" {
+				return found
+			}
+		}
 		return filepath.Join(root, "chrome.exe")
 	default:
+		for _, name := range []string{"chrome", "chromium"} {
+			if found := findFile(root, name); found != "" {
+				return found
+			}
+		}
 		return filepath.Join(root, "chrome")
 	}
 }
@@ -103,4 +131,24 @@ func fileExists(path string) bool {
 	}
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// findFile 在目录中递归查找指定文件名。
+// root 为搜索目录，name 为文件名，找不到时返回空字符串。
+func findFile(root string, name string) string {
+	if root == "" || name == "" {
+		return ""
+	}
+	var found string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" || d.IsDir() {
+			return nil
+		}
+		if d.Name() == name {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
