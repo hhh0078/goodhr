@@ -342,6 +342,10 @@ def _local_api_msg(message: object) -> str:
         return mapping[text]
     if text.startswith("AI 请求失败") or text.startswith("AI 服务请求失败"):
         return "AI 服务请求失败，请检查接口地址、密钥、模型名称或余额"
+    if "Target page, context or browser has been closed" in text or "TargetClosedError" in text:
+        return "浏览器启动后立即关闭，请检查 CloakBrowser 文件权限、残留进程或重新启动本地程序"
+    if text.startswith("浏览器启动失败"):
+        return "浏览器启动失败，请检查 CloakBrowser 文件权限、残留进程或重新启动本地程序"
     if text.startswith("download audio failed"):
         return "提示音下载失败，请检查音频地址"
     if text.startswith("play audio failed"):
@@ -1011,6 +1015,14 @@ async def browser_start(payload: dict) -> dict:
     except asyncio.TimeoutError:
         logger.error("浏览器启动超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, user_data_dir or "-")
         raise HTTPException(504, "浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
+    except Exception as exc:
+        logger.exception("浏览器启动失败 user_data_dir=%s", user_data_dir or "-")
+        ELEMENT_REFS.clear()
+        try:
+            await _browser_manager.stop()
+        except Exception:
+            pass
+        raise HTTPException(500, f"浏览器启动失败：{exc}")
     logger.info("浏览器启动请求完成 status=%s user_data_dir=%s", status, user_data_dir or "-")
     if isinstance(cookies, list) and cookies:
         try:
@@ -1771,6 +1783,13 @@ async def handle_value_error(_request: Request, exc: ValueError) -> JSONResponse
 async def handle_http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
     """统一 HTTP 异常处理，返回中文 msg。"""
     return _local_api_error(int(exc.status_code or 500), exc.detail)
+
+
+@app.exception_handler(Exception)
+async def handle_unknown_exception(_request: Request, exc: Exception) -> JSONResponse:
+    """统一未捕获异常处理，避免前端看到英文异常。"""
+    logger.exception("本地接口未捕获异常")
+    return _local_api_error(500, str(exc))
 
 
 # ---------------------------------------------------------------------------
