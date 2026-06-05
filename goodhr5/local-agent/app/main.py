@@ -1387,7 +1387,12 @@ async def page_screenshot(payload: dict) -> dict:
     if screenshot_bytes is None:
         raise HTTPException(500, "截图失败")
 
-    return {"ok": True, "size": len(screenshot_bytes)}
+    task_id = str(payload.get("task_id") or "").strip()
+    filename = str(payload.get("filename") or "page-screenshot.png").strip()
+    saved_path = ""
+    if task_id:
+        saved_path = str(save_screenshot_bytes(task_id, filename, screenshot_bytes))
+    return {"ok": True, "size": len(screenshot_bytes), "path": saved_path}
 
 
 @app.post("/api/v1/crypto/decrypt")

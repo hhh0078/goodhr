@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.paths import data_dir
+from app.local_records import save_local_screenshot
 
 
 def init_task(
@@ -120,6 +121,15 @@ def save_screenshot_bytes(task_id: str, filename: str, content: bytes) -> Path:
     path = screenshot_path(task_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
+    save_local_screenshot(
+        {
+            "task_id": task_id,
+            "file_path": str(path),
+            "label": filename,
+            "width": 0,
+            "height": 0,
+        }
+    )
     return path
 
 

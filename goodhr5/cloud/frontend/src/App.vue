@@ -178,6 +178,9 @@ const menuItems = computed(() => {
     { id: "help", label: "常见问题" },
     { id: "agent-download", label: "本地程序下载" },
   ];
+  if (isLocalConsole()) {
+    items.splice(8, 0, { id: "local-data", label: "本地数据" });
+  }
   if (isSuperAdmin.value) {
     items.push({ id: "user-management", label: "用户管理" });
     items.push({ id: "activation-codes", label: "激活码管理" });
@@ -207,6 +210,17 @@ provideAppContext({
  */
 function resolvePositionSnapshot(positionID: string) {
   return positions.positions.value.find((item: any) => item.id === positionID) || {};
+}
+
+/**
+ * 判断当前是否运行在本地控制台。
+ * @returns {boolean} 本地控制台返回 true。
+ */
+function isLocalConsole() {
+  if (typeof window === "undefined") return false;
+  const hostname = window.location.hostname;
+  const port = Number(window.location.port || "0");
+  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 9001 && port <= 9009;
 }
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
