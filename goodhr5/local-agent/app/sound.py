@@ -32,7 +32,7 @@ def resolve_builtin_audio(kind: str) -> Path:
         return DEFAULT_SUCCESS_WAV if DEFAULT_SUCCESS_WAV.exists() else DEFAULT_SUCCESS
     if key == "failed":
         return DEFAULT_FAILED_WAV if DEFAULT_FAILED_WAV.exists() else DEFAULT_FAILED
-    raise ValueError("kind must be success or failed")
+    raise ValueError("提示音类型只能是成功或失败")
 
 
 async def ensure_audio_from_url(url: str) -> Path:
@@ -66,7 +66,7 @@ def play_once(path: Path) -> None:
         return
     player = _pick_player()
     if not player:
-        raise RuntimeError("no supported audio player found (afplay/mpg123/ffplay)")
+        raise RuntimeError("未找到可用的音频播放器")
     if player == "ffplay":
         subprocess.run([player, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)], check=True)
     else:

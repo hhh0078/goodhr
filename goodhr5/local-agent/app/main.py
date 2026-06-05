@@ -19,7 +19,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.browser import BrowserManager, browser_downloads_dir
 from app.console import (
@@ -166,6 +166,205 @@ async def add_private_network_access_headers(request: Request, call_next):
         or "Content-Type, Authorization, X-GoodHR-Local-Token, X-GoodHR-Agent-BaseURL"
     )
     return response
+
+
+@app.middleware("http")
+async def normalize_local_api_json(request: Request, call_next):
+    """
+    统一本地 API JSON 响应格式。
+
+    Args:
+        request: 当前 HTTP 请求。
+        call_next: 后续请求处理器。
+
+    Returns:
+        统一包含 code、msg、data 的 JSON 响应。
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        return response
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        return response
+
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=_response_headers(response),
+            media_type=content_type,
+        )
+
+    return JSONResponse(
+        _normalize_local_api_payload(payload, response.status_code),
+        status_code=response.status_code,
+        headers=_response_headers(response),
+    )
+
+
+def _normalize_local_api_payload(payload: object, status_code: int) -> dict:
+    """
+    将旧格式本地 API 响应转换为统一结构。
+
+    Args:
+        payload: 原始响应体。
+        status_code: HTTP 状态码。
+
+    Returns:
+        dict: 包含 code、msg、data 的响应。
+    """
+    if not isinstance(payload, dict):
+        return {"ok": status_code < 400, "code": status_code, "msg": "成功", "data": payload}
+
+    ok = bool(payload.get("ok", status_code < 400))
+    code = int(payload.get("code") or (200 if ok and status_code < 400 else status_code))
+    raw_msg = payload.get("msg") or payload.get("error") or payload.get("detail") or ("成功" if ok else "请求失败")
+    msg = _local_api_msg(raw_msg)
+    data = payload.get("data") if "data" in payload else {
+        key: value
+        for key, value in payload.items()
+        if key not in {"ok", "code", "msg", "error", "detail"}
+    }
+    if data == {}:
+        data = None
+
+    normalized = dict(payload)
+    normalized.update({"ok": ok, "code": code, "msg": msg, "data": data})
+    if not ok:
+        normalized["error"] = msg
+    return normalized
+
+
+def _response_headers(response) -> dict[str, str]:
+    """
+    复制响应头并移除会被重新计算的字段。
+
+    Args:
+        response: 原始响应对象。
+
+    Returns:
+        dict[str, str]: 响应头。
+    """
+    return {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() not in {"content-length", "content-type"}
+    }
+
+
+def _local_api_error(status_code: int, message: object, data: object = None) -> JSONResponse:
+    """
+    构造统一的本地 API 错误响应。
+
+    Args:
+        status_code: HTTP 状态码。
+        message: 原始错误信息。
+        data: 错误数据。
+
+    Returns:
+        JSONResponse: 统一错误响应。
+    """
+    msg = _local_api_msg(message)
+    return JSONResponse(
+        {"ok": False, "code": status_code, "msg": msg, "data": data, "error": msg},
+        status_code=status_code,
+    )
+
+
+def _local_api_msg(message: object) -> str:
+    """
+    将本地程序内部错误转换为中文提示。
+
+    Args:
+        message: 原始错误。
+
+    Returns:
+        str: 中文提示。
+    """
+    text = str(message or "").strip()
+    if not text:
+        return "请求失败"
+    mapping = {
+        "AI " + "base_url" + " is required": "请先在个人配置里填写本地 AI 接口地址",
+        "AI " + "api_key" + " is required": "请先在个人配置里填写本地 AI 密钥",
+        "AI " + "model" + " is required": "请先在个人配置里填写本地 AI 模型名称",
+        "messages" + " is required": "AI 请求内容不能为空",
+        "text is required": "请输入需要处理的内容",
+        "position name is required": "岗位名称不能为空",
+        "platform_id is required": "平台标识不能为空",
+        "display_name is required": "账号名称不能为空",
+        "local position not found": "本地岗位模板不存在",
+        "local task not found": "本地任务不存在",
+        "profile not found": "本地账号不存在",
+        "candidate not found": "候选人不存在",
+        "screenshot not found": "截图不存在",
+        "download not found": "下载记录不存在",
+        "status is required": "任务状态不能为空",
+        "cloud_api_base is required": "云端接口地址不能为空",
+        "cloud_ws_url is required": "云端连接地址不能为空",
+        "token is required": "登录凭证不能为空，请重新登录",
+        "fields must be a non-empty list": "字段列表不能为空",
+        "each field item must contain exactly one field name": "每个字段配置只能包含一个字段名",
+        "field name is required": "字段名不能为空",
+        "element_ref not found": "页面元素引用不存在",
+        "element.target_classes is required": "元素定位配置不能为空",
+        "url is required": "页面地址不能为空",
+        "url_contains is required": "页面地址匹配条件不能为空",
+        "mode must be dom or ocr": "读取模式只能是页面解析或图片识别",
+        "elements is required and must be a non-empty array": "元素列表不能为空",
+        "index must be >= 0": "列表序号不能小于 0",
+        "parent.target_classes is required": "父级元素定位配置不能为空",
+        "item.target_classes is required": "列表项定位配置不能为空",
+        "key is required": "按键不能为空",
+        "modal_selectors must be a non-empty list": "弹框选择器不能为空",
+        "encrypted_sk and encrypted_data are required": "Cookie 解密参数不完整",
+        "encrypted_data and encrypted_keys are required": "Cookie 解密参数不完整",
+        "encrypted_data is required": "Cookie 密文不能为空",
+        "encrypted_keys is required": "Cookie 密钥不能为空",
+        "machine_id is required": "机器码不能为空",
+        "kind or url is required": "请选择提示音类型或填写音频地址",
+        "data required": "上传数据不能为空",
+        "console asset not found": "控制台前端文件不存在",
+        "frontend dev server not found": "前端开发服务未启动",
+        "invalid console asset path": "控制台资源路径无效",
+        "page_id is required": "页面 ID 不能为空",
+        "page_id is invalid": "页面 ID 无效",
+        "page_id not found": "页面不存在或已关闭",
+        "kind must be success or failed": "提示音类型只能是成功或失败",
+        "no supported audio player found (afplay/mpg123/ffplay)": "未找到可用的音频播放器",
+    }
+    if text in mapping:
+        return mapping[text]
+    if text.startswith("AI 请求失败") or text.startswith("AI 服务请求失败"):
+        return "AI 服务请求失败，请检查接口地址、密钥、模型名称或余额"
+    if text.startswith("download audio failed"):
+        return "提示音下载失败，请检查音频地址"
+    if text.startswith("play audio failed"):
+        return "提示音播放失败，请检查本机音频环境"
+    if text.startswith("frontend dev server request failed"):
+        return "前端开发服务请求失败，请确认 yarn run dev 是否正在运行"
+    if text.startswith("No available GoodHR Local Agent port"):
+        return "9001 到 9009 端口都被占用，请关闭残留本地程序后重试"
+    if text.startswith("GOODHR_AGENT_PORT must be a number"):
+        return "本地程序端口配置必须是数字"
+    if text.startswith("unsupported message type"):
+        return "本地程序收到不支持的任务指令"
+    if text.startswith("unsupported local path"):
+        return "本地程序不支持该路径"
+    if text.startswith("unsupported platform"):
+        return "暂不支持该招聘平台"
+    if text.startswith("index ") and "out of range" in text:
+        return "列表序号超出范围，请刷新页面后重试"
+    if "must be an object" in text:
+        return "元素配置格式不正确"
+    if any(word in text for word in ["required", "invalid", "not found", "failed", "unsupported", "out of range"]):
+        return "本地程序请求失败，请检查参数后重试"
+    return text
 
 
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
@@ -1559,16 +1758,19 @@ async def _fetch_cloud_subscription(cloud_api_base: str, token: str) -> dict:
 @app.exception_handler(FileNotFoundError)
 async def handle_not_found(_request: Request, exc: FileNotFoundError) -> JSONResponse:
     """统一的文件未找到异常处理，返回 404 响应。"""
-    return JSONResponse(
-        {"ok": False, "error": str(exc) or "task candidates not found"},
-        status_code=404,
-    )
+    return _local_api_error(404, str(exc) or "资源不存在")
 
 
 @app.exception_handler(ValueError)
 async def handle_value_error(_request: Request, exc: ValueError) -> JSONResponse:
     """统一的参数校验异常处理，返回 400 响应。"""
-    return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    return _local_api_error(400, str(exc))
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
+    """统一 HTTP 异常处理，返回中文 msg。"""
+    return _local_api_error(int(exc.status_code or 500), exc.detail)
 
 
 # ---------------------------------------------------------------------------

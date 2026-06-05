@@ -35,19 +35,57 @@ async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
   //   method: rest.method || "GET",
   //   body,
   // });
-  const res = await fetch(agentURL(base, path), {
-    headers: {
-      "Content-Type": "application/json",
-      ...(opts.headers as Record<string, string> | undefined),
-    },
-    ...rest,
-    body: serializeBody(body),
-  });
-  const data = await res.json();
+  let res: Response;
+  try {
+    res = await fetch(agentURL(base, path), {
+      headers: {
+        "Content-Type": "application/json",
+        ...(opts.headers as Record<string, string> | undefined),
+      },
+      ...rest,
+      body: serializeBody(body),
+    });
+  } catch {
+    const msg = "无法连接本地程序，请确认本地程序已经启动";
+    showLocalAgentMessage(msg);
+    throw new Error(msg);
+  }
+  const data = await parseLocalAgentJSON(res);
   // console.info('[goodhr5][local-agent][response]', { base, path, status: res.status, data })
-  if (!res.ok || !data.ok)
-    throw new Error(data.error || data.detail || "Local Agent 请求失败");
+  const code = Number(data.code || (res.ok && data.ok !== false ? 200 : res.status || 500));
+  if (!res.ok || data.ok === false || code !== 200) {
+    const msg = String(data.msg || data.error || data.detail || "本地程序请求失败");
+    showLocalAgentMessage(msg);
+    throw new Error(msg);
+  }
   return data;
+}
+
+/**
+ * 解析 Local Agent JSON 响应。
+ * @param {Response} res - fetch 响应对象。
+ * @returns {Promise<any>} JSON 数据。
+ */
+async function parseLocalAgentJSON(res: Response) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const msg = "本地程序返回的数据格式不正确";
+    showLocalAgentMessage(msg);
+    throw new Error(msg);
+  }
+}
+
+/**
+ * 弹框展示 Local Agent 返回的消息。
+ * @param {string} msg - 本地程序返回的中文提示。
+ * @returns {void} 无返回值。
+ */
+function showLocalAgentMessage(msg: string) {
+  if (typeof window === "undefined") return;
+  window.alert(msg || "本地程序请求失败");
 }
 
 function serializeBody(body: AgentRequestOptions["body"]) {

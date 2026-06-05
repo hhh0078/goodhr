@@ -31,9 +31,9 @@ def create_profile(
     display_name = display_name.strip()
     status = (status or "available").strip()
     if not platform_id:
-        raise ValueError("platform_id is required")
+        raise ValueError("平台标识不能为空")
     if not display_name:
-        raise ValueError("display_name is required")
+        raise ValueError("账号名称不能为空")
 
     profiles = _read_profiles()
     profile_id = _next_profile_id(platform_id, profiles)

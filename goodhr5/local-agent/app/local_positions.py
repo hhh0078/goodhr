@@ -82,7 +82,7 @@ def save_local_position(payload: dict[str, Any]) -> dict[str, Any]:
         "updated_at": now,
     }
     if not position["name"]:
-        raise ValueError("position name is required")
+        raise ValueError("岗位名称不能为空")
     with connect() as conn:
         conn.execute(
             """

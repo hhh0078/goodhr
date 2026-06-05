@@ -107,17 +107,17 @@ async def chat_with_local_ai(payload: dict[str, Any]) -> dict[str, Any]:
         if prompt:
             messages = [{"role": "user", "content": prompt}]
     if not isinstance(messages, list) or not messages:
-        raise ValueError("messages is required")
+        raise ValueError("AI 请求内容不能为空")
 
     api_url = _chat_completions_url(str(config.get("base_url") or ""))
     api_key = str(config.get("api_key") or "").strip()
     model = str(payload.get("model") or config.get("model") or "").strip()
     if not api_url:
-        raise ValueError("AI base_url is required")
+        raise ValueError("请先在个人配置里填写本地 AI 接口地址")
     if not api_key:
-        raise ValueError("AI api_key is required")
+        raise ValueError("请先在个人配置里填写本地 AI 密钥")
     if not model:
-        raise ValueError("AI model is required")
+        raise ValueError("请先在个人配置里填写本地 AI 模型名称")
 
     request_body = _build_chat_body(payload, config, messages, model)
     start = time.perf_counter()
@@ -134,7 +134,7 @@ async def chat_with_local_ai(payload: dict[str, Any]) -> dict[str, Any]:
     response_json = _response_json(response)
     if response.status_code >= 400:
         preview = response.text[:500].replace("\n", " ")
-        raise RuntimeError(f"AI 请求失败 status={response.status_code} body={preview}")
+        raise RuntimeError(f"AI 服务请求失败，状态码 {response.status_code}，响应 {preview}")
     content = extract_chat_content(response_json)
     if not content:
         content = clean_ai_text_output(str(response_json.get("content") or ""))
