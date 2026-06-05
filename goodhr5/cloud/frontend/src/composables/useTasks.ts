@@ -12,11 +12,21 @@ import {
 } from "../services/api/taskApi";
 import { getUserAIConfig } from "../services/api/personalConfigApi";
 import {
+  addLocalTaskLog,
+  clearLocalTaskLogs,
+  createLocalTask,
+  deleteLocalTask,
   initLocalTask,
+  listLocalTaskLogs,
+  listLocalTasks,
+  listLocalTaskCandidates,
   listLocalCandidates,
+  deleteLocalTaskCandidate,
   deleteLocalCandidate,
   startTaskWS,
   stopTaskWS,
+  updateLocalTask,
+  updateLocalTaskStatus,
 } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
@@ -49,7 +59,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     loading.value = true;
     error.value = "";
     try {
-      tasks.value = await listTasks();
+      tasks.value = shouldUseLocalTasks() ? await listLocalTasks(localTaskBase()) : await listTasks();
     } catch (e: any) {
       error.value = e.message;
     } finally {
@@ -59,7 +69,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
 
   async function refreshTasksQuietly() {
     try {
-      tasks.value = await listTasks();
+      tasks.value = shouldUseLocalTasks() ? await listLocalTasks(localTaskBase()) : await listTasks();
     } catch (e) {
       console.error("[goodhr5][tasks] quiet refresh failed", e);
     }
@@ -70,7 +80,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     loading.value = true;
     error.value = "";
     try {
-      await createTask({
+      const payload = {
         name: form.value.name,
         platform_id: form.value.platformId,
         platform_account_id: form.value.platformAccountId,
@@ -78,7 +88,12 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         mode: form.value.mode,
         match_limit: Number(form.value.matchLimit || 0),
         enable_sound: Boolean(form.value.enableSound),
-      });
+      };
+      if (shouldUseLocalTasks()) {
+        await createLocalTask(localTaskBase(), payload);
+      } else {
+        await createTask(payload);
+      }
       await load();
       form.value = { ...form.value, name: "", positionId: "", enableSound: false };
     } catch (e: any) {
@@ -92,7 +107,7 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     loading.value = true;
     error.value = "";
     try {
-      await updateTask(taskId, {
+      const taskPayload = {
         name: payload.name,
         platform_id: payload.platformId,
         platform_account_id: payload.platformAccountId,
@@ -100,7 +115,12 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
         mode: payload.mode,
         match_limit: Number(payload.matchLimit || 0),
         enable_sound: Boolean(payload.enableSound),
-      });
+      };
+      if (shouldUseLocalTasks()) {
+        await updateLocalTask(localTaskBase(), taskId, taskPayload);
+      } else {
+        await updateTask(taskId, taskPayload);
+      }
       await load();
     } catch (e: any) {
       error.value = e.message;
@@ -124,6 +144,14 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
 
       const task = tasks.value.find((item: any) => item.id === taskId);
       await ensureTaskAIConfigReady(task);
+      if (shouldUseLocalTasks()) {
+        await addLocalTaskLog(localTaskBase(), taskId, {
+          level: "warning",
+          message: "本地任务执行主流程还在迁移中，当前先完成本地数据保存。",
+        });
+        await refreshLogs(taskId);
+        throw new Error("本地任务执行主流程还在迁移中，当前先完成本地数据保存");
+      }
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
       console.info("[goodhr5][task-start] frontend requested", {
         taskId,
@@ -181,6 +209,15 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     try {
       //弹框确认
       if (!confirm("确认停止任务吗？")) return;
+      if (shouldUseLocalTasks()) {
+        await updateLocalTaskStatus(localTaskBase(), taskId, "stopped");
+        await addLocalTaskLog(localTaskBase(), taskId, { level: "info", message: "任务已停止" });
+        message.value = "任务已停止";
+        await load();
+        await refreshLogs(taskId);
+        stopTaskLogPolling();
+        return;
+      }
       if (!agentBaseUrl.value) throw new Error("未检测到本地程序");
       console.info("[goodhr5][task-stop] frontend requested", { taskId, agentBaseUrl: agentBaseUrl.value });
       const data = await stopTaskWS(agentBaseUrl.value, taskId, {
@@ -206,7 +243,11 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     message.value = "";
     try {
       if (!confirm("确认删除任务吗？")) return;
-      await deleteTask(taskId);
+      if (shouldUseLocalTasks()) {
+        await deleteLocalTask(localTaskBase(), taskId);
+      } else {
+        await deleteTask(taskId);
+      }
       message.value = "任务已删除";
       await load();
     } catch (e: any) {
@@ -238,8 +279,10 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     message.value = "";
     try {
       if (!confirm("确认清空该任务日志吗？")) return;
-      await clearTaskLogs(taskId);
-      const clearedAt = new Date().toISOString();
+      const cleared = shouldUseLocalTasks()
+        ? await clearLocalTaskLogs(localTaskBase(), taskId)
+        : await clearTaskLogs(taskId);
+      const clearedAt = cleared?.cleared_at || new Date().toISOString();
       taskLogs.value = { ...taskLogs.value, [taskId]: [] };
       taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: false };
       taskLogClearedAt.value = { ...taskLogClearedAt.value, [taskId]: clearedAt };
@@ -255,10 +298,12 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     try {
       const existing = taskLogs.value[taskId] || [];
       const since = latestTaskLogTime(existing) || taskLogClearedAt.value[taskId] || "";
-      const data = await listTaskLogs(taskId, {
-        since: since || undefined,
-        limit: 100,
-      });
+      const data = shouldUseLocalTasks()
+        ? await listLocalTaskLogs(localTaskBase(), taskId, { limit: 100 })
+        : await listTaskLogs(taskId, {
+            since: since || undefined,
+            limit: 100,
+          });
       const logs = data.logs || [];
       const merged = mergeTaskLogs(existing, logs, Boolean(since));
       taskLogs.value = { ...taskLogs.value, [taskId]: merged };
@@ -277,6 +322,10 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
   }
 
   async function loadOlderLogs(taskId: string) {
+    if (shouldUseLocalTasks()) {
+      taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: false };
+      return;
+    }
     if (taskLogLoadingMore.value[taskId] || taskLogHasMore.value[taskId] === false) return;
     const existing = taskLogs.value[taskId] || [];
     const before = oldestTaskLogTime(existing);
@@ -381,14 +430,19 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     candidateLoadingTaskId.value = localId;
     candidateError.value = "";
     try {
-      await initLocalTask(agentBaseUrl.value, {
-        task_id: localId,
-        cloud_user_id: "",
-        platform_id: task.platform_id || "boss",
-        platform_account_id: task.platform_account_id || "",
-        position_snapshot: {},
-      });
-      const data = await listLocalCandidates(agentBaseUrl.value, localId);
+      let data: any;
+      if (shouldUseLocalTasks()) {
+        data = await listLocalTaskCandidates(localTaskBase(), localId);
+      } else {
+        await initLocalTask(agentBaseUrl.value, {
+          task_id: localId,
+          cloud_user_id: "",
+          platform_id: task.platform_id || "boss",
+          platform_account_id: task.platform_account_id || "",
+          position_snapshot: {},
+        });
+        data = await listLocalCandidates(agentBaseUrl.value, localId);
+      }
       taskCandidates.value = { ...taskCandidates.value, [localId]: data };
     } catch (e: any) {
       candidateError.value = e.message;
@@ -400,7 +454,11 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
   async function removeCandidate(task: any, candidate: any) {
     const localId = candidateExpandedTaskId.value;
     try {
-      await deleteLocalCandidate(agentBaseUrl.value, localId, candidate.id);
+      if (shouldUseLocalTasks()) {
+        await deleteLocalTaskCandidate(localTaskBase(), localId, candidate.id);
+      } else {
+        await deleteLocalCandidate(agentBaseUrl.value, localId, candidate.id);
+      }
       const items = (taskCandidates.value[localId]?.items || []).filter(
         (c: any) => c.id !== candidate.id,
       );
@@ -442,6 +500,29 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
       cloud_ws_url: `${wsBase}/api/agents/ws`,
       token: getAccessToken(),
     };
+  }
+
+  /**
+   * 判断当前页面是否是本地控制台。
+   * @returns {boolean} 本地控制台返回 true。
+   */
+  function shouldUseLocalTasks() {
+    if (typeof window === "undefined") return false;
+    const hostname = window.location.hostname;
+    const port = Number(window.location.port || "0");
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return port >= 9001 && port <= 9009;
+    }
+    return false;
+  }
+
+  /**
+   * 返回本地任务接口基础地址。
+   * @returns {string} Local Agent HTTP 地址。
+   */
+  function localTaskBase() {
+    if (shouldUseLocalTasks()) return window.location.origin;
+    return agentBaseUrl.value;
   }
 
   return {

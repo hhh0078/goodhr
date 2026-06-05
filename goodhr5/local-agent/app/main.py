@@ -42,11 +42,15 @@ from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.local_db import database_path
 from app.local_tasks import (
     add_local_task_log,
+    clear_local_task_logs,
     create_local_task,
+    delete_local_candidate,
+    delete_local_task,
     list_local_candidates,
     list_local_task_logs,
     list_local_tasks,
     save_local_candidate,
+    update_local_task,
     update_local_task_status,
 )
 from app.machine import cookie_machine_ids, load_machine
@@ -202,6 +206,26 @@ async def post_local_task(payload: dict) -> dict:
     return {"ok": True, "task": task}
 
 
+@app.put("/api/v1/local/tasks/{task_id}")
+async def put_local_task(task_id: str, payload: dict) -> dict:
+    """更新本地 SQLite 任务。"""
+    try:
+        task = update_local_task(task_id, payload)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "task": task}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}")
+async def delete_local_task_route(task_id: str) -> dict:
+    """删除本地 SQLite 任务。"""
+    try:
+        delete_local_task(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True}
+
+
 @app.post("/api/v1/local/tasks/{task_id}/status")
 async def post_local_task_status(task_id: str, payload: dict) -> dict:
     """更新本地任务状态。"""
@@ -220,6 +244,16 @@ async def post_local_task_status(task_id: str, payload: dict) -> dict:
 async def get_local_task_logs(task_id: str, limit: int = 100) -> dict:
     """返回本地任务日志。"""
     return {"ok": True, "logs": list_local_task_logs(task_id, limit)}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}/logs")
+async def delete_local_task_logs_route(task_id: str) -> dict:
+    """清空本地任务日志。"""
+    try:
+        cleared_at = clear_local_task_logs(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "cleared_at": cleared_at}
 
 
 @app.post("/api/v1/local/tasks/{task_id}/logs")
@@ -246,6 +280,16 @@ async def post_local_task_candidate(task_id: str, payload: dict) -> dict:
     except FileNotFoundError:
         raise HTTPException(404, "local task not found")
     return {"ok": True, "candidate": candidate}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}/candidates/{candidate_id}")
+async def delete_local_task_candidate_route(task_id: str, candidate_id: str) -> dict:
+    """删除本地候选人。"""
+    try:
+        delete_local_candidate(task_id, candidate_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True}
 
 
 @app.post("/api/v1/session/bind-cloud-user")

@@ -45,6 +45,7 @@ def create_local_task(payload: dict) -> dict:
         "mode": str(payload.get("mode") or "ai"),
         "match_limit": max(0, match_limit),
         "status": "pending",
+        "enable_sound": 1 if payload.get("enable_sound") else 0,
         "position_snapshot": payload.get("position_snapshot") or {},
         "created_at": created_at,
         "updated_at": created_at,
@@ -54,8 +55,8 @@ def create_local_task(payload: dict) -> dict:
             """
             INSERT INTO local_tasks (
                 id, name, platform_id, platform_account_id, position_id, mode, match_limit,
-                status, position_snapshot, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, enable_sound, position_snapshot, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task["id"],
@@ -66,6 +67,7 @@ def create_local_task(payload: dict) -> dict:
                 task["mode"],
                 task["match_limit"],
                 task["status"],
+                task["enable_sound"],
                 json.dumps(task["position_snapshot"], ensure_ascii=False),
                 task["created_at"],
                 task["updated_at"],
@@ -91,6 +93,60 @@ def list_local_tasks() -> list[dict]:
     return [_task_row_to_dict(row) for row in rows]
 
 
+def update_local_task(task_id: str, payload: dict) -> dict:
+    """
+    更新本地任务基础信息。
+
+    Args:
+        task_id: 任务 ID。
+        payload: 更新参数。
+
+    Returns:
+        dict: 更新后的任务。
+    """
+    raw_match_limit = payload.get("match_limit") or 0
+    try:
+        match_limit = int(raw_match_limit)
+    except (TypeError, ValueError):
+        match_limit = 0
+    updated_at = now_iso()
+    with connect() as conn:
+        _ensure_local_task_exists(conn, task_id)
+        conn.execute(
+            """
+            UPDATE local_tasks
+            SET name=?, platform_id=?, platform_account_id=?, position_id=?, mode=?,
+                match_limit=?, enable_sound=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                str(payload.get("name") or ""),
+                str(payload.get("platform_id") or "boss"),
+                str(payload.get("platform_account_id") or ""),
+                str(payload.get("position_id") or ""),
+                str(payload.get("mode") or "ai"),
+                max(0, match_limit),
+                1 if payload.get("enable_sound") else 0,
+                updated_at,
+                task_id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM local_tasks WHERE id=?", (task_id,)).fetchone()
+    return _task_row_to_dict(row)
+
+
+def delete_local_task(task_id: str) -> None:
+    """
+    删除本地任务及关联数据。
+
+    Args:
+        task_id: 任务 ID。
+    """
+    with connect() as conn:
+        _ensure_local_task_exists(conn, task_id)
+        conn.execute("DELETE FROM local_tasks WHERE id=?", (task_id,))
+
+
 def update_local_task_status(task_id: str, status: str) -> dict:
     """
     更新本地任务状态。
@@ -112,6 +168,23 @@ def update_local_task_status(task_id: str, status: str) -> dict:
     if row is None:
         raise FileNotFoundError("local task not found")
     return _task_row_to_dict(row)
+
+
+def clear_local_task_logs(task_id: str) -> str:
+    """
+    清空本地任务日志。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        str: 清空时间。
+    """
+    cleared_at = now_iso()
+    with connect() as conn:
+        _ensure_local_task_exists(conn, task_id)
+        conn.execute("DELETE FROM local_task_logs WHERE task_id=?", (task_id,))
+    return cleared_at
 
 
 def add_local_task_log(task_id: str, level: str, message: str) -> dict:
@@ -231,6 +304,22 @@ def list_local_candidates(task_id: str) -> list[dict]:
         except Exception:
             continue
     return result
+
+
+def delete_local_candidate(task_id: str, candidate_id: str) -> None:
+    """
+    删除本地候选人。
+
+    Args:
+        task_id: 任务 ID。
+        candidate_id: 候选人 ID。
+    """
+    with connect() as conn:
+        _ensure_local_task_exists(conn, task_id)
+        conn.execute(
+            "DELETE FROM local_candidates WHERE task_id=? AND id=?",
+            (task_id, candidate_id),
+        )
 
 
 def _ensure_local_task_exists(conn, task_id: str) -> None:

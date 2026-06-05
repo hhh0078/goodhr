@@ -65,6 +65,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             greeted_count INTEGER NOT NULL DEFAULT 0,
             skipped_count INTEGER NOT NULL DEFAULT 0,
             failed_count INTEGER NOT NULL DEFAULT 0,
+            enable_sound INTEGER NOT NULL DEFAULT 0,
             position_snapshot TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -99,8 +100,25 @@ def migrate(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _ensure_column(conn, "local_tasks", "enable_sound", "INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', ?)",
         (str(SCHEMA_VERSION),),
     )
     conn.commit()
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    """
+    确保 SQLite 表存在指定字段。
+
+    Args:
+        conn: SQLite 连接。
+        table: 表名。
+        column: 字段名。
+        definition: ALTER TABLE 使用的字段定义。
+    """
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    exists = any(str(row["name"]) == column for row in rows)
+    if not exists:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

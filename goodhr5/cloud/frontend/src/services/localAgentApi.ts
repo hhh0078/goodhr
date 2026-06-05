@@ -135,6 +135,128 @@ export async function initLocalTask(base: string, payload: any) {
   return req(base, "/api/v1/tasks/init", { method: "POST", body: payload });
 }
 
+/**
+ * 读取本地 SQLite 任务列表。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any[]>} 返回任务数组。
+ */
+export async function listLocalTasks(base: string) {
+  const data = await req(base, "/api/v1/local/tasks");
+  return data.tasks || [];
+}
+
+/**
+ * 创建本地 SQLite 任务。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 任务创建参数。
+ * @returns {Promise<any>} 返回新建任务。
+ */
+export async function createLocalTask(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/tasks", { method: "POST", body: payload });
+  return data.task;
+}
+
+/**
+ * 更新本地 SQLite 任务。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {any} payload - 任务更新参数。
+ * @returns {Promise<any>} 返回更新后的任务。
+ */
+export async function updateLocalTask(base: string, taskID: string, payload: any) {
+  const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}`, { method: "PUT", body: payload });
+  return data.task;
+}
+
+/**
+ * 删除本地 SQLite 任务。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<any>} 返回删除结果。
+ */
+export async function deleteLocalTask(base: string, taskID: string) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" });
+}
+
+/**
+ * 更新本地任务状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {string} status - 新状态。
+ * @returns {Promise<any>} 返回更新后的任务。
+ */
+export async function updateLocalTaskStatus(base: string, taskID: string, status: string) {
+  const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/status`, {
+    method: "POST",
+    body: { status },
+  });
+  return data.task;
+}
+
+/**
+ * 读取本地任务日志。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {{ limit?: number }} params - 日志参数。
+ * @returns {Promise<any>} 返回日志列表和分页状态。
+ */
+export async function listLocalTaskLogs(base: string, taskID: string, params: { limit?: number } = {}) {
+  const query = params.limit ? `?limit=${encodeURIComponent(String(params.limit))}` : "";
+  const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs${query}`);
+  return { logs: data.logs || [], has_more: false };
+}
+
+/**
+ * 清空本地任务日志。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<any>} 返回清空结果。
+ */
+export async function clearLocalTaskLogs(base: string, taskID: string) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs`, { method: "DELETE" });
+}
+
+/**
+ * 写入本地任务日志。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {any} payload - 日志参数。
+ * @returns {Promise<any>} 返回日志记录。
+ */
+export async function addLocalTaskLog(base: string, taskID: string, payload: any) {
+  const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs`, {
+    method: "POST",
+    body: payload,
+  });
+  return data.log;
+}
+
+/**
+ * 读取 SQLite 本地任务候选人。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<any>} 返回候选人列表包装对象。
+ */
+export async function listLocalTaskCandidates(base: string, taskID: string) {
+  const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/candidates`);
+  return { items: data.candidates || [] };
+}
+
+/**
+ * 删除 SQLite 本地任务候选人。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @param {string} candidateID - 候选人 ID。
+ * @returns {Promise<any>} 返回删除结果。
+ */
+export async function deleteLocalTaskCandidate(base: string, taskID: string, candidateID: string) {
+  return req(
+    base,
+    `/api/v1/local/tasks/${encodeURIComponent(taskID)}/candidates/${encodeURIComponent(candidateID)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function listLocalCandidates(base: string, taskID: string) {
   const data = await req(
     base,
