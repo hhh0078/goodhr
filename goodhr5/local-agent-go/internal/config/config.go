@@ -1,0 +1,87 @@
+// Package config 负责管理 Go 版本本地程序的路径和启动配置。
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+const (
+	// DefaultHost 是本地程序默认监听地址。
+	DefaultHost = "127.0.0.1"
+	// DefaultPort 是本地程序默认优先监听端口。
+	DefaultPort = 9001
+	// MaxPort 是本地程序端口自动探测的最大端口。
+	MaxPort = 9009
+	// AppName 是本地数据目录名称。
+	AppName = "GoodHR"
+)
+
+// Config 保存本地程序运行配置。
+type Config struct {
+	Host        string
+	Port        int
+	DataDir     string
+	RuntimeDir  string
+	FrontendDir string
+}
+
+// New 创建本地程序配置。
+// host 为监听地址，port 为优先监听端口，返回完整配置。
+func New(host string, port int) (*Config, error) {
+	if host == "" {
+		host = DefaultHost
+	}
+	if port <= 0 {
+		port = DefaultPort
+	}
+	dataDir, err := defaultDataDir()
+	if err != nil {
+		return nil, err
+	}
+	cfg := &Config{
+		Host:        host,
+		Port:        port,
+		DataDir:     dataDir,
+		RuntimeDir:  filepath.Join(dataDir, "runtime"),
+		FrontendDir: filepath.Join(dataDir, "console"),
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// EnsureDirs 创建本地程序需要的基础目录。
+// 返回错误表示目录创建失败。
+func (c *Config) EnsureDirs() error {
+	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir} {
+		if dir == "" {
+			return fmt.Errorf("本地目录为空")
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("创建目录失败 %s：%w", dir, err)
+		}
+	}
+	return nil
+}
+
+// Address 返回当前配置的监听地址。
+// 返回值格式为 host:port。
+func (c *Config) Address(port int) string {
+	if port <= 0 {
+		port = c.Port
+	}
+	return fmt.Sprintf("%s:%d", c.Host, port)
+}
+
+// defaultDataDir 返回默认本地数据目录。
+// macOS 下通常位于 ~/Library/Application Support/GoodHR。
+func defaultDataDir() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("读取用户配置目录失败：%w", err)
+	}
+	return filepath.Join(base, AppName), nil
+}
