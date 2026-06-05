@@ -351,6 +351,32 @@ async def ws_disconnect() -> dict:
     return await _ws_agent.disconnect()
 
 
+@app.post("/api/v1/local/subscription/verify")
+async def verify_local_subscription(payload: dict) -> dict:
+    """
+    向云端校验当前用户会员状态。
+
+    Args:
+        payload: 包含 cloud_api_base 和 token 的请求体。
+
+    Returns:
+        dict: 云端订阅状态。
+    """
+    cloud_api_base = str(payload.get("cloud_api_base", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not cloud_api_base:
+        raise HTTPException(400, "cloud_api_base is required")
+    if not token:
+        raise HTTPException(400, "token is required")
+    try:
+        subscription = await _fetch_cloud_subscription(cloud_api_base, token)
+    except RuntimeError as exc:
+        logger.error("[会员校验] 云端校验失败 err=%s", exc)
+        raise HTTPException(502, str(exc))
+    active = bool(subscription.get("active"))
+    return {"ok": True, "active": active, "subscription": subscription}
+
+
 @app.post("/api/v1/tasks/{task_id}/start-ws")
 async def start_task_ws(task_id: str, payload: dict) -> dict:
     """通过任务级 WebSocket 启动云端任务。
@@ -1333,6 +1359,29 @@ async def sound_play(payload: dict) -> dict:
         raise HTTPException(400, str(exc))
     except Exception as exc:
         raise HTTPException(500, f"play audio failed: {exc}")
+
+
+async def _fetch_cloud_subscription(cloud_api_base: str, token: str) -> dict:
+    """
+    读取云端会员状态。
+
+    Args:
+        cloud_api_base: 云端 HTTP API 基础地址。
+        token: 当前云端登录 access_token。
+
+    Returns:
+        dict: subscription 对象。
+    """
+    url = f"{cloud_api_base.rstrip('/')}/api/subscription/status"
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok", False):
+        raise RuntimeError(str(data.get("error") or "会员校验失败"))
+    subscription = data.get("subscription") or {}
+    if not isinstance(subscription, dict):
+        raise RuntimeError("会员校验返回格式错误")
+    return subscription
 
 
 # ---------------------------------------------------------------------------

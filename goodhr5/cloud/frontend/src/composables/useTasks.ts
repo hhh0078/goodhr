@@ -27,6 +27,7 @@ import {
   stopTaskWS,
   updateLocalTask,
   updateLocalTaskStatus,
+  verifyLocalSubscription,
 } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
@@ -136,7 +137,9 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
     try {
       //弹框确认
       if (!confirm("确认开始任务吗？")) return;
-      const subscription = await getSubscriptionStatus();
+      const subscription = shouldUseLocalTasks()
+        ? (await verifyLocalSubscription(localTaskBase(), taskCloudPayload())).subscription
+        : await getSubscriptionStatus();
       if (!subscription?.active) {
         onSubscriptionExpired?.();
         throw new Error("会员已到期，请先订阅后再开始任务");
@@ -493,11 +496,22 @@ export function useTasks(agentBaseUrl: Ref<string>, onSubscriptionExpired?: () =
    * @returns {any} 返回云端 HTTP 地址、WebSocket 地址和 token。
    */
   function taskWSPayload() {
+    const payload = taskCloudPayload();
+    const wsBase = payload.cloud_api_base.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+    return {
+      ...payload,
+      cloud_ws_url: `${wsBase}/api/agents/ws`,
+    };
+  }
+
+  /**
+   * 生成任务需要的云端 HTTP 和 token 参数。
+   * @returns {any} 返回云端 HTTP 地址和 token。
+   */
+  function taskCloudPayload() {
     const base = cloudApiBase();
-    const wsBase = base.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
     return {
       cloud_api_base: base,
-      cloud_ws_url: `${wsBase}/api/agents/ws`,
       token: getAccessToken(),
     };
   }

@@ -232,6 +232,16 @@ export async function addLocalTaskLog(base: string, taskID: string, payload: any
 }
 
 /**
+ * 通过 Local Agent 向云端校验会员状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 包含 cloud_api_base 和 token 的参数。
+ * @returns {Promise<any>} 返回会员校验结果。
+ */
+export async function verifyLocalSubscription(base: string, payload: any) {
+  return req(base, "/api/v1/local/subscription/verify", { method: "POST", body: payload });
+}
+
+/**
  * 读取 SQLite 本地任务候选人。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。
