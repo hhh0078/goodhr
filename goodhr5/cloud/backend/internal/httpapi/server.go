@@ -223,11 +223,6 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.auth.SessionFromRequest(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return
-	}
-
 	cfg, err := s.systemConfigs.Get("system.app_config")
 	if err != nil {
 		if errors.Is(err, ErrConfigNotFound) {
@@ -254,13 +249,6 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// 调用认证服务读取当前用户，限制只返回已登录用户可见的配置。
-	_, err := s.auth.SessionFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
 		return
 	}
 

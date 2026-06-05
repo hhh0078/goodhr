@@ -92,7 +92,7 @@ export async function deletePlatformAccount(accountID: string) {
  * @returns {Promise<any[]>} 返回平台配置数组。
  */
 export async function listPlatformConfigs() {
-  const data = await api("/api/platforms/config/");
+  const data = await api("/api/platforms/config/", { auth: false });
   return data.configs;
 }
 

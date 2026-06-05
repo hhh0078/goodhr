@@ -10,6 +10,41 @@ import (
 	"time"
 )
 
+// TestPublicPlatformConfigsWithoutLogin 验证未登录时也可以读取平台配置。
+func TestPublicPlatformConfigsWithoutLogin(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	store, ok := server.systemConfigs.(*MemorySystemConfigStore)
+	if !ok {
+		t.Skip("仅在内存配置存储下验证公开平台配置接口")
+	}
+	store.configs["platform.boss"] = SystemConfig{
+		ConfigKey:   "platform.boss",
+		ConfigValue: `{"id":"boss","name":"Boss直聘"}`,
+		Description: "Boss 平台配置",
+		Enabled:     true,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/platforms/config/", nil)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		Configs []SystemConfig `json:"configs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Configs) != 1 || payload.Configs[0].ConfigKey != "platform.boss" {
+		t.Fatalf("unexpected configs: %+v", payload.Configs)
+	}
+}
+
 // TestAdminPlatformConfigsRequiresSuperAdmin 验证超管接口可返回平台原始配置。
 func TestAdminPlatformConfigsRequiresSuperAdmin(t *testing.T) {
 	server := mustNewServer(t)
