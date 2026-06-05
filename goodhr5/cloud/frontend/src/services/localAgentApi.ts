@@ -209,11 +209,13 @@ export async function updateLocalTaskStatus(base: string, taskID: string, status
  * 启动本地 SQLite 任务运行器。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。
+ * @param {any} payload - 本地任务启动参数。
  * @returns {Promise<any>} 返回启动结果。
  */
-export async function runLocalTask(base: string, taskID: string) {
+export async function runLocalTask(base: string, taskID: string, payload: any = {}) {
   return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/run`, {
     method: "POST",
+    body: payload,
   });
 }
 

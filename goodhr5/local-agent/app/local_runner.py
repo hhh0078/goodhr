@@ -30,7 +30,7 @@ from app.paths import data_dir
 
 
 VerifySubscription = Callable[[], Awaitable[dict]]
-BOSS_ENTRY_URL = "https://www.zhipin.com/web/chat/recommend"
+LoadPlatformConfig = Callable[[str], Awaitable[dict]]
 KEYWORD_MAX_SCAN_ROUNDS = 20
 KEYWORD_MAX_IDLE_ROUNDS = 2
 
@@ -53,13 +53,19 @@ class LocalTaskRunner:
         self._tasks: dict[str, asyncio.Task] = {}
         self._stop_events: dict[str, asyncio.Event] = {}
 
-    async def start(self, task_id: str, verify_subscription: VerifySubscription) -> dict:
+    async def start(
+        self,
+        task_id: str,
+        verify_subscription: VerifySubscription,
+        load_platform_config: LoadPlatformConfig,
+    ) -> dict:
         """
         启动本地任务。
 
         Args:
             task_id: 本地任务 ID。
             verify_subscription: 会员校验回调。
+            load_platform_config: 云端平台配置读取回调。
 
         Returns:
             dict: 启动结果。
@@ -73,6 +79,20 @@ class LocalTaskRunner:
             add_local_task_log(task_id, "error", "会员已到期，请先订阅后再开始任务")
             update_local_task_status(task_id, "failed")
             raise PermissionError("会员已到期，请先订阅后再开始任务")
+
+        platform_id = str(task.get("platform_id") or "boss").strip().lower()
+        try:
+            platform_config = await load_platform_config(platform_id)
+        except Exception as exc:
+            add_local_task_log(task_id, "error", f"读取云端平台配置失败：{exc}")
+            update_local_task_status(task_id, "failed")
+            raise RuntimeError(f"读取云端平台配置失败：{exc}") from exc
+        if not isinstance(platform_config, dict) or not platform_config:
+            add_local_task_log(task_id, "error", "云端平台配置为空，任务无法启动")
+            update_local_task_status(task_id, "failed")
+            raise RuntimeError("云端平台配置为空，任务无法启动")
+        task["platform_config"] = platform_config
+        add_local_task_log(task_id, "info", f"已从云端读取平台配置：platform={platform_id}")
 
         stop_event = asyncio.Event()
         self._stop_events[task_id] = stop_event
@@ -182,7 +202,8 @@ class LocalTaskRunner:
         if stop_event.is_set():
             return 0
         task_id = str(task.get("id") or "")
-        candidates = await extract_visible_candidates(page)
+        platform_config = _platform_config(task)
+        candidates = await extract_visible_candidates(page, platform_config)
         candidates, skipped_count = self._apply_keyword_filter(task, candidates)
         for candidate in candidates:
             save_local_candidate(task_id, candidate)
@@ -220,7 +241,8 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
                 update_local_task_status(task_id, "completed")
                 return
-            candidates = await extract_visible_candidates(page)
+            platform_config = _platform_config(task)
+            candidates = await extract_visible_candidates(page, platform_config)
             fresh_candidates = [candidate for candidate in candidates if str(candidate.get("id") or "") not in seen_ids]
             for candidate in fresh_candidates:
                 seen_ids.add(str(candidate.get("id") or ""))
@@ -231,7 +253,7 @@ class LocalTaskRunner:
                     add_local_task_log(task_id, "info", "连续未发现新候选人，任务已完成")
                     update_local_task_status(task_id, "completed")
                     return
-                await scroll_candidate_list(page)
+                await scroll_candidate_list(page, platform_config)
                 continue
 
             idle_rounds = 0
@@ -267,7 +289,7 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
                 update_local_task_status(task_id, "completed")
                 return
-            await scroll_candidate_list(page)
+            await scroll_candidate_list(page, platform_config)
 
         add_local_task_log(task_id, "info", f"已完成最大扫描轮数：{KEYWORD_MAX_SCAN_ROUNDS}")
         if failed_total > 0:
@@ -299,7 +321,8 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
                 update_local_task_status(task_id, "completed")
                 return
-            candidates = await extract_visible_candidates(page)
+            platform_config = _platform_config(task)
+            candidates = await extract_visible_candidates(page, platform_config)
             fresh_candidates = [candidate for candidate in candidates if str(candidate.get("id") or "") not in seen_ids]
             for candidate in fresh_candidates:
                 seen_ids.add(str(candidate.get("id") or ""))
@@ -310,7 +333,7 @@ class LocalTaskRunner:
                     add_local_task_log(task_id, "info", "连续未发现新候选人，AI 任务已完成")
                     update_local_task_status(task_id, "completed")
                     return
-                await scroll_candidate_list(page)
+                await scroll_candidate_list(page, platform_config)
                 continue
 
             idle_rounds = 0
@@ -348,7 +371,7 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
                 update_local_task_status(task_id, "completed")
                 return
-            await scroll_candidate_list(page)
+            await scroll_candidate_list(page, platform_config)
 
         add_local_task_log(task_id, "info", f"已完成最大 AI 扫描轮数：{KEYWORD_MAX_SCAN_ROUNDS}")
         if failed_total > 0:
@@ -428,7 +451,7 @@ class LocalTaskRunner:
                     "info",
                     f"{name}AI通过：{final_decision['reason']}（评分={final_decision['score']:.1f}）",
                 )
-                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0))
+                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0), _platform_config(task))
                 candidate["status"] = "greeted"
                 candidate["greeted_at"] = _now_iso()
                 greeted += 1
@@ -463,7 +486,7 @@ class LocalTaskRunner:
             return decision
         try:
             add_local_task_log(task_id, "info", f"{name}详情评分通过，正在打开详情")
-            detail_text = await fetch_candidate_detail_text(page, int(candidate.get("card_index") or 0))
+            detail_text = await fetch_candidate_detail_text(page, int(candidate.get("card_index") or 0), _platform_config(task))
         except Exception as exc:
             add_local_task_log(task_id, "warning", f"{name}详情提取失败，沿用基础信息：{exc}")
             return decision
@@ -590,7 +613,7 @@ class LocalTaskRunner:
             name = str(candidate.get("name") or candidate.get("candidate_name") or "候选人")
             try:
                 add_local_task_log(task_id, "info", f"正在给{name}打招呼")
-                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0))
+                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0), _platform_config(task))
                 candidate["status"] = "greeted"
                 candidate["greeted_at"] = _now_iso()
                 greeted += 1
@@ -628,8 +651,9 @@ class LocalTaskRunner:
         page = await self._browser_manager.ensure_page("default")
         if page is None:
             raise RuntimeError("浏览器页面创建失败")
-        add_local_task_log(task_id, "info", f"正在打开 Boss 推荐页：{BOSS_ENTRY_URL}")
-        await page.goto(BOSS_ENTRY_URL, wait_until="domcontentloaded", timeout=60000)
+        entry_url = _platform_entry_url(task)
+        add_local_task_log(task_id, "info", f"正在打开 Boss 推荐页：{entry_url}")
+        await page.goto(entry_url, wait_until="domcontentloaded", timeout=60000)
         add_local_task_log(task_id, "info", "Boss 推荐页已打开")
         return page
 
@@ -646,6 +670,46 @@ def _profile_dir(name: str) -> Path:
     """
     safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(name)).strip("_") or "default"
     return data_dir().parent / "cookies" / safe_name
+
+
+def _platform_config(task: dict) -> dict:
+    """
+    读取任务内的云端平台配置。
+
+    Args:
+        task: 本地任务。
+
+    Returns:
+        dict: 平台配置。
+    """
+    config = task.get("platform_config")
+    if not isinstance(config, dict) or not config:
+        raise RuntimeError("任务缺少云端平台配置")
+    return config
+
+
+def _platform_entry_url(task: dict) -> str:
+    """
+    从云端平台配置读取任务入口地址。
+
+    Args:
+        task: 本地任务。
+
+    Returns:
+        str: 入口页面 URL。
+    """
+    config = _platform_config(task)
+    pages = config.get("pages")
+    if not isinstance(pages, list):
+        auth = config.get("auth") if isinstance(config.get("auth"), dict) else {}
+        pages = auth.get("pages") if isinstance(auth.get("pages"), list) else []
+    for page in pages:
+        if isinstance(page, dict) and page.get("entry") is True and str(page.get("url") or "").strip():
+            return str(page.get("url")).strip()
+    for page in pages:
+        if isinstance(page, dict) and str(page.get("url") or "").strip():
+            return str(page.get("url")).strip()
+    raise RuntimeError("云端平台配置缺少入口页面")
 
 
 def _string_list(value) -> list[str]:

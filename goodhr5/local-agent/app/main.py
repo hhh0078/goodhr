@@ -634,16 +634,19 @@ async def post_local_task_status(task_id: str, payload: dict) -> dict:
 
 
 @app.post("/api/v1/local/tasks/{task_id}/run")
-async def run_local_task_route(task_id: str) -> dict:
+async def run_local_task_route(task_id: str, payload: dict | None = None) -> dict:
     """
     启动本地任务运行器。
 
     Args:
         task_id: 本地任务 ID。
+        payload: 启动参数，包含云端 API 地址。
 
     Returns:
         dict: 启动结果。
     """
+    safe_payload = payload if isinstance(payload, dict) else {}
+
     async def verify_subscription() -> dict:
         """
         返回前端已完成会员校验的结果。
@@ -653,8 +656,23 @@ async def run_local_task_route(task_id: str) -> dict:
         """
         return {"active": True}
 
+    async def load_platform_config(platform_id: str) -> dict:
+        """
+        从云端公开接口读取平台配置。
+
+        Args:
+            platform_id: 平台 ID。
+
+        Returns:
+            dict: 平台配置。
+        """
+        return await _fetch_cloud_platform_config(
+            str(safe_payload.get("cloud_api_base") or "").strip(),
+            platform_id,
+        )
+
     try:
-        return await _local_runner.start(task_id, verify_subscription)
+        return await _local_runner.start(task_id, verify_subscription, load_platform_config)
     except FileNotFoundError:
         raise HTTPException(404, "local task not found")
     except PermissionError as exc:
@@ -1761,6 +1779,81 @@ async def _fetch_cloud_subscription(cloud_api_base: str, token: str) -> dict:
     if not isinstance(subscription, dict):
         raise RuntimeError("会员校验返回格式错误")
     return subscription
+
+
+async def _fetch_cloud_platform_config(cloud_api_base: str, platform_id: str) -> dict:
+    """
+    从云端公开接口读取指定平台配置。
+
+    Args:
+        cloud_api_base: 云端 HTTP API 基础地址。
+        platform_id: 平台 ID。
+
+    Returns:
+        dict: 平台配置。
+    """
+    safe_base = str(cloud_api_base or "").strip()
+    safe_platform = str(platform_id or "").strip().lower()
+    if not safe_base:
+        raise RuntimeError("云端接口地址不能为空，无法读取平台配置")
+    if not safe_platform:
+        raise RuntimeError("平台 ID 不能为空，无法读取平台配置")
+
+    url = f"{safe_base.rstrip('/')}/api/platforms/config/"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url)
+        data = response.json() if response.content else {}
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"读取云端平台配置失败：{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("云端平台配置返回格式不正确") from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError("云端平台配置返回格式不正确")
+    if response.status_code >= 400:
+        raise RuntimeError(_local_api_msg(data.get("error") or data.get("msg") or "读取云端平台配置失败"))
+    configs = data.get("configs")
+    if not isinstance(configs, list) and isinstance(data.get("data"), dict):
+        configs = data["data"].get("configs")
+    if not isinstance(configs, list):
+        raise RuntimeError("云端平台配置返回格式不正确")
+
+    target_key = f"platform.{safe_platform}"
+    for item in configs:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("config_key") or "").strip().lower() != target_key:
+            continue
+        config = _decode_cloud_platform_config_value(item.get("config_value"))
+        if not isinstance(config, dict):
+            break
+        if not config.get("id"):
+            config["id"] = safe_platform
+        return config
+    raise RuntimeError(f"云端没有找到平台配置：{safe_platform}")
+
+
+def _decode_cloud_platform_config_value(value: object) -> dict:
+    """
+    解码云端平台配置值。
+
+    Args:
+        value: system_configs.config_value 原始值。
+
+    Returns:
+        dict: 平台配置字典。
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("云端平台配置 JSON 格式不正确") from exc
+        if isinstance(parsed, dict):
+            return parsed
+    raise RuntimeError("云端平台配置内容不是有效对象")
 
 
 # ---------------------------------------------------------------------------

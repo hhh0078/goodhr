@@ -154,7 +154,7 @@ export function useTasks(
         expandedTaskId.value = taskId;
         await refreshLogs(taskId);
         startTaskLogPolling(taskId);
-        const data = await runLocalTask(localTaskBase(), taskId);
+        const data = await runLocalTask(localTaskBase(), taskId, taskLocalPayload());
         message.value = data.message || "本地任务已启动";
         await load();
         return;
@@ -522,6 +522,16 @@ export function useTasks(
     return {
       cloud_api_base: base,
       token: getAccessToken(),
+    };
+  }
+
+  /**
+   * 生成本地任务启动需要的公开云端参数。
+   * @returns {any} 返回云端 HTTP 地址。
+   */
+  function taskLocalPayload() {
+    return {
+      cloud_api_base: cloudApiBase(),
     };
   }
 
