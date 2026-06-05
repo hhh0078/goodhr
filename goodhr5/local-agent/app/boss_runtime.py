@@ -23,6 +23,7 @@ BOSS_FIELD_SELECTORS = {
 BOSS_GREET_SELECTORS = [".btn.btn-greet", ".btn.btn-getcontact"]
 BOSS_CONTINUE_SELECTORS = [".btn.btn-continue.btn-outline"]
 BOSS_CONFIRM_SELECTORS = [".btn.btn-sure", ".btn.btn-primary", ".boss-popup__footer .btn"]
+BOSS_SCROLL_SELECTORS = [".card-list", ".recommend-list", ".geek-list", ".candidate-list"]
 
 
 async def extract_visible_candidates(page: Any, max_items: int = 30) -> list[dict]:
@@ -74,6 +75,37 @@ async def greet_candidate_by_index(page: Any, card_index: int) -> None:
         raise RuntimeError("未找到可点击的打招呼按钮")
     await _click_first_visible(page, BOSS_CONTINUE_SELECTORS, timeout=800)
     await _click_first_visible(page, BOSS_CONFIRM_SELECTORS, timeout=800)
+
+
+async def scroll_candidate_list(page: Any, distance: int = 720) -> None:
+    """
+    滚动 Boss 候选人列表以加载更多卡片。
+
+    Args:
+        page: Playwright 页面对象。
+        distance: 滚动距离。
+    """
+    safe_distance = max(120, int(distance or 720))
+    for selector in BOSS_SCROLL_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() <= 0:
+                continue
+            if hasattr(locator, "is_visible") and not await locator.is_visible():
+                continue
+            await locator.evaluate("(el, y) => el.scrollBy(0, y)", safe_distance)
+            await page.wait_for_timeout(1200)
+            return
+        except Exception:
+            continue
+    try:
+        if hasattr(page, "mouse"):
+            await page.mouse.wheel(0, safe_distance)
+        else:
+            await page.evaluate("(y) => window.scrollBy(0, y)", safe_distance)
+        await page.wait_for_timeout(1200)
+    except Exception:
+        return
 
 
 async def _card_by_index(page: Any, card_index: int) -> Any:
