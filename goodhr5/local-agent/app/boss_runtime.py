@@ -27,6 +27,9 @@ BOSS_GREET_SELECTORS = [".btn.btn-greet", ".btn.btn-getcontact"]
 BOSS_CONTINUE_SELECTORS = [".btn.btn-continue.btn-outline"]
 BOSS_CONFIRM_SELECTORS = [".btn.btn-sure", ".btn.btn-primary", ".boss-popup__footer .btn"]
 BOSS_SCROLL_SELECTORS = [".card-list", ".recommend-list", ".geek-list", ".candidate-list"]
+BOSS_DETAIL_BUTTON_SELECTORS = [".btn-detail", ".detail-btn", ".geek-name", ".name"]
+BOSS_DETAIL_CONTAINER_SELECTORS = [".geek-detail", ".resume-detail", ".boss-popup__body", ".dialog-container"]
+BOSS_DETAIL_CLOSE_SELECTORS = [".boss-popup__close", ".dialog-close", ".close", ".icon-close"]
 
 
 async def extract_visible_candidates(page: Any, max_items: int = 30) -> list[dict]:
@@ -78,6 +81,35 @@ async def greet_candidate_by_index(page: Any, card_index: int) -> None:
         raise RuntimeError("未找到可点击的打招呼按钮")
     await _click_first_visible(page, _boss_selectors("continue_buttons", BOSS_CONTINUE_SELECTORS), timeout=800)
     await _click_first_visible(page, _boss_selectors("confirm_buttons", BOSS_CONFIRM_SELECTORS), timeout=800)
+
+
+async def fetch_candidate_detail_text(page: Any, card_index: int) -> str:
+    """
+    打开指定候选人详情并提取详情文本。
+
+    Args:
+        page: Playwright 页面对象。
+        card_index: 候选人卡片序号。
+
+    Returns:
+        str: 详情文本。
+    """
+    card = await _card_by_index(page, card_index)
+    if hasattr(card, "scroll_into_view_if_needed"):
+        await card.scroll_into_view_if_needed(timeout=1500)
+    clicked = await _click_first_visible(
+        card,
+        _boss_selectors("detail_buttons", BOSS_DETAIL_BUTTON_SELECTORS),
+        timeout=1500,
+    )
+    if not clicked:
+        await card.click(timeout=1500)
+    await _safe_wait(page, 1200)
+    text = await _first_detail_text(page)
+    await _click_first_visible(page, _boss_selectors("detail_close_buttons", BOSS_DETAIL_CLOSE_SELECTORS), timeout=800)
+    if not text:
+        raise RuntimeError("未提取到候选人详情文本")
+    return text
 
 
 async def scroll_candidate_list(page: Any, distance: int = 720) -> None:
@@ -157,6 +189,45 @@ async def _click_first_visible(scope: Any, selectors: list[str], timeout: int = 
         except Exception:
             continue
     return False
+
+
+async def _first_detail_text(page: Any) -> str:
+    """
+    提取第一个可见详情容器文本。
+
+    Args:
+        page: Playwright 页面对象。
+
+    Returns:
+        str: 详情文本。
+    """
+    for selector in _boss_selectors("detail_containers", BOSS_DETAIL_CONTAINER_SELECTORS):
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() <= 0:
+                continue
+            if hasattr(locator, "is_visible") and not await locator.is_visible():
+                continue
+            text = (await locator.inner_text(timeout=1500)).strip()
+            if text:
+                return text
+        except Exception:
+            continue
+    return ""
+
+
+async def _safe_wait(page: Any, timeout_ms: int) -> None:
+    """
+    安全等待页面变化。
+
+    Args:
+        page: Playwright 页面对象。
+        timeout_ms: 等待毫秒数。
+    """
+    try:
+        await page.wait_for_timeout(timeout_ms)
+    except Exception:
+        return
 
 
 async def _visible_cards(page: Any, max_items: int) -> list[Any]:

@@ -7,8 +7,18 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.boss_runtime import extract_visible_candidates, greet_candidate_by_index, scroll_candidate_list
-from app.local_ai_decision import score_candidate_for_greet
+from app.boss_runtime import (
+    extract_visible_candidates,
+    fetch_candidate_detail_text,
+    greet_candidate_by_index,
+    scroll_candidate_list,
+)
+from app.local_ai_decision import (
+    review_candidate_for_greet,
+    score_candidate_for_detail,
+    score_candidate_for_greet,
+    should_review_greet_score,
+)
 from app.local_tasks import (
     add_local_task_log,
     get_local_task,
@@ -381,27 +391,42 @@ class LocalTaskRunner:
                 limit_skipped += 1
                 continue
             try:
-                add_local_task_log(task_id, "info", f"正在 AI 评分：{name}")
-                decision = await score_candidate_for_greet(task, candidate)
-                candidate["ai_greet_score"] = decision["score"]
-                candidate["ai_greet_reason"] = decision["reason"]
-                candidate["ai_greet_threshold"] = decision["threshold"]
-                candidate["ai_usage"] = decision.get("usage") or {}
-                if not decision["should_greet"]:
+                detail_decision = await self._maybe_fetch_ai_detail(task, page, candidate, name)
+                if detail_decision is not None and not detail_decision["should_open_detail"]:
                     candidate["status"] = "skipped"
-                    score_text = f"{decision['score']:.1f}/{decision['threshold']:.1f}"
-                    candidate["skip_reason"] = f"AI评分低于阈值：{score_text}，{decision['reason']}"
+                    score_text = f"{detail_decision['score']:.1f}/{detail_decision['threshold']:.1f}"
+                    candidate["skip_reason"] = f"详情评分低于阈值：{score_text}，{detail_decision['reason']}"
                     skipped += 1
                     add_local_task_log(
                         task_id,
                         "info",
-                        f"{name}AI筛选跳过：{decision['reason']}（评分={decision['score']:.1f}）",
+                        f"{name}详情评分跳过：{detail_decision['reason']}"
+                        f"（评分={detail_decision['score']:.1f}）",
+                    )
+                    continue
+
+                add_local_task_log(task_id, "info", f"正在 AI 打招呼评分：{name}")
+                decision = await score_candidate_for_greet(task, candidate)
+                final_decision = await self._maybe_review_ai_greet(task, candidate, decision, name)
+                candidate["ai_greet_score"] = final_decision["score"]
+                candidate["ai_greet_reason"] = final_decision["reason"]
+                candidate["ai_greet_threshold"] = final_decision["threshold"]
+                candidate["ai_usage"] = final_decision.get("usage") or {}
+                if not final_decision["should_greet"]:
+                    candidate["status"] = "skipped"
+                    score_text = f"{final_decision['score']:.1f}/{final_decision['threshold']:.1f}"
+                    candidate["skip_reason"] = f"AI评分低于阈值：{score_text}，{final_decision['reason']}"
+                    skipped += 1
+                    add_local_task_log(
+                        task_id,
+                        "info",
+                        f"{name}AI筛选跳过：{final_decision['reason']}（评分={final_decision['score']:.1f}）",
                     )
                     continue
                 add_local_task_log(
                     task_id,
                     "info",
-                    f"{name}AI通过：{decision['reason']}（评分={decision['score']:.1f}）",
+                    f"{name}AI通过：{final_decision['reason']}（评分={final_decision['score']:.1f}）",
                 )
                 await greet_candidate_by_index(page, int(candidate.get("card_index") or 0))
                 candidate["status"] = "greeted"
@@ -414,6 +439,74 @@ class LocalTaskRunner:
                 failed += 1
                 add_local_task_log(task_id, "error", f"{name}AI处理失败：{exc}")
         return greeted, skipped, failed, limit_skipped
+
+    async def _maybe_fetch_ai_detail(self, task: dict, page, candidate: dict, name: str) -> dict | None:
+        """
+        按 AI 详情评分决定是否打开并提取候选人详情。
+
+        Args:
+            task: 本地任务。
+            page: Playwright 页面对象。
+            candidate: 候选人信息。
+            name: 候选人展示名。
+
+        Returns:
+            dict | None: 详情评分结果。
+        """
+        task_id = str(task.get("id") or "")
+        add_local_task_log(task_id, "info", f"正在 AI 详情评分：{name}")
+        decision = await score_candidate_for_detail(task, candidate)
+        candidate["ai_detail_score"] = decision["score"]
+        candidate["ai_detail_reason"] = decision["reason"]
+        candidate["ai_detail_threshold"] = decision["threshold"]
+        if not decision["should_open_detail"]:
+            return decision
+        try:
+            add_local_task_log(task_id, "info", f"{name}详情评分通过，正在打开详情")
+            detail_text = await fetch_candidate_detail_text(page, int(candidate.get("card_index") or 0))
+        except Exception as exc:
+            add_local_task_log(task_id, "warning", f"{name}详情提取失败，沿用基础信息：{exc}")
+            return decision
+        merged_text = _merge_text(candidate.get("filter_text") or candidate.get("raw_text") or "", detail_text)
+        candidate["detail_text"] = detail_text
+        candidate["filter_text"] = merged_text
+        candidate["raw_text"] = merged_text
+        add_local_task_log(task_id, "info", f"{name}详情文本已提取，长度={len(detail_text)}")
+        return decision
+
+    async def _maybe_review_ai_greet(
+        self,
+        task: dict,
+        candidate: dict,
+        decision: dict,
+        name: str,
+    ) -> dict:
+        """
+        对临界打招呼评分执行 AI 复核。
+
+        Args:
+            task: 本地任务。
+            candidate: 候选人信息。
+            decision: 首次打招呼评分。
+            name: 候选人展示名。
+
+        Returns:
+            dict: 最终评分结果。
+        """
+        position = task.get("position_snapshot") if isinstance(task.get("position_snapshot"), dict) else {}
+        if not should_review_greet_score(position, float(decision.get("score") or 0)):
+            return decision
+        task_id = str(task.get("id") or "")
+        try:
+            add_local_task_log(task_id, "info", f"{name}评分接近阈值，开始 AI 复核")
+            review = await review_candidate_for_greet(task, candidate)
+            candidate["ai_review_score"] = review["score"]
+            candidate["ai_review_reason"] = review["reason"]
+            add_local_task_log(task_id, "info", f"{name}复核评分：{review['score']:.1f}，{review['reason']}")
+            return review
+        except Exception as exc:
+            add_local_task_log(task_id, "warning", f"{name}AI复核失败，沿用首次评分：{exc}")
+            return decision
 
     def _apply_keyword_filter(self, task: dict, candidates: list[dict]) -> tuple[list[dict], int]:
         """
@@ -583,6 +676,21 @@ def _task_mode(task: dict) -> str:
         str: 任务模式。
     """
     return str(task.get("mode") or "").strip().lower()
+
+
+def _merge_text(base_text: object, detail_text: object) -> str:
+    """
+    合并候选人基础文本和详情文本。
+
+    Args:
+        base_text: 基础文本。
+        detail_text: 详情文本。
+
+    Returns:
+        str: 合并后的文本。
+    """
+    parts = [str(base_text or "").strip(), str(detail_text or "").strip()]
+    return "\n\n".join(part for part in parts if part)
 
 
 def _now_iso() -> str:

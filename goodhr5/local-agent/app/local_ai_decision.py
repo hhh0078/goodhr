@@ -11,6 +11,7 @@ from app.vision_ai import clean_ai_text_output
 
 
 DEFAULT_GREET_THRESHOLD = 70.0
+DEFAULT_DETAIL_THRESHOLD = 60.0
 DEFAULT_GREET_PROMPT = """你是一个资深的HR专家。
 请根据岗位要求给候选人打“打招呼建议分”。
 
@@ -28,6 +29,42 @@ DEFAULT_GREET_PROMPT = """你是一个资深的HR专家。
 {candidate_text}
 
 请返回JSON：{{"score": 78, "reason": "匹配核心要求"}}"""
+DEFAULT_DETAIL_PROMPT = """你是一个资深的HR专家。
+请根据岗位要求给候选人打“查看详情建议分”。
+
+重要提示：
+1. 仅根据候选人基础信息评估是否值得打开详情。
+2. 仅输出 JSON，不能输出其它内容。
+3. 返回字段必须是 score 和 reason。
+4. score 范围是 0-100，可以是小数。
+5. reason 控制在30字以内。
+6. 禁止输出 Markdown，禁止输出 Markdown 代码块。
+
+岗位要求：
+{job_desc}
+
+候选人基础信息：
+{candidate_text}
+
+请返回JSON：{{"score": 66, "reason": "可进一步确认细节"}}"""
+DEFAULT_REVIEW_PROMPT = """你是一个资深的HR专家。
+当前候选人分数接近岗位阈值，请做“打招呼前二次复核评分”。
+
+重要提示：
+1. 仅输出 JSON，不能输出其它内容。
+2. 返回字段必须是 score 和 reason。
+3. score 范围是 0-100，可以是小数。
+4. reason 控制在30字以内。
+5. 评分更关注风险点与关键硬指标。
+6. 禁止输出 Markdown，禁止输出 Markdown 代码块。
+
+岗位要求：
+{job_desc}
+
+候选人信息：
+{candidate_text}
+
+请返回JSON：{{"score": 72, "reason": "边界候选人可谨慎通过"}}"""
 
 
 async def score_candidate_for_greet(task: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
@@ -51,6 +88,62 @@ async def score_candidate_for_greet(task: dict[str, Any], candidate: dict[str, A
             "config": _runtime_ai_config(position),
         }
     )
+    decision = parse_score_decision(str(result.get("content") or ""))
+    score = clamp_score(decision.get("score", 0))
+    reason = truncate_text(str(decision.get("reason") or "AI未给出原因").strip(), 30)
+    return {
+        "score": score,
+        "reason": reason,
+        "should_greet": score >= threshold,
+        "threshold": threshold,
+        "usage": result.get("usage") if isinstance(result.get("usage"), dict) else {},
+        "elapsed_ms": int(result.get("elapsed_ms") or 0),
+    }
+
+
+async def score_candidate_for_detail(task: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """
+    使用本地 AI 配置给候选人计算查看详情评分。
+
+    Args:
+        task: 本地任务。
+        candidate: 候选人信息。
+
+    Returns:
+        dict[str, Any]: 评分结果，包含 score、reason、should_open_detail、threshold。
+    """
+    position = task.get("position_snapshot") if isinstance(task.get("position_snapshot"), dict) else {}
+    threshold = detail_threshold(position)
+    prompt = build_detail_score_prompt(position, candidate)
+    result = await _chat_score(position, prompt)
+    decision = parse_score_decision(str(result.get("content") or ""))
+    score = clamp_score(decision.get("score", 0))
+    reason = truncate_text(str(decision.get("reason") or "AI未给出原因").strip(), 30)
+    return {
+        "score": score,
+        "reason": reason,
+        "should_open_detail": score >= threshold,
+        "threshold": threshold,
+        "usage": result.get("usage") if isinstance(result.get("usage"), dict) else {},
+        "elapsed_ms": int(result.get("elapsed_ms") or 0),
+    }
+
+
+async def review_candidate_for_greet(task: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """
+    使用本地 AI 配置给临界候选人执行打招呼复核评分。
+
+    Args:
+        task: 本地任务。
+        candidate: 候选人信息。
+
+    Returns:
+        dict[str, Any]: 复核评分结果。
+    """
+    position = task.get("position_snapshot") if isinstance(task.get("position_snapshot"), dict) else {}
+    threshold = greet_threshold(position)
+    prompt = build_review_score_prompt(position, candidate)
+    result = await _chat_score(position, prompt)
     decision = parse_score_decision(str(result.get("content") or ""))
     score = clamp_score(decision.get("score", 0))
     reason = truncate_text(str(decision.get("reason") or "AI未给出原因").strip(), 30)
@@ -90,6 +183,65 @@ def build_greet_score_prompt(position: dict[str, Any], candidate: dict[str, Any]
     return _template_prompt(custom_prompt, job_desc, candidate_text, default_prompt)
 
 
+def build_detail_score_prompt(position: dict[str, Any], candidate: dict[str, Any]) -> str:
+    """
+    构建查看详情评分提示词。
+
+    Args:
+        position: 岗位快照。
+        candidate: 候选人信息。
+
+    Returns:
+        str: 完整提示词。
+    """
+    ai_config = position.get("ai_config") if isinstance(position.get("ai_config"), dict) else {}
+    custom_prompt = str(ai_config.get("open_detail_prompt") or "").strip()
+    job_desc = position_description(position)
+    candidate_text = str(candidate.get("filter_text") or candidate.get("raw_text") or "").strip()
+    default_prompt = DEFAULT_DETAIL_PROMPT.format(job_desc=job_desc, candidate_text=candidate_text)
+    if not custom_prompt:
+        return default_prompt
+    return _template_prompt(custom_prompt, job_desc, candidate_text, default_prompt)
+
+
+def build_review_score_prompt(position: dict[str, Any], candidate: dict[str, Any]) -> str:
+    """
+    构建打招呼复核评分提示词。
+
+    Args:
+        position: 岗位快照。
+        candidate: 候选人信息。
+
+    Returns:
+        str: 完整提示词。
+    """
+    ai_config = position.get("ai_config") if isinstance(position.get("ai_config"), dict) else {}
+    custom_prompt = str(ai_config.get("review_prompt") or "").strip()
+    job_desc = position_description(position)
+    candidate_text = str(candidate.get("filter_text") or candidate.get("raw_text") or "").strip()
+    default_prompt = DEFAULT_REVIEW_PROMPT.format(job_desc=job_desc, candidate_text=candidate_text)
+    if not custom_prompt:
+        return default_prompt
+    return _template_prompt(custom_prompt, job_desc, candidate_text, default_prompt)
+
+
+def should_review_greet_score(position: dict[str, Any], score: float) -> bool:
+    """
+    判断打招呼评分是否需要复核。
+
+    Args:
+        position: 岗位快照。
+        score: 首次打招呼评分。
+
+    Returns:
+        bool: 需要复核返回 true。
+    """
+    ai_config = position.get("ai_config") if isinstance(position.get("ai_config"), dict) else {}
+    if not str(ai_config.get("review_prompt") or "").strip():
+        return False
+    return abs(float(score or 0) - greet_threshold(position)) <= 10
+
+
 def parse_score_decision(content: str) -> dict[str, Any]:
     """
     解析 AI 返回的评分 JSON。
@@ -126,6 +278,19 @@ def greet_threshold(position: dict[str, Any]) -> float:
         float: 阈值。
     """
     return _ai_config_number(position, DEFAULT_GREET_THRESHOLD, "greet_score_threshold", "greet_threshold")
+
+
+def detail_threshold(position: dict[str, Any]) -> float:
+    """
+    读取岗位查看详情阈值。
+
+    Args:
+        position: 岗位快照。
+
+    Returns:
+        float: 阈值。
+    """
+    return _ai_config_number(position, DEFAULT_DETAIL_THRESHOLD, "detail_score_threshold")
 
 
 def position_description(position: dict[str, Any]) -> str:
@@ -213,6 +378,26 @@ def _template_prompt(template: str, job_desc: str, candidate_text: str, fallback
     if job_desc not in prompt or candidate_text not in prompt:
         prompt = f"{prompt}\n\n岗位要求：\n{job_desc}\n\n候选人信息：\n{candidate_text}"
     return prompt
+
+
+async def _chat_score(position: dict[str, Any], prompt: str) -> dict[str, Any]:
+    """
+    调用本地 AI 评分。
+
+    Args:
+        position: 岗位快照。
+        prompt: 提示词。
+
+    Returns:
+        dict[str, Any]: AI 返回结果。
+    """
+    return await chat_with_local_ai(
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": _ai_config_number(position, 0.2, "temperature"),
+            "config": _runtime_ai_config(position),
+        }
+    )
 
 
 def _runtime_ai_config(position: dict[str, Any]) -> dict[str, Any]:
