@@ -95,6 +95,7 @@ from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
 DEFAULT_PORTS = range(9001, 9010)
+PREFERRED_PORT_WAIT_SECONDS = 5
 LOCAL_AGENT_VERSION = "5.1.0"
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
@@ -1831,19 +1832,58 @@ def find_port() -> int:
     按 candidate_ports() 顺序逐个尝试绑定 socket，
     找到可用端口后立即释放并返回端口号。
     """
-    import socket
-
     errors: list[str] = []
     for port in candidate_ports():
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind((HOST, port))
+        if port == DEFAULT_PORTS.start:
+            if wait_port_available(port, PREFERRED_PORT_WAIT_SECONDS):
                 return port
-        except OSError as exc:
+        elif can_bind_port(port):
+            return port
+        else:
+            exc = "端口仍被占用"
             errors.append(f"{port}: {exc}")
 
     detail = "; ".join(errors)
     raise RuntimeError(f"No available GoodHR Local Agent port in 9001-9009. {detail}")
+
+
+def can_bind_port(port: int) -> bool:
+    """
+    判断本地端口是否可绑定。
+
+    Args:
+        port: 要检测的端口。
+
+    Returns:
+        bool: 可绑定返回 True。
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((HOST, port))
+            return True
+    except OSError:
+        return False
+
+
+def wait_port_available(port: int, timeout: float) -> bool:
+    """
+    等待端口释放。
+
+    Args:
+        port: 要等待的端口。
+        timeout: 最长等待秒数。
+
+    Returns:
+        bool: 可绑定返回 True。
+    """
+    deadline = time.time() + max(0.1, timeout)
+    while time.time() < deadline:
+        if can_bind_port(port):
+            return True
+        time.sleep(0.2)
+    return can_bind_port(port)
 
 
 def main() -> None:

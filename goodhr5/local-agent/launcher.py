@@ -13,6 +13,7 @@ import multiprocessing
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -40,6 +41,7 @@ WINDOWS_RUNTIME_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
 HOST = "127.0.0.1"
 PORTS = range(9001, 9010)
+PORT_RELEASE_TIMEOUT_SECONDS = 5
 THEME_BG = "#0a0a0a"
 THEME_PANEL = "#0d0d0d"
 THEME_INPUT = "#111111"
@@ -207,6 +209,43 @@ def default_download_dir() -> Path:
     """
     downloads = Path.home() / "Downloads"
     return downloads if downloads.exists() else Path.home()
+
+
+def is_port_available(port: int) -> bool:
+    """
+    判断本地端口是否可绑定。
+
+    Args:
+        port: 要检测的端口。
+
+    Returns:
+        bool: 可绑定返回 True。
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((HOST, port))
+            return True
+    except OSError:
+        return False
+
+
+def wait_port_release(port: int, timeout: float = PORT_RELEASE_TIMEOUT_SECONDS) -> bool:
+    """
+    等待本地端口释放，避免重启后跳到下一个端口。
+
+    Args:
+        port: 要等待释放的端口。
+        timeout: 最长等待秒数。
+
+    Returns:
+        bool: 端口释放返回 True，超时返回 False。
+    """
+    deadline = time.time() + max(0.1, timeout)
+    while time.time() < deadline:
+        if is_port_available(port):
+            return True
+        time.sleep(0.2)
+    return is_port_available(port)
 
 
 def settings_file(config_dir: Path) -> Path:
@@ -1250,8 +1289,11 @@ class GoodHRLauncher:
 
     def _stop_agent(self) -> None:
         """停止 Local Agent 子进程。"""
+        previous_port = self.running_port or self._detect_running_port() or 9001
         if not self.process or self.process.poll() is not None:
             self.status_var.set("已停止")
+            if previous_port:
+                wait_port_release(previous_port, 1.5)
             return
 
         self.status_var.set("正在停止")
@@ -1261,13 +1303,15 @@ class GoodHRLauncher:
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait(timeout=5)
+        if previous_port and not wait_port_release(previous_port):
+            self._append_log(f"端口 {previous_port} 仍在释放中，新启动可能临时使用下一个端口。\n")
+        self.running_port = None
         self.status_var.set("已停止")
         self._append_log("Local Agent 已停止。\n")
 
     def _restart_agent(self) -> None:
         """重新启动 Local Agent。"""
         self._stop_agent()
-        time.sleep(0.2)
         self._start_agent()
 
     def _clear_logs(self) -> None:
