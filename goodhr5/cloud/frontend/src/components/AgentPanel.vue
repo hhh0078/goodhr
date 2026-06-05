@@ -2,7 +2,7 @@
   <section class="panel">
     <div class="panel-header">
       <h2>控制台</h2>
-      <button class="ghost" :disabled="agent.checking.value" @click="agent.detect(agent.user, agent.token)">重新检测</button>
+      <button class="ghost" :disabled="agent.checking.value" @click="redetect">重新检测</button>
     </div>
     <div class="agent-info">
       <dl>
@@ -33,7 +33,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-const props = defineProps({ agent: Object, appConfig: Object })
+const props = defineProps({ agent: Object, appConfig: Object, user: Object, token: String })
 
 const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "5.0.0"));
 const localVersion = computed(() => String(props.agent?.info?.value?.version || ""));
@@ -41,6 +41,14 @@ const requiresUpdate = computed(() => {
   if (!localVersion.value) return false;
   return compareVersions(localVersion.value, requiredVersion.value) < 0;
 });
+
+/**
+ * 重新检测本地程序。
+ * @returns {void} 无返回值。
+ */
+function redetect() {
+  void props.agent?.detect(props.user || null, props.token || "");
+}
 
 /**
  * 比较两个版本号大小。

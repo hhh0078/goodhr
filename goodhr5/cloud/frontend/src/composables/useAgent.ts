@@ -20,8 +20,7 @@ export function useAgent() {
   const baseUrl = ref("");
   const machineConflict = ref(false);
 
-  async function detect(user, token) {
-    if (!user) return;
+  async function detect(user = null, token = "") {
     if (checking.value) return;
     checking.value = true;
     info.value = null;
@@ -34,24 +33,8 @@ export function useAgent() {
         const data = await getLocalHealth(candidateBaseUrl);
         info.value = data;
         const machineID = String(data?.machine_id || "").trim();
-        const boundAgent = await currentAgent();
-        const boundMachineID = String(boundAgent?.machine_id || "").trim();
-        if (boundMachineID && machineID && boundMachineID !== machineID) {
-          machineConflict.value = true;
-          status.value = "该账号已经绑定其它电脑";
-          bindStatus.value = "绑定失败";
-          bindError.value = "该账号已经绑定其它电脑，请联系管理员解除绑定";
-          baseUrl.value = "";
-          wsStatus.value = "未连接";
-          wsError.value = "";
-          checking.value = false;
-          return;
-        }
         status.value = `已连接 (端口 ${port})`;
         baseUrl.value = candidateBaseUrl;
-        await markOnboardingStep("local_agent");
-        await bind(user, token);
-        await refreshWSStatus();
         // 用云端存储的版本号覆盖 /health 的版本
         const SYSTEM_APP_CONFIG_CACHE_KEY = "system_app_config";
         let systemAppConfig = JSON.parse(
@@ -71,6 +54,29 @@ export function useAgent() {
 
           // info.value = { ...info.value, version: ca.agent_version };
         } catch {}
+        if (!user || !token) {
+          bindStatus.value = "未登录";
+          wsStatus.value = "未连接";
+          wsError.value = "";
+          checking.value = false;
+          return;
+        }
+        const boundAgent = await currentAgent();
+        const boundMachineID = String(boundAgent?.machine_id || "").trim();
+        if (boundMachineID && machineID && boundMachineID !== machineID) {
+          machineConflict.value = true;
+          status.value = "该账号已经绑定其它电脑";
+          bindStatus.value = "绑定失败";
+          bindError.value = "该账号已经绑定其它电脑，请联系管理员解除绑定";
+          baseUrl.value = "";
+          wsStatus.value = "未连接";
+          wsError.value = "";
+          checking.value = false;
+          return;
+        }
+        await markOnboardingStep("local_agent");
+        await bind(user, token);
+        await refreshWSStatus();
         return;
       } catch {}
     }

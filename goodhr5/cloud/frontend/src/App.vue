@@ -342,6 +342,7 @@ onMounted(async () => {
   window.addEventListener(ONBOARDING_EVENT, refreshOnboardingProgress);
   refreshOnboardingProgress();
   await loadSystemAppConfig();
+  detectLocalAgent();
   await auth.loadCurrentUser();
   if (auth.user.value) {
     initOnboarding(auth.user.value);
@@ -349,12 +350,9 @@ onMounted(async () => {
     await loadOnboardingStatus();
     await loadSubscriptionStatus();
     agent.detect(auth.user.value, auth.token.value);
-    detectLocalAgent();
     positions.load();
     personalConfig.load();
     tasks.load();
-  } else if (isLocalConsole()) {
-    detectLocalAgent();
   }
 });
 
@@ -561,9 +559,8 @@ function isSubscriptionExpired(value: any) {
 }
 
 const detectLocalAgent = () => {
-  //3秒运行一次
+  agent.detect(auth.user.value, auth.token.value);
   setInterval(() => {
-    if (!auth.user.value) return;
     agent.detect(auth.user.value, auth.token.value);
   }, 10000);
 };
