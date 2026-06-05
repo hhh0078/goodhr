@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.boss_runtime import extract_visible_candidates, greet_candidate_by_index, scroll_candidate_list
+from app.local_ai_decision import score_candidate_for_greet
 from app.local_tasks import (
     add_local_task_log,
     get_local_task,
@@ -133,10 +134,8 @@ class LocalTaskRunner:
             if stop_event.is_set():
                 update_local_task_status(task_id, "stopped")
                 return
-            if str(task.get("mode") or "").strip().lower() == "ai":
-                await self._scan_once(task, page, stop_event)
-                add_local_task_log(task_id, "warning", "Boss AI筛选和打招呼流程正在迁移中，当前版本先完成本地扫描入库")
-                update_local_task_status(task_id, "pending")
+            if _task_mode(task) == "ai":
+                await self._run_ai_task(task, page, stop_event)
                 return
             await self._run_keyword_task(task, page, stop_event)
         except asyncio.CancelledError:
@@ -265,6 +264,157 @@ class LocalTaskRunner:
             add_local_task_log(task_id, "warning", f"本次任务累计打招呼失败 {failed_total} 个候选人")
         update_local_task_status(task_id, "completed")
 
+    async def _run_ai_task(self, task: dict, page, stop_event: asyncio.Event) -> None:
+        """
+        多轮执行 Boss AI 筛选和打招呼任务。
+
+        Args:
+            task: 本地任务。
+            page: Playwright 页面对象。
+            stop_event: 停止信号。
+        """
+        task_id = str(task.get("id") or "")
+        match_limit = int(task.get("match_limit") or 0)
+        greeted_total = 0
+        failed_total = 0
+        idle_rounds = 0
+        seen_ids: set[str] = set()
+
+        for round_index in range(KEYWORD_MAX_SCAN_ROUNDS):
+            if stop_event.is_set():
+                update_local_task_status(task_id, "stopped")
+                add_local_task_log(task_id, "info", "任务收到停止信号，已结束本轮 AI 筛选")
+                return
+            if match_limit > 0 and greeted_total >= match_limit:
+                add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
+                update_local_task_status(task_id, "completed")
+                return
+            candidates = await extract_visible_candidates(page)
+            fresh_candidates = [candidate for candidate in candidates if str(candidate.get("id") or "") not in seen_ids]
+            for candidate in fresh_candidates:
+                seen_ids.add(str(candidate.get("id") or ""))
+            if not fresh_candidates:
+                idle_rounds += 1
+                add_local_task_log(task_id, "info", f"第 {round_index + 1} 轮未发现新候选人")
+                if idle_rounds >= KEYWORD_MAX_IDLE_ROUNDS:
+                    add_local_task_log(task_id, "info", "连续未发现新候选人，AI 任务已完成")
+                    update_local_task_status(task_id, "completed")
+                    return
+                await scroll_candidate_list(page)
+                continue
+
+            idle_rounds = 0
+            greeted_count, skipped_count, failed_count, limit_skipped_count = await self._score_and_greet_ai_candidates(
+                task,
+                page,
+                fresh_candidates,
+                stop_event,
+                max_greet=max(0, match_limit - greeted_total) if match_limit > 0 else 0,
+            )
+            skipped_count += limit_skipped_count
+            greeted_total += greeted_count
+            failed_total += failed_count
+            for candidate in fresh_candidates:
+                save_local_candidate(task_id, candidate)
+            increment_local_task_counts(
+                task_id,
+                scanned=len(fresh_candidates),
+                greeted=greeted_count,
+                skipped=skipped_count,
+                failed=failed_count,
+            )
+            add_local_task_log(
+                task_id,
+                "info",
+                f"第 {round_index + 1} 轮 AI 保存 {len(fresh_candidates)} 个新候选人",
+            )
+            if skipped_count > 0:
+                add_local_task_log(task_id, "info", f"本轮 AI 筛选跳过 {skipped_count} 个候选人")
+            if greeted_count > 0:
+                add_local_task_log(task_id, "info", f"本轮 AI 打招呼成功 {greeted_count} 个候选人")
+            if failed_count > 0:
+                add_local_task_log(task_id, "warning", f"本轮 AI 处理失败 {failed_count} 个候选人")
+            if match_limit > 0 and greeted_total >= match_limit:
+                add_local_task_log(task_id, "info", f"已达到本次打招呼上限：{match_limit}")
+                update_local_task_status(task_id, "completed")
+                return
+            await scroll_candidate_list(page)
+
+        add_local_task_log(task_id, "info", f"已完成最大 AI 扫描轮数：{KEYWORD_MAX_SCAN_ROUNDS}")
+        if failed_total > 0:
+            add_local_task_log(task_id, "warning", f"本次 AI 任务累计失败 {failed_total} 个候选人")
+        update_local_task_status(task_id, "completed")
+
+    async def _score_and_greet_ai_candidates(
+        self,
+        task: dict,
+        page,
+        candidates: list[dict],
+        stop_event: asyncio.Event,
+        max_greet: int = 0,
+    ) -> tuple[int, int, int, int]:
+        """
+        对候选人执行 AI 评分并按结果打招呼。
+
+        Args:
+            task: 本地任务。
+            page: Playwright 页面对象。
+            candidates: 候选人列表。
+            stop_event: 停止信号。
+            max_greet: 本轮最多打招呼数量，0 表示不限制。
+
+        Returns:
+            tuple[int, int, int, int]: 成功、跳过、失败和达到上限跳过数量。
+        """
+        task_id = str(task.get("id") or "")
+        greeted = 0
+        skipped = 0
+        failed = 0
+        limit_skipped = 0
+        for candidate in candidates:
+            if stop_event.is_set():
+                break
+            name = str(candidate.get("name") or candidate.get("candidate_name") or "候选人")
+            if max_greet > 0 and greeted >= max_greet:
+                candidate["status"] = "skipped"
+                candidate["skip_reason"] = "已达到任务打招呼上限"
+                limit_skipped += 1
+                continue
+            try:
+                add_local_task_log(task_id, "info", f"正在 AI 评分：{name}")
+                decision = await score_candidate_for_greet(task, candidate)
+                candidate["ai_greet_score"] = decision["score"]
+                candidate["ai_greet_reason"] = decision["reason"]
+                candidate["ai_greet_threshold"] = decision["threshold"]
+                candidate["ai_usage"] = decision.get("usage") or {}
+                if not decision["should_greet"]:
+                    candidate["status"] = "skipped"
+                    score_text = f"{decision['score']:.1f}/{decision['threshold']:.1f}"
+                    candidate["skip_reason"] = f"AI评分低于阈值：{score_text}，{decision['reason']}"
+                    skipped += 1
+                    add_local_task_log(
+                        task_id,
+                        "info",
+                        f"{name}AI筛选跳过：{decision['reason']}（评分={decision['score']:.1f}）",
+                    )
+                    continue
+                add_local_task_log(
+                    task_id,
+                    "info",
+                    f"{name}AI通过：{decision['reason']}（评分={decision['score']:.1f}）",
+                )
+                await greet_candidate_by_index(page, int(candidate.get("card_index") or 0))
+                candidate["status"] = "greeted"
+                candidate["greeted_at"] = _now_iso()
+                greeted += 1
+                add_local_task_log(task_id, "info", f"{name}打招呼成功")
+            except Exception as exc:
+                candidate["status"] = "failed"
+                candidate["error"] = str(exc)
+                failed += 1
+                add_local_task_log(task_id, "error", f"{name}AI处理失败：{exc}")
+        return greeted, skipped, failed, limit_skipped
+
     def _apply_keyword_filter(self, task: dict, candidates: list[dict]) -> tuple[list[dict], int]:
         """
         对候选人执行本地关键词筛选。
@@ -276,7 +426,7 @@ class LocalTaskRunner:
         Returns:
             tuple[list[dict], int]: 更新后的候选人列表和跳过数量。
         """
-        if str(task.get("mode") or "").strip().lower() == "ai":
+        if _task_mode(task) == "ai":
             return candidates, 0
         position = task.get("position_snapshot") or {}
         keywords = _string_list(position.get("keywords"))
@@ -329,7 +479,7 @@ class LocalTaskRunner:
             tuple[int, int, int]: 打招呼成功数量、失败数量和达到上限跳过数量。
         """
         task_id = str(task.get("id") or "")
-        if str(task.get("mode") or "").strip().lower() == "ai":
+        if _task_mode(task) == "ai":
             return 0, 0, 0
         greeted = 0
         failed = 0
@@ -420,6 +570,19 @@ def _string_list(value) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.replace(",", " ").split() if item.strip()]
     return []
+
+
+def _task_mode(task: dict) -> str:
+    """
+    读取任务模式。
+
+    Args:
+        task: 本地任务。
+
+    Returns:
+        str: 任务模式。
+    """
+    return str(task.get("mode") or "").strip().lower()
 
 
 def _now_iso() -> str:
