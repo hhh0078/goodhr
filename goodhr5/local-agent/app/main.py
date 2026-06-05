@@ -64,7 +64,7 @@ from app.local_tasks import (
     update_local_task_status,
 )
 from app.machine import cookie_machine_ids, load_machine
-from app.profiles import create_profile, delete_profile, list_profiles
+from app.profiles import create_profile, delete_profile, list_profiles, update_profile
 from app.rules_update import get_rules_status, update_rules
 from app.screenshot import screenshot_locator_full, screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
@@ -593,7 +593,20 @@ async def post_profile(payload: dict) -> dict:
     profile = create_profile(
         str(payload.get("platform_id", "")),
         str(payload.get("display_name", "")),
+        str(payload.get("status", "available")),
     )
+    return {"ok": True, "profile": profile}
+
+
+@app.put("/api/v1/profiles/{profile_id}")
+async def put_profile(profile_id: str, payload: dict) -> dict:
+    """更新本地 profile 元数据。
+
+    用于本地控制台在登录成功、登录过期或改名时同步账号状态。
+    """
+    profile = update_profile(profile_id, payload)
+    if not profile:
+        raise HTTPException(404, "profile not found")
     return {"ok": True, "profile": profile}
 
 

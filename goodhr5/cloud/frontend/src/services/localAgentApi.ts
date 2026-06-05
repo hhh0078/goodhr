@@ -436,9 +436,63 @@ export async function listLocalScreenshots(base: string, taskID: string) {
   return data.screenshots;
 }
 
-export async function listLocalProfiles(base: string) {
-  const data = await req(base, "/api/v1/profiles");
+/**
+ * 读取本地浏览器账号 profile 列表。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} platformID - 可选平台 ID。
+ * @returns {Promise<any[]>} 返回本地 profile 列表。
+ */
+export async function listLocalProfiles(base: string, platformID = "") {
+  const query = platformID
+    ? `?platform_id=${encodeURIComponent(platformID)}`
+    : "";
+  const data = await req(base, `/api/v1/profiles${query}`);
   return data.profiles;
+}
+
+/**
+ * 创建本地浏览器账号 profile。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - profile 创建参数。
+ * @returns {Promise<any>} 返回新建 profile。
+ */
+export async function createLocalProfile(base: string, payload: any) {
+  const data = await req(base, "/api/v1/profiles", {
+    method: "POST",
+    body: payload,
+  });
+  return data.profile;
+}
+
+/**
+ * 更新本地浏览器账号 profile。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} profileID - profile ID。
+ * @param {any} payload - profile 更新参数。
+ * @returns {Promise<any>} 返回更新后的 profile。
+ */
+export async function updateLocalProfile(
+  base: string,
+  profileID: string,
+  payload: any,
+) {
+  const data = await req(base, `/api/v1/profiles/${encodeURIComponent(profileID)}`, {
+    method: "PUT",
+    body: payload,
+  });
+  return data.profile;
+}
+
+/**
+ * 删除本地浏览器账号 profile。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} profileID - profile ID。
+ * @returns {Promise<void>} 无返回值。
+ */
+export async function deleteLocalProfile(base: string, profileID: string) {
+  await req(base, `/api/v1/profiles/${encodeURIComponent(profileID)}`, {
+    method: "DELETE",
+  });
 }
 
 /**
