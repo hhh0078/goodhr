@@ -13,6 +13,7 @@ import PersonalConfigView from "../views/PersonalConfigView.vue";
 import SubscriptionView from "../views/SubscriptionView.vue";
 import HelpView from "../views/HelpView.vue";
 import LocalDataView from "../views/LocalDataView.vue";
+import LoginView from "../views/LoginView.vue";
 import UserManagementView from "../views/admin/UserManagementView.vue";
 import ActivationCodeView from "../views/admin/ActivationCodeView.vue";
 import PaymentRecordsView from "../views/admin/PaymentRecordsView.vue";
@@ -42,6 +43,7 @@ export const menuRouteMap: Record<string, string> = {
 export const router = createRouter({
   history: createWebHistory("/admin/"),
   routes: [
+    { path: "/login", name: "login", component: LoginView, meta: { fullScreen: true } },
     { path: "/", name: "dashboard", component: DashboardView, meta: { menuId: "agent" } },
     { path: "/agent-download", name: "agent-download", component: AgentDownloadView, meta: { menuId: "agent-download" } },
     { path: "/accounts", name: "accounts", component: AccountView, meta: { menuId: "account" } },

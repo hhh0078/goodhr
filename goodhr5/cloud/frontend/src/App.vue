@@ -1,5 +1,6 @@
 <template>
-  <div class="app-layout">
+  <RouterView v-if="isFullScreenRoute" />
+  <div v-else class="app-layout">
     <aside class="menu-panel">
       <div class="menu-bar">
         <span class="bar-btn bar-close"></span
@@ -105,12 +106,6 @@
       @close="closeThemeSelector"
     />
   </div>
-  <LoginForm
-    v-if="loginVisible"
-    :auth="auth"
-    :allow-close="true"
-    @close="closeLogin"
-  />
 </template>
 
 <script setup lang="ts">
@@ -126,7 +121,6 @@ import { usePersonalConfig } from "./composables/usePersonalConfig";
 import { useTasks } from "./composables/useTasks";
 import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
-import LoginForm from "./components/LoginForm.vue";
 import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,
@@ -156,7 +150,6 @@ const systemAppConfig = ref({
 });
 const dismissedSessionAnnouncements = ref<string[]>([]);
 const subscription = ref<any>(null);
-const loginVisible = ref(false);
 const onboardingProgress = ref<any>({ completed: true, steps: {} });
 const onboardingConfig = ref<any>({
   local_agent_download_url: "",
@@ -176,6 +169,7 @@ const tasks = useTasks(agent.baseUrl, () => {
 }, resolvePositionSnapshot);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "游客");
+const isFullScreenRoute = computed(() => Boolean(route.meta.fullScreen));
 const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
@@ -312,7 +306,6 @@ function closeThemeSelector() {
 
 watch(user, async (u) => {
   if (u) {
-    loginVisible.value = false;
     initOnboarding(u);
     refreshOnboardingProgress();
     await loadOnboardingStatus();
@@ -394,19 +387,16 @@ function goInvitation() {
 }
 
 /**
- * 打开登录层。
+ * 跳转到独立登录页面。
  * @returns {void} 无返回值。
  */
 function requestLogin() {
-  loginVisible.value = true;
-}
-
-/**
- * 关闭登录层。
- * @returns {void} 无返回值。
- */
-function closeLogin() {
-  loginVisible.value = false;
+  if (route.name === "login") return;
+  const redirect = route.fullPath && route.fullPath !== "/" ? route.fullPath : "";
+  void router.push({
+    name: "login",
+    query: redirect ? { redirect } : {},
+  });
 }
 
 /**
