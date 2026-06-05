@@ -6,7 +6,14 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from app.local_tasks import add_local_task_log, get_local_task, update_local_task_status
+from app.boss_runtime import extract_visible_candidates
+from app.local_tasks import (
+    add_local_task_log,
+    get_local_task,
+    increment_local_task_counts,
+    save_local_candidate,
+    update_local_task_status,
+)
 from app.paths import data_dir
 
 
@@ -119,8 +126,19 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "error", f"暂不支持本地执行平台：{platform_id}")
                 update_local_task_status(task_id, "failed")
                 return
-            await self._open_boss_entry(task, stop_event)
-            add_local_task_log(task_id, "warning", "Boss 候选人提取和打招呼流程正在迁移中，当前版本已完成本地浏览器启动和入口页打开")
+            page = await self._open_boss_entry(task, stop_event)
+            if stop_event.is_set():
+                update_local_task_status(task_id, "stopped")
+                return
+            candidates = await extract_visible_candidates(page)
+            for candidate in candidates:
+                save_local_candidate(task_id, candidate)
+            if candidates:
+                increment_local_task_counts(task_id, scanned=len(candidates))
+                add_local_task_log(task_id, "info", f"已提取并保存 {len(candidates)} 个可见候选人")
+            else:
+                add_local_task_log(task_id, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
+            add_local_task_log(task_id, "warning", "Boss AI筛选和打招呼流程正在迁移中，当前版本先完成本地扫描入库")
             update_local_task_status(task_id, "pending")
         except asyncio.CancelledError:
             update_local_task_status(task_id, "stopped")
@@ -141,7 +159,7 @@ class LocalTaskRunner:
                 self._tasks.pop(task_id, None)
                 self._stop_events.pop(task_id, None)
 
-    async def _open_boss_entry(self, task: dict, stop_event: asyncio.Event) -> None:
+    async def _open_boss_entry(self, task: dict, stop_event: asyncio.Event):
         """
         启动浏览器并打开 Boss 推荐页。
 
@@ -152,7 +170,7 @@ class LocalTaskRunner:
         task_id = str(task.get("id") or "")
         if self._browser_manager is None:
             add_local_task_log(task_id, "warning", "浏览器管理器未初始化，跳过打开 Boss 推荐页")
-            return
+            return None
         account_id = str(task.get("platform_account_id") or "boss_default")
         user_data_dir = _profile_dir(account_id)
         add_local_task_log(task_id, "info", f"正在启动本地浏览器：profile={account_id}")
@@ -163,13 +181,14 @@ class LocalTaskRunner:
             humanize=True,
         )
         if stop_event.is_set():
-            return
+            return None
         page = await self._browser_manager.ensure_page("default")
         if page is None:
             raise RuntimeError("浏览器页面创建失败")
         add_local_task_log(task_id, "info", f"正在打开 Boss 推荐页：{BOSS_ENTRY_URL}")
         await page.goto(BOSS_ENTRY_URL, wait_until="domcontentloaded", timeout=60000)
         add_local_task_log(task_id, "info", "Boss 推荐页已打开")
+        return page
 
 
 def _profile_dir(name: str) -> Path:

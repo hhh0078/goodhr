@@ -187,6 +187,46 @@ def update_local_task_status(task_id: str, status: str) -> dict:
     return _task_row_to_dict(row)
 
 
+def increment_local_task_counts(task_id: str, scanned: int = 0, greeted: int = 0, skipped: int = 0, failed: int = 0) -> dict:
+    """
+    累加本地任务统计数量。
+
+    Args:
+        task_id: 任务 ID。
+        scanned: 扫描数量增量。
+        greeted: 打招呼数量增量。
+        skipped: 跳过数量增量。
+        failed: 失败数量增量。
+
+    Returns:
+        dict: 更新后的任务。
+    """
+    updated_at = now_iso()
+    with connect() as conn:
+        _ensure_local_task_exists(conn, task_id)
+        conn.execute(
+            """
+            UPDATE local_tasks
+            SET scanned_count=scanned_count+?,
+                greeted_count=greeted_count+?,
+                skipped_count=skipped_count+?,
+                failed_count=failed_count+?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                max(0, int(scanned or 0)),
+                max(0, int(greeted or 0)),
+                max(0, int(skipped or 0)),
+                max(0, int(failed or 0)),
+                updated_at,
+                task_id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM local_tasks WHERE id=?", (task_id,)).fetchone()
+    return _task_row_to_dict(row)
+
+
 def clear_local_task_logs(task_id: str) -> str:
     """
     清空本地任务日志。
