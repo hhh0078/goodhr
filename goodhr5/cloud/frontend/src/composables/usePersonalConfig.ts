@@ -8,7 +8,9 @@ import {
 import {
   chatWithLocalAI,
   getLocalAIConfig,
+  getLocalSettings,
   saveLocalAIConfig,
+  saveLocalSettings,
 } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
@@ -26,8 +28,12 @@ export function usePersonalConfig() {
     loading.value = true;
     error.value = "";
     try {
-      const data = await getUserPreferences();
-      const ai = isLocalConsole() ? await getLocalAIConfig(localAgentBase()) : await getUserAIConfig();
+      const data = isLocalConsole()
+        ? await getLocalSettings(localAgentBase())
+        : await getUserPreferences();
+      const ai = isLocalConsole()
+        ? await getLocalAIConfig(localAgentBase())
+        : await getUserAIConfig();
       form.value = {
         aiBaseURL: ai?.base_url || DEFAULT_AI_BASE_URL,
         aiModel: ai?.model || data?.ai_model || DEFAULT_AI_MODEL,
@@ -73,6 +79,7 @@ export function usePersonalConfig() {
           localPayload.api_key = form.value.aiAPIKey.trim();
         }
         await saveLocalAIConfig(localAgentBase(), localPayload);
+        await saveLocalSettings(localAgentBase(), preferencePayload());
       } else {
         await updateUserAIConfig({
           base_url: form.value.aiBaseURL,
@@ -82,24 +89,8 @@ export function usePersonalConfig() {
           prompt_template: "",
           enabled: true,
         });
+        await updateUserPreferences(preferencePayload());
       }
-      await updateUserPreferences({
-        ai_model: form.value.aiModel,
-        click_frequency: Number(form.value.clickFrequency || 0),
-        detail_open_probability: Number(form.value.detailOpenProbability || 0),
-        detail_open_delay_min: Number(form.value.detailOpenDelayMin || 0),
-        detail_open_delay_max: Number(form.value.detailOpenDelayMax || 0),
-        detail_close_delay_min: Number(form.value.detailCloseDelayMin || 0),
-        detail_close_delay_max: Number(form.value.detailCloseDelayMax || 0),
-        greet_before_delay_min: Number(form.value.greetBeforeDelayMin || 0),
-        greet_before_delay_max: Number(form.value.greetBeforeDelayMax || 0),
-        rest_after_candidates_min: Number(form.value.restAfterCandidatesMin || 0),
-        rest_after_candidates_max: Number(form.value.restAfterCandidatesMax || 0),
-        rest_times_min: Number(form.value.restTimesMin || 0),
-        rest_times_max: Number(form.value.restTimesMax || 0),
-        rest_duration_min: Number(form.value.restDurationMin || 0),
-        rest_duration_max: Number(form.value.restDurationMax || 0),
-      });
       if (form.value.aiAPIKey.trim()) {
         form.value.aiAPIKey = "";
         form.value.aiAPIKeySet = true;
@@ -171,6 +162,30 @@ export function usePersonalConfig() {
     if (!response.ok || !String(resultText).includes("成功")) {
       throw new Error(`AI 测试未通过，返回信息：\n${formatAIResponse(parsed, rawText)}`);
     }
+  }
+
+  /**
+   * 生成个人偏好保存参数。
+   * @returns {any} 个人偏好参数。
+   */
+  function preferencePayload() {
+    return {
+      ai_model: form.value.aiModel,
+      click_frequency: Number(form.value.clickFrequency || 0),
+      detail_open_probability: Number(form.value.detailOpenProbability || 0),
+      detail_open_delay_min: Number(form.value.detailOpenDelayMin || 0),
+      detail_open_delay_max: Number(form.value.detailOpenDelayMax || 0),
+      detail_close_delay_min: Number(form.value.detailCloseDelayMin || 0),
+      detail_close_delay_max: Number(form.value.detailCloseDelayMax || 0),
+      greet_before_delay_min: Number(form.value.greetBeforeDelayMin || 0),
+      greet_before_delay_max: Number(form.value.greetBeforeDelayMax || 0),
+      rest_after_candidates_min: Number(form.value.restAfterCandidatesMin || 0),
+      rest_after_candidates_max: Number(form.value.restAfterCandidatesMax || 0),
+      rest_times_min: Number(form.value.restTimesMin || 0),
+      rest_times_max: Number(form.value.restTimesMax || 0),
+      rest_duration_min: Number(form.value.restDurationMin || 0),
+      rest_duration_max: Number(form.value.restDurationMax || 0),
+    };
   }
 
   return { form, loading, error, message, load, save };

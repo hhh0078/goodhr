@@ -1,5 +1,13 @@
 <template>
   <div class="terminal-login">
+    <button
+      v-if="allowClose"
+      class="login-close"
+      type="button"
+      @click="$emit('close')"
+    >
+      关闭
+    </button>
     <div ref="keywordWallRef" class="keyword-wall" aria-hidden="true"></div>
     <section class="product-intro">
       <p class="intro-kicker">GoodHR</p>
@@ -96,7 +104,8 @@ import {
   createKeywordCanvasBackground,
   type KeywordCanvasBackground,
 } from "../utils/keywordCanvasBackground";
-const props = defineProps({ auth: Object });
+defineEmits(["close"]);
+const props = defineProps({ auth: Object, allowClose: Boolean });
 const emailRef = ref(null);
 const codeRef = ref(null);
 const keywordWallRef = ref<HTMLElement | null>(null);
@@ -174,6 +183,22 @@ watch(
   width: 100%;
   height: 100%;
   display: block;
+}
+.login-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--fg-dim);
+  padding: 7px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.login-close:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .product-intro {
   position: relative;

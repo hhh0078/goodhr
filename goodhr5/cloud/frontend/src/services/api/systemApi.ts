@@ -6,6 +6,6 @@ import { api } from "../apiClient";
  * @returns {Promise<any>} 返回本地执行器版本要求和公告列表。
  */
 export async function getSystemAppConfig() {
-  const data = await api("/api/system/app-config");
+  const data = await api("/api/system/app-config", { auth: false });
   return data.config || {};
 }

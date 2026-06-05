@@ -141,7 +141,7 @@
               v-if="task.status !== 'running'"
               class="ghost primary"
               :disabled="tasks.loading.value"
-              @click="tasks.execute(task.id)"
+              @click="executeTask(task.id)"
             >
               开始
             </button>
@@ -329,7 +329,7 @@ const props = defineProps({
   token: String,
   agent: Object,
 });
-const emit = defineEmits(["open-candidates"]);
+const emit = defineEmits(["open-candidates", "request-login"]);
 const showCreate = ref(false);
 const statRange = ref("today");
 const createNameEdited = ref(false);
@@ -352,6 +352,19 @@ async function loadAccounts() {
   } catch (e: any) {
     accountsError.value = e.message;
   }
+}
+
+/**
+ * 开始任务，未登录时先请求登录。
+ * @param {string} taskId - 任务 ID。
+ * @returns {void} 无返回值。
+ */
+function executeTask(taskId: string) {
+  if (!props.token) {
+    emit("request-login");
+    return;
+  }
+  props.tasks.execute(taskId);
 }
 function accountLabel(account: any) {
   const platform = platformLabel(account?.platform_id);

@@ -27,8 +27,8 @@
         ><button class="ghost" @click="load">刷新</button>
       </div>
     </div>
-    <p v-if="!token" class="hint">需要登录</p>
-    <template v-if="showForm && token"
+    <p v-if="accountFormNeedsLogin" class="hint">需要登录</p>
+    <template v-if="showForm && !accountFormNeedsLogin"
       ><div class="form-grid">
         <label
           >平台<select v-model="form.platformId">
@@ -141,6 +141,11 @@ const localConsole = computed(() => {
   const port = Number(window.location.port || "0");
   return (host === "127.0.0.1" || host === "localhost") && port >= 9001 && port <= 9009;
 });
+const accountFormNeedsLogin = computed(() => !localConsole.value && !props.token);
+const effectiveAgentBaseUrl = computed(() => {
+  if (localConsole.value && typeof window !== "undefined") return window.location.origin;
+  return props.agentBaseUrl;
+});
 
 /**
  * 将后端时间转换为当前电脑本地时间显示。
@@ -201,7 +206,7 @@ async function create() {
       msg.value = "正在打开登录页，请完成平台登录";
       msgType.value = "success";
       await runPlatformLoginFlow(
-        props.agentBaseUrl,
+        effectiveAgentBaseUrl.value,
         form.value.platformId,
         platformAuthConfig(form.value.platformId),
         (message) => {
@@ -232,7 +237,7 @@ async function create() {
       msg.value = "正在检查平台登录状态";
       msgType.value = "success";
       pendingCookies.value = await runPlatformLoginFlow(
-        props.agentBaseUrl,
+        effectiveAgentBaseUrl.value,
         form.value.platformId,
         platformAuthConfig(form.value.platformId),
         (message) => {
@@ -277,7 +282,7 @@ async function refreshCookie(account: any) {
     msg.value = `正在为 ${account.display_name || account.id} 重新登录`;
     msgType.value = "success";
     const cookies = await runPlatformLoginFlow(
-      props.agentBaseUrl,
+      effectiveAgentBaseUrl.value,
       account.platform_id,
       platformAuthConfig(account.platform_id),
       (message) => {
@@ -329,7 +334,7 @@ async function refreshCookie(account: any) {
  */
 async function openWithCookie(account: any) {
   if (!account?.id) return;
-  if (!props.agentBaseUrl) {
+  if (!effectiveAgentBaseUrl.value) {
     msg.value = "未检测到本地程序";
     msgType.value = "error";
     return;
@@ -350,9 +355,9 @@ async function openWithCookie(account: any) {
     };
 
     if (localConsole.value) {
-      await openPage(props.agentBaseUrl, openPayload);
+      await openPage(effectiveAgentBaseUrl.value, openPayload);
       const status = await detectCookieExpiredByURL(
-        props.agentBaseUrl,
+        effectiveAgentBaseUrl.value,
         authConfig,
         (message) => {
           msg.value = message;
@@ -369,13 +374,13 @@ async function openWithCookie(account: any) {
     }
 
     try {
-      const health = await getLocalHealth(props.agentBaseUrl);
+      const health = await getLocalHealth(effectiveAgentBaseUrl.value);
       const machineID = String(health.machine_id || "").trim();
       if (machineID) {
         const claimedPayload = await claimCookie(account.id, {});
         const decryptPayload = pickDecryptPayload(claimedPayload, machineID);
         const cookies = await decryptCookieByAgent(
-          props.agentBaseUrl,
+          effectiveAgentBaseUrl.value,
           decryptPayload,
         );
         if (Array.isArray(cookies) && cookies.length > 0) {
@@ -386,9 +391,9 @@ async function openWithCookie(account: any) {
       throw new Error(`cookie 解密失败，无法打开账号：${e?.message || e}`);
     }
 
-    await openPage(props.agentBaseUrl, openPayload);
+    await openPage(effectiveAgentBaseUrl.value, openPayload);
     const status = await detectCookieExpiredByURL(
-      props.agentBaseUrl,
+      effectiveAgentBaseUrl.value,
       authConfig,
       (message) => {
         msg.value = message;

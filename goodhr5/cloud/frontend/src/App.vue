@@ -1,6 +1,5 @@
 <template>
-  <LoginForm v-if="!user" :auth="auth" />
-  <div v-else class="app-layout">
+  <div class="app-layout">
     <aside class="menu-panel">
       <div class="menu-bar">
         <span class="bar-btn bar-close"></span
@@ -25,8 +24,8 @@
         <div class="menu-item impert" @click="goInvitation">
           <span class="prompt">&gt;</span><span>不想付钱?点我</span>
         </div>
-        <div class="menu-item" @click="auth.logout">
-          <span class="prompt">&gt;</span><span>登出</span>
+        <div class="menu-item" @click="user ? auth.logout() : requestLogin()">
+          <span class="prompt">&gt;</span><span>{{ user ? "登出" : "登录" }}</span>
         </div>
       </div>
     </aside>
@@ -34,7 +33,14 @@
       <div class="top-bar">
         <span class="prompt">$</span><span class="cmd">百度搜GoodHR</span>
         <span class="spacer"></span>
-        <span class="top-info">{{ user?.email }}</span
+        <button
+          v-if="!user"
+          class="top-info top-link error"
+          @click="requestLogin"
+        >
+          请登录
+        </button>
+        <span v-else class="top-info">{{ user.email }}</span
         ><span class="sep">|</span>
         <span class="top-info">{{ currentRoleLabel }}</span
         ><span class="sep">|</span>
@@ -99,6 +105,12 @@
       @close="closeThemeSelector"
     />
   </div>
+  <LoginForm
+    v-if="loginVisible"
+    :auth="auth"
+    :allow-close="true"
+    @close="closeLogin"
+  />
 </template>
 
 <script setup lang="ts">
@@ -144,6 +156,7 @@ const systemAppConfig = ref({
 });
 const dismissedSessionAnnouncements = ref<string[]>([]);
 const subscription = ref<any>(null);
+const loginVisible = ref(false);
 const onboardingProgress = ref<any>({ completed: true, steps: {} });
 const onboardingConfig = ref<any>({
   local_agent_download_url: "",
@@ -162,7 +175,7 @@ const tasks = useTasks(agent.baseUrl, () => {
   loadSubscriptionStatus();
 }, resolvePositionSnapshot);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
-const currentRoleLabel = computed(() => user.value?.role_label || "成员");
+const currentRoleLabel = computed(() => user.value?.role_label || "游客");
 const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
@@ -200,6 +213,7 @@ provideAppContext({
   onboardingProgress,
   onboardingConfig,
   goMenu,
+  requestLogin,
   loadSubscriptionStatus,
 });
 
@@ -298,6 +312,7 @@ function closeThemeSelector() {
 
 watch(user, async (u) => {
   if (u) {
+    loginVisible.value = false;
     initOnboarding(u);
     refreshOnboardingProgress();
     await loadOnboardingStatus();
@@ -307,10 +322,16 @@ watch(user, async (u) => {
     positions.load();
     personalConfig.load();
     tasks.load();
+  } else {
+    subscription.value = null;
   }
 });
 watch(activeMenu, (menu) => {
   localStorage.setItem(MENU_CACHE_KEY, menu);
+  if (menu === "subscription" && !user.value) {
+    requestLogin();
+    return;
+  }
   if (menu === "subscription") {
     markOnboardingStep("subscription_viewed");
   }
@@ -318,7 +339,6 @@ watch(activeMenu, (menu) => {
 watch(
   [user, menuItems],
   () => {
-    if (!user.value) return;
     if (!menuItems.value.some((item) => item.id === activeMenu.value)) {
       goMenu("agent");
     }
@@ -327,18 +347,21 @@ watch(
 );
 onMounted(async () => {
   window.addEventListener(ONBOARDING_EVENT, refreshOnboardingProgress);
+  refreshOnboardingProgress();
+  await loadSystemAppConfig();
   await auth.loadCurrentUser();
   if (auth.user.value) {
     initOnboarding(auth.user.value);
     refreshOnboardingProgress();
     await loadOnboardingStatus();
-    await loadSystemAppConfig();
     await loadSubscriptionStatus();
     agent.detect(auth.user.value, auth.token.value);
     detectLocalAgent();
     positions.load();
     personalConfig.load();
     tasks.load();
+  } else if (isLocalConsole()) {
+    detectLocalAgent();
   }
 });
 
@@ -355,11 +378,35 @@ function goContact() {
  * @returns {void} 无返回值。
  */
 function goSubscription() {
-  window.location.href = "/admin/subscription";
+  if (!user.value) {
+    requestLogin();
+    return;
+  }
+  void router.push({ name: "subscription" });
 }
 
 function goInvitation() {
-  window.location.href = "/admin/invitations";
+  if (!user.value) {
+    requestLogin();
+    return;
+  }
+  void router.push({ name: "invitations" });
+}
+
+/**
+ * 打开登录层。
+ * @returns {void} 无返回值。
+ */
+function requestLogin() {
+  loginVisible.value = true;
+}
+
+/**
+ * 关闭登录层。
+ * @returns {void} 无返回值。
+ */
+function closeLogin() {
+  loginVisible.value = false;
 }
 
 /**
@@ -400,6 +447,10 @@ function refreshOnboardingProgress() {
  * @returns {void} 无返回值。
  */
 function goMenu(menu: string) {
+  if (menu === "subscription" && !user.value) {
+    requestLogin();
+    return;
+  }
   const routeName = menuRouteMap[menu] || "dashboard";
   void router.push({ name: routeName });
   if (menu === "subscription") {
@@ -483,6 +534,10 @@ function closeAnnouncements() {
  * @returns {Promise<void>} 无返回值。
  */
 async function loadSubscriptionStatus() {
+  if (!auth.token.value) {
+    subscription.value = null;
+    return;
+  }
   try {
     subscription.value = await getSubscriptionStatus();
   } catch {
@@ -518,6 +573,7 @@ function isSubscriptionExpired(value: any) {
 const detectLocalAgent = () => {
   //3秒运行一次
   setInterval(() => {
+    if (!auth.user.value) return;
     agent.detect(auth.user.value, auth.token.value);
   }, 10000);
 };
