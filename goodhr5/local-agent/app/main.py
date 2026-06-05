@@ -151,7 +151,7 @@ async def add_private_network_access_headers(request: Request, call_next):
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
 _ws_agent = WSAgentClient(_browser_manager)
-_local_runner = LocalTaskRunner()
+_local_runner = LocalTaskRunner(_browser_manager)
 
 # ---------------------------------------------------------------------------
 # 路由处理函数

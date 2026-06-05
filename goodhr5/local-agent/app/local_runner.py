@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from app.local_tasks import add_local_task_log, get_local_task, update_local_task_status
+from app.paths import data_dir
 
 
 VerifySubscription = Callable[[], Awaitable[dict]]
+BOSS_ENTRY_URL = "https://www.zhipin.com/web/chat/recommend"
 
 
 class LocalTaskRunner:
@@ -18,8 +21,14 @@ class LocalTaskRunner:
     当前先负责运行锁、会员校验、状态流转和日志入口，后续 Boss 页面主流程会接入这里。
     """
 
-    def __init__(self) -> None:
-        """初始化本地任务运行器。"""
+    def __init__(self, browser_manager=None) -> None:
+        """
+        初始化本地任务运行器。
+
+        Args:
+            browser_manager: 浏览器生命周期管理器。
+        """
+        self._browser_manager = browser_manager
         self._tasks: dict[str, asyncio.Task] = {}
         self._stop_events: dict[str, asyncio.Event] = {}
 
@@ -110,7 +119,8 @@ class LocalTaskRunner:
                 add_local_task_log(task_id, "error", f"暂不支持本地执行平台：{platform_id}")
                 update_local_task_status(task_id, "failed")
                 return
-            add_local_task_log(task_id, "warning", "Boss 本地主流程正在迁移中，当前版本先完成本地运行器和数据闭环")
+            await self._open_boss_entry(task, stop_event)
+            add_local_task_log(task_id, "warning", "Boss 候选人提取和打招呼流程正在迁移中，当前版本已完成本地浏览器启动和入口页打开")
             update_local_task_status(task_id, "pending")
         except asyncio.CancelledError:
             update_local_task_status(task_id, "stopped")
@@ -130,3 +140,47 @@ class LocalTaskRunner:
             if running_task.done():
                 self._tasks.pop(task_id, None)
                 self._stop_events.pop(task_id, None)
+
+    async def _open_boss_entry(self, task: dict, stop_event: asyncio.Event) -> None:
+        """
+        启动浏览器并打开 Boss 推荐页。
+
+        Args:
+            task: 本地任务。
+            stop_event: 停止信号。
+        """
+        task_id = str(task.get("id") or "")
+        if self._browser_manager is None:
+            add_local_task_log(task_id, "warning", "浏览器管理器未初始化，跳过打开 Boss 推荐页")
+            return
+        account_id = str(task.get("platform_account_id") or "boss_default")
+        user_data_dir = _profile_dir(account_id)
+        add_local_task_log(task_id, "info", f"正在启动本地浏览器：profile={account_id}")
+        await self._browser_manager.start(
+            persistent=True,
+            user_data_dir=str(user_data_dir),
+            headless=False,
+            humanize=True,
+        )
+        if stop_event.is_set():
+            return
+        page = await self._browser_manager.ensure_page("default")
+        if page is None:
+            raise RuntimeError("浏览器页面创建失败")
+        add_local_task_log(task_id, "info", f"正在打开 Boss 推荐页：{BOSS_ENTRY_URL}")
+        await page.goto(BOSS_ENTRY_URL, wait_until="domcontentloaded", timeout=60000)
+        add_local_task_log(task_id, "info", "Boss 推荐页已打开")
+
+
+def _profile_dir(name: str) -> Path:
+    """
+    计算本地浏览器 profile 目录。
+
+    Args:
+        name: profile 名称。
+
+    Returns:
+        Path: cookies 下的安全 profile 路径。
+    """
+    safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(name)).strip("_") or "default"
+    return data_dir().parent / "cookies" / safe_name
