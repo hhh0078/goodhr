@@ -8,7 +8,7 @@ from pathlib import Path
 from app.paths import data_dir
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def database_path() -> Path:
@@ -97,6 +97,35 @@ def migrate(conn: sqlite3.Connection) -> None:
             version TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'active',
             updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_downloads (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            file_path TEXT NOT NULL DEFAULT '',
+            file_name TEXT NOT NULL DEFAULT '',
+            mime_type TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_screenshots (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL DEFAULT '',
+            file_path TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL DEFAULT '',
+            width INTEGER NOT NULL DEFAULT 0,
+            height INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
         );
 
         -- 本地 AI 配置表，明文保存用户在本机填写的模型和密钥。

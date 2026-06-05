@@ -23,6 +23,7 @@ import {
   runLocalTask,
   deleteLocalTaskCandidate,
   deleteLocalCandidate,
+  getLocalAIConfig,
   startTaskWS,
   stopTaskWS,
   stopLocalTask,
@@ -194,6 +195,13 @@ export function useTasks(
    */
   async function ensureTaskAIConfigReady(task: any) {
     if (!taskNeedsAIConfig(task)) return;
+    if (shouldUseLocalTasks()) {
+      const aiConfig = await getLocalAIConfig(localTaskBase());
+      if (!aiConfig?.base_url || !aiConfig?.model || !aiConfig?.api_key) {
+        throw new Error("当前任务需要 AI，请先在个人配置中填写并保存本地 AI 配置");
+      }
+      return;
+    }
     const aiConfig = await getUserAIConfig();
     if (!aiConfig?.api_key_set || aiConfig?.enabled === false) {
       throw new Error("当前任务需要 AI，请先在个人配置中填写并保存 AI Key");
@@ -203,12 +211,11 @@ export function useTasks(
   /**
    * 判断任务是否必须使用 AI 配置。
    * @param {any} task - 当前任务对象。
-   * @returns {boolean} Boss 平台或 AI 模式返回 true。
+   * @returns {boolean} AI 模式返回 true。
    */
   function taskNeedsAIConfig(task: any) {
-    const platformID = String(task?.platform_id || "").trim().toLowerCase();
     const mode = String(task?.mode || "").trim().toLowerCase();
-    return platformID === "boss" || mode === "ai";
+    return mode === "ai";
   }
 
   async function stop(taskId: string) {

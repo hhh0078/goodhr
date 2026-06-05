@@ -297,6 +297,92 @@ export async function chatWithLocalAI(base: string, payload: any) {
 }
 
 /**
+ * 读取 Local Agent 本地设置。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回本地设置。
+ */
+export async function getLocalSettings(base: string) {
+  const data = await req(base, "/api/v1/local/settings");
+  return data.settings || {};
+}
+
+/**
+ * 保存 Local Agent 本地设置。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 设置参数。
+ * @returns {Promise<any>} 返回保存后的本地设置。
+ */
+export async function saveLocalSettings(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/settings", { method: "POST", body: payload });
+  return data.settings || {};
+}
+
+/**
+ * 读取 Local Agent 规则包状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回规则包状态。
+ */
+export async function getLocalRulesStatus(base: string) {
+  return req(base, "/api/v1/local/rules/status");
+}
+
+/**
+ * 触发 Local Agent 更新规则包。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 可选 manifest_url。
+ * @returns {Promise<any>} 返回更新结果。
+ */
+export async function updateLocalRules(base: string, payload: any = {}) {
+  return req(base, "/api/v1/local/rules/update", { method: "POST", body: payload });
+}
+
+/**
+ * 读取 Local Agent 本地下载记录。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 可选任务 ID。
+ * @returns {Promise<any[]>} 返回下载记录列表。
+ */
+export async function listLocalDownloads(base: string, taskID = "") {
+  const query = taskID ? `?task_id=${encodeURIComponent(taskID)}` : "";
+  const data = await req(base, `/api/v1/local/downloads${query}`);
+  return data.downloads || [];
+}
+
+/**
+ * 保存 Local Agent 本地下载记录。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 下载记录参数。
+ * @returns {Promise<any>} 返回保存后的下载记录。
+ */
+export async function saveLocalDownload(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/downloads", { method: "POST", body: payload });
+  return data.download || {};
+}
+
+/**
+ * 读取 Local Agent 本地截图记录。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 可选任务 ID。
+ * @returns {Promise<any[]>} 返回截图记录列表。
+ */
+export async function listLocalScreenshotRecords(base: string, taskID = "") {
+  const query = taskID ? `?task_id=${encodeURIComponent(taskID)}` : "";
+  const data = await req(base, `/api/v1/local/screenshots${query}`);
+  return data.screenshots || [];
+}
+
+/**
+ * 保存 Local Agent 本地截图记录。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 截图记录参数。
+ * @returns {Promise<any>} 返回保存后的截图记录。
+ */
+export async function saveLocalScreenshotRecord(base: string, payload: any) {
+  const data = await req(base, "/api/v1/local/screenshots", { method: "POST", body: payload });
+  return data.screenshot || {};
+}
+
+/**
  * 读取 SQLite 本地任务候选人。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。

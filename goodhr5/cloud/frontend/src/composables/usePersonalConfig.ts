@@ -5,6 +5,11 @@ import {
   updateUserAIConfig,
   updateUserPreferences,
 } from "../services/api/personalConfigApi";
+import {
+  chatWithLocalAI,
+  getLocalAIConfig,
+  saveLocalAIConfig,
+} from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
 
 const DEFAULT_AI_BASE_URL =
@@ -22,13 +27,13 @@ export function usePersonalConfig() {
     error.value = "";
     try {
       const data = await getUserPreferences();
-      const ai = await getUserAIConfig();
+      const ai = isLocalConsole() ? await getLocalAIConfig(localAgentBase()) : await getUserAIConfig();
       form.value = {
         aiBaseURL: ai?.base_url || DEFAULT_AI_BASE_URL,
         aiModel: ai?.model || data?.ai_model || DEFAULT_AI_MODEL,
         aiAPIKey: "",
-        aiAPIKeyMasked: ai?.api_key_masked || "",
-        aiAPIKeySet: Boolean(ai?.api_key_set),
+        aiAPIKeyMasked: localAIKeyLabel(ai),
+        aiAPIKeySet: isLocalConsole() ? Boolean(ai?.api_key) : Boolean(ai?.api_key_set),
         clickFrequency: data?.click_frequency ?? 80,
         detailOpenProbability: data?.detail_open_probability ?? 80,
         detailOpenDelayMin: data?.detail_open_delay_min ?? 1,
@@ -57,14 +62,27 @@ export function usePersonalConfig() {
     message.value = "";
     try {
       await verifyAIBeforeSave();
-      await updateUserAIConfig({
-        base_url: form.value.aiBaseURL,
-        model: form.value.aiModel,
-        api_key: form.value.aiAPIKey.trim(),
-        temperature: 0,
-        prompt_template: "",
-        enabled: true,
-      });
+      if (isLocalConsole()) {
+        const localPayload: any = {
+          base_url: form.value.aiBaseURL,
+          model: form.value.aiModel,
+          temperature: 0,
+          provider: "openai-compatible",
+        };
+        if (form.value.aiAPIKey.trim()) {
+          localPayload.api_key = form.value.aiAPIKey.trim();
+        }
+        await saveLocalAIConfig(localAgentBase(), localPayload);
+      } else {
+        await updateUserAIConfig({
+          base_url: form.value.aiBaseURL,
+          model: form.value.aiModel,
+          api_key: form.value.aiAPIKey.trim(),
+          temperature: 0,
+          prompt_template: "",
+          enabled: true,
+        });
+      }
       await updateUserPreferences({
         ai_model: form.value.aiModel,
         click_frequency: Number(form.value.clickFrequency || 0),
@@ -87,7 +105,7 @@ export function usePersonalConfig() {
         form.value.aiAPIKeySet = true;
         form.value.aiAPIKeyMasked = "已更新";
       }
-      message.value = "个人配置已保存";
+      message.value = isLocalConsole() ? "本地个人配置已保存" : "个人配置已保存";
       await markOnboardingStep("personal_config");
     } catch (e: any) {
       error.value = e.message;
@@ -103,9 +121,30 @@ export function usePersonalConfig() {
   async function verifyAIBeforeSave() {
     const apiURL = form.value.aiBaseURL.trim();
     const model = form.value.aiModel.trim();
-    const apiKey = form.value.aiAPIKey.trim();
+    let apiKey = form.value.aiAPIKey.trim();
     if (!apiURL) throw new Error("请先填写 AI API 地址");
     if (!model) throw new Error("请先填写 AI 模型");
+
+    if (isLocalConsole()) {
+      if (!apiKey) {
+        const saved = await getLocalAIConfig(localAgentBase());
+        apiKey = String(saved?.api_key || "").trim();
+      }
+      if (!apiKey) throw new Error("请先填写 AI Key");
+      const data = await chatWithLocalAI(localAgentBase(), {
+        messages: [{ role: "user", content: "请只返回两个字：成功" }],
+        temperature: 0,
+        config: {
+          base_url: apiURL,
+          model,
+          api_key: apiKey,
+        },
+      });
+      if (!String(data?.content || "").includes("成功")) {
+        throw new Error(`AI 测试未通过，返回信息：\n${data?.content || "无返回内容"}`);
+      }
+      return;
+    }
     if (!apiKey) throw new Error("保存前请重新输入 AI Key，用于测试当前配置是否可用");
 
     const response = await fetch(apiURL, {
@@ -200,4 +239,33 @@ function defaultForm() {
     restDurationMin: 2,
     restDurationMax: 7,
   };
+}
+
+/**
+ * 判断当前是否运行在本地控制台。
+ * @returns {boolean} 本地控制台返回 true。
+ */
+function isLocalConsole() {
+  if (typeof window === "undefined") return false;
+  const hostname = window.location.hostname;
+  const port = Number(window.location.port || "0");
+  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 9001 && port <= 9009;
+}
+
+/**
+ * 返回 Local Agent 基础地址。
+ * @returns {string} Local Agent 地址。
+ */
+function localAgentBase() {
+  return window.location.origin;
+}
+
+/**
+ * 返回本地 AI Key 显示文案。
+ * @param {any} ai - AI 配置。
+ * @returns {string} 显示文案。
+ */
+function localAIKeyLabel(ai: any) {
+  if (isLocalConsole()) return ai?.api_key ? "本地已保存明文 Key" : "";
+  return ai?.api_key_masked || "";
 }

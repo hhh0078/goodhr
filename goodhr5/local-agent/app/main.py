@@ -41,6 +41,14 @@ from app.humanize import (
 from app.crypto_keys import load_or_generate as load_crypto_keys
 from app.local_db import database_path
 from app.local_ai import chat_with_local_ai, get_local_ai_config, save_local_ai_config
+from app.local_records import (
+    get_local_settings,
+    list_local_downloads,
+    list_local_screenshots,
+    save_local_download,
+    save_local_screenshot,
+    save_local_settings,
+)
 from app.local_runner import LocalTaskRunner
 from app.local_tasks import (
     add_local_task_log,
@@ -57,6 +65,7 @@ from app.local_tasks import (
 )
 from app.machine import cookie_machine_ids, load_machine
 from app.profiles import create_profile, delete_profile, list_profiles
+from app.rules_update import get_rules_status, update_rules
 from app.screenshot import screenshot_locator_full, screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
 from app.session import load_cloud_account, save_cloud_account
@@ -226,6 +235,58 @@ async def post_local_ai_chat_route(payload: dict) -> dict:
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     return {"ok": True, **result}
+
+
+@app.get("/api/v1/local/settings")
+async def get_local_settings_route() -> dict:
+    """返回本地设置。"""
+    return {"ok": True, "settings": get_local_settings()}
+
+
+@app.post("/api/v1/local/settings")
+async def post_local_settings_route(payload: dict) -> dict:
+    """保存本地设置。"""
+    return {"ok": True, "settings": save_local_settings(payload)}
+
+
+@app.get("/api/v1/local/downloads")
+async def get_local_downloads_route(task_id: str = "") -> dict:
+    """返回本地下载记录。"""
+    return {"ok": True, "downloads": list_local_downloads(task_id)}
+
+
+@app.post("/api/v1/local/downloads")
+async def post_local_download_route(payload: dict) -> dict:
+    """保存本地下载记录。"""
+    return {"ok": True, "download": save_local_download(payload)}
+
+
+@app.get("/api/v1/local/screenshots")
+async def get_local_screenshots_route(task_id: str = "") -> dict:
+    """返回本地截图记录。"""
+    return {"ok": True, "screenshots": list_local_screenshots(task_id)}
+
+
+@app.post("/api/v1/local/screenshots")
+async def post_local_screenshot_route(payload: dict) -> dict:
+    """保存本地截图记录。"""
+    return {"ok": True, "screenshot": save_local_screenshot(payload)}
+
+
+@app.get("/api/v1/local/rules/status")
+async def get_local_rules_status_route() -> dict:
+    """返回本地规则包状态。"""
+    return {"ok": True, **get_rules_status()}
+
+
+@app.post("/api/v1/local/rules/update")
+async def post_local_rules_update_route(payload: dict) -> dict:
+    """检查并更新本地规则包。"""
+    manifest_url = str(payload.get("manifest_url") or "").strip()
+    try:
+        return update_rules(manifest_url) if manifest_url else update_rules()
+    except Exception as exc:
+        raise HTTPException(502, f"规则包更新失败：{exc}")
 
 
 @app.post("/api/v1/local/tasks")
