@@ -24,6 +24,7 @@ import {
   deleteLocalTaskCandidate,
   deleteLocalCandidate,
   getLocalAIConfig,
+  getLocalTaskStatus,
   startTaskWS,
   stopTaskWS,
   stopLocalTask,
@@ -53,6 +54,7 @@ export function useTasks(
   const taskLogHasMore = ref<Record<string, boolean>>({});
   const taskLogLoadingMore = ref<Record<string, boolean>>({});
   const taskLogClearedAt = ref<Record<string, string>>({});
+  const taskProgress = ref<Record<string, any>>({});
   const candidateExpandedTaskId = ref("");
   const taskCandidates = ref<Record<string, any>>({});
   const candidateLoadingTaskId = ref("");
@@ -155,7 +157,10 @@ export function useTasks(
         await refreshLogs(taskId);
         startTaskLogPolling(taskId);
         const data = await runLocalTask(localTaskBase(), taskId, taskLocalPayload());
-        message.value = data.message || "本地任务已启动";
+        if (data?.progress) {
+          taskProgress.value = { ...taskProgress.value, [taskId]: data.progress };
+        }
+        message.value = data.message || "本地任务已进入后台运行";
         await load();
         return;
       }
@@ -224,6 +229,10 @@ export function useTasks(
       if (!confirm("确认停止任务吗？")) return;
       if (shouldUseLocalTasks()) {
         const data = await stopLocalTask(localTaskBase(), taskId);
+        taskProgress.value = {
+          ...taskProgress.value,
+          [taskId]: { stage: "stopped", message: "任务已停止" },
+        };
         message.value = data.message || "任务已停止";
         await load();
         await refreshLogs(taskId);
@@ -308,6 +317,10 @@ export function useTasks(
 
   async function refreshLogs(taskId: string) {
     try {
+      let localRunning: boolean | undefined;
+      if (shouldUseLocalTasks()) {
+        localRunning = await refreshLocalTaskStatus(taskId);
+      }
       const existing = taskLogs.value[taskId] || [];
       const since = latestTaskLogTime(existing) || taskLogClearedAt.value[taskId] || "";
       const data = shouldUseLocalTasks()
@@ -328,9 +341,35 @@ export function useTasks(
         added: logs.length,
         total: merged.length,
       });
+      return localRunning;
     } catch (e) {
       console.error("[goodhr5][task-logs] refresh failed", { taskId, error: e });
+      return undefined;
     }
+  }
+
+  /**
+   * 刷新本地任务状态和进度。
+   * @param {string} taskId - 任务 ID。
+   * @returns {Promise<boolean>} 返回任务是否仍在运行。
+   */
+  async function refreshLocalTaskStatus(taskId: string) {
+    const data = await getLocalTaskStatus(localTaskBase(), taskId);
+    if (data?.task) {
+      tasks.value = tasks.value.map((item: any) =>
+        item.id === taskId ? { ...item, ...data.task } : item,
+      );
+    }
+    if (data?.progress) {
+      taskProgress.value = { ...taskProgress.value, [taskId]: data.progress };
+    }
+    if (Array.isArray(data?.logs) && data.logs.length > 0) {
+      taskLogs.value = {
+        ...taskLogs.value,
+        [taskId]: mergeTaskLogs(taskLogs.value[taskId] || [], data.logs, true),
+      };
+    }
+    return Boolean(data?.running);
   }
 
   async function loadOlderLogs(taskId: string) {
@@ -363,11 +402,19 @@ export function useTasks(
         stopTaskLogPolling();
         return;
       }
-      await refreshLogs(taskId);
-      await refreshTasksQuietly();
-      const task = tasks.value.find((item: any) => item.id === taskId);
-      if (!task || task.status !== "running") {
-        stopTaskLogPolling();
+      if (shouldUseLocalTasks()) {
+        const running = await refreshLogs(taskId);
+        if (!running) {
+          stopTaskLogPolling();
+          await refreshTasksQuietly();
+        }
+      } else {
+        await refreshLogs(taskId);
+        await refreshTasksQuietly();
+        const task = tasks.value.find((item: any) => item.id === taskId);
+        if (!task || task.status !== "running") {
+          stopTaskLogPolling();
+        }
       }
     }, 1500);
   }
@@ -579,6 +626,7 @@ export function useTasks(
     taskLogs,
     taskLogHasMore,
     taskLogLoadingMore,
+    taskProgress,
     candidateExpandedTaskId,
     taskCandidates,
     candidateLoadingTaskId,
