@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -37,15 +38,28 @@ type Config struct {
 // New 创建本地程序配置。
 // host 为监听地址，port 为优先监听端口，返回完整配置。
 func New(host string, port int) (*Config, error) {
+	return NewWithDataDir(host, port, "")
+}
+
+// NewWithDataDir 创建本地程序配置。
+// host 为监听地址，port 为优先监听端口，customDataDir 为用户指定数据目录。
+func NewWithDataDir(host string, port int, customDataDir string) (*Config, error) {
 	if host == "" {
 		host = DefaultHost
 	}
 	if port <= 0 {
 		port = DefaultPort
 	}
-	dataDir, err := defaultDataDir()
-	if err != nil {
-		return nil, err
+	dataDir := strings.TrimSpace(customDataDir)
+	if dataDir == "" {
+		dataDir = strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR"))
+	}
+	if dataDir == "" {
+		var err error
+		dataDir, err = defaultDataDir()
+		if err != nil {
+			return nil, err
+		}
 	}
 	cfg := &Config{
 		Host:           host,

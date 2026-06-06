@@ -13,9 +13,10 @@ import (
 func main() {
 	host := flag.String("host", config.DefaultHost, "本地监听地址")
 	port := flag.Int("port", config.DefaultPort, "本地优先监听端口")
+	dataDir := flag.String("data-dir", "", "本地数据目录")
 	flag.Parse()
 
-	cfg, err := config.New(*host, *port)
+	cfg, err := config.NewWithDataDir(*host, *port, *dataDir)
 	if err != nil {
 		log.Fatalf("初始化本地配置失败：%v", err)
 	}
