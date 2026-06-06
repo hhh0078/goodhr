@@ -81,6 +81,7 @@ func (s *Server) Run() error {
 // mux 为 HTTP 路由器。
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	mux.HandleFunc("/api/v1/runtime/status", s.handleRuntimeStatus)
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
 	mux.HandleFunc("/api/v1/runtime/install", s.handleRuntimeInstall)

@@ -33,6 +33,7 @@
 - 本地控制台会优先代理 Vite 开发服务 `http://127.0.0.1:5173`，没有开发服务时再使用构建目录。
 - 已补齐本地 AI 聊天、岗位默认提示词、岗位要求优化、规则状态等前端本地模式接口。
 - 运行组件状态会返回安装进度和已安装版本，便于排查下载卡住或版本不一致。
+- 已提供 `/api/v1/diagnostics` 本地诊断接口，可检查端口、目录、运行组件、Worker 和 Profile 锁文件。
 
 ## 本地启动
 
@@ -53,6 +54,12 @@ go run ./cmd/goodhr-local-agent --port 19001
 
 ```bash
 curl http://127.0.0.1:19001/health
+```
+
+诊断检查：
+
+```bash
+curl http://127.0.0.1:19001/api/v1/diagnostics
 ```
 
 开发阶段安装本地 Worker：
@@ -135,3 +142,14 @@ cd goodhr5/local-agent-go
 ```
 
 脚本会输出 zip 路径和 sha256，可填入 OSS manifest。
+
+## Windows 冒烟测试
+
+Windows 真机启动本地程序后，可在 PowerShell 里执行：
+
+```powershell
+cd goodhr5/local-agent-go
+.\scripts\windows_smoke_test.ps1 -BaseUrl "http://127.0.0.1:9001"
+```
+
+它会检查 `/health`、运行组件状态、Worker 状态和诊断信息。
