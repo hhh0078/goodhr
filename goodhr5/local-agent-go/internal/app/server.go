@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/config"
+	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
@@ -25,17 +27,23 @@ type Server struct {
 	cfg     *config.Config
 	runtime *runtime.Manager
 	worker  *browser.WorkerManager
+	db      *localdb.DB
 }
 
 // NewServer 创建本地 HTTP 服务。
 // cfg 为本地程序配置。
-func NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config) (*Server, error) {
 	runtimeManager := runtime.NewManager(cfg)
+	db, err := localdb.Open(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
 		cfg:     cfg,
 		runtime: runtimeManager,
 		worker:  browser.NewWorkerManager(runtimeManager),
-	}
+		db:      db,
+	}, nil
 }
 
 // Run 启动本地 HTTP 服务。
@@ -68,6 +76,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
+	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
+	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
 	mux.HandleFunc("/api/v1/browser/start", s.handleBrowserStart)
 	mux.HandleFunc("/api/v1/browser/stop", s.handleBrowserStop)
 	mux.HandleFunc("/api/v1/page/open", s.handlePageOpen)
@@ -93,6 +103,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version": "go-v2-dev",
 		"port":    s.cfg.Port,
 		"dataDir": s.cfg.DataDir,
+		"dbPath":  s.db.Path(),
 		"runtime": s.runtime.Status(),
 	})
 }
@@ -203,6 +214,166 @@ func (s *Server) handleWorkerStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, s.worker.Status())
+}
+
+// handleLocalTasks 处理本地任务列表和创建。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalTasks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		tasks, err := s.db.ListTasks()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"tasks": tasks})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		task, err := s.db.CreateTask(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"task": task})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalTaskItem 处理单个本地任务相关接口。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
+	taskID, action := localTaskPath(r.URL.Path)
+	if taskID == "" {
+		response.Error(w, http.StatusBadRequest, "任务 ID 不能为空")
+		return
+	}
+	switch action {
+	case "":
+		s.handleLocalTaskDetail(w, r, taskID)
+	case "status":
+		s.handleLocalTaskStatus(w, r, taskID)
+	case "logs":
+		s.handleLocalTaskLogs(w, r, taskID)
+	case "candidates":
+		s.handleLocalTaskCandidates(w, r, taskID)
+	default:
+		response.Error(w, http.StatusNotFound, "接口不存在")
+	}
+}
+
+// handleLocalTaskDetail 处理单个任务读取和删除。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskDetail(w http.ResponseWriter, r *http.Request, taskID string) {
+	switch r.Method {
+	case http.MethodGet:
+		task, err := s.db.GetTask(taskID)
+		if err != nil {
+			response.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"task": task})
+	case http.MethodPut:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		task, err := s.db.UpdateTask(taskID, payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"task": task})
+	case http.MethodDelete:
+		if err := s.db.DeleteTask(taskID); err != nil {
+			response.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"deleted": true})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalTaskStatus 处理任务状态更新。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskStatus(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	task, err := s.db.UpdateTaskStatus(taskID, stringValue(payload["status"]))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"task": task})
+}
+
+// handleLocalTaskLogs 处理任务日志读取和新增。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
+	switch r.Method {
+	case http.MethodGet:
+		logs, err := s.db.ListTaskLogs(taskID, 100)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"logs": logs})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err := s.db.AddTaskLog(taskID, stringValue(payload["level"]), stringValue(payload["message"]))
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"log": item})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalTaskCandidates 处理任务候选人读取和保存。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Request, taskID string) {
+	switch r.Method {
+	case http.MethodGet:
+		candidates, err := s.db.ListCandidates(taskID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"candidates": candidates})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		candidate, err := s.db.SaveCandidate(taskID, payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"candidate": candidate})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
 }
 
 // handleBrowserStart 转发浏览器启动请求给 Node Worker。
@@ -323,13 +494,30 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 // r 为 HTTP 请求对象，空 body 返回空 map。
 func readPayload(r *http.Request) (map[string]any, error) {
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+	decoder := json.NewDecoder(r.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
 		return nil, errors.New("请求参数不是有效 JSON")
 	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
 	return payload, nil
+}
+
+// localTaskPath 解析本地任务子路径。
+// rawPath 为请求路径，返回任务 ID 和动作名称。
+func localTaskPath(rawPath string) (string, string) {
+	rest := strings.TrimPrefix(rawPath, "/api/v1/local/tasks/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", ""
+	}
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+	return parts[0], action
 }
 
 // stringValue 将请求字段转换为字符串。

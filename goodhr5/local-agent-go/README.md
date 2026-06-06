@@ -13,8 +13,11 @@
 - 已实现 Node Browser Worker 启动、停止和浏览器 API 转发入口。
 - `worker-node/` 已接入 CloakBrowser 官方 Node SDK。
 - 已提供基础浏览器 API：打开页面、点击、输入、滚动、提取文本、截图、Cookie、下载记录。
+- 已提供本地 SQLite 任务、日志、候选人数据接口。
 
 ## 本地启动
+
+Go 版本本地程序需要 Go 1.25 或以上。SQLite 使用纯 Go 驱动，不需要用户电脑安装 C 编译环境。
 
 ```bash
 cd goodhr5/local-agent-go

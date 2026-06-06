@@ -19,7 +19,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("初始化本地配置失败：%v", err)
 	}
-	server := app.NewServer(cfg)
+	server, err := app.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("初始化本地服务失败：%v", err)
+	}
 	if err := server.Run(); err != nil {
 		log.Fatalf("本地程序启动失败：%v", err)
 	}
