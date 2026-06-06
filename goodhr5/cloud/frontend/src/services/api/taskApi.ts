@@ -1,5 +1,34 @@
 // 本文件负责任务和任务日志相关接口。
 import { api } from "../apiClient";
+import {
+  clearLocalTaskLogs,
+  createLocalTask,
+  deleteLocalTask,
+  listLocalTaskLogs,
+  listLocalTasks,
+  runLocalTask,
+  stopLocalTask,
+  updateLocalTask,
+} from "../localAgentApi";
+
+/**
+ * 判断当前页面是否由本地 Local Agent 控制台提供。
+ * @returns {boolean} 本地控制台返回 true。
+ */
+function isLocalConsole() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  const port = Number(window.location.port || "0");
+  return (host === "127.0.0.1" || host === "localhost") && port >= 9001 && port <= 9009;
+}
+
+/**
+ * 返回当前本地控制台的 Local Agent 地址。
+ * @returns {string} Local Agent HTTP 基础地址。
+ */
+function localAgentBase() {
+  return window.location.origin;
+}
 
 /**
  * 创建招聘任务。
@@ -7,6 +36,9 @@ import { api } from "../apiClient";
  * @returns {Promise<any>} 返回新建任务。
  */
 export async function createTask(payload: any) {
+  if (isLocalConsole()) {
+    return createLocalTask(localAgentBase(), payload);
+  }
   const data = await api("/api/tasks", { method: "POST", body: payload });
   return data.task;
 }
@@ -18,6 +50,9 @@ export async function createTask(payload: any) {
  * @returns {Promise<any>} 返回更新后的任务。
  */
 export async function updateTask(taskID: string, payload: any) {
+  if (isLocalConsole()) {
+    return updateLocalTask(localAgentBase(), taskID, payload);
+  }
   const data = await api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: "PUT", body: payload });
   return data.task;
 }
@@ -28,6 +63,9 @@ export async function updateTask(taskID: string, payload: any) {
  * @returns {Promise<any>} 返回删除结果。
  */
 export async function deleteTask(taskID: string) {
+  if (isLocalConsole()) {
+    return deleteLocalTask(localAgentBase(), taskID);
+  }
   return api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" });
 }
 
@@ -36,6 +74,9 @@ export async function deleteTask(taskID: string) {
  * @returns {Promise<any[]>} 返回任务数组。
  */
 export async function listTasks() {
+  if (isLocalConsole()) {
+    return listLocalTasks(localAgentBase());
+  }
   const data = await api("/api/tasks");
   return data.tasks;
 }
@@ -46,6 +87,9 @@ export async function listTasks() {
  * @returns {Promise<any>} 返回启动结果。
  */
 export async function runTask(taskID: string) {
+  if (isLocalConsole()) {
+    return runLocalTask(localAgentBase(), taskID);
+  }
   return api(`/api/tasks/${taskID}/run`, { method: "POST" });
 }
 
@@ -55,6 +99,9 @@ export async function runTask(taskID: string) {
  * @returns {Promise<any>} 返回停止结果。
  */
 export async function stopTask(taskID: string) {
+  if (isLocalConsole()) {
+    return stopLocalTask(localAgentBase(), taskID);
+  }
   return api(`/api/tasks/${taskID}/stop`, { method: "POST" });
 }
 
@@ -68,6 +115,9 @@ export async function listTaskLogs(
   taskID: string,
   params: { since?: string; before?: string; limit?: number } = {},
 ) {
+  if (isLocalConsole()) {
+    return listLocalTaskLogs(localAgentBase(), taskID, { limit: params.limit });
+  }
   const queryParams = new URLSearchParams();
   if (params.since) queryParams.set("since", params.since);
   if (params.before) queryParams.set("before", params.before);
@@ -82,5 +132,9 @@ export async function listTaskLogs(
  * @returns {Promise<void>} 无返回值。
  */
 export async function clearTaskLogs(taskID: string) {
+  if (isLocalConsole()) {
+    await clearLocalTaskLogs(localAgentBase(), taskID);
+    return;
+  }
   await api(`/api/tasks/${taskID}/logs`, { method: "DELETE" });
 }

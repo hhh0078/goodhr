@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,15 @@ type Log struct {
 	Level     string `json:"level"`
 	Message   string `json:"message"`
 	CreatedAt string `json:"created_at"`
+}
+
+// CandidateFilter 表示本地候选人筛选条件。
+type CandidateFilter struct {
+	TaskID     string
+	PositionID string
+	Keyword    string
+	Page       int
+	PageSize   int
 }
 
 // CreateTask 创建本地任务。
@@ -266,6 +276,7 @@ func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (map[string
 	now := nowISO()
 	candidateID := stringOr(candidate["id"], uuid.NewString())
 	candidate["id"] = candidateID
+	candidate["task_id"] = taskID
 	candidateName := stringOr(candidate["candidate_name"], stringOr(candidate["name"], ""))
 	status := stringOr(candidate["status"], "")
 	payload, err := json.Marshal(candidate)
@@ -291,23 +302,113 @@ ON CONFLICT(task_id, id) DO UPDATE SET
 // ListCandidates 读取本地候选人列表。
 // taskID 为任务 ID。
 func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
-	rows, err := db.conn.Query(`SELECT payload FROM local_candidates WHERE task_id=? ORDER BY updated_at DESC`, taskID)
+	rows, err := db.conn.Query(`SELECT task_id, payload FROM local_candidates WHERE task_id=? ORDER BY updated_at DESC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("读取候选人失败：%w", err)
 	}
 	defer rows.Close()
 	result := []map[string]any{}
 	for rows.Next() {
+		var rowTaskID string
 		var raw string
-		if err := rows.Scan(&raw); err != nil {
+		if err := rows.Scan(&rowTaskID, &raw); err != nil {
 			return nil, err
 		}
 		item := map[string]any{}
 		if err := json.Unmarshal([]byte(raw), &item); err == nil {
+			item["task_id"] = rowTaskID
 			result = append(result, item)
 		}
 	}
 	return result, rows.Err()
+}
+
+// ListCandidatesFiltered 按条件读取本地候选人分页列表。
+// filter 为筛选条件，返回候选人列表、总数和错误信息。
+func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, int, error) {
+	rows, err := db.conn.Query(`SELECT task_id, payload FROM local_candidates ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, 0, fmt.Errorf("读取候选人失败：%w", err)
+	}
+	defer rows.Close()
+	all := []map[string]any{}
+	for rows.Next() {
+		var rowTaskID string
+		var raw string
+		if err := rows.Scan(&rowTaskID, &raw); err != nil {
+			return nil, 0, err
+		}
+		item := map[string]any{}
+		if err := json.Unmarshal([]byte(raw), &item); err == nil {
+			item["task_id"] = rowTaskID
+			if matchCandidateFilter(item, filter) {
+				all = append(all, item)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	total := len(all)
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []map[string]any{}, total, nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return all[start:end], total, nil
+}
+
+// GetCandidate 读取本地候选人详情。
+// candidateID 为候选人 ID，taskID 为空时会在全部任务中查找。
+func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, error) {
+	if strings.TrimSpace(candidateID) == "" {
+		return nil, fmt.Errorf("候选人 ID 不能为空")
+	}
+	var row *sql.Row
+	if strings.TrimSpace(taskID) != "" {
+		row = db.conn.QueryRow(`SELECT task_id, payload FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
+	} else {
+		row = db.conn.QueryRow(`SELECT task_id, payload FROM local_candidates WHERE id=? ORDER BY updated_at DESC LIMIT 1`, candidateID)
+	}
+	var rowTaskID string
+	var raw string
+	if err := row.Scan(&rowTaskID, &raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("候选人不存在")
+		}
+		return nil, fmt.Errorf("读取候选人详情失败：%w", err)
+	}
+	item := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return nil, fmt.Errorf("候选人数据格式不正确：%w", err)
+	}
+	item["task_id"] = rowTaskID
+	return item, nil
+}
+
+// ClearCandidates 清空本地候选人数据。
+// 返回删除的候选人数量和错误信息。
+func (db *DB) ClearCandidates() (int64, error) {
+	result, err := db.conn.Exec(`DELETE FROM local_candidates`)
+	if err != nil {
+		return 0, fmt.Errorf("清空候选人失败：%w", err)
+	}
+	deleted, _ := result.RowsAffected()
+	return deleted, nil
 }
 
 // DeleteCandidate 删除本地任务候选人。
@@ -321,6 +422,23 @@ func (db *DB) DeleteCandidate(taskID string, candidateID string) error {
 		return fmt.Errorf("候选人不存在")
 	}
 	return nil
+}
+
+// matchCandidateFilter 判断候选人是否满足筛选条件。
+// item 为候选人数据，filter 为筛选条件。
+func matchCandidateFilter(item map[string]any, filter CandidateFilter) bool {
+	if filter.TaskID != "" && stringOr(item["task_id"], "") != filter.TaskID {
+		return false
+	}
+	if filter.PositionID != "" && stringOr(item["position_id"], "") != filter.PositionID {
+		return false
+	}
+	keyword := strings.TrimSpace(strings.ToLower(filter.Keyword))
+	if keyword == "" {
+		return true
+	}
+	raw, _ := json.Marshal(item)
+	return strings.Contains(strings.ToLower(string(raw)), keyword)
 }
 
 // scanTask 从数据库行扫描任务。

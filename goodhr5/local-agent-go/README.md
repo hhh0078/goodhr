@@ -10,17 +10,19 @@
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
 - `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
 - `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
+- `/api/v1/console/status` 和 `/api/v1/console/update` 支持检查并更新本地控制台前端包。
 - 已实现 Node Browser Worker 启动、停止和浏览器 API 转发入口。
 - `worker-node/` 已接入 CloakBrowser 官方 Node SDK。
 - 已提供基础浏览器 API：打开页面、点击、输入、滚动、提取文本、截图、Cookie、下载记录。
-- 已提供本地 SQLite 任务、日志、候选人数据接口。
+- 已提供本地 SQLite 任务、日志、候选人数据接口，支持简历库分页、筛选、详情和清空。
 - 已提供本地岗位模板、AI 配置、通用设置、下载记录和截图记录接口。
 - 已提供云端平台配置读取和会员状态校验接口，后续任务启动流程直接复用。
 - 已接入本地任务运行器骨架：启动时校验会员、拉取平台配置、写入运行日志和任务状态。
 - 已接入 Boss 候选人第一轮扫描：打开云端配置的推荐页，提取可见候选人并保存到本地 SQLite。
-- 已接入本地 AI 打招呼评分：AI 模式会保存分数和原因，但当前不会自动点击打招呼。
+- 已接入本地 AI 打招呼评分：AI 模式会保存分数和原因。
 - 已接入 Boss 打招呼动作，只有启动参数 `enable_greet=true` 时才会真实点击。
 - 已接入任务停止信号、打招呼前随机等待和打招呼失败重试。
+- 多轮扫描会优先按云端平台配置滚动候选人列表容器，找不到容器时再滚动页面。
 - 已接入任务后台异步运行，开始接口会快速返回，状态接口可查询 running。
 - 状态接口会返回进度阶段、轮次、任务统计和最近日志，前端服务层已提供查询方法。
 - 前端任务列表已接入本地任务进度轮询和进度条展示。
@@ -30,7 +32,7 @@
 - 浏览器启动、打开页面和任务运行会自动使用本机下载目录，并支持本地设置覆盖下载目录。
 - Node Worker 调用失败时会自动尝试重启一次，停止任务时会主动关闭浏览器。
 - 截图默认保存到本地数据目录，并自动写入本地截图记录。
-- 本地控制台会优先代理 Vite 开发服务 `http://127.0.0.1:5173`，没有开发服务时再使用构建目录。
+- 本地控制台会优先代理 Vite 开发服务 `http://127.0.0.1:5173`，没有开发服务时再使用已更新或仓库内的构建目录。
 - 已补齐本地 AI 聊天、岗位默认提示词、岗位要求优化、规则状态等前端本地模式接口。
 - 运行组件状态会返回安装进度和已安装版本，便于排查下载卡住或版本不一致。
 - 已提供 `/api/v1/diagnostics` 本地诊断接口，可检查端口、目录、运行组件、Worker 和 Profile 锁文件。
@@ -76,6 +78,14 @@ curl -X POST http://127.0.0.1:19001/api/v1/runtime/install \
   -d '{"manifest_url":"https://oss.58it.cn/goodhr-local-runtime-manifest.json"}'
 ```
 
+更新控制台前端包：
+
+```bash
+curl -X POST http://127.0.0.1:19001/api/v1/console/update \
+  -H "Content-Type: application/json" \
+  -d '{"manifest_url":"https://oss.58it.cn/goodhr-console-manifest.json"}'
+```
+
 manifest 示例：
 
 ```json
@@ -119,11 +129,23 @@ manifest 示例：
 }
 ```
 
+控制台前端包 manifest 示例：
+
+```json
+{
+  "console": {
+    "version": "0.1.0",
+    "url": "https://oss.58it.cn/goodhr-console.zip",
+    "sha256": ""
+  }
+}
+```
+
 ## 后续重点
 
 - 将运行组件打包脚本接入正式 OSS 上传流程。
-- 继续补齐复杂浏览器 API：随机人类操作、截图 OCR、详情页长截图。
-- 接入更完整的本地控制台打包和安装流程。
+- 继续补齐复杂浏览器 API：更完整的随机人类操作、详情页长截图。
+- 完善本地控制台前端包启动时自动检查更新和安装器发布流程。
 
 ## 发布运行组件包
 

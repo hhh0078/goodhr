@@ -58,6 +58,9 @@ async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
     showLocalAgentMessage(msg);
     throw new Error(msg);
   }
+  if (data && typeof data === "object" && "data" in data) {
+    return data.data || {};
+  }
   return data;
 }
 
@@ -109,7 +112,7 @@ export async function getLocalHealth(base: string) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Local Agent 不可用");
-    return data;
+    return data?.data || data;
   } finally {
     window.clearTimeout(timer);
   }
@@ -471,6 +474,55 @@ export async function saveLocalScreenshotRecord(base: string, payload: any) {
 export async function listLocalTaskCandidates(base: string, taskID: string) {
   const data = await req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/candidates`);
   return { items: data.candidates || [] };
+}
+
+/**
+ * 读取 SQLite 本地候选人分页列表。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {{ taskId?: string; positionId?: string; keyword?: string; page?: number; pageSize?: number }} params - 查询和分页参数。
+ * @returns {Promise<any>} 返回候选人分页对象。
+ */
+export async function listLocalCandidatesPaged(
+  base: string,
+  params: { taskId?: string; positionId?: string; keyword?: string; page?: number; pageSize?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.taskId) query.set("task_id", params.taskId);
+  if (params.positionId) query.set("position_id", params.positionId);
+  if (params.keyword) query.set("keyword", params.keyword);
+  if (params.page) query.set("page", String(params.page));
+  if (params.pageSize) query.set("page_size", String(params.pageSize));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const data = await req(base, `/api/v1/local/candidates${suffix}`);
+  return {
+    items: data.candidates || [],
+    total: Number(data.total || 0),
+    page: Number(data.page || params.page || 1),
+    pageSize: Number(data.page_size || params.pageSize || 20),
+  };
+}
+
+/**
+ * 读取 SQLite 本地候选人详情。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} candidateID - 候选人 ID。
+ * @param {string} taskID - 可选任务 ID，用于定位同名候选人。
+ * @returns {Promise<any>} 返回候选人详情。
+ */
+export async function getLocalCandidate(base: string, candidateID: string, taskID = "") {
+  const query = taskID ? `?task_id=${encodeURIComponent(taskID)}` : "";
+  const data = await req(base, `/api/v1/local/candidates/${encodeURIComponent(candidateID)}${query}`);
+  return data.candidate || null;
+}
+
+/**
+ * 清空 SQLite 本地候选人数据。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<number>} 返回删除数量。
+ */
+export async function clearLocalCandidates(base: string) {
+  const data = await req(base, "/api/v1/local/candidates", { method: "DELETE" });
+  return Number(data.deleted || 0);
 }
 
 /**

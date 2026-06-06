@@ -19,20 +19,23 @@ const (
 	AppName = "GoodHR"
 	// DefaultRuntimeManifestURL 是运行组件下载清单默认地址。
 	DefaultRuntimeManifestURL = "https://oss.58it.cn/goodhr-local-runtime-manifest.json"
+	// DefaultConsoleManifestURL 是控制台前端包下载清单默认地址。
+	DefaultConsoleManifestURL = "https://oss.58it.cn/goodhr-console-manifest.json"
 )
 
 // Config 保存本地程序运行配置。
 type Config struct {
-	Host           string
-	Port           int
-	DataDir        string
-	RuntimeDir     string
-	FrontendDir    string
-	ProfilesDir    string
-	DownloadsDir   string
-	ScreenshotsDir string
-	ManifestURL    string
-	CloudAPIBase   string
+	Host               string
+	Port               int
+	DataDir            string
+	RuntimeDir         string
+	FrontendDir        string
+	ProfilesDir        string
+	DownloadsDir       string
+	ScreenshotsDir     string
+	ManifestURL        string
+	ConsoleManifestURL string
+	CloudAPIBase       string
 }
 
 // New 创建本地程序配置。
@@ -62,16 +65,17 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		}
 	}
 	cfg := &Config{
-		Host:           host,
-		Port:           port,
-		DataDir:        dataDir,
-		RuntimeDir:     filepath.Join(dataDir, "runtime"),
-		FrontendDir:    filepath.Join(dataDir, "console"),
-		ProfilesDir:    filepath.Join(dataDir, "profiles"),
-		DownloadsDir:   defaultDownloadsDir(),
-		ScreenshotsDir: filepath.Join(dataDir, "screenshots"),
-		ManifestURL:    envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
-		CloudAPIBase:   envOrDefault("GOODHR_CLOUD_API_BASE", ""),
+		Host:               host,
+		Port:               port,
+		DataDir:            dataDir,
+		RuntimeDir:         filepath.Join(dataDir, "runtime"),
+		FrontendDir:        filepath.Join(dataDir, "console"),
+		ProfilesDir:        filepath.Join(dataDir, "profiles"),
+		DownloadsDir:       defaultDownloadsDir(),
+		ScreenshotsDir:     filepath.Join(dataDir, "screenshots"),
+		ManifestURL:        envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
+		ConsoleManifestURL: envOrDefault("GOODHR_CONSOLE_MANIFEST_URL", DefaultConsoleManifestURL),
+		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", ""),
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err

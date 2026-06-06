@@ -319,7 +319,12 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				return nil, err
 			}
 			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
-			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": scrollDistance})
+			if _, err := r.worker.Call(ctx, "/api/v1/boss/candidates/scroll", map[string]any{
+				"platform_config": platformConfig,
+				"distance":        scrollDistance,
+			}); err != nil {
+				_, _ = r.db.AddTaskLog(task.ID, "warning", "滚动候选人列表失败："+err.Error())
+			}
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {

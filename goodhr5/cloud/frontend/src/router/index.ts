@@ -76,10 +76,10 @@ router.beforeEach((to, from) => normalizeLegacyRoute(to, from));
  */
 function normalizeLegacyRoute(to: RouteLocationNormalized, from?: RouteLocationNormalized) {
   if (to.query.candidate_id && to.name !== "resume-detail") {
-    return { name: "resume-detail", query: { candidate_id: to.query.candidate_id } };
+    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id", "engagement_id", "task_id"]) };
   }
   if (to.query.menu === "resume-detail") {
-    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id"]) };
+    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id", "engagement_id", "task_id"]) };
   }
   if ((to.query.menu === "resume-library" || to.query.task_id) && to.name !== "resumes") {
     return { name: "resumes", query: pickQuery(to.query, ["task_id"]) };

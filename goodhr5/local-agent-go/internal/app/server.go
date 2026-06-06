@@ -86,11 +86,15 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
 	mux.HandleFunc("/api/v1/runtime/install", s.handleRuntimeInstall)
 	mux.HandleFunc("/api/v1/runtime/install-local-worker", s.handleRuntimeInstallLocalWorker)
+	mux.HandleFunc("/api/v1/console/status", s.handleConsoleStatus)
+	mux.HandleFunc("/api/v1/console/update", s.handleConsoleUpdate)
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
 	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
+	mux.HandleFunc("/api/v1/local/candidates", s.handleLocalCandidates)
+	mux.HandleFunc("/api/v1/local/candidates/", s.handleLocalCandidateItem)
 	mux.HandleFunc("/api/v1/tasks/init", s.handleLegacyTaskInit)
 	mux.HandleFunc("/api/v1/tasks/", s.handleLegacyLocalTaskItem)
 	mux.HandleFunc("/api/v1/local/positions", s.handleLocalPositions)
@@ -117,6 +121,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
 	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
 	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
+	mux.HandleFunc("/api/v1/boss/candidates/scroll", s.handleBossCandidatesScroll)
 	mux.HandleFunc("/api/v1/boss/candidates/detail", s.handleBossCandidateDetail)
 	mux.HandleFunc("/api/v1/downloads", s.handleDownloads)
 	mux.HandleFunc("/", s.handleConsole)
@@ -479,6 +484,69 @@ func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Reques
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
+}
+
+// handleLocalCandidates 处理本地候选人列表和清空。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalCandidates(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+		filter := localdb.CandidateFilter{
+			TaskID:     strings.TrimSpace(r.URL.Query().Get("task_id")),
+			PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
+			Keyword:    strings.TrimSpace(r.URL.Query().Get("keyword")),
+			Page:       page,
+			PageSize:   pageSize,
+		}
+		candidates, total, err := s.db.ListCandidatesFiltered(filter)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if filter.Page <= 0 {
+			filter.Page = 1
+		}
+		if filter.PageSize <= 0 {
+			filter.PageSize = 20
+		}
+		response.Success(w, map[string]any{
+			"candidates": candidates,
+			"total":      total,
+			"page":       filter.Page,
+			"page_size":  filter.PageSize,
+		})
+	case http.MethodDelete:
+		deleted, err := s.db.ClearCandidates()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"deleted": deleted})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalCandidateItem 处理本地候选人详情。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalCandidateItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	candidateID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/local/candidates/"), "/")
+	if candidateID == "" {
+		response.Error(w, http.StatusBadRequest, "候选人 ID 不能为空")
+		return
+	}
+	candidate, err := s.db.GetCandidate(candidateID, strings.TrimSpace(r.URL.Query().Get("task_id")))
+	if err != nil {
+		response.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"candidate": candidate})
 }
 
 // handleLocalTaskRun 启动本地任务运行器。
@@ -1070,6 +1138,12 @@ func (s *Server) handlePageURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, workerData(result))
+}
+
+// handleBossCandidatesScroll 按平台配置滚动候选人列表。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleBossCandidatesScroll(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/boss/candidates/scroll")
 }
 
 // handleBossCandidateDetail 提取 Boss 候选人详情文本。

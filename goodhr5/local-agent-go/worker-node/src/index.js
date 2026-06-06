@@ -284,6 +284,32 @@ async function extractBossCandidates(payload) {
 }
 
 /**
+ * 按 Boss 平台配置滚动候选人列表。
+ * @param {Record<string, any>} payload - 滚动参数。
+ * @returns {Promise<Record<string, any>>} 滚动结果。
+ */
+async function scrollBossCandidates(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossRules(platformConfig);
+  const distance = Number(payload.distance || payload.y || 720);
+  const selectors = selectorList(rules.scroll_containers);
+  for (const selector of selectors) {
+    try {
+      const locator = currentPage.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      await locator.evaluate((el, y) => el.scrollBy(0, y), distance);
+      return { scrolled: true, selector, distance };
+    } catch {
+      continue;
+    }
+  }
+  await currentPage.mouse.wheel(0, distance);
+  return { scrolled: true, distance, fallback: true };
+}
+
+/**
  * 点击指定 Boss 候选人的打招呼按钮。
  * @param {Record<string, any>} payload - 打招呼参数。
  * @returns {Promise<Record<string, any>>} 点击结果。
@@ -739,6 +765,7 @@ const routes = {
   "/api/v1/page/screenshot": screenshotPage,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
+  "/api/v1/boss/candidates/scroll": scrollBossCandidates,
   "/api/v1/boss/candidates/greet": greetBossCandidate,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
 };

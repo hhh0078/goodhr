@@ -276,7 +276,11 @@ function openDetail(item: any) {
   if (!item?.id) return;
   const route = router.resolve({
     name: "resume-detail",
-    query: { candidate_id: item.id, engagement_id: item.engagement_id || "" },
+    query: {
+      candidate_id: item.id,
+      engagement_id: item.engagement_id || "",
+      task_id: item.task_id || filters.value.taskId || "",
+    },
   });
   window.open(route.href, "_blank");
 }
