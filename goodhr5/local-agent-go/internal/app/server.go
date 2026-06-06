@@ -2,17 +2,22 @@
 package app
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -47,7 +52,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		runtime: runtimeManager,
 		worker:  workerManager,
 		db:      db,
-		runner:  taskrunner.New(db, workerManager),
+		runner:  taskrunner.New(db, workerManager, cfg.ProfilesDir, cfg.DownloadsDir),
 	}, nil
 }
 
@@ -87,6 +92,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
 	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
 	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
+	mux.HandleFunc("/api/v1/profiles", s.handleProfiles)
+	mux.HandleFunc("/api/v1/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/api/v1/local/downloads", s.handleLocalDownloads)
 	mux.HandleFunc("/api/v1/local/screenshots", s.handleLocalScreenshots)
 	mux.HandleFunc("/api/v1/cloud/platform-config", s.handleCloudPlatformConfig)
@@ -112,12 +119,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]any{
-		"status":  "ok",
-		"version": "go-v2-dev",
-		"port":    s.cfg.Port,
-		"dataDir": s.cfg.DataDir,
-		"dbPath":  s.db.Path(),
-		"runtime": s.runtime.Status(),
+		"status":       "ok",
+		"version":      "go-v2-dev",
+		"port":         s.cfg.Port,
+		"dataDir":      s.cfg.DataDir,
+		"profilesDir":  s.cfg.ProfilesDir,
+		"downloadsDir": s.cfg.DownloadsDir,
+		"dbPath":       s.db.Path(),
+		"runtime":      s.runtime.Status(),
 	})
 }
 
@@ -563,6 +572,67 @@ func (s *Server) handleLocalSettings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleProfiles 处理浏览器 Profile 列表和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		profiles, err := s.db.ListProfiles(r.URL.Query().Get("platform_id"))
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"profiles": profiles})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		profile, err := s.db.SaveProfile(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"profile": profile})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleProfileItem 处理单个浏览器 Profile。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleProfileItem(w http.ResponseWriter, r *http.Request) {
+	profileID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/profiles/"), "/")
+	if profileID == "" {
+		response.Error(w, http.StatusBadRequest, "浏览器 Profile ID 不能为空")
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		payload["id"] = profileID
+		profile, err := s.db.SaveProfile(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"profile": profile})
+	case http.MethodDelete:
+		if err := s.db.DeleteProfile(profileID); err != nil {
+			response.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"deleted": true})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
 // handleLocalDownloads 处理本地下载记录读取和保存。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleLocalDownloads(w http.ResponseWriter, r *http.Request) {
@@ -740,18 +810,88 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	response.Success(w, workerData(result))
+	data, _ := workerData(result).(map[string]any)
+	for _, item := range mapListValue(data["downloads"]) {
+		if _, err := s.db.SaveDownload(item); err != nil {
+			log.Printf("保存下载记录失败：%v", err)
+		}
+	}
+	response.Success(w, data)
 }
 
 // handleConsole 返回本地控制台占位页面。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+	if devURL := s.consoleDevURL(); devURL != "" {
+		target, err := url.Parse(devURL)
+		if err == nil {
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			proxy.ServeHTTP(w, r)
+			return
+		}
+	}
+	staticDir := s.consoleStaticDir()
+	if staticDir == "" {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>GoodHR Local Agent Go</title></head><body><h1>GoodHR Local Agent Go</h1><p>Go 版本本地程序已启动，但未找到控制台前端文件。</p></body></html>"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>GoodHR Local Agent Go</title></head><body><h1>GoodHR Local Agent Go</h1><p>Go 版本本地程序已启动。</p></body></html>"))
+	requested := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+	if requested == "." || requested == "/" {
+		requested = "index.html"
+	}
+	if strings.HasPrefix(requested, "..") {
+		requested = "index.html"
+	}
+	target := filepath.Join(staticDir, requested)
+	if info, err := os.Stat(target); err == nil && !info.IsDir() {
+		http.ServeFile(w, r, target)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+}
+
+// consoleDevURL 返回开发环境前端地址。
+// 开发服务可用时，本地程序会直接代理它。
+func (s *Server) consoleDevURL() string {
+	if value := strings.TrimSpace(os.Getenv("GOODHR_CONSOLE_DEV_URL")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	target := "http://127.0.0.1:5173"
+	client := http.Client{Timeout: 120 * time.Millisecond}
+	resp, err := client.Get(target)
+	if err != nil {
+		return ""
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+		return target
+	}
+	return ""
+}
+
+// consoleStaticDir 返回可用的前端构建目录。
+// 优先使用已下载目录，其次使用仓库内 cloud/frontend/dist。
+func (s *Server) consoleStaticDir() string {
+	candidates := []string{
+		s.cfg.FrontendDir,
+		filepath.Join(s.cfg.FrontendDir, "dist"),
+		filepath.Join("..", "cloud", "frontend", "dist"),
+		filepath.Join("goodhr5", "cloud", "frontend", "dist"),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(candidate, "index.html")); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // proxyWorkerPost 读取请求体并转发给 Node Worker。
@@ -767,6 +907,7 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.prepareBrowserPayload(path, payload)
 	result, err := s.worker.Call(r.Context(), path, payload)
 	if err != nil {
 		msg := "浏览器 Worker 调用失败"
@@ -777,6 +918,89 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	response.Success(w, workerData(result))
+}
+
+// prepareBrowserPayload 补齐浏览器请求的本机目录参数。
+// path 为 Worker 路径，payload 为请求参数。
+func (s *Server) prepareBrowserPayload(path string, payload map[string]any) {
+	if payload == nil || (path != "/api/v1/browser/start" && path != "/api/v1/page/open") {
+		return
+	}
+	if stringValue(payload["downloads_path"]) == "" {
+		payload["downloads_path"] = s.browserDownloadDir()
+	}
+	rawProfile := stringValue(payload["user_data_dir"])
+	if rawProfile == "" {
+		rawProfile = stringValue(payload["profile_id"])
+	}
+	if rawProfile == "" {
+		return
+	}
+	if filepath.IsAbs(rawProfile) {
+		payload["user_data_dir"] = rawProfile
+		return
+	}
+	payload["user_data_dir"] = filepath.Join(s.cfg.ProfilesDir, safeLocalName(rawProfile))
+}
+
+// browserDownloadDir 返回当前浏览器下载目录。
+// 优先读取本地设置，未设置时使用配置默认值。
+func (s *Server) browserDownloadDir() string {
+	settings, err := s.db.GetSettings()
+	if err == nil {
+		if value := stringValue(settings["browser_download_dir"]); value != "" {
+			return value
+		}
+		if value := stringValue(settings["downloads_dir"]); value != "" {
+			return value
+		}
+	}
+	return s.cfg.DownloadsDir
+}
+
+// safeLocalName 清理本机目录名称。
+// value 为原始目录名。
+func safeLocalName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	var builder strings.Builder
+	for _, item := range value {
+		if unicode.IsLetter(item) || unicode.IsDigit(item) || item == '-' || item == '_' || item == '.' {
+			builder.WriteRune(item)
+			continue
+		}
+		builder.WriteRune('_')
+	}
+	result := strings.Trim(builder.String(), "._ ")
+	if result == "" {
+		return "default"
+	}
+	if len(result) > 80 {
+		return result[:80]
+	}
+	return result
+}
+
+// mapListValue 将任意值转换为 map 列表。
+// value 为原始 JSON 字段。
+func mapListValue(value any) []map[string]any {
+	items, ok := value.([]any)
+	if !ok {
+		return []map[string]any{}
+	}
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if row, ok := item.(map[string]any); ok {
+			if stringValue(row["id"]) == "" {
+				sum := sha1.Sum([]byte(fmt.Sprintf("%v|%v", row["path"], row["url"])))
+				row["id"] = fmt.Sprintf("download_%x", sum[:8])
+			}
+			result = append(result, row)
+		}
+	}
+	return result
 }
 
 // readPayload 读取请求 JSON 参数。

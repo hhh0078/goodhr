@@ -2,8 +2,11 @@
 package localdb
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -113,7 +116,7 @@ func (db *DB) ListDownloads(taskID string) ([]Download, error) {
 func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
 	now := nowISO()
 	item := Download{
-		ID:        stringOr(payload["id"], uuid.NewString()),
+		ID:        stringOr(payload["id"], stableDownloadID(payload)),
 		TaskID:    stringOr(payload["task_id"], ""),
 		URL:       stringOr(payload["url"], ""),
 		FilePath:  stringOr(payload["file_path"], stringOr(payload["path"], "")),
@@ -123,6 +126,9 @@ func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
 		Status:    stringOr(payload["status"], "saved"),
 		CreatedAt: stringOr(payload["created_at"], now),
 		UpdatedAt: now,
+	}
+	if item.FileName == "" && item.FilePath != "" {
+		item.FileName = filepath.Base(item.FilePath)
 	}
 	_, err := db.conn.Exec(`
 INSERT INTO local_downloads (
@@ -144,6 +150,19 @@ ON CONFLICT(id) DO UPDATE SET
 		return Download{}, fmt.Errorf("保存下载记录失败：%w", err)
 	}
 	return item, nil
+}
+
+// stableDownloadID 生成稳定的下载记录 ID。
+// payload 为下载记录参数，路径和地址为空时使用随机 ID。
+func stableDownloadID(payload map[string]any) string {
+	filePath := stringOr(payload["file_path"], stringOr(payload["path"], ""))
+	url := stringOr(payload["url"], "")
+	base := strings.TrimSpace(filePath + "|" + url)
+	if base == "|" || base == "" {
+		return uuid.NewString()
+	}
+	sum := sha1.Sum([]byte(base))
+	return fmt.Sprintf("download_%x", sum[:8])
 }
 
 // ListScreenshots 读取本地截图记录。

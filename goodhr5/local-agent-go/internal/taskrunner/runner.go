@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -29,10 +31,12 @@ type BrowserWorker interface {
 
 // Runner 是本地任务运行器。
 type Runner struct {
-	db      *localdb.DB
-	worker  BrowserWorker
-	mu      sync.Mutex
-	running map[string]*runState
+	db           *localdb.DB
+	worker       BrowserWorker
+	profilesDir  string
+	downloadsDir string
+	mu           sync.Mutex
+	running      map[string]*runState
 }
 
 // runState 保存单个运行任务的控制句柄。
@@ -64,9 +68,9 @@ type StartOptions struct {
 }
 
 // New 创建本地任务运行器。
-// db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器。
-func New(db *localdb.DB, worker BrowserWorker) *Runner {
-	return &Runner{db: db, worker: worker, running: map[string]*runState{}}
+// db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir 和 downloadsDir 为本机浏览器目录。
+func New(db *localdb.DB, worker BrowserWorker, profilesDir string, downloadsDir string) *Runner {
+	return &Runner{db: db, worker: worker, profilesDir: profilesDir, downloadsDir: downloadsDir, running: map[string]*runState{}}
 }
 
 // Start 启动本地任务运行器。
@@ -227,8 +231,13 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if _, err := r.worker.Start(ctx); err != nil {
 		return nil, err
 	}
+	profileName := taskProfileName(task)
+	userDataDir := filepath.Join(r.profilesDir, profileName)
+	_, _ = r.db.AddTaskLog(task.ID, "info", "正在启动浏览器账号目录："+profileName)
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
-		"humanize": true,
+		"humanize":       true,
+		"user_data_dir":  userDataDir,
+		"downloads_path": r.browserDownloadDir(),
 	}); err != nil {
 		return nil, err
 	}
@@ -312,6 +321,56 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		"failed_count":     totalFailed,
 		"entry_url":        entryURL,
 	}, nil
+}
+
+// taskProfileName 返回任务对应的本机浏览器目录名。
+// task 为本地任务，优先使用平台账号 ID。
+func taskProfileName(task localdb.Task) string {
+	accountID := strings.TrimSpace(task.PlatformAccountID)
+	if accountID == "" {
+		accountID = strings.TrimSpace(task.PlatformID) + "_default"
+	}
+	return safePathName(accountID)
+}
+
+// safePathName 清理文件夹名中的危险字符。
+// value 为原始名称，返回适合本机文件系统使用的名称。
+func safePathName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	var builder strings.Builder
+	for _, item := range value {
+		if unicode.IsLetter(item) || unicode.IsDigit(item) || item == '-' || item == '_' || item == '.' {
+			builder.WriteRune(item)
+			continue
+		}
+		builder.WriteRune('_')
+	}
+	result := strings.Trim(builder.String(), "._ ")
+	if result == "" {
+		return "default"
+	}
+	if len(result) > 80 {
+		return result[:80]
+	}
+	return result
+}
+
+// browserDownloadDir 返回任务运行时使用的下载目录。
+// 优先读取本地设置，没有设置时使用默认下载目录。
+func (r *Runner) browserDownloadDir() string {
+	settings, err := r.db.GetSettings()
+	if err == nil {
+		if value := stringFromMap(settings, "browser_download_dir"); value != "" {
+			return value
+		}
+		if value := stringFromMap(settings, "downloads_dir"); value != "" {
+			return value
+		}
+	}
+	return r.downloadsDir
 }
 
 // scoreCandidates 使用本地 AI 给候选人评分。

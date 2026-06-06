@@ -154,6 +154,24 @@ CREATE TABLE IF NOT EXISTS local_settings (
     updated_at TEXT NOT NULL
 );
 
+-- local_profiles 保存招聘平台账号对应的本机浏览器目录。
+CREATE TABLE IF NOT EXISTS local_profiles (
+    -- Profile 唯一 ID。
+    id TEXT PRIMARY KEY,
+    -- 招聘平台 ID，例如 boss。
+    platform_id TEXT NOT NULL DEFAULT '',
+    -- 页面展示名称。
+    display_name TEXT NOT NULL DEFAULT '',
+    -- 本机浏览器目录名称。
+    local_profile_id TEXT NOT NULL DEFAULT '',
+    -- Profile 状态。
+    status TEXT NOT NULL DEFAULT 'active',
+    -- 创建时间。
+    created_at TEXT NOT NULL,
+    -- 更新时间。
+    updated_at TEXT NOT NULL
+);
+
 -- local_downloads 保存本机下载记录。
 CREATE TABLE IF NOT EXISTS local_downloads (
     -- 下载记录唯一 ID。

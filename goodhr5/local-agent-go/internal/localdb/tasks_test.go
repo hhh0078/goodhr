@@ -115,6 +115,25 @@ func TestPositionAISettingsRecordsFlow(t *testing.T) {
 		t.Fatalf("settings = %+v", settings)
 	}
 
+	profile, err := db.SaveProfile(map[string]any{
+		"platform_id":      "boss",
+		"display_name":     "测试账号",
+		"local_profile_id": "boss_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ID == "" || profile.LocalProfileID != "boss_test" {
+		t.Fatalf("profile = %+v", profile)
+	}
+	profiles, err := db.ListProfiles("boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("profiles len = %d", len(profiles))
+	}
+
 	download, err := db.SaveDownload(map[string]any{
 		"task_id":   "task-1",
 		"url":       "https://example.com/a.pdf",

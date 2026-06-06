@@ -27,6 +27,8 @@ type Config struct {
 	DataDir      string
 	RuntimeDir   string
 	FrontendDir  string
+	ProfilesDir  string
+	DownloadsDir string
 	ManifestURL  string
 	CloudAPIBase string
 }
@@ -50,6 +52,8 @@ func New(host string, port int) (*Config, error) {
 		DataDir:      dataDir,
 		RuntimeDir:   filepath.Join(dataDir, "runtime"),
 		FrontendDir:  filepath.Join(dataDir, "console"),
+		ProfilesDir:  filepath.Join(dataDir, "profiles"),
+		DownloadsDir: defaultDownloadsDir(),
 		ManifestURL:  envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
 		CloudAPIBase: envOrDefault("GOODHR_CLOUD_API_BASE", ""),
 	}
@@ -71,7 +75,7 @@ func envOrDefault(key string, fallback string) string {
 // EnsureDirs 创建本地程序需要的基础目录。
 // 返回错误表示目录创建失败。
 func (c *Config) EnsureDirs() error {
-	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir} {
+	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir, c.ProfilesDir, c.DownloadsDir} {
 		if dir == "" {
 			return fmt.Errorf("本地目录为空")
 		}
@@ -99,4 +103,14 @@ func defaultDataDir() (string, error) {
 		return "", fmt.Errorf("读取用户配置目录失败：%w", err)
 	}
 	return filepath.Join(base, AppName), nil
+}
+
+// defaultDownloadsDir 返回默认浏览器下载目录。
+// 优先使用用户系统下载目录，读取失败时使用本地数据目录兜底。
+func defaultDownloadsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "GoodHR", "Downloads")
+	}
+	return filepath.Join(home, "Downloads")
 }

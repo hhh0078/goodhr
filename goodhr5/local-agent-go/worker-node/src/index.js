@@ -12,6 +12,8 @@ const port = Number(rawPort || 9101);
 let browser = null;
 let context = null;
 let page = null;
+let currentUserDataDir = "";
+let currentDownloadsPath = "";
 const downloads = [];
 
 /**
@@ -74,11 +76,16 @@ function failure(res, status, msg) {
  * @returns {Promise<Record<string, any>>} 启动结果。
  */
 async function startBrowser(payload) {
-  if (browser || context) return { running: true };
+  const userDataDir = String(payload.user_data_dir || "").trim();
+  if (browser || context) {
+    if (!userDataDir || userDataDir === currentUserDataDir) {
+      return { running: true, persistent: Boolean(currentUserDataDir), user_data_dir: currentUserDataDir };
+    }
+    await stopBrowser();
+  }
   const cloak = await import("cloakbrowser");
   const launchPersistent = cloak.launchPersistentContext;
   const launch = cloak.launch;
-  const userDataDir = String(payload.user_data_dir || "").trim();
   const options = {
     headless: Boolean(payload.headless),
     humanize: payload.humanize !== false,
@@ -94,17 +101,22 @@ async function startBrowser(payload) {
   if (payload.locale) options.locale = String(payload.locale);
   if (payload.user_agent) options.userAgent = String(payload.user_agent);
   if (userDataDir && launchPersistent) {
+    await cleanupProfileLocks(userDataDir);
     context = await launchPersistent({ ...options, userDataDir });
+    currentUserDataDir = userDataDir;
+    currentDownloadsPath = options.downloadsPath;
     page = context.pages?.()[0] || await context.newPage();
     registerPage(page);
-    return { running: true, persistent: true };
+    return { running: true, persistent: true, user_data_dir: userDataDir, downloads_path: options.downloadsPath };
   }
   if (!launch) throw new Error("CloakBrowser Node SDK 缺少启动方法");
   browser = await launch(options);
   context = await browser.newContext?.({ acceptDownloads: true }) || null;
+  currentUserDataDir = "";
+  currentDownloadsPath = options.downloadsPath;
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
-  return { running: true, persistent: false };
+  return { running: true, persistent: false, downloads_path: options.downloadsPath };
 }
 
 /**
@@ -117,6 +129,8 @@ async function stopBrowser() {
   context = null;
   browser = null;
   page = null;
+  currentUserDataDir = "";
+  currentDownloadsPath = "";
   return { running: false };
 }
 
@@ -147,6 +161,9 @@ async function ensurePage() {
 async function openPage(payload) {
   const target = String(payload.url || "").trim();
   if (!target) throw new Error("页面地址不能为空");
+  if (!browser && !context && (payload.user_data_dir || payload.persistent)) {
+    await startBrowser(payload);
+  }
   const currentPage = await ensurePage();
   await currentPage.goto(target, { waitUntil: "domcontentloaded", timeout: Number(payload.timeout || 60000) });
   return { url: currentPage.url() };
@@ -471,16 +488,23 @@ function registerPage(targetPage) {
   targetPage.__goodhrDownloadRegistered = true;
   targetPage.on("download", async (download) => {
     try {
-      const directory = downloadDir();
+      const directory = currentDownloadsPath || downloadDir();
       await fs.mkdir(directory, { recursive: true });
-      const suggested = safeFilename(download.suggestedFilename?.() || "download");
+      const url = download.url?.() || "";
+      const suggested = filenameWithExtension(download.suggestedFilename?.() || "download", url);
       const targetPath = await uniquePath(directory, suggested);
       await download.saveAs(targetPath);
+      const stat = await fs.stat(targetPath).catch(() => null);
       downloads.unshift({
+        id: downloadID(targetPath, url),
         path: targetPath,
+        file_path: targetPath,
+        file_name: path.basename(targetPath),
         filename: path.basename(targetPath),
         suggested_filename: suggested,
-        url: download.url?.() || "",
+        url,
+        size: stat?.size || 0,
+        status: "saved",
         created_at: new Date().toISOString(),
       });
       if (downloads.length > 100) downloads.length = 100;
@@ -495,7 +519,59 @@ function registerPage(targetPage) {
  * @returns {Record<string, any>} 下载记录。
  */
 function listDownloads() {
-  return { downloads, count: downloads.length, directory: downloadDir() };
+  return { downloads, count: downloads.length, directory: downloadDir(), downloads_path: currentDownloadsPath || downloadDir() };
+}
+
+/**
+ * 清理浏览器 Profile 残留锁文件。
+ * @param {string} userDataDir - 浏览器用户目录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function cleanupProfileLocks(userDataDir) {
+  if (!userDataDir) return;
+  await fs.mkdir(userDataDir, { recursive: true });
+  for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]) {
+    await fs.rm(path.join(userDataDir, name), { force: true, recursive: true }).catch(() => {});
+  }
+}
+
+/**
+ * 给下载文件名补充 URL 中可识别的后缀。
+ * @param {string} suggested - 浏览器建议文件名。
+ * @param {string} url - 原始下载地址。
+ * @returns {string} 修复后的安全文件名。
+ */
+function filenameWithExtension(suggested, url) {
+  const safe = safeFilename(suggested || "download");
+  if (path.extname(safe)) return safe;
+  const ext = extensionFromURL(url);
+  return ext ? `${safe}${ext}` : safe;
+}
+
+/**
+ * 从 URL 中提取常见文件后缀。
+ * @param {string} url - 原始地址。
+ * @returns {string} 文件后缀。
+ */
+function extensionFromURL(url) {
+  try {
+    const parsed = new URL(url);
+    const ext = path.extname(parsed.pathname || "").toLowerCase();
+    if (/^\.[a-z0-9]{1,8}$/.test(ext)) return ext;
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+/**
+ * 生成下载记录稳定 ID。
+ * @param {string} filePath - 文件路径。
+ * @param {string} url - 原始下载地址。
+ * @returns {string} 下载记录 ID。
+ */
+function downloadID(filePath, url) {
+  return `download_${crypto.createHash("sha1").update(`${filePath}|${url}`).digest("hex").slice(0, 16)}`;
 }
 
 /**

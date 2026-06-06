@@ -64,7 +64,7 @@ func TestRunnerStartStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker := &fakeWorker{}
-	runner := New(db, worker)
+	runner := newTestRunner(t, db, worker)
 	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker := &blockingWorker{extractStarted: make(chan struct{}), released: make(chan struct{})}
-	runner := New(db, worker)
+	runner := newTestRunner(t, db, worker)
 	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -312,4 +312,12 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+// newTestRunner 创建带临时目录的任务运行器。
+// t 为测试对象，db 为测试数据库，worker 为模拟 Worker。
+func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
+	t.Helper()
+	root := t.TempDir()
+	return New(db, worker, root+"/profiles", root+"/downloads")
 }
