@@ -32,6 +32,7 @@
 - 截图默认保存到本地数据目录，并自动写入本地截图记录。
 - 本地控制台会优先代理 Vite 开发服务 `http://127.0.0.1:5173`，没有开发服务时再使用构建目录。
 - 已补齐本地 AI 聊天、岗位默认提示词、岗位要求优化、规则状态等前端本地模式接口。
+- 运行组件状态会返回安装进度和已安装版本，便于排查下载卡住或版本不一致。
 
 ## 本地启动
 
@@ -113,18 +114,24 @@ manifest 示例：
 
 ## 后续重点
 
-- 增加 Node runtime 精简包制作脚本。
-- 增加运行组件下载进度和版本记录。
+- 将运行组件打包脚本接入正式 OSS 上传流程。
 - 继续补齐复杂浏览器 API：随机人类操作、截图 OCR、详情页长截图。
 - 接入更完整的本地控制台打包和安装流程。
 
-## 发布 Node Worker 包
+## 发布运行组件包
 
-打包前先确认 `worker-node/node_modules` 已存在。若需要安装依赖，先确认 npm registry 使用国内镜像。
+打包 Node Worker 前先确认 `worker-node/node_modules` 已存在。若需要安装依赖，先确认 npm registry 使用国内镜像。
 
 ```bash
 cd goodhr5/local-agent-go
 ./scripts/package_worker.sh
+```
+
+打包当前系统的 Node runtime：
+
+```bash
+cd goodhr5/local-agent-go
+./scripts/package_node_runtime.sh
 ```
 
 脚本会输出 zip 路径和 sha256，可填入 OSS manifest。

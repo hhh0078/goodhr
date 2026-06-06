@@ -2,29 +2,56 @@
 package runtime
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"goodhr5/local-agent-go/internal/config"
 )
 
 // Status 表示本地运行组件状态。
 type Status struct {
-	NodeInstalled         bool   `json:"node_installed"`
-	NodePath              string `json:"node_path"`
-	WorkerInstalled       bool   `json:"worker_installed"`
-	WorkerEntry           string `json:"worker_entry"`
-	CloakBrowserInstalled bool   `json:"cloakbrowser_installed"`
-	CloakBrowserPath      string `json:"cloakbrowser_path"`
-	RuntimeDir            string `json:"runtime_dir"`
+	NodeInstalled         bool                          `json:"node_installed"`
+	NodePath              string                        `json:"node_path"`
+	WorkerInstalled       bool                          `json:"worker_installed"`
+	WorkerEntry           string                        `json:"worker_entry"`
+	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
+	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
+	RuntimeDir            string                        `json:"runtime_dir"`
+	InstallProgress       Progress                      `json:"install_progress"`
+	InstalledVersions     map[string]InstalledComponent `json:"installed_versions"`
 }
 
 // Manager 管理本地运行组件路径和安装状态。
 type Manager struct {
-	cfg *config.Config
+	cfg      *config.Config
+	mu       sync.Mutex
+	progress Progress
+}
+
+// Progress 表示运行组件安装进度。
+type Progress struct {
+	Running   bool   `json:"running"`
+	Component string `json:"component"`
+	Stage     string `json:"stage"`
+	Message   string `json:"message"`
+	Percent   int    `json:"percent"`
+	Received  int64  `json:"received"`
+	Total     int64  `json:"total"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// InstalledComponent 表示已安装运行组件版本。
+type InstalledComponent struct {
+	Version     string `json:"version"`
+	URL         string `json:"url"`
+	SHA256      string `json:"sha256"`
+	InstalledAt string `json:"installed_at"`
 }
 
 // NewManager 创建运行组件管理器。
@@ -47,7 +74,63 @@ func (m *Manager) Status() Status {
 		CloakBrowserInstalled: fileExists(browserPath),
 		CloakBrowserPath:      browserPath,
 		RuntimeDir:            m.cfg.RuntimeDir,
+		InstallProgress:       m.Progress(),
+		InstalledVersions:     m.loadVersions(),
 	}
+}
+
+// Progress 返回当前运行组件安装进度。
+// 返回值用于前端轮询展示。
+func (m *Manager) Progress() Progress {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.progress
+}
+
+// setProgress 更新当前安装进度。
+// progress 为新的安装进度。
+func (m *Manager) setProgress(progress Progress) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if progress.UpdatedAt == "" {
+		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	m.progress = progress
+}
+
+// statePath 返回运行组件版本记录文件路径。
+// 返回值位于运行组件目录。
+func (m *Manager) statePath() string {
+	return filepath.Join(m.cfg.RuntimeDir, "installed-components.json")
+}
+
+// loadVersions 读取已安装运行组件版本。
+// 读取失败时返回空字典。
+func (m *Manager) loadVersions() map[string]InstalledComponent {
+	result := map[string]InstalledComponent{}
+	raw, err := os.ReadFile(m.statePath())
+	if err != nil {
+		return result
+	}
+	_ = json.Unmarshal(raw, &result)
+	return result
+}
+
+// saveVersion 保存单个运行组件版本记录。
+// name 为组件名，asset 为安装资源配置。
+func (m *Manager) saveVersion(name string, asset Asset) error {
+	versions := m.loadVersions()
+	versions[name] = InstalledComponent{
+		Version:     asset.Version,
+		URL:         asset.URL,
+		SHA256:      asset.SHA256,
+		InstalledAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	raw, err := json.MarshalIndent(versions, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(m.statePath(), raw, 0o644)
 }
 
 // Ensure 检查运行组件是否已安装。

@@ -46,21 +46,36 @@ func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (
 	if strings.TrimSpace(manifestURL) == "" {
 		manifestURL = m.cfg.ManifestURL
 	}
+	m.setProgress(Progress{Running: true, Stage: "manifest", Message: "正在读取运行组件清单", Percent: 1})
+	defer func() {
+		progress := m.Progress()
+		if progress.Running {
+			progress.Running = false
+			progress.Stage = "idle"
+			progress.Message = "运行组件安装结束"
+			progress.Percent = 100
+			m.setProgress(progress)
+		}
+	}()
 	manifest, err := fetchManifest(ctx, manifestURL)
 	if err != nil {
+		m.setProgress(Progress{Running: false, Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
 	}
 	platform := platformKey()
 	installed := []string{}
-	if err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件"); err != nil {
+	if err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
+		m.setProgress(Progress{Running: false, Component: "node_runtime", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
 	}
 	installed = append(installed, "node_runtime")
-	if err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Browser Worker"); err != nil {
+	if err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Browser Worker", "node_worker"); err != nil {
+		m.setProgress(Progress{Running: false, Component: "node_worker", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
 	}
 	installed = append(installed, "node_worker")
-	if err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser"); err != nil {
+	if err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
+		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
 	}
 	installed = append(installed, "cloakbrowser")
@@ -85,26 +100,36 @@ func (m *Manager) InstallLocalWorker(sourceDir string) (InstallResult, error) {
 	if err := copyDir(sourceDir, targetDir); err != nil {
 		return InstallResult{}, fmt.Errorf("安装 Node Worker 失败：%w", err)
 	}
+	_ = m.saveVersion("node_worker", Asset{Version: "local", URL: sourceDir})
 	return InstallResult{Platform: platformKey(), Installed: []string{"node_worker"}, Status: m.Status()}, nil
 }
 
 // installAsset 下载并解压单个运行组件。
-// ctx 为请求上下文，asset 为资源配置，targetName 为目标目录名，label 为中文组件名。
-func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName string, label string) error {
+// ctx 为请求上下文，asset 为资源配置，targetName 为目标目录名，label 为中文组件名，component 为组件键名。
+func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName string, label string, component string) error {
 	if strings.TrimSpace(asset.URL) == "" {
 		return fmt.Errorf("%s 下载地址为空", label)
 	}
+	m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: 5})
 	downloadsDir := filepath.Join(m.cfg.RuntimeDir, "downloads")
 	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
 		return fmt.Errorf("创建下载目录失败：%w", err)
 	}
 	archivePath := filepath.Join(downloadsDir, archiveName(asset.URL, targetName))
-	if err := downloadFile(ctx, asset.URL, archivePath); err != nil {
+	if err := downloadFile(ctx, asset.URL, archivePath, func(received int64, total int64) {
+		percent := 10
+		if total > 0 {
+			percent = 10 + int(received*50/total)
+		}
+		m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: percent, Received: received, Total: total})
+	}); err != nil {
 		return fmt.Errorf("下载%s失败：%w", label, err)
 	}
+	m.setProgress(Progress{Running: true, Component: component, Stage: "verify", Message: "正在校验" + label, Percent: 65})
 	if err := verifySHA256(archivePath, asset.SHA256); err != nil {
 		return fmt.Errorf("%s校验失败：%w", label, err)
 	}
+	m.setProgress(Progress{Running: true, Component: component, Stage: "extract", Message: "正在解压" + label, Percent: 75})
 	targetDir := filepath.Join(m.cfg.RuntimeDir, targetName)
 	if err := os.RemoveAll(targetDir); err != nil {
 		return fmt.Errorf("清理旧%s失败：%w", label, err)
@@ -115,6 +140,10 @@ func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName stri
 	if err := extractArchive(archivePath, targetDir); err != nil {
 		return fmt.Errorf("解压%s失败：%w", label, err)
 	}
+	if err := m.saveVersion(component, asset); err != nil {
+		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
+	}
+	m.setProgress(Progress{Running: true, Component: component, Stage: "installed", Message: label + "安装完成", Percent: 95})
 	return nil
 }
 
@@ -142,8 +171,8 @@ func fetchManifest(ctx context.Context, manifestURL string) (Manifest, error) {
 }
 
 // downloadFile 下载文件到指定路径。
-// ctx 为请求上下文，url 为下载地址，targetPath 为保存路径。
-func downloadFile(ctx context.Context, url string, targetPath string) error {
+// ctx 为请求上下文，url 为下载地址，targetPath 为保存路径，onProgress 为进度回调。
+func downloadFile(ctx context.Context, url string, targetPath string, onProgress func(received int64, total int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -162,7 +191,8 @@ func downloadFile(ctx context.Context, url string, targetPath string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	reader := &progressReader{reader: resp.Body, total: resp.ContentLength, onProgress: onProgress}
+	if _, err := io.Copy(out, reader); err != nil {
 		_ = out.Close()
 		_ = os.Remove(tmpPath)
 		return err
@@ -172,6 +202,27 @@ func downloadFile(ctx context.Context, url string, targetPath string) error {
 		return err
 	}
 	return os.Rename(tmpPath, targetPath)
+}
+
+// progressReader 在读取下载内容时回调进度。
+type progressReader struct {
+	reader     io.Reader
+	received   int64
+	total      int64
+	onProgress func(received int64, total int64)
+}
+
+// Read 读取下载内容并更新进度。
+// p 为目标缓冲区。
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.received += int64(n)
+		if r.onProgress != nil {
+			r.onProgress(r.received, r.total)
+		}
+	}
+	return n, err
 }
 
 // verifySHA256 校验文件 sha256。
