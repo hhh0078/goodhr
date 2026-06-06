@@ -309,6 +309,19 @@ export async function chatWithLocalAI(base: string, payload: any) {
 }
 
 /**
+ * 通过 Local Agent 本地 AI 识别图片内容。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 图片识别参数，支持 file_path 或 image_base64。
+ * @returns {Promise<any>} 返回识别文本和用量。
+ */
+export async function analyzeImageWithLocalAI(base: string, payload: any) {
+  return req(base, "/api/v1/local/ai/vision", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+/**
  * 读取 Local Agent 本地岗位模板列表。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @returns {Promise<any[]>} 返回本地岗位模板数组。

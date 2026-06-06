@@ -3,6 +3,7 @@ package app
 
 import (
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,6 +96,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
 	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
 	mux.HandleFunc("/api/v1/local/ai/chat", s.handleLocalAIChat)
+	mux.HandleFunc("/api/v1/local/ai/vision", s.handleLocalAIVision)
 	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
 	mux.HandleFunc("/api/v1/local/rules/update", s.handleLocalRulesUpdate)
@@ -688,6 +690,76 @@ func (s *Server) handleLocalAIChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]any{"content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
+}
+
+// handleLocalAIVision 处理本地图片 AI 识别请求。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalAIVision(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	imageData, err := s.readVisionImage(payload)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	prompt := firstNonEmptyString(stringValue(payload["prompt"]), "请识别图片中的简历或候选人详情文字，输出中文文本。")
+	imageFormat := firstNonEmptyString(stringValue(payload["image_format"]), "png")
+	config, err := s.db.GetAIConfig()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	content := []map[string]any{
+		{"type": "text", "text": prompt},
+		{"type": "image_url", "image_url": map[string]any{"url": "data:image/" + imageFormat + ";base64," + base64.StdEncoding.EncodeToString(imageData)}},
+	}
+	result, err := localai.New(config).Chat(r.Context(), map[string]any{
+		"messages":    []map[string]any{{"role": "user", "content": content}},
+		"temperature": 0.1,
+	})
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"text": result.Content, "content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
+}
+
+// readVisionImage 读取图片 AI 识别请求中的图片内容。
+// payload 可传 image_base64、file_path、path 或 screenshot_path。
+func (s *Server) readVisionImage(payload map[string]any) ([]byte, error) {
+	if raw := stringValue(payload["image_base64"]); raw != "" {
+		if comma := strings.Index(raw, ","); comma >= 0 {
+			raw = raw[comma+1:]
+		}
+		data, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("图片 base64 格式不正确")
+		}
+		return data, nil
+	}
+	imagePath := firstNonEmptyString(stringValue(payload["file_path"]), stringValue(payload["path"]), stringValue(payload["screenshot_path"]))
+	if imagePath == "" {
+		return nil, fmt.Errorf("请传入图片路径或图片 base64")
+	}
+	cleanPath := filepath.Clean(imagePath)
+	if !filepath.IsAbs(cleanPath) {
+		return nil, fmt.Errorf("图片路径必须是绝对路径")
+	}
+	if !strings.HasPrefix(cleanPath, filepath.Clean(s.cfg.DataDir)+string(os.PathSeparator)) && !strings.HasPrefix(cleanPath, filepath.Clean(s.cfg.ScreenshotsDir)+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片")
+	}
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取图片失败：%w", err)
+	}
+	return data, nil
 }
 
 // handleLocalRulesStatus 返回本地规则包状态。
