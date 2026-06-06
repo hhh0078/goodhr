@@ -54,7 +54,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		runtime: runtimeManager,
 		worker:  workerManager,
 		db:      db,
-		runner:  taskrunner.New(db, workerManager, cfg.ProfilesDir, cfg.DownloadsDir),
+		runner:  taskrunner.New(db, workerManager, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir),
 	}, nil
 }
 

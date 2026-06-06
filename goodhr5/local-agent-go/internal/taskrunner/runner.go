@@ -3,10 +3,12 @@ package taskrunner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -31,12 +33,13 @@ type BrowserWorker interface {
 
 // Runner 是本地任务运行器。
 type Runner struct {
-	db           *localdb.DB
-	worker       BrowserWorker
-	profilesDir  string
-	downloadsDir string
-	mu           sync.Mutex
-	running      map[string]*runState
+	db             *localdb.DB
+	worker         BrowserWorker
+	profilesDir    string
+	downloadsDir   string
+	screenshotsDir string
+	mu             sync.Mutex
+	running        map[string]*runState
 }
 
 // runState 保存单个运行任务的控制句柄。
@@ -68,9 +71,9 @@ type StartOptions struct {
 }
 
 // New 创建本地任务运行器。
-// db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir 和 downloadsDir 为本机浏览器目录。
-func New(db *localdb.DB, worker BrowserWorker, profilesDir string, downloadsDir string) *Runner {
-	return &Runner{db: db, worker: worker, profilesDir: profilesDir, downloadsDir: downloadsDir, running: map[string]*runState{}}
+// db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
+func New(db *localdb.DB, worker BrowserWorker, profilesDir string, downloadsDir string, screenshotsDir string) *Runner {
+	return &Runner{db: db, worker: worker, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, running: map[string]*runState{}}
 }
 
 // Start 启动本地任务运行器。
@@ -278,6 +281,14 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
+		if len(filtered) > 0 && shouldFetchDetail(task) {
+			r.updateProgress(task.ID, Progress{Stage: "detail", Message: fmt.Sprintf("正在读取第 %d 轮候选人详情", round), Round: round, TotalRounds: totalRounds})
+			detailSkipped, err := r.enrichCandidatesWithDetail(ctx, task, platformConfig, filtered)
+			if err != nil {
+				return nil, err
+			}
+			totalSkipped += detailSkipped
+		}
 		if taskMode(task) == "ai" && len(filtered) > 0 {
 			r.updateProgress(task.ID, Progress{Stage: "ai_scoring", Message: fmt.Sprintf("正在 AI 评分第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
 			scored, aiSkipped, err := r.scoreCandidates(ctx, task, filtered)
@@ -376,6 +387,112 @@ func (r *Runner) browserDownloadDir() string {
 	return r.downloadsDir
 }
 
+// enrichCandidatesWithDetail 为候选人补充详情文本。
+// ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置，candidates 为候选人列表。
+func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
+	skipped := 0
+	mode := detailMode(task)
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return skipped, err
+		}
+		if !canContinueCandidate(stringFromMap(candidate, "status")) {
+			continue
+		}
+		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
+			"platform_config": platformConfig,
+			"card_index":      intFromMap(candidate, "card_index"),
+			"screenshot":      mode == "ocr",
+			"dir":             filepath.Join(r.screenshotsDir, task.ID),
+			"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
+		})
+		if err != nil {
+			candidate["detail_error"] = err.Error()
+			_, _ = r.db.AddTaskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
+			continue
+		}
+		data := workerDataMap(result)
+		detailText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
+		if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
+			r.saveDetailScreenshot(task.ID, candidate, screenshot)
+			if mode == "ocr" {
+				visionText, err := r.analyzeDetailScreenshot(ctx, task, screenshot)
+				if err != nil {
+					candidate["vision_error"] = err.Error()
+					_, _ = r.db.AddTaskLog(task.ID, "warning", "图片 AI 识别失败："+err.Error())
+				} else if strings.TrimSpace(visionText) != "" {
+					detailText = mergeText(detailText, visionText)
+					candidate["vision_text"] = visionText
+				}
+			}
+		}
+		if detailText == "" {
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = "详情文本为空"
+			skipped++
+			continue
+		}
+		candidate["detail_text"] = detailText
+		candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
+		candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
+		candidate["status"] = "detail_fetched"
+		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), len([]rune(detailText))))
+	}
+	return skipped, nil
+}
+
+// saveDetailScreenshot 保存详情截图记录。
+// taskID 为任务 ID，candidate 为候选人，screenshot 为 Worker 返回的截图信息。
+func (r *Runner) saveDetailScreenshot(taskID string, candidate map[string]any, screenshot map[string]any) {
+	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
+	if filePath == "" {
+		return
+	}
+	record, err := r.db.SaveScreenshot(map[string]any{
+		"task_id":   taskID,
+		"file_path": filePath,
+		"label":     firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人详情"),
+		"width":     screenshot["width"],
+		"height":    screenshot["height"],
+	})
+	if err == nil {
+		candidate["detail_screenshot"] = record
+	}
+}
+
+// analyzeDetailScreenshot 使用本地 AI 识别详情截图。
+// ctx 为请求上下文，task 为任务记录，screenshot 为截图信息。
+func (r *Runner) analyzeDetailScreenshot(ctx context.Context, task localdb.Task, screenshot map[string]any) (string, error) {
+	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
+	if filePath == "" {
+		return "", fmt.Errorf("详情截图路径为空")
+	}
+	imageBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("读取详情截图失败：%w", err)
+	}
+	config, err := r.db.GetAIConfig()
+	if err != nil {
+		return "", err
+	}
+	prompt := firstNonEmptyString(
+		stringFromMap(mapValue(task.PositionSnapshot["ai_config"]), "open_detail_prompt"),
+		"请识别图片中的候选人详情文字，保留学历、经验、技能、求职意向等关键信息，输出中文文本。",
+	)
+	content := []map[string]any{
+		{"type": "text", "text": prompt},
+		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
+	}
+	result, err := localai.New(config).Chat(ctx, map[string]any{
+		"messages":    []map[string]any{{"role": "user", "content": content}},
+		"temperature": 0.1,
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
+}
+
 // scoreCandidates 使用本地 AI 给候选人评分。
 // ctx 为请求上下文，task 为任务记录，candidates 为候选人列表。
 func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candidates []map[string]any) ([]map[string]any, int, error) {
@@ -389,6 +506,11 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return nil, skipped, err
+		}
+		status := stringFromMap(candidate, "status")
+		if !canContinueCandidate(status) {
+			result = append(result, candidate)
+			continue
 		}
 		decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
 		if err != nil {
@@ -421,7 +543,7 @@ func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platfor
 			return greeted, failed, err
 		}
 		status := stringFromMap(candidate, "status")
-		if status != "passed" && status != "ai_passed" {
+		if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
 			continue
 		}
 		if task.MatchLimit > 0 && greetedBefore+greeted >= task.MatchLimit {
@@ -793,6 +915,89 @@ func stringFromMap(item map[string]any, key string) string {
 	}
 	value, _ := item[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// mapValue 将任意值转换为 map。
+// value 为原始值。
+func mapValue(value any) map[string]any {
+	if item, ok := value.(map[string]any); ok && item != nil {
+		return item
+	}
+	return map[string]any{}
+}
+
+// mapFromAny 将任意值转换为 map。
+// value 为原始值。
+func mapFromAny(value any) map[string]any {
+	return mapValue(value)
+}
+
+// workerDataMap 从 Worker 返回中读取 data 字典。
+// result 为 Worker 返回 JSON。
+func workerDataMap(result map[string]any) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	if data, ok := result["data"].(map[string]any); ok {
+		return data
+	}
+	return result
+}
+
+// firstNonEmptyString 返回第一个非空字符串。
+// values 为候选字符串。
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// mergeText 合并两段文本并去掉空值。
+// base 为原文本，extra 为补充文本。
+func mergeText(base string, extra string) string {
+	base = strings.TrimSpace(base)
+	extra = strings.TrimSpace(extra)
+	if base == "" {
+		return extra
+	}
+	if extra == "" || strings.Contains(base, extra) {
+		return base
+	}
+	return base + "\n" + extra
+}
+
+// shouldFetchDetail 判断任务是否需要读取候选人详情。
+// task 为任务记录。
+func shouldFetchDetail(task localdb.Task) bool {
+	return detailMode(task) != ""
+}
+
+// detailMode 返回详情读取模式。
+// task 为任务记录，支持 dom 和 ocr。
+func detailMode(task localdb.Task) string {
+	commonConfig := mapValue(task.PositionSnapshot["common_config"])
+	keywordConfig := mapValue(task.PositionSnapshot["keyword_config"])
+	mode := strings.ToLower(firstNonEmptyString(
+		stringFromMap(commonConfig, "detail_mode"),
+		stringFromMap(keywordConfig, "detail_mode"),
+	))
+	if mode == "ocr" || mode == "dom" {
+		return mode
+	}
+	if strings.ToLower(strings.TrimSpace(task.PlatformID)) == "boss" {
+		return "ocr"
+	}
+	return ""
+}
+
+// canContinueCandidate 判断候选人是否可以继续进入详情或 AI 阶段。
+// status 为候选人当前状态。
+func canContinueCandidate(status string) bool {
+	status = strings.TrimSpace(status)
+	return status == "" || status == "scanned" || status == "passed" || status == "detail_fetched" || status == "ai_passed"
 }
 
 // intFromMap 从 map 中读取整数。

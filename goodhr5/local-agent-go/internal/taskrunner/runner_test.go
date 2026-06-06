@@ -252,6 +252,9 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 	if path == "/api/v1/boss/candidates/greet" {
 		return map[string]any{"data": map[string]any{"greeted": true}}, nil
 	}
+	if path == "/api/v1/boss/candidates/detail" {
+		return map[string]any{"data": map[string]any{"detail_text": "本科 5年 销售管理经验"}}, nil
+	}
 	return map[string]any{"data": map[string]any{}}, nil
 }
 
@@ -319,5 +322,5 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()
 	root := t.TempDir()
-	return New(db, worker, root+"/profiles", root+"/downloads")
+	return New(db, worker, root+"/profiles", root+"/downloads", root+"/screenshots")
 }
