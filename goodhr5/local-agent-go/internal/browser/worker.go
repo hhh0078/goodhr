@@ -66,6 +66,12 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	go func() {
 		m.done <- cmd.Wait()
 	}()
+	if err := m.waitForReadyLocked(ctx, 8*time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		m.cmd = nil
+		m.done = nil
+		return WorkerStatus{}, err
+	}
 	return m.statusLocked(), nil
 }
 
@@ -181,4 +187,34 @@ func (m *WorkerManager) statusLocked() WorkerStatus {
 		status.PID = m.cmd.Process.Pid
 	}
 	return status
+}
+
+// waitForReadyLocked 等待 Worker HTTP 服务可访问。
+// 调用前必须持有锁，timeout 为最大等待时间。
+func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := http.Client{Timeout: 500 * time.Millisecond}
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-m.done:
+			return fmt.Errorf("Node Browser Worker 已退出：%w", err)
+		default:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+"/health", nil)
+		if err == nil {
+			resp, err := client.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+					return nil
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("等待 Node Browser Worker 启动被取消")
+		case <-time.After(120 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("Node Browser Worker 启动超时")
 }
