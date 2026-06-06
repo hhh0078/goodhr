@@ -12,6 +12,8 @@ import (
 	"goodhr5/local-agent-go/internal/localdb"
 )
 
+const defaultScanRounds = 3
+
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
 	Start(ctx context.Context) (browser.WorkerStatus, error)
@@ -155,26 +157,42 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if _, err := r.worker.Call(ctx, "/api/v1/page/open", map[string]any{"url": entryURL}); err != nil {
 		return nil, err
 	}
-	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
-		"platform_config": platformConfig,
-		"max_items":       30,
-	})
-	if err != nil {
-		return nil, err
-	}
-	candidates := mapList(workerData(result, "candidates"))
-	for _, candidate := range candidates {
-		if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
+	seen := map[string]struct{}{}
+	totalSaved := 0
+	totalSkipped := 0
+	for round := 1; round <= defaultScanRounds; round++ {
+		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
+			"platform_config": platformConfig,
+			"max_items":       30,
+		})
+		if err != nil {
 			return nil, err
 		}
+		candidates := freshCandidates(mapList(workerData(result, "candidates")), seen)
+		if len(candidates) == 0 {
+			_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮未发现新候选人", round))
+			break
+		}
+		filtered, skipped := applyKeywordFilter(task, candidates)
+		totalSkipped += skipped
+		for _, candidate := range filtered {
+			if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
+				return nil, err
+			}
+		}
+		totalSaved += len(filtered)
+		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, len(filtered)))
+		if round < defaultScanRounds {
+			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": 720})
+		}
 	}
-	if len(candidates) > 0 {
-		_, _ = r.db.IncrementTaskCounts(task.ID, len(candidates), 0, 0, 0)
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("已提取并保存 %d 个可见候选人", len(candidates)))
+	if totalSaved > 0 || totalSkipped > 0 {
+		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, 0, totalSkipped, 0)
+		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个", totalSaved, totalSkipped))
 	} else {
 		_, _ = r.db.AddTaskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
-	return map[string]any{"candidates_count": len(candidates), "entry_url": entryURL}, nil
+	return map[string]any{"candidates_count": totalSaved, "skipped_count": totalSkipped, "entry_url": entryURL}, nil
 }
 
 // failStart 记录启动失败日志并清理运行锁。
@@ -249,6 +267,95 @@ func mapList(value any) []map[string]any {
 		}
 	}
 	return result
+}
+
+// freshCandidates 过滤已见过的候选人。
+// candidates 为候选人列表，seen 为已见候选人 ID 集合。
+func freshCandidates(candidates []map[string]any, seen map[string]struct{}) []map[string]any {
+	result := []map[string]any{}
+	for _, candidate := range candidates {
+		id := stringFromMap(candidate, "id")
+		if id == "" {
+			id = stringFromMap(candidate, "candidate_name") + stringFromMap(candidate, "raw_text")
+		}
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+// applyKeywordFilter 按任务岗位快照过滤候选人。
+// task 为任务记录，candidates 为候选人列表。
+func applyKeywordFilter(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
+	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
+	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
+	if len(keywords) == 0 && len(excludes) == 0 {
+		return candidates, 0
+	}
+	result := []map[string]any{}
+	skipped := 0
+	for _, candidate := range candidates {
+		text := strings.ToLower(stringFromMap(candidate, "filter_text") + " " + stringFromMap(candidate, "raw_text"))
+		if matched := matchedWords(text, excludes); len(matched) > 0 {
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
+			skipped++
+			continue
+		}
+		matched := matchedWords(text, keywords)
+		if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = "未命中关键词"
+			skipped++
+			continue
+		}
+		candidate["status"] = "passed"
+		candidate["matched_keywords"] = matched
+		result = append(result, candidate)
+	}
+	return result, skipped
+}
+
+// matchedWords 返回命中的关键词列表。
+// text 为候选人文本，words 为关键词列表。
+func matchedWords(text string, words []string) []string {
+	result := []string{}
+	for _, word := range words {
+		safeWord := strings.ToLower(strings.TrimSpace(word))
+		if safeWord != "" && strings.Contains(text, safeWord) {
+			result = append(result, word)
+		}
+	}
+	return result
+}
+
+// stringListFromMap 从 map 中读取字符串列表。
+// item 为原始字典，key 为字段名。
+func stringListFromMap(item map[string]any, key string) []string {
+	if item == nil {
+		return []string{}
+	}
+	switch value := item[key].(type) {
+	case []string:
+		return value
+	case []any:
+		result := []string{}
+		for _, raw := range value {
+			if text, ok := raw.(string); ok && strings.TrimSpace(text) != "" {
+				result = append(result, strings.TrimSpace(text))
+			}
+		}
+		return result
+	default:
+		return []string{}
+	}
 }
 
 // stringFromMap 从 map 中读取字符串。

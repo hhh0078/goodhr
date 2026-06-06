@@ -82,6 +82,26 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 }
 
+// TestApplyKeywordFilter 验证关键词和排除词过滤。
+func TestApplyKeywordFilter(t *testing.T) {
+	task := localdb.Task{
+		PositionSnapshot: map[string]any{
+			"keywords":         []any{"本科", "销售"},
+			"exclude_keywords": []any{"外包"},
+			"is_and_mode":      true,
+		},
+	}
+	candidates := []map[string]any{
+		{"id": "1", "raw_text": "本科 三年 销售经验"},
+		{"id": "2", "raw_text": "本科 外包 项目"},
+		{"id": "3", "raw_text": "本科 客服"},
+	}
+	filtered, skipped := applyKeywordFilter(task, candidates)
+	if skipped != 2 || len(filtered) != 1 || filtered[0]["id"] != "1" {
+		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+}
+
 // fakeWorker 模拟浏览器 Worker。
 type fakeWorker struct {
 	calls []string
