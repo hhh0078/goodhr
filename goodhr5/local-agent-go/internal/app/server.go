@@ -78,6 +78,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
 	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
+	mux.HandleFunc("/api/v1/local/positions", s.handleLocalPositions)
+	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
+	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
+	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
+	mux.HandleFunc("/api/v1/local/downloads", s.handleLocalDownloads)
+	mux.HandleFunc("/api/v1/local/screenshots", s.handleLocalScreenshots)
 	mux.HandleFunc("/api/v1/browser/start", s.handleBrowserStart)
 	mux.HandleFunc("/api/v1/browser/stop", s.handleBrowserStop)
 	mux.HandleFunc("/api/v1/page/open", s.handlePageOpen)
@@ -371,6 +377,165 @@ func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		response.Success(w, map[string]any{"candidate": candidate})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalPositions 处理本地岗位模板列表和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalPositions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		positions, err := s.db.ListPositions()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"positions": positions})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		position, err := s.db.SavePosition(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"position": position})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalPositionItem 处理单个本地岗位模板。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalPositionItem(w http.ResponseWriter, r *http.Request) {
+	positionID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/local/positions/"), "/")
+	if positionID == "" {
+		response.Error(w, http.StatusBadRequest, "岗位模板 ID 不能为空")
+		return
+	}
+	if r.Method != http.MethodDelete {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	if err := s.db.DeletePosition(positionID); err != nil {
+		response.Error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"deleted": true})
+}
+
+// handleLocalAIConfig 处理本地 AI 配置读取和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalAIConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		config, err := s.db.GetAIConfig()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"config": config})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		config, err := s.db.SaveAIConfig(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"config": config})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalSettings 处理本地设置读取和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := s.db.GetSettings()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"settings": settings})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		settings, err := s.db.SaveSettings(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"settings": settings})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalDownloads 处理本地下载记录读取和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalDownloads(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		downloads, err := s.db.ListDownloads(r.URL.Query().Get("task_id"))
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"downloads": downloads})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err := s.db.SaveDownload(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"download": item})
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+	}
+}
+
+// handleLocalScreenshots 处理本地截图记录读取和保存。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalScreenshots(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		screenshots, err := s.db.ListScreenshots(r.URL.Query().Get("task_id"))
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"screenshots": screenshots})
+	case http.MethodPost:
+		payload, err := readPayload(r)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err := s.db.SaveScreenshot(payload)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"screenshot": item})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
