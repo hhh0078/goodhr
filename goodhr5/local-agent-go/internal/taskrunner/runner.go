@@ -9,6 +9,7 @@ import (
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 )
 
@@ -175,6 +176,14 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
+		if taskMode(task) == "ai" && len(filtered) > 0 {
+			scored, aiSkipped, err := r.scoreCandidates(ctx, task, filtered)
+			if err != nil {
+				return nil, err
+			}
+			filtered = scored
+			totalSkipped += aiSkipped
+		}
 		for _, candidate := range filtered {
 			if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
 				return nil, err
@@ -193,6 +202,38 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		_, _ = r.db.AddTaskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
 	return map[string]any{"candidates_count": totalSaved, "skipped_count": totalSkipped, "entry_url": entryURL}, nil
+}
+
+// scoreCandidates 使用本地 AI 给候选人评分。
+// ctx 为请求上下文，task 为任务记录，candidates 为候选人列表。
+func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candidates []map[string]any) ([]map[string]any, int, error) {
+	config, err := r.db.GetAIConfig()
+	if err != nil {
+		return nil, 0, err
+	}
+	client := localai.New(config)
+	result := make([]map[string]any, 0, len(candidates))
+	skipped := 0
+	for _, candidate := range candidates {
+		decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+		if err != nil {
+			return nil, skipped, err
+		}
+		candidate["ai_greet_score"] = decision.Score
+		candidate["ai_greet_reason"] = decision.Reason
+		candidate["ai_greet_threshold"] = decision.Threshold
+		candidate["ai_usage"] = decision.Usage
+		candidate["ai_elapsed_ms"] = decision.ElapsedMS
+		if !decision.ShouldGreet {
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
+			skipped++
+		} else {
+			candidate["status"] = "ai_passed"
+		}
+		result = append(result, candidate)
+	}
+	return result, skipped, nil
 }
 
 // failStart 记录启动失败日志并清理运行锁。
@@ -321,6 +362,16 @@ func applyKeywordFilter(task localdb.Task, candidates []map[string]any) ([]map[s
 		result = append(result, candidate)
 	}
 	return result, skipped
+}
+
+// taskMode 返回任务运行模式。
+// task 为任务记录。
+func taskMode(task localdb.Task) string {
+	mode := strings.ToLower(strings.TrimSpace(task.Mode))
+	if mode == "" {
+		return "ai"
+	}
+	return mode
 }
 
 // matchedWords 返回命中的关键词列表。

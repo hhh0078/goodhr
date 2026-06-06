@@ -15,6 +15,18 @@ import (
 
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected ai path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": `{"score":82,"reason":"符合要求"}`}},
+			},
+			"usage": map[string]any{"total_tokens": 12},
+		})
+	}))
+	defer aiServer.Close()
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -43,6 +55,13 @@ func TestRunnerStartStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.SaveAIConfig(map[string]any{
+		"base_url": aiServer.URL,
+		"api_key":  "test-key",
+		"model":    "test-model",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	worker := &fakeWorker{}
 	runner := New(db, worker)
 	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
@@ -65,6 +84,9 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates[0]["candidate_name"] != "候选人A" {
 		t.Fatalf("candidates = %+v", candidates)
+	}
+	if candidates[0]["status"] != "ai_passed" || candidates[0]["ai_greet_score"] == nil {
+		t.Fatalf("candidate ai fields = %+v", candidates[0])
 	}
 	stopResult, err := runner.Stop(task.ID)
 	if err != nil {
