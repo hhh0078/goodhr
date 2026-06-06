@@ -325,6 +325,29 @@ export async function analyzeImageWithLocalAI(base: string, payload: any) {
 }
 
 /**
+ * 读取 Local Agent 本地 OCR 组件状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回 OCR 状态。
+ */
+export async function getLocalOCRStatus(base: string) {
+  const data = await req(base, "/api/v1/local/ocr/status");
+  return data.ocr || {};
+}
+
+/**
+ * 通过 Local Agent 本地 OCR 识别图片文字。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 图片识别参数，支持 file_path、path 或 screenshot_path。
+ * @returns {Promise<any>} 返回 OCR 文本和原始结果。
+ */
+export async function recognizeImageWithLocalOCR(base: string, payload: any) {
+  return req(base, "/api/v1/local/ocr/recognize", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+/**
  * 读取 Local Agent 本地岗位模板列表。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @returns {Promise<any[]>} 返回本地岗位模板数组。

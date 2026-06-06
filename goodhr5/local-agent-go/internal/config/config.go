@@ -29,6 +29,7 @@ type Config struct {
 	Port               int
 	DataDir            string
 	RuntimeDir         string
+	OCRDir             string
 	FrontendDir        string
 	ProfilesDir        string
 	DownloadsDir       string
@@ -69,6 +70,7 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		Port:               port,
 		DataDir:            dataDir,
 		RuntimeDir:         filepath.Join(dataDir, "runtime"),
+		OCRDir:             filepath.Join(dataDir, "runtime", "ocr"),
 		FrontendDir:        filepath.Join(dataDir, "console"),
 		ProfilesDir:        filepath.Join(dataDir, "profiles"),
 		DownloadsDir:       defaultDownloadsDir(),
@@ -95,7 +97,7 @@ func envOrDefault(key string, fallback string) string {
 // EnsureDirs 创建本地程序需要的基础目录。
 // 返回错误表示目录创建失败。
 func (c *Config) EnsureDirs() error {
-	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir, c.ProfilesDir, c.DownloadsDir, c.ScreenshotsDir} {
+	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.OCRDir, c.FrontendDir, c.ProfilesDir, c.DownloadsDir, c.ScreenshotsDir} {
 		if dir == "" {
 			return fmt.Errorf("本地目录为空")
 		}

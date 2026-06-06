@@ -11,6 +11,7 @@
 - `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
 - `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
 - `/api/v1/console/status` 和 `/api/v1/console/update` 支持检查并更新本地控制台前端包。
+- `/api/v1/local/ocr/status` 和 `/api/v1/local/ocr/recognize` 支持本地 OCR 组件状态和图片文字识别。
 - 已实现 Node Browser Worker 启动、停止和浏览器 API 转发入口。
 - `worker-node/` 已接入 CloakBrowser 官方 Node SDK。
 - 已提供基础浏览器 API：打开页面、点击、输入、滚动、提取文本、截图、Cookie、下载记录。
@@ -19,6 +20,7 @@
 - 已提供云端平台配置读取和会员状态校验接口，后续任务启动流程直接复用。
 - 已接入本地任务运行器骨架：启动时校验会员、拉取平台配置、写入运行日志和任务状态。
 - 已接入 Boss 候选人第一轮扫描：打开云端配置的推荐页，提取可见候选人并保存到本地 SQLite。
+- 详情读取支持 DOM、OCR、AI 三种独立模式；选择哪种就只执行哪种，不做隐式兜底。
 - 已接入本地 AI 打招呼评分：AI 模式会保存分数和原因。
 - 已接入 Boss 打招呼动作，只有启动参数 `enable_greet=true` 时才会真实点击。
 - 已接入任务停止信号、打招呼前随机等待和打招呼失败重试。
@@ -125,9 +127,23 @@ manifest 示例：
       "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip",
       "sha256": ""
     }
+  },
+  "ocr": {
+    "win-x64": {
+      "version": "rapidocr-json",
+      "url": "https://oss.58it.cn/goodhr-ocr-win-x64.zip",
+      "sha256": ""
+    },
+    "darwin-arm64": {
+      "version": "rapidocr-json",
+      "url": "https://oss.58it.cn/goodhr-ocr-darwin-arm64.zip",
+      "sha256": ""
+    }
   }
 }
 ```
+
+OCR 组件是可选运行组件。若使用 RapidOCR-json，压缩包解压后需包含 `RapidOCR-json.exe`、`RapidOCR_json.exe`、`RapidOCR-json` 或 `RapidOCR_json` 之一；也可以通过环境变量 `GOODHR_OCR_EXECUTABLE` 指定可执行文件路径。
 
 控制台前端包 manifest 示例：
 

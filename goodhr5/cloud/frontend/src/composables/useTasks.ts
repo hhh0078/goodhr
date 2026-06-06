@@ -226,7 +226,8 @@ export function useTasks(
    */
   function taskNeedsAIConfig(task: any) {
     const mode = String(task?.mode || "").trim().toLowerCase();
-    return mode === "ai";
+    const detailMode = String(task?.position_snapshot?.common_config?.detail_mode || "").trim().toLowerCase();
+    return mode === "ai" || detailMode === "ai";
   }
 
   async function stop(taskId: string) {

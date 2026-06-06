@@ -41,7 +41,7 @@ export function usePositions() {
         is_and_mode: form.value.isAndMode,
         common_config: {
           mode_default: form.value.modeDefault,
-          detail_mode: normalizeDetailMode(platformID, form.value.detailMode),
+          detail_mode: normalizeDetailMode(form.value.detailMode),
         },
         ai_config: {
           position_requirement: form.value.aiPositionRequirement,
@@ -136,7 +136,7 @@ export function usePositions() {
       isAndMode: pos.is_and_mode || false,
       modeDefault: common.mode_default || 'ai',
       platformId: normalizePlatformID(pos.platform_id),
-      detailMode: normalizeDetailMode(normalizePlatformID(pos.platform_id), common.detail_mode || keyword.detail_mode || 'dom'),
+      detailMode: normalizeDetailMode(common.detail_mode || keyword.detail_mode || 'ocr'),
       aiPositionRequirement: ai.position_requirement || '',
       aiFilterPrompt: normalizePromptText(ai.greet_prompt || ai.filter_prompt || ai.click_prompt || ''),
       aiOpenDetailPrompt: normalizePromptText(ai.open_detail_prompt || ''),
@@ -210,15 +210,14 @@ function normalizePlatformID(value: string) {
 }
 
 /**
- * 根据平台修正详情读取模式。
- * @param {string} platformID - 平台标识。
+ * 标准化详情读取模式。
  * @param {string} detailMode - 原始详情模式。
  * @returns {string} 修正后的详情模式。
  */
-function normalizeDetailMode(platformID: string, detailMode: string) {
-  if (normalizePlatformID(platformID) === 'boss') return 'ocr'
+function normalizeDetailMode(detailMode: string) {
   const mode = String(detailMode || '').trim().toLowerCase()
-  return mode === 'ocr' ? 'ocr' : 'dom'
+  if (mode === 'dom' || mode === 'ocr' || mode === 'ai') return mode
+  return 'ocr'
 }
 
 /**

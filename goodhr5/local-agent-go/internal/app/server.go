@@ -25,6 +25,7 @@ import (
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/ocr"
 	"goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
@@ -36,6 +37,7 @@ type Server struct {
 	cfg     *config.Config
 	runtime *runtime.Manager
 	worker  *browser.WorkerManager
+	ocr     *ocr.Engine
 	db      *localdb.DB
 	runner  *taskrunner.Runner
 }
@@ -49,12 +51,14 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 	workerManager := browser.NewWorkerManager(runtimeManager)
+	ocrEngine := ocr.New(cfg)
 	return &Server{
 		cfg:     cfg,
 		runtime: runtimeManager,
 		worker:  workerManager,
+		ocr:     ocrEngine,
 		db:      db,
-		runner:  taskrunner.New(db, workerManager, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir),
+		runner:  taskrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir),
 	}, nil
 }
 
@@ -102,6 +106,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
 	mux.HandleFunc("/api/v1/local/ai/chat", s.handleLocalAIChat)
 	mux.HandleFunc("/api/v1/local/ai/vision", s.handleLocalAIVision)
+	mux.HandleFunc("/api/v1/local/ocr/status", s.handleLocalOCRStatus)
+	mux.HandleFunc("/api/v1/local/ocr/recognize", s.handleLocalOCRRecognize)
 	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
 	mux.HandleFunc("/api/v1/local/rules/update", s.handleLocalRulesUpdate)
@@ -144,6 +150,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"screenshotsDir": s.cfg.ScreenshotsDir,
 		"dbPath":         s.db.Path(),
 		"runtime":        s.runtime.Status(),
+		"ocr":            s.ocr.Status(),
 	})
 }
 
@@ -800,6 +807,41 @@ func (s *Server) handleLocalAIVision(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, map[string]any{"text": result.Content, "content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
 }
 
+// handleLocalOCRStatus 返回本地 OCR 组件状态。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalOCRStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	response.Success(w, map[string]any{"ocr": s.ocr.Status()})
+}
+
+// handleLocalOCRRecognize 处理本地 OCR 图片识别请求。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalOCRRecognize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	imagePath := firstNonEmptyString(stringValue(payload["file_path"]), stringValue(payload["path"]), stringValue(payload["screenshot_path"]))
+	if err := s.validateLocalImagePath(imagePath); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := s.ocr.Recognize(r.Context(), imagePath)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"text": result.Text, "raw": result.Raw})
+}
+
 // readVisionImage 读取图片 AI 识别请求中的图片内容。
 // payload 可传 image_base64、file_path、path 或 screenshot_path。
 func (s *Server) readVisionImage(payload map[string]any) ([]byte, error) {
@@ -814,21 +856,35 @@ func (s *Server) readVisionImage(payload map[string]any) ([]byte, error) {
 		return data, nil
 	}
 	imagePath := firstNonEmptyString(stringValue(payload["file_path"]), stringValue(payload["path"]), stringValue(payload["screenshot_path"]))
-	if imagePath == "" {
-		return nil, fmt.Errorf("请传入图片路径或图片 base64")
+	if err := s.validateLocalImagePath(imagePath); err != nil {
+		if imagePath == "" {
+			return nil, fmt.Errorf("请传入图片路径或图片 base64")
+		}
+		return nil, err
 	}
-	cleanPath := filepath.Clean(imagePath)
-	if !filepath.IsAbs(cleanPath) {
-		return nil, fmt.Errorf("图片路径必须是绝对路径")
-	}
-	if !strings.HasPrefix(cleanPath, filepath.Clean(s.cfg.DataDir)+string(os.PathSeparator)) && !strings.HasPrefix(cleanPath, filepath.Clean(s.cfg.ScreenshotsDir)+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片")
-	}
-	data, err := os.ReadFile(cleanPath)
+	data, err := os.ReadFile(filepath.Clean(imagePath))
 	if err != nil {
 		return nil, fmt.Errorf("读取图片失败：%w", err)
 	}
 	return data, nil
+}
+
+// validateLocalImagePath 校验本地图片路径是否位于 GoodHR 数据目录。
+// imagePath 为图片绝对路径。
+func (s *Server) validateLocalImagePath(imagePath string) error {
+	if strings.TrimSpace(imagePath) == "" {
+		return fmt.Errorf("请传入图片路径")
+	}
+	cleanPath := filepath.Clean(imagePath)
+	if !filepath.IsAbs(cleanPath) {
+		return fmt.Errorf("图片路径必须是绝对路径")
+	}
+	dataDir := filepath.Clean(s.cfg.DataDir) + string(os.PathSeparator)
+	screenshotDir := filepath.Clean(s.cfg.ScreenshotsDir) + string(os.PathSeparator)
+	if !strings.HasPrefix(cleanPath, dataDir) && !strings.HasPrefix(cleanPath, screenshotDir) {
+		return fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片")
+	}
+	return nil
 }
 
 // handleLocalRulesStatus 返回本地规则包状态。

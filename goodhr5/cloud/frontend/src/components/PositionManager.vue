@@ -118,12 +118,17 @@
             </button>
           </div>
           <small class="field-help"
-            >Boss 详情页固定使用图片识别；其它平台可按页面稳定性选择。</small
+            >选择哪种就只使用哪种：DOM最快，OCR离线且适合截图文字，AI理解最强但较慢。</small
           >
         </div>
       </div>
 
-      <template v-if="positions.form.value.modeDefault === 'ai'">
+      <template
+        v-if="
+          positions.form.value.modeDefault === 'ai' ||
+          positions.form.value.detailMode === 'ai'
+        "
+      >
         <h3>AI 模式专属</h3>
         <div class="position-form-grid">
           <label class="field field-full">
@@ -363,9 +368,7 @@
             {{
               pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
             }}
-            | 详情:{{
-              pos.common_config?.detail_mode === "ocr" ? "图片识别" : "页面解析"
-            }}
+            | 详情:{{ detailModeLabel(pos.common_config?.detail_mode) }}
             | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
               (pos.exclude_keywords || []).join(" / ") || "无"
             }}
@@ -394,7 +397,7 @@ const platformOptions = [
   {
     value: "boss",
     label: "Boss直聘",
-    description: "Boss 详情页固定使用图片识别。",
+    description: "可选择 DOM、OCR 或 AI 详情识别方式。",
   },
   {
     value: "zhaopin",
@@ -422,21 +425,21 @@ const modeOptions = [
 const detailModeOptions = [
   {
     value: "dom",
-    label: "页面解析",
-    description: "速度更快，适合页面文字结构稳定的招聘平台。",
+    label: "DOM识别",
+    description: "最快，不截图，适合网页文字能直接读取的页面。",
   },
   {
     value: "ocr",
-    label: "图片识别",
-    description: "读取截图文字，适合页面结构不稳定或文本难提取时使用。",
+    label: "OCR识别",
+    description: "离线识别截图文字，速度快，适合网页文字读不到时使用。",
+  },
+  {
+    value: "ai",
+    label: "AI识别",
+    description: "理解能力最强，适合复杂简历截图，但速度较慢且需要 AI 配置。",
   },
 ];
-const availableDetailModeOptions = computed(() => {
-  if (props.positions.form.value.platformId === "boss") {
-    return detailModeOptions.filter((option) => option.value === "ocr");
-  }
-  return detailModeOptions;
-});
+const availableDetailModeOptions = computed(() => detailModeOptions);
 const keywordMatchOptions = [
   {
     value: false,
@@ -466,25 +469,33 @@ async function savePosition() {
 }
 
 /**
- * 选择岗位模板所属平台，并按平台修正详情模式。
+ * 选择岗位模板所属平台。
  * @param {string} platformID - 平台标识。
  * @returns {void} 无返回值。
  */
 function selectPlatform(platformID: string) {
   props.positions.form.value.platformId = platformID;
-  if (platformID === "boss") {
-    props.positions.form.value.detailMode = "ocr";
-  }
 }
 
 /**
- * 选择详情读取模式，Boss 平台固定为 OCR。
+ * 选择详情读取模式。
  * @param {string} detailMode - 详情读取模式。
  * @returns {void} 无返回值。
  */
 function selectDetailMode(detailMode: string) {
-  props.positions.form.value.detailMode =
-    props.positions.form.value.platformId === "boss" ? "ocr" : detailMode;
+  props.positions.form.value.detailMode = detailMode;
+}
+
+/**
+ * 返回详情模式中文名称。
+ * @param {string} mode - 详情模式标识。
+ * @returns {string} 中文名称。
+ */
+function detailModeLabel(mode: string) {
+  if (mode === "dom") return "DOM识别";
+  if (mode === "ocr") return "OCR识别";
+  if (mode === "ai") return "AI识别";
+  return "OCR识别";
 }
 
 /**

@@ -24,6 +24,7 @@ type Manifest struct {
 	NodeRuntime  map[string]Asset `json:"node_runtime"`
 	NodeWorker   map[string]Asset `json:"node_worker"`
 	CloakBrowser map[string]Asset `json:"cloakbrowser"`
+	OCR          map[string]Asset `json:"ocr"`
 }
 
 // Asset 是单个运行组件资源。
@@ -79,6 +80,13 @@ func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (
 		return InstallResult{}, err
 	}
 	installed = append(installed, "cloakbrowser")
+	if asset := manifest.OCR[platform]; strings.TrimSpace(asset.URL) != "" {
+		if err := m.installAsset(ctx, asset, "ocr", "OCR 组件", "ocr"); err != nil {
+			m.setProgress(Progress{Running: false, Component: "ocr", Stage: "failed", Message: err.Error()})
+			return InstallResult{}, err
+		}
+		installed = append(installed, "ocr")
+	}
 	return InstallResult{Platform: platform, Installed: installed, Status: m.Status()}, nil
 }
 

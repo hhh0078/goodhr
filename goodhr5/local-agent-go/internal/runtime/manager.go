@@ -22,6 +22,8 @@ type Status struct {
 	WorkerEntry           string                        `json:"worker_entry"`
 	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
 	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
+	OCRInstalled          bool                          `json:"ocr_installed"`
+	OCRPath               string                        `json:"ocr_path"`
 	RuntimeDir            string                        `json:"runtime_dir"`
 	InstallProgress       Progress                      `json:"install_progress"`
 	InstalledVersions     map[string]InstalledComponent `json:"installed_versions"`
@@ -66,6 +68,7 @@ func (m *Manager) Status() Status {
 	nodePath := m.NodePath()
 	workerEntry := m.WorkerEntry()
 	browserPath := m.CloakBrowserPath()
+	ocrPath := m.OCRPath()
 	return Status{
 		NodeInstalled:         fileExists(nodePath),
 		NodePath:              nodePath,
@@ -73,10 +76,31 @@ func (m *Manager) Status() Status {
 		WorkerEntry:           workerEntry,
 		CloakBrowserInstalled: fileExists(browserPath),
 		CloakBrowserPath:      browserPath,
+		OCRInstalled:          fileExists(ocrPath),
+		OCRPath:               ocrPath,
 		RuntimeDir:            m.cfg.RuntimeDir,
 		InstallProgress:       m.Progress(),
 		InstalledVersions:     m.loadVersions(),
 	}
+}
+
+// OCRPath 返回 OCR 可执行文件路径。
+// Windows 优先返回 exe，其他系统返回无后缀可执行文件。
+func (m *Manager) OCRPath() string {
+	names := []string{"RapidOCR-json", "RapidOCR_json", "rapidocr-json"}
+	if runtime.GOOS == "windows" {
+		names = []string{"RapidOCR-json.exe", "RapidOCR_json.exe", "rapidocr-json.exe"}
+	}
+	for _, name := range names {
+		path := filepath.Join(m.cfg.RuntimeDir, "ocr", name)
+		if fileExists(path) {
+			return path
+		}
+	}
+	if found := findFile(filepath.Join(m.cfg.RuntimeDir, "ocr"), names[0]); found != "" {
+		return found
+	}
+	return filepath.Join(m.cfg.RuntimeDir, "ocr", names[0])
 }
 
 // Progress 返回当前运行组件安装进度。

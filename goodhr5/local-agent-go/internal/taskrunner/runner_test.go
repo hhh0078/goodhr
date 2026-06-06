@@ -12,6 +12,7 @@ import (
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/ocr"
 )
 
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
@@ -224,6 +225,15 @@ type fakeWorker struct {
 	calls []string
 }
 
+// fakeOCR 模拟 OCR 识别器。
+type fakeOCR struct{}
+
+// Recognize 模拟 OCR 图片识别。
+// ctx 为请求上下文，imagePath 为图片路径。
+func (f fakeOCR) Recognize(ctx context.Context, imagePath string) (ocr.Result, error) {
+	return ocr.Result{Text: "OCR 识别文本"}, nil
+}
+
 // Start 模拟启动 Worker。
 // ctx 为请求上下文。
 func (w *fakeWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
@@ -322,5 +332,5 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()
 	root := t.TempDir()
-	return New(db, worker, root+"/profiles", root+"/downloads", root+"/screenshots")
+	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots")
 }

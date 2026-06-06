@@ -19,6 +19,7 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/ocr"
 )
 
 const defaultScanRounds = 3
@@ -31,10 +32,16 @@ type BrowserWorker interface {
 	Call(ctx context.Context, path string, payload any) (map[string]any, error)
 }
 
+// OCRRecognizer 表示任务运行器需要的 OCR 能力。
+type OCRRecognizer interface {
+	Recognize(ctx context.Context, imagePath string) (ocr.Result, error)
+}
+
 // Runner 是本地任务运行器。
 type Runner struct {
 	db             *localdb.DB
 	worker         BrowserWorker
+	ocr            OCRRecognizer
 	profilesDir    string
 	downloadsDir   string
 	screenshotsDir string
@@ -72,8 +79,8 @@ type StartOptions struct {
 
 // New 创建本地任务运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
-func New(db *localdb.DB, worker BrowserWorker, profilesDir string, downloadsDir string, screenshotsDir string) *Runner {
-	return &Runner{db: db, worker: worker, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, running: map[string]*runState{}}
+func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string) *Runner {
+	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, running: map[string]*runState{}}
 }
 
 // Start 启动本地任务运行器。
@@ -397,6 +404,9 @@ func (r *Runner) browserDownloadDir() string {
 func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
 	skipped := 0
 	mode := detailMode(task)
+	if mode == "" {
+		return 0, nil
+	}
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return skipped, err
@@ -407,7 +417,7 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 			"platform_config": platformConfig,
 			"card_index":      intFromMap(candidate, "card_index"),
-			"screenshot":      mode == "ocr",
+			"screenshot":      mode == "ocr" || mode == "ai",
 			"dir":             filepath.Join(r.screenshotsDir, task.ID),
 			"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
 		})
@@ -417,17 +427,34 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 			continue
 		}
 		data := workerDataMap(result)
-		detailText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
+		domText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
+		detailText := ""
+		if mode == "dom" {
+			detailText = domText
+			candidate["detail_source"] = "dom"
+		}
 		if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
 			r.saveDetailScreenshot(task.ID, candidate, screenshot)
 			if mode == "ocr" {
+				ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
+				if err != nil {
+					candidate["ocr_error"] = err.Error()
+					_, _ = r.db.AddTaskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
+				} else {
+					detailText = strings.TrimSpace(ocrText)
+					candidate["ocr_text"] = detailText
+					candidate["detail_source"] = "ocr"
+				}
+			}
+			if mode == "ai" {
 				visionText, err := r.analyzeDetailScreenshot(ctx, task, screenshot)
 				if err != nil {
-					candidate["vision_error"] = err.Error()
-					_, _ = r.db.AddTaskLog(task.ID, "warning", "图片 AI 识别失败："+err.Error())
-				} else if strings.TrimSpace(visionText) != "" {
-					detailText = mergeText(detailText, visionText)
-					candidate["vision_text"] = visionText
+					candidate["ai_vision_error"] = err.Error()
+					_, _ = r.db.AddTaskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
+				} else {
+					detailText = strings.TrimSpace(visionText)
+					candidate["ai_vision_text"] = detailText
+					candidate["detail_source"] = "ai"
 				}
 			}
 		}
@@ -441,7 +468,7 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 		candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
 		candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
 		candidate["status"] = "detail_fetched"
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), len([]rune(detailText))))
+		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), detailModeLabel(mode), len([]rune(detailText))))
 	}
 	return skipped, nil
 }
@@ -463,6 +490,23 @@ func (r *Runner) saveDetailScreenshot(taskID string, candidate map[string]any, s
 	if err == nil {
 		candidate["detail_screenshot"] = record
 	}
+}
+
+// recognizeDetailScreenshot 使用本地 OCR 识别详情截图。
+// ctx 为请求上下文，screenshot 为截图信息。
+func (r *Runner) recognizeDetailScreenshot(ctx context.Context, screenshot map[string]any) (string, error) {
+	if r.ocr == nil {
+		return "", fmt.Errorf("OCR 组件未配置")
+	}
+	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
+	if filePath == "" {
+		return "", fmt.Errorf("详情截图路径为空")
+	}
+	result, err := r.ocr.Recognize(ctx, filePath)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
 }
 
 // analyzeDetailScreenshot 使用本地 AI 识别详情截图。
@@ -981,7 +1025,7 @@ func shouldFetchDetail(task localdb.Task) bool {
 }
 
 // detailMode 返回详情读取模式。
-// task 为任务记录，支持 dom 和 ocr。
+// task 为任务记录，支持 dom、ocr 和 ai。
 func detailMode(task localdb.Task) string {
 	commonConfig := mapValue(task.PositionSnapshot["common_config"])
 	keywordConfig := mapValue(task.PositionSnapshot["keyword_config"])
@@ -989,13 +1033,25 @@ func detailMode(task localdb.Task) string {
 		stringFromMap(commonConfig, "detail_mode"),
 		stringFromMap(keywordConfig, "detail_mode"),
 	))
-	if mode == "ocr" || mode == "dom" {
+	if mode == "ocr" || mode == "dom" || mode == "ai" {
 		return mode
 	}
-	if strings.ToLower(strings.TrimSpace(task.PlatformID)) == "boss" {
-		return "ocr"
-	}
 	return ""
+}
+
+// detailModeLabel 返回详情模式中文名称。
+// mode 为详情模式标识。
+func detailModeLabel(mode string) string {
+	switch mode {
+	case "dom":
+		return "DOM"
+	case "ocr":
+		return "OCR"
+	case "ai":
+		return "AI"
+	default:
+		return "未知"
+	}
 }
 
 // canContinueCandidate 判断候选人是否可以继续进入详情或 AI 阶段。
