@@ -89,6 +89,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
 	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
+	mux.HandleFunc("/api/v1/tasks/init", s.handleLegacyTaskInit)
 	mux.HandleFunc("/api/v1/tasks/", s.handleLegacyLocalTaskItem)
 	mux.HandleFunc("/api/v1/local/positions", s.handleLocalPositions)
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
@@ -310,6 +311,8 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 	}
 	taskID := parts[0]
 	switch parts[1] {
+	case "start-ws", "stop-ws":
+		response.Error(w, http.StatusGone, "Go 本地程序不再使用云端 WebSocket，请使用本地任务运行接口")
 	case "candidates":
 		s.handleLocalTaskCandidates(w, r, taskID)
 	case "screenshots":
@@ -326,6 +329,12 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 	default:
 		response.Error(w, http.StatusNotFound, "接口不存在")
 	}
+}
+
+// handleLegacyTaskInit 兼容旧版任务初始化接口。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLegacyTaskInit(w http.ResponseWriter, r *http.Request) {
+	response.Error(w, http.StatusGone, "Go 本地程序不需要旧版任务初始化接口，请使用本地任务接口")
 }
 
 // handleLocalTaskDetail 处理单个任务读取和删除。
