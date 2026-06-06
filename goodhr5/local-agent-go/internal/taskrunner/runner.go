@@ -35,7 +35,17 @@ type Runner struct {
 
 // runState 保存单个运行任务的控制句柄。
 type runState struct {
-	cancel context.CancelFunc
+	cancel   context.CancelFunc
+	progress Progress
+}
+
+// Progress 表示任务运行进度。
+type Progress struct {
+	Stage       string `json:"stage"`
+	Message     string `json:"message"`
+	Round       int    `json:"round"`
+	TotalRounds int    `json:"total_rounds"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // StartOptions 表示本地任务启动参数。
@@ -70,6 +80,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
+	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds})
 	updated, err := r.db.UpdateTaskStatus(taskID, "running")
 	if err != nil {
 		r.clear(taskID)
@@ -86,6 +97,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions) {
 	taskID := task.ID
 	defer r.clear(taskID)
+	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: defaultScanRounds})
 	client := cloudapi.New(options.CloudAPIBase)
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -97,6 +109,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, msg)
 		return
 	}
+	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: defaultScanRounds})
 	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
 	if platformID == "" {
 		platformID = "boss"
@@ -115,10 +128,12 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, "写入任务日志失败："+err.Error())
 		return
 	}
+	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: defaultScanRounds})
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
 	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
+			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: defaultScanRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			_, _ = r.db.AddTaskLog(taskID, "info", "本地任务收到停止信号")
 			return
@@ -126,6 +141,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
 		return
 	}
+	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: defaultScanRounds, TotalRounds: defaultScanRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
 	_, _ = r.db.AddTaskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
 }
@@ -157,7 +173,31 @@ func (r *Runner) Status(taskID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"task": task, "running": r.IsRunning(taskID)}, nil
+	running := r.IsRunning(taskID)
+	progress := r.Progress(taskID, task)
+	logs, _ := r.db.ListTaskLogs(taskID, 20)
+	return map[string]any{"task": task, "running": running, "progress": progress, "logs": logs}, nil
+}
+
+// Progress 返回任务当前进度。
+// taskID 为任务 ID，task 为任务记录。
+func (r *Runner) Progress(taskID string, task localdb.Task) Progress {
+	r.mu.Lock()
+	state := r.running[strings.TrimSpace(taskID)]
+	r.mu.Unlock()
+	if state != nil {
+		return state.progress
+	}
+	stage := task.Status
+	if stage == "" {
+		stage = "unknown"
+	}
+	return Progress{
+		Stage:       stage,
+		Message:     statusMessage(stage),
+		TotalRounds: defaultScanRounds,
+		UpdatedAt:   task.UpdatedAt,
+	}
 }
 
 // IsRunning 判断任务是否正在运行。
@@ -202,6 +242,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: defaultScanRounds})
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
 			"platform_config": platformConfig,
 			"max_items":       30,
@@ -217,6 +258,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
 		if taskMode(task) == "ai" && len(filtered) > 0 {
+			r.updateProgress(task.ID, Progress{Stage: "ai_scoring", Message: fmt.Sprintf("正在 AI 评分第 %d 轮候选人", round), Round: round, TotalRounds: defaultScanRounds})
 			scored, aiSkipped, err := r.scoreCandidates(ctx, task, filtered)
 			if err != nil {
 				return nil, err
@@ -225,6 +267,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalSkipped += aiSkipped
 		}
 		if options.EnableGreet && len(filtered) > 0 {
+			r.updateProgress(task.ID, Progress{Stage: "greeting", Message: fmt.Sprintf("正在打招呼第 %d 轮候选人", round), Round: round, TotalRounds: defaultScanRounds})
 			greeted, failed, err := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted, options)
 			if err != nil {
 				return nil, err
@@ -243,6 +286,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: defaultScanRounds})
 			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": 720})
 		}
 	}
@@ -400,6 +444,25 @@ func maxInt(a int, b int) int {
 	return b
 }
 
+// statusMessage 返回任务状态中文说明。
+// status 为任务状态。
+func statusMessage(status string) string {
+	switch status {
+	case "pending":
+		return "任务等待开始"
+	case "running":
+		return "任务正在运行"
+	case "completed":
+		return "任务已完成"
+	case "failed":
+		return "任务运行失败"
+	case "stopped":
+		return "任务已停止"
+	default:
+		return "任务状态未知"
+	}
+}
+
 // failStart 记录启动失败日志并清理运行锁。
 // taskID 为任务 ID，msg 为失败原因。
 func (r *Runner) failStart(taskID string, msg string) {
@@ -416,8 +479,26 @@ func (r *Runner) setRunning(taskID string, cancel context.CancelFunc) bool {
 	if _, ok := r.running[taskID]; ok {
 		return false
 	}
-	r.running[taskID] = &runState{cancel: cancel}
+	r.running[taskID] = &runState{cancel: cancel, progress: Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	return true
+}
+
+// updateProgress 更新任务运行进度。
+// taskID 为任务 ID，progress 为新进度。
+func (r *Runner) updateProgress(taskID string, progress Progress) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.running[taskID]
+	if state == nil {
+		return
+	}
+	if progress.TotalRounds <= 0 {
+		progress.TotalRounds = defaultScanRounds
+	}
+	if progress.UpdatedAt == "" {
+		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	state.progress = progress
 }
 
 // cancel 取消正在运行的任务。

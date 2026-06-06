@@ -83,6 +83,9 @@ func TestRunnerStartStop(t *testing.T) {
 	if status["running"] != false {
 		t.Fatalf("status = %+v", status)
 	}
+	if status["progress"] == nil || status["logs"] == nil {
+		t.Fatalf("status missing progress/logs: %+v", status)
+	}
 	candidates, err := db.ListCandidates(task.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -181,6 +184,13 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	case <-worker.extractStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("等待 Worker 提取开始超时")
+	}
+	status, err := runner.Status(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status["running"] != true {
+		t.Fatalf("running status = %+v", status)
 	}
 	if _, err := runner.Stop(task.ID); err != nil {
 		t.Fatal(err)

@@ -206,6 +206,16 @@ export async function updateLocalTaskStatus(base: string, taskID: string, status
 }
 
 /**
+ * 查询本地任务运行状态和进度。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {string} taskID - 任务 ID。
+ * @returns {Promise<any>} 返回任务、running、progress 和最近日志。
+ */
+export async function getLocalTaskStatus(base: string, taskID: string) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/status`);
+}
+
+/**
  * 启动本地 SQLite 任务运行器。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 任务 ID。

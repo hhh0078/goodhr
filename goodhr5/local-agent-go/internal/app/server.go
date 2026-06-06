@@ -351,7 +351,7 @@ func (s *Server) handleLocalTaskStatus(w http.ResponseWriter, r *http.Request, t
 func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
 	switch r.Method {
 	case http.MethodGet:
-		logs, err := s.db.ListTaskLogs(taskID, 100)
+		logs, err := s.db.ListTaskLogs(taskID, intValue(r.URL.Query().Get("limit"), 100))
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -881,6 +881,10 @@ func floatValue(value any, fallback float64) float64 {
 		if parsed, err := typed.Float64(); err == nil {
 			return parsed
 		}
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64); err == nil {
+			return parsed
+		}
 	default:
 		return fallback
 	}
@@ -898,6 +902,10 @@ func intValue(value any, fallback int) int {
 	case json.Number:
 		if parsed, err := typed.Int64(); err == nil {
 			return int(parsed)
+		}
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(typed)); err == nil {
+			return parsed
 		}
 	default:
 		return fallback
