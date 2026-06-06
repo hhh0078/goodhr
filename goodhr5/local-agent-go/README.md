@@ -127,6 +127,27 @@ manifest 示例：
 
 ## 发布运行组件包
 
+编译 Go 本地程序：
+
+```bash
+cd goodhr5/local-agent-go
+./scripts/build_go_binary.sh
+```
+
+交叉编译 Windows x64：
+
+```bash
+cd goodhr5/local-agent-go
+TARGET_OS=windows TARGET_ARCH=amd64 ./scripts/build_go_binary.sh
+```
+
+Windows 本机编译：
+
+```powershell
+cd goodhr5/local-agent-go
+.\scripts\build_go_binary.ps1 -TargetOS windows -TargetArch amd64
+```
+
 打包 Node Worker 前先确认 `worker-node/node_modules` 已存在。若需要安装依赖，先确认 npm registry 使用国内镜像。
 
 ```bash
