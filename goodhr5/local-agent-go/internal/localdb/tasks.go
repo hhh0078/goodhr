@@ -164,6 +164,28 @@ func (db *DB) UpdateTaskStatus(taskID string, status string) (Task, error) {
 	return db.GetTask(taskID)
 }
 
+// IncrementTaskCounts 累加任务统计数量。
+// taskID 为任务 ID，scanned/greeted/skipped/failed 为增量。
+func (db *DB) IncrementTaskCounts(taskID string, scanned int, greeted int, skipped int, failed int) (Task, error) {
+	result, err := db.conn.Exec(`
+UPDATE local_tasks
+SET scanned_count=scanned_count+?,
+    greeted_count=greeted_count+?,
+    skipped_count=skipped_count+?,
+    failed_count=failed_count+?,
+    updated_at=?
+WHERE id=?`,
+		maxInt(0, scanned), maxInt(0, greeted), maxInt(0, skipped), maxInt(0, failed), nowISO(), taskID,
+	)
+	if err != nil {
+		return Task{}, fmt.Errorf("更新任务统计失败：%w", err)
+	}
+	if count, _ := result.RowsAffected(); count <= 0 {
+		return Task{}, fmt.Errorf("本地任务不存在")
+	}
+	return db.GetTask(taskID)
+}
+
 // DeleteTask 删除本地任务及关联数据。
 // taskID 为任务 ID。
 func (db *DB) DeleteTask(taskID string) error {

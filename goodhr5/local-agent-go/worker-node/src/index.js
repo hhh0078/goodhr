@@ -1,5 +1,6 @@
 // 本文件负责提供 GoodHR 5 Node Browser Worker HTTP 服务。
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -217,6 +218,158 @@ async function extractText(payload) {
 }
 
 /**
+ * 提取当前页面可见 Boss 候选人卡片。
+ * @param {Record<string, any>} payload - 提取参数。
+ * @returns {Promise<Record<string, any>>} 候选人列表。
+ */
+async function extractBossCandidates(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossRules(platformConfig);
+  const cardSelectors = selectorList(rules.candidate_card);
+  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
+  const maxItems = Math.max(1, Math.min(100, Number(payload.max_items || 30)));
+  const locator = currentPage.locator(cardSelectors.join(", "));
+  const count = await locator.count();
+  const candidates = [];
+  for (let index = 0; index < Math.min(count, maxItems); index += 1) {
+    const card = locator.nth(index);
+    try {
+      if (await card.isVisible().catch(() => false)) {
+        const fields = await extractCardFields(card, rules);
+        const rawText = candidateRawText(fields);
+        candidates.push({
+          id: candidateID(fields, rawText, index),
+          name: fields.name || `候选人${index + 1}`,
+          candidate_name: fields.name || `候选人${index + 1}`,
+          status: "scanned",
+          raw_text: rawText,
+          filter_text: rawText,
+          platform_id: "boss",
+          card_index: index,
+          fields,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return { candidates, count: candidates.length };
+}
+
+/**
+ * 提取单张候选人卡片字段。
+ * @param {any} card - Playwright locator。
+ * @param {Record<string, any>} rules - 运行选择器规则。
+ * @returns {Promise<Record<string, string>>} 字段字典。
+ */
+async function extractCardFields(card, rules) {
+  const fields = {};
+  const configured = rules.fields && typeof rules.fields === "object" ? rules.fields : {};
+  for (const [field, value] of Object.entries(configured)) {
+    fields[field] = await firstCardText(card, selectorList(value));
+  }
+  if (!fields.basic_info) {
+    fields.basic_info = await card.innerText({ timeout: 800 }).catch(() => "");
+  }
+  return fields;
+}
+
+/**
+ * 返回卡片中第一个非空文本。
+ * @param {any} card - Playwright locator。
+ * @param {string[]} selectors - 选择器列表。
+ * @returns {Promise<string>} 文本内容。
+ */
+async function firstCardText(card, selectors) {
+  for (const selector of selectors) {
+    try {
+      const item = card.locator(selector).first();
+      if ((await item.count()) <= 0) continue;
+      const text = (await item.innerText({ timeout: 800 })).trim();
+      if (text) return text;
+    } catch {
+      continue;
+    }
+  }
+  return "";
+}
+
+/**
+ * 拼接候选人筛选文本。
+ * @param {Record<string, string>} fields - 候选人字段。
+ * @returns {string} 拼接文本。
+ */
+function candidateRawText(fields) {
+  return ["name", "basic_info", "education", "university", "description"]
+    .map((key) => String(fields[key] || "").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * 生成候选人本地 ID。
+ * @param {Record<string, string>} fields - 候选人字段。
+ * @param {string} rawText - 候选人文本。
+ * @param {number} index - 页面序号。
+ * @returns {string} 候选人 ID。
+ */
+function candidateID(fields, rawText, index) {
+  const base = [fields.name || "", rawText || "", String(index)].join("|");
+  return `boss_${crypto.createHash("sha1").update(base).digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * 将云端平台配置转换为 Boss 运行规则。
+ * @param {Record<string, any>} platformConfig - 云端平台配置。
+ * @returns {Record<string, any>} 运行规则。
+ */
+function bossRules(platformConfig) {
+  if (platformConfig?.selectors && typeof platformConfig.selectors === "object") return platformConfig.selectors;
+  const card = platformConfig?.card && typeof platformConfig.card === "object" ? platformConfig.card : {};
+  const actions = platformConfig?.actions && typeof platformConfig.actions === "object" ? platformConfig.actions : {};
+  const detail = platformConfig?.detail && typeof platformConfig.detail === "object" ? platformConfig.detail : {};
+  return {
+    candidate_card: card.item || card.card,
+    scroll_containers: card.scroll || card.container,
+    fields: fieldRulesFromCard(card),
+    greet_buttons: actions.greetBtn || actions.greet_buttons,
+    continue_buttons: actions.continueBtn || actions.continue_buttons,
+    confirm_buttons: actions.confirmBtn || actions.confirm_buttons,
+    detail_buttons: detail.openTarget || detail.open_target,
+    detail_containers: detail.content || detail.container,
+    detail_close_buttons: detail.closeBtn || detail.close_buttons,
+  };
+}
+
+/**
+ * 从 card 配置中读取字段选择器。
+ * @param {Record<string, any>} card - card 配置。
+ * @returns {Record<string, any>} 字段选择器。
+ */
+function fieldRulesFromCard(card) {
+  const result = {};
+  if (Array.isArray(card.fields)) {
+    for (const item of card.fields) {
+      if (item && typeof item === "object") Object.assign(result, item);
+    }
+  } else if (card.fields && typeof card.fields === "object") {
+    Object.assign(result, card.fields);
+  }
+  for (const [cloudKey, runtimeKey] of Object.entries({
+    name: "name",
+    basicInfo: "basic_info",
+    basic_info: "basic_info",
+    education: "education",
+    university: "university",
+    description: "description",
+  })) {
+    if (card[cloudKey] && !result[runtimeKey]) result[runtimeKey] = card[cloudKey];
+  }
+  return result;
+}
+
+/**
  * 截取当前页面或指定元素。
  * @param {Record<string, any>} payload - 截图参数。
  * @returns {Promise<Record<string, any>>} 截图结果。
@@ -363,6 +516,7 @@ const routes = {
   "/api/v1/page/extract-text": extractText,
   "/api/v1/page/screenshot": screenshotPage,
   "/api/v1/page/cookies": importCookies,
+  "/api/v1/boss/candidates/extract": extractBossCandidates,
 };
 
 const server = http.createServer(async (req, res) => {

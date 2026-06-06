@@ -41,12 +41,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	workerManager := browser.NewWorkerManager(runtimeManager)
 	return &Server{
 		cfg:     cfg,
 		runtime: runtimeManager,
-		worker:  browser.NewWorkerManager(runtimeManager),
+		worker:  workerManager,
 		db:      db,
-		runner:  taskrunner.New(db),
+		runner:  taskrunner.New(db, workerManager),
 	}, nil
 }
 

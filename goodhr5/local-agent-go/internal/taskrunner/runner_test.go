@@ -2,16 +2,18 @@
 package taskrunner
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 )
 
-// TestRunnerStartStop 验证任务启动会校验会员、读取平台配置并更新状态。
+// TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -27,7 +29,7 @@ func TestRunnerStartStop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"configs": []map[string]any{
-					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘"}`},
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}]}`},
 				},
 			})
 		default:
@@ -41,20 +43,28 @@ func TestRunnerStartStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := New(db)
+	worker := &fakeWorker{}
+	runner := New(db, worker)
 	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result["running"] != true || !runner.IsRunning(task.ID) {
+	if result["running"] != false || runner.IsRunning(task.ID) {
 		t.Fatalf("result = %+v", result)
 	}
 	updated, err := db.GetTask(task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Status != "running" {
+	if updated.Status != "completed" || updated.ScannedCount != 1 {
 		t.Fatalf("status = %s", updated.Status)
+	}
+	candidates, err := db.ListCandidates(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0]["candidate_name"] != "候选人A" {
+		t.Fatalf("candidates = %+v", candidates)
 	}
 	stopResult, err := runner.Stop(task.ID)
 	if err != nil {
@@ -70,6 +80,39 @@ func TestRunnerStartStop(t *testing.T) {
 	if stopped.Status != "stopped" {
 		t.Fatalf("stopped status = %s", stopped.Status)
 	}
+}
+
+// fakeWorker 模拟浏览器 Worker。
+type fakeWorker struct {
+	calls []string
+}
+
+// Start 模拟启动 Worker。
+// ctx 为请求上下文。
+func (w *fakeWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
+	w.calls = append(w.calls, "start")
+	return browser.WorkerStatus{Running: true, BaseURL: "http://127.0.0.1:9101"}, nil
+}
+
+// Call 模拟调用 Worker API。
+// ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
+func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	w.calls = append(w.calls, path)
+	if path == "/api/v1/boss/candidates/extract" {
+		return map[string]any{
+			"data": map[string]any{
+				"candidates": []any{
+					map[string]any{
+						"id":             "boss_1",
+						"candidate_name": "候选人A",
+						"name":           "候选人A",
+						"status":         "scanned",
+					},
+				},
+			},
+		}, nil
+	}
+	return map[string]any{"data": map[string]any{}}, nil
 }
 
 // openRunnerTestDB 创建任务运行器测试数据库。
