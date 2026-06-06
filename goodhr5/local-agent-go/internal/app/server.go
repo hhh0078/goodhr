@@ -21,6 +21,7 @@ import (
 	"goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
+	"goodhr5/local-agent-go/internal/taskrunner"
 )
 
 // Server 是 Go 版本 Local Agent HTTP 服务。
@@ -29,6 +30,7 @@ type Server struct {
 	runtime *runtime.Manager
 	worker  *browser.WorkerManager
 	db      *localdb.DB
+	runner  *taskrunner.Runner
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -44,6 +46,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		runtime: runtimeManager,
 		worker:  browser.NewWorkerManager(runtimeManager),
 		db:      db,
+		runner:  taskrunner.New(db),
 	}, nil
 }
 
@@ -270,6 +273,10 @@ func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
 		s.handleLocalTaskLogs(w, r, taskID)
 	case "candidates":
 		s.handleLocalTaskCandidates(w, r, taskID)
+	case "run":
+		s.handleLocalTaskRun(w, r, taskID)
+	case "stop":
+		s.handleLocalTaskStop(w, r, taskID)
 	default:
 		response.Error(w, http.StatusNotFound, "接口不存在")
 	}
@@ -383,6 +390,48 @@ func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Reques
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
+}
+
+// handleLocalTaskRun 启动本地任务运行器。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	token := stringValue(payload["token"])
+	if token == "" {
+		token = bearerToken(r)
+	}
+	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
+		CloudAPIBase: s.cloudAPIBase(payload),
+		Token:        token,
+	})
+	if err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, result)
+}
+
+// handleLocalTaskStop 停止本地任务运行器。
+// w 为响应对象，r 为请求对象，taskID 为任务 ID。
+func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	result, err := s.runner.Stop(taskID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, result)
 }
 
 // handleLocalPositions 处理本地岗位模板列表和保存。
