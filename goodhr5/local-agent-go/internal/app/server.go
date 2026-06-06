@@ -320,6 +320,15 @@ func (s *Server) handleLocalTaskDetail(w http.ResponseWriter, r *http.Request, t
 // handleLocalTaskStatus 处理任务状态更新。
 // w 为响应对象，r 为请求对象，taskID 为任务 ID。
 func (s *Server) handleLocalTaskStatus(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method == http.MethodGet {
+		result, err := s.runner.Status(taskID)
+		if err != nil {
+			response.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.Success(w, result)
+		return
+	}
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return

@@ -69,15 +69,19 @@ func TestRunnerStartStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result["running"] != false || runner.IsRunning(task.ID) {
+	if result["running"] != true {
 		t.Fatalf("result = %+v", result)
 	}
-	updated, err := db.GetTask(task.ID)
+	updated := waitForTaskStatus(t, db, task.ID, "completed")
+	if updated.ScannedCount != 1 {
+		t.Fatalf("scanned count = %d", updated.ScannedCount)
+	}
+	status, err := runner.Status(task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Status != "completed" || updated.ScannedCount != 1 {
-		t.Fatalf("status = %s", updated.Status)
+	if status["running"] != false {
+		t.Fatalf("status = %+v", status)
 	}
 	candidates, err := db.ListCandidates(task.ID)
 	if err != nil {
@@ -111,6 +115,7 @@ func TestRunnerStartStop(t *testing.T) {
 	if _, err := runner.Start(t.Context(), task2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true}); err != nil {
 		t.Fatal(err)
 	}
+	waitForTaskStatus(t, db, task2.ID, "completed")
 	candidates2, err := db.ListCandidates(task2.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -169,11 +174,9 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	}
 	worker := &blockingWorker{extractStarted: make(chan struct{}), released: make(chan struct{})}
 	runner := New(db, worker)
-	done := make(chan error, 1)
-	go func() {
-		_, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
-		done <- err
-	}()
+	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"}); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-worker.extractStarted:
 	case <-time.After(2 * time.Second):
@@ -183,20 +186,11 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
+	case <-worker.released:
 	case <-time.After(2 * time.Second):
-		t.Fatal("停止任务后 Start 未返回")
+		t.Fatal("停止任务后 Worker 未释放")
 	}
-	stopped, err := db.GetTask(task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stopped.Status != "stopped" {
-		t.Fatalf("status = %s", stopped.Status)
-	}
+	waitForTaskStatus(t, db, task.ID, "stopped")
 }
 
 // fakeWorker 模拟浏览器 Worker。
@@ -257,6 +251,29 @@ func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (ma
 		return nil, ctx.Err()
 	}
 	return map[string]any{"data": map[string]any{}}, nil
+}
+
+// waitForTaskStatus 等待任务进入指定状态。
+// t 为测试对象，db 为本地数据库，taskID 为任务 ID，status 为目标状态。
+func waitForTaskStatus(t *testing.T, db *localdb.DB, taskID string, status string) localdb.Task {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		task, err := db.GetTask(taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.Status == status {
+			return task
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	task, err := db.GetTask(taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("等待任务状态超时，当前状态=%s，目标状态=%s", task.Status, status)
+	return task
 }
 
 // openRunnerTestDB 创建任务运行器测试数据库。

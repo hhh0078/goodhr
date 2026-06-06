@@ -61,73 +61,73 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
-	runCtx, cancel := context.WithCancel(ctx)
+	task, err := r.db.GetTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
 	if !r.setRunning(taskID, cancel) {
 		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
-	defer cancel()
-
-	task, err := r.db.GetTask(taskID)
+	updated, err := r.db.UpdateTaskStatus(taskID, "running")
 	if err != nil {
 		r.clear(taskID)
+		cancel()
 		return nil, err
 	}
+	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务已进入后台运行")
+	go r.runTask(runCtx, task, options)
+	return map[string]any{"task": updated, "running": true}, nil
+}
+
+// runTask 在后台执行本地任务主流程。
+// ctx 为运行上下文，task 为任务记录，options 为启动参数。
+func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions) {
+	taskID := task.ID
+	defer r.clear(taskID)
 	client := cloudapi.New(options.CloudAPIBase)
-	subscription, err := client.FetchSubscription(runCtx, options.Token)
+	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
 		r.failStart(taskID, "会员校验失败："+err.Error())
-		return nil, err
+		return
 	}
 	if !boolFromMap(subscription, "active") {
 		msg := "会员已到期，请先订阅后再开始任务"
 		r.failStart(taskID, msg)
-		return nil, fmt.Errorf("%s", msg)
+		return
 	}
 	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
 	if platformID == "" {
 		platformID = "boss"
 	}
-	platformConfig, err := client.FetchPlatformConfig(runCtx, platformID)
+	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
 	if err != nil {
 		r.failStart(taskID, "读取云端平台配置失败："+err.Error())
-		return nil, err
+		return
 	}
 	if len(platformConfig) == 0 {
 		msg := "云端平台配置为空，任务无法启动"
 		r.failStart(taskID, msg)
-		return nil, fmt.Errorf("%s", msg)
+		return
 	}
 	if _, err := r.db.AddTaskLog(taskID, "info", "已从云端读取平台配置：platform="+platformID); err != nil {
-		r.clear(taskID)
-		return nil, err
-	}
-	updated, err := r.db.UpdateTaskStatus(taskID, "running")
-	if err != nil {
-		r.clear(taskID)
-		return nil, err
+		r.failStart(taskID, "写入任务日志失败："+err.Error())
+		return
 	}
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
-	scanResult, err := r.scanOnce(runCtx, task, platformConfig, options)
+	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			updated, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			_, _ = r.db.AddTaskLog(taskID, "info", "本地任务收到停止信号")
-			r.clear(taskID)
-			return map[string]any{"task": updated, "running": false, "stopped": true}, nil
+			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
-		return nil, err
+		return
 	}
-	updated, _ = r.db.UpdateTaskStatus(taskID, "completed")
-	r.clear(taskID)
-	return map[string]any{
-		"task":            updated,
-		"subscription":    subscription,
-		"platform_config": platformConfig,
-		"scan":            scanResult,
-		"running":         false,
-	}, nil
+	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
+	_, _ = r.db.AddTaskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
 }
 
 // Stop 停止本地任务运行器。
@@ -144,6 +144,20 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	}
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务已停止")
 	return map[string]any{"task": task, "running": false}, nil
+}
+
+// Status 返回本地任务运行状态。
+// taskID 为任务 ID。
+func (r *Runner) Status(taskID string) (map[string]any, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("任务 ID 不能为空")
+	}
+	task, err := r.db.GetTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"task": task, "running": r.IsRunning(taskID)}, nil
 }
 
 // IsRunning 判断任务是否正在运行。
