@@ -22,12 +22,13 @@ const (
 
 // Config 保存本地程序运行配置。
 type Config struct {
-	Host        string
-	Port        int
-	DataDir     string
-	RuntimeDir  string
-	FrontendDir string
-	ManifestURL string
+	Host         string
+	Port         int
+	DataDir      string
+	RuntimeDir   string
+	FrontendDir  string
+	ManifestURL  string
+	CloudAPIBase string
 }
 
 // New 创建本地程序配置。
@@ -44,12 +45,13 @@ func New(host string, port int) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Host:        host,
-		Port:        port,
-		DataDir:     dataDir,
-		RuntimeDir:  filepath.Join(dataDir, "runtime"),
-		FrontendDir: filepath.Join(dataDir, "console"),
-		ManifestURL: envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
+		Host:         host,
+		Port:         port,
+		DataDir:      dataDir,
+		RuntimeDir:   filepath.Join(dataDir, "runtime"),
+		FrontendDir:  filepath.Join(dataDir, "console"),
+		ManifestURL:  envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
+		CloudAPIBase: envOrDefault("GOODHR_CLOUD_API_BASE", ""),
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err

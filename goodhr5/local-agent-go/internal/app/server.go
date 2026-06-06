@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/process"
@@ -84,6 +85,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
 	mux.HandleFunc("/api/v1/local/downloads", s.handleLocalDownloads)
 	mux.HandleFunc("/api/v1/local/screenshots", s.handleLocalScreenshots)
+	mux.HandleFunc("/api/v1/cloud/platform-config", s.handleCloudPlatformConfig)
+	mux.HandleFunc("/api/v1/cloud/subscription/status", s.handleCloudSubscriptionStatus)
 	mux.HandleFunc("/api/v1/browser/start", s.handleBrowserStart)
 	mux.HandleFunc("/api/v1/browser/stop", s.handleBrowserStop)
 	mux.HandleFunc("/api/v1/page/open", s.handlePageOpen)
@@ -541,6 +544,52 @@ func (s *Server) handleLocalScreenshots(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// handleCloudPlatformConfig 从云端公开接口读取平台配置。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleCloudPlatformConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := payloadOrQuery(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	client := cloudapi.New(s.cloudAPIBase(payload))
+	config, err := client.FetchPlatformConfig(r.Context(), stringValue(payload["platform_id"]))
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"config": config})
+}
+
+// handleCloudSubscriptionStatus 从云端读取会员状态。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleCloudSubscriptionStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := payloadOrQuery(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	token := stringValue(payload["token"])
+	if token == "" {
+		token = bearerToken(r)
+	}
+	client := cloudapi.New(s.cloudAPIBase(payload))
+	subscription, err := client.FetchSubscription(r.Context(), token)
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"subscription": subscription})
+}
+
 // handleBrowserStart 转发浏览器启动请求给 Node Worker。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
@@ -668,6 +717,47 @@ func readPayload(r *http.Request) (map[string]any, error) {
 		payload = map[string]any{}
 	}
 	return payload, nil
+}
+
+// payloadOrQuery 读取 JSON 请求体或查询参数。
+// r 为请求对象。
+func payloadOrQuery(r *http.Request) (map[string]any, error) {
+	if r.Method == http.MethodGet {
+		result := map[string]any{}
+		for key, values := range r.URL.Query() {
+			if len(values) > 0 {
+				result[key] = values[0]
+			}
+		}
+		return result, nil
+	}
+	return readPayload(r)
+}
+
+// cloudAPIBase 返回本次请求使用的云端接口地址。
+// payload 为请求参数。
+func (s *Server) cloudAPIBase(payload map[string]any) string {
+	if base := stringValue(payload["cloud_api_base"]); base != "" {
+		return base
+	}
+	if base := stringValue(payload["api_base"]); base != "" {
+		return base
+	}
+	return s.cfg.CloudAPIBase
+}
+
+// bearerToken 从请求头读取 Bearer token。
+// r 为请求对象。
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if header == "" {
+		return ""
+	}
+	token, ok := strings.CutPrefix(header, "Bearer ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 // localTaskPath 解析本地任务子路径。
