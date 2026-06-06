@@ -3,9 +3,11 @@ package taskrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -33,6 +35,7 @@ type Runner struct {
 type StartOptions struct {
 	CloudAPIBase string
 	Token        string
+	EnableGreet  bool
 }
 
 // New 创建本地任务运行器。
@@ -96,7 +99,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		return nil, err
 	}
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
-	scanResult, err := r.scanOnce(ctx, task, platformConfig)
+	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
 	if err != nil {
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
 		return nil, err
@@ -139,7 +142,7 @@ func (r *Runner) IsRunning(taskID string) bool {
 
 // scanOnce 执行一轮候选人扫描并保存到本地数据库。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置。
-func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig) (map[string]any, error) {
+func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, options StartOptions) (map[string]any, error) {
 	if r.worker == nil {
 		return nil, fmt.Errorf("浏览器 Worker 未配置")
 	}
@@ -161,6 +164,8 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	seen := map[string]struct{}{}
 	totalSaved := 0
 	totalSkipped := 0
+	totalGreeted := 0
+	totalFailed := 0
 	for round := 1; round <= defaultScanRounds; round++ {
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
 			"platform_config": platformConfig,
@@ -184,6 +189,11 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			filtered = scored
 			totalSkipped += aiSkipped
 		}
+		if options.EnableGreet && len(filtered) > 0 {
+			greeted, failed := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted)
+			totalGreeted += greeted
+			totalFailed += failed
+		}
 		for _, candidate := range filtered {
 			if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
 				return nil, err
@@ -196,12 +206,18 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
-		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, 0, totalSkipped, 0)
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个", totalSaved, totalSkipped))
+		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
+		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个，打招呼 %d 个", totalSaved, totalSkipped, totalGreeted))
 	} else {
 		_, _ = r.db.AddTaskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
-	return map[string]any{"candidates_count": totalSaved, "skipped_count": totalSkipped, "entry_url": entryURL}, nil
+	return map[string]any{
+		"candidates_count": totalSaved,
+		"skipped_count":    totalSkipped,
+		"greeted_count":    totalGreeted,
+		"failed_count":     totalFailed,
+		"entry_url":        entryURL,
+	}, nil
 }
 
 // scoreCandidates 使用本地 AI 给候选人评分。
@@ -234,6 +250,38 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 		result = append(result, candidate)
 	}
 	return result, skipped, nil
+}
+
+// greetCandidates 对通过筛选的候选人执行打招呼。
+// ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidates 为候选人列表。
+func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int) (int, int) {
+	greeted := 0
+	failed := 0
+	for _, candidate := range candidates {
+		status := stringFromMap(candidate, "status")
+		if status != "passed" && status != "ai_passed" {
+			continue
+		}
+		if task.MatchLimit > 0 && greetedBefore+greeted >= task.MatchLimit {
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = "已达到任务打招呼上限"
+			continue
+		}
+		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
+			"platform_config": platformConfig,
+			"card_index":      intFromMap(candidate, "card_index"),
+		})
+		if err != nil {
+			candidate["status"] = "failed"
+			candidate["error"] = err.Error()
+			failed++
+			continue
+		}
+		candidate["status"] = "greeted"
+		candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+		greeted++
+	}
+	return greeted, failed
 }
 
 // failStart 记录启动失败日志并清理运行锁。
@@ -417,4 +465,23 @@ func stringFromMap(item map[string]any, key string) string {
 	}
 	value, _ := item[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// intFromMap 从 map 中读取整数。
+// item 为原始字典，key 为字段名。
+func intFromMap(item map[string]any, key string) int {
+	if item == nil {
+		return 0
+	}
+	switch value := item[key].(type) {
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return int(parsed)
+	default:
+		return 0
+	}
 }

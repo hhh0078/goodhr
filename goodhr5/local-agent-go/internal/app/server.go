@@ -412,6 +412,7 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
 		CloudAPIBase: s.cloudAPIBase(payload),
 		Token:        token,
+		EnableGreet:  boolValue(payload["enable_greet"]),
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
@@ -832,6 +833,19 @@ func stringValue(value any) string {
 		return text
 	}
 	return ""
+}
+
+// boolValue 将请求字段转换为布尔值。
+// value 为原始字段值。
+func boolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 // workerData 提取 Worker 统一响应中的 data 字段。

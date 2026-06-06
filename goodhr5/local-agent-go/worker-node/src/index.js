@@ -258,6 +258,53 @@ async function extractBossCandidates(payload) {
 }
 
 /**
+ * 点击指定 Boss 候选人的打招呼按钮。
+ * @param {Record<string, any>} payload - 打招呼参数。
+ * @returns {Promise<Record<string, any>>} 点击结果。
+ */
+async function greetBossCandidate(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossRules(platformConfig);
+  const cardSelectors = selectorList(rules.candidate_card);
+  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
+  const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  const cards = currentPage.locator(cardSelectors.join(", "));
+  const count = await cards.count();
+  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
+  const card = cards.nth(cardIndex);
+  if (!(await card.isVisible().catch(() => false))) throw new Error("候选人卡片当前不可见");
+  await card.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+  const clicked = await clickFirstVisible(card, selectorList(rules.greet_buttons), 1500);
+  if (!clicked) throw new Error("未找到可点击的打招呼按钮");
+  await clickFirstVisible(currentPage, selectorList(rules.continue_buttons), 800);
+  await clickFirstVisible(currentPage, selectorList(rules.confirm_buttons), 800);
+  return { greeted: true, card_index: cardIndex };
+}
+
+/**
+ * 点击选择器列表中第一个可见元素。
+ * @param {any} scope - 页面或卡片 locator。
+ * @param {string[]} selectors - CSS 选择器列表。
+ * @param {number} timeout - 点击超时时间。
+ * @returns {Promise<boolean>} 是否点击成功。
+ */
+async function clickFirstVisible(scope, selectors, timeout = 1000) {
+  for (const selector of selectors) {
+    try {
+      const locator = scope.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      await locator.click({ timeout });
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+/**
  * 提取单张候选人卡片字段。
  * @param {any} card - Playwright locator。
  * @param {Record<string, any>} rules - 运行选择器规则。
@@ -517,6 +564,7 @@ const routes = {
   "/api/v1/page/screenshot": screenshotPage,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
+  "/api/v1/boss/candidates/greet": greetBossCandidate,
 };
 
 const server = http.createServer(async (req, res) => {

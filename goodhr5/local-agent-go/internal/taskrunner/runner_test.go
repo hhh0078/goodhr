@@ -102,6 +102,21 @@ func TestRunnerStartStop(t *testing.T) {
 	if stopped.Status != "stopped" {
 		t.Fatalf("stopped status = %s", stopped.Status)
 	}
+
+	task2, err := db.CreateTask(map[string]any{"name": "本地任务2", "platform_id": "boss", "match_limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Start(t.Context(), task2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true}); err != nil {
+		t.Fatal(err)
+	}
+	candidates2, err := db.ListCandidates(task2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates2) != 1 || candidates2[0]["status"] != "greeted" {
+		t.Fatalf("candidates2 = %+v", candidates2)
+	}
 }
 
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
@@ -153,6 +168,9 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 				},
 			},
 		}, nil
+	}
+	if path == "/api/v1/boss/candidates/greet" {
+		return map[string]any{"data": map[string]any{"greeted": true}}, nil
 	}
 	return map[string]any{"data": map[string]any{}}, nil
 }
