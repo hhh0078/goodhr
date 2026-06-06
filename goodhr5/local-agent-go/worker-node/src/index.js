@@ -309,6 +309,76 @@ async function greetBossCandidate(payload) {
 }
 
 /**
+ * 打开并提取指定 Boss 候选人的详情文本。
+ * @param {Record<string, any>} payload - 详情提取参数。
+ * @returns {Promise<Record<string, any>>} 详情文本结果。
+ */
+async function extractBossCandidateDetail(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossRules(platformConfig);
+  const cardSelectors = selectorList(rules.candidate_card);
+  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
+  const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  const cards = currentPage.locator(cardSelectors.join(", "));
+  const count = await cards.count();
+  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
+  const card = cards.nth(cardIndex);
+  await card.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+  const opened = await clickFirstVisible(card, selectorList(rules.detail_buttons), 1500);
+  if (!opened) throw new Error("未找到可点击的详情入口");
+  await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
+  const detailText = await firstDetailText(currentPage, selectorList(rules.detail_containers));
+  const screenshot = payload.screenshot
+    ? await screenshotDetailContainer(currentPage, selectorList(rules.detail_containers), payload)
+    : null;
+  await clickFirstVisible(currentPage, selectorList(rules.detail_close_buttons), 800);
+  return { detail_text: detailText, text: detailText, screenshot };
+}
+
+/**
+ * 读取第一个可见详情容器文本。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {string[]} selectors - 详情容器选择器。
+ * @returns {Promise<string>} 详情文本。
+ */
+async function firstDetailText(currentPage, selectors) {
+  for (const selector of selectors) {
+    try {
+      const locator = currentPage.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      const text = (await locator.innerText({ timeout: 1500 })).trim();
+      if (text) return text;
+    } catch {
+      continue;
+    }
+  }
+  return (await currentPage.locator("body").innerText({ timeout: 1500 }).catch(() => "")).trim();
+}
+
+/**
+ * 截取第一个可见详情容器。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {string[]} selectors - 详情容器选择器。
+ * @param {Record<string, any>} payload - 截图参数。
+ * @returns {Promise<Record<string, any>|null>} 截图结果。
+ */
+async function screenshotDetailContainer(currentPage, selectors, payload) {
+  for (const selector of selectors) {
+    try {
+      const locator = currentPage.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      return screenshotPage({ ...payload, selector, filename: payload.filename || "candidate-detail.png" });
+    } catch {
+      continue;
+    }
+  }
+  return screenshotPage({ ...payload, full_page: true, filename: payload.filename || "candidate-detail.png" });
+}
+
+/**
  * 点击选择器列表中第一个可见元素。
  * @param {any} scope - 页面或卡片 locator。
  * @param {string[]} selectors - CSS 选择器列表。
@@ -670,6 +740,7 @@ const routes = {
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/greet": greetBossCandidate,
+  "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
 };
 
 const server = http.createServer(async (req, res) => {

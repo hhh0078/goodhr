@@ -601,3 +601,16 @@ export async function exportPageCookies(base: string) {
   const data = await req(base, "/api/v1/page/cookies");
   return data.cookies || [];
 }
+
+/**
+ * 提取 Boss 候选人详情文本。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 详情提取参数，包含 card_index 和 platform_config。
+ * @returns {Promise<any>} 返回详情文本和可选截图。
+ */
+export async function extractBossCandidateDetail(base: string, payload: any) {
+  return req(base, "/api/v1/boss/candidates/detail", {
+    method: "POST",
+    body: payload,
+  });
+}

@@ -114,6 +114,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
 	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
 	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
+	mux.HandleFunc("/api/v1/boss/candidates/detail", s.handleBossCandidateDetail)
 	mux.HandleFunc("/api/v1/downloads", s.handleDownloads)
 	mux.HandleFunc("/", s.handleConsole)
 }
@@ -326,6 +327,8 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		response.Success(w, map[string]any{"screenshots": screenshots})
+	case "ocr":
+		response.Error(w, http.StatusNotImplemented, "Go 本地程序暂未接入 OCR，请先使用页面解析或图片 AI 详情接口")
 	default:
 		response.Error(w, http.StatusNotFound, "接口不存在")
 	}
@@ -989,6 +992,29 @@ func (s *Server) handlePageURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.worker.CallGet(r.Context(), "/api/v1/page/url")
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.Success(w, workerData(result))
+}
+
+// handleBossCandidateDetail 提取 Boss 候选人详情文本。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleBossCandidateDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if stringValue(payload["dir"]) == "" && stringValue(payload["directory"]) == "" {
+		payload["dir"] = s.cfg.ScreenshotsDir
+	}
+	result, err := s.worker.Call(r.Context(), "/api/v1/boss/candidates/detail", payload)
 	if err != nil {
 		response.Error(w, http.StatusBadGateway, err.Error())
 		return
