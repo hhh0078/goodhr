@@ -245,6 +245,18 @@ func (db *DB) ListTaskLogs(taskID string, limit int) ([]Log, error) {
 	return logs, rows.Err()
 }
 
+// ClearTaskLogs 清空本地任务日志。
+// taskID 为任务 ID。
+func (db *DB) ClearTaskLogs(taskID string) error {
+	if _, err := db.GetTask(taskID); err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec(`DELETE FROM local_task_logs WHERE task_id=?`, taskID); err != nil {
+		return fmt.Errorf("清空任务日志失败：%w", err)
+	}
+	return nil
+}
+
 // SaveCandidate 保存本地候选人快照。
 // taskID 为任务 ID，candidate 为候选人数据。
 func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (map[string]any, error) {
@@ -296,6 +308,19 @@ func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
 		}
 	}
 	return result, rows.Err()
+}
+
+// DeleteCandidate 删除本地任务候选人。
+// taskID 为任务 ID，candidateID 为候选人 ID。
+func (db *DB) DeleteCandidate(taskID string, candidateID string) error {
+	result, err := db.conn.Exec(`DELETE FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
+	if err != nil {
+		return fmt.Errorf("删除候选人失败：%w", err)
+	}
+	if count, _ := result.RowsAffected(); count <= 0 {
+		return fmt.Errorf("候选人不存在")
+	}
+	return nil
 }
 
 // scanTask 从数据库行扫描任务。

@@ -164,6 +164,9 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
 	r.cancel(taskID)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = r.worker.Call(stopCtx, "/api/v1/browser/stop", map[string]any{})
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err

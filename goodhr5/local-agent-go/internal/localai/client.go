@@ -53,6 +53,13 @@ type Decision struct {
 	ElapsedMS   int            `json:"elapsed_ms"`
 }
 
+// ChatResult 表示本地 AI 通用聊天结果。
+type ChatResult struct {
+	Content   string         `json:"content"`
+	Usage     map[string]any `json:"usage"`
+	ElapsedMS int            `json:"elapsed_ms"`
+}
+
 // New 创建本地 AI 客户端。
 // config 为本地保存的 AI 配置。
 func New(config localdb.AIConfig) *Client {
@@ -93,6 +100,69 @@ func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, can
 		Threshold:   threshold,
 		Usage:       result.Usage,
 		ElapsedMS:   result.ElapsedMS,
+	}, nil
+}
+
+// Chat 调用本地 AI 通用聊天接口。
+// ctx 为请求上下文，payload 为 OpenAI 兼容聊天参数。
+func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, error) {
+	apiURL := chatCompletionsURL(c.Config.BaseURL)
+	if apiURL == "" {
+		return ChatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 接口地址")
+	}
+	if strings.TrimSpace(c.Config.APIKey) == "" {
+		return ChatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 密钥")
+	}
+	if strings.TrimSpace(c.Config.Model) == "" {
+		return ChatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 模型名称")
+	}
+	body := map[string]any{}
+	for key, value := range payload {
+		body[key] = value
+	}
+	if _, ok := body["model"]; !ok {
+		body["model"] = c.Config.Model
+	}
+	if _, ok := body["temperature"]; !ok {
+		body["temperature"] = c.Config.Temperature
+	}
+	for key, value := range c.Config.Extra {
+		if _, ok := body[key]; !ok {
+			body[key] = value
+		}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("AI 请求参数编码失败：%w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(raw))
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("创建 AI 请求失败：%w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Config.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	start := time.Now()
+	client := c.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ChatResult{}, fmt.Errorf("AI 服务请求失败：%w", err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode >= 400 {
+		return ChatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
+	}
+	resultPayload := map[string]any{}
+	if err := json.Unmarshal(bodyBytes, &resultPayload); err != nil {
+		return ChatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON")
+	}
+	return ChatResult{
+		Content:   extractChatContent(resultPayload),
+		Usage:     mapValue(resultPayload["usage"]),
+		ElapsedMS: int(time.Since(start).Milliseconds()),
 	}, nil
 }
 

@@ -170,6 +170,15 @@ async function openPage(payload) {
 }
 
 /**
+ * 读取当前页面地址。
+ * @returns {Promise<Record<string, any>>} 页面地址结果。
+ */
+async function currentPageURL() {
+  const currentPage = await ensurePage();
+  return { url: currentPage.url() };
+}
+
+/**
  * 点击页面元素。
  * @param {Record<string, any>} payload - 点击参数。
  * @returns {Promise<Record<string, any>>} 点击结果。
@@ -445,15 +454,35 @@ async function screenshotPage(payload) {
   await fs.mkdir(directory, { recursive: true });
   const targetPath = path.join(directory, filename);
   const selector = firstSelector(payload);
+  let sizeInfo = { width: 0, height: 0 };
   if (selector) {
     const locator = currentPage.locator(selector).first();
     if (await locator.count() <= 0) throw new Error("截图元素不存在");
+    sizeInfo = await locator.boundingBox().catch(() => null) || sizeInfo;
     await locator.screenshot({ path: targetPath, type: "png" });
   } else {
+    sizeInfo = await pageSize(currentPage, Boolean(payload.full_page));
     await currentPage.screenshot({ path: targetPath, fullPage: Boolean(payload.full_page), type: "png" });
   }
   const stat = await fs.stat(targetPath);
-  return { path: targetPath, size: stat.size };
+  return { path: targetPath, file_path: targetPath, size: stat.size, width: Math.round(sizeInfo.width || 0), height: Math.round(sizeInfo.height || 0) };
+}
+
+/**
+ * 读取页面截图尺寸。
+ * @param {any} targetPage - Playwright 页面对象。
+ * @param {boolean} fullPage - 是否整页截图。
+ * @returns {Promise<{width:number,height:number}>} 截图尺寸。
+ */
+async function pageSize(targetPage, fullPage) {
+  if (fullPage) {
+    return targetPage.evaluate(() => ({
+      width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0, window.innerWidth),
+      height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0, window.innerHeight),
+    })).catch(() => ({ width: 0, height: 0 }));
+  }
+  const viewport = targetPage.viewportSize?.();
+  return viewport || { width: 0, height: 0 };
 }
 
 /**
@@ -653,6 +682,14 @@ const server = http.createServer(async (req, res) => {
       success(res, await exportCookies());
     } catch (error) {
       failure(res, 500, error?.message || "导出 Cookie 失败");
+    }
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/v1/page/url") {
+    try {
+      success(res, await currentPageURL());
+    } catch (error) {
+      failure(res, 500, error?.message || "读取当前页面地址失败");
     }
     return;
   }

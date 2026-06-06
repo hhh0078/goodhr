@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +69,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		m.done <- cmd.Wait()
 	}()
 	if err := m.waitForReadyLocked(ctx, 8*time.Second); err != nil {
-		_ = cmd.Process.Kill()
+		_ = killProcessTree(cmd.Process.Pid)
 		m.cmd = nil
 		m.done = nil
 		return WorkerStatus{}, err
@@ -89,7 +91,7 @@ func (m *WorkerManager) Stop() WorkerStatus {
 		select {
 		case <-m.done:
 		case <-time.After(3 * time.Second):
-			_ = m.cmd.Process.Kill()
+			_ = killProcessTree(m.cmd.Process.Pid)
 			select {
 			case <-m.done:
 			case <-time.After(2 * time.Second):
@@ -99,6 +101,45 @@ func (m *WorkerManager) Stop() WorkerStatus {
 	m.cmd = nil
 	m.done = nil
 	return m.statusLocked()
+}
+
+// killProcessTree 强制结束 Worker 进程树。
+// pid 为 Worker 主进程 ID。
+func killProcessTree(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	if goruntime.GOOS == "windows" {
+		return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+	}
+	children := childPIDs(pid)
+	for _, child := range children {
+		_ = killProcessTree(child)
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return process.Kill()
+}
+
+// childPIDs 读取当前进程的子进程 ID。
+// pid 为父进程 ID。
+func childPIDs(pid int) []int {
+	if pid <= 0 || goruntime.GOOS == "windows" {
+		return []int{}
+	}
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return []int{}
+	}
+	result := []int{}
+	for _, item := range strings.Fields(string(out)) {
+		if parsed, err := strconv.Atoi(item); err == nil {
+			result = append(result, parsed)
+		}
+	}
+	return result
 }
 
 // Status 返回 Node Browser Worker 当前状态。
@@ -112,13 +153,34 @@ func (m *WorkerManager) Status() WorkerStatus {
 // Call 调用 Node Worker API。
 // path 为 Worker 路由，payload 为请求体，返回 Worker 原始 JSON。
 func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	result, err := m.call(ctx, http.MethodPost, path, payload)
+	if err == nil || !isRestartableCallError(err) {
+		return result, err
+	}
+	if _, startErr := m.Restart(ctx); startErr != nil {
+		return nil, startErr
+	}
 	return m.call(ctx, http.MethodPost, path, payload)
 }
 
 // CallGet 调用 Node Worker GET API。
 // path 为 Worker 路由，返回 Worker 原始 JSON。
 func (m *WorkerManager) CallGet(ctx context.Context, path string) (map[string]any, error) {
+	result, err := m.call(ctx, http.MethodGet, path, nil)
+	if err == nil || !isRestartableCallError(err) {
+		return result, err
+	}
+	if _, startErr := m.Restart(ctx); startErr != nil {
+		return nil, startErr
+	}
 	return m.call(ctx, http.MethodGet, path, nil)
+}
+
+// Restart 重启 Node Browser Worker。
+// ctx 为请求上下文，返回重启后的 Worker 状态。
+func (m *WorkerManager) Restart(ctx context.Context) (WorkerStatus, error) {
+	m.Stop()
+	return m.Start(ctx)
 }
 
 // call 调用 Node Worker API。
@@ -168,6 +230,16 @@ func normalizeCallError(err error) error {
 		return fmt.Errorf("Node Browser Worker 未启动")
 	}
 	return fmt.Errorf("调用 Node Browser Worker 失败")
+}
+
+// isRestartableCallError 判断 Worker 调用错误是否适合自动重启。
+// err 为调用错误。
+func isRestartableCallError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	return strings.Contains(text, "Worker 未启动") || strings.Contains(text, "调用 Node Browser Worker 失败")
 }
 
 // isRunningLocked 判断 Worker 进程是否还在运行。

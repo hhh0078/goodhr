@@ -22,15 +22,16 @@ const (
 
 // Config 保存本地程序运行配置。
 type Config struct {
-	Host         string
-	Port         int
-	DataDir      string
-	RuntimeDir   string
-	FrontendDir  string
-	ProfilesDir  string
-	DownloadsDir string
-	ManifestURL  string
-	CloudAPIBase string
+	Host           string
+	Port           int
+	DataDir        string
+	RuntimeDir     string
+	FrontendDir    string
+	ProfilesDir    string
+	DownloadsDir   string
+	ScreenshotsDir string
+	ManifestURL    string
+	CloudAPIBase   string
 }
 
 // New 创建本地程序配置。
@@ -47,15 +48,16 @@ func New(host string, port int) (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		Host:         host,
-		Port:         port,
-		DataDir:      dataDir,
-		RuntimeDir:   filepath.Join(dataDir, "runtime"),
-		FrontendDir:  filepath.Join(dataDir, "console"),
-		ProfilesDir:  filepath.Join(dataDir, "profiles"),
-		DownloadsDir: defaultDownloadsDir(),
-		ManifestURL:  envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
-		CloudAPIBase: envOrDefault("GOODHR_CLOUD_API_BASE", ""),
+		Host:           host,
+		Port:           port,
+		DataDir:        dataDir,
+		RuntimeDir:     filepath.Join(dataDir, "runtime"),
+		FrontendDir:    filepath.Join(dataDir, "console"),
+		ProfilesDir:    filepath.Join(dataDir, "profiles"),
+		DownloadsDir:   defaultDownloadsDir(),
+		ScreenshotsDir: filepath.Join(dataDir, "screenshots"),
+		ManifestURL:    envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
+		CloudAPIBase:   envOrDefault("GOODHR_CLOUD_API_BASE", ""),
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err
@@ -75,7 +77,7 @@ func envOrDefault(key string, fallback string) string {
 // EnsureDirs 创建本地程序需要的基础目录。
 // 返回错误表示目录创建失败。
 func (c *Config) EnsureDirs() error {
-	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir, c.ProfilesDir, c.DownloadsDir} {
+	for _, dir := range []string{c.DataDir, c.RuntimeDir, c.FrontendDir, c.ProfilesDir, c.DownloadsDir, c.ScreenshotsDir} {
 		if dir == "" {
 			return fmt.Errorf("本地目录为空")
 		}

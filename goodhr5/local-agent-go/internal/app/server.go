@@ -22,6 +22,7 @@ import (
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
+	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/response"
@@ -88,10 +89,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
 	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
+	mux.HandleFunc("/api/v1/tasks/", s.handleLegacyLocalTaskItem)
 	mux.HandleFunc("/api/v1/local/positions", s.handleLocalPositions)
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
 	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
+	mux.HandleFunc("/api/v1/local/ai/chat", s.handleLocalAIChat)
 	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
+	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
+	mux.HandleFunc("/api/v1/local/rules/update", s.handleLocalRulesUpdate)
 	mux.HandleFunc("/api/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("/api/v1/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/api/v1/local/downloads", s.handleLocalDownloads)
@@ -106,6 +111,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/scroll", s.handlePageScroll)
 	mux.HandleFunc("/api/v1/page/extract-text", s.handlePageExtractText)
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
+	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
 	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
 	mux.HandleFunc("/api/v1/downloads", s.handleDownloads)
 	mux.HandleFunc("/", s.handleConsole)
@@ -119,14 +125,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]any{
-		"status":       "ok",
-		"version":      "go-v2-dev",
-		"port":         s.cfg.Port,
-		"dataDir":      s.cfg.DataDir,
-		"profilesDir":  s.cfg.ProfilesDir,
-		"downloadsDir": s.cfg.DownloadsDir,
-		"dbPath":       s.db.Path(),
-		"runtime":      s.runtime.Status(),
+		"status":         "ok",
+		"version":        "go-v2-dev",
+		"port":           s.cfg.Port,
+		"dataDir":        s.cfg.DataDir,
+		"profilesDir":    s.cfg.ProfilesDir,
+		"downloadsDir":   s.cfg.DownloadsDir,
+		"screenshotsDir": s.cfg.ScreenshotsDir,
+		"dbPath":         s.db.Path(),
+		"runtime":        s.runtime.Status(),
 	})
 }
 
@@ -292,6 +299,35 @@ func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleLegacyLocalTaskItem 兼容前端旧的本地任务路径。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		response.Error(w, http.StatusNotFound, "接口不存在")
+		return
+	}
+	taskID := parts[0]
+	switch parts[1] {
+	case "candidates":
+		s.handleLocalTaskCandidates(w, r, taskID)
+	case "screenshots":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+			return
+		}
+		screenshots, err := s.db.ListScreenshots(taskID)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"screenshots": screenshots})
+	default:
+		response.Error(w, http.StatusNotFound, "接口不存在")
+	}
+}
+
 // handleLocalTaskDetail 处理单个任务读取和删除。
 // w 为响应对象，r 为请求对象，taskID 为任务 ID。
 func (s *Server) handleLocalTaskDetail(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -378,6 +414,12 @@ func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, tas
 			return
 		}
 		response.Success(w, map[string]any{"log": item})
+	case http.MethodDelete:
+		if err := s.db.ClearTaskLogs(taskID); err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"cleared": true})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
@@ -386,6 +428,19 @@ func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, tas
 // handleLocalTaskCandidates 处理任务候选人读取和保存。
 // w 为响应对象，r 为请求对象，taskID 为任务 ID。
 func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Request, taskID string) {
+	candidateID := localCandidateID(r.URL.Path)
+	if candidateID != "" {
+		if r.Method != http.MethodDelete {
+			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+			return
+		}
+		if err := s.db.DeleteCandidate(taskID, candidateID); err != nil {
+			response.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response.Success(w, map[string]any{"deleted": true})
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		candidates, err := s.db.ListCandidates(taskID)
@@ -505,6 +560,14 @@ func (s *Server) handleLocalPositionItem(w http.ResponseWriter, r *http.Request)
 		response.Error(w, http.StatusBadRequest, "岗位模板 ID 不能为空")
 		return
 	}
+	if positionID == "default-prompts" {
+		s.handleLocalPositionDefaultPrompts(w, r)
+		return
+	}
+	if positionID == "optimize-requirement" {
+		s.handleLocalPositionOptimizeRequirement(w, r)
+		return
+	}
 	if r.Method != http.MethodDelete {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
@@ -514,6 +577,52 @@ func (s *Server) handleLocalPositionItem(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.Success(w, map[string]any{"deleted": true})
+}
+
+// handleLocalPositionDefaultPrompts 返回本地岗位默认提示词。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalPositionDefaultPrompts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	response.Success(w, map[string]any{"prompts": map[string]any{
+		"greet_prompt":    "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
+		"optimize_prompt": "请把下面的岗位要求整理得更清晰，保留招聘重点，不要编造信息。",
+	}})
+}
+
+// handleLocalPositionOptimizeRequirement 使用本地 AI 优化岗位要求。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalPositionOptimizeRequirement(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	text := stringValue(payload["text"])
+	if text == "" {
+		response.Error(w, http.StatusBadRequest, "岗位要求不能为空")
+		return
+	}
+	config, err := s.db.GetAIConfig()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	client := localai.New(config)
+	result, err := client.Chat(r.Context(), map[string]any{
+		"messages": []map[string]string{{"role": "user", "content": "请优化下面的岗位要求，输出中文正文即可：\n" + text}},
+	})
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"optimized": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
 }
 
 // handleLocalAIConfig 处理本地 AI 配置读取和保存。
@@ -542,6 +651,51 @@ func (s *Server) handleLocalAIConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
+}
+
+// handleLocalAIChat 处理本地 AI 通用聊天请求。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalAIChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	config, err := s.db.GetAIConfig()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result, err := localai.New(config).Chat(r.Context(), payload)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, map[string]any{"content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
+}
+
+// handleLocalRulesStatus 返回本地规则包状态。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalRulesStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	response.Success(w, map[string]any{"status": "builtin", "message": "当前使用云端平台配置，无需单独更新规则包"})
+}
+
+// handleLocalRulesUpdate 兼容本地规则包更新入口。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleLocalRulesUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	response.Success(w, map[string]any{"updated": false, "message": "当前规则由云端平台配置实时读取，无需更新"})
 }
 
 // handleLocalSettings 处理本地设置读取和保存。
@@ -780,7 +934,57 @@ func (s *Server) handlePageExtractText(w http.ResponseWriter, r *http.Request) {
 // handlePageScreenshot 转发页面截图请求给 Node Worker。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handlePageScreenshot(w http.ResponseWriter, r *http.Request) {
-	s.proxyWorkerPost(w, r, "/api/v1/page/screenshot")
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if stringValue(payload["dir"]) == "" && stringValue(payload["directory"]) == "" {
+		payload["dir"] = s.cfg.ScreenshotsDir
+	}
+	if stringValue(payload["filename"]) == "" {
+		payload["filename"] = fmt.Sprintf("screenshot-%d.png", time.Now().UnixMilli())
+	}
+	result, err := s.worker.Call(r.Context(), "/api/v1/page/screenshot", payload)
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	data, _ := workerData(result).(map[string]any)
+	if stringValue(payload["task_id"]) != "" || stringValue(data["file_path"]) != "" || stringValue(data["path"]) != "" {
+		recordPayload := map[string]any{
+			"task_id":   stringValue(payload["task_id"]),
+			"file_path": firstNonEmptyString(stringValue(data["file_path"]), stringValue(data["path"])),
+			"label":     firstNonEmptyString(stringValue(payload["label"]), "页面截图"),
+			"width":     data["width"],
+			"height":    data["height"],
+		}
+		if screenshot, err := s.db.SaveScreenshot(recordPayload); err == nil {
+			data["record"] = screenshot
+		} else {
+			log.Printf("保存截图记录失败：%v", err)
+		}
+	}
+	response.Success(w, data)
+}
+
+// handlePageURL 读取当前页面 URL。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	result, err := s.worker.CallGet(r.Context(), "/api/v1/page/url")
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response.Success(w, workerData(result))
 }
 
 // handlePageCookies 导出或导入当前浏览器 Cookie。
@@ -1074,11 +1278,33 @@ func localTaskPath(rawPath string) (string, string) {
 	return parts[0], action
 }
 
+// localCandidateID 从候选人子路径中解析候选人 ID。
+// rawPath 为请求路径，找不到时返回空字符串。
+func localCandidateID(rawPath string) string {
+	marker := "/candidates/"
+	index := strings.Index(rawPath, marker)
+	if index < 0 {
+		return ""
+	}
+	return strings.Trim(strings.TrimPrefix(rawPath[index:], marker), "/")
+}
+
 // stringValue 将请求字段转换为字符串。
 // value 为原始字段值。
 func stringValue(value any) string {
 	if text, ok := value.(string); ok {
 		return text
+	}
+	return ""
+}
+
+// firstNonEmptyString 返回第一个非空字符串。
+// values 为候选字符串。
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
 	}
 	return ""
 }
