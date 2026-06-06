@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/config"
@@ -139,6 +140,65 @@ func TestApplyKeywordFilter(t *testing.T) {
 	}
 }
 
+// TestRunnerStopCancelsRunningTask 验证停止任务会取消正在执行的 Worker 调用。
+func TestRunnerStopCancelsRunningTask(t *testing.T) {
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/subscription/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":           true,
+				"subscription": map[string]any{"active": true},
+			})
+		case "/api/platforms/config/":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"configs": []map[string]any{
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}]}`},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer cloud.Close()
+
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{"name": "可停止任务", "platform_id": "boss", "mode": "keyword"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := &blockingWorker{extractStarted: make(chan struct{}), released: make(chan struct{})}
+	runner := New(db, worker)
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
+		done <- err
+	}()
+	select {
+	case <-worker.extractStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待 Worker 提取开始超时")
+	}
+	if _, err := runner.Stop(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("停止任务后 Start 未返回")
+	}
+	stopped, err := db.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Status != "stopped" {
+		t.Fatalf("status = %s", stopped.Status)
+	}
+}
+
 // fakeWorker 模拟浏览器 Worker。
 type fakeWorker struct {
 	calls []string
@@ -171,6 +231,30 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 	}
 	if path == "/api/v1/boss/candidates/greet" {
 		return map[string]any{"data": map[string]any{"greeted": true}}, nil
+	}
+	return map[string]any{"data": map[string]any{}}, nil
+}
+
+// blockingWorker 模拟会阻塞到 ctx 取消的 Worker。
+type blockingWorker struct {
+	extractStarted chan struct{}
+	released       chan struct{}
+}
+
+// Start 模拟启动阻塞 Worker。
+// ctx 为请求上下文。
+func (w *blockingWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
+	return browser.WorkerStatus{Running: true}, nil
+}
+
+// Call 模拟 Worker API，并在候选人提取时等待取消。
+// ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
+func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if path == "/api/v1/boss/candidates/extract" {
+		close(w.extractStarted)
+		<-ctx.Done()
+		close(w.released)
+		return nil, ctx.Err()
 	}
 	return map[string]any{"data": map[string]any{}}, nil
 }

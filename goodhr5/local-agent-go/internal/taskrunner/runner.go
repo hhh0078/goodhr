@@ -4,7 +4,9 @@ package taskrunner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -28,20 +30,28 @@ type Runner struct {
 	db      *localdb.DB
 	worker  BrowserWorker
 	mu      sync.Mutex
-	running map[string]struct{}
+	running map[string]*runState
+}
+
+// runState 保存单个运行任务的控制句柄。
+type runState struct {
+	cancel context.CancelFunc
 }
 
 // StartOptions 表示本地任务启动参数。
 type StartOptions struct {
-	CloudAPIBase string
-	Token        string
-	EnableGreet  bool
+	CloudAPIBase  string
+	Token         string
+	EnableGreet   bool
+	GreetDelayMin float64
+	GreetDelayMax float64
+	GreetRetries  int
 }
 
 // New 创建本地任务运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器。
 func New(db *localdb.DB, worker BrowserWorker) *Runner {
-	return &Runner{db: db, worker: worker, running: map[string]struct{}{}}
+	return &Runner{db: db, worker: worker, running: map[string]*runState{}}
 }
 
 // Start 启动本地任务运行器。
@@ -51,13 +61,12 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
-	r.mu.Lock()
-	if _, ok := r.running[taskID]; ok {
-		r.mu.Unlock()
+	runCtx, cancel := context.WithCancel(ctx)
+	if !r.setRunning(taskID, cancel) {
+		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
-	r.running[taskID] = struct{}{}
-	r.mu.Unlock()
+	defer cancel()
 
 	task, err := r.db.GetTask(taskID)
 	if err != nil {
@@ -65,7 +74,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		return nil, err
 	}
 	client := cloudapi.New(options.CloudAPIBase)
-	subscription, err := client.FetchSubscription(ctx, options.Token)
+	subscription, err := client.FetchSubscription(runCtx, options.Token)
 	if err != nil {
 		r.failStart(taskID, "会员校验失败："+err.Error())
 		return nil, err
@@ -79,7 +88,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if platformID == "" {
 		platformID = "boss"
 	}
-	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
+	platformConfig, err := client.FetchPlatformConfig(runCtx, platformID)
 	if err != nil {
 		r.failStart(taskID, "读取云端平台配置失败："+err.Error())
 		return nil, err
@@ -99,8 +108,14 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		return nil, err
 	}
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
-	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
+	scanResult, err := r.scanOnce(runCtx, task, platformConfig, options)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			updated, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+			_, _ = r.db.AddTaskLog(taskID, "info", "本地任务收到停止信号")
+			r.clear(taskID)
+			return map[string]any{"task": updated, "running": false, "stopped": true}, nil
+		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
 		return nil, err
 	}
@@ -122,7 +137,7 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
-	r.clear(taskID)
+	r.cancel(taskID)
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err
@@ -146,6 +161,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if r.worker == nil {
 		return nil, fmt.Errorf("浏览器 Worker 未配置")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if _, err := r.worker.Start(ctx); err != nil {
 		return nil, err
 	}
@@ -167,6 +185,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	totalGreeted := 0
 	totalFailed := 0
 	for round := 1; round <= defaultScanRounds; round++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
 			"platform_config": platformConfig,
 			"max_items":       30,
@@ -190,7 +211,10 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalSkipped += aiSkipped
 		}
 		if options.EnableGreet && len(filtered) > 0 {
-			greeted, failed := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted)
+			greeted, failed, err := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted, options)
+			if err != nil {
+				return nil, err
+			}
 			totalGreeted += greeted
 			totalFailed += failed
 		}
@@ -202,6 +226,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		totalSaved += len(filtered)
 		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, len(filtered)))
 		if round < defaultScanRounds {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": 720})
 		}
 	}
@@ -231,6 +258,9 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 	result := make([]map[string]any, 0, len(candidates))
 	skipped := 0
 	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, skipped, err
+		}
 		decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
 		if err != nil {
 			return nil, skipped, err
@@ -254,10 +284,13 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 
 // greetCandidates 对通过筛选的候选人执行打招呼。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidates 为候选人列表。
-func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int) (int, int) {
+func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int, options StartOptions) (int, int, error) {
 	greeted := 0
 	failed := 0
 	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return greeted, failed, err
+		}
 		status := stringFromMap(candidate, "status")
 		if status != "passed" && status != "ai_passed" {
 			continue
@@ -267,10 +300,10 @@ func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platfor
 			candidate["skip_reason"] = "已达到任务打招呼上限"
 			continue
 		}
-		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
-			"platform_config": platformConfig,
-			"card_index":      intFromMap(candidate, "card_index"),
-		})
+		if err := waitBeforeGreet(ctx, options); err != nil {
+			return greeted, failed, err
+		}
+		err := r.tryGreet(ctx, platformConfig, candidate, options)
 		if err != nil {
 			candidate["status"] = "failed"
 			candidate["error"] = err.Error()
@@ -281,7 +314,76 @@ func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platfor
 		candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 		greeted++
 	}
-	return greeted, failed
+	return greeted, failed, nil
+}
+
+// tryGreet 带重试地执行单个候选人打招呼。
+// ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
+func (r *Runner) tryGreet(ctx context.Context, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
+	retries := maxInt(0, options.GreetRetries)
+	var lastErr error
+	for attempt := 0; attempt <= retries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
+			"platform_config": platformConfig,
+			"card_index":      intFromMap(candidate, "card_index"),
+		})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < retries {
+			if err := sleepWithContext(ctx, 300*time.Millisecond); err != nil {
+				return err
+			}
+		}
+	}
+	return lastErr
+}
+
+// waitBeforeGreet 在打招呼前随机等待。
+// ctx 为请求上下文，options 为任务启动参数。
+func waitBeforeGreet(ctx context.Context, options StartOptions) error {
+	minDelay := options.GreetDelayMin
+	maxDelay := options.GreetDelayMax
+	if minDelay <= 0 && maxDelay <= 0 {
+		return nil
+	}
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+	delay := minDelay
+	if maxDelay > minDelay {
+		delay += rand.Float64() * (maxDelay - minDelay)
+	}
+	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
+}
+
+// sleepWithContext 带停止信号地等待。
+// ctx 为请求上下文，duration 为等待时长。
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// maxInt 返回两个整数中的较大值。
+// a 和 b 为参与比较的整数。
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // failStart 记录启动失败日志并清理运行锁。
@@ -290,6 +392,30 @@ func (r *Runner) failStart(taskID string, msg string) {
 	_, _ = r.db.AddTaskLog(taskID, "error", msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
+}
+
+// setRunning 标记任务正在运行。
+// taskID 为任务 ID，cancel 为停止回调。
+func (r *Runner) setRunning(taskID string, cancel context.CancelFunc) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.running[taskID]; ok {
+		return false
+	}
+	r.running[taskID] = &runState{cancel: cancel}
+	return true
+}
+
+// cancel 取消正在运行的任务。
+// taskID 为任务 ID。
+func (r *Runner) cancel(taskID string) {
+	r.mu.Lock()
+	state := r.running[taskID]
+	delete(r.running, taskID)
+	r.mu.Unlock()
+	if state != nil && state.cancel != nil {
+		state.cancel()
+	}
 }
 
 // clear 清理任务运行锁。

@@ -409,10 +409,22 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	if token == "" {
 		token = bearerToken(r)
 	}
+	enableGreet := boolValue(payload["enable_greet"])
+	greetDelayMin := 0.0
+	greetDelayMax := 0.0
+	greetRetries := 0
+	if enableGreet {
+		greetDelayMin = floatValue(payload["greet_delay_min"], 1)
+		greetDelayMax = floatValue(payload["greet_delay_max"], 2)
+		greetRetries = intValue(payload["greet_retries"], 1)
+	}
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
-		CloudAPIBase: s.cloudAPIBase(payload),
-		Token:        token,
-		EnableGreet:  boolValue(payload["enable_greet"]),
+		CloudAPIBase:  s.cloudAPIBase(payload),
+		Token:         token,
+		EnableGreet:   enableGreet,
+		GreetDelayMin: greetDelayMin,
+		GreetDelayMax: greetDelayMax,
+		GreetRetries:  greetRetries,
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
@@ -846,6 +858,42 @@ func boolValue(value any) bool {
 	default:
 		return false
 	}
+}
+
+// floatValue 将请求字段转换为浮点数。
+// value 为原始字段值，fallback 为默认值。
+func floatValue(value any, fallback float64) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case json.Number:
+		if parsed, err := typed.Float64(); err == nil {
+			return parsed
+		}
+	default:
+		return fallback
+	}
+	return fallback
+}
+
+// intValue 将请求字段转换为整数。
+// value 为原始字段值，fallback 为默认值。
+func intValue(value any, fallback int) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case float64:
+		return int(typed)
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil {
+			return int(parsed)
+		}
+	default:
+		return fallback
+	}
+	return fallback
 }
 
 // workerData 提取 Worker 统一响应中的 data 字段。
