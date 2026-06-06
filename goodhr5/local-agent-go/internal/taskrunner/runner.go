@@ -18,6 +18,8 @@ import (
 )
 
 const defaultScanRounds = 3
+const defaultMaxItemsPerRound = 30
+const defaultScrollDistance = 720
 
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
@@ -50,12 +52,15 @@ type Progress struct {
 
 // StartOptions 表示本地任务启动参数。
 type StartOptions struct {
-	CloudAPIBase  string
-	Token         string
-	EnableGreet   bool
-	GreetDelayMin float64
-	GreetDelayMax float64
-	GreetRetries  int
+	CloudAPIBase   string
+	Token          string
+	EnableGreet    bool
+	GreetDelayMin  float64
+	GreetDelayMax  float64
+	GreetRetries   int
+	ScanRounds     int
+	MaxItems       int
+	ScrollDistance int
 }
 
 // New 创建本地任务运行器。
@@ -97,7 +102,8 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions) {
 	taskID := task.ID
 	defer r.clear(taskID)
-	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: defaultScanRounds})
+	totalRounds := scanRounds(options)
+	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: totalRounds})
 	client := cloudapi.New(options.CloudAPIBase)
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -109,7 +115,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, msg)
 		return
 	}
-	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: defaultScanRounds})
+	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
 	if platformID == "" {
 		platformID = "boss"
@@ -128,12 +134,12 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, "写入任务日志失败："+err.Error())
 		return
 	}
-	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: defaultScanRounds})
+	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
 	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
 	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: defaultScanRounds})
+			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			_, _ = r.db.AddTaskLog(taskID, "info", "本地任务收到停止信号")
 			return
@@ -141,7 +147,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
 		return
 	}
-	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: defaultScanRounds, TotalRounds: defaultScanRounds})
+	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
 	_, _ = r.db.AddTaskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
 }
@@ -238,14 +244,17 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	totalSkipped := 0
 	totalGreeted := 0
 	totalFailed := 0
-	for round := 1; round <= defaultScanRounds; round++ {
+	totalRounds := scanRounds(options)
+	maxItems := maxItemsPerRound(options)
+	scrollDistance := scrollDistance(options)
+	for round := 1; round <= totalRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: defaultScanRounds})
+		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: totalRounds})
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
 			"platform_config": platformConfig,
-			"max_items":       30,
+			"max_items":       maxItems,
 		})
 		if err != nil {
 			return nil, err
@@ -258,7 +267,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
 		if taskMode(task) == "ai" && len(filtered) > 0 {
-			r.updateProgress(task.ID, Progress{Stage: "ai_scoring", Message: fmt.Sprintf("正在 AI 评分第 %d 轮候选人", round), Round: round, TotalRounds: defaultScanRounds})
+			r.updateProgress(task.ID, Progress{Stage: "ai_scoring", Message: fmt.Sprintf("正在 AI 评分第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
 			scored, aiSkipped, err := r.scoreCandidates(ctx, task, filtered)
 			if err != nil {
 				return nil, err
@@ -267,7 +276,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalSkipped += aiSkipped
 		}
 		if options.EnableGreet && len(filtered) > 0 {
-			r.updateProgress(task.ID, Progress{Stage: "greeting", Message: fmt.Sprintf("正在打招呼第 %d 轮候选人", round), Round: round, TotalRounds: defaultScanRounds})
+			r.updateProgress(task.ID, Progress{Stage: "greeting", Message: fmt.Sprintf("正在打招呼第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
 			greeted, failed, err := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted, options)
 			if err != nil {
 				return nil, err
@@ -282,12 +291,12 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		totalSaved += len(filtered)
 		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, len(filtered)))
-		if round < defaultScanRounds {
+		if round < totalRounds {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: defaultScanRounds})
-			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": 720})
+			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
+			_, _ = r.worker.Call(ctx, "/api/v1/page/scroll", map[string]any{"distance": scrollDistance})
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
@@ -442,6 +451,42 @@ func maxInt(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+// scanRounds 返回本次任务扫描轮数。
+// options 为任务启动参数。
+func scanRounds(options StartOptions) int {
+	if options.ScanRounds <= 0 {
+		return defaultScanRounds
+	}
+	if options.ScanRounds > 20 {
+		return 20
+	}
+	return options.ScanRounds
+}
+
+// maxItemsPerRound 返回每轮最多提取候选人数。
+// options 为任务启动参数。
+func maxItemsPerRound(options StartOptions) int {
+	if options.MaxItems <= 0 {
+		return defaultMaxItemsPerRound
+	}
+	if options.MaxItems > 100 {
+		return 100
+	}
+	return options.MaxItems
+}
+
+// scrollDistance 返回每轮滚动距离。
+// options 为任务启动参数。
+func scrollDistance(options StartOptions) int {
+	if options.ScrollDistance <= 0 {
+		return defaultScrollDistance
+	}
+	if options.ScrollDistance > 3000 {
+		return 3000
+	}
+	return options.ScrollDistance
 }
 
 // statusMessage 返回任务状态中文说明。

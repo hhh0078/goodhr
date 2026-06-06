@@ -148,6 +148,22 @@ func TestApplyKeywordFilter(t *testing.T) {
 	}
 }
 
+// TestRunOptionBounds 验证任务运行参数默认值和上限。
+func TestRunOptionBounds(t *testing.T) {
+	if scanRounds(StartOptions{}) != defaultScanRounds {
+		t.Fatal("scanRounds 默认值不正确")
+	}
+	if scanRounds(StartOptions{ScanRounds: 99}) != 20 {
+		t.Fatal("scanRounds 上限不正确")
+	}
+	if maxItemsPerRound(StartOptions{MaxItems: 999}) != 100 {
+		t.Fatal("maxItems 上限不正确")
+	}
+	if scrollDistance(StartOptions{ScrollDistance: 9999}) != 3000 {
+		t.Fatal("scrollDistance 上限不正确")
+	}
+}
+
 // TestRunnerStopCancelsRunningTask 验证停止任务会取消正在执行的 Worker 调用。
 func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

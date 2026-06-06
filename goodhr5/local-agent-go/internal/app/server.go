@@ -428,12 +428,15 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 		greetRetries = intValue(payload["greet_retries"], 1)
 	}
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
-		CloudAPIBase:  s.cloudAPIBase(payload),
-		Token:         token,
-		EnableGreet:   enableGreet,
-		GreetDelayMin: greetDelayMin,
-		GreetDelayMax: greetDelayMax,
-		GreetRetries:  greetRetries,
+		CloudAPIBase:   s.cloudAPIBase(payload),
+		Token:          token,
+		EnableGreet:    enableGreet,
+		GreetDelayMin:  greetDelayMin,
+		GreetDelayMax:  greetDelayMax,
+		GreetRetries:   greetRetries,
+		ScanRounds:     intValue(payload["scan_rounds"], 0),
+		MaxItems:       intValue(payload["max_items"], 0),
+		ScrollDistance: intValue(payload["scroll_distance"], 0),
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
