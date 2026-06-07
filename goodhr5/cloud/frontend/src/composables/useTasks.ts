@@ -53,7 +53,7 @@ export function useTasks(
   const runOptions = ref({
     enableGreet: false,
     scanRounds: 3,
-    maxItems: 30,
+    maxItems: 15,
     scrollDistance: 720,
     greetDelayMin: 1,
     greetDelayMax: 2,
@@ -592,7 +592,7 @@ export function useTasks(
       cloud_api_base: cloudApiBase(),
       enable_greet: Boolean(runOptions.value.enableGreet),
       scan_rounds: Number(runOptions.value.scanRounds || 3),
-      max_items: Number(runOptions.value.maxItems || 30),
+      max_items: Number(runOptions.value.maxItems || 15),
       scroll_distance: Number(runOptions.value.scrollDistance || 720),
       greet_delay_min: Number(runOptions.value.greetDelayMin || 0),
       greet_delay_max: Number(runOptions.value.greetDelayMax || 0),

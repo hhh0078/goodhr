@@ -154,6 +154,9 @@ func TestRunOptionBounds(t *testing.T) {
 	if scanRounds(StartOptions{}) != defaultScanRounds {
 		t.Fatal("scanRounds 默认值不正确")
 	}
+	if maxItemsPerRound(StartOptions{}) != 15 {
+		t.Fatal("maxItems 默认值不正确")
+	}
 	if scanRounds(StartOptions{ScanRounds: 99}) != 20 {
 		t.Fatal("scanRounds 上限不正确")
 	}
@@ -162,6 +165,9 @@ func TestRunOptionBounds(t *testing.T) {
 	}
 	if scrollDistance(StartOptions{ScrollDistance: 9999}) != 3000 {
 		t.Fatal("scrollDistance 上限不正确")
+	}
+	if candidatePipelineConcurrency(2) != 2 || candidatePipelineConcurrency(15) != defaultCandidatePipelineConcurrency {
+		t.Fatal("候选人流水线并发数不正确")
 	}
 }
 

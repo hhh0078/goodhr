@@ -23,8 +23,9 @@ import (
 )
 
 const defaultScanRounds = 3
-const defaultMaxItemsPerRound = 30
+const defaultMaxItemsPerRound = 15
 const defaultScrollDistance = 720
+const defaultCandidatePipelineConcurrency = 5
 
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
@@ -288,39 +289,18 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
-		if len(filtered) > 0 && shouldFetchDetail(task) {
-			r.updateProgress(task.ID, Progress{Stage: "detail", Message: fmt.Sprintf("正在读取第 %d 轮候选人详情", round), Round: round, TotalRounds: totalRounds})
-			detailSkipped, err := r.enrichCandidatesWithDetail(ctx, task, platformConfig, filtered)
+		if len(filtered) > 0 {
+			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在并发处理第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
+			batchResult, err := r.processCandidateBatch(ctx, task, platformConfig, filtered, totalGreeted, options)
 			if err != nil {
 				return nil, err
 			}
-			totalSkipped += detailSkipped
+			totalSaved += batchResult.Saved
+			totalSkipped += batchResult.Skipped
+			totalGreeted += batchResult.Greeted
+			totalFailed += batchResult.Failed
+			_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, batchResult.Saved))
 		}
-		if taskMode(task) == "ai" && len(filtered) > 0 {
-			r.updateProgress(task.ID, Progress{Stage: "ai_scoring", Message: fmt.Sprintf("正在 AI 评分第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
-			scored, aiSkipped, err := r.scoreCandidates(ctx, task, filtered)
-			if err != nil {
-				return nil, err
-			}
-			filtered = scored
-			totalSkipped += aiSkipped
-		}
-		if options.EnableGreet && len(filtered) > 0 {
-			r.updateProgress(task.ID, Progress{Stage: "greeting", Message: fmt.Sprintf("正在打招呼第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
-			greeted, failed, err := r.greetCandidates(ctx, task, platformConfig, filtered, totalGreeted, options)
-			if err != nil {
-				return nil, err
-			}
-			totalGreeted += greeted
-			totalFailed += failed
-		}
-		for _, candidate := range filtered {
-			if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
-				return nil, err
-			}
-		}
-		totalSaved += len(filtered)
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, len(filtered)))
 		if round < totalRounds {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -399,6 +379,187 @@ func (r *Runner) browserDownloadDir() string {
 	return r.downloadsDir
 }
 
+// batchProcessResult 表示一批候选人的流水线处理结果。
+type batchProcessResult struct {
+	Saved   int
+	Skipped int
+	Greeted int
+	Failed  int
+}
+
+// candidatePipelineResult 表示单个候选人后台处理结果。
+type candidatePipelineResult struct {
+	Index     int
+	Candidate map[string]any
+	Skipped   int
+	Err       error
+}
+
+// processCandidateBatch 按页面顺序读取详情，并发执行 AI，最后按页面顺序消费结果。
+// ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidates 为本轮候选人。
+func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int, options StartOptions) (batchProcessResult, error) {
+	result := batchProcessResult{}
+	if len(candidates) == 0 {
+		return result, nil
+	}
+	aiClient, err := r.pipelineAIClient(task)
+	if err != nil {
+		return result, err
+	}
+	resultCh := make(chan candidatePipelineResult, len(candidates))
+	aiJobs := make(chan candidatePipelineResult, len(candidates))
+	needsAI := taskMode(task) == "ai"
+	if needsAI {
+		r.startCandidateAIWorkers(ctx, task, aiClient, aiJobs, resultCh, candidatePipelineConcurrency(len(candidates)))
+	}
+	go r.feedCandidatePipeline(ctx, task, platformConfig, candidates, needsAI, aiJobs, resultCh)
+	pending := map[int]candidatePipelineResult{}
+	nextIndex := 0
+	for nextIndex < len(candidates) {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		item, ok := pending[nextIndex]
+		if !ok {
+			select {
+			case <-ctx.Done():
+				return result, ctx.Err()
+			case received := <-resultCh:
+				pending[received.Index] = received
+				continue
+			case <-time.After(150 * time.Millisecond):
+				continue
+			}
+		}
+		delete(pending, nextIndex)
+		nextIndex++
+		if item.Err != nil {
+			return result, item.Err
+		}
+		candidate := item.Candidate
+		result.Skipped += item.Skipped
+		if options.EnableGreet {
+			greeted, failed, skipped, err := r.consumeCandidateForGreet(ctx, task, platformConfig, candidate, greetedBefore+result.Greeted, options)
+			if err != nil {
+				return result, err
+			}
+			result.Greeted += greeted
+			result.Failed += failed
+			result.Skipped += skipped
+		}
+		if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
+			return result, err
+		}
+		result.Saved++
+	}
+	return result, nil
+}
+
+// startCandidateAIWorkers 启动候选人 AI 并发处理池。
+// workerCount 为并发数量，aiJobs 为待评分候选人队列，resultCh 为完成结果队列。
+func (r *Runner) startCandidateAIWorkers(ctx context.Context, task localdb.Task, aiClient *localai.Client, aiJobs <-chan candidatePipelineResult, resultCh chan<- candidatePipelineResult, workerCount int) {
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for item := range aiJobs {
+				if err := ctx.Err(); err != nil {
+					item.Err = err
+					resultCh <- item
+					continue
+				}
+				skipped, err := r.scoreCandidate(ctx, task, item.Candidate, aiClient)
+				item.Skipped += skipped
+				item.Err = err
+				resultCh <- item
+			}
+		}()
+	}
+}
+
+// feedCandidatePipeline 按浏览器页面顺序读取详情，并把需要 AI 的候选人送入并发队列。
+// needsAI 表示是否需要 AI 评分，aiJobs 为 AI 队列，resultCh 为最终结果队列。
+func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, needsAI bool, aiJobs chan<- candidatePipelineResult, resultCh chan<- candidatePipelineResult) {
+	if needsAI {
+		defer close(aiJobs)
+	}
+	for index, candidate := range candidates {
+		item := candidatePipelineResult{Index: index, Candidate: candidate}
+		if err := ctx.Err(); err != nil {
+			item.Err = err
+			resultCh <- item
+			return
+		}
+		if shouldFetchDetail(task) {
+			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, nil)
+			item.Skipped += skipped
+			item.Err = err
+		}
+		if item.Err != nil || !needsAI || !canContinueCandidate(stringFromMap(candidate, "status")) {
+			resultCh <- item
+			continue
+		}
+		select {
+		case aiJobs <- item:
+		case <-ctx.Done():
+			item.Err = ctx.Err()
+			resultCh <- item
+			return
+		}
+	}
+}
+
+// pipelineAIClient 创建流水线使用的 AI 客户端。
+// task 为任务记录，只有 AI 模式或 AI 详情模式时才读取配置。
+func (r *Runner) pipelineAIClient(task localdb.Task) (*localai.Client, error) {
+	if taskMode(task) != "ai" && detailMode(task) != "ai" {
+		return nil, nil
+	}
+	config, err := r.db.GetAIConfig()
+	if err != nil {
+		return nil, err
+	}
+	return localai.New(config), nil
+}
+
+// consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
+// greetedSoFar 为任务已打招呼数量。
+func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
+	status := stringFromMap(candidate, "status")
+	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
+		return 0, 0, 0, nil
+	}
+	if task.MatchLimit > 0 && greetedSoFar >= task.MatchLimit {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = "已达到任务打招呼上限"
+		return 0, 0, 1, nil
+	}
+	if err := waitBeforeGreet(ctx, options); err != nil {
+		return 0, 0, 0, err
+	}
+	if err := r.tryGreet(ctx, platformConfig, candidate, options); err != nil {
+		candidate["status"] = "failed"
+		candidate["error"] = err.Error()
+		return 0, 1, 0, nil
+	}
+	candidate["status"] = "greeted"
+	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	return 1, 0, 0, nil
+}
+
+// candidatePipelineConcurrency 返回候选人后台处理并发数。
+// total 为本批候选人数量。
+func candidatePipelineConcurrency(total int) int {
+	if total <= 0 {
+		return 1
+	}
+	if total < defaultCandidatePipelineConcurrency {
+		return total
+	}
+	return defaultCandidatePipelineConcurrency
+}
+
 // enrichCandidatesWithDetail 为候选人补充详情文本。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置，candidates 为候选人列表。
 func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
@@ -407,70 +568,89 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 	if mode == "" {
 		return 0, nil
 	}
+	var aiClient *localai.Client
+	var err error
+	if mode == "ai" {
+		aiClient, err = r.pipelineAIClient(task)
+		if err != nil {
+			return 0, err
+		}
+	}
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return skipped, err
 		}
-		if !canContinueCandidate(stringFromMap(candidate, "status")) {
-			continue
-		}
-		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-			"platform_config": platformConfig,
-			"card_index":      intFromMap(candidate, "card_index"),
-			"screenshot":      mode == "ocr" || mode == "ai",
-			"dir":             filepath.Join(r.screenshotsDir, task.ID),
-			"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
-		})
+		itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
 		if err != nil {
-			candidate["detail_error"] = err.Error()
-			_, _ = r.db.AddTaskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
-			continue
+			return skipped, err
 		}
-		data := workerDataMap(result)
-		domText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
-		detailText := ""
-		if mode == "dom" {
-			detailText = domText
-			candidate["detail_source"] = "dom"
-		}
-		if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
-			r.saveDetailScreenshot(task.ID, candidate, screenshot)
-			if mode == "ocr" {
-				ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
-				if err != nil {
-					candidate["ocr_error"] = err.Error()
-					_, _ = r.db.AddTaskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
-				} else {
-					detailText = strings.TrimSpace(ocrText)
-					candidate["ocr_text"] = detailText
-					candidate["detail_source"] = "ocr"
-				}
-			}
-			if mode == "ai" {
-				visionText, err := r.analyzeDetailScreenshot(ctx, task, screenshot)
-				if err != nil {
-					candidate["ai_vision_error"] = err.Error()
-					_, _ = r.db.AddTaskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
-				} else {
-					detailText = strings.TrimSpace(visionText)
-					candidate["ai_vision_text"] = detailText
-					candidate["detail_source"] = "ai"
-				}
-			}
-		}
-		if detailText == "" {
-			candidate["status"] = "skipped"
-			candidate["skip_reason"] = "详情文本为空"
-			skipped++
-			continue
-		}
-		candidate["detail_text"] = detailText
-		candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
-		candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
-		candidate["status"] = "detail_fetched"
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), detailModeLabel(mode), len([]rune(detailText))))
+		skipped += itemSkipped
 	}
 	return skipped, nil
+}
+
+// enrichCandidateWithDetail 为单个候选人补充详情文本。
+// ctx 为请求上下文，candidate 为候选人，aiClient 为空时按需临时创建。
+func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client) (int, error) {
+	mode := detailMode(task)
+	if mode == "" || !canContinueCandidate(stringFromMap(candidate, "status")) {
+		return 0, nil
+	}
+	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
+		"platform_config": platformConfig,
+		"card_index":      intFromMap(candidate, "card_index"),
+		"screenshot":      mode == "ocr" || mode == "ai",
+		"dir":             filepath.Join(r.screenshotsDir, task.ID),
+		"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
+	})
+	if err != nil {
+		candidate["detail_error"] = err.Error()
+		_, _ = r.db.AddTaskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
+		return 0, nil
+	}
+	data := workerDataMap(result)
+	domText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
+	detailText := ""
+	if mode == "dom" {
+		detailText = domText
+		candidate["detail_source"] = "dom"
+	}
+	if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
+		r.saveDetailScreenshot(task.ID, candidate, screenshot)
+		if mode == "ocr" {
+			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
+			if err != nil {
+				candidate["ocr_error"] = err.Error()
+				_, _ = r.db.AddTaskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
+			} else {
+				detailText = strings.TrimSpace(ocrText)
+				candidate["ocr_text"] = detailText
+				candidate["detail_source"] = "ocr"
+			}
+		}
+		if mode == "ai" {
+			visionText, err := r.analyzeDetailScreenshotWithClient(ctx, task, screenshot, aiClient)
+			if err != nil {
+				candidate["ai_vision_error"] = err.Error()
+				_, _ = r.db.AddTaskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
+			} else {
+				detailText = strings.TrimSpace(visionText)
+				candidate["ai_vision_text"] = detailText
+				candidate["detail_source"] = "ai"
+			}
+		}
+	}
+	if detailText == "" {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = "详情文本为空"
+		return 1, nil
+	}
+	candidate["detail_text"] = detailText
+	candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
+	candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
+	candidate["status"] = "detail_fetched"
+	_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), detailModeLabel(mode), len([]rune(detailText))))
+	return 0, nil
 }
 
 // saveDetailScreenshot 保存详情截图记录。
@@ -512,6 +692,23 @@ func (r *Runner) recognizeDetailScreenshot(ctx context.Context, screenshot map[s
 // analyzeDetailScreenshot 使用本地 AI 识别详情截图。
 // ctx 为请求上下文，task 为任务记录，screenshot 为截图信息。
 func (r *Runner) analyzeDetailScreenshot(ctx context.Context, task localdb.Task, screenshot map[string]any) (string, error) {
+	config, err := r.db.GetAIConfig()
+	if err != nil {
+		return "", err
+	}
+	return r.analyzeDetailScreenshotWithClient(ctx, task, screenshot, localai.New(config))
+}
+
+// analyzeDetailScreenshotWithClient 使用指定 AI 客户端识别详情截图。
+// ctx 为请求上下文，task 为任务记录，screenshot 为截图信息，client 为 AI 客户端。
+func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task localdb.Task, screenshot map[string]any, client *localai.Client) (string, error) {
+	if client == nil {
+		config, err := r.db.GetAIConfig()
+		if err != nil {
+			return "", err
+		}
+		client = localai.New(config)
+	}
 	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
 	if filePath == "" {
 		return "", fmt.Errorf("详情截图路径为空")
@@ -519,10 +716,6 @@ func (r *Runner) analyzeDetailScreenshot(ctx context.Context, task localdb.Task,
 	imageBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("读取详情截图失败：%w", err)
-	}
-	config, err := r.db.GetAIConfig()
-	if err != nil {
-		return "", err
 	}
 	prompt := firstNonEmptyString(
 		stringFromMap(mapValue(task.PositionSnapshot["ai_config"]), "open_detail_prompt"),
@@ -532,7 +725,7 @@ func (r *Runner) analyzeDetailScreenshot(ctx context.Context, task localdb.Task,
 		{"type": "text", "text": prompt},
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
-	result, err := localai.New(config).Chat(ctx, map[string]any{
+	result, err := client.Chat(ctx, map[string]any{
 		"messages":    []map[string]any{{"role": "user", "content": content}},
 		"temperature": 0.1,
 	})
@@ -556,30 +749,42 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 		if err := ctx.Err(); err != nil {
 			return nil, skipped, err
 		}
-		status := stringFromMap(candidate, "status")
-		if !canContinueCandidate(status) {
-			result = append(result, candidate)
-			continue
-		}
-		decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+		itemSkipped, err := r.scoreCandidate(ctx, task, candidate, client)
 		if err != nil {
 			return nil, skipped, err
 		}
-		candidate["ai_greet_score"] = decision.Score
-		candidate["ai_greet_reason"] = decision.Reason
-		candidate["ai_greet_threshold"] = decision.Threshold
-		candidate["ai_usage"] = decision.Usage
-		candidate["ai_elapsed_ms"] = decision.ElapsedMS
-		if !decision.ShouldGreet {
-			candidate["status"] = "skipped"
-			candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-			skipped++
-		} else {
-			candidate["status"] = "ai_passed"
-		}
+		skipped += itemSkipped
 		result = append(result, candidate)
 	}
 	return result, skipped, nil
+}
+
+// scoreCandidate 使用本地 AI 给单个候选人评分。
+// ctx 为请求上下文，candidate 为候选人，client 为空时会返回配置错误。
+func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (int, error) {
+	status := stringFromMap(candidate, "status")
+	if !canContinueCandidate(status) {
+		return 0, nil
+	}
+	if client == nil {
+		return 0, fmt.Errorf("AI 客户端未配置")
+	}
+	decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+	if err != nil {
+		return 0, err
+	}
+	candidate["ai_greet_score"] = decision.Score
+	candidate["ai_greet_reason"] = decision.Reason
+	candidate["ai_greet_threshold"] = decision.Threshold
+	candidate["ai_usage"] = decision.Usage
+	candidate["ai_elapsed_ms"] = decision.ElapsedMS
+	if !decision.ShouldGreet {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
+		return 1, nil
+	}
+	candidate["status"] = "ai_passed"
+	return 0, nil
 }
 
 // greetCandidates 对通过筛选的候选人执行打招呼。

@@ -264,7 +264,7 @@ async function extractBossCandidates(payload) {
   const rules = bossRules(platformConfig);
   const cardSelectors = selectorList(rules.candidate_card);
   if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
-  const maxItems = Math.max(1, Math.min(100, Number(payload.max_items || 30)));
+  const maxItems = Math.max(1, Math.min(100, Number(payload.max_items || 15)));
   const locator = currentPage.locator(cardSelectors.join(", "));
   const count = await locator.count();
   const candidates = [];
