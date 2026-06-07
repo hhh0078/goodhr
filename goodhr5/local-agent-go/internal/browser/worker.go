@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -31,6 +33,7 @@ type WorkerManager struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	done    chan error
+	logFile *os.File
 	baseURL string
 }
 
@@ -52,18 +55,24 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	if err != nil {
 		return WorkerStatus{}, err
 	}
-	cmd := exec.CommandContext(ctx, status.NodePath, status.WorkerEntry)
+	cmd := exec.Command(status.NodePath, status.WorkerEntry)
 	cmd.Env = append(os.Environ(),
 		"GOODHR_WORKER_ADDR=127.0.0.1:9101",
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
 		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	logFile, err := openWorkerLog(status.RuntimeDir)
+	if err != nil {
+		return WorkerStatus{}, err
+	}
+	cmd.Stdout = io.MultiWriter(os.Stdout, logFile)
+	cmd.Stderr = io.MultiWriter(os.Stderr, logFile)
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return WorkerStatus{}, fmt.Errorf("启动 Node Browser Worker 失败：%w", err)
 	}
 	m.cmd = cmd
+	m.logFile = logFile
 	m.done = make(chan error, 1)
 	go func() {
 		m.done <- cmd.Wait()
@@ -72,9 +81,26 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		_ = killProcessTree(cmd.Process.Pid)
 		m.cmd = nil
 		m.done = nil
+		m.closeLogLocked()
 		return WorkerStatus{}, err
 	}
 	return m.statusLocked(), nil
+}
+
+// openWorkerLog 打开 Node Worker 日志文件。
+// runtimeDir 为运行组件目录。
+func openWorkerLog(runtimeDir string) (*os.File, error) {
+	logDir := filepath.Join(runtimeDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, fmt.Errorf("创建 Worker 日志目录失败：%w", err)
+	}
+	logPath := filepath.Join(logDir, "browser-worker.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("打开 Worker 日志失败：%w", err)
+	}
+	_, _ = fmt.Fprintf(file, "\n[%s] 启动 Node Browser Worker\n", time.Now().Format(time.RFC3339))
+	return file, nil
 }
 
 // Stop 停止 Node Browser Worker。
@@ -100,7 +126,17 @@ func (m *WorkerManager) Stop() WorkerStatus {
 	}
 	m.cmd = nil
 	m.done = nil
+	m.closeLogLocked()
 	return m.statusLocked()
+}
+
+// closeLogLocked 关闭 Worker 日志文件。
+// 调用前必须持有锁。
+func (m *WorkerManager) closeLogLocked() {
+	if m.logFile != nil {
+		_ = m.logFile.Close()
+	}
+	m.logFile = nil
 }
 
 // killProcessTree 强制结束 Worker 进程树。
@@ -214,7 +250,11 @@ func (m *WorkerManager) call(ctx context.Context, method string, path string, pa
 		return nil, fmt.Errorf("解析 Worker 返回失败：%w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return result, fmt.Errorf("Worker 请求失败")
+		msg := "Worker 请求失败"
+		if value, ok := result["msg"].(string); ok && strings.TrimSpace(value) != "" {
+			msg = value
+		}
+		return result, fmt.Errorf("%s", msg)
 	}
 	return result, nil
 }
@@ -248,7 +288,15 @@ func (m *WorkerManager) isRunningLocked() bool {
 	if m.cmd == nil || m.cmd.Process == nil {
 		return false
 	}
-	return m.cmd.ProcessState == nil || !m.cmd.ProcessState.Exited()
+	select {
+	case <-m.done:
+		m.cmd = nil
+		m.done = nil
+		m.closeLogLocked()
+		return false
+	default:
+	}
+	return true
 }
 
 // statusLocked 返回当前 Worker 状态。

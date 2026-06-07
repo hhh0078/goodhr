@@ -16,6 +16,14 @@ let currentUserDataDir = "";
 let currentDownloadsPath = "";
 const downloads = [];
 
+process.on("uncaughtException", (error) => {
+  console.error("Node Worker 未捕获异常", error);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Node Worker 未处理异步异常", error);
+});
+
 /**
  * 返回浏览器下载目录。
  * @returns {string} 下载目录。
@@ -611,6 +619,9 @@ async function importCookies(payload) {
 function registerPage(targetPage) {
   if (!targetPage || targetPage.__goodhrDownloadRegistered) return;
   targetPage.__goodhrDownloadRegistered = true;
+  targetPage.on("close", () => {
+    if (page === targetPage) page = null;
+  });
   targetPage.on("download", async (download) => {
     try {
       const directory = currentDownloadsPath || downloadDir();
