@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1372,6 +1373,7 @@ func (s *Server) prepareBrowserPayload(path string, payload map[string]any) {
 	if stringValue(payload["downloads_path"]) == "" {
 		payload["downloads_path"] = s.browserDownloadDir()
 	}
+	s.prepareBrowserViewport(payload)
 	rawProfile := stringValue(payload["user_data_dir"])
 	if rawProfile == "" {
 		rawProfile = stringValue(payload["profile_id"])
@@ -1384,6 +1386,117 @@ func (s *Server) prepareBrowserPayload(path string, payload map[string]any) {
 		return
 	}
 	payload["user_data_dir"] = filepath.Join(s.cfg.ProfilesDir, safeLocalName(rawProfile))
+}
+
+// prepareBrowserViewport 补齐浏览器默认窗口尺寸。
+// payload 为浏览器启动参数，已有宽高时不覆盖。
+func (s *Server) prepareBrowserViewport(payload map[string]any) {
+	if payload == nil {
+		return
+	}
+	if numberFromAny(payload["viewport_width"]) > 0 && numberFromAny(payload["viewport_height"]) > 0 {
+		return
+	}
+	width, height := adaptiveBrowserViewport()
+	payload["viewport_width"] = width
+	payload["viewport_height"] = height
+}
+
+// adaptiveBrowserViewport 根据当前屏幕返回适合浏览器的窗口尺寸。
+// 读取失败时返回保守默认值。
+func adaptiveBrowserViewport() (int, int) {
+	screenWidth, screenHeight := currentScreenSize()
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return 1280, 900
+	}
+	width := clampInt(int(float64(screenWidth)*0.85), 1024, 1320)
+	height := clampInt(int(float64(screenHeight)*0.88), 760, 900)
+	if width > screenWidth-80 {
+		width = screenWidth - 80
+	}
+	if height > screenHeight-80 {
+		height = screenHeight - 80
+	}
+	return clampInt(width, 960, 1320), clampInt(height, 700, 900)
+}
+
+// currentScreenSize 读取当前主屏幕尺寸。
+// macOS 优先使用 osascript，Windows 使用 PowerShell，失败返回 0。
+func currentScreenSize() (int, int) {
+	if path, err := exec.LookPath("osascript"); err == nil {
+		if out, err := exec.Command("/bin/sh", "-c", `osascript -l JavaScript -e 'ObjC.import("AppKit"); const f=$.NSScreen.mainScreen.visibleFrame; console.log(Math.round(f.size.width)+","+Math.round(f.size.height));'`).Output(); err == nil {
+			if width, height := parseScreenPair(string(out)); width > 0 && height > 0 {
+				return width, height
+			}
+		}
+		out, err := exec.Command(path, "-e", `tell application "Finder" to get bounds of window of desktop`).Output()
+		if err == nil {
+			parts := strings.Split(strings.TrimSpace(string(out)), ",")
+			if len(parts) >= 4 {
+				width := parseLooseInt(parts[2]) - parseLooseInt(parts[0])
+				height := parseLooseInt(parts[3]) - parseLooseInt(parts[1])
+				if width > 0 && height > 0 {
+					return width, height
+				}
+			}
+		}
+	}
+	if path, err := exec.LookPath("powershell"); err == nil {
+		script := `Add-Type -AssemblyName System.Windows.Forms; $r=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; Write-Output "$($r.Width),$($r.Height)"`
+		out, err := exec.Command(path, "-NoProfile", "-Command", script).Output()
+		if err == nil {
+			if width, height := parseScreenPair(string(out)); width > 0 && height > 0 {
+				return width, height
+			}
+		}
+	}
+	return 0, 0
+}
+
+// parseScreenPair 从宽高字符串中读取屏幕尺寸。
+// value 格式通常为 width,height。
+func parseScreenPair(value string) (int, int) {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	if len(parts) < 2 {
+		return 0, 0
+	}
+	return parseLooseInt(parts[0]), parseLooseInt(parts[1])
+}
+
+// clampInt 将数值限制在指定范围内。
+// value 为原始值，min 和 max 为边界。
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+// parseLooseInt 从字符串中读取整数。
+// value 可包含空格或换行，解析失败返回 0。
+func parseLooseInt(value string) int {
+	parsed, _ := strconv.Atoi(strings.TrimSpace(value))
+	return parsed
+}
+
+// numberFromAny 从任意值读取整数。
+// value 支持数字和字符串，解析失败返回 0。
+func numberFromAny(value any) int {
+	switch item := value.(type) {
+	case int:
+		return item
+	case int64:
+		return int(item)
+	case float64:
+		return int(item)
+	case string:
+		return parseLooseInt(item)
+	default:
+		return 0
+	}
 }
 
 // browserDownloadDir 返回当前浏览器下载目录。

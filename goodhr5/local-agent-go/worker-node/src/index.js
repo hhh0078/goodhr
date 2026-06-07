@@ -103,7 +103,9 @@ async function startBrowser(payload) {
   await fs.mkdir(options.downloadsPath, { recursive: true });
   if (payload.proxy) options.proxy = payload.proxy;
   if (payload.viewport_width && payload.viewport_height) {
-    options.viewport = { width: Number(payload.viewport_width), height: Number(payload.viewport_height) };
+    const viewport = { width: Number(payload.viewport_width), height: Number(payload.viewport_height) };
+    options.viewport = viewport;
+    options.args = [`--window-size=${viewport.width},${viewport.height}`];
   }
   if (payload.timezone) options.timezone = String(payload.timezone);
   if (payload.locale) options.locale = String(payload.locale);
@@ -115,7 +117,7 @@ async function startBrowser(payload) {
     currentDownloadsPath = options.downloadsPath;
     page = context.pages?.()[0] || await context.newPage();
     registerPage(page);
-    return { running: true, persistent: true, user_data_dir: userDataDir, downloads_path: options.downloadsPath };
+    return { running: true, persistent: true, user_data_dir: userDataDir, downloads_path: options.downloadsPath, viewport: options.viewport };
   }
   if (!launch) throw new Error("CloakBrowser Node SDK 缺少启动方法");
   browser = await launch(options);
@@ -124,7 +126,7 @@ async function startBrowser(payload) {
   currentDownloadsPath = options.downloadsPath;
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
-  return { running: true, persistent: false, downloads_path: options.downloadsPath };
+  return { running: true, persistent: false, downloads_path: options.downloadsPath, viewport: options.viewport };
 }
 
 /**
