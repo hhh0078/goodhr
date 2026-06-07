@@ -37,6 +37,7 @@ type Config struct {
 	ManifestURL        string
 	ConsoleManifestURL string
 	CloudAPIBase       string
+	AutoOpenConsole    bool
 }
 
 // New 创建本地程序配置。
@@ -78,6 +79,7 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		ManifestURL:        envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
 		ConsoleManifestURL: envOrDefault("GOODHR_CONSOLE_MANIFEST_URL", DefaultConsoleManifestURL),
 		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", ""),
+		AutoOpenConsole:    envOrDefault("GOODHR_AUTO_OPEN_CONSOLE", "true") != "false",
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err

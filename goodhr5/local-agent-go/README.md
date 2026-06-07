@@ -48,6 +48,20 @@ cd goodhr5/local-agent-go
 go run ./cmd/goodhr-local-agent
 ```
 
+启动成功后会自动打开控制台，优先尝试 Wails 桌面壳，失败后使用默认浏览器打开 `http://127.0.0.1:端口/admin/`。
+
+关闭自动打开：
+
+```bash
+go run ./cmd/goodhr-local-agent --open-console=false
+```
+
+指定 Wails 桌面壳路径：
+
+```bash
+GOODHR_WAILS_COMMAND="/Applications/GoodHR Console.app" go run ./cmd/goodhr-local-agent
+```
+
 指定端口：
 
 ```bash

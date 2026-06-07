@@ -119,6 +119,45 @@ export async function getLocalHealth(base: string) {
 }
 
 /**
+ * 读取 Local Agent 本地诊断信息。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回诊断信息。
+ */
+export async function getLocalDiagnostics(base: string) {
+  return req(base, "/api/v1/diagnostics");
+}
+
+/**
+ * 读取 Local Agent 控制台前端包状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回控制台前端包状态。
+ */
+export async function getLocalConsoleStatus(base: string) {
+  const data = await req(base, "/api/v1/console/status");
+  return data.console || {};
+}
+
+/**
+ * 触发 Local Agent 更新运行组件。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 可选 manifest_url。
+ * @returns {Promise<any>} 返回更新结果。
+ */
+export async function installLocalRuntime(base: string, payload: any = {}) {
+  return req(base, "/api/v1/runtime/install", { method: "POST", body: payload });
+}
+
+/**
+ * 触发 Local Agent 更新控制台前端包。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 可选 manifest_url。
+ * @returns {Promise<any>} 返回更新结果。
+ */
+export async function updateLocalConsolePackage(base: string, payload: any = {}) {
+  return req(base, "/api/v1/console/update", { method: "POST", body: payload });
+}
+
+/**
  * 通过 Local Agent 建立任务级 WebSocket 并启动云端任务。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 云端任务 ID。

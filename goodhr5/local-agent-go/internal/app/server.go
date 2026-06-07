@@ -78,6 +78,7 @@ func (s *Server) Run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("GoodHR 5 Go Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
+	s.openConsoleAfterStart(port)
 	return server.Serve(ln)
 }
 
