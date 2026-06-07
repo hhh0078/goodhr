@@ -1,6 +1,7 @@
 /** 本地 Agent 探测 */
 import { ref } from "vue";
 import { getLocalHealth } from "../services/localAgentApi";
+import { markOnboardingStep } from "../services/onboarding";
 const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009];
 
 export function useAgent() {
@@ -25,6 +26,9 @@ export function useAgent() {
         status.value = `已连接 (端口 ${port})`;
         baseUrl.value = candidateBaseUrl;
         validateLocalVersion();
+        if (baseUrl.value) {
+          await markOnboardingStep("local_agent");
+        }
         checking.value = false;
         return;
       } catch {}

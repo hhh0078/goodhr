@@ -113,6 +113,7 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import { getSystemAppConfig } from "./services/api/systemApi";
 import { getSubscriptionStatus } from "./services/api/subscriptionApi";
 import { getOnboardingStatus } from "./services/api/onboardingApi";
+import { listPlatformAccounts } from "./services/api/accountApi";
 import { isLocalConsole } from "./services/localConsole";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
@@ -296,15 +297,7 @@ function closeThemeSelector() {
 
 watch(user, async (u) => {
   if (u) {
-    initOnboarding(u);
-    refreshOnboardingProgress();
-    await loadOnboardingStatus();
-    await loadSystemAppConfig();
-    await loadSubscriptionStatus();
-    agent.detect();
-    positions.load();
-    personalConfig.load();
-    tasks.load();
+    await initializeUserSession(u);
   } else {
     subscription.value = null;
   }
@@ -335,16 +328,27 @@ onMounted(async () => {
   detectLocalAgent();
   await auth.loadCurrentUser();
   if (auth.user.value) {
-    initOnboarding(auth.user.value);
-    refreshOnboardingProgress();
-    await loadOnboardingStatus();
-    await loadSubscriptionStatus();
-    agent.detect();
-    positions.load();
-    personalConfig.load();
-    tasks.load();
+    await initializeUserSession(auth.user.value);
   }
 });
+
+/**
+ * 初始化登录用户相关数据，并按真实状态补记教学步骤。
+ * @param {any} currentUser - 当前登录用户。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function initializeUserSession(currentUser: any) {
+  initOnboarding(currentUser);
+  refreshOnboardingProgress();
+  await loadOnboardingStatus();
+  await loadSystemAppConfig();
+  await loadSubscriptionStatus();
+  await agent.detect();
+  await syncOnboardingByCurrentState();
+  positions.load();
+  personalConfig.load();
+  tasks.load();
+}
 
 /**
  * 跳转到联系我页面。
@@ -417,6 +421,23 @@ async function loadOnboardingStatus() {
  */
 function refreshOnboardingProgress() {
   onboardingProgress.value = readOnboardingProgress();
+}
+
+/**
+ * 根据当前真实数据补记新手教学步骤。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function syncOnboardingByCurrentState() {
+  if (!user.value) return;
+  if (agent.baseUrl.value && agent.status.value.includes("连接")) {
+    await markOnboardingStep("local_agent");
+  }
+  try {
+    const accounts = await listPlatformAccounts();
+    if (Array.isArray(accounts) && accounts.length > 0) {
+      await markOnboardingStep("platform_account");
+    }
+  } catch {}
 }
 
 /**
