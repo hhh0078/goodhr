@@ -1,16 +1,12 @@
-// Package app 提供本地控制台启动后的桌面窗口和浏览器打开逻辑。
+// Package app 提供本地控制台启动后的默认浏览器打开逻辑。
 package app
 
 import (
-	"fmt"
 	"log"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	goruntime "runtime"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -23,10 +19,6 @@ func (s *Server) openConsoleAfterStart(port int) {
 	url := s.consoleURL(port)
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		if err := openWailsConsole(url); err == nil {
-			log.Printf("已打开 GoodHR 桌面控制台：%s", url)
-			return
-		}
 		if err := openDefaultBrowser(url); err != nil {
 			log.Printf("打开控制台失败，请手动访问 %s：%v", url, err)
 			return
@@ -39,91 +31,6 @@ func (s *Server) openConsoleAfterStart(port int) {
 // port 为实际监听端口。
 func (s *Server) consoleURL(port int) string {
 	return "http://" + net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)) + "/admin/"
-}
-
-// openWailsConsole 优先打开 Wails 桌面壳。
-// url 为控制台地址。
-func openWailsConsole(url string) error {
-	candidates := wailsCommandCandidates()
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if err := startCommand(candidate, url); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("未找到可用的 Wails 控制台壳")
-}
-
-// wailsCommandCandidates 返回可能的 Wails 壳命令。
-// 优先读取 GOODHR_WAILS_COMMAND，再查找同目录程序。
-func wailsCommandCandidates() []string {
-	result := []string{strings.TrimSpace(os.Getenv("GOODHR_WAILS_COMMAND"))}
-	exePath, err := os.Executable()
-	if err != nil {
-		return result
-	}
-	dir := filepath.Dir(exePath)
-	if wd, err := os.Getwd(); err == nil {
-		result = append(result, devWailsCandidates(wd)...)
-	}
-	switch goruntime.GOOS {
-	case "windows":
-		result = append(result,
-			filepath.Join(dir, "GoodHR Console.exe"),
-			filepath.Join(dir, "goodhr-console.exe"),
-		)
-	case "darwin":
-		result = append(result,
-			filepath.Join(dir, "GoodHR Console.app"),
-			filepath.Join(dir, "GoodHR Console"),
-			filepath.Join(dir, "goodhr-console"),
-		)
-	default:
-		result = append(result, filepath.Join(dir, "goodhr-console"))
-	}
-	return result
-}
-
-// devWailsCandidates 返回开发阶段可能的 Wails 壳路径。
-// wd 为当前工作目录。
-func devWailsCandidates(wd string) []string {
-	names := []string{"goodhr-console"}
-	if goruntime.GOOS == "windows" {
-		names = []string{"goodhr-console.exe"}
-	}
-	roots := []string{
-		filepath.Join(wd, "console-shell"),
-		filepath.Join(wd, "goodhr5", "local-agent-go", "console-shell"),
-		filepath.Join(wd, "..", "local-agent-go", "console-shell"),
-	}
-	result := []string{}
-	for _, root := range roots {
-		for _, name := range names {
-			result = append(result, filepath.Join(root, name))
-		}
-	}
-	return result
-}
-
-// startCommand 启动桌面壳命令。
-// command 为命令或应用路径，url 为控制台地址。
-func startCommand(command string, url string) error {
-	if goruntime.GOOS == "darwin" && strings.HasSuffix(command, ".app") {
-		if _, err := os.Stat(command); err != nil {
-			return err
-		}
-		return exec.Command("open", command, "--args", url).Start()
-	}
-	if _, err := os.Stat(command); err != nil {
-		if found, lookErr := exec.LookPath(command); lookErr == nil {
-			command = found
-		} else {
-			return err
-		}
-	}
-	return exec.Command(command, url).Start()
 }
 
 // openDefaultBrowser 用系统默认浏览器打开控制台。
