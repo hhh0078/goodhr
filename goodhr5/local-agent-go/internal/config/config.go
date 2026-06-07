@@ -18,7 +18,7 @@ const (
 	// AppName 是本地数据目录名称。
 	AppName = "GoodHR"
 	// DefaultRuntimeManifestURL 是运行组件下载清单默认地址。
-	DefaultRuntimeManifestURL = "https://oss.58it.cn/goodhr-local-runtime-manifest.json"
+	DefaultRuntimeManifestURL = "https://goodhr5.58it.cn/goodhr-local-runtime-manifest.json"
 	// DefaultConsoleManifestURL 是控制台前端包下载清单默认地址。
 	DefaultConsoleManifestURL = "https://oss.58it.cn/goodhr-console-manifest.json"
 )

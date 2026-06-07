@@ -85,7 +85,7 @@ curl -X POST http://127.0.0.1:19001/api/v1/runtime/install-local-worker
 ```bash
 curl -X POST http://127.0.0.1:19001/api/v1/runtime/install \
   -H "Content-Type: application/json" \
-  -d '{"manifest_url":"https://oss.58it.cn/goodhr-local-runtime-manifest.json"}'
+  -d '{"manifest_url":"https://goodhr5.58it.cn/goodhr-local-runtime-manifest.json"}'
 ```
 
 更新控制台前端包：
