@@ -189,7 +189,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetOpenDetailPrompt"
               >
-                重置为系统默认
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiOpenDetailPrompt"
@@ -220,7 +220,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetFilterPrompt"
               >
-                重置为系统默认
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiFilterPrompt"
@@ -251,7 +251,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetReviewPrompt"
               >
-                设置默认值
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiReviewPrompt"
@@ -595,6 +595,8 @@ function platformLabel(platformID: string) {
 }
 
 .mode-card {
+  width: 100%;
+  min-width: 0;
   min-height: 74px;
   border: 1px solid var(--border);
   background: var(--bg-input);
@@ -607,12 +609,14 @@ function platformLabel(platformID: string) {
 
 .mode-card strong {
   display: block;
+  min-width: 0;
   color: var(--fg);
   margin-bottom: 6px;
 }
 
 .mode-card span {
   display: block;
+  min-width: 0;
   color: var(--fg-dim);
   font-size: 12px;
   line-height: 1.5;

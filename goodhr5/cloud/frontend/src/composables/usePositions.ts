@@ -158,6 +158,9 @@ export function usePositions() {
     if (!form.value.aiOpenDetailPrompt && defaultPrompts.value.open_detail_prompt) {
       form.value.aiOpenDetailPrompt = normalizePromptText(defaultPrompts.value.open_detail_prompt)
     }
+    if (!form.value.aiReviewPrompt && defaultPrompts.value.review_prompt) {
+      form.value.aiReviewPrompt = normalizePromptText(defaultPrompts.value.review_prompt)
+    }
   }
 
   return {
