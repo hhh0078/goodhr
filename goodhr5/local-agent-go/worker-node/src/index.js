@@ -85,6 +85,11 @@ function failure(res, status, msg) {
  */
 async function startBrowser(payload) {
   const userDataDir = String(payload.user_data_dir || "").trim();
+  if (browser || context || page) {
+    if (!(await hasLiveBrowserSession())) {
+      resetBrowserState();
+    }
+  }
   if (browser || context) {
     if (!userDataDir || userDataDir === currentUserDataDir) {
       return { running: true, persistent: Boolean(currentUserDataDir), user_data_dir: currentUserDataDir };
@@ -136,12 +141,62 @@ async function startBrowser(payload) {
 async function stopBrowser() {
   if (context) await context.close().catch(() => {});
   if (browser) await browser.close().catch(() => {});
+  resetBrowserState();
+  return { running: false };
+}
+
+/**
+ * 清空 Worker 内保存的浏览器对象。
+ * @returns {void} 无返回值。
+ */
+function resetBrowserState() {
   context = null;
   browser = null;
   page = null;
   currentUserDataDir = "";
   currentDownloadsPath = "";
-  return { running: false };
+}
+
+/**
+ * 判断浏览器会话是否仍然可用。
+ * @returns {Promise<boolean>} 可用返回 true。
+ */
+async function hasLiveBrowserSession() {
+  if (page && !page.isClosed?.()) return true;
+  if (context) {
+    try {
+      const pages = context.pages?.() || [];
+      page = pages.find((item) => !item.isClosed?.()) || null;
+      if (page) {
+        registerPage(page);
+        return true;
+      }
+      if (!browser) return true;
+    } catch (error) {
+      if (isClosedTargetError(error)) return false;
+      throw error;
+    }
+  }
+  if (browser) {
+    try {
+      if (typeof browser.isConnected === "function") return browser.isConnected();
+      return true;
+    } catch (error) {
+      if (isClosedTargetError(error)) return false;
+      throw error;
+    }
+  }
+  return false;
+}
+
+/**
+ * 判断错误是否表示浏览器、上下文或页面已经关闭。
+ * @param {unknown} error - 原始错误。
+ * @returns {boolean} 关闭类错误返回 true。
+ */
+function isClosedTargetError(error) {
+  const message = String(error?.message || error || "");
+  return /Target page, context or browser has been closed|Browser has been closed|Context closed|Target closed/i.test(message);
 }
 
 /**
@@ -149,16 +204,33 @@ async function stopBrowser() {
  * @returns {Promise<any>} Playwright 页面对象。
  */
 async function ensurePage() {
-  if (page) return page;
+  if (page && !page.isClosed?.()) return page;
+  page = null;
   if (context) {
-    page = await context.newPage();
-    registerPage(page);
-    return page;
+    try {
+      page = await context.newPage();
+      registerPage(page);
+      return page;
+    } catch (error) {
+      if (isClosedTargetError(error)) {
+        resetBrowserState();
+        throw new Error("浏览器已关闭，请重新启动浏览器");
+      }
+      throw error;
+    }
   }
   if (browser) {
-    page = await browser.newPage();
-    registerPage(page);
-    return page;
+    try {
+      page = await browser.newPage();
+      registerPage(page);
+      return page;
+    } catch (error) {
+      if (isClosedTargetError(error)) {
+        resetBrowserState();
+        throw new Error("浏览器已关闭，请重新启动浏览器");
+      }
+      throw error;
+    }
   }
   throw new Error("浏览器未启动，请先启动浏览器");
 }
