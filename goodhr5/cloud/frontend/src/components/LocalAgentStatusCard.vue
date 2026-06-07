@@ -133,6 +133,7 @@ const updatingRuntime = ref(false);
 const updatingConsole = ref(false);
 const message = ref("");
 const error = ref("");
+let runtimeInstallStarted = false;
 let runtimePollingTimer: number | null = null;
 
 const agentBase = computed(() => String(props.agent?.baseUrl?.value || ""));
@@ -251,14 +252,12 @@ async function installRuntime() {
   startRuntimePolling();
   try {
     await installLocalRuntime(agentBase.value);
+    runtimeInstallStarted = true;
     await pollRuntimeStatus();
-    await refresh();
-    message.value = "运行组件更新完成";
+    updatingRuntime.value = false;
   } catch (e: any) {
     error.value = e?.message || "更新运行组件失败";
-  } finally {
     updatingRuntime.value = false;
-    await pollRuntimeStatus();
     stopRuntimePollingIfIdle();
   }
 }
@@ -344,6 +343,13 @@ async function pollRuntimeStatus() {
       runtime: status,
     };
     if (!status?.install_progress?.running && !updatingRuntime.value) {
+      if (runtimeInstallStarted) {
+        runtimeInstallStarted = false;
+        message.value = status?.install_progress?.stage === "failed"
+          ? ""
+          : "运行组件更新完成";
+        await refresh();
+      }
       stopRuntimePolling();
     }
   } catch {
@@ -373,6 +379,7 @@ function componentName(value: string) {
  */
 function stageName(value: string) {
   const names: Record<string, string> = {
+    queued: "已开始",
     manifest: "读取清单",
     download: "下载中",
     verify: "校验中",

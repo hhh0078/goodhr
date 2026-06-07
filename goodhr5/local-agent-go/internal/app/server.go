@@ -220,12 +220,12 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 	if value, ok := payload["manifest_url"].(string); ok {
 		manifestURL = value
 	}
-	result, err := s.runtime.InstallFromManifest(r.Context(), manifestURL)
+	status, err := s.runtime.StartInstallFromManifest(manifestURL)
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
 		return
 	}
-	response.Success(w, result)
+	response.Success(w, status)
 }
 
 // handleWorkerStart 启动 Node Browser Worker。

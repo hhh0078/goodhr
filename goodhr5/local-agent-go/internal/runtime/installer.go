@@ -41,6 +41,23 @@ type InstallResult struct {
 	Status    Status   `json:"status"`
 }
 
+// StartInstallFromManifest 在后台启动运行组件安装。
+// manifestURL 为 manifest 地址，返回启动后的组件状态。
+func (m *Manager) StartInstallFromManifest(manifestURL string) (Status, error) {
+	if !m.installMu.TryLock() {
+		return m.Status(), fmt.Errorf("运行组件正在更新中，请等待完成")
+	}
+	if strings.TrimSpace(manifestURL) == "" {
+		manifestURL = m.cfg.ManifestURL
+	}
+	m.setProgress(Progress{Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1})
+	go func() {
+		defer m.installMu.Unlock()
+		_, _ = m.installFromManifestLocked(context.Background(), manifestURL)
+	}()
+	return m.Status(), nil
+}
+
 // InstallFromManifest 根据远程 manifest 安装运行组件。
 // ctx 为请求上下文，manifestURL 为 manifest 地址。
 func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (InstallResult, error) {
@@ -48,6 +65,12 @@ func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (
 		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
 	}
 	defer m.installMu.Unlock()
+	return m.installFromManifestLocked(ctx, manifestURL)
+}
+
+// installFromManifestLocked 根据远程 manifest 安装运行组件。
+// 调用前必须持有安装锁，ctx 为安装上下文。
+func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL string) (InstallResult, error) {
 	if strings.TrimSpace(manifestURL) == "" {
 		manifestURL = m.cfg.ManifestURL
 	}
