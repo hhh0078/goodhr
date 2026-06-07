@@ -29,21 +29,24 @@
         会执行点击打招呼按钮。
       </div>
       <div class="position-form-grid">
-        <label class="field field-medium"
+        <label class="field field-full"
           >岗位名称<input
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
           />
-          <p class="hint field field-full">
+          <small class="field-help">
             该名称最好跟boss的岗位名称一致，因为后续会根据这个名称自动切换boss岗位。如果填错了
             会启动失败
-          </p>
+          </small>
         </label>
 
-        <p></p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">招聘平台</span>
-          <div class="mode-cards" role="radiogroup" aria-label="招聘平台">
+          <div
+            class="mode-cards mode-cards-three"
+            role="radiogroup"
+            aria-label="招聘平台"
+          >
             <button
               v-for="option in platformOptions"
               :key="option.value"
@@ -61,10 +64,13 @@
             </button>
           </div>
         </div>
-        <p></p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">默认模式</span>
-          <div class="mode-cards" role="radiogroup" aria-label="默认模式">
+          <div
+            class="mode-cards mode-cards-two"
+            role="radiogroup"
+            aria-label="默认模式"
+          >
             <button
               v-for="option in modeOptions"
               :key="option.value"
@@ -82,25 +88,17 @@
             </button>
           </div>
         </div>
-        <label class="field field-full"
-          >问候语<textarea
-            v-model="positions.form.value.greetMessage"
-            rows="2"
-          />
-        </label>
-        <label class="field field-full"
-          >描述<textarea v-model="positions.form.value.description" rows="2" />
-        </label>
       </div>
 
       <h3>公共参数</h3>
       <div class="position-form-grid">
-        <p class="hint field field-full">
-          运行节奏、模型等参数已移到“个人配置”，这里仅保留岗位本身的筛选规则。
-        </p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">详情模式</span>
-          <div class="mode-cards" role="radiogroup" aria-label="详情模式">
+          <div
+            class="mode-cards mode-cards-three"
+            role="radiogroup"
+            aria-label="详情模式"
+          >
             <button
               v-for="option in availableDetailModeOptions"
               :key="option.value"
@@ -271,12 +269,13 @@
       <template v-if="positions.form.value.modeDefault === 'keyword'">
         <h3>关键词模式专属</h3>
         <div class="position-form-grid">
-          <p class="hint field field-full">
-            关键词模式是否打开详情，已改到“个人配置”的详情查看概率里控制。
-          </p>
-          <div class="field field-medium">
+          <div class="field field-full">
             <span class="field-label">匹配方式</span>
-            <div class="mode-cards" role="radiogroup" aria-label="匹配方式">
+            <div
+              class="mode-cards mode-cards-two"
+              role="radiogroup"
+              aria-label="匹配方式"
+            >
               <button
                 v-for="option in keywordMatchOptions"
                 :key="String(option.value)"
@@ -325,6 +324,21 @@
           当前默认模式为 AI，已隐藏关键词专属参数。
         </p>
       </template>
+
+      <h3>可选信息</h3>
+      <div class="position-form-grid optional-info-grid">
+        <label class="field field-medium"
+          >问候语<textarea
+            v-model="positions.form.value.greetMessage"
+            rows="2"
+          />
+          <small class="field-help">当前任务流程暂未重点使用，可后续再补。</small>
+        </label>
+        <label class="field field-medium"
+          >描述<textarea v-model="positions.form.value.description" rows="2" />
+          <small class="field-help">用于备注岗位背景，不影响当前筛选主流程。</small>
+        </label>
+      </div>
 
       <p v-if="positions.error.value" class="error">
         {{ positions.error.value }}
@@ -569,8 +583,15 @@ function platformLabel(platformID: string) {
 
 .mode-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.mode-cards-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mode-cards-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .mode-card {
@@ -615,8 +636,8 @@ function platformLabel(platformID: string) {
   .field-medium {
     grid-column: span 6;
   }
-  .mode-cards {
-    grid-template-columns: 1fr;
+  .mode-cards-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -625,6 +646,11 @@ function platformLabel(platformID: string) {
   .field-medium,
   .field-full {
     grid-column: 1 / -1;
+  }
+  .mode-cards,
+  .mode-cards-two,
+  .mode-cards-three {
+    grid-template-columns: 1fr;
   }
 }
 </style>
