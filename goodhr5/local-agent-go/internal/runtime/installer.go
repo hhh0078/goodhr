@@ -38,6 +38,7 @@ type Asset struct {
 type InstallResult struct {
 	Platform  string   `json:"platform"`
 	Installed []string `json:"installed"`
+	Skipped   []string `json:"skipped"`
 	Status    Status   `json:"status"`
 }
 
@@ -92,29 +93,42 @@ func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL str
 	}
 	platform := platformKey()
 	installed := []string{}
-	if err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
+	skipped := []string{}
+	if didInstall, err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "node_runtime", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
+	} else if didInstall {
+		installed = append(installed, "node_runtime")
+	} else {
+		skipped = append(skipped, "node_runtime")
 	}
-	installed = append(installed, "node_runtime")
-	if err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Browser Worker", "node_worker"); err != nil {
+	if didInstall, err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Browser Worker", "node_worker"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "node_worker", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
+	} else if didInstall {
+		installed = append(installed, "node_worker")
+	} else {
+		skipped = append(skipped, "node_worker")
 	}
-	installed = append(installed, "node_worker")
-	if err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
+	if didInstall, err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
+	} else if didInstall {
+		installed = append(installed, "cloakbrowser")
+	} else {
+		skipped = append(skipped, "cloakbrowser")
 	}
-	installed = append(installed, "cloakbrowser")
 	if asset := manifest.OCR[platform]; strings.TrimSpace(asset.URL) != "" {
-		if err := m.installAsset(ctx, asset, "ocr", "OCR 组件", "ocr"); err != nil {
+		if didInstall, err := m.installAsset(ctx, asset, "ocr", "OCR 组件", "ocr"); err != nil {
 			m.setProgress(Progress{Running: false, Component: "ocr", Stage: "failed", Message: err.Error()})
 			return InstallResult{}, err
+		} else if didInstall {
+			installed = append(installed, "ocr")
+		} else {
+			skipped = append(skipped, "ocr")
 		}
-		installed = append(installed, "ocr")
 	}
-	return InstallResult{Platform: platform, Installed: installed, Status: m.Status()}, nil
+	return InstallResult{Platform: platform, Installed: installed, Skipped: skipped, Status: m.Status()}, nil
 }
 
 // InstallLocalWorker 从仓库源码安装 Node Browser Worker。
@@ -145,14 +159,18 @@ func (m *Manager) InstallLocalWorker(sourceDir string) (InstallResult, error) {
 
 // installAsset 下载并解压单个运行组件。
 // ctx 为请求上下文，asset 为资源配置，targetName 为目标目录名，label 为中文组件名，component 为组件键名。
-func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName string, label string, component string) error {
+func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName string, label string, component string) (bool, error) {
 	if strings.TrimSpace(asset.URL) == "" {
-		return fmt.Errorf("%s 下载地址为空", label)
+		return false, fmt.Errorf("%s 下载地址为空", label)
+	}
+	if m.assetIsCurrent(component, asset) {
+		m.setProgress(Progress{Running: true, Component: component, Stage: "skipped", Message: label + "已是最新版本，跳过下载", Percent: 95})
+		return false, nil
 	}
 	m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: 5})
 	downloadsDir := filepath.Join(m.cfg.RuntimeDir, "downloads")
 	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
-		return fmt.Errorf("创建下载目录失败：%w", err)
+		return false, fmt.Errorf("创建下载目录失败：%w", err)
 	}
 	archivePath := filepath.Join(downloadsDir, archiveName(asset.URL, targetName))
 	if err := downloadFile(ctx, asset.URL, archivePath, func(received int64, total int64) {
@@ -162,28 +180,65 @@ func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName stri
 		}
 		m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: percent, Received: received, Total: total})
 	}); err != nil {
-		return fmt.Errorf("下载%s失败：%w", label, err)
+		return false, fmt.Errorf("下载%s失败：%w", label, err)
 	}
 	m.setProgress(Progress{Running: true, Component: component, Stage: "verify", Message: "正在校验" + label, Percent: 65})
 	if err := verifySHA256(archivePath, asset.SHA256); err != nil {
-		return fmt.Errorf("%s校验失败：%w", label, err)
+		return false, fmt.Errorf("%s校验失败：%w", label, err)
 	}
 	m.setProgress(Progress{Running: true, Component: component, Stage: "extract", Message: "正在解压" + label, Percent: 75})
 	targetDir := filepath.Join(m.cfg.RuntimeDir, targetName)
 	if err := os.RemoveAll(targetDir); err != nil {
-		return fmt.Errorf("清理旧%s失败：%w", label, err)
+		return false, fmt.Errorf("清理旧%s失败：%w", label, err)
 	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		return fmt.Errorf("创建%s目录失败：%w", label, err)
+		return false, fmt.Errorf("创建%s目录失败：%w", label, err)
 	}
 	if err := extractArchive(archivePath, targetDir); err != nil {
-		return fmt.Errorf("解压%s失败：%w", label, err)
+		return false, fmt.Errorf("解压%s失败：%w", label, err)
 	}
 	if err := m.saveVersion(component, asset); err != nil {
-		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
+		return false, fmt.Errorf("保存%s版本记录失败：%w", label, err)
 	}
 	m.setProgress(Progress{Running: true, Component: component, Stage: "installed", Message: label + "安装完成", Percent: 95})
-	return nil
+	return true, nil
+}
+
+// assetIsCurrent 判断组件文件和版本记录是否与清单一致。
+// component 为组件键名，asset 为清单中的组件版本。
+func (m *Manager) assetIsCurrent(component string, asset Asset) bool {
+	if !m.componentFileExists(component) {
+		return false
+	}
+	installed, ok := m.loadVersions()[component]
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(installed.Version) != strings.TrimSpace(asset.Version) {
+		return false
+	}
+	expectedSHA := strings.TrimSpace(strings.ToLower(asset.SHA256))
+	if expectedSHA != "" && strings.TrimSpace(strings.ToLower(installed.SHA256)) != expectedSHA {
+		return false
+	}
+	return true
+}
+
+// componentFileExists 判断组件关键文件是否存在。
+// component 为组件键名。
+func (m *Manager) componentFileExists(component string) bool {
+	switch component {
+	case "node_runtime":
+		return fileExists(m.NodePath())
+	case "node_worker":
+		return fileExists(m.WorkerEntry())
+	case "cloakbrowser":
+		return fileExists(m.CloakBrowserPath())
+	case "ocr":
+		return fileExists(m.OCRPath())
+	default:
+		return false
+	}
 }
 
 // fetchManifest 下载并解析运行组件清单。

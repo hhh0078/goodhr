@@ -385,6 +385,7 @@ function stageName(value: string) {
     verify: "校验中",
     extract: "解压中",
     installed: "安装完成",
+    skipped: "已跳过",
     failed: "失败",
     idle: "空闲",
   };
