@@ -138,6 +138,15 @@ export async function getLocalConsoleStatus(base: string) {
 }
 
 /**
+ * 读取 Local Agent 运行组件安装状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回运行组件状态。
+ */
+export async function getLocalRuntimeStatus(base: string) {
+  return req(base, "/api/v1/runtime/status");
+}
+
+/**
  * 触发 Local Agent 更新运行组件。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {any} payload - 可选 manifest_url。

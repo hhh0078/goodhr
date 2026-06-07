@@ -44,6 +44,10 @@ type InstallResult struct {
 // InstallFromManifest 根据远程 manifest 安装运行组件。
 // ctx 为请求上下文，manifestURL 为 manifest 地址。
 func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (InstallResult, error) {
+	if !m.installMu.TryLock() {
+		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
+	}
+	defer m.installMu.Unlock()
 	if strings.TrimSpace(manifestURL) == "" {
 		manifestURL = m.cfg.ManifestURL
 	}
@@ -93,6 +97,10 @@ func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (
 // InstallLocalWorker 从仓库源码安装 Node Browser Worker。
 // sourceDir 为 worker-node 目录，主要用于本地开发阶段。
 func (m *Manager) InstallLocalWorker(sourceDir string) (InstallResult, error) {
+	if !m.installMu.TryLock() {
+		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
+	}
+	defer m.installMu.Unlock()
 	sourceDir = strings.TrimSpace(sourceDir)
 	if sourceDir == "" {
 		return InstallResult{}, fmt.Errorf("Node Worker 源码目录不能为空")

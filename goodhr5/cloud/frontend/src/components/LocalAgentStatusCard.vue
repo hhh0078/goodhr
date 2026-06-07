@@ -71,14 +71,26 @@
     <p v-if="message" class="hint">{{ message }}</p>
     <p v-if="error" class="error">{{ error }}</p>
 
+    <div v-if="runtimeProgressVisible" class="runtime-progress">
+      <div class="progress-head">
+        <strong>{{ runtimeProgressTitle }}</strong>
+        <span>{{ runtimeProgressPercent }}%</span>
+      </div>
+      <div class="progress-bar" aria-label="运行组件更新进度">
+        <span :style="{ width: `${runtimeProgressPercent}%` }"></span>
+      </div>
+      <p>{{ runtimeProgressMessage }}</p>
+      <small v-if="runtimeProgressBytes">{{ runtimeProgressBytes }}</small>
+    </div>
+
     <div class="maintenance-row">
-      <button class="ghost" :disabled="!connected || updatingRuntime" @click="installRuntime">
-        {{ updatingRuntime ? "更新中..." : "更新运行组件" }}
+      <button class="ghost" :disabled="!connected || runtimeInstalling" @click="installRuntime">
+        {{ runtimeInstalling ? "更新中..." : "更新运行组件" }}
       </button>
-      <button class="ghost" :disabled="!connected || updatingConsole" @click="updateConsole">
+      <button class="ghost" :disabled="!connected || updatingConsole || runtimeInstalling" @click="updateConsole">
         {{ updatingConsole ? "更新中..." : "更新控制台" }}
       </button>
-      <button class="ghost" :disabled="!connected || loadingDiagnostics" @click="loadDiagnostics">
+      <button class="ghost" :disabled="!connected || loadingDiagnostics || runtimeInstalling" @click="loadDiagnostics">
         {{ loadingDiagnostics ? "读取中..." : "诊断信息" }}
       </button>
     </div>
@@ -101,10 +113,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import {
   getLocalConsoleStatus,
   getLocalDiagnostics,
+  getLocalRuntimeStatus,
   installLocalRuntime,
   updateLocalConsolePackage,
 } from "../services/localAgentApi";
@@ -120,10 +133,38 @@ const updatingRuntime = ref(false);
 const updatingConsole = ref(false);
 const message = ref("");
 const error = ref("");
+let runtimePollingTimer: number | null = null;
 
 const agentBase = computed(() => String(props.agent?.baseUrl?.value || ""));
 const connected = computed(() => Boolean(agentBase.value && props.agent?.info?.value));
 const runtime = computed(() => health.value?.runtime || props.agent?.info?.value?.runtime || {});
+const runtimeProgress = computed(() => runtime.value?.install_progress || {});
+const runtimeInstalling = computed(() =>
+  Boolean(updatingRuntime.value || runtimeProgress.value?.running),
+);
+const runtimeProgressVisible = computed(() =>
+  Boolean(runtimeInstalling.value || runtimeProgress.value?.message),
+);
+const runtimeProgressPercent = computed(() => {
+  const value = Number(runtimeProgress.value?.percent || 0);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+});
+const runtimeProgressTitle = computed(() => {
+  const component = componentName(runtimeProgress.value?.component);
+  const stage = stageName(runtimeProgress.value?.stage);
+  return [component, stage].filter(Boolean).join(" / ") || "运行组件更新";
+});
+const runtimeProgressMessage = computed(() =>
+  String(runtimeProgress.value?.message || (runtimeInstalling.value ? "正在更新运行组件" : "等待更新")),
+);
+const runtimeProgressBytes = computed(() => {
+  const received = Number(runtimeProgress.value?.received || 0);
+  const total = Number(runtimeProgress.value?.total || 0);
+  if (!received && !total) return "";
+  if (total > 0) return `${formatBytes(received)} / ${formatBytes(total)}`;
+  return `已下载 ${formatBytes(received)}`;
+});
 const ocrInstalled = computed(() =>
   Boolean(health.value?.ocr?.installed || runtime.value?.ocr_installed),
 );
@@ -140,6 +181,21 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  () => runtimeProgress.value?.running,
+  (running) => {
+    if (running) {
+      startRuntimePolling();
+    } else {
+      stopRuntimePollingIfIdle();
+    }
+  },
+);
+
+onBeforeUnmount(() => {
+  stopRuntimePolling();
+});
 
 /**
  * 刷新本地程序连接和组件状态。
@@ -188,18 +244,22 @@ function openConsole() {
  * @returns {Promise<void>} 无返回值。
  */
 async function installRuntime() {
-  if (!agentBase.value || updatingRuntime.value) return;
+  if (!agentBase.value || runtimeInstalling.value) return;
   updatingRuntime.value = true;
   error.value = "";
-  message.value = "";
+  message.value = "正在更新运行组件，请不要关闭本地程序";
+  startRuntimePolling();
   try {
     await installLocalRuntime(agentBase.value);
+    await pollRuntimeStatus();
     await refresh();
     message.value = "运行组件更新完成";
   } catch (e: any) {
     error.value = e?.message || "更新运行组件失败";
   } finally {
     updatingRuntime.value = false;
+    await pollRuntimeStatus();
+    stopRuntimePollingIfIdle();
   }
 }
 
@@ -238,6 +298,107 @@ async function loadDiagnostics() {
   } finally {
     loadingDiagnostics.value = false;
   }
+}
+
+/**
+ * 开始轮询运行组件安装进度。
+ * @returns {void} 无返回值。
+ */
+function startRuntimePolling() {
+  if (runtimePollingTimer != null) return;
+  void pollRuntimeStatus();
+  runtimePollingTimer = window.setInterval(() => {
+    void pollRuntimeStatus();
+  }, 1000);
+}
+
+/**
+ * 停止轮询运行组件安装进度。
+ * @returns {void} 无返回值。
+ */
+function stopRuntimePolling() {
+  if (runtimePollingTimer == null) return;
+  window.clearInterval(runtimePollingTimer);
+  runtimePollingTimer = null;
+}
+
+/**
+ * 在安装空闲时停止轮询。
+ * @returns {void} 无返回值。
+ */
+function stopRuntimePollingIfIdle() {
+  if (runtimeProgress.value?.running || updatingRuntime.value) return;
+  stopRuntimePolling();
+}
+
+/**
+ * 轮询运行组件安装状态。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function pollRuntimeStatus() {
+  if (!agentBase.value) return;
+  try {
+    const status = await getLocalRuntimeStatus(agentBase.value);
+    health.value = {
+      ...(health.value || props.agent?.info?.value || {}),
+      runtime: status,
+    };
+    if (!status?.install_progress?.running && !updatingRuntime.value) {
+      stopRuntimePolling();
+    }
+  } catch {
+    if (!updatingRuntime.value) stopRuntimePolling();
+  }
+}
+
+/**
+ * 转换组件键名为中文名称。
+ * @param {string} value - 组件键名。
+ * @returns {string} 中文名称。
+ */
+function componentName(value: string) {
+  const names: Record<string, string> = {
+    node_runtime: "Node 运行组件",
+    node_worker: "Node Worker",
+    cloakbrowser: "CloakBrowser",
+    ocr: "OCR 组件",
+  };
+  return names[value] || "";
+}
+
+/**
+ * 转换安装阶段为中文名称。
+ * @param {string} value - 阶段键名。
+ * @returns {string} 中文名称。
+ */
+function stageName(value: string) {
+  const names: Record<string, string> = {
+    manifest: "读取清单",
+    download: "下载中",
+    verify: "校验中",
+    extract: "解压中",
+    installed: "安装完成",
+    failed: "失败",
+    idle: "空闲",
+  };
+  return names[value] || "";
+}
+
+/**
+ * 格式化字节大小。
+ * @param {number} bytes - 字节数。
+ * @returns {string} 便于阅读的大小。
+ */
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 </script>
 
@@ -318,6 +479,41 @@ async function loadDiagnostics() {
 }
 .warn-text {
   color: #f59e0b;
+}
+.runtime-progress {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.progress-head span,
+.runtime-progress small {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+.progress-bar {
+  height: 8px;
+  overflow: hidden;
+  background: var(--border);
+  margin-bottom: 8px;
+}
+.progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.runtime-progress p {
+  margin: 0 0 4px;
+  color: var(--fg);
+  font-size: 13px;
 }
 .path-grid {
   display: grid;

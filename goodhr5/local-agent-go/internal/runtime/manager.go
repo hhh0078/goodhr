@@ -31,9 +31,10 @@ type Status struct {
 
 // Manager 管理本地运行组件路径和安装状态。
 type Manager struct {
-	cfg      *config.Config
-	mu       sync.Mutex
-	progress Progress
+	cfg       *config.Config
+	mu        sync.Mutex
+	installMu sync.Mutex
+	progress  Progress
 }
 
 // Progress 表示运行组件安装进度。
