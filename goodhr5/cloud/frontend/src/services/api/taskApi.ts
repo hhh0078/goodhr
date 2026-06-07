@@ -10,25 +10,7 @@ import {
   stopLocalTask,
   updateLocalTask,
 } from "../localAgentApi";
-
-/**
- * 判断当前页面是否由本地 Local Agent 控制台提供。
- * @returns {boolean} 本地控制台返回 true。
- */
-function isLocalConsole() {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  const port = Number(window.location.port || "0");
-  return (host === "127.0.0.1" || host === "localhost") && port >= 9001 && port <= 9009;
-}
-
-/**
- * 返回当前本地控制台的 Local Agent 地址。
- * @returns {string} Local Agent HTTP 基础地址。
- */
-function localAgentBase() {
-  return window.location.origin;
-}
+import { isLocalConsole, localAgentBase } from "../localConsole";
 
 /**
  * 创建招聘任务。

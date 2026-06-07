@@ -1,3 +1,7 @@
 # 本文件用于忽略 GoodHR 5 运行和部署过程产生的本地文件。
 deploy.log
 .deploy.lock/
+local-agent-go/console-shell/bin/
+local-agent-go/console-shell/goodhr-console
+local-agent-go/console-shell/goodhr-console.exe
+local-agent-go/console-shell/console-shell

@@ -65,6 +65,9 @@ func wailsCommandCandidates() []string {
 		return result
 	}
 	dir := filepath.Dir(exePath)
+	if wd, err := os.Getwd(); err == nil {
+		result = append(result, devWailsCandidates(wd)...)
+	}
 	switch goruntime.GOOS {
 	case "windows":
 		result = append(result,
@@ -79,6 +82,27 @@ func wailsCommandCandidates() []string {
 		)
 	default:
 		result = append(result, filepath.Join(dir, "goodhr-console"))
+	}
+	return result
+}
+
+// devWailsCandidates 返回开发阶段可能的 Wails 壳路径。
+// wd 为当前工作目录。
+func devWailsCandidates(wd string) []string {
+	names := []string{"goodhr-console"}
+	if goruntime.GOOS == "windows" {
+		names = []string{"goodhr-console.exe"}
+	}
+	roots := []string{
+		filepath.Join(wd, "console-shell"),
+		filepath.Join(wd, "goodhr5", "local-agent-go", "console-shell"),
+		filepath.Join(wd, "..", "local-agent-go", "console-shell"),
+	}
+	result := []string{}
+	for _, root := range roots {
+		for _, name := range names {
+			result = append(result, filepath.Join(root, name))
+		}
 	}
 	return result
 }

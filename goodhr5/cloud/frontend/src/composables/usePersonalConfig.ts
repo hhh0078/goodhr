@@ -12,6 +12,7 @@ import {
   saveLocalAIConfig,
   saveLocalSettings,
 } from "../services/localAgentApi";
+import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
 
 const DEFAULT_AI_BASE_URL =
@@ -254,25 +255,6 @@ function defaultForm() {
     restDurationMin: 2,
     restDurationMax: 7,
   };
-}
-
-/**
- * 判断当前是否运行在本地控制台。
- * @returns {boolean} 本地控制台返回 true。
- */
-function isLocalConsole() {
-  if (typeof window === "undefined") return false;
-  const hostname = window.location.hostname;
-  const port = Number(window.location.port || "0");
-  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 9001 && port <= 9009;
-}
-
-/**
- * 返回 Local Agent 基础地址。
- * @returns {string} Local Agent 地址。
- */
-function localAgentBase() {
-  return window.location.origin;
 }
 
 /**

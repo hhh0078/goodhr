@@ -123,6 +123,7 @@ import {
   type PlatformAuthConfig,
 } from "../services/platformLoginFlow";
 import { markOnboardingStep } from "../services/onboarding";
+import { isLocalConsole, localAgentBase } from "../services/localConsole";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
 const accounts = ref<any[]>([]);
@@ -135,15 +136,10 @@ const platformConfigs = ref<any[]>([]);
 const pendingCookies = ref<any[] | null>(null);
 const refreshingAccountId = ref("");
 const openingAccountId = ref("");
-const localConsole = computed(() => {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-  const port = Number(window.location.port || "0");
-  return (host === "127.0.0.1" || host === "localhost") && port >= 9001 && port <= 9009;
-});
+const localConsole = computed(() => isLocalConsole());
 const accountFormNeedsLogin = computed(() => !localConsole.value && !props.token);
 const effectiveAgentBaseUrl = computed(() => {
-  if (localConsole.value && typeof window !== "undefined") return window.location.origin;
+  if (localConsole.value) return localAgentBase();
   return props.agentBaseUrl;
 });
 

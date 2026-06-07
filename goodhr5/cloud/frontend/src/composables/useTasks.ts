@@ -30,6 +30,7 @@ import {
   stopLocalTask,
   updateLocalTask,
 } from "../services/localAgentApi";
+import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
 
 export function useTasks(
@@ -615,13 +616,7 @@ export function useTasks(
    * @returns {boolean} 本地控制台返回 true。
    */
   function shouldUseLocalTasks() {
-    if (typeof window === "undefined") return false;
-    const hostname = window.location.hostname;
-    const port = Number(window.location.port || "0");
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return port >= 9001 && port <= 9009;
-    }
-    return false;
+    return isLocalConsole();
   }
 
   /**
@@ -629,7 +624,7 @@ export function useTasks(
    * @returns {string} Local Agent HTTP 地址。
    */
   function localTaskBase() {
-    if (shouldUseLocalTasks()) return window.location.origin;
+    if (shouldUseLocalTasks()) return localAgentBase();
     return agentBaseUrl.value;
   }
 

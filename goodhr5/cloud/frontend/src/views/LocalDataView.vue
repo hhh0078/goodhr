@@ -78,6 +78,7 @@ import {
   listLocalScreenshotRecords,
   updateLocalRules,
 } from "../services/localAgentApi";
+import { localAgentBase } from "../services/localConsole";
 
 const loading = ref(false);
 const error = ref("");
@@ -132,14 +133,6 @@ async function updateRules() {
   } finally {
     loading.value = false;
   }
-}
-
-/**
- * 返回 Local Agent 基础地址。
- * @returns {string} Local Agent 地址。
- */
-function localAgentBase() {
-  return window.location.origin;
 }
 
 /**

@@ -62,6 +62,15 @@ go run ./cmd/goodhr-local-agent --open-console=false
 GOODHR_WAILS_COMMAND="/Applications/GoodHR Console.app" go run ./cmd/goodhr-local-agent
 ```
 
+开发阶段构建 Wails 控制台壳：
+
+```bash
+cd goodhr5/local-agent-go
+./scripts/build_console_shell.sh
+```
+
+构建后会生成 `console-shell/bin/goodhr-console`，本地程序启动时会优先尝试这个壳；失败时仍会回退默认浏览器。
+
 指定端口：
 
 ```bash
@@ -199,6 +208,15 @@ Windows 本机编译：
 cd goodhr5/local-agent-go
 .\scripts\build_go_binary.ps1 -TargetOS windows -TargetArch amd64
 ```
+
+Windows 本机编译 Wails 控制台壳：
+
+```powershell
+cd goodhr5/local-agent-go
+.\scripts\build_console_shell.ps1 -TargetOS windows -TargetArch amd64
+```
+
+Windows 运行 Wails 需要 WebView2 Runtime。安装器阶段建议检测 WebView2，缺失时提示或自动下载，不要内置到主安装包。
 
 Windows 生成安装器需要先安装 Inno Setup 6：
 

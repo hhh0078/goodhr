@@ -113,6 +113,7 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import { getSystemAppConfig } from "./services/api/systemApi";
 import { getSubscriptionStatus } from "./services/api/subscriptionApi";
 import { getOnboardingStatus } from "./services/api/onboardingApi";
+import { isLocalConsole } from "./services/localConsole";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
 import { usePositions } from "./composables/usePositions";
@@ -219,16 +220,6 @@ function resolvePositionSnapshot(positionID: string) {
   return positions.positions.value.find((item: any) => item.id === positionID) || {};
 }
 
-/**
- * 判断当前是否运行在本地控制台。
- * @returns {boolean} 本地控制台返回 true。
- */
-function isLocalConsole() {
-  if (typeof window === "undefined") return false;
-  const hostname = window.location.hostname;
-  const port = Number(window.location.port || "0");
-  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 9001 && port <= 9009;
-}
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
   if (s.includes("连接")) return "success";
