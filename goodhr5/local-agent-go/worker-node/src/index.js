@@ -326,6 +326,19 @@ async function typePage(payload) {
 }
 
 /**
+ * 按下页面键盘按键。
+ * @param {Record<string, any>} payload - 按键参数。
+ * @returns {Promise<Record<string, any>>} 按键结果。
+ */
+async function pressKey(payload) {
+  const currentPage = await ensurePage();
+  const key = String(payload.key || "").trim();
+  if (!key) throw new Error("按键不能为空");
+  await currentPage.keyboard.press(key);
+  return { pressed: true, key };
+}
+
+/**
  * 滚动当前页面或指定元素。
  * @param {Record<string, any>} payload - 滚动参数。
  * @returns {Promise<Record<string, any>>} 滚动结果。
@@ -528,8 +541,20 @@ async function extractBossCandidateDetail(payload) {
   const screenshot = payload.screenshot
     ? await screenshotDetailContainer(currentPage, selectorList(rules.detail_containers), payload)
     : null;
-  await clickFirstVisible(currentPage, selectorList(rules.detail_close_buttons), 800);
   return { detail_text: detailText, text: detailText, screenshot, scroll_attempts: cardInfo.attempts };
+}
+
+/**
+ * 关闭 Boss 候选人详情页或详情弹层。
+ * @param {Record<string, any>} payload - 关闭参数。
+ * @returns {Promise<Record<string, any>>} 关闭结果。
+ */
+async function closeBossCandidateDetail(payload) {
+  const currentPage = await ensurePage();
+  const key = String(payload.key || "Escape").trim() || "Escape";
+  await currentPage.keyboard.press(key);
+  await currentPage.waitForTimeout(Number(payload.wait_ms || 200));
+  return { closed: true, key };
 }
 
 /**
@@ -1208,6 +1233,7 @@ const routes = {
   "/api/v1/page/open": openPage,
   "/api/v1/page/click": clickPage,
   "/api/v1/page/type": typePage,
+  "/api/v1/page/press-key": pressKey,
   "/api/v1/page/scroll": scrollPage,
   "/api/v1/page/extract-text": extractText,
   "/api/v1/page/find-elements": findElements,
@@ -1218,6 +1244,7 @@ const routes = {
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,
   "/api/v1/boss/candidates/greet": greetBossCandidate,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
+  "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
 };
 
 const server = http.createServer(async (req, res) => {

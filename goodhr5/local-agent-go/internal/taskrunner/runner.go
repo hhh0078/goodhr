@@ -869,6 +869,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	}
 	candidateName := candidateLogName(candidate)
 	r.taskLog(task.ID, "info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", candidateName, detailModeLabel(mode), intFromMap(candidate, "card_index")))
+	defer r.closeCandidateDetail(ctx, task, platformConfig, candidateName)
 	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 		"platform_config": platformConfig,
 		"card_index":      intFromMap(candidate, "card_index"),
@@ -930,6 +931,26 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	candidate["status"] = "detail_fetched"
 	r.taskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, nil
+}
+
+// closeCandidateDetail 关闭候选人详情页或详情弹层。
+// ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidateName 为候选人名称。
+func (r *Runner) closeCandidateDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidateName string) {
+	name := strings.TrimSpace(candidateName)
+	if name == "" {
+		name = "候选人"
+	}
+	r.taskLog(task.ID, "info", "正在关闭"+name+"详情")
+	_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail/close", map[string]any{
+		"platform_config": platformConfig,
+		"key":             "Escape",
+		"candidate_name":  name,
+	})
+	if err != nil {
+		r.taskLog(task.ID, "warning", "关闭"+name+"详情失败："+err.Error())
+		return
+	}
+	r.taskLog(task.ID, "info", name+"详情已关闭")
 }
 
 // saveDetailScreenshot 保存详情截图记录。
