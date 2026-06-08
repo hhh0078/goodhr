@@ -1,4 +1,5 @@
 // GoodHR 5 本地 Agent API 封装
+import { alertError } from "./notify";
 export function agentURL(base: string, path: string): string {
   if (base.endsWith("/")) base = base.slice(0, -1);
   return `${base}${path}`;
@@ -47,16 +48,14 @@ async function req(base: string, path: string, opts: AgentRequestOptions = {}) {
     });
   } catch {
     const msg = "无法连接本地程序，请确认本地程序已经启动";
-    showLocalAgentMessage(msg);
-    throw new Error(msg);
+    throw showLocalAgentMessage(msg);
   }
   const data = await parseLocalAgentJSON(res);
   // console.info('[goodhr5][local-agent][response]', { base, path, status: res.status, data })
   const code = Number(data.code || (res.ok && data.ok !== false ? 200 : res.status || 500));
   if (!res.ok || data.ok === false || code !== 200) {
     const msg = String(data.msg || data.error || data.detail || "本地程序请求失败");
-    showLocalAgentMessage(msg);
-    throw new Error(msg);
+    throw showLocalAgentMessage(msg);
   }
   if (data && typeof data === "object" && "data" in data) {
     return data.data || {};
@@ -76,19 +75,22 @@ async function parseLocalAgentJSON(res: Response) {
     return JSON.parse(text);
   } catch {
     const msg = "本地程序返回的数据格式不正确";
-    showLocalAgentMessage(msg);
-    throw new Error(msg);
+    throw showLocalAgentMessage(msg);
   }
 }
 
 /**
  * 弹框展示 Local Agent 返回的消息。
  * @param {string} msg - 本地程序返回的中文提示。
- * @returns {void} 无返回值。
+ * @returns {Error} 返回已标记提醒状态的错误对象。
  */
 function showLocalAgentMessage(msg: string) {
-  if (typeof window === "undefined") return;
-  window.alert(msg || "本地程序请求失败");
+  const error = new Error(msg || "本地程序请求失败") as Error & {
+    notified?: boolean;
+  };
+  void alertError(msg || "本地程序请求失败");
+  error.notified = true;
+  return error;
 }
 
 function serializeBody(body: AgentRequestOptions["body"]) {

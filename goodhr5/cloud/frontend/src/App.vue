@@ -105,6 +105,7 @@
       @close="closeThemeSelector"
     />
   </div>
+  <AppNotify />
 </template>
 
 <script setup lang="ts">
@@ -122,6 +123,7 @@ import { usePersonalConfig } from "./composables/usePersonalConfig";
 import { useTasks } from "./composables/useTasks";
 import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
+import AppNotify from "./components/AppNotify.vue";
 import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,

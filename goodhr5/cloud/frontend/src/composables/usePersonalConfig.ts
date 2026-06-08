@@ -14,6 +14,7 @@ import {
 } from "../services/localAgentApi";
 import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
+import { alertError, notifySuccess } from "../services/notify";
 
 const DEFAULT_AI_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
@@ -98,9 +99,11 @@ export function usePersonalConfig() {
         form.value.aiAPIKeyMasked = "已更新";
       }
       message.value = isLocalConsole() ? "本地个人配置已保存" : "个人配置已保存";
+      notifySuccess(message.value);
       await markOnboardingStep("personal_config");
     } catch (e: any) {
       error.value = e.message;
+      await alertError(error.value || "个人配置保存失败");
     } finally {
       loading.value = false;
     }

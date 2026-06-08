@@ -124,6 +124,7 @@ import {
 } from "../services/platformLoginFlow";
 import { markOnboardingStep } from "../services/onboarding";
 import { isLocalConsole, localAgentBase } from "../services/localConsole";
+import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 const props = defineProps<{ token: string; agentBaseUrl: string }>();
 const accounts = ref<any[]>([]);
@@ -430,15 +431,18 @@ function platformAuthConfig(platformId: string): PlatformAuthConfig {
 }
 async function del(a: any) {
   try {
-    // 确认删除
-    if (!confirm(`确定删除账号 ${a.display_name || a.id} 吗？`)) return;
-    // 删除账号
+    if (!(await confirmDialog(`确定删除账号 ${a.display_name || a.id} 吗？`, {
+      title: "删除账号",
+      confirmText: "删除",
+    }))) return;
     await deletePlatformAccount(a.id);
     msg.value = "删除成功";
     msgType.value = "success";
+    notifySuccess(msg.value);
   } catch (e: any) {
     msg.value = e?.message || "删除失败";
     msgType.value = "error";
+    await alertError(msg.value);
   }
   await load();
 }

@@ -32,6 +32,7 @@ import {
 } from "../services/localAgentApi";
 import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
+import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 export function useTasks(
   agentBaseUrl: Ref<string>,
@@ -143,8 +144,11 @@ export function useTasks(
     error.value = "";
     message.value = "";
     try {
-      //弹框确认
-      if (!confirm("确认开始任务吗？")) return;
+      if (!(await confirmDialog("确认开始任务吗？", {
+        title: "开始任务",
+        kind: "success",
+        confirmText: "开始",
+      }))) return;
       const subscription = await getSubscriptionStatus();
       if (!subscription?.active) {
         onSubscriptionExpired?.();
@@ -162,6 +166,7 @@ export function useTasks(
           taskProgress.value = { ...taskProgress.value, [taskId]: data.progress };
         }
         message.value = data.message || "本地任务已进入后台运行";
+        notifySuccess(message.value);
         await load();
         return;
       }
@@ -181,11 +186,13 @@ export function useTasks(
       );
       console.info("[goodhr5][task-start] frontend success", { taskId, data });
       message.value = data.message || "任务开始，请关注日志";
+      notifySuccess(message.value);
       await markOnboardingStep("task_started");
       await load();
     } catch (e: any) {
       console.error("[goodhr5][task-start] frontend failed", { taskId, error: e });
       error.value = e.message;
+      if (!e?.notified) await alertError(error.value || "任务开始失败");
     } finally {
       loading.value = false;
     }
@@ -227,8 +234,10 @@ export function useTasks(
     error.value = "";
     message.value = "";
     try {
-      //弹框确认
-      if (!confirm("确认停止任务吗？")) return;
+      if (!(await confirmDialog("确认停止任务吗？", {
+        title: "停止任务",
+        confirmText: "停止",
+      }))) return;
       if (shouldUseLocalTasks()) {
         const data = await stopLocalTask(localTaskBase(), taskId);
         taskProgress.value = {
@@ -236,6 +245,7 @@ export function useTasks(
           [taskId]: { stage: "stopped", message: "任务已停止" },
         };
         message.value = data.message || "任务已停止";
+        notifySuccess(message.value);
         await load();
         await refreshLogs(taskId);
         stopTaskLogPolling();
@@ -249,12 +259,14 @@ export function useTasks(
       });
       console.info("[goodhr5][task-stop] frontend success", { taskId, data });
       message.value = data.message || "任务已停止";
+      notifySuccess(message.value);
       await load();
       await refreshLogs(taskId);
       stopTaskLogPolling();
     } catch (e: any) {
       console.error("[goodhr5][task-stop] frontend failed", { taskId, error: e });
       error.value = e.message;
+      if (!e?.notified) await alertError(error.value || "停止任务失败");
     } finally {
       loading.value = false;
     }
@@ -265,16 +277,21 @@ export function useTasks(
     error.value = "";
     message.value = "";
     try {
-      if (!confirm("确认删除任务吗？")) return;
+      if (!(await confirmDialog("确认删除任务吗？", {
+        title: "删除任务",
+        confirmText: "删除",
+      }))) return;
       if (shouldUseLocalTasks()) {
         await deleteLocalTask(localTaskBase(), taskId);
       } else {
         await deleteTask(taskId);
       }
       message.value = "任务已删除";
+      notifySuccess(message.value);
       await load();
     } catch (e: any) {
       error.value = e.message;
+      if (!e?.notified) await alertError(error.value || "删除任务失败");
     } finally {
       loading.value = false;
     }
@@ -301,7 +318,10 @@ export function useTasks(
     error.value = "";
     message.value = "";
     try {
-      if (!confirm("确认清空该任务日志吗？")) return;
+      if (!(await confirmDialog("确认清空该任务日志吗？", {
+        title: "清空日志",
+        confirmText: "清空",
+      }))) return;
       const cleared = shouldUseLocalTasks()
         ? await clearLocalTaskLogs(localTaskBase(), taskId)
         : await clearTaskLogs(taskId);
@@ -310,8 +330,10 @@ export function useTasks(
       taskLogHasMore.value = { ...taskLogHasMore.value, [taskId]: false };
       taskLogClearedAt.value = { ...taskLogClearedAt.value, [taskId]: clearedAt };
       message.value = "日志已清空";
+      notifySuccess(message.value);
     } catch (e: any) {
       error.value = e.message;
+      if (!e?.notified) await alertError(error.value || "清空日志失败");
     } finally {
       loading.value = false;
     }

@@ -89,6 +89,7 @@ import {
   listAdminUsers,
   unbindAdminUserAgent,
 } from "../services/api/adminApi";
+import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 const users = ref<any[]>([]);
 const loading = ref(false);
@@ -172,14 +173,19 @@ async function unbindAgent(user: any) {
     error.value = "用户邮箱为空，无法解除绑定";
     return;
   }
-  if (!window.confirm(`确定解除 ${email} 的本地程序绑定吗？`)) return;
+  if (!(await confirmDialog(`确定解除 ${email} 的本地程序绑定吗？`, {
+    title: "解除绑定",
+    confirmText: "解除",
+  }))) return;
   unbinding.value = true;
   try {
     await unbindAdminUserAgent(email);
     message.value = `已解除 ${email} 的本地程序绑定`;
+    notifySuccess(message.value);
     await load();
   } catch (e: any) {
     error.value = e?.message || "解除本地程序绑定失败";
+    await alertError(error.value);
   } finally {
     unbinding.value = false;
   }

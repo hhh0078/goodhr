@@ -132,6 +132,7 @@ import { useRouter } from "vue-router";
 import { clearTeamCandidates, listCandidates } from "../services/api/candidateApi";
 import { listPositions } from "../services/api/positionApi";
 import { listTasks } from "../services/api/taskApi";
+import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 const props = defineProps({
   initialTaskId: String,
@@ -249,10 +250,13 @@ function goPage(nextPage: number) {
  * @returns {Promise<void>} 无返回值。
  */
 async function clearAllCandidates() {
-  const confirmed = window.confirm(
+  if (!(await confirmDialog(
     "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
-  );
-  if (!confirmed) return;
+    {
+      title: "清空简历库",
+      confirmText: "清空",
+    },
+  ))) return;
   clearing.value = true;
   error.value = "";
   try {
@@ -260,8 +264,10 @@ async function clearAllCandidates() {
     candidates.value = [];
     total.value = 0;
     page.value = 1;
+    notifySuccess("简历库已清空");
   } catch (e: any) {
     error.value = e?.message || "清空简历库失败";
+    await alertError(error.value);
   } finally {
     clearing.value = false;
   }
