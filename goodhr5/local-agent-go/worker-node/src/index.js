@@ -929,17 +929,29 @@ function selectorList(value) {
 function classGroupSelectors(value) {
   if (!Array.isArray(value)) return [];
   const groups = Array.isArray(value[0]) ? value : [value];
-  return groups
-    .map((group) => Array.isArray(group) ? group : [group])
-    .map((group) => group.map((item) => String(item || "").trim()).filter(Boolean))
-    .filter((group) => group.length > 0)
-    .map((group) => group.map((item) => `.${cssEscape(item)}`).join(""));
+  return groups.flatMap((group) => {
+    const items = Array.isArray(group) ? group : [group];
+    return items.map(normalizeClassSelector).filter(Boolean);
+  });
 }
 
 /**
- * 转义 CSS class 名称。
- * @param {string} value - class 名称。
- * @returns {string} 转义后的名称。
+ * 规范化 class 或完整 CSS 选择器。
+ * @param {any} value - class 名称或完整 CSS 选择器。
+ * @returns {string} 可直接传给 Playwright locator 的选择器。
+ */
+function normalizeClassSelector(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^[.#[:>~+]/.test(text)) return text;
+  if (/[ >~+:[\]()=]/.test(text)) return text;
+  return `.${cssEscape(text)}`;
+}
+
+/**
+ * 转义纯 CSS class 名称。
+ * @param {string} value - 纯 class 名称。
+ * @returns {string} 转义后的 class 名称。
  */
 function cssEscape(value) {
   return String(value).replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
