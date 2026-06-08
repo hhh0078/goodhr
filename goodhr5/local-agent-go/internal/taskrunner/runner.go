@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -100,6 +101,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if err != nil {
 		return nil, err
 	}
+	r.taskLog(taskID, "info", fmt.Sprintf("收到任务启动请求：name=%s platform=%s mode=%s", task.Name, task.PlatformID, task.Mode))
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !r.setRunning(taskID, cancel) {
 		cancel()
@@ -112,7 +114,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		cancel()
 		return nil, err
 	}
-	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务已进入后台运行")
+	r.taskLog(taskID, "info", "本地任务已进入后台运行")
 	go r.runTask(runCtx, task, options)
 	return map[string]any{"task": updated, "running": true}, nil
 }
@@ -124,6 +126,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	defer r.clear(taskID)
 	totalRounds := scanRounds(options)
 	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: totalRounds})
+	r.taskLog(taskID, "info", "开始校验会员")
 	client := cloudapi.New(options.CloudAPIBase)
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -135,11 +138,13 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, msg)
 		return
 	}
+	r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
 	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
 	if platformID == "" {
 		platformID = "boss"
 	}
+	r.taskLog(taskID, "info", "开始读取云端平台配置：platform="+platformID)
 	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
 	if err != nil {
 		r.failStart(taskID, "读取云端平台配置失败："+err.Error())
@@ -150,18 +155,15 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, msg)
 		return
 	}
-	if _, err := r.db.AddTaskLog(taskID, "info", "已从云端读取平台配置：platform="+platformID); err != nil {
-		r.failStart(taskID, "写入任务日志失败："+err.Error())
-		return
-	}
+	r.taskLog(taskID, "info", "云端平台配置读取成功：platform="+platformID)
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
-	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务运行器已启动")
+	r.taskLog(taskID, "info", "本地任务运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
-			_, _ = r.db.AddTaskLog(taskID, "info", "本地任务收到停止信号")
+			r.taskLog(taskID, "info", "本地任务收到停止信号")
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
@@ -169,7 +171,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	}
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
-	_, _ = r.db.AddTaskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
+	r.taskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
 }
 
 // Stop 停止本地任务运行器。
@@ -179,15 +181,17 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
+	r.taskLog(taskID, "info", "收到停止任务请求")
 	r.cancel(taskID)
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	r.taskLog(taskID, "info", "准备关闭浏览器")
 	_, _ = r.worker.Call(stopCtx, "/api/v1/browser/stop", map[string]any{})
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err
 	}
-	_, _ = r.db.AddTaskLog(taskID, "info", "本地任务已停止")
+	r.taskLog(taskID, "info", "本地任务已停止")
 	return map[string]any{"task": task, "running": false}, nil
 }
 
@@ -251,12 +255,17 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if entryURL == "" {
 		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
 	}
-	if _, err := r.worker.Start(ctx); err != nil {
+	r.taskLog(task.ID, "info", "平台入口地址已确认："+entryURL)
+	r.taskLog(task.ID, "info", "准备启动浏览器 Worker")
+	workerStatus, err := r.worker.Start(ctx)
+	if err != nil {
 		return nil, err
 	}
+	r.taskLog(task.ID, "info", fmt.Sprintf("浏览器 Worker 已启动：running=%v base_url=%s", workerStatus.Running, workerStatus.BaseURL))
 	profileName := taskProfileName(task)
 	userDataDir := filepath.Join(r.profilesDir, profileName)
-	_, _ = r.db.AddTaskLog(task.ID, "info", "正在启动浏览器账号目录："+profileName)
+	r.taskLog(task.ID, "info", "正在启动浏览器账号目录："+profileName)
+	r.taskLog(task.ID, "info", "准备调用浏览器启动接口：/api/v1/browser/start")
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
 		"humanize":       true,
 		"user_data_dir":  userDataDir,
@@ -264,9 +273,11 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	}); err != nil {
 		return nil, err
 	}
+	r.taskLog(task.ID, "info", "浏览器启动成功，准备打开入口页面")
 	if _, err := r.worker.Call(ctx, "/api/v1/page/open", map[string]any{"url": entryURL}); err != nil {
 		return nil, err
 	}
+	r.taskLog(task.ID, "info", "入口页面打开成功："+entryURL)
 	seen := map[string]struct{}{}
 	totalSaved := 0
 	totalSkipped := 0
@@ -279,6 +290,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			return nil, err
 		}
 		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: totalRounds})
+		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始提取候选人：max_items=%d", round, maxItems))
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
 			"platform_config": platformConfig,
 			"max_items":       maxItems,
@@ -287,14 +299,17 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			return nil, err
 		}
 		candidates := freshCandidates(mapList(workerData(result, "candidates")), seen)
+		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人提取完成：新候选人=%d", round, len(candidates)))
 		if len(candidates) == 0 {
-			_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮未发现新候选人", round))
+			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮未发现新候选人", round))
 			break
 		}
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
+		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮关键词过滤完成：保留=%d 跳过=%d", round, len(filtered), skipped))
 		if len(filtered) > 0 {
 			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在并发处理第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
+			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始处理候选人流水线：数量=%d", round, len(filtered)))
 			batchResult, err := r.processCandidateBatch(ctx, task, platformConfig, filtered, totalGreeted, options)
 			if err != nil {
 				return nil, err
@@ -303,7 +318,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalSkipped += batchResult.Skipped
 			totalGreeted += batchResult.Greeted
 			totalFailed += batchResult.Failed
-			_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("第 %d 轮保存 %d 个新候选人", round, batchResult.Saved))
+			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人流水线完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", round, batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
 		}
 		if round < totalRounds {
 			if err := ctx.Err(); err != nil {
@@ -311,19 +326,22 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			}
 			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
 			scrollDistance := randomScrollDistance(options)
+			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮准备滚动候选人列表：distance=%d", round, scrollDistance))
 			if _, err := r.worker.Call(ctx, "/api/v1/boss/candidates/scroll", map[string]any{
 				"platform_config": platformConfig,
 				"distance":        scrollDistance,
 			}); err != nil {
-				_, _ = r.db.AddTaskLog(task.ID, "warning", "滚动候选人列表失败："+err.Error())
+				r.taskLog(task.ID, "warning", "滚动候选人列表失败："+err.Error())
+			} else {
+				r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人列表滚动完成", round))
 			}
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
 		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
-		_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个，打招呼 %d 个", totalSaved, totalSkipped, totalGreeted))
+		r.taskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个，打招呼 %d 个，失败 %d 个", totalSaved, totalSkipped, totalGreeted, totalFailed))
 	} else {
-		_, _ = r.db.AddTaskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
+		r.taskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
 	return map[string]any{
 		"candidates_count": totalSaved,
@@ -415,7 +433,9 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 	aiJobs := make(chan candidatePipelineResult, len(candidates))
 	needsAI := taskMode(task) == "ai"
 	if needsAI {
-		r.startCandidateAIWorkers(ctx, task, aiClient, aiJobs, resultCh, candidatePipelineConcurrency(len(candidates)))
+		workerCount := candidatePipelineConcurrency(len(candidates))
+		r.taskLog(task.ID, "info", fmt.Sprintf("启动候选人 AI 并发评分：候选人=%d 并发=%d", len(candidates), workerCount))
+		r.startCandidateAIWorkers(ctx, task, aiClient, aiJobs, resultCh, workerCount)
 	}
 	go r.feedCandidatePipeline(ctx, task, platformConfig, candidates, needsAI, aiJobs, resultCh)
 	pending := map[int]candidatePipelineResult{}
@@ -439,6 +459,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 		delete(pending, nextIndex)
 		nextIndex++
 		if item.Err != nil {
+			r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理失败：index=%d err=%v", item.Index, item.Err))
 			return result, item.Err
 		}
 		candidate := item.Candidate
@@ -455,6 +476,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 		if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
 			return result, err
 		}
+		r.taskLog(task.ID, "info", fmt.Sprintf("候选人已保存：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), stringFromMap(candidate, "status")))
 		result.Saved++
 	}
 	return result, nil
@@ -497,6 +519,7 @@ func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, p
 			return
 		}
 		if shouldFetchDetail(task) {
+			r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", index, candidateLogName(candidate)))
 			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, nil)
 			item.Skipped += skipped
 			item.Err = err
@@ -507,6 +530,7 @@ func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, p
 		}
 		select {
 		case aiJobs <- item:
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人已进入 AI 评分队列：index=%d name=%s", index, candidateLogName(candidate)))
 		case <-ctx.Done():
 			item.Err = ctx.Err()
 			resultCh <- item
@@ -533,6 +557,7 @@ func (r *Runner) pipelineAIClient(task localdb.Task) (*localai.Client, error) {
 func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
 	status := stringFromMap(candidate, "status")
 	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
+		r.taskLog(task.ID, "info", fmt.Sprintf("跳过打招呼：name=%s status=%s", candidateLogName(candidate), status))
 		return 0, 0, 0, nil
 	}
 	if task.MatchLimit > 0 && greetedSoFar >= task.MatchLimit {
@@ -543,13 +568,16 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 	if err := waitBeforeGreet(ctx, options); err != nil {
 		return 0, 0, 0, err
 	}
+	r.taskLog(task.ID, "info", fmt.Sprintf("准备打招呼：name=%s greeted_so_far=%d", candidateLogName(candidate), greetedSoFar))
 	if err := r.tryGreet(ctx, platformConfig, candidate, options); err != nil {
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
+		r.taskLog(task.ID, "warning", "打招呼失败："+err.Error())
 		return 0, 1, 0, nil
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	r.taskLog(task.ID, "info", "打招呼成功："+candidateLogName(candidate))
 	return 1, 0, 0, nil
 }
 
@@ -601,6 +629,8 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	if mode == "" || !canContinueCandidate(stringFromMap(candidate, "status")) {
 		return 0, nil
 	}
+	candidateName := candidateLogName(candidate)
+	r.taskLog(task.ID, "info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", candidateName, detailModeLabel(mode), intFromMap(candidate, "card_index")))
 	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 		"platform_config": platformConfig,
 		"card_index":      intFromMap(candidate, "card_index"),
@@ -610,9 +640,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
-		_, _ = r.db.AddTaskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
+		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
 		return 0, nil
 	}
+	r.taskLog(task.ID, "info", "详情提取接口返回成功："+candidateName)
 	data := workerDataMap(result)
 	domText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
 	detailText := ""
@@ -626,35 +657,39 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
-				_, _ = r.db.AddTaskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
+				r.taskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
 			} else {
 				detailText = strings.TrimSpace(ocrText)
 				candidate["ocr_text"] = detailText
 				candidate["detail_source"] = "ocr"
+				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
 			}
 		}
 		if mode == "ai" {
+			r.taskLog(task.ID, "info", "开始 AI 图片识别："+candidateName)
 			visionText, err := r.analyzeDetailScreenshotWithClient(ctx, task, screenshot, aiClient)
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
-				_, _ = r.db.AddTaskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
+				r.taskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
 			} else {
 				detailText = strings.TrimSpace(visionText)
 				candidate["ai_vision_text"] = detailText
 				candidate["detail_source"] = "ai"
+				r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
 			}
 		}
 	}
 	if detailText == "" {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情文本为空"
+		r.taskLog(task.ID, "warning", "候选人详情文本为空，已跳过："+candidateName)
 		return 1, nil
 	}
 	candidate["detail_text"] = detailText
 	candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
 	candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
 	candidate["status"] = "detail_fetched"
-	_, _ = r.db.AddTaskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人"), detailModeLabel(mode), len([]rune(detailText))))
+	r.taskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, nil
 }
 
@@ -774,8 +809,11 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	if client == nil {
 		return 0, fmt.Errorf("AI 客户端未配置")
 	}
+	candidateName := candidateLogName(candidate)
+	r.taskLog(task.ID, "info", "开始 AI 评分："+candidateName)
 	decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
 	if err != nil {
+		r.taskLog(task.ID, "warning", "AI 评分失败："+err.Error())
 		return 0, err
 	}
 	candidate["ai_greet_score"] = decision.Score
@@ -786,9 +824,11 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	if !decision.ShouldGreet {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
+		r.taskLog(task.ID, "info", fmt.Sprintf("AI 评分未通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
 		return 1, nil
 	}
 	candidate["status"] = "ai_passed"
+	r.taskLog(task.ID, "info", fmt.Sprintf("AI 评分通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
 	return 0, nil
 }
 
@@ -836,6 +876,7 @@ func (r *Runner) tryGreet(ctx context.Context, platformConfig cloudapi.PlatformC
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		log.Printf("[本地任务] level=info 准备调用打招呼接口 attempt=%d", attempt+1)
 		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
 			"platform_config": platformConfig,
 			"card_index":      intFromMap(candidate, "card_index"),
@@ -966,9 +1007,27 @@ func statusMessage(status string) string {
 // failStart 记录启动失败日志并清理运行锁。
 // taskID 为任务 ID，msg 为失败原因。
 func (r *Runner) failStart(taskID string, msg string) {
-	_, _ = r.db.AddTaskLog(taskID, "error", msg)
+	r.taskLog(taskID, "error", msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
+}
+
+// taskLog 输出任务日志到命令行并写入本地任务日志。
+// taskID 为任务 ID，level 为日志等级，msg 为日志内容。
+func (r *Runner) taskLog(taskID string, level string, msg string) {
+	taskID = strings.TrimSpace(taskID)
+	level = strings.TrimSpace(level)
+	msg = strings.TrimSpace(msg)
+	if level == "" {
+		level = "info"
+	}
+	if msg == "" {
+		return
+	}
+	log.Printf("[本地任务] task=%s level=%s %s", taskID, level, msg)
+	if r.db != nil && taskID != "" {
+		_, _ = r.db.AddTaskLog(taskID, level, msg)
+	}
 }
 
 // setRunning 标记任务正在运行。
@@ -999,6 +1058,7 @@ func (r *Runner) updateProgress(taskID string, progress Progress) {
 		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	state.progress = progress
+	log.Printf("[本地任务] task=%s progress stage=%s round=%d/%d message=%s", taskID, progress.Stage, progress.Round, progress.TotalRounds, progress.Message)
 }
 
 // cancel 取消正在运行的任务。
@@ -1269,6 +1329,17 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// candidateLogName 返回候选人日志展示名称。
+// candidate 为候选人字段集合。
+func candidateLogName(candidate map[string]any) string {
+	return firstNonEmptyString(
+		stringFromMap(candidate, "candidate_name"),
+		stringFromMap(candidate, "name"),
+		stringFromMap(candidate, "id"),
+		"候选人",
+	)
 }
 
 // mergeText 合并两段文本并去掉空值。
