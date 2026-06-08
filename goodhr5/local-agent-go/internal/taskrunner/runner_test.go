@@ -129,6 +129,26 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 }
 
+// TestRunnerStartRequiresToken 验证空 token 会在启动前被拦截。
+func TestRunnerStartRequiresToken(t *testing.T) {
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: "https://goodhr5.58it.cn"}); err == nil || err.Error() != "请先登录后再校验会员" {
+		t.Fatalf("err = %v", err)
+	}
+	updated, err := db.GetTask(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status == "running" {
+		t.Fatalf("空 token 不应启动任务，当前状态=%s", updated.Status)
+	}
+}
+
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
 func TestApplyKeywordFilter(t *testing.T) {
 	task := localdb.Task{

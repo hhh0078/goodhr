@@ -154,6 +154,8 @@ export function useTasks(
         onSubscriptionExpired?.();
         throw new Error("会员已到期，请先订阅后再开始任务");
       }
+      const token = getAccessToken();
+      if (!token) throw new Error("请先登录后再开始任务");
 
       const task = tasks.value.find((item: any) => item.id === taskId);
       await ensureTaskAIConfigReady(task);
@@ -161,7 +163,7 @@ export function useTasks(
         expandedTaskId.value = taskId;
         await refreshLogs(taskId);
         startTaskLogPolling(taskId);
-        const data = await runLocalTask(localTaskBase(), taskId, taskLocalPayload());
+        const data = await runLocalTask(localTaskBase(), taskId, taskLocalPayload(token));
         if (data?.progress) {
           taskProgress.value = { ...taskProgress.value, [taskId]: data.progress };
         }
@@ -597,12 +599,14 @@ export function useTasks(
   }
 
   /**
-   * 生成本地任务启动需要的公开云端参数。
-   * @returns {any} 返回云端 HTTP 地址。
+   * 生成本地任务启动需要的云端参数。
+   * @param {string} token - 当前登录令牌。
+   * @returns {any} 返回云端 HTTP 地址和 token。
    */
-  function taskLocalPayload() {
+  function taskLocalPayload(token = getAccessToken()) {
     return {
       cloud_api_base: cloudApiBase(),
+      token,
     };
   }
 

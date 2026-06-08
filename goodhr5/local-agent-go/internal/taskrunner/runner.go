@@ -92,6 +92,10 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
+	options.Token = strings.TrimSpace(options.Token)
+	if options.Token == "" {
+		return nil, fmt.Errorf("请先登录后再校验会员")
+	}
 	task, err := r.db.GetTask(taskID)
 	if err != nil {
 		return nil, err
