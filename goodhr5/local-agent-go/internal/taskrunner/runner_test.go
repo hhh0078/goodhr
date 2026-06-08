@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
@@ -43,7 +44,7 @@ func TestRunnerStartStop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"configs": []map[string]any{
-					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}]}`},
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/other"},{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]}}`},
 				},
 			})
 		default:
@@ -129,6 +130,39 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 }
 
+// TestPlatformEntryURL 验证平台入口页读取规则与云端运行时一致。
+func TestPlatformEntryURL(t *testing.T) {
+	config := cloudapi.PlatformConfig{
+		"auth": map[string]any{
+			"pages": []any{
+				map[string]any{"url": "https://example.com/first"},
+				map[string]any{"url": "https://example.com/entry", "entry": true},
+			},
+		},
+	}
+	if url := platformEntryURL(config); url != "https://example.com/entry" {
+		t.Fatalf("entry url = %s", url)
+	}
+	fallbackConfig := cloudapi.PlatformConfig{
+		"auth": map[string]any{
+			"pages": []any{
+				map[string]any{"url": "https://example.com/first"},
+			},
+		},
+	}
+	if url := platformEntryURL(fallbackConfig); url != "https://example.com/first" {
+		t.Fatalf("fallback url = %s", url)
+	}
+	legacyConfig := cloudapi.PlatformConfig{
+		"pages": []any{
+			map[string]any{"url": "https://example.com/legacy"},
+		},
+	}
+	if url := platformEntryURL(legacyConfig); url != "https://example.com/legacy" {
+		t.Fatalf("legacy url = %s", url)
+	}
+}
+
 // TestRunnerStartRequiresToken 验证空 token 会在启动前被拦截。
 func TestRunnerStartRequiresToken(t *testing.T) {
 	db := openRunnerTestDB(t)
@@ -146,6 +180,20 @@ func TestRunnerStartRequiresToken(t *testing.T) {
 	}
 	if updated.Status == "running" {
 		t.Fatalf("空 token 不应启动任务，当前状态=%s", updated.Status)
+	}
+}
+
+// TestRunnerMissingEntryURLDoesNotStartBrowser 验证缺少入口页时不会启动浏览器。
+func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
+	db := openRunnerTestDB(t)
+	task := localdb.Task{ID: "task-1", PlatformID: "boss"}
+	worker := &fakeWorker{}
+	runner := newTestRunner(t, db, worker)
+	if _, err := runner.scanOnce(t.Context(), task, cloudapi.PlatformConfig{"auth": map[string]any{"pages": []any{}}}, StartOptions{}); err == nil || err.Error() != "云端平台配置缺少入口页面地址" {
+		t.Fatalf("err = %v", err)
+	}
+	if len(worker.calls) != 0 {
+		t.Fatalf("缺少入口页时不应启动浏览器，calls=%v", worker.calls)
 	}
 }
 

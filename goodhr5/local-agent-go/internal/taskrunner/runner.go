@@ -247,6 +247,10 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	entryURL := platformEntryURL(platformConfig)
+	if entryURL == "" {
+		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
+	}
 	if _, err := r.worker.Start(ctx); err != nil {
 		return nil, err
 	}
@@ -259,10 +263,6 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		"downloads_path": r.browserDownloadDir(),
 	}); err != nil {
 		return nil, err
-	}
-	entryURL := platformEntryURL(platformConfig)
-	if entryURL == "" {
-		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
 	}
 	if _, err := r.worker.Call(ctx, "/api/v1/page/open", map[string]any{"url": entryURL}); err != nil {
 		return nil, err
@@ -1036,18 +1036,63 @@ func boolFromMap(item map[string]any, key string) bool {
 // platformEntryURL 读取平台推荐页入口。
 // platformConfig 为云端平台配置。
 func platformEntryURL(platformConfig cloudapi.PlatformConfig) string {
+	if url := pageEntryURL(platformConfig["auth"]); url != "" {
+		return url
+	}
 	if url := stringFromMap(platformConfig, "url"); url != "" {
 		return url
 	}
-	pages, ok := platformConfig["pages"].([]any)
+	return pageEntryURL(platformConfig)
+}
+
+// pageEntryURL 从页面配置中读取入口地址。
+// value 为包含 pages 的配置对象或 pages 数组，优先返回 entry=true 的页面。
+func pageEntryURL(value any) string {
+	pages := pageList(value)
+	if len(pages) == 0 {
+		return ""
+	}
+	for _, page := range pages {
+		if boolFromMap(page, "entry") {
+			if url := stringFromMap(page, "url"); url != "" {
+				return url
+			}
+		}
+	}
+	for _, page := range pages {
+		if url := stringFromMap(page, "url"); url != "" {
+			return url
+		}
+	}
+	return ""
+}
+
+// pageList 从平台配置对象或数组中读取 pages 列表。
+// value 为配置对象或 pages 数组。
+func pageList(value any) []map[string]any {
+	if value == nil {
+		return nil
+	}
+	if section, ok := value.(cloudapi.PlatformConfig); ok {
+		value = section["pages"]
+	}
+	if section, ok := value.(map[string]any); ok {
+		value = section["pages"]
+	}
+	if typedPages, ok := value.([]map[string]any); ok {
+		return typedPages
+	}
+	pages, ok := value.([]any)
 	if !ok || len(pages) == 0 {
-		return ""
+		return nil
 	}
-	first, ok := pages[0].(map[string]any)
-	if !ok {
-		return ""
+	result := make([]map[string]any, 0, len(pages))
+	for _, item := range pages {
+		if page, ok := item.(map[string]any); ok {
+			result = append(result, page)
+		}
 	}
-	return stringFromMap(first, "url")
+	return result
 }
 
 // workerData 从 Worker 统一响应中读取 data 字段。
