@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker-node"
 BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:9001}"
 AGENT_PID=""
+NPM_REGISTRY="${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}"
 
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
@@ -43,6 +44,25 @@ wait_agent_ready() {
   exit 1
 }
 
+# ensure_worker_dependencies 确保 Node Worker 运行依赖已经安装。
+# 无参数。
+ensure_worker_dependencies() {
+  if [ -d "$WORKER_DIR/node_modules/cloakbrowser" ]; then
+    log "Node Worker 依赖已存在"
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    log "未找到 npm，无法安装 Node Worker 依赖。请先安装 Node.js。"
+    exit 1
+  fi
+  log "未找到 node_modules/cloakbrowser，准备安装 Node Worker 依赖"
+  log "npm registry：$NPM_REGISTRY"
+  (
+    cd "$WORKER_DIR"
+    npm install --omit=dev --registry="$NPM_REGISTRY"
+  )
+}
+
 if [ ! -d "$WORKER_DIR" ]; then
   log "Node Worker 源码目录不存在：$WORKER_DIR"
   exit 1
@@ -51,6 +71,8 @@ fi
 log "准备安装本地 Node Worker"
 log "Local Agent：$BASE_URL"
 log "Worker 源码：$WORKER_DIR"
+
+ensure_worker_dependencies
 
 if agent_health_ok; then
   log "检测到本地程序已运行，将直接安装 Worker"
