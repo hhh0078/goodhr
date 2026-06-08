@@ -19,6 +19,7 @@ import (
 
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {
+	speedUpPageEntryCheck(t)
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected ai path: %s", r.URL.Path)
@@ -198,6 +199,37 @@ func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
 	}
 }
 
+// TestEnsureTaskPageReadyRetries 验证页面刚打开时会等待多次检查。
+func TestEnsureTaskPageReadyRetries(t *testing.T) {
+	oldAttempts := pageEntryCheckAttempts
+	oldDelay := pageEntryCheckDelay
+	pageEntryCheckAttempts = 10
+	pageEntryCheckDelay = time.Millisecond
+	t.Cleanup(func() {
+		pageEntryCheckAttempts = oldAttempts
+		pageEntryCheckDelay = oldDelay
+	})
+
+	db := openRunnerTestDB(t)
+	task := localdb.Task{ID: "task-1", PlatformID: "boss", PositionSnapshot: map[string]any{"name": "本地任务"}}
+	worker := &fakeWorker{pageListEmptyBefore: 5}
+	runner := newTestRunner(t, db, worker)
+	platformConfig := cloudapi.PlatformConfig{
+		"auth": map[string]any{
+			"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}},
+		},
+		"position": map[string]any{
+			"current": map[string]any{"target_classes": []any{[]any{"current-position"}}},
+		},
+	}
+	if err := runner.ensureTaskPageReady(t.Context(), task, platformConfig); err != nil {
+		t.Fatal(err)
+	}
+	if worker.pageListCalls != 6 {
+		t.Fatalf("页面检查次数 = %d", worker.pageListCalls)
+	}
+}
+
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
 func TestApplyKeywordFilter(t *testing.T) {
 	task := localdb.Task{
@@ -248,6 +280,7 @@ func TestRunOptionBounds(t *testing.T) {
 
 // TestRunnerStopCancelsRunningTask 验证停止任务会取消正在执行的 Worker 调用。
 func TestRunnerStopCancelsRunningTask(t *testing.T) {
+	speedUpPageEntryCheck(t)
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -303,8 +336,10 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 
 // fakeWorker 模拟浏览器 Worker。
 type fakeWorker struct {
-	calls           []string
-	currentPosition string
+	calls               []string
+	currentPosition     string
+	pageListCalls       int
+	pageListEmptyBefore int
 }
 
 // fakeOCR 模拟 OCR 识别器。
@@ -328,6 +363,10 @@ func (w *fakeWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
 func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
 	w.calls = append(w.calls, path)
 	if path == "/api/v1/page/list" {
+		w.pageListCalls++
+		if w.pageListCalls <= w.pageListEmptyBefore {
+			return map[string]any{"data": map[string]any{"pages": []any{}}}, nil
+		}
 		return map[string]any{"data": map[string]any{"pages": []any{map[string]any{
 			"page_id":    "0",
 			"url":        "https://www.zhipin.com/web/chat/recommend",
@@ -434,6 +473,20 @@ func waitForTaskStatus(t *testing.T, db *localdb.DB, taskID string, status strin
 	}
 	t.Fatalf("等待任务状态超时，当前状态=%s，目标状态=%s", task.Status, status)
 	return task
+}
+
+// speedUpPageEntryCheck 加快测试中的页面入口等待。
+// t 为测试对象，测试结束后自动恢复默认等待配置。
+func speedUpPageEntryCheck(t *testing.T) {
+	t.Helper()
+	oldAttempts := pageEntryCheckAttempts
+	oldDelay := pageEntryCheckDelay
+	pageEntryCheckAttempts = 10
+	pageEntryCheckDelay = time.Millisecond
+	t.Cleanup(func() {
+		pageEntryCheckAttempts = oldAttempts
+		pageEntryCheckDelay = oldDelay
+	})
 }
 
 // openRunnerTestDB 创建任务运行器测试数据库。

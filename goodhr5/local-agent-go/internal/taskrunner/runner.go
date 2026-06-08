@@ -29,6 +29,12 @@ const defaultScrollDistance = 720
 const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
 
+// pageEntryCheckAttempts 是入口页面加载检查的最大次数。
+var pageEntryCheckAttempts = 10
+
+// pageEntryCheckDelay 是每次入口页面检查前的等待时间。
+var pageEntryCheckDelay = time.Second
+
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
 	Start(ctx context.Context) (browser.WorkerStatus, error)
@@ -378,13 +384,8 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r.taskLog(task.ID, "info", "开始检查当前页面是否为任务入口页")
-	ok, err := r.isTaskEntryPage(ctx, platformConfig)
-	if err != nil {
-		return fmt.Errorf("检查当前页面失败：%w", err)
-	}
-	if !ok {
-		return fmt.Errorf("网页被切换了，请点击开始后继续")
+	if err := r.waitTaskEntryPage(ctx, task.ID, platformConfig); err != nil {
+		return err
 	}
 	positionName := taskPositionName(task)
 	if strings.TrimSpace(positionName) == "" {
@@ -411,6 +412,37 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 		return nil
 	}
 	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+}
+
+// waitTaskEntryPage 等待当前页面加载到任务入口页。
+// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置。
+func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) error {
+	attempts := pageEntryCheckAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		r.taskLog(taskID, "info", fmt.Sprintf("正在等待页面加载，第 %d/%d 次", attempt, attempts))
+		if err := sleepWithContext(ctx, pageEntryCheckDelay); err != nil {
+			return err
+		}
+		ok, err := r.isTaskEntryPage(ctx, platformConfig)
+		if err != nil {
+			lastErr = err
+			r.taskLog(taskID, "warning", fmt.Sprintf("检查当前页面失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
+			continue
+		}
+		if ok {
+			r.taskLog(taskID, "info", fmt.Sprintf("当前页面已确认，第 %d/%d 次检查成功", attempt, attempts))
+			return nil
+		}
+		lastErr = fmt.Errorf("网页还没有加载到任务入口页")
+	}
+	if lastErr != nil {
+		return fmt.Errorf("检查当前页面失败：%w", lastErr)
+	}
+	return fmt.Errorf("检查当前页面失败")
 }
 
 // isTaskEntryPage 判断当前默认页面是否仍是平台入口页。
