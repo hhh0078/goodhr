@@ -201,14 +201,7 @@ func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
 
 // TestEnsureTaskPageReadyRetries 验证页面刚打开时会等待多次检查。
 func TestEnsureTaskPageReadyRetries(t *testing.T) {
-	oldAttempts := pageEntryCheckAttempts
-	oldDelay := pageEntryCheckDelay
-	pageEntryCheckAttempts = 10
-	pageEntryCheckDelay = time.Millisecond
-	t.Cleanup(func() {
-		pageEntryCheckAttempts = oldAttempts
-		pageEntryCheckDelay = oldDelay
-	})
+	speedUpPageEntryCheck(t)
 
 	db := openRunnerTestDB(t)
 	task := localdb.Task{ID: "task-1", PlatformID: "boss", PositionSnapshot: map[string]any{"name": "本地任务"}}
@@ -481,11 +474,17 @@ func speedUpPageEntryCheck(t *testing.T) {
 	t.Helper()
 	oldAttempts := pageEntryCheckAttempts
 	oldDelay := pageEntryCheckDelay
+	oldCurrentAttempts := currentPositionCheckAttempts
+	oldCurrentDelay := currentPositionCheckDelay
 	pageEntryCheckAttempts = 10
 	pageEntryCheckDelay = time.Millisecond
+	currentPositionCheckAttempts = 10
+	currentPositionCheckDelay = time.Millisecond
 	t.Cleanup(func() {
 		pageEntryCheckAttempts = oldAttempts
 		pageEntryCheckDelay = oldDelay
+		currentPositionCheckAttempts = oldCurrentAttempts
+		currentPositionCheckDelay = oldCurrentDelay
 	})
 }
 

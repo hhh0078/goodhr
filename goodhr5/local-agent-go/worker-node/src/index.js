@@ -345,14 +345,17 @@ async function scrollPage(payload) {
  */
 async function extractText(payload) {
   const currentPage = await ensurePage();
-  const locator = await firstLocator(currentPage, payload.element || payload, false);
+  const element = payload.element || payload;
+  const selector = firstSelector(element);
+  const locators = await allLocators(currentPage, element, false);
+  const locator = locators[0];
   if (!locator) {
-    if (payload.element || firstSelector(payload)) return { text: "", texts: [] };
+    if (payload.element || selector) return { text: "", texts: [], found: false, count: 0, selector };
     const text = await currentPage.locator("body").innerText({ timeout: Number(payload.timeout || 10000) });
-    return { text };
+    return { text, texts: text ? [text] : [], found: true, count: 1, selector: "body" };
   }
   const text = await locator.innerText({ timeout: Number(payload.timeout || 10000) });
-  return { text, texts: text ? [text] : [] };
+  return { text, texts: text ? [text] : [], found: true, count: locators.length, selector };
 }
 
 /**

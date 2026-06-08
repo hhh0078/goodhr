@@ -35,6 +35,12 @@ var pageEntryCheckAttempts = 10
 // pageEntryCheckDelay 是每次入口页面检查前的等待时间。
 var pageEntryCheckDelay = time.Second
 
+// currentPositionCheckAttempts 是当前岗位名称读取的最大次数。
+var currentPositionCheckAttempts = 10
+
+// currentPositionCheckDelay 是每次读取当前岗位名称前的等待时间。
+var currentPositionCheckDelay = time.Second
+
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
 	Start(ctx context.Context) (browser.WorkerStatus, error)
@@ -391,7 +397,7 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if strings.TrimSpace(positionName) == "" {
 		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
 	}
-	currentName, err := r.currentPositionName(ctx, platformConfig)
+	currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformConfig)
 	if err != nil {
 		return fmt.Errorf("获取页面当前岗位失败：%w", err)
 	}
@@ -403,7 +409,7 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if err := r.selectPosition(ctx, task.ID, platformConfig, positionName); err != nil {
 		return fmt.Errorf("切换页面岗位失败：%w", err)
 	}
-	confirmedName, err := r.currentPositionName(ctx, platformConfig)
+	confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformConfig)
 	if err != nil {
 		return fmt.Errorf("切换后确认页面岗位失败：%w", err)
 	}
@@ -445,6 +451,32 @@ func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformC
 	return fmt.Errorf("检查当前页面失败")
 }
 
+// waitCurrentPositionName 等待页面当前岗位名称可读取。
+// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置。
+func (r *Runner) waitCurrentPositionName(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) (string, error) {
+	attempts := currentPositionCheckAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		r.taskLog(taskID, "info", fmt.Sprintf("正在读取页面当前岗位，第 %d/%d 次", attempt, attempts))
+		if err := sleepWithContext(ctx, currentPositionCheckDelay); err != nil {
+			return "", err
+		}
+		name, err := r.currentPositionName(ctx, taskID, platformConfig)
+		if err == nil {
+			return name, nil
+		}
+		lastErr = err
+		r.taskLog(taskID, "warning", fmt.Sprintf("读取页面当前岗位失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("页面当前岗位为空")
+}
+
 // isTaskEntryPage 判断当前默认页面是否仍是平台入口页。
 // ctx 为请求上下文，platformConfig 为云端平台配置。
 func (r *Runner) isTaskEntryPage(ctx context.Context, platformConfig cloudapi.PlatformConfig) (bool, error) {
@@ -465,19 +497,20 @@ func (r *Runner) isTaskEntryPage(ctx context.Context, platformConfig cloudapi.Pl
 }
 
 // currentPositionName 读取当前页面岗位名称。
-// ctx 为请求上下文，platformConfig 为云端平台配置。
-func (r *Runner) currentPositionName(ctx context.Context, platformConfig cloudapi.PlatformConfig) (string, error) {
+// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为云端平台配置。
+func (r *Runner) currentPositionName(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) (string, error) {
 	current := platformPositionElement(platformConfig, "current")
 	if current == nil {
 		return "", fmt.Errorf("平台配置中无当前岗位选择器")
 	}
-	result, err := r.worker.Call(ctx, "/api/v1/page/extract-text", map[string]any{"element": current})
+	result, err := r.worker.Call(ctx, "/api/v1/page/extract-text", map[string]any{"element": current, "timeout": 3000})
 	if err != nil {
 		return "", err
 	}
 	data := workerDataMap(result)
 	name := firstNonEmptyString(stringFromMap(data, "text"), firstStringFromAny(data["texts"]))
 	if name == "" {
+		r.taskLog(taskID, "warning", fmt.Sprintf("页面当前岗位提取为空：found=%v count=%d text_len=%d worker_selector=%s config=%s", boolFromMap(data, "found"), intFromMap(data, "count"), len(stringFromMap(data, "text")), stringFromMap(data, "selector"), selectorSummary(current)))
 		return "", fmt.Errorf("页面当前岗位为空")
 	}
 	return name, nil
@@ -1409,6 +1442,29 @@ func platformPositionElement(platformConfig cloudapi.PlatformConfig, key string)
 	return mapFromAny(position[key])
 }
 
+// selectorSummary 返回元素定位配置摘要。
+// element 为平台配置中的元素定位对象，返回值用于任务日志排查选择器问题。
+func selectorSummary(element map[string]any) string {
+	if element == nil {
+		return "空配置"
+	}
+	parts := []string{}
+	for _, key := range []string{"selector", "xpath", "text", "role"} {
+		if value := stringFromMap(element, key); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	for _, key := range []string{"target_classes", "parent_classes"} {
+		if value, ok := element[key]; ok {
+			parts = append(parts, key+"="+compactAny(value, 120))
+		}
+	}
+	if len(parts) == 0 {
+		return compactAny(element, 160)
+	}
+	return strings.Join(parts, " ")
+}
+
 // taskPositionName 返回任务岗位名称。
 // task 为任务记录。
 func taskPositionName(task localdb.Task) string {
@@ -1623,6 +1679,21 @@ func workerDataMap(result map[string]any) map[string]any {
 		return data
 	}
 	return result
+}
+
+// compactAny 把任意值压缩成短文本。
+// value 为任意值，limit 为最大字符数。
+func compactAny(value any, limit int) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	text := strings.TrimSpace(string(raw))
+	if limit > 0 && len([]rune(text)) > limit {
+		runes := []rune(text)
+		return string(runes[:limit]) + "..."
+	}
+	return text
 }
 
 // firstNonEmptyString 返回第一个非空字符串。
