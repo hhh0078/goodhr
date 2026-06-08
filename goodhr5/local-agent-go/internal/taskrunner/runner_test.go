@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,7 +45,7 @@ func TestRunnerStartStop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"configs": []map[string]any{
-					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/other"},{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]}}`},
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/other"},{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]},"position":{"current":{"target_classes":[["current-position"]]},"switchBtn":{"target_classes":[["switch-position"]]},"list":{"target_classes":[["position-list"]]},"item":{"target_classes":[["position-item"]]},"itemText":{"target_classes":[["position-name"]]}}}`},
 				},
 			})
 		default:
@@ -54,7 +55,7 @@ func TestRunnerStartStop(t *testing.T) {
 	defer cloud.Close()
 
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss"})
+	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地任务"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	worker := &fakeWorker{}
 	runner := newTestRunner(t, db, worker)
-	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"})
+	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +114,11 @@ func TestRunnerStartStop(t *testing.T) {
 		t.Fatalf("stopped status = %s", stopped.Status)
 	}
 
-	task2, err := db.CreateTask(map[string]any{"name": "本地任务2", "platform_id": "boss", "match_limit": 1})
+	task2, err := db.CreateTask(map[string]any{"name": "本地任务2", "platform_id": "boss", "match_limit": 1, "position_snapshot": map[string]any{"name": "本地任务2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Start(t.Context(), task2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true}); err != nil {
+	if _, err := runner.Start(t.Context(), task2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true, PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
 	}
 	waitForTaskStatus(t, db, task2.ID, "completed")
@@ -166,7 +167,7 @@ func TestPlatformEntryURL(t *testing.T) {
 // TestRunnerStartRequiresToken 验证空 token 会在启动前被拦截。
 func TestRunnerStartRequiresToken(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss"})
+	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地任务"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +259,7 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"configs": []map[string]any{
-					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}]}`},
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}],"position":{"current":{"target_classes":[["current-position"]]},"switchBtn":{"target_classes":[["switch-position"]]},"list":{"target_classes":[["position-list"]]},"item":{"target_classes":[["position-item"]]},"itemText":{"target_classes":[["position-name"]]}}}`},
 				},
 			})
 		default:
@@ -268,13 +269,13 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	defer cloud.Close()
 
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "可停止任务", "platform_id": "boss", "mode": "keyword"})
+	task, err := db.CreateTask(map[string]any{"name": "可停止任务", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "可停止任务"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker := &blockingWorker{extractStarted: make(chan struct{}), released: make(chan struct{})}
 	runner := newTestRunner(t, db, worker)
-	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1"}); err != nil {
+	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -302,7 +303,8 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 
 // fakeWorker 模拟浏览器 Worker。
 type fakeWorker struct {
-	calls []string
+	calls           []string
+	currentPosition string
 }
 
 // fakeOCR 模拟 OCR 识别器。
@@ -325,6 +327,35 @@ func (w *fakeWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
 	w.calls = append(w.calls, path)
+	if path == "/api/v1/page/list" {
+		return map[string]any{"data": map[string]any{"pages": []any{map[string]any{
+			"page_id":    "0",
+			"url":        "https://www.zhipin.com/web/chat/recommend",
+			"is_default": true,
+		}}}}, nil
+	}
+	if path == "/api/v1/page/extract-text" {
+		position := strings.TrimSpace(w.currentPosition)
+		if position == "" {
+			position = "本地任务"
+		}
+		return map[string]any{"data": map[string]any{"text": position, "texts": []any{position}}}, nil
+	}
+	if path == "/api/v1/page/find-elements" {
+		return map[string]any{"data": map[string]any{"items": []any{
+			map[string]any{"index": 0, "text": "本地任务", "fields": map[string]any{"position_name": "本地任务"}},
+			map[string]any{"index": 1, "text": "本地任务2", "fields": map[string]any{"position_name": "本地任务2"}},
+		}}}, nil
+	}
+	if path == "/api/v1/page/list-click-by-index" {
+		index := intFromMap(mapValue(payload), "index")
+		if index == 1 {
+			w.currentPosition = "本地任务2"
+		} else {
+			w.currentPosition = "本地任务"
+		}
+		return map[string]any{"data": map[string]any{"clicked": true}}, nil
+	}
 	if path == "/api/v1/boss/candidates/extract" {
 		return map[string]any{
 			"data": map[string]any{
@@ -363,6 +394,16 @@ func (w *blockingWorker) Start(ctx context.Context) (browser.WorkerStatus, error
 // Call 模拟 Worker API，并在候选人提取时等待取消。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if path == "/api/v1/page/list" {
+		return map[string]any{"data": map[string]any{"pages": []any{map[string]any{
+			"page_id":    "0",
+			"url":        "https://www.zhipin.com/web/chat/recommend",
+			"is_default": true,
+		}}}}, nil
+	}
+	if path == "/api/v1/page/extract-text" {
+		return map[string]any{"data": map[string]any{"text": "可停止任务", "texts": []any{"可停止任务"}}}, nil
+	}
 	if path == "/api/v1/boss/candidates/extract" {
 		close(w.extractStarted)
 		<-ctx.Done()

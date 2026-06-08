@@ -78,6 +78,7 @@ type StartOptions struct {
 	ScanRounds     int
 	MaxItems       int
 	ScrollDistance int
+	PageReadyDelay int
 }
 
 // New 创建本地任务运行器。
@@ -289,6 +290,15 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: fmt.Sprintf("正在确认第 %d 轮页面和岗位", round), Round: round, TotalRounds: totalRounds})
+		if err := r.ensureTaskPageReady(ctx, task, platformConfig); err != nil {
+			return nil, err
+		}
+		delay := pageReadyDelay(options)
+		r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
+		if err := sleepWithContext(ctx, delay); err != nil {
+			return nil, err
+		}
 		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: totalRounds})
 		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始提取候选人：max_items=%d", round, maxItems))
 		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
@@ -360,6 +370,132 @@ func taskProfileName(task localdb.Task) string {
 		accountID = strings.TrimSpace(task.PlatformID) + "_default"
 	}
 	return safePathName(accountID)
+}
+
+// ensureTaskPageReady 确认当前页面和岗位与任务匹配。
+// ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置。
+func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.taskLog(task.ID, "info", "开始检查当前页面是否为任务入口页")
+	ok, err := r.isTaskEntryPage(ctx, platformConfig)
+	if err != nil {
+		return fmt.Errorf("检查当前页面失败：%w", err)
+	}
+	if !ok {
+		return fmt.Errorf("网页被切换了，请点击开始后继续")
+	}
+	positionName := taskPositionName(task)
+	if strings.TrimSpace(positionName) == "" {
+		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
+	}
+	currentName, err := r.currentPositionName(ctx, platformConfig)
+	if err != nil {
+		return fmt.Errorf("获取页面当前岗位失败：%w", err)
+	}
+	if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
+		r.taskLog(task.ID, "info", "页面岗位匹配："+currentName)
+		return nil
+	}
+	r.taskLog(task.ID, "warning", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, positionName))
+	if err := r.selectPosition(ctx, task.ID, platformConfig, positionName); err != nil {
+		return fmt.Errorf("切换页面岗位失败：%w", err)
+	}
+	confirmedName, err := r.currentPositionName(ctx, platformConfig)
+	if err != nil {
+		return fmt.Errorf("切换后确认页面岗位失败：%w", err)
+	}
+	if strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
+		r.taskLog(task.ID, "info", "页面岗位已切换为："+confirmedName)
+		return nil
+	}
+	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+}
+
+// isTaskEntryPage 判断当前默认页面是否仍是平台入口页。
+// ctx 为请求上下文，platformConfig 为云端平台配置。
+func (r *Runner) isTaskEntryPage(ctx context.Context, platformConfig cloudapi.PlatformConfig) (bool, error) {
+	entry := platformEntryPage(platformConfig)
+	if strings.TrimSpace(stringFromMap(entry, "url")) == "" {
+		return false, fmt.Errorf("云端平台配置缺少入口页面地址")
+	}
+	result, err := r.worker.Call(ctx, "/api/v1/page/list", map[string]any{})
+	if err != nil {
+		return false, err
+	}
+	pages := mapList(workerData(result, "pages"))
+	if len(pages) == 0 {
+		return false, nil
+	}
+	current := currentDefaultPage(pages)
+	return pageMatchesEntry(stringFromMap(current, "url"), entry), nil
+}
+
+// currentPositionName 读取当前页面岗位名称。
+// ctx 为请求上下文，platformConfig 为云端平台配置。
+func (r *Runner) currentPositionName(ctx context.Context, platformConfig cloudapi.PlatformConfig) (string, error) {
+	current := platformPositionElement(platformConfig, "current")
+	if current == nil {
+		return "", fmt.Errorf("平台配置中无当前岗位选择器")
+	}
+	result, err := r.worker.Call(ctx, "/api/v1/page/extract-text", map[string]any{"element": current})
+	if err != nil {
+		return "", err
+	}
+	data := workerDataMap(result)
+	name := firstNonEmptyString(stringFromMap(data, "text"), firstStringFromAny(data["texts"]))
+	if name == "" {
+		return "", fmt.Errorf("页面当前岗位为空")
+	}
+	return name, nil
+}
+
+// selectPosition 切换页面岗位。
+// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置，positionName 为目标岗位名称。
+func (r *Runner) selectPosition(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig, positionName string) error {
+	switchButton := platformPositionElement(platformConfig, "switchBtn")
+	if switchButton == nil {
+		return fmt.Errorf("平台配置中无岗位选择入口")
+	}
+	if _, err := r.worker.Call(ctx, "/api/v1/page/click", map[string]any{"element": switchButton, "timeout": 10000}); err != nil {
+		return err
+	}
+	if err := sleepWithContext(ctx, 500*time.Millisecond); err != nil {
+		return err
+	}
+	list := platformPositionElement(platformConfig, "list")
+	item := positionListItemElement(list, platformPositionElement(platformConfig, "item"))
+	itemText := platformPositionElement(platformConfig, "itemText")
+	if item == nil || itemText == nil {
+		return fmt.Errorf("平台配置中无岗位列表或岗位文字选择器")
+	}
+	result, err := r.worker.Call(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      item,
+		"visible_only": true,
+		"fields":       []any{map[string]any{"position_name": itemText}},
+	})
+	if err != nil {
+		return err
+	}
+	items := mapList(workerData(result, "items"))
+	r.taskLog(taskID, "info", fmt.Sprintf("岗位列表共查找到 %d 个岗位项", len(items)))
+	target := normalizeTaskPositionName(positionName)
+	for _, found := range items {
+		fields := mapFromAny(found["fields"])
+		name := firstNonEmptyString(stringFromMap(fields, "position_name"), stringFromMap(found, "text"))
+		r.taskLog(taskID, "info", fmt.Sprintf("岗位列表项：index=%d name=%s", intFromMap(found, "index"), name))
+		if target == "" || !strings.Contains(normalizeTaskPositionName(name), target) {
+			continue
+		}
+		r.taskLog(taskID, "info", "找到匹配岗位，准备点击："+name)
+		_, err := r.worker.Call(ctx, "/api/v1/page/list-click-by-index", map[string]any{
+			"index": intFromMap(found, "index"),
+			"item":  item,
+		})
+		return err
+	}
+	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和Boss直聘岗位名称一致", positionName)
 }
 
 // safePathName 清理文件夹名中的危险字符。
@@ -985,6 +1121,15 @@ func randomScrollDistance(options StartOptions) int {
 	return minDistance + rand.Intn(maxDistance-minDistance+1)
 }
 
+// pageReadyDelay 返回提取候选人前等待页面稳定的时间。
+// options 为任务启动参数。
+func pageReadyDelay(options StartOptions) time.Duration {
+	if options.PageReadyDelay > 0 {
+		return time.Duration(options.PageReadyDelay) * time.Millisecond
+	}
+	return 5 * time.Second
+}
+
 // statusMessage 返回任务状态中文说明。
 // status 为任务状态。
 func statusMessage(status string) string {
@@ -1096,13 +1241,48 @@ func boolFromMap(item map[string]any, key string) bool {
 // platformEntryURL 读取平台推荐页入口。
 // platformConfig 为云端平台配置。
 func platformEntryURL(platformConfig cloudapi.PlatformConfig) string {
-	if url := pageEntryURL(platformConfig["auth"]); url != "" {
+	if url := stringFromMap(platformEntryPage(platformConfig), "url"); url != "" {
 		return url
 	}
 	if url := stringFromMap(platformConfig, "url"); url != "" {
 		return url
 	}
 	return pageEntryURL(platformConfig)
+}
+
+// platformEntryPage 读取平台任务入口页配置。
+// platformConfig 为云端平台配置。
+func platformEntryPage(platformConfig cloudapi.PlatformConfig) map[string]any {
+	if page := entryPageFromAny(mapFromAny(platformConfig["auth"])); len(page) > 0 {
+		return page
+	}
+	if page := entryPageFromAny(platformConfig); len(page) > 0 {
+		return page
+	}
+	if url := stringFromMap(platformConfig, "url"); url != "" {
+		return map[string]any{"url": url}
+	}
+	return nil
+}
+
+// entryPageFromAny 从包含 pages 的对象中读取入口页。
+// value 为配置对象。
+func entryPageFromAny(value any) map[string]any {
+	pages := pageList(value)
+	if len(pages) == 0 {
+		return nil
+	}
+	for _, page := range pages {
+		if boolFromMap(page, "entry") && stringFromMap(page, "url") != "" {
+			return page
+		}
+	}
+	for _, page := range pages {
+		if stringFromMap(page, "url") != "" {
+			return page
+		}
+	}
+	return nil
 }
 
 // pageEntryURL 从页面配置中读取入口地址。
@@ -1153,6 +1333,86 @@ func pageList(value any) []map[string]any {
 		}
 	}
 	return result
+}
+
+// currentDefaultPage 返回当前默认页面。
+// pages 为 Worker 返回的页面列表。
+func currentDefaultPage(pages []map[string]any) map[string]any {
+	for _, page := range pages {
+		if boolFromMap(page, "is_default") {
+			return page
+		}
+	}
+	if len(pages) > 0 {
+		return pages[0]
+	}
+	return nil
+}
+
+// pageMatchesEntry 判断页面地址是否匹配平台入口。
+// rawURL 为当前页面地址，entry 为入口页配置。
+func pageMatchesEntry(rawURL string, entry map[string]any) bool {
+	pageURL := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	target := strings.TrimRight(strings.TrimSpace(stringFromMap(entry, "url")), "/")
+	if pageURL == "" || target == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(stringFromMap(entry, "match"))) {
+	case "prefix":
+		return strings.HasPrefix(pageURL, target)
+	case "contains", "":
+		return strings.Contains(pageURL, target)
+	default:
+		return pageURL == target
+	}
+}
+
+// platformPositionElement 读取平台岗位相关元素配置。
+// platformConfig 为平台配置，key 为 position 内字段名。
+func platformPositionElement(platformConfig cloudapi.PlatformConfig, key string) map[string]any {
+	position := mapFromAny(platformConfig["position"])
+	if len(position) == 0 {
+		return nil
+	}
+	return mapFromAny(position[key])
+}
+
+// taskPositionName 返回任务岗位名称。
+// task 为任务记录。
+func taskPositionName(task localdb.Task) string {
+	return stringFromMap(task.PositionSnapshot, "name")
+}
+
+// normalizeTaskPositionName 规范化岗位名称用于比较。
+// value 为原始岗位名称。
+func normalizeTaskPositionName(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
+}
+
+// positionListItemElement 合并岗位列表容器与岗位项定位配置。
+// list 为岗位列表容器配置，item 为岗位项配置。
+func positionListItemElement(list map[string]any, item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	merged := copyMap(item)
+	if list == nil {
+		return merged
+	}
+	parents := []any{}
+	if existing, ok := merged["parent_classes"].([]any); ok {
+		parents = append(parents, existing...)
+	}
+	if listParents, ok := list["parent_classes"].([]any); ok {
+		parents = append(parents, listParents...)
+	}
+	if listTargets, ok := list["target_classes"].([]any); ok {
+		parents = append(parents, listTargets...)
+	}
+	if len(parents) > 0 {
+		merged["parent_classes"] = parents
+	}
+	return merged
 }
 
 // workerData 从 Worker 统一响应中读取 data 字段。
@@ -1308,6 +1568,19 @@ func mapFromAny(value any) map[string]any {
 	return mapValue(value)
 }
 
+// copyMap 浅拷贝 map，避免修改原始配置。
+// input 为原始 map。
+func copyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
 // workerDataMap 从 Worker 返回中读取 data 字典。
 // result 为 Worker 返回 JSON。
 func workerDataMap(result map[string]any) map[string]any {
@@ -1326,6 +1599,21 @@ func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// firstStringFromAny 从任意数组中读取第一个字符串。
+// value 为原始数组值。
+func firstStringFromAny(value any) string {
+	items, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	for _, item := range items {
+		if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
+			return text
 		}
 	}
 	return ""
