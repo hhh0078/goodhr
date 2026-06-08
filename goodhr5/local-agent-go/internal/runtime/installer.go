@@ -231,7 +231,7 @@ func (m *Manager) componentFileExists(component string) bool {
 	case "node_runtime":
 		return fileExists(m.NodePath())
 	case "node_worker":
-		return fileExists(m.WorkerEntry())
+		return fileExists(m.WorkerEntry()) && fileExists(m.WorkerDependencyPath())
 	case "cloakbrowser":
 		return fileExists(m.CloakBrowserPath())
 	case "ocr":
@@ -501,9 +501,6 @@ func copyDir(sourceDir string, targetDir string) error {
 		}
 		targetPath := filepath.Join(targetDir, rel)
 		if entry.IsDir() {
-			if entry.Name() == "node_modules" {
-				return filepath.SkipDir
-			}
 			return os.MkdirAll(targetPath, 0o755)
 		}
 		info, err := entry.Info()

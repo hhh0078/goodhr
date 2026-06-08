@@ -20,6 +20,7 @@ type Status struct {
 	NodePath              string                        `json:"node_path"`
 	WorkerInstalled       bool                          `json:"worker_installed"`
 	WorkerEntry           string                        `json:"worker_entry"`
+	WorkerDependencyPath  string                        `json:"worker_dependency_path"`
 	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
 	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
 	OCRInstalled          bool                          `json:"ocr_installed"`
@@ -68,13 +69,15 @@ func NewManager(cfg *config.Config) *Manager {
 func (m *Manager) Status() Status {
 	nodePath := m.NodePath()
 	workerEntry := m.WorkerEntry()
+	workerDependencyPath := m.WorkerDependencyPath()
 	browserPath := m.CloakBrowserPath()
 	ocrPath := m.OCRPath()
 	return Status{
 		NodeInstalled:         fileExists(nodePath),
 		NodePath:              nodePath,
-		WorkerInstalled:       fileExists(workerEntry),
+		WorkerInstalled:       fileExists(workerEntry) && fileExists(workerDependencyPath),
 		WorkerEntry:           workerEntry,
+		WorkerDependencyPath:  workerDependencyPath,
 		CloakBrowserInstalled: fileExists(browserPath),
 		CloakBrowserPath:      browserPath,
 		OCRInstalled:          fileExists(ocrPath),
@@ -202,6 +205,12 @@ func (m *Manager) WorkerEntry() string {
 		return found
 	}
 	return filepath.Join(root, "index.js")
+}
+
+// WorkerDependencyPath 返回 Node Worker 必须依赖 cloakbrowser 的 package.json 路径。
+// 返回值用于判断 Worker 是否真的可启动，而不是只检查入口文件。
+func (m *Manager) WorkerDependencyPath() string {
+	return filepath.Join(m.cfg.RuntimeDir, "browser-worker", "node_modules", "cloakbrowser", "package.json")
 }
 
 // CloakBrowserPath 返回当前系统 CloakBrowser 可执行文件路径。

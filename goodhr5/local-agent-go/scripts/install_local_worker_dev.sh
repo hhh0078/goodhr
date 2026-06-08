@@ -5,23 +5,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker-node"
 BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:9001}"
-AGENT_PID=""
 NPM_REGISTRY="${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}"
 LOG_DIR="$ROOT_DIR/logs"
-AGENT_LOG="$LOG_DIR/local-agent-dev.log"
-PID_FILE="$LOG_DIR/local-agent-dev.pid"
-STARTED_FOR_INSTALL=0
+AGENT_BIN="$LOG_DIR/goodhr-local-agent-dev"
+RUNTIME_WORKER_DIR="${GOODHR_RUNTIME_WORKER_DIR:-$HOME/Library/Application Support/GoodHR/runtime/browser-worker}"
 
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
 log() {
   printf '[GoodHR] %s\n' "$*"
-}
-
-# agent_health_ok 判断本地程序 health 是否可访问。
-# 无参数，成功返回 0。
-agent_health_ok() {
-  curl -fsS "$BASE_URL/health" >/dev/null 2>&1
 }
 
 # port_pid 返回占用本地端口的进程 ID。
@@ -30,17 +22,28 @@ port_pid() {
   lsof -ti tcp:9001 -sTCP:LISTEN 2>/dev/null | head -n 1 || true
 }
 
-# wait_agent_ready 等待本地程序启动完成。
+# wait_port_free 等待 9001 端口释放。
 # 无参数。
-wait_agent_ready() {
-  for _ in $(seq 1 40); do
-    if agent_health_ok; then
+wait_port_free() {
+  for _ in $(seq 1 50); do
+    if [ -z "$(port_pid)" ]; then
       return 0
     fi
-    sleep 0.25
+    sleep 0.2
   done
-  log "本地程序没有在预期时间内启动成功：$BASE_URL"
+  log "9001 端口一直没有释放，请先手动关闭占用进程"
   exit 1
+}
+
+# verify_runtime_worker 验证运行目录中的 Worker 依赖是否完整。
+# 无参数。
+verify_runtime_worker() {
+  local dependency_path
+  dependency_path="$RUNTIME_WORKER_DIR/node_modules/cloakbrowser/package.json"
+  if [ ! -f "$dependency_path" ]; then
+    log "Worker 依赖未安装完整：$dependency_path"
+    exit 1
+  fi
 }
 
 # ensure_worker_dependencies 确保 Node Worker 运行依赖已经安装。
@@ -62,19 +65,38 @@ ensure_worker_dependencies() {
   )
 }
 
-# start_agent_background 在后台启动 Go 本地程序。
+# build_agent_binary 构建开发用本地程序二进制。
 # 无参数。
-start_agent_background() {
-  mkdir -p "$LOG_DIR"
-  : >"$AGENT_LOG"
-  log "正在后台启动 Go 本地程序，日志：$AGENT_LOG"
+build_agent_binary() {
+  log "正在构建 Go 本地程序"
   (
     cd "$ROOT_DIR"
-    go run ./cmd/goodhr-local-agent
-  ) >>"$AGENT_LOG" 2>&1 &
-  AGENT_PID="$!"
-  printf '%s\n' "$AGENT_PID" >"$PID_FILE"
-  wait_agent_ready
+    go build -o "$AGENT_BIN" ./cmd/goodhr-local-agent
+  )
+}
+
+# install_worker_direct 直接把本地 Worker 源码复制到运行目录。
+# 无参数。
+install_worker_direct() {
+  log "正在复制本地 Worker 到运行目录：$RUNTIME_WORKER_DIR"
+  mkdir -p "$(dirname "$RUNTIME_WORKER_DIR")"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$WORKER_DIR/" "$RUNTIME_WORKER_DIR/"
+  else
+    rm -rf "$RUNTIME_WORKER_DIR"
+    mkdir -p "$RUNTIME_WORKER_DIR"
+    cp -R "$WORKER_DIR/." "$RUNTIME_WORKER_DIR/"
+  fi
+  verify_runtime_worker
+}
+
+# start_agent_foreground 前台启动 Go 本地程序。
+# 无参数。
+start_agent_foreground() {
+  build_agent_binary
+  log "正在前台启动 Go 本地程序，按 Ctrl+C 可停止"
+  log "控制台地址：$BASE_URL/admin/"
+  "$AGENT_BIN" -open-console=false
 }
 
 # stop_agent 停止指定 pid 的本地程序。
@@ -86,14 +108,16 @@ stop_agent() {
   fi
   log "正在停止旧本地程序 pid=$pid"
   kill "$pid" >/dev/null 2>&1 || true
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 50); do
     if ! kill -0 "$pid" >/dev/null 2>&1; then
+      wait_port_free
       return 0
     fi
     sleep 0.2
   done
   log "旧本地程序未正常退出，强制停止 pid=$pid"
   kill -9 "$pid" >/dev/null 2>&1 || true
+  wait_port_free
 }
 
 if [ ! -d "$WORKER_DIR" ]; then
@@ -106,33 +130,17 @@ log "Local Agent：$BASE_URL"
 log "Worker 源码：$WORKER_DIR"
 
 ensure_worker_dependencies
+install_worker_direct
 
-if agent_health_ok; then
-  log "检测到本地程序已运行，将直接安装 Worker"
-else
-  log "未检测到本地程序，临时启动 Go 本地程序"
-  STARTED_FOR_INSTALL=1
-  start_agent_background
+if [ "${GOODHR_INSTALL_ONLY:-0}" = "1" ]; then
+  log "Worker 已安装完成，本次按 GOODHR_INSTALL_ONLY=1 跳过启动本地程序"
+  exit 0
 fi
-
-log "正在安装本地 Worker 到运行目录"
-curl -fsS -X POST "$BASE_URL/api/v1/runtime/install-local-worker" \
-  -H 'Content-Type: application/json' \
-  -d "{\"source_dir\":\"$WORKER_DIR\"}"
-printf '\n'
-
-log "Worker 已安装完成"
 
 OLD_PID="$(port_pid)"
 if [ -n "$OLD_PID" ]; then
   stop_agent "$OLD_PID"
 fi
 
-start_agent_background
-
-log "已完成：Worker 已更新，Go 本地程序已重启"
-log "控制台地址：$BASE_URL/admin/"
-log "本地程序日志：$AGENT_LOG"
-if [ "$STARTED_FOR_INSTALL" = "1" ]; then
-  log "本次脚本自动完成临时启动、安装、重启，无需再手动 go run"
-fi
+log "Worker 已安装完成"
+start_agent_foreground
