@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	defaultGreetThreshold = 70.0
-	defaultGreetPrompt    = `你是一个资深的HR专家。
+	defaultGreetThreshold  = 70.0
+	defaultDetailThreshold = 60.0
+	defaultGreetPrompt     = `你是一个资深的HR专家。
 请根据岗位要求给候选人打“打招呼建议分”。
 
 重要提示：
@@ -35,6 +36,24 @@ const (
 {candidate_text}
 
 请返回JSON：{"score": 78, "reason": "匹配核心要求"}`
+	defaultDetailPrompt = `你是一个资深的HR专家。
+请根据岗位要求给候选人打“查看详情建议分”。
+
+重要提示：
+1. 仅根据候选人基础信息评估是否值得打开详情。
+2. 仅输出 JSON，不能输出其它内容。
+3. 返回字段必须是 score 和 reason。
+4. score 范围是 0-100，可以是小数。
+5. reason 控制在30字以内。
+6. 禁止输出 Markdown，禁止输出 Markdown 代码块。
+
+岗位要求：
+{job_desc}
+
+候选人基础信息：
+{candidate_text}
+
+请返回JSON：{"score": 66, "reason": "可进一步确认细节"}`
 )
 
 // Client 是本地 AI 调用客户端。
@@ -45,12 +64,13 @@ type Client struct {
 
 // Decision 表示 AI 评分结果。
 type Decision struct {
-	Score       float64        `json:"score"`
-	Reason      string         `json:"reason"`
-	ShouldGreet bool           `json:"should_greet"`
-	Threshold   float64        `json:"threshold"`
-	Usage       map[string]any `json:"usage"`
-	ElapsedMS   int            `json:"elapsed_ms"`
+	Score            float64        `json:"score"`
+	Reason           string         `json:"reason"`
+	ShouldGreet      bool           `json:"should_greet"`
+	ShouldOpenDetail bool           `json:"should_open_detail"`
+	Threshold        float64        `json:"threshold"`
+	Usage            map[string]any `json:"usage"`
+	ElapsedMS        int            `json:"elapsed_ms"`
 }
 
 // ChatResult 表示本地 AI 通用聊天结果。
@@ -73,6 +93,34 @@ func New(config localdb.AIConfig) *Client {
 			Timeout: time.Duration(timeout) * time.Second,
 		},
 	}
+}
+
+// ScoreForDetail 给候选人计算查看详情评分。
+// ctx 为请求上下文，position 为岗位快照，candidate 为候选人基础信息。
+func (c *Client) ScoreForDetail(ctx context.Context, position map[string]any, candidate map[string]any) (Decision, error) {
+	threshold := numberFromAIConfig(position, defaultDetailThreshold, "detail_score_threshold", "open_detail_threshold", "detail_threshold")
+	prompt := buildDetailPrompt(position, candidate)
+	result, err := c.chat(ctx, prompt, numberFromAIConfig(position, c.Config.Temperature, "temperature"))
+	if err != nil {
+		return Decision{}, err
+	}
+	score, reason, err := parseScoreJSON(result.Content)
+	if err != nil {
+		return Decision{}, err
+	}
+	score = clampScore(score)
+	reason = truncate(reason, 30)
+	if reason == "" {
+		reason = "AI未给出原因"
+	}
+	return Decision{
+		Score:            score,
+		Reason:           reason,
+		ShouldOpenDetail: score >= threshold,
+		Threshold:        threshold,
+		Usage:            result.Usage,
+		ElapsedMS:        result.ElapsedMS,
+	}, nil
 }
 
 // ScoreForGreet 给候选人计算打招呼评分。
@@ -227,6 +275,21 @@ type chatResult struct {
 	Content   string
 	Usage     map[string]any
 	ElapsedMS int
+}
+
+// buildDetailPrompt 构建查看详情评分提示词。
+// position 为岗位快照，candidate 为候选人基础信息。
+func buildDetailPrompt(position map[string]any, candidate map[string]any) string {
+	aiConfig := mapValue(position["ai_config"])
+	custom := stringFromMap(aiConfig, "open_detail_prompt")
+	jobDesc := positionDescription(position)
+	candidateText := firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text"))
+	fallback := strings.ReplaceAll(defaultDetailPrompt, "{job_desc}", jobDesc)
+	fallback = strings.ReplaceAll(fallback, "{candidate_text}", candidateText)
+	if custom == "" {
+		return fallback
+	}
+	return templatePrompt(custom, jobDesc, candidateText, fallback)
 }
 
 // buildGreetPrompt 构建打招呼评分提示词。

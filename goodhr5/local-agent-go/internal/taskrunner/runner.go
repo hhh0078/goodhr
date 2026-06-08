@@ -613,10 +613,11 @@ type batchProcessResult struct {
 
 // candidatePipelineResult 表示单个候选人后台处理结果。
 type candidatePipelineResult struct {
-	Index     int
-	Candidate map[string]any
-	Skipped   int
-	Err       error
+	Index          int
+	Candidate      map[string]any
+	Skipped        int
+	Err            error
+	DetailDecision *localai.Decision
 }
 
 // processCandidateBatch 按页面顺序读取详情，并发执行 AI，最后按页面顺序消费结果。
@@ -630,15 +631,15 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 	if err != nil {
 		return result, err
 	}
-	resultCh := make(chan candidatePipelineResult, len(candidates))
+	precheckCh := make(chan candidatePipelineResult, len(candidates))
 	aiJobs := make(chan candidatePipelineResult, len(candidates))
 	needsAI := taskMode(task) == "ai"
 	if needsAI {
 		workerCount := candidatePipelineConcurrency(len(candidates))
-		r.taskLog(task.ID, "info", fmt.Sprintf("启动候选人 AI 并发评分：候选人=%d 并发=%d", len(candidates), workerCount))
-		r.startCandidateAIWorkers(ctx, task, aiClient, aiJobs, resultCh, workerCount)
+		r.taskLog(task.ID, "info", fmt.Sprintf("启动候选人看详情评分并发：候选人=%d 并发=%d", len(candidates), workerCount))
+		r.startCandidateDetailWorkers(ctx, task, aiClient, aiJobs, precheckCh, workerCount)
 	}
-	go r.feedCandidatePipeline(ctx, task, platformConfig, candidates, needsAI, aiJobs, resultCh)
+	go r.feedCandidatePipeline(ctx, task, candidates, needsAI, aiJobs, precheckCh)
 	pending := map[int]candidatePipelineResult{}
 	nextIndex := 0
 	for nextIndex < len(candidates) {
@@ -650,7 +651,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 			select {
 			case <-ctx.Done():
 				return result, ctx.Err()
-			case received := <-resultCh:
+			case received := <-precheckCh:
 				pending[received.Index] = received
 				continue
 			case <-time.After(150 * time.Millisecond):
@@ -666,6 +667,45 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 		candidate := item.Candidate
 		r.taskLog(task.ID, "info", fmt.Sprintf("按页面顺序处理候选人：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), stringFromMap(candidate, "status")))
 		result.Skipped += item.Skipped
+		if item.DetailDecision != nil {
+			decision := item.DetailDecision
+			candidate["ai_detail_score"] = decision.Score
+			candidate["ai_detail_reason"] = decision.Reason
+			candidate["ai_detail_threshold"] = decision.Threshold
+			candidate["ai_detail_usage"] = decision.Usage
+			candidate["ai_detail_elapsed_ms"] = decision.ElapsedMS
+			if !decision.ShouldOpenDetail {
+				candidate["status"] = "skipped"
+				candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
+				result.Skipped++
+				r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分跳过：name=%s score=%.1f threshold=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
+			} else {
+				r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分通过，准备打开详情：name=%s score=%.1f threshold=%.1f", candidateLogName(candidate), decision.Score, decision.Threshold))
+				skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
+				result.Skipped += skipped
+				if err != nil {
+					return result, err
+				}
+			}
+		}
+		if !needsAI && shouldFetchDetail(task) && canContinueCandidate(stringFromMap(candidate, "status")) {
+			r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
+			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
+			result.Skipped += skipped
+			if err != nil {
+				return result, err
+			}
+		}
+		if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) {
+			skipped, err := r.scoreCandidate(ctx, task, candidate, aiClient)
+			result.Skipped += skipped
+			if err != nil {
+				candidate["status"] = "failed"
+				candidate["error"] = err.Error()
+				result.Failed++
+				r.taskLog(task.ID, "warning", "打招呼评分失败："+err.Error())
+			}
+		}
 		if options.EnableGreet {
 			greeted, failed, skipped, err := r.consumeCandidateForGreet(ctx, task, platformConfig, candidate, greetedBefore+result.Greeted, options)
 			if err != nil {
@@ -684,9 +724,9 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 	return result, nil
 }
 
-// startCandidateAIWorkers 启动候选人 AI 并发处理池。
+// startCandidateDetailWorkers 启动候选人看详情评分并发处理池。
 // workerCount 为并发数量，aiJobs 为待评分候选人队列，resultCh 为完成结果队列。
-func (r *Runner) startCandidateAIWorkers(ctx context.Context, task localdb.Task, aiClient *localai.Client, aiJobs <-chan candidatePipelineResult, resultCh chan<- candidatePipelineResult, workerCount int) {
+func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.Task, aiClient *localai.Client, aiJobs <-chan candidatePipelineResult, resultCh chan<- candidatePipelineResult, workerCount int) {
 	if workerCount <= 0 {
 		workerCount = 1
 	}
@@ -698,8 +738,10 @@ func (r *Runner) startCandidateAIWorkers(ctx context.Context, task localdb.Task,
 					resultCh <- item
 					continue
 				}
-				skipped, err := r.scoreCandidate(ctx, task, item.Candidate, aiClient)
-				item.Skipped += skipped
+				decision, err := r.scoreCandidateForDetail(ctx, task, item.Candidate, aiClient)
+				if err == nil {
+					item.DetailDecision = &decision
+				}
 				item.Err = err
 				resultCh <- item
 			}
@@ -707,9 +749,9 @@ func (r *Runner) startCandidateAIWorkers(ctx context.Context, task localdb.Task,
 	}
 }
 
-// feedCandidatePipeline 按浏览器页面顺序读取详情，并把需要 AI 的候选人送入并发队列。
+// feedCandidatePipeline 按页面顺序把候选人送入看详情评分队列。
 // needsAI 表示是否需要 AI 评分，aiJobs 为 AI 队列，resultCh 为最终结果队列。
-func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, needsAI bool, aiJobs chan<- candidatePipelineResult, resultCh chan<- candidatePipelineResult) {
+func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, candidates []map[string]any, needsAI bool, aiJobs chan<- candidatePipelineResult, resultCh chan<- candidatePipelineResult) {
 	if needsAI {
 		defer close(aiJobs)
 	}
@@ -720,19 +762,13 @@ func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, p
 			resultCh <- item
 			return
 		}
-		if shouldFetchDetail(task) {
-			r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", index, candidateLogName(candidate)))
-			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, nil)
-			item.Skipped += skipped
-			item.Err = err
-		}
 		if item.Err != nil || !needsAI || !canContinueCandidate(stringFromMap(candidate, "status")) {
 			resultCh <- item
 			continue
 		}
 		select {
 		case aiJobs <- item:
-			r.taskLog(task.ID, "info", fmt.Sprintf("候选人已进入 AI 评分队列：index=%d name=%s", index, candidateLogName(candidate)))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人已进入看详情评分队列：index=%d name=%s", index, candidateLogName(candidate)))
 		case <-ctx.Done():
 			item.Err = ctx.Err()
 			resultCh <- item
@@ -999,6 +1035,27 @@ func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candida
 		result = append(result, candidate)
 	}
 	return result, skipped, nil
+}
+
+// scoreCandidateForDetail 使用本地 AI 给单个候选人计算看详情评分。
+// ctx 为请求上下文，candidate 为候选人，client 为空时会返回配置错误。
+func (r *Runner) scoreCandidateForDetail(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
+	status := stringFromMap(candidate, "status")
+	if !canContinueCandidate(status) {
+		return localai.Decision{Score: 0, Reason: "候选人状态不可继续", ShouldOpenDetail: false}, nil
+	}
+	if client == nil {
+		return localai.Decision{}, fmt.Errorf("AI 客户端未配置")
+	}
+	candidateName := candidateLogName(candidate)
+	r.taskLog(task.ID, "info", "开始看详情评分："+candidateName)
+	decision, err := client.ScoreForDetail(ctx, task.PositionSnapshot, candidate)
+	if err != nil {
+		r.taskLog(task.ID, "warning", "看详情评分失败："+err.Error())
+		return localai.Decision{}, err
+	}
+	r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分完成：name=%s score=%.1f threshold=%.1f should_open=%v", candidateName, decision.Score, decision.Threshold, decision.ShouldOpenDetail))
+	return decision, nil
 }
 
 // scoreCandidate 使用本地 AI 给单个候选人评分。
@@ -1765,6 +1822,9 @@ func detailMode(task localdb.Task) string {
 	))
 	if mode == "ocr" || mode == "dom" || mode == "ai" {
 		return mode
+	}
+	if taskMode(task) == "ai" {
+		return "dom"
 	}
 	return ""
 }
