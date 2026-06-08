@@ -494,20 +494,14 @@ async function greetBossCandidate(payload) {
   const currentPage = await ensurePage();
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
-  const cardSelectors = selectorList(rules.candidate_card);
-  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
-  const cards = currentPage.locator(cardSelectors.join(", "));
-  const count = await cards.count();
-  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
-  const card = cards.nth(cardIndex);
-  if (!(await card.isVisible().catch(() => false))) throw new Error("候选人卡片当前不可见");
-  await card.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+  const cardInfo = await bossCardByIndex(currentPage, rules, cardIndex, payload);
+  const card = cardInfo.card;
   const clicked = await clickFirstVisible(card, selectorList(rules.greet_buttons), 1500);
   if (!clicked) throw new Error("未找到可点击的打招呼按钮");
   await clickFirstVisible(currentPage, selectorList(rules.continue_buttons), 800);
   await clickFirstVisible(currentPage, selectorList(rules.confirm_buttons), 800);
-  return { greeted: true, card_index: cardIndex };
+  return { greeted: true, card_index: cardIndex, scroll_attempts: cardInfo.attempts };
 }
 
 /**
@@ -519,14 +513,9 @@ async function extractBossCandidateDetail(payload) {
   const currentPage = await ensurePage();
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
-  const cardSelectors = selectorList(rules.candidate_card);
-  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
-  const cards = currentPage.locator(cardSelectors.join(", "));
-  const count = await cards.count();
-  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
-  const card = cards.nth(cardIndex);
-  await card.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+  const cardInfo = await bossCardByIndex(currentPage, rules, cardIndex, payload);
+  const card = cardInfo.card;
   const opened = await clickFirstVisible(card, selectorList(rules.detail_buttons), 1500);
   if (!opened) throw new Error("未找到可点击的详情入口");
   await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
@@ -535,7 +524,62 @@ async function extractBossCandidateDetail(payload) {
     ? await screenshotDetailContainer(currentPage, selectorList(rules.detail_containers), payload)
     : null;
   await clickFirstVisible(currentPage, selectorList(rules.detail_close_buttons), 800);
-  return { detail_text: detailText, text: detailText, screenshot };
+  return { detail_text: detailText, text: detailText, screenshot, scroll_attempts: cardInfo.attempts };
+}
+
+/**
+ * 按序号找到候选人卡片，并主动滚动到可见范围。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, any>} rules - Boss 平台规则。
+ * @param {number} cardIndex - 候选人卡片序号。
+ * @param {Record<string, any>} payload - 请求参数。
+ * @returns {Promise<{card:any, attempts:number}>} 候选人卡片和滚动次数。
+ */
+async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
+  const cardSelectors = selectorList(rules.candidate_card);
+  if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
+  const cards = currentPage.locator(cardSelectors.join(", "));
+  const count = await cards.count();
+  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
+  const card = cards.nth(cardIndex);
+  const maxAttempts = Math.max(1, Math.min(12, Number(payload.card_scroll_attempts || 8)));
+  const distance = Math.max(120, Number(payload.card_scroll_distance || payload.distance || 720));
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await card.evaluate((el) => {
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", inline: "nearest" });
+    }).catch(() => {});
+    await card.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
+    if (await card.isVisible().catch(() => false)) {
+      return { card, attempts: attempt };
+    }
+    await scrollBossListByRules(currentPage, rules, distance);
+    await currentPage.waitForTimeout(250);
+  }
+  throw new Error("候选人卡片当前不可见");
+}
+
+/**
+ * 按平台规则滚动候选人列表。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, any>} rules - Boss 平台规则。
+ * @param {number} distance - 滚动距离。
+ * @returns {Promise<boolean>} 是否命中列表容器。
+ */
+async function scrollBossListByRules(currentPage, rules, distance) {
+  const selectors = selectorList(rules.scroll_containers);
+  for (const selector of selectors) {
+    try {
+      const locator = currentPage.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      await locator.evaluate((el, y) => el.scrollBy(0, y), distance);
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  await currentPage.mouse.wheel(0, distance);
+  return false;
 }
 
 /**

@@ -664,6 +664,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 			return result, item.Err
 		}
 		candidate := item.Candidate
+		r.taskLog(task.ID, "info", fmt.Sprintf("按页面顺序处理候选人：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), stringFromMap(candidate, "status")))
 		result.Skipped += item.Skipped
 		if options.EnableGreet {
 			greeted, failed, skipped, err := r.consumeCandidateForGreet(ctx, task, platformConfig, candidate, greetedBefore+result.Greeted, options)
