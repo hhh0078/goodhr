@@ -987,15 +987,26 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
       const parents = scope.locator(parentSelector);
       const count = await parents.count().catch(() => 0);
       for (let index = 0; index < count && scopes.length < limit; index += 1) {
-        scopes.push(parents.nth(index));
+        scopes.push({ locator: parents.nth(index), includeSelf: true });
       }
     }
   } else {
-    scopes.push(scope);
+    scopes.push({ locator: scope, includeSelf: false });
   }
   const result = [];
-  for (const currentScope of scopes) {
+  for (const current of scopes) {
+    const currentScope = current.locator;
     for (const selector of selectors) {
+      if (current.includeSelf) {
+        const selfMatches = await currentScope.evaluate((el, rawSelector) => {
+          return Boolean(el && el.matches && el.matches(rawSelector));
+        }, selector).catch(() => false);
+        if (selfMatches && (!visibleOnly || await currentScope.isVisible().catch(() => false))) {
+          result.push(currentScope);
+          if (result.length >= limit) return result;
+          continue;
+        }
+      }
       const locator = currentScope.locator(selector);
       const count = await locator.count().catch(() => 0);
       for (let index = 0; index < count && result.length < limit; index += 1) {
