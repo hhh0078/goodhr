@@ -769,12 +769,44 @@ func (s *Server) handleLocalAIChat(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	config = overrideAIConfig(config, mapValue(payload["config"]))
+	delete(payload, "config")
 	result, err := localai.New(config).Chat(r.Context(), payload)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.Success(w, map[string]any{"content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
+}
+
+// overrideAIConfig 使用请求中的临时配置覆盖本地已保存 AI 配置。
+// config 为数据库配置，override 为请求里的 config 字段。
+func overrideAIConfig(config localdb.AIConfig, override map[string]any) localdb.AIConfig {
+	if len(override) == 0 {
+		return config
+	}
+	if value := firstNonEmptyString(stringValue(override["base_url"]), stringValue(override["api_url"])); value != "" {
+		config.BaseURL = value
+	}
+	if value := stringValue(override["api_key"]); value != "" {
+		config.APIKey = value
+	}
+	if value := firstNonEmptyString(stringValue(override["model"]), stringValue(override["model_id"])); value != "" {
+		config.Model = value
+	}
+	if value, ok := override["temperature"]; ok {
+		config.Temperature = floatValue(value, config.Temperature)
+	}
+	if value, ok := override["timeout"]; ok {
+		config.Timeout = intValue(value, config.Timeout)
+	}
+	if extra := mapValue(override["extra"]); len(extra) > 0 {
+		config.Extra = extra
+	}
+	if extra := mapValue(override["extra_body"]); len(extra) > 0 {
+		config.Extra = extra
+	}
+	return config
 }
 
 // handleLocalAIVision 处理本地图片 AI 识别请求。
@@ -1655,6 +1687,15 @@ func stringValue(value any) string {
 		return text
 	}
 	return ""
+}
+
+// mapValue 将请求字段转换为 map。
+// value 为原始字段值，不是对象时返回空 map。
+func mapValue(value any) map[string]any {
+	if item, ok := value.(map[string]any); ok {
+		return item
+	}
+	return map[string]any{}
 }
 
 // firstNonEmptyString 返回第一个非空字符串。
