@@ -15,6 +15,7 @@ import (
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
+	"goodhr5/local-agent-go/internal/platforms"
 )
 
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
@@ -215,7 +216,12 @@ func TestEnsureTaskPageReadyRetries(t *testing.T) {
 			"current": map[string]any{"target_classes": []any{[]any{"current-position"}}},
 		},
 	}
-	if err := runner.ensureTaskPageReady(t.Context(), task, platformConfig); err != nil {
+	platformRuntime, err := platforms.RuntimeFor("boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := platformExecutor{runner: runner, taskID: task.ID}
+	if err := runner.ensureTaskPageReady(t.Context(), task, platformRuntime, exec, platformConfig); err != nil {
 		t.Fatal(err)
 	}
 	if worker.pageListCalls != 6 {

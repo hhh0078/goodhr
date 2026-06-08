@@ -7,12 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
-	"image/png"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -26,6 +21,8 @@ import (
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
+	"goodhr5/local-agent-go/internal/platformcore"
+	"goodhr5/local-agent-go/internal/platforms"
 )
 
 const defaultScanRounds = 3
@@ -82,6 +79,34 @@ type Progress struct {
 	Round       int    `json:"round"`
 	TotalRounds int    `json:"total_rounds"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+// platformExecutor 适配平台 runtime 调用 Worker 和写任务日志。
+type platformExecutor struct {
+	runner *Runner
+	taskID string
+}
+
+// Post 调用浏览器 Worker。
+// ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
+func (e platformExecutor) Post(ctx context.Context, path string, payload any) (map[string]any, error) {
+	return e.runner.worker.Call(ctx, path, payload)
+}
+
+// Log 写入任务日志。
+// level 为日志级别，message 为日志内容。
+func (e platformExecutor) Log(level string, message string) {
+	e.runner.taskLog(e.taskID, level, message)
+}
+
+// Delay 按业务动作等待指定秒数。
+// ctx 为请求上下文，label 为动作名称，seconds 为等待秒数。
+func (e platformExecutor) Delay(ctx context.Context, label string, seconds float64) error {
+	if seconds <= 0 {
+		return nil
+	}
+	e.runner.taskLog(e.taskID, "info", fmt.Sprintf("%s等待 %.1f 秒", label, seconds))
+	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
 // StartOptions 表示本地任务启动参数。
@@ -269,6 +294,11 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	platformRuntime, err := platforms.RuntimeFor(task.PlatformID)
+	if err != nil {
+		return nil, err
+	}
+	exec := platformExecutor{runner: r, taskID: task.ID}
 	entryURL := platformEntryURL(platformConfig)
 	if entryURL == "" {
 		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
@@ -292,10 +322,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		return nil, err
 	}
 	r.taskLog(task.ID, "info", "浏览器启动成功，准备打开入口页面")
-	if _, err := r.worker.Call(ctx, "/api/v1/page/open", map[string]any{"url": entryURL}); err != nil {
+	if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
 		return nil, err
 	}
-	r.taskLog(task.ID, "info", "入口页面打开成功："+entryURL)
 	seen := map[string]struct{}{}
 	totalSaved := 0
 	totalSkipped := 0
@@ -308,7 +337,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			return nil, err
 		}
 		r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: fmt.Sprintf("正在确认第 %d 轮页面和岗位", round), Round: round, TotalRounds: totalRounds})
-		if err := r.ensureTaskPageReady(ctx, task, platformConfig); err != nil {
+		if err := r.ensureTaskPageReady(ctx, task, platformRuntime, exec, platformConfig); err != nil {
 			return nil, err
 		}
 		delay := pageReadyDelay(options)
@@ -318,14 +347,11 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: totalRounds})
 		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始提取候选人：max_items=%d", round, maxItems))
-		result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/extract", map[string]any{
-			"platform_config": platformConfig,
-			"max_items":       maxItems,
-		})
+		platformCandidates, err := platformRuntime.ListVisibleCandidates(ctx, exec, platformConfig, maxItems)
 		if err != nil {
 			return nil, err
 		}
-		candidates := freshCandidates(mapList(workerData(result, "candidates")), seen)
+		candidates := freshCandidates(candidateMaps(platformCandidates), seen)
 		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人提取完成：新候选人=%d", round, len(candidates)))
 		if len(candidates) == 0 {
 			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮未发现新候选人", round))
@@ -337,7 +363,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		if len(filtered) > 0 {
 			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在并发处理第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
 			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始处理候选人流水线：数量=%d", round, len(filtered)))
-			batchResult, err := r.processCandidateBatch(ctx, task, platformConfig, filtered, totalGreeted, options)
+			batchResult, err := r.processCandidateBatch(ctx, task, platformRuntime, exec, platformConfig, filtered, totalGreeted, options)
 			if err != nil {
 				return nil, err
 			}
@@ -354,10 +380,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
 			scrollDistance := randomScrollDistance(options)
 			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮准备滚动候选人列表：distance=%d", round, scrollDistance))
-			if _, err := r.worker.Call(ctx, "/api/v1/boss/candidates/scroll", map[string]any{
-				"platform_config": platformConfig,
-				"distance":        scrollDistance,
-			}); err != nil {
+			if err := platformRuntime.ScrollCandidateList(ctx, exec, platformConfig, scrollDistance); err != nil {
 				r.taskLog(task.ID, "warning", "滚动候选人列表失败："+err.Error())
 			} else {
 				r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人列表滚动完成", round))
@@ -391,18 +414,18 @@ func taskProfileName(task localdb.Task) string {
 
 // ensureTaskPageReady 确认当前页面和岗位与任务匹配。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置。
-func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig) error {
+func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := r.waitTaskEntryPage(ctx, task.ID, platformConfig); err != nil {
+	if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
 		return err
 	}
 	positionName := taskPositionName(task)
 	if strings.TrimSpace(positionName) == "" {
 		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
 	}
-	currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformConfig)
+	currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
 	if err != nil {
 		return fmt.Errorf("获取页面当前岗位失败：%w", err)
 	}
@@ -411,10 +434,10 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 		return nil
 	}
 	r.taskLog(task.ID, "warning", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, positionName))
-	if err := r.selectPosition(ctx, task.ID, platformConfig, positionName); err != nil {
+	if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 		return fmt.Errorf("切换页面岗位失败：%w", err)
 	}
-	confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformConfig)
+	confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
 	if err != nil {
 		return fmt.Errorf("切换后确认页面岗位失败：%w", err)
 	}
@@ -427,7 +450,7 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 
 // waitTaskEntryPage 等待当前页面加载到任务入口页。
 // ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置。
-func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) error {
+func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) error {
 	attempts := pageEntryCheckAttempts
 	if attempts <= 0 {
 		attempts = 1
@@ -438,7 +461,7 @@ func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformC
 		if err := sleepWithContext(ctx, pageEntryCheckDelay); err != nil {
 			return err
 		}
-		ok, err := r.isTaskEntryPage(ctx, platformConfig)
+		ok, err := platformRuntime.IsTaskEntryPage(ctx, exec, platformConfig)
 		if err != nil {
 			lastErr = err
 			r.taskLog(taskID, "warning", fmt.Sprintf("检查当前页面失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
@@ -458,7 +481,7 @@ func (r *Runner) waitTaskEntryPage(ctx context.Context, taskID string, platformC
 
 // waitCurrentPositionName 等待页面当前岗位名称可读取。
 // ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置。
-func (r *Runner) waitCurrentPositionName(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) (string, error) {
+func (r *Runner) waitCurrentPositionName(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) (string, error) {
 	attempts := currentPositionCheckAttempts
 	if attempts <= 0 {
 		attempts = 1
@@ -469,7 +492,7 @@ func (r *Runner) waitCurrentPositionName(ctx context.Context, taskID string, pla
 		if err := sleepWithContext(ctx, currentPositionCheckDelay); err != nil {
 			return "", err
 		}
-		name, err := r.currentPositionName(ctx, taskID, platformConfig)
+		name, err := platformRuntime.CurrentPositionName(ctx, exec, platformConfig)
 		if err == nil {
 			return name, nil
 		}
@@ -480,92 +503,6 @@ func (r *Runner) waitCurrentPositionName(ctx context.Context, taskID string, pla
 		return "", lastErr
 	}
 	return "", fmt.Errorf("页面当前岗位为空")
-}
-
-// isTaskEntryPage 判断当前默认页面是否仍是平台入口页。
-// ctx 为请求上下文，platformConfig 为云端平台配置。
-func (r *Runner) isTaskEntryPage(ctx context.Context, platformConfig cloudapi.PlatformConfig) (bool, error) {
-	entry := platformEntryPage(platformConfig)
-	if strings.TrimSpace(stringFromMap(entry, "url")) == "" {
-		return false, fmt.Errorf("云端平台配置缺少入口页面地址")
-	}
-	result, err := r.worker.Call(ctx, "/api/v1/page/list", map[string]any{})
-	if err != nil {
-		return false, err
-	}
-	pages := mapList(workerData(result, "pages"))
-	if len(pages) == 0 {
-		return false, nil
-	}
-	current := currentDefaultPage(pages)
-	return pageMatchesEntry(stringFromMap(current, "url"), entry), nil
-}
-
-// currentPositionName 读取当前页面岗位名称。
-// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为云端平台配置。
-func (r *Runner) currentPositionName(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig) (string, error) {
-	current := platformPositionElement(platformConfig, "current")
-	if current == nil {
-		return "", fmt.Errorf("平台配置中无当前岗位选择器")
-	}
-	result, err := r.worker.Call(ctx, "/api/v1/page/extract-text", map[string]any{"element": current, "timeout": 3000})
-	if err != nil {
-		return "", err
-	}
-	data := workerDataMap(result)
-	name := firstNonEmptyString(stringFromMap(data, "text"), firstStringFromAny(data["texts"]))
-	if name == "" {
-		r.taskLog(taskID, "warning", fmt.Sprintf("页面当前岗位提取为空：found=%v count=%d text_len=%d target=%s parent=%s frame=%s config=%s", boolFromMap(data, "found"), intFromMap(data, "count"), len(stringFromMap(data, "text")), stringFromMap(data, "selector"), stringFromMap(data, "parent_selector"), stringFromMap(data, "frame_url"), selectorSummary(current)))
-		return "", fmt.Errorf("页面当前岗位为空")
-	}
-	return name, nil
-}
-
-// selectPosition 切换页面岗位。
-// ctx 为请求上下文，taskID 为任务 ID，platformConfig 为平台配置，positionName 为目标岗位名称。
-func (r *Runner) selectPosition(ctx context.Context, taskID string, platformConfig cloudapi.PlatformConfig, positionName string) error {
-	switchButton := platformPositionElement(platformConfig, "switchBtn")
-	if switchButton == nil {
-		return fmt.Errorf("平台配置中无岗位选择入口")
-	}
-	if _, err := r.worker.Call(ctx, "/api/v1/page/click", map[string]any{"element": switchButton, "timeout": 10000}); err != nil {
-		return err
-	}
-	if err := sleepWithContext(ctx, 500*time.Millisecond); err != nil {
-		return err
-	}
-	list := platformPositionElement(platformConfig, "list")
-	item := positionListItemElement(list, platformPositionElement(platformConfig, "item"))
-	itemText := platformPositionElement(platformConfig, "itemText")
-	if item == nil || itemText == nil {
-		return fmt.Errorf("平台配置中无岗位列表或岗位文字选择器")
-	}
-	result, err := r.worker.Call(ctx, "/api/v1/page/find-elements", map[string]any{
-		"element":      item,
-		"visible_only": true,
-		"fields":       []any{map[string]any{"position_name": itemText}},
-	})
-	if err != nil {
-		return err
-	}
-	items := mapList(workerData(result, "items"))
-	r.taskLog(taskID, "info", fmt.Sprintf("岗位列表共查找到 %d 个岗位项", len(items)))
-	target := normalizeTaskPositionName(positionName)
-	for _, found := range items {
-		fields := mapFromAny(found["fields"])
-		name := firstNonEmptyString(stringFromMap(fields, "position_name"), stringFromMap(found, "text"))
-		r.taskLog(taskID, "info", fmt.Sprintf("岗位列表项：index=%d name=%s", intFromMap(found, "index"), name))
-		if target == "" || !strings.Contains(normalizeTaskPositionName(name), target) {
-			continue
-		}
-		r.taskLog(taskID, "info", "找到匹配岗位，准备点击："+name)
-		_, err := r.worker.Call(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-			"index": intFromMap(found, "index"),
-			"item":  item,
-		})
-		return err
-	}
-	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和Boss直聘岗位名称一致", positionName)
 }
 
 // safePathName 清理文件夹名中的危险字符。
@@ -627,7 +564,7 @@ type candidatePipelineResult struct {
 
 // processCandidateBatch 按页面顺序读取详情，并发执行 AI，最后按页面顺序消费结果。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidates 为本轮候选人。
-func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int, options StartOptions) (batchProcessResult, error) {
+func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int, options StartOptions) (batchProcessResult, error) {
 	result := batchProcessResult{}
 	if len(candidates) == 0 {
 		return result, nil
@@ -686,7 +623,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 				r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分跳过：name=%s score=%.1f threshold=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 			} else {
 				r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分通过，准备打开详情：name=%s score=%.1f threshold=%.1f", candidateLogName(candidate), decision.Score, decision.Threshold))
-				skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
+				skipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
 				result.Skipped += skipped
 				if err != nil {
 					return result, err
@@ -695,7 +632,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 		}
 		if !needsAI && shouldFetchDetail(task) && canContinueCandidate(stringFromMap(candidate, "status")) {
 			r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
-			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
+			skipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
 			result.Skipped += skipped
 			if err != nil {
 				return result, err
@@ -712,7 +649,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 			}
 		}
 		if options.EnableGreet {
-			greeted, failed, skipped, err := r.consumeCandidateForGreet(ctx, task, platformConfig, candidate, greetedBefore+result.Greeted, options)
+			greeted, failed, skipped, err := r.consumeCandidateForGreet(ctx, task, platformRuntime, exec, platformConfig, candidate, greetedBefore+result.Greeted, options)
 			if err != nil {
 				return result, err
 			}
@@ -797,7 +734,7 @@ func (r *Runner) pipelineAIClient(task localdb.Task) (*localai.Client, error) {
 
 // consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
 // greetedSoFar 为任务已打招呼数量。
-func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
+func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
 	status := stringFromMap(candidate, "status")
 	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
 		r.taskLog(task.ID, "info", fmt.Sprintf("跳过打招呼：name=%s status=%s", candidateLogName(candidate), status))
@@ -812,7 +749,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 		return 0, 0, 0, err
 	}
 	r.taskLog(task.ID, "info", fmt.Sprintf("准备打招呼：name=%s greeted_so_far=%d", candidateLogName(candidate), greetedSoFar))
-	if err := r.tryGreet(ctx, platformConfig, candidate, options); err != nil {
+	if err := r.tryGreet(ctx, platformRuntime, exec, platformConfig, candidate, options); err != nil {
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
 		r.taskLog(task.ID, "warning", "打招呼失败："+err.Error())
@@ -838,7 +775,7 @@ func candidatePipelineConcurrency(total int) int {
 
 // enrichCandidatesWithDetail 为候选人补充详情文本。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置，candidates 为候选人列表。
-func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
+func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
 	skipped := 0
 	mode := detailMode(task)
 	if mode == "" {
@@ -856,7 +793,7 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 		if err := ctx.Err(); err != nil {
 			return skipped, err
 		}
-		itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformConfig, candidate, aiClient)
+		itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
 		if err != nil {
 			return skipped, err
 		}
@@ -867,21 +804,17 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 
 // enrichCandidateWithDetail 为单个候选人补充详情文本。
 // ctx 为请求上下文，candidate 为候选人，aiClient 为空时按需临时创建。
-func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client) (int, error) {
+func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client) (int, error) {
 	mode := detailMode(task)
 	if mode == "" || !canContinueCandidate(stringFromMap(candidate, "status")) {
 		return 0, nil
 	}
 	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", candidateName, detailModeLabel(mode), intFromMap(candidate, "card_index")))
-	defer r.closeCandidateDetail(ctx, task, platformConfig, candidateName)
-	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-		"platform_config": platformConfig,
-		"card_index":      intFromMap(candidate, "card_index"),
-		"element_ref":     stringFromMap(candidate, "element_ref"),
-		"screenshot":      mode == "ocr" || mode == "ai",
-		"dir":             filepath.Join(r.screenshotsDir, task.ID),
-		"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
+	detailResult, err := platformRuntime.FetchCandidateDetail(ctx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
+		TaskID:         task.ID,
+		Mode:           mode,
+		ScreenshotsDir: r.screenshotsDir,
+		Filename:       fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
@@ -889,15 +822,12 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	r.taskLog(task.ID, "info", "详情提取接口返回成功："+candidateName)
-	data := workerDataMap(result)
-	domText := strings.TrimSpace(firstNonEmptyString(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
 	detailText := ""
 	if mode == "dom" {
-		detailText = domText
+		detailText = strings.TrimSpace(detailResult.Text)
 		candidate["detail_source"] = "dom"
 	}
-	if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
-		screenshot = r.stitchDetailScreenshot(task.ID, candidate, screenshot)
+	if screenshot := detailResult.Screenshot; len(screenshot) > 0 {
 		r.saveDetailScreenshot(task.ID, candidate, screenshot)
 		if mode == "ocr" {
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
@@ -953,172 +883,6 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	candidate["status"] = "detail_fetched"
 	r.taskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, nil
-}
-
-// closeCandidateDetail 关闭候选人详情页或详情弹层。
-// ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidateName 为候选人名称。
-func (r *Runner) closeCandidateDetail(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidateName string) {
-	name := strings.TrimSpace(candidateName)
-	if name == "" {
-		name = "候选人"
-	}
-	r.taskLog(task.ID, "info", "正在关闭"+name+"详情")
-	_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail/close", map[string]any{
-		"platform_config": platformConfig,
-		"key":             "Escape",
-		"candidate_name":  name,
-	})
-	if err != nil {
-		r.taskLog(task.ID, "warning", "关闭"+name+"详情失败："+err.Error())
-		return
-	}
-	r.taskLog(task.ID, "info", name+"详情已关闭")
-}
-
-// stitchDetailScreenshot 将详情分段截图拼接成一张长图。
-// taskID 为任务 ID，candidate 为候选人，screenshot 为 Worker 返回的截图信息。
-func (r *Runner) stitchDetailScreenshot(taskID string, candidate map[string]any, screenshot map[string]any) map[string]any {
-	parts := mapList(screenshot["screenshot_parts"])
-	if len(parts) <= 1 {
-		return screenshot
-	}
-	images := []image.Image{}
-	for _, part := range parts {
-		filePath := firstNonEmptyString(stringFromMap(part, "file_path"), stringFromMap(part, "path"))
-		if filePath == "" {
-			continue
-		}
-		file, err := os.Open(filePath)
-		if err != nil {
-			r.taskLog(taskID, "warning", "打开详情分段截图失败："+err.Error())
-			continue
-		}
-		img, err := png.Decode(file)
-		_ = file.Close()
-		if err != nil {
-			r.taskLog(taskID, "warning", "解析详情分段截图失败："+err.Error())
-			continue
-		}
-		images = append(images, img)
-	}
-	if len(images) <= 1 {
-		return screenshot
-	}
-	overlap := maxInt(0, intFromMap(screenshot, "overlap"))
-	stitched := stitchImages(images, overlap)
-	if stitched == nil {
-		return screenshot
-	}
-	outputDir := filepath.Join(r.screenshotsDir, taskID)
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		r.taskLog(taskID, "warning", "创建详情长图目录失败："+err.Error())
-		return screenshot
-	}
-	filename := fmt.Sprintf("detail-%s-stitched.png", safePathName(stringFromMap(candidate, "id")))
-	outputPath := filepath.Join(outputDir, filename)
-	file, err := os.Create(outputPath)
-	if err != nil {
-		r.taskLog(taskID, "warning", "创建详情长图失败："+err.Error())
-		return screenshot
-	}
-	if err := png.Encode(file, stitched); err != nil {
-		_ = file.Close()
-		r.taskLog(taskID, "warning", "保存详情长图失败："+err.Error())
-		return screenshot
-	}
-	_ = file.Close()
-	info, _ := os.Stat(outputPath)
-	result := map[string]any{}
-	for key, value := range screenshot {
-		result[key] = value
-	}
-	result["file_path"] = outputPath
-	result["path"] = outputPath
-	if info != nil {
-		result["size"] = info.Size()
-	}
-	result["width"] = stitched.Bounds().Dx()
-	result["height"] = stitched.Bounds().Dy()
-	result["stitched"] = true
-	result["parts_count"] = len(images)
-	r.taskLog(taskID, "info", fmt.Sprintf("详情截图已拼接：parts=%d width=%d height=%d", len(images), stitched.Bounds().Dx(), stitched.Bounds().Dy()))
-	return result
-}
-
-// stitchImages 将多张 PNG 图片按重叠区域纵向拼接。
-// images 为按页面顺序排列的图片，overlap 为预期重叠像素。
-func stitchImages(images []image.Image, overlap int) *image.RGBA {
-	if len(images) == 0 {
-		return nil
-	}
-	result := imageToRGBA(images[0])
-	for index := 1; index < len(images); index++ {
-		result = mergeTwoImages(result, imageToRGBA(images[index]), overlap)
-	}
-	return result
-}
-
-// mergeTwoImages 合并上下两张截图，并自动寻找最佳重叠位置。
-// top 为上半部分截图，bottom 为下半部分截图，overlap 为预期重叠像素。
-func mergeTwoImages(top *image.RGBA, bottom *image.RGBA, overlap int) *image.RGBA {
-	topBounds := top.Bounds()
-	bottomBounds := bottom.Bounds()
-	stripHeight := minInt(30, bottomBounds.Dy()-1)
-	if stripHeight <= 0 {
-		stripHeight = 1
-	}
-	searchRange := minInt(maxInt(overlap+50, stripHeight), minInt(topBounds.Dy()-1, bottomBounds.Dy()-1))
-	bestY := maxInt(topBounds.Dy()-overlap, 0)
-	bestDiff := math.MaxFloat64
-	startY := maxInt(topBounds.Dy()-searchRange, 0)
-	endY := maxInt(topBounds.Dy()-stripHeight, startY)
-	for y := startY; y <= endY; y++ {
-		diff := imageStripDiff(top, bottom, y, stripHeight)
-		if diff < bestDiff {
-			bestDiff = diff
-			bestY = y
-		}
-	}
-	width := maxInt(topBounds.Dx(), bottomBounds.Dx())
-	height := bestY + bottomBounds.Dy()
-	merged := image.NewRGBA(image.Rect(0, 0, width, height))
-	draw.Draw(merged, merged.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	draw.Draw(merged, image.Rect(0, 0, topBounds.Dx(), topBounds.Dy()), top, topBounds.Min, draw.Over)
-	draw.Draw(merged, image.Rect(0, bestY, bottomBounds.Dx(), bestY+bottomBounds.Dy()), bottom, bottomBounds.Min, draw.Over)
-	return merged
-}
-
-// imageStripDiff 计算两张图重叠条带的像素差异。
-// top 为上图，bottom 为下图，topY 为上图条带起点，height 为条带高度。
-func imageStripDiff(top *image.RGBA, bottom *image.RGBA, topY int, height int) float64 {
-	width := minInt(top.Bounds().Dx(), bottom.Bounds().Dx())
-	if width <= 0 || height <= 0 {
-		return math.MaxFloat64
-	}
-	step := maxInt(width/120, 1)
-	var total float64
-	var count float64
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x += step {
-			a := top.RGBAAt(x, topY+y)
-			b := bottom.RGBAAt(x, y)
-			total += math.Abs(float64(a.R)-float64(b.R)) + math.Abs(float64(a.G)-float64(b.G)) + math.Abs(float64(a.B)-float64(b.B))
-			count += 3
-		}
-	}
-	if count == 0 {
-		return math.MaxFloat64
-	}
-	return total / count
-}
-
-// imageToRGBA 将任意图片转换为 RGBA。
-// img 为原始图片。
-func imageToRGBA(img image.Image) *image.RGBA {
-	bounds := img.Bounds()
-	result := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-	draw.Draw(result, result.Bounds(), img, bounds.Min, draw.Src)
-	return result
 }
 
 // saveDetailScreenshot 保存详情截图记录。
@@ -1302,44 +1066,9 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	return 0, nil
 }
 
-// greetCandidates 对通过筛选的候选人执行打招呼。
-// ctx 为请求上下文，task 为任务记录，platformConfig 为平台配置，candidates 为候选人列表。
-func (r *Runner) greetCandidates(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, greetedBefore int, options StartOptions) (int, int, error) {
-	greeted := 0
-	failed := 0
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			return greeted, failed, err
-		}
-		status := stringFromMap(candidate, "status")
-		if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
-			continue
-		}
-		if task.MatchLimit > 0 && greetedBefore+greeted >= task.MatchLimit {
-			candidate["status"] = "skipped"
-			candidate["skip_reason"] = "已达到任务打招呼上限"
-			continue
-		}
-		if err := waitBeforeGreet(ctx, options); err != nil {
-			return greeted, failed, err
-		}
-		err := r.tryGreet(ctx, platformConfig, candidate, options)
-		if err != nil {
-			candidate["status"] = "failed"
-			candidate["error"] = err.Error()
-			failed++
-			continue
-		}
-		candidate["status"] = "greeted"
-		candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-		greeted++
-	}
-	return greeted, failed, nil
-}
-
 // tryGreet 带重试地执行单个候选人打招呼。
 // ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
-func (r *Runner) tryGreet(ctx context.Context, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
+func (r *Runner) tryGreet(ctx context.Context, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
 	retries := maxInt(0, options.GreetRetries)
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
@@ -1347,11 +1076,7 @@ func (r *Runner) tryGreet(ctx context.Context, platformConfig cloudapi.PlatformC
 			return err
 		}
 		log.Printf("[本地任务] level=info 准备调用打招呼接口 attempt=%d", attempt+1)
-		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
-			"platform_config": platformConfig,
-			"card_index":      intFromMap(candidate, "card_index"),
-			"element_ref":     stringFromMap(candidate, "element_ref"),
-		})
+		err := platformRuntime.GreetCandidate(ctx, exec, platformConfig, platformcore.Candidate(candidate))
 		if err == nil {
 			return nil
 		}
@@ -1679,71 +1404,6 @@ func pageList(value any) []map[string]any {
 	return result
 }
 
-// currentDefaultPage 返回当前默认页面。
-// pages 为 Worker 返回的页面列表。
-func currentDefaultPage(pages []map[string]any) map[string]any {
-	for _, page := range pages {
-		if boolFromMap(page, "is_default") {
-			return page
-		}
-	}
-	if len(pages) > 0 {
-		return pages[0]
-	}
-	return nil
-}
-
-// pageMatchesEntry 判断页面地址是否匹配平台入口。
-// rawURL 为当前页面地址，entry 为入口页配置。
-func pageMatchesEntry(rawURL string, entry map[string]any) bool {
-	pageURL := strings.TrimRight(strings.TrimSpace(rawURL), "/")
-	target := strings.TrimRight(strings.TrimSpace(stringFromMap(entry, "url")), "/")
-	if pageURL == "" || target == "" {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(stringFromMap(entry, "match"))) {
-	case "prefix":
-		return strings.HasPrefix(pageURL, target)
-	case "contains", "":
-		return strings.Contains(pageURL, target)
-	default:
-		return pageURL == target
-	}
-}
-
-// platformPositionElement 读取平台岗位相关元素配置。
-// platformConfig 为平台配置，key 为 position 内字段名。
-func platformPositionElement(platformConfig cloudapi.PlatformConfig, key string) map[string]any {
-	position := mapFromAny(platformConfig["position"])
-	if len(position) == 0 {
-		return nil
-	}
-	return mapFromAny(position[key])
-}
-
-// selectorSummary 返回元素定位配置摘要。
-// element 为平台配置中的元素定位对象，返回值用于任务日志排查选择器问题。
-func selectorSummary(element map[string]any) string {
-	if element == nil {
-		return "空配置"
-	}
-	parts := []string{}
-	for _, key := range []string{"selector", "xpath", "text", "role"} {
-		if value := stringFromMap(element, key); value != "" {
-			parts = append(parts, key+"="+value)
-		}
-	}
-	for _, key := range []string{"target_classes", "parent_classes"} {
-		if value, ok := element[key]; ok {
-			parts = append(parts, key+"="+compactAny(value, 120))
-		}
-	}
-	if len(parts) == 0 {
-		return compactAny(element, 160)
-	}
-	return strings.Join(parts, " ")
-}
-
 // taskPositionName 返回任务岗位名称。
 // task 为任务记录。
 func taskPositionName(task localdb.Task) string {
@@ -1754,45 +1414,6 @@ func taskPositionName(task localdb.Task) string {
 // value 为原始岗位名称。
 func normalizeTaskPositionName(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
-}
-
-// positionListItemElement 合并岗位列表容器与岗位项定位配置。
-// list 为岗位列表容器配置，item 为岗位项配置。
-func positionListItemElement(list map[string]any, item map[string]any) map[string]any {
-	if item == nil {
-		return nil
-	}
-	merged := copyMap(item)
-	if list == nil {
-		return merged
-	}
-	parents := []any{}
-	if existing, ok := merged["parent_classes"].([]any); ok {
-		parents = append(parents, existing...)
-	}
-	if listParents, ok := list["parent_classes"].([]any); ok {
-		parents = append(parents, listParents...)
-	}
-	if listTargets, ok := list["target_classes"].([]any); ok {
-		parents = append(parents, listTargets...)
-	}
-	if len(parents) > 0 {
-		merged["parent_classes"] = parents
-	}
-	return merged
-}
-
-// workerData 从 Worker 统一响应中读取 data 字段。
-// result 为 Worker 返回体，key 为 data 内字段名。
-func workerData(result map[string]any, key string) any {
-	if result == nil {
-		return nil
-	}
-	data, _ := result["data"].(map[string]any)
-	if data == nil {
-		return result[key]
-	}
-	return data[key]
 }
 
 // mapList 将任意值转换为 map 列表。
@@ -1828,6 +1449,16 @@ func freshCandidates(candidates []map[string]any, seen map[string]struct{}) []ma
 		}
 		seen[id] = struct{}{}
 		result = append(result, candidate)
+	}
+	return result
+}
+
+// candidateMaps 将平台候选人转换成主流程保存用 map。
+// candidates 为平台 runtime 返回的候选人列表。
+func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
+	result := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, map[string]any(candidate))
 	}
 	return result
 }
@@ -1935,19 +1566,6 @@ func mapFromAny(value any) map[string]any {
 	return mapValue(value)
 }
 
-// copyMap 浅拷贝 map，避免修改原始配置。
-// input 为原始 map。
-func copyMap(input map[string]any) map[string]any {
-	if input == nil {
-		return nil
-	}
-	output := make(map[string]any, len(input))
-	for key, value := range input {
-		output[key] = value
-	}
-	return output
-}
-
 // workerDataMap 从 Worker 返回中读取 data 字典。
 // result 为 Worker 返回 JSON。
 func workerDataMap(result map[string]any) map[string]any {
@@ -1958,21 +1576,6 @@ func workerDataMap(result map[string]any) map[string]any {
 		return data
 	}
 	return result
-}
-
-// compactAny 把任意值压缩成短文本。
-// value 为任意值，limit 为最大字符数。
-func compactAny(value any, limit int) string {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
-	}
-	text := strings.TrimSpace(string(raw))
-	if limit > 0 && len([]rune(text)) > limit {
-		runes := []rune(text)
-		return string(runes[:limit]) + "..."
-	}
-	return text
 }
 
 // firstNonEmptyString 返回第一个非空字符串。
