@@ -25,6 +25,7 @@ import (
 const defaultScanRounds = 3
 const defaultMaxItemsPerRound = 15
 const defaultScrollDistance = 720
+const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
 
 // BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
@@ -269,7 +270,6 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	totalFailed := 0
 	totalRounds := scanRounds(options)
 	maxItems := maxItemsPerRound(options)
-	scrollDistance := scrollDistance(options)
 	for round := 1; round <= totalRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -306,6 +306,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				return nil, err
 			}
 			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
+			scrollDistance := randomScrollDistance(options)
 			if _, err := r.worker.Call(ctx, "/api/v1/boss/candidates/scroll", map[string]any{
 				"platform_config": platformConfig,
 				"distance":        scrollDistance,
@@ -925,6 +926,18 @@ func scrollDistance(options StartOptions) int {
 		return 3000
 	}
 	return options.ScrollDistance
+}
+
+// randomScrollDistance 返回带随机抖动的滚动距离。
+// options 为任务启动参数，默认围绕 720 像素上下随机，避免每轮滚动完全一致。
+func randomScrollDistance(options StartOptions) int {
+	base := scrollDistance(options)
+	minDistance := maxInt(120, base-defaultScrollDistanceJitter)
+	maxDistance := base + defaultScrollDistanceJitter
+	if maxDistance <= minDistance {
+		return minDistance
+	}
+	return minDistance + rand.Intn(maxDistance-minDistance+1)
 }
 
 // statusMessage 返回任务状态中文说明。

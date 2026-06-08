@@ -166,6 +166,12 @@ func TestRunOptionBounds(t *testing.T) {
 	if scrollDistance(StartOptions{ScrollDistance: 9999}) != 3000 {
 		t.Fatal("scrollDistance 上限不正确")
 	}
+	for i := 0; i < 20; i++ {
+		distance := randomScrollDistance(StartOptions{})
+		if distance < 560 || distance > 880 {
+			t.Fatalf("随机滚动距离超出范围：%d", distance)
+		}
+	}
 	if candidatePipelineConcurrency(2) != 2 || candidatePipelineConcurrency(15) != defaultCandidatePipelineConcurrency {
 		t.Fatal("候选人流水线并发数不正确")
 	}

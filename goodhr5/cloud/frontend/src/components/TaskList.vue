@@ -37,58 +37,6 @@
         全部时间
       </button>
     </div>
-    <div v-if="tasks.localTaskMode?.()" class="run-options-panel">
-      <label class="run-option-check">
-        <input v-model="tasks.runOptions.value.enableGreet" type="checkbox" />
-        <span>真实打招呼</span>
-      </label>
-      <label
-        >扫描轮数<input
-          v-model.number="tasks.runOptions.value.scanRounds"
-          type="number"
-          min="1"
-          max="20"
-      /></label>
-      <label
-        >每轮数量<input
-          v-model.number="tasks.runOptions.value.maxItems"
-          type="number"
-          min="1"
-          max="100"
-      /></label>
-      <label
-        >滚动距离<input
-          v-model.number="tasks.runOptions.value.scrollDistance"
-          type="number"
-          min="120"
-          max="3000"
-      /></label>
-      <label
-        >等待最小秒<input
-          v-model.number="tasks.runOptions.value.greetDelayMin"
-          type="number"
-          min="0"
-          step="0.5"
-      /></label>
-      <label
-        >等待最大秒<input
-          v-model.number="tasks.runOptions.value.greetDelayMax"
-          type="number"
-          min="0"
-          step="0.5"
-      /></label>
-      <label
-        >失败重试<input
-          v-model.number="tasks.runOptions.value.greetRetries"
-          type="number"
-          min="0"
-          max="5"
-      /></label>
-    </div>
-    <p v-if="tasks.localTaskMode?.()" class="hint run-options-hint">
-      不勾选真实打招呼时，只会扫描、过滤和 AI 评分，不会点击平台按钮。
-    </p>
-
     <!-- 创建任务折叠 -->
 
     <div v-if="showCreate" class="form-grid" style="margin-bottom: 12px">

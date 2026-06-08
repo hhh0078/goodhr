@@ -50,15 +50,6 @@ export function useTasks(
     matchLimit: 20,
     enableSound: false,
   });
-  const runOptions = ref({
-    enableGreet: false,
-    scanRounds: 3,
-    maxItems: 15,
-    scrollDistance: 720,
-    greetDelayMin: 1,
-    greetDelayMax: 2,
-    greetRetries: 1,
-  });
   const expandedTaskId = ref("");
   const taskLogs = ref<Record<string, any[]>>({});
   const taskLogHasMore = ref<Record<string, boolean>>({});
@@ -590,13 +581,6 @@ export function useTasks(
   function taskLocalPayload() {
     return {
       cloud_api_base: cloudApiBase(),
-      enable_greet: Boolean(runOptions.value.enableGreet),
-      scan_rounds: Number(runOptions.value.scanRounds || 3),
-      max_items: Number(runOptions.value.maxItems || 15),
-      scroll_distance: Number(runOptions.value.scrollDistance || 720),
-      greet_delay_min: Number(runOptions.value.greetDelayMin || 0),
-      greet_delay_max: Number(runOptions.value.greetDelayMax || 0),
-      greet_retries: Number(runOptions.value.greetRetries || 0),
     };
   }
 
@@ -634,7 +618,6 @@ export function useTasks(
     error,
     message,
     form,
-    runOptions,
     expandedTaskId,
     taskLogs,
     taskLogHasMore,

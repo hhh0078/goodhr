@@ -574,31 +574,38 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	if token == "" {
 		token = bearerToken(r)
 	}
-	enableGreet := boolValue(payload["enable_greet"])
-	greetDelayMin := 0.0
-	greetDelayMax := 0.0
-	greetRetries := 0
-	if enableGreet {
-		greetDelayMin = floatValue(payload["greet_delay_min"], 1)
-		greetDelayMax = floatValue(payload["greet_delay_max"], 2)
-		greetRetries = intValue(payload["greet_retries"], 1)
-	}
+	greetDelayMin, greetDelayMax := s.localGreetDelaySettings()
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
-		CloudAPIBase:   s.cloudAPIBase(payload),
-		Token:          token,
-		EnableGreet:    enableGreet,
-		GreetDelayMin:  greetDelayMin,
-		GreetDelayMax:  greetDelayMax,
-		GreetRetries:   greetRetries,
-		ScanRounds:     intValue(payload["scan_rounds"], 0),
-		MaxItems:       intValue(payload["max_items"], 0),
-		ScrollDistance: intValue(payload["scroll_distance"], 0),
+		CloudAPIBase:  s.cloudAPIBase(payload),
+		Token:         token,
+		EnableGreet:   true,
+		GreetDelayMin: greetDelayMin,
+		GreetDelayMax: greetDelayMax,
+		GreetRetries:  0,
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
 		return
 	}
 	response.Success(w, result)
+}
+
+// localGreetDelaySettings 读取本地个人配置中的打招呼前等待时间。
+// 返回值为最小等待秒数和最大等待秒数，没有配置时使用 1-2 秒。
+func (s *Server) localGreetDelaySettings() (float64, float64) {
+	settings, err := s.db.GetSettings()
+	if err != nil {
+		return 1, 2
+	}
+	minDelay := floatValue(settings["greet_before_delay_min"], 1)
+	maxDelay := floatValue(settings["greet_before_delay_max"], 2)
+	if minDelay < 0 {
+		minDelay = 0
+	}
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+	return minDelay, maxDelay
 }
 
 // handleLocalTaskStop 停止本地任务运行器。
