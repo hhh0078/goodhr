@@ -662,12 +662,107 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
       const locator = currentPage.locator(selector).first();
       if ((await locator.count()) <= 0) continue;
       if (!(await locator.isVisible().catch(() => false))) continue;
-      return screenshotPage({ ...payload, selector, filename: payload.filename || "candidate-detail.png" });
+      return screenshotLocatorWithParts(currentPage, locator, payload);
     } catch {
       continue;
     }
   }
   return screenshotPage({ ...payload, full_page: true, filename: payload.filename || "candidate-detail.png" });
+}
+
+/**
+ * 对详情元素执行分段截图。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {any} locator - 详情容器定位器。
+ * @param {Record<string, any>} payload - 截图参数。
+ * @returns {Promise<Record<string, any>>} 主截图和分段截图。
+ */
+async function screenshotLocatorWithParts(currentPage, locator, payload) {
+  const filename = safeFilename(String(payload.filename || "candidate-detail.png"));
+  const directory = String(payload.dir || payload.directory || path.join(os.tmpdir(), "goodhr-screenshots"));
+  await fs.mkdir(directory, { recursive: true });
+  const box = await locator.boundingBox().catch(() => null);
+  const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
+  if (!box || box.width < 20 || box.height < 20) return screenshotPage({ ...payload, filename });
+  const needsScroll = box.y < 0 || box.y + box.height > viewport.height;
+  if (!needsScroll) return saveLocatorScreenshot(locator, directory, filename);
+  const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
+  if (parts.length <= 0) return saveLocatorScreenshot(locator, directory, filename);
+  return {
+    ...parts[0],
+    path: parts[0].path,
+    file_path: parts[0].file_path,
+    screenshot_parts: parts,
+    parts_count: parts.length,
+    overlap: parts[0].overlap || 0,
+  };
+}
+
+/**
+ * 保存指定元素的截图。
+ * @param {any} locator - 元素定位器。
+ * @param {string} directory - 保存目录。
+ * @param {string} filename - 文件名。
+ * @returns {Promise<Record<string, any>>} 截图信息。
+ */
+async function saveLocatorScreenshot(locator, directory, filename) {
+  const targetPath = await uniquePath(directory, filename);
+  const sizeInfo = await locator.boundingBox().catch(() => null) || { width: 0, height: 0 };
+  await locator.screenshot({ path: targetPath, type: "png" });
+  const stat = await fs.stat(targetPath);
+  return {
+    path: targetPath,
+    file_path: targetPath,
+    size: stat.size,
+    width: Math.round(sizeInfo.width || 0),
+    height: Math.round(sizeInfo.height || 0),
+  };
+}
+
+/**
+ * 滚动详情元素并保存多张分段截图。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, number>} box - 元素边界。
+ * @param {Record<string, number>} viewport - 视口尺寸。
+ * @param {string} directory - 保存目录。
+ * @param {string} filename - 基础文件名。
+ * @param {Record<string, any>} payload - 截图参数。
+ * @returns {Promise<Record<string, any>[]>} 分段截图列表。
+ */
+async function screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload) {
+  const clipX = Math.max(Math.round(box.x), 0);
+  const clipY = Math.max(Math.round(box.y), 0);
+  const clipWidth = Math.max(Math.round(box.width), 1);
+  const clipBottom = Math.min(Math.round(box.y + box.height), Math.round(viewport.height || 900));
+  const clipHeight = Math.max(clipBottom - clipY, 1);
+  const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
+  await currentPage.mouse.move(clipX + clipWidth / 2, clipY + clipHeight / 2).catch(() => {});
+  await currentPage.waitForTimeout(300);
+  const scrollDelta = Math.max(Math.round(clipHeight * 0.7), 1);
+  const overlap = Math.max(clipHeight - scrollDelta, 0);
+  const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
+  const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / scrollDelta) + 1);
+  const maxScrolls = Math.min(configuredMax, estimated);
+  const parsed = path.parse(filename);
+  const parts = [];
+  for (let index = 0; index < maxScrolls; index += 1) {
+    const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
+    const targetPath = await uniquePath(directory, partName);
+    await currentPage.screenshot({ path: targetPath, clip, type: "png" });
+    const stat = await fs.stat(targetPath);
+    parts.push({
+      path: targetPath,
+      file_path: targetPath,
+      size: stat.size,
+      width: clip.width,
+      height: clip.height,
+      overlap,
+      index,
+    });
+    await currentPage.mouse.wheel(0, scrollDelta);
+    await currentPage.waitForTimeout(500);
+  }
+  return parts;
 }
 
 /**

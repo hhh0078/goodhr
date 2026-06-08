@@ -7,7 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -696,7 +701,7 @@ func (r *Runner) processCandidateBatch(ctx context.Context, task localdb.Task, p
 				return result, err
 			}
 		}
-		if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) {
+		if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
 			skipped, err := r.scoreCandidate(ctx, task, candidate, aiClient)
 			result.Skipped += skipped
 			if err != nil {
@@ -892,6 +897,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		candidate["detail_source"] = "dom"
 	}
 	if screenshot := mapFromAny(data["screenshot"]); len(screenshot) > 0 {
+		screenshot = r.stitchDetailScreenshot(task.ID, candidate, screenshot)
 		r.saveDetailScreenshot(task.ID, candidate, screenshot)
 		if mode == "ocr" {
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
@@ -906,20 +912,36 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			}
 		}
 		if mode == "ai" {
-			r.taskLog(task.ID, "info", "开始 AI 图片识别："+candidateName)
-			visionText, err := r.analyzeDetailScreenshotWithClient(ctx, task, screenshot, aiClient)
+			r.taskLog(task.ID, "info", "开始 AI 图片详情评分："+candidateName)
+			decision, err := r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, aiClient)
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
-				r.taskLog(task.ID, "warning", "AI 图片识别失败："+err.Error())
+				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
 			} else {
-				detailText = strings.TrimSpace(visionText)
+				detailText = strings.TrimSpace(decision.DetailText)
 				candidate["ai_vision_text"] = detailText
 				candidate["detail_source"] = "ai"
-				r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
+				candidate["ai_greet_score"] = decision.Score
+				candidate["ai_greet_reason"] = decision.Reason
+				candidate["ai_greet_threshold"] = decision.Threshold
+				candidate["ai_usage"] = decision.Usage
+				candidate["ai_elapsed_ms"] = decision.ElapsedMS
+				candidate["ai_greet_scored"] = true
+				if !decision.ShouldGreet {
+					candidate["status"] = "skipped"
+					candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
+					r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情评分未通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
+					return 1, nil
+				}
+				candidate["status"] = "ai_passed"
+				r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情评分通过：name=%s score=%.1f threshold=%.1f length=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
 			}
 		}
 	}
 	if detailText == "" {
+		if mode == "ai" && stringFromMap(candidate, "status") == "ai_passed" {
+			return 0, nil
+		}
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情文本为空"
 		r.taskLog(task.ID, "warning", "候选人详情文本为空，已跳过："+candidateName)
@@ -951,6 +973,152 @@ func (r *Runner) closeCandidateDetail(ctx context.Context, task localdb.Task, pl
 		return
 	}
 	r.taskLog(task.ID, "info", name+"详情已关闭")
+}
+
+// stitchDetailScreenshot 将详情分段截图拼接成一张长图。
+// taskID 为任务 ID，candidate 为候选人，screenshot 为 Worker 返回的截图信息。
+func (r *Runner) stitchDetailScreenshot(taskID string, candidate map[string]any, screenshot map[string]any) map[string]any {
+	parts := mapList(screenshot["screenshot_parts"])
+	if len(parts) <= 1 {
+		return screenshot
+	}
+	images := []image.Image{}
+	for _, part := range parts {
+		filePath := firstNonEmptyString(stringFromMap(part, "file_path"), stringFromMap(part, "path"))
+		if filePath == "" {
+			continue
+		}
+		file, err := os.Open(filePath)
+		if err != nil {
+			r.taskLog(taskID, "warning", "打开详情分段截图失败："+err.Error())
+			continue
+		}
+		img, err := png.Decode(file)
+		_ = file.Close()
+		if err != nil {
+			r.taskLog(taskID, "warning", "解析详情分段截图失败："+err.Error())
+			continue
+		}
+		images = append(images, img)
+	}
+	if len(images) <= 1 {
+		return screenshot
+	}
+	overlap := maxInt(0, intFromMap(screenshot, "overlap"))
+	stitched := stitchImages(images, overlap)
+	if stitched == nil {
+		return screenshot
+	}
+	outputDir := filepath.Join(r.screenshotsDir, taskID)
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		r.taskLog(taskID, "warning", "创建详情长图目录失败："+err.Error())
+		return screenshot
+	}
+	filename := fmt.Sprintf("detail-%s-stitched.png", safePathName(stringFromMap(candidate, "id")))
+	outputPath := filepath.Join(outputDir, filename)
+	file, err := os.Create(outputPath)
+	if err != nil {
+		r.taskLog(taskID, "warning", "创建详情长图失败："+err.Error())
+		return screenshot
+	}
+	if err := png.Encode(file, stitched); err != nil {
+		_ = file.Close()
+		r.taskLog(taskID, "warning", "保存详情长图失败："+err.Error())
+		return screenshot
+	}
+	_ = file.Close()
+	info, _ := os.Stat(outputPath)
+	result := map[string]any{}
+	for key, value := range screenshot {
+		result[key] = value
+	}
+	result["file_path"] = outputPath
+	result["path"] = outputPath
+	if info != nil {
+		result["size"] = info.Size()
+	}
+	result["width"] = stitched.Bounds().Dx()
+	result["height"] = stitched.Bounds().Dy()
+	result["stitched"] = true
+	result["parts_count"] = len(images)
+	r.taskLog(taskID, "info", fmt.Sprintf("详情截图已拼接：parts=%d width=%d height=%d", len(images), stitched.Bounds().Dx(), stitched.Bounds().Dy()))
+	return result
+}
+
+// stitchImages 将多张 PNG 图片按重叠区域纵向拼接。
+// images 为按页面顺序排列的图片，overlap 为预期重叠像素。
+func stitchImages(images []image.Image, overlap int) *image.RGBA {
+	if len(images) == 0 {
+		return nil
+	}
+	result := imageToRGBA(images[0])
+	for index := 1; index < len(images); index++ {
+		result = mergeTwoImages(result, imageToRGBA(images[index]), overlap)
+	}
+	return result
+}
+
+// mergeTwoImages 合并上下两张截图，并自动寻找最佳重叠位置。
+// top 为上半部分截图，bottom 为下半部分截图，overlap 为预期重叠像素。
+func mergeTwoImages(top *image.RGBA, bottom *image.RGBA, overlap int) *image.RGBA {
+	topBounds := top.Bounds()
+	bottomBounds := bottom.Bounds()
+	stripHeight := minInt(30, bottomBounds.Dy()-1)
+	if stripHeight <= 0 {
+		stripHeight = 1
+	}
+	searchRange := minInt(maxInt(overlap+50, stripHeight), minInt(topBounds.Dy()-1, bottomBounds.Dy()-1))
+	bestY := maxInt(topBounds.Dy()-overlap, 0)
+	bestDiff := math.MaxFloat64
+	startY := maxInt(topBounds.Dy()-searchRange, 0)
+	endY := maxInt(topBounds.Dy()-stripHeight, startY)
+	for y := startY; y <= endY; y++ {
+		diff := imageStripDiff(top, bottom, y, stripHeight)
+		if diff < bestDiff {
+			bestDiff = diff
+			bestY = y
+		}
+	}
+	width := maxInt(topBounds.Dx(), bottomBounds.Dx())
+	height := bestY + bottomBounds.Dy()
+	merged := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(merged, merged.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(merged, image.Rect(0, 0, topBounds.Dx(), topBounds.Dy()), top, topBounds.Min, draw.Over)
+	draw.Draw(merged, image.Rect(0, bestY, bottomBounds.Dx(), bestY+bottomBounds.Dy()), bottom, bottomBounds.Min, draw.Over)
+	return merged
+}
+
+// imageStripDiff 计算两张图重叠条带的像素差异。
+// top 为上图，bottom 为下图，topY 为上图条带起点，height 为条带高度。
+func imageStripDiff(top *image.RGBA, bottom *image.RGBA, topY int, height int) float64 {
+	width := minInt(top.Bounds().Dx(), bottom.Bounds().Dx())
+	if width <= 0 || height <= 0 {
+		return math.MaxFloat64
+	}
+	step := maxInt(width/120, 1)
+	var total float64
+	var count float64
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x += step {
+			a := top.RGBAAt(x, topY+y)
+			b := bottom.RGBAAt(x, y)
+			total += math.Abs(float64(a.R)-float64(b.R)) + math.Abs(float64(a.G)-float64(b.G)) + math.Abs(float64(a.B)-float64(b.B))
+			count += 3
+		}
+	}
+	if count == 0 {
+		return math.MaxFloat64
+	}
+	return total / count
+}
+
+// imageToRGBA 将任意图片转换为 RGBA。
+// img 为原始图片。
+func imageToRGBA(img image.Image) *image.RGBA {
+	bounds := img.Bounds()
+	result := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(result, result.Bounds(), img, bounds.Min, draw.Src)
+	return result
 }
 
 // saveDetailScreenshot 保存详情截图记录。
@@ -1033,6 +1201,27 @@ func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task loc
 		return "", err
 	}
 	return result.Content, nil
+}
+
+// scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。
+// ctx 为请求上下文，task 为任务记录，candidate 为候选人，screenshot 为拼接后的截图信息，client 为 AI 客户端。
+func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task localdb.Task, candidate map[string]any, screenshot map[string]any, client *localai.Client) (localai.Decision, error) {
+	if client == nil {
+		config, err := r.db.GetAIConfig()
+		if err != nil {
+			return localai.Decision{}, err
+		}
+		client = localai.New(config)
+	}
+	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
+	if filePath == "" {
+		return localai.Decision{}, fmt.Errorf("详情截图路径为空")
+	}
+	imageBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return localai.Decision{}, fmt.Errorf("读取详情截图失败：%w", err)
+	}
+	return client.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
 }
 
 // scoreCandidates 使用本地 AI 给候选人评分。
@@ -1214,6 +1403,15 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 // a 和 b 为参与比较的整数。
 func maxInt(a int, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+// minInt 返回两个整数中的较小值。
+// a 和 b 为参与比较的整数。
+func minInt(a int, b int) int {
+	if a < b {
 		return a
 	}
 	return b

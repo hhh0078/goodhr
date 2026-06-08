@@ -4,6 +4,7 @@ package localai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,6 +67,7 @@ type Client struct {
 type Decision struct {
 	Score            float64        `json:"score"`
 	Reason           string         `json:"reason"`
+	DetailText       string         `json:"detail_text"`
 	ShouldGreet      bool           `json:"should_greet"`
 	ShouldOpenDetail bool           `json:"should_open_detail"`
 	Threshold        float64        `json:"threshold"`
@@ -144,6 +146,42 @@ func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, can
 	return Decision{
 		Score:       score,
 		Reason:      reason,
+		ShouldGreet: score >= threshold,
+		Threshold:   threshold,
+		Usage:       result.Usage,
+		ElapsedMS:   result.ElapsedMS,
+	}, nil
+}
+
+// ScoreVisionForGreet 根据候选人详情长图一次性完成详情识别和打招呼评分。
+// ctx 为请求上下文，position 为岗位快照，candidate 为候选人信息，imageBytes 为拼接后的详情截图。
+func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]any, candidate map[string]any, imageBytes []byte) (Decision, error) {
+	threshold := numberFromAIConfig(position, defaultGreetThreshold, "greet_score_threshold", "greet_threshold")
+	prompt := buildVisionGreetPrompt(position, candidate)
+	content := []map[string]any{
+		{"type": "text", "text": prompt},
+		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
+	}
+	result, err := c.Chat(ctx, map[string]any{
+		"messages":    []map[string]any{{"role": "user", "content": content}},
+		"temperature": 0.1,
+	})
+	if err != nil {
+		return Decision{}, err
+	}
+	score, reason, detailText, err := parseVisionScoreJSON(result.Content)
+	if err != nil {
+		return Decision{}, err
+	}
+	score = clampScore(score)
+	reason = truncate(reason, 30)
+	if reason == "" {
+		reason = "AI未给出原因"
+	}
+	return Decision{
+		Score:       score,
+		Reason:      reason,
+		DetailText:  strings.TrimSpace(detailText),
 		ShouldGreet: score >= threshold,
 		Threshold:   threshold,
 		Usage:       result.Usage,
@@ -311,6 +349,32 @@ func buildGreetPrompt(position map[string]any, candidate map[string]any) string 
 	return templatePrompt(custom, jobDesc, candidateText, fallback)
 }
 
+// buildVisionGreetPrompt 构建图片详情识别和打招呼评分提示词。
+// position 为岗位快照，candidate 为候选人基础信息。
+func buildVisionGreetPrompt(position map[string]any, candidate map[string]any) string {
+	jobDesc := positionDescription(position)
+	candidateText := firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text"))
+	return `你是一个资深的HR专家。
+请根据岗位要求、候选人基础信息，以及图片中的候选人详情，直接完成打招呼评分。
+
+重要提示：
+1. 你必须先识别图片中的候选人详情，再结合岗位要求评分。
+2. 仅输出 JSON，不能输出其它内容。
+3. 返回字段必须包含 score、reason、detail_text。
+4. score 范围是 0-100，可以是小数。
+5. reason 控制在30字以内。
+6. detail_text 输出从图片中识别到的中文详情文本。
+7. 禁止输出 Markdown，禁止输出 Markdown 代码块。
+
+岗位要求：
+` + jobDesc + `
+
+候选人基础信息：
+` + candidateText + `
+
+请返回JSON：{"score": 78, "reason": "匹配核心要求", "detail_text": "图片识别到的候选人详情"}`
+}
+
 // positionDescription 返回岗位要求文本。
 // position 为岗位快照。
 func positionDescription(position map[string]any) string {
@@ -373,6 +437,30 @@ func parseScoreJSON(content string) (float64, string, error) {
 		return numberValue(payload["score"], 0), stringFromMap(payload, "reason"), nil
 	}
 	return 0, "", fmt.Errorf("AI 返回不是合法 JSON")
+}
+
+// parseVisionScoreJSON 解析图片详情 AI 输出的评分和详情文本。
+// content 为 AI 原始正文。
+func parseVisionScoreJSON(content string) (float64, string, string, error) {
+	cleaned := cleanAIText(content)
+	candidates := []string{cleaned}
+	re := regexp.MustCompile(`(?s)\{.*\}`)
+	if match := re.FindString(cleaned); match != "" {
+		candidates = append(candidates, match)
+	}
+	for _, item := range candidates {
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(item), &payload); err != nil {
+			continue
+		}
+		detailText := firstNonEmpty(
+			stringFromMap(payload, "detail_text"),
+			stringFromMap(payload, "candidate_detail"),
+			stringFromMap(payload, "text"),
+		)
+		return numberValue(payload["score"], 0), stringFromMap(payload, "reason"), detailText, nil
+	}
+	return 0, "", "", fmt.Errorf("AI 返回不是合法 JSON")
 }
 
 // extractChatContent 提取 OpenAI 兼容响应正文。
