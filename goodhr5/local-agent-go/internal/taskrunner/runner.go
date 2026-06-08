@@ -872,6 +872,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	result, err := r.worker.Call(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 		"platform_config": platformConfig,
 		"card_index":      intFromMap(candidate, "card_index"),
+		"element_ref":     stringFromMap(candidate, "element_ref"),
 		"screenshot":      mode == "ocr" || mode == "ai",
 		"dir":             filepath.Join(r.screenshotsDir, task.ID),
 		"filename":        fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
@@ -1139,6 +1140,7 @@ func (r *Runner) tryGreet(ctx context.Context, platformConfig cloudapi.PlatformC
 		_, err := r.worker.Call(ctx, "/api/v1/boss/candidates/greet", map[string]any{
 			"platform_config": platformConfig,
 			"card_index":      intFromMap(candidate, "card_index"),
+			"element_ref":     stringFromMap(candidate, "element_ref"),
 		})
 		if err == nil {
 			return nil

@@ -15,6 +15,8 @@ let page = null;
 let currentUserDataDir = "";
 let currentDownloadsPath = "";
 const downloads = [];
+const elementRefs = new Map();
+let elementRefSeq = 0;
 
 process.on("uncaughtException", (error) => {
   console.error("Node Worker 未捕获异常", error);
@@ -155,6 +157,7 @@ function resetBrowserState() {
   page = null;
   currentUserDataDir = "";
   currentDownloadsPath = "";
+  clearElementRefs();
 }
 
 /**
@@ -247,6 +250,7 @@ async function openPage(payload) {
     await startBrowser(payload);
   }
   const currentPage = await ensurePage();
+  clearElementRefs();
   await currentPage.goto(target, { waitUntil: "domcontentloaded", timeout: Number(payload.timeout || 60000) });
   return { url: currentPage.url() };
 }
@@ -299,7 +303,7 @@ async function currentPageURL() {
  */
 async function clickPage(payload) {
   const currentPage = await ensurePage();
-  const base = payload.element_ref ? locatorByRef(currentPage, payload.element_ref) : currentPage;
+  const base = payload.element_ref ? locatorByRef(currentPage, payload.element_ref) || currentPage : currentPage;
   const locator = await firstLocator(base, payload.element || payload, true);
   if (!locator) throw new Error("点击选择器不能为空或未找到元素");
   if (payload.delay_before) await currentPage.waitForTimeout(Math.max(0, Number(payload.delay_before) * 1000));
@@ -389,10 +393,11 @@ async function findElements(payload) {
         extracted[name] = await locatorText(locator, config);
       }
     }
+    const ref = rememberElement(locator);
     items.push({
       index,
-      ref: String(index),
-      element_ref: String(index),
+      ref,
+      element_ref: ref,
       text: await locator.innerText({ timeout: 800 }).catch(() => ""),
       fields: extracted,
     });
@@ -536,15 +541,29 @@ async function extractBossCandidateDetail(payload) {
  * @returns {Promise<{card:any, attempts:number}>} 候选人卡片和滚动次数。
  */
 async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
+  const refLocator = locatorByRef(currentPage, payload.element_ref || payload.ref);
+  if (refLocator) {
+    await refLocator.evaluate((el) => {
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", inline: "nearest" });
+    }).catch(() => {});
+    await refLocator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
+    if (await refLocator.isVisible().catch(() => false)) return { card: refLocator, attempts: 1, by_ref: true };
+  }
   const cardSelectors = selectorList(rules.candidate_card);
   if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
-  const cards = currentPage.locator(cardSelectors.join(", "));
-  const count = await cards.count();
-  if (cardIndex >= count) throw new Error("候选人卡片已不在当前页面");
-  const card = cards.nth(cardIndex);
+  let cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+  let count = cards.length;
   const maxAttempts = Math.max(1, Math.min(12, Number(payload.card_scroll_attempts || 8)));
   const distance = Math.max(120, Number(payload.card_scroll_distance || payload.distance || 720));
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (cardIndex >= count) {
+      await scrollBossListByRules(currentPage, rules, distance);
+      await currentPage.waitForTimeout(250);
+      cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+      count = cards.length;
+      continue;
+    }
+    let card = cards[cardIndex]?.locator || cards[cardIndex];
     await card.evaluate((el) => {
       if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", inline: "nearest" });
     }).catch(() => {});
@@ -554,8 +573,10 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     }
     await scrollBossListByRules(currentPage, rules, distance);
     await currentPage.waitForTimeout(250);
+    cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+    count = cards.length;
   }
-  throw new Error("候选人卡片当前不可见");
+  throw new Error("候选人卡片已不在当前页面");
 }
 
 /**
@@ -847,6 +868,7 @@ function registerPage(targetPage) {
   targetPage.__goodhrDownloadRegistered = true;
   targetPage.on("close", () => {
     if (page === targetPage) page = null;
+    clearElementRefs();
   });
   targetPage.on("download", async (download) => {
     try {
@@ -1124,8 +1146,28 @@ async function locatorText(scope, config) {
  * @returns {any} locator。
  */
 function locatorByRef(currentPage, ref) {
-  const index = Math.max(0, Number(ref || 0));
-  return currentPage.locator("body").nth(index);
+  const key = String(ref || "").trim();
+  if (!key) return null;
+  return elementRefs.get(key) || null;
+}
+
+/**
+ * 记住本次扫描到的元素定位器，供后续详情和打招呼复用。
+ * @param {any} locator - Playwright 元素定位器。
+ * @returns {string} 元素引用编号。
+ */
+function rememberElement(locator) {
+  const ref = `el_${Date.now()}_${elementRefSeq++}`;
+  elementRefs.set(ref, locator);
+  return ref;
+}
+
+/**
+ * 清空页面元素引用缓存，避免跨页面复用旧定位器。
+ * @returns {void} 无返回值。
+ */
+function clearElementRefs() {
+  elementRefs.clear();
 }
 
 /**
