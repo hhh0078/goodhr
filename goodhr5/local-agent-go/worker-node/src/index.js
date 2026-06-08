@@ -522,7 +522,7 @@ async function extractBossCandidateDetail(payload) {
   const cardInfo = await bossCardByIndex(currentPage, rules, cardIndex, payload);
   const card = cardInfo.card;
   const opened = await clickFirstVisible(card, selectorList(rules.detail_buttons), 1500);
-  if (!opened) throw new Error("未找到可点击的详情入口");
+  if (!opened) await card.click({ timeout: 1500 });
   await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
   const detailText = await firstDetailText(currentPage, selectorList(rules.detail_containers));
   const screenshot = payload.screenshot
