@@ -346,16 +346,25 @@ async function scrollPage(payload) {
 async function extractText(payload) {
   const currentPage = await ensurePage();
   const element = payload.element || payload;
-  const selector = firstSelector(element);
+  const selectors = selectorList(element);
   const locators = await allLocators(currentPage, element, false);
-  const locator = locators[0];
+  const item = locators[0];
+  const locator = item?.locator;
   if (!locator) {
-    if (payload.element || selector) return { text: "", texts: [], found: false, count: 0, selector };
+    if (payload.element || selectors.length > 0) return { text: "", texts: [], found: false, count: 0, selector: selectors[0] || "", selectors };
     const text = await currentPage.locator("body").innerText({ timeout: Number(payload.timeout || 10000) });
     return { text, texts: text ? [text] : [], found: true, count: 1, selector: "body" };
   }
   const text = await locator.innerText({ timeout: Number(payload.timeout || 10000) });
-  return { text, texts: text ? [text] : [], found: true, count: locators.length, selector };
+  return {
+    text,
+    texts: text ? [text] : [],
+    found: true,
+    count: locators.length,
+    selector: item.targetSelector || selectors[0] || "",
+    parent_selector: item.parentSelector || "",
+    frame_url: item.frameURL || "",
+  };
 }
 
 /**
@@ -372,7 +381,7 @@ async function findElements(payload) {
   const fields = Array.isArray(payload.fields) ? payload.fields : [];
   const items = [];
   for (let index = 0; index < Math.min(locators.length, maxItems); index += 1) {
-    const locator = locators[index];
+    const locator = locators[index].locator || locators[index];
     const extracted = {};
     for (const field of fields) {
       if (!field || typeof field !== "object") continue;
@@ -401,7 +410,7 @@ async function listClickByIndex(payload) {
   const index = Math.max(0, Number(payload.index || 0));
   const element = payload.item || payload.element || payload;
   const locators = await allLocators(currentPage, element, true);
-  const target = locators[index];
+  const target = locators[index]?.locator || locators[index];
   if (!target) throw new Error("指定列表项不存在");
   await target.scrollIntoViewIfNeeded({ timeout: Number(payload.timeout || 3000) }).catch(() => {});
   const clickTarget = payload.click_target || payload.clickTarget;
@@ -966,7 +975,7 @@ function cssEscape(value) {
  */
 async function firstLocator(scope, element, visibleOnly) {
   const locators = await allLocators(scope, element, visibleOnly, 1);
-  return locators[0] || null;
+  return locators[0]?.locator || locators[0] || null;
 }
 
 /**
@@ -982,16 +991,21 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
   if (selectors.length <= 0) return [];
   const parentSelectors = parentSelectorList(element);
   const scopes = [];
+  const searchContainers = searchContainerList(scope);
   if (parentSelectors.length > 0) {
-    for (const parentSelector of parentSelectors) {
-      const parents = scope.locator(parentSelector);
-      const count = await parents.count().catch(() => 0);
-      for (let index = 0; index < count && scopes.length < limit; index += 1) {
-        scopes.push({ locator: parents.nth(index), includeSelf: true });
+    for (const container of searchContainers) {
+      for (const parentSelector of parentSelectors) {
+        const parents = container.scope.locator(parentSelector);
+        const count = await parents.count().catch(() => 0);
+        for (let index = 0; index < count && scopes.length < limit; index += 1) {
+          scopes.push({ locator: parents.nth(index), includeSelf: true, parentSelector, frameURL: container.frameURL });
+        }
       }
     }
   } else {
-    scopes.push({ locator: scope, includeSelf: false });
+    for (const container of searchContainers) {
+      scopes.push({ locator: container.scope, includeSelf: false, parentSelector: "", frameURL: container.frameURL });
+    }
   }
   const result = [];
   for (const current of scopes) {
@@ -1002,7 +1016,7 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
           return Boolean(el && el.matches && el.matches(rawSelector));
         }, selector).catch(() => false);
         if (selfMatches && (!visibleOnly || await currentScope.isVisible().catch(() => false))) {
-          result.push(currentScope);
+          result.push({ locator: currentScope, parentSelector: current.parentSelector || "", targetSelector: selector, frameURL: current.frameURL || "" });
           if (result.length >= limit) return result;
           continue;
         }
@@ -1012,11 +1026,29 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
       for (let index = 0; index < count && result.length < limit; index += 1) {
         const item = locator.nth(index);
         if (visibleOnly && !(await item.isVisible().catch(() => false))) continue;
-        result.push(item);
+        result.push({ locator: item, parentSelector: current.parentSelector || "", targetSelector: selector, frameURL: current.frameURL || "" });
       }
     }
   }
   return result;
+}
+
+/**
+ * 返回用于查找元素的页面容器列表。
+ * @param {any} scope - 页面、Frame 或 locator。
+ * @returns {{scope:any, frameURL:string}[]} 查找容器列表。
+ */
+function searchContainerList(scope) {
+  if (scope?.frames && typeof scope.frames === "function") {
+    const frames = scope.frames() || [];
+    const items = [{ scope, frameURL: scope.url?.() || "" }];
+    for (const frame of frames) {
+      if (frame === scope.mainFrame?.()) continue;
+      items.push({ scope: frame, frameURL: frame.url?.() || "" });
+    }
+    return items;
+  }
+  return [{ scope, frameURL: "" }];
 }
 
 /**

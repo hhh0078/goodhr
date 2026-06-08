@@ -510,7 +510,7 @@ func (r *Runner) currentPositionName(ctx context.Context, taskID string, platfor
 	data := workerDataMap(result)
 	name := firstNonEmptyString(stringFromMap(data, "text"), firstStringFromAny(data["texts"]))
 	if name == "" {
-		r.taskLog(taskID, "warning", fmt.Sprintf("页面当前岗位提取为空：found=%v count=%d text_len=%d worker_selector=%s config=%s", boolFromMap(data, "found"), intFromMap(data, "count"), len(stringFromMap(data, "text")), stringFromMap(data, "selector"), selectorSummary(current)))
+		r.taskLog(taskID, "warning", fmt.Sprintf("页面当前岗位提取为空：found=%v count=%d text_len=%d target=%s parent=%s frame=%s config=%s", boolFromMap(data, "found"), intFromMap(data, "count"), len(stringFromMap(data, "text")), stringFromMap(data, "selector"), stringFromMap(data, "parent_selector"), stringFromMap(data, "frame_url"), selectorSummary(current)))
 		return "", fmt.Errorf("页面当前岗位为空")
 	}
 	return name, nil
