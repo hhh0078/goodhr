@@ -174,7 +174,7 @@ async function hasLiveBrowserSession() {
         registerPage(page);
         return true;
       }
-      if (!browser) return true;
+      return false;
     } catch (error) {
       if (isClosedTargetError(error)) return false;
       throw error;
@@ -211,7 +211,12 @@ async function ensurePage() {
   page = null;
   if (context) {
     try {
-      page = await context.newPage();
+      const pages = context.pages?.() || [];
+      page = pages.find((item) => !item.isClosed?.()) || null;
+      if (!page) {
+        resetBrowserState();
+        throw new Error("浏览器已关闭，请重新启动浏览器");
+      }
       registerPage(page);
       return page;
     } catch (error) {

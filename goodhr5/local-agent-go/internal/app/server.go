@@ -1148,6 +1148,9 @@ func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 // handleBrowserStop 转发浏览器停止请求给 Node Worker。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
+	if stopped := s.runner.StopAll("浏览器已关闭，任务已自动结束"); stopped > 0 {
+		log.Printf("浏览器停止前已结束运行任务：count=%d", stopped)
+	}
 	s.proxyWorkerPost(w, r, "/api/v1/browser/stop")
 }
 

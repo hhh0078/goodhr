@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -209,6 +210,13 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			r.taskLog(taskID, "info", "本地任务收到停止信号")
 			return
 		}
+		if isBrowserClosedTaskError(err) {
+			message := "浏览器已关闭，任务已自动结束"
+			r.updateProgress(taskID, Progress{Stage: "stopped", Message: message, TotalRounds: totalRounds})
+			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+			r.taskLog(taskID, "warning", message+"："+err.Error())
+			return
+		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
 		return
 	}
@@ -226,16 +234,36 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	}
 	r.taskLog(taskID, "info", "收到停止任务请求")
 	r.cancel(taskID)
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	r.taskLog(taskID, "info", "准备关闭浏览器")
-	_, _ = r.worker.Call(stopCtx, "/api/v1/browser/stop", map[string]any{})
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err
 	}
-	r.taskLog(taskID, "info", "本地任务已停止")
+	r.taskLog(taskID, "info", "本地任务已停止，浏览器保持打开")
 	return map[string]any{"task": task, "running": false}, nil
+}
+
+// StopAll 停止所有正在运行的本地任务。
+// reason 为停止原因，返回停止的任务数量。
+func (r *Runner) StopAll(reason string) int {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "任务已停止"
+	}
+	r.mu.Lock()
+	ids := make([]string, 0, len(r.running))
+	for taskID, state := range r.running {
+		ids = append(ids, taskID)
+		if state != nil && state.cancel != nil {
+			state.cancel()
+		}
+	}
+	r.mu.Unlock()
+	for _, taskID := range ids {
+		r.updateProgress(taskID, Progress{Stage: "stopped", Message: reason, TotalRounds: defaultScanRounds})
+		_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+		r.taskLog(taskID, "warning", reason)
+	}
+	return len(ids)
 }
 
 // Status 返回本地任务运行状态。
@@ -474,6 +502,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 					visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在评分", candidateLogName(candidate), "正在判断是否适合打招呼")
 					itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
 					cleanup()
+					if err == nil {
+						r.showAIReply(ctx, exec, "AI 评分完成", candidateLogName(candidate), formatGreetCandidateReply(candidate))
+					}
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						candidate["status"] = "failed"
@@ -723,6 +754,9 @@ func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.T
 				cleanup()
 				if err == nil {
 					item.DetailDecision = &decision
+					if showOverlay {
+						r.showAIReply(ctx, exec, title, subtitle, formatDetailDecisionReply(decision))
+					}
 				}
 				item.Err = err
 				resultCh <- item
@@ -895,6 +929,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				candidate["ai_vision_error"] = err.Error()
 				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
 			} else {
+				r.showAIReply(ctx, exec, "AI 详情分析完成", candidateName, formatVisionDecisionReply(decision))
 				detailText = strings.TrimSpace(decision.DetailText)
 				candidate["ai_vision_text"] = detailText
 				candidate["detail_source"] = "ai"
@@ -1037,11 +1072,28 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 	})
 	done := make(chan struct{})
 	go r.playAIThinking(ctx, exec, title, subtitle, steps, done)
+	var once sync.Once
 	cleanup := func() {
-		close(done)
-		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
+		once.Do(func() {
+			close(done)
+		})
 	}
 	return client, cleanup
+}
+
+// showAIReply 在浏览器 AI 浮层里显示本次 AI 的最终回复。
+// ctx 为请求上下文，exec 为 Worker 执行器，title、subtitle 和 reply 为展示文本。
+func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title string, subtitle string, reply string) {
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		reply = "AI 已完成分析"
+	}
+	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+		"action":   "show",
+		"title":    title,
+		"subtitle": subtitle,
+		"message":  reply,
+	})
 }
 
 // playAIThinking 周期性刷新浏览器里的 AI 思考步骤。
@@ -1085,6 +1137,44 @@ func aiThinkingSteps(seed string) []string {
 		"正在判断是否达到当前任务阈值",
 		"正在整理评分原因和下一步动作",
 	}
+}
+
+// formatDetailDecisionReply 格式化“是否查看详情”的 AI 回复。
+// decision 为 AI 决策结果。
+func formatDetailDecisionReply(decision localai.Decision) string {
+	action := "不打开详情"
+	if decision.ShouldOpenDetail {
+		action = "打开详情"
+	}
+	return fmt.Sprintf("AI 回复：%s\n评分：%.1f / %.1f\n原因：%s", action, decision.Score, decision.Threshold, firstNonEmptyString(decision.Reason, "AI未给出原因"))
+}
+
+// formatVisionDecisionReply 格式化详情图片 AI 回复。
+// decision 为 AI 决策结果。
+func formatVisionDecisionReply(decision localai.Decision) string {
+	action := "不打招呼"
+	if decision.ShouldGreet {
+		action = "建议打招呼"
+	}
+	detail := strings.TrimSpace(decision.DetailText)
+	if len([]rune(detail)) > 80 {
+		detail = string([]rune(detail)[:80]) + "..."
+	}
+	if detail == "" {
+		detail = "未返回详情摘要"
+	}
+	return fmt.Sprintf("AI 回复：%s\n评分：%.1f / %.1f\n原因：%s\n摘要：%s", action, decision.Score, decision.Threshold, firstNonEmptyString(decision.Reason, "AI未给出原因"), detail)
+}
+
+// formatGreetCandidateReply 格式化打招呼 AI 回复。
+// candidate 为已写入 AI 评分字段的候选人。
+func formatGreetCandidateReply(candidate map[string]any) string {
+	action := "建议打招呼"
+	status := stringFromMap(candidate, "status")
+	if status == "skipped" {
+		action = "不打招呼"
+	}
+	return fmt.Sprintf("AI 回复：%s\n评分：%.1f / %.1f\n原因：%s", action, floatFromMap(candidate, "ai_greet_score"), floatFromMap(candidate, "ai_greet_threshold"), firstNonEmptyString(stringFromMap(candidate, "ai_greet_reason"), stringFromMap(candidate, "skip_reason"), "AI未给出原因"))
 }
 
 // scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。
@@ -1341,6 +1431,29 @@ func (r *Runner) failStart(taskID string, msg string) {
 	r.taskLog(taskID, "error", msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
+}
+
+// isBrowserClosedTaskError 判断错误是否来自用户关闭浏览器。
+// err 为任务执行中的错误。
+func isBrowserClosedTaskError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	keywords := []string{
+		"浏览器已关闭",
+		"浏览器未启动",
+		"target page, context or browser has been closed",
+		"browser has been closed",
+		"context closed",
+		"target closed",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
 }
 
 // taskLog 输出任务日志到命令行并写入本地任务日志。
@@ -1806,6 +1919,32 @@ func intFromMap(item map[string]any, key string) int {
 	case json.Number:
 		parsed, _ := value.Int64()
 		return int(parsed)
+	default:
+		return 0
+	}
+}
+
+// floatFromMap 从 map 中读取浮点数。
+// item 为原始字典，key 为字段名。
+func floatFromMap(item map[string]any, key string) float64 {
+	if item == nil {
+		return 0
+	}
+	switch value := item[key].(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case json.Number:
+		parsed, _ := value.Float64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		return parsed
 	default:
 		return 0
 	}

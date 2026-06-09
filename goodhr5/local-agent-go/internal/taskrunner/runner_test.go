@@ -4,6 +4,7 @@ package taskrunner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -114,6 +115,11 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	if stopped.Status != "stopped" {
 		t.Fatalf("stopped status = %s", stopped.Status)
+	}
+	for _, call := range worker.calls {
+		if call == "/api/v1/browser/stop" {
+			t.Fatal("停止任务不应该关闭浏览器")
+		}
 	}
 
 	task2, err := db.CreateTask(map[string]any{"name": "本地任务2", "platform_id": "boss", "match_limit": 1, "position_snapshot": map[string]any{"name": "本地任务2"}})
@@ -333,12 +339,46 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	waitForTaskStatus(t, db, task.ID, "stopped")
 }
 
+// TestRunnerBrowserClosedStopsTask 验证用户关闭浏览器后任务会结束。
+func TestRunnerBrowserClosedStopsTask(t *testing.T) {
+	speedUpPageEntryCheck(t)
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/subscription/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "subscription": map[string]any{"active": true}})
+		case "/api/platforms/config/":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"configs": []map[string]any{
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}],"position":{"current":{"target_classes":[["current-position"]]}}}`},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer cloud.Close()
+
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{"name": "浏览器关闭任务", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "本地任务"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := &fakeWorker{extractErr: errors.New("浏览器已关闭，请重新启动浏览器")}
+	runner := newTestRunner(t, db, worker)
+	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
+		t.Fatal(err)
+	}
+	waitForTaskStatus(t, db, task.ID, "stopped")
+}
+
 // fakeWorker 模拟浏览器 Worker。
 type fakeWorker struct {
 	calls               []string
 	currentPosition     string
 	pageListCalls       int
 	pageListEmptyBefore int
+	extractErr          error
 }
 
 // fakeOCR 模拟 OCR 识别器。
@@ -395,6 +435,9 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 		return map[string]any{"data": map[string]any{"clicked": true}}, nil
 	}
 	if path == "/api/v1/boss/candidates/extract" {
+		if w.extractErr != nil {
+			return nil, w.extractErr
+		}
 		return map[string]any{
 			"data": map[string]any{
 				"candidates": []any{
