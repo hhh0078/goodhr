@@ -154,6 +154,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"card_index":      intFromMap(candidate, "card_index"),
 		"element_ref":     stringFromMap(candidate, "element_ref"),
 		"screenshot":      request.Mode == "ocr" || request.Mode == "ai",
+		"force_scroll":    request.Mode == "ocr" || request.Mode == "ai",
 		"dir":             filepath.Join(request.ScreenshotsDir, request.TaskID),
 		"filename":        request.Filename,
 	})
@@ -164,6 +165,9 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	detailText := strings.TrimSpace(firstNonEmpty(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
 	screenshot := mapFromAny(data["screenshot"])
 	if len(screenshot) > 0 {
+		if partsCount := intFromMap(screenshot, "parts_count"); partsCount > 0 {
+			exec.Log("info", fmt.Sprintf("详情截图分段完成：name=%s parts=%d", name, partsCount))
+		}
 		screenshot = stitchDetailScreenshot(exec, request.TaskID, request.ScreenshotsDir, candidate, screenshot)
 	}
 	return platformcore.DetailResult{Text: detailText, Screenshot: screenshot, Source: request.Mode}, nil

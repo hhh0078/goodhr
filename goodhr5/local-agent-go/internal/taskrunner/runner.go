@@ -1028,28 +1028,63 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 	if strings.TrimSpace(message) == "" {
 		message = "正在等待 AI 返回结果"
 	}
+	steps := aiThinkingSteps(message)
 	_, _ = exec.Post(ctx, "/api/v1/page/ai-overlay", map[string]any{
 		"action":   "show",
 		"title":    title,
 		"subtitle": subtitle,
-		"message":  message,
+		"message":  steps[0],
 	})
-	progressClient := client.WithProgress(func(text string) {
-		text = strings.TrimSpace(text)
-		if text == "" {
-			return
-		}
-		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
-			"action":   "update",
-			"title":    title,
-			"subtitle": subtitle,
-			"message":  text,
-		})
-	})
+	done := make(chan struct{})
+	go r.playAIThinking(ctx, exec, title, subtitle, steps, done)
 	cleanup := func() {
+		close(done)
 		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
 	}
-	return progressClient, cleanup
+	return client, cleanup
+}
+
+// playAIThinking 周期性刷新浏览器里的 AI 思考步骤。
+// ctx 为请求上下文，exec 为 Worker 执行器，steps 为要展示的思考过程。
+func (r *Runner) playAIThinking(ctx context.Context, exec platformExecutor, title string, subtitle string, steps []string, done <-chan struct{}) {
+	if len(steps) == 0 {
+		return
+	}
+	ticker := time.NewTicker(1400 * time.Millisecond)
+	defer ticker.Stop()
+	index := 1
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+				"action":   "show",
+				"title":    title,
+				"subtitle": subtitle,
+				"message":  steps[index%len(steps)],
+			})
+			index++
+		}
+	}
+}
+
+// aiThinkingSteps 返回 AI 等待时展示的思考过程。
+// seed 为当前 AI 调用的基础说明。
+func aiThinkingSteps(seed string) []string {
+	base := strings.TrimSpace(seed)
+	if base == "" {
+		base = "正在分析候选人"
+	}
+	return []string{
+		base,
+		"正在读取岗位要求和硬性条件",
+		"正在对比候选人经历、学历和技能",
+		"正在判断是否达到当前任务阈值",
+		"正在整理评分原因和下一步动作",
+	}
 }
 
 // scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。

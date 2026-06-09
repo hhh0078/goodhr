@@ -685,6 +685,20 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   const box = await locator.boundingBox().catch(() => null);
   const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
   if (!box || box.width < 20 || box.height < 20) return screenshotPage({ ...payload, filename });
+  if (payload.force_scroll || payload.scroll_full) {
+    const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
+    if (parts.length > 0) {
+      return {
+        ...parts[0],
+        path: parts[0].path,
+        file_path: parts[0].file_path,
+        screenshot_parts: parts,
+        parts_count: parts.length,
+        overlap: parts[0].overlap || 0,
+        wheel_scroll: true,
+      };
+    }
+  }
   const scrollInfo = await detailScrollInfo(locator);
   if (scrollInfo.scrollable) {
     const parts = await screenshotScrollableLocatorParts(currentPage, locator, scrollInfo, directory, filename, payload);
@@ -837,13 +851,18 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
   const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / scrollDelta) + 1);
-  const maxScrolls = Math.min(configuredMax, estimated);
+  const maxScrolls = payload.force_scroll || payload.scroll_full ? configuredMax : Math.min(configuredMax, estimated);
   const parsed = path.parse(filename);
   const parts = [];
+  let previousBuffer = null;
   for (let index = 0; index < maxScrolls; index += 1) {
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = await uniquePath(directory, partName);
-    await currentPage.screenshot({ path: targetPath, clip, type: "png" });
+    const currentBuffer = await currentPage.screenshot({ clip, type: "png" });
+    if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
+      break;
+    }
+    await fs.writeFile(targetPath, currentBuffer);
     const stat = await fs.stat(targetPath);
     parts.push({
       path: targetPath,
@@ -854,10 +873,30 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       overlap,
       index,
     });
+    previousBuffer = currentBuffer;
     await currentPage.mouse.wheel(0, scrollDelta);
     await currentPage.waitForTimeout(500);
   }
   return parts;
+}
+
+/**
+ * 判断两张滚动截图是否重复。
+ * @param {Buffer} previous - 上一张截图。
+ * @param {Buffer} current - 当前截图。
+ * @returns {boolean} 重复返回 true。
+ */
+function screenshotsAreDuplicate(previous, current) {
+  if (!previous || !current) return false;
+  if (previous.length !== current.length) return false;
+  const step = Math.max(1, Math.floor(previous.length / 2400));
+  let same = 0;
+  let total = 0;
+  for (let index = 0; index < previous.length && index < current.length; index += step) {
+    total += 1;
+    if (Math.abs(previous[index] - current[index]) <= 2) same += 1;
+  }
+  return total > 0 && same / total >= 0.985;
 }
 
 /**
