@@ -681,9 +681,25 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   const filename = safeFilename(String(payload.filename || "candidate-detail.png"));
   const directory = String(payload.dir || payload.directory || path.join(os.tmpdir(), "goodhr-screenshots"));
   await fs.mkdir(directory, { recursive: true });
+  await locator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
   const box = await locator.boundingBox().catch(() => null);
   const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
   if (!box || box.width < 20 || box.height < 20) return screenshotPage({ ...payload, filename });
+  const scrollInfo = await detailScrollInfo(locator);
+  if (scrollInfo.scrollable) {
+    const parts = await screenshotScrollableLocatorParts(currentPage, locator, scrollInfo, directory, filename, payload);
+    if (parts.length > 0) {
+      return {
+        ...parts[0],
+        path: parts[0].path,
+        file_path: parts[0].file_path,
+        screenshot_parts: parts,
+        parts_count: parts.length,
+        overlap: parts[0].overlap || 0,
+        scrollable_container: true,
+      };
+    }
+  }
   const needsScroll = box.y < 0 || box.y + box.height > viewport.height;
   if (!needsScroll) return saveLocatorScreenshot(locator, directory, filename);
   const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
@@ -696,6 +712,28 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
     parts_count: parts.length,
     overlap: parts[0].overlap || 0,
   };
+}
+
+/**
+ * 读取详情容器滚动信息。
+ * @param {any} locator - 详情容器定位器。
+ * @returns {Promise<Record<string, any>>} 滚动信息。
+ */
+async function detailScrollInfo(locator) {
+  return locator.evaluate((el) => {
+    const style = window.getComputedStyle(el);
+    const overflowY = style.overflowY || "";
+    const scrollHeight = Math.ceil(el.scrollHeight || 0);
+    const clientHeight = Math.ceil(el.clientHeight || 0);
+    const scrollable = scrollHeight > clientHeight + 8 && !["hidden", "clip"].includes(overflowY);
+    return {
+      scrollable,
+      scrollTop: Math.round(el.scrollTop || 0),
+      scrollHeight,
+      clientHeight,
+      overflowY,
+    };
+  }).catch(() => ({ scrollable: false, scrollTop: 0, scrollHeight: 0, clientHeight: 0 }));
 }
 
 /**
@@ -717,6 +755,63 @@ async function saveLocatorScreenshot(locator, directory, filename) {
     width: Math.round(sizeInfo.width || 0),
     height: Math.round(sizeInfo.height || 0),
   };
+}
+
+/**
+ * 滚动详情容器自身并保存多张截图。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {any} locator - 详情容器定位器。
+ * @param {Record<string, any>} scrollInfo - 容器滚动信息。
+ * @param {string} directory - 保存目录。
+ * @param {string} filename - 基础文件名。
+ * @param {Record<string, any>} payload - 截图参数。
+ * @returns {Promise<Record<string, any>[]>} 分段截图列表。
+ */
+async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo, directory, filename, payload) {
+  const box = await locator.boundingBox().catch(() => null);
+  if (!box || box.width < 20 || box.height < 20) return [];
+  await currentPage.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 120)).catch(() => {});
+  await currentPage.waitForTimeout(200);
+  const clientHeight = Math.max(1, Number(scrollInfo.clientHeight || box.height || 1));
+  const scrollHeight = Math.max(clientHeight, Number(scrollInfo.scrollHeight || clientHeight));
+  const scrollDelta = Math.max(1, Math.round(clientHeight * 0.72));
+  const overlap = Math.max(clientHeight - scrollDelta, 0);
+  const configuredMax = Math.max(1, Math.min(16, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 12)));
+  const estimated = Math.max(1, Math.ceil(Math.max(scrollHeight - clientHeight, 0) / scrollDelta) + 1);
+  const maxScrolls = Math.min(configuredMax, estimated);
+  const parsed = path.parse(filename);
+  const parts = [];
+  const originalTop = Number(scrollInfo.scrollTop || 0);
+  try {
+    for (let index = 0; index < maxScrolls; index += 1) {
+      const top = Math.min(index * scrollDelta, Math.max(scrollHeight - clientHeight, 0));
+      await locator.evaluate((el, y) => {
+        el.scrollTop = y;
+      }, top).catch(() => {});
+      await currentPage.waitForTimeout(350);
+      const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
+      const targetPath = await uniquePath(directory, partName);
+      const sizeInfo = await locator.boundingBox().catch(() => null) || box;
+      await locator.screenshot({ path: targetPath, type: "png" });
+      const stat = await fs.stat(targetPath);
+      parts.push({
+        path: targetPath,
+        file_path: targetPath,
+        size: stat.size,
+        width: Math.round(sizeInfo.width || box.width || 0),
+        height: Math.round(sizeInfo.height || box.height || 0),
+        overlap,
+        index,
+        scroll_top: Math.round(top),
+      });
+      if (top >= scrollHeight - clientHeight - 2) break;
+    }
+  } finally {
+    await locator.evaluate((el, y) => {
+      el.scrollTop = y;
+    }, originalTop).catch(() => {});
+  }
+  return parts;
 }
 
 /**
@@ -937,6 +1032,79 @@ async function screenshotPage(payload) {
   }
   const stat = await fs.stat(targetPath);
   return { path: targetPath, file_path: targetPath, size: stat.size, width: Math.round(sizeInfo.width || 0), height: Math.round(sizeInfo.height || 0) };
+}
+
+/**
+ * 在招聘平台页面右上角显示或关闭 AI 状态浮层。
+ * @param {Record<string, any>} payload - 浮层参数。
+ * @returns {Promise<Record<string, any>>} 浮层结果。
+ */
+async function aiOverlay(payload) {
+  const currentPage = await ensurePage();
+  const action = String(payload.action || "show").trim().toLowerCase();
+  if (action === "hide" || action === "close" || action === "remove") {
+    await currentPage.evaluate(() => {
+      document.getElementById("goodhr-ai-thinking-overlay")?.remove();
+    }).catch(() => {});
+    return { visible: false };
+  }
+  const title = String(payload.title || "AI 正在思考").trim();
+  const target = String(payload.target || "").trim();
+  const message = String(payload.message || "正在分析候选人，请稍候").trim();
+  await currentPage.evaluate(({ title, target, message }) => {
+    let box = document.getElementById("goodhr-ai-thinking-overlay");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "goodhr-ai-thinking-overlay";
+      box.style.cssText = [
+        "position:fixed",
+        "right:18px",
+        "top:18px",
+        "z-index:2147483647",
+        "width:min(340px,calc(100vw - 36px))",
+        "box-sizing:border-box",
+        "padding:14px 16px",
+        "border-radius:10px",
+        "background:#111814",
+        "color:#f7f4ec",
+        "box-shadow:0 14px 36px rgba(0,0,0,.28)",
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+        "font-size:13px",
+        "line-height:1.45",
+        "pointer-events:none",
+        "border:1px solid rgba(255,255,255,.12)",
+      ].join(";");
+      const style = document.createElement("style");
+      style.id = "goodhr-ai-thinking-style";
+      style.textContent = `
+        @keyframes goodhrAiPulse {
+          0% { transform: scale(.7); opacity:.45; }
+          50% { transform: scale(1); opacity:1; }
+          100% { transform: scale(.7); opacity:.45; }
+        }
+        #goodhr-ai-thinking-overlay .goodhr-ai-dot {
+          width:7px;height:7px;border-radius:50%;background:#e7c86f;display:inline-block;
+          animation:goodhrAiPulse 1s infinite ease-in-out;
+        }
+        #goodhr-ai-thinking-overlay .goodhr-ai-dot:nth-child(2){animation-delay:.16s}
+        #goodhr-ai-thinking-overlay .goodhr-ai-dot:nth-child(3){animation-delay:.32s}
+      `;
+      document.head.appendChild(style);
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span class="goodhr-ai-dot"></span><span class="goodhr-ai-dot"></span><span class="goodhr-ai-dot"></span>
+          <strong data-goodhr-ai-title style="font-size:14px;font-weight:700;color:#fff8dd;"></strong>
+        </div>
+        <div data-goodhr-ai-target style="font-weight:600;margin-bottom:5px;color:#f0df9b;"></div>
+        <div data-goodhr-ai-message style="white-space:pre-wrap;color:#e7e0d1;"></div>
+      `;
+      document.body.appendChild(box);
+    }
+    box.querySelector("[data-goodhr-ai-title]").textContent = title;
+    box.querySelector("[data-goodhr-ai-target]").textContent = target;
+    box.querySelector("[data-goodhr-ai-message]").textContent = message;
+  }, { title, target, message });
+  return { visible: true, title, target, message };
 }
 
 /**
@@ -1334,6 +1502,7 @@ const routes = {
   "/api/v1/page/find-elements": findElements,
   "/api/v1/page/list-click-by-index": listClickByIndex,
   "/api/v1/page/screenshot": screenshotPage,
+  "/api/v1/page/ai-overlay": aiOverlay,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,

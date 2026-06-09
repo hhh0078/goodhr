@@ -149,11 +149,6 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
-	defer func() {
-		if err := r.closeCandidateDetail(ctx, exec, cfg, name); err != nil {
-			exec.Log("warning", "关闭"+name+"详情失败："+err.Error())
-		}
-	}()
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 		"platform_config": cfg,
 		"card_index":      intFromMap(candidate, "card_index"),
@@ -172,6 +167,12 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		screenshot = stitchDetailScreenshot(exec, request.TaskID, request.ScreenshotsDir, candidate, screenshot)
 	}
 	return platformcore.DetailResult{Text: detailText, Screenshot: screenshot, Source: request.Mode}, nil
+}
+
+// CloseCandidateDetail 关闭 Boss 候选人详情。
+// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
+func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
+	return r.closeCandidateDetail(ctx, exec, cfg, candidateName(candidate))
 }
 
 // GreetCandidate 执行 Boss 打招呼。

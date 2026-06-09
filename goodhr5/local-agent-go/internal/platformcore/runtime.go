@@ -51,6 +51,8 @@ type Runtime interface {
 	ScrollCandidateList(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, distance int) error
 	// FetchCandidateDetail 读取候选人详情。
 	FetchCandidateDetail(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate, request DetailRequest) (DetailResult, error)
+	// CloseCandidateDetail 关闭候选人详情。
+	CloseCandidateDetail(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate) error
 	// GreetCandidate 执行候选人打招呼。
 	GreetCandidate(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate) error
 	// CandidateFilterText 返回候选人筛选文本。

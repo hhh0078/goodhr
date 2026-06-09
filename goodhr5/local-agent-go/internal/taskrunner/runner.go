@@ -402,8 +402,8 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			needsAI := taskMode(task) == "ai"
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
-				r.taskLog(task.ID, "info", fmt.Sprintf("启动候选人看详情评分并发：候选人=%d 并发=%d", len(filtered), workerCount))
-				r.startCandidateDetailWorkers(ctx, task, aiClient, aiJobs, precheckCh, workerCount)
+				r.taskLog(task.ID, "info", fmt.Sprintf("正在并发分析 %d 个候选人，并发数=%d", len(filtered), workerCount))
+				r.startCandidateDetailWorkers(ctx, task, exec, aiClient, aiJobs, precheckCh, workerCount)
 			}
 			go r.feedCandidatePipeline(ctx, task, filtered, needsAI, aiJobs, precheckCh)
 
@@ -471,7 +471,12 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 
 				// 7. AI 主模式下，详情没有一次性完成打招呼评分时，再做普通 AI 评分。
 				if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
-					itemSkipped, err := r.scoreCandidate(ctx, task, candidate, aiClient)
+					var itemSkipped int
+					err := r.withAIOverlay(ctx, exec, true, "AI 正在评分", candidateLogName(candidate), "正在判断是否适合打招呼", func() error {
+						var callErr error
+						itemSkipped, callErr = r.scoreCandidate(ctx, task, candidate, aiClient)
+						return callErr
+					})
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						candidate["status"] = "failed"
@@ -697,7 +702,7 @@ type candidatePipelineResult struct {
 
 // startCandidateDetailWorkers 启动候选人看详情评分并发处理池。
 // workerCount 为并发数量，aiJobs 为待评分候选人队列，resultCh 为完成结果队列。
-func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.Task, aiClient *localai.Client, aiJobs <-chan candidatePipelineResult, resultCh chan<- candidatePipelineResult, workerCount int) {
+func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.Task, exec platformExecutor, aiClient *localai.Client, aiJobs <-chan candidatePipelineResult, resultCh chan<- candidatePipelineResult, workerCount int) {
 	if workerCount <= 0 {
 		workerCount = 1
 	}
@@ -709,7 +714,13 @@ func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.T
 					resultCh <- item
 					continue
 				}
-				decision, err := r.scoreCandidateForDetail(ctx, task, item.Candidate, aiClient)
+				var decision localai.Decision
+				showOverlay := item.Index == 0
+				err := r.withAIOverlay(ctx, exec, showOverlay, "AI 正在预分析", candidateLogName(item.Candidate), "正在判断是否值得打开详情", func() error {
+					var callErr error
+					decision, callErr = r.scoreCandidateForDetail(ctx, task, item.Candidate, aiClient)
+					return callErr
+				})
 				if err == nil {
 					item.DetailDecision = &decision
 				}
@@ -739,7 +750,6 @@ func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, c
 		}
 		select {
 		case aiJobs <- item:
-			r.taskLog(task.ID, "info", fmt.Sprintf("候选人已进入看详情评分队列：index=%d name=%s", index, candidateLogName(candidate)))
 		case <-ctx.Done():
 			item.Err = ctx.Err()
 			resultCh <- item
@@ -848,8 +858,14 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	if err != nil {
 		candidate["detail_error"] = err.Error()
 		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
+		_ = platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate))
 		return 0, nil
 	}
+	defer func() {
+		if err := platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate)); err != nil {
+			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
+		}
+	}()
 	r.taskLog(task.ID, "info", "详情提取接口返回成功："+candidateName)
 	detailText := ""
 	if mode == "dom" {
@@ -872,7 +888,12 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		}
 		if mode == "ai" {
 			r.taskLog(task.ID, "info", "开始 AI 图片详情评分："+candidateName)
-			decision, err := r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, aiClient)
+			var decision localai.Decision
+			err := r.withAIOverlay(ctx, exec, true, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼", func() error {
+				var callErr error
+				decision, callErr = r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, aiClient)
+				return callErr
+			})
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
 				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
@@ -996,6 +1017,24 @@ func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task loc
 	return result.Content, nil
 }
 
+// withAIOverlay 在浏览器招聘页面显示 AI 等待状态。
+// visible 为 false 时只执行 fn，不显示浮层；title、target 和 message 为浮层文案。
+func (r *Runner) withAIOverlay(ctx context.Context, exec platformExecutor, visible bool, title string, target string, message string, fn func() error) error {
+	if !visible {
+		return fn()
+	}
+	_, _ = exec.Post(ctx, "/api/v1/page/ai-overlay", map[string]any{
+		"action":  "show",
+		"title":   title,
+		"target":  target,
+		"message": message,
+	})
+	defer func() {
+		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
+	}()
+	return fn()
+}
+
 // scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。
 // ctx 为请求上下文，task 为任务记录，candidate 为候选人，screenshot 为拼接后的截图信息，client 为 AI 客户端。
 func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task localdb.Task, candidate map[string]any, screenshot map[string]any, client *localai.Client) (localai.Decision, error) {
@@ -1051,14 +1090,11 @@ func (r *Runner) scoreCandidateForDetail(ctx context.Context, task localdb.Task,
 	if client == nil {
 		return localai.Decision{}, fmt.Errorf("AI 客户端未配置")
 	}
-	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", "开始看详情评分："+candidateName)
 	decision, err := client.ScoreForDetail(ctx, task.PositionSnapshot, candidate)
 	if err != nil {
 		r.taskLog(task.ID, "warning", "看详情评分失败："+err.Error())
 		return localai.Decision{}, err
 	}
-	r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分完成：name=%s score=%.1f threshold=%.1f should_open=%v", candidateName, decision.Score, decision.Threshold, decision.ShouldOpenDetail))
 	return decision, nil
 }
 
