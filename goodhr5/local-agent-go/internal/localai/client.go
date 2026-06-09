@@ -2,6 +2,7 @@
 package localai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -61,6 +62,7 @@ const (
 type Client struct {
 	Config     localdb.AIConfig
 	HTTPClient *http.Client
+	Progress   func(string)
 }
 
 // Decision 表示 AI 评分结果。
@@ -95,6 +97,17 @@ func New(config localdb.AIConfig) *Client {
 			Timeout: time.Duration(timeout) * time.Second,
 		},
 	}
+}
+
+// WithProgress 返回带流式进度回调的 AI 客户端副本。
+// progress 为流式内容更新回调，为空时保持普通非流式请求。
+func (c *Client) WithProgress(progress func(string)) *Client {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.Progress = progress
+	return &clone
 }
 
 // ScoreForDetail 给候选人计算查看详情评分。
@@ -217,6 +230,9 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 			body[key] = value
 		}
 	}
+	if c.Progress != nil {
+		body["stream"] = true
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("AI 请求参数编码失败：%w", err)
@@ -237,10 +253,18 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 		return ChatResult{}, fmt.Errorf("AI 服务请求失败：%w", err)
 	}
 	defer resp.Body.Close()
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		return ChatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
 	}
+	if c.Progress != nil && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		content, usage, err := readChatStream(resp.Body, c.Progress)
+		if err != nil {
+			return ChatResult{}, err
+		}
+		return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
+	}
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	resultPayload := map[string]any{}
 	if err := json.Unmarshal(bodyBytes, &resultPayload); err != nil {
 		return ChatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON")
@@ -255,57 +279,14 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 // chat 调用 OpenAI 兼容聊天接口。
 // ctx 为请求上下文，prompt 为用户提示词，temperature 为温度。
 func (c *Client) chat(ctx context.Context, prompt string, temperature float64) (chatResult, error) {
-	apiURL := chatCompletionsURL(c.Config.BaseURL)
-	if apiURL == "" {
-		return chatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 接口地址")
-	}
-	if strings.TrimSpace(c.Config.APIKey) == "" {
-		return chatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 密钥")
-	}
-	if strings.TrimSpace(c.Config.Model) == "" {
-		return chatResult{}, fmt.Errorf("请先在个人配置里填写本地 AI 模型名称")
-	}
-	body := map[string]any{
-		"model":       c.Config.Model,
+	result, err := c.Chat(ctx, map[string]any{
 		"messages":    []map[string]string{{"role": "user", "content": prompt}},
 		"temperature": temperature,
-	}
-	for key, value := range c.Config.Extra {
-		body[key] = value
-	}
-	raw, err := json.Marshal(body)
+	})
 	if err != nil {
-		return chatResult{}, fmt.Errorf("AI 请求参数编码失败：%w", err)
+		return chatResult{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(raw))
-	if err != nil {
-		return chatResult{}, fmt.Errorf("创建 AI 请求失败：%w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Config.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	start := time.Now()
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return chatResult{}, fmt.Errorf("AI 服务请求失败：%w", err)
-	}
-	defer resp.Body.Close()
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode >= 400 {
-		return chatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
-	}
-	payload := map[string]any{}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return chatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON")
-	}
-	return chatResult{
-		Content:   extractChatContent(payload),
-		Usage:     mapValue(payload["usage"]),
-		ElapsedMS: int(time.Since(start).Milliseconds()),
-	}, nil
+	return chatResult{Content: result.Content, Usage: result.Usage, ElapsedMS: result.ElapsedMS}, nil
 }
 
 // chatResult 表示 AI 原始聊天结果。
@@ -313,6 +294,69 @@ type chatResult struct {
 	Content   string
 	Usage     map[string]any
 	ElapsedMS int
+}
+
+// readChatStream 读取 OpenAI 兼容 SSE 流式响应。
+// reader 为响应体，progress 为实时文本回调。
+func readChatStream(reader io.Reader, progress func(string)) (string, map[string]any, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var builder strings.Builder
+	usage := map[string]any{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(data), &payload); err != nil {
+			continue
+		}
+		if itemUsage := mapValue(payload["usage"]); len(itemUsage) > 0 {
+			usage = itemUsage
+		}
+		delta := extractStreamDelta(payload)
+		if delta == "" {
+			continue
+		}
+		builder.WriteString(delta)
+		if progress != nil {
+			progress(builder.String())
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", nil, fmt.Errorf("读取 AI 流式响应失败：%w", err)
+	}
+	return builder.String(), usage, nil
+}
+
+// extractStreamDelta 从流式分片中提取增量文本。
+// payload 为 OpenAI 兼容流式 JSON。
+func extractStreamDelta(payload map[string]any) string {
+	choices, _ := payload["choices"].([]any)
+	if len(choices) == 0 {
+		return ""
+	}
+	first := mapValue(choices[0])
+	delta := mapValue(first["delta"])
+	if content := stringFromAny(delta["content"]); content != "" {
+		return content
+	}
+	message := mapValue(first["message"])
+	if content := stringFromAny(message["content"]); content != "" {
+		return content
+	}
+	if content := stringFromAny(first["text"]); content != "" {
+		return content
+	}
+	return ""
 }
 
 // buildDetailPrompt 构建查看详情评分提示词。
@@ -568,10 +612,19 @@ func stringFromMap(item map[string]any, key string) string {
 	if item == nil {
 		return ""
 	}
-	if value, ok := item[key].(string); ok {
-		return strings.TrimSpace(value)
+	return stringFromAny(item[key])
+}
+
+// stringFromAny 将任意值转换为字符串。
+// value 为原始值。
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
 	}
-	return ""
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
 // stringList 将任意值转换为字符串列表。

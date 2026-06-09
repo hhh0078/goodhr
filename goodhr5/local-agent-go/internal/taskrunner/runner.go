@@ -471,12 +471,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 
 				// 7. AI 主模式下，详情没有一次性完成打招呼评分时，再做普通 AI 评分。
 				if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
-					var itemSkipped int
-					err := r.withAIOverlay(ctx, exec, true, "AI 正在评分", candidateLogName(candidate), "正在判断是否适合打招呼", func() error {
-						var callErr error
-						itemSkipped, callErr = r.scoreCandidate(ctx, task, candidate, aiClient)
-						return callErr
-					})
+					visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在评分", candidateLogName(candidate), "正在判断是否适合打招呼")
+					itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
+					cleanup()
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						candidate["status"] = "failed"
@@ -714,13 +711,16 @@ func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.T
 					resultCh <- item
 					continue
 				}
-				var decision localai.Decision
 				showOverlay := item.Index == 0
-				err := r.withAIOverlay(ctx, exec, showOverlay, "AI 正在预分析", candidateLogName(item.Candidate), "正在判断是否值得打开详情", func() error {
-					var callErr error
-					decision, callErr = r.scoreCandidateForDetail(ctx, task, item.Candidate, aiClient)
-					return callErr
-				})
+				title := ""
+				subtitle := ""
+				if showOverlay {
+					title = "AI 正在预分析"
+					subtitle = candidateLogName(item.Candidate)
+				}
+				visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, title, subtitle, "正在判断是否值得打开详情")
+				decision, err := r.scoreCandidateForDetail(ctx, task, item.Candidate, visibleClient)
+				cleanup()
 				if err == nil {
 					item.DetailDecision = &decision
 				}
@@ -888,12 +888,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		}
 		if mode == "ai" {
 			r.taskLog(task.ID, "info", "开始 AI 图片详情评分："+candidateName)
-			var decision localai.Decision
-			err := r.withAIOverlay(ctx, exec, true, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼", func() error {
-				var callErr error
-				decision, callErr = r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, aiClient)
-				return callErr
-			})
+			visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼")
+			decision, err := r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, visibleClient)
+			cleanup()
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
 				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
@@ -1017,22 +1014,42 @@ func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task loc
 	return result.Content, nil
 }
 
-// withAIOverlay 在浏览器招聘页面显示 AI 等待状态。
-// visible 为 false 时只执行 fn，不显示浮层；title、target 和 message 为浮层文案。
-func (r *Runner) withAIOverlay(ctx context.Context, exec platformExecutor, visible bool, title string, target string, message string, fn func() error) error {
-	if !visible {
-		return fn()
+// aiClientForCall 返回本次 AI 调用使用的客户端和清理函数。
+// title 和 subtitle 为空时不会画浏览器浮层；找不到浏览器时也不会影响 AI 请求。
+func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, client *localai.Client, title string, subtitle string, message string) (*localai.Client, func()) {
+	if client == nil {
+		return client, func() {}
+	}
+	title = strings.TrimSpace(title)
+	subtitle = strings.TrimSpace(subtitle)
+	if title == "" && subtitle == "" {
+		return client, func() {}
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "正在等待 AI 返回结果"
 	}
 	_, _ = exec.Post(ctx, "/api/v1/page/ai-overlay", map[string]any{
-		"action":  "show",
-		"title":   title,
-		"target":  target,
-		"message": message,
+		"action":   "show",
+		"title":    title,
+		"subtitle": subtitle,
+		"message":  message,
 	})
-	defer func() {
+	progressClient := client.WithProgress(func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+			"action":   "update",
+			"title":    title,
+			"subtitle": subtitle,
+			"message":  text,
+		})
+	})
+	cleanup := func() {
 		_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
-	}()
-	return fn()
+	}
+	return progressClient, cleanup
 }
 
 // scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。

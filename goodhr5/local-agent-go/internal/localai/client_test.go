@@ -51,3 +51,30 @@ func TestParseScoreJSON(t *testing.T) {
 		t.Fatalf("score=%v reason=%s", score, reason)
 	}
 }
+
+// TestChatStreamProgress 验证流式 AI 响应会实时回调完整文本。
+func TestChatStreamProgress(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"score\\\":\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\" 88, \\\"reason\\\": \\\"合适\\\"}\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	updates := []string{}
+	client := New(localdb.AIConfig{BaseURL: server.URL, APIKey: "key-1", Model: "model-1", Timeout: 5}).WithProgress(func(text string) {
+		updates = append(updates, text)
+	})
+	decision, err := client.ScoreForGreet(
+		t.Context(),
+		map[string]any{"description": "需要销售经验"},
+		map[string]any{"raw_text": "销售经验丰富"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.ShouldGreet || decision.Score != 88 || len(updates) < 2 {
+		t.Fatalf("decision=%+v updates=%v", decision, updates)
+	}
+}

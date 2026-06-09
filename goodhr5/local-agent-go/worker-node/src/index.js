@@ -1049,62 +1049,85 @@ async function aiOverlay(payload) {
     return { visible: false };
   }
   const title = String(payload.title || "AI 正在思考").trim();
-  const target = String(payload.target || "").trim();
+  const subtitle = String(payload.subtitle || payload.target || "").trim();
   const message = String(payload.message || "正在分析候选人，请稍候").trim();
-  await currentPage.evaluate(({ title, target, message }) => {
+  await currentPage.evaluate(({ title, subtitle, message }) => {
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const panelWidth = Math.min(360, Math.max(260, viewportWidth - 32));
     let box = document.getElementById("goodhr-ai-thinking-overlay");
     if (!box) {
       box = document.createElement("div");
       box.id = "goodhr-ai-thinking-overlay";
       box.style.cssText = [
         "position:fixed",
-        "right:18px",
-        "top:18px",
+        "right:16px",
+        "top:16px",
         "z-index:2147483647",
-        "width:min(340px,calc(100vw - 36px))",
+        `width:${panelWidth}px`,
         "box-sizing:border-box",
-        "padding:14px 16px",
-        "border-radius:10px",
-        "background:#111814",
-        "color:#f7f4ec",
-        "box-shadow:0 14px 36px rgba(0,0,0,.28)",
+        "padding:14px",
+        "border-radius:14px",
+        "background:rgba(252,250,244,.96)",
+        "color:#18221d",
+        "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
         "font-size:13px",
         "line-height:1.45",
         "pointer-events:none",
-        "border:1px solid rgba(255,255,255,.12)",
+        "border:1px solid rgba(48,79,63,.18)",
+        "backdrop-filter:saturate(1.1) blur(10px)",
       ].join(";");
       const style = document.createElement("style");
       style.id = "goodhr-ai-thinking-style";
       style.textContent = `
-        @keyframes goodhrAiPulse {
-          0% { transform: scale(.7); opacity:.45; }
-          50% { transform: scale(1); opacity:1; }
-          100% { transform: scale(.7); opacity:.45; }
+        @keyframes goodhrAiSpin {
+          to { transform: rotate(360deg); }
         }
-        #goodhr-ai-thinking-overlay .goodhr-ai-dot {
-          width:7px;height:7px;border-radius:50%;background:#e7c86f;display:inline-block;
-          animation:goodhrAiPulse 1s infinite ease-in-out;
+        @keyframes goodhrAiBreathe {
+          0%,100% { opacity:.58; transform: translateY(0); }
+          50% { opacity:1; transform: translateY(-1px); }
         }
-        #goodhr-ai-thinking-overlay .goodhr-ai-dot:nth-child(2){animation-delay:.16s}
-        #goodhr-ai-thinking-overlay .goodhr-ai-dot:nth-child(3){animation-delay:.32s}
+        #goodhr-ai-thinking-overlay .goodhr-ai-ring {
+          width:28px;height:28px;border-radius:50%;
+          border:2px solid rgba(69,104,83,.18);
+          border-top-color:#4f7f64;
+          animation:goodhrAiSpin .9s linear infinite;
+          flex:0 0 auto;
+        }
+        #goodhr-ai-thinking-overlay .goodhr-ai-message {
+          max-height:112px;
+          overflow:hidden;
+          color:#405249;
+          white-space:pre-wrap;
+          word-break:break-word;
+        }
+        #goodhr-ai-thinking-overlay .goodhr-ai-cursor {
+          display:inline-block;
+          width:6px;height:14px;margin-left:2px;border-radius:3px;background:#4f7f64;
+          vertical-align:-2px;
+          animation:goodhrAiBreathe 1s infinite ease-in-out;
+        }
       `;
       document.head.appendChild(style);
       box.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span class="goodhr-ai-dot"></span><span class="goodhr-ai-dot"></span><span class="goodhr-ai-dot"></span>
-          <strong data-goodhr-ai-title style="font-size:14px;font-weight:700;color:#fff8dd;"></strong>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="goodhr-ai-ring"></div>
+          <div style="min-width:0;flex:1;">
+            <div data-goodhr-ai-title style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>
+            <div data-goodhr-ai-subtitle style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+            <div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>
+            <div><span data-goodhr-ai-message class="goodhr-ai-message"></span><span class="goodhr-ai-cursor"></span></div>
+          </div>
         </div>
-        <div data-goodhr-ai-target style="font-weight:600;margin-bottom:5px;color:#f0df9b;"></div>
-        <div data-goodhr-ai-message style="white-space:pre-wrap;color:#e7e0d1;"></div>
       `;
       document.body.appendChild(box);
     }
+    box.style.width = `${panelWidth}px`;
     box.querySelector("[data-goodhr-ai-title]").textContent = title;
-    box.querySelector("[data-goodhr-ai-target]").textContent = target;
+    box.querySelector("[data-goodhr-ai-subtitle]").textContent = subtitle;
     box.querySelector("[data-goodhr-ai-message]").textContent = message;
-  }, { title, target, message });
-  return { visible: true, title, target, message };
+  }, { title, subtitle, message });
+  return { visible: true, title, subtitle, message };
 }
 
 /**
