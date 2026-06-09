@@ -302,6 +302,7 @@ func readChatStream(reader io.Reader, progress func(string)) (string, map[string
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var builder strings.Builder
+	var displayBuilder strings.Builder
 	usage := map[string]any{}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -323,12 +324,26 @@ func readChatStream(reader io.Reader, progress func(string)) (string, map[string
 			usage = itemUsage
 		}
 		delta := extractStreamDelta(payload)
-		if delta == "" {
+		// 提取 reasoning_content 用于进度显示（不加入最终结果）
+		reasoning := extractReasoningContent(payload)
+
+		if delta == "" && reasoning == "" {
 			continue
 		}
-		builder.WriteString(delta)
+		if delta != "" {
+			builder.WriteString(delta)
+		}
+		if reasoning != "" {
+			// 累积思考内容到显示用 builder（旧的+新的）
+			displayBuilder.WriteString(reasoning)
+		}
 		if progress != nil {
-			progress(builder.String())
+			// 显示累积的思考内容或最终回复
+			if reasoning != "" {
+				progress(displayBuilder.String())
+			} else if delta != "" {
+				progress(displayBuilder.String())
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -355,6 +370,20 @@ func extractStreamDelta(payload map[string]any) string {
 	}
 	if content := stringFromAny(first["text"]); content != "" {
 		return content
+	}
+	return ""
+}
+
+// extractReasoningContent 从流式分片中提取思考内容（reasoning_content），用于实时显示。
+func extractReasoningContent(payload map[string]any) string {
+	choices, _ := payload["choices"].([]any)
+	if len(choices) == 0 {
+		return ""
+	}
+	first := mapValue(choices[0])
+	delta := mapValue(first["delta"])
+	if text := stringFromAny(delta["reasoning_content"]); text != "" {
+		return text
 	}
 	return ""
 }

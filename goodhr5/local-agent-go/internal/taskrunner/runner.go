@@ -1071,14 +1071,28 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 		"message":  steps[0],
 	})
 	done := make(chan struct{})
-	go r.playAIThinking(ctx, exec, title, subtitle, steps, done)
+	thinkingCh := make(chan string, 100)
+	go r.playAIThinking(ctx, exec, title, subtitle, steps, thinkingCh, done)
+
+	streamingClient := client.WithProgress(func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		select {
+		case thinkingCh <- text:
+		default:
+		}
+	})
+
 	var once sync.Once
 	cleanup := func() {
 		once.Do(func() {
 			close(done)
+			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
 		})
 	}
-	return client, cleanup
+	return streamingClient, cleanup
 }
 
 // showAIReply 在浏览器 AI 浮层里显示本次 AI 的最终回复。
@@ -1098,20 +1112,34 @@ func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title s
 
 // playAIThinking 周期性刷新浏览器里的 AI 思考步骤。
 // ctx 为请求上下文，exec 为 Worker 执行器，steps 为要展示的思考过程。
-func (r *Runner) playAIThinking(ctx context.Context, exec platformExecutor, title string, subtitle string, steps []string, done <-chan struct{}) {
+func (r *Runner) playAIThinking(ctx context.Context, exec platformExecutor, title string, subtitle string, steps []string, thinkingCh <-chan string, done <-chan struct{}) {
 	if len(steps) == 0 {
 		return
 	}
 	ticker := time.NewTicker(1400 * time.Millisecond)
 	defer ticker.Stop()
 	index := 1
+	streamingStarted := false
 	for {
 		select {
 		case <-done:
 			return
 		case <-ctx.Done():
 			return
+		case thinking := <-thinkingCh:
+			// 标记已收到流式内容，后续 ticker 不再覆盖
+			streamingStarted = true
+			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+				"action":   "show",
+				"title":    title,
+				"subtitle": subtitle,
+				"message":  thinking,
+			})
 		case <-ticker.C:
+			// 收到真实流式内容后不再显示固定步骤
+			if streamingStarted {
+				continue
+			}
 			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
 				"action":   "show",
 				"title":    title,

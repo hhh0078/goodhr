@@ -1139,8 +1139,9 @@ async function aiOverlay(payload) {
           flex:0 0 auto;
         }
         #goodhr-ai-thinking-overlay .goodhr-ai-message {
-          max-height:112px;
-          overflow:hidden;
+          display:block;
+          max-height:200px;
+          overflow-y:auto;
           color:#405249;
           white-space:pre-wrap;
           word-break:break-word;
@@ -1169,7 +1170,10 @@ async function aiOverlay(payload) {
     box.style.width = `${panelWidth}px`;
     box.querySelector("[data-goodhr-ai-title]").textContent = title;
     box.querySelector("[data-goodhr-ai-subtitle]").textContent = subtitle;
-    box.querySelector("[data-goodhr-ai-message]").textContent = message;
+    var msgEl = box.querySelector("[data-goodhr-ai-message]");
+    msgEl.textContent = message;
+    // 自动滚动到底部显示最新内容
+    msgEl.scrollTop = msgEl.scrollHeight;
   }, { title, subtitle, message });
   return { visible: true, title, subtitle, message };
 }
