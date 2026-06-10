@@ -60,9 +60,10 @@ const (
 
 // Client 是本地 AI 调用客户端。
 type Client struct {
-	Config     localdb.AIConfig
-	HTTPClient *http.Client
-	Progress   func(string)
+	Config          localdb.AIConfig
+	HTTPClient      *http.Client
+	Progress        func(string)
+	EnableThinking  bool // 开启后显示 reasoning_content 流式思考
 }
 
 // Decision 表示 AI 评分结果。
@@ -258,7 +259,7 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 		return ChatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
 	}
 	if c.Progress != nil && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
-		content, usage, err := readChatStream(resp.Body, c.Progress)
+		content, usage, err := readChatStream(resp.Body, c.Progress, c.EnableThinking)
 		if err != nil {
 			return ChatResult{}, err
 		}
@@ -298,7 +299,7 @@ type chatResult struct {
 
 // readChatStream 读取 OpenAI 兼容 SSE 流式响应。
 // reader 为响应体，progress 为实时文本回调。
-func readChatStream(reader io.Reader, progress func(string)) (string, map[string]any, error) {
+func readChatStream(reader io.Reader, progress func(string), enableThinking bool) (string, map[string]any, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var builder strings.Builder
@@ -324,8 +325,11 @@ func readChatStream(reader io.Reader, progress func(string)) (string, map[string
 			usage = itemUsage
 		}
 		delta := extractStreamDelta(payload)
-		// 提取 reasoning_content 用于进度显示（不加入最终结果）
-		reasoning := extractReasoningContent(payload)
+		var reasoning string
+		if enableThinking {
+			// 开启思考模式时才提取 reasoning_content
+			reasoning = extractReasoningContent(payload)
+		}
 
 		if delta == "" && reasoning == "" {
 			continue

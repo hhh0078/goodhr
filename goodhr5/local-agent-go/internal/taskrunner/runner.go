@@ -1089,7 +1089,11 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 	cleanup := func() {
 		once.Do(func() {
 			close(done)
-			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
+			// 5秒后自动隐藏思考窗口，保留时间让用户看到最终思考结果
+			go func() {
+				time.Sleep(5 * time.Second)
+				_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
+			}()
 		})
 	}
 	return streamingClient, cleanup

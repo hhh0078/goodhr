@@ -1088,7 +1088,8 @@ async function aiOverlay(payload) {
   const action = String(payload.action || "show").trim().toLowerCase();
   if (action === "hide" || action === "close" || action === "remove") {
     await currentPage.evaluate(() => {
-      document.getElementById("goodhr-ai-thinking-overlay")?.remove();
+      document.querySelectorAll("[data-gh-id]").forEach(el => el.remove());
+      document.querySelectorAll("style[data-gh-style]").forEach(el => el.remove());
     }).catch(() => {});
     return { visible: false };
   }
@@ -1096,83 +1097,71 @@ async function aiOverlay(payload) {
   const subtitle = String(payload.subtitle || payload.target || "").trim();
   const message = String(payload.message || "正在分析候选人，请稍候").trim();
   await currentPage.evaluate(({ title, subtitle, message }) => {
+    // 生成随机标识防止页面检测
+    const id = "g" + Math.random().toString(36).substring(2, 10);
+    const msgCls = "x" + Math.random().toString(36).substring(2, 8);
+    const ringCls = "y" + Math.random().toString(36).substring(2, 8);
+    const cursorCls = "z" + Math.random().toString(36).substring(2, 8);
+    const animSpin = "a" + Math.random().toString(36).substring(2, 8);
+    const animBreathe = "b" + Math.random().toString(36).substring(2, 8);
+
+    // 清理旧浮层，确保新卡片出现在最上面
+    document.querySelectorAll("[data-gh-id]").forEach(el => el.remove());
+    document.querySelectorAll("style[data-gh-style]").forEach(el => el.remove());
+
     const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
     const panelWidth = Math.min(360, Math.max(260, viewportWidth - 32));
-    let box = document.getElementById("goodhr-ai-thinking-overlay");
-    if (!box) {
-      box = document.createElement("div");
-      box.id = "goodhr-ai-thinking-overlay";
-      box.style.cssText = [
-        "position:fixed",
-        "right:16px",
-        "top:16px",
-        "z-index:2147483647",
-        `width:${panelWidth}px`,
-        "box-sizing:border-box",
-        "padding:14px",
-        "border-radius:14px",
-        "background:rgba(252,250,244,.96)",
-        "color:#18221d",
-        "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-        "font-size:13px",
-        "line-height:1.45",
-        "pointer-events:none",
-        "border:1px solid rgba(48,79,63,.18)",
-        "backdrop-filter:saturate(1.1) blur(10px)",
-      ].join(";");
-      const style = document.createElement("style");
-      style.id = "goodhr-ai-thinking-style";
-      style.textContent = `
-        @keyframes goodhrAiSpin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes goodhrAiBreathe {
-          0%,100% { opacity:.58; transform: translateY(0); }
-          50% { opacity:1; transform: translateY(-1px); }
-        }
-        #goodhr-ai-thinking-overlay .goodhr-ai-ring {
-          width:28px;height:28px;border-radius:50%;
-          border:2px solid rgba(69,104,83,.18);
-          border-top-color:#4f7f64;
-          animation:goodhrAiSpin .9s linear infinite;
-          flex:0 0 auto;
-        }
-        #goodhr-ai-thinking-overlay .goodhr-ai-message {
-          display:block;
-          max-height:200px;
-          overflow-y:auto;
-          color:#405249;
-          white-space:pre-wrap;
-          word-break:break-word;
-        }
-        #goodhr-ai-thinking-overlay .goodhr-ai-cursor {
-          display:inline-block;
-          width:6px;height:14px;margin-left:2px;border-radius:3px;background:#4f7f64;
-          vertical-align:-2px;
-          animation:goodhrAiBreathe 1s infinite ease-in-out;
-        }
-      `;
-      document.head.appendChild(style);
-      box.innerHTML = `
-        <div style="display:flex;gap:12px;align-items:flex-start;">
-          <div class="goodhr-ai-ring"></div>
-          <div style="min-width:0;flex:1;">
-            <div data-goodhr-ai-title style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>
-            <div data-goodhr-ai-subtitle style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
-            <div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>
-            <div><span data-goodhr-ai-message class="goodhr-ai-message"></span><span class="goodhr-ai-cursor"></span></div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(box);
-    }
-    box.style.width = `${panelWidth}px`;
-    box.querySelector("[data-goodhr-ai-title]").textContent = title;
-    box.querySelector("[data-goodhr-ai-subtitle]").textContent = subtitle;
-    var msgEl = box.querySelector("[data-goodhr-ai-message]");
+
+    const box = document.createElement("div");
+    box.setAttribute("data-gh-id", id);
+    box.style.cssText = [
+      "position:fixed",
+      "right:16px",
+      "top:16px",
+      "z-index:2147483647",
+      "width:" + panelWidth + "px",
+      "box-sizing:border-box",
+      "padding:14px",
+      "border-radius:14px",
+      "background:rgba(252,250,244,.96)",
+      "color:#18221d",
+      "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
+      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+      "font-size:13px",
+      "line-height:1.45",
+      "pointer-events:none",
+      "border:1px solid rgba(48,79,63,.18)",
+      "backdrop-filter:saturate(1.1) blur(10px)",
+    ].join(";");
+
+    const style = document.createElement("style");
+    style.setAttribute("data-gh-style", id);
+    style.textContent = [
+      "@keyframes " + animSpin + " { to { transform: rotate(360deg); } }",
+      "@keyframes " + animBreathe + " { 0%,100% { opacity:.58; transform: translateY(0); } 50% { opacity:1; transform: translateY(-1px); } }",
+      "." + ringCls + " { width:28px;height:28px;border-radius:50%;border:2px solid rgba(69,104,83,.18);border-top-color:#4f7f64;animation:" + animSpin + " .9s linear infinite;flex:0 0 auto; }",
+      "." + msgCls + " { display:block;max-height:200px;overflow-y:auto;color:#405249;white-space:pre-wrap;word-break:break-word; }",
+      "." + cursorCls + " { display:inline-block;width:6px;height:14px;margin-left:2px;border-radius:3px;background:#4f7f64;vertical-align:-2px;animation:" + animBreathe + " 1s infinite ease-in-out; }",
+    ].join("\n");
+    document.head.appendChild(style);
+
+    box.innerHTML = [
+      '<div style="display:flex;gap:12px;align-items:flex-start;">',
+      '<div class="' + ringCls + '"></div>',
+      '<div style="min-width:0;flex:1;">',
+      '<div data-gh-title style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>',
+      '<div data-gh-sub style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
+      '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
+      '<div><span data-gh-msg class="' + msgCls + '"></span><span class="' + cursorCls + '"></span></div>',
+      '</div></div>',
+    ].join("");
+    document.body.appendChild(box);
+
+    box.style.width = panelWidth + "px";
+    box.querySelector("[data-gh-title]").textContent = title;
+    box.querySelector("[data-gh-sub]").textContent = subtitle;
+    const msgEl = box.querySelector("[data-gh-msg]");
     msgEl.textContent = message;
-    // 自动滚动到底部显示最新内容
     msgEl.scrollTop = msgEl.scrollHeight;
   }, { title, subtitle, message });
   return { visible: true, title, subtitle, message };
