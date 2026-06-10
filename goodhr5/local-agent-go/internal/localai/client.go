@@ -177,8 +177,9 @@ func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]an
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
 	result, err := c.Chat(ctx, map[string]any{
-		"messages":    []map[string]any{{"role": "user", "content": content}},
-		"temperature": 0.1,
+		"messages":         []map[string]any{{"role": "user", "content": content}},
+		"temperature":      0.1,
+		"enable_thinking":  c.EnableThinking,
 	})
 	if err != nil {
 		return Decision{}, err
@@ -223,6 +224,17 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	if _, ok := body["model"]; !ok {
 		body["model"] = c.Config.Model
 	}
+	// 只有任务明确传 enable_thinking=false 时才发送给 AI
+	// 默认不传（AI 自由决定），开启思考模式也不传
+	if v, ok := body["enable_thinking"]; ok {
+		if b, ok := v.(bool); ok && !b {
+			// enable_thinking=false → 保留字段，发送给 AI
+		} else {
+			// enable_thinking=true 或未设置 → 不传
+			delete(body, "enable_thinking")
+		}
+	}
+
 	if _, ok := body["temperature"]; !ok {
 		body["temperature"] = c.Config.Temperature
 	}
@@ -231,13 +243,15 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 			body[key] = value
 		}
 	}
-	if c.Progress != nil {
+	// 默认开启流式输出（可由 payload 中的 stream=false 关闭）
+	if _, ok := body["stream"]; !ok {
 		body["stream"] = true
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("AI 请求参数编码失败：%w", err)
 	}
+	// log.Printf("[AI流式调试] 请求体：%s", string(raw))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(raw))
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("创建 AI 请求失败：%w", err)
@@ -258,17 +272,27 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		return ChatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
 	}
-	if c.Progress != nil && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
-		content, usage, err := readChatStream(resp.Body, c.Progress, c.EnableThinking)
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		// log.Printf("[AI流式调试] 检测到 SSE 流式响应，progress=%v", c.Progress != nil)
+		content, usage, err := readChatStream(resp.Body, c.Progress, false)
 		if err != nil {
 			return ChatResult{}, err
 		}
+		// log.Printf("[AI流式调试] 流式读取完成 content_len=%d", len(content))
 		return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
 	}
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	resultPayload := map[string]any{}
 	if err := json.Unmarshal(bodyBytes, &resultPayload); err != nil {
-		return ChatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON")
+			// 尝试用 SSE 方式解析（某些供应商 Content-Type 不标准）
+		// log.Printf("[AI流式调试] 非 JSON 响应，尝试 SSE 方式解析，Content-Type=%s", resp.Header.Get("Content-Type"))
+		if c.Progress != nil {
+			content, usage, err := readChatStream(bytes.NewReader(bodyBytes), c.Progress, false)
+			if err == nil {
+				return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
+			}
+		}
+		return ChatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON，Content-Type=%s", resp.Header.Get("Content-Type"))
 	}
 	return ChatResult{
 		Content:   extractChatContent(resultPayload),
@@ -280,10 +304,13 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 // chat 调用 OpenAI 兼容聊天接口。
 // ctx 为请求上下文，prompt 为用户提示词，temperature 为温度。
 func (c *Client) chat(ctx context.Context, prompt string, temperature float64) (chatResult, error) {
-	result, err := c.Chat(ctx, map[string]any{
-		"messages":    []map[string]string{{"role": "user", "content": prompt}},
-		"temperature": temperature,
-	})
+	payload := map[string]any{
+		"messages":       []map[string]string{{"role": "user", "content": prompt}},
+		"temperature":    temperature,
+		"stream":         true,
+		"enable_thinking": c.EnableThinking,
+	}
+	result, err := c.Chat(ctx, payload)
 	if err != nil {
 		return chatResult{}, err
 	}
@@ -305,6 +332,7 @@ func readChatStream(reader io.Reader, progress func(string), enableThinking bool
 	var builder strings.Builder
 	var displayBuilder strings.Builder
 	usage := map[string]any{}
+	chunkIndex := 0
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") {
@@ -321,15 +349,17 @@ func readChatStream(reader io.Reader, progress func(string), enableThinking bool
 		if err := json.Unmarshal([]byte(data), &payload); err != nil {
 			continue
 		}
+		chunkIndex++
+		// 日志记录流式返回内容（前 5 个分片和后续每隔 10 个分片）
+		if chunkIndex <= 5 || chunkIndex%10 == 0 {
+			// log.Printf("[AI流式调试] 分片#%d reasoning=%q delta=%q", chunkIndex, extractReasoningContent(payload), extractStreamDelta(payload))
+		}
 		if itemUsage := mapValue(payload["usage"]); len(itemUsage) > 0 {
 			usage = itemUsage
 		}
 		delta := extractStreamDelta(payload)
-		var reasoning string
-		if enableThinking {
-			// 开启思考模式时才提取 reasoning_content
-			reasoning = extractReasoningContent(payload)
-		}
+		// 不管思考模式是否开启，只要有 reasoning_content 就显示
+		reasoning := extractReasoningContent(payload)
 
 		if delta == "" && reasoning == "" {
 			continue
@@ -342,11 +372,13 @@ func readChatStream(reader io.Reader, progress func(string), enableThinking bool
 			displayBuilder.WriteString(reasoning)
 		}
 		if progress != nil {
-			// 显示累积的思考内容或最终回复
+			// 有思考内容显示思考，有正文显示正文
 			if reasoning != "" {
+				// log.Printf("[AI流式调试] 推送思考到进度回调：len=%d prev=%d new=%d", len(displayBuilder.String()), len(displayBuilder.String())-len(reasoning), len(reasoning))
 				progress(displayBuilder.String())
 			} else if delta != "" {
-				progress(displayBuilder.String())
+				// log.Printf("[AI流式调试] 推送正文到进度回调：len=%d", len(builder.String()))
+				progress(builder.String())
 			}
 		}
 	}

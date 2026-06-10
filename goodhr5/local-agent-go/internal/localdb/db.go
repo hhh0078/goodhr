@@ -243,5 +243,7 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if _, err := db.conn.Exec(script); err != nil {
 		return fmt.Errorf("初始化本地数据库失败：%w", err)
 	}
+	// 后向兼容迁移：低版本数据库在首次 migrate 后仍缺少 enable_thinking 字段。
+	_, _ = db.conn.Exec(`ALTER TABLE local_tasks ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
 	return nil
 }

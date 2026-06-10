@@ -154,7 +154,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"card_index":      intFromMap(candidate, "card_index"),
 		"element_ref":     stringFromMap(candidate, "element_ref"),
 		"screenshot":      request.Mode == "ocr" || request.Mode == "ai",
-		"force_scroll":    request.Mode == "ocr" || request.Mode == "ai",
+		"force_scroll":    true,
 		"dir":             filepath.Join(request.ScreenshotsDir, request.TaskID),
 		"filename":        request.Filename,
 	})
@@ -163,12 +163,20 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	}
 	data := workerDataMap(result)
 	detailText := strings.TrimSpace(firstNonEmpty(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
+	// 调试截图信息
+	if dbg := stringFromMap(data, "_screenshot_debug"); dbg != "" {
+		exec.Log("info", "详情截图调试: "+dbg)
+	}
 	screenshot := mapFromAny(data["screenshot"])
 	if len(screenshot) > 0 {
 		if partsCount := intFromMap(screenshot, "parts_count"); partsCount > 0 {
-			exec.Log("info", fmt.Sprintf("详情截图分段完成：name=%s parts=%d", name, partsCount))
+			exec.Log("info", fmt.Sprintf("详情截图分段完成：name=%s parts=%d scrollable=%v", name, partsCount, screenshot["scrollable_container"] == true))
+		} else {
+			exec.Log("info", fmt.Sprintf("详情截图无分段: name=%s width=%d height=%d scrollable=%v parts_count=%d", name, intFromMap(screenshot, "width"), intFromMap(screenshot, "height"), stringFromMap(screenshot, "scrollable_container") == "true", intFromMap(screenshot, "parts_count")))
 		}
 		screenshot = stitchDetailScreenshot(exec, request.TaskID, request.ScreenshotsDir, candidate, screenshot)
+	} else {
+		exec.Log("warning", "详情截图返回为空")
 	}
 	return platformcore.DetailResult{Text: detailText, Screenshot: screenshot, Source: request.Mode}, nil
 }

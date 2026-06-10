@@ -80,6 +80,19 @@
           min="1"
       /></label>
     </div>
+    <div v-if="showCreate" class="mode-field" style="margin-bottom: 12px">
+      <span class="field-title">思考模式</span>
+      <div class="mode-cards">
+        <button type="button" class="mode-card" :class="{ active: !tasks.form.value.enableThinking }" @click="tasks.form.value.enableThinking = false">
+          <strong>关闭</strong>
+          <span>速度快，AI消耗更小<br>适合常见岗位、常见条件</span>
+        </button>
+        <button type="button" class="mode-card" :class="{ active: tasks.form.value.enableThinking }" @click="tasks.form.value.enableThinking = true">
+          <strong>开启</strong>
+          <span>速度慢，更精准<br>AI消耗较多</span>
+        </button>
+      </div>
+    </div>
     <div v-if="showCreate" class="actions">
       <button
         :disabled="
@@ -254,6 +267,19 @@
                 min="1"
             /></label>
           </div>
+          <div class="mode-field">
+            <span class="field-title">思考模式</span>
+            <div class="mode-cards">
+              <button type="button" class="mode-card" :class="{ active: !editForm.enableThinking }" @click="editForm.enableThinking = false">
+                <strong>关闭</strong>
+                <span>速度快，AI消耗更小<br>适合常见岗位、常见条件</span>
+              </button>
+              <button type="button" class="mode-card" :class="{ active: editForm.enableThinking }" @click="editForm.enableThinking = true">
+                <strong>开启</strong>
+                <span>速度慢，更精准<br>AI消耗较多</span>
+              </button>
+            </div>
+          </div>
           <div class="actions compact">
             <button
               :disabled="
@@ -358,6 +384,7 @@ const editForm = ref({
   mode: "ai",
   matchLimit: 50,
   enableSound: false,
+  enableThinking: false,
 });
 async function loadAccounts() {
   accountsError.value = "";
@@ -480,6 +507,7 @@ function startEdit(task: any) {
     mode: task.mode || "keyword",
     matchLimit: task.match_limit || 50,
     enableSound: Boolean(task.enable_sound),
+    enableThinking: Boolean(task.enable_thinking),
   };
 }
 function onEditAccountChange() {

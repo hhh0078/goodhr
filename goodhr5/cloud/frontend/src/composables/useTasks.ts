@@ -50,6 +50,7 @@ export function useTasks(
     mode: "ai",
     matchLimit: 20,
     enableSound: false,
+    enableThinking: false,
   });
   const expandedTaskId = ref("");
   const taskLogs = ref<Record<string, any[]>>({});
@@ -97,6 +98,7 @@ export function useTasks(
         mode: form.value.mode,
         match_limit: Number(form.value.matchLimit || 0),
         enable_sound: Boolean(form.value.enableSound),
+        enable_thinking: Boolean(form.value.enableThinking),
         position_snapshot: resolvePositionSnapshot(form.value.positionId),
       };
       if (shouldUseLocalTasks()) {
@@ -105,7 +107,7 @@ export function useTasks(
         await createTask(payload);
       }
       await load();
-      form.value = { ...form.value, name: "", positionId: "", enableSound: false };
+      form.value = { ...form.value, name: "", positionId: "", enableSound: false, enableThinking: false };
     } catch (e: any) {
       error.value = e.message;
     } finally {
@@ -125,6 +127,7 @@ export function useTasks(
         mode: payload.mode,
         match_limit: Number(payload.matchLimit || 0),
         enable_sound: Boolean(payload.enableSound),
+        enable_thinking: Boolean(payload.enableThinking),
       };
       if (shouldUseLocalTasks()) {
         await updateLocalTask(localTaskBase(), taskId, taskPayload);

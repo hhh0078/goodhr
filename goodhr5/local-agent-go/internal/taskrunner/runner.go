@@ -802,7 +802,9 @@ func (r *Runner) pipelineAIClient(task localdb.Task) (*localai.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return localai.New(config), nil
+	client := localai.New(config)
+	client.EnableThinking = task.EnableThinking
+	return client, nil
 }
 
 // consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
@@ -1040,8 +1042,9 @@ func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task loc
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
 	result, err := client.Chat(ctx, map[string]any{
-		"messages":    []map[string]any{{"role": "user", "content": content}},
-		"temperature": 0.1,
+		"messages":         []map[string]any{{"role": "user", "content": content}},
+		"temperature":      0.1,
+		"enable_thinking":  client.EnableThinking,
 	})
 	if err != nil {
 		return "", err
@@ -1089,11 +1092,7 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 	cleanup := func() {
 		once.Do(func() {
 			close(done)
-			// 5秒后自动隐藏思考窗口，保留时间让用户看到最终思考结果
-			go func() {
-				time.Sleep(5 * time.Second)
-				_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{"action": "hide"})
-			}()
+			// 不再主动隐藏浮层，由 JS show 端管理旧的卡片 5 秒后自动移除
 		})
 	}
 	return streamingClient, cleanup

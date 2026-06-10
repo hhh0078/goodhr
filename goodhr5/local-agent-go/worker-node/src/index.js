@@ -546,7 +546,8 @@ async function extractBossCandidateDetail(payload) {
   const screenshot = payload.screenshot
     ? await screenshotDetailContainer(currentPage, selectorList(rules.detail_containers), payload)
     : null;
-  return { detail_text: detailText, text: detailText, screenshot, scroll_attempts: cardInfo.attempts };
+  const debugInfo = JSON.stringify({ selectors: selectorList(rules.detail_containers), hadContainer: !!detailText, cardFound: !!card, opened });
+  return { detail_text: detailText, text: detailText, screenshot, scroll_attempts: cardInfo.attempts, _screenshot_debug: debugInfo };
 }
 
 /**
@@ -662,17 +663,45 @@ async function firstDetailText(currentPage, selectors) {
  * @returns {Promise<Record<string, any>|null>} 截图结果。
  */
 async function screenshotDetailContainer(currentPage, selectors, payload) {
+  const steps = [];
   for (const selector of selectors) {
     try {
-      const locator = currentPage.locator(selector).first();
-      if ((await locator.count()) <= 0) continue;
-      if (!(await locator.isVisible().catch(() => false))) continue;
-      return screenshotLocatorWithParts(currentPage, locator, payload);
-    } catch {
-      continue;
+      // 使用 allLocators 统一查找（支持 iframe、多个匹配）
+      const elementConfig = typeof selector === "string" ? selector : { selector };
+      const locators = await allLocators(currentPage, elementConfig, false);
+      if (locators.length === 0) {
+        steps.push("选择器["+selector+"]未找到元素");
+        continue;
+      }
+      steps.push("选择器["+selector+"]找到"+locators.length+"个元素");
+      for (const locInfo of locators) {
+        const loc = locInfo.locator;
+        const frameInfo = locInfo.frameURL ? " (iframe:"+locInfo.frameURL.substring(0,40)+")" : "";
+        try {
+          const visible = await loc.isVisible().catch(() => false);
+          if (!visible) { steps.push("  元素不可见"+frameInfo); continue; }
+          const box = await loc.boundingBox().catch(() => null);
+          if (!box || box.width < 20 || box.height < 20) { steps.push("  元素太小"+frameInfo+" box="+JSON.stringify({w:Math.round(box?.width||0),h:Math.round(box?.height||0)})); continue; }
+          const boxInfo = { x:Math.round(box.x), y:Math.round(box.y), w:Math.round(box.width), h:Math.round(box.height) };
+          const scrollInfo = await detailScrollInfo(loc);
+          steps.push("  可见 框="+JSON.stringify(boxInfo)+" 滚动="+JSON.stringify(scrollInfo)+frameInfo);
+          const vp = currentPage.viewportSize?.() || {};
+          const dbg = JSON.stringify({ match:{selector,box:boxInfo,scrollInfo,viewport:{w:vp.width,h:vp.height}} });
+          const result = await screenshotLocatorWithParts(currentPage, loc, { ...payload, _detail_debug: dbg });
+          result._detail_debug = dbg;
+          return result;
+        } catch(e) {
+          steps.push("  处理失败:"+e.message);
+        }
+      }
+    } catch(e) {
+      steps.push("选择器["+selector+"]错误:"+e.message);
     }
   }
-  return screenshotPage({ ...payload, full_page: true, filename: payload.filename || "candidate-detail.png" });
+  steps.push("fallback:全页截图");
+  const result = await screenshotPage({ ...payload, full_page: true, filename: payload.filename || "candidate-detail.png" });
+  result._detail_debug = steps.join(" | ");
+  return result;
 }
 
 /**
@@ -689,26 +718,20 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   await locator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
   const box = await locator.boundingBox().catch(() => null);
   const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
-  if (!box || box.width < 20 || box.height < 20) return screenshotPage({ ...payload, filename });
-  if (payload.force_scroll || payload.scroll_full) {
-    const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
-    if (parts.length > 0) {
-      return {
-        ...parts[0],
-        path: parts[0].path,
-        file_path: parts[0].file_path,
-        screenshot_parts: parts,
-        parts_count: parts.length,
-        overlap: parts[0].overlap || 0,
-        wheel_scroll: true,
-      };
-    }
+  if (!box || box.width < 20 || box.height < 20) {
+    console.log("[截图Debug] 详情容器太小或不存在", JSON.stringify(box));
+    return screenshotPage({ ...payload, filename });
   }
+  console.log("[截图Debug] 详情容器 box:", JSON.stringify({ x: box.x, y: box.y, width: box.width, height: box.height }), "viewport:", JSON.stringify(viewport));
+  
+  // 第一步：检查容器自身是否可滚动（内部 overflow）
   const scrollInfo = await detailScrollInfo(locator);
+  console.log("[截图Debug] 容器滚动信息:", JSON.stringify(scrollInfo));
   if (scrollInfo.scrollable) {
+    console.log("[截图Debug] 容器可内部滚动，使用 srollable 分段截图");
     const parts = await screenshotScrollableLocatorParts(currentPage, locator, scrollInfo, directory, filename, payload);
     if (parts.length > 0) {
-      return {
+      const result = {
         ...parts[0],
         path: parts[0].path,
         file_path: parts[0].file_path,
@@ -716,21 +739,37 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
         parts_count: parts.length,
         overlap: parts[0].overlap || 0,
         scrollable_container: true,
+        _scroll_debug: JSON.stringify({ scrollable: true, parts_count: parts.length, scrollHeight: scrollInfo.scrollHeight, clientHeight: scrollInfo.clientHeight, overflowY: scrollInfo.overflowY }),
       };
+      return result;
     }
   }
+  
+  // 第二步：容器不可滚动，检查是否超出视口（需整体滚动页面）
   const needsScroll = box.y < 0 || box.y + box.height > viewport.height;
-  if (!needsScroll) return saveLocatorScreenshot(locator, directory, filename);
-  const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
-  if (parts.length <= 0) return saveLocatorScreenshot(locator, directory, filename);
-  return {
-    ...parts[0],
-    path: parts[0].path,
-    file_path: parts[0].file_path,
-    screenshot_parts: parts,
-    parts_count: parts.length,
-    overlap: parts[0].overlap || 0,
-  };
+  console.log("[截图Debug] needsScroll:", needsScroll, "box.y:", box.y, "box.bottom:", box.y + box.height, "viewport.height:", viewport.height);
+  if (needsScroll) {
+    console.log("[截图Debug] 详情超出视口，使用鼠标滚轮分段截图");
+    const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
+    if (parts.length > 0) {
+      const result = {
+        ...parts[0],
+        path: parts[0].path,
+        file_path: parts[0].file_path,
+        screenshot_parts: parts,
+        parts_count: parts.length,
+        overlap: parts[0].overlap || 0,
+        wheel_scroll: true,
+        _scroll_debug: JSON.stringify({ wheel_scroll: true, parts_count: parts.length, boxH: Math.round(box.height), vpH: viewport.height }),
+      };
+      return result;
+    }
+  }
+  
+  // 第三步：不需要滚动，单次截图
+  const singleResult = await saveLocatorScreenshot(locator, directory, filename);
+  singleResult._scroll_debug = JSON.stringify({ single: true, scrollable: false, needsScroll: false, boxY: Math.round(box.y), boxBottom: Math.round(box.y + box.height), vpHeight: viewport.height });
+  return singleResult;
 }
 
 /**
@@ -807,7 +846,7 @@ async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo
       await locator.evaluate((el, y) => {
         el.scrollTop = y;
       }, top).catch(() => {});
-      await currentPage.waitForTimeout(350);
+      await currentPage.waitForTimeout(1500);
       const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
       const targetPath = await uniquePath(directory, partName);
       const sizeInfo = await locator.boundingBox().catch(() => null) || box;
@@ -851,7 +890,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const clipHeight = Math.max(clipBottom - clipY, 1);
   const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
   await currentPage.mouse.move(clipX + clipWidth / 2, clipY + clipHeight / 2).catch(() => {});
-  await currentPage.waitForTimeout(300);
+  await currentPage.waitForTimeout(1500);
   const scrollDelta = Math.max(Math.round(clipHeight * 0.7), 1);
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
@@ -880,7 +919,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     });
     previousBuffer = currentBuffer;
     await currentPage.mouse.wheel(0, scrollDelta);
-    await currentPage.waitForTimeout(500);
+    await currentPage.waitForTimeout(2000);
   }
   return parts;
 }
@@ -892,16 +931,42 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
  * @returns {boolean} 重复返回 true。
  */
 function screenshotsAreDuplicate(previous, current) {
+  // 与 py 版 images_are_scroll_duplicates 逻辑一致：
+  // 1. 比较中间主体区域（忽略边缘 12%~88%）
+  // 2. 像素差异 < 10 算相同
+  // 3. 阈值 0.94
   if (!previous || !current) return false;
   if (previous.length !== current.length) return false;
-  const step = Math.max(1, Math.floor(previous.length / 2400));
+  const startOffset = Math.floor(previous.length * 0.12);
+  const endOffset = Math.floor(previous.length * 0.88);
+  if (endOffset <= startOffset) return false;
+  const step = Math.max(1, Math.floor((endOffset - startOffset) / 4000));
   let same = 0;
   let total = 0;
-  for (let index = 0; index < previous.length && index < current.length; index += step) {
+  for (let index = startOffset; index < endOffset && index < previous.length && index < current.length; index += step) {
     total += 1;
-    if (Math.abs(previous[index] - current[index]) <= 2) same += 1;
+    if (Math.abs(previous[index] - current[index]) <= 10) same += 1;
   }
-  return total > 0 && same / total >= 0.985;
+  return total > 0 && same / total >= 0.94;
+}
+
+/**
+ * 删除滚动到底后产生的相邻重复截图（与 py 版 remove_duplicate_scroll_screenshots 一致）。
+ * @param {Buffer[]} screenshots - 原始截图列表。
+ * @returns {Buffer[]} 去重后的截图列表。
+ */
+function removeDuplicateScrollScreenshots(screenshots) {
+  if (!screenshots || screenshots.length <= 1) return screenshots;
+  const filtered = [];
+  let prev = null;
+  for (let i = 0; i < screenshots.length; i++) {
+    if (prev && screenshotsAreDuplicate(prev, screenshots[i])) {
+      continue;
+    }
+    filtered.push(screenshots[i]);
+    prev = screenshots[i];
+  }
+  return filtered;
 }
 
 /**
@@ -1057,23 +1122,68 @@ function fieldRulesFromCard(card) {
  * @param {Record<string, any>} payload - 截图参数。
  * @returns {Promise<Record<string, any>>} 截图结果。
  */
+
+/**
+ * 在元素内部查找第一个可滚动的子元素（递归，最多3层）。
+ * @param {any} locator - 父元素定位器。
+ * @returns {Promise<Record<string, any>|null>} 滚动信息和子元素 locator。
+ */
+async function findScrollableChild(locator) {
+  const maxDepth = 3;
+  async function search(el, depth) {
+    if (depth > maxDepth) return null;
+    const info = await el.evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      const overflowY = style.overflowY || "";
+      const scrollHeight = Math.ceil(node.scrollHeight || 0);
+      const clientHeight = Math.ceil(node.clientHeight || 0);
+      const scrollable = scrollHeight > clientHeight + 8 && !["hidden", "clip"].includes(overflowY);
+      if (scrollable) {
+        return { scrollable: true, scrollTop: Math.round(node.scrollTop || 0), scrollHeight, clientHeight, overflowY, tag: node.tagName, depth };
+      }
+      return null;
+    }).catch(() => null);
+    if (info) return { ...info, locator: el };
+    // 检查子元素
+    const childCount = await el.locator("> *").count().catch(() => 0);
+    for (let i = 0; i < childCount; i++) {
+      const child = el.locator("> *").nth(i);
+      const result = await search(child, depth + 1);
+      if (result) return result;
+    }
+    return null;
+  }
+  return search(locator, 1);
+}
+
 async function screenshotPage(payload) {
   const currentPage = await ensurePage();
   const filename = safeFilename(String(payload.filename || "page-screenshot.png"));
   const directory = String(payload.dir || payload.directory || path.join(os.tmpdir(), "goodhr-screenshots"));
   await fs.mkdir(directory, { recursive: true });
-  const targetPath = path.join(directory, filename);
   const selector = firstSelector(payload);
-  let sizeInfo = { width: 0, height: 0 };
   if (selector) {
     const locator = currentPage.locator(selector).first();
     if (await locator.count() <= 0) throw new Error("截图元素不存在");
-    sizeInfo = await locator.boundingBox().catch(() => null) || sizeInfo;
-    await locator.screenshot({ path: targetPath, type: "png" });
-  } else {
-    sizeInfo = await pageSize(currentPage, Boolean(payload.full_page));
-    await currentPage.screenshot({ path: targetPath, fullPage: Boolean(payload.full_page), type: "png" });
+    // 支持 force_scroll / scroll_full 触发分段滚动截图
+    if (payload.force_scroll || payload.scroll_full) {
+      const partsResult = await screenshotLocatorWithParts(currentPage, locator, payload);
+      return partsResult;
+    }
+    // 否则检查容器自身是否可滚动，是的话也用分段截图
+    const scrollInfo = await detailScrollInfo(locator);
+    if (scrollInfo.scrollable) {
+      const partsResult = await screenshotLocatorWithParts(currentPage, locator, payload);
+      return partsResult;
+    }
+    const sizeInfo = await locator.boundingBox().catch(() => null) || { width: 0, height: 0 };
+    await locator.screenshot({ path: path.join(directory, filename), type: "png" });
+    const stat = await fs.stat(path.join(directory, filename));
+    return { path: path.join(directory, filename), file_path: path.join(directory, filename), size: stat.size, width: Math.round(sizeInfo.width || 0), height: Math.round(sizeInfo.height || 0) };
   }
+  const sizeInfo = await pageSize(currentPage, Boolean(payload.full_page));
+  const targetPath = path.join(directory, filename);
+  await currentPage.screenshot({ path: targetPath, fullPage: Boolean(payload.full_page), type: "png" });
   const stat = await fs.stat(targetPath);
   return { path: targetPath, file_path: targetPath, size: stat.size, width: Math.round(sizeInfo.width || 0), height: Math.round(sizeInfo.height || 0) };
 }
@@ -1086,10 +1196,12 @@ async function screenshotPage(payload) {
 async function aiOverlay(payload) {
   const currentPage = await ensurePage();
   const action = String(payload.action || "show").trim().toLowerCase();
+  // hide 不再主动移除卡片，由 show 管理卡片生命周期
   if (action === "hide" || action === "close" || action === "remove") {
     await currentPage.evaluate(() => {
-      document.querySelectorAll("[data-gh-id]").forEach(el => el.remove());
-      document.querySelectorAll("style[data-gh-style]").forEach(el => el.remove());
+      const refs = window.__gohOvl = window.__gohOvl || [];
+      // 清理已移除卡片的引用
+      window.__gohOvl = refs.filter(r => r.card && r.card.parentNode);
     }).catch(() => {});
     return { visible: false };
   }
@@ -1097,45 +1209,62 @@ async function aiOverlay(payload) {
   const subtitle = String(payload.subtitle || payload.target || "").trim();
   const message = String(payload.message || "正在分析候选人，请稍候").trim();
   await currentPage.evaluate(({ title, subtitle, message }) => {
-    // 生成随机标识防止页面检测
-    const id = "g" + Math.random().toString(36).substring(2, 10);
-    const msgCls = "x" + Math.random().toString(36).substring(2, 8);
-    const ringCls = "y" + Math.random().toString(36).substring(2, 8);
-    const cursorCls = "z" + Math.random().toString(36).substring(2, 8);
-    const animSpin = "a" + Math.random().toString(36).substring(2, 8);
-    const animBreathe = "b" + Math.random().toString(36).substring(2, 8);
+    const randStr = (len) => Math.random().toString(36).substring(2, 2 + len);
+    const ctx = window.__gohCtx = window.__gohCtx || {};
+    const mk = title + "|" + subtitle;
 
-    // 清理旧浮层，确保新卡片出现在最上面
-    document.querySelectorAll("[data-gh-id]").forEach(el => el.remove());
-    document.querySelectorAll("style[data-gh-style]").forEach(el => el.remove());
+    // 同标题+副标题的流式更新 → 复用当前卡片，只更新消息内容
+    if (ctx.matchKey === mk && ctx.card && ctx.card.parentNode && !ctx.removing) {
+      var msgDiv = ctx.card.children[0] && ctx.card.children[0].children[1];
+      if (msgDiv && msgDiv.children[3] && msgDiv.children[3].children[0]) {
+        // 也更新标题和副标题（可能因 showAIReply 改变）
+        if (msgDiv.children[0]) msgDiv.children[0].textContent = title;
+        if (msgDiv.children[1]) msgDiv.children[1].textContent = subtitle;
+        var mEl = msgDiv.children[3].children[0];
+        mEl.textContent = message;
+        mEl.scrollTop = mEl.scrollHeight;
+      }
+      return; // 不复用旧卡片，不走删除流程
+    }
 
-    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-    const panelWidth = Math.min(360, Math.max(260, viewportWidth - 32));
+    // 新 AI 调用（不同标题）→ 旧卡片 5 秒淡出移除
+    if (ctx.card && ctx.card.parentNode && !ctx.removing) {
+      ctx.removing = true;
+      ctx.card.style.transition = "opacity 0.3s ease";
+      ctx.card.style.opacity = "0.3";
+      var s = ctx.style;
+      var c = ctx.card;
+      setTimeout(function() {
+        if (s && s.parentNode) s.remove();
+        if (c && c.parentNode) c.remove();
+      }, 5000);
+    }
+
+    const msgCls = randStr(6);
+    const ringCls = randStr(6);
+    const cursorCls = randStr(6);
+    const animSpin = "a" + randStr(8);
+    const animBreathe = "b" + randStr(8);
+    // 此卡片序号，用于标识生成顺序
+    const seq = (window.__gohSeq || 0) + 1;
+    window.__gohSeq = seq;
+
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const pw = Math.min(360, Math.max(260, vw - 32));
 
     const box = document.createElement("div");
-    box.setAttribute("data-gh-id", id);
     box.style.cssText = [
-      "position:fixed",
-      "right:16px",
-      "top:16px",
-      "z-index:2147483647",
-      "width:" + panelWidth + "px",
-      "box-sizing:border-box",
-      "padding:14px",
-      "border-radius:14px",
-      "background:rgba(252,250,244,.96)",
-      "color:#18221d",
+      "position:fixed", "right:16px", "top:16px", "z-index:2147483647",
+      "width:" + pw + "px", "box-sizing:border-box", "padding:14px",
+      "border-radius:14px", "background:rgba(252,250,244,.96)", "color:#18221d",
       "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
       "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-      "font-size:13px",
-      "line-height:1.45",
-      "pointer-events:none",
+      "font-size:13px", "line-height:1.45", "pointer-events:none",
       "border:1px solid rgba(48,79,63,.18)",
       "backdrop-filter:saturate(1.1) blur(10px)",
     ].join(";");
 
     const style = document.createElement("style");
-    style.setAttribute("data-gh-style", id);
     style.textContent = [
       "@keyframes " + animSpin + " { to { transform: rotate(360deg); } }",
       "@keyframes " + animBreathe + " { 0%,100% { opacity:.58; transform: translateY(0); } 50% { opacity:1; transform: translateY(-1px); } }",
@@ -1145,24 +1274,48 @@ async function aiOverlay(payload) {
     ].join("\n");
     document.head.appendChild(style);
 
+    // 构建卡片 DOM 结构 — 全内联样式，无任何可检测属性
     box.innerHTML = [
       '<div style="display:flex;gap:12px;align-items:flex-start;">',
       '<div class="' + ringCls + '"></div>',
       '<div style="min-width:0;flex:1;">',
-      '<div data-gh-title style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>',
-      '<div data-gh-sub style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
+      '<div style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>',
+      '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
       '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
-      '<div><span data-gh-msg class="' + msgCls + '"></span><span class="' + cursorCls + '"></span></div>',
+      '<div><span class="' + msgCls + '"></span><span class="' + cursorCls + '"></span></div>',
       '</div></div>',
     ].join("");
     document.body.appendChild(box);
 
-    box.style.width = panelWidth + "px";
-    box.querySelector("[data-gh-title]").textContent = title;
-    box.querySelector("[data-gh-sub]").textContent = subtitle;
-    const msgEl = box.querySelector("[data-gh-msg]");
-    msgEl.textContent = message;
-    msgEl.scrollTop = msgEl.scrollHeight;
+    // 通过 DOM 结构索引设置文本内容，不依赖任何自定义属性
+    var contentCol = box.children[0] && box.children[0].children[1];
+    if (contentCol) {
+      if (contentCol.children[0]) contentCol.children[0].textContent = title;
+      if (contentCol.children[1]) contentCol.children[1].textContent = subtitle;
+      if (contentCol.children[3] && contentCol.children[3].children[0]) {
+        var msgEl = contentCol.children[3].children[0];
+        msgEl.textContent = message;
+        msgEl.scrollTop = msgEl.scrollHeight;
+      }
+    }
+
+    // 15秒自动移除兜底
+    setTimeout(function() {
+      if (box && box.parentNode) {
+        box.style.transition = "opacity 0.3s ease";
+        box.style.opacity = "0.3";
+        setTimeout(function() {
+          if (style && style.parentNode) style.remove();
+          if (box && box.parentNode) box.remove();
+        }, 500);
+      }
+    }, 15000);
+
+    // 更新上下文为当前卡片，供下次流式更新时复用
+    ctx.matchKey = mk;
+    ctx.card = box;
+    ctx.style = style;
+    ctx.removing = false;
   }, { title, subtitle, message });
   return { visible: true, title, subtitle, message };
 }

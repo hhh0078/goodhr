@@ -27,6 +27,7 @@ type Task struct {
 	SkippedCount      int            `json:"skipped_count"`
 	FailedCount       int            `json:"failed_count"`
 	EnableSound       bool           `json:"enable_sound"`
+	EnableThinking    bool           `json:"enable_thinking"`
 	PositionSnapshot  map[string]any `json:"position_snapshot"`
 	CreatedAt         string         `json:"created_at"`
 	UpdatedAt         string         `json:"updated_at"`
@@ -64,6 +65,7 @@ func (db *DB) CreateTask(payload map[string]any) (Task, error) {
 		MatchLimit:        maxInt(0, intValue(payload["match_limit"])),
 		Status:            "pending",
 		EnableSound:       boolValue(payload["enable_sound"]),
+		EnableThinking:    boolValue(payload["enable_thinking"]),
 		PositionSnapshot:  mapValue(payload["position_snapshot"]),
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -75,10 +77,10 @@ func (db *DB) CreateTask(payload map[string]any) (Task, error) {
 	_, err = db.conn.Exec(`
 INSERT INTO local_tasks (
     id, name, platform_id, platform_account_id, position_id, mode, match_limit,
-    status, enable_sound, position_snapshot, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    status, enable_sound, enable_thinking, position_snapshot, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Name, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode,
-		task.MatchLimit, task.Status, boolInt(task.EnableSound), string(positionJSON), task.CreatedAt, task.UpdatedAt,
+		task.MatchLimit, task.Status, boolInt(task.EnableSound), boolInt(task.EnableThinking), string(positionJSON), task.CreatedAt, task.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, fmt.Errorf("创建本地任务失败：%w", err)
@@ -89,7 +91,7 @@ INSERT INTO local_tasks (
 // ListTasks 读取本地任务列表。
 // 返回值按创建时间倒序排列。
 func (db *DB) ListTasks() ([]Task, error) {
-	rows, err := db.conn.Query(`SELECT * FROM local_tasks ORDER BY created_at DESC`)
+	rows, err := db.conn.Query(`SELECT id, name, platform_id, platform_account_id, position_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_tasks ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("读取本地任务失败：%w", err)
 	}
@@ -108,7 +110,7 @@ func (db *DB) ListTasks() ([]Task, error) {
 // GetTask 读取单个本地任务。
 // taskID 为任务 ID。
 func (db *DB) GetTask(taskID string) (Task, error) {
-	row := db.conn.QueryRow(`SELECT * FROM local_tasks WHERE id=?`, taskID)
+	row := db.conn.QueryRow(`SELECT id, name, platform_id, platform_account_id, position_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_tasks WHERE id=?`, taskID)
 	task, err := scanTask(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, fmt.Errorf("本地任务不存在")
@@ -135,6 +137,9 @@ func (db *DB) UpdateTask(taskID string, payload map[string]any) (Task, error) {
 	if _, ok := payload["enable_sound"]; ok {
 		updated.EnableSound = boolValue(payload["enable_sound"])
 	}
+	if _, ok := payload["enable_thinking"]; ok {
+		updated.EnableThinking = boolValue(payload["enable_thinking"])
+	}
 	if _, ok := payload["position_snapshot"]; ok {
 		updated.PositionSnapshot = mapValue(payload["position_snapshot"])
 	}
@@ -146,10 +151,10 @@ func (db *DB) UpdateTask(taskID string, payload map[string]any) (Task, error) {
 	_, err = db.conn.Exec(`
 UPDATE local_tasks
 SET name=?, platform_id=?, platform_account_id=?, position_id=?, mode=?,
-    match_limit=?, enable_sound=?, position_snapshot=?, updated_at=?
+    match_limit=?, enable_sound=?, enable_thinking=?, position_snapshot=?, updated_at=?
 WHERE id=?`,
 		updated.Name, updated.PlatformID, updated.PlatformAccountID, updated.PositionID,
-		updated.Mode, updated.MatchLimit, boolInt(updated.EnableSound), string(positionJSON),
+		updated.Mode, updated.MatchLimit, boolInt(updated.EnableSound), boolInt(updated.EnableThinking), string(positionJSON),
 		updated.UpdatedAt, taskID,
 	)
 	if err != nil {
@@ -447,15 +452,17 @@ func scanTask(scanner interface{ Scan(dest ...any) error }) (Task, error) {
 	var task Task
 	var enableSound int
 	var positionJSON string
-	err := scanner.Scan(
+	var enableThinking int
+		err := scanner.Scan(
 		&task.ID, &task.Name, &task.PlatformID, &task.PlatformAccountID, &task.PositionID, &task.Mode,
 		&task.MatchLimit, &task.Status, &task.ScannedCount, &task.GreetedCount, &task.SkippedCount,
-		&task.FailedCount, &enableSound, &positionJSON, &task.CreatedAt, &task.UpdatedAt,
+		&task.FailedCount, &enableSound, &enableThinking, &positionJSON, &task.CreatedAt, &task.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, err
 	}
 	task.EnableSound = enableSound == 1
+	task.EnableThinking = enableThinking == 1
 	task.PositionSnapshot = map[string]any{}
 	_ = json.Unmarshal([]byte(positionJSON), &task.PositionSnapshot)
 	return task, nil
