@@ -908,3 +908,49 @@ func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, re
 		log("info", fmt.Sprintf("%s：账号=%s cookie=%s", reason, current.DisplayName, current.ID))
 	}
 }
+
+// FailNotice 接收本地代理发送的任务失败通知，发送邮件提醒。
+// 请求体中包含 task_id（本地任务 ID）、email（接收邮箱）和 error_message（失败原因）。
+// 此接口由本地代理调用，不需要用户认证。
+func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var payload struct {
+		TaskID       string `json:"task_id"`
+		Email        string `json:"email"`
+		ErrorMessage string `json:"error_message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	taskID := strings.TrimSpace(payload.TaskID)
+	email := strings.TrimSpace(payload.Email)
+	errorMessage := strings.TrimSpace(payload.ErrorMessage)
+	if taskID == "" || email == "" {
+		writeError(w, http.StatusBadRequest, "task_id and email required")
+		return
+	}
+	if s.mailer == nil {
+		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
+		return
+	}
+	notice := TaskStatusNotice{
+		TaskID:       taskID,
+		Status:       "failed",
+		StatusLabel:  "任务失败",
+		FinishedAt:   time.Now(),
+		ErrorMessage: errorMessage,
+	}
+	if err := s.mailer.SendTaskStatus(email, notice); err != nil {
+		stdlog.Printf("[任务邮件] 发送失败通知邮件失败 task=%s email=%s err=%v", taskID, email, err)
+		writeError(w, http.StatusInternalServerError, "failed to send email")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": "notified",
+	})
+}

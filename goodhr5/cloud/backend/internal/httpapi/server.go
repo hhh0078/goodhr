@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册任务接口，用于创建任务和展示任务统计摘要。
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)
 	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
+	mux.HandleFunc("/api/fail-notice", s.tasks.FailNotice)
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册简历库接口，用于查看当前团队或指定任务下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)

@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"bytes"
+	"log"
 )
 
 // Client 是云端接口客户端。
@@ -227,4 +229,44 @@ func translateKnownMessage(text string) string {
 	default:
 		return text
 	}
+}
+
+// SendTaskFailNotice 通知云端发送任务失败邮件。
+// ctx 为请求上下文，taskID 为本地任务 ID，email 为接收通知的邮箱，errorMsg 为失败原因。
+func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, email string, errorMsg string) error {
+	baseURL, err := c.safeBaseURL()
+	if err != nil {
+		log.Printf("[失败邮件] 获取云端地址失败：%v", err)
+		return err
+	}
+	apiURL := strings.TrimSuffix(baseURL, "/") + "/api/fail-notice"
+	body := map[string]any{
+		"task_id":       taskID,
+		"email":         email,
+		"error_message": errorMsg,
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		log.Printf("[失败邮件] JSON 序列化失败：%v", err)
+		return err
+	}
+	log.Printf("[失败邮件] 请求地址：%s", apiURL)
+	log.Printf("[失败邮件] 请求参数：%s", string(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("[失败邮件] 创建请求失败：%v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, code, err := c.doJSON(req)
+	if err != nil {
+		log.Printf("[失败邮件] 请求失败：%v", err)
+		return err
+	}
+	log.Printf("[失败邮件] 响应状态码：%d", code)
+	log.Printf("[失败邮件] 响应数据：%v", resp)
+	if code != http.StatusOK && code != http.StatusAccepted {
+		return fmt.Errorf("云端返回非预期状态码：%d", code)
+	}
+	return nil
 }

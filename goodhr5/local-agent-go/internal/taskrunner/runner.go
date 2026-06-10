@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -63,14 +64,17 @@ type Runner struct {
 	profilesDir    string
 	downloadsDir   string
 	screenshotsDir string
+	audioDir       string
+	cloudAPIBase   string
 	mu             sync.Mutex
 	running        map[string]*runState
 }
 
 // runState 保存单个运行任务的控制句柄。
 type runState struct {
-	cancel   context.CancelFunc
-	progress Progress
+	cancel          context.CancelFunc
+	progress        Progress
+	emailForNotify  string // 失败通知邮箱
 	// 摸鱼休息状态
 	restMaxTimes    int
 	restUsed        int
@@ -146,12 +150,15 @@ type StartOptions struct {
 	RestTimesMax           int
 	RestDurationMin        float64 // 每次摸鱼休息多少分钟
 	RestDurationMax        float64
+	// 提示音和通知
+	EnableSound       bool   `json:"enable_sound"`     // 是否开启提示音
+	EmailForNotify    string `json:"email_for_notify"` // 失败通知邮箱
 }
 
 // New 创建本地任务运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
-func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string) *Runner {
-	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, running: map[string]*runState{}}
+func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string, audioDir string, cloudAPIBase string) *Runner {
+	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, running: map[string]*runState{}}
 }
 
 // Start 启动本地任务运行器。
@@ -176,6 +183,12 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		return nil, fmt.Errorf("任务正在运行")
 	}
 	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds})
+	// 保存通知邮箱到运行状态
+	r.mu.Lock()
+	if state, ok := r.running[taskID]; ok {
+		state.emailForNotify = options.EmailForNotify
+	}
+	r.mu.Unlock()
 	updated, err := r.db.UpdateTaskStatus(taskID, "running")
 	if err != nil {
 		r.clear(taskID)
@@ -235,10 +248,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			return
 		}
 		if isBrowserClosedTaskError(err) {
-			message := "浏览器已关闭，任务已自动结束"
-			r.updateProgress(taskID, Progress{Stage: "stopped", Message: message, TotalRounds: totalRounds})
-			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
-			r.taskLog(taskID, "warning", message+"："+err.Error())
+			r.failStart(taskID, "浏览器已关闭，任务已自动结束："+err.Error())
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
@@ -859,6 +869,9 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	r.taskLog(task.ID, "info", "打招呼成功："+candidateLogName(candidate))
+	if options.EnableSound {
+		r.playSound("success.wav", task.ID)
+	}
 	return 1, 0, 0, nil
 }
 
@@ -925,6 +938,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		candidate["detail_error"] = err.Error()
 		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
 		_ = platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate))
+		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
+		if isBrowserClosedTaskError(err) {
+			return 0, fmt.Errorf("浏览器未启动或已关闭，任务已自动结束：%w", err)
+		}
 		return 0, nil
 	}
 	defer func() {
@@ -1530,12 +1547,24 @@ func statusMessage(status string) string {
 	}
 }
 
-// failStart 记录启动失败日志并清理运行锁。
+// failStart 记录启动失败日志并清理运行锁，自动播放失败提示音和发送邮件通知。
 // taskID 为任务 ID，msg 为失败原因。
 func (r *Runner) failStart(taskID string, msg string) {
 	r.taskLog(taskID, "error", msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
+	// 自动播放失败提示音（如果任务开启了提示音）
+	if task, err := r.db.GetTask(taskID); err == nil && task.EnableSound {
+		r.playSound("failed.wav", taskID)
+	}
+	// 从运行状态中获取邮箱发送失败通知
+	email := ""
+	r.mu.Lock()
+	if state, ok := r.running[taskID]; ok {
+		email = state.emailForNotify
+	}
+	r.mu.Unlock()
+	r.sendTaskFailNotification(context.Background(), taskID, email, msg)
 }
 
 // isBrowserClosedTaskError 判断错误是否来自用户关闭浏览器。
@@ -2074,5 +2103,44 @@ func floatFromMap(item map[string]any, key string) float64 {
 		return parsed
 	default:
 		return 0
+	}
+}
+
+// playSound 播放提示音文件。
+// soundName 为文件名（如 success.wav），taskID 为任务 ID（用于日志）。
+func (r *Runner) playSound(soundName string, taskID string) {
+	filePath := filepath.Join(r.audioDir, soundName)
+	info, err := os.Stat(filePath)
+	if err != nil || info.Size() == 0 {
+		r.taskLog(taskID, "warning", "音频文件不存在或为空："+filePath)
+		return
+	}
+	// 使用系统命令播放，优先用 afplay（macOS），fallback 到标准输出提示
+	playCmd := exec.Command("afplay", filePath)
+	if err := playCmd.Start(); err != nil {
+		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
+		return
+	}
+	// 非阻塞——不等待播放结束，避免卡主流程
+	go func() {
+		_ = playCmd.Wait()
+	}()
+}
+
+// sendTaskFailNotification 发送任务失败邮件通知到云端。
+// ctx 为请求上下文，taskID 为任务 ID，errorMsg 为失败原因。
+func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, email string, errorMsg string) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		r.taskLog(taskID, "info", "未提供邮箱，跳过失败邮件通知")
+		return
+	}
+	baseURL := strings.TrimSpace(r.cloudAPIBase)
+	if baseURL == "" {
+		baseURL = "https://goodhr5.58it.cn"
+	}
+	client := cloudapi.New(baseURL)
+	if err := client.SendTaskFailNotice(ctx, taskID, email, errorMsg); err != nil {
+		r.taskLog(taskID, "warning", "发送失败邮件通知失败："+err.Error())
 	}
 }

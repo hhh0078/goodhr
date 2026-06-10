@@ -59,8 +59,26 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		worker:  workerManager,
 		ocr:     ocrEngine,
 		db:      db,
-		runner:  taskrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir),
+		runner:  taskrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase),
 	}, nil
+}
+
+// audioDir 返回音频文件目录路径，优先使用可执行文件所在目录下的 audio 子目录。
+func audioDir(cfg *config.Config) string {
+	execPath, err := os.Executable()
+	if err == nil {
+		execDir := filepath.Dir(execPath)
+		if info, statErr := os.Stat(filepath.Join(execDir, "audio")); statErr == nil && info.IsDir() {
+			return filepath.Join(execDir, "audio")
+		}
+	}
+	// fallback：从工作目录
+	if info, err := os.Stat("audio"); err == nil && info.IsDir() {
+		absPath, _ := filepath.Abs("audio")
+		return absPath
+	}
+	// 最后兜底
+	return filepath.Join(cfg.DataDir, "..", "..", "local-agent-go", "audio")
 }
 
 // Run 启动本地 HTTP 服务。
@@ -576,10 +594,18 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	}
 	allSettings, _ := s.db.GetSettings()
 	greetDelayMin, greetDelayMax := s.localGreetDelaySettings()
+	// 读取任务配置中的提示音开关
+	enableSound := false
+	if task, taskErr := s.db.GetTask(taskID); taskErr == nil {
+		enableSound = task.EnableSound
+	}
+	email := strings.TrimSpace(stringValue(payload["email"]))
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
 		CloudAPIBase:  s.cloudAPIBase(payload),
 		Token:         token,
+		EmailForNotify: email,
 		EnableGreet:   true,
+		EnableSound:   enableSound,
 		GreetBeforeDelayMin: greetDelayMin,
 		GreetBeforeDelayMax: greetDelayMax,
 		GreetRetries:  0,
