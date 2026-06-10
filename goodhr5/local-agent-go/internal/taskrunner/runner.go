@@ -71,6 +71,11 @@ type Runner struct {
 type runState struct {
 	cancel   context.CancelFunc
 	progress Progress
+	// 摸鱼休息状态
+	restMaxTimes    int
+	restUsed        int
+	restNextAfter   int
+	restSinceLast   int
 }
 
 // Progress 表示任务运行进度。
@@ -110,7 +115,7 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
-// StartOptions 表示本地任务启动参数。
+// StartOptions 表示本地任务启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
 	CloudAPIBase   string
 	Token          string
@@ -122,6 +127,25 @@ type StartOptions struct {
 	MaxItems       int
 	ScrollDistance int
 	PageReadyDelay int
+	// 以下为模拟人工操作的延时配置（随机范围）
+	ScrollDelayMin      int     // 两次滚动之间的延时（秒）
+	ScrollDelayMax      int
+	ListViewDelayMin    float64 // 查看候选人列表后的停留（秒）
+	ListViewDelayMax    float64
+	DetailViewDelayMin  float64 // 查看候选人详情后的停留（秒）
+	DetailViewDelayMax  float64
+	DetailOpenDelayMin  float64 // 打开详情前的延时（秒）
+	DetailOpenDelayMax  float64
+	DetailCloseDelayMin float64 // 关闭详情前的延时（秒）
+	DetailCloseDelayMax float64
+	GreetBeforeDelayMin float64 // 打招呼前点击按钮的延时（秒）
+	GreetBeforeDelayMax float64
+	RestAfterCandidatesMin int    // 处理多少候选人后摸鱼休息
+	RestAfterCandidatesMax int
+	RestTimesMin           int    // 整个任务最多摸鱼休息几次
+	RestTimesMax           int
+	RestDurationMin        float64 // 每次摸鱼休息多少分钟
+	RestDurationMax        float64
 }
 
 // New 创建本地任务运行器。
@@ -479,7 +503,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分跳过：name=%s score=%.1f threshold=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
 						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分通过，准备打开详情：name=%s score=%.1f threshold=%.1f", candidateLogName(candidate), decision.Score, decision.Threshold))
-						itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
+						itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						batchResult.Skipped += itemSkipped
 						if err != nil {
 							return nil, err
@@ -490,7 +514,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				// 6. 非 AI 主模式下，如果任务要求看详情，也按配置读取详情。
 				if !needsAI && shouldFetchDetail(task) && canContinueCandidate(stringFromMap(candidate, "status")) {
 					r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
-					itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
+					itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						return nil, err
@@ -551,6 +575,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			} else {
 				r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人列表滚动完成", round))
 			}
+
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
@@ -820,7 +845,8 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 		candidate["skip_reason"] = "已达到任务打招呼上限"
 		return 0, 0, 1, nil
 	}
-	if err := waitBeforeGreet(ctx, options); err != nil {
+	// 打招呼前模拟人工点击延时
+	if err := waitBeforeGreet(ctx, r, task.ID, options); err != nil {
 		return 0, 0, 0, err
 	}
 	r.taskLog(task.ID, "info", fmt.Sprintf("准备打招呼：name=%s greeted_so_far=%d", candidateLogName(candidate), greetedSoFar))
@@ -850,7 +876,7 @@ func candidatePipelineConcurrency(total int) int {
 
 // enrichCandidatesWithDetail 为候选人补充详情文本。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置，candidates 为候选人列表。
-func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any) (int, error) {
+func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, options StartOptions) (int, error) {
 	skipped := 0
 	mode := detailMode(task)
 	if mode == "" {
@@ -868,7 +894,7 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 		if err := ctx.Err(); err != nil {
 			return skipped, err
 		}
-		itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient)
+		itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 		if err != nil {
 			return skipped, err
 		}
@@ -879,12 +905,16 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 
 // enrichCandidateWithDetail 为单个候选人补充详情文本。
 // ctx 为请求上下文，candidate 为候选人，aiClient 为空时按需临时创建。
-func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client) (int, error) {
+func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client, options StartOptions) (int, error) {
 	mode := detailMode(task)
 	if mode == "" || !canContinueCandidate(stringFromMap(candidate, "status")) {
 		return 0, nil
 	}
 	candidateName := candidateLogName(candidate)
+	// 打开详情前模拟人工点击延时
+	if err := r.delayRandomRange(ctx, task.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
+		r.taskLog(task.ID, "warning", "打开详情前延时被中断")
+	}
 	detailResult, err := platformRuntime.FetchCandidateDetail(ctx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
 		TaskID:         task.ID,
 		Mode:           mode,
@@ -898,6 +928,11 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	defer func() {
+		// 关闭详情前模拟人工浏览延时，然后再执行关闭
+		closeSettings, _ := r.db.GetSettings()
+		closeMin := float64Value(closeSettings["detail_close_delay_min"], 0)
+		closeMax := float64Value(closeSettings["detail_close_delay_max"], 0)
+		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", closeMin, closeMax)
 		if err := platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate)); err != nil {
 			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 		}
@@ -1330,9 +1365,10 @@ func (r *Runner) tryGreet(ctx context.Context, platformRuntime platformcore.Runt
 
 // waitBeforeGreet 在打招呼前随机等待。
 // ctx 为请求上下文，options 为任务启动参数。
-func waitBeforeGreet(ctx context.Context, options StartOptions) error {
-	minDelay := options.GreetDelayMin
-	maxDelay := options.GreetDelayMax
+// r 为 Runner 实例，用于写任务日志。
+func waitBeforeGreet(ctx context.Context, r *Runner, taskID string, options StartOptions) error {
+	minDelay := options.GreetBeforeDelayMin
+	maxDelay := options.GreetBeforeDelayMax
 	if minDelay <= 0 && maxDelay <= 0 {
 		return nil
 	}
@@ -1342,6 +1378,9 @@ func waitBeforeGreet(ctx context.Context, options StartOptions) error {
 	delay := minDelay
 	if maxDelay > minDelay {
 		delay += rand.Float64() * (maxDelay - minDelay)
+	}
+	if r != nil && taskID != "" {
+		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
 	}
 	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
 }
@@ -1414,6 +1453,41 @@ func scrollDistance(options StartOptions) int {
 		return 3000
 	}
 	return options.ScrollDistance
+}
+
+// randomFloatRange 从浮点范围中随机一个值。
+// minValue 为最小值，maxValue 为最大值。
+func randomFloatRange(minValue float64, maxValue float64) float64 {
+	if minValue >= maxValue || maxValue <= 0 {
+		return minValue
+	}
+	return minValue + float64(rand.Intn(int((maxValue-minValue)*100+1)))/100.0
+}
+
+// randomIntRange 从整数范围中随机一个值。
+// minValue 为最小值，maxValue 为最大值。
+func randomIntRange(minValue int, maxValue int) int {
+	if minValue >= maxValue || maxValue <= 0 {
+		return minValue
+	}
+	return minValue + rand.Intn(maxValue-minValue+1)
+}
+
+// delayRandomRange 随机等待指定范围秒数，写任务日志让前端可见。
+// ctx 为运行上下文，taskID 为任务 ID，label 为动作名称，minSeconds 和 maxSeconds 为秒数范围。
+// r 为 Runner，传 nil 时不写日志。
+func (r *Runner) delayRandomRange(ctx context.Context, taskID string, label string, minSeconds float64, maxSeconds float64) error {
+	if maxSeconds <= 0 {
+		return nil
+	}
+	seconds := randomFloatRange(minSeconds, maxSeconds)
+	if seconds <= 0 {
+		return nil
+	}
+	if r != nil && taskID != "" {
+		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：%s，等待 %.1f 秒", label, seconds))
+	}
+	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
 // randomScrollDistance 返回带随机抖动的滚动距离。
@@ -1957,6 +2031,28 @@ func intFromMap(item map[string]any, key string) int {
 
 // floatFromMap 从 map 中读取浮点数。
 // item 为原始字典，key 为字段名。
+// float64Value 从任意值中读取 float64，为空时返回默认值。
+func float64Value(value any, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case json.Number:
+		if parsed, err := typed.Float64(); err == nil {
+			return parsed
+		}
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 func floatFromMap(item map[string]any, key string) float64 {
 	if item == nil {
 		return 0

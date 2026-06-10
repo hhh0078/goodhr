@@ -574,14 +574,31 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	if token == "" {
 		token = bearerToken(r)
 	}
+	allSettings, _ := s.db.GetSettings()
 	greetDelayMin, greetDelayMax := s.localGreetDelaySettings()
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
 		CloudAPIBase:  s.cloudAPIBase(payload),
 		Token:         token,
 		EnableGreet:   true,
-		GreetDelayMin: greetDelayMin,
-		GreetDelayMax: greetDelayMax,
+		GreetBeforeDelayMin: greetDelayMin,
+		GreetBeforeDelayMax: greetDelayMax,
 		GreetRetries:  0,
+		ScrollDelayMin:      intValue(allSettings["scroll_delay_min"], 3),
+		ScrollDelayMax:      intValue(allSettings["scroll_delay_max"], 8),
+		ListViewDelayMin:    floatValue(allSettings["list_view_delay_min"], 1),
+		ListViewDelayMax:    floatValue(allSettings["list_view_delay_max"], 2),
+		DetailViewDelayMin:  floatValue(allSettings["detail_view_delay_min"], 1),
+		DetailViewDelayMax:  floatValue(allSettings["detail_view_delay_max"], 2),
+		DetailOpenDelayMin:  floatValue(allSettings["detail_open_delay_min"], 1),
+		DetailOpenDelayMax:  floatValue(allSettings["detail_open_delay_max"], 2),
+		DetailCloseDelayMin: floatValue(allSettings["detail_close_delay_min"], 1),
+		DetailCloseDelayMax: floatValue(allSettings["detail_close_delay_max"], 2),
+		RestAfterCandidatesMin: intValue(allSettings["rest_after_candidates_min"], 30),
+		RestAfterCandidatesMax: intValue(allSettings["rest_after_candidates_max"], 50),
+		RestTimesMin:           intValue(allSettings["rest_times_min"], 2),
+		RestTimesMax:           intValue(allSettings["rest_times_max"], 4),
+		RestDurationMin:        floatValue(allSettings["rest_duration_min"], 3),
+		RestDurationMax:        floatValue(allSettings["rest_duration_max"], 5),
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
