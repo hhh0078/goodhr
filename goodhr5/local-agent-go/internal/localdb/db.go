@@ -146,60 +146,12 @@ CREATE TABLE IF NOT EXISTS local_candidates (
     FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
 );
 
--- local_positions 保存用户本机创建的岗位模板。
-CREATE TABLE IF NOT EXISTS local_positions (
-    -- 岗位模板唯一 ID。
-    id TEXT PRIMARY KEY,
-    -- 招聘平台 ID，例如 boss。
-    platform_id TEXT NOT NULL DEFAULT '',
-    -- 岗位模板名称。
-    name TEXT NOT NULL DEFAULT '',
-    -- 包含关键词 JSON 列表。
-    keywords_json TEXT NOT NULL DEFAULT '[]',
-    -- 排除关键词 JSON 列表。
-    exclude_keywords_json TEXT NOT NULL DEFAULT '[]',
-    -- 岗位说明。
-    description TEXT NOT NULL DEFAULT '',
-    -- 招呼语模板。
-    greet_message TEXT NOT NULL DEFAULT '',
-    -- 是否使用关键词 AND 匹配。
-    is_and_mode INTEGER NOT NULL DEFAULT 0,
-    -- 通用筛选配置 JSON。
-    common_config_json TEXT NOT NULL DEFAULT '{}',
-    -- 岗位级 AI 配置 JSON。
-    ai_config_json TEXT NOT NULL DEFAULT '{}',
-    -- 关键词配置 JSON。
-    keyword_config_json TEXT NOT NULL DEFAULT '{}',
-    -- 创建时间。
-    created_at TEXT NOT NULL,
-    -- 更新时间。
-    updated_at TEXT NOT NULL
-);
-
 -- local_settings 保存本机通用设置。
 CREATE TABLE IF NOT EXISTS local_settings (
     -- 设置键名。
     key TEXT PRIMARY KEY,
     -- 设置值 JSON。
     value TEXT NOT NULL DEFAULT '',
-    -- 更新时间。
-    updated_at TEXT NOT NULL
-);
-
--- local_profiles 保存招聘平台账号对应的本机浏览器目录。
-CREATE TABLE IF NOT EXISTS local_profiles (
-    -- Profile 唯一 ID。
-    id TEXT PRIMARY KEY,
-    -- 招聘平台 ID，例如 boss。
-    platform_id TEXT NOT NULL DEFAULT '',
-    -- 页面展示名称。
-    display_name TEXT NOT NULL DEFAULT '',
-    -- 本机浏览器目录名称。
-    local_profile_id TEXT NOT NULL DEFAULT '',
-    -- Profile 状态。
-    status TEXT NOT NULL DEFAULT 'active',
-    -- 创建时间。
-    created_at TEXT NOT NULL,
     -- 更新时间。
     updated_at TEXT NOT NULL
 );
@@ -244,30 +196,6 @@ CREATE TABLE IF NOT EXISTS local_screenshots (
     height INTEGER NOT NULL DEFAULT 0,
     -- 创建时间。
     created_at TEXT NOT NULL
-);
-
--- local_ai_config 明文保存用户本机 AI 接口配置。
-CREATE TABLE IF NOT EXISTS local_ai_config (
-    -- 配置唯一 ID，目前固定为 default。
-    id TEXT PRIMARY KEY,
-    -- AI 服务提供商。
-    provider TEXT NOT NULL DEFAULT '',
-    -- AI 接口地址。
-    base_url TEXT NOT NULL DEFAULT '',
-    -- AI 接口密钥。
-    api_key TEXT NOT NULL DEFAULT '',
-    -- AI 模型名称。
-    model TEXT NOT NULL DEFAULT '',
-    -- 生成温度。
-    temperature REAL NOT NULL DEFAULT 0.2,
-    -- 请求超时时间，单位秒。
-    timeout INTEGER NOT NULL DEFAULT 120,
-    -- 额外请求参数 JSON。
-    extra_json TEXT NOT NULL DEFAULT '{}',
-    -- 创建时间。
-    created_at TEXT NOT NULL,
-    -- 更新时间。
-    updated_at TEXT NOT NULL
 );
 
 INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');

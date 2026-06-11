@@ -3,7 +3,6 @@ package app
 
 import (
 	"crypto/sha1"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +23,6 @@ import (
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
-	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
 	"goodhr5/local-agent-go/internal/process"
@@ -115,24 +113,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
-	mux.HandleFunc("/api/v1/local/tasks", s.handleLocalTasks)
 	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
-	mux.HandleFunc("/api/v1/local/candidates", s.handleLocalCandidates)
-	mux.HandleFunc("/api/v1/local/candidates/", s.handleLocalCandidateItem)
 	mux.HandleFunc("/api/v1/tasks/init", s.handleLegacyTaskInit)
 	mux.HandleFunc("/api/v1/tasks/", s.handleLegacyLocalTaskItem)
-	mux.HandleFunc("/api/v1/local/positions", s.handleLocalPositions)
-	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
-	mux.HandleFunc("/api/v1/local/ai/config", s.handleLocalAIConfig)
-	mux.HandleFunc("/api/v1/local/ai/chat", s.handleLocalAIChat)
-	mux.HandleFunc("/api/v1/local/ai/vision", s.handleLocalAIVision)
 	mux.HandleFunc("/api/v1/local/ocr/status", s.handleLocalOCRStatus)
 	mux.HandleFunc("/api/v1/local/ocr/recognize", s.handleLocalOCRRecognize)
-	mux.HandleFunc("/api/v1/local/settings", s.handleLocalSettings)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
 	mux.HandleFunc("/api/v1/local/rules/update", s.handleLocalRulesUpdate)
-	mux.HandleFunc("/api/v1/profiles", s.handleProfiles)
-	mux.HandleFunc("/api/v1/profiles/", s.handleProfileItem)
 	mux.HandleFunc("/api/v1/local/downloads", s.handleLocalDownloads)
 	mux.HandleFunc("/api/v1/local/screenshots", s.handleLocalScreenshots)
 	mux.HandleFunc("/api/v1/cloud/platform-config", s.handleCloudPlatformConfig)
@@ -282,34 +269,6 @@ func (s *Server) handleWorkerStatus(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, s.worker.Status())
 }
 
-// handleLocalTasks 处理本地任务列表和创建。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalTasks(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		tasks, err := s.db.ListTasks()
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"tasks": tasks})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		task, err := s.db.CreateTask(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"task": task})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
 // handleLocalTaskItem 处理单个本地任务相关接口。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
@@ -319,14 +278,10 @@ func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
-	case "":
-		s.handleLocalTaskDetail(w, r, taskID)
 	case "status":
 		s.handleLocalTaskStatus(w, r, taskID)
 	case "logs":
 		s.handleLocalTaskLogs(w, r, taskID)
-	case "candidates":
-		s.handleLocalTaskCandidates(w, r, taskID)
 	case "run":
 		s.handleLocalTaskRun(w, r, taskID)
 	case "stop":
@@ -349,8 +304,6 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 	switch parts[1] {
 	case "start-ws", "stop-ws":
 		response.Error(w, http.StatusGone, "Go 本地程序不再使用云端 WebSocket，请使用本地任务运行接口")
-	case "candidates":
-		s.handleLocalTaskCandidates(w, r, taskID)
 	case "screenshots":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
@@ -373,40 +326,6 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleLegacyTaskInit(w http.ResponseWriter, r *http.Request) {
 	response.Error(w, http.StatusGone, "Go 本地程序不需要旧版任务初始化接口，请使用本地任务接口")
-}
-
-// handleLocalTaskDetail 处理单个任务读取和删除。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskDetail(w http.ResponseWriter, r *http.Request, taskID string) {
-	switch r.Method {
-	case http.MethodGet:
-		task, err := s.db.GetTask(taskID)
-		if err != nil {
-			response.Error(w, http.StatusNotFound, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"task": task})
-	case http.MethodPut:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		task, err := s.db.UpdateTask(taskID, payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"task": task})
-	case http.MethodDelete:
-		if err := s.db.DeleteTask(taskID); err != nil {
-			response.Error(w, http.StatusNotFound, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"deleted": true})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
 }
 
 // handleLocalTaskStatus 处理任务状态更新。
@@ -472,140 +391,6 @@ func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, tas
 	}
 }
 
-// handleLocalTaskCandidates 处理任务候选人读取和保存。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskCandidates(w http.ResponseWriter, r *http.Request, taskID string) {
-	candidateID := localCandidateID(r.URL.Path)
-	if candidateID != "" {
-		if r.Method != http.MethodDelete {
-			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-			return
-		}
-		if err := s.db.DeleteCandidate(taskID, candidateID); err != nil {
-			response.Error(w, http.StatusNotFound, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"deleted": true})
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		candidates, err := s.db.ListCandidates(taskID)
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"candidates": candidates})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		candidate, err := s.db.SaveCandidate(taskID, payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"candidate": candidate})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleLocalCandidates 处理本地候选人列表和清空。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalCandidates(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-		filter := localdb.CandidateFilter{
-			TaskID:     strings.TrimSpace(r.URL.Query().Get("task_id")),
-			PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
-			Keyword:    strings.TrimSpace(r.URL.Query().Get("keyword")),
-			Page:       page,
-			PageSize:   pageSize,
-		}
-		candidates, total, err := s.db.ListCandidatesFiltered(filter)
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		// 补充平台、岗位信息和摘要
-		for _, item := range candidates {
-			if taskID, _ := item["task_id"].(string); taskID != "" {
-				task, taskErr := s.db.GetTask(taskID)
-				if taskErr == nil {
-					if _, ok := item["platform_id"]; !ok || item["platform_id"] == "" {
-						item["platform_id"] = task.PlatformID
-					}
-					if _, ok := item["position_name"]; !ok || item["position_name"] == "" {
-						if task.PositionSnapshot != nil {
-							if name, _ := task.PositionSnapshot["name"].(string); name != "" {
-								item["position_name"] = name
-							}
-						}
-					}
-				}
-			}
-			// 从 filter_text 提取摘要（地区/年限/学历），直接填补 work_region/work_years/education_level
-			if filterText, _ := item["filter_text"].(string); filterText != "" {
-				if v, _ := item["work_region"].(string); v == "" {
-					item["work_region"] = extractSummaryField(filterText, "region")
-				}
-				if v, _ := item["work_years"].(string); v == "" {
-					item["work_years"] = extractSummaryField(filterText, "years")
-				}
-				if v, _ := item["education_level"].(string); v == "" {
-					item["education_level"] = extractSummaryField(filterText, "education")
-				}
-			}
-		}
-		if filter.Page <= 0 {
-			filter.Page = 1
-		}
-		if filter.PageSize <= 0 {
-			filter.PageSize = 20
-		}
-		response.Success(w, map[string]any{
-			"candidates": candidates,
-			"total":      total,
-			"page":       filter.Page,
-			"page_size":  filter.PageSize,
-		})
-	case http.MethodDelete:
-		deleted, err := s.db.ClearCandidates()
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"deleted": deleted})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleLocalCandidateItem 处理本地候选人详情。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalCandidateItem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	candidateID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/local/candidates/"), "/")
-	if candidateID == "" {
-		response.Error(w, http.StatusBadRequest, "候选人 ID 不能为空")
-		return
-	}
-	candidate, err := s.db.GetCandidate(candidateID, strings.TrimSpace(r.URL.Query().Get("task_id")))
-	if err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-	response.Success(w, map[string]any{"candidate": candidate})
-}
-
 // handleLocalTaskRun 启动本地任务运行器。
 // w 为响应对象，r 为请求对象，taskID 为任务 ID。
 func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -651,24 +436,6 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	response.Success(w, result)
 }
 
-// localGreetDelaySettings 读取本地个人配置中的打招呼前等待时间。
-// 返回值为最小等待秒数和最大等待秒数，没有配置时使用 1-2 秒。
-func (s *Server) localGreetDelaySettings() (float64, float64) {
-	settings, err := s.db.GetSettings()
-	if err != nil {
-		return 1, 2
-	}
-	minDelay := floatValue(settings["greet_before_delay_min"], 1)
-	maxDelay := floatValue(settings["greet_before_delay_max"], 2)
-	if minDelay < 0 {
-		minDelay = 0
-	}
-	if maxDelay < minDelay {
-		maxDelay = minDelay
-	}
-	return minDelay, maxDelay
-}
-
 // handleLocalTaskStop 停止本地任务运行器。
 // w 为响应对象，r 为请求对象，taskID 为任务 ID。
 func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -698,232 +465,6 @@ func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, tas
 		}
 	}
 	response.Success(w, result)
-}
-
-// handleLocalPositions 处理本地岗位模板列表和保存。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalPositions(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		positions, err := s.db.ListPositions()
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"positions": positions})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		position, err := s.db.SavePosition(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"position": position})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleLocalPositionItem 处理单个本地岗位模板。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalPositionItem(w http.ResponseWriter, r *http.Request) {
-	positionID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/local/positions/"), "/")
-	if positionID == "" {
-		response.Error(w, http.StatusBadRequest, "岗位模板 ID 不能为空")
-		return
-	}
-	if positionID == "default-prompts" {
-		s.handleLocalPositionDefaultPrompts(w, r)
-		return
-	}
-	if positionID == "optimize-requirement" {
-		s.handleLocalPositionOptimizeRequirement(w, r)
-		return
-	}
-	if r.Method != http.MethodDelete {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	if err := s.db.DeletePosition(positionID); err != nil {
-		response.Error(w, http.StatusNotFound, err.Error())
-		return
-	}
-	response.Success(w, map[string]any{"deleted": true})
-}
-
-// handleLocalPositionDefaultPrompts 返回本地岗位默认提示词。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalPositionDefaultPrompts(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	response.Success(w, map[string]any{"prompts": map[string]any{
-		"filter_prompt":      "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
-		"open_detail_prompt": "你是资深招聘顾问。请根据岗位要求和候选人基础信息给出查看详情建议分。",
-		"review_prompt":      "你是资深的HR专家。当前候选人分数接近岗位阈值，请做打招呼前二次复核评分。",
-	}})
-}
-
-// handleLocalPositionOptimizeRequirement 使用本地 AI 优化岗位要求。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalPositionOptimizeRequirement(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	payload, err := readPayload(r)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	text := stringValue(payload["text"])
-	if text == "" {
-		response.Error(w, http.StatusBadRequest, "岗位要求不能为空")
-		return
-	}
-	config, err := s.db.GetAIConfig()
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	client := localai.New(config)
-	result, err := client.Chat(r.Context(), map[string]any{
-		"messages": []map[string]string{{"role": "user", "content": "请优化下面的岗位要求，输出中文正文即可：\n" + text}},
-	})
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	response.Success(w, map[string]any{"optimized": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
-}
-
-// handleLocalAIConfig 处理本地 AI 配置读取和保存。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalAIConfig(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		config, err := s.db.GetAIConfig()
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"config": config})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		config, err := s.db.SaveAIConfig(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"config": config})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleLocalAIChat 处理本地 AI 通用聊天请求。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalAIChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	payload, err := readPayload(r)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	config, err := s.db.GetAIConfig()
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	config = overrideAIConfig(config, mapValue(payload["config"]))
-	delete(payload, "config")
-	result, err := localai.New(config).Chat(r.Context(), payload)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	response.Success(w, map[string]any{"content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
-}
-
-// overrideAIConfig 使用请求中的临时配置覆盖本地已保存 AI 配置。
-// config 为数据库配置，override 为请求里的 config 字段。
-func overrideAIConfig(config localdb.AIConfig, override map[string]any) localdb.AIConfig {
-	if len(override) == 0 {
-		return config
-	}
-	if value := firstNonEmptyString(stringValue(override["base_url"]), stringValue(override["api_url"])); value != "" {
-		config.BaseURL = value
-	}
-	if value := stringValue(override["api_key"]); value != "" {
-		config.APIKey = value
-	}
-	if value := firstNonEmptyString(stringValue(override["model"]), stringValue(override["model_id"])); value != "" {
-		config.Model = value
-	}
-	if value, ok := override["temperature"]; ok {
-		config.Temperature = floatValue(value, config.Temperature)
-	}
-	if value, ok := override["timeout"]; ok {
-		config.Timeout = intValue(value, config.Timeout)
-	}
-	if extra := mapValue(override["extra"]); len(extra) > 0 {
-		config.Extra = extra
-	}
-	if extra := mapValue(override["extra_body"]); len(extra) > 0 {
-		config.Extra = extra
-	}
-	return config
-}
-
-// handleLocalAIVision 处理本地图片 AI 识别请求。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalAIVision(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-		return
-	}
-	payload, err := readPayload(r)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	imageData, err := s.readVisionImage(payload)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	prompt := firstNonEmptyString(stringValue(payload["prompt"]), "请识别图片中的简历或候选人详情文字，输出中文文本。")
-	imageFormat := firstNonEmptyString(stringValue(payload["image_format"]), "png")
-	config, err := s.db.GetAIConfig()
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	content := []map[string]any{
-		{"type": "text", "text": prompt},
-		{"type": "image_url", "image_url": map[string]any{"url": "data:image/" + imageFormat + ";base64," + base64.StdEncoding.EncodeToString(imageData)}},
-	}
-	result, err := localai.New(config).Chat(r.Context(), map[string]any{
-		"messages":    []map[string]any{{"role": "user", "content": content}},
-		"temperature": 0.1,
-	})
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	response.Success(w, map[string]any{"text": result.Content, "content": result.Content, "usage": result.Usage, "elapsed_ms": result.ElapsedMS})
 }
 
 // handleLocalOCRStatus 返回本地 OCR 组件状态。
@@ -959,33 +500,6 @@ func (s *Server) handleLocalOCRRecognize(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.Success(w, map[string]any{"text": result.Text, "raw": result.Raw})
-}
-
-// readVisionImage 读取图片 AI 识别请求中的图片内容。
-// payload 可传 image_base64、file_path、path 或 screenshot_path。
-func (s *Server) readVisionImage(payload map[string]any) ([]byte, error) {
-	if raw := stringValue(payload["image_base64"]); raw != "" {
-		if comma := strings.Index(raw, ","); comma >= 0 {
-			raw = raw[comma+1:]
-		}
-		data, err := base64.StdEncoding.DecodeString(raw)
-		if err != nil {
-			return nil, fmt.Errorf("图片 base64 格式不正确")
-		}
-		return data, nil
-	}
-	imagePath := firstNonEmptyString(stringValue(payload["file_path"]), stringValue(payload["path"]), stringValue(payload["screenshot_path"]))
-	if err := s.validateLocalImagePath(imagePath); err != nil {
-		if imagePath == "" {
-			return nil, fmt.Errorf("请传入图片路径或图片 base64")
-		}
-		return nil, err
-	}
-	data, err := os.ReadFile(filepath.Clean(imagePath))
-	if err != nil {
-		return nil, fmt.Errorf("读取图片失败：%w", err)
-	}
-	return data, nil
 }
 
 // validateLocalImagePath 校验本地图片路径是否位于 GoodHR 数据目录。
@@ -1024,95 +538,6 @@ func (s *Server) handleLocalRulesUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	response.Success(w, map[string]any{"updated": false, "message": "当前规则由云端平台配置实时读取，无需更新"})
-}
-
-// handleLocalSettings 处理本地设置读取和保存。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalSettings(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		settings, err := s.db.GetSettings()
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"settings": settings})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		settings, err := s.db.SaveSettings(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"settings": settings})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleProfiles 处理浏览器 Profile 列表和保存。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		profiles, err := s.db.ListProfiles(r.URL.Query().Get("platform_id"))
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"profiles": profiles})
-	case http.MethodPost:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		profile, err := s.db.SaveProfile(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"profile": profile})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
-}
-
-// handleProfileItem 处理单个浏览器 Profile。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleProfileItem(w http.ResponseWriter, r *http.Request) {
-	profileID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/profiles/"), "/")
-	if profileID == "" {
-		response.Error(w, http.StatusBadRequest, "浏览器 Profile ID 不能为空")
-		return
-	}
-	switch r.Method {
-	case http.MethodPut:
-		payload, err := readPayload(r)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		payload["id"] = profileID
-		profile, err := s.db.SaveProfile(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"profile": profile})
-	case http.MethodDelete:
-		if err := s.db.DeleteProfile(profileID); err != nil {
-			response.Error(w, http.StatusNotFound, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"deleted": true})
-	default:
-		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-	}
 }
 
 // handleLocalDownloads 处理本地下载记录读取和保存。
@@ -1750,17 +1175,6 @@ func localTaskPath(rawPath string) (string, string) {
 	return parts[0], action
 }
 
-// localCandidateID 从候选人子路径中解析候选人 ID。
-// rawPath 为请求路径，找不到时返回空字符串。
-func localCandidateID(rawPath string) string {
-	marker := "/candidates/"
-	index := strings.Index(rawPath, marker)
-	if index < 0 {
-		return ""
-	}
-	return strings.Trim(strings.TrimPrefix(rawPath[index:], marker), "/")
-}
-
 // stringValue 将请求字段转换为字符串。
 // value 为原始字段值。
 func stringValue(value any) string {
@@ -1892,56 +1306,4 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// extractSummaryField 从 filter_text 中提取摘要字段。
-// filterText 为候选人筛选文本，field 为提取类型（region/years/education）。
-func extractSummaryField(filterText string, field string) string {
-	if filterText == "" {
-		return ""
-	}
-	// 按行查找，找到包含这些信息的行
-	lines := strings.Split(filterText, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		switch field {
-		case "region":
-			// 匹配 "成都"、"北京"、"上海" 等地区关键词
-			for _, region := range commonRegions() {
-				if strings.Contains(line, region) {
-					return region
-				}
-			}
-		case "years":
-			// 匹配 "X年"、"X年经验" 等
-			if strings.Contains(line, "年") && len(line) < 20 {
-				// 提取小段包含年的文本
-				for _, word := range strings.Fields(line) {
-					if strings.Contains(word, "年") && !strings.Contains(word, "毕业") {
-						return word
-					}
-				}
-			}
-		case "education":
-			// 匹配学历
-			for _, edu := range []string{"博士", "硕士", "本科", "大专", "高中", "中专", "初中"} {
-				if strings.Contains(line, edu) {
-					return edu
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// commonRegions 返回常见地区列表。
-func commonRegions() []string {
-	return []string{
-		"北京", "上海", "广州", "深圳", "成都", "杭州", "武汉", "南京", "重庆", "西安",
-		"苏州", "天津", "长沙", "郑州", "东莞", "青岛", "沈阳", "宁波", "昆明",
-		"大连", "厦门", "合肥", "佛山", "福州", "哈尔滨", "济南", "温州", "长春",
-		"石家庄", "常州", "泉州", "南宁", "贵阳", "南昌", "太原", "烟台", "嘉兴",
-		"南通", "金华", "珠海", "惠州", "徐州", "海口", "绍兴", "乌鲁木齐", "中山",
-		"台州", "兰州",
-	}
 }

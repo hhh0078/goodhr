@@ -3,7 +3,6 @@ package taskrunner
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,6 +88,15 @@ type Progress struct {
 	Round       int    `json:"round"`
 	TotalRounds int    `json:"total_rounds"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+// TaskRuntimeSnapshot 保存一次任务运行开始时从云端读取到的完整快照。
+type TaskRuntimeSnapshot struct {
+	Task           localdb.Task
+	Options        StartOptions
+	PlatformConfig cloudapi.PlatformConfig
+	Preferences    map[string]any
+	AIConfig       localdb.AIConfig
 }
 
 // platformExecutor 适配平台 runtime 调用 Worker 和写任务日志。
@@ -213,53 +221,17 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	defer r.clear(taskID)
 	totalRounds := scanRounds(options)
 	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: totalRounds})
-	r.taskLog(taskID, "info", "开始校验会员")
 	client := cloudapi.New(options.CloudAPIBase)
-	subscription, err := client.FetchSubscription(ctx, options.Token)
+	snapshot, err := r.buildTaskRuntimeSnapshot(ctx, client, task, options, totalRounds)
 	if err != nil {
-		r.failStart(taskID, "会员校验失败："+err.Error())
+		r.failStart(taskID, err.Error())
 		return
 	}
-	if !boolFromMap(subscription, "active") {
-		msg := "会员已到期，请先订阅后再开始任务"
-		r.failStart(taskID, msg)
-		return
-	}
-	r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
-	preferences, err := client.FetchUserPreferences(ctx, options.Token)
-	if err != nil {
-		r.failStart(taskID, "读取云端个人配置失败："+err.Error())
-		return
-	}
-	options = applyCloudPreferences(options, preferences)
-	if taskRequiresAI(task) {
-		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
-		if err != nil {
-			r.failStart(taskID, "读取云端 AI 配置失败："+err.Error())
-			return
-		}
-		options.AIConfig = aiConfigFromCloud(aiConfig)
-	}
-	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
-	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
-	if platformID == "" {
-		platformID = "boss"
-	}
-	r.taskLog(taskID, "info", "开始读取云端平台配置：platform="+platformID)
-	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
-	if err != nil {
-		r.failStart(taskID, "读取云端平台配置失败："+err.Error())
-		return
-	}
-	if len(platformConfig) == 0 {
-		msg := "云端平台配置为空，任务无法启动"
-		r.failStart(taskID, msg)
-		return
-	}
-	r.taskLog(taskID, "info", "云端平台配置读取成功：platform="+platformID)
+	task = snapshot.Task
+	options = snapshot.Options
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
 	r.taskLog(taskID, "info", "本地任务运行器已启动，准备进入扫描流程")
-	scanResult, err := r.scanOnce(ctx, task, platformConfig, options)
+	scanResult, err := r.scanOnce(ctx, task, snapshot.PlatformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
@@ -487,9 +459,11 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		}
 		candidates := queue
 		queue = nil
-		filtered, skipped := applyKeywordFilter(task, candidates)
+		filtered, skipped := prepareCandidatesForFirstStage(task, candidates)
 		totalSkipped += skipped
-		r.taskLog(task.ID, "info", fmt.Sprintf("关键词过滤完成：保留=%d 跳过=%d", len(filtered), skipped))
+		if skipped > 0 {
+			r.taskLog(task.ID, "info", fmt.Sprintf("列表关键词过滤完成：保留=%d 跳过=%d", len(filtered), skipped))
+		}
 		if len(filtered) > 0 {
 			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在处理候选人队列，待处理 %d 个", len(filtered))})
 			r.taskLog(task.ID, "info", fmt.Sprintf("开始处理候选人队列：数量=%d", len(filtered)))
@@ -573,20 +547,15 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 					}
 				}
 
-				// 7. AI 主模式下，详情没有一次性完成打招呼评分时，再做普通 AI 评分。
-				if needsAI && canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
-					visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在评分", candidateLogName(candidate), "正在判断是否适合打招呼")
-					itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
-					cleanup()
-					if err == nil {
-						r.showAIReply(ctx, exec, "AI 评分完成", candidateLogName(candidate), formatGreetCandidateReply(candidate))
-					}
+				// 7. 第二次详情分析：详情 AI 已经一次性评分时跳过；否则按任务模式做最终判断。
+				if canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
+					itemSkipped, err := r.finalizeCandidateGreetDecision(ctx, task, exec, candidate, aiClient)
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						candidate["status"] = "failed"
 						candidate["error"] = err.Error()
 						batchResult.Failed++
-						r.taskLog(task.ID, "warning", "打招呼评分失败："+err.Error())
+						r.taskLog(task.ID, "warning", "最终打招呼判断失败："+err.Error())
 					}
 				}
 
@@ -604,10 +573,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				status := stringFromMap(candidate, "status")
 				if shouldSaveCandidateResult(status) {
 					r.saveCandidateResult(ctx, task, candidate, options)
-					if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
-						return nil, err
-					}
-					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已保存：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
+					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已处理：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
 					batchResult.Saved++
 				}
 			}
@@ -624,7 +590,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
 		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
-		r.taskLog(task.ID, "info", fmt.Sprintf("本次扫描保存 %d 个候选人，跳过 %d 个，打招呼 %d 个，失败 %d 个", totalSaved, totalSkipped, totalGreeted, totalFailed))
+		r.taskLog(task.ID, "info", fmt.Sprintf("本次扫描处理 %d 个候选人，跳过 %d 个，打招呼 %d 个，失败 %d 个", totalSaved, totalSkipped, totalGreeted, totalFailed))
 	} else {
 		r.taskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
@@ -687,10 +653,73 @@ func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[str
 	return payload
 }
 
+// buildTaskRuntimeSnapshot 在任务启动时集中读取云端运行配置。
+// ctx 为请求上下文，client 为云端 API 客户端，task 为任务快照，options 为启动参数，totalRounds 为进度显示总轮次。
+func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.Client, task localdb.Task, options StartOptions, totalRounds int) (TaskRuntimeSnapshot, error) {
+	taskID := task.ID
+	if client == nil {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
+	}
+	r.taskLog(taskID, "info", "开始校验会员")
+	subscription, err := client.FetchSubscription(ctx, options.Token)
+	if err != nil {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("会员校验失败：%w", err)
+	}
+	if !boolFromMap(subscription, "active") {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("会员已到期，请先订阅后再开始任务")
+	}
+	r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
+	if strings.TrimSpace(task.PositionID) != "" && len(task.PositionSnapshot) == 0 {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("云端岗位模板为空，任务无法启动")
+	}
+
+	r.updateProgress(taskID, Progress{Stage: "preferences", Message: "正在读取云端个人配置", TotalRounds: totalRounds})
+	preferences, err := client.FetchUserPreferences(ctx, options.Token)
+	if err != nil {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端个人配置失败：%w", err)
+	}
+	options = applyCloudPreferences(options, preferences)
+
+	if taskRequiresAI(task) {
+		r.updateProgress(taskID, Progress{Stage: "ai_config", Message: "正在读取云端 AI 配置", TotalRounds: totalRounds})
+		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
+		if err != nil {
+			return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端 AI 配置失败：%w", err)
+		}
+		options.AIConfig = aiConfigFromCloud(aiConfig)
+	}
+
+	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
+	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
+	if platformID == "" {
+		platformID = "boss"
+	}
+	r.taskLog(taskID, "info", "开始读取云端平台配置：platform="+platformID)
+	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
+	if err != nil {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端平台配置失败：%w", err)
+	}
+	if len(platformConfig) == 0 {
+		return TaskRuntimeSnapshot{}, fmt.Errorf("云端平台配置为空，任务无法启动")
+	}
+	r.taskLog(taskID, "info", "云端平台配置读取成功：platform="+platformID)
+
+	return TaskRuntimeSnapshot{
+		Task:           task,
+		Options:        options,
+		PlatformConfig: platformConfig,
+		Preferences:    preferences,
+		AIConfig:       options.AIConfig,
+	}, nil
+}
+
 // localTaskSnapshotFromCloud 将云端任务转换为本地运行快照。
 // task 为云端任务响应对象，返回可写入本地轻量任务表的字段。
 func localTaskSnapshotFromCloud(task map[string]any) map[string]any {
 	position := mapValue(task["position"])
+	if len(position) == 0 {
+		position = mapValue(task["position_snapshot"])
+	}
 	return map[string]any{
 		"id":                  stringFromMap(task, "id"),
 		"name":                stringFromMap(task, "name"),
@@ -1101,10 +1130,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	}
 	defer func() {
 		// 关闭详情前模拟人工浏览延时，然后再执行关闭
-		closeSettings, _ := r.db.GetSettings()
-		closeMin := float64Value(closeSettings["detail_close_delay_min"], 0)
-		closeMax := float64Value(closeSettings["detail_close_delay_max"], 0)
-		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", closeMin, closeMax)
+		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
 		if err := platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate)); err != nil {
 			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 		}
@@ -1218,53 +1244,6 @@ func (r *Runner) recognizeDetailScreenshot(ctx context.Context, screenshot map[s
 		return "", err
 	}
 	return result.Text, nil
-}
-
-// analyzeDetailScreenshot 使用本地 AI 识别详情截图。
-// ctx 为请求上下文，task 为任务记录，screenshot 为截图信息。
-func (r *Runner) analyzeDetailScreenshot(ctx context.Context, task localdb.Task, screenshot map[string]any) (string, error) {
-	config, err := r.db.GetAIConfig()
-	if err != nil {
-		return "", err
-	}
-	return r.analyzeDetailScreenshotWithClient(ctx, task, screenshot, localai.New(config))
-}
-
-// analyzeDetailScreenshotWithClient 使用指定 AI 客户端识别详情截图。
-// ctx 为请求上下文，task 为任务记录，screenshot 为截图信息，client 为 AI 客户端。
-func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task localdb.Task, screenshot map[string]any, client *localai.Client) (string, error) {
-	if client == nil {
-		config, err := r.db.GetAIConfig()
-		if err != nil {
-			return "", err
-		}
-		client = localai.New(config)
-	}
-	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
-	if filePath == "" {
-		return "", fmt.Errorf("详情截图路径为空")
-	}
-	imageBytes, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("读取详情截图失败：%w", err)
-	}
-	prompt := firstNonEmptyString(
-		stringFromMap(mapValue(task.PositionSnapshot["ai_config"]), "open_detail_prompt"),
-		"请识别图片中的候选人详情文字，保留学历、经验、技能、求职意向等关键信息，输出中文文本。",
-	)
-	content := []map[string]any{
-		{"type": "text", "text": prompt},
-		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
-	}
-	result, err := client.Chat(ctx, map[string]any{
-		"messages":        []map[string]any{{"role": "user", "content": content}},
-		"temperature":     0.1,
-		"enable_thinking": client.EnableThinking,
-	})
-	if err != nil {
-		return "", err
-	}
-	return result.Content, nil
 }
 
 // aiClientForCall 返回本次 AI 调用使用的客户端和清理函数。
@@ -1427,11 +1406,7 @@ func formatGreetCandidateReply(candidate map[string]any) string {
 // ctx 为请求上下文，task 为任务记录，candidate 为候选人，screenshot 为拼接后的截图信息，client 为 AI 客户端。
 func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task localdb.Task, candidate map[string]any, screenshot map[string]any, client *localai.Client) (localai.Decision, error) {
 	if client == nil {
-		config, err := r.db.GetAIConfig()
-		if err != nil {
-			return localai.Decision{}, err
-		}
-		client = localai.New(config)
+		return localai.Decision{}, fmt.Errorf("AI 客户端未配置")
 	}
 	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
 	if filePath == "" {
@@ -1442,30 +1417,6 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 		return localai.Decision{}, fmt.Errorf("读取详情截图失败：%w", err)
 	}
 	return client.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
-}
-
-// scoreCandidates 使用本地 AI 给候选人评分。
-// ctx 为请求上下文，task 为任务记录，candidates 为候选人列表。
-func (r *Runner) scoreCandidates(ctx context.Context, task localdb.Task, candidates []map[string]any) ([]map[string]any, int, error) {
-	config, err := r.db.GetAIConfig()
-	if err != nil {
-		return nil, 0, err
-	}
-	client := localai.New(config)
-	result := make([]map[string]any, 0, len(candidates))
-	skipped := 0
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			return nil, skipped, err
-		}
-		itemSkipped, err := r.scoreCandidate(ctx, task, candidate, client)
-		if err != nil {
-			return nil, skipped, err
-		}
-		skipped += itemSkipped
-		result = append(result, candidate)
-	}
-	return result, skipped, nil
 }
 
 // scoreCandidateForDetail 使用本地 AI 给单个候选人计算看详情评分。
@@ -1484,6 +1435,53 @@ func (r *Runner) scoreCandidateForDetail(ctx context.Context, task localdb.Task,
 		return localai.Decision{}, err
 	}
 	return decision, nil
+}
+
+// finalizeCandidateGreetDecision 执行第二次详情分析后的最终打招呼判断。
+// ctx 为请求上下文，task 为任务记录，exec 为浏览器执行器，candidate 为候选人，client 为 AI 客户端。
+func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task localdb.Task, exec platformExecutor, candidate map[string]any, client *localai.Client) (int, error) {
+	if !canContinueCandidate(stringFromMap(candidate, "status")) {
+		return 0, nil
+	}
+	if taskMode(task) == "keyword" {
+		return applyKeywordGreetDecision(task, candidate), nil
+	}
+	visibleClient, cleanup := r.aiClientForCall(ctx, exec, client, "AI 正在评分", candidateLogName(candidate), "正在根据候选人详情判断是否适合打招呼")
+	itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
+	cleanup()
+	if err == nil {
+		r.showAIReply(ctx, exec, "AI 评分完成", candidateLogName(candidate), formatGreetCandidateReply(candidate))
+	}
+	return itemSkipped, err
+}
+
+// applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
+// task 为任务记录，candidate 为已补充详情的候选人，返回本次是否跳过。
+func applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int {
+	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
+	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
+	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
+	text := strings.ToLower(strings.Join([]string{
+		stringFromMap(candidate, "detail_text"),
+		stringFromMap(candidate, "filter_text"),
+		stringFromMap(candidate, "raw_text"),
+		stringFromMap(candidate, "ocr_text"),
+		stringFromMap(candidate, "ai_vision_text"),
+	}, " "))
+	if matched := matchedWords(text, excludes); len(matched) > 0 {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
+		return 1
+	}
+	matched := matchedWords(text, keywords)
+	if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = "详情未命中关键词"
+		return 1
+	}
+	candidate["status"] = "passed"
+	candidate["matched_keywords"] = matched
+	return 0
 }
 
 // scoreCandidate 使用本地 AI 给单个候选人评分。
@@ -1997,6 +1995,20 @@ func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
 		result = append(result, map[string]any(candidate))
 	}
 	return result
+}
+
+// prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
+// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
+		return applyKeywordFilter(task, candidates)
+	}
+	for _, candidate := range candidates {
+		if strings.TrimSpace(stringFromMap(candidate, "status")) == "" {
+			candidate["status"] = "passed"
+		}
+	}
+	return candidates, 0
 }
 
 // applyKeywordFilter 按任务岗位快照过滤候选人。

@@ -55,83 +55,15 @@ func TestTaskLogCandidateFlow(t *testing.T) {
 	}
 }
 
-// TestPositionAISettingsRecordsFlow 验证岗位模板、AI 配置、设置和本地记录读写流程。
-func TestPositionAISettingsRecordsFlow(t *testing.T) {
+// TestSettingsRecordsFlow 验证本地设置和运行记录读写流程。
+func TestSettingsRecordsFlow(t *testing.T) {
 	db := openTestDB(t)
-	position, err := db.SavePosition(map[string]any{
-		"platform_id":      "boss",
-		"name":             "销售顾问",
-		"keywords":         []any{"本科", "3年"},
-		"exclude_keywords": []string{"外包"},
-		"description":      "负责客户跟进",
-		"greet_message":    "你好，方便聊聊吗",
-		"is_and_mode":      true,
-		"common_config":    map[string]any{"match_score": json.Number("70")},
-		"ai_config":        map[string]any{"enabled": true},
-		"keyword_config":   map[string]any{"strict": false},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if position.ID == "" || position.Name != "销售顾问" || len(position.Keywords) != 2 {
-		t.Fatalf("position = %+v", position)
-	}
-	positions, err := db.ListPositions()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(positions) != 1 {
-		t.Fatalf("positions len = %d", len(positions))
-	}
-
-	aiConfig, err := db.SaveAIConfig(map[string]any{
-		"provider":    "openai",
-		"base_url":    "http://127.0.0.1:8000",
-		"api_key":     "test-key",
-		"model":       "gpt-test",
-		"temperature": json.Number("0.3"),
-		"timeout":     json.Number("60"),
-		"extra":       map[string]any{"reasoning": "low"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if aiConfig.BaseURL == "" || aiConfig.Timeout != 60 {
-		t.Fatalf("aiConfig = %+v", aiConfig)
-	}
-	loadedAIConfig, err := db.GetAIConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loadedAIConfig.APIKey != "test-key" {
-		t.Fatalf("loadedAIConfig = %+v", loadedAIConfig)
-	}
-
 	settings, err := db.SaveSettings(map[string]any{"browser_download_dir": "/tmp/goodhr-downloads"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if settings["browser_download_dir"] != "/tmp/goodhr-downloads" {
 		t.Fatalf("settings = %+v", settings)
-	}
-
-	profile, err := db.SaveProfile(map[string]any{
-		"platform_id":      "boss",
-		"display_name":     "测试账号",
-		"local_profile_id": "boss_test",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if profile.ID == "" || profile.LocalProfileID != "boss_test" {
-		t.Fatalf("profile = %+v", profile)
-	}
-	profiles, err := db.ListProfiles("boss")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(profiles) != 1 {
-		t.Fatalf("profiles len = %d", len(profiles))
 	}
 
 	download, err := db.SaveDownload(map[string]any{
@@ -175,17 +107,6 @@ func TestPositionAISettingsRecordsFlow(t *testing.T) {
 	}
 	if len(screenshots) != 1 {
 		t.Fatalf("screenshots len = %d", len(screenshots))
-	}
-
-	if err := db.DeletePosition(position.ID); err != nil {
-		t.Fatal(err)
-	}
-	positions, err = db.ListPositions()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(positions) != 0 {
-		t.Fatalf("positions after delete len = %d", len(positions))
 	}
 }
 

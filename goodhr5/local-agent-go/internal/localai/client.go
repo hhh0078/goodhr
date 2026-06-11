@@ -1,4 +1,4 @@
-// Package localai 负责使用本地保存的 AI 配置调用 OpenAI 兼容接口。
+// Package localai 负责在本地使用云端下发的 AI 配置调用 OpenAI 兼容接口。
 package localai
 
 import (
@@ -60,10 +60,10 @@ const (
 
 // Client 是本地 AI 调用客户端。
 type Client struct {
-	Config          localdb.AIConfig
-	HTTPClient      *http.Client
-	Progress        func(string)
-	EnableThinking  bool // 开启后显示 reasoning_content 流式思考
+	Config         localdb.AIConfig
+	HTTPClient     *http.Client
+	Progress       func(string)
+	EnableThinking bool // 开启后显示 reasoning_content 流式思考
 }
 
 // Decision 表示 AI 评分结果。
@@ -180,14 +180,14 @@ func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]an
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
 	result, err := c.Chat(ctx, map[string]any{
-		"messages":         []map[string]any{{"role": "user", "content": content}},
-		"temperature":      0.1,
-		"enable_thinking":  c.EnableThinking,
+		"messages":        []map[string]any{{"role": "user", "content": content}},
+		"temperature":     0.1,
+		"enable_thinking": c.EnableThinking,
 	})
 	if err != nil {
 		return Decision{}, err
 	}
-	score, reason, detailText, err := parseVisionScoreJSON(result.Content)
+	score, reason, detailText, resumeData, err := parseVisionScoreJSONWithResume(result.Content)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -204,6 +204,7 @@ func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]an
 		Threshold:   threshold,
 		Usage:       result.Usage,
 		ElapsedMS:   result.ElapsedMS,
+		ResumeData:  resumeData,
 	}, nil
 }
 
@@ -287,7 +288,7 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	resultPayload := map[string]any{}
 	if err := json.Unmarshal(bodyBytes, &resultPayload); err != nil {
-			// 尝试用 SSE 方式解析（某些供应商 Content-Type 不标准）
+		// 尝试用 SSE 方式解析（某些供应商 Content-Type 不标准）
 		// log.Printf("[AI流式调试] 非 JSON 响应，尝试 SSE 方式解析，Content-Type=%s", resp.Header.Get("Content-Type"))
 		if c.Progress != nil {
 			content, usage, err := readChatStream(bytes.NewReader(bodyBytes), c.Progress, false)
@@ -308,9 +309,9 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 // ctx 为请求上下文，prompt 为用户提示词，temperature 为温度。
 func (c *Client) chat(ctx context.Context, prompt string, temperature float64) (chatResult, error) {
 	payload := map[string]any{
-		"messages":       []map[string]string{{"role": "user", "content": prompt}},
-		"temperature":    temperature,
-		"stream":         true,
+		"messages":        []map[string]string{{"role": "user", "content": prompt}},
+		"temperature":     temperature,
+		"stream":          true,
 		"enable_thinking": c.EnableThinking,
 	}
 	result, err := c.Chat(ctx, payload)
@@ -527,6 +528,7 @@ func buildResumeJSONExample() string {
   }
 }`
 }
+
 // buildVisionGreetPrompt 构建图片详情识别和打招呼评分提示词。
 // position 为岗位快照，candidate 为候选人基础信息。
 // 支持从 ai_config 读取自定义 vision_prompt，支持 ${结构化简历}、${岗位信息}、${候选人信息} 占位符。

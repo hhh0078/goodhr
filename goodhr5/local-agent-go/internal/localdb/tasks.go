@@ -648,6 +648,19 @@ func intValue(value any) int {
 	}
 }
 
+// intValueOr 将值转换为整数，空值使用默认值。
+// value 为原始值，fallback 为默认值。
+func intValueOr(value any, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	converted := intValue(value)
+	if converted == 0 {
+		return fallback
+	}
+	return converted
+}
+
 // boolValue 将值转换为布尔值。
 // value 为原始值。
 func boolValue(value any) bool {
@@ -677,6 +690,19 @@ func mapValue(value any) map[string]any {
 		return item
 	}
 	return map[string]any{}
+}
+
+// mapValueOr 将值转换为 map，空值使用默认值。
+// value 为原始值，fallback 为默认 map。
+func mapValueOr(value any, fallback map[string]any) map[string]any {
+	if value == nil {
+		return fallback
+	}
+	converted := mapValue(value)
+	if len(converted) == 0 {
+		return fallback
+	}
+	return converted
 }
 
 // boolInt 将布尔值转换为 SQLite 整数。

@@ -35,6 +35,7 @@ func TestRunnerStartStop(t *testing.T) {
 	}))
 	defer aiServer.Close()
 	var task localdb.Task
+	savedCandidates := []map[string]any{}
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -58,6 +59,11 @@ func TestRunnerStartStop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{"base_url": aiServer.URL, "api_key": "test-key", "model": "test-model", "temperature": 0.2}})
 		default:
 			if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/candidates") {
+				var candidate map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&candidate); err != nil {
+					t.Fatalf("decode candidate: %v", err)
+				}
+				savedCandidates = append(savedCandidates, candidate)
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 				return
 			}
@@ -78,13 +84,6 @@ func TestRunnerStartStop(t *testing.T) {
 	db := openRunnerTestDB(t)
 	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地任务"}})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.SaveAIConfig(map[string]any{
-		"base_url": aiServer.URL,
-		"api_key":  "test-key",
-		"model":    "test-model",
-	}); err != nil {
 		t.Fatal(err)
 	}
 	worker := &fakeWorker{}
@@ -110,15 +109,11 @@ func TestRunnerStartStop(t *testing.T) {
 	if status["progress"] == nil || status["logs"] == nil {
 		t.Fatalf("status missing progress/logs: %+v", status)
 	}
-	candidates, err := db.ListCandidates(task.ID)
-	if err != nil {
-		t.Fatal(err)
+	if len(savedCandidates) != 1 || savedCandidates[0]["candidate_name"] != "候选人A" {
+		t.Fatalf("savedCandidates = %+v", savedCandidates)
 	}
-	if len(candidates) != 1 || candidates[0]["candidate_name"] != "候选人A" {
-		t.Fatalf("candidates = %+v", candidates)
-	}
-	if candidates[0]["status"] != "ai_passed" || candidates[0]["ai_greet_score"] == nil {
-		t.Fatalf("candidate ai fields = %+v", candidates[0])
+	if savedCandidates[0]["status"] != "ai_passed" || savedCandidates[0]["ai_greet_score"] == nil {
+		t.Fatalf("candidate ai fields = %+v", savedCandidates[0])
 	}
 	stopResult, err := runner.Stop(task.ID)
 	if err != nil {
@@ -148,12 +143,8 @@ func TestRunnerStartStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForTaskStatus(t, db, task2.ID, "completed")
-	candidates2, err := db.ListCandidates(task2.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(candidates2) != 1 || candidates2[0]["status"] != "greeted" {
-		t.Fatalf("candidates2 = %+v", candidates2)
+	if len(savedCandidates) < 2 || savedCandidates[len(savedCandidates)-1]["status"] != "greeted" {
+		t.Fatalf("savedCandidates after task2 = %+v", savedCandidates)
 	}
 }
 
@@ -270,6 +261,42 @@ func TestApplyKeywordFilter(t *testing.T) {
 	filtered, skipped := applyKeywordFilter(task, candidates)
 	if skipped != 2 || len(filtered) != 1 || filtered[0]["id"] != "1" {
 		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+}
+
+// TestPrepareCandidatesForFirstStageWithDetail 验证有详情阶段时列表阶段不做关键词终判。
+func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
+	task := localdb.Task{
+		Mode: "keyword",
+		PositionSnapshot: map[string]any{
+			"keywords":      []any{"本科"},
+			"common_config": map[string]any{"detail_mode": "ocr"},
+		},
+	}
+	candidates := []map[string]any{{"id": "1", "raw_text": "候选人基础信息较少"}}
+	filtered, skipped := prepareCandidatesForFirstStage(task, candidates)
+	if skipped != 0 || len(filtered) != 1 || filtered[0]["status"] != "passed" {
+		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+}
+
+// TestApplyKeywordGreetDecision 验证详情文本出来后再做关键词最终判断。
+func TestApplyKeywordGreetDecision(t *testing.T) {
+	task := localdb.Task{
+		Mode: "keyword",
+		PositionSnapshot: map[string]any{
+			"keywords":         []any{"本科", "销售"},
+			"exclude_keywords": []any{"外包"},
+			"is_and_mode":      true,
+		},
+	}
+	passed := map[string]any{"detail_text": "本科，五年销售经验"}
+	if skipped := applyKeywordGreetDecision(task, passed); skipped != 0 || passed["status"] != "passed" {
+		t.Fatalf("passed = %+v, skipped = %d", passed, skipped)
+	}
+	rejected := map[string]any{"detail_text": "本科，外包项目经验"}
+	if skipped := applyKeywordGreetDecision(task, rejected); skipped != 1 || rejected["status"] != "skipped" {
+		t.Fatalf("rejected = %+v, skipped = %d", rejected, skipped)
 	}
 }
 
