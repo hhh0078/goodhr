@@ -55,11 +55,13 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			daily_greeted_date,
 			skipped_count,
 			failed_count,
 			local_task_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created', 0, 0, 0, 0, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created', 0, 0, 0, CURRENT_DATE, 0, 0, $10)
 		RETURNING
 			id,
 			name,
@@ -73,6 +75,8 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			COALESCE(daily_greeted_date::text, ''),
 			skipped_count,
 			failed_count,
 			COALESCE(local_task_id, ''),
@@ -103,6 +107,8 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,
+		&saved.DailyGreetedCount,
+		&saved.DailyGreetedDate,
 		&saved.SkippedCount,
 		&saved.FailedCount,
 		&saved.LocalTaskID,
@@ -143,6 +149,8 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
+			tr.daily_greeted_count,
+			COALESCE(tr.daily_greeted_date::text, ''),
 			tr.skipped_count,
 			tr.failed_count,
 			COALESCE(tr.local_task_id, ''),
@@ -179,6 +187,8 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			&item.Status,
 			&item.ScannedCount,
 			&item.GreetedCount,
+			&item.DailyGreetedCount,
+			&item.DailyGreetedDate,
 			&item.SkippedCount,
 			&item.FailedCount,
 			&item.LocalTaskID,
@@ -217,6 +227,8 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
+			tr.daily_greeted_count,
+			COALESCE(tr.daily_greeted_date::text, ''),
 			tr.skipped_count,
 			tr.failed_count,
 			COALESCE(tr.local_task_id, ''),
@@ -241,6 +253,8 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		&item.Status,
 		&item.ScannedCount,
 		&item.GreetedCount,
+		&item.DailyGreetedCount,
+		&item.DailyGreetedDate,
 		&item.SkippedCount,
 		&item.FailedCount,
 		&item.LocalTaskID,
@@ -329,6 +343,8 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			COALESCE(daily_greeted_date::text, ''),
 			skipped_count,
 			failed_count,
 			COALESCE(local_task_id, ''),
@@ -358,6 +374,8 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,
+		&saved.DailyGreetedCount,
+		&saved.DailyGreetedDate,
 		&saved.SkippedCount,
 		&saved.FailedCount,
 		&saved.LocalTaskID,
@@ -386,6 +404,9 @@ func normalizeTaskRunDefaults(task *TaskRun) {
 	}
 	if task.Name == "" {
 		task.Name = "未命名任务"
+	}
+	if task.DailyGreetedDate == "" {
+		task.DailyGreetedDate = time.Now().In(time.Local).Format(time.DateOnly)
 	}
 }
 
@@ -468,8 +489,26 @@ func localTaskID(task TaskRun) string {
 func (s *PostgresTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	today := time.Now().In(time.Local).Format(time.DateOnly)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE task_runs SET scanned_count=scanned_count+$1, greeted_count=greeted_count+$2, skipped_count=skipped_count+$3, failed_count=failed_count+$4 WHERE id=$5::uuid`,
-		scanned, greeted, skipped, failed, taskID)
+		`
+		UPDATE task_runs
+		SET
+			scanned_count = scanned_count + $1,
+			greeted_count = greeted_count + $2,
+			daily_greeted_count = CASE
+				WHEN daily_greeted_date = $6::date THEN daily_greeted_count + $2
+				WHEN $2 > 0 THEN $2
+				ELSE daily_greeted_count
+			END,
+			daily_greeted_date = CASE
+				WHEN $2 > 0 THEN $6::date
+				ELSE daily_greeted_date
+			END,
+			skipped_count = skipped_count + $3,
+			failed_count = failed_count + $4
+		WHERE id = $5::uuid
+		`,
+		scanned, greeted, skipped, failed, taskID, today)
 	return err
 }

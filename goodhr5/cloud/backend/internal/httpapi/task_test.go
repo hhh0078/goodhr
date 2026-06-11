@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestTaskCreateListDetail 验证任务可以创建、列表展示和读取详情。
@@ -124,6 +125,19 @@ func TestTaskCreateListDetail(t *testing.T) {
 	}
 	if !detailPayload.Task.Thinking {
 		t.Fatal("detail enable_thinking should be true")
+	}
+}
+
+// TestTaskTodayGreetedCount 验证今日打招呼数不会跨天展示。
+func TestTaskTodayGreetedCount(t *testing.T) {
+	today := time.Now().In(time.Local).Format(time.DateOnly)
+	task := TaskRun{GreetedCount: 12, DailyGreetedCount: 5, DailyGreetedDate: today}
+	if got := taskTodayGreetedCount(task); got != 5 {
+		t.Fatalf("today greeted = %d, want 5", got)
+	}
+	task.DailyGreetedDate = "2000-01-01"
+	if got := taskTodayGreetedCount(task); got != 0 {
+		t.Fatalf("old day greeted = %d, want 0", got)
 	}
 }
 

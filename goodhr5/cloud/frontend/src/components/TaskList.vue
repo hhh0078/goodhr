@@ -136,47 +136,10 @@
               }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }} |
-              {{ task.match_limit }}
+              {{ task.match_limit }}/{{ displayGreetedCount(task) }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
-          </div>
-          <div class="task-stats">
-            <span class="stat-chip"
-              >扫描 {{ displayTaskCount(task, "scanned") }}</span
-            >
-            <span class="stat-chip"
-              >打招呼 {{ displayTaskCount(task, "greeted") }}</span
-            >
-            <span class="stat-chip"
-              >跳过 {{ displayTaskCount(task, "skipped") }}</span
-            >
-            <span class="stat-chip"
-              >失败 {{ displayTaskCount(task, "failed") }}</span
-            >
-          </div>
-          <div
-            v-if="taskProgress(task)"
-            class="task-progress"
-            :class="{
-              running:
-                taskProgress(task)?.stage === 'running' ||
-                task.status === 'running',
-            }"
-          >
-            <div class="task-progress-meta">
-              <span>{{
-                taskProgress(task)?.message || taskStatusLabel(task.status)
-              }}</span>
-              <span v-if="taskProgress(task)?.total_rounds">
-                {{ taskProgress(task)?.round || 0 }}/{{
-                  taskProgress(task)?.total_rounds
-                }}
-              </span>
-            </div>
-            <div class="task-progress-bar">
-              <span :style="{ width: taskProgressPercent(task) + '%' }"></span>
-            </div>
           </div>
         </div>
 
@@ -593,35 +556,16 @@ function taskStatusLabel(status: string) {
   if (key === "stopped") return "已停止";
   return status || "未知";
 }
-function displayTaskCount(task: any, key: string) {
+/**
+ * 返回任务列表中展示的打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 今日或累计打招呼数量。
+ */
+function displayGreetedCount(task: any) {
   if (statRange.value === "today") {
-    return Number(task?.[`today_${key}_count`] || 0);
+    return Number(task?.today_greeted_count || 0);
   }
-  return Number(task?.[`${key}_count`] || 0);
-}
-/**
- * 返回任务运行进度。
- * @param {any} task - 当前任务。
- * @returns {any} 进度对象。
- */
-function taskProgress(task: any) {
-  return props.tasks?.taskProgress?.value?.[task.id] || null;
-}
-/**
- * 返回任务进度百分比。
- * @param {any} task - 当前任务。
- * @returns {number} 百分比。
- */
-function taskProgressPercent(task: any) {
-  const progress = taskProgress(task);
-  const total = Number(progress?.total_rounds || 0);
-  const round = Number(progress?.round || 0);
-  if (!total) {
-    if (task.status === "completed") return 100;
-    if (task.status === "running") return 8;
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Math.round((round / total) * 100)));
+  return Number(task?.greeted_count || 0);
 }
 function onLogScroll(taskId: string, event: Event) {
   const target = event.target as HTMLElement | null;
@@ -872,52 +816,6 @@ onMounted(loadAccounts);
   justify-content: space-between;
   min-width: 0;
 }
-.task-stats {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  margin-bottom: 8px;
-  /* justify-content: flex-end; */
-}
-.task-progress {
-  margin: 8px 0 10px;
-  max-width: 520px;
-}
-.task-progress-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--fg-dim);
-  font-size: 12px;
-  line-height: 1.4;
-  margin-bottom: 5px;
-}
-.task-progress-bar {
-  height: 6px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.task-progress-bar span {
-  display: block;
-  height: 100%;
-  min-width: 0;
-  background: var(--accent);
-  transition: width 0.2s ease;
-}
-.task-progress.running .task-progress-bar span {
-  opacity: 0.85;
-}
-.stat-chip {
-  border: 1px solid var(--border);
-  color: var(--fg-dim);
-  padding: 4px 10px;
-  font-size: 14px;
-  font-weight: bold;
-  /* line-height: 1.3; */
-}
 .task-actions {
   margin-top: 8px;
   justify-content: space-between;
@@ -987,9 +885,6 @@ onMounted(loadAccounts);
   .task-main {
     flex-direction: column;
     align-items: flex-start;
-  }
-  .task-stats {
-    justify-content: flex-start;
   }
   .task-actions {
     flex-wrap: wrap;

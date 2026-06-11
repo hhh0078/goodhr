@@ -112,7 +112,7 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 	tenantID, _ := s.getTenantInfo(session.Email)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, saved, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, saved),
 	})
 }
 
@@ -153,16 +153,9 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
-	todayStart := startOfToday()
-	todaySummaries, err := s.taskLogs.logStore.SummarizeTaskCounts(tenantID, session.Email, isAdmin, &todayStart)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to summarize task stats")
-		return
-	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
-		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks, todaySummaries),
+		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks),
 	})
 }
 
@@ -208,7 +201,7 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, task, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, task),
 	})
 }
 
@@ -298,7 +291,7 @@ func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, updated, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, updated),
 	})
 }
 
@@ -373,6 +366,9 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"status":              item.Status,
 		"scanned_count":       item.ScannedCount,
 		"greeted_count":       item.GreetedCount,
+		"daily_greeted_count": item.DailyGreetedCount,
+		"daily_greeted_date":  item.DailyGreetedDate,
+		"today_greeted_count": taskTodayGreetedCount(item),
 		"skipped_count":       item.SkippedCount,
 		"failed_count":        item.FailedCount,
 		"local_task_id":       item.LocalTaskID,
@@ -382,20 +378,28 @@ func publicTaskRun(item TaskRun) map[string]any {
 	}
 }
 
-func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun, todaySummaries map[string]TaskCountSummary) []map[string]any {
+// taskTodayGreetedCount 返回任务当天打招呼数，日期不是今天时返回 0。
+// item 为任务记录，返回值用于任务列表展示今日统计。
+func taskTodayGreetedCount(item TaskRun) int {
+	if item.DailyGreetedDate != time.Now().In(time.Local).Format(time.DateOnly) {
+		return 0
+	}
+	if item.DailyGreetedCount < 0 {
+		return 0
+	}
+	return item.DailyGreetedCount
+}
+
+func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, s.publicTaskRunWithAccount(tenantID, item, todaySummaries[item.ID]))
+		result = append(result, s.publicTaskRunWithAccount(tenantID, item))
 	}
 	return result
 }
 
-func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun, todaySummary TaskCountSummary) map[string]any {
+func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
 	result := publicTaskRun(item)
-	result["today_scanned_count"] = todaySummary.ScannedCount
-	result["today_greeted_count"] = todaySummary.GreetedCount
-	result["today_skipped_count"] = todaySummary.SkippedCount
-	result["today_failed_count"] = todaySummary.FailedCount
 	if item.PlatformAccountID != "" && tenantID != "" {
 		account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
 		if err == nil {
@@ -830,11 +834,6 @@ func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
 	return t.ID, isAdmin
-}
-
-func startOfToday() time.Time {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
 // sessionEmail 模拟从 session 获取 email（用于内部调用）。
