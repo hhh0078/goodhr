@@ -3,8 +3,18 @@
   <section class="panel local-agent-status">
     <div class="panel-header status-head">
       <div>
-        <h2>本地程序</h2>
-        <p class="hint">控制台、浏览器组件、OCR 和本地数据都在这里统一检查。</p>
+        <div class="title-line">
+          <h2>本地程序</h2>
+          <span :class="['status-dot', connected ? 'ok' : 'bad']"></span>
+          <strong>{{ connected ? "已连接" : "未连接" }}</strong>
+          <span class="agent-address">
+            {{ connected ? agentBase : "请启动 GoodHR 本地程序" }}
+          </span>
+        </div>
+        <div class="summary-meta">
+          <span>版本 {{ health?.version || "--" }}</span>
+          <span>端口 {{ health?.port || "--" }}</span>
+        </div>
       </div>
       <div class="status-actions">
         <button class="ghost" :disabled="loading" @click="refresh">
@@ -13,20 +23,6 @@
         <button class="ghost" :disabled="!connected" @click="openConsole">
           打开控制台
         </button>
-      </div>
-    </div>
-
-    <div class="summary-row">
-      <div class="summary-main">
-        <span :class="['status-dot', connected ? 'ok' : 'bad']"></span>
-        <div>
-          <strong>{{ connected ? "已连接" : "未连接" }}</strong>
-          <p>{{ connected ? agentBase : "请启动 GoodHR 本地程序" }}</p>
-        </div>
-      </div>
-      <div class="summary-meta">
-        <span>版本 {{ health?.version || "--" }}</span>
-        <span>端口 {{ health?.port || "--" }}</span>
       </div>
     </div>
 
@@ -57,16 +53,19 @@
       </div>
     </div>
 
-    <div class="path-grid">
-      <div>
-        <span>数据目录</span>
-        <code>{{ health?.dataDir || "--" }}</code>
+    <details class="path-details">
+      <summary>本地路径</summary>
+      <div class="path-grid">
+        <div>
+          <span>数据目录</span>
+          <code>{{ health?.dataDir || "--" }}</code>
+        </div>
+        <div>
+          <span>下载目录</span>
+          <code>{{ health?.downloadsDir || "--" }}</code>
+        </div>
       </div>
-      <div>
-        <span>下载目录</span>
-        <code>{{ health?.downloadsDir || "--" }}</code>
-      </div>
-    </div>
+    </details>
 
     <p v-if="message" class="hint">{{ message }}</p>
     <p v-if="error" class="error">{{ error }}</p>
@@ -413,35 +412,47 @@ function formatBytes(bytes: number) {
 <style scoped>
 .local-agent-status {
   min-height: 0;
+  padding: 8px 10px;
 }
 .status-head,
 .status-actions,
-.summary-row,
-.summary-main,
 .summary-meta,
 .maintenance-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.status-head,
-.summary-row {
+.status-head {
   justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
 }
 .status-actions,
 .maintenance-row {
   flex-wrap: wrap;
 }
-.summary-row {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  padding: 12px;
-  margin-bottom: 12px;
+.status-actions button,
+.maintenance-row button {
+  padding: 4px 10px;
+  font-size: 12px;
 }
-.summary-main strong {
-  display: block;
+.title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
-.summary-main p,
+.title-line h2 {
+  margin-bottom: 0;
+  font-size: 16px;
+}
+.agent-address {
+  color: var(--fg-dim);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .summary-meta,
 .status-item span,
 .path-grid span,
@@ -451,32 +462,41 @@ function formatBytes(bytes: number) {
 }
 .summary-meta {
   flex-wrap: wrap;
-  justify-content: flex-end;
+  margin-top: 2px;
 }
 .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #7f1d1d;
-  flex: 0 0 10px;
+  flex: 0 0 8px;
 }
 .status-dot.ok {
   background: var(--accent);
 }
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
 }
 .status-item,
 .path-grid div,
 .diagnostics-box div {
   border: 1px solid var(--border);
   background: var(--bg-input);
-  padding: 10px;
+  padding: 6px 8px;
 }
-.status-item strong,
+.status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.status-item strong {
+  margin-top: 0;
+  font-size: 12px;
+}
 .path-grid code,
 .diagnostics-box strong {
   display: block;
@@ -491,15 +511,15 @@ function formatBytes(bytes: number) {
 .runtime-progress {
   border: 1px solid var(--border);
   background: var(--bg-input);
-  padding: 10px 12px;
-  margin-bottom: 12px;
+  padding: 8px;
+  margin-bottom: 8px;
 }
 .progress-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .progress-head span,
 .runtime-progress small {
@@ -507,10 +527,10 @@ function formatBytes(bytes: number) {
   font-size: 12px;
 }
 .progress-bar {
-  height: 8px;
+  height: 6px;
   overflow: hidden;
   background: var(--border);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .progress-bar span {
   display: block;
@@ -521,28 +541,36 @@ function formatBytes(bytes: number) {
 .runtime-progress p {
   margin: 0 0 4px;
   color: var(--fg);
-  font-size: 13px;
+  font-size: 12px;
+}
+.path-details {
+  margin-bottom: 8px;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+.path-details summary {
+  cursor: pointer;
+  width: max-content;
 }
 .path-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-top: 6px;
 }
 .path-grid code {
   color: var(--fg);
   word-break: break-all;
-  font-size: 12px;
+  font-size: 11px;
 }
 .diagnostics-box {
   display: grid;
   grid-template-columns: 100px 180px 1fr;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 8px;
 }
 @media (max-width: 980px) {
-  .status-head,
-  .summary-row {
+  .status-head {
     align-items: flex-start;
     flex-direction: column;
   }
