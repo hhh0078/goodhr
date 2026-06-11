@@ -88,26 +88,6 @@ func TestSettingsRecordsFlow(t *testing.T) {
 		t.Fatalf("downloads len = %d", len(downloads))
 	}
 
-	screenshot, err := db.SaveScreenshot(map[string]any{
-		"task_id":   "task-1",
-		"file_path": "/tmp/a.png",
-		"label":     "详情页",
-		"width":     json.Number("100"),
-		"height":    json.Number("200"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if screenshot.Width != 100 || screenshot.Height != 200 {
-		t.Fatalf("screenshot = %+v", screenshot)
-	}
-	screenshots, err := db.ListScreenshots("task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(screenshots) != 1 {
-		t.Fatalf("screenshots len = %d", len(screenshots))
-	}
 }
 
 // openTestDB 创建测试数据库。

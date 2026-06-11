@@ -748,6 +748,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   const filename = safeFilename(String(payload.filename || "candidate-detail.png"));
   const directory = String(payload.dir || payload.directory || path.join(os.tmpdir(), "goodhr-screenshots"));
   await fs.mkdir(directory, { recursive: true });
+  await cleanupScreenshotSeries(directory, filename);
   await locator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
   const box = await locator.boundingBox().catch(() => null);
   const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
@@ -835,7 +836,7 @@ async function detailScrollInfo(locator) {
  * @returns {Promise<Record<string, any>>} 截图信息。
  */
 async function saveLocatorScreenshot(locator, directory, filename) {
-  const targetPath = await uniquePath(directory, filename);
+  const targetPath = path.join(directory, filename);
   const sizeInfo = await locator.boundingBox().catch(() => null) || { width: 0, height: 0 };
   await locator.screenshot({ path: targetPath, type: "png" });
   const stat = await fs.stat(targetPath);
@@ -881,7 +882,7 @@ async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo
       }, top).catch(() => {});
       await currentPage.waitForTimeout(1500);
       const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
-      const targetPath = await uniquePath(directory, partName);
+      const targetPath = path.join(directory, partName);
       const sizeInfo = await locator.boundingBox().catch(() => null) || box;
       await locator.screenshot({ path: targetPath, type: "png" });
       const stat = await fs.stat(targetPath);
@@ -934,7 +935,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   let previousBuffer = null;
   for (let index = 0; index < maxScrolls; index += 1) {
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
-    const targetPath = await uniquePath(directory, partName);
+    const targetPath = path.join(directory, partName);
     const currentBuffer = await currentPage.screenshot({ clip, type: "png" });
     if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
       break;
@@ -955,6 +956,23 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     await currentPage.waitForTimeout(2000);
   }
   return parts;
+}
+
+/**
+ * 清理同一任务下上一次详情截图及分段图，确保只保留最新一份。
+ * @param {string} directory - 截图目录。
+ * @param {string} filename - 主截图文件名。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function cleanupScreenshotSeries(directory, filename) {
+  const parsed = path.parse(filename);
+  const base = parsed.name || "candidate-detail";
+  const ext = parsed.ext || ".png";
+  await fs.rm(path.join(directory, filename), { force: true }).catch(() => {});
+  const files = await fs.readdir(directory).catch(() => []);
+  await Promise.all(files
+    .filter((name) => name.startsWith(`${base}-part-`) && name.endsWith(ext))
+    .map((name) => fs.rm(path.join(directory, name), { force: true }).catch(() => {})));
 }
 
 /**

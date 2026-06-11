@@ -165,34 +165,14 @@ func stableDownloadID(payload map[string]any) string {
 	return fmt.Sprintf("download_%x", sum[:8])
 }
 
-// ListScreenshots 读取本地截图记录。
-// taskID 为空时返回全部记录。
+// ListScreenshots 兼容旧版本地截图记录读取，新版本不再保存截图记录。
+// taskID 为任务 ID，当前返回空列表。
 func (db *DB) ListScreenshots(taskID string) ([]Screenshot, error) {
-	query := `SELECT * FROM local_screenshots`
-	args := []any{}
-	if taskID != "" {
-		query += ` WHERE task_id=?`
-		args = append(args, taskID)
-	}
-	query += ` ORDER BY created_at DESC`
-	rows, err := db.conn.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("读取截图记录失败：%w", err)
-	}
-	defer rows.Close()
-	result := []Screenshot{}
-	for rows.Next() {
-		var item Screenshot
-		if err := rows.Scan(&item.ID, &item.TaskID, &item.FilePath, &item.Label, &item.Width, &item.Height, &item.CreatedAt); err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-	return result, rows.Err()
+	return []Screenshot{}, nil
 }
 
-// SaveScreenshot 保存本地截图记录。
-// payload 为截图记录参数。
+// SaveScreenshot 兼容旧版本地截图记录保存，新版本只返回输入信息不落库。
+// payload 为截图记录参数，返回值供旧调用方继续读取路径。
 func (db *DB) SaveScreenshot(payload map[string]any) (Screenshot, error) {
 	item := Screenshot{
 		ID:        stringOr(payload["id"], uuid.NewString()),
@@ -202,15 +182,6 @@ func (db *DB) SaveScreenshot(payload map[string]any) (Screenshot, error) {
 		Width:     intValue(payload["width"]),
 		Height:    intValue(payload["height"]),
 		CreatedAt: stringOr(payload["created_at"], nowISO()),
-	}
-	_, err := db.conn.Exec(`
-INSERT OR REPLACE INTO local_screenshots (
-    id, task_id, file_path, label, width, height, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.TaskID, item.FilePath, item.Label, item.Width, item.Height, item.CreatedAt,
-	)
-	if err != nil {
-		return Screenshot{}, fmt.Errorf("保存截图记录失败：%w", err)
 	}
 	return item, nil
 }

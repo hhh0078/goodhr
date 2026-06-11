@@ -1168,7 +1168,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		TaskID:         task.ID,
 		Mode:           mode,
 		ScreenshotsDir: r.screenshotsDir,
-		Filename:       fmt.Sprintf("detail-%s.png", safePathName(stringFromMap(candidate, "id"))),
+		Filename:       "detail-latest.png",
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
@@ -1194,7 +1194,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		candidate["detail_source"] = "dom"
 	}
 	if screenshot := detailResult.Screenshot; len(screenshot) > 0 {
-		r.saveDetailScreenshot(task.ID, candidate, screenshot)
+		r.attachDetailScreenshot(candidate, screenshot)
 		r.taskLog(task.ID, "info", fmt.Sprintf("详情截图已返回：name=%s path=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
 		if mode == "ocr" {
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
@@ -1267,22 +1267,18 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	return 0, nil
 }
 
-// saveDetailScreenshot 保存详情截图记录。
-// taskID 为任务 ID，candidate 为候选人，screenshot 为 Worker 返回的截图信息。
-func (r *Runner) saveDetailScreenshot(taskID string, candidate map[string]any, screenshot map[string]any) {
+// attachDetailScreenshot 将详情截图路径挂到候选人结果上，不再写入本地截图记录表。
+// candidate 为候选人结果，screenshot 为 Worker 返回的截图信息。
+func (r *Runner) attachDetailScreenshot(candidate map[string]any, screenshot map[string]any) {
 	filePath := firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
 	if filePath == "" {
 		return
 	}
-	record, err := r.db.SaveScreenshot(map[string]any{
-		"task_id":   taskID,
+	candidate["detail_screenshot"] = map[string]any{
 		"file_path": filePath,
-		"label":     firstNonEmptyString(stringFromMap(candidate, "candidate_name"), "候选人详情"),
+		"path":      filePath,
 		"width":     screenshot["width"],
 		"height":    screenshot["height"],
-	})
-	if err == nil {
-		candidate["detail_screenshot"] = record
 	}
 }
 

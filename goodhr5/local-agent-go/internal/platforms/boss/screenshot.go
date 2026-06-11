@@ -18,8 +18,19 @@ import (
 // exec 为平台执行器，taskID 为任务 ID，screenshotsDir 为截图根目录，candidate 为候选人，screenshot 为 Worker 截图信息。
 func stitchDetailScreenshot(exec platformcore.Executor, taskID string, screenshotsDir string, candidate map[string]any, screenshot map[string]any) map[string]any {
 	parts := mapList(screenshot["screenshot_parts"])
-	if len(parts) <= 1 {
+	if len(parts) == 0 {
 		return screenshot
+	}
+	outputDir := filepath.Join(screenshotsDir, taskID)
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		exec.Log("warning", "创建详情长图目录失败："+err.Error())
+		return screenshot
+	}
+	outputPath := filepath.Join(outputDir, "detail-latest.png")
+	if len(parts) == 1 {
+		result := copySingleDetailPart(exec, parts[0], outputPath, screenshot)
+		removeScreenshotParts(parts, outputPath)
+		return result
 	}
 	images := []image.Image{}
 	for _, part := range parts {
@@ -41,20 +52,15 @@ func stitchDetailScreenshot(exec platformcore.Executor, taskID string, screensho
 		images = append(images, img)
 	}
 	if len(images) <= 1 {
-		return screenshot
+		result := copySingleDetailPart(exec, parts[0], outputPath, screenshot)
+		removeScreenshotParts(parts, outputPath)
+		return result
 	}
 	overlap := maxInt(0, intFromMap(screenshot, "overlap"))
 	stitched := stitchImages(images, overlap)
 	if stitched == nil {
 		return screenshot
 	}
-	outputDir := filepath.Join(screenshotsDir, taskID)
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		exec.Log("warning", "创建详情长图目录失败："+err.Error())
-		return screenshot
-	}
-	filename := fmt.Sprintf("detail-%s-stitched.png", safePathName(stringFromMap(candidate, "id")))
-	outputPath := filepath.Join(outputDir, filename)
 	file, err := os.Create(outputPath)
 	if err != nil {
 		exec.Log("warning", "创建详情长图失败："+err.Error())
@@ -80,8 +86,56 @@ func stitchDetailScreenshot(exec platformcore.Executor, taskID string, screensho
 	result["height"] = stitched.Bounds().Dy()
 	result["stitched"] = true
 	result["parts_count"] = len(images)
+	delete(result, "screenshot_parts")
 	exec.Log("info", fmt.Sprintf("详情截图已拼接：parts=%d width=%d height=%d", len(images), stitched.Bounds().Dx(), stitched.Bounds().Dy()))
+	removeScreenshotParts(parts, outputPath)
 	return result
+}
+
+// copySingleDetailPart 将单张分段截图复制为任务级固定截图文件。
+// exec 为平台执行器，part 为分段截图，outputPath 为固定输出路径，screenshot 为原始截图信息。
+func copySingleDetailPart(exec platformcore.Executor, part map[string]any, outputPath string, screenshot map[string]any) map[string]any {
+	source := firstNonEmpty(stringFromMap(part, "file_path"), stringFromMap(part, "path"))
+	if source == "" {
+		return screenshot
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		exec.Log("warning", "读取单张详情截图失败："+err.Error())
+		return screenshot
+	}
+	if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+		exec.Log("warning", "保存单张详情截图失败："+err.Error())
+		return screenshot
+	}
+	info, _ := os.Stat(outputPath)
+	result := map[string]any{}
+	for key, value := range screenshot {
+		result[key] = value
+	}
+	result["file_path"] = outputPath
+	result["path"] = outputPath
+	if info != nil {
+		result["size"] = info.Size()
+	}
+	result["width"] = part["width"]
+	result["height"] = part["height"]
+	result["stitched"] = false
+	result["parts_count"] = 1
+	delete(result, "screenshot_parts")
+	return result
+}
+
+// removeScreenshotParts 删除详情分段截图，只保留固定输出图。
+// parts 为分段截图列表，keepPath 为需要保留的最终截图路径。
+func removeScreenshotParts(parts []map[string]any, keepPath string) {
+	for _, part := range parts {
+		filePath := firstNonEmpty(stringFromMap(part, "file_path"), stringFromMap(part, "path"))
+		if filePath == "" || filepath.Clean(filePath) == filepath.Clean(keepPath) {
+			continue
+		}
+		_ = os.Remove(filePath)
+	}
 }
 
 // stitchImages 将多张 PNG 图片按重叠区域纵向拼接。

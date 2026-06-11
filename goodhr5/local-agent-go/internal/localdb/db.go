@@ -180,29 +180,13 @@ CREATE TABLE IF NOT EXISTS local_downloads (
     updated_at TEXT NOT NULL
 );
 
--- local_screenshots 保存本机截图记录。
-CREATE TABLE IF NOT EXISTS local_screenshots (
-    -- 截图记录唯一 ID。
-    id TEXT PRIMARY KEY,
-    -- 关联任务 ID。
-    task_id TEXT NOT NULL DEFAULT '',
-    -- 本机文件路径。
-    file_path TEXT NOT NULL DEFAULT '',
-    -- 截图标签。
-    label TEXT NOT NULL DEFAULT '',
-    -- 图片宽度。
-    width INTEGER NOT NULL DEFAULT 0,
-    -- 图片高度。
-    height INTEGER NOT NULL DEFAULT 0,
-    -- 创建时间。
-    created_at TEXT NOT NULL
-);
-
 INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 `
 	if _, err := db.conn.Exec(script); err != nil {
 		return fmt.Errorf("初始化本地数据库失败：%w", err)
 	}
+	// 新版本不再保存本地截图记录，只保留任务级最新截图文件。
+	_, _ = db.conn.Exec(`DROP TABLE IF EXISTS local_screenshots`)
 	// 后向兼容迁移：低版本数据库在首次 migrate 后仍缺少 enable_thinking 字段。
 	_, _ = db.conn.Exec(`ALTER TABLE local_tasks ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
 	// 后向兼容迁移：重建 local_candidates 表以支持结构化字段。

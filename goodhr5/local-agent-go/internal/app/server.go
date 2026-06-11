@@ -300,7 +300,6 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 		response.Error(w, http.StatusNotFound, "接口不存在")
 		return
 	}
-	taskID := parts[0]
 	switch parts[1] {
 	case "start-ws", "stop-ws":
 		response.Error(w, http.StatusGone, "Go 本地程序不再使用云端 WebSocket，请使用本地任务运行接口")
@@ -309,12 +308,7 @@ func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Reques
 			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 			return
 		}
-		screenshots, err := s.db.ListScreenshots(taskID)
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"screenshots": screenshots})
+		response.Success(w, map[string]any{"screenshots": []any{}})
 	case "ocr":
 		response.Error(w, http.StatusNotImplemented, "Go 本地程序暂未接入 OCR，请先使用页面解析或图片 AI 详情接口")
 	default:
@@ -568,29 +562,19 @@ func (s *Server) handleLocalDownloads(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLocalScreenshots 处理本地截图记录读取和保存。
+// handleLocalScreenshots 兼容旧版本地截图记录接口，新版本不再写入截图记录。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleLocalScreenshots(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		screenshots, err := s.db.ListScreenshots(r.URL.Query().Get("task_id"))
-		if err != nil {
-			response.Error(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"screenshots": screenshots})
+		response.Success(w, map[string]any{"screenshots": []any{}})
 	case http.MethodPost:
 		payload, err := readPayload(r)
 		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		item, err := s.db.SaveScreenshot(payload)
-		if err != nil {
-			response.Error(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		response.Success(w, map[string]any{"screenshot": item})
+		response.Success(w, map[string]any{"screenshot": payload})
 	default:
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 	}
@@ -711,20 +695,6 @@ func (s *Server) handlePageScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, _ := workerData(result).(map[string]any)
-	if stringValue(payload["task_id"]) != "" || stringValue(data["file_path"]) != "" || stringValue(data["path"]) != "" {
-		recordPayload := map[string]any{
-			"task_id":   stringValue(payload["task_id"]),
-			"file_path": firstNonEmptyString(stringValue(data["file_path"]), stringValue(data["path"])),
-			"label":     firstNonEmptyString(stringValue(payload["label"]), "页面截图"),
-			"width":     data["width"],
-			"height":    data["height"],
-		}
-		if screenshot, err := s.db.SaveScreenshot(recordPayload); err == nil {
-			data["record"] = screenshot
-		} else {
-			log.Printf("保存截图记录失败：%v", err)
-		}
-	}
 	response.Success(w, data)
 }
 
