@@ -399,7 +399,7 @@ func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, errorMsg
 	log.Printf("[失败邮件] 响应状态码：%d", code)
 	log.Printf("[失败邮件] 响应数据：%v", resp)
 	if code != http.StatusOK && code != http.StatusAccepted {
-		return fmt.Errorf("云端返回非预期状态码：%d", code)
+		return fmt.Errorf("云端返回非预期状态码：%d，原因：%s", code, cloudMessage(resp, "未返回具体原因"))
 	}
 	return nil
 }

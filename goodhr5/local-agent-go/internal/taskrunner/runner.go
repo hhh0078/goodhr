@@ -709,6 +709,10 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 			return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端 AI 配置失败：%w", err)
 		}
 		options.AIConfig = aiConfigFromCloud(aiConfig)
+		if err := validateAIConfig(options.AIConfig); err != nil {
+			return TaskRuntimeSnapshot{}, err
+		}
+		r.taskLog(taskID, "info", fmt.Sprintf("云端 AI 配置读取成功：model=%s", options.AIConfig.Model))
 	}
 
 	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
@@ -795,6 +799,21 @@ func aiConfigFromCloud(config map[string]any) localdb.AIConfig {
 		Timeout:     intFromMapOr(config, "timeout", 120),
 		Extra:       mapValue(config["extra"]),
 	}
+}
+
+// validateAIConfig 校验任务运行需要的 AI 配置是否完整。
+// config 为云端下发的 AI 配置。
+func validateAIConfig(config localdb.AIConfig) error {
+	if strings.TrimSpace(config.BaseURL) == "" {
+		return fmt.Errorf("请先在个人配置里填写云端 AI 接口地址")
+	}
+	if strings.TrimSpace(config.APIKey) == "" {
+		return fmt.Errorf("请先在个人配置里填写云端 AI Key")
+	}
+	if strings.TrimSpace(config.Model) == "" {
+		return fmt.Errorf("请先在个人配置里填写 AI 模型")
+	}
+	return nil
 }
 
 // taskRequiresAI 判断任务是否需要 AI 配置。
@@ -1034,14 +1053,8 @@ func (r *Runner) pipelineAIClient(task localdb.Task, options StartOptions) (*loc
 		return nil, nil
 	}
 	config := options.AIConfig
-	if strings.TrimSpace(config.BaseURL) == "" {
-		return nil, fmt.Errorf("请先在个人配置里填写云端 AI 接口地址")
-	}
-	if strings.TrimSpace(config.APIKey) == "" {
-		return nil, fmt.Errorf("请先在个人配置里填写云端 AI Key")
-	}
-	if strings.TrimSpace(config.Model) == "" {
-		return nil, fmt.Errorf("请先在个人配置里填写 AI 模型")
+	if err := validateAIConfig(config); err != nil {
+		return nil, err
 	}
 	client := localai.New(config)
 	client.EnableThinking = task.EnableThinking

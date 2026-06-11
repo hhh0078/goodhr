@@ -222,6 +222,49 @@ func TestRunnerStartRequiresToken(t *testing.T) {
 	}
 }
 
+// TestValidateAIConfig 验证 AI 配置会在任务启动阶段提前校验。
+func TestValidateAIConfig(t *testing.T) {
+	cases := []struct {
+		name    string
+		config  localdb.AIConfig
+		wantErr string
+	}{
+		{
+			name:    "缺少接口地址",
+			config:  localdb.AIConfig{APIKey: "key", Model: "model"},
+			wantErr: "请先在个人配置里填写云端 AI 接口地址",
+		},
+		{
+			name:    "缺少密钥",
+			config:  localdb.AIConfig{BaseURL: "https://example.com", Model: "model"},
+			wantErr: "请先在个人配置里填写云端 AI Key",
+		},
+		{
+			name:    "缺少模型",
+			config:  localdb.AIConfig{BaseURL: "https://example.com", APIKey: "key"},
+			wantErr: "请先在个人配置里填写 AI 模型",
+		},
+		{
+			name:   "配置完整",
+			config: localdb.AIConfig{BaseURL: "https://example.com", APIKey: "key", Model: "model"},
+		},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			err := validateAIConfig(item.config)
+			if item.wantErr == "" {
+				if err != nil {
+					t.Fatalf("err = %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != item.wantErr {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
 // TestRunnerMissingEntryURLDoesNotStartBrowser 验证缺少入口页时不会启动浏览器。
 func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
 	db := openRunnerTestDB(t)
