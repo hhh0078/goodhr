@@ -3,11 +3,11 @@
     <div class="panel-header">
       <!-- 底部对齐 -->
       <div style="display: flex; gap: 10px; align-items: center">
-        <h2>岗位模板</h2>
+        <h2>岗位管理</h2>
       </div>
       <div style="display: flex; gap: 8px">
         <button v-if="!showForm" class="ghost" @click="showForm = true">
-          + 新建模板
+          + 新建岗位
         </button>
         <button v-else class="ghost" @click="showForm = false">收起</button>
         <button class="ghost" @click="positions.load">刷新</button>
@@ -332,11 +332,15 @@
             v-model="positions.form.value.greetMessage"
             rows="2"
           />
-          <small class="field-help">当前任务流程暂未重点使用，可后续再补。</small>
+          <small class="field-help"
+            >当前任务流程暂未重点使用，可后续再补。</small
+          >
         </label>
         <label class="field field-medium"
           >描述<textarea v-model="positions.form.value.description" rows="2" />
-          <small class="field-help">用于备注岗位背景，不影响当前筛选主流程。</small>
+          <small class="field-help"
+            >用于备注岗位背景，不影响当前筛选主流程。</small
+          >
         </label>
       </div>
 
@@ -382,8 +386,8 @@
             {{
               pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
             }}
-            | 详情:{{ detailModeLabel(pos.common_config?.detail_mode) }}
-            | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
+            | 详情:{{ detailModeLabel(pos.common_config?.detail_mode) }} |
+            关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
               (pos.exclude_keywords || []).join(" / ") || "无"
             }}
           </p>

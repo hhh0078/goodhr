@@ -83,12 +83,12 @@ const cards = [
   {
     key: "position_template",
     index: "3",
-    title: "创建岗位模板",
+    title: "创建岗位管理",
     menu: "position",
-    description: "岗位模板决定筛选条件、岗位要求和后续打招呼逻辑。",
+    description: "岗位管理决定筛选条件、岗位要求和后续打招呼逻辑。",
     tips: [
-      "左侧进入岗位模板",
-      "点击新建模板",
+      "左侧进入岗位管理",
+      "点击新建岗位",
       "填写岗位名称、岗位要求或关键词后保存",
     ],
   },
@@ -132,7 +132,9 @@ const doneCount = computed(
 const activeKey = computed(
   () => cards.find((card) => !isDone(card.key))?.key || "",
 );
-const primaryDownload = computed(() => buildAgentDownloadOptions(props.config).primary);
+const primaryDownload = computed(
+  () => buildAgentDownloadOptions(props.config).primary,
+);
 
 /**
  * 判断指定步骤是否完成。

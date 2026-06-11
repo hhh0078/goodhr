@@ -43,7 +43,7 @@
         </select>
       </label>
       <label>
-        岗位模板
+        岗位管理
         <select v-model="filters.positionId">
           <option value="">全部岗位</option>
           <option
@@ -129,7 +129,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { clearTeamCandidates, listCandidates } from "../services/api/candidateApi";
+import {
+  clearTeamCandidates,
+  listCandidates,
+} from "../services/api/candidateApi";
 import { listPositions } from "../services/api/positionApi";
 import { listTasks } from "../services/api/taskApi";
 import { alertError, confirmDialog, notifySuccess } from "../services/notify";
@@ -250,13 +253,16 @@ function goPage(nextPage: number) {
  * @returns {Promise<void>} 无返回值。
  */
 async function clearAllCandidates() {
-  if (!(await confirmDialog(
-    "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
-    {
-      title: "清空简历库",
-      confirmText: "清空",
-    },
-  ))) return;
+  if (
+    !(await confirmDialog(
+      "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
+      {
+        title: "清空简历库",
+        confirmText: "清空",
+      },
+    ))
+  )
+    return;
   clearing.value = true;
   error.value = "";
   try {

@@ -52,11 +52,11 @@
         </select></label
       >
       <label
-        >岗位模板<select
+        >岗位<select
           v-model="tasks.form.value.positionId"
           @change="onCreatePositionChange"
         >
-          <option value="">请选择岗位模板</option>
+          <option value="">请选择岗位</option>
           <option v-for="pos in positions" :key="pos.id" :value="pos.id">
             {{ pos.name }}
           </option>
@@ -66,12 +66,12 @@
         >任务名称<input
           v-model.trim="tasks.form.value.name"
           @input="createNameEdited = true"
-          placeholder="不填则自动使用岗位模板名称+默认模式"
+          placeholder="不填则自动使用岗位名称+默认模式"
       /></label>
       <p class="hint field-wide">
         默认模式：{{
           positionModeLabel(selectedCreatePosition())
-        }}，来自岗位模板配置。
+        }}，来自岗位配置。
       </p>
       <label
         >匹配上限<input
@@ -83,13 +83,23 @@
     <div v-if="showCreate" class="mode-field" style="margin-bottom: 12px">
       <span class="field-title">思考模式</span>
       <div class="mode-cards">
-        <button type="button" class="mode-card" :class="{ active: !tasks.form.value.enableThinking }" @click="tasks.form.value.enableThinking = false">
+        <button
+          type="button"
+          class="mode-card"
+          :class="{ active: !tasks.form.value.enableThinking }"
+          @click="tasks.form.value.enableThinking = false"
+        >
           <strong>关闭</strong>
-          <span>速度快，AI消耗更小<br>适合常见岗位、常见条件</span>
+          <span>速度快，AI消耗更小<br />适合常见岗位、常见条件</span>
         </button>
-        <button type="button" class="mode-card" :class="{ active: tasks.form.value.enableThinking }" @click="tasks.form.value.enableThinking = true">
+        <button
+          type="button"
+          class="mode-card"
+          :class="{ active: tasks.form.value.enableThinking }"
+          @click="tasks.form.value.enableThinking = true"
+        >
           <strong>开启</strong>
-          <span>速度慢，更精准<br>AI消耗较多</span>
+          <span>速度慢，更精准<br />AI消耗较多</span>
         </button>
       </div>
     </div>
@@ -148,12 +158,20 @@
           <div
             v-if="taskProgress(task)"
             class="task-progress"
-            :class="{ running: taskProgress(task)?.stage === 'running' || task.status === 'running' }"
+            :class="{
+              running:
+                taskProgress(task)?.stage === 'running' ||
+                task.status === 'running',
+            }"
           >
             <div class="task-progress-meta">
-              <span>{{ taskProgress(task)?.message || taskStatusLabel(task.status) }}</span>
+              <span>{{
+                taskProgress(task)?.message || taskStatusLabel(task.status)
+              }}</span>
               <span v-if="taskProgress(task)?.total_rounds">
-                {{ taskProgress(task)?.round || 0 }}/{{ taskProgress(task)?.total_rounds }}
+                {{ taskProgress(task)?.round || 0 }}/{{
+                  taskProgress(task)?.total_rounds
+                }}
               </span>
             </div>
             <div class="task-progress-bar">
@@ -240,11 +258,11 @@
               </select></label
             >
             <label
-              >岗位模板<select
+              >岗位<select
                 v-model="editForm.positionId"
                 @change="onEditPositionChange"
               >
-                <option value="">请选择岗位模板</option>
+                <option value="">请选择岗位</option>
                 <option v-for="pos in positions" :key="pos.id" :value="pos.id">
                   {{ pos.name }}
                 </option>
@@ -253,12 +271,12 @@
             <label
               >任务名称<input
                 v-model.trim="editForm.name"
-                placeholder="不填则自动使用岗位模板名称+默认模式"
+                placeholder="不填则自动使用岗位名称+默认模式"
             /></label>
             <p class="hint field-wide">
               默认模式：{{
                 positionModeLabel(selectedEditPosition())
-              }}，来自岗位模板配置。
+              }}，来自岗位配置。
             </p>
             <label
               >匹配上限<input
@@ -270,13 +288,23 @@
           <div class="mode-field">
             <span class="field-title">思考模式</span>
             <div class="mode-cards">
-              <button type="button" class="mode-card" :class="{ active: !editForm.enableThinking }" @click="editForm.enableThinking = false">
+              <button
+                type="button"
+                class="mode-card"
+                :class="{ active: !editForm.enableThinking }"
+                @click="editForm.enableThinking = false"
+              >
                 <strong>关闭</strong>
-                <span>速度快，AI消耗更小<br>适合常见岗位、常见条件</span>
+                <span>速度快，AI消耗更小<br />适合常见岗位、常见条件</span>
               </button>
-              <button type="button" class="mode-card" :class="{ active: editForm.enableThinking }" @click="editForm.enableThinking = true">
+              <button
+                type="button"
+                class="mode-card"
+                :class="{ active: editForm.enableThinking }"
+                @click="editForm.enableThinking = true"
+              >
                 <strong>开启</strong>
-                <span>速度慢，更精准<br>AI消耗较多</span>
+                <span>速度慢，更精准<br />AI消耗较多</span>
               </button>
             </div>
           </div>

@@ -26,7 +26,8 @@
           <span class="prompt">&gt;</span><span>不想付钱?点我</span>
         </div>
         <div class="menu-item" @click="user ? auth.logout() : requestLogin()">
-          <span class="prompt">&gt;</span><span>{{ user ? "登出" : "登录" }}</span>
+          <span class="prompt">&gt;</span
+          ><span>{{ user ? "登出" : "登录" }}</span>
         </div>
       </div>
     </aside>
@@ -59,10 +60,7 @@
           {{ agent.status.value }}
         </button>
         ><span class="sep">|</span>
-        <button
-          class="top-info top-link"
-          @click="goMenu('agent-download')"
-        >
+        <button class="top-info top-link" @click="goMenu('agent-download')">
           PID {{ agent.info?.value?.port || "---" }}
         </button>
         <span class="sep">|</span>
@@ -166,10 +164,14 @@ const selectedTheme = ref<ThemeID>(cachedTheme || APP_THEMES[0].id);
 const hasCachedTheme = ref(Boolean(cachedTheme));
 const themeSelectorVisible = ref(!cachedTheme);
 applyTheme(selectedTheme.value);
-const tasks = useTasks(agent.baseUrl, () => {
-  goMenu("subscription");
-  loadSubscriptionStatus();
-}, resolvePositionSnapshot);
+const tasks = useTasks(
+  agent.baseUrl,
+  () => {
+    goMenu("subscription");
+    loadSubscriptionStatus();
+  },
+  resolvePositionSnapshot,
+);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "游客");
 const isFullScreenRoute = computed(() => Boolean(route.meta.fullScreen));
@@ -178,7 +180,7 @@ const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
     { id: "account", label: "平台账号" },
-    { id: "position", label: "岗位模板" },
+    { id: "position", label: "岗位管理" },
     { id: "task-list", label: "任务列表" },
     { id: "resume-library", label: "简历库" },
     { id: "tenant", label: "团队管理" },
@@ -220,7 +222,9 @@ provideAppContext({
  * @returns {any} 岗位模板快照。
  */
 function resolvePositionSnapshot(positionID: string) {
-  return positions.positions.value.find((item: any) => item.id === positionID) || {};
+  return (
+    positions.positions.value.find((item: any) => item.id === positionID) || {}
+  );
 }
 
 const agentStatusColor = computed(() => {
@@ -386,7 +390,8 @@ function goInvitation() {
  */
 function requestLogin() {
   if (route.name === "login") return;
-  const redirect = route.fullPath && route.fullPath !== "/" ? route.fullPath : "";
+  const redirect =
+    route.fullPath && route.fullPath !== "/" ? route.fullPath : "";
   void router.push({
     name: "login",
     query: redirect ? { redirect } : {},

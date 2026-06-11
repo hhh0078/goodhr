@@ -6,7 +6,11 @@
         <h2>今日打招呼</h2>
         <p class="hint">{{ summaryText }}</p>
       </div>
-      <button class="ghost" :disabled="tasks?.loading?.value" @click="tasks?.load?.()">
+      <button
+        class="ghost"
+        :disabled="tasks?.loading?.value"
+        @click="tasks?.load?.()"
+      >
         刷新
       </button>
     </div>
@@ -40,7 +44,9 @@
           <article v-for="task in runningTasks" :key="task.id" class="mini-row">
             <div>
               <strong>{{ taskName(task) }}</strong>
-              <p class="hint">{{ accountName(task) }} · {{ modeLabel(task.mode) }}</p>
+              <p class="hint">
+                {{ accountName(task) }} · {{ modeLabel(task.mode) }}
+              </p>
             </div>
             <span>已打 {{ todayCount(task, "greeted") }}</span>
           </article>
@@ -57,7 +63,10 @@
           <article v-for="task in topTasks" :key="task.id" class="mini-row">
             <div>
               <strong>{{ taskName(task) }}</strong>
-              <p class="hint">扫描 {{ todayCount(task, "scanned") }} · 跳过 {{ todayCount(task, "skipped") }}</p>
+              <p class="hint">
+                扫描 {{ todayCount(task, "scanned") }} · 跳过
+                {{ todayCount(task, "skipped") }}
+              </p>
             </div>
             <span>{{ todayCount(task, "greeted") }} 人</span>
           </article>
@@ -102,8 +111,13 @@ const runningTasks = computed(() =>
 );
 const topTasks = computed(() =>
   [...taskItems.value]
-    .sort((a: any, b: any) => todayCount(b, "greeted") - todayCount(a, "greeted"))
-    .filter((task: any) => todayCount(task, "scanned") > 0 || todayCount(task, "greeted") > 0)
+    .sort(
+      (a: any, b: any) => todayCount(b, "greeted") - todayCount(a, "greeted"),
+    )
+    .filter(
+      (task: any) =>
+        todayCount(task, "scanned") > 0 || todayCount(task, "greeted") > 0,
+    )
     .slice(0, 5),
 );
 const alerts = computed(() => {
@@ -116,10 +130,15 @@ const alerts = computed(() => {
     result.push(`今天有 ${totals.value.failed} 次失败，建议查看任务日志。`);
   }
   if (totals.value.scanned > 0 && totals.value.greeted === 0) {
-    result.push("今天已经扫描候选人，但还没有打招呼，建议检查岗位条件或账号状态。");
+    result.push(
+      "今天已经扫描候选人，但还没有打招呼，建议检查岗位条件或账号状态。",
+    );
   }
-  if (totals.value.scanned >= 20 && totals.value.skipped > totals.value.greeted * 3) {
-    result.push("跳过人数明显偏多，可能岗位模板或 AI 提示词过严。");
+  if (
+    totals.value.scanned >= 20 &&
+    totals.value.skipped > totals.value.greeted * 3
+  ) {
+    result.push("跳过人数明显偏多，可能岗位管理或 AI 提示词过严。");
   }
   if (!runningTasks.value.length && totals.value.greeted === 0) {
     result.push("当前没有运行中的任务，也没有今日打招呼结果。");
@@ -161,7 +180,11 @@ function taskName(task: any) {
  * @returns {string} 平台账号名称。
  */
 function accountName(task: any) {
-  return task?.platform_account?.display_name || task?.platform_account_id || "未选择账号";
+  return (
+    task?.platform_account?.display_name ||
+    task?.platform_account_id ||
+    "未选择账号"
+  );
 }
 
 /**

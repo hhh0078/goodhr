@@ -14,18 +14,50 @@
 
     <template v-if="candidate && !loading">
       <div class="detail-grid">
-        <div><span>平台</span><strong>{{ platformLabel(candidate.platform_id) }}</strong></div>
-        <div><span>岗位模板</span><strong>{{ candidate.position_name || "--" }}</strong></div>
-        <div><span>任务ID</span><strong>{{ candidate.task_id || "--" }}</strong></div>
-        <div><span>所属账号</span><strong>{{ candidate.user_email || "--" }}</strong></div>
-        <div><span>期望岗位</span><strong>{{ candidate.expected_position || "--" }}</strong></div>
-        <div><span>期望薪资</span><strong>{{ salaryText(candidate) }}</strong></div>
-        <div><span>地区</span><strong>{{ candidate.work_region || "--" }}</strong></div>
-        <div><span>年限</span><strong>{{ candidate.work_years || "--" }}</strong></div>
-        <div><span>学历</span><strong>{{ candidate.education_level || "--" }}</strong></div>
-        <div><span>在线状态</span><strong>{{ candidate.online_status || "--" }}</strong></div>
-        <div><span>打招呼时间</span><strong>{{ formatDate(candidate.greeted_at) }}</strong></div>
-        <div><span>创建时间</span><strong>{{ formatDate(candidate.created_at) }}</strong></div>
+        <div>
+          <span>平台</span
+          ><strong>{{ platformLabel(candidate.platform_id) }}</strong>
+        </div>
+        <div>
+          <span>岗位管理</span
+          ><strong>{{ candidate.position_name || "--" }}</strong>
+        </div>
+        <div>
+          <span>任务ID</span><strong>{{ candidate.task_id || "--" }}</strong>
+        </div>
+        <div>
+          <span>所属账号</span
+          ><strong>{{ candidate.user_email || "--" }}</strong>
+        </div>
+        <div>
+          <span>期望岗位</span
+          ><strong>{{ candidate.expected_position || "--" }}</strong>
+        </div>
+        <div>
+          <span>期望薪资</span><strong>{{ salaryText(candidate) }}</strong>
+        </div>
+        <div>
+          <span>地区</span><strong>{{ candidate.work_region || "--" }}</strong>
+        </div>
+        <div>
+          <span>年限</span><strong>{{ candidate.work_years || "--" }}</strong>
+        </div>
+        <div>
+          <span>学历</span
+          ><strong>{{ candidate.education_level || "--" }}</strong>
+        </div>
+        <div>
+          <span>在线状态</span
+          ><strong>{{ candidate.online_status || "--" }}</strong>
+        </div>
+        <div>
+          <span>打招呼时间</span
+          ><strong>{{ formatDate(candidate.greeted_at) }}</strong>
+        </div>
+        <div>
+          <span>创建时间</span
+          ><strong>{{ formatDate(candidate.created_at) }}</strong>
+        </div>
       </div>
 
       <div class="score-panel">
@@ -48,14 +80,26 @@
 
       <section class="detail-section">
         <h3>基础信息</h3>
-        <p>{{ candidate.basic_info || candidate.personal_description || "暂无基础信息" }}</p>
+        <p>
+          {{
+            candidate.basic_info ||
+            candidate.personal_description ||
+            "暂无基础信息"
+          }}
+        </p>
       </section>
 
       <section class="detail-section">
         <h3>工作经历</h3>
         <div v-if="candidate.work_experiences?.length" class="sub-list">
-          <article v-for="(item, index) in candidate.work_experiences" :key="index">
-            <strong>{{ item.company_name || "未填写公司" }} · {{ item.position_name || "未填写职位" }}</strong>
+          <article
+            v-for="(item, index) in candidate.work_experiences"
+            :key="index"
+          >
+            <strong
+              >{{ item.company_name || "未填写公司" }} ·
+              {{ item.position_name || "未填写职位" }}</strong
+            >
             <p>{{ item.start_ym || "--" }} 至 {{ item.end_ym || "至今" }}</p>
             <p>{{ item.content || "暂无描述" }}</p>
           </article>
@@ -67,8 +111,14 @@
         <h3>教育经历</h3>
         <div v-if="candidate.educations?.length" class="sub-list">
           <article v-for="(item, index) in candidate.educations" :key="index">
-            <strong>{{ item.school_name || "未填写学校" }} · {{ item.major_name || "未填写专业" }}</strong>
-            <p>{{ item.education_level || "--" }} · {{ item.start_ym || "--" }} 至 {{ item.end_ym || "--" }}</p>
+            <strong
+              >{{ item.school_name || "未填写学校" }} ·
+              {{ item.major_name || "未填写专业" }}</strong
+            >
+            <p>
+              {{ item.education_level || "--" }} ·
+              {{ item.start_ym || "--" }} 至 {{ item.end_ym || "--" }}
+            </p>
           </article>
         </div>
         <p v-else>暂无教育经历</p>
@@ -76,7 +126,12 @@
 
       <section class="detail-section">
         <h3>候选人文本</h3>
-        <pre>{{ candidate.resume_text || candidate.raw_text || candidate.filter_text || "暂无文本" }}</pre>
+        <pre>{{
+          candidate.resume_text ||
+          candidate.raw_text ||
+          candidate.filter_text ||
+          "暂无文本"
+        }}</pre>
       </section>
 
       <section class="detail-section">
@@ -87,7 +142,9 @@
               <strong>{{ eventTypeLabel(event.event_type) }}</strong>
               <span>{{ formatDate(event.created_at) }}</span>
             </div>
-            <p v-if="event.score !== null && event.score !== undefined">评分：{{ scoreText(event.score) }}</p>
+            <p v-if="event.score !== null && event.score !== undefined">
+              评分：{{ scoreText(event.score) }}
+            </p>
             <p v-if="event.reason">原因：{{ event.reason }}</p>
             <p v-if="event.message_text">消息：{{ event.message_text }}</p>
           </article>
@@ -124,7 +181,11 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    candidate.value = await getCandidate(props.candidateId, props.engagementId || "", props.taskId || "");
+    candidate.value = await getCandidate(
+      props.candidateId,
+      props.engagementId || "",
+      props.taskId || "",
+    );
   } catch (e: any) {
     error.value = e?.message || "读取候选人详情失败";
   } finally {
@@ -148,9 +209,16 @@ function candidateName(item: any) {
  */
 function compactInfo(item: any) {
   if (!item) return "简历详情";
-  return [item.work_region, item.work_years, item.education_level, item.expected_position]
-    .filter(Boolean)
-    .join(" / ") || "暂无摘要";
+  return (
+    [
+      item.work_region,
+      item.work_years,
+      item.education_level,
+      item.expected_position,
+    ]
+      .filter(Boolean)
+      .join(" / ") || "暂无摘要"
+  );
 }
 
 /**
