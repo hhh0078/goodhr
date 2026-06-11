@@ -225,7 +225,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = $1) AND (u.email = $2 OR $3::boolean) AND tr.id = $4
+		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = $1) AND (u.email = $2 OR $3::boolean) AND tr.id = $4::uuid
 		`,
 		tenantID, userEmail, isAdmin, taskID,
 	).Scan(
@@ -270,7 +270,7 @@ func (s *PostgresTaskStore) DeleteTask(tenantID, userEmail, taskID string, isAdm
 		WHERE tr.user_id = u.id
 		  AND u.tenant_id = $1
 		  AND (u.email = $2 OR $3::boolean)
-		  AND tr.id = $4
+		  AND tr.id = $4::uuid
 		`,
 		tenantID,
 		userEmail,
@@ -315,7 +315,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		`
 		UPDATE task_runs
 		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7, enable_thinking=$8
-		WHERE id=$9
+		WHERE id=$9::uuid
 		RETURNING
 			id,
 			name,
@@ -452,7 +452,7 @@ func (s *PostgresTaskStore) UpdateTaskStatus(taskID string, status string) error
 			status=$1,
 			started_at=CASE WHEN $1='running' THEN NOW() ELSE started_at END,
 			finished_at=CASE WHEN $1 IN ('failed','stopped') THEN NOW() WHEN $1='running' THEN NULL ELSE finished_at END
-		WHERE id=$2
+		WHERE id=$2::uuid
 	`, status, taskID)
 	return err
 }
@@ -469,7 +469,7 @@ func (s *PostgresTaskStore) IncrementTaskCounts(taskID string, scanned, greeted,
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE task_runs SET scanned_count=scanned_count+$1, greeted_count=greeted_count+$2, skipped_count=skipped_count+$3, failed_count=failed_count+$4 WHERE id=$5`,
+		`UPDATE task_runs SET scanned_count=scanned_count+$1, greeted_count=greeted_count+$2, skipped_count=skipped_count+$3, failed_count=failed_count+$4 WHERE id=$5::uuid`,
 		scanned, greeted, skipped, failed, taskID)
 	return err
 }
