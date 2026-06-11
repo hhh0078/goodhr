@@ -554,5 +554,5 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()
 	root := t.TempDir()
-	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots")
+	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "")
 }

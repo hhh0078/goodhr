@@ -72,14 +72,14 @@ type Runner struct {
 
 // runState 保存单个运行任务的控制句柄。
 type runState struct {
-	cancel          context.CancelFunc
-	progress        Progress
-	emailForNotify  string // 失败通知邮箱
+	cancel         context.CancelFunc
+	progress       Progress
+	emailForNotify string // 失败通知邮箱
 	// 摸鱼休息状态
-	restMaxTimes    int
-	restUsed        int
-	restNextAfter   int
-	restSinceLast   int
+	restMaxTimes  int
+	restUsed      int
+	restNextAfter int
+	restSinceLast int
 }
 
 // Progress 表示任务运行进度。
@@ -132,27 +132,27 @@ type StartOptions struct {
 	ScrollDistance int
 	PageReadyDelay int
 	// 以下为模拟人工操作的延时配置（随机范围）
-	ScrollDelayMin      int     // 两次滚动之间的延时（秒）
-	ScrollDelayMax      int
-	ListViewDelayMin    float64 // 查看候选人列表后的停留（秒）
-	ListViewDelayMax    float64
-	DetailViewDelayMin  float64 // 查看候选人详情后的停留（秒）
-	DetailViewDelayMax  float64
-	DetailOpenDelayMin  float64 // 打开详情前的延时（秒）
-	DetailOpenDelayMax  float64
-	DetailCloseDelayMin float64 // 关闭详情前的延时（秒）
-	DetailCloseDelayMax float64
-	GreetBeforeDelayMin float64 // 打招呼前点击按钮的延时（秒）
-	GreetBeforeDelayMax float64
-	RestAfterCandidatesMin int    // 处理多少候选人后摸鱼休息
+	ScrollDelayMin         int // 两次滚动之间的延时（秒）
+	ScrollDelayMax         int
+	ListViewDelayMin       float64 // 查看候选人列表后的停留（秒）
+	ListViewDelayMax       float64
+	DetailViewDelayMin     float64 // 查看候选人详情后的停留（秒）
+	DetailViewDelayMax     float64
+	DetailOpenDelayMin     float64 // 打开详情前的延时（秒）
+	DetailOpenDelayMax     float64
+	DetailCloseDelayMin    float64 // 关闭详情前的延时（秒）
+	DetailCloseDelayMax    float64
+	GreetBeforeDelayMin    float64 // 打招呼前点击按钮的延时（秒）
+	GreetBeforeDelayMax    float64
+	RestAfterCandidatesMin int // 处理多少候选人后摸鱼休息
 	RestAfterCandidatesMax int
-	RestTimesMin           int    // 整个任务最多摸鱼休息几次
+	RestTimesMin           int // 整个任务最多摸鱼休息几次
 	RestTimesMax           int
 	RestDurationMin        float64 // 每次摸鱼休息多少分钟
 	RestDurationMax        float64
 	// 提示音和通知
-	EnableSound       bool   `json:"enable_sound"`     // 是否开启提示音
-	EmailForNotify    string `json:"email_for_notify"` // 失败通知邮箱
+	EnableSound    bool   `json:"enable_sound"`     // 是否开启提示音
+	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱
 }
 
 // New 创建本地任务运行器。
@@ -248,7 +248,9 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			return
 		}
 		if isBrowserClosedTaskError(err) {
-			r.failStart(taskID, "浏览器已关闭，任务已自动结束："+err.Error())
+			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "浏览器已关闭，任务已自动结束", TotalRounds: totalRounds})
+			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+			r.taskLog(taskID, "warning", "浏览器已关闭，任务已自动结束："+err.Error())
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
@@ -389,69 +391,85 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		return nil, err
 	}
 	seen := map[string]struct{}{}
+	queue := make([]map[string]any, 0)
 	totalSaved := 0
 	totalSkipped := 0
 	totalGreeted := 0
 	totalFailed := 0
-	totalRounds := scanRounds(options)
-	maxItems := maxItemsPerRound(options)
-	for round := 1; round <= totalRounds; round++ {
+	processedCount := 0
+	emptyLoads := 0
+	emptyLimit := emptyLoadLimit(options)
+	maxItems := maxItemsPerLoad(options)
+	for emptyLoads < emptyLimit {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
-		r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: fmt.Sprintf("正在确认第 %d 轮页面和岗位", round), Round: round, TotalRounds: totalRounds})
-		if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
-			return nil, err
-		}
-		positionName := taskPositionName(task)
-		if strings.TrimSpace(positionName) == "" {
-			return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
-		}
-		currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
-		if err != nil {
-			return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
-		}
-		if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
-			r.taskLog(task.ID, "info", "页面岗位匹配："+currentName)
-		} else {
-			r.taskLog(task.ID, "warning", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, positionName))
-			if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
-				return nil, fmt.Errorf("切换页面岗位失败：%w", err)
+		if len(queue) == 0 {
+			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
+			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
+			if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
+				return nil, err
 			}
-			confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
+			positionName := taskPositionName(task)
+			if strings.TrimSpace(positionName) == "" {
+				return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
+			}
+			currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
 			if err != nil {
-				return nil, fmt.Errorf("切换后确认页面岗位失败：%w", err)
+				return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
 			}
-			if !strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
-				return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+			if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
+				r.taskLog(task.ID, "info", "页面岗位匹配："+currentName)
+			} else {
+				r.taskLog(task.ID, "warning", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, positionName))
+				if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
+					return nil, fmt.Errorf("切换页面岗位失败：%w", err)
+				}
+				confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
+				if err != nil {
+					return nil, fmt.Errorf("切换后确认页面岗位失败：%w", err)
+				}
+				if !strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
+					return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+				}
+				r.taskLog(task.ID, "info", "页面岗位已切换为："+confirmedName)
 			}
-			r.taskLog(task.ID, "info", "页面岗位已切换为："+confirmedName)
+			delay := pageReadyDelay(options)
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return nil, err
+			}
+			// 3. 读取当前屏幕可见候选人，并追加到待处理队列。
+			r.updateProgress(task.ID, Progress{Stage: "extracting", Message: "正在提取候选人"})
+			r.taskLog(task.ID, "info", fmt.Sprintf("开始提取候选人：max_items=%d", maxItems))
+			platformCandidates, err := platformRuntime.ListVisibleCandidates(ctx, exec, platformConfig, maxItems)
+			if err != nil {
+				return nil, err
+			}
+			candidates := freshCandidates(candidateMaps(platformCandidates), seen)
+			if len(candidates) == 0 {
+				emptyLoads++
+				r.taskLog(task.ID, "info", fmt.Sprintf("本次未发现新候选人，连续空加载=%d/%d", emptyLoads, emptyLimit))
+				if emptyLoads >= emptyLimit {
+					break
+				}
+				if err := r.scrollForMoreCandidates(ctx, task.ID, platformRuntime, exec, platformConfig, options); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			emptyLoads = 0
+			queue = append(queue, candidates...)
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取完成：本次新增=%d，待处理=%d，已处理=%d", len(candidates), len(queue), processedCount))
 		}
-		delay := pageReadyDelay(options)
-		r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
-		if err := sleepWithContext(ctx, delay); err != nil {
-			return nil, err
-		}
-		// 3. 读取当前屏幕可见候选人，并先做关键词过滤。
-		r.updateProgress(task.ID, Progress{Stage: "extracting", Message: fmt.Sprintf("正在扫描第 %d 轮", round), Round: round, TotalRounds: totalRounds})
-		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始提取候选人：max_items=%d", round, maxItems))
-		platformCandidates, err := platformRuntime.ListVisibleCandidates(ctx, exec, platformConfig, maxItems)
-		if err != nil {
-			return nil, err
-		}
-		candidates := freshCandidates(candidateMaps(platformCandidates), seen)
-		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人提取完成：新候选人=%d", round, len(candidates)))
-		if len(candidates) == 0 {
-			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮未发现新候选人", round))
-			break
-		}
+		candidates := queue
+		queue = nil
 		filtered, skipped := applyKeywordFilter(task, candidates)
 		totalSkipped += skipped
-		r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮关键词过滤完成：保留=%d 跳过=%d", round, len(filtered), skipped))
+		r.taskLog(task.ID, "info", fmt.Sprintf("关键词过滤完成：保留=%d 跳过=%d", len(filtered), skipped))
 		if len(filtered) > 0 {
-			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在并发处理第 %d 轮候选人", round), Round: round, TotalRounds: totalRounds})
-			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮开始处理候选人流水线：数量=%d", round, len(filtered)))
+			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在处理候选人队列，待处理 %d 个", len(filtered))})
+			r.taskLog(task.ID, "info", fmt.Sprintf("开始处理候选人队列：数量=%d", len(filtered)))
 
 			// 4. 并发做“是否值得看详情”的预评分，但主流程仍按页面顺序消费候选人。
 			batchResult := batchProcessResult{}
@@ -464,7 +482,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			needsAI := taskMode(task) == "ai"
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
-				r.taskLog(task.ID, "info", fmt.Sprintf("正在并发分析 %d 个候选人，并发数=%d", len(filtered), workerCount))
+				r.taskLog(task.ID, "info", fmt.Sprintf("正在并发分析多个候选人：数量=%d，并发数=%d", len(filtered), workerCount))
 				r.startCandidateDetailWorkers(ctx, task, exec, aiClient, aiJobs, precheckCh, workerCount)
 			}
 			go r.feedCandidatePipeline(ctx, task, filtered, needsAI, aiJobs, precheckCh)
@@ -495,7 +513,8 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				}
 
 				candidate := item.Candidate
-				r.taskLog(task.ID, "info", fmt.Sprintf("按页面顺序处理候选人：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), stringFromMap(candidate, "status")))
+				processedCount++
+				r.taskLog(task.ID, "info", fmt.Sprintf("按队列顺序处理候选人：序号=%d name=%s status=%s", processedCount, candidateLogName(candidate), stringFromMap(candidate, "status")))
 				batchResult.Skipped += item.Skipped
 
 				// 5. 如果预评分通过，再打开详情；详情模式由任务配置决定：DOM、OCR 或 AI 图片。
@@ -560,7 +579,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 				}
 
 				status := stringFromMap(candidate, "status")
-				if status == "greeted" {
+				if shouldSaveCandidateResult(status) {
 					if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
 						return nil, err
 					}
@@ -573,22 +592,10 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalSkipped += batchResult.Skipped
 			totalGreeted += batchResult.Greeted
 			totalFailed += batchResult.Failed
-			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人流水线完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", round, batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人队列处理完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
 		}
-		if round < totalRounds {
-			// 9. 本轮结束后滚动列表，进入下一轮候选人。
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			r.updateProgress(task.ID, Progress{Stage: "scrolling", Message: fmt.Sprintf("第 %d 轮完成，正在加载更多候选人", round), Round: round, TotalRounds: totalRounds})
-			scrollDistance := randomScrollDistance(options)
-			r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮准备滚动候选人列表：distance=%d", round, scrollDistance))
-			if err := platformRuntime.ScrollCandidateList(ctx, exec, platformConfig, scrollDistance); err != nil {
-				r.taskLog(task.ID, "warning", "滚动候选人列表失败："+err.Error())
-			} else {
-				r.taskLog(task.ID, "info", fmt.Sprintf("第 %d 轮候选人列表滚动完成", round))
-			}
-
+		if err := r.scrollForMoreCandidates(ctx, task.ID, platformRuntime, exec, platformConfig, options); err != nil {
+			return nil, err
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
@@ -602,8 +609,26 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		"skipped_count":    totalSkipped,
 		"greeted_count":    totalGreeted,
 		"failed_count":     totalFailed,
+		"processed_count":  processedCount,
 		"entry_url":        entryURL,
 	}, nil
+}
+
+// scrollForMoreCandidates 滚动候选人列表以加载更多候选人。
+// ctx 为请求上下文，taskID 为任务 ID，platformRuntime 为平台执行器，exec 为 Worker 执行器，platformConfig 为平台配置，options 为任务启动参数。
+func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, options StartOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.updateProgress(taskID, Progress{Stage: "scrolling", Message: "正在加载更多候选人"})
+	scrollDistance := randomScrollDistance(options)
+	r.taskLog(taskID, "info", fmt.Sprintf("准备滚动候选人列表：distance=%d", scrollDistance))
+	if err := platformRuntime.ScrollCandidateList(ctx, exec, platformConfig, scrollDistance); err != nil {
+		r.taskLog(taskID, "warning", "滚动候选人列表失败："+err.Error())
+		return nil
+	}
+	r.taskLog(taskID, "info", "候选人列表滚动完成")
+	return nil
 }
 
 // taskProfileName 返回任务对应的本机浏览器目录名。
@@ -1105,9 +1130,9 @@ func (r *Runner) analyzeDetailScreenshotWithClient(ctx context.Context, task loc
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
 	result, err := client.Chat(ctx, map[string]any{
-		"messages":         []map[string]any{{"role": "user", "content": content}},
-		"temperature":      0.1,
-		"enable_thinking":  client.EnableThinking,
+		"messages":        []map[string]any{{"role": "user", "content": content}},
+		"temperature":     0.1,
+		"enable_thinking": client.EnableThinking,
 	})
 	if err != nil {
 		return "", err
@@ -1447,8 +1472,8 @@ func minInt(a int, b int) int {
 	return b
 }
 
-// scanRounds 返回本次任务扫描轮数。
-// options 为任务启动参数。
+// scanRounds 返回旧版扫描进度总数。
+// options 为任务启动参数，保留该函数用于兼容前端旧进度字段。
 func scanRounds(options StartOptions) int {
 	if options.ScanRounds <= 0 {
 		return defaultScanRounds
@@ -1459,9 +1484,15 @@ func scanRounds(options StartOptions) int {
 	return options.ScanRounds
 }
 
-// maxItemsPerRound 返回每轮最多提取候选人数。
+// emptyLoadLimit 返回连续未加载到新候选人的停止阈值。
+// options 为任务启动参数，沿用 ScanRounds 字段作为空加载保护次数。
+func emptyLoadLimit(options StartOptions) int {
+	return scanRounds(options)
+}
+
+// maxItemsPerLoad 返回每次最多提取候选人数。
 // options 为任务启动参数。
-func maxItemsPerRound(options StartOptions) int {
+func maxItemsPerLoad(options StartOptions) int {
 	if options.MaxItems <= 0 {
 		return defaultMaxItemsPerRound
 	}
@@ -1469,6 +1500,12 @@ func maxItemsPerRound(options StartOptions) int {
 		return 100
 	}
 	return options.MaxItems
+}
+
+// maxItemsPerRound 返回旧版每轮最多提取候选人数。
+// options 为任务启动参数，保留该函数用于兼容旧测试和旧调用。
+func maxItemsPerRound(options StartOptions) int {
+	return maxItemsPerLoad(options)
 }
 
 // scrollDistance 返回每轮滚动距离。
@@ -1647,7 +1684,11 @@ func (r *Runner) updateProgress(taskID string, progress Progress) {
 		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	state.progress = progress
-	log.Printf("[本地任务] task=%s progress stage=%s round=%d/%d message=%s", taskID, progress.Stage, progress.Round, progress.TotalRounds, progress.Message)
+	if progress.Round > 0 {
+		log.Printf("[本地任务] task=%s progress stage=%s round=%d/%d message=%s", taskID, progress.Stage, progress.Round, progress.TotalRounds, progress.Message)
+		return
+	}
+	log.Printf("[本地任务] task=%s progress stage=%s message=%s", taskID, progress.Stage, progress.Message)
 }
 
 // cancel 取消正在运行的任务。
@@ -2048,6 +2089,13 @@ func detailModeLabel(mode string) string {
 func canContinueCandidate(status string) bool {
 	status = strings.TrimSpace(status)
 	return status == "" || status == "scanned" || status == "passed" || status == "detail_fetched" || status == "ai_passed"
+}
+
+// shouldSaveCandidateResult 判断候选人结果是否需要入库。
+// status 为候选人当前状态，返回 true 表示该候选人是有效扫描结果。
+func shouldSaveCandidateResult(status string) bool {
+	status = strings.TrimSpace(status)
+	return status == "scanned" || status == "passed" || status == "detail_fetched" || status == "ai_passed" || status == "greeted"
 }
 
 // intFromMap 从 map 中读取整数。

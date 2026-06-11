@@ -1045,11 +1045,21 @@ function candidateRawText(fields) {
  * 生成候选人本地 ID。
  * @param {Record<string, string>} fields - 候选人字段。
  * @param {string} rawText - 候选人文本。
- * @param {number} index - 页面序号。
+ * @param {number} index - 页面序号，仅在候选人文本为空时兜底使用。
  * @returns {string} 候选人 ID。
  */
 function candidateID(fields, rawText, index) {
-  const base = [fields.name || "", rawText || "", String(index)].join("|");
+  const base = [
+    fields.name || "",
+    fields.basic_info || "",
+    fields.education || "",
+    fields.university || "",
+    fields.description || "",
+    rawText || "",
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join("|") || `index:${index}`;
   return `boss_${crypto.createHash("sha1").update(base).digest("hex").slice(0, 16)}`;
 }
 
