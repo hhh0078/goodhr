@@ -220,7 +220,7 @@ export function useTasks(
         confirmText: "停止",
       }))) return;
       if (shouldUseLocalTasks()) {
-        const data = await stopLocalTask(localTaskBase(), taskId, { token: getAccessToken() });
+        const data = await stopLocalTask(localTaskBase(), taskId, taskLocalPayload());
         taskProgress.value = {
           ...taskProgress.value,
           [taskId]: { stage: "stopped", message: "任务已停止" },

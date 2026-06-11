@@ -224,7 +224,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	client := cloudapi.New(options.CloudAPIBase)
 	snapshot, err := r.buildTaskRuntimeSnapshot(ctx, client, task, options, totalRounds)
 	if err != nil {
-		r.failStart(taskID, err.Error())
+		r.failStart(taskID, err.Error(), options)
 		return
 	}
 	task = snapshot.Task
@@ -247,7 +247,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			r.notifyCloudTaskStopped(taskID, options)
 			return
 		}
-		r.failStart(taskID, "本地任务扫描失败："+err.Error())
+		r.failStart(taskID, "本地任务扫描失败："+err.Error(), options)
 		return
 	}
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
@@ -1743,8 +1743,8 @@ func statusMessage(status string) string {
 }
 
 // failStart 记录启动失败日志并清理运行锁，自动播放失败提示音和发送邮件通知。
-// taskID 为任务 ID，msg 为失败原因。
-func (r *Runner) failStart(taskID string, msg string) {
+// taskID 为任务 ID，msg 为失败原因，options 为本次任务启动参数。
+func (r *Runner) failStart(taskID string, msg string, options StartOptions) {
 	r.taskLog(taskID, "error", msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
@@ -1752,7 +1752,7 @@ func (r *Runner) failStart(taskID string, msg string) {
 	if task, err := r.db.GetTask(taskID); err == nil && task.EnableSound {
 		r.playSound("failed.wav", taskID)
 	}
-	r.sendTaskFailNotification(context.Background(), taskID, msg)
+	r.sendTaskFailNotification(context.Background(), taskID, msg, options)
 }
 
 // isBrowserClosedTaskError 判断错误是否来自用户关闭浏览器。
@@ -2381,9 +2381,12 @@ func (r *Runner) playSound(soundName string, taskID string) {
 }
 
 // sendTaskFailNotification 通知云端任务失败，由云端按任务 ID 查用户并发邮件。
-// ctx 为请求上下文，taskID 为任务 ID，errorMsg 为失败原因。
-func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, errorMsg string) {
-	baseURL := strings.TrimSpace(r.cloudAPIBase)
+// ctx 为请求上下文，taskID 为任务 ID，errorMsg 为失败原因，options 为本次任务启动参数。
+func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, errorMsg string, options StartOptions) {
+	baseURL := strings.TrimSpace(options.CloudAPIBase)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(r.cloudAPIBase)
+	}
 	if baseURL == "" {
 		baseURL = "https://goodhr5.58it.cn"
 	}

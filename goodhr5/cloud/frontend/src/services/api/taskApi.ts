@@ -1,5 +1,5 @@
 // 本文件负责任务和任务日志相关接口。
-import { api, getAccessToken } from "../apiClient";
+import { api, cloudApiBase, getAccessToken } from "../apiClient";
 import {
   clearLocalTaskLogs,
   listLocalTaskLogs,
@@ -54,7 +54,10 @@ export async function listTasks() {
  */
 export async function runTask(taskID: string) {
   if (isLocalConsole()) {
-    return runLocalTask(localAgentBase(), taskID, { token: getAccessToken() });
+    return runLocalTask(localAgentBase(), taskID, {
+      cloud_api_base: cloudApiBase(),
+      token: getAccessToken(),
+    });
   }
   return api(`/api/tasks/${taskID}/run`, { method: "POST" });
 }
@@ -66,7 +69,10 @@ export async function runTask(taskID: string) {
  */
 export async function stopTask(taskID: string) {
   if (isLocalConsole()) {
-    return stopLocalTask(localAgentBase(), taskID, { token: getAccessToken() });
+    return stopLocalTask(localAgentBase(), taskID, {
+      cloud_api_base: cloudApiBase(),
+      token: getAccessToken(),
+    });
   }
   return api(`/api/tasks/${taskID}/stop`, { method: "POST" });
 }
