@@ -151,7 +151,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.tenant_id = $1
+		WHERE u.tenant_id = NULLIF($1, '')::uuid
 		  AND (u.email = $2 OR $3::boolean)
 		ORDER BY tr.created_at DESC
 		`,
@@ -225,7 +225,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = $1) AND (u.email = $2 OR $3::boolean) AND tr.id = $4::uuid
+		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = NULLIF($1, '')::uuid) AND (u.email = $2 OR $3::boolean) AND tr.id = $4::uuid
 		`,
 		tenantID, userEmail, isAdmin, taskID,
 	).Scan(
@@ -268,7 +268,7 @@ func (s *PostgresTaskStore) DeleteTask(tenantID, userEmail, taskID string, isAdm
 		DELETE FROM task_runs tr
 		USING users u
 		WHERE tr.user_id = u.id
-		  AND u.tenant_id = $1
+		  AND u.tenant_id = NULLIF($1, '')::uuid
 		  AND (u.email = $2 OR $3::boolean)
 		  AND tr.id = $4::uuid
 		`,

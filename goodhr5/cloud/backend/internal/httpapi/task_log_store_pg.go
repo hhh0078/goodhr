@@ -157,7 +157,7 @@ func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, i
 		FROM task_logs tl
 		INNER JOIN task_runs tr ON tr.id = tl.task_id
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.tenant_id = $1
+		WHERE u.tenant_id = NULLIF($1, '')::uuid
 	`
 	args := []any{tenantID}
 	if !isAdmin {
