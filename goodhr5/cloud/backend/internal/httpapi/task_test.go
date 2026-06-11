@@ -20,7 +20,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	createReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/tasks",
-		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20}`),
+		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20,"enable_thinking":true}`),
 	)
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createResp := httptest.NewRecorder()
@@ -41,6 +41,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 			PositionName string `json:"position_name"`
 			FilterMode   string `json:"mode"`
 			LocalTaskID  string `json:"local_task_id"`
+			Thinking     bool   `json:"enable_thinking"`
 			Position     struct {
 				ID       string   `json:"id"`
 				Name     string   `json:"name"`
@@ -69,6 +70,9 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if createPayload.Task.LocalTaskID == "" {
 		t.Fatal("local_task_id is empty")
 	}
+	if !createPayload.Task.Thinking {
+		t.Fatal("enable_thinking should be true")
+	}
 
 	// 调用任务列表接口，供云端控制台展示任务卡片。
 	listReq := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
@@ -82,6 +86,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	var listPayload struct {
 		Tasks []struct {
 			ID       string `json:"id"`
+			Thinking bool   `json:"enable_thinking"`
 			Position struct {
 				ID   string `json:"id"`
 				Name string `json:"name"`
@@ -97,6 +102,9 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if listPayload.Tasks[0].Position.ID != positionID || listPayload.Tasks[0].Position.Name != "带货主播" {
 		t.Fatalf("unexpected list position payload: %+v", listPayload.Tasks[0].Position)
 	}
+	if !listPayload.Tasks[0].Thinking {
+		t.Fatal("list enable_thinking should be true")
+	}
 
 	// 调用任务详情接口，供后续展开日志和候选人数据时使用。
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/tasks/"+createPayload.Task.ID, nil)
@@ -105,6 +113,17 @@ func TestTaskCreateListDetail(t *testing.T) {
 	routes.ServeHTTP(detailResp, detailReq)
 	if detailResp.Code != http.StatusOK {
 		t.Fatalf("detail status = %d, body = %s", detailResp.Code, detailResp.Body.String())
+	}
+	var detailPayload struct {
+		Task struct {
+			Thinking bool `json:"enable_thinking"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(detailResp.Body).Decode(&detailPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !detailPayload.Task.Thinking {
+		t.Fatal("detail enable_thinking should be true")
 	}
 }
 

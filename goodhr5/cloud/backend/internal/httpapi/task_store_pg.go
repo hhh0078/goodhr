@@ -51,6 +51,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
@@ -58,7 +59,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			failed_count,
 			local_task_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'created', 0, 0, 0, 0, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created', 0, 0, 0, 0, $10)
 		RETURNING
 			id,
 			name,
@@ -68,6 +69,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
@@ -86,6 +88,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		task.Mode,
 		task.MatchLimit,
 		task.EnableSound,
+		task.EnableThinking,
 		localTaskID(task),
 	).Scan(
 		&saved.ID,
@@ -96,6 +99,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		&saved.Mode,
 		&saved.MatchLimit,
 		&saved.EnableSound,
+		&saved.EnableThinking,
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,
@@ -135,6 +139,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			tr.mode,
 			tr.match_limit,
 			tr.enable_sound,
+			tr.enable_thinking,
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
@@ -170,6 +175,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			&item.Mode,
 			&item.MatchLimit,
 			&item.EnableSound,
+			&item.EnableThinking,
 			&item.Status,
 			&item.ScannedCount,
 			&item.GreetedCount,
@@ -207,6 +213,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.mode,
 			tr.match_limit,
 			tr.enable_sound,
+			tr.enable_thinking,
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
@@ -230,6 +237,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		&item.Mode,
 		&item.MatchLimit,
 		&item.EnableSound,
+		&item.EnableThinking,
 		&item.Status,
 		&item.ScannedCount,
 		&item.GreetedCount,
@@ -306,8 +314,8 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		ctx,
 		`
 		UPDATE task_runs
-		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7
-		WHERE id=$8
+		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7, enable_thinking=$8
+		WHERE id=$9
 		RETURNING
 			id,
 			name,
@@ -317,6 +325,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
@@ -334,6 +343,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		task.Mode,
 		task.MatchLimit,
 		task.EnableSound,
+		task.EnableThinking,
 		taskID,
 	).Scan(
 		&saved.ID,
@@ -344,6 +354,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		&saved.Mode,
 		&saved.MatchLimit,
 		&saved.EnableSound,
+		&saved.EnableThinking,
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,

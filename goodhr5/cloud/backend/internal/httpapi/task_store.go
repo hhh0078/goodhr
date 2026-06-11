@@ -9,7 +9,7 @@ import (
 type TaskRun struct {
 	ID, UserEmail, Name, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
 	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount                         int
-	EnableSound                                                                               bool
+	EnableSound, EnableThinking                                                               bool
 	CreatedAt                                                                                 time.Time
 	StartedAt, FinishedAt                                                                     *time.Time
 }
@@ -109,6 +109,7 @@ func (s *MemoryTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, erro
 	existing.Mode = task.Mode
 	existing.MatchLimit = task.MatchLimit
 	existing.EnableSound = task.EnableSound
+	existing.EnableThinking = task.EnableThinking
 	s.tasks[taskID] = existing
 	return existing, nil
 }

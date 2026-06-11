@@ -41,6 +41,7 @@ type createTaskRequest struct {
 	Mode              string `json:"mode"`
 	MatchLimit        int    `json:"match_limit"`
 	EnableSound       bool   `json:"enable_sound"`
+	EnableThinking    bool   `json:"enable_thinking"`
 }
 
 // NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
@@ -327,6 +328,7 @@ func (r createTaskRequest) toTask(w http.ResponseWriter, userEmail string) (Task
 		Mode:              strings.TrimSpace(r.Mode),
 		MatchLimit:        r.MatchLimit,
 		EnableSound:       r.EnableSound,
+		EnableThinking:    r.EnableThinking,
 	}
 
 	if task.PlatformID == "" {
@@ -367,6 +369,7 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"mode":                item.Mode,
 		"match_limit":         item.MatchLimit,
 		"enable_sound":        item.EnableSound,
+		"enable_thinking":     item.EnableThinking,
 		"status":              item.Status,
 		"scanned_count":       item.ScannedCount,
 		"greeted_count":       item.GreetedCount,
