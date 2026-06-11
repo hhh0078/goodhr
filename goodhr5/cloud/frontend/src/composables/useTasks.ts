@@ -559,6 +559,7 @@ export function useTasks(
    */
   function taskLocalPayload(token = getAccessToken()) {
     return {
+      cloud_api_base: cloudApiBase(),
       token,
     };
   }

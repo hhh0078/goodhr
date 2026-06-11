@@ -148,6 +148,27 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 }
 
+// TestRunnerStatusPendingWhenTaskMissing 验证未启动的云端任务查询本地状态时不会报错。
+func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
+	db := openRunnerTestDB(t)
+	runner := newTestRunner(t, db, &fakeWorker{})
+
+	status, err := runner.Status("cloud-task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status["running"] != false {
+		t.Fatalf("running = %+v", status["running"])
+	}
+	progress, ok := status["progress"].(Progress)
+	if !ok {
+		t.Fatalf("progress = %+v", status["progress"])
+	}
+	if progress.Stage != "pending" || progress.Message != "本地任务尚未启动" {
+		t.Fatalf("progress = %+v", progress)
+	}
+}
+
 // TestPlatformEntryURL 验证平台入口页读取规则与云端运行时一致。
 func TestPlatformEntryURL(t *testing.T) {
 	config := cloudapi.PlatformConfig{

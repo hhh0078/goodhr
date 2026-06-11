@@ -306,12 +306,34 @@ func (r *Runner) Status(taskID string) (map[string]any, error) {
 	}
 	task, err := r.db.GetTask(taskID)
 	if err != nil {
+		if isLocalTaskMissing(err) {
+			return map[string]any{
+				"task": map[string]any{
+					"id":     taskID,
+					"status": "pending",
+				},
+				"running": false,
+				"progress": Progress{
+					Stage:       "pending",
+					Message:     "本地任务尚未启动",
+					TotalRounds: defaultScanRounds,
+					UpdatedAt:   time.Now().Format(time.RFC3339),
+				},
+				"logs": []localdb.Log{},
+			}, nil
+		}
 		return nil, err
 	}
 	running := r.IsRunning(taskID)
 	progress := r.Progress(taskID, task)
 	logs, _ := r.db.ListTaskLogs(taskID, 20)
 	return map[string]any{"task": task, "running": running, "progress": progress, "logs": logs}, nil
+}
+
+// isLocalTaskMissing 判断错误是否表示本地任务尚未创建。
+// err 为数据库返回的错误。
+func isLocalTaskMissing(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "本地任务不存在")
 }
 
 // Progress 返回任务当前进度。
