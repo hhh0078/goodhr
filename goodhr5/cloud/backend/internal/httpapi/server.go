@@ -181,6 +181,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 		s.tasks.Stop(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/candidates") {
+		// 接收本地程序回传的候选人 JSON，并写入云端简历库。
+		s.tasks.SaveLocalCandidate(w, r)
+		return
+	}
 	// 调用任务服务处理任务详情读取。
 	s.tasks.Detail(w, r)
 }

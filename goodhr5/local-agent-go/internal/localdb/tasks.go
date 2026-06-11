@@ -88,6 +88,30 @@ INSERT INTO local_tasks (
 	return task, nil
 }
 
+// UpsertTaskSnapshot 保存云端任务在本地运行所需的轻量快照。
+// payload 为云端任务字段，返回本地任务记录；已有任务只更新基础字段，不清空运行日志。
+func (db *DB) UpsertTaskSnapshot(payload map[string]any) (Task, error) {
+	taskID := strings.TrimSpace(stringOr(payload["id"], ""))
+	if taskID == "" {
+		return Task{}, fmt.Errorf("任务 ID 不能为空")
+	}
+	if existing, err := db.GetTask(taskID); err == nil {
+		updated := map[string]any{
+			"name":                stringOr(payload["name"], existing.Name),
+			"platform_id":         stringOr(payload["platform_id"], existing.PlatformID),
+			"platform_account_id": stringOr(payload["platform_account_id"], existing.PlatformAccountID),
+			"position_id":         stringOr(payload["position_id"], existing.PositionID),
+			"mode":                stringOr(payload["mode"], existing.Mode),
+			"match_limit":         intValueOr(payload["match_limit"], existing.MatchLimit),
+			"enable_sound":        boolValueOr(payload["enable_sound"], existing.EnableSound),
+			"enable_thinking":     boolValueOr(payload["enable_thinking"], existing.EnableThinking),
+			"position_snapshot":   mapValueOr(payload["position_snapshot"], existing.PositionSnapshot),
+		}
+		return db.UpdateTask(taskID, updated)
+	}
+	return db.CreateTask(payload)
+}
+
 // ListTasks 读取本地任务列表。
 // 返回值按创建时间倒序排列。
 func (db *DB) ListTasks() ([]Task, error) {
@@ -578,7 +602,7 @@ func scanTask(scanner interface{ Scan(dest ...any) error }) (Task, error) {
 	var enableSound int
 	var positionJSON string
 	var enableThinking int
-		err := scanner.Scan(
+	err := scanner.Scan(
 		&task.ID, &task.Name, &task.PlatformID, &task.PlatformAccountID, &task.PositionID, &task.Mode,
 		&task.MatchLimit, &task.Status, &task.ScannedCount, &task.GreetedCount, &task.SkippedCount,
 		&task.FailedCount, &enableSound, &enableThinking, &positionJSON, &task.CreatedAt, &task.UpdatedAt,
@@ -637,6 +661,15 @@ func boolValue(value any) bool {
 	}
 }
 
+// boolValueOr 将值转换为布尔值，空值使用默认值。
+// value 为原始值，fallback 为默认值。
+func boolValueOr(value any, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return boolValue(value)
+}
+
 // mapValue 将值转换为 map。
 // value 为原始值。
 func mapValue(value any) map[string]any {
@@ -664,7 +697,6 @@ func maxInt(a int, b int) int {
 	return b
 }
 
-
 // candidateRowToMap 将 SQLite 行数据转换为 map，供 API 返回。
 func candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYears string,
 	salMin, salMax *int, personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string,
@@ -675,37 +707,37 @@ func candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYe
 	aiReviewReason string, aiReviewScore *float64,
 	ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string) map[string]any {
 	item := map[string]any{
-		"candidate_name":                     cName,
-		"status":                             cStatus,
-		"birth_ym":                           birthYM,
-		"phone":                              phone,
-		"email":                              email,
-		"work_region":                        workRegion,
-		"work_years":                         workYears,
-		"expected_salary_min":                salMin,
-		"expected_salary_max":                salMax,
-		"personal_description":               personalDesc,
-		"work_status":                        workStatus,
-		"expected_position":                  expectedPos,
-		"online_status":                      onlineStatus,
-		"education_level":                    eduLevel,
-		"basic_info":                         basicInfo,
-		"raw_text":                           rawText,
-		"filter_text":                        filterText,
-		"resume_attachment_url":              resumeURL,
-		"resume_attachment_extracted_text":   resumeText,
-		"ai_detail_reason":                   aiDetailReason,
-		"ai_detail_score":                    aiDetailScore,
-		"ai_greet_reason":                    aiGreetReason,
-		"ai_greet_score":                     aiGreetScore,
-		"ai_review_reason":                   aiReviewReason,
-		"ai_review_score":                    aiReviewScore,
-		"ext":                                ext,
-		"first_seen_at":                      firstSeen,
-		"detail_fetched_at":                  detailFetched,
-		"greeted_at":                         greeted,
-		"created_at":                         createdAt,
-		"updated_at":                         updatedAt,
+		"candidate_name":                   cName,
+		"status":                           cStatus,
+		"birth_ym":                         birthYM,
+		"phone":                            phone,
+		"email":                            email,
+		"work_region":                      workRegion,
+		"work_years":                       workYears,
+		"expected_salary_min":              salMin,
+		"expected_salary_max":              salMax,
+		"personal_description":             personalDesc,
+		"work_status":                      workStatus,
+		"expected_position":                expectedPos,
+		"online_status":                    onlineStatus,
+		"education_level":                  eduLevel,
+		"basic_info":                       basicInfo,
+		"raw_text":                         rawText,
+		"filter_text":                      filterText,
+		"resume_attachment_url":            resumeURL,
+		"resume_attachment_extracted_text": resumeText,
+		"ai_detail_reason":                 aiDetailReason,
+		"ai_detail_score":                  aiDetailScore,
+		"ai_greet_reason":                  aiGreetReason,
+		"ai_greet_score":                   aiGreetScore,
+		"ai_review_reason":                 aiReviewReason,
+		"ai_review_score":                  aiReviewScore,
+		"ext":                              ext,
+		"first_seen_at":                    firstSeen,
+		"detail_fetched_at":                detailFetched,
+		"greeted_at":                       greeted,
+		"created_at":                       createdAt,
+		"updated_at":                       updatedAt,
 	}
 	// JSON 字段解析为数组或字典
 	if workExps != "" && workExps != "[]" {

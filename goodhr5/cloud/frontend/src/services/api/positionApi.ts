@@ -1,22 +1,11 @@
 // 本文件负责岗位模板和系统默认提示词接口。
 import { api } from "../apiClient";
-import {
-  deleteLocalPosition,
-  getLocalPositionDefaultPrompts,
-  listLocalPositions,
-  optimizeLocalPositionRequirement,
-  saveLocalPosition,
-} from "../localAgentApi";
-import { isLocalConsole, localAgentBase } from "../localConsole";
 
 /**
  * 读取岗位模板列表。
  * @returns {Promise<any[]>} 返回岗位模板数组。
  */
 export async function listPositions() {
-  if (isLocalConsole()) {
-    return listLocalPositions(localAgentBase());
-  }
   const data = await api("/api/positions");
   return data.positions;
 }
@@ -27,9 +16,6 @@ export async function listPositions() {
  * @returns {Promise<any>} 返回保存后的岗位模板。
  */
 export async function savePosition(payload: any) {
-  if (isLocalConsole()) {
-    return saveLocalPosition(localAgentBase(), payload);
-  }
   const data = await api("/api/positions", { method: "POST", body: payload });
   return data.position;
 }
@@ -40,10 +26,6 @@ export async function savePosition(payload: any) {
  * @returns {Promise<void>} 无返回值。
  */
 export async function deletePosition(positionID: string) {
-  if (isLocalConsole()) {
-    await deleteLocalPosition(localAgentBase(), positionID);
-    return;
-  }
   await api(`/api/positions/${positionID}`, { method: "DELETE" });
 }
 
@@ -62,9 +44,6 @@ export async function getDefaultPrompts() {
  * @returns {Promise<string>} 返回优化后的岗位要求。
  */
 export async function optimizePositionRequirement(text: string) {
-  if (isLocalConsole()) {
-    return optimizeLocalPositionRequirement(localAgentBase(), text);
-  }
   const data = await api("/api/positions/optimize-requirement", {
     method: "POST",
     body: { text },

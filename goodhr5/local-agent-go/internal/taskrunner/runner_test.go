@@ -34,6 +34,7 @@ func TestRunnerStartStop(t *testing.T) {
 		})
 	}))
 	defer aiServer.Close()
+	var task localdb.Task
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -51,7 +52,24 @@ func TestRunnerStartStop(t *testing.T) {
 					{"config_key": "platform.boss", "config_value": `{"id":"boss","name":"Boss直聘","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/other"},{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]},"position":{"current":{"target_classes":[["current-position"]]},"switchBtn":{"target_classes":[["switch-position"]]},"list":{"target_classes":[["position-list"]]},"item":{"target_classes":[["position-item"]]},"itemText":{"target_classes":[["position-name"]]}}}`},
 				},
 			})
+		case "/api/config/user-preferences":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
+		case "/api/config/effective-ai":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{"base_url": aiServer.URL, "api_key": "test-key", "model": "test-model", "temperature": 0.2}})
 		default:
+			if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/candidates") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
+				requestedID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+				taskName := "本地任务"
+				if requestedID != task.ID {
+					taskName = "本地任务2"
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": requestedID, "name": taskName, "platform_id": "boss", "mode": "ai", "match_limit": 1, "position": map[string]any{"name": taskName}}})
+				return
+			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
@@ -286,6 +304,7 @@ func TestRunOptionBounds(t *testing.T) {
 // TestRunnerStopCancelsRunningTask 验证停止任务会取消正在执行的 Worker 调用。
 func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	speedUpPageEntryCheck(t)
+	var task localdb.Task
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -300,7 +319,13 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}],"position":{"current":{"target_classes":[["current-position"]]},"switchBtn":{"target_classes":[["switch-position"]]},"list":{"target_classes":[["position-list"]]},"item":{"target_classes":[["position-item"]]},"itemText":{"target_classes":[["position-name"]]}}}`},
 				},
 			})
+		case "/api/config/user-preferences":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
 		default:
+			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": task.ID, "name": "可停止任务", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "可停止任务"}}})
+				return
+			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
@@ -342,6 +367,7 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 // TestRunnerBrowserClosedStopsTask 验证用户关闭浏览器后任务会结束。
 func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	speedUpPageEntryCheck(t)
+	var task localdb.Task
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -353,7 +379,13 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 					{"config_key": "platform.boss", "config_value": `{"id":"boss","pages":[{"url":"https://www.zhipin.com/web/chat/recommend"}],"position":{"current":{"target_classes":[["current-position"]]}}}`},
 				},
 			})
+		case "/api/config/user-preferences":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
 		default:
+			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": task.ID, "name": "浏览器关闭任务", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "本地任务"}}})
+				return
+			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))

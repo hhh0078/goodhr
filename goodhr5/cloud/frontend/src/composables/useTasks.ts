@@ -10,25 +10,16 @@ import {
   listTaskLogs,
   updateTask,
 } from "../services/api/taskApi";
+import { listCandidates } from "../services/api/candidateApi";
 import { getUserAIConfig } from "../services/api/personalConfigApi";
 import {
   clearLocalTaskLogs,
-  createLocalTask,
-  deleteLocalTask,
-  initLocalTask,
   listLocalTaskLogs,
-  listLocalTasks,
-  listLocalTaskCandidates,
-  listLocalCandidates,
   runLocalTask,
-  deleteLocalTaskCandidate,
-  deleteLocalCandidate,
-  getLocalAIConfig,
   getLocalTaskStatus,
   startTaskWS,
   stopTaskWS,
   stopLocalTask,
-  updateLocalTask,
 } from "../services/localAgentApi";
 import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
@@ -69,7 +60,7 @@ export function useTasks(
     loading.value = true;
     error.value = "";
     try {
-      tasks.value = shouldUseLocalTasks() ? await listLocalTasks(localTaskBase()) : await listTasks();
+      tasks.value = await listTasks();
     } catch (e: any) {
       error.value = e.message;
     } finally {
@@ -79,7 +70,7 @@ export function useTasks(
 
   async function refreshTasksQuietly() {
     try {
-      tasks.value = shouldUseLocalTasks() ? await listLocalTasks(localTaskBase()) : await listTasks();
+      tasks.value = await listTasks();
     } catch (e) {
       console.error("[goodhr5][tasks] quiet refresh failed", e);
     }
@@ -101,11 +92,7 @@ export function useTasks(
         enable_thinking: Boolean(form.value.enableThinking),
         position_snapshot: resolvePositionSnapshot(form.value.positionId),
       };
-      if (shouldUseLocalTasks()) {
-        await createLocalTask(localTaskBase(), payload);
-      } else {
-        await createTask(payload);
-      }
+      await createTask(payload);
       await load();
       form.value = { ...form.value, name: "", positionId: "", enableSound: false, enableThinking: false };
     } catch (e: any) {
@@ -129,11 +116,7 @@ export function useTasks(
         enable_sound: Boolean(payload.enableSound),
         enable_thinking: Boolean(payload.enableThinking),
       };
-      if (shouldUseLocalTasks()) {
-        await updateLocalTask(localTaskBase(), taskId, taskPayload);
-      } else {
-        await updateTask(taskId, taskPayload);
-      }
+      await updateTask(taskId, taskPayload);
       await load();
     } catch (e: any) {
       error.value = e.message;
@@ -210,13 +193,6 @@ export function useTasks(
    */
   async function ensureTaskAIConfigReady(task: any) {
     if (!taskNeedsAIConfig(task)) return;
-    if (shouldUseLocalTasks()) {
-      const aiConfig = await getLocalAIConfig(localTaskBase());
-      if (!aiConfig?.base_url || !aiConfig?.model || !aiConfig?.api_key) {
-        throw new Error("当前任务需要 AI，请先在个人配置中填写并保存本地 AI 配置");
-      }
-      return;
-    }
     const aiConfig = await getUserAIConfig();
     if (!aiConfig?.api_key_set || aiConfig?.enabled === false) {
       throw new Error("当前任务需要 AI，请先在个人配置中填写并保存 AI Key");
@@ -244,7 +220,7 @@ export function useTasks(
         confirmText: "停止",
       }))) return;
       if (shouldUseLocalTasks()) {
-        const data = await stopLocalTask(localTaskBase(), taskId);
+        const data = await stopLocalTask(localTaskBase(), taskId, { token: getAccessToken() });
         taskProgress.value = {
           ...taskProgress.value,
           [taskId]: { stage: "stopped", message: "任务已停止" },
@@ -286,11 +262,7 @@ export function useTasks(
         title: "删除任务",
         confirmText: "删除",
       }))) return;
-      if (shouldUseLocalTasks()) {
-        await deleteLocalTask(localTaskBase(), taskId);
-      } else {
-        await deleteTask(taskId);
-      }
+      await deleteTask(taskId);
       message.value = "任务已删除";
       notifySuccess(message.value);
       await load();
@@ -518,19 +490,12 @@ export function useTasks(
     candidateLoadingTaskId.value = localId;
     candidateError.value = "";
     try {
-      let data: any;
-      if (shouldUseLocalTasks()) {
-        data = await listLocalTaskCandidates(localTaskBase(), localId);
-      } else {
-        await initLocalTask(agentBaseUrl.value, {
-          task_id: localId,
-          cloud_user_id: "",
-          platform_id: task.platform_id || "boss",
-          platform_account_id: task.platform_account_id || "",
-          position_snapshot: {},
-        });
-        data = await listLocalCandidates(agentBaseUrl.value, localId);
-      }
+      const data = await listCandidates({
+        taskId: localId,
+        positionId: task.position_id || "",
+        page: 1,
+        pageSize: 200,
+      });
       taskCandidates.value = { ...taskCandidates.value, [localId]: data };
     } catch (e: any) {
       candidateError.value = e.message;
@@ -539,22 +504,8 @@ export function useTasks(
     }
   }
 
-  async function removeCandidate(task: any, candidate: any) {
-    const localId = candidateExpandedTaskId.value;
-    try {
-      if (shouldUseLocalTasks()) {
-        await deleteLocalTaskCandidate(localTaskBase(), localId, candidate.id);
-      } else {
-        await deleteLocalCandidate(agentBaseUrl.value, localId, candidate.id);
-      }
-      const items = (taskCandidates.value[localId]?.items || []).filter(
-        (c: any) => c.id !== candidate.id,
-      );
-      taskCandidates.value = {
-        ...taskCandidates.value,
-        [localId]: { ...taskCandidates.value[localId], items },
-      };
-    } catch {}
+  async function removeCandidate(_task: any, _candidate: any) {
+    await alertError("云端暂未提供单个候选人删除接口，请先在简历库中统一管理");
   }
 
   function localTaskID(task: any) {
@@ -608,7 +559,6 @@ export function useTasks(
    */
   function taskLocalPayload(token = getAccessToken()) {
     return {
-      cloud_api_base: cloudApiBase(),
       token,
     };
   }

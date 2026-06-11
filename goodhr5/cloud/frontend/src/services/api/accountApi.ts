@@ -1,39 +1,11 @@
 // 本文件负责平台账号、平台配置和 Cookie 相关接口。
 import { api } from "../apiClient";
-import {
-  createLocalProfile,
-  deleteLocalProfile,
-  listLocalProfiles,
-  updateLocalProfile,
-} from "../localAgentApi";
-import { isLocalConsole, localAgentBase } from "../localConsole";
-
-/**
- * 将本地 profile 转换为前端原有账号结构。
- * @param {any} profile - Local Agent profile 记录。
- * @returns {any} 平台账号结构。
- */
-function normalizeLocalAccount(profile: any) {
-  return {
-    ...profile,
-    id: profile.id,
-    platform_id: profile.platform_id,
-    display_name: profile.display_name,
-    local_profile_id: profile.local_profile_id || profile.id,
-    status: profile.status || "available",
-    updated_at: profile.updated_at || profile.created_at,
-  };
-}
 
 /**
  * 读取平台账号列表。
  * @returns {Promise<any[]>} 返回平台账号数组。
  */
 export async function listPlatformAccounts() {
-  if (isLocalConsole()) {
-    const profiles = await listLocalProfiles(localAgentBase());
-    return profiles.map(normalizeLocalAccount);
-  }
   const data = await api("/api/platform-accounts");
   return data.accounts;
 }
@@ -44,14 +16,6 @@ export async function listPlatformAccounts() {
  * @returns {Promise<any>} 返回新建的平台账号。
  */
 export async function createPlatformAccount(payload: any) {
-  if (isLocalConsole()) {
-    const profile = await createLocalProfile(localAgentBase(), {
-      platform_id: payload.platform_id,
-      display_name: payload.display_name,
-      status: payload.status || "available",
-    });
-    return normalizeLocalAccount(profile);
-  }
   const data = await api("/api/platform-accounts/create", { method: "POST", body: payload });
   return data.account;
 }
@@ -62,10 +26,6 @@ export async function createPlatformAccount(payload: any) {
  * @returns {Promise<void>} 无返回值。
  */
 export async function deletePlatformAccount(accountID: string) {
-  if (isLocalConsole()) {
-    await deleteLocalProfile(localAgentBase(), accountID);
-    return;
-  }
   await api(`/api/platform-accounts/${accountID}`, { method: "DELETE" });
 }
 
@@ -83,10 +43,6 @@ export async function listPlatformConfigs() {
  * @returns {Promise<any[]>} 返回 Cookie 账号数组。
  */
 export async function listCookies() {
-  if (isLocalConsole()) {
-    const profiles = await listLocalProfiles(localAgentBase());
-    return profiles.map(normalizeLocalAccount);
-  }
   const data = await api("/api/cookies");
   return data.cookies;
 }
@@ -97,14 +53,6 @@ export async function listCookies() {
  * @returns {Promise<any>} 返回新建的 Cookie 账号。
  */
 export async function createCookie(payload: any) {
-  if (isLocalConsole()) {
-    const profile = await createLocalProfile(localAgentBase(), {
-      platform_id: payload.platform_id,
-      display_name: payload.display_name,
-      status: payload.status || "available",
-    });
-    return normalizeLocalAccount(profile);
-  }
   const data = await api("/api/cookies/create", { method: "POST", body: payload });
   return data.cookie;
 }
@@ -116,15 +64,6 @@ export async function createCookie(payload: any) {
  * @returns {Promise<any>} 返回更新后的 Cookie 账号。
  */
 export async function updateCookie(cookieID: string, payload: any) {
-  if (isLocalConsole()) {
-    const profile = await updateLocalProfile(localAgentBase(), cookieID, {
-      platform_id: payload.platform_id,
-      display_name: payload.display_name,
-      status: payload.status,
-      local_profile_id: payload.local_profile_id,
-    });
-    return normalizeLocalAccount(profile);
-  }
   const data = await api(`/api/cookies/${encodeURIComponent(cookieID)}`, {
     method: "PUT",
     body: payload,
@@ -139,10 +78,6 @@ export async function updateCookie(cookieID: string, payload: any) {
  * @returns {Promise<any>} 返回后端状态更新结果。
  */
 export async function updateCookieStatus(cookieID: string, status: string) {
-  if (isLocalConsole()) {
-    const profile = await updateLocalProfile(localAgentBase(), cookieID, { status });
-    return { ok: true, cookie: normalizeLocalAccount(profile) };
-  }
   return api(`/api/cookies/${encodeURIComponent(cookieID)}/status`, {
     method: "PUT",
     body: { status },
@@ -156,9 +91,6 @@ export async function updateCookieStatus(cookieID: string, status: string) {
  * @returns {Promise<any>} 返回领取结果。
  */
 export async function claimCookie(cookieID: string, payload: any = {}) {
-  if (isLocalConsole()) {
-    return { ok: true, cookie: { id: cookieID, ...payload }, cookies: [] };
-  }
   return api(`/api/cookies/${encodeURIComponent(cookieID)}/claim`, {
     method: "POST",
     body: payload,
@@ -171,8 +103,5 @@ export async function claimCookie(cookieID: string, payload: any = {}) {
  * @returns {Promise<any>} 返回释放结果。
  */
 export async function releaseCookie(cookieID: string) {
-  if (isLocalConsole()) {
-    return { ok: true, cookie: { id: cookieID } };
-  }
   return api(`/api/cookies/${encodeURIComponent(cookieID)}/release`, { method: "POST" });
 }

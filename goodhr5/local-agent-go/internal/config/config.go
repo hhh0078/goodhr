@@ -21,6 +21,8 @@ const (
 	DefaultRuntimeManifestURL = "https://goodhr5.58it.cn/downloads/goodhr-local-runtime-manifest.json"
 	// DefaultConsoleManifestURL 是控制台前端包下载清单默认地址。
 	DefaultConsoleManifestURL = "https://goodhr5.58it.cn/downloads/goodhr-console-manifest.json"
+	// DefaultCloudAPIBase 是本地程序默认访问的云端接口地址。
+	DefaultCloudAPIBase = "https://goodhr5.58it.cn"
 )
 
 // Config 保存本地程序运行配置。
@@ -78,7 +80,7 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		ScreenshotsDir:     filepath.Join(dataDir, "screenshots"),
 		ManifestURL:        envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
 		ConsoleManifestURL: envOrDefault("GOODHR_CONSOLE_MANIFEST_URL", DefaultConsoleManifestURL),
-		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", ""),
+		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", DefaultCloudAPIBase),
 		AutoOpenConsole:    envOrDefault("GOODHR_AUTO_OPEN_CONSOLE", "true") != "false",
 	}
 	if err := cfg.EnsureDirs(); err != nil {

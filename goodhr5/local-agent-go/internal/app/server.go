@@ -622,39 +622,27 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	if token == "" {
 		token = bearerToken(r)
 	}
-	allSettings, _ := s.db.GetSettings()
-	greetDelayMin, greetDelayMax := s.localGreetDelaySettings()
-	// 读取任务配置中的提示音开关
-	enableSound := false
-	if task, taskErr := s.db.GetTask(taskID); taskErr == nil {
-		enableSound = task.EnableSound
-	}
-	email := strings.TrimSpace(stringValue(payload["email"]))
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
-		CloudAPIBase:  s.cloudAPIBase(payload),
-		Token:         token,
-		EmailForNotify: email,
-		EnableGreet:   true,
-		EnableSound:   enableSound,
-		GreetBeforeDelayMin: greetDelayMin,
-		GreetBeforeDelayMax: greetDelayMax,
-		GreetRetries:  0,
-		ScrollDelayMin:      intValue(allSettings["scroll_delay_min"], 3),
-		ScrollDelayMax:      intValue(allSettings["scroll_delay_max"], 8),
-		ListViewDelayMin:    floatValue(allSettings["list_view_delay_min"], 1),
-		ListViewDelayMax:    floatValue(allSettings["list_view_delay_max"], 2),
-		DetailViewDelayMin:  floatValue(allSettings["detail_view_delay_min"], 1),
-		DetailViewDelayMax:  floatValue(allSettings["detail_view_delay_max"], 2),
-		DetailOpenDelayMin:  floatValue(allSettings["detail_open_delay_min"], 1),
-		DetailOpenDelayMax:  floatValue(allSettings["detail_open_delay_max"], 2),
-		DetailCloseDelayMin: floatValue(allSettings["detail_close_delay_min"], 1),
-		DetailCloseDelayMax: floatValue(allSettings["detail_close_delay_max"], 2),
-		RestAfterCandidatesMin: intValue(allSettings["rest_after_candidates_min"], 30),
-		RestAfterCandidatesMax: intValue(allSettings["rest_after_candidates_max"], 50),
-		RestTimesMin:           intValue(allSettings["rest_times_min"], 2),
-		RestTimesMax:           intValue(allSettings["rest_times_max"], 4),
-		RestDurationMin:        floatValue(allSettings["rest_duration_min"], 3),
-		RestDurationMax:        floatValue(allSettings["rest_duration_max"], 5),
+		CloudAPIBase:           s.cloudAPIBase(payload),
+		Token:                  token,
+		EnableGreet:            true,
+		GreetRetries:           0,
+		ScrollDelayMin:         3,
+		ScrollDelayMax:         8,
+		ListViewDelayMin:       1,
+		ListViewDelayMax:       2,
+		DetailViewDelayMin:     1,
+		DetailViewDelayMax:     2,
+		DetailOpenDelayMin:     1,
+		DetailOpenDelayMax:     2,
+		DetailCloseDelayMin:    1,
+		DetailCloseDelayMax:    2,
+		RestAfterCandidatesMin: 30,
+		RestAfterCandidatesMax: 50,
+		RestTimesMin:           2,
+		RestTimesMax:           4,
+		RestDurationMin:        3,
+		RestDurationMax:        5,
 	})
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
@@ -688,10 +676,26 @@ func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, tas
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	result, err := s.runner.Stop(taskID)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	token := stringValue(payload["token"])
+	if token == "" {
+		token = bearerToken(r)
+	}
+	if token != "" {
+		client := cloudapi.New(s.cloudAPIBase(payload))
+		if err := client.StopTask(r.Context(), token, taskID); err != nil {
+			result["cloud_sync_error"] = err.Error()
+			log.Printf("[本地任务] 停止任务已完成，但同步云端失败 task=%s err=%v", taskID, err)
+		}
 	}
 	response.Success(w, result)
 }
@@ -759,9 +763,9 @@ func (s *Server) handleLocalPositionDefaultPrompts(w http.ResponseWriter, r *htt
 		return
 	}
 	response.Success(w, map[string]any{"prompts": map[string]any{
-		"filter_prompt": "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
+		"filter_prompt":      "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
 		"open_detail_prompt": "你是资深招聘顾问。请根据岗位要求和候选人基础信息给出查看详情建议分。",
-		"review_prompt": "你是资深的HR专家。当前候选人分数接近岗位阈值，请做打招呼前二次复核评分。",
+		"review_prompt":      "你是资深的HR专家。当前候选人分数接近岗位阈值，请做打招呼前二次复核评分。",
 	}})
 }
 

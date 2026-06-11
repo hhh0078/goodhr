@@ -5,14 +5,6 @@ import {
   updateUserAIConfig,
   updateUserPreferences,
 } from "../services/api/personalConfigApi";
-import {
-  chatWithLocalAI,
-  getLocalAIConfig,
-  getLocalSettings,
-  saveLocalAIConfig,
-  saveLocalSettings,
-} from "../services/localAgentApi";
-import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
 import { alertError, notifySuccess } from "../services/notify";
 
@@ -30,18 +22,14 @@ export function usePersonalConfig() {
     loading.value = true;
     error.value = "";
     try {
-      const data = isLocalConsole()
-        ? await getLocalSettings(localAgentBase())
-        : await getUserPreferences();
-      const ai = isLocalConsole()
-        ? await getLocalAIConfig(localAgentBase())
-        : await getUserAIConfig();
+      const data = await getUserPreferences();
+      const ai = await getUserAIConfig();
       form.value = {
         aiBaseURL: ai?.base_url || DEFAULT_AI_BASE_URL,
         aiModel: ai?.model || data?.ai_model || DEFAULT_AI_MODEL,
         aiAPIKey: "",
         aiAPIKeyMasked: localAIKeyLabel(ai),
-        aiAPIKeySet: isLocalConsole() ? Boolean(ai?.api_key) : Boolean(ai?.api_key_set),
+        aiAPIKeySet: Boolean(ai?.api_key_set),
         clickFrequency: data?.click_frequency ?? 80,
         detailOpenProbability: data?.detail_open_probability ?? 80,
         detailOpenDelayMin: data?.detail_open_delay_min ?? 1,
@@ -70,35 +58,21 @@ export function usePersonalConfig() {
     message.value = "";
     try {
       await verifyAIBeforeSave();
-      if (isLocalConsole()) {
-        const localPayload: any = {
-          base_url: form.value.aiBaseURL,
-          model: form.value.aiModel,
-          temperature: 0,
-          provider: "openai-compatible",
-        };
-        if (form.value.aiAPIKey.trim()) {
-          localPayload.api_key = form.value.aiAPIKey.trim();
-        }
-        await saveLocalAIConfig(localAgentBase(), localPayload);
-        await saveLocalSettings(localAgentBase(), preferencePayload());
-      } else {
-        await updateUserAIConfig({
-          base_url: form.value.aiBaseURL,
-          model: form.value.aiModel,
-          api_key: form.value.aiAPIKey.trim(),
-          temperature: 0,
-          prompt_template: "",
-          enabled: true,
-        });
-        await updateUserPreferences(preferencePayload());
-      }
+      await updateUserAIConfig({
+        base_url: form.value.aiBaseURL,
+        model: form.value.aiModel,
+        api_key: form.value.aiAPIKey.trim(),
+        temperature: 0,
+        prompt_template: "",
+        enabled: true,
+      });
+      await updateUserPreferences(preferencePayload());
       if (form.value.aiAPIKey.trim()) {
         form.value.aiAPIKey = "";
         form.value.aiAPIKeySet = true;
         form.value.aiAPIKeyMasked = "已更新";
       }
-      message.value = isLocalConsole() ? "本地个人配置已保存" : "个人配置已保存";
+      message.value = "个人配置已保存";
       notifySuccess(message.value);
       await markOnboardingStep("personal_config");
     } catch (e: any) {
@@ -120,26 +94,6 @@ export function usePersonalConfig() {
     if (!apiURL) throw new Error("请先填写 AI API 地址");
     if (!model) throw new Error("请先填写 AI 模型");
 
-    if (isLocalConsole()) {
-      if (!apiKey) {
-        const saved = await getLocalAIConfig(localAgentBase());
-        apiKey = String(saved?.api_key || "").trim();
-      }
-      if (!apiKey) throw new Error("请先填写 AI Key");
-      const data = await chatWithLocalAI(localAgentBase(), {
-        messages: [{ role: "user", content: "请只返回两个字：成功" }],
-        temperature: 0,
-        config: {
-          base_url: apiURL,
-          model,
-          api_key: apiKey,
-        },
-      });
-      if (!String(data?.content || "").includes("成功")) {
-        throw new Error(`AI 测试未通过，返回信息：\n${data?.content || "无返回内容"}`);
-      }
-      return;
-    }
     if (!apiKey) throw new Error("保存前请重新输入 AI Key，用于测试当前配置是否可用");
 
     const response = await fetch(apiURL, {
@@ -266,6 +220,5 @@ function defaultForm() {
  * @returns {string} 显示文案。
  */
 function localAIKeyLabel(ai: any) {
-  if (isLocalConsole()) return ai?.api_key ? "本地已保存明文 Key" : "";
   return ai?.api_key_masked || "";
 }

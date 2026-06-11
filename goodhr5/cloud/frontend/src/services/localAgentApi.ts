@@ -288,8 +288,8 @@ export async function runLocalTask(base: string, taskID: string, payload: any = 
  * @param {string} taskID - 任务 ID。
  * @returns {Promise<any>} 返回停止结果。
  */
-export async function stopLocalTask(base: string, taskID: string) {
-  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/stop`, { method: "POST" });
+export async function stopLocalTask(base: string, taskID: string, payload: Record<string, any> = {}) {
+  return req(base, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/stop`, { method: "POST", body: payload });
 }
 
 /**

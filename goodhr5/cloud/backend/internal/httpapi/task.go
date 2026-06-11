@@ -562,8 +562,11 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cancelTask(task.ID)
 	stdlog.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
-	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
-	_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+	if task.Status != "stopped" {
+		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+		s.sendTaskStatusNotice(task, "stopped", "")
+	}
 	s.releaseTaskCookieIfOwned(tenantID, task, "停止任务时释放占用的 cookie", func(level, message string) {
 		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
 	})
@@ -910,7 +913,7 @@ func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, re
 }
 
 // FailNotice 接收本地代理发送的任务失败通知，发送邮件提醒。
-// 请求体中包含 task_id（本地任务 ID）、email（接收邮箱）和 error_message（失败原因）。
+// 请求体中包含 task_id（云端任务 ID）和 error_message（失败原因）。
 // 此接口由本地代理调用，不需要用户认证。
 func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -919,7 +922,6 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	}
 	var payload struct {
 		TaskID       string `json:"task_id"`
-		Email        string `json:"email"`
 		ErrorMessage string `json:"error_message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -927,25 +929,37 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	taskID := strings.TrimSpace(payload.TaskID)
-	email := strings.TrimSpace(payload.Email)
 	errorMessage := strings.TrimSpace(payload.ErrorMessage)
-	if taskID == "" || email == "" {
-		writeError(w, http.StatusBadRequest, "task_id and email required")
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "task_id required")
 		return
 	}
+	task, err := s.store.TaskByID("", "", taskID, true)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	_ = s.store.UpdateTaskStatus(task.ID, "failed")
 	if s.mailer == nil {
 		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
 		return
 	}
 	notice := TaskStatusNotice{
-		TaskID:       taskID,
+		TaskID:       task.ID,
 		Status:       "failed",
 		StatusLabel:  "任务失败",
+		PlatformID:   task.PlatformID,
+		Mode:         task.Mode,
+		MatchLimit:   task.MatchLimit,
 		FinishedAt:   time.Now(),
 		ErrorMessage: errorMessage,
 	}
-	if err := s.mailer.SendTaskStatus(email, notice); err != nil {
-		stdlog.Printf("[任务邮件] 发送失败通知邮件失败 task=%s email=%s err=%v", taskID, email, err)
+	if err := s.mailer.SendTaskStatus(task.UserEmail, notice); err != nil {
+		stdlog.Printf("[任务邮件] 发送失败通知邮件失败 task=%s user=%s err=%v", task.ID, task.UserEmail, err)
 		writeError(w, http.StatusInternalServerError, "failed to send email")
 		return
 	}

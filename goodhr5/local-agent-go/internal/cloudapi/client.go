@@ -2,16 +2,16 @@
 package cloudapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-	"bytes"
-	"log"
 )
 
 // Client 是云端接口客户端。
@@ -86,20 +86,7 @@ func (c *Client) FetchPlatformConfig(ctx context.Context, platformID string) (Pl
 // FetchSubscription 读取云端会员状态。
 // ctx 为请求上下文，token 为登录令牌。
 func (c *Client) FetchSubscription(ctx context.Context, token string) (map[string]any, error) {
-	baseURL, err := c.safeBaseURL()
-	if err != nil {
-		return nil, err
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil, fmt.Errorf("请先登录后再校验会员")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/subscription/status", nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建会员校验请求失败：%w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	payload, status, err := c.doJSON(req)
+	payload, status, err := c.getAuthed(ctx, token, "/api/subscription/status")
 	if err != nil {
 		return nil, fmt.Errorf("会员校验失败：%w", err)
 	}
@@ -116,6 +103,153 @@ func (c *Client) FetchSubscription(ctx context.Context, token string) (map[strin
 		return nil, fmt.Errorf("会员校验返回格式错误")
 	}
 	return subscription, nil
+}
+
+// FetchTask 读取云端任务详情。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
+func (c *Client) FetchTask(ctx context.Context, token string, taskID string) (map[string]any, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("任务 ID 不能为空")
+	}
+	payload, status, err := c.getAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID))
+	if err != nil {
+		return nil, fmt.Errorf("读取云端任务失败：%w", err)
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "读取云端任务失败"))
+	}
+	task, ok := payload["task"].(map[string]any)
+	if !ok {
+		if data, ok := payload["data"].(map[string]any); ok {
+			task, ok = data["task"].(map[string]any)
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("云端任务返回格式错误")
+	}
+	return task, nil
+}
+
+// FetchEffectiveAIConfig 读取云端当前用户最终生效的 AI 配置。
+// ctx 为请求上下文，token 为登录令牌，返回包含明文 API Key 的配置。
+func (c *Client) FetchEffectiveAIConfig(ctx context.Context, token string) (map[string]any, error) {
+	payload, status, err := c.getAuthed(ctx, token, "/api/config/effective-ai?reveal_api_key=1")
+	if err != nil {
+		return nil, fmt.Errorf("读取云端 AI 配置失败：%w", err)
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "读取云端 AI 配置失败"))
+	}
+	config, ok := payload["config"].(map[string]any)
+	if !ok {
+		if data, ok := payload["data"].(map[string]any); ok {
+			config, ok = data["config"].(map[string]any)
+		}
+	}
+	if !ok || config == nil {
+		return nil, fmt.Errorf("请先在个人配置里填写云端 AI 接口")
+	}
+	return config, nil
+}
+
+// FetchUserPreferences 读取云端当前用户个人运行配置。
+// ctx 为请求上下文，token 为登录令牌。
+func (c *Client) FetchUserPreferences(ctx context.Context, token string) (map[string]any, error) {
+	payload, status, err := c.getAuthed(ctx, token, "/api/config/user-preferences")
+	if err != nil {
+		return nil, fmt.Errorf("读取云端个人配置失败：%w", err)
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "读取云端个人配置失败"))
+	}
+	config, ok := payload["config"].(map[string]any)
+	if !ok {
+		if data, ok := payload["data"].(map[string]any); ok {
+			config, ok = data["config"].(map[string]any)
+		}
+	}
+	if !ok || config == nil {
+		return map[string]any{}, nil
+	}
+	return config, nil
+}
+
+// SaveTaskCandidate 将本地候选人结果保存到云端简历库。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，candidate 为候选人 JSON。
+func (c *Client) SaveTaskCandidate(ctx context.Context, token string, taskID string, candidate map[string]any) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("任务 ID 不能为空")
+	}
+	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/candidates", candidate)
+	if err != nil {
+		return fmt.Errorf("保存候选人到云端失败：%w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "保存候选人到云端失败"))
+	}
+	return nil
+}
+
+// StopTask 通知云端任务已经停止。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
+func (c *Client) StopTask(ctx context.Context, token string, taskID string) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("任务 ID 不能为空")
+	}
+	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/stop", map[string]any{})
+	if err != nil {
+		return fmt.Errorf("通知云端停止任务失败：%w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "通知云端停止任务失败"))
+	}
+	return nil
+}
+
+// getAuthed 使用 Bearer Token 请求云端接口。
+// ctx 为请求上下文，token 为登录令牌，path 为以 / 开头的云端路径。
+func (c *Client) getAuthed(ctx context.Context, token string, path string) (map[string]any, int, error) {
+	baseURL, err := c.safeBaseURL()
+	if err != nil {
+		return nil, 0, err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, 0, fmt.Errorf("请先登录后再操作")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("创建云端请求失败：%w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return c.doJSON(req)
+}
+
+// postAuthed 使用 Bearer Token 向云端提交 JSON。
+// ctx 为请求上下文，token 为登录令牌，path 为云端路径，body 为请求体。
+func (c *Client) postAuthed(ctx context.Context, token string, path string, body any) (map[string]any, int, error) {
+	baseURL, err := c.safeBaseURL()
+	if err != nil {
+		return nil, 0, err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, 0, fmt.Errorf("请先登录后再操作")
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("请求内容不是有效 JSON：%w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, fmt.Errorf("创建云端请求失败：%w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	return c.doJSON(req)
 }
 
 // safeBaseURL 校验并规范化云端接口地址。
@@ -231,9 +365,9 @@ func translateKnownMessage(text string) string {
 	}
 }
 
-// SendTaskFailNotice 通知云端发送任务失败邮件。
-// ctx 为请求上下文，taskID 为本地任务 ID，email 为接收通知的邮箱，errorMsg 为失败原因。
-func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, email string, errorMsg string) error {
+// SendTaskFailNotice 通知云端任务失败，由云端按任务 ID 查询用户并发送邮件。
+// ctx 为请求上下文，taskID 为云端任务 ID，errorMsg 为失败原因。
+func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, errorMsg string) error {
 	baseURL, err := c.safeBaseURL()
 	if err != nil {
 		log.Printf("[失败邮件] 获取云端地址失败：%v", err)
@@ -242,7 +376,6 @@ func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, email st
 	apiURL := strings.TrimSuffix(baseURL, "/") + "/api/fail-notice"
 	body := map[string]any{
 		"task_id":       taskID,
-		"email":         email,
 		"error_message": errorMsg,
 	}
 	payload, err := json.Marshal(body)

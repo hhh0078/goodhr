@@ -217,7 +217,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.tenant_id = $1 AND (u.email = $2 OR $3::boolean) AND tr.id = $4
+		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = $1) AND (u.email = $2 OR $3::boolean) AND tr.id = $4
 		`,
 		tenantID, userEmail, isAdmin, taskID,
 	).Scan(

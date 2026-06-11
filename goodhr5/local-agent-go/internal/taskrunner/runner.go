@@ -123,6 +123,7 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 type StartOptions struct {
 	CloudAPIBase   string
 	Token          string
+	AIConfig       localdb.AIConfig
 	EnableGreet    bool
 	GreetDelayMin  float64
 	GreetDelayMax  float64
@@ -172,7 +173,12 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if options.Token == "" {
 		return nil, fmt.Errorf("请先登录后再校验会员")
 	}
-	task, err := r.db.GetTask(taskID)
+	client := cloudapi.New(options.CloudAPIBase)
+	cloudTask, err := client.FetchTask(ctx, options.Token, taskID)
+	if err != nil {
+		return nil, err
+	}
+	task, err := r.db.UpsertTaskSnapshot(localTaskSnapshotFromCloud(cloudTask))
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +226,20 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		return
 	}
 	r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
+	preferences, err := client.FetchUserPreferences(ctx, options.Token)
+	if err != nil {
+		r.failStart(taskID, "读取云端个人配置失败："+err.Error())
+		return
+	}
+	options = applyCloudPreferences(options, preferences)
+	if taskRequiresAI(task) {
+		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
+		if err != nil {
+			r.failStart(taskID, "读取云端 AI 配置失败："+err.Error())
+			return
+		}
+		options.AIConfig = aiConfigFromCloud(aiConfig)
+	}
 	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 	platformID := strings.ToLower(strings.TrimSpace(task.PlatformID))
 	if platformID == "" {
@@ -245,12 +265,14 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			r.taskLog(taskID, "info", "本地任务收到停止信号")
+			r.notifyCloudTaskStopped(taskID, options)
 			return
 		}
 		if isBrowserClosedTaskError(err) {
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "浏览器已关闭，任务已自动结束", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			r.taskLog(taskID, "warning", "浏览器已关闭，任务已自动结束："+err.Error())
+			r.notifyCloudTaskStopped(taskID, options)
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error())
@@ -259,6 +281,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
 	r.taskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
+	r.notifyCloudTaskStopped(taskID, options)
 }
 
 // Stop 停止本地任务运行器。
@@ -473,7 +496,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 
 			// 4. 并发做“是否值得看详情”的预评分，但主流程仍按页面顺序消费候选人。
 			batchResult := batchProcessResult{}
-			aiClient, err := r.pipelineAIClient(task)
+			aiClient, err := r.pipelineAIClient(task, options)
 			if err != nil {
 				return nil, err
 			}
@@ -580,6 +603,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 
 				status := stringFromMap(candidate, "status")
 				if shouldSaveCandidateResult(status) {
+					r.saveCandidateResult(ctx, task, candidate, options)
 					if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
 						return nil, err
 					}
@@ -629,6 +653,103 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, pla
 	}
 	r.taskLog(taskID, "info", "候选人列表滚动完成")
 	return nil
+}
+
+// saveCandidateResult 将候选人结果同步到云端简历库。
+// ctx 为请求上下文，task 为任务记录，candidate 为候选人结果，options 为启动参数。
+func (r *Runner) saveCandidateResult(ctx context.Context, task localdb.Task, candidate map[string]any, options StartOptions) {
+	if strings.TrimSpace(options.Token) == "" {
+		r.taskLog(task.ID, "warning", "候选人未同步云端：缺少登录 token")
+		return
+	}
+	payload := cloneCandidateForCloud(task, candidate)
+	if err := cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(ctx, options.Token, task.ID, payload); err != nil {
+		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
+		return
+	}
+	r.taskLog(task.ID, "info", "候选人已同步云端："+candidateLogName(candidate))
+}
+
+// cloneCandidateForCloud 生成候选人云端入库 JSON。
+// task 为任务记录，candidate 为本地候选人结果。
+func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[string]any {
+	payload := make(map[string]any, len(candidate)+5)
+	for key, value := range candidate {
+		payload[key] = value
+	}
+	payload["task_id"] = task.ID
+	payload["platform_id"] = task.PlatformID
+	payload["position_id"] = task.PositionID
+	payload["platform_account_id"] = task.PlatformAccountID
+	if _, ok := payload["candidate_name"]; !ok {
+		payload["candidate_name"] = candidateLogName(candidate)
+	}
+	return payload
+}
+
+// localTaskSnapshotFromCloud 将云端任务转换为本地运行快照。
+// task 为云端任务响应对象，返回可写入本地轻量任务表的字段。
+func localTaskSnapshotFromCloud(task map[string]any) map[string]any {
+	position := mapValue(task["position"])
+	return map[string]any{
+		"id":                  stringFromMap(task, "id"),
+		"name":                stringFromMap(task, "name"),
+		"platform_id":         stringFromMap(task, "platform_id"),
+		"platform_account_id": stringFromMap(task, "platform_account_id"),
+		"position_id":         stringFromMap(task, "position_id"),
+		"mode":                stringFromMap(task, "mode"),
+		"match_limit":         intFromMap(task, "match_limit"),
+		"enable_sound":        boolFromMap(task, "enable_sound"),
+		"enable_thinking":     boolFromMap(task, "enable_thinking"),
+		"position_snapshot":   position,
+	}
+}
+
+// applyCloudPreferences 使用云端个人配置覆盖任务启动参数。
+// options 为当前启动参数，preferences 为云端 /api/config/user-preferences 返回的配置。
+func applyCloudPreferences(options StartOptions, preferences map[string]any) StartOptions {
+	if len(preferences) == 0 {
+		return options
+	}
+	options.ScrollDelayMin = intFromMapOr(preferences, "scroll_delay_min", options.ScrollDelayMin)
+	options.ScrollDelayMax = intFromMapOr(preferences, "scroll_delay_max", options.ScrollDelayMax)
+	options.ListViewDelayMin = floatFromMapOr(preferences, "list_view_delay_min", options.ListViewDelayMin)
+	options.ListViewDelayMax = floatFromMapOr(preferences, "list_view_delay_max", options.ListViewDelayMax)
+	options.DetailViewDelayMin = floatFromMapOr(preferences, "detail_view_delay_min", options.DetailViewDelayMin)
+	options.DetailViewDelayMax = floatFromMapOr(preferences, "detail_view_delay_max", options.DetailViewDelayMax)
+	options.DetailOpenDelayMin = floatFromMapOr(preferences, "detail_open_delay_min", options.DetailOpenDelayMin)
+	options.DetailOpenDelayMax = floatFromMapOr(preferences, "detail_open_delay_max", options.DetailOpenDelayMax)
+	options.DetailCloseDelayMin = floatFromMapOr(preferences, "detail_close_delay_min", options.DetailCloseDelayMin)
+	options.DetailCloseDelayMax = floatFromMapOr(preferences, "detail_close_delay_max", options.DetailCloseDelayMax)
+	options.GreetBeforeDelayMin = floatFromMapOr(preferences, "greet_before_delay_min", options.GreetBeforeDelayMin)
+	options.GreetBeforeDelayMax = floatFromMapOr(preferences, "greet_before_delay_max", options.GreetBeforeDelayMax)
+	options.RestAfterCandidatesMin = intFromMapOr(preferences, "rest_after_candidates_min", options.RestAfterCandidatesMin)
+	options.RestAfterCandidatesMax = intFromMapOr(preferences, "rest_after_candidates_max", options.RestAfterCandidatesMax)
+	options.RestTimesMin = intFromMapOr(preferences, "rest_times_min", options.RestTimesMin)
+	options.RestTimesMax = intFromMapOr(preferences, "rest_times_max", options.RestTimesMax)
+	options.RestDurationMin = floatFromMapOr(preferences, "rest_duration_min", options.RestDurationMin)
+	options.RestDurationMax = floatFromMapOr(preferences, "rest_duration_max", options.RestDurationMax)
+	return options
+}
+
+// aiConfigFromCloud 将云端 AI 配置转换为本地 AI 客户端配置。
+// config 为云端 /api/config/effective-ai 返回的配置。
+func aiConfigFromCloud(config map[string]any) localdb.AIConfig {
+	return localdb.AIConfig{
+		ID:          "cloud",
+		BaseURL:     stringFromMap(config, "base_url"),
+		APIKey:      stringFromMap(config, "api_key"),
+		Model:       stringFromMap(config, "model"),
+		Temperature: floatFromMapOr(config, "temperature", 0.2),
+		Timeout:     intFromMapOr(config, "timeout", 120),
+		Extra:       mapValue(config["extra"]),
+	}
+}
+
+// taskRequiresAI 判断任务是否需要 AI 配置。
+// task 为本地运行任务，AI 筛选或 AI 详情识别时返回 true。
+func taskRequiresAI(task localdb.Task) bool {
+	return taskMode(task) == "ai" || detailMode(task) == "ai"
 }
 
 // taskProfileName 返回任务对应的本机浏览器目录名。
@@ -856,14 +977,20 @@ func (r *Runner) feedCandidatePipeline(ctx context.Context, task localdb.Task, c
 }
 
 // pipelineAIClient 创建流水线使用的 AI 客户端。
-// task 为任务记录，只有 AI 模式或 AI 详情模式时才读取配置。
-func (r *Runner) pipelineAIClient(task localdb.Task) (*localai.Client, error) {
+// task 为任务记录，options 为任务启动参数，只有 AI 模式或 AI 详情模式时才读取配置。
+func (r *Runner) pipelineAIClient(task localdb.Task, options StartOptions) (*localai.Client, error) {
 	if taskMode(task) != "ai" && detailMode(task) != "ai" {
 		return nil, nil
 	}
-	config, err := r.db.GetAIConfig()
-	if err != nil {
-		return nil, err
+	config := options.AIConfig
+	if strings.TrimSpace(config.BaseURL) == "" {
+		return nil, fmt.Errorf("请先在个人配置里填写云端 AI 接口地址")
+	}
+	if strings.TrimSpace(config.APIKey) == "" {
+		return nil, fmt.Errorf("请先在个人配置里填写云端 AI Key")
+	}
+	if strings.TrimSpace(config.Model) == "" {
+		return nil, fmt.Errorf("请先在个人配置里填写 AI 模型")
 	}
 	client := localai.New(config)
 	client.EnableThinking = task.EnableThinking
@@ -926,7 +1053,7 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 	var aiClient *localai.Client
 	var err error
 	if mode == "ai" {
-		aiClient, err = r.pipelineAIClient(task)
+		aiClient, err = r.pipelineAIClient(task, options)
 		if err != nil {
 			return 0, err
 		}
@@ -1605,14 +1732,7 @@ func (r *Runner) failStart(taskID string, msg string) {
 	if task, err := r.db.GetTask(taskID); err == nil && task.EnableSound {
 		r.playSound("failed.wav", taskID)
 	}
-	// 从运行状态中获取邮箱发送失败通知
-	email := ""
-	r.mu.Lock()
-	if state, ok := r.running[taskID]; ok {
-		email = state.emailForNotify
-	}
-	r.mu.Unlock()
-	r.sendTaskFailNotification(context.Background(), taskID, email, msg)
+	r.sendTaskFailNotification(context.Background(), taskID, msg)
 }
 
 // isBrowserClosedTaskError 判断错误是否来自用户关闭浏览器。
@@ -2117,6 +2237,46 @@ func intFromMap(item map[string]any, key string) int {
 	}
 }
 
+// intFromMapOr 从 map 中读取整数，空值使用默认值。
+// item 为原始字典，key 为字段名，fallback 为默认值。
+func intFromMapOr(item map[string]any, key string, fallback int) int {
+	if item == nil {
+		return fallback
+	}
+	if _, ok := item[key]; !ok {
+		return fallback
+	}
+	value := intFromMap(item, key)
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
+// floatFromMapOr 从 map 中读取浮点数，空值使用默认值。
+// item 为原始字典，key 为字段名，fallback 为默认值。
+func floatFromMapOr(item map[string]any, key string, fallback float64) float64 {
+	if item == nil {
+		return fallback
+	}
+	value, ok := item[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 // floatFromMap 从 map 中读取浮点数。
 // item 为原始字典，key 为字段名。
 // float64Value 从任意值中读取 float64，为空时返回默认值。
@@ -2186,20 +2346,37 @@ func (r *Runner) playSound(soundName string, taskID string) {
 	}()
 }
 
-// sendTaskFailNotification 发送任务失败邮件通知到云端。
+// sendTaskFailNotification 通知云端任务失败，由云端按任务 ID 查用户并发邮件。
 // ctx 为请求上下文，taskID 为任务 ID，errorMsg 为失败原因。
-func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, email string, errorMsg string) {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		r.taskLog(taskID, "info", "未提供邮箱，跳过失败邮件通知")
-		return
-	}
+func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, errorMsg string) {
 	baseURL := strings.TrimSpace(r.cloudAPIBase)
 	if baseURL == "" {
 		baseURL = "https://goodhr5.58it.cn"
 	}
 	client := cloudapi.New(baseURL)
-	if err := client.SendTaskFailNotice(ctx, taskID, email, errorMsg); err != nil {
+	if err := client.SendTaskFailNotice(ctx, taskID, errorMsg); err != nil {
 		r.taskLog(taskID, "warning", "发送失败邮件通知失败："+err.Error())
+	}
+}
+
+// notifyCloudTaskStopped 通知云端任务已经停止或完成。
+// taskID 为云端任务 ID，options 为本次启动参数。
+func (r *Runner) notifyCloudTaskStopped(taskID string, options StartOptions) {
+	token := strings.TrimSpace(options.Token)
+	if token == "" {
+		return
+	}
+	baseURL := strings.TrimSpace(options.CloudAPIBase)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(r.cloudAPIBase)
+	}
+	if baseURL == "" {
+		baseURL = "https://goodhr5.58it.cn"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	client := cloudapi.New(baseURL)
+	if err := client.StopTask(ctx, token, taskID); err != nil {
+		r.taskLog(taskID, "warning", "同步云端任务停止状态失败："+err.Error())
 	}
 }

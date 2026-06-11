@@ -1,14 +1,10 @@
 // 本文件负责任务和任务日志相关接口。
-import { api } from "../apiClient";
+import { api, getAccessToken } from "../apiClient";
 import {
   clearLocalTaskLogs,
-  createLocalTask,
-  deleteLocalTask,
   listLocalTaskLogs,
-  listLocalTasks,
   runLocalTask,
   stopLocalTask,
-  updateLocalTask,
 } from "../localAgentApi";
 import { isLocalConsole, localAgentBase } from "../localConsole";
 
@@ -18,9 +14,6 @@ import { isLocalConsole, localAgentBase } from "../localConsole";
  * @returns {Promise<any>} 返回新建任务。
  */
 export async function createTask(payload: any) {
-  if (isLocalConsole()) {
-    return createLocalTask(localAgentBase(), payload);
-  }
   const data = await api("/api/tasks", { method: "POST", body: payload });
   return data.task;
 }
@@ -32,9 +25,6 @@ export async function createTask(payload: any) {
  * @returns {Promise<any>} 返回更新后的任务。
  */
 export async function updateTask(taskID: string, payload: any) {
-  if (isLocalConsole()) {
-    return updateLocalTask(localAgentBase(), taskID, payload);
-  }
   const data = await api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: "PUT", body: payload });
   return data.task;
 }
@@ -45,9 +35,6 @@ export async function updateTask(taskID: string, payload: any) {
  * @returns {Promise<any>} 返回删除结果。
  */
 export async function deleteTask(taskID: string) {
-  if (isLocalConsole()) {
-    return deleteLocalTask(localAgentBase(), taskID);
-  }
   return api(`/api/tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" });
 }
 
@@ -56,9 +43,6 @@ export async function deleteTask(taskID: string) {
  * @returns {Promise<any[]>} 返回任务数组。
  */
 export async function listTasks() {
-  if (isLocalConsole()) {
-    return listLocalTasks(localAgentBase());
-  }
   const data = await api("/api/tasks");
   return data.tasks;
 }
@@ -70,7 +54,7 @@ export async function listTasks() {
  */
 export async function runTask(taskID: string) {
   if (isLocalConsole()) {
-    return runLocalTask(localAgentBase(), taskID);
+    return runLocalTask(localAgentBase(), taskID, { token: getAccessToken() });
   }
   return api(`/api/tasks/${taskID}/run`, { method: "POST" });
 }
@@ -82,7 +66,7 @@ export async function runTask(taskID: string) {
  */
 export async function stopTask(taskID: string) {
   if (isLocalConsole()) {
-    return stopLocalTask(localAgentBase(), taskID);
+    return stopLocalTask(localAgentBase(), taskID, { token: getAccessToken() });
   }
   return api(`/api/tasks/${taskID}/stop`, { method: "POST" });
 }
