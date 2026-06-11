@@ -155,6 +155,7 @@ export function useTasks(
         }
         message.value = data.message || "本地任务已进入后台运行";
         notifySuccess(message.value);
+        await markOnboardingStep("task_started");
         await load();
         return;
       }

@@ -113,6 +113,7 @@ import { getSystemAppConfig } from "./services/api/systemApi";
 import { getSubscriptionStatus } from "./services/api/subscriptionApi";
 import { getOnboardingStatus } from "./services/api/onboardingApi";
 import { listPlatformAccounts } from "./services/api/accountApi";
+import { listTasks } from "./services/api/taskApi";
 import { isLocalConsole } from "./services/localConsole";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
@@ -445,6 +446,30 @@ async function syncOnboardingByCurrentState() {
       await markOnboardingStep("platform_account");
     }
   } catch {}
+  try {
+    const existingTasks = await listTasks();
+    if (Array.isArray(existingTasks) && existingTasks.some(isStartedTask)) {
+      await markOnboardingStep("task_started");
+    }
+  } catch {}
+}
+
+/**
+ * 判断任务是否已经进入过运行流程。
+ * @param {any} task - 任务对象。
+ * @returns {boolean} 是否可视为已创建并运行过。
+ */
+function isStartedTask(task: any) {
+  const status = String(task?.status || "").trim().toLowerCase();
+  if (["running", "stopped", "failed", "done"].includes(status)) return true;
+  const countKeys = [
+    "scanned_count",
+    "greeted_count",
+    "skipped_count",
+    "failed_count",
+    "today_greeted_count",
+  ];
+  return countKeys.some((key) => Number(task?.[key] || 0) > 0);
 }
 
 /**
