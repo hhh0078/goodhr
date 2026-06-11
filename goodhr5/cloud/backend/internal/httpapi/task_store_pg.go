@@ -73,7 +73,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			greeted_count,
 			skipped_count,
 			failed_count,
-			local_task_id,
+			COALESCE(local_task_id, ''),
 			created_at,
 			started_at,
 			finished_at
@@ -128,7 +128,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		`
 		SELECT
 			tr.id,
-			tr.name,
+			COALESCE(tr.name, ''),
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
@@ -140,7 +140,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			tr.greeted_count,
 			tr.skipped_count,
 			tr.failed_count,
-			tr.local_task_id,
+			COALESCE(tr.local_task_id, ''),
 			tr.created_at,
 			tr.started_at,
 			tr.finished_at
@@ -182,6 +182,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		); err != nil {
 			return nil, err
 		}
+		normalizeTaskRunDefaults(&item)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -199,7 +200,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		`
 		SELECT
 			tr.id,
-			tr.name,
+			COALESCE(tr.name, ''),
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
@@ -211,7 +212,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 			tr.greeted_count,
 			tr.skipped_count,
 			tr.failed_count,
-			tr.local_task_id,
+			COALESCE(tr.local_task_id, ''),
 			tr.created_at,
 			tr.started_at,
 			tr.finished_at
@@ -245,6 +246,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 	if err != nil {
 		return TaskRun{}, err
 	}
+	normalizeTaskRunDefaults(&item)
 	return item, nil
 }
 
@@ -320,7 +322,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 			greeted_count,
 			skipped_count,
 			failed_count,
-			local_task_id,
+			COALESCE(local_task_id, ''),
 			created_at,
 			started_at,
 			finished_at
@@ -358,7 +360,22 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 	if err != nil {
 		return TaskRun{}, err
 	}
+	normalizeTaskRunDefaults(&saved)
 	return saved, nil
+}
+
+// normalizeTaskRunDefaults 兜底修正历史任务中的空字段。
+// task 为读取到的任务记录，函数会补齐本地任务 ID 和任务名称。
+func normalizeTaskRunDefaults(task *TaskRun) {
+	if task == nil {
+		return
+	}
+	if task.LocalTaskID == "" {
+		task.LocalTaskID = task.ID
+	}
+	if task.Name == "" {
+		task.Name = "未命名任务"
+	}
 }
 
 // nullPositionID 校验岗位模板是否属于当前用户，并返回可写入数据库的值。

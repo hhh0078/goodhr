@@ -200,6 +200,7 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		stdlog.Printf("[任务详情] 读取任务失败 task=%s user=%s tenant=%s admin=%v err=%v", taskID, session.Email, tenantID, isAdmin, err)
 		writeError(w, http.StatusInternalServerError, "failed to load task")
 		return
 	}
