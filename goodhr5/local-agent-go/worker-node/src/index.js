@@ -89,7 +89,7 @@ async function startBrowser(payload) {
   const userDataDir = String(payload.user_data_dir || "").trim();
   if (browser || context || page) {
     if (!(await hasLiveBrowserSession())) {
-      resetBrowserState();
+      await disposeBrowserState();
     }
   }
   if (browser || context) {
@@ -141,10 +141,20 @@ async function startBrowser(payload) {
  * @returns {Promise<Record<string, any>>} 停止结果。
  */
 async function stopBrowser() {
-  if (context) await context.close().catch(() => {});
-  if (browser) await browser.close().catch(() => {});
-  resetBrowserState();
+  await disposeBrowserState();
   return { running: false };
+}
+
+/**
+ * 关闭并清空 Worker 内保存的浏览器对象。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function disposeBrowserState() {
+  const oldContext = context;
+  const oldBrowser = browser;
+  resetBrowserState();
+  if (oldContext) await oldContext.close().catch(() => {});
+  if (oldBrowser) await oldBrowser.close().catch(() => {});
 }
 
 /**
@@ -190,6 +200,26 @@ async function hasLiveBrowserSession() {
     }
   }
   return false;
+}
+
+/**
+ * 返回 Worker 和浏览器当前状态。
+ * @returns {Promise<Record<string, any>>} 状态信息。
+ */
+async function workerHealth() {
+  const browserRunning = await hasLiveBrowserSession().catch(() => false);
+  if (!browserRunning && (browser || context || page)) {
+    await disposeBrowserState();
+  }
+  return {
+    status: "ok",
+    worker: "node",
+    pid: process.pid,
+    browser_running: browserRunning,
+    persistent: Boolean(currentUserDataDir),
+    user_data_dir: currentUserDataDir,
+    downloads_path: currentDownloadsPath || downloadDir(),
+  };
 }
 
 /**
@@ -1736,7 +1766,7 @@ const routes = {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
-    success(res, { status: "ok", worker: "node" });
+    success(res, await workerHealth());
     return;
   }
   if (req.method === "GET" && req.url === "/api/v1/page/cookies") {

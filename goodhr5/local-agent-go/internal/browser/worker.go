@@ -25,6 +25,7 @@ type WorkerStatus struct {
 	Running bool   `json:"running"`
 	PID     int    `json:"pid,omitempty"`
 	BaseURL string `json:"base_url,omitempty"`
+	Managed bool   `json:"managed"`
 }
 
 // WorkerManager 管理 Node Browser Worker 进程。
@@ -35,6 +36,8 @@ type WorkerManager struct {
 	done    chan error
 	logFile *os.File
 	baseURL string
+	// attachedPID 记录复用到的旧 Worker 进程 ID。
+	attachedPID int
 }
 
 // NewWorkerManager 创建 Node Worker 管理器。
@@ -50,6 +53,9 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	defer m.mu.Unlock()
 	if m.isRunningLocked() {
 		return m.statusLocked(), nil
+	}
+	if status, ok := m.probeExistingWorkerLocked(ctx); ok {
+		return status, nil
 	}
 	status, err := m.runtime.Ensure()
 	if err != nil {
@@ -72,6 +78,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		return WorkerStatus{}, fmt.Errorf("启动 Node Browser Worker 失败：%w", err)
 	}
 	m.cmd = cmd
+	m.attachedPID = 0
 	m.logFile = logFile
 	m.done = make(chan error, 1)
 	go func() {
@@ -110,9 +117,10 @@ func (m *WorkerManager) Stop() WorkerStatus {
 	defer m.mu.Unlock()
 	if !m.isRunningLocked() {
 		m.cmd = nil
+		m.attachedPID = 0
 		return m.statusLocked()
 	}
-	if m.cmd.Process != nil {
+	if m.cmd != nil && m.cmd.Process != nil {
 		_ = m.cmd.Process.Signal(os.Interrupt)
 		select {
 		case <-m.done:
@@ -123,9 +131,13 @@ func (m *WorkerManager) Stop() WorkerStatus {
 			case <-time.After(2 * time.Second):
 			}
 		}
+	} else if m.attachedPID > 0 {
+		_ = killProcessTree(m.attachedPID)
+		time.Sleep(200 * time.Millisecond)
 	}
 	m.cmd = nil
 	m.done = nil
+	m.attachedPID = 0
 	m.closeLogLocked()
 	return m.statusLocked()
 }
@@ -183,6 +195,11 @@ func childPIDs(pid int) []int {
 func (m *WorkerManager) Status() WorkerStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.isRunningLocked() {
+		if status, ok := m.probeExistingWorkerLocked(context.Background()); ok {
+			return status
+		}
+	}
 	return m.statusLocked()
 }
 
@@ -286,12 +303,21 @@ func isRestartableCallError(err error) bool {
 // 调用前必须持有锁。
 func (m *WorkerManager) isRunningLocked() bool {
 	if m.cmd == nil || m.cmd.Process == nil {
+		if m.attachedPID > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			if _, ok := m.probeWorker(ctx); ok {
+				return true
+			}
+			m.attachedPID = 0
+		}
 		return false
 	}
 	select {
 	case <-m.done:
 		m.cmd = nil
 		m.done = nil
+		m.attachedPID = 0
 		m.closeLogLocked()
 		return false
 	default:
@@ -302,11 +328,68 @@ func (m *WorkerManager) isRunningLocked() bool {
 // statusLocked 返回当前 Worker 状态。
 // 调用前必须持有锁。
 func (m *WorkerManager) statusLocked() WorkerStatus {
-	status := WorkerStatus{Running: m.isRunningLocked(), BaseURL: m.baseURL}
+	status := WorkerStatus{Running: m.isRunningLocked(), BaseURL: m.baseURL, Managed: m.cmd != nil && m.cmd.Process != nil}
 	if status.Running && m.cmd != nil && m.cmd.Process != nil {
 		status.PID = m.cmd.Process.Pid
+	} else if status.Running && m.attachedPID > 0 {
+		status.PID = m.attachedPID
 	}
 	return status
+}
+
+// probeExistingWorkerLocked 探测并复用已经存在的 GoodHR Node Worker。
+// ctx 为请求上下文，返回值表示 Worker 状态和是否可复用。
+func (m *WorkerManager) probeExistingWorkerLocked(ctx context.Context) (WorkerStatus, bool) {
+	health, ok := m.probeWorker(ctx)
+	if !ok {
+		m.attachedPID = 0
+		return WorkerStatus{}, false
+	}
+	m.attachedPID = intFromAny(health["pid"])
+	return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
+}
+
+// probeWorker 请求 Worker 健康检查接口，确认端口上运行的是 GoodHR Worker。
+// ctx 为请求上下文，返回健康检查数据和是否可复用。
+func (m *WorkerManager) probeWorker(ctx context.Context) (map[string]any, bool) {
+	client := http.Client{Timeout: 500 * time.Millisecond}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+"/health", nil)
+	if err != nil {
+		return nil, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, false
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, false
+	}
+	data, _ := body["data"].(map[string]any)
+	if data["worker"] != "node" {
+		return nil, false
+	}
+	return data, true
+}
+
+// intFromAny 将 JSON 数字转换为 int。
+// value 为任意 JSON 字段，无法转换时返回 0。
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case json.Number:
+		parsed, _ := strconv.Atoi(v.String())
+		return parsed
+	default:
+		return 0
+	}
 }
 
 // waitForReadyLocked 等待 Worker HTTP 服务可访问。
