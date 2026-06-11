@@ -94,21 +94,18 @@ func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL str
 	platform := platformKey()
 	installed := []string{}
 	skipped := []string{}
-	if didInstall, err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
-		m.setProgress(Progress{Running: false, Component: "node_runtime", Stage: "failed", Message: err.Error()})
-		return InstallResult{}, err
-	} else if didInstall {
-		installed = append(installed, "node_runtime")
-	} else {
+	if m.bundledNodePath() == "" && systemNodePath() != "" {
+		m.setProgress(Progress{Running: true, Component: "node_runtime", Stage: "skipped", Message: "已检测到系统 Node，跳过下载", Percent: 20})
 		skipped = append(skipped, "node_runtime")
-	}
-	if didInstall, err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Browser Worker", "node_worker"); err != nil {
-		m.setProgress(Progress{Running: false, Component: "node_worker", Stage: "failed", Message: err.Error()})
-		return InstallResult{}, err
-	} else if didInstall {
-		installed = append(installed, "node_worker")
 	} else {
-		skipped = append(skipped, "node_worker")
+		if didInstall, err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
+			m.setProgress(Progress{Running: false, Component: "node_runtime", Stage: "failed", Message: err.Error()})
+			return InstallResult{}, err
+		} else if didInstall {
+			installed = append(installed, "node_runtime")
+		} else {
+			skipped = append(skipped, "node_runtime")
+		}
 	}
 	if didInstall, err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
@@ -229,7 +226,7 @@ func (m *Manager) assetIsCurrent(component string, asset Asset) bool {
 func (m *Manager) componentFileExists(component string) bool {
 	switch component {
 	case "node_runtime":
-		return fileExists(m.NodePath())
+		return fileExists(m.bundledNodePath())
 	case "node_worker":
 		return fileExists(m.WorkerEntry()) && fileExists(m.WorkerDependencyPath())
 	case "cloakbrowser":

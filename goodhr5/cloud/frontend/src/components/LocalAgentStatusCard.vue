@@ -28,9 +28,9 @@
 
     <div class="status-grid">
       <div class="status-item">
-        <span>Node Worker</span>
-        <strong :class="runtime?.worker_installed ? 'ok-text' : 'warn-text'">
-          {{ runtime?.worker_installed ? "已安装" : "未安装" }}
+        <span>Node</span>
+        <strong :class="runtime?.node_installed ? 'ok-text' : 'warn-text'">
+          {{ runtime?.node_installed ? "可用" : "未安装" }}
         </strong>
       </div>
       <div class="status-item">
@@ -84,7 +84,7 @@
 
     <div class="maintenance-row">
       <button class="ghost" :disabled="!connected || runtimeInstalling" @click="installRuntime">
-        {{ runtimeInstalling ? "更新中..." : "更新运行组件" }}
+        {{ runtimeInstalling ? "安装中..." : runtimeRequiredMissing ? "安装必要组件" : "更新运行组件" }}
       </button>
       <button class="ghost" :disabled="!connected || updatingConsole || runtimeInstalling" @click="updateConsole">
         {{ updatingConsole ? "更新中..." : "更新控制台" }}
@@ -109,6 +109,7 @@
       </div>
     </div>
   </section>
+
 </template>
 
 <script setup lang="ts">
@@ -141,6 +142,13 @@ const runtime = computed(() => health.value?.runtime || props.agent?.info?.value
 const runtimeProgress = computed(() => runtime.value?.install_progress || {});
 const runtimeInstalling = computed(() =>
   Boolean(updatingRuntime.value || runtimeProgress.value?.running),
+);
+const requiredComponents = computed(() => [
+  { key: "node", label: "Node 运行环境", installed: Boolean(runtime.value?.node_installed) },
+  { key: "cloakbrowser", label: "CloakBrowser 浏览器", installed: Boolean(runtime.value?.cloakbrowser_installed) },
+]);
+const runtimeRequiredMissing = computed(() =>
+  requiredComponents.value.some((item) => !item.installed),
 );
 const runtimeProgressVisible = computed(() =>
   Boolean(runtimeInstalling.value || runtimeProgress.value?.message),
@@ -247,7 +255,9 @@ async function installRuntime() {
   if (!agentBase.value || runtimeInstalling.value) return;
   updatingRuntime.value = true;
   error.value = "";
-  message.value = "正在更新运行组件，请不要关闭本地程序";
+  message.value = runtimeRequiredMissing.value
+    ? "正在安装必要组件，请不要关闭本地程序"
+    : "正在更新运行组件，请不要关闭本地程序";
   startRuntimePolling();
   try {
     await installLocalRuntime(agentBase.value);
@@ -344,9 +354,14 @@ async function pollRuntimeStatus() {
     if (!status?.install_progress?.running && !updatingRuntime.value) {
       if (runtimeInstallStarted) {
         runtimeInstallStarted = false;
-        message.value = status?.install_progress?.stage === "failed"
-          ? ""
-          : "运行组件更新完成";
+        if (status?.install_progress?.stage === "failed") {
+          error.value = status?.install_progress?.message || "运行组件安装失败";
+          message.value = "";
+        } else {
+          message.value = runtimeRequiredMissing.value
+            ? "必要组件安装完成"
+            : "运行组件更新完成";
+        }
         await refresh();
       }
       stopRuntimePolling();
@@ -364,7 +379,6 @@ async function pollRuntimeStatus() {
 function componentName(value: string) {
   const names: Record<string, string> = {
     node_runtime: "Node 运行组件",
-    node_worker: "Node Worker",
     cloakbrowser: "CloakBrowser",
     ocr: "OCR 组件",
   };

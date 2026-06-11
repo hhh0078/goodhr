@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -168,9 +169,6 @@ func (m *Manager) Ensure() (Status, error) {
 	if !status.NodeInstalled {
 		return status, errors.New("Node 运行组件未安装，请先下载运行组件")
 	}
-	if !status.WorkerInstalled {
-		return status, errors.New("Node Browser Worker 未安装，请先下载运行组件")
-	}
 	if !status.CloakBrowserInstalled {
 		return status, errors.New("CloakBrowser 未安装，请先下载浏览器组件")
 	}
@@ -180,21 +178,19 @@ func (m *Manager) Ensure() (Status, error) {
 // NodePath 返回 Node 可执行文件路径。
 // Windows 返回 node.exe，其他系统返回 node。
 func (m *Manager) NodePath() string {
-	name := "node"
-	if runtime.GOOS == "windows" {
-		name = "node.exe"
-	}
-	root := filepath.Join(m.cfg.RuntimeDir, "node")
-	if found := findFile(root, name); found != "" {
+	if found := m.bundledNodePath(); found != "" {
 		return found
 	}
-	return filepath.Join(root, name)
+	if found := systemNodePath(); found != "" {
+		return found
+	}
+	return filepath.Join(m.cfg.RuntimeDir, "node", nodeBinaryName())
 }
 
-// WorkerEntry 返回 Node Worker 入口文件路径。
-// 入口文件由 worker-node 构建后放入运行目录。
+// WorkerEntry 返回内置浏览器控制组件入口文件路径。
+// 优先使用本地程序自带 worker-node，兼容旧运行目录里的 browser-worker。
 func (m *Manager) WorkerEntry() string {
-	root := filepath.Join(m.cfg.RuntimeDir, "browser-worker")
+	root := m.workerRoot()
 	for _, name := range []string{"index.js", filepath.Join("dist", "index.js"), filepath.Join("src", "index.js")} {
 		path := filepath.Join(root, name)
 		if fileExists(path) {
@@ -207,10 +203,10 @@ func (m *Manager) WorkerEntry() string {
 	return filepath.Join(root, "index.js")
 }
 
-// WorkerDependencyPath 返回 Node Worker 必须依赖 cloakbrowser 的 package.json 路径。
-// 返回值用于判断 Worker 是否真的可启动，而不是只检查入口文件。
+// WorkerDependencyPath 返回浏览器控制组件依赖 cloakbrowser 的 package.json 路径。
+// 返回值用于诊断内置组件是否完整。
 func (m *Manager) WorkerDependencyPath() string {
-	return filepath.Join(m.cfg.RuntimeDir, "browser-worker", "node_modules", "cloakbrowser", "package.json")
+	return filepath.Join(m.workerRoot(), "node_modules", "cloakbrowser", "package.json")
 }
 
 // CloakBrowserPath 返回当前系统 CloakBrowser 可执行文件路径。
@@ -268,4 +264,63 @@ func findFile(root string, name string) string {
 		return nil
 	})
 	return found
+}
+
+// bundledNodePath 返回 GoodHR 自带 Node 可执行文件路径。
+// 找不到时返回空字符串，调用方可继续尝试系统 Node。
+func (m *Manager) bundledNodePath() string {
+	root := filepath.Join(m.cfg.RuntimeDir, "node")
+	return findFile(root, nodeBinaryName())
+}
+
+// systemNodePath 返回用户系统 PATH 中的 Node 可执行文件路径。
+// 找不到时返回空字符串。
+func systemNodePath() string {
+	path, err := exec.LookPath(nodeBinaryName())
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+// nodeBinaryName 返回当前系统 Node 可执行文件名。
+func nodeBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "node.exe"
+	}
+	return "node"
+}
+
+// workerRoot 返回浏览器控制组件目录。
+// 正式包优先把 worker-node 放在本地程序旁边；开发环境兼容仓库目录。
+func (m *Manager) workerRoot() string {
+	candidates := []string{}
+	if value := strings.TrimSpace(os.Getenv("GOODHR_WORKER_DIR")); value != "" {
+		candidates = append(candidates, value)
+	}
+	if execPath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(execPath)
+		candidates = append(candidates,
+			filepath.Join(execDir, "worker-node"),
+			filepath.Join(execDir, "resources", "worker-node"),
+		)
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, "worker-node"),
+			filepath.Join(wd, "goodhr5", "local-agent-go", "worker-node"),
+		)
+	}
+	candidates = append(candidates, filepath.Join(m.cfg.RuntimeDir, "browser-worker"))
+	for _, candidate := range candidates {
+		if fileExists(filepath.Join(candidate, "src", "index.js")) ||
+			fileExists(filepath.Join(candidate, "index.js")) ||
+			fileExists(filepath.Join(candidate, "dist", "index.js")) {
+			return candidate
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return filepath.Join(m.cfg.RuntimeDir, "browser-worker")
 }

@@ -61,6 +61,9 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	if err != nil {
 		return WorkerStatus{}, err
 	}
+	if !status.WorkerInstalled {
+		return WorkerStatus{}, fmt.Errorf("本地程序缺少浏览器控制组件，请重新安装本地程序")
+	}
 	cmd := exec.Command(status.NodePath, status.WorkerEntry)
 	cmd.Env = append(os.Environ(),
 		"GOODHR_WORKER_ADDR=127.0.0.1:9101",

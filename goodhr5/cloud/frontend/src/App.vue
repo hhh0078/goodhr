@@ -102,6 +102,7 @@
       @confirm="confirmTheme"
       @close="closeThemeSelector"
     />
+    <RequiredRuntimeInstaller :agent="agent" />
   </div>
   <AppNotify />
 </template>
@@ -123,6 +124,7 @@ import { useTasks } from "./composables/useTasks";
 import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
 import AppNotify from "./components/AppNotify.vue";
+import RequiredRuntimeInstaller from "./components/RequiredRuntimeInstaller.vue";
 import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,
