@@ -272,9 +272,15 @@ func (db *DB) ClearTaskLogs(taskID string) error {
 	return nil
 }
 
-// SaveCandidate 保存本地候选人快照。
+// SaveCandidate 保存/更新本地候选人（全部结构化字段）。
 // taskID 为任务 ID，candidate 为候选人数据。
-func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (map[string]any, error) {
+func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (result map[string]any, resultErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resultErr = fmt.Errorf("保存候选人时发生内部错误：%v", r)
+			result = nil
+		}
+	}()
 	if _, err := db.GetTask(taskID); err != nil {
 		return nil, err
 	}
@@ -284,19 +290,84 @@ func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (map[string
 	candidate["task_id"] = taskID
 	candidateName := stringOr(candidate["candidate_name"], stringOr(candidate["name"], ""))
 	status := stringOr(candidate["status"], "")
-	payload, err := json.Marshal(candidate)
-	if err != nil {
-		return nil, fmt.Errorf("候选人数据格式不正确：%w", err)
-	}
-	_, err = db.conn.Exec(`
-INSERT INTO local_candidates(id, task_id, candidate_name, status, payload, created_at, updated_at)
-VALUES(?, ?, ?, ?, ?, ?, ?)
+	_, err := db.conn.Exec(`
+INSERT INTO local_candidates(
+    id, task_id, candidate_name, status,
+    birth_ym, phone, email, work_region, work_years,
+    expected_salary_min, expected_salary_max,
+    personal_description, work_status, expected_position, online_status, education_level,
+    basic_info, raw_text, filter_text,
+    work_experiences, educations, certificates, honors, project_experiences, colleague_communications,
+    resume_attachment_url, resume_attachment_extracted_text,
+    ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score,
+    ext, first_seen_at, detail_fetched_at, greeted_at,
+    created_at, updated_at
+) VALUES(?, ?, ?, ?,
+    ?, ?, ?, ?, ?,
+    ?, ?,
+    ?, ?, ?, ?, ?,
+    ?, ?, ?,
+    ?, ?, ?, ?, ?, ?,
+    ?, ?,
+    ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?,
+    ?, ?)
 ON CONFLICT(task_id, id) DO UPDATE SET
     candidate_name=excluded.candidate_name,
     status=excluded.status,
-    payload=excluded.payload,
+    birth_ym=excluded.birth_ym,
+    phone=excluded.phone,
+    email=excluded.email,
+    work_region=excluded.work_region,
+    work_years=excluded.work_years,
+    expected_salary_min=excluded.expected_salary_min,
+    expected_salary_max=excluded.expected_salary_max,
+    personal_description=excluded.personal_description,
+    work_status=excluded.work_status,
+    expected_position=excluded.expected_position,
+    online_status=excluded.online_status,
+    education_level=excluded.education_level,
+    basic_info=excluded.basic_info,
+    raw_text=excluded.raw_text,
+    filter_text=excluded.filter_text,
+    work_experiences=excluded.work_experiences,
+    educations=excluded.educations,
+    certificates=excluded.certificates,
+    honors=excluded.honors,
+    project_experiences=excluded.project_experiences,
+    colleague_communications=excluded.colleague_communications,
+    resume_attachment_url=excluded.resume_attachment_url,
+    resume_attachment_extracted_text=excluded.resume_attachment_extracted_text,
+    ai_detail_reason=excluded.ai_detail_reason,
+    ai_detail_score=excluded.ai_detail_score,
+    ai_greet_reason=excluded.ai_greet_reason,
+    ai_greet_score=excluded.ai_greet_score,
+    ai_review_reason=excluded.ai_review_reason,
+    ai_review_score=excluded.ai_review_score,
+    ext=excluded.ext,
+    first_seen_at=excluded.first_seen_at,
+    detail_fetched_at=excluded.detail_fetched_at,
+    greeted_at=excluded.greeted_at,
+    candidate_name=excluded.candidate_name,
     updated_at=excluded.updated_at`,
-		candidateID, taskID, candidateName, status, string(payload), now, now,
+		candidateID, taskID, candidateName, status,
+		strVal(candidate, "birth_ym"), strVal(candidate, "phone"), strVal(candidate, "email"),
+		strVal(candidate, "work_region"), strVal(candidate, "work_years"),
+		intOrNil(candidate, "expected_salary_min"), intOrNil(candidate, "expected_salary_max"),
+		strVal(candidate, "personal_description"), strVal(candidate, "work_status"),
+		strVal(candidate, "expected_position"), strVal(candidate, "online_status"),
+		strVal(candidate, "education_level"),
+		strVal(candidate, "basic_info"), strVal(candidate, "raw_text"), strVal(candidate, "filter_text"),
+		jsonOrArray(candidate, "work_experiences"), jsonOrArray(candidate, "educations"),
+		jsonOrArray(candidate, "certificates"), jsonOrArray(candidate, "honors"),
+		jsonOrArray(candidate, "project_experiences"), jsonOrArray(candidate, "colleague_communications"),
+		strVal(candidate, "resume_attachment_url"), strVal(candidate, "resume_attachment_extracted_text"),
+		strVal(candidate, "ai_detail_reason"), floatOrNil(candidate, "ai_detail_score"),
+		strVal(candidate, "ai_greet_reason"), floatOrNil(candidate, "ai_greet_score"),
+		strVal(candidate, "ai_review_reason"), floatOrNil(candidate, "ai_review_score"),
+		jsonOrMap(candidate, "ext"), strVal(candidate, "first_seen_at"),
+		strVal(candidate, "detail_fetched_at"), strVal(candidate, "greeted_at"),
+		now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("保存候选人失败：%w", err)
@@ -304,51 +375,88 @@ ON CONFLICT(task_id, id) DO UPDATE SET
 	return candidate, nil
 }
 
-// ListCandidates 读取本地候选人列表。
-// taskID 为任务 ID。
+// ListCandidates 读取本地候选人列表（结构化字段）。
+// taskID 为任务 ID，返回候选人列表。
 func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
-	rows, err := db.conn.Query(`SELECT task_id, payload FROM local_candidates WHERE task_id=? ORDER BY updated_at DESC`, taskID)
+	rows, err := db.conn.Query(`SELECT candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE task_id=? ORDER BY updated_at DESC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("读取候选人失败：%w", err)
 	}
 	defer rows.Close()
 	result := []map[string]any{}
 	for rows.Next() {
-		var rowTaskID string
-		var raw string
-		if err := rows.Scan(&rowTaskID, &raw); err != nil {
+		var cName, cStatus, birthYM, phone, email, workRegion, workYears string
+		var salMin, salMax *int
+		var personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string
+		var basicInfo, rawText, filterText string
+		var workExps, edus, certs, honors, projExps, comms string
+		var resumeURL, resumeText string
+		var aiDetailReason, aiGreetReason, aiReviewReason string
+		var aiDetailScore, aiGreetScore, aiReviewScore *float64
+		var ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string
+		err := rows.Scan(&cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
+			&salMin, &salMax, &personalDesc, &workStatus, &expectedPos, &onlineStatus, &eduLevel,
+			&basicInfo, &rawText, &filterText,
+			&workExps, &edus, &certs, &honors, &projExps, &comms,
+			&resumeURL, &resumeText,
+			&aiDetailReason, &aiDetailScore, &aiGreetReason, &aiGreetScore, &aiReviewReason, &aiReviewScore,
+			&ext, &firstSeen, &detailFetched, &greeted, &createdAt, &updatedAt)
+		if err != nil {
 			return nil, err
 		}
-		item := map[string]any{}
-		if err := json.Unmarshal([]byte(raw), &item); err == nil {
-			item["task_id"] = rowTaskID
-			result = append(result, item)
-		}
+		item := candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYears,
+			salMin, salMax, personalDesc, workStatus, expectedPos, onlineStatus, eduLevel,
+			basicInfo, rawText, filterText,
+			workExps, edus, certs, honors, projExps, comms,
+			resumeURL, resumeText,
+			aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
+			ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
+		item["task_id"] = taskID
+		result = append(result, item)
 	}
 	return result, rows.Err()
 }
 
-// ListCandidatesFiltered 按条件读取本地候选人分页列表。
+// ListCandidatesFiltered 按条件读取本地候选人分页列表（结构化字段）。
 // filter 为筛选条件，返回候选人列表、总数和错误信息。
 func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, int, error) {
-	rows, err := db.conn.Query(`SELECT task_id, payload FROM local_candidates ORDER BY updated_at DESC`)
+	rows, err := db.conn.Query(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, 0, fmt.Errorf("读取候选人失败：%w", err)
 	}
 	defer rows.Close()
 	all := []map[string]any{}
 	for rows.Next() {
+		var cName, cStatus, birthYM, phone, email, workRegion, workYears string
+		var salMin, salMax *int
+		var personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string
+		var basicInfo, rawText, filterText string
+		var workExps, edus, certs, honors, projExps, comms string
+		var resumeURL, resumeText string
+		var aiDetailReason, aiGreetReason, aiReviewReason string
+		var aiDetailScore, aiGreetScore, aiReviewScore *float64
+		var ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string
 		var rowTaskID string
-		var raw string
-		if err := rows.Scan(&rowTaskID, &raw); err != nil {
+		err := rows.Scan(&rowTaskID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
+			&salMin, &salMax, &personalDesc, &workStatus, &expectedPos, &onlineStatus, &eduLevel,
+			&basicInfo, &rawText, &filterText,
+			&workExps, &edus, &certs, &honors, &projExps, &comms,
+			&resumeURL, &resumeText,
+			&aiDetailReason, &aiDetailScore, &aiGreetReason, &aiGreetScore, &aiReviewReason, &aiReviewScore,
+			&ext, &firstSeen, &detailFetched, &greeted, &createdAt, &updatedAt)
+		if err != nil {
 			return nil, 0, err
 		}
-		item := map[string]any{}
-		if err := json.Unmarshal([]byte(raw), &item); err == nil {
-			item["task_id"] = rowTaskID
-			if matchCandidateFilter(item, filter) {
-				all = append(all, item)
-			}
+		item := candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYears,
+			salMin, salMax, personalDesc, workStatus, expectedPos, onlineStatus, eduLevel,
+			basicInfo, rawText, filterText,
+			workExps, edus, certs, honors, projExps, comms,
+			resumeURL, resumeText,
+			aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
+			ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
+		item["task_id"] = rowTaskID
+		if matchCandidateFilter(item, filter) {
+			all = append(all, item)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -377,7 +485,7 @@ func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, 
 	return all[start:end], total, nil
 }
 
-// GetCandidate 读取本地候选人详情。
+// GetCandidate 读取本地候选人详情（结构化字段）。
 // candidateID 为候选人 ID，taskID 为空时会在全部任务中查找。
 func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, error) {
 	if strings.TrimSpace(candidateID) == "" {
@@ -385,22 +493,39 @@ func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, e
 	}
 	var row *sql.Row
 	if strings.TrimSpace(taskID) != "" {
-		row = db.conn.QueryRow(`SELECT task_id, payload FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
+		row = db.conn.QueryRow(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
 	} else {
-		row = db.conn.QueryRow(`SELECT task_id, payload FROM local_candidates WHERE id=? ORDER BY updated_at DESC LIMIT 1`, candidateID)
+		row = db.conn.QueryRow(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE id=? ORDER BY updated_at DESC LIMIT 1`, candidateID)
 	}
-	var rowTaskID string
-	var raw string
-	if err := row.Scan(&rowTaskID, &raw); err != nil {
+	var rowTaskID, cName, cStatus, birthYM, phone, email, workRegion, workYears string
+	var salMin, salMax *int
+	var personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string
+	var basicInfo, rawText, filterText string
+	var workExps, edus, certs, honors, projExps, comms string
+	var resumeURL, resumeText string
+	var aiDetailReason, aiGreetReason, aiReviewReason string
+	var aiDetailScore, aiGreetScore, aiReviewScore *float64
+	var ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string
+	err := row.Scan(&rowTaskID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
+		&salMin, &salMax, &personalDesc, &workStatus, &expectedPos, &onlineStatus, &eduLevel,
+		&basicInfo, &rawText, &filterText,
+		&workExps, &edus, &certs, &honors, &projExps, &comms,
+		&resumeURL, &resumeText,
+		&aiDetailReason, &aiDetailScore, &aiGreetReason, &aiGreetScore, &aiReviewReason, &aiReviewScore,
+		&ext, &firstSeen, &detailFetched, &greeted, &createdAt, &updatedAt)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("候选人不存在")
 		}
 		return nil, fmt.Errorf("读取候选人详情失败：%w", err)
 	}
-	item := map[string]any{}
-	if err := json.Unmarshal([]byte(raw), &item); err != nil {
-		return nil, fmt.Errorf("候选人数据格式不正确：%w", err)
-	}
+	item := candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYears,
+		salMin, salMax, personalDesc, workStatus, expectedPos, onlineStatus, eduLevel,
+		basicInfo, rawText, filterText,
+		workExps, edus, certs, honors, projExps, comms,
+		resumeURL, resumeText,
+		aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
+		ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
 	item["task_id"] = rowTaskID
 	return item, nil
 }
@@ -537,4 +662,212 @@ func maxInt(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+
+// candidateRowToMap 将 SQLite 行数据转换为 map，供 API 返回。
+func candidateRowToMap(cName, cStatus, birthYM, phone, email, workRegion, workYears string,
+	salMin, salMax *int, personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string,
+	basicInfo, rawText, filterText string,
+	workExps, edus, certs, honors, projExps, comms string,
+	resumeURL, resumeText string,
+	aiDetailReason string, aiDetailScore *float64, aiGreetReason string, aiGreetScore *float64,
+	aiReviewReason string, aiReviewScore *float64,
+	ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string) map[string]any {
+	item := map[string]any{
+		"candidate_name":                     cName,
+		"status":                             cStatus,
+		"birth_ym":                           birthYM,
+		"phone":                              phone,
+		"email":                              email,
+		"work_region":                        workRegion,
+		"work_years":                         workYears,
+		"expected_salary_min":                salMin,
+		"expected_salary_max":                salMax,
+		"personal_description":               personalDesc,
+		"work_status":                        workStatus,
+		"expected_position":                  expectedPos,
+		"online_status":                      onlineStatus,
+		"education_level":                    eduLevel,
+		"basic_info":                         basicInfo,
+		"raw_text":                           rawText,
+		"filter_text":                        filterText,
+		"resume_attachment_url":              resumeURL,
+		"resume_attachment_extracted_text":   resumeText,
+		"ai_detail_reason":                   aiDetailReason,
+		"ai_detail_score":                    aiDetailScore,
+		"ai_greet_reason":                    aiGreetReason,
+		"ai_greet_score":                     aiGreetScore,
+		"ai_review_reason":                   aiReviewReason,
+		"ai_review_score":                    aiReviewScore,
+		"ext":                                ext,
+		"first_seen_at":                      firstSeen,
+		"detail_fetched_at":                  detailFetched,
+		"greeted_at":                         greeted,
+		"created_at":                         createdAt,
+		"updated_at":                         updatedAt,
+	}
+	// JSON 字段解析为数组或字典
+	if workExps != "" && workExps != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(workExps), &parsed) == nil {
+			item["work_experiences"] = parsed
+		}
+	}
+	if edus != "" && edus != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(edus), &parsed) == nil {
+			item["educations"] = parsed
+		}
+	}
+	if certs != "" && certs != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(certs), &parsed) == nil {
+			item["certificates"] = parsed
+		}
+	}
+	if honors != "" && honors != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(honors), &parsed) == nil {
+			item["honors"] = parsed
+		}
+	}
+	if projExps != "" && projExps != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(projExps), &parsed) == nil {
+			item["project_experiences"] = parsed
+		}
+	}
+	if comms != "" && comms != "[]" {
+		var parsed []any
+		if json.Unmarshal([]byte(comms), &parsed) == nil {
+			item["colleague_communications"] = parsed
+		}
+	}
+	if ext != "" && ext != "{}" {
+		var parsed map[string]any
+		if json.Unmarshal([]byte(ext), &parsed) == nil {
+			item["ext"] = parsed
+		}
+	}
+	return item
+}
+
+// strVal 从 map 中读取字符串值，不存在或非字符串返回空字符串。
+func strVal(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if ok {
+		return s
+	}
+	return ""
+}
+
+// intOrNil 从 map 中读取 int 指针，不存在时返回 nil。
+func intOrNil(m map[string]any, key string) *int {
+	if m == nil {
+		return nil
+	}
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	switch n := v.(type) {
+	case int:
+		return &n
+	case float64:
+		i := int(n)
+		return &i
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return nil
+		}
+		ii := int(i)
+		return &ii
+	default:
+		return nil
+	}
+}
+
+// floatOrNil 从 map 中读取 float64 指针，不存在时返回 nil。
+func floatOrNil(m map[string]any, key string) *float64 {
+	if m == nil {
+		return nil
+	}
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return nil
+		}
+		return &f
+	default:
+		return nil
+	}
+}
+
+// jsonOrArray 将 map 中的数组值序列化为 JSON 字符串，用于 SQLite 存储。
+// 如果是字符串则原样返回，如果是数组则 JSON 序列化。
+func jsonOrArray(m map[string]any, key string) string {
+	if m == nil {
+		return "[]"
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return "[]"
+	}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return "[]"
+		}
+		return val
+	case []any:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return "[]"
+		}
+		return string(b)
+	default:
+		return "[]"
+	}
+}
+
+// jsonOrMap 将 map 中的子 map 序列化为 JSON 字符串，用于 SQLite 存储。
+func jsonOrMap(m map[string]any, key string) string {
+	if m == nil {
+		return "{}"
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return "{}"
+	}
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return "{}"
+		}
+		return val
+	case map[string]any:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return "{}"
+		}
+		return string(b)
+	default:
+		return "{}"
+	}
 }

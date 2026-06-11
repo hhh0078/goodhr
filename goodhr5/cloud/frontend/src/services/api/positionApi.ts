@@ -52,9 +52,6 @@ export async function deletePosition(positionID: string) {
  * @returns {Promise<any>} 返回 filter_prompt、open_detail_prompt 和 review_prompt。
  */
 export async function getDefaultPrompts() {
-  if (isLocalConsole()) {
-    return getLocalPositionDefaultPrompts(localAgentBase());
-  }
   const data = await api("/api/system/default-prompts");
   return data.prompts || {};
 }

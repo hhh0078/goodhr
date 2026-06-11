@@ -101,13 +101,45 @@ CREATE TABLE IF NOT EXISTS local_task_logs (
     FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
 );
 
--- local_candidates 保存本地候选人快照。
+-- local_candidates 保存打招呼后的候选人结构化信息，结构与云端 task_candidates 对齐。
 CREATE TABLE IF NOT EXISTS local_candidates (
     id TEXT NOT NULL,
     task_id TEXT NOT NULL,
     candidate_name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '',
-    payload TEXT NOT NULL DEFAULT '{}',
+    birth_ym TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    work_region TEXT NOT NULL DEFAULT '',
+    work_years TEXT NOT NULL DEFAULT '',
+    expected_salary_min INTEGER,
+    expected_salary_max INTEGER,
+    personal_description TEXT NOT NULL DEFAULT '',
+    work_status TEXT NOT NULL DEFAULT '',
+    expected_position TEXT NOT NULL DEFAULT '',
+    online_status TEXT NOT NULL DEFAULT '',
+    education_level TEXT NOT NULL DEFAULT '',
+    basic_info TEXT NOT NULL DEFAULT '',
+    raw_text TEXT NOT NULL DEFAULT '',
+    filter_text TEXT NOT NULL DEFAULT '',
+    work_experiences TEXT NOT NULL DEFAULT '[]',
+    educations TEXT NOT NULL DEFAULT '[]',
+    certificates TEXT NOT NULL DEFAULT '[]',
+    honors TEXT NOT NULL DEFAULT '[]',
+    project_experiences TEXT NOT NULL DEFAULT '[]',
+    colleague_communications TEXT NOT NULL DEFAULT '[]',
+    resume_attachment_url TEXT NOT NULL DEFAULT '',
+    resume_attachment_extracted_text TEXT NOT NULL DEFAULT '',
+    ai_detail_reason TEXT NOT NULL DEFAULT '',
+    ai_detail_score REAL,
+    ai_greet_reason TEXT NOT NULL DEFAULT '',
+    ai_greet_score REAL,
+    ai_review_reason TEXT NOT NULL DEFAULT '',
+    ai_review_score REAL,
+    ext TEXT NOT NULL DEFAULT '{}',
+    first_seen_at TEXT NOT NULL DEFAULT '',
+    detail_fetched_at TEXT NOT NULL DEFAULT '',
+    greeted_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY(task_id, id),
@@ -245,5 +277,91 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	}
 	// 后向兼容迁移：低版本数据库在首次 migrate 后仍缺少 enable_thinking 字段。
 	_, _ = db.conn.Exec(`ALTER TABLE local_tasks ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
+	// 后向兼容迁移：重建 local_candidates 表以支持结构化字段。
+	db.migrateLocalCandidates()
+	return nil
+}
+
+// migrateLocalCandidates 将旧版 local_candidates 表升级为结构化字段版本。
+// SQLite 不支持直接修改列，采用"重命名旧表 → 创建新表 → 迁移数据"策略。
+func (db *DB) migrateLocalCandidates() error {
+	// 检测旧表是否有 payload 字段（旧版标志）
+	row := db.conn.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('local_candidates') WHERE name='payload'`)
+	var hasPayload int
+	if err := row.Scan(&hasPayload); err != nil || hasPayload == 0 {
+		return nil // 已经是新结构，无需迁移
+	}
+	// 开始迁移
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("开始迁移事务失败：%w", err)
+	}
+	defer tx.Rollback()
+	// 重命名旧表
+	if _, err := tx.Exec(`ALTER TABLE local_candidates RENAME TO local_candidates_old`); err != nil {
+		return fmt.Errorf("重命名旧表失败：%w", err)
+	}
+	// 创建新表
+	_, err = tx.Exec(`
+CREATE TABLE local_candidates (
+    id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    candidate_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    birth_ym TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    work_region TEXT NOT NULL DEFAULT '',
+    work_years TEXT NOT NULL DEFAULT '',
+    expected_salary_min INTEGER,
+    expected_salary_max INTEGER,
+    personal_description TEXT NOT NULL DEFAULT '',
+    work_status TEXT NOT NULL DEFAULT '',
+    expected_position TEXT NOT NULL DEFAULT '',
+    online_status TEXT NOT NULL DEFAULT '',
+    education_level TEXT NOT NULL DEFAULT '',
+    basic_info TEXT NOT NULL DEFAULT '',
+    raw_text TEXT NOT NULL DEFAULT '',
+    filter_text TEXT NOT NULL DEFAULT '',
+    work_experiences TEXT NOT NULL DEFAULT '[]',
+    educations TEXT NOT NULL DEFAULT '[]',
+    certificates TEXT NOT NULL DEFAULT '[]',
+    honors TEXT NOT NULL DEFAULT '[]',
+    project_experiences TEXT NOT NULL DEFAULT '[]',
+    colleague_communications TEXT NOT NULL DEFAULT '[]',
+    resume_attachment_url TEXT NOT NULL DEFAULT '',
+    resume_attachment_extracted_text TEXT NOT NULL DEFAULT '',
+    ai_detail_reason TEXT NOT NULL DEFAULT '',
+    ai_detail_score REAL,
+    ai_greet_reason TEXT NOT NULL DEFAULT '',
+    ai_greet_score REAL,
+    ai_review_reason TEXT NOT NULL DEFAULT '',
+    ai_review_score REAL,
+    ext TEXT NOT NULL DEFAULT '{}',
+    first_seen_at TEXT NOT NULL DEFAULT '',
+    detail_fetched_at TEXT NOT NULL DEFAULT '',
+    greeted_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(task_id, id),
+    FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
+)`)
+	if err != nil {
+		return fmt.Errorf("创建新表失败：%w", err)
+	}
+	// 从旧表迁移数据（payload 中的字段映射到新表）
+	if _, err := tx.Exec(`
+INSERT INTO local_candidates(id, task_id, candidate_name, status, created_at, updated_at)
+SELECT id, task_id, candidate_name, status, created_at, updated_at FROM local_candidates_old
+`); err != nil {
+		return fmt.Errorf("迁移旧数据失败：%w", err)
+	}
+	// 删除旧表
+	if _, err := tx.Exec(`DROP TABLE local_candidates_old`); err != nil {
+		return fmt.Errorf("删除旧表失败：%w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交迁移事务失败：%w", err)
+	}
 	return nil
 }

@@ -532,6 +532,36 @@ func (s *Server) handleLocalCandidates(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// 补充平台、岗位信息和摘要
+		for _, item := range candidates {
+			if taskID, _ := item["task_id"].(string); taskID != "" {
+				task, taskErr := s.db.GetTask(taskID)
+				if taskErr == nil {
+					if _, ok := item["platform_id"]; !ok || item["platform_id"] == "" {
+						item["platform_id"] = task.PlatformID
+					}
+					if _, ok := item["position_name"]; !ok || item["position_name"] == "" {
+						if task.PositionSnapshot != nil {
+							if name, _ := task.PositionSnapshot["name"].(string); name != "" {
+								item["position_name"] = name
+							}
+						}
+					}
+				}
+			}
+			// 从 filter_text 提取摘要（地区/年限/学历），直接填补 work_region/work_years/education_level
+			if filterText, _ := item["filter_text"].(string); filterText != "" {
+				if v, _ := item["work_region"].(string); v == "" {
+					item["work_region"] = extractSummaryField(filterText, "region")
+				}
+				if v, _ := item["work_years"].(string); v == "" {
+					item["work_years"] = extractSummaryField(filterText, "years")
+				}
+				if v, _ := item["education_level"].(string); v == "" {
+					item["education_level"] = extractSummaryField(filterText, "education")
+				}
+			}
+		}
 		if filter.Page <= 0 {
 			filter.Page = 1
 		}
@@ -729,8 +759,9 @@ func (s *Server) handleLocalPositionDefaultPrompts(w http.ResponseWriter, r *htt
 		return
 	}
 	response.Success(w, map[string]any{"prompts": map[string]any{
-		"greet_prompt":    "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
-		"optimize_prompt": "请把下面的岗位要求整理得更清晰，保留招聘重点，不要编造信息。",
+		"filter_prompt": "请根据岗位要求和候选人信息，判断是否值得打招呼，并输出 JSON：{\"score\":80,\"reason\":\"理由\"}",
+		"open_detail_prompt": "你是资深招聘顾问。请根据岗位要求和候选人基础信息给出查看详情建议分。",
+		"review_prompt": "你是资深的HR专家。当前候选人分数接近岗位阈值，请做打招呼前二次复核评分。",
 	}})
 }
 
@@ -1857,4 +1888,56 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// extractSummaryField 从 filter_text 中提取摘要字段。
+// filterText 为候选人筛选文本，field 为提取类型（region/years/education）。
+func extractSummaryField(filterText string, field string) string {
+	if filterText == "" {
+		return ""
+	}
+	// 按行查找，找到包含这些信息的行
+	lines := strings.Split(filterText, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		switch field {
+		case "region":
+			// 匹配 "成都"、"北京"、"上海" 等地区关键词
+			for _, region := range commonRegions() {
+				if strings.Contains(line, region) {
+					return region
+				}
+			}
+		case "years":
+			// 匹配 "X年"、"X年经验" 等
+			if strings.Contains(line, "年") && len(line) < 20 {
+				// 提取小段包含年的文本
+				for _, word := range strings.Fields(line) {
+					if strings.Contains(word, "年") && !strings.Contains(word, "毕业") {
+						return word
+					}
+				}
+			}
+		case "education":
+			// 匹配学历
+			for _, edu := range []string{"博士", "硕士", "本科", "大专", "高中", "中专", "初中"} {
+				if strings.Contains(line, edu) {
+					return edu
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// commonRegions 返回常见地区列表。
+func commonRegions() []string {
+	return []string{
+		"北京", "上海", "广州", "深圳", "成都", "杭州", "武汉", "南京", "重庆", "西安",
+		"苏州", "天津", "长沙", "郑州", "东莞", "青岛", "沈阳", "宁波", "昆明",
+		"大连", "厦门", "合肥", "佛山", "福州", "哈尔滨", "济南", "温州", "长春",
+		"石家庄", "常州", "泉州", "南宁", "贵阳", "南昌", "太原", "烟台", "嘉兴",
+		"南通", "金华", "珠海", "惠州", "徐州", "海口", "绍兴", "乌鲁木齐", "中山",
+		"台州", "兰州",
+	}
 }

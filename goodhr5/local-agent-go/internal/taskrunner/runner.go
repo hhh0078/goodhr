@@ -559,11 +559,14 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 					batchResult.Skipped += itemSkipped
 				}
 
-				if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
-					return nil, err
+				status := stringFromMap(candidate, "status")
+				if status == "greeted" {
+					if _, err := r.db.SaveCandidate(task.ID, candidate); err != nil {
+						return nil, err
+					}
+					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已保存：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
+					batchResult.Saved++
 				}
-				r.taskLog(task.ID, "info", fmt.Sprintf("候选人已保存：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), stringFromMap(candidate, "status")))
-				batchResult.Saved++
 			}
 
 			totalSaved += batchResult.Saved
@@ -993,6 +996,14 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				candidate["ai_usage"] = decision.Usage
 				candidate["ai_elapsed_ms"] = decision.ElapsedMS
 				candidate["ai_greet_scored"] = true
+				// 将 AI 返回的结构化简历数据合并到 candidate，供 SaveCandidate 入库
+				if decision.ResumeData != nil && len(decision.ResumeData) > 0 {
+					for rk, rv := range decision.ResumeData {
+						if _, exists := candidate[rk]; !exists && rv != nil {
+							candidate[rk] = rv
+						}
+					}
+				}
 				if !decision.ShouldGreet {
 					candidate["status"] = "skipped"
 					candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
