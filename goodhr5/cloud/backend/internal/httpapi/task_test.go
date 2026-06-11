@@ -154,38 +154,50 @@ func createPositionForTest(t *testing.T, routes http.Handler, token string) stri
 	return payload.Position.ID
 }
 
-// TestBossPositionKeepsDetailMode 验证 Boss 岗位模板保存时保留用户选择的详情模式。
-func TestBossPositionKeepsDetailMode(t *testing.T) {
-	server := mustNewServer(t)
-	routes := server.Routes()
-	token := loginForTest(t, routes, "position-boss@example.com")
+// TestBossPositionDetailModeRules 验证 Boss 支持 AI/OCR，DOM 会兜底改为 OCR。
+func TestBossPositionDetailModeRules(t *testing.T) {
+	for _, item := range []struct {
+		name string
+		mode string
+		want string
+	}{
+		{name: "dom fallback", mode: "dom", want: "ocr"},
+		{name: "ocr keeps", mode: "ocr", want: "ocr"},
+		{name: "ai keeps", mode: "ai", want: "ai"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			server := mustNewServer(t)
+			routes := server.Routes()
+			token := loginForTest(t, routes, "position-boss-"+item.mode+"@example.com")
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/positions",
-		bytes.NewBufferString(`{"platform_id":"boss","name":"课程顾问","common_config":{"detail_mode":"dom","mode_default":"ai"}}`),
-	)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp := httptest.NewRecorder()
-	routes.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
-	}
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/positions",
+				bytes.NewBufferString(`{"platform_id":"boss","name":"课程顾问","common_config":{"detail_mode":"`+item.mode+`","mode_default":"ai"}}`),
+			)
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp := httptest.NewRecorder()
+			routes.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
+			}
 
-	var payload struct {
-		Position struct {
-			PlatformID   string         `json:"platform_id"`
-			CommonConfig map[string]any `json:"common_config"`
-		} `json:"position"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Position.PlatformID != "boss" {
-		t.Fatalf("platform_id = %q", payload.Position.PlatformID)
-	}
-	if payload.Position.CommonConfig["detail_mode"] != "dom" {
-		t.Fatalf("detail_mode = %v, want dom", payload.Position.CommonConfig["detail_mode"])
+			var payload struct {
+				Position struct {
+					PlatformID   string         `json:"platform_id"`
+					CommonConfig map[string]any `json:"common_config"`
+				} `json:"position"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Position.PlatformID != "boss" {
+				t.Fatalf("platform_id = %q", payload.Position.PlatformID)
+			}
+			if payload.Position.CommonConfig["detail_mode"] != item.want {
+				t.Fatalf("detail_mode = %v, want %s", payload.Position.CommonConfig["detail_mode"], item.want)
+			}
+		})
 	}
 }
 

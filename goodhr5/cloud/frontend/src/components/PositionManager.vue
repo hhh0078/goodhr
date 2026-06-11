@@ -457,7 +457,12 @@ const detailModeOptions = [
     description: "理解能力最强，适合复杂简历截图，但速度较慢且需要 AI 配置。",
   },
 ];
-const availableDetailModeOptions = computed(() => detailModeOptions);
+const availableDetailModeOptions = computed(() => {
+  if (props.positions.form.value.platformId === "boss") {
+    return detailModeOptions.filter((option) => option.value !== "dom");
+  }
+  return detailModeOptions;
+});
 const keywordMatchOptions = [
   {
     value: false,
@@ -493,6 +498,12 @@ async function savePosition() {
  */
 function selectPlatform(platformID: string) {
   props.positions.form.value.platformId = platformID;
+  if (
+    platformID === "boss" &&
+    props.positions.form.value.detailMode === "dom"
+  ) {
+    props.positions.form.value.detailMode = "ocr";
+  }
 }
 
 /**
@@ -501,6 +512,13 @@ function selectPlatform(platformID: string) {
  * @returns {void} 无返回值。
  */
 function selectDetailMode(detailMode: string) {
+  if (
+    props.positions.form.value.platformId === "boss" &&
+    detailMode === "dom"
+  ) {
+    props.positions.form.value.detailMode = "ocr";
+    return;
+  }
   props.positions.form.value.detailMode = detailMode;
 }
 
