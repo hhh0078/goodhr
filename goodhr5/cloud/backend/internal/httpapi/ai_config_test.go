@@ -41,6 +41,7 @@ func TestAIConfigEffectiveUserOnly(t *testing.T) {
 		Config struct {
 			BaseURL   string  `json:"base_url"`
 			Model     string  `json:"model"`
+			APIKey    string  `json:"api_key"`
 			KeySet    bool    `json:"api_key_set"`
 			Temp      float64 `json:"temperature"`
 			Prompt    string  `json:"prompt_template"`
@@ -61,6 +62,28 @@ func TestAIConfigEffectiveUserOnly(t *testing.T) {
 	}
 	if !payload.Config.KeySet || payload.Config.KeyMasked != "user****-key" {
 		t.Fatalf("api key masking failed: set=%v masked=%q", payload.Config.KeySet, payload.Config.KeyMasked)
+	}
+	if payload.Config.APIKey != "" {
+		t.Fatalf("普通读取不应返回明文 api_key")
+	}
+
+	revealReq := httptest.NewRequest(http.MethodGet, "/api/config/effective-ai?reveal_api_key=1", nil)
+	revealReq.Header.Set("Authorization", "Bearer "+token)
+	revealResp := httptest.NewRecorder()
+	routes.ServeHTTP(revealResp, revealReq)
+	if revealResp.Code != http.StatusOK {
+		t.Fatalf("reveal status = %d, body = %s", revealResp.Code, revealResp.Body.String())
+	}
+	var revealPayload struct {
+		Config struct {
+			APIKey string `json:"api_key"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(revealResp.Body).Decode(&revealPayload); err != nil {
+		t.Fatal(err)
+	}
+	if revealPayload.Config.APIKey != "user-secret-key" {
+		t.Fatalf("reveal api_key = %q", revealPayload.Config.APIKey)
 	}
 }
 
