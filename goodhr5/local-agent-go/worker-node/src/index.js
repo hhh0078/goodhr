@@ -428,11 +428,13 @@ async function findElements(payload) {
   const currentPage = await ensurePage();
   const element = payload.element || payload.item || payload;
   const visibleOnly = payload.visible_only !== false;
-  const locators = await allLocators(currentPage, element, visibleOnly);
-  const maxItems = Math.max(1, Math.min(200, Number(payload.max_items || 100)));
+  const rawMaxItems = Number(payload.max_items || 0);
+  const maxItems = rawMaxItems > 0 ? rawMaxItems : 0;
+  const locators = await allLocators(currentPage, element, visibleOnly, maxItems);
   const fields = Array.isArray(payload.fields) ? payload.fields : [];
   const items = [];
-  for (let index = 0; index < Math.min(locators.length, maxItems); index += 1) {
+  const total = maxItems > 0 ? Math.min(locators.length, maxItems) : locators.length;
+  for (let index = 0; index < total; index += 1) {
     const locator = locators[index].locator || locators[index];
     const extracted = {};
     for (const field of fields) {
@@ -480,7 +482,8 @@ async function listClickByIndex(payload) {
 async function extractBossCandidates(payload) {
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
-  const maxItems = Math.max(1, Math.min(100, Number(payload.max_items || 15)));
+  const rawMaxItems = Number(payload.max_items || 0);
+  const maxItems = rawMaxItems > 0 ? rawMaxItems : 0;
   const findResp = await findElements({
     element: rules.candidate_card,
     visible_only: true,
@@ -612,7 +615,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   }
   const cardSelectors = selectorList(rules.candidate_card);
   if (cardSelectors.length <= 0) throw new Error("云端平台配置缺少候选人卡片选择器");
-  let cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+  let cards = await allLocators(currentPage, rules.candidate_card, true, 0);
   let count = cards.length;
   const maxAttempts = Math.max(1, Math.min(12, Number(payload.card_scroll_attempts || 8)));
   const distance = Math.max(120, Number(payload.card_scroll_distance || payload.distance || 720));
@@ -620,7 +623,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     if (cardIndex >= count) {
       await scrollBossListByRules(currentPage, rules, distance);
       await currentPage.waitForTimeout(250);
-      cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+      cards = await allLocators(currentPage, rules.candidate_card, true, 0);
       count = cards.length;
       continue;
     }
@@ -634,7 +637,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     }
     await scrollBossListByRules(currentPage, rules, distance);
     await currentPage.waitForTimeout(250);
-    cards = await allLocators(currentPage, rules.candidate_card, true, 200);
+    cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
   }
   throw new Error("候选人卡片已不在当前页面");
@@ -1590,10 +1593,11 @@ async function firstLocator(scope, element, visibleOnly) {
  * @param {any} scope - 页面或 locator。
  * @param {any} element - 元素配置。
  * @param {boolean} visibleOnly - 是否只返回可见元素。
- * @param {number} limit - 最大数量。
+ * @param {number} limit - 最大数量，0 表示不限量。
  * @returns {Promise<any[]>} locator 数组。
  */
 async function allLocators(scope, element, visibleOnly = true, limit = 200) {
+  const unlimited = Number(limit || 0) <= 0;
   const selectors = selectorList(element);
   if (selectors.length <= 0) return [];
   const parentSelectors = parentSelectorList(element);
@@ -1604,7 +1608,7 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
       for (const parentSelector of parentSelectors) {
         const parents = container.scope.locator(parentSelector);
         const count = await parents.count().catch(() => 0);
-        for (let index = 0; index < count && scopes.length < limit; index += 1) {
+        for (let index = 0; index < count && (unlimited || scopes.length < limit); index += 1) {
           scopes.push({ locator: parents.nth(index), includeSelf: true, parentSelector, frameURL: container.frameURL });
         }
       }
@@ -1624,13 +1628,13 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
         }, selector).catch(() => false);
         if (selfMatches && (!visibleOnly || await currentScope.isVisible().catch(() => false))) {
           result.push({ locator: currentScope, parentSelector: current.parentSelector || "", targetSelector: selector, frameURL: current.frameURL || "" });
-          if (result.length >= limit) return result;
+          if (!unlimited && result.length >= limit) return result;
           continue;
         }
       }
       const locator = currentScope.locator(selector);
       const count = await locator.count().catch(() => 0);
-      for (let index = 0; index < count && result.length < limit; index += 1) {
+      for (let index = 0; index < count && (unlimited || result.length < limit); index += 1) {
         const item = locator.nth(index);
         if (visibleOnly && !(await item.isVisible().catch(() => false))) continue;
         result.push({ locator: item, parentSelector: current.parentSelector || "", targetSelector: selector, frameURL: current.frameURL || "" });

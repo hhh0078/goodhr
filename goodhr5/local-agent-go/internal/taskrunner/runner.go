@@ -27,7 +27,7 @@ import (
 )
 
 const defaultScanRounds = 3
-const defaultMaxItemsPerRound = 15
+const defaultMaxItemsPerRound = 0
 const defaultScrollDistance = 720
 const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
@@ -1159,6 +1159,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	candidateName := candidateLogName(candidate)
+	r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：name=%s detail_mode=%s", candidateName, detailModeLabel(mode)))
 	// 打开详情前模拟人工点击延时
 	if err := r.delayRandomRange(ctx, task.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
 		r.taskLog(task.ID, "warning", "打开详情前延时被中断")
@@ -1194,6 +1195,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	}
 	if screenshot := detailResult.Screenshot; len(screenshot) > 0 {
 		r.saveDetailScreenshot(task.ID, candidate, screenshot)
+		r.taskLog(task.ID, "info", fmt.Sprintf("详情截图已返回：name=%s path=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
 		if mode == "ocr" {
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
 			if err != nil {
@@ -1243,6 +1245,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情评分通过：name=%s score=%.1f threshold=%.1f length=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
 			}
 		}
+	} else if mode == "ai" {
+		r.taskLog(task.ID, "warning", "详情模式为 AI，但详情截图为空，无法调用详情 AI："+candidateName)
+	} else {
+		r.taskLog(task.ID, "info", fmt.Sprintf("当前详情模式=%s，不调用图片详情 AI：%s", detailModeLabel(mode), candidateName))
 	}
 	if detailText == "" {
 		if mode == "ai" && stringFromMap(candidate, "status") == "ai_passed" {
@@ -1666,14 +1672,11 @@ func emptyLoadLimit(options StartOptions) int {
 	return scanRounds(options)
 }
 
-// maxItemsPerLoad 返回每次最多提取候选人数。
+// maxItemsPerLoad 返回每次最多提取候选人数，0 表示读取当前 DOM 中全部候选人。
 // options 为任务启动参数。
 func maxItemsPerLoad(options StartOptions) int {
 	if options.MaxItems <= 0 {
 		return defaultMaxItemsPerRound
-	}
-	if options.MaxItems > 100 {
-		return 100
 	}
 	return options.MaxItems
 }

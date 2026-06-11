@@ -323,16 +323,13 @@ func normalizePositionPlatformID(platformID string) string {
 }
 
 // applyPositionPlatformRules 根据平台修正岗位模板参数。
-// position 为岗位模板；Boss 平台详情页只允许使用 OCR 图片识别。
+// position 为岗位模板；当前保留用户选择的详情识别模式。
 func applyPositionPlatformRules(position *Position) {
 	if position == nil {
 		return
 	}
 	if position.CommonConfig == nil {
 		position.CommonConfig = map[string]any{}
-	}
-	if strings.EqualFold(position.PlatformID, "boss") {
-		position.CommonConfig["detail_mode"] = "ocr"
 	}
 }
 

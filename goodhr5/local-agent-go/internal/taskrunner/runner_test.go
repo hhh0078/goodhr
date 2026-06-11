@@ -369,14 +369,14 @@ func TestRunOptionBounds(t *testing.T) {
 	if scanRounds(StartOptions{}) != defaultScanRounds {
 		t.Fatal("scanRounds 默认值不正确")
 	}
-	if maxItemsPerRound(StartOptions{}) != 15 {
+	if maxItemsPerRound(StartOptions{}) != 0 {
 		t.Fatal("maxItems 默认值不正确")
 	}
 	if scanRounds(StartOptions{ScanRounds: 99}) != 20 {
 		t.Fatal("scanRounds 上限不正确")
 	}
-	if maxItemsPerRound(StartOptions{MaxItems: 999}) != 100 {
-		t.Fatal("maxItems 上限不正确")
+	if maxItemsPerRound(StartOptions{MaxItems: 999}) != 999 {
+		t.Fatal("maxItems 应保留用户配置")
 	}
 	if scrollDistance(StartOptions{ScrollDistance: 9999}) != 3000 {
 		t.Fatal("scrollDistance 上限不正确")

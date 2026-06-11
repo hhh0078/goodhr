@@ -154,8 +154,8 @@ func createPositionForTest(t *testing.T, routes http.Handler, token string) stri
 	return payload.Position.ID
 }
 
-// TestBossPositionForcesOCRDetailMode 验证 Boss 岗位模板保存时强制使用 OCR 详情模式。
-func TestBossPositionForcesOCRDetailMode(t *testing.T) {
+// TestBossPositionKeepsDetailMode 验证 Boss 岗位模板保存时保留用户选择的详情模式。
+func TestBossPositionKeepsDetailMode(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "position-boss@example.com")
@@ -184,8 +184,8 @@ func TestBossPositionForcesOCRDetailMode(t *testing.T) {
 	if payload.Position.PlatformID != "boss" {
 		t.Fatalf("platform_id = %q", payload.Position.PlatformID)
 	}
-	if payload.Position.CommonConfig["detail_mode"] != "ocr" {
-		t.Fatalf("detail_mode = %v, want ocr", payload.Position.CommonConfig["detail_mode"])
+	if payload.Position.CommonConfig["detail_mode"] != "dom" {
+		t.Fatalf("detail_mode = %v, want dom", payload.Position.CommonConfig["detail_mode"])
 	}
 }
 
