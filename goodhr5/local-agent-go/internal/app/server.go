@@ -29,6 +29,7 @@ import (
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
 	"goodhr5/local-agent-go/internal/taskrunner"
+	"goodhr5/local-agent-go/internal/version"
 )
 
 // Server 是 Go 版本 Local Agent HTTP 服务。
@@ -108,6 +109,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
 	mux.HandleFunc("/api/v1/runtime/install", s.handleRuntimeInstall)
 	mux.HandleFunc("/api/v1/runtime/install-local-worker", s.handleRuntimeInstallLocalWorker)
+	mux.HandleFunc("/api/v1/app-update/status", s.handleAppUpdateStatus)
+	mux.HandleFunc("/api/v1/app-update/start", s.handleAppUpdateStart)
 	mux.HandleFunc("/api/v1/console/status", s.handleConsoleStatus)
 	mux.HandleFunc("/api/v1/console/update", s.handleConsoleUpdate)
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
@@ -149,7 +152,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Success(w, map[string]any{
 		"status":         "ok",
-		"version":        "go-v2-dev",
+		"version":        version.Value,
 		"port":           s.cfg.Port,
 		"dataDir":        s.cfg.DataDir,
 		"profilesDir":    s.cfg.ProfilesDir,

@@ -169,6 +169,25 @@ export async function updateLocalConsolePackage(base: string, payload: any = {})
 }
 
 /**
+ * 读取 Local Agent 本地程序更新状态。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @returns {Promise<any>} 返回更新进度。
+ */
+export async function getLocalAppUpdateStatus(base: string) {
+  return req(base, "/api/v1/app-update/status");
+}
+
+/**
+ * 触发 Local Agent 下载并安装新版本地程序。
+ * @param {string} base - Local Agent HTTP 基础地址。
+ * @param {any} payload - 包含 url 和 target_version 的参数。
+ * @returns {Promise<any>} 返回更新进度。
+ */
+export async function startLocalAppUpdate(base: string, payload: any) {
+  return req(base, "/api/v1/app-update/start", { method: "POST", body: payload });
+}
+
+/**
  * 通过 Local Agent 建立任务级 WebSocket 并启动云端任务。
  * @param {string} base - Local Agent HTTP 基础地址。
  * @param {string} taskID - 云端任务 ID。

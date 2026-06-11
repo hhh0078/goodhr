@@ -103,6 +103,11 @@
       @close="closeThemeSelector"
     />
     <RequiredRuntimeInstaller :agent="agent" />
+    <RequiredLocalAgentUpdater
+      :agent="agent"
+      :app-config="systemAppConfig"
+      :onboarding-config="onboardingConfig"
+    />
   </div>
   <AppNotify />
 </template>
@@ -125,6 +130,7 @@ import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
 import AppNotify from "./components/AppNotify.vue";
 import RequiredRuntimeInstaller from "./components/RequiredRuntimeInstaller.vue";
+import RequiredLocalAgentUpdater from "./components/RequiredLocalAgentUpdater.vue";
 import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,
@@ -409,6 +415,7 @@ async function loadOnboardingStatus() {
   try {
     const data = await getOnboardingStatus();
     onboardingConfig.value = data.config || onboardingConfig.value;
+    localStorage.setItem("system_onboarding_config", JSON.stringify(onboardingConfig.value));
     if (data.onboarding?.completed) {
       onboardingProgress.value = {
         ...onboardingProgress.value,

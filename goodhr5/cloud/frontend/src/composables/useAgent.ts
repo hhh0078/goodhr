@@ -49,9 +49,7 @@ export function useAgent() {
         localStorage.getItem("system_app_config") || "{}",
       );
       if (systemAppConfig?.local_agent_version != info.value?.version) {
-        status.value = "版本过低，请更新本地程序";
-        info.value = null;
-        baseUrl.value = "";
+        status.value = "本地程序需要更新";
       }
     } catch {}
   }

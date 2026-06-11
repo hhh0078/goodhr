@@ -38,11 +38,15 @@ function Find-InnoSetup {
 }
 
 Write-Step "编译 Windows x64 Go 本地程序"
-& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64
+& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
 
 Write-Step "准备安装器输入目录"
 New-Item -ItemType Directory -Force -Path $DistInputDir | Out-Null
 Copy-Item -Force $SourceExe $TargetExe
+if (Test-Path (Join-Path $RootDir "worker-node")) {
+  Remove-Item -Recurse -Force (Join-Path $DistInputDir "worker-node") -ErrorAction SilentlyContinue
+  Copy-Item -Recurse -Force (Join-Path $RootDir "worker-node") (Join-Path $DistInputDir "worker-node")
+}
 
 $iscc = Find-InnoSetup
 Write-Step "生成 Windows 安装器"
