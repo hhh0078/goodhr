@@ -918,10 +918,14 @@ func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, re
 
 // FailNotice 接收本地代理发送的任务失败通知，发送邮件提醒。
 // 请求体中包含 task_id（云端任务 ID）和 error_message（失败原因）。
-// 此接口由本地代理调用，不需要用户认证。
+// 此接口由本地代理调用，必须携带当前登录用户 token。
 func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
 		return
 	}
 	var payload struct {
@@ -938,7 +942,8 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "task_id required")
 		return
 	}
-	task, err := s.store.TaskByID("", "", taskID, true)
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -948,6 +953,9 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.UpdateTaskStatus(task.ID, "failed")
+	if task.UserEmail == "" {
+		task.UserEmail = session.Email
+	}
 	if s.mailer == nil {
 		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
 		return

@@ -427,6 +427,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
 				return nil, err
 			}
+			r.prepareEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig)
 			positionName := taskPositionName(task)
 			if strings.TrimSpace(positionName) == "" {
 				return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
@@ -841,6 +842,7 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
 		return err
 	}
+	r.prepareEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig)
 	positionName := taskPositionName(task)
 	if strings.TrimSpace(positionName) == "" {
 		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
@@ -866,6 +868,20 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 		return nil
 	}
 	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+}
+
+// prepareEntryPage 调用平台入口页准备动作，失败时只记录日志不中断主流程。
+// taskID 为任务 ID，platformRuntime 为平台实现，exec 为浏览器执行器，platformConfig 为云端平台配置。
+func (r *Runner) prepareEntryPage(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	r.taskLog(taskID, "info", "正在执行平台入口页准备动作")
+	if err := platformRuntime.PrepareEntryPage(ctx, exec, platformConfig); err != nil {
+		r.taskLog(taskID, "warning", "平台入口页准备动作失败，继续主流程："+err.Error())
+		return
+	}
+	r.taskLog(taskID, "info", "平台入口页准备动作完成")
 }
 
 // waitTaskEntryPage 等待当前页面加载到任务入口页。
@@ -2404,7 +2420,7 @@ func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, er
 		baseURL = "https://goodhr5.58it.cn"
 	}
 	client := cloudapi.New(baseURL)
-	if err := client.SendTaskFailNotice(ctx, taskID, errorMsg); err != nil {
+	if err := client.SendTaskFailNotice(ctx, options.Token, taskID, errorMsg); err != nil {
 		r.taskLog(taskID, "warning", "发送失败邮件通知失败："+err.Error())
 	}
 }

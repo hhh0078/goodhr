@@ -39,6 +39,8 @@ type DetailResult struct {
 type Runtime interface {
 	// OpenEntryPage 打开平台入口页面。
 	OpenEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, entryURL string) error
+	// PrepareEntryPage 处理平台入口页弹框或初始化动作。
+	PrepareEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) error
 	// IsTaskEntryPage 判断当前页面是否仍是任务入口页面。
 	IsTaskEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) (bool, error)
 	// CurrentPositionName 读取当前页面岗位名称。

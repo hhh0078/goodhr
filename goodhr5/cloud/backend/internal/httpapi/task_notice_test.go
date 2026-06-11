@@ -77,10 +77,14 @@ func TestSendTaskStatusNotice(t *testing.T) {
 	}
 }
 
-// TestFailNoticeOnlyRequiresTaskID 验证本地程序只传任务 ID 时后端会自动查邮箱发通知。
-func TestFailNoticeOnlyRequiresTaskID(t *testing.T) {
-	store := NewMemoryTaskStore()
-	task, err := store.CreateTask(TaskRun{
+// TestFailNoticeRequiresAuth 验证失败通知会根据 token 查当前用户邮箱。
+func TestFailNoticeRequiresAuth(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "notice@example.com")
+	server.tasks.mailer = &taskNoticeMailer{}
+
+	task, err := server.tasks.store.CreateTask(TaskRun{
 		UserEmail:  "notice@example.com",
 		PlatformID: "boss",
 		Mode:       "ai",
@@ -88,11 +92,6 @@ func TestFailNoticeOnlyRequiresTaskID(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	mailer := &taskNoticeMailer{}
-	service := &TaskService{
-		store:  store,
-		mailer: mailer,
 	}
 	body, err := json.Marshal(map[string]any{
 		"task_id":       task.ID,
@@ -102,12 +101,17 @@ func TestFailNoticeOnlyRequiresTaskID(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/fail-notice", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp := httptest.NewRecorder()
 
-	service.FailNotice(resp, req)
+	routes.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	mailer, ok := server.tasks.mailer.(*taskNoticeMailer)
+	if !ok {
+		t.Fatal("mailer type mismatch")
 	}
 	if len(mailer.emails) != 1 || mailer.emails[0] != "notice@example.com" {
 		t.Fatalf("emails = %+v", mailer.emails)

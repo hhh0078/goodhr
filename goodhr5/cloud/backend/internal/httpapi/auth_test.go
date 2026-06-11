@@ -185,7 +185,11 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	sendResp := httptest.NewRecorder()
 	routes.ServeHTTP(sendResp, sendReq)
 
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"0000"}`))
+	wrongCode := "0000"
+	if isUniversalLoginCode(wrongCode, time.Now()) {
+		wrongCode = "9999"
+	}
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`"}`))
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
 

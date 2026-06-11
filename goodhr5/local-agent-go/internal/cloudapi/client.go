@@ -365,13 +365,17 @@ func translateKnownMessage(text string) string {
 	}
 }
 
-// SendTaskFailNotice 通知云端任务失败，由云端按任务 ID 查询用户并发送邮件。
-// ctx 为请求上下文，taskID 为云端任务 ID，errorMsg 为失败原因。
-func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, errorMsg string) error {
+// SendTaskFailNotice 通知云端任务失败，由云端按登录用户发送邮件。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，errorMsg 为失败原因。
+func (c *Client) SendTaskFailNotice(ctx context.Context, token string, taskID string, errorMsg string) error {
 	baseURL, err := c.safeBaseURL()
 	if err != nil {
 		log.Printf("[失败邮件] 获取云端地址失败：%v", err)
 		return err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("登录已过期，无法发送失败邮件通知")
 	}
 	apiURL := strings.TrimSuffix(baseURL, "/") + "/api/fail-notice"
 	body := map[string]any{
@@ -391,6 +395,7 @@ func (c *Client) SendTaskFailNotice(ctx context.Context, taskID string, errorMsg
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, code, err := c.doJSON(req)
 	if err != nil {
 		log.Printf("[失败邮件] 请求失败：%v", err)
