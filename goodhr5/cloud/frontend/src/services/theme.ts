@@ -20,15 +20,15 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "mist",
-    name: "雾青",
-    summary: "钢青深灰，更冷静，和绿色主题明显区分。",
-    colors: ["#0a1118", "#101b24", "#7cc7c0", "#d2e5e8"],
+    name: "淡粉",
+    summary: "柔和浅粉色，界面更轻盈，适合喜欢温柔风格的用户。",
+    colors: ["#fff1f6", "#ffffff", "#e86f9a", "#5f3345"],
   },
   {
     id: "copper",
-    name: "赤铜",
-    summary: "暖棕铜色，界面更像工作台，视觉更温和。",
-    colors: ["#170d08", "#23150d", "#e39b5f", "#f0d1b8"],
+    name: "奶茶",
+    summary: "浅奶茶色，温暖但不厚重，适合白天办公。",
+    colors: ["#fbf0e2", "#fffaf3", "#b87a45", "#4b3423"],
   },
   {
     id: "paper",
@@ -38,9 +38,9 @@ export const APP_THEMES: AppTheme[] = [
   },
   {
     id: "morning",
-    name: "岩灰",
-    summary: "中性石墨灰，克制耐看，不和浅色主题重复。",
-    colors: ["#101112", "#1b1d1f", "#d1b15f", "#e2e0d8"],
+    name: "海盐",
+    summary: "浅青绿色，清爽干净，和淡粉、奶茶明显不同。",
+    colors: ["#edf9f7", "#ffffff", "#2f9b91", "#243d3b"],
   },
 ];
 
