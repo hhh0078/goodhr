@@ -1,6 +1,9 @@
 <template>
   <RouterView v-if="isFullScreenRoute" />
-  <div v-else class="app-layout">
+  <div v-else-if="!authReady" class="auth-boot">
+    <strong>正在检查登录状态...</strong>
+  </div>
+  <div v-else-if="user" class="app-layout">
     <aside class="menu-panel">
       <div class="menu-bar">
         <span class="bar-btn bar-close"></span
@@ -172,6 +175,7 @@ const cachedTheme = loadCachedTheme();
 const selectedTheme = ref<ThemeID>(cachedTheme || APP_THEMES[0].id);
 const hasCachedTheme = ref(Boolean(cachedTheme));
 const themeSelectorVisible = ref(!cachedTheme);
+const authReady = ref(false);
 applyTheme(selectedTheme.value);
 const tasks = useTasks(
   agent.baseUrl,
@@ -317,6 +321,13 @@ watch(user, async (u) => {
     subscription.value = null;
   }
 });
+watch(
+  [authReady, user, () => route.name],
+  () => {
+    requireLoginForBackend();
+  },
+  { immediate: true },
+);
 watch(activeMenu, (menu) => {
   localStorage.setItem(MENU_CACHE_KEY, menu);
   if (menu === "subscription" && !user.value) {
@@ -342,10 +353,21 @@ onMounted(async () => {
   await loadSystemAppConfig();
   detectLocalAgent();
   await auth.loadCurrentUser();
+  authReady.value = true;
+  requireLoginForBackend();
   if (auth.user.value) {
     await initializeUserSession(auth.user.value);
   }
 });
+
+/**
+ * 后台页面登录门禁。
+ * @returns {void} 无返回值。
+ */
+function requireLoginForBackend() {
+  if (!authReady.value || route.name === "login" || user.value) return;
+  requestLogin();
+}
 
 /**
  * 初始化登录用户相关数据，并按真实状态补记教学步骤。
@@ -759,6 +781,14 @@ const detectLocalAgent = () => {
 .content-area {
   flex: 1;
   overflow-y: auto;
+}
+.auth-boot {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--fg-dim);
 }
 .announcement-mask {
   position: fixed;

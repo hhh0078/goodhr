@@ -1,6 +1,6 @@
 <!-- 本文件是后台独立登录页面，负责登录成功后返回来源页面。 -->
 <template>
-  <LoginForm :auth="app.auth" :allow-close="true" @close="backToConsole" />
+  <LoginForm :auth="app.auth" :allow-close="false" @close="backToConsole" />
 </template>
 
 <script setup lang="ts">
