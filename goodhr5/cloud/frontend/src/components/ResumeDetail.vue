@@ -1,140 +1,106 @@
 <!-- 本文件负责展示单个候选人的独立简历详情页。 -->
 <template>
-  <section class="panel">
+  <section class="panel resume-detail-page">
     <div class="panel-header">
       <div>
         <h2>{{ candidateName(candidate) }}</h2>
         <p class="sub-title">{{ compactInfo(candidate) }}</p>
       </div>
-      <button class="ghost" @click="closePage">关闭页面</button>
+      <button class="ghost" @click="backToLibrary">返回简历库</button>
     </div>
 
     <p v-if="loading" class="hint">正在读取候选人详情...</p>
     <p v-if="error" class="error">{{ error }}</p>
 
     <template v-if="candidate && !loading">
-      <div class="detail-grid">
-        <div>
-          <span>平台</span
-          ><strong>{{ platformLabel(candidate.platform_id) }}</strong>
-        </div>
-        <div>
-          <span>岗位管理</span
-          ><strong>{{ candidate.position_name || "--" }}</strong>
-        </div>
-        <div>
-          <span>任务ID</span><strong>{{ candidate.task_id || "--" }}</strong>
-        </div>
-        <div>
-          <span>所属账号</span
-          ><strong>{{ candidate.user_email || "--" }}</strong>
-        </div>
-        <div>
-          <span>期望岗位</span
-          ><strong>{{ candidate.expected_position || "--" }}</strong>
-        </div>
-        <div>
-          <span>期望薪资</span><strong>{{ salaryText(candidate) }}</strong>
-        </div>
-        <div>
-          <span>地区</span><strong>{{ candidate.work_region || "--" }}</strong>
-        </div>
-        <div>
-          <span>年限</span><strong>{{ candidate.work_years || "--" }}</strong>
-        </div>
-        <div>
-          <span>学历</span
-          ><strong>{{ candidate.education_level || "--" }}</strong>
-        </div>
-        <div>
-          <span>在线状态</span
-          ><strong>{{ candidate.online_status || "--" }}</strong>
-        </div>
-        <div>
-          <span>打招呼时间</span
-          ><strong>{{ formatDate(candidate.greeted_at) }}</strong>
-        </div>
-        <div>
-          <span>创建时间</span
-          ><strong>{{ formatDate(candidate.created_at) }}</strong>
-        </div>
+      <div class="summary-row">
+        <span>{{ platformLabel(candidate.platform_id) }}</span>
+        <span>{{ candidate.position_name || candidate.expected_position || "未关联岗位" }}</span>
+        <span>{{ candidate.work_status || "工作状态未知" }}</span>
+        <span>{{ candidate.greeted_at ? "已打招呼" : "未打招呼" }}</span>
       </div>
 
-      <div class="score-panel">
-        <div>
-          <span>详情评分</span>
-          <strong>{{ scoreText(candidate.ai_detail_score) }}</strong>
-          <p>{{ candidate.ai_detail_reason || "无原因" }}</p>
+      <section class="detail-block">
+        <h3>简历主体字段</h3>
+        <div class="field-grid">
+          <div v-for="field in profileFields" :key="field.label" class="field-item">
+            <span>{{ field.label }}</span>
+            <strong>{{ displayValue(field.value) }}</strong>
+          </div>
         </div>
-        <div>
-          <span>打招呼评分</span>
-          <strong>{{ scoreText(candidate.ai_greet_score) }}</strong>
-          <p>{{ candidate.ai_greet_reason || "无原因" }}</p>
-        </div>
-        <div>
-          <span>复核评分</span>
-          <strong>{{ scoreText(candidate.ai_review_score) }}</strong>
-          <p>{{ candidate.ai_review_reason || "无原因" }}</p>
-        </div>
-      </div>
-
-      <section class="detail-section">
-        <h3>基础信息</h3>
-        <p>
-          {{
-            candidate.basic_info ||
-            candidate.personal_description ||
-            "暂无基础信息"
-          }}
-        </p>
       </section>
 
-      <section class="detail-section">
-        <h3>工作经历</h3>
-        <div v-if="candidate.work_experiences?.length" class="sub-list">
-          <article
-            v-for="(item, index) in candidate.work_experiences"
-            :key="index"
+      <section class="detail-block">
+        <h3>任务和平台字段</h3>
+        <div class="field-grid">
+          <div v-for="field in engagementFields" :key="field.label" class="field-item">
+            <span>{{ field.label }}</span>
+            <strong>{{ displayValue(field.value) }}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-block">
+        <h3>AI 分析结果</h3>
+        <div class="score-panel">
+          <article v-for="score in scoreFields" :key="score.label">
+            <span>{{ score.label }}</span>
+            <strong>{{ scoreText(score.score) }}</strong>
+            <p>{{ score.reason || "暂无原因" }}</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="detail-block">
+        <h3>文本内容</h3>
+        <div class="text-list">
+          <article v-for="item in textSections" :key="item.label">
+            <h4>{{ item.label }}</h4>
+            <pre>{{ item.value || "暂无内容" }}</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="detail-block">
+        <h3>结构化简历 JSON</h3>
+        <div class="json-section-list">
+          <details
+            v-for="section in structuredSections"
+            :key="section.label"
+            class="json-card"
+            :open="hasJSONContent(section.value)"
           >
-            <strong
-              >{{ item.company_name || "未填写公司" }} ·
-              {{ item.position_name || "未填写职位" }}</strong
-            >
-            <p>{{ item.start_ym || "--" }} 至 {{ item.end_ym || "至今" }}</p>
-            <p>{{ item.content || "暂无描述" }}</p>
-          </article>
+            <summary>
+              <strong>{{ section.label }}</strong>
+              <span>{{ jsonSummary(section.value) }}</span>
+            </summary>
+            <JsonTree v-if="hasJSONContent(section.value)" :value="section.value" />
+            <p v-else class="muted-text">暂无数据</p>
+          </details>
         </div>
-        <p v-else>暂无工作经历</p>
       </section>
 
-      <section class="detail-section">
-        <h3>教育经历</h3>
-        <div v-if="candidate.educations?.length" class="sub-list">
-          <article v-for="(item, index) in candidate.educations" :key="index">
-            <strong
-              >{{ item.school_name || "未填写学校" }} ·
-              {{ item.major_name || "未填写专业" }}</strong
-            >
-            <p>
-              {{ item.education_level || "--" }} ·
-              {{ item.start_ym || "--" }} 至 {{ item.end_ym || "--" }}
-            </p>
-          </article>
-        </div>
-        <p v-else>暂无教育经历</p>
+      <section class="detail-block">
+        <h3>本地回传原始 JSON</h3>
+        <details class="json-card" open>
+          <summary>
+            <strong>ext.local_candidate_json</strong>
+            <span>{{ jsonSummary(localCandidateJSON) }}</span>
+          </summary>
+          <JsonTree v-if="hasJSONContent(localCandidateJSON)" :value="localCandidateJSON" />
+          <p v-else class="muted-text">暂无本地原始 JSON</p>
+        </details>
+        <details class="json-card">
+          <summary>
+            <strong>完整 ext 扩展字段</strong>
+            <span>{{ jsonSummary(candidate.ext) }}</span>
+          </summary>
+          <JsonTree v-if="hasJSONContent(candidate.ext)" :value="candidate.ext" />
+          <p v-else class="muted-text">暂无扩展字段</p>
+        </details>
       </section>
 
-      <section class="detail-section">
-        <h3>候选人文本</h3>
-        <pre>{{
-          candidate.resume_text ||
-          candidate.raw_text ||
-          candidate.filter_text ||
-          "暂无文本"
-        }}</pre>
-      </section>
-
-      <section class="detail-section">
+      <section class="detail-block">
         <h3>事件流水</h3>
         <div v-if="candidate.events?.length" class="event-list">
           <article v-for="event in candidate.events" :key="event.id">
@@ -142,21 +108,32 @@
               <strong>{{ eventTypeLabel(event.event_type) }}</strong>
               <span>{{ formatDate(event.created_at) }}</span>
             </div>
-            <p v-if="event.score !== null && event.score !== undefined">
-              评分：{{ scoreText(event.score) }}
-            </p>
+            <div class="event-grid">
+              <p>评分：{{ scoreText(event.score) }}</p>
+              <p>模型：{{ displayValue(event.model) }}</p>
+              <p>Token：{{ displayValue(event.token_usage) }}</p>
+              <p>平台：{{ platformLabel(event.platform_id) }}</p>
+            </div>
             <p v-if="event.reason">原因：{{ event.reason }}</p>
             <p v-if="event.message_text">消息：{{ event.message_text }}</p>
+            <details v-if="event.input_text || event.output_text || hasJSONContent(event.metadata)" class="event-extra">
+              <summary>查看输入输出</summary>
+              <pre v-if="event.input_text">输入：{{ event.input_text }}</pre>
+              <pre v-if="event.output_text">输出：{{ event.output_text }}</pre>
+              <JsonTree v-if="hasJSONContent(event.metadata)" :value="event.metadata" />
+            </details>
           </article>
         </div>
-        <p v-else>暂无事件记录</p>
+        <p v-else class="muted-text">暂无事件记录</p>
       </section>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import JsonTree from "./JsonTree.vue";
 import { getCandidate } from "../services/api/candidateApi";
 
 const props = defineProps({
@@ -165,9 +142,63 @@ const props = defineProps({
   taskId: String,
 });
 
+const router = useRouter();
 const candidate = ref<any>(null);
 const loading = ref(false);
 const error = ref("");
+
+const localCandidateJSON = computed(() => candidate.value?.ext?.local_candidate_json || null);
+const profileFields = computed(() => [
+  { label: "候选人ID", value: candidate.value?.id },
+  { label: "来源平台候选人ID", value: candidate.value?.platform_candidate_id },
+  { label: "姓名", value: candidate.value?.candidate_name },
+  { label: "出生年月", value: candidate.value?.birth_ym },
+  { label: "手机号", value: candidate.value?.phone },
+  { label: "邮箱", value: candidate.value?.email },
+  { label: "工作地区", value: candidate.value?.work_region },
+  { label: "工作年限", value: candidate.value?.work_years },
+  { label: "工作状态", value: candidate.value?.work_status },
+  { label: "学历", value: candidate.value?.education_level },
+  { label: "期望岗位", value: candidate.value?.expected_position },
+  { label: "期望薪资", value: salaryText(candidate.value) },
+  { label: "在线状态", value: candidate.value?.online_status },
+  { label: "简历附件", value: candidate.value?.resume_url },
+  { label: "首次发现", value: formatDate(candidate.value?.first_seen_at) },
+  { label: "创建时间", value: formatDate(candidate.value?.created_at) },
+  { label: "更新时间", value: formatDate(candidate.value?.updated_at) },
+]);
+const engagementFields = computed(() => [
+  { label: "触达ID", value: candidate.value?.engagement_id },
+  { label: "触达状态", value: candidate.value?.engagement_status },
+  { label: "任务ID", value: candidate.value?.task_id },
+  { label: "岗位ID", value: candidate.value?.position_id },
+  { label: "岗位名称", value: candidate.value?.position_name },
+  { label: "平台账号ID", value: candidate.value?.platform_account_id },
+  { label: "所属用户", value: candidate.value?.user_email },
+  { label: "平台", value: platformLabel(candidate.value?.platform_id) },
+  { label: "详情抓取时间", value: formatDate(candidate.value?.detail_fetched_at) },
+  { label: "打招呼时间", value: formatDate(candidate.value?.greeted_at) },
+]);
+const scoreFields = computed(() => [
+  { label: "基础筛选评分", score: candidate.value?.ai_detail_score, reason: candidate.value?.ai_detail_reason },
+  { label: "打招呼评分", score: candidate.value?.ai_greet_score, reason: candidate.value?.ai_greet_reason },
+  { label: "复核评分", score: candidate.value?.ai_review_score, reason: candidate.value?.ai_review_reason },
+]);
+const textSections = computed(() => [
+  { label: "基础信息", value: candidate.value?.basic_info },
+  { label: "个人描述", value: candidate.value?.personal_description },
+  { label: "原始文本", value: candidate.value?.raw_text },
+  { label: "筛选文本", value: candidate.value?.filter_text },
+  { label: "简历附件提取文本", value: candidate.value?.resume_text },
+]);
+const structuredSections = computed(() => [
+  { label: "工作经历 work_experiences", value: candidate.value?.work_experiences },
+  { label: "教育经历 educations", value: candidate.value?.educations },
+  { label: "证书 certificates", value: candidate.value?.certificates },
+  { label: "荣誉 honors", value: candidate.value?.honors },
+  { label: "项目经历 project_experiences", value: candidate.value?.project_experiences },
+  { label: "沟通记录 communications", value: candidate.value?.communications },
+]);
 
 /**
  * 读取候选人详情。
@@ -240,7 +271,7 @@ function platformLabel(platformId: string) {
  */
 function eventTypeLabel(eventType: string) {
   const labels: Record<string, string> = {
-    detail_analysis: "详情分析",
+    detail_analysis: "基础筛选分析",
     detail_fetched: "详情读取",
     greet_analysis: "打招呼分析",
     review_analysis: "复核分析",
@@ -261,7 +292,7 @@ function salaryText(item: any) {
   if (min && max) return `${min}-${max}`;
   if (min) return `${min}起`;
   if (max) return `${max}以内`;
-  return "--";
+  return "";
 }
 
 /**
@@ -282,84 +313,164 @@ function scoreText(score: number | null | undefined) {
  * @returns {string} 本地日期时间。
  */
 function formatDate(value: string) {
-  if (!value) return "--";
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
+  if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString();
 }
 
-onMounted(load);
+/**
+ * 格式化普通字段展示。
+ * @param {any} value - 原始字段值。
+ * @returns {string} 可展示的字段文本。
+ */
+function displayValue(value: any) {
+  if (value === null || value === undefined || value === "") return "--";
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "是" : "否";
+  return String(value);
+}
 
 /**
- * 关闭当前详情页。
+ * 判断 JSON 字段是否有内容。
+ * @param {any} value - JSON 字段值。
+ * @returns {boolean} 有内容时返回 true。
+ */
+function hasJSONContent(value: any) {
+  if (!value) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return String(value).trim() !== "";
+}
+
+/**
+ * 返回 JSON 字段摘要。
+ * @param {any} value - JSON 字段值。
+ * @returns {string} 摘要文本。
+ */
+function jsonSummary(value: any) {
+  if (!hasJSONContent(value)) return "暂无数据";
+  if (Array.isArray(value)) return `${value.length} 项`;
+  if (typeof value === "object") return `${Object.keys(value).length} 个字段`;
+  return "1 项";
+}
+
+/**
+ * 返回简历库页面。
  * @returns {void} 无返回值。
  */
-function closePage() {
-  window.close();
+function backToLibrary() {
+  void router.push({
+    name: "resumes",
+    query: props.taskId ? { task_id: props.taskId } : {},
+  });
 }
+
+onMounted(load);
+watch(
+  () => [props.candidateId, props.engagementId, props.taskId],
+  () => {
+    void load();
+  },
+);
 </script>
 
 <style scoped>
+.resume-detail-page {
+  max-width: 1280px;
+}
 .sub-title {
   margin: 4px 0 0;
   color: var(--fg-dim);
   font-size: 13px;
 }
-.detail-grid,
-.score-panel {
+.summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.summary-row span {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--fg);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.detail-block {
+  margin-top: 16px;
+}
+.detail-block h3 {
+  margin: 0 0 8px;
+  color: var(--fg);
+  font-size: 16px;
+}
+.field-grid,
+.score-panel,
+.event-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
-.detail-grid div,
-.score-panel div,
-.sub-list article {
+.field-item,
+.score-panel article,
+.text-list article,
+.json-card,
+.event-list article {
   border: 1px solid var(--border);
   background: var(--bg-input);
   padding: 10px;
   min-width: 0;
 }
-.detail-grid span,
+.field-item span,
 .score-panel span {
   display: block;
   color: var(--fg-dim);
   font-size: 12px;
   margin-bottom: 6px;
 }
-.detail-grid strong,
+.field-item strong,
 .score-panel strong {
   color: var(--fg);
   overflow-wrap: anywhere;
 }
-.score-panel {
-  margin-top: 12px;
-}
 .score-panel p,
-.detail-section p {
+.event-list p,
+.muted-text {
   margin: 6px 0 0;
   color: var(--fg-dim);
   line-height: 1.6;
 }
-.detail-section {
-  margin-top: 16px;
-}
-.detail-section h3 {
-  margin: 0 0 8px;
-  color: var(--fg);
-  font-size: 16px;
-}
-.sub-list {
-  display: grid;
-  gap: 8px;
-}
+.text-list,
+.json-section-list,
 .event-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
-.event-list article {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  padding: 10px;
+.text-list h4 {
+  margin: 0 0 8px;
+  color: var(--fg);
+  font-size: 14px;
+}
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.json-card summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--fg);
+}
+.json-card summary span {
+  color: var(--fg-dim);
+  font-size: 12px;
 }
 .event-head {
   display: flex;
@@ -371,18 +482,21 @@ function closePage() {
   color: var(--fg-dim);
   font-size: 12px;
 }
-.detail-section pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  padding: 12px;
-  color: var(--fg-dim);
-  line-height: 1.6;
+.event-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 8px;
+}
+.event-extra {
+  margin-top: 8px;
+}
+.event-extra summary {
+  cursor: pointer;
+  color: var(--fg);
 }
 @media (max-width: 980px) {
-  .detail-grid,
-  .score-panel {
+  .field-grid,
+  .score-panel,
+  .event-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -280,13 +280,13 @@ async function clearAllCandidates() {
 }
 
 /**
- * 新开页面查看候选人详情。
+ * 跳转到候选人详情页。
  * @param {any} item - 候选人简历对象。
  * @returns {void} 无返回值。
  */
 function openDetail(item: any) {
   if (!item?.id) return;
-  const route = router.resolve({
+  void router.push({
     name: "resume-detail",
     query: {
       candidate_id: item.id,
@@ -294,7 +294,6 @@ function openDetail(item: any) {
       task_id: item.task_id || filters.value.taskId || "",
     },
   });
-  window.open(route.href, "_blank");
 }
 
 /**

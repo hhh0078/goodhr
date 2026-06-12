@@ -13,6 +13,7 @@ import (
 type TaskCandidate struct {
 	ID                  string
 	EngagementID        string
+	EngagementStatus    string
 	TaskID              string
 	PositionID          string
 	PositionName        string

@@ -169,6 +169,7 @@ func publicTaskCandidate(item TaskCandidate) map[string]any {
 	return map[string]any{
 		"id":                    item.ID,
 		"engagement_id":         item.EngagementID,
+		"engagement_status":     item.EngagementStatus,
 		"task_id":               item.TaskID,
 		"position_id":           item.PositionID,
 		"position_name":         item.PositionName,
@@ -189,6 +190,7 @@ func publicTaskCandidate(item TaskCandidate) map[string]any {
 		"expected_position":     item.ExpectedPosition,
 		"online_status":         item.OnlineStatus,
 		"personal_description":  item.PersonalDescription,
+		"work_status":           item.WorkStatus,
 		"raw_text":              item.RawText,
 		"filter_text":           item.FilterText,
 		"work_experiences":      safeSlice(item.WorkExperiences),
