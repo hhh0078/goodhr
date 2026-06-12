@@ -81,7 +81,7 @@ function normalizeLegacyRoute(to: RouteLocationNormalized, from?: RouteLocationN
   if (to.query.menu === "resume-detail") {
     return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id", "engagement_id", "task_id"]) };
   }
-  if ((to.query.menu === "resume-library" || to.query.task_id) && to.name !== "resumes") {
+  if (to.name !== "resume-detail" && (to.query.menu === "resume-library" || to.query.task_id) && to.name !== "resumes") {
     return { name: "resumes", query: pickQuery(to.query, ["task_id"]) };
   }
   const menu = typeof to.query.menu === "string" ? to.query.menu : "";
