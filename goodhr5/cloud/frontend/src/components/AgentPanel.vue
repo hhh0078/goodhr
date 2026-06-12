@@ -29,7 +29,7 @@ import { computed } from "vue";
 
 const props = defineProps({ agent: Object, appConfig: Object })
 
-const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "5.0.0"));
+const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "--"));
 const localVersion = computed(() => String(props.agent?.info?.value?.version || ""));
 const requiresUpdate = computed(() => {
   if (!localVersion.value) return false;

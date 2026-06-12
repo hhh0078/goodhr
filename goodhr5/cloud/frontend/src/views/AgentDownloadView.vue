@@ -24,7 +24,7 @@
           <dt>版本</dt>
           <dd>{{ app.agent.info.value?.version || "--" }}</dd>
           <dt>要求版本</dt>
-          <dd>{{ app.systemAppConfig.value?.local_agent_version || "5.0.0" }}</dd>
+          <dd>{{ app.systemAppConfig.value?.local_agent_version || "--" }}</dd>
         </dl>
       </article>
 

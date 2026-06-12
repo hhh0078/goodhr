@@ -48,7 +48,8 @@ export function useAgent() {
       const systemAppConfig = JSON.parse(
         localStorage.getItem("system_app_config") || "{}",
       );
-      if (systemAppConfig?.local_agent_version != info.value?.version) {
+      const requiredVersion = String(systemAppConfig?.local_agent_version || "").trim();
+      if (requiredVersion && requiredVersion !== info.value?.version) {
         status.value = "本地程序需要更新";
       }
     } catch {}

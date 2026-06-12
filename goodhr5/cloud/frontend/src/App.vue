@@ -154,7 +154,7 @@ const positions = usePositions();
 const personalConfig = usePersonalConfig();
 const { user } = auth;
 const systemAppConfig = ref({
-  local_agent_version: "5.0.0",
+  local_agent_version: "",
   announcements_enabled: false,
   announcements: [],
 });
@@ -517,7 +517,7 @@ async function loadSystemAppConfig() {
     );
   } catch {
     systemAppConfig.value = {
-      local_agent_version: "5.0.0",
+      local_agent_version: "",
       announcements_enabled: false,
       announcements: [],
     };
