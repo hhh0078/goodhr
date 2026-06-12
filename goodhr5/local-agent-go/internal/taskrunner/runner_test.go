@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
+	"goodhr5/local-agent-go/internal/platformcore"
 	"goodhr5/local-agent-go/internal/platforms"
 )
 
@@ -455,6 +456,42 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	waitForTaskStatus(t, db, task.ID, "stopped")
 }
 
+// TestRunnerUserStopSkipsDetailClose 验证用户主动停止后不再执行详情关闭动作。
+func TestRunnerUserStopSkipsDetailClose(t *testing.T) {
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{
+		"name":        "停止详情任务",
+		"platform_id": "boss",
+		"mode":        "keyword",
+		"position_snapshot": map[string]any{
+			"name":          "停止详情任务",
+			"common_config": map[string]any{"detail_mode": "dom"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	runner.markUserStoppedAndCancel(task.ID)
+	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("详情读取已取消")}
+	_, err = runner.enrichCandidateWithDetail(
+		t.Context(),
+		task,
+		runtime,
+		platformExecutor{runner: runner, taskID: task.ID},
+		cloudapi.PlatformConfig{},
+		map[string]any{"candidate_name": "候选人A", "status": "scanned"},
+		nil,
+		StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.closeCalls != 0 {
+		t.Fatalf("用户停止后不应关闭详情，closeCalls=%d", runtime.closeCalls)
+	}
+}
+
 // TestRunnerBrowserClosedStopsTask 验证用户关闭浏览器后任务会结束。
 func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	speedUpPageEntryCheck(t)
@@ -587,6 +624,73 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 type blockingWorker struct {
 	extractStarted chan struct{}
 	released       chan struct{}
+}
+
+// detailCloseProbeRuntime 用于测试详情关闭动作是否被调用。
+type detailCloseProbeRuntime struct {
+	fetchErr   error
+	closeCalls int
+}
+
+// OpenEntryPage 模拟打开入口页。
+func (r *detailCloseProbeRuntime) OpenEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, entryURL string) error {
+	return nil
+}
+
+// PrepareEntryPage 模拟入口页准备动作。
+func (r *detailCloseProbeRuntime) PrepareEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) error {
+	return nil
+}
+
+// IsTaskEntryPage 模拟入口页检测。
+func (r *detailCloseProbeRuntime) IsTaskEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
+	return true, nil
+}
+
+// CurrentPositionName 模拟读取当前岗位。
+func (r *detailCloseProbeRuntime) CurrentPositionName(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (string, error) {
+	return "停止详情任务", nil
+}
+
+// SelectPosition 模拟切换岗位。
+func (r *detailCloseProbeRuntime) SelectPosition(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionName string) error {
+	return nil
+}
+
+// ListVisibleCandidates 模拟读取候选人。
+func (r *detailCloseProbeRuntime) ListVisibleCandidates(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, maxItems int) ([]platformcore.Candidate, error) {
+	return nil, nil
+}
+
+// ScrollCandidateList 模拟滚动候选人列表。
+func (r *detailCloseProbeRuntime) ScrollCandidateList(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, distance int) error {
+	return nil
+}
+
+// FetchCandidateDetail 模拟读取详情失败。
+func (r *detailCloseProbeRuntime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
+	return platformcore.DetailResult{}, r.fetchErr
+}
+
+// CloseCandidateDetail 记录详情关闭调用次数。
+func (r *detailCloseProbeRuntime) CloseCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
+	r.closeCalls++
+	return nil
+}
+
+// GreetCandidate 模拟打招呼。
+func (r *detailCloseProbeRuntime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
+	return nil
+}
+
+// CandidateFilterText 返回候选人筛选文本。
+func (r *detailCloseProbeRuntime) CandidateFilterText(candidate platformcore.Candidate) string {
+	return stringFromMap(candidate, "candidate_name")
+}
+
+// CandidateFingerprint 返回候选人去重标识。
+func (r *detailCloseProbeRuntime) CandidateFingerprint(candidate platformcore.Candidate) string {
+	return stringFromMap(candidate, "candidate_name")
 }
 
 // Start 模拟启动阻塞 Worker。

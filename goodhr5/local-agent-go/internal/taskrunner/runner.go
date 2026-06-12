@@ -67,6 +67,7 @@ type Runner struct {
 	cloudAPIBase   string
 	mu             sync.Mutex
 	running        map[string]*runState
+	userStopped    map[string]bool
 }
 
 // runState 保存单个运行任务的控制句柄。
@@ -167,7 +168,7 @@ type StartOptions struct {
 // New 创建本地任务运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
 func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string, audioDir string, cloudAPIBase string) *Runner {
-	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, running: map[string]*runState{}}
+	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, running: map[string]*runState{}, userStopped: map[string]bool{}}
 }
 
 // Start 启动本地任务运行器。
@@ -250,6 +251,11 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 		r.failStart(taskID, "本地任务扫描失败："+err.Error(), options)
 		return
 	}
+	if r.isUserStopped(taskID) {
+		r.taskLog(taskID, "info", "任务已被用户停止，忽略扫描完成结果")
+		r.notifyCloudTaskStopped(taskID, options)
+		return
+	}
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
 	r.taskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
@@ -264,7 +270,7 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
 	r.taskLog(taskID, "info", "收到停止任务请求")
-	r.cancel(taskID)
+	r.markUserStoppedAndCancel(taskID)
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err
@@ -1173,7 +1179,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	if err != nil {
 		candidate["detail_error"] = err.Error()
 		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
-		_ = platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate))
+		if !r.isUserStopped(task.ID) {
+			_ = platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate))
+		}
 		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
 		if isBrowserClosedTaskError(err) {
 			return 0, fmt.Errorf("浏览器未启动或已关闭，任务已自动结束：%w", err)
@@ -1181,6 +1189,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	defer func() {
+		if r.isUserStopped(task.ID) {
+			r.taskLog(task.ID, "info", "任务已被用户停止，跳过详情关闭动作")
+			return
+		}
 		// 关闭详情前模拟人工浏览延时，然后再执行关闭
 		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
 		if err := platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate)); err != nil {
@@ -1832,6 +1844,7 @@ func (r *Runner) setRunning(taskID string, cancel context.CancelFunc) bool {
 	if _, ok := r.running[taskID]; ok {
 		return false
 	}
+	delete(r.userStopped, taskID)
 	r.running[taskID] = &runState{cancel: cancel, progress: Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	return true
 }
@@ -1871,12 +1884,34 @@ func (r *Runner) cancel(taskID string) {
 	}
 }
 
+// markUserStoppedAndCancel 标记用户主动停止并取消运行任务。
+// taskID 为任务 ID，标记会保留到任务协程清理，供收尾动作判断是否应跳过页面操作。
+func (r *Runner) markUserStoppedAndCancel(taskID string) {
+	r.mu.Lock()
+	state := r.running[taskID]
+	delete(r.running, taskID)
+	r.userStopped[taskID] = true
+	r.mu.Unlock()
+	if state != nil && state.cancel != nil {
+		state.cancel()
+	}
+}
+
+// isUserStopped 判断任务是否由用户主动停止。
+// taskID 为任务 ID，返回 true 时后续收尾逻辑不应再操作浏览器页面。
+func (r *Runner) isUserStopped(taskID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.userStopped[strings.TrimSpace(taskID)]
+}
+
 // clear 清理任务运行锁。
 // taskID 为任务 ID。
 func (r *Runner) clear(taskID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.running, taskID)
+	delete(r.userStopped, taskID)
 }
 
 // boolFromMap 从 map 中读取布尔值。
