@@ -1105,13 +1105,11 @@ function candidateID(fields, rawText, index) {
     fields.basic_info || "",
     fields.education || "",
     fields.university || "",
-    fields.description || "",
-    rawText || "",
   ]
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .join("|") || `index:${index}`;
-  return `boss_${crypto.createHash("sha1").update(base).digest("hex").slice(0, 16)}`;
+  return `boss_${crypto.createHash("md5").update(base).digest("hex")}`;
 }
 
 /**
