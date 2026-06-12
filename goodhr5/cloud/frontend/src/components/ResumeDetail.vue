@@ -119,16 +119,12 @@
         </details>
       </section>
 
-      <section v-if="hasJSONContent(localCandidateJSON) || hasJSONContent(candidate.ext)" class="resume-section debug-section">
+      <section v-if="hasJSONContent(localCandidateJSON)" class="resume-section debug-section">
         <details>
           <summary>原始 JSON</summary>
-          <details v-if="hasJSONContent(localCandidateJSON)" class="json-card" open>
+          <details class="json-card" open>
             <summary>本地回传 JSON</summary>
-            <JsonTree :value="localCandidateJSON" />
-          </details>
-          <details v-if="hasJSONContent(candidate.ext)" class="json-card">
-            <summary>完整 ext 扩展字段</summary>
-            <JsonTree :value="candidate.ext" />
+            <pre>{{ safeJsonText(localCandidateJSON) }}</pre>
           </details>
         </details>
       </section>
@@ -139,7 +135,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import JsonTree from "./JsonTree.vue";
 import { getCandidate } from "../services/api/candidateApi";
 
 const props = defineProps({
@@ -510,6 +505,30 @@ function formatDate(value: string) {
  */
 function hasJSONContent(value: any) {
   return hasValue(value);
+}
+
+/**
+ * 返回安全的 JSON 文本，避免原始数据太深导致页面递归崩溃。
+ * @param {any} value - 原始 JSON 值。
+ * @returns {string} 可展示的 JSON 文本。
+ */
+function safeJsonText(value: any) {
+  const seen = new WeakSet();
+  const text = JSON.stringify(
+    value,
+    (key, current) => {
+      if (key === "ext") return "[已省略 ext，避免重复嵌套]";
+      if (typeof current === "object" && current !== null) {
+        if (seen.has(current)) return "[循环引用]";
+        seen.add(current);
+      }
+      return current;
+    },
+    2,
+  );
+  if (!text) return "";
+  if (text.length > 30000) return `${text.slice(0, 30000)}\n... 内容过长，已截断`;
+  return text;
 }
 
 /**
