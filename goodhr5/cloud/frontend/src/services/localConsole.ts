@@ -8,7 +8,7 @@ export function isLocalConsole() {
   if (typeof window === "undefined") return false;
   const hostname = window.location.hostname;
   const port = Number(window.location.port || "0");
-  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 9001 && port <= 9009;
+  return (hostname === "localhost" || hostname === "127.0.0.1") && port >= 95271 && port <= 95279;
 }
 
 /**

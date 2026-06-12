@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { getLocalHealth } from "../services/localAgentApi";
 import { markOnboardingStep } from "../services/onboarding";
-const LOCAL_PORTS = [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009];
+const LOCAL_PORTS = [95271, 95272, 95273, 95274, 95275, 95276, 95277, 95278, 95279];
 
 export function useAgent() {
   const status = ref("未检测到本地程序");

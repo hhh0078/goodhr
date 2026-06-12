@@ -1,6 +1,6 @@
 # 文件作用：在 Windows 真机上检查 GoodHR Go 本地程序的基础接口、运行组件状态和诊断信息。
 param(
-  [string]$BaseUrl = "http://127.0.0.1:9001"
+  [string]$BaseUrl = "http://127.0.0.1:95271"
 )
 
 $ErrorActionPreference = "Stop"

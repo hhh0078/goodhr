@@ -5,7 +5,7 @@
 ## 当前能力
 
 - Go 主程序可启动本地 HTTP 服务。
-- 默认优先监听 `127.0.0.1:9001`，端口被占用时会尝试到 `9009`。
+- 默认优先监听 `127.0.0.1:95271`，端口被占用时会尝试到 `95279`。
 - `/health` 返回统一 JSON。
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
 - `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
@@ -59,31 +59,31 @@ go run ./cmd/goodhr-local-agent --open-console=false
 指定端口：
 
 ```bash
-go run ./cmd/goodhr-local-agent --port 19001
+go run ./cmd/goodhr-local-agent --port 95271
 ```
 
 健康检查：
 
 ```bash
-curl http://127.0.0.1:19001/health
+curl http://127.0.0.1:95271/health
 ```
 
 诊断检查：
 
 ```bash
-curl http://127.0.0.1:19001/api/v1/diagnostics
+curl http://127.0.0.1:95271/api/v1/diagnostics
 ```
 
 开发阶段安装本地 Worker：
 
 ```bash
-curl -X POST http://127.0.0.1:19001/api/v1/runtime/install-local-worker
+curl -X POST http://127.0.0.1:95271/api/v1/runtime/install-local-worker
 ```
 
 安装运行组件：
 
 ```bash
-curl -X POST http://127.0.0.1:19001/api/v1/runtime/install \
+curl -X POST http://127.0.0.1:95271/api/v1/runtime/install \
   -H "Content-Type: application/json" \
   -d '{"manifest_url":"https://goodhr5.58it.cn/goodhr-local-runtime-manifest.json"}'
 ```
@@ -91,7 +91,7 @@ curl -X POST http://127.0.0.1:19001/api/v1/runtime/install \
 更新控制台前端包：
 
 ```bash
-curl -X POST http://127.0.0.1:19001/api/v1/console/update \
+curl -X POST http://127.0.0.1:95271/api/v1/console/update \
   -H "Content-Type: application/json" \
   -d '{"manifest_url":"https://oss.58it.cn/goodhr-console-manifest.json"}'
 ```
@@ -225,7 +225,7 @@ Windows 真机启动本地程序后，可在 PowerShell 里执行：
 
 ```powershell
 cd goodhr5/local-agent-go
-.\scripts\windows_smoke_test.ps1 -BaseUrl "http://127.0.0.1:9001"
+.\scripts\windows_smoke_test.ps1 -BaseUrl "http://127.0.0.1:95271"
 ```
 
 它会检查 `/health`、运行组件状态、Worker 状态和诊断信息。

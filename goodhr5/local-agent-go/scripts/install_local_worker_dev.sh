@@ -4,7 +4,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker-node"
-BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:9001}"
+AGENT_PORT="${GOODHR_AGENT_PORT:-95271}"
+BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:$AGENT_PORT}"
 NPM_REGISTRY="${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}"
 LOG_DIR="$ROOT_DIR/logs"
 AGENT_BIN="$LOG_DIR/goodhr-local-agent-dev"
@@ -19,10 +20,10 @@ log() {
 # port_pid 返回占用本地端口的进程 ID。
 # 无参数。
 port_pid() {
-  lsof -ti tcp:9001 -sTCP:LISTEN 2>/dev/null | head -n 1 || true
+  lsof -ti "tcp:$AGENT_PORT" -sTCP:LISTEN 2>/dev/null | head -n 1 || true
 }
 
-# wait_port_free 等待 9001 端口释放。
+# wait_port_free 等待本地程序端口释放。
 # 无参数。
 wait_port_free() {
   for _ in $(seq 1 50); do
@@ -31,8 +32,27 @@ wait_port_free() {
     fi
     sleep 0.2
   done
-  log "9001 端口一直没有释放，请先手动关闭占用进程"
+  log "$AGENT_PORT 端口一直没有释放，请先手动关闭占用进程"
   exit 1
+}
+
+# is_goodhr_agent_pid 判断 pid 是否是 GoodHR 本地程序。
+# 参数为进程 ID。
+is_goodhr_agent_pid() {
+  local pid="${1:-}"
+  local command_text
+  if [ -z "$pid" ]; then
+    return 1
+  fi
+  command_text="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$command_text" in
+    *goodhr-local-agent*|*GoodHRLocalAgent*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 # verify_runtime_worker 验证运行目录中的 Worker 依赖是否完整。
@@ -96,7 +116,7 @@ start_agent_foreground() {
   build_agent_binary
   log "正在前台启动 Go 本地程序，按 Ctrl+C 可停止"
   log "控制台地址：$BASE_URL/admin/"
-  "$AGENT_BIN" -open-console=false
+  "$AGENT_BIN" -port "$AGENT_PORT" -open-console=false
 }
 
 # stop_agent 停止指定 pid 的本地程序。
@@ -105,6 +125,11 @@ stop_agent() {
   local pid="${1:-}"
   if [ -z "$pid" ]; then
     return 0
+  fi
+  if ! is_goodhr_agent_pid "$pid"; then
+    log "$AGENT_PORT 端口被其他程序占用，避免误杀进程 pid=$pid"
+    log "请先手动释放 $AGENT_PORT，或设置 GOODHR_AGENT_PORT 指定其他端口启动"
+    exit 1
   fi
   log "正在停止旧本地程序 pid=$pid"
   kill "$pid" >/dev/null 2>&1 || true

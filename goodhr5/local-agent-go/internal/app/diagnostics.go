@@ -71,7 +71,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, result)
 }
 
-// diagnosePorts 检查 9001-9009 端口状态。
+// diagnosePorts 检查本地程序端口范围状态。
 // host 为监听地址，currentPort 为当前服务端口。
 func diagnosePorts(host string, currentPort int) []DiagnosticPort {
 	if host == "" {

@@ -136,7 +136,7 @@ onMounted → auth.loadCurrentUser():
 ```
 agent.detect():
   ├─ checking=true, status="检测中"
-  ├─ 遍历 LOCAL_PORTS: 9001, 9002, ..., 9009
+  ├─ 遍历 LOCAL_PORTS: 95271, 95272, ..., 95279
   │   for each port:
   │     GET http://127.0.0.1:{port}/health (cache: no-store)
   │     ├─ 失败（端口不可达/超时）→ 继续下一个端口
@@ -349,7 +349,7 @@ Position {
 任务列表中点击 [ 运行 ]
   ├─ useTasks.execute(taskId)
   │   └─ POST /api/tasks/{taskId}/run
-  │      Body: { agent_base_url: "http://127.0.0.1:9001" }
+  │      Body: { agent_base_url: "http://127.0.0.1:95271" }
   │      └─► Go task.Run():
   │          ├─ SessionFromRequest() → 校验登录
   │          ├─ TaskByID(email, taskId) → 校验归属

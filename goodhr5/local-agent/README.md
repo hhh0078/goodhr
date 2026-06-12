@@ -71,7 +71,7 @@ Windows 打包请在 Windows 机器上执行：
 powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 ```
 
-默认从 `127.0.0.1:9001` 到 `127.0.0.1:9009` 自动尝试，遇到端口占用会继续尝试下一个端口。
+默认从 `127.0.0.1:95271` 到 `127.0.0.1:95279` 自动尝试，遇到端口占用会继续尝试下一个端口。
 
 如果设置了 `GOODHR_AGENT_PORT`，会优先尝试该端口，然后继续尝试默认端口范围。
 

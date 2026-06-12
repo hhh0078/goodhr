@@ -40,7 +40,7 @@ DEFAULT_BROWSER_DOWNLOADS = {
 WINDOWS_RUNTIME_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 SHORTCUT_MARKER_FILE = "desktop_shortcut_created"
 HOST = "127.0.0.1"
-PORTS = range(9001, 9010)
+PORTS = range(95271, 95280)
 PORT_RELEASE_TIMEOUT_SECONDS = 5
 THEME_BG = "#0a0a0a"
 THEME_PANEL = "#0d0d0d"
@@ -1289,7 +1289,7 @@ class GoodHRLauncher:
 
     def _stop_agent(self) -> None:
         """停止 Local Agent 子进程。"""
-        previous_port = self.running_port or self._detect_running_port() or 9001
+        previous_port = self.running_port or self._detect_running_port() or 95271
         if not self.process or self.process.poll() is not None:
             self.status_var.set("已停止")
             if previous_port:
@@ -1326,7 +1326,7 @@ class GoodHRLauncher:
 
     def _open_console(self) -> None:
         """使用默认浏览器打开本地控制台页面。"""
-        port = self.running_port or self._detect_running_port() or 9001
+        port = self.running_port or self._detect_running_port() or 95271
         webbrowser.open(f"http://{HOST}:{port}/")
 
     def _open_windows_runtime(self) -> None:

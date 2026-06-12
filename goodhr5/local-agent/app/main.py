@@ -94,7 +94,7 @@ from app.vision_ai import analyze_image_with_ai
 from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
-DEFAULT_PORTS = range(9001, 9010)
+DEFAULT_PORTS = range(95271, 95280)
 PREFERRED_PORT_WAIT_SECONDS = 5
 LOCAL_AGENT_VERSION = "5.1.0"
 MACHINE = load_machine()
@@ -354,7 +354,7 @@ def _local_api_msg(message: object) -> str:
     if text.startswith("frontend dev server request failed"):
         return "前端开发服务请求失败，请确认 yarn run dev 是否正在运行"
     if text.startswith("No available GoodHR Local Agent port"):
-        return "9001 到 9009 端口都被占用，请关闭残留本地程序后重试"
+        return "95271 到 95279 端口都被占用，请关闭残留本地程序后重试"
     if text.startswith("GOODHR_AGENT_PORT must be a number"):
         return "本地程序端口配置必须是数字"
     if text.startswith("unsupported message type"):
@@ -1900,7 +1900,7 @@ def candidate_ports() -> Iterable[int]:
     """返回 Local Agent 应尝试监听的端口列表。
 
     优先尝试 GOODHR_AGENT_PORT 环境变量指定的端口，
-    然后按 9001-9009 依次尝试。
+    然后按 95271-95279 依次尝试。
     """
     configured = os.getenv("GOODHR_AGENT_PORT")
     yielded: set[int] = set()
@@ -1937,7 +1937,7 @@ def find_port() -> int:
             errors.append(f"{port}: {exc}")
 
     detail = "; ".join(errors)
-    raise RuntimeError(f"No available GoodHR Local Agent port in 9001-9009. {detail}")
+    raise RuntimeError(f"No available GoodHR Local Agent port in 95271-95279. {detail}")
 
 
 def can_bind_port(port: int) -> bool:

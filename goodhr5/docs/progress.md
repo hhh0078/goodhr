@@ -44,7 +44,7 @@
 | 云端前端 | 任务列表与日志展开 | DONE | 任务卡片支持展开/收起日志，日志来自云端任务日志 API |
 | 云端前端 | 本地候选人 JSON 管理 | DONE | 任务卡片支持读取、展示、删除本地候选人 JSON |
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
-| 本地 Agent | 端口 9001-9009 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
+| 本地 Agent | 端口 95271-95279 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
 | 本地 Agent | 本地连接探测 | DONE | 前端只请求 `/health`，不再绑定云端账号、不连接云端 WS、不向本地程序传 token |
 | 本地 Agent | Profile/cookie 多账号管理 | DONE | 云端平台账号映射和本地 profile 元数据接口已完成；cookie 原文仍只在浏览器 profile |
@@ -316,14 +316,14 @@
 - 验证码先用内存 TTL 存储，并返回 `debug_code` 方便本地开发验证。
 - 登录成功返回临时 Bearer token。
 
-- Vue 页面加载后自动探测 `127.0.0.1:9001-9009` 的本地 Agent。
+- Vue 页面加载后自动探测 `127.0.0.1:95271-95279` 的本地 Agent。
 - 保留手动“检测本地程序”按钮，方便用户启动本地程序后重新检测。
 
 - 本地 Agent 首次启动生成 `agent_data/machine.json`。
 - `machine_id` 使用机器信息和随机 `install_id` 哈希生成。
 - `/health` 返回本地 `machine_id`。
 
-- 本地 Agent 支持 `9001-9009` 自动选端口。
+- 本地 Agent 支持 `95271-95279` 自动选端口。
 - `/health` 返回实际监听端口。
 - `GOODHR_AGENT_PORT` 可作为优先尝试端口。
 
