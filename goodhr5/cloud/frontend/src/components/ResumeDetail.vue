@@ -3,8 +3,8 @@
   <section class="panel resume-detail-page">
     <div class="panel-header">
       <div>
-        <h2>{{ candidateName(candidate) }}</h2>
-        <p class="sub-title">{{ compactInfo(candidate) }}</p>
+        <h2>简历详情</h2>
+        <p class="sub-title">{{ pageSubTitle }}</p>
       </div>
       <button class="ghost" @click="backToLibrary">返回简历库</button>
     </div>
@@ -12,121 +12,127 @@
     <p v-if="loading" class="hint">正在读取候选人详情...</p>
     <p v-if="error" class="error">{{ error }}</p>
 
-    <template v-if="candidate && !loading">
-      <div class="summary-row">
-        <span>{{ platformLabel(candidate.platform_id) }}</span>
-        <span>{{ candidate.position_name || candidate.expected_position || "未关联岗位" }}</span>
-        <span>{{ candidate.work_status || "工作状态未知" }}</span>
-        <span>{{ candidate.greeted_at ? "已打招呼" : "未打招呼" }}</span>
-      </div>
+    <article v-if="candidate && !loading" class="resume-paper">
+      <header class="resume-hero">
+        <div class="avatar-wrap">
+          <img v-if="avatarURL" :src="avatarURL" alt="候选人头像" />
+          <span v-else>{{ avatarText }}</span>
+        </div>
+        <div class="hero-main">
+          <h1>{{ candidateName(candidate) }}</h1>
+          <div v-if="baseMeta.length" class="meta-line">
+            <span v-for="item in baseMeta" :key="item">{{ item }}</span>
+          </div>
+          <p v-if="introText" class="intro-text">{{ introText }}</p>
+        </div>
+      </header>
 
-      <section class="detail-block">
-        <h3>简历主体字段</h3>
-        <div class="field-grid">
-          <div v-for="field in profileFields" :key="field.label" class="field-item">
-            <span>{{ field.label }}</span>
-            <strong>{{ displayValue(field.value) }}</strong>
+      <section v-if="expectationMeta.length" class="resume-section expectation-section">
+        <h3>期望职位</h3>
+        <div class="pipe-line">
+          <span v-for="item in expectationMeta" :key="item">{{ item }}</span>
+        </div>
+      </section>
+
+      <section v-if="workExperiences.length" class="resume-section">
+        <h3>工作经历</h3>
+        <article v-for="(item, index) in workExperiences" :key="index" class="experience-item">
+          <div class="experience-head">
+            <div>
+              <strong>{{ experienceTitle(item) }}</strong>
+              <span v-if="experienceRole(item)">{{ experienceRole(item) }}</span>
+            </div>
+            <time v-if="experienceTime(item)">{{ experienceTime(item) }}</time>
+          </div>
+          <div v-if="experienceTextBlocks(item).length" class="content-blocks">
+            <p v-for="(line, lineIndex) in experienceTextBlocks(item)" :key="lineIndex">
+              {{ line }}
+            </p>
+          </div>
+          <div v-if="experienceTags(item).length" class="tag-row">
+            <span v-for="tag in experienceTags(item)" :key="tag">{{ tag }}</span>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="projectExperiences.length" class="resume-section">
+        <h3>项目经历</h3>
+        <article v-for="(item, index) in projectExperiences" :key="index" class="experience-item">
+          <div class="experience-head">
+            <div>
+              <strong>{{ projectTitle(item) }}</strong>
+              <span v-if="projectRole(item)">{{ projectRole(item) }}</span>
+            </div>
+            <time v-if="experienceTime(item)">{{ experienceTime(item) }}</time>
+          </div>
+          <div v-if="experienceTextBlocks(item).length" class="content-blocks">
+            <p v-for="(line, lineIndex) in experienceTextBlocks(item)" :key="lineIndex">
+              {{ line }}
+            </p>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="educations.length" class="resume-section">
+        <h3>教育经历</h3>
+        <article v-for="(item, index) in educations" :key="index" class="simple-item">
+          <strong>{{ educationTitle(item) }}</strong>
+          <span>{{ educationMeta(item) }}</span>
+        </article>
+      </section>
+
+      <section v-if="otherSections.length" class="resume-section">
+        <h3>更多信息</h3>
+        <div class="other-grid">
+          <div v-for="section in otherSections" :key="section.label">
+            <strong>{{ section.label }}</strong>
+            <p>{{ section.value }}</p>
           </div>
         </div>
       </section>
 
-      <section class="detail-block">
-        <h3>任务和平台字段</h3>
-        <div class="field-grid">
-          <div v-for="field in engagementFields" :key="field.label" class="field-item">
-            <span>{{ field.label }}</span>
-            <strong>{{ displayValue(field.value) }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="detail-block">
-        <h3>AI 分析结果</h3>
-        <div class="score-panel">
-          <article v-for="score in scoreFields" :key="score.label">
-            <span>{{ score.label }}</span>
-            <strong>{{ scoreText(score.score) }}</strong>
-            <p>{{ score.reason || "暂无原因" }}</p>
+      <section v-if="aiSections.length" class="resume-section ai-section">
+        <h3>AI 分析</h3>
+        <div class="ai-list">
+          <article v-for="item in aiSections" :key="item.label">
+            <strong>
+              {{ item.label }}
+              <span v-if="hasValue(item.score)">{{ scoreText(item.score) }}分</span>
+            </strong>
+            <p v-if="item.reason">{{ item.reason }}</p>
           </article>
         </div>
       </section>
 
-      <section class="detail-block">
-        <h3>文本内容</h3>
-        <div class="text-list">
-          <article v-for="item in textSections" :key="item.label">
-            <h4>{{ item.label }}</h4>
-            <pre>{{ item.value || "暂无内容" }}</pre>
-          </article>
-        </div>
-      </section>
-
-      <section class="detail-block">
-        <h3>结构化简历 JSON</h3>
-        <div class="json-section-list">
-          <details
-            v-for="section in structuredSections"
-            :key="section.label"
-            class="json-card"
-            :open="hasJSONContent(section.value)"
-          >
-            <summary>
-              <strong>{{ section.label }}</strong>
-              <span>{{ jsonSummary(section.value) }}</span>
-            </summary>
-            <JsonTree v-if="hasJSONContent(section.value)" :value="section.value" />
-            <p v-else class="muted-text">暂无数据</p>
-          </details>
-        </div>
-      </section>
-
-      <section class="detail-block">
-        <h3>本地回传原始 JSON</h3>
-        <details class="json-card" open>
-          <summary>
-            <strong>ext.local_candidate_json</strong>
-            <span>{{ jsonSummary(localCandidateJSON) }}</span>
-          </summary>
-          <JsonTree v-if="hasJSONContent(localCandidateJSON)" :value="localCandidateJSON" />
-          <p v-else class="muted-text">暂无本地原始 JSON</p>
-        </details>
-        <details class="json-card">
-          <summary>
-            <strong>完整 ext 扩展字段</strong>
-            <span>{{ jsonSummary(candidate.ext) }}</span>
-          </summary>
-          <JsonTree v-if="hasJSONContent(candidate.ext)" :value="candidate.ext" />
-          <p v-else class="muted-text">暂无扩展字段</p>
-        </details>
-      </section>
-
-      <section class="detail-block">
-        <h3>事件流水</h3>
-        <div v-if="candidate.events?.length" class="event-list">
-          <article v-for="event in candidate.events" :key="event.id">
+      <section v-if="events.length" class="resume-section debug-section">
+        <details>
+          <summary>事件流水 {{ events.length }} 条</summary>
+          <article v-for="event in events" :key="event.id" class="event-item">
             <div class="event-head">
               <strong>{{ eventTypeLabel(event.event_type) }}</strong>
-              <span>{{ formatDate(event.created_at) }}</span>
+              <time>{{ formatDate(event.created_at) }}</time>
             </div>
-            <div class="event-grid">
-              <p>评分：{{ scoreText(event.score) }}</p>
-              <p>模型：{{ displayValue(event.model) }}</p>
-              <p>Token：{{ displayValue(event.token_usage) }}</p>
-              <p>平台：{{ platformLabel(event.platform_id) }}</p>
-            </div>
+            <p v-if="hasValue(event.score)">评分：{{ scoreText(event.score) }}</p>
             <p v-if="event.reason">原因：{{ event.reason }}</p>
             <p v-if="event.message_text">消息：{{ event.message_text }}</p>
-            <details v-if="event.input_text || event.output_text || hasJSONContent(event.metadata)" class="event-extra">
-              <summary>查看输入输出</summary>
-              <pre v-if="event.input_text">输入：{{ event.input_text }}</pre>
-              <pre v-if="event.output_text">输出：{{ event.output_text }}</pre>
-              <JsonTree v-if="hasJSONContent(event.metadata)" :value="event.metadata" />
-            </details>
           </article>
-        </div>
-        <p v-else class="muted-text">暂无事件记录</p>
+        </details>
       </section>
-    </template>
+
+      <section v-if="hasJSONContent(localCandidateJSON) || hasJSONContent(candidate.ext)" class="resume-section debug-section">
+        <details>
+          <summary>原始 JSON</summary>
+          <details v-if="hasJSONContent(localCandidateJSON)" class="json-card" open>
+            <summary>本地回传 JSON</summary>
+            <JsonTree :value="localCandidateJSON" />
+          </details>
+          <details v-if="hasJSONContent(candidate.ext)" class="json-card">
+            <summary>完整 ext 扩展字段</summary>
+            <JsonTree :value="candidate.ext" />
+          </details>
+        </details>
+      </section>
+    </article>
   </section>
 </template>
 
@@ -148,57 +154,55 @@ const loading = ref(false);
 const error = ref("");
 
 const localCandidateJSON = computed(() => candidate.value?.ext?.local_candidate_json || null);
-const profileFields = computed(() => [
-  { label: "候选人ID", value: candidate.value?.id },
-  { label: "来源平台候选人ID", value: candidate.value?.platform_candidate_id },
-  { label: "姓名", value: candidate.value?.candidate_name },
-  { label: "出生年月", value: candidate.value?.birth_ym },
-  { label: "手机号", value: candidate.value?.phone },
-  { label: "邮箱", value: candidate.value?.email },
-  { label: "工作地区", value: candidate.value?.work_region },
-  { label: "工作年限", value: candidate.value?.work_years },
-  { label: "工作状态", value: candidate.value?.work_status },
-  { label: "学历", value: candidate.value?.education_level },
-  { label: "期望岗位", value: candidate.value?.expected_position },
-  { label: "期望薪资", value: salaryText(candidate.value) },
-  { label: "在线状态", value: candidate.value?.online_status },
-  { label: "简历附件", value: candidate.value?.resume_url },
-  { label: "首次发现", value: formatDate(candidate.value?.first_seen_at) },
-  { label: "创建时间", value: formatDate(candidate.value?.created_at) },
-  { label: "更新时间", value: formatDate(candidate.value?.updated_at) },
-]);
-const engagementFields = computed(() => [
-  { label: "触达ID", value: candidate.value?.engagement_id },
-  { label: "触达状态", value: candidate.value?.engagement_status },
-  { label: "任务ID", value: candidate.value?.task_id },
-  { label: "岗位ID", value: candidate.value?.position_id },
-  { label: "岗位名称", value: candidate.value?.position_name },
-  { label: "平台账号ID", value: candidate.value?.platform_account_id },
-  { label: "所属用户", value: candidate.value?.user_email },
-  { label: "平台", value: platformLabel(candidate.value?.platform_id) },
-  { label: "详情抓取时间", value: formatDate(candidate.value?.detail_fetched_at) },
-  { label: "打招呼时间", value: formatDate(candidate.value?.greeted_at) },
-]);
-const scoreFields = computed(() => [
-  { label: "基础筛选评分", score: candidate.value?.ai_detail_score, reason: candidate.value?.ai_detail_reason },
-  { label: "打招呼评分", score: candidate.value?.ai_greet_score, reason: candidate.value?.ai_greet_reason },
-  { label: "复核评分", score: candidate.value?.ai_review_score, reason: candidate.value?.ai_review_reason },
-]);
-const textSections = computed(() => [
-  { label: "基础信息", value: candidate.value?.basic_info },
-  { label: "个人描述", value: candidate.value?.personal_description },
-  { label: "原始文本", value: candidate.value?.raw_text },
-  { label: "筛选文本", value: candidate.value?.filter_text },
-  { label: "简历附件提取文本", value: candidate.value?.resume_text },
-]);
-const structuredSections = computed(() => [
-  { label: "工作经历 work_experiences", value: candidate.value?.work_experiences },
-  { label: "教育经历 educations", value: candidate.value?.educations },
-  { label: "证书 certificates", value: candidate.value?.certificates },
-  { label: "荣誉 honors", value: candidate.value?.honors },
-  { label: "项目经历 project_experiences", value: candidate.value?.project_experiences },
-  { label: "沟通记录 communications", value: candidate.value?.communications },
-]);
+const avatarURL = computed(() => pickText(["avatar_url", "avatar", "photo_url", "head_url", "head_img"]));
+const avatarText = computed(() => candidateName(candidate.value).slice(0, 1));
+const pageSubTitle = computed(() => [candidateName(candidate.value), pickText(["position_name", "expected_position"])].filter(hasValue).join(" / "));
+const baseMeta = computed(() =>
+  uniqueTexts([
+    pickText(["age", "candidate_age"]),
+    candidate.value?.education_level,
+    candidate.value?.work_years,
+    candidate.value?.work_status,
+    candidate.value?.online_status,
+    candidate.value?.work_region,
+  ]),
+);
+const introText = computed(() =>
+  firstNonEmpty([
+    candidate.value?.personal_description,
+    candidate.value?.basic_info,
+    pickText(["summary", "description", "intro", "advantage"]),
+  ]),
+);
+const expectationMeta = computed(() =>
+  uniqueTexts([
+    candidate.value?.work_region,
+    candidate.value?.expected_position,
+    pickText(["industry", "expected_industry"]),
+    salaryText(candidate.value),
+  ]),
+);
+const workExperiences = computed(() => normalizeArray(candidate.value?.work_experiences, ["work_experiences", "works", "work_list"]));
+const projectExperiences = computed(() => normalizeArray(candidate.value?.project_experiences, ["project_experiences", "projects", "project_list"]));
+const educations = computed(() => normalizeArray(candidate.value?.educations, ["educations", "education_experiences", "education_list"]));
+const events = computed(() => (Array.isArray(candidate.value?.events) ? candidate.value.events : []));
+const otherSections = computed(() =>
+  [
+    { label: "证书", value: joinItems(normalizeArray(candidate.value?.certificates, ["certificates", "certificate_list"])) },
+    { label: "荣誉", value: joinItems(normalizeArray(candidate.value?.honors, ["honors", "honor_list"])) },
+    { label: "沟通记录", value: joinItems(normalizeArray(candidate.value?.communications, ["communications", "communication_list"])) },
+    { label: "简历附件文本", value: candidate.value?.resume_text },
+    { label: "筛选文本", value: candidate.value?.filter_text },
+    { label: "原始文本", value: candidate.value?.raw_text },
+  ].filter((item) => hasValue(item.value)),
+);
+const aiSections = computed(() =>
+  [
+    { label: "基础筛选", score: candidate.value?.ai_detail_score, reason: candidate.value?.ai_detail_reason },
+    { label: "打招呼判断", score: candidate.value?.ai_greet_score, reason: candidate.value?.ai_greet_reason },
+    { label: "复核判断", score: candidate.value?.ai_review_score, reason: candidate.value?.ai_review_reason },
+  ].filter((item) => hasValue(item.score) || hasValue(item.reason)),
+);
 
 /**
  * 读取候选人详情。
@@ -230,26 +234,205 @@ async function load() {
  * @returns {string} 展示姓名。
  */
 function candidateName(item: any) {
-  return item?.candidate_name || "候选人详情";
+  return item?.candidate_name || pickText(["candidate_name", "name", "real_name"]) || "候选人";
 }
 
 /**
- * 返回候选人摘要。
- * @param {any} item - 候选人详情对象。
- * @returns {string} 摘要文案。
+ * 从候选人标准字段和原始 JSON 中读取第一个有值文本。
+ * @param {string[]} keys - 需要查找的字段名。
+ * @returns {string} 字段文本。
  */
-function compactInfo(item: any) {
-  if (!item) return "简历详情";
-  return (
-    [
-      item.work_region,
-      item.work_years,
-      item.education_level,
-      item.expected_position,
-    ]
-      .filter(Boolean)
-      .join(" / ") || "暂无摘要"
-  );
+function pickText(keys: string[]) {
+  const sources = [candidate.value, localCandidateJSON.value].filter(Boolean);
+  for (const key of keys) {
+    for (const source of sources) {
+      const value = readPath(source, key);
+      if (hasValue(value)) return String(value).trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * 从对象中按字段路径读取值。
+ * @param {any} source - 数据源。
+ * @param {string} path - 字段名或点分路径。
+ * @returns {any} 字段值。
+ */
+function readPath(source: any, path: string) {
+  if (!source || !path) return undefined;
+  return path.split(".").reduce((value, key) => (value ? value[key] : undefined), source);
+}
+
+/**
+ * 返回第一个有值文本。
+ * @param {any[]} values - 候选值数组。
+ * @returns {string} 文本。
+ */
+function firstNonEmpty(values: any[]) {
+  const found = values.find(hasValue);
+  return found ? String(found).trim() : "";
+}
+
+/**
+ * 判断字段是否有可展示内容。
+ * @param {any} value - 字段值。
+ * @returns {boolean} 有内容返回 true。
+ */
+function hasValue(value: any) {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return String(value).trim() !== "";
+}
+
+/**
+ * 去重并清理文本数组。
+ * @param {any[]} values - 原始文本数组。
+ * @returns {string[]} 去重后的文本数组。
+ */
+function uniqueTexts(values: any[]) {
+  return Array.from(new Set(values.filter(hasValue).map((item) => String(item).trim())));
+}
+
+/**
+ * 规范化数组字段。
+ * @param {any} value - 标准字段值。
+ * @param {string[]} fallbackKeys - 原始 JSON 兜底字段名。
+ * @returns {any[]} 数组数据。
+ */
+function normalizeArray(value: any, fallbackKeys: string[] = []) {
+  if (Array.isArray(value) && value.length) return value;
+  for (const key of fallbackKeys) {
+    const fallback = readPath(localCandidateJSON.value, key);
+    if (Array.isArray(fallback) && fallback.length) return fallback;
+  }
+  return [];
+}
+
+/**
+ * 把数组或对象转为可读文本。
+ * @param {any[]} items - 数组内容。
+ * @returns {string} 展示文本。
+ */
+function joinItems(items: any[]) {
+  return items
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (typeof item === "number") return String(item);
+      if (item && typeof item === "object") return uniqueTexts(Object.values(item)).join(" / ");
+      return "";
+    })
+    .filter(hasValue)
+    .join("；");
+}
+
+/**
+ * 返回经历主标题。
+ * @param {any} item - 经历对象。
+ * @returns {string} 标题文本。
+ */
+function experienceTitle(item: any) {
+  return firstNonEmpty([item.company_name, item.company, item.name, item.organization, item.project_name, "经历"]);
+}
+
+/**
+ * 返回经历职位信息。
+ * @param {any} item - 经历对象。
+ * @returns {string} 职位文本。
+ */
+function experienceRole(item: any) {
+  return uniqueTexts([item.position_name, item.position, item.title, item.role, item.department]).join(" / ");
+}
+
+/**
+ * 返回项目标题。
+ * @param {any} item - 项目经历对象。
+ * @returns {string} 项目标题。
+ */
+function projectTitle(item: any) {
+  return firstNonEmpty([item.project_name, item.name, item.company_name, item.company, "项目"]);
+}
+
+/**
+ * 返回项目角色。
+ * @param {any} item - 项目经历对象。
+ * @returns {string} 角色文本。
+ */
+function projectRole(item: any) {
+  return uniqueTexts([item.role, item.position_name, item.position, item.title]).join(" / ");
+}
+
+/**
+ * 返回经历时间。
+ * @param {any} item - 经历对象。
+ * @returns {string} 时间文本。
+ */
+function experienceTime(item: any) {
+  const start = firstNonEmpty([item.start_ym, item.start_date, item.start_time, item.begin_time]);
+  const end = firstNonEmpty([item.end_ym, item.end_date, item.end_time, item.finish_time]) || (start ? "至今" : "");
+  return uniqueTexts([start, end]).join(" - ");
+}
+
+/**
+ * 返回经历正文段落。
+ * @param {any} item - 经历对象。
+ * @returns {string[]} 段落文本。
+ */
+function experienceTextBlocks(item: any) {
+  return uniqueTexts([
+    item.performance,
+    item.achievement,
+    item.achievements,
+    item.content,
+    item.description,
+    item.duty,
+    item.responsibility,
+    item.detail,
+  ]).flatMap(splitLines);
+}
+
+/**
+ * 返回经历标签。
+ * @param {any} item - 经历对象。
+ * @returns {string[]} 标签数组。
+ */
+function experienceTags(item: any) {
+  const raw = item.tags || item.skills || item.highlights || [];
+  if (Array.isArray(raw)) return uniqueTexts(raw);
+  if (typeof raw === "string") return splitLines(raw).slice(0, 8);
+  return [];
+}
+
+/**
+ * 返回教育经历标题。
+ * @param {any} item - 教育对象。
+ * @returns {string} 标题文本。
+ */
+function educationTitle(item: any) {
+  return uniqueTexts([item.school_name, item.school, item.name, item.major_name, item.major]).join(" / ");
+}
+
+/**
+ * 返回教育经历摘要。
+ * @param {any} item - 教育对象。
+ * @returns {string} 摘要文本。
+ */
+function educationMeta(item: any) {
+  return uniqueTexts([item.education_level, item.degree, experienceTime(item)]).join(" / ");
+}
+
+/**
+ * 按换行拆分文本。
+ * @param {any} value - 原始文本。
+ * @returns {string[]} 文本行。
+ */
+function splitLines(value: any) {
+  if (!hasValue(value)) return [];
+  return String(value)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -261,7 +444,7 @@ function platformLabel(platformId: string) {
   if (platformId === "boss") return "Boss直聘";
   if (platformId === "zhaopin") return "智联招聘";
   if (platformId === "liepin") return "猎聘";
-  return platformId || "未知平台";
+  return platformId || "";
 }
 
 /**
@@ -289,10 +472,11 @@ function eventTypeLabel(eventType: string) {
 function salaryText(item: any) {
   const min = item?.expected_salary_min;
   const max = item?.expected_salary_max;
+  const fallback = pickText(["salary", "expected_salary"]);
   if (min && max) return `${min}-${max}`;
   if (min) return `${min}起`;
   if (max) return `${max}以内`;
-  return "";
+  return fallback;
 }
 
 /**
@@ -301,9 +485,9 @@ function salaryText(item: any) {
  * @returns {string} 分数字符串。
  */
 function scoreText(score: number | null | undefined) {
-  if (score === null || score === undefined || score === "") return "--";
+  if (!hasValue(score)) return "";
   const value = Number(score);
-  if (Number.isNaN(value)) return "--";
+  if (Number.isNaN(value)) return "";
   return value.toFixed(1);
 }
 
@@ -320,39 +504,12 @@ function formatDate(value: string) {
 }
 
 /**
- * 格式化普通字段展示。
- * @param {any} value - 原始字段值。
- * @returns {string} 可展示的字段文本。
- */
-function displayValue(value: any) {
-  if (value === null || value === undefined || value === "") return "--";
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return value ? "是" : "否";
-  return String(value);
-}
-
-/**
  * 判断 JSON 字段是否有内容。
  * @param {any} value - JSON 字段值。
  * @returns {boolean} 有内容时返回 true。
  */
 function hasJSONContent(value: any) {
-  if (!value) return false;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return String(value).trim() !== "";
-}
-
-/**
- * 返回 JSON 字段摘要。
- * @param {any} value - JSON 字段值。
- * @returns {string} 摘要文本。
- */
-function jsonSummary(value: any) {
-  if (!hasJSONContent(value)) return "暂无数据";
-  if (Array.isArray(value)) return `${value.length} 项`;
-  if (typeof value === "object") return `${Object.keys(value).length} 个字段`;
-  return "1 项";
+  return hasValue(value);
 }
 
 /**
@@ -377,127 +534,220 @@ watch(
 
 <style scoped>
 .resume-detail-page {
-  max-width: 1280px;
+  max-width: 1180px;
 }
 .sub-title {
   margin: 4px 0 0;
   color: var(--fg-dim);
   font-size: 13px;
 }
-.summary-row {
+.resume-paper {
+  background: color-mix(in srgb, var(--bg-panel) 88%, white 12%);
+  border: 1px solid var(--border);
+  padding: 36px 44px;
+  color: var(--fg);
+}
+.resume-hero {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.avatar-wrap {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 700;
+}
+.avatar-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hero-main h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  color: var(--fg);
+}
+.meta-line,
+.pipe-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 10px;
+  color: var(--fg-dim);
+  font-size: 15px;
+}
+.meta-line span:not(:last-child)::after,
+.pipe-line span:not(:last-child)::after {
+  content: "|";
+  margin: 0 12px;
+  color: var(--border);
+}
+.intro-text {
+  margin: 26px 0 0;
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+}
+.resume-section {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 28px 40px;
+  margin-top: 34px;
+}
+.resume-section h3 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 17px;
+  line-height: 1.6;
+}
+.expectation-section {
+  align-items: center;
+}
+.experience-item,
+.simple-item,
+.ai-list,
+.other-grid,
+.debug-section > details {
+  min-width: 0;
+}
+.experience-item + .experience-item,
+.simple-item + .simple-item {
+  margin-top: 30px;
+}
+.experience-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: baseline;
+}
+.experience-head strong,
+.simple-item strong {
+  color: var(--fg);
+  font-size: 17px;
+}
+.experience-head span,
+.simple-item span,
+.experience-head time {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+.experience-head div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.experience-head div span::before {
+  content: "|";
+  margin-right: 10px;
+  color: var(--border);
+}
+.content-blocks {
+  margin-top: 16px;
+  color: var(--fg);
+  line-height: 1.9;
+}
+.content-blocks p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+.tag-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-top: 12px;
 }
-.summary-row span {
-  border: 1px solid var(--border);
+.tag-row span {
   background: var(--bg-input);
-  color: var(--fg);
-  padding: 6px 10px;
-  font-size: 12px;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  font-size: 13px;
 }
-.detail-block {
-  margin-top: 16px;
-}
-.detail-block h3 {
-  margin: 0 0 8px;
-  color: var(--fg);
-  font-size: 16px;
-}
-.field-grid,
-.score-panel,
-.event-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.simple-item {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
-.field-item,
-.score-panel article,
-.text-list article,
-.json-card,
-.event-list article {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  padding: 10px;
-  min-width: 0;
+.other-grid {
+  display: grid;
+  gap: 16px;
 }
-.field-item span,
-.score-panel span {
+.other-grid strong,
+.ai-list strong {
   display: block;
-  color: var(--fg-dim);
-  font-size: 12px;
+  color: var(--fg);
   margin-bottom: 6px;
 }
-.field-item strong,
-.score-panel strong {
-  color: var(--fg);
-  overflow-wrap: anywhere;
-}
-.score-panel p,
-.event-list p,
-.muted-text {
-  margin: 6px 0 0;
-  color: var(--fg-dim);
-  line-height: 1.6;
-}
-.text-list,
-.json-section-list,
-.event-list {
-  display: grid;
-  gap: 10px;
-}
-.text-list h4 {
-  margin: 0 0 8px;
-  color: var(--fg);
-  font-size: 14px;
-}
-pre {
-  white-space: pre-wrap;
-  word-break: break-word;
+.other-grid p,
+.ai-list p,
+.event-item p {
   margin: 0;
   color: var(--fg-dim);
-  line-height: 1.6;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
 }
+.ai-list {
+  display: grid;
+  gap: 14px;
+}
+.ai-list strong span {
+  margin-left: 10px;
+  color: var(--accent);
+}
+.debug-section details {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 12px;
+}
+.debug-section summary,
 .json-card summary {
   cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   color: var(--fg);
 }
-.json-card summary span {
-  color: var(--fg-dim);
-  font-size: 12px;
+.json-card {
+  margin-top: 10px;
+}
+.event-item {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 .event-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  color: var(--fg);
+  gap: 14px;
+  margin-bottom: 6px;
 }
-.event-head span {
+.event-head time {
   color: var(--fg-dim);
   font-size: 12px;
 }
-.event-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 8px;
-}
-.event-extra {
-  margin-top: 8px;
-}
-.event-extra summary {
-  cursor: pointer;
-  color: var(--fg);
-}
 @media (max-width: 980px) {
-  .field-grid,
-  .score-panel,
-  .event-grid {
+  .resume-paper {
+    padding: 22px;
+  }
+  .resume-hero,
+  .resume-section {
     grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .experience-head {
+    display: block;
+  }
+  .experience-head time {
+    display: block;
+    margin-top: 6px;
   }
 }
 </style>
