@@ -1,29 +1,29 @@
 @echo off
-REM 文件作用：Windows 一键检查环境并打包 GoodHR Go 本地程序安装包。
+REM Purpose: check Windows build tools and package GoodHR Go Local Agent installer.
 setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
 set "VERSION=%~1"
 if "%VERSION%"=="" set "VERSION=0.1.0"
 
-echo [GoodHR] 开始打包 Windows 安装包，版本：%VERSION%
-echo [GoodHR] 项目目录：%ROOT_DIR%
+echo [GoodHR] Start Windows installer build. Version: %VERSION%
+echo [GoodHR] Project dir: %ROOT_DIR%
 echo.
 
-REM 检查 Go 是否已安装。
+REM Check Go.
 where go >nul 2>nul
 if errorlevel 1 (
-  echo [GoodHR][错误] 未检测到 Go。
-  echo 请先安装 Go，然后重新打开命令行再运行本脚本。
-  echo 下载地址：https://go.dev/dl/
+  echo [GoodHR][ERROR] Go was not found.
+  echo Please install Go and reopen PowerShell or CMD.
+  echo Download: https://go.dev/dl/
   pause
   exit /b 1
 )
 
 for /f "tokens=*" %%i in ('go version') do set "GO_VERSION=%%i"
-echo [GoodHR] 已检测到 Go：%GO_VERSION%
+echo [GoodHR] Go found: %GO_VERSION%
 
-REM 检查 Inno Setup 6 是否已安装。
+REM Check Inno Setup 6.
 set "ISCC_PATH="
 where ISCC.exe >nul 2>nul
 if not errorlevel 1 (
@@ -35,25 +35,25 @@ if not defined ISCC_PATH if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" se
 if not defined ISCC_PATH if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 
 if not defined ISCC_PATH (
-  echo [GoodHR][错误] 未检测到 Inno Setup 6。
-  echo 请先安装 Inno Setup 6，再运行本脚本。
-  echo 下载地址：https://jrsoftware.org/isdl.php
+  echo [GoodHR][ERROR] Inno Setup 6 was not found.
+  echo Please install Inno Setup 6 and run this script again.
+  echo Download: https://jrsoftware.org/isdl.php
   pause
   exit /b 1
 )
-echo [GoodHR] 已检测到 Inno Setup：%ISCC_PATH%
+echo [GoodHR] Inno Setup found: %ISCC_PATH%
 
-REM 检查 Worker 目录和依赖。
+REM Check Worker directory and dependencies.
 if not exist "%ROOT_DIR%worker-node\package.json" (
-  echo [GoodHR][错误] 未找到 worker-node\package.json。
-  echo 请确认当前目录是 goodhr5\local-agent-go。
+  echo [GoodHR][ERROR] worker-node\package.json was not found.
+  echo Please make sure this script is in goodhr5\local-agent-go.
   pause
   exit /b 1
 )
 
 if not exist "%ROOT_DIR%worker-node\node_modules" (
-  echo [GoodHR][错误] 未检测到 worker-node\node_modules。
-  echo 请先执行下面命令安装 Node Worker 依赖：
+  echo [GoodHR][ERROR] worker-node\node_modules was not found.
+  echo Please install Node Worker dependencies first:
   echo.
   echo   cd /d "%ROOT_DIR%worker-node"
   echo   npm install
@@ -61,29 +61,29 @@ if not exist "%ROOT_DIR%worker-node\node_modules" (
   pause
   exit /b 1
 )
-echo [GoodHR] Worker 依赖已存在。
+echo [GoodHR] Worker dependencies found.
 
-REM 检查 PowerShell 是否可用。
+REM Check PowerShell.
 where powershell >nul 2>nul
 if errorlevel 1 (
-  echo [GoodHR][错误] 未检测到 PowerShell，无法调用打包脚本。
+  echo [GoodHR][ERROR] PowerShell was not found.
   pause
   exit /b 1
 )
 
 echo.
-echo [GoodHR] 开始调用安装器打包脚本...
+echo [GoodHR] Running installer build script...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%packaging\build_windows_installer.ps1" -Version "%VERSION%"
 if errorlevel 1 (
   echo.
-  echo [GoodHR][错误] 打包失败，请查看上面的错误信息。
+  echo [GoodHR][ERROR] Build failed. Please check the error output above.
   pause
   exit /b 1
 )
 
 echo.
-echo [GoodHR] 打包完成。
-echo [GoodHR] 安装包目录：%ROOT_DIR%dist-installer
+echo [GoodHR] Build completed.
+echo [GoodHR] Installer output dir: %ROOT_DIR%dist-installer
 echo.
 pause
 exit /b 0
