@@ -26,7 +26,7 @@ SetupIconFile=..\assets\icons\goodhr-logo.ico
 UninstallDisplayIcon={app}\goodhr-logo.ico
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: ".\ChineseSimplified.isl"
 
 [Dirs]
 Name: "{app}\data"

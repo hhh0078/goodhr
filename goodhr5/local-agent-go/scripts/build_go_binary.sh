@@ -17,6 +17,10 @@ log() {
 if [ "$TARGET_OS" = "windows" ]; then
   EXT=".exe"
 fi
+LDFLAGS="-s -w"
+if [ "$TARGET_OS" = "windows" ]; then
+  LDFLAGS="-H windowsgui $LDFLAGS"
+fi
 
 mkdir -p "$DIST_DIR"
 OUTPUT="$DIST_DIR/goodhr-local-agent-${TARGET_OS}-${TARGET_ARCH}${EXT}"
@@ -26,7 +30,7 @@ log "开始编译 Go 本地程序：GOOS=$TARGET_OS GOARCH=$TARGET_ARCH"
   cd "$ROOT_DIR"
   CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build \
     -trimpath \
-    -ldflags="-s -w" \
+    -ldflags="$LDFLAGS" \
     -o "$OUTPUT" \
     ./cmd/goodhr-local-agent
 )

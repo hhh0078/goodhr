@@ -14,6 +14,10 @@ if ($TargetOS -eq "windows") {
   $Ext = ".exe"
 }
 $Output = Join-Path $DistDir "goodhr-local-agent-$TargetOS-$TargetArch$Ext"
+$SubsystemFlag = ""
+if ($TargetOS -eq "windows") {
+  $SubsystemFlag = "-H windowsgui "
+}
 
 # Write-Step prints the current build step.
 # message is the build step text.
@@ -30,7 +34,7 @@ try {
   $env:CGO_ENABLED = "0"
   $env:GOOS = $TargetOS
   $env:GOARCH = $TargetArch
-  go build -trimpath -ldflags="-s -w -X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
+  go build -trimpath -ldflags="$SubsystemFlag-s -w -X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
 }
 finally {
   Pop-Location
