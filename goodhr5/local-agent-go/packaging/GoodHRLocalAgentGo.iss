@@ -41,7 +41,7 @@ Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Pa
 Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）"; GroupDescription: "快捷方式："
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; Description: "Launch GoodHR Local Agent"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall
