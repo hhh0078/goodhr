@@ -58,7 +58,8 @@
           min="1"
       /></label>
       <p class="hint field-wide">
-        每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。
+        每次启动任务最多打招呼的人数，默认 50
+        个；停止后下次启动会重新按这个数量计算。
       </p>
     </div>
     <div v-if="showCreate" class="mode-field" style="margin-bottom: 12px">
@@ -117,6 +118,7 @@
               }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }}
+              | {{ displayRunGreetLimit(task) }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
@@ -147,7 +149,6 @@
               <span>总计 {{ displayTotalGreetedCount(task) }}</span>
               <span>今天 {{ displayTodayGreetedCount(task) }}</span>
               <span>本次 {{ displayCurrentRunGreetedCount(task) }}</span>
-              <span>本次上限 {{ displayRunGreetLimit(task) }}</span>
             </div>
             <label
               :class="[
@@ -234,7 +235,8 @@
                 min="1"
             /></label>
             <p class="hint field-wide">
-              每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。
+              每次启动任务最多打招呼的人数，默认 50
+              个；停止后下次启动会重新按这个数量计算。
             </p>
           </div>
           <div class="mode-field">
@@ -820,12 +822,8 @@ onMounted(loadAccounts);
   gap: 6px;
   align-items: center;
   color: var(--fg-dim);
-  font-size: 12px;
 }
 .task-metrics span {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  padding: 4px 7px;
   white-space: nowrap;
 }
 .edit-actions {
