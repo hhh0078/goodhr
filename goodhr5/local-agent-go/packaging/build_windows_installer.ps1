@@ -1,4 +1,4 @@
-# 文件作用：在 Windows 上编译 GoodHR Go 本地程序并生成 Inno Setup 安装器。
+# Purpose: build GoodHR Go Local Agent and create the Windows installer.
 param(
   [string]$Version = "0.1.0"
 )
@@ -11,15 +11,15 @@ $SourceExe = Join-Path $RootDir "dist\bin\goodhr-local-agent-windows-amd64.exe"
 $TargetExe = Join-Path $DistInputDir "goodhr-local-agent.exe"
 $IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
 
-# Write-Step 输出当前构建步骤。
-# message 为中文步骤说明。
+# Write-Step prints the current build step.
+# message is the build step text.
 function Write-Step {
   param([string]$message)
   Write-Host "[GoodHR] $message" -ForegroundColor Cyan
 }
 
-# Find-InnoSetup 查找 Inno Setup 编译器。
-# 返回 ISCC.exe 路径。
+# Find-InnoSetup locates the Inno Setup compiler.
+# Returns the ISCC.exe path.
 function Find-InnoSetup {
   $candidates = @(
     "ISCC.exe",
@@ -34,13 +34,13 @@ function Find-InnoSetup {
       return $candidate
     }
   }
-  throw "未找到 Inno Setup 编译器 ISCC.exe，请先安装 Inno Setup 6。"
+  throw "Inno Setup compiler ISCC.exe was not found. Please install Inno Setup 6 first."
 }
 
-Write-Step "编译 Windows x64 Go 本地程序"
+Write-Step "Build Windows x64 Go local agent"
 & (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
 
-Write-Step "准备安装器输入目录"
+Write-Step "Prepare installer input directory"
 New-Item -ItemType Directory -Force -Path $DistInputDir | Out-Null
 Copy-Item -Force $SourceExe $TargetExe
 if (Test-Path (Join-Path $RootDir "worker-node")) {
@@ -49,7 +49,8 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
 }
 
 $iscc = Find-InnoSetup
-Write-Step "生成 Windows 安装器"
+Write-Step "Create Windows installer"
 & $iscc "/DMyAppVersion=$Version" $IssPath
 
-Write-Step "安装器生成完成：$(Join-Path $RootDir "dist-installer")"
+$InstallerOutputDir = Join-Path $RootDir "dist-installer"
+Write-Step "Installer build completed: $InstallerOutputDir"
