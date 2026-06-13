@@ -39,9 +39,12 @@
         </select>
       </label>
       <label
-        >匹配上限
+        >本次打招呼上限
         <input v-model="tasks.form.value.matchLimit" type="number" min="1" />
       </label>
+      <p class="hint field-wide">
+        每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。
+      </p>
     </div>
     <div v-if="selectedPosition" class="snapshot">
       <strong>{{ selectedPosition.name }}</strong>
@@ -106,3 +109,10 @@ onMounted(() => {
   if (props.token) loadAccounts();
 });
 </script>
+
+<style scoped>
+.field-wide {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+</style>

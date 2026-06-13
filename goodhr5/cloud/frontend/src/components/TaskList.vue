@@ -74,11 +74,14 @@
         }}，来自岗位配置。
       </p>
       <label
-        >匹配上限<input
+        >本次打招呼上限<input
           v-model="tasks.form.value.matchLimit"
           type="number"
           min="1"
       /></label>
+      <p class="hint field-wide">
+        每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。
+      </p>
     </div>
     <div v-if="showCreate" class="mode-field" style="margin-bottom: 12px">
       <span class="field-title">思考模式</span>
@@ -136,7 +139,9 @@
               }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }} |
-              {{ task.match_limit }}/{{ displayGreetedCount(task) }}
+              本次打招呼上限 {{ displayRunGreetLimit(task) }}/{{
+                displayGreetedCount(task)
+              }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
@@ -242,11 +247,14 @@
               }}，来自岗位配置。
             </p>
             <label
-              >匹配上限<input
+              >本次打招呼上限<input
                 v-model="editForm.matchLimit"
                 type="number"
                 min="1"
             /></label>
+            <p class="hint field-wide">
+              每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。
+            </p>
           </div>
           <div class="mode-field">
             <span class="field-title">思考模式</span>
@@ -364,6 +372,7 @@ const emit = defineEmits(["open-candidates", "request-login"]);
 const showCreate = ref(false);
 const statRange = ref("today");
 const createNameEdited = ref(false);
+const DEFAULT_RUN_GREET_LIMIT = 50;
 const accounts = ref<any[]>([]);
 const accountsError = ref("");
 const editingTaskId = ref("");
@@ -496,7 +505,7 @@ function startEdit(task: any) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 50,
+    matchLimit: displayRunGreetLimit(task),
     enableSound: Boolean(task.enable_sound),
     enableThinking: Boolean(task.enable_thinking),
   };
@@ -531,7 +540,7 @@ async function toggleSound(task: any, enableSound: boolean) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 50,
+    matchLimit: displayRunGreetLimit(task),
     enableSound,
   });
 }
@@ -566,6 +575,17 @@ function displayGreetedCount(task: any) {
     return Number(task?.today_greeted_count || 0);
   }
   return Number(task?.greeted_count || 0);
+}
+
+/**
+ * 返回任务本次打招呼上限。
+ * @param {any} task - 当前任务。
+ * @returns {number} 有效上限，空值默认 50。
+ */
+function displayRunGreetLimit(task: any) {
+  const limit = Number(task?.match_limit || 0);
+  if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_RUN_GREET_LIMIT;
+  return Math.floor(limit);
 }
 function onLogScroll(taskId: string, event: Event) {
   const target = event.target as HTMLElement | null;

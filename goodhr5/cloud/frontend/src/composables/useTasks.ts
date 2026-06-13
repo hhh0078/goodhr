@@ -25,6 +25,8 @@ import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
 import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
+const DEFAULT_RUN_GREET_LIMIT = 50;
+
 export function useTasks(
   agentBaseUrl: Ref<string>,
   onSubscriptionExpired?: () => void,
@@ -39,7 +41,7 @@ export function useTasks(
     platformAccountId: "",
     positionId: "",
     mode: "ai",
-    matchLimit: 20,
+    matchLimit: DEFAULT_RUN_GREET_LIMIT,
     enableSound: false,
     enableThinking: false,
   });
@@ -87,7 +89,7 @@ export function useTasks(
         platform_account_id: form.value.platformAccountId,
         position_id: form.value.positionId || "",
         mode: form.value.mode,
-        match_limit: Number(form.value.matchLimit || 0),
+        match_limit: normalizeRunGreetLimit(form.value.matchLimit),
         enable_sound: Boolean(form.value.enableSound),
         enable_thinking: Boolean(form.value.enableThinking),
         position_snapshot: resolvePositionSnapshot(form.value.positionId),
@@ -112,7 +114,7 @@ export function useTasks(
         platform_account_id: payload.platformAccountId,
         position_id: payload.positionId || "",
         mode: payload.mode,
-        match_limit: Number(payload.matchLimit || 0),
+        match_limit: normalizeRunGreetLimit(payload.matchLimit),
         enable_sound: Boolean(payload.enableSound),
         enable_thinking: Boolean(payload.enableThinking),
       };
@@ -629,4 +631,15 @@ export function useTasks(
     candidateDetail,
     localTaskMode: shouldUseLocalTasks,
   };
+}
+
+/**
+ * 规范化本次打招呼上限。
+ * @param value - 表单输入值。
+ * @returns 有效上限，空值或非法值默认返回 50。
+ */
+function normalizeRunGreetLimit(value: any) {
+  const limit = Number(value || 0);
+  if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_RUN_GREET_LIMIT;
+  return Math.floor(limit);
 }
