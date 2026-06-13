@@ -106,13 +106,15 @@ async function startBrowser(payload) {
     humanize: payload.humanize !== false,
     acceptDownloads: true,
     downloadsPath: payload.downloads_path || downloadDir(),
+    // 隐藏 Chromium 对 --no-sandbox 等启动参数的顶部提示条。
+    args: ["--test-type"],
   };
   await fs.mkdir(options.downloadsPath, { recursive: true });
   if (payload.proxy) options.proxy = payload.proxy;
   if (payload.viewport_width && payload.viewport_height) {
     const viewport = { width: Number(payload.viewport_width), height: Number(payload.viewport_height) };
     options.viewport = viewport;
-    options.args = [`--window-size=${viewport.width},${viewport.height}`];
+    options.args.push(`--window-size=${viewport.width},${viewport.height}`);
   }
   if (payload.timezone) options.timezone = String(payload.timezone);
   if (payload.locale) options.locale = String(payload.locale);
