@@ -7,9 +7,11 @@ $ErrorActionPreference = "Stop"
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $DistInputDir = Join-Path $RootDir "dist\installer-input"
+$ConsoleInputDir = Join-Path $DistInputDir "console"
 $SourceExe = Join-Path $RootDir "dist\bin\goodhr-local-agent-windows-amd64.exe"
 $TargetExe = Join-Path $DistInputDir "goodhr-local-agent.exe"
 $IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
+$FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend")
 
 # Write-Step prints the current build step.
 # message is the build step text.
@@ -37,8 +39,38 @@ function Find-InnoSetup {
   throw "Inno Setup compiler ISCC.exe was not found. Please install Inno Setup 6 first."
 }
 
+# Find-Npm locates npm.cmd to avoid PowerShell execution policy issues.
+# Returns the npm.cmd path.
+function Find-Npm {
+  $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+  if ($npm) {
+    return $npm.Source
+  }
+  throw "npm.cmd was not found. Please install Node.js LTS first."
+}
+
 Write-Step "Build Windows x64 Go local agent"
 & (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
+
+Write-Step "Build local console frontend"
+$npm = Find-Npm
+Push-Location $FrontendDir
+try {
+  if (!(Test-Path (Join-Path $FrontendDir "node_modules"))) {
+    Write-Step "Install frontend dependencies"
+    & $npm install
+    if ($LASTEXITCODE -ne 0) {
+      throw "Frontend npm install failed with exit code $LASTEXITCODE."
+    }
+  }
+  & $npm run build
+  if ($LASTEXITCODE -ne 0) {
+    throw "Frontend build failed with exit code $LASTEXITCODE."
+  }
+}
+finally {
+  Pop-Location
+}
 
 Write-Step "Prepare installer input directory"
 New-Item -ItemType Directory -Force -Path $DistInputDir | Out-Null
@@ -47,6 +79,10 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
   Remove-Item -Recurse -Force (Join-Path $DistInputDir "worker-node") -ErrorAction SilentlyContinue
   Copy-Item -Recurse -Force (Join-Path $RootDir "worker-node") (Join-Path $DistInputDir "worker-node")
 }
+Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
+Copy-Item -Force (Join-Path $FrontendDir "dist\admin\index.html") (Join-Path $ConsoleInputDir "index.html")
+Copy-Item -Recurse -Force (Join-Path $FrontendDir "dist\assets") (Join-Path $ConsoleInputDir "assets")
 
 $iscc = Find-InnoSetup
 Write-Step "Create Windows installer"
