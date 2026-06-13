@@ -51,6 +51,9 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
 $iscc = Find-InnoSetup
 Write-Step "Create Windows installer"
 & $iscc "/DMyAppVersion=$Version" $IssPath
+if ($LASTEXITCODE -ne 0) {
+  throw "Inno Setup build failed with exit code $LASTEXITCODE."
+}
 
 $InstallerOutputDir = Join-Path $RootDir "dist-installer"
 Write-Step "Installer build completed: $InstallerOutputDir"
