@@ -230,6 +230,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	}
 	task = snapshot.Task
 	options = snapshot.Options
+	options.EnableSound = task.EnableSound
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
 	r.taskLog(taskID, "info", "本地任务运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, task, snapshot.PlatformConfig, options)
@@ -1110,7 +1111,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	r.taskLog(task.ID, "info", "打招呼成功："+candidateLogName(candidate))
-	if options.EnableSound {
+	if task.EnableSound {
 		r.playSound("success.wav", task.ID)
 	}
 	return 1, 0, 0, nil

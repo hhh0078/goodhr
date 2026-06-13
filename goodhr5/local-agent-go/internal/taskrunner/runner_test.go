@@ -74,7 +74,7 @@ func TestRunnerStartStop(t *testing.T) {
 				if requestedID != task.ID {
 					taskName = "本地任务2"
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": requestedID, "name": taskName, "platform_id": "boss", "mode": "ai", "match_limit": 1, "position": map[string]any{"name": taskName}}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": requestedID, "name": taskName, "platform_id": "boss", "mode": "ai", "match_limit": 1, "enable_sound": requestedID != task.ID, "position": map[string]any{"name": taskName}}})
 				return
 			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -147,6 +147,7 @@ func TestRunnerStartStop(t *testing.T) {
 	if len(savedCandidates) < 2 || savedCandidates[len(savedCandidates)-1]["status"] != "greeted" {
 		t.Fatalf("savedCandidates after task2 = %+v", savedCandidates)
 	}
+	assertTaskLogContains(t, db, task2.ID, "音频文件不存在或为空")
 }
 
 // TestRunnerStatusPendingWhenTaskMissing 验证未启动的云端任务查询本地状态时不会报错。
@@ -742,6 +743,22 @@ func waitForTaskStatus(t *testing.T, db *localdb.DB, taskID string, status strin
 	}
 	t.Fatalf("等待任务状态超时，当前状态=%s，目标状态=%s", task.Status, status)
 	return task
+}
+
+// assertTaskLogContains 断言任务日志包含指定文本。
+// t 为测试对象，db 为本地数据库，taskID 为任务 ID，text 为期望文本。
+func assertTaskLogContains(t *testing.T, db *localdb.DB, taskID string, text string) {
+	t.Helper()
+	logs, err := db.ListTaskLogs(taskID, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range logs {
+		if strings.Contains(item.Message, text) {
+			return
+		}
+	}
+	t.Fatalf("任务日志未包含 %q，logs=%+v", text, logs)
 }
 
 // speedUpPageEntryCheck 加快测试中的页面入口等待。
