@@ -171,6 +171,33 @@ func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
 	}
 }
 
+// TestFreshCandidatesDedupesChangedID 验证候选人 ID 变化时仍能按姓名和年龄去重。
+func TestFreshCandidatesDedupesChangedID(t *testing.T) {
+	seen := map[string]struct{}{}
+	first, duplicates := freshCandidates([]map[string]any{
+		{
+			"id":             "boss_a",
+			"candidate_name": "范召",
+			"raw_text":       "范召 29岁 本科 5年 带货主播",
+			"fields":         map[string]any{"name": "范召", "basic_info": "29岁 本科 5年 带货主播"},
+		},
+	}, seen)
+	if len(first) != 1 || duplicates != 0 {
+		t.Fatalf("first=%+v duplicates=%d", first, duplicates)
+	}
+	second, duplicates := freshCandidates([]map[string]any{
+		{
+			"id":             "boss_b",
+			"candidate_name": "范召",
+			"raw_text":       "范召 29岁 本科 6年 带货主播",
+			"fields":         map[string]any{"name": "范召", "basic_info": "29岁 本科 6年 带货主播"},
+		},
+	}, seen)
+	if len(second) != 0 || duplicates != 1 {
+		t.Fatalf("second=%+v duplicates=%d", second, duplicates)
+	}
+}
+
 // TestPlatformEntryURL 验证平台入口页读取规则与云端运行时一致。
 func TestPlatformEntryURL(t *testing.T) {
 	config := cloudapi.PlatformConfig{
@@ -607,6 +634,12 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 						"candidate_name": "候选人A",
 						"name":           "候选人A",
 						"status":         "scanned",
+						"raw_text":       "候选人A 28岁 本科 5年",
+						"filter_text":    "候选人A 28岁 本科 5年",
+						"fields": map[string]any{
+							"name":       "候选人A",
+							"basic_info": "28岁 本科 5年",
+						},
 					},
 				},
 			},

@@ -1100,16 +1100,24 @@ function candidateRawText(fields) {
  * @returns {string} 候选人 ID。
  */
 function candidateID(fields, rawText, index) {
-  const base = [
-    fields.name || "",
-    fields.basic_info || "",
-    fields.education || "",
-    fields.university || "",
-  ]
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .join("|") || `index:${index}`;
+  const name = String(fields.name || "").trim();
+  const age = candidateAge(fields, rawText);
+  const base = name && age ? `${name}|${age}` : `index:${index}`;
   return `boss_${crypto.createHash("md5").update(base).digest("hex")}`;
+}
+
+/**
+ * 读取候选人年龄。
+ * @param {Record<string, string>} fields - 候选人字段。
+ * @param {string} rawText - 候选人文本。
+ * @returns {string} 候选人年龄。
+ */
+function candidateAge(fields, rawText) {
+  const fieldAge = String(fields.age || fields.candidate_age || "").trim();
+  if (fieldAge) return fieldAge;
+  const text = String(rawText || fields.basic_info || "").trim();
+  const match = text.match(/([1-9][0-9]?)\s*岁/);
+  return match ? match[1] : "";
 }
 
 /**
