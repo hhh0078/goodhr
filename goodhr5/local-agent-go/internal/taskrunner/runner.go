@@ -75,6 +75,7 @@ type runState struct {
 	cancel         context.CancelFunc
 	progress       Progress
 	emailForNotify string // 失败通知邮箱
+	runGreeted     int    // 本次运行已打招呼数量
 	// 摸鱼休息状态
 	restMaxTimes  int
 	restUsed      int
@@ -334,7 +335,9 @@ func (r *Runner) Status(taskID string) (map[string]any, error) {
 	running := r.IsRunning(taskID)
 	progress := r.Progress(taskID, task)
 	logs, _ := r.db.ListTaskLogs(taskID, 20)
-	return map[string]any{"task": task, "running": running, "progress": progress, "logs": logs}, nil
+	taskMap := localTaskStatusMap(task)
+	taskMap["current_run_greeted_count"] = r.currentRunGreeted(taskID)
+	return map[string]any{"task": taskMap, "running": running, "progress": progress, "logs": logs}, nil
 }
 
 // isLocalTaskMissing 判断错误是否表示本地任务尚未创建。
@@ -424,6 +427,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	emptyLoads := 0
 	emptyLimit := emptyLoadLimit(options)
 	maxItems := maxItemsPerLoad(options)
+scanLoop:
 	for emptyLoads < emptyLimit {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -517,6 +521,10 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			pending := map[int]candidatePipelineResult{}
 			nextIndex := 0
 			for nextIndex < len(filtered) {
+				if reachedRunGreetLimit(task, totalGreeted+batchResult.Greeted) {
+					r.taskLog(task.ID, "info", fmt.Sprintf("已达到本次上限 %d，停止继续处理候选人", task.MatchLimit))
+					break
+				}
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
@@ -598,6 +606,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 					batchResult.Greeted += greeted
 					batchResult.Failed += failed
 					batchResult.Skipped += itemSkipped
+					if greeted > 0 {
+						r.incrementRunGreeted(task.ID, greeted)
+					}
 				}
 
 				status := stringFromMap(candidate, "status")
@@ -613,6 +624,9 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 			totalGreeted += batchResult.Greeted
 			totalFailed += batchResult.Failed
 			r.taskLog(task.ID, "info", fmt.Sprintf("候选人队列处理完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
+			if reachedRunGreetLimit(task, totalGreeted) {
+				break scanLoop
+			}
 		}
 		if err := r.scrollForMoreCandidates(ctx, task.ID, platformRuntime, exec, platformConfig, options); err != nil {
 			return nil, err
@@ -765,6 +779,30 @@ func localTaskSnapshotFromCloud(task map[string]any) map[string]any {
 		"enable_sound":        boolFromMap(task, "enable_sound"),
 		"enable_thinking":     boolFromMap(task, "enable_thinking"),
 		"position_snapshot":   position,
+	}
+}
+
+// localTaskStatusMap 将本地任务记录转换为状态接口返回 map。
+// task 为本地任务记录。
+func localTaskStatusMap(task localdb.Task) map[string]any {
+	return map[string]any{
+		"id":                  task.ID,
+		"name":                task.Name,
+		"platform_id":         task.PlatformID,
+		"platform_account_id": task.PlatformAccountID,
+		"position_id":         task.PositionID,
+		"mode":                task.Mode,
+		"match_limit":         task.MatchLimit,
+		"status":              task.Status,
+		"scanned_count":       task.ScannedCount,
+		"greeted_count":       task.GreetedCount,
+		"skipped_count":       task.SkippedCount,
+		"failed_count":        task.FailedCount,
+		"enable_sound":        task.EnableSound,
+		"enable_thinking":     task.EnableThinking,
+		"position_snapshot":   task.PositionSnapshot,
+		"created_at":          task.CreatedAt,
+		"updated_at":          task.UpdatedAt,
 	}
 }
 
@@ -1127,6 +1165,12 @@ func candidatePipelineConcurrency(total int) int {
 		return total
 	}
 	return defaultCandidatePipelineConcurrency
+}
+
+// reachedRunGreetLimit 判断本次运行是否已经达到打招呼上限。
+// task 为任务配置，greeted 为本次运行已成功打招呼数量。
+func reachedRunGreetLimit(task localdb.Task, greeted int) bool {
+	return task.MatchLimit > 0 && greeted >= task.MatchLimit
 }
 
 // enrichCandidatesWithDetail 为候选人补充详情文本。
@@ -1871,6 +1915,30 @@ func (r *Runner) updateProgress(taskID string, progress Progress) {
 		return
 	}
 	log.Printf("[本地任务] task=%s progress stage=%s message=%s", taskID, progress.Stage, progress.Message)
+}
+
+// incrementRunGreeted 增加当前任务本次运行已打招呼数量。
+// taskID 为任务 ID，count 为本次新增打招呼数量。
+func (r *Runner) incrementRunGreeted(taskID string, count int) {
+	if count <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		state.runGreeted += count
+	}
+}
+
+// currentRunGreeted 返回当前任务本次运行已打招呼数量。
+// taskID 为任务 ID。
+func (r *Runner) currentRunGreeted(taskID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		return state.runGreeted
+	}
+	return 0
 }
 
 // cancel 取消正在运行的任务。

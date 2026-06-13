@@ -15,28 +15,6 @@
       </div>
       <button class="ghost" @click="tasks.load">刷新</button>
     </div>
-    <div class="task-range-tabs" role="tablist" aria-label="任务统计范围">
-      <button
-        type="button"
-        class="range-tab"
-        :class="{ active: statRange === 'today' }"
-        role="tab"
-        :aria-selected="statRange === 'today'"
-        @click="statRange = 'today'"
-      >
-        仅看今天
-      </button>
-      <button
-        type="button"
-        class="range-tab"
-        :class="{ active: statRange === 'all' }"
-        role="tab"
-        :aria-selected="statRange === 'all'"
-        @click="statRange = 'all'"
-      >
-        全部时间
-      </button>
-    </div>
     <!-- 创建任务折叠 -->
 
     <div v-if="showCreate" class="form-grid" style="margin-bottom: 12px">
@@ -138,10 +116,7 @@
                 task.platform_account?.display_name || task.platform_account_id
               }}
               | {{ task.platform_id }} |
-              {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }} |
-              本次打招呼上限 {{ displayRunGreetLimit(task) }}/{{
-                displayGreetedCount(task)
-              }}
+              {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
@@ -168,6 +143,12 @@
             </button>
           </div>
           <div class="task-actions-right">
+            <div class="task-metrics" aria-label="任务打招呼统计">
+              <span>总计 {{ displayTotalGreetedCount(task) }}</span>
+              <span>今天 {{ displayTodayGreetedCount(task) }}</span>
+              <span>本次 {{ displayCurrentRunGreetedCount(task) }}</span>
+              <span>本次上限 {{ displayRunGreetLimit(task) }}</span>
+            </div>
             <label
               :class="[
                 'sound-toggle',
@@ -370,7 +351,6 @@ const props = defineProps({
 });
 const emit = defineEmits(["open-candidates", "request-login"]);
 const showCreate = ref(false);
-const statRange = ref("today");
 const createNameEdited = ref(false);
 const DEFAULT_RUN_GREET_LIMIT = 50;
 const accounts = ref<any[]>([]);
@@ -566,15 +546,30 @@ function taskStatusLabel(status: string) {
   return status || "未知";
 }
 /**
- * 返回任务列表中展示的打招呼数量。
+ * 返回任务累计打招呼数量。
  * @param {any} task - 当前任务。
- * @returns {number} 今日或累计打招呼数量。
+ * @returns {number} 累计打招呼数量。
  */
-function displayGreetedCount(task: any) {
-  if (statRange.value === "today") {
-    return Number(task?.today_greeted_count || 0);
-  }
+function displayTotalGreetedCount(task: any) {
   return Number(task?.greeted_count || 0);
+}
+
+/**
+ * 返回任务今日打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 今日打招呼数量。
+ */
+function displayTodayGreetedCount(task: any) {
+  return Number(task?.today_greeted_count || 0);
+}
+
+/**
+ * 返回任务本次运行打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 本次运行打招呼数量。
+ */
+function displayCurrentRunGreetedCount(task: any) {
+  return Number(task?.current_run_greeted_count || 0);
 }
 
 /**
@@ -714,34 +709,6 @@ onMounted(loadAccounts);
 .task-card {
   display: block;
 }
-.task-range-tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  border: 1px solid var(--border);
-
-  margin-bottom: 12px;
-  background: transparent;
-}
-.range-tab {
-  border: none;
-  background: transparent;
-  color: var(--fg-dim);
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  line-height: 1.2;
-}
-.range-tab + .range-tab {
-  border-left: 1px solid var(--border);
-}
-.range-tab.active {
-  color: var(--accent);
-  box-shadow: inset 0 -1px 0 var(--accent);
-}
-.range-tab:hover {
-  color: var(--fg-dim);
-}
 .run-options-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -846,6 +813,20 @@ onMounted(loadAccounts);
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.task-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+.task-metrics span {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 4px 7px;
+  white-space: nowrap;
 }
 .edit-actions {
   margin-top: 8px;
