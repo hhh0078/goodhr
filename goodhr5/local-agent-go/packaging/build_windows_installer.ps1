@@ -46,7 +46,17 @@ function Find-Npm {
   if ($npm) {
     return $npm.Source
   }
-  throw "npm.cmd was not found. Please install Node.js LTS first."
+  $candidates = @(
+    "$env:ProgramFiles\nodejs\npm.cmd",
+    "${env:ProgramFiles(x86)}\nodejs\npm.cmd",
+    "$env:APPDATA\npm\nnpm.cmd"
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+  throw "npm.cmd was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
 }
 
 Write-Step "Build Windows x64 Go local agent"
