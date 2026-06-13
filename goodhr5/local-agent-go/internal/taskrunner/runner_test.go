@@ -171,12 +171,12 @@ func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
 	}
 }
 
-// TestFreshCandidatesDedupesChangedID 验证候选人 ID 变化时仍能按姓名和年龄去重。
-func TestFreshCandidatesDedupesChangedID(t *testing.T) {
+// TestFreshCandidatesDedupesByPlatformID 验证主流程只按平台候选人 ID 去重。
+func TestFreshCandidatesDedupesByPlatformID(t *testing.T) {
 	seen := map[string]struct{}{}
 	first, duplicates := freshCandidates([]map[string]any{
 		{
-			"id":             "boss_a",
+			"id":             "boss_same",
 			"candidate_name": "范召",
 			"raw_text":       "范召 29岁 本科 5年 带货主播",
 			"fields":         map[string]any{"name": "范召", "basic_info": "29岁 本科 5年 带货主播"},
@@ -187,7 +187,7 @@ func TestFreshCandidatesDedupesChangedID(t *testing.T) {
 	}
 	second, duplicates := freshCandidates([]map[string]any{
 		{
-			"id":             "boss_b",
+			"id":             "boss_same",
 			"candidate_name": "范召",
 			"raw_text":       "范召 29岁 本科 6年 带货主播",
 			"fields":         map[string]any{"name": "范召", "basic_info": "29岁 本科 6年 带货主播"},

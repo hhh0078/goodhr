@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -2054,79 +2053,23 @@ func mapList(value any) []map[string]any {
 }
 
 // freshCandidates 过滤已见过的候选人。
-// candidates 为候选人列表，seen 为已见候选人指纹集合，返回新增候选人和重复数量。
+// candidates 为候选人列表，seen 为已见候选人 ID 集合，返回新增候选人和重复数量。
 func freshCandidates(candidates []map[string]any, seen map[string]struct{}) ([]map[string]any, int) {
 	result := []map[string]any{}
 	duplicateCount := 0
 	for _, candidate := range candidates {
-		keys := candidateDedupeKeys(candidate)
-		if len(keys) == 0 {
+		id := stringFromMap(candidate, "id")
+		if id == "" {
 			continue
 		}
-		if hasSeenCandidateKey(keys, seen) {
+		if _, ok := seen[id]; ok {
 			duplicateCount++
 			continue
 		}
-		for _, key := range keys {
-			seen[key] = struct{}{}
-		}
+		seen[id] = struct{}{}
 		result = append(result, candidate)
 	}
 	return result, duplicateCount
-}
-
-// hasSeenCandidateKey 判断候选人任一指纹是否已经出现。
-// keys 为候选人指纹列表，seen 为已处理指纹集合。
-func hasSeenCandidateKey(keys []string, seen map[string]struct{}) bool {
-	for _, key := range keys {
-		if _, ok := seen[key]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// candidateDedupeKeys 生成候选人去重指纹。
-// candidate 为候选人卡片数据，仅使用姓名和年龄生成稳定指纹。
-func candidateDedupeKeys(candidate map[string]any) []string {
-	fields := mapValue(candidate["fields"])
-	name := firstNonEmptyString(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"), stringFromMap(fields, "name"))
-	age := candidateAge(candidate)
-	nameKey := normalizeCandidateFingerprint(name)
-	ageKey := normalizeCandidateFingerprint(age)
-	if nameKey == "" || ageKey == "" {
-		return []string{}
-	}
-	return []string{"name_age=" + nameKey + "|" + ageKey}
-}
-
-// candidateAge 读取候选人年龄。
-// candidate 为候选人卡片数据，优先读结构字段，缺失时从卡片文本中提取“xx岁”。
-func candidateAge(candidate map[string]any) string {
-	fields := mapValue(candidate["fields"])
-	age := firstNonEmptyString(
-		stringFromMap(candidate, "age"),
-		stringFromMap(candidate, "candidate_age"),
-		stringFromMap(fields, "age"),
-		stringFromMap(fields, "candidate_age"),
-	)
-	if age != "" {
-		return age
-	}
-	text := firstNonEmptyString(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text"), stringFromMap(fields, "basic_info"))
-	match := regexp.MustCompile(`([1-9][0-9]?)\s*岁`).FindStringSubmatch(text)
-	if len(match) >= 2 {
-		return match[1]
-	}
-	return ""
-}
-
-// normalizeCandidateFingerprint 规范化候选人指纹文本。
-// value 为原始文本，返回去空白和常见分隔符后的文本。
-func normalizeCandidateFingerprint(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer(" ", "", "\n", "", "\t", "", "\r", "", "|", "", "｜", "", "/", "", "，", "", ",", "")
-	return replacer.Replace(value)
 }
 
 // candidateMaps 将平台候选人转换成主流程保存用 map。
