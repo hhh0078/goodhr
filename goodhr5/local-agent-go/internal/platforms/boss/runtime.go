@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -161,7 +162,11 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 	items := mapList(workerData(result, "candidates"))
 	candidates := make([]platformcore.Candidate, 0, len(items))
 	for _, item := range items {
-		candidates = append(candidates, platformcore.Candidate(item))
+		candidate := platformcore.Candidate(item)
+		if id := r.CandidateFingerprint(candidate); id != "" {
+			candidate["id"] = id
+		}
+		candidates = append(candidates, candidate)
 	}
 	return candidates, nil
 }
@@ -238,13 +243,42 @@ func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
 }
 
 // CandidateFingerprint 返回 Boss 候选人去重指纹。
-// candidate 为候选人。
+// candidate 为候选人，仅使用姓名和年龄生成稳定 ID。
 func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
-	parts := []string{
-		"name=" + normalizeText(firstNonEmpty(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"))),
-		"raw=" + normalizeText(stringFromMap(candidate, "raw_text")),
+	fields := mapFromAny(candidate["fields"])
+	name := firstNonEmpty(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"), stringFromMap(fields, "name"))
+	age := candidateAge(candidate)
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(age) == "" {
+		return ""
 	}
-	return strings.Join(parts, "|")
+	return "boss_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
+}
+
+// candidateAge 读取 Boss 候选人年龄。
+// candidate 为候选人卡片数据，优先读取结构字段，缺失时从文本中提取“xx岁”。
+func candidateAge(candidate platformcore.Candidate) string {
+	fields := mapFromAny(candidate["fields"])
+	age := firstNonEmpty(
+		stringFromMap(candidate, "age"),
+		stringFromMap(candidate, "candidate_age"),
+		stringFromMap(fields, "age"),
+		stringFromMap(fields, "candidate_age"),
+	)
+	if age != "" {
+		return age
+	}
+	text := firstNonEmpty(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text"), stringFromMap(fields, "basic_info"))
+	match := regexp.MustCompile(`([1-9][0-9]?)\s*岁`).FindStringSubmatch(text)
+	if len(match) >= 2 {
+		return match[1]
+	}
+	return ""
+}
+
+// normalizeCandidateIDPart 规范化 Boss 候选人 ID 组成部分。
+// value 为姓名或年龄文本，返回去除空白后的文本。
+func normalizeCandidateIDPart(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
 }
 
 // closeCandidateDetail 关闭 Boss 候选人详情。

@@ -497,7 +497,6 @@ async function extractBossCandidates(payload) {
       if (!fields.basic_info && item.text) fields.basic_info = item.text;
       const rawText = candidateRawText(fields);
       candidates.push({
-        id: candidateID(fields, rawText, item.index),
         name: fields.name || `候选人${item.index + 1}`,
         candidate_name: fields.name || `候选人${item.index + 1}`,
         status: "scanned",
@@ -1090,34 +1089,6 @@ function candidateRawText(fields) {
     .map((key) => String(fields[key] || "").trim())
     .filter(Boolean)
     .join(" ");
-}
-
-/**
- * 生成候选人本地 ID。
- * @param {Record<string, string>} fields - 候选人字段。
- * @param {string} rawText - 候选人文本。
- * @param {number} index - 页面序号，仅在候选人文本为空时兜底使用。
- * @returns {string} 候选人 ID。
- */
-function candidateID(fields, rawText, index) {
-  const name = String(fields.name || "").trim();
-  const age = candidateAge(fields, rawText);
-  const base = name && age ? `${name}|${age}` : `index:${index}`;
-  return `boss_${crypto.createHash("md5").update(base).digest("hex")}`;
-}
-
-/**
- * 读取候选人年龄。
- * @param {Record<string, string>} fields - 候选人字段。
- * @param {string} rawText - 候选人文本。
- * @returns {string} 候选人年龄。
- */
-function candidateAge(fields, rawText) {
-  const fieldAge = String(fields.age || fields.candidate_age || "").trim();
-  if (fieldAge) return fieldAge;
-  const text = String(rawText || fields.basic_info || "").trim();
-  const match = text.match(/([1-9][0-9]?)\s*岁/);
-  return match ? match[1] : "";
 }
 
 /**
