@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -524,6 +525,8 @@ func TestRunnerUserStopSkipsDetailClose(t *testing.T) {
 func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	speedUpPageEntryCheck(t)
 	var task localdb.Task
+	var failNoticeCalled atomic.Bool
+	var failNoticeMessage atomic.Value
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -537,6 +540,14 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 			})
 		case "/api/config/user-preferences":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
+		case "/api/fail-notice":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode fail notice: %v", err)
+			}
+			failNoticeCalled.Store(true)
+			failNoticeMessage.Store(strings.TrimSpace(payload["error_message"].(string)))
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		default:
 			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": task.ID, "name": "浏览器关闭任务", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "本地任务"}}})
@@ -558,6 +569,16 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForTaskStatus(t, db, task.ID, "stopped")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !failNoticeCalled.Load() {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !failNoticeCalled.Load() {
+		t.Fatal("浏览器关闭后未发送失败通知")
+	}
+	if message, _ := failNoticeMessage.Load().(string); !strings.Contains(message, "浏览器已关闭") {
+		t.Fatalf("失败通知原因不正确：%s", message)
+	}
 }
 
 // fakeWorker 模拟浏览器 Worker。

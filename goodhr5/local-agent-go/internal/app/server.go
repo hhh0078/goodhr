@@ -925,17 +925,17 @@ func (s *Server) prepareBrowserViewport(payload map[string]any) {
 func adaptiveBrowserViewport() (int, int) {
 	screenWidth, screenHeight := currentScreenSize()
 	if screenWidth <= 0 || screenHeight <= 0 {
-		return 1280, 900
+		return 1100, 780
 	}
-	width := clampInt(int(float64(screenWidth)*0.85), 1024, 1320)
-	height := clampInt(int(float64(screenHeight)*0.88), 760, 900)
-	if width > screenWidth-80 {
-		width = screenWidth - 80
+	width := clampInt(int(float64(screenWidth)*0.75), 960, 1180)
+	height := clampInt(int(float64(screenHeight)*0.78), 680, 820)
+	if width > screenWidth-120 {
+		width = screenWidth - 120
 	}
-	if height > screenHeight-80 {
-		height = screenHeight - 80
+	if height > screenHeight-120 {
+		height = screenHeight - 120
 	}
-	return clampInt(width, 960, 1320), clampInt(height, 700, 900)
+	return clampInt(width, 900, 1180), clampInt(height, 640, 820)
 }
 
 // currentScreenSize 读取当前主屏幕尺寸。

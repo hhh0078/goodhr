@@ -248,7 +248,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "浏览器已关闭，任务已自动结束", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			r.taskLog(taskID, "warning", "浏览器已关闭，任务已自动结束："+err.Error())
-			r.notifyCloudTaskStopped(taskID, options)
+			r.sendTaskFailNotification(context.Background(), taskID, "浏览器已关闭，任务已自动结束："+err.Error(), options)
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error(), options)

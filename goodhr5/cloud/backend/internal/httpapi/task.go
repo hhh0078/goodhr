@@ -951,10 +951,14 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load task")
 		return
 	}
+	s.cancelTask(task.ID)
 	_ = s.store.UpdateTaskStatus(task.ID, "failed")
 	if task.UserEmail == "" {
 		task.UserEmail = session.Email
 	}
+	s.releaseTaskCookieIfOwned(tenantID, task, "任务失败时释放占用的 cookie", func(level, message string) {
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
+	})
 	if s.mailer == nil {
 		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
 		return
