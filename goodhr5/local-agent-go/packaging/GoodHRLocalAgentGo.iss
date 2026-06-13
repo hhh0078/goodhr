@@ -24,6 +24,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\assets\icons\goodhr-logo.ico
 UninstallDisplayIcon={app}\goodhr-logo.ico
+CloseApplications=no
+RestartApplications=no
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: ".\ChineseSimplified.isl"
@@ -46,3 +48,23 @@ Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall
+
+[Code]
+// StopProcessByImageName 静默结束指定进程，避免升级安装时文件被旧程序占用。
+procedure StopProcessByImageName(ImageName: String);
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "' + ImageName + '" /T /F >NUL 2>NUL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// CurStepChanged 在安装文件复制前清理旧进程，避免出现占用文件弹窗。
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+  begin
+    StopProcessByImageName('goodhr-local-agent.exe');
+    StopProcessByImageName('XtaCache.exe');
+    StopProcessByImageName('XtaCache');
+  end;
+end;
