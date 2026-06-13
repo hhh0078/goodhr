@@ -59,11 +59,33 @@ function Find-Npm {
   throw "npm.cmd was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
 }
 
+# Ensure-NodeOnPath makes node.exe visible to npm child scripts.
+# npm install may call "node install.js", so node.exe must be on PATH.
+function Ensure-NodeOnPath {
+  if (Get-Command "node.exe" -ErrorAction SilentlyContinue) {
+    return
+  }
+  $candidates = @(
+    "$env:ProgramFiles\nodejs\node.exe",
+    "${env:ProgramFiles(x86)}\nodejs\node.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      $nodeDir = Split-Path $candidate -Parent
+      $env:Path = "$nodeDir;$env:Path"
+      Write-Step "Node added to PATH: $nodeDir"
+      return
+    }
+  }
+  throw "node.exe was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
+}
+
 Write-Step "Build Windows x64 Go local agent"
 & (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
 
 Write-Step "Build local console frontend"
 $npm = Find-Npm
+Ensure-NodeOnPath
 Push-Location $FrontendDir
 try {
   if (!(Test-Path (Join-Path $FrontendDir "node_modules"))) {
