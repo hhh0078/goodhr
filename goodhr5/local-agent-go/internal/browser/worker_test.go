@@ -4,6 +4,8 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,5 +38,27 @@ func TestStartReusesExistingWorker(t *testing.T) {
 	}
 	if !status.Running || status.Managed || status.PID != 12345 {
 		t.Fatalf("status = %+v", status)
+	}
+}
+
+// TestCanceledCallDoesNotRestartWorker 验证任务停止导致的请求取消不会触发 Worker 重启。
+func TestCanceledCallDoesNotRestartWorker(t *testing.T) {
+	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:9101/api: %w", context.Canceled))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if isRestartableCallError(err) {
+		t.Fatal("任务取消错误不应触发 Worker 重启")
+	}
+}
+
+// TestDeadlineCallDoesNotRestartWorker 验证请求超时不会触发 Worker 重启。
+func TestDeadlineCallDoesNotRestartWorker(t *testing.T) {
+	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:9101/api: %w", context.DeadlineExceeded))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+	if isRestartableCallError(err) {
+		t.Fatal("请求超时错误不应触发 Worker 重启")
 	}
 }

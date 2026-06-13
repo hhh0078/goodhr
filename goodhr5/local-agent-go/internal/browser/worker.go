@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -285,6 +286,12 @@ func normalizeCallError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
 	text := err.Error()
 	if strings.Contains(text, "connection refused") || strings.Contains(text, "connect:") {
 		return fmt.Errorf("Node Browser Worker 未启动")
@@ -296,6 +303,9 @@ func normalizeCallError(err error) error {
 // err 为调用错误。
 func isRestartableCallError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	text := err.Error()
