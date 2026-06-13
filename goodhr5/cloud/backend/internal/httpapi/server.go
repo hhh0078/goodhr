@@ -82,7 +82,7 @@ func NewServer() (*Server, error) {
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS, subscriptionStore, mailer),
+		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, cookieStore, candidateStore, subscriptionStore, mailer),
 		taskLogs:         taskLogs,
 		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
