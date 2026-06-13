@@ -1,8 +1,9 @@
 /* GoodHR 5 终端风格主题 */
 :root{--bg:#0c1110;--bg-panel:#111817;--bg-input:#0f1514;--fg:#b7e4cf;--fg-dim:#c8d6d0;--fg-error:#f87171;--fg-warn:#fbbf24;--border:#2b3a36;--border-focus:#6fbf9b;--accent:#6fbf9b;--accent-contrast:#07100d;--font:'Courier New','Source Code Pro',monospace;--radius:0;--gap:12px}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body,#app{width:100%;min-height:100vh}
 body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.5}
-#app{max-width:1024px;margin:0 auto;padding:var(--gap)}
+#app{padding:0}
 input,textarea,select{font-family:inherit;font-size:inherit;background:var(--bg-input);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;width:100%}
 input:focus,textarea:focus,select:focus{border-color:var(--border-focus);outline:none}
 textarea{resize:vertical;min-height:60px}
@@ -38,4 +39,4 @@ dl dt{color:var(--fg-dim)}dl dd{color:var(--fg)}
 .snapshot{background:var(--bg);border:1px solid var(--border);padding:8px;margin-top:8px;font-size:13px}
 .snapshot strong{display:block;margin-bottom:4px}.snapshot-meta{color:var(--fg-dim)}
 .candidate-detail{margin-top:4px;white-space:pre-wrap;font-size:12px;color:var(--fg-dim)}
-@media(max-width:600px){.form-grid{grid-template-columns:1fr}#app{padding:8px}}
+@media(max-width:600px){.form-grid{grid-template-columns:1fr}}

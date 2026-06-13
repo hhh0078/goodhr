@@ -19,9 +19,14 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.browser import BrowserManager, browser_downloads_dir
+from app.console import (
+    console_asset_response,
+    console_dev_proxy_response,
+    console_index_response,
+)
 from app.cookie_crypto import decrypt_aes_gcm, decrypt_cookie_payload, decrypt_wrapped_key
 from app.element_refs import ELEMENT_REFS
 from app.humanize import (
@@ -38,11 +43,42 @@ from app.humanize import (
     scroll_to_load,
 )
 from app.crypto_keys import load_or_generate as load_crypto_keys
+from app.local_db import database_path
+from app.local_ai import chat_with_local_ai, get_local_ai_config, save_local_ai_config
+from app.local_records import (
+    get_local_settings,
+    list_local_downloads,
+    list_local_screenshots,
+    save_local_download,
+    save_local_screenshot,
+    save_local_settings,
+)
+from app.local_positions import (
+    default_local_prompts,
+    delete_local_position,
+    list_local_positions,
+    optimize_requirement_prompt,
+    save_local_position,
+)
+from app.local_runner import LocalTaskRunner
+from app.local_tasks import (
+    add_local_task_log,
+    clear_local_task_logs,
+    create_local_task,
+    delete_local_candidate,
+    delete_local_task,
+    list_local_candidates,
+    list_local_task_logs,
+    list_local_tasks,
+    save_local_candidate,
+    update_local_task,
+    update_local_task_status,
+)
 from app.machine import cookie_machine_ids, load_machine
-from app.profiles import create_profile, delete_profile, list_profiles
+from app.profiles import create_profile, delete_profile, list_profiles, update_profile
+from app.rules_update import get_rules_status, update_rules
 from app.screenshot import screenshot_locator_full, screenshot_modal
 from app.sound import ensure_audio_from_url, play_once, resolve_builtin_audio
-from app.session import load_cloud_account, save_cloud_account
 from app.tasks import (
     delete_candidate,
     delete_screenshot,
@@ -58,7 +94,8 @@ from app.vision_ai import analyze_image_with_ai
 from app.ws_client import WSAgentClient, _profile_dir
 
 HOST = "127.0.0.1"
-DEFAULT_PORTS = range(9001, 9010)
+DEFAULT_PORTS = range(55271, 55280)
+PREFERRED_PORT_WAIT_SECONDS = 5
 LOCAL_AGENT_VERSION = "5.1.0"
 MACHINE = load_machine()
 CRYPTO_KEYS = load_crypto_keys()
@@ -132,19 +169,278 @@ async def add_private_network_access_headers(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def normalize_local_api_json(request: Request, call_next):
+    """
+    统一本地 API JSON 响应格式。
+
+    Args:
+        request: 当前 HTTP 请求。
+        call_next: 后续请求处理器。
+
+    Returns:
+        统一包含 code、msg、data 的 JSON 响应。
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        return response
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        return response
+
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=_response_headers(response),
+            media_type=content_type,
+        )
+
+    return JSONResponse(
+        _normalize_local_api_payload(payload, response.status_code),
+        status_code=response.status_code,
+        headers=_response_headers(response),
+    )
+
+
+def _normalize_local_api_payload(payload: object, status_code: int) -> dict:
+    """
+    将旧格式本地 API 响应转换为统一结构。
+
+    Args:
+        payload: 原始响应体。
+        status_code: HTTP 状态码。
+
+    Returns:
+        dict: 包含 code、msg、data 的响应。
+    """
+    if not isinstance(payload, dict):
+        return {"ok": status_code < 400, "code": status_code, "msg": "成功", "data": payload}
+
+    ok = bool(payload.get("ok", status_code < 400))
+    code = int(payload.get("code") or (200 if ok and status_code < 400 else status_code))
+    raw_msg = payload.get("msg") or payload.get("error") or payload.get("detail") or ("成功" if ok else "请求失败")
+    msg = _local_api_msg(raw_msg)
+    data = payload.get("data") if "data" in payload else {
+        key: value
+        for key, value in payload.items()
+        if key not in {"ok", "code", "msg", "error", "detail"}
+    }
+    if data == {}:
+        data = None
+
+    normalized = dict(payload)
+    normalized.update({"ok": ok, "code": code, "msg": msg, "data": data})
+    if not ok:
+        normalized["error"] = msg
+    return normalized
+
+
+def _response_headers(response) -> dict[str, str]:
+    """
+    复制响应头并移除会被重新计算的字段。
+
+    Args:
+        response: 原始响应对象。
+
+    Returns:
+        dict[str, str]: 响应头。
+    """
+    return {
+        key: value
+        for key, value in response.headers.items()
+        if key.lower() not in {"content-length", "content-type"}
+    }
+
+
+def _local_api_error(status_code: int, message: object, data: object = None) -> JSONResponse:
+    """
+    构造统一的本地 API 错误响应。
+
+    Args:
+        status_code: HTTP 状态码。
+        message: 原始错误信息。
+        data: 错误数据。
+
+    Returns:
+        JSONResponse: 统一错误响应。
+    """
+    msg = _local_api_msg(message)
+    return JSONResponse(
+        {"ok": False, "code": status_code, "msg": msg, "data": data, "error": msg},
+        status_code=status_code,
+    )
+
+
+def _local_api_msg(message: object) -> str:
+    """
+    将本地程序内部错误转换为中文提示。
+
+    Args:
+        message: 原始错误。
+
+    Returns:
+        str: 中文提示。
+    """
+    text = str(message or "").strip()
+    if not text:
+        return "请求失败"
+    mapping = {
+        "AI " + "base_url" + " is required": "请先在个人配置里填写本地 AI 接口地址",
+        "AI " + "api_key" + " is required": "请先在个人配置里填写本地 AI 密钥",
+        "AI " + "model" + " is required": "请先在个人配置里填写本地 AI 模型名称",
+        "messages" + " is required": "AI 请求内容不能为空",
+        "text is required": "请输入需要处理的内容",
+        "position name is required": "岗位名称不能为空",
+        "platform_id is required": "平台标识不能为空",
+        "display_name is required": "账号名称不能为空",
+        "local position not found": "本地岗位模板不存在",
+        "local task not found": "本地任务不存在",
+        "profile not found": "本地账号不存在",
+        "candidate not found": "候选人不存在",
+        "screenshot not found": "截图不存在",
+        "download not found": "下载记录不存在",
+        "status is required": "任务状态不能为空",
+        "cloud_api_base is required": "云端接口地址不能为空",
+        "cloud_ws_url is required": "云端连接地址不能为空",
+        "token is required": "登录凭证不能为空，请重新登录",
+        "fields must be a non-empty list": "字段列表不能为空",
+        "each field item must contain exactly one field name": "每个字段配置只能包含一个字段名",
+        "field name is required": "字段名不能为空",
+        "element_ref not found": "页面元素引用不存在",
+        "element.target_classes is required": "元素定位配置不能为空",
+        "url is required": "页面地址不能为空",
+        "url_contains is required": "页面地址匹配条件不能为空",
+        "mode must be dom or ocr": "读取模式只能是页面解析或图片识别",
+        "elements is required and must be a non-empty array": "元素列表不能为空",
+        "index must be >= 0": "列表序号不能小于 0",
+        "parent.target_classes is required": "父级元素定位配置不能为空",
+        "item.target_classes is required": "列表项定位配置不能为空",
+        "key is required": "按键不能为空",
+        "modal_selectors must be a non-empty list": "弹框选择器不能为空",
+        "encrypted_sk and encrypted_data are required": "Cookie 解密参数不完整",
+        "encrypted_data and encrypted_keys are required": "Cookie 解密参数不完整",
+        "encrypted_data is required": "Cookie 密文不能为空",
+        "encrypted_keys is required": "Cookie 密钥不能为空",
+        "machine_id is required": "机器码不能为空",
+        "kind or url is required": "请选择提示音类型或填写音频地址",
+        "data required": "上传数据不能为空",
+        "console asset not found": "控制台前端文件不存在",
+        "frontend dev server not found": "前端开发服务未启动",
+        "invalid console asset path": "控制台资源路径无效",
+        "page_id is required": "页面 ID 不能为空",
+        "page_id is invalid": "页面 ID 无效",
+        "page_id not found": "页面不存在或已关闭",
+        "kind must be success or failed": "提示音类型只能是成功或失败",
+        "no supported audio player found (afplay/mpg123/ffplay)": "未找到可用的音频播放器",
+    }
+    if text in mapping:
+        return mapping[text]
+    if text.startswith("AI 请求失败") or text.startswith("AI 服务请求失败"):
+        return "AI 服务请求失败，请检查接口地址、密钥、模型名称或余额"
+    if "Target page, context or browser has been closed" in text or "TargetClosedError" in text:
+        return "浏览器启动后立即关闭，请检查 CloakBrowser 文件权限、残留进程或重新启动本地程序"
+    if text.startswith("浏览器启动失败"):
+        return "浏览器启动失败，请检查 CloakBrowser 文件权限、残留进程或重新启动本地程序"
+    if text.startswith("download audio failed"):
+        return "提示音下载失败，请检查音频地址"
+    if text.startswith("play audio failed"):
+        return "提示音播放失败，请检查本机音频环境"
+    if text.startswith("frontend dev server request failed"):
+        return "前端开发服务请求失败，请确认 yarn run dev 是否正在运行"
+    if text.startswith("No available GoodHR Local Agent port"):
+        return "55271 到 55279 端口都被占用，请关闭残留本地程序后重试"
+    if text.startswith("GOODHR_AGENT_PORT must be a number"):
+        return "本地程序端口配置必须是数字"
+    if text.startswith("unsupported message type"):
+        return "本地程序收到不支持的任务指令"
+    if text.startswith("unsupported local path"):
+        return "本地程序不支持该路径"
+    if text.startswith("unsupported platform"):
+        return "暂不支持该招聘平台"
+    if text.startswith("index ") and "out of range" in text:
+        return "列表序号超出范围，请刷新页面后重试"
+    if "must be an object" in text:
+        return "元素配置格式不正确"
+    if any(word in text for word in ["required", "invalid", "not found", "failed", "unsupported", "out of range"]):
+        return "本地程序请求失败，请检查参数后重试"
+    return text
+
+
 # 全局浏览器管理器实例，用于任务执行期间管理 CloakBrowser 生命周期
 _browser_manager = BrowserManager()
 _ws_agent = WSAgentClient(_browser_manager)
+_local_runner = LocalTaskRunner(_browser_manager)
 
 # ---------------------------------------------------------------------------
 # 路由处理函数
 # ---------------------------------------------------------------------------
 
 
+@app.get("/")
+async def get_console_index(request: Request):
+    """返回本地控制台入口页面。"""
+    return await console_index_response("/admin/", request.url.query)
+
+
+@app.get("/admin")
+@app.get("/admin/")
+@app.get("/admin/{path:path}")
+async def get_console_admin(request: Request, path: str = ""):
+    """返回本地控制台后台页面，支持前端路由刷新。"""
+    return await console_index_response(request.url.path, request.url.query)
+
+
+@app.get("/assets/{path:path}")
+async def get_console_asset(request: Request, path: str):
+    """返回本地控制台静态资源。"""
+    return await console_asset_response("assets/" + path, request.url.query)
+
+
+@app.get("/favicon.ico")
+async def get_console_favicon(request: Request):
+    """返回本地控制台图标。"""
+    return await console_asset_response("favicon.ico", request.url.query)
+
+
+@app.get("/src/{path:path}")
+async def get_console_source_asset(request: Request, path: str):
+    """代理前端开发服务的源码模块资源。"""
+    return await console_dev_proxy_response("src/" + path, request.url.query)
+
+
+@app.get("/@vite/{path:path}")
+async def get_console_vite_asset(request: Request, path: str):
+    """代理前端开发服务的 Vite 客户端资源。"""
+    return await console_dev_proxy_response("@vite/" + path, request.url.query)
+
+
+@app.get("/@id/{path:path}")
+async def get_console_vite_id_asset(request: Request, path: str):
+    """代理前端开发服务的依赖模块 ID 资源。"""
+    return await console_dev_proxy_response("@id/" + path, request.url.query)
+
+
+@app.get("/@fs/{path:path}")
+async def get_console_vite_fs_asset(request: Request, path: str):
+    """代理前端开发服务的文件系统模块资源。"""
+    return await console_dev_proxy_response("@fs/" + path, request.url.query)
+
+
+@app.get("/node_modules/{path:path}")
+async def get_console_node_module_asset(request: Request, path: str):
+    """代理前端开发服务的 node_modules 资源。"""
+    return await console_dev_proxy_response("node_modules/" + path, request.url.query)
+
+
 @app.get("/health")
 async def get_health() -> dict:
-    """返回 Local Agent 健康状态，包含版本、端口、机器码和云端绑定信息。"""
-    account = load_cloud_account()
+    """返回 Local Agent 健康状态，包含版本、端口、机器码和本地数据库路径。"""
     return {
         "ok": True,
         "name": "GoodHR 5 Local Agent",
@@ -152,67 +448,304 @@ async def get_health() -> dict:
         "port": app.state.port,
         "machine_id": MACHINE["machine_id"],
         "public_key": CRYPTO_KEYS.get("public_key", ""),
-        "bound_cloud_user_id": account["cloud_user_id"] if account else "",
+        "local_db": str(database_path()),
     }
 
 
-@app.post("/api/v1/session/bind-cloud-user")
-async def bind_cloud_user(payload: dict) -> dict:
-    """绑定当前 Local Agent 对应的云端账号。
+@app.get("/api/v1/local/tasks")
+async def get_local_tasks() -> dict:
+    """返回本地 SQLite 任务列表。"""
+    return {"ok": True, "tasks": list_local_tasks()}
 
-    绑定信息保存到 agent_data/cloud_account.json，
-    用于后续任务操作时验证用户身份。
+
+@app.get("/api/v1/local/ai/config")
+async def get_local_ai_config_route() -> dict:
+    """返回本地明文 AI 配置。"""
+    return {"ok": True, "config": get_local_ai_config()}
+
+
+@app.post("/api/v1/local/ai/config")
+async def post_local_ai_config_route(payload: dict) -> dict:
+    """保存本地明文 AI 配置。"""
+    config = save_local_ai_config(payload)
+    return {"ok": True, "config": config}
+
+
+@app.post("/api/v1/local/ai/chat")
+async def post_local_ai_chat_route(payload: dict) -> dict:
+    """使用本地 AI 配置调用聊天接口。"""
+    try:
+        result = await chat_with_local_ai(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"AI 网络请求失败：{exc}")
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    return {"ok": True, **result}
+
+
+@app.get("/api/v1/local/positions")
+async def get_local_positions_route() -> dict:
+    """返回本地岗位模板列表。"""
+    return {"ok": True, "positions": list_local_positions()}
+
+
+@app.post("/api/v1/local/positions")
+async def post_local_position_route(payload: dict) -> dict:
+    """保存本地岗位模板。"""
+    try:
+        position = save_local_position(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "position": position}
+
+
+@app.delete("/api/v1/local/positions/{position_id}")
+async def delete_local_position_route(position_id: str) -> dict:
+    """删除本地岗位模板。"""
+    try:
+        delete_local_position(position_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local position not found")
+    return {"ok": True}
+
+
+@app.get("/api/v1/local/positions/default-prompts")
+async def get_local_position_default_prompts_route() -> dict:
+    """返回本地岗位模板默认提示词。"""
+    return {"ok": True, "prompts": default_local_prompts()}
+
+
+@app.post("/api/v1/local/positions/optimize-requirement")
+async def post_local_position_optimize_requirement_route(payload: dict) -> dict:
+    """使用本地 AI 优化岗位要求。"""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        result = await chat_with_local_ai(
+            {
+                "messages": [{"role": "user", "content": optimize_requirement_prompt(text)}],
+                "temperature": 0.2,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"AI 网络请求失败：{exc}")
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    return {"ok": True, "optimized": str(result.get("content") or "").strip()}
+
+
+@app.get("/api/v1/local/settings")
+async def get_local_settings_route() -> dict:
+    """返回本地设置。"""
+    return {"ok": True, "settings": get_local_settings()}
+
+
+@app.post("/api/v1/local/settings")
+async def post_local_settings_route(payload: dict) -> dict:
+    """保存本地设置。"""
+    return {"ok": True, "settings": save_local_settings(payload)}
+
+
+@app.get("/api/v1/local/downloads")
+async def get_local_downloads_route(task_id: str = "") -> dict:
+    """返回本地下载记录。"""
+    return {"ok": True, "downloads": list_local_downloads(task_id)}
+
+
+@app.post("/api/v1/local/downloads")
+async def post_local_download_route(payload: dict) -> dict:
+    """保存本地下载记录。"""
+    return {"ok": True, "download": save_local_download(payload)}
+
+
+@app.get("/api/v1/local/screenshots")
+async def get_local_screenshots_route(task_id: str = "") -> dict:
+    """返回本地截图记录。"""
+    return {"ok": True, "screenshots": list_local_screenshots(task_id)}
+
+
+@app.post("/api/v1/local/screenshots")
+async def post_local_screenshot_route(payload: dict) -> dict:
+    """保存本地截图记录。"""
+    return {"ok": True, "screenshot": save_local_screenshot(payload)}
+
+
+@app.get("/api/v1/local/rules/status")
+async def get_local_rules_status_route() -> dict:
+    """返回本地规则包状态。"""
+    return {"ok": True, **get_rules_status()}
+
+
+@app.post("/api/v1/local/rules/update")
+async def post_local_rules_update_route(payload: dict) -> dict:
+    """检查并更新本地规则包。"""
+    manifest_url = str(payload.get("manifest_url") or "").strip()
+    try:
+        return update_rules(manifest_url) if manifest_url else update_rules()
+    except Exception as exc:
+        raise HTTPException(502, f"规则包更新失败：{exc}")
+
+
+@app.post("/api/v1/local/tasks")
+async def post_local_task(payload: dict) -> dict:
+    """创建本地 SQLite 任务。"""
+    task = create_local_task(payload)
+    add_local_task_log(task["id"], "info", "本地任务已创建")
+    return {"ok": True, "task": task}
+
+
+@app.put("/api/v1/local/tasks/{task_id}")
+async def put_local_task(task_id: str, payload: dict) -> dict:
+    """更新本地 SQLite 任务。"""
+    try:
+        task = update_local_task(task_id, payload)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "task": task}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}")
+async def delete_local_task_route(task_id: str) -> dict:
+    """删除本地 SQLite 任务。"""
+    try:
+        delete_local_task(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/status")
+async def post_local_task_status(task_id: str, payload: dict) -> dict:
+    """更新本地任务状态。"""
+    status = str(payload.get("status") or "").strip()
+    if not status:
+        raise HTTPException(400, "status is required")
+    try:
+        task = update_local_task_status(task_id, status)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    add_local_task_log(task_id, "info", f"任务状态更新为 {status}")
+    return {"ok": True, "task": task}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/run")
+async def run_local_task_route(task_id: str, payload: dict | None = None) -> dict:
     """
-    cloud_user_id = str(payload.get("cloud_user_id", "")).strip()
-    cloud_email = str(payload.get("cloud_email", "")).strip().lower()
-    agent_token = str(payload.get("agent_token", "")).strip()
-
-    if not cloud_user_id:
-        raise HTTPException(400, "cloud_user_id is required")
-    if not cloud_email:
-        raise HTTPException(400, "cloud_email is required")
-    if not agent_token:
-        raise HTTPException(400, "agent_token is required")
-
-    account = save_cloud_account(cloud_user_id, cloud_email, agent_token)
-    return {
-        "ok": True,
-        "machine_id": MACHINE["machine_id"],
-        "cloud_user_id": account["cloud_user_id"],
-        "cloud_email": account["cloud_email"],
-        "bound_at": account["bound_at"],
-    }
-
-
-@app.post("/api/v1/ws/connect")
-async def ws_connect(payload: dict) -> dict:
-    """连接云端 WebSocket。
+    启动本地任务运行器。
 
     Args:
-        payload: 包含 cloud_ws_url 和 token 的请求体。
+        task_id: 本地任务 ID。
+        payload: 启动参数，包含云端 API 地址。
 
     Returns:
-        返回当前 WebSocket 连接状态。
+        dict: 启动结果。
     """
-    cloud_ws_url = str(payload.get("cloud_ws_url", "")).strip()
-    token = str(payload.get("token", "")).strip()
-    if not cloud_ws_url:
-        raise HTTPException(400, "cloud_ws_url is required")
-    if not token:
-        raise HTTPException(400, "token is required")
-    return await _ws_agent.connect(cloud_ws_url, token)
+    safe_payload = payload if isinstance(payload, dict) else {}
+
+    async def verify_subscription() -> dict:
+        """
+        返回前端已完成会员校验的结果。
+
+        Returns:
+            dict: subscription 对象。
+        """
+        return {"active": True}
+
+    async def load_platform_config(platform_id: str) -> dict:
+        """
+        从云端公开接口读取平台配置。
+
+        Args:
+            platform_id: 平台 ID。
+
+        Returns:
+            dict: 平台配置。
+        """
+        return await _fetch_cloud_platform_config(
+            str(safe_payload.get("cloud_api_base") or "").strip(),
+            platform_id,
+        )
+
+    try:
+        return await _local_runner.start(task_id, verify_subscription, load_platform_config)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    except PermissionError as exc:
+        raise HTTPException(402, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
 
 
-@app.get("/api/v1/ws/status")
-async def ws_status() -> dict:
-    """返回 Local Agent 到云端 WebSocket 的连接状态。"""
-    return _ws_agent.status()
+@app.post("/api/v1/local/tasks/{task_id}/stop")
+async def stop_local_task_route(task_id: str) -> dict:
+    """停止本地任务运行器。"""
+    try:
+        return await _local_runner.stop(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
 
 
-@app.post("/api/v1/ws/disconnect")
-async def ws_disconnect() -> dict:
-    """断开 Local Agent 到云端 WebSocket 的连接。"""
-    return await _ws_agent.disconnect()
+@app.get("/api/v1/local/tasks/{task_id}/runtime")
+async def get_local_task_runtime(task_id: str) -> dict:
+    """返回本地任务运行器状态。"""
+    return _local_runner.status(task_id)
+
+
+@app.get("/api/v1/local/tasks/{task_id}/logs")
+async def get_local_task_logs(task_id: str, limit: int = 100) -> dict:
+    """返回本地任务日志。"""
+    return {"ok": True, "logs": list_local_task_logs(task_id, limit)}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}/logs")
+async def delete_local_task_logs_route(task_id: str) -> dict:
+    """清空本地任务日志。"""
+    try:
+        cleared_at = clear_local_task_logs(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "cleared_at": cleared_at}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/logs")
+async def post_local_task_log(task_id: str, payload: dict) -> dict:
+    """写入本地任务日志。"""
+    try:
+        item = add_local_task_log(task_id, str(payload.get("level") or "info"), str(payload.get("message") or ""))
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "log": item}
+
+
+@app.get("/api/v1/local/tasks/{task_id}/candidates")
+async def get_local_task_candidates(task_id: str) -> dict:
+    """返回本地候选人列表。"""
+    return {"ok": True, "candidates": list_local_candidates(task_id)}
+
+
+@app.post("/api/v1/local/tasks/{task_id}/candidates")
+async def post_local_task_candidate(task_id: str, payload: dict) -> dict:
+    """保存本地候选人。"""
+    try:
+        candidate = save_local_candidate(task_id, payload)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True, "candidate": candidate}
+
+
+@app.delete("/api/v1/local/tasks/{task_id}/candidates/{candidate_id}")
+async def delete_local_task_candidate_route(task_id: str, candidate_id: str) -> dict:
+    """删除本地候选人。"""
+    try:
+        delete_local_candidate(task_id, candidate_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "local task not found")
+    return {"ok": True}
 
 
 @app.post("/api/v1/tasks/{task_id}/start-ws")
@@ -287,7 +820,20 @@ async def post_profile(payload: dict) -> dict:
     profile = create_profile(
         str(payload.get("platform_id", "")),
         str(payload.get("display_name", "")),
+        str(payload.get("status", "available")),
     )
+    return {"ok": True, "profile": profile}
+
+
+@app.put("/api/v1/profiles/{profile_id}")
+async def put_profile(profile_id: str, payload: dict) -> dict:
+    """更新本地 profile 元数据。
+
+    用于本地控制台在登录成功、登录过期或改名时同步账号状态。
+    """
+    profile = update_profile(profile_id, payload)
+    if not profile:
+        raise HTTPException(404, "profile not found")
     return {"ok": True, "profile": profile}
 
 
@@ -488,6 +1034,14 @@ async def browser_start(payload: dict) -> dict:
     except asyncio.TimeoutError:
         logger.error("浏览器启动超时 timeout=%ss user_data_dir=%s", BROWSER_START_TIMEOUT_SECONDS, user_data_dir or "-")
         raise HTTPException(504, "浏览器启动超时，请重下浏览器或检查安全软件是否拦截")
+    except Exception as exc:
+        logger.exception("浏览器启动失败 user_data_dir=%s", user_data_dir or "-")
+        ELEMENT_REFS.clear()
+        try:
+            await _browser_manager.stop()
+        except Exception:
+            pass
+        raise HTTPException(500, f"浏览器启动失败：{exc}")
     logger.info("浏览器启动请求完成 status=%s user_data_dir=%s", status, user_data_dir or "-")
     if isinstance(cookies, list) and cookies:
         try:
@@ -1081,7 +1635,12 @@ async def page_screenshot(payload: dict) -> dict:
     if screenshot_bytes is None:
         raise HTTPException(500, "截图失败")
 
-    return {"ok": True, "size": len(screenshot_bytes)}
+    task_id = str(payload.get("task_id") or "").strip()
+    filename = str(payload.get("filename") or "page-screenshot.png").strip()
+    saved_path = ""
+    if task_id:
+        saved_path = str(save_screenshot_bytes(task_id, filename, screenshot_bytes))
+    return {"ok": True, "size": len(screenshot_bytes), "path": saved_path}
 
 
 @app.post("/api/v1/crypto/decrypt")
@@ -1199,6 +1758,104 @@ async def sound_play(payload: dict) -> dict:
         raise HTTPException(500, f"play audio failed: {exc}")
 
 
+async def _fetch_cloud_subscription(cloud_api_base: str, token: str) -> dict:
+    """
+    读取云端会员状态。
+
+    Args:
+        cloud_api_base: 云端 HTTP API 基础地址。
+        token: 当前云端登录 access_token。
+
+    Returns:
+        dict: subscription 对象。
+    """
+    url = f"{cloud_api_base.rstrip('/')}/api/subscription/status"
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+    data = response.json() if response.content else {}
+    if response.status_code >= 400 or not data.get("ok", False):
+        raise RuntimeError(str(data.get("error") or "会员校验失败"))
+    subscription = data.get("subscription") or {}
+    if not isinstance(subscription, dict):
+        raise RuntimeError("会员校验返回格式错误")
+    return subscription
+
+
+async def _fetch_cloud_platform_config(cloud_api_base: str, platform_id: str) -> dict:
+    """
+    从云端公开接口读取指定平台配置。
+
+    Args:
+        cloud_api_base: 云端 HTTP API 基础地址。
+        platform_id: 平台 ID。
+
+    Returns:
+        dict: 平台配置。
+    """
+    safe_base = str(cloud_api_base or "").strip()
+    safe_platform = str(platform_id or "").strip().lower()
+    if not safe_base:
+        raise RuntimeError("云端接口地址不能为空，无法读取平台配置")
+    if not safe_platform:
+        raise RuntimeError("平台 ID 不能为空，无法读取平台配置")
+
+    url = f"{safe_base.rstrip('/')}/api/platforms/config/"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url)
+        data = response.json() if response.content else {}
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"读取云端平台配置失败：{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("云端平台配置返回格式不正确") from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError("云端平台配置返回格式不正确")
+    if response.status_code >= 400:
+        raise RuntimeError(_local_api_msg(data.get("error") or data.get("msg") or "读取云端平台配置失败"))
+    configs = data.get("configs")
+    if not isinstance(configs, list) and isinstance(data.get("data"), dict):
+        configs = data["data"].get("configs")
+    if not isinstance(configs, list):
+        raise RuntimeError("云端平台配置返回格式不正确")
+
+    target_key = f"platform.{safe_platform}"
+    for item in configs:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("config_key") or "").strip().lower() != target_key:
+            continue
+        config = _decode_cloud_platform_config_value(item.get("config_value"))
+        if not isinstance(config, dict):
+            break
+        if not config.get("id"):
+            config["id"] = safe_platform
+        return config
+    raise RuntimeError(f"云端没有找到平台配置：{safe_platform}")
+
+
+def _decode_cloud_platform_config_value(value: object) -> dict:
+    """
+    解码云端平台配置值。
+
+    Args:
+        value: system_configs.config_value 原始值。
+
+    Returns:
+        dict: 平台配置字典。
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("云端平台配置 JSON 格式不正确") from exc
+        if isinstance(parsed, dict):
+            return parsed
+    raise RuntimeError("云端平台配置内容不是有效对象")
+
+
 # ---------------------------------------------------------------------------
 # 异常处理
 # ---------------------------------------------------------------------------
@@ -1207,16 +1864,26 @@ async def sound_play(payload: dict) -> dict:
 @app.exception_handler(FileNotFoundError)
 async def handle_not_found(_request: Request, exc: FileNotFoundError) -> JSONResponse:
     """统一的文件未找到异常处理，返回 404 响应。"""
-    return JSONResponse(
-        {"ok": False, "error": str(exc) or "task candidates not found"},
-        status_code=404,
-    )
+    return _local_api_error(404, str(exc) or "资源不存在")
 
 
 @app.exception_handler(ValueError)
 async def handle_value_error(_request: Request, exc: ValueError) -> JSONResponse:
     """统一的参数校验异常处理，返回 400 响应。"""
-    return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    return _local_api_error(400, str(exc))
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
+    """统一 HTTP 异常处理，返回中文 msg。"""
+    return _local_api_error(int(exc.status_code or 500), exc.detail)
+
+
+@app.exception_handler(Exception)
+async def handle_unknown_exception(_request: Request, exc: Exception) -> JSONResponse:
+    """统一未捕获异常处理，避免前端看到英文异常。"""
+    logger.exception("本地接口未捕获异常")
+    return _local_api_error(500, str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1233,7 +1900,7 @@ def candidate_ports() -> Iterable[int]:
     """返回 Local Agent 应尝试监听的端口列表。
 
     优先尝试 GOODHR_AGENT_PORT 环境变量指定的端口，
-    然后按 9001-9009 依次尝试。
+    然后按 55271-55279 依次尝试。
     """
     configured = os.getenv("GOODHR_AGENT_PORT")
     yielded: set[int] = set()
@@ -1258,19 +1925,58 @@ def find_port() -> int:
     按 candidate_ports() 顺序逐个尝试绑定 socket，
     找到可用端口后立即释放并返回端口号。
     """
-    import socket
-
     errors: list[str] = []
     for port in candidate_ports():
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind((HOST, port))
+        if port == DEFAULT_PORTS.start:
+            if wait_port_available(port, PREFERRED_PORT_WAIT_SECONDS):
                 return port
-        except OSError as exc:
+        elif can_bind_port(port):
+            return port
+        else:
+            exc = "端口仍被占用"
             errors.append(f"{port}: {exc}")
 
     detail = "; ".join(errors)
-    raise RuntimeError(f"No available GoodHR Local Agent port in 9001-9009. {detail}")
+    raise RuntimeError(f"No available GoodHR Local Agent port in 55271-55279. {detail}")
+
+
+def can_bind_port(port: int) -> bool:
+    """
+    判断本地端口是否可绑定。
+
+    Args:
+        port: 要检测的端口。
+
+    Returns:
+        bool: 可绑定返回 True。
+    """
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((HOST, port))
+            return True
+    except OSError:
+        return False
+
+
+def wait_port_available(port: int, timeout: float) -> bool:
+    """
+    等待端口释放。
+
+    Args:
+        port: 要等待的端口。
+        timeout: 最长等待秒数。
+
+    Returns:
+        bool: 可绑定返回 True。
+    """
+    deadline = time.time() + max(0.1, timeout)
+    while time.time() < deadline:
+        if can_bind_port(port):
+            return True
+        time.sleep(0.2)
+    return can_bind_port(port)
 
 
 def main() -> None:

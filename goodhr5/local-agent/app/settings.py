@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 
+from app.paths import config_dir as app_config_dir
 from app.paths import data_dir
 
 
@@ -17,11 +18,9 @@ def config_dir() -> Path:
     返回 Local Agent 配置目录。
 
     Returns:
-        Path: 与 agent_data 同级的 config 目录。
+        Path: 安装目录下 config 目录。
     """
-    path = data_dir().parent / "config"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return app_config_dir()
 
 
 def settings_path() -> Path:
@@ -39,7 +38,7 @@ def default_download_dir() -> Path:
     返回系统默认下载目录。
 
     Returns:
-        Path: 当前用户 Downloads 目录；不存在时返回 agent_data/downloads。
+        Path: 当前用户 Downloads 目录；不存在时返回本地数据目录下 downloads。
     """
     home_downloads = Path.home() / "Downloads"
     if home_downloads.exists():

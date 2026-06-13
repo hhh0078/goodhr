@@ -130,13 +130,13 @@ async def analyze_image_with_ai(config: dict[str, Any], image_bytes: bytes) -> t
     model_id = str(config.get("model_id") or config.get("model") or "").strip()
     prompt = str(config.get("prompt") or "").strip()
     if not api_url:
-        raise ValueError("ai_vision.api_url is required")
+        raise ValueError("图片识别 AI 接口地址不能为空")
     if not api_key:
-        raise ValueError("ai_vision.api_key is required")
+        raise ValueError("图片识别 AI 密钥不能为空")
     if not model_id:
-        raise ValueError("ai_vision.model_id is required")
+        raise ValueError("图片识别 AI 模型名称不能为空")
     if not prompt:
-        raise ValueError("ai_vision.prompt is required")
+        raise ValueError("图片识别提示词不能为空")
 
     content = build_minimax_vision_content(prompt, image_bytes, str(config.get("image_format") or "png"))
     request_body = {

@@ -15,29 +15,6 @@
       </div>
       <button class="ghost" @click="tasks.load">刷新</button>
     </div>
-    <div class="task-range-tabs" role="tablist" aria-label="任务统计范围">
-      <button
-        type="button"
-        class="range-tab"
-        :class="{ active: statRange === 'today' }"
-        role="tab"
-        :aria-selected="statRange === 'today'"
-        @click="statRange = 'today'"
-      >
-        仅看今天
-      </button>
-      <button
-        type="button"
-        class="range-tab"
-        :class="{ active: statRange === 'all' }"
-        role="tab"
-        :aria-selected="statRange === 'all'"
-        @click="statRange = 'all'"
-      >
-        全部时间
-      </button>
-    </div>
-
     <!-- 创建任务折叠 -->
 
     <div v-if="showCreate" class="form-grid" style="margin-bottom: 12px">
@@ -53,11 +30,11 @@
         </select></label
       >
       <label
-        >岗位模板<select
+        >岗位<select
           v-model="tasks.form.value.positionId"
           @change="onCreatePositionChange"
         >
-          <option value="">请选择岗位模板</option>
+          <option value="">请选择岗位</option>
           <option v-for="pos in positions" :key="pos.id" :value="pos.id">
             {{ pos.name }}
           </option>
@@ -67,19 +44,46 @@
         >任务名称<input
           v-model.trim="tasks.form.value.name"
           @input="createNameEdited = true"
-          placeholder="不填则自动使用岗位模板名称+默认模式"
+          placeholder="不填则自动使用岗位名称+默认模式"
       /></label>
       <p class="hint field-wide">
         默认模式：{{
           positionModeLabel(selectedCreatePosition())
-        }}，来自岗位模板配置。
+        }}，来自岗位配置。
       </p>
       <label
-        >匹配上限<input
+        >本次打招呼上限<input
           v-model="tasks.form.value.matchLimit"
           type="number"
           min="1"
       /></label>
+      <p class="hint field-wide">
+        每次启动任务最多打招呼的人数，默认 50
+        个；停止后下次启动会重新按这个数量计算。
+      </p>
+    </div>
+    <div v-if="showCreate" class="mode-field" style="margin-bottom: 12px">
+      <span class="field-title">思考模式</span>
+      <div class="mode-cards">
+        <button
+          type="button"
+          class="mode-card"
+          :class="{ active: !tasks.form.value.enableThinking }"
+          @click="tasks.form.value.enableThinking = false"
+        >
+          <strong>关闭</strong>
+          <span>速度快，AI消耗更小<br />适合常见岗位、常见条件</span>
+        </button>
+        <button
+          type="button"
+          class="mode-card"
+          :class="{ active: tasks.form.value.enableThinking }"
+          @click="tasks.form.value.enableThinking = true"
+        >
+          <strong>开启</strong>
+          <span>速度慢，更精准<br />AI消耗较多</span>
+        </button>
+      </div>
     </div>
     <div v-if="showCreate" class="actions">
       <button
@@ -113,25 +117,11 @@
                 task.platform_account?.display_name || task.platform_account_id
               }}
               | {{ task.platform_id }} |
-              {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }} |
-              {{ task.match_limit }}
+              {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }}
+              | {{ displayRunGreetLimit(task) }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
-          </div>
-          <div class="task-stats">
-            <span class="stat-chip"
-              >扫描 {{ displayTaskCount(task, "scanned") }}</span
-            >
-            <span class="stat-chip"
-              >打招呼 {{ displayTaskCount(task, "greeted") }}</span
-            >
-            <span class="stat-chip"
-              >跳过 {{ displayTaskCount(task, "skipped") }}</span
-            >
-            <span class="stat-chip"
-              >失败 {{ displayTaskCount(task, "failed") }}</span
-            >
           </div>
         </div>
 
@@ -141,7 +131,7 @@
               v-if="task.status !== 'running'"
               class="ghost primary"
               :disabled="tasks.loading.value"
-              @click="tasks.execute(task.id)"
+              @click="executeTask(task.id)"
             >
               开始
             </button>
@@ -155,6 +145,11 @@
             </button>
           </div>
           <div class="task-actions-right">
+            <div class="task-metrics" aria-label="任务打招呼统计">
+              <span>总计 {{ displayTotalGreetedCount(task) }}</span>
+              <span>今天 {{ displayTodayGreetedCount(task) }}</span>
+              <span>本次 {{ displayCurrentRunGreetedCount(task) }}</span>
+            </div>
             <label
               :class="[
                 'sound-toggle',
@@ -213,11 +208,11 @@
               </select></label
             >
             <label
-              >岗位模板<select
+              >岗位<select
                 v-model="editForm.positionId"
                 @change="onEditPositionChange"
               >
-                <option value="">请选择岗位模板</option>
+                <option value="">请选择岗位</option>
                 <option v-for="pos in positions" :key="pos.id" :value="pos.id">
                   {{ pos.name }}
                 </option>
@@ -226,19 +221,46 @@
             <label
               >任务名称<input
                 v-model.trim="editForm.name"
-                placeholder="不填则自动使用岗位模板名称+默认模式"
+                placeholder="不填则自动使用岗位名称+默认模式"
             /></label>
             <p class="hint field-wide">
               默认模式：{{
                 positionModeLabel(selectedEditPosition())
-              }}，来自岗位模板配置。
+              }}，来自岗位配置。
             </p>
             <label
-              >匹配上限<input
+              >本次打招呼上限<input
                 v-model="editForm.matchLimit"
                 type="number"
                 min="1"
             /></label>
+            <p class="hint field-wide">
+              每次启动任务最多打招呼的人数，默认 50
+              个；停止后下次启动会重新按这个数量计算。
+            </p>
+          </div>
+          <div class="mode-field">
+            <span class="field-title">思考模式</span>
+            <div class="mode-cards">
+              <button
+                type="button"
+                class="mode-card"
+                :class="{ active: !editForm.enableThinking }"
+                @click="editForm.enableThinking = false"
+              >
+                <strong>关闭</strong>
+                <span>速度快，AI消耗更小<br />适合常见岗位、常见条件</span>
+              </button>
+              <button
+                type="button"
+                class="mode-card"
+                :class="{ active: editForm.enableThinking }"
+                @click="editForm.enableThinking = true"
+              >
+                <strong>开启</strong>
+                <span>速度慢，更精准<br />AI消耗较多</span>
+              </button>
+            </div>
           </div>
           <div class="actions compact">
             <button
@@ -329,10 +351,10 @@ const props = defineProps({
   token: String,
   agent: Object,
 });
-const emit = defineEmits(["open-candidates"]);
+const emit = defineEmits(["open-candidates", "request-login"]);
 const showCreate = ref(false);
-const statRange = ref("today");
 const createNameEdited = ref(false);
+const DEFAULT_RUN_GREET_LIMIT = 50;
 const accounts = ref<any[]>([]);
 const accountsError = ref("");
 const editingTaskId = ref("");
@@ -344,6 +366,7 @@ const editForm = ref({
   mode: "ai",
   matchLimit: 50,
   enableSound: false,
+  enableThinking: false,
 });
 async function loadAccounts() {
   accountsError.value = "";
@@ -352,6 +375,19 @@ async function loadAccounts() {
   } catch (e: any) {
     accountsError.value = e.message;
   }
+}
+
+/**
+ * 开始任务，未登录时先请求登录。
+ * @param {string} taskId - 任务 ID。
+ * @returns {void} 无返回值。
+ */
+function executeTask(taskId: string) {
+  if (!props.token) {
+    emit("request-login");
+    return;
+  }
+  props.tasks.execute(taskId);
 }
 function accountLabel(account: any) {
   const platform = platformLabel(account?.platform_id);
@@ -451,8 +487,9 @@ function startEdit(task: any) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 50,
+    matchLimit: displayRunGreetLimit(task),
     enableSound: Boolean(task.enable_sound),
+    enableThinking: Boolean(task.enable_thinking),
   };
 }
 function onEditAccountChange() {
@@ -485,7 +522,7 @@ async function toggleSound(task: any, enableSound: boolean) {
     platformAccountId: task.platform_account_id || "",
     positionId: task.position_id || "",
     mode: task.mode || "keyword",
-    matchLimit: task.match_limit || 50,
+    matchLimit: displayRunGreetLimit(task),
     enableSound,
   });
 }
@@ -510,11 +547,42 @@ function taskStatusLabel(status: string) {
   if (key === "stopped") return "已停止";
   return status || "未知";
 }
-function displayTaskCount(task: any, key: string) {
-  if (statRange.value === "today") {
-    return Number(task?.[`today_${key}_count`] || 0);
-  }
-  return Number(task?.[`${key}_count`] || 0);
+/**
+ * 返回任务累计打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 累计打招呼数量。
+ */
+function displayTotalGreetedCount(task: any) {
+  return Number(task?.greeted_count || 0);
+}
+
+/**
+ * 返回任务今日打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 今日打招呼数量。
+ */
+function displayTodayGreetedCount(task: any) {
+  return Number(task?.today_greeted_count || 0);
+}
+
+/**
+ * 返回任务本次运行打招呼数量。
+ * @param {any} task - 当前任务。
+ * @returns {number} 本次运行打招呼数量。
+ */
+function displayCurrentRunGreetedCount(task: any) {
+  return Number(task?.current_run_greeted_count || 0);
+}
+
+/**
+ * 返回任务本次打招呼上限。
+ * @param {any} task - 当前任务。
+ * @returns {number} 有效上限，空值默认 50。
+ */
+function displayRunGreetLimit(task: any) {
+  const limit = Number(task?.match_limit || 0);
+  if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_RUN_GREET_LIMIT;
+  return Math.floor(limit);
 }
 function onLogScroll(taskId: string, event: Event) {
   const target = event.target as HTMLElement | null;
@@ -643,33 +711,39 @@ onMounted(loadAccounts);
 .task-card {
   display: block;
 }
-.task-range-tabs {
+.run-options-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  align-items: end;
+  margin: 0 0 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+}
+.run-options-panel label {
+  min-width: 0;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+.run-options-panel input[type="number"] {
+  width: 100%;
+  margin-top: 4px;
+}
+.run-option-check {
   display: inline-flex;
   align-items: center;
-  gap: 0;
-  border: 1px solid var(--border);
-
-  margin-bottom: 12px;
-  background: transparent;
-}
-.range-tab {
-  border: none;
-  background: transparent;
-  color: var(--fg-dim);
-  padding: 6px 12px;
-  font-size: 13px;
+  gap: 8px;
+  min-height: 34px;
   cursor: pointer;
-  line-height: 1.2;
 }
-.range-tab + .range-tab {
-  border-left: 1px solid var(--border);
+.run-option-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
-.range-tab.active {
-  color: var(--accent);
-  box-shadow: inset 0 -1px 0 var(--accent);
-}
-.range-tab:hover {
-  color: var(--fg-dim);
+.run-options-hint {
+  margin: 0 0 12px;
 }
 .mode-field {
   grid-column: 1 / -1;
@@ -731,22 +805,6 @@ onMounted(loadAccounts);
   justify-content: space-between;
   min-width: 0;
 }
-.task-stats {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  margin-bottom: 8px;
-  /* justify-content: flex-end; */
-}
-.stat-chip {
-  border: 1px solid var(--border);
-  color: var(--fg-dim);
-  padding: 4px 10px;
-  font-size: 14px;
-  font-weight: bold;
-  /* line-height: 1.3; */
-}
 .task-actions {
   margin-top: 8px;
   justify-content: space-between;
@@ -757,6 +815,16 @@ onMounted(loadAccounts);
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.task-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  color: var(--fg-dim);
+}
+.task-metrics span {
+  white-space: nowrap;
 }
 .edit-actions {
   margin-top: 8px;
@@ -816,9 +884,6 @@ onMounted(loadAccounts);
   .task-main {
     flex-direction: column;
     align-items: flex-start;
-  }
-  .task-stats {
-    justify-content: flex-start;
   }
   .task-actions {
     flex-wrap: wrap;

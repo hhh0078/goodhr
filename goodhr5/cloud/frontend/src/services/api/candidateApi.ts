@@ -31,7 +31,7 @@ export async function listCandidates(
  * @param {string} engagementID - 触达上下文 ID，传入后按本次任务读取分析记录。
  * @returns {Promise<any>} 返回候选人详情。
  */
-export async function getCandidate(candidateID: string, engagementID = "") {
+export async function getCandidate(candidateID: string, engagementID = "", _taskID = "") {
   const query = engagementID ? `?engagement_id=${encodeURIComponent(engagementID)}` : "";
   const data = await api(`/api/candidates/${encodeURIComponent(candidateID)}${query}`);
   return data.candidate;

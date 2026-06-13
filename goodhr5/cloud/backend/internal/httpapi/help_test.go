@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestHelpGuideRequiresLogin 验证帮助中心指南必须登录后才能读取。
-func TestHelpGuideRequiresLogin(t *testing.T) {
+// TestHelpGuideWithoutLogin 验证帮助中心指南未登录时也可以读取。
+func TestHelpGuideWithoutLogin(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 
@@ -17,8 +17,8 @@ func TestHelpGuideRequiresLogin(t *testing.T) {
 	resp := httptest.NewRecorder()
 	routes.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusUnauthorized {
-		t.Fatalf("guide status = %d, want %d", resp.Code, http.StatusUnauthorized)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("guide status = %d, body = %s", resp.Code, resp.Body.String())
 	}
 }
 

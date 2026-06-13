@@ -3,11 +3,11 @@
     <div class="panel-header">
       <!-- 底部对齐 -->
       <div style="display: flex; gap: 10px; align-items: center">
-        <h2>岗位模板</h2>
+        <h2>岗位管理</h2>
       </div>
       <div style="display: flex; gap: 8px">
         <button v-if="!showForm" class="ghost" @click="showForm = true">
-          + 新建模板
+          + 新建岗位
         </button>
         <button v-else class="ghost" @click="showForm = false">收起</button>
         <button class="ghost" @click="positions.load">刷新</button>
@@ -29,21 +29,24 @@
         会执行点击打招呼按钮。
       </div>
       <div class="position-form-grid">
-        <label class="field field-medium"
+        <label class="field field-full"
           >岗位名称<input
             v-model="positions.form.value.name"
             placeholder="如: Java高级开发"
           />
-          <p class="hint field field-full">
+          <small class="field-help">
             该名称最好跟boss的岗位名称一致，因为后续会根据这个名称自动切换boss岗位。如果填错了
             会启动失败
-          </p>
+          </small>
         </label>
 
-        <p></p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">招聘平台</span>
-          <div class="mode-cards" role="radiogroup" aria-label="招聘平台">
+          <div
+            class="mode-cards mode-cards-three"
+            role="radiogroup"
+            aria-label="招聘平台"
+          >
             <button
               v-for="option in platformOptions"
               :key="option.value"
@@ -61,10 +64,13 @@
             </button>
           </div>
         </div>
-        <p></p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">默认模式</span>
-          <div class="mode-cards" role="radiogroup" aria-label="默认模式">
+          <div
+            class="mode-cards mode-cards-two"
+            role="radiogroup"
+            aria-label="默认模式"
+          >
             <button
               v-for="option in modeOptions"
               :key="option.value"
@@ -82,25 +88,17 @@
             </button>
           </div>
         </div>
-        <label class="field field-full"
-          >问候语<textarea
-            v-model="positions.form.value.greetMessage"
-            rows="2"
-          />
-        </label>
-        <label class="field field-full"
-          >描述<textarea v-model="positions.form.value.description" rows="2" />
-        </label>
       </div>
 
       <h3>公共参数</h3>
       <div class="position-form-grid">
-        <p class="hint field field-full">
-          运行节奏、模型等参数已移到“个人配置”，这里仅保留岗位本身的筛选规则。
-        </p>
-        <div class="field field-medium">
+        <div class="field field-full">
           <span class="field-label">详情模式</span>
-          <div class="mode-cards" role="radiogroup" aria-label="详情模式">
+          <div
+            class="mode-cards mode-cards-three"
+            role="radiogroup"
+            aria-label="详情模式"
+          >
             <button
               v-for="option in availableDetailModeOptions"
               :key="option.value"
@@ -118,12 +116,17 @@
             </button>
           </div>
           <small class="field-help"
-            >Boss 详情页固定使用图片识别；其它平台可按页面稳定性选择。</small
+            >选择哪种就只使用哪种：DOM最快，OCR离线且适合截图文字，AI理解最强但较慢。</small
           >
         </div>
       </div>
 
-      <template v-if="positions.form.value.modeDefault === 'ai'">
+      <template
+        v-if="
+          positions.form.value.modeDefault === 'ai' ||
+          positions.form.value.detailMode === 'ai'
+        "
+      >
         <h3>AI 模式专属</h3>
         <div class="position-form-grid">
           <label class="field field-full">
@@ -186,7 +189,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetOpenDetailPrompt"
               >
-                重置为系统默认
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiOpenDetailPrompt"
@@ -217,7 +220,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetFilterPrompt"
               >
-                重置为系统默认
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiFilterPrompt"
@@ -248,7 +251,7 @@
                 :disabled="positions.loading.value"
                 @click="positions.resetReviewPrompt"
               >
-                设置默认值
+                设为系统默认
               </button></span
             ><textarea
               v-model="positions.form.value.aiReviewPrompt"
@@ -266,12 +269,13 @@
       <template v-if="positions.form.value.modeDefault === 'keyword'">
         <h3>关键词模式专属</h3>
         <div class="position-form-grid">
-          <p class="hint field field-full">
-            关键词模式是否打开详情，已改到“个人配置”的详情查看概率里控制。
-          </p>
-          <div class="field field-medium">
+          <div class="field field-full">
             <span class="field-label">匹配方式</span>
-            <div class="mode-cards" role="radiogroup" aria-label="匹配方式">
+            <div
+              class="mode-cards mode-cards-two"
+              role="radiogroup"
+              aria-label="匹配方式"
+            >
               <button
                 v-for="option in keywordMatchOptions"
                 :key="String(option.value)"
@@ -321,6 +325,25 @@
         </p>
       </template>
 
+      <h3>可选信息</h3>
+      <div class="position-form-grid optional-info-grid">
+        <label class="field field-medium"
+          >问候语<textarea
+            v-model="positions.form.value.greetMessage"
+            rows="2"
+          />
+          <small class="field-help"
+            >当前任务流程暂未重点使用，可后续再补。</small
+          >
+        </label>
+        <label class="field field-medium"
+          >描述<textarea v-model="positions.form.value.description" rows="2" />
+          <small class="field-help"
+            >用于备注岗位背景，不影响当前筛选主流程。</small
+          >
+        </label>
+      </div>
+
       <p v-if="positions.error.value" class="error">
         {{ positions.error.value }}
       </p>
@@ -363,10 +386,8 @@
             {{
               pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
             }}
-            | 详情:{{
-              pos.common_config?.detail_mode === "ocr" ? "图片识别" : "页面解析"
-            }}
-            | 关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
+            | 详情:{{ detailModeLabel(pos.common_config?.detail_mode) }} |
+            关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
               (pos.exclude_keywords || []).join(" / ") || "无"
             }}
           </p>
@@ -394,7 +415,7 @@ const platformOptions = [
   {
     value: "boss",
     label: "Boss直聘",
-    description: "Boss 详情页固定使用图片识别。",
+    description: "可选择 DOM、OCR 或 AI 详情识别方式。",
   },
   {
     value: "zhaopin",
@@ -422,18 +443,23 @@ const modeOptions = [
 const detailModeOptions = [
   {
     value: "dom",
-    label: "页面解析",
-    description: "速度更快，适合页面文字结构稳定的招聘平台。",
+    label: "DOM识别",
+    description: "最快，不截图，适合网页文字能直接读取的页面。",
   },
   {
     value: "ocr",
-    label: "图片识别",
-    description: "读取截图文字，适合页面结构不稳定或文本难提取时使用。",
+    label: "OCR识别",
+    description: "离线识别截图文字，速度快，适合网页文字读不到时使用。",
+  },
+  {
+    value: "ai",
+    label: "AI识别",
+    description: "理解能力最强，适合复杂简历截图，但速度较慢且需要 AI 配置。",
   },
 ];
 const availableDetailModeOptions = computed(() => {
   if (props.positions.form.value.platformId === "boss") {
-    return detailModeOptions.filter((option) => option.value === "ocr");
+    return detailModeOptions.filter((option) => option.value !== "dom");
   }
   return detailModeOptions;
 });
@@ -466,25 +492,46 @@ async function savePosition() {
 }
 
 /**
- * 选择岗位模板所属平台，并按平台修正详情模式。
+ * 选择岗位模板所属平台。
  * @param {string} platformID - 平台标识。
  * @returns {void} 无返回值。
  */
 function selectPlatform(platformID: string) {
   props.positions.form.value.platformId = platformID;
-  if (platformID === "boss") {
+  if (
+    platformID === "boss" &&
+    props.positions.form.value.detailMode === "dom"
+  ) {
     props.positions.form.value.detailMode = "ocr";
   }
 }
 
 /**
- * 选择详情读取模式，Boss 平台固定为 OCR。
+ * 选择详情读取模式。
  * @param {string} detailMode - 详情读取模式。
  * @returns {void} 无返回值。
  */
 function selectDetailMode(detailMode: string) {
-  props.positions.form.value.detailMode =
-    props.positions.form.value.platformId === "boss" ? "ocr" : detailMode;
+  if (
+    props.positions.form.value.platformId === "boss" &&
+    detailMode === "dom"
+  ) {
+    props.positions.form.value.detailMode = "ocr";
+    return;
+  }
+  props.positions.form.value.detailMode = detailMode;
+}
+
+/**
+ * 返回详情模式中文名称。
+ * @param {string} mode - 详情模式标识。
+ * @returns {string} 中文名称。
+ */
+function detailModeLabel(mode: string) {
+  if (mode === "dom") return "DOM识别";
+  if (mode === "ocr") return "OCR识别";
+  if (mode === "ai") return "AI识别";
+  return "OCR识别";
 }
 
 /**
@@ -558,11 +605,20 @@ function platformLabel(platformID: string) {
 
 .mode-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
+.mode-cards-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mode-cards-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .mode-card {
+  width: 100%;
+  min-width: 0;
   min-height: 74px;
   border: 1px solid var(--border);
   background: var(--bg-input);
@@ -575,12 +631,14 @@ function platformLabel(platformID: string) {
 
 .mode-card strong {
   display: block;
+  min-width: 0;
   color: var(--fg);
   margin-bottom: 6px;
 }
 
 .mode-card span {
   display: block;
+  min-width: 0;
   color: var(--fg-dim);
   font-size: 12px;
   line-height: 1.5;
@@ -604,8 +662,8 @@ function platformLabel(platformID: string) {
   .field-medium {
     grid-column: span 6;
   }
-  .mode-cards {
-    grid-template-columns: 1fr;
+  .mode-cards-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -614,6 +672,11 @@ function platformLabel(platformID: string) {
   .field-medium,
   .field-full {
     grid-column: 1 / -1;
+  }
+  .mode-cards,
+  .mode-cards-two,
+  .mode-cards-three {
+    grid-template-columns: 1fr;
   }
 }
 </style>

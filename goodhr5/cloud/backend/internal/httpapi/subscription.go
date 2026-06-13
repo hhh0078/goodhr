@@ -77,11 +77,6 @@ func (s *SubscriptionService) Plans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, err := s.auth.SessionFromRequest(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return
-	}
-
 	cfg, err := s.systemConfigs.Get("system.subscription_plans")
 	if err != nil {
 		if errors.Is(err, ErrConfigNotFound) {

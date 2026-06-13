@@ -15,7 +15,7 @@ export async function getSubscriptionStatus() {
  * @returns {Promise<any[]>} 返回订阅套餐数组。
  */
 export async function listSubscriptionPlans() {
-  const data = await api("/api/subscription/plans");
+  const data = await api("/api/subscription/plans", { auth: false });
   return data.plans || [];
 }
 

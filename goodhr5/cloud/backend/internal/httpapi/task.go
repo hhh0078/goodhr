@@ -2,15 +2,12 @@
 package httpapi
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	stdlog "log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -18,19 +15,13 @@ import (
 type TaskService struct {
 	auth           *AuthService
 	store          TaskStore
-	systemConfigs  SystemConfigStore
 	positionStore  PositionStore
 	taskLogs       TaskLogService
-	aiConfigStore  AIConfigStore
-	userPrefsStore UserPreferencesStore
 	tenantStore    TenantStore
 	cookieStore    CookieStore
 	candidateStore CandidateStore
-	agentWS        *AgentWSHub
 	subscriptions  SubscriptionStore
 	mailer         Mailer
-	runningMu      sync.Mutex
-	runningCancels map[string]context.CancelFunc
 }
 
 type createTaskRequest struct {
@@ -41,25 +32,21 @@ type createTaskRequest struct {
 	Mode              string `json:"mode"`
 	MatchLimit        int    `json:"match_limit"`
 	EnableSound       bool   `json:"enable_sound"`
+	EnableThinking    bool   `json:"enable_thinking"`
 }
 
-// NewTaskService 创建任务 API 服务，注入认证、存储和执行所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, systemConfigs SystemConfigStore, positionStore PositionStore, taskLogs TaskLogService, aiConfigStore AIConfigStore, userPrefsStore UserPreferencesStore, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, agentWS *AgentWSHub, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
+// NewTaskService 创建任务 API 服务，注入任务元数据和候选人入库所需依赖。
+func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
-		systemConfigs:  systemConfigs,
 		positionStore:  positionStore,
 		taskLogs:       taskLogs,
-		aiConfigStore:  aiConfigStore,
-		userPrefsStore: userPrefsStore,
 		tenantStore:    tenantStore,
 		cookieStore:    cookieStore,
 		candidateStore: candidateStore,
-		agentWS:        agentWS,
 		subscriptions:  subscriptions,
 		mailer:         mailer,
-		runningCancels: map[string]context.CancelFunc{},
 	}
 }
 
@@ -111,7 +98,7 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 	tenantID, _ := s.getTenantInfo(session.Email)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, saved, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, saved),
 	})
 }
 
@@ -152,16 +139,9 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
-	todayStart := startOfToday()
-	todaySummaries, err := s.taskLogs.logStore.SummarizeTaskCounts(tenantID, session.Email, isAdmin, &todayStart)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to summarize task stats")
-		return
-	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
-		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks, todaySummaries),
+		"tasks": s.publicTaskRunsWithAccount(tenantID, tasks),
 	})
 }
 
@@ -200,13 +180,14 @@ func (s *TaskService) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		stdlog.Printf("[任务详情] 读取任务失败 task=%s user=%s tenant=%s admin=%v err=%v", taskID, session.Email, tenantID, isAdmin, err)
 		writeError(w, http.StatusInternalServerError, "failed to load task")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, task, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, task),
 	})
 }
 
@@ -296,7 +277,7 @@ func (s *TaskService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
-		"task": s.publicTaskRunWithAccount(tenantID, updated, TaskCountSummary{}),
+		"task": s.publicTaskRunWithAccount(tenantID, updated),
 	})
 }
 
@@ -326,6 +307,7 @@ func (r createTaskRequest) toTask(w http.ResponseWriter, userEmail string) (Task
 		Mode:              strings.TrimSpace(r.Mode),
 		MatchLimit:        r.MatchLimit,
 		EnableSound:       r.EnableSound,
+		EnableThinking:    r.EnableThinking,
 	}
 
 	if task.PlatformID == "" {
@@ -366,9 +348,13 @@ func publicTaskRun(item TaskRun) map[string]any {
 		"mode":                item.Mode,
 		"match_limit":         item.MatchLimit,
 		"enable_sound":        item.EnableSound,
+		"enable_thinking":     item.EnableThinking,
 		"status":              item.Status,
 		"scanned_count":       item.ScannedCount,
 		"greeted_count":       item.GreetedCount,
+		"daily_greeted_count": item.DailyGreetedCount,
+		"daily_greeted_date":  item.DailyGreetedDate,
+		"today_greeted_count": taskTodayGreetedCount(item),
 		"skipped_count":       item.SkippedCount,
 		"failed_count":        item.FailedCount,
 		"local_task_id":       item.LocalTaskID,
@@ -378,20 +364,28 @@ func publicTaskRun(item TaskRun) map[string]any {
 	}
 }
 
-func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun, todaySummaries map[string]TaskCountSummary) []map[string]any {
+// taskTodayGreetedCount 返回任务当天打招呼数，日期不是今天时返回 0。
+// item 为任务记录，返回值用于任务列表展示今日统计。
+func taskTodayGreetedCount(item TaskRun) int {
+	if item.DailyGreetedDate != time.Now().In(time.Local).Format(time.DateOnly) {
+		return 0
+	}
+	if item.DailyGreetedCount < 0 {
+		return 0
+	}
+	return item.DailyGreetedCount
+}
+
+func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, s.publicTaskRunWithAccount(tenantID, item, todaySummaries[item.ID]))
+		result = append(result, s.publicTaskRunWithAccount(tenantID, item))
 	}
 	return result
 }
 
-func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun, todaySummary TaskCountSummary) map[string]any {
+func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
 	result := publicTaskRun(item)
-	result["today_scanned_count"] = todaySummary.ScannedCount
-	result["today_greeted_count"] = todaySummary.GreetedCount
-	result["today_skipped_count"] = todaySummary.SkippedCount
-	result["today_failed_count"] = todaySummary.FailedCount
 	if item.PlatformAccountID != "" && tenantID != "" {
 		account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
 		if err == nil {
@@ -486,7 +480,7 @@ func modeLabel(mode string) string {
 	return "AI筛选"
 }
 
-// Run 启动任务异步执行。
+// Run 拒绝旧版云端任务主流程启动。
 func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -515,25 +509,18 @@ func (s *TaskService) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.agentWS == nil || !s.agentWS.IsOnline(session.Email) {
-		stdlog.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=本地WS未连接", task.ID, session.Email)
-		writeError(w, http.StatusConflict, "local agent websocket is not connected")
-		return
-	}
-
 	if task.Status == "running" {
 		stdlog.Printf("[任务开始] 拒绝执行 task=%s user=%s 原因=任务状态已是%s", task.ID, session.Email, task.Status)
 		writeError(w, http.StatusBadRequest, "task is already "+task.Status)
 		return
 	}
 
-	// 异步执行任务，不阻塞 HTTP 响应
-	stdlog.Printf("[任务开始] 已接受执行 task=%s user=%s platform=%s account=%s position=%s mode=%s", task.ID, session.Email, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode)
-	go s.executeTask(task)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":     true,
-		"status": "running",
+	stdlog.Printf("[任务开始] 拒绝旧云端主流程 task=%s user=%s", task.ID, session.Email)
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"ok":      false,
+		"code":    http.StatusConflict,
+		"message": "任务主流程已迁移到本地程序，请从本地程序启动任务",
+		"msg":     "任务主流程已迁移到本地程序，请从本地程序启动任务",
 	})
 }
 
@@ -560,10 +547,12 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load task")
 		return
 	}
-	s.cancelTask(task.ID)
 	stdlog.Printf("[任务停止] 收到停止请求 task=%s user=%s", task.ID, session.Email)
-	_ = s.store.UpdateTaskStatus(task.ID, "stopped")
-	_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+	if task.Status != "stopped" {
+		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+		s.sendTaskStatusNotice(task, "stopped", "")
+	}
 	s.releaseTaskCookieIfOwned(tenantID, task, "停止任务时释放占用的 cookie", func(level, message string) {
 		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
 	})
@@ -571,178 +560,6 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 		"ok":     true,
 		"status": "stopped",
 	})
-}
-
-// executeTask 在 goroutine 中执行任务编排流程。
-func (s *TaskService) executeTask(task TaskRun) {
-	ctx, cancel := context.WithCancel(context.Background())
-	if !s.registerTaskCancel(task.ID, cancel) {
-		cancel()
-		stdlog.Printf("[任务流程] task=%s 注册取消器失败：任务已在运行", task.ID)
-		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已在运行中")
-		return
-	}
-	defer s.unregisterTaskCancel(task.ID)
-
-	log := func(level, message string) {
-		stdlog.Printf("[任务流程] task=%s level=%s message=%s", task.ID, level, message)
-		// 调用任务日志存储写入日志，供前端展示运行摘要
-		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
-	}
-
-	log("info", fmt.Sprintf("任务 %s 开始执行", task.ID))
-	disconnectReason := "task_finished"
-	var releaseClaim func()
-	defer func() {
-		if releaseClaim != nil {
-			releaseClaim()
-		}
-		if err := s.taskLogs.FlushLogs(task.ID, task.UserEmail); err != nil {
-			stdlog.Printf("[任务流程] task=%s 刷新缓存日志失败: %v", task.ID, err)
-		}
-	}()
-	defer func() {
-		s.notifyLocalAgentDisconnect(task, disconnectReason, log)
-	}()
-
-	tenantID := ""
-	if s.tenantStore != nil {
-		tenantID, _ = s.getTenantInfo(task.UserEmail)
-	}
-	claimedCookie, release, err := s.claimTaskCookie(tenantID, task, log)
-	if err != nil {
-		disconnectReason = "task_failed"
-		log("error", fmt.Sprintf("准备任务 cookie 失败: %v", err))
-		_ = s.store.UpdateTaskStatus(task.ID, "failed")
-		return
-	}
-	releaseClaim = release
-
-	// 更新任务状态为 running
-	_ = s.store.UpdateTaskStatus(task.ID, "running")
-
-	// 读取平台配置
-	cfg, err := s.systemConfigs.Get("platform." + task.PlatformID)
-	if err != nil {
-		disconnectReason = "task_failed"
-		log("error", fmt.Sprintf("读取平台配置失败: %v", err))
-		_ = s.store.UpdateTaskStatus(task.ID, "failed")
-		return
-	}
-
-	platformCfg, err := ParsePlatformConfig(cfg.ConfigValue)
-	if err != nil {
-		disconnectReason = "task_failed"
-		log("error", fmt.Sprintf("解析平台配置失败: %v", err))
-		_ = s.store.UpdateTaskStatus(task.ID, "failed")
-		return
-	}
-
-	// 读取岗位信息
-	position := map[string]any{}
-	if task.PositionID != "" {
-		pos, err := s.positionStore.PositionByID("", sessionEmail(task.UserEmail), task.PositionID, true)
-		if err == nil {
-			// 确保位置不为 nil
-			position = map[string]any{
-				"name":           pos.Name,
-				"keywords":       pos.Keywords,
-				"exclude":        pos.ExcludeKeywords,
-				"is_and_mode":    pos.IsAndMode,
-				"common_config":  pos.CommonConfig,
-				"ai_config":      pos.AIConfig,
-				"keyword_config": pos.KeywordConfig,
-			}
-		}
-	}
-
-	// 读取 AI 配置（供 AI 筛选模式和 Boss 图片详情识别使用）
-	var aiConfig AIConfig
-	if taskRequiresAIConfig(task) && s.aiConfigStore != nil {
-		cfg, err := s.aiConfigStore.UserConfig(task.UserEmail)
-		if err != nil {
-			disconnectReason = "task_failed"
-			log("error", "当前用户未配置 AI，请先在个人配置中填写 AI 服务参数")
-			_ = s.store.UpdateTaskStatus(task.ID, "failed")
-			return
-		}
-		if !cfg.Enabled {
-			disconnectReason = "task_failed"
-			log("error", "当前用户 AI 配置未启用，请先在个人配置中启用 AI")
-			_ = s.store.UpdateTaskStatus(task.ID, "failed")
-			return
-		}
-		aiConfig = cfg
-	}
-	defaultPrompts := loadDefaultPrompts(s.systemConfigs)
-	userPrefs := DefaultUserPreferences()
-	if s.userPrefsStore != nil {
-		if prefs, err := s.userPrefsStore.UserPreferences(task.UserEmail); err == nil {
-			userPrefs = prefs
-		}
-	}
-
-	executor := NewTaskExecutor(task, platformCfg, position, s.agentWS, aiConfig, defaultPrompts, userPrefs, claimedCookie, s.candidateStore, log, func(scanned, greeted, skipped, failed int) {
-		if err := s.store.IncrementTaskCounts(task.ID, scanned, greeted, skipped, failed); err != nil {
-			log("warn", fmt.Sprintf("更新任务统计失败: %v", err))
-		}
-	})
-	if err := executor.Run(ctx); err != nil {
-		if errors.Is(err, context.Canceled) {
-			disconnectReason = "task_stopped"
-			log("warn", "任务已取消")
-			_ = s.store.UpdateTaskStatus(task.ID, "stopped")
-			return
-		}
-		disconnectReason = "task_failed"
-		errMessage := fmt.Sprintf("任务执行失败: %v", err)
-		log("error", errMessage)
-		_ = s.store.UpdateTaskStatus(task.ID, "failed")
-		s.sendTaskStatusNotice(task, "failed", errMessage)
-	} else {
-		disconnectReason = "task_finished"
-		log("info", "本轮任务执行完成，可再次开始")
-		_ = s.store.UpdateTaskStatus(task.ID, "stopped")
-		s.sendTaskStatusNotice(task, "stopped", "")
-	}
-}
-
-// taskRequiresAIConfig 判断任务是否必须配置 AI。
-// Boss 平台详情需要图片 AI 识别，AI 模式也必须配置 AI。
-func taskRequiresAIConfig(task TaskRun) bool {
-	return strings.EqualFold(strings.TrimSpace(task.PlatformID), "boss") ||
-		strings.EqualFold(strings.TrimSpace(task.Mode), "ai")
-}
-
-// notifyLocalAgentDisconnect 通知当前用户的本地程序断开任务 WebSocket。
-// reason 用于记录断开原因，logFn 用于把通知结果写入任务日志。
-func (s *TaskService) notifyLocalAgentDisconnect(task TaskRun, reason string, logFn func(string, string)) {
-	if s.agentWS == nil || !s.agentWS.IsOnline(task.UserEmail) {
-		return
-	}
-	payload := map[string]any{
-		"path": "/api/v1/ws/disconnect",
-		"body": map[string]any{
-			"reason": reason,
-		},
-	}
-	_, err := s.agentWS.SendCommand(task.UserEmail, AgentWSMessage{
-		Type:    "local.http.post",
-		TaskID:  task.ID,
-		Payload: payload,
-	}, 1)
-	if err != nil {
-		message := fmt.Sprintf("通知本地程序断开 WS 失败: %v", err)
-		if logFn != nil {
-			logFn("warn", message)
-		} else {
-			stdlog.Printf("[任务流程] task=%s %s", task.ID, message)
-		}
-		return
-	}
-	if logFn != nil {
-		logFn("info", "已通知本地程序断开 WS")
-	}
 }
 
 // sendTaskStatusNotice 发送任务结束或失败邮件提醒。
@@ -791,31 +608,6 @@ func taskStatusNoticeLabel(status string) string {
 	return "任务结束"
 }
 
-func (s *TaskService) registerTaskCancel(taskID string, cancel context.CancelFunc) bool {
-	s.runningMu.Lock()
-	defer s.runningMu.Unlock()
-	if _, exists := s.runningCancels[taskID]; exists {
-		return false
-	}
-	s.runningCancels[taskID] = cancel
-	return true
-}
-
-func (s *TaskService) cancelTask(taskID string) {
-	s.runningMu.Lock()
-	cancel := s.runningCancels[taskID]
-	s.runningMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func (s *TaskService) unregisterTaskCancel(taskID string) {
-	s.runningMu.Lock()
-	delete(s.runningCancels, taskID)
-	s.runningMu.Unlock()
-}
-
 func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	t, err := s.tenantStore.GetOrCreateTenant(email)
 	if err != nil {
@@ -823,53 +615,6 @@ func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
 	return t.ID, isAdmin
-}
-
-func startOfToday() time.Time {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-}
-
-// sessionEmail 模拟从 session 获取 email（用于内部调用）。
-func sessionEmail(email string) string { return email }
-
-func (s *TaskService) claimTaskCookie(tenantID string, task TaskRun, log func(level, message string)) (*claimedTaskCookie, func(), error) {
-	if tenantID == "" || task.PlatformAccountID == "" || s.cookieStore == nil {
-		return nil, nil, nil
-	}
-
-	rec, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if rec.Status == "in_use" && (!rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID) {
-		return nil, nil, fmt.Errorf("该平台账号正在被其他任务占用")
-	}
-	if rec.Status == "expired" {
-		return nil, nil, fmt.Errorf("该平台账号登录已过期，请重新登录后再开始任务")
-	}
-	if rec.Status != "in_use" || !rec.UsedByTaskID.Valid || rec.UsedByTaskID.String != task.ID {
-		if err := s.cookieStore.UpdateStatus(tenantID, rec.ID, "in_use", task.ID); err != nil {
-			return nil, nil, err
-		}
-	}
-	log("info", fmt.Sprintf("已锁定任务 cookie：账号=%s cookie=%s", rec.DisplayName, rec.ID))
-
-	released := false
-	release := func() {
-		if released {
-			return
-		}
-		released = true
-		s.releaseTaskCookieIfOwned(tenantID, task, "任务结束释放 cookie", log)
-	}
-
-	return &claimedTaskCookie{
-		CookieID:      rec.ID,
-		DisplayName:   rec.DisplayName,
-		EncryptedData: base64.StdEncoding.EncodeToString(rec.EncryptedData),
-		EncryptedKeys: rec.EncryptedKeys,
-	}, release, nil
 }
 
 func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, reason string, log func(level, message string)) {
@@ -907,4 +652,72 @@ func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, re
 	if log != nil {
 		log("info", fmt.Sprintf("%s：账号=%s cookie=%s", reason, current.DisplayName, current.ID))
 	}
+}
+
+// FailNotice 接收本地代理发送的任务失败通知，发送邮件提醒。
+// 请求体中包含 task_id（云端任务 ID）和 error_message（失败原因）。
+// 此接口由本地代理调用，必须携带当前登录用户 token。
+func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	var payload struct {
+		TaskID       string `json:"task_id"`
+		ErrorMessage string `json:"error_message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	taskID := strings.TrimSpace(payload.TaskID)
+	errorMessage := strings.TrimSpace(payload.ErrorMessage)
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "task_id required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	_ = s.store.UpdateTaskStatus(task.ID, "failed")
+	if task.UserEmail == "" {
+		task.UserEmail = session.Email
+	}
+	s.releaseTaskCookieIfOwned(tenantID, task, "任务失败时释放占用的 cookie", func(level, message string) {
+		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
+	})
+	if s.mailer == nil {
+		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
+		return
+	}
+	notice := TaskStatusNotice{
+		TaskID:       task.ID,
+		Status:       "failed",
+		StatusLabel:  "任务失败",
+		PlatformID:   task.PlatformID,
+		Mode:         task.Mode,
+		MatchLimit:   task.MatchLimit,
+		FinishedAt:   time.Now(),
+		ErrorMessage: errorMessage,
+	}
+	if err := s.mailer.SendTaskStatus(task.UserEmail, notice); err != nil {
+		stdlog.Printf("[任务邮件] 发送失败通知邮件失败 task=%s user=%s err=%v", task.ID, task.UserEmail, err)
+		writeError(w, http.StatusInternalServerError, "failed to send email")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": "notified",
+	})
 }

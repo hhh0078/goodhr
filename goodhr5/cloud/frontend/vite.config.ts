@@ -6,7 +6,12 @@ import { resolve } from 'node:path'
 export default defineConfig({
   plugins: [vue(), officialLayoutPlugin(), staticCacheHeadersPlugin(), adminHistoryFallbackPlugin()],
   server: {
-    allowedHosts: ['goodhr5.58it.cn']
+    allowedHosts: ['goodhr5.58it.cn', '127.0.0.1', 'localhost'],
+    hmr: {
+      host: '127.0.0.1',
+      clientPort: 5173,
+      protocol: 'ws',
+    },
   },
   build: {
     rollupOptions: {

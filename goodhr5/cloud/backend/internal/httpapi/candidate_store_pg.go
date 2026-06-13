@@ -463,6 +463,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 	SELECT
 		cp.id,
 		COALESCE(latest_engagement.id::text, ''),
+		COALESCE(latest_engagement.status, ''),
 		COALESCE(latest_engagement.task_id::text, ''),
 		COALESCE(latest_engagement.position_id::text, ''),
 		COALESCE(p.name, ''),
@@ -579,6 +580,7 @@ func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
 	err := scanner.Scan(
 		&item.ID,
 		&item.EngagementID,
+		&item.EngagementStatus,
 		&item.TaskID,
 		&item.PositionID,
 		&item.PositionName,

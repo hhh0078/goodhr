@@ -6,7 +6,7 @@ import { api, cloudApiBase, getAccessToken } from "../apiClient";
  * @returns {Promise<any>} 返回系统指南 JSON。
  */
 export async function getSystemGuide() {
-  const data = await api("/api/help/guide");
+  const data = await api("/api/help/guide", { auth: false });
   return data.guide || {};
 }
 

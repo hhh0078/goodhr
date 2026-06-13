@@ -1,10 +1,17 @@
 // 本文件负责测试任务结束和失败时的邮件提醒。
 package httpapi
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 type taskNoticeMailer struct {
 	notices []TaskStatusNotice
+	emails  []string
 }
 
 // SendLoginCode 忽略登录验证码邮件发送请求。
@@ -19,6 +26,7 @@ func (m *taskNoticeMailer) SendSubscriptionReward(email string, notice Subscript
 
 // SendTaskStatus 记录任务状态邮件内容，方便测试断言。
 func (m *taskNoticeMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+	m.emails = append(m.emails, email)
 	m.notices = append(m.notices, notice)
 	return nil
 }
@@ -66,5 +74,52 @@ func TestSendTaskStatusNotice(t *testing.T) {
 	}
 	if notice.ScannedCount != 10 || notice.GreetedCount != 3 || notice.SkippedCount != 6 || notice.FailedCount != 1 {
 		t.Fatalf("unexpected notice counts: %+v", notice)
+	}
+}
+
+// TestFailNoticeRequiresAuth 验证失败通知会根据 token 查当前用户邮箱。
+func TestFailNoticeRequiresAuth(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "notice@example.com")
+	server.tasks.mailer = &taskNoticeMailer{}
+
+	task, err := server.tasks.store.CreateTask(TaskRun{
+		UserEmail:  "notice@example.com",
+		PlatformID: "boss",
+		Mode:       "ai",
+		MatchLimit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"task_id":       task.ID,
+		"error_message": "本地任务失败",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/fail-notice", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+
+	routes.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	mailer, ok := server.tasks.mailer.(*taskNoticeMailer)
+	if !ok {
+		t.Fatal("mailer type mismatch")
+	}
+	if len(mailer.emails) != 1 || mailer.emails[0] != "notice@example.com" {
+		t.Fatalf("emails = %+v", mailer.emails)
+	}
+	if len(mailer.notices) != 1 {
+		t.Fatalf("notice count = %d", len(mailer.notices))
+	}
+	if mailer.notices[0].TaskID != task.ID || mailer.notices[0].ErrorMessage != "本地任务失败" {
+		t.Fatalf("notice = %+v", mailer.notices[0])
 	}
 }

@@ -2,7 +2,7 @@
   <section class="panel">
     <div class="panel-header">
       <h2>控制台</h2>
-      <button class="ghost" :disabled="agent.checking.value" @click="agent.detect(agent.user, agent.token)">重新检测</button>
+      <button class="ghost" :disabled="agent.checking.value" @click="redetect">重新检测</button>
     </div>
     <div class="agent-info">
       <dl>
@@ -12,18 +12,12 @@
         <dd v-if="requiresUpdate" class="warn">请更新本地程序到 {{ requiredVersion }} 或更高版本</dd>
         <dt v-if="agent.info">版本</dt>
         <dd v-if="agent.info">{{ agent.info.value?.version }}</dd>
-        <dt>绑定</dt>
-        <dd :class="{ error: agent.bindStatus.value === '绑定失败' }">{{ agent.bindStatus.value }}</dd>
-        <dt>WS</dt>
-        <dd :class="{ success: agent.wsStatus.value === '已连接', error: agent.wsStatus.value.includes('失败') }">{{ agent.wsStatus.value }}</dd>
         <dt v-if="agent.info">机器码</dt>
         <dd v-if="agent.info" class="hint">{{ (agent.info.value?.machine_id || '').slice(0, 20) }}...</dd>
         <dt v-if="agent.baseUrl">地址</dt>
         <dd v-if="agent.baseUrl">{{ agent.baseUrl.value }}</dd>
       </dl>
     </div>
-    <p v-if="agent.bindError.value" class="error">{{ agent.bindError.value }}</p>
-    <p v-if="agent.wsError.value" class="error">{{ agent.wsError.value }}</p>
     <p v-if="!agent.info && !agent.checking.value" class="hint">
       未检测到本地程序，请先下载并启动 GoodHR 5 Local Agent。
     </p>
@@ -35,12 +29,20 @@ import { computed } from "vue";
 
 const props = defineProps({ agent: Object, appConfig: Object })
 
-const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "5.0.0"));
+const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "--"));
 const localVersion = computed(() => String(props.agent?.info?.value?.version || ""));
 const requiresUpdate = computed(() => {
   if (!localVersion.value) return false;
   return compareVersions(localVersion.value, requiredVersion.value) < 0;
 });
+
+/**
+ * 重新检测本地程序。
+ * @returns {void} 无返回值。
+ */
+function redetect() {
+  void props.agent?.detect();
+}
 
 /**
  * 比较两个版本号大小。

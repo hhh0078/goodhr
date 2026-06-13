@@ -6,6 +6,7 @@
     :token="app.auth.token.value"
     :agent="app.agent"
     @open-candidates="openTaskCandidates"
+    @request-login="app.requestLogin"
   />
 </template>
 

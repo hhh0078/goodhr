@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
     status TEXT NOT NULL DEFAULT 'created',
     scanned_count INTEGER NOT NULL DEFAULT 0,
     greeted_count INTEGER NOT NULL DEFAULT 0,
+    daily_greeted_count INTEGER NOT NULL DEFAULT 0,
+    daily_greeted_date DATE NOT NULL DEFAULT CURRENT_DATE,
     skipped_count INTEGER NOT NULL DEFAULT 0,
     failed_count INTEGER NOT NULL DEFAULT 0,
     local_task_id TEXT NOT NULL DEFAULT '',
@@ -108,6 +110,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
 COMMENT ON TABLE task_runs IS '云端任务运行记录，仅保存摘要不保存候选人详情';
 COMMENT ON COLUMN task_runs.mode IS '筛选模式，例如 keyword 或 ai';
 COMMENT ON COLUMN task_runs.local_task_id IS 'Local Agent 本地任务目录或任务 ID';
+COMMENT ON COLUMN task_runs.daily_greeted_count IS '任务当天已打招呼数量，跨天后由后端自动重置';
+COMMENT ON COLUMN task_runs.daily_greeted_date IS 'daily_greeted_count 对应的日期';
 
 -- task_logs 保存任务运行日志摘要，详细候选人数据仍由本地 Agent 保存。
 CREATE TABLE IF NOT EXISTS task_logs (

@@ -12,6 +12,8 @@ import InvitationView from "../views/InvitationView.vue";
 import PersonalConfigView from "../views/PersonalConfigView.vue";
 import SubscriptionView from "../views/SubscriptionView.vue";
 import HelpView from "../views/HelpView.vue";
+import LocalDataView from "../views/LocalDataView.vue";
+import LoginView from "../views/LoginView.vue";
 import UserManagementView from "../views/admin/UserManagementView.vue";
 import ActivationCodeView from "../views/admin/ActivationCodeView.vue";
 import PaymentRecordsView from "../views/admin/PaymentRecordsView.vue";
@@ -30,6 +32,7 @@ export const menuRouteMap: Record<string, string> = {
   invitation: "invitations",
   "personal-config": "personal-config",
   subscription: "subscription",
+  "local-data": "local-data",
   help: "help",
   "user-management": "users",
   "activation-codes": "activation-codes",
@@ -40,6 +43,7 @@ export const menuRouteMap: Record<string, string> = {
 export const router = createRouter({
   history: createWebHistory("/admin/"),
   routes: [
+    { path: "/login", name: "login", component: LoginView, meta: { fullScreen: true } },
     { path: "/", name: "dashboard", component: DashboardView, meta: { menuId: "agent" } },
     { path: "/agent-download", name: "agent-download", component: AgentDownloadView, meta: { menuId: "agent-download" } },
     { path: "/accounts", name: "accounts", component: AccountView, meta: { menuId: "account" } },
@@ -51,6 +55,7 @@ export const router = createRouter({
     { path: "/invitations", name: "invitations", component: InvitationView, meta: { menuId: "invitation" } },
     { path: "/personal-config", name: "personal-config", component: PersonalConfigView, meta: { menuId: "personal-config" } },
     { path: "/subscription", name: "subscription", component: SubscriptionView, meta: { menuId: "subscription" } },
+    { path: "/local-data", name: "local-data", component: LocalDataView, meta: { menuId: "local-data" } },
     { path: "/help", name: "help", component: HelpView, meta: { menuId: "help" } },
     { path: "/users", name: "users", component: UserManagementView, meta: { menuId: "user-management", superAdmin: true } },
     { path: "/activation-codes", name: "activation-codes", component: ActivationCodeView, meta: { menuId: "activation-codes", superAdmin: true } },
@@ -71,12 +76,12 @@ router.beforeEach((to, from) => normalizeLegacyRoute(to, from));
  */
 function normalizeLegacyRoute(to: RouteLocationNormalized, from?: RouteLocationNormalized) {
   if (to.query.candidate_id && to.name !== "resume-detail") {
-    return { name: "resume-detail", query: { candidate_id: to.query.candidate_id } };
+    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id", "engagement_id", "task_id"]) };
   }
   if (to.query.menu === "resume-detail") {
-    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id"]) };
+    return { name: "resume-detail", query: pickQuery(to.query, ["candidate_id", "engagement_id", "task_id"]) };
   }
-  if ((to.query.menu === "resume-library" || to.query.task_id) && to.name !== "resumes") {
+  if (to.name !== "resume-detail" && (to.query.menu === "resume-library" || to.query.task_id) && to.name !== "resumes") {
     return { name: "resumes", query: pickQuery(to.query, ["task_id"]) };
   }
   const menu = typeof to.query.menu === "string" ? to.query.menu : "";

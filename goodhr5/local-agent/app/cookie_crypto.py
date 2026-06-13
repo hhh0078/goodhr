@@ -71,12 +71,12 @@ def decrypt_cookie_payload(
         返回解密后的 cookies 列表。
     """
     if not encrypted_data_b64:
-        raise ValueError("encrypted_data is required")
+        raise ValueError("Cookie 密文不能为空")
     machine_ids = normalize_machine_ids(machine_id)
     if not machine_ids:
-        raise ValueError("machine_id is required")
+        raise ValueError("机器码不能为空")
     if not isinstance(encrypted_keys, dict) or not encrypted_keys:
-        raise ValueError("encrypted_keys is required")
+        raise ValueError("Cookie 密钥不能为空")
 
     wrapped_key = next((encrypted_keys.get(item) for item in machine_ids if encrypted_keys.get(item)), None)
     if not wrapped_key:

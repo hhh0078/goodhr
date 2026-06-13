@@ -26,6 +26,7 @@ from playwright._impl._errors import TargetClosedError
 import tkinter as tk
 
 from app.settings import browser_download_dir
+from app.local_records import save_local_download
 
 elf = tk.Tk()
 
@@ -169,6 +170,15 @@ async def _save_download(download) -> None:
             "saved_at": datetime.now(timezone.utc).isoformat(),
         }
         target.with_name(target.name + ".json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        save_local_download(
+            {
+                "url": source_url,
+                "file_path": str(target),
+                "file_name": target.name,
+                "size": target.stat().st_size if target.exists() else 0,
+                "status": "saved",
+            }
+        )
         logger.info("浏览器下载已保存 file=%s url=%s", target, source_url or "-")
     except Exception as exc:
         logger.warning("浏览器下载保存失败 file=%s url=%s err=%s", target, source_url or "-", exc)

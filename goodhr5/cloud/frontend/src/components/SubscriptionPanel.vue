@@ -10,7 +10,7 @@
       <div>
         <strong>{{ memberLabel }}</strong>
         <p :class="subscription?.active ? 'success' : 'error'">
-          {{ subscription?.active ? "会员有效" : "会员已到期" }}
+          {{ token ? (subscription?.active ? "会员有效" : "会员已到期") : "请登录" }}
         </p>
       </div>
       <div>
@@ -34,7 +34,7 @@
     <p v-if="message" class="success">{{ message }}</p>
     <p v-if="loading" class="hint">正在读取订阅信息...</p>
 
-    <div class="activation-box">
+    <div v-if="token" class="activation-box">
       <label>
         激活码
         <input v-model="activationCode" placeholder="输入会员激活码" />
@@ -77,13 +77,13 @@
       </article>
     </div>
 
-    <div class="records-head">
+    <div v-if="token" class="records-head">
       <h3>支付记录</h3>
       <button class="ghost" :disabled="loading" @click="loadOrders">
         刷新记录
       </button>
     </div>
-    <div v-if="orders.length" class="record-list">
+    <div v-if="token && orders.length" class="record-list">
       <div v-for="order in orders" :key="order.order_no" class="record-row">
         <div>
           <strong>{{ order.plan_name }}</strong>
@@ -96,7 +96,8 @@
         <span class="hint">{{ formatDate(order.created_at) }}</span>
       </div>
     </div>
-    <p v-else class="hint">暂无支付记录</p>
+    <p v-else-if="token" class="hint">暂无支付记录</p>
+    <p v-else class="hint">登录后可查看会员状态、激活码和支付记录。</p>
   </section>
 </template>
 
@@ -110,6 +111,8 @@ import {
   redeemActivationCode,
 } from "../services/api/subscriptionApi";
 
+const props = defineProps<{ token?: string }>();
+const emit = defineEmits(["request-login"]);
 const subscription = ref<any>(null);
 const plans = ref<any[]>([]);
 const orders = ref<any[]>([]);
@@ -120,7 +123,7 @@ const payingPlanId = ref("");
 const activationCode = ref("");
 const activating = ref(false);
 const memberLabel = computed(
-  () => `${subscription.value?.member_type || "plus"} 会员`,
+  () => props.token ? `${subscription.value?.member_type || "plus"} 会员` : "会员",
 );
 
 /**
@@ -132,13 +135,18 @@ async function load() {
   error.value = "";
   message.value = "";
   try {
-    const [nextSubscription, nextPlans, nextOrders] = await Promise.all([
+    const nextPlans = await listSubscriptionPlans();
+    plans.value = nextPlans;
+    if (!props.token) {
+      subscription.value = null;
+      orders.value = [];
+      return;
+    }
+    const [nextSubscription, nextOrders] = await Promise.all([
       getSubscriptionStatus(),
-      listSubscriptionPlans(),
       listPaymentOrders(),
     ]);
     subscription.value = nextSubscription;
-    plans.value = nextPlans;
     orders.value = nextOrders;
   } catch (e: any) {
     error.value = e.message || "读取订阅信息失败";
@@ -152,6 +160,10 @@ async function load() {
  * @returns {Promise<void>} 无返回值。
  */
 async function redeemCode() {
+  if (!props.token) {
+    emit("request-login");
+    return;
+  }
   const code = activationCode.value.trim();
   if (!code) return;
   activating.value = true;
@@ -173,6 +185,10 @@ async function redeemCode() {
  * @returns {Promise<void>} 无返回值。
  */
 async function loadOrders() {
+  if (!props.token) {
+    emit("request-login");
+    return;
+  }
   error.value = "";
   try {
     orders.value = await listPaymentOrders();
@@ -187,6 +203,10 @@ async function loadOrders() {
  * @returns {Promise<void>} 无返回值。
  */
 async function pay(plan: any) {
+  if (!props.token) {
+    emit("request-login");
+    return;
+  }
   if (!plan?.id) return;
   payingPlanId.value = plan.id;
   error.value = "";

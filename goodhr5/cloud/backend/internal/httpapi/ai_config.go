@@ -136,8 +136,24 @@ func (s *AIConfigService) Effective(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"config": publicAIConfig(user),
+		"config": publicAIConfigForRequest(user, r),
 	})
+}
+
+// publicAIConfigForRequest 按请求场景返回 AI 配置。
+// config 为用户配置，r 为 HTTP 请求；本地 Agent 可通过 reveal_api_key=1 获取明文 Key。
+func publicAIConfigForRequest(config AIConfig, r *http.Request) map[string]any {
+	result := publicAIConfig(config)
+	if shouldRevealAPIKey(r) {
+		result["api_key"] = config.APIKey
+	}
+	return result
+}
+
+// shouldRevealAPIKey 判断本次请求是否允许返回明文 AI Key。
+// r 为 HTTP 请求，本地程序传 reveal_api_key=1 时返回 true。
+func shouldRevealAPIKey(r *http.Request) bool {
+	return r != nil && r.URL.Query().Get("reveal_api_key") == "1"
 }
 
 // currentSession 从请求中解析登录会话。

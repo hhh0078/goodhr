@@ -1,6 +1,9 @@
 <template>
-  <LoginForm v-if="!user" :auth="auth" />
-  <div v-else class="app-layout">
+  <RouterView v-if="isFullScreenRoute" />
+  <div v-else-if="!authReady" class="auth-boot">
+    <strong>正在检查登录状态...</strong>
+  </div>
+  <div v-else-if="user" class="app-layout">
     <aside class="menu-panel">
       <div class="menu-bar">
         <span class="bar-btn bar-close"></span
@@ -25,8 +28,9 @@
         <div class="menu-item impert" @click="goInvitation">
           <span class="prompt">&gt;</span><span>不想付钱?点我</span>
         </div>
-        <div class="menu-item" @click="auth.logout">
-          <span class="prompt">&gt;</span><span>登出</span>
+        <div class="menu-item" @click="user ? auth.logout() : requestLogin()">
+          <span class="prompt">&gt;</span
+          ><span>{{ user ? "登出" : "登录" }}</span>
         </div>
       </div>
     </aside>
@@ -34,7 +38,14 @@
       <div class="top-bar">
         <span class="prompt">$</span><span class="cmd">百度搜GoodHR</span>
         <span class="spacer"></span>
-        <span class="top-info">{{ user?.email }}</span
+        <button
+          v-if="!user"
+          class="top-info top-link error"
+          @click="requestLogin"
+        >
+          请登录
+        </button>
+        <span v-else class="top-info">{{ user.email }}</span
         ><span class="sep">|</span>
         <span class="top-info">{{ currentRoleLabel }}</span
         ><span class="sep">|</span>
@@ -51,12 +62,8 @@
         >
           {{ agent.status.value }}
         </button>
-        ><span v-if="!agent.machineConflict.value" class="sep">|</span>
-        <button
-          v-if="!agent.machineConflict.value"
-          class="top-info top-link"
-          @click="goMenu('agent-download')"
-        >
+        ><span class="sep">|</span>
+        <button class="top-info top-link" @click="goMenu('agent-download')">
           PID {{ agent.info?.value?.port || "---" }}
         </button>
         <span class="sep">|</span>
@@ -98,7 +105,14 @@
       @confirm="confirmTheme"
       @close="closeThemeSelector"
     />
+    <RequiredRuntimeInstaller :agent="agent" />
+    <RequiredLocalAgentUpdater
+      :agent="agent"
+      :app-config="systemAppConfig"
+      :onboarding-config="onboardingConfig"
+    />
   </div>
+  <AppNotify />
 </template>
 
 <script setup lang="ts">
@@ -107,6 +121,9 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import { getSystemAppConfig } from "./services/api/systemApi";
 import { getSubscriptionStatus } from "./services/api/subscriptionApi";
 import { getOnboardingStatus } from "./services/api/onboardingApi";
+import { listPlatformAccounts } from "./services/api/accountApi";
+import { listTasks } from "./services/api/taskApi";
+import { isLocalConsole } from "./services/localConsole";
 import { useAuth } from "./composables/useAuth";
 import { useAgent } from "./composables/useAgent";
 import { usePositions } from "./composables/usePositions";
@@ -114,7 +131,9 @@ import { usePersonalConfig } from "./composables/usePersonalConfig";
 import { useTasks } from "./composables/useTasks";
 import { provideAppContext } from "./composables/useAppContext";
 import { MENU_CACHE_KEY, menuRouteMap } from "./router";
-import LoginForm from "./components/LoginForm.vue";
+import AppNotify from "./components/AppNotify.vue";
+import RequiredRuntimeInstaller from "./components/RequiredRuntimeInstaller.vue";
+import RequiredLocalAgentUpdater from "./components/RequiredLocalAgentUpdater.vue";
 import ThemeSelector from "./components/ThemeSelector.vue";
 import {
   initOnboarding,
@@ -138,7 +157,7 @@ const positions = usePositions();
 const personalConfig = usePersonalConfig();
 const { user } = auth;
 const systemAppConfig = ref({
-  local_agent_version: "5.0.0",
+  local_agent_version: "",
   announcements_enabled: false,
   announcements: [],
 });
@@ -156,19 +175,25 @@ const cachedTheme = loadCachedTheme();
 const selectedTheme = ref<ThemeID>(cachedTheme || APP_THEMES[0].id);
 const hasCachedTheme = ref(Boolean(cachedTheme));
 const themeSelectorVisible = ref(!cachedTheme);
+const authReady = ref(false);
 applyTheme(selectedTheme.value);
-const tasks = useTasks(agent.baseUrl, () => {
-  goMenu("subscription");
-  loadSubscriptionStatus();
-});
+const tasks = useTasks(
+  agent.baseUrl,
+  () => {
+    goMenu("subscription");
+    loadSubscriptionStatus();
+  },
+  resolvePositionSnapshot,
+);
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
-const currentRoleLabel = computed(() => user.value?.role_label || "成员");
+const currentRoleLabel = computed(() => user.value?.role_label || "游客");
+const isFullScreenRoute = computed(() => Boolean(route.meta.fullScreen));
 const activeMenu = computed(() => String(route.meta.menuId || "agent"));
 const menuItems = computed(() => {
   const items = [
     { id: "agent", label: "控制台" },
     { id: "account", label: "平台账号" },
-    { id: "position", label: "岗位模板" },
+    { id: "position", label: "岗位管理" },
     { id: "task-list", label: "任务列表" },
     { id: "resume-library", label: "简历库" },
     { id: "tenant", label: "团队管理" },
@@ -178,6 +203,9 @@ const menuItems = computed(() => {
     { id: "help", label: "常见问题" },
     { id: "agent-download", label: "本地程序下载" },
   ];
+  if (isLocalConsole()) {
+    items.splice(8, 0, { id: "local-data", label: "本地数据" });
+  }
   if (isSuperAdmin.value) {
     items.push({ id: "user-management", label: "用户管理" });
     items.push({ id: "activation-codes", label: "激活码管理" });
@@ -197,8 +225,21 @@ provideAppContext({
   onboardingProgress,
   onboardingConfig,
   goMenu,
+  requestLogin,
   loadSubscriptionStatus,
 });
+
+/**
+ * 根据岗位模板 ID 返回当前前端内存中的岗位快照。
+ * @param {string} positionID - 岗位模板 ID。
+ * @returns {any} 岗位模板快照。
+ */
+function resolvePositionSnapshot(positionID: string) {
+  return (
+    positions.positions.value.find((item: any) => item.id === positionID) || {}
+  );
+}
+
 const agentStatusColor = computed(() => {
   const s = agent.status.value;
   if (s.includes("连接")) return "success";
@@ -275,19 +316,24 @@ function closeThemeSelector() {
 
 watch(user, async (u) => {
   if (u) {
-    initOnboarding(u);
-    refreshOnboardingProgress();
-    await loadOnboardingStatus();
-    await loadSystemAppConfig();
-    await loadSubscriptionStatus();
-    agent.detect(u, auth.token.value);
-    positions.load();
-    personalConfig.load();
-    tasks.load();
+    await initializeUserSession(u);
+  } else {
+    subscription.value = null;
   }
 });
+watch(
+  [authReady, user, () => route.name],
+  () => {
+    requireLoginForBackend();
+  },
+  { immediate: true },
+);
 watch(activeMenu, (menu) => {
   localStorage.setItem(MENU_CACHE_KEY, menu);
+  if (menu === "subscription" && !user.value) {
+    requestLogin();
+    return;
+  }
   if (menu === "subscription") {
     markOnboardingStep("subscription_viewed");
   }
@@ -295,7 +341,6 @@ watch(activeMenu, (menu) => {
 watch(
   [user, menuItems],
   () => {
-    if (!user.value) return;
     if (!menuItems.value.some((item) => item.id === activeMenu.value)) {
       goMenu("agent");
     }
@@ -304,20 +349,43 @@ watch(
 );
 onMounted(async () => {
   window.addEventListener(ONBOARDING_EVENT, refreshOnboardingProgress);
+  refreshOnboardingProgress();
+  await loadSystemAppConfig();
+  detectLocalAgent();
   await auth.loadCurrentUser();
+  authReady.value = true;
+  requireLoginForBackend();
   if (auth.user.value) {
-    initOnboarding(auth.user.value);
-    refreshOnboardingProgress();
-    await loadOnboardingStatus();
-    await loadSystemAppConfig();
-    await loadSubscriptionStatus();
-    agent.detect(auth.user.value, auth.token.value);
-    detectLocalAgent();
-    positions.load();
-    personalConfig.load();
-    tasks.load();
+    await initializeUserSession(auth.user.value);
   }
 });
+
+/**
+ * 后台页面登录门禁。
+ * @returns {void} 无返回值。
+ */
+function requireLoginForBackend() {
+  if (!authReady.value || route.name === "login" || user.value) return;
+  requestLogin();
+}
+
+/**
+ * 初始化登录用户相关数据，并按真实状态补记教学步骤。
+ * @param {any} currentUser - 当前登录用户。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function initializeUserSession(currentUser: any) {
+  initOnboarding(currentUser);
+  refreshOnboardingProgress();
+  await loadOnboardingStatus();
+  await loadSystemAppConfig();
+  await loadSubscriptionStatus();
+  await agent.detect();
+  await syncOnboardingByCurrentState();
+  positions.load();
+  personalConfig.load();
+  tasks.load();
+}
 
 /**
  * 跳转到联系我页面。
@@ -332,11 +400,33 @@ function goContact() {
  * @returns {void} 无返回值。
  */
 function goSubscription() {
-  window.location.href = "/admin/subscription";
+  if (!user.value) {
+    requestLogin();
+    return;
+  }
+  void router.push({ name: "subscription" });
 }
 
 function goInvitation() {
-  window.location.href = "/admin/invitations";
+  if (!user.value) {
+    requestLogin();
+    return;
+  }
+  void router.push({ name: "invitations" });
+}
+
+/**
+ * 跳转到独立登录页面。
+ * @returns {void} 无返回值。
+ */
+function requestLogin() {
+  if (route.name === "login") return;
+  const redirect =
+    route.fullPath && route.fullPath !== "/" ? route.fullPath : "";
+  void router.push({
+    name: "login",
+    query: redirect ? { redirect } : {},
+  });
 }
 
 /**
@@ -347,6 +437,7 @@ async function loadOnboardingStatus() {
   try {
     const data = await getOnboardingStatus();
     onboardingConfig.value = data.config || onboardingConfig.value;
+    localStorage.setItem("system_onboarding_config", JSON.stringify(onboardingConfig.value));
     if (data.onboarding?.completed) {
       onboardingProgress.value = {
         ...onboardingProgress.value,
@@ -372,11 +463,56 @@ function refreshOnboardingProgress() {
 }
 
 /**
+ * 根据当前真实数据补记新手教学步骤。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function syncOnboardingByCurrentState() {
+  if (!user.value) return;
+  if (agent.baseUrl.value && agent.status.value.includes("连接")) {
+    await markOnboardingStep("local_agent");
+  }
+  try {
+    const accounts = await listPlatformAccounts();
+    if (Array.isArray(accounts) && accounts.length > 0) {
+      await markOnboardingStep("platform_account");
+    }
+  } catch {}
+  try {
+    const existingTasks = await listTasks();
+    if (Array.isArray(existingTasks) && existingTasks.some(isStartedTask)) {
+      await markOnboardingStep("task_started");
+    }
+  } catch {}
+}
+
+/**
+ * 判断任务是否已经进入过运行流程。
+ * @param {any} task - 任务对象。
+ * @returns {boolean} 是否可视为已创建并运行过。
+ */
+function isStartedTask(task: any) {
+  const status = String(task?.status || "").trim().toLowerCase();
+  if (["running", "stopped", "failed", "done"].includes(status)) return true;
+  const countKeys = [
+    "scanned_count",
+    "greeted_count",
+    "skipped_count",
+    "failed_count",
+    "today_greeted_count",
+  ];
+  return countKeys.some((key) => Number(task?.[key] || 0) > 0);
+}
+
+/**
  * 跳转到指定菜单页面。
  * @param {string} menu - 菜单 ID。
  * @returns {void} 无返回值。
  */
 function goMenu(menu: string) {
+  if (menu === "subscription" && !user.value) {
+    requestLogin();
+    return;
+  }
   const routeName = menuRouteMap[menu] || "dashboard";
   void router.push({ name: routeName });
   if (menu === "subscription") {
@@ -403,7 +539,7 @@ async function loadSystemAppConfig() {
     );
   } catch {
     systemAppConfig.value = {
-      local_agent_version: "5.0.0",
+      local_agent_version: "",
       announcements_enabled: false,
       announcements: [],
     };
@@ -460,6 +596,10 @@ function closeAnnouncements() {
  * @returns {Promise<void>} 无返回值。
  */
 async function loadSubscriptionStatus() {
+  if (!auth.token.value) {
+    subscription.value = null;
+    return;
+  }
   try {
     subscription.value = await getSubscriptionStatus();
   } catch {
@@ -493,9 +633,9 @@ function isSubscriptionExpired(value: any) {
 }
 
 const detectLocalAgent = () => {
-  //3秒运行一次
+  agent.detect();
   setInterval(() => {
-    agent.detect(auth.user.value, auth.token.value);
+    agent.detect();
   }, 10000);
 };
 </script>
@@ -641,6 +781,14 @@ const detectLocalAgent = () => {
 .content-area {
   flex: 1;
   overflow-y: auto;
+}
+.auth-boot {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--fg-dim);
 }
 .announcement-mask {
   position: fixed;

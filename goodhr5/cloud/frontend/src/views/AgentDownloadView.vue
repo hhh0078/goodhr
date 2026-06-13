@@ -24,11 +24,7 @@
           <dt>版本</dt>
           <dd>{{ app.agent.info.value?.version || "--" }}</dd>
           <dt>要求版本</dt>
-          <dd>{{ app.systemAppConfig.value?.local_agent_version || "5.0.0" }}</dd>
-          <dt>绑定</dt>
-          <dd>{{ app.agent.bindStatus.value }}</dd>
-          <dt>WS</dt>
-          <dd>{{ app.agent.wsStatus.value }}</dd>
+          <dd>{{ app.systemAppConfig.value?.local_agent_version || "--" }}</dd>
         </dl>
       </article>
 
@@ -136,7 +132,7 @@ const helpItems = [
   },
   {
     title: "后台还是显示未连接",
-    reason: "后台需要检测到本地程序已经启动，端口一般是 9001。",
+    reason: "后台需要检测到本地程序已经启动，端口一般是 55271。",
     steps: [
       "确认 GoodHR 本地程序窗口处于运行中。",
       "回到后台点击“重新检测”。",
@@ -168,7 +164,7 @@ const helpItems = [
  * @returns {void} 无返回值。
  */
 function redetect() {
-  void app.agent.detect(app.user.value, app.auth.token.value);
+  void app.agent.detect();
 }
 
 /**

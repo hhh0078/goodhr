@@ -82,7 +82,7 @@ func NewServer() (*Server, error) {
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:            NewTaskService(auth, taskStore, systemConfigStore, positionStore, *taskLogs, aiConfigStore, userPreferencesStore, tenantStore, cookieStore, candidateStore, agentWS, subscriptionStore, mailer),
+		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, cookieStore, candidateStore, subscriptionStore, mailer),
 		taskLogs:         taskLogs,
 		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -142,6 +142,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册任务接口，用于创建任务和展示任务统计摘要。
 	mux.HandleFunc("/api/tasks", s.tasks.Collection)
 	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
+	mux.HandleFunc("/api/fail-notice", s.tasks.FailNotice)
 	mux.HandleFunc("/api/tasks/", s.taskOrLog)
 	// 注册简历库接口，用于查看当前团队或指定任务下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
@@ -178,6 +179,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/stop") {
 		// 调用任务服务停止正在运行的任务。
 		s.tasks.Stop(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/candidates") {
+		// 接收本地程序回传的候选人 JSON，并写入云端简历库。
+		s.tasks.SaveLocalCandidate(w, r)
 		return
 	}
 	// 调用任务服务处理任务详情读取。
@@ -223,11 +229,6 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.auth.SessionFromRequest(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return
-	}
-
 	cfg, err := s.systemConfigs.Get("system.app_config")
 	if err != nil {
 		if errors.Is(err, ErrConfigNotFound) {
@@ -254,13 +255,6 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	// 调用认证服务读取当前用户，限制只返回已登录用户可见的配置。
-	_, err := s.auth.SessionFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
 		return
 	}
 

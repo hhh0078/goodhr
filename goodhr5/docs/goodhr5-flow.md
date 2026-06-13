@@ -134,33 +134,20 @@ onMounted → auth.loadCurrentUser():
 ### 2.3 探测本地 Agent
 
 ```
-agent.detect(user, token):
+agent.detect():
   ├─ checking=true, status="检测中"
-  ├─ 遍历 LOCAL_PORTS: 9001, 9002, ..., 9009
+  ├─ 遍历 LOCAL_PORTS: 55271, 55272, ..., 55279
   │   for each port:
   │     GET http://127.0.0.1:{port}/health (cache: no-store)
   │     ├─ 失败（端口不可达/超时）→ 继续下一个端口
   │     └─ 成功 → 读取响应:
   │         { ok, name: "GoodHR 5 Local Agent",
-  │           version, port, machine_id,
-  │           bound_cloud_user_id }
-  │         │
+  │           version, port, machine_id, local_db }
   │         ├─ status="已连接 (端口 {port})"
   │         ├─ baseUrl="http://127.0.0.1:{port}"   ← 保存供后续任务执行使用
-  │         ├─ 检查 bound_cloud_user_id === user.id
-  │         │   ├─ 是 → bindStatus="已绑定"
-  │         │   └─ 否 → bind(user, token):
-  │         │       POST {baseUrl}/api/v1/session/bind-cloud-user
-  │         │       { cloud_user_id: user.id,  ← ⚠️ user.id 不存在
-  │         │         cloud_email: user.email,
-  │         │         agent_token: token }
-  │         │       └─► Local Agent:
-  │         │           写入 agent_data/cloud_account.json
-  │         │           { cloud_user_id, cloud_email, agent_token, bound_at }
-  │         │           返回 { ok, machine_id, cloud_user_id }
-  │         │           │
-  │         │           ├─ 成功 → bindStatus="已绑定"
-  │         │           └─ 失败 → bindStatus="绑定失败", bindError=message
+  │         ├─ 不绑定云端账号
+  │         ├─ 不连接云端 WebSocket
+  │         ├─ 不向 Local Agent 传登录 token
   │         └─ return（不再尝试后续端口）
   │
   └─ 所有端口都不可达 → status="未检测到本地程序", baseUrl=""
@@ -362,7 +349,7 @@ Position {
 任务列表中点击 [ 运行 ]
   ├─ useTasks.execute(taskId)
   │   └─ POST /api/tasks/{taskId}/run
-  │      Body: { agent_base_url: "http://127.0.0.1:9001" }
+  │      Body: { agent_base_url: "http://127.0.0.1:55271" }
   │      └─► Go task.Run():
   │          ├─ SessionFromRequest() → 校验登录
   │          ├─ TaskByID(email, taskId) → 校验归属

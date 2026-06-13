@@ -51,14 +51,17 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			daily_greeted_date,
 			skipped_count,
 			failed_count,
 			local_task_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'created', 0, 0, 0, 0, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created', 0, 0, 0, CURRENT_DATE, 0, 0, $10)
 		RETURNING
 			id,
 			name,
@@ -68,12 +71,15 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			COALESCE(daily_greeted_date::text, ''),
 			skipped_count,
 			failed_count,
-			local_task_id,
+			COALESCE(local_task_id, ''),
 			created_at,
 			started_at,
 			finished_at
@@ -86,6 +92,7 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		task.Mode,
 		task.MatchLimit,
 		task.EnableSound,
+		task.EnableThinking,
 		localTaskID(task),
 	).Scan(
 		&saved.ID,
@@ -96,9 +103,12 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 		&saved.Mode,
 		&saved.MatchLimit,
 		&saved.EnableSound,
+		&saved.EnableThinking,
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,
+		&saved.DailyGreetedCount,
+		&saved.DailyGreetedDate,
 		&saved.SkippedCount,
 		&saved.FailedCount,
 		&saved.LocalTaskID,
@@ -128,25 +138,28 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		`
 		SELECT
 			tr.id,
-			tr.name,
+			COALESCE(tr.name, ''),
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
 			tr.mode,
 			tr.match_limit,
 			tr.enable_sound,
+			tr.enable_thinking,
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
+			tr.daily_greeted_count,
+			COALESCE(tr.daily_greeted_date::text, ''),
 			tr.skipped_count,
 			tr.failed_count,
-			tr.local_task_id,
+			COALESCE(tr.local_task_id, ''),
 			tr.created_at,
 			tr.started_at,
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.tenant_id = $1
+		WHERE u.tenant_id = NULLIF($1, '')::uuid
 		  AND (u.email = $2 OR $3::boolean)
 		ORDER BY tr.created_at DESC
 		`,
@@ -170,9 +183,12 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 			&item.Mode,
 			&item.MatchLimit,
 			&item.EnableSound,
+			&item.EnableThinking,
 			&item.Status,
 			&item.ScannedCount,
 			&item.GreetedCount,
+			&item.DailyGreetedCount,
+			&item.DailyGreetedDate,
 			&item.SkippedCount,
 			&item.FailedCount,
 			&item.LocalTaskID,
@@ -182,6 +198,7 @@ func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) 
 		); err != nil {
 			return nil, err
 		}
+		normalizeTaskRunDefaults(&item)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -199,25 +216,28 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		`
 		SELECT
 			tr.id,
-			tr.name,
+			COALESCE(tr.name, ''),
 			tr.platform_id,
 			COALESCE(tr.platform_account_id::text, ''),
 			COALESCE(tr.position_id::text, ''),
 			tr.mode,
 			tr.match_limit,
 			tr.enable_sound,
+			tr.enable_thinking,
 			tr.status,
 			tr.scanned_count,
 			tr.greeted_count,
+			tr.daily_greeted_count,
+			COALESCE(tr.daily_greeted_date::text, ''),
 			tr.skipped_count,
 			tr.failed_count,
-			tr.local_task_id,
+			COALESCE(tr.local_task_id, ''),
 			tr.created_at,
 			tr.started_at,
 			tr.finished_at
 		FROM task_runs tr
 		INNER JOIN users u ON u.id = tr.user_id
-		WHERE u.tenant_id = $1 AND (u.email = $2 OR $3::boolean) AND tr.id = $4
+		WHERE (($3::boolean AND $1 = '') OR u.tenant_id = NULLIF($1, '')::uuid) AND (u.email = $2 OR $3::boolean) AND tr.id = $4::uuid
 		`,
 		tenantID, userEmail, isAdmin, taskID,
 	).Scan(
@@ -229,9 +249,12 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 		&item.Mode,
 		&item.MatchLimit,
 		&item.EnableSound,
+		&item.EnableThinking,
 		&item.Status,
 		&item.ScannedCount,
 		&item.GreetedCount,
+		&item.DailyGreetedCount,
+		&item.DailyGreetedDate,
 		&item.SkippedCount,
 		&item.FailedCount,
 		&item.LocalTaskID,
@@ -245,6 +268,7 @@ func (s *PostgresTaskStore) TaskByID(tenantID, userEmail, taskID string, isAdmin
 	if err != nil {
 		return TaskRun{}, err
 	}
+	normalizeTaskRunDefaults(&item)
 	return item, nil
 }
 
@@ -258,9 +282,9 @@ func (s *PostgresTaskStore) DeleteTask(tenantID, userEmail, taskID string, isAdm
 		DELETE FROM task_runs tr
 		USING users u
 		WHERE tr.user_id = u.id
-		  AND u.tenant_id = $1
+		  AND u.tenant_id = NULLIF($1, '')::uuid
 		  AND (u.email = $2 OR $3::boolean)
-		  AND tr.id = $4
+		  AND tr.id = $4::uuid
 		`,
 		tenantID,
 		userEmail,
@@ -304,8 +328,8 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		ctx,
 		`
 		UPDATE task_runs
-		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7
-		WHERE id=$8
+		SET name=$1, platform_account_id=$2, position_id=$3, platform_id=$4, mode=$5, match_limit=$6, enable_sound=$7, enable_thinking=$8
+		WHERE id=$9::uuid
 		RETURNING
 			id,
 			name,
@@ -315,12 +339,15 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 			mode,
 			match_limit,
 			enable_sound,
+			enable_thinking,
 			status,
 			scanned_count,
 			greeted_count,
+			daily_greeted_count,
+			COALESCE(daily_greeted_date::text, ''),
 			skipped_count,
 			failed_count,
-			local_task_id,
+			COALESCE(local_task_id, ''),
 			created_at,
 			started_at,
 			finished_at
@@ -332,6 +359,7 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		task.Mode,
 		task.MatchLimit,
 		task.EnableSound,
+		task.EnableThinking,
 		taskID,
 	).Scan(
 		&saved.ID,
@@ -342,9 +370,12 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 		&saved.Mode,
 		&saved.MatchLimit,
 		&saved.EnableSound,
+		&saved.EnableThinking,
 		&saved.Status,
 		&saved.ScannedCount,
 		&saved.GreetedCount,
+		&saved.DailyGreetedCount,
+		&saved.DailyGreetedDate,
 		&saved.SkippedCount,
 		&saved.FailedCount,
 		&saved.LocalTaskID,
@@ -358,7 +389,25 @@ func (s *PostgresTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, er
 	if err != nil {
 		return TaskRun{}, err
 	}
+	normalizeTaskRunDefaults(&saved)
 	return saved, nil
+}
+
+// normalizeTaskRunDefaults 兜底修正历史任务中的空字段。
+// task 为读取到的任务记录，函数会补齐本地任务 ID 和任务名称。
+func normalizeTaskRunDefaults(task *TaskRun) {
+	if task == nil {
+		return
+	}
+	if task.LocalTaskID == "" {
+		task.LocalTaskID = task.ID
+	}
+	if task.Name == "" {
+		task.Name = "未命名任务"
+	}
+	if task.DailyGreetedDate == "" {
+		task.DailyGreetedDate = time.Now().In(time.Local).Format(time.DateOnly)
+	}
 }
 
 // nullPositionID 校验岗位模板是否属于当前用户，并返回可写入数据库的值。
@@ -424,7 +473,7 @@ func (s *PostgresTaskStore) UpdateTaskStatus(taskID string, status string) error
 			status=$1,
 			started_at=CASE WHEN $1='running' THEN NOW() ELSE started_at END,
 			finished_at=CASE WHEN $1 IN ('failed','stopped') THEN NOW() WHEN $1='running' THEN NULL ELSE finished_at END
-		WHERE id=$2
+		WHERE id=$2::uuid
 	`, status, taskID)
 	return err
 }
@@ -440,8 +489,26 @@ func localTaskID(task TaskRun) string {
 func (s *PostgresTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	today := time.Now().In(time.Local).Format(time.DateOnly)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE task_runs SET scanned_count=scanned_count+$1, greeted_count=greeted_count+$2, skipped_count=skipped_count+$3, failed_count=failed_count+$4 WHERE id=$5`,
-		scanned, greeted, skipped, failed, taskID)
+		`
+		UPDATE task_runs
+		SET
+			scanned_count = scanned_count + $1,
+			greeted_count = greeted_count + $2,
+			daily_greeted_count = CASE
+				WHEN daily_greeted_date = $6::date THEN daily_greeted_count + $2
+				WHEN $2 > 0 THEN $2
+				ELSE daily_greeted_count
+			END,
+			daily_greeted_date = CASE
+				WHEN $2 > 0 THEN $6::date
+				ELSE daily_greeted_date
+			END,
+			skipped_count = skipped_count + $3,
+			failed_count = failed_count + $4
+		WHERE id = $5::uuid
+		`,
+		scanned, greeted, skipped, failed, taskID, today)
 	return err
 }

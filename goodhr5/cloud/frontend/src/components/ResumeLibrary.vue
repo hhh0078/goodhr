@@ -43,7 +43,7 @@
         </select>
       </label>
       <label>
-        岗位模板
+        岗位管理
         <select v-model="filters.positionId">
           <option value="">全部岗位</option>
           <option
@@ -129,9 +129,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { clearTeamCandidates, listCandidates } from "../services/api/candidateApi";
+import {
+  clearTeamCandidates,
+  listCandidates,
+} from "../services/api/candidateApi";
 import { listPositions } from "../services/api/positionApi";
 import { listTasks } from "../services/api/taskApi";
+import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 const props = defineProps({
   initialTaskId: String,
@@ -249,10 +253,16 @@ function goPage(nextPage: number) {
  * @returns {Promise<void>} 无返回值。
  */
 async function clearAllCandidates() {
-  const confirmed = window.confirm(
-    "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
-  );
-  if (!confirmed) return;
+  if (
+    !(await confirmDialog(
+      "确认清空当前团队的全部简历吗？候选人、AI分析记录和互动记录都会被删除，且无法恢复。",
+      {
+        title: "清空简历库",
+        confirmText: "清空",
+      },
+    ))
+  )
+    return;
   clearing.value = true;
   error.value = "";
   try {
@@ -260,25 +270,30 @@ async function clearAllCandidates() {
     candidates.value = [];
     total.value = 0;
     page.value = 1;
+    notifySuccess("简历库已清空");
   } catch (e: any) {
     error.value = e?.message || "清空简历库失败";
+    await alertError(error.value);
   } finally {
     clearing.value = false;
   }
 }
 
 /**
- * 新开页面查看候选人详情。
+ * 跳转到候选人详情页。
  * @param {any} item - 候选人简历对象。
  * @returns {void} 无返回值。
  */
 function openDetail(item: any) {
   if (!item?.id) return;
-  const route = router.resolve({
+  void router.push({
     name: "resume-detail",
-    query: { candidate_id: item.id, engagement_id: item.engagement_id || "" },
+    query: {
+      candidate_id: item.id,
+      engagement_id: item.engagement_id || "",
+      task_id: item.task_id || filters.value.taskId || "",
+    },
   });
-  window.open(route.href, "_blank");
 }
 
 /**

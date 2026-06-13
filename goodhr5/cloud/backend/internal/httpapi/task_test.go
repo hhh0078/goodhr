@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestTaskCreateListDetail 验证任务可以创建、列表展示和读取详情。
@@ -20,7 +21,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	createReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/tasks",
-		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20}`),
+		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20,"enable_thinking":true}`),
 	)
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createResp := httptest.NewRecorder()
@@ -41,6 +42,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 			PositionName string `json:"position_name"`
 			FilterMode   string `json:"mode"`
 			LocalTaskID  string `json:"local_task_id"`
+			Thinking     bool   `json:"enable_thinking"`
 			Position     struct {
 				ID       string   `json:"id"`
 				Name     string   `json:"name"`
@@ -69,6 +71,9 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if createPayload.Task.LocalTaskID == "" {
 		t.Fatal("local_task_id is empty")
 	}
+	if !createPayload.Task.Thinking {
+		t.Fatal("enable_thinking should be true")
+	}
 
 	// 调用任务列表接口，供云端控制台展示任务卡片。
 	listReq := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
@@ -82,6 +87,7 @@ func TestTaskCreateListDetail(t *testing.T) {
 	var listPayload struct {
 		Tasks []struct {
 			ID       string `json:"id"`
+			Thinking bool   `json:"enable_thinking"`
 			Position struct {
 				ID   string `json:"id"`
 				Name string `json:"name"`
@@ -97,6 +103,9 @@ func TestTaskCreateListDetail(t *testing.T) {
 	if listPayload.Tasks[0].Position.ID != positionID || listPayload.Tasks[0].Position.Name != "带货主播" {
 		t.Fatalf("unexpected list position payload: %+v", listPayload.Tasks[0].Position)
 	}
+	if !listPayload.Tasks[0].Thinking {
+		t.Fatal("list enable_thinking should be true")
+	}
 
 	// 调用任务详情接口，供后续展开日志和候选人数据时使用。
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/tasks/"+createPayload.Task.ID, nil)
@@ -105,6 +114,30 @@ func TestTaskCreateListDetail(t *testing.T) {
 	routes.ServeHTTP(detailResp, detailReq)
 	if detailResp.Code != http.StatusOK {
 		t.Fatalf("detail status = %d, body = %s", detailResp.Code, detailResp.Body.String())
+	}
+	var detailPayload struct {
+		Task struct {
+			Thinking bool `json:"enable_thinking"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(detailResp.Body).Decode(&detailPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !detailPayload.Task.Thinking {
+		t.Fatal("detail enable_thinking should be true")
+	}
+}
+
+// TestTaskTodayGreetedCount 验证今日打招呼数不会跨天展示。
+func TestTaskTodayGreetedCount(t *testing.T) {
+	today := time.Now().In(time.Local).Format(time.DateOnly)
+	task := TaskRun{GreetedCount: 12, DailyGreetedCount: 5, DailyGreetedDate: today}
+	if got := taskTodayGreetedCount(task); got != 5 {
+		t.Fatalf("today greeted = %d, want 5", got)
+	}
+	task.DailyGreetedDate = "2000-01-01"
+	if got := taskTodayGreetedCount(task); got != 0 {
+		t.Fatalf("old day greeted = %d, want 0", got)
 	}
 }
 
@@ -135,38 +168,50 @@ func createPositionForTest(t *testing.T, routes http.Handler, token string) stri
 	return payload.Position.ID
 }
 
-// TestBossPositionForcesOCRDetailMode 验证 Boss 岗位模板保存时强制使用 OCR 详情模式。
-func TestBossPositionForcesOCRDetailMode(t *testing.T) {
-	server := mustNewServer(t)
-	routes := server.Routes()
-	token := loginForTest(t, routes, "position-boss@example.com")
+// TestBossPositionDetailModeRules 验证 Boss 支持 AI/OCR，DOM 会兜底改为 OCR。
+func TestBossPositionDetailModeRules(t *testing.T) {
+	for _, item := range []struct {
+		name string
+		mode string
+		want string
+	}{
+		{name: "dom fallback", mode: "dom", want: "ocr"},
+		{name: "ocr keeps", mode: "ocr", want: "ocr"},
+		{name: "ai keeps", mode: "ai", want: "ai"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			server := mustNewServer(t)
+			routes := server.Routes()
+			token := loginForTest(t, routes, "position-boss-"+item.mode+"@example.com")
 
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/positions",
-		bytes.NewBufferString(`{"platform_id":"boss","name":"课程顾问","common_config":{"detail_mode":"dom","mode_default":"ai"}}`),
-	)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp := httptest.NewRecorder()
-	routes.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
-	}
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/positions",
+				bytes.NewBufferString(`{"platform_id":"boss","name":"课程顾问","common_config":{"detail_mode":"`+item.mode+`","mode_default":"ai"}}`),
+			)
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp := httptest.NewRecorder()
+			routes.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
+			}
 
-	var payload struct {
-		Position struct {
-			PlatformID   string         `json:"platform_id"`
-			CommonConfig map[string]any `json:"common_config"`
-		} `json:"position"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Position.PlatformID != "boss" {
-		t.Fatalf("platform_id = %q", payload.Position.PlatformID)
-	}
-	if payload.Position.CommonConfig["detail_mode"] != "ocr" {
-		t.Fatalf("detail_mode = %v, want ocr", payload.Position.CommonConfig["detail_mode"])
+			var payload struct {
+				Position struct {
+					PlatformID   string         `json:"platform_id"`
+					CommonConfig map[string]any `json:"common_config"`
+				} `json:"position"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Position.PlatformID != "boss" {
+				t.Fatalf("platform_id = %q", payload.Position.PlatformID)
+			}
+			if payload.Position.CommonConfig["detail_mode"] != item.want {
+				t.Fatalf("detail_mode = %v, want %s", payload.Position.CommonConfig["detail_mode"], item.want)
+			}
+		})
 	}
 }
 

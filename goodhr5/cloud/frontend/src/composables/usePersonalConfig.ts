@@ -6,6 +6,7 @@ import {
   updateUserPreferences,
 } from "../services/api/personalConfigApi";
 import { markOnboardingStep } from "../services/onboarding";
+import { alertError, notifySuccess } from "../services/notify";
 
 const DEFAULT_AI_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
@@ -27,7 +28,7 @@ export function usePersonalConfig() {
         aiBaseURL: ai?.base_url || DEFAULT_AI_BASE_URL,
         aiModel: ai?.model || data?.ai_model || DEFAULT_AI_MODEL,
         aiAPIKey: "",
-        aiAPIKeyMasked: ai?.api_key_masked || "",
+        aiAPIKeyMasked: localAIKeyLabel(ai),
         aiAPIKeySet: Boolean(ai?.api_key_set),
         clickFrequency: data?.click_frequency ?? 80,
         detailOpenProbability: data?.detail_open_probability ?? 80,
@@ -65,32 +66,18 @@ export function usePersonalConfig() {
         prompt_template: "",
         enabled: true,
       });
-      await updateUserPreferences({
-        ai_model: form.value.aiModel,
-        click_frequency: Number(form.value.clickFrequency || 0),
-        detail_open_probability: Number(form.value.detailOpenProbability || 0),
-        detail_open_delay_min: Number(form.value.detailOpenDelayMin || 0),
-        detail_open_delay_max: Number(form.value.detailOpenDelayMax || 0),
-        detail_close_delay_min: Number(form.value.detailCloseDelayMin || 0),
-        detail_close_delay_max: Number(form.value.detailCloseDelayMax || 0),
-        greet_before_delay_min: Number(form.value.greetBeforeDelayMin || 0),
-        greet_before_delay_max: Number(form.value.greetBeforeDelayMax || 0),
-        rest_after_candidates_min: Number(form.value.restAfterCandidatesMin || 0),
-        rest_after_candidates_max: Number(form.value.restAfterCandidatesMax || 0),
-        rest_times_min: Number(form.value.restTimesMin || 0),
-        rest_times_max: Number(form.value.restTimesMax || 0),
-        rest_duration_min: Number(form.value.restDurationMin || 0),
-        rest_duration_max: Number(form.value.restDurationMax || 0),
-      });
+      await updateUserPreferences(preferencePayload());
       if (form.value.aiAPIKey.trim()) {
         form.value.aiAPIKey = "";
         form.value.aiAPIKeySet = true;
         form.value.aiAPIKeyMasked = "已更新";
       }
       message.value = "个人配置已保存";
+      notifySuccess(message.value);
       await markOnboardingStep("personal_config");
     } catch (e: any) {
       error.value = e.message;
+      await alertError(error.value || "个人配置保存失败");
     } finally {
       loading.value = false;
     }
@@ -103,9 +90,10 @@ export function usePersonalConfig() {
   async function verifyAIBeforeSave() {
     const apiURL = form.value.aiBaseURL.trim();
     const model = form.value.aiModel.trim();
-    const apiKey = form.value.aiAPIKey.trim();
+    let apiKey = form.value.aiAPIKey.trim();
     if (!apiURL) throw new Error("请先填写 AI API 地址");
     if (!model) throw new Error("请先填写 AI 模型");
+
     if (!apiKey) throw new Error("保存前请重新输入 AI Key，用于测试当前配置是否可用");
 
     const response = await fetch(apiURL, {
@@ -132,6 +120,30 @@ export function usePersonalConfig() {
     if (!response.ok || !String(resultText).includes("成功")) {
       throw new Error(`AI 测试未通过，返回信息：\n${formatAIResponse(parsed, rawText)}`);
     }
+  }
+
+  /**
+   * 生成个人偏好保存参数。
+   * @returns {any} 个人偏好参数。
+   */
+  function preferencePayload() {
+    return {
+      ai_model: form.value.aiModel,
+      click_frequency: Number(form.value.clickFrequency || 0),
+      detail_open_probability: Number(form.value.detailOpenProbability || 0),
+      detail_open_delay_min: Number(form.value.detailOpenDelayMin || 0),
+      detail_open_delay_max: Number(form.value.detailOpenDelayMax || 0),
+      detail_close_delay_min: Number(form.value.detailCloseDelayMin || 0),
+      detail_close_delay_max: Number(form.value.detailCloseDelayMax || 0),
+      greet_before_delay_min: Number(form.value.greetBeforeDelayMin || 0),
+      greet_before_delay_max: Number(form.value.greetBeforeDelayMax || 0),
+      rest_after_candidates_min: Number(form.value.restAfterCandidatesMin || 0),
+      rest_after_candidates_max: Number(form.value.restAfterCandidatesMax || 0),
+      rest_times_min: Number(form.value.restTimesMin || 0),
+      rest_times_max: Number(form.value.restTimesMax || 0),
+      rest_duration_min: Number(form.value.restDurationMin || 0),
+      rest_duration_max: Number(form.value.restDurationMax || 0),
+    };
   }
 
   return { form, loading, error, message, load, save };
@@ -200,4 +212,13 @@ function defaultForm() {
     restDurationMin: 2,
     restDurationMax: 7,
   };
+}
+
+/**
+ * 返回本地 AI Key 显示文案。
+ * @param {any} ai - AI 配置。
+ * @returns {string} 显示文案。
+ */
+function localAIKeyLabel(ai: any) {
+  return ai?.api_key_masked || "";
 }

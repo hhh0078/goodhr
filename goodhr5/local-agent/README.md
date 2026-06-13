@@ -71,7 +71,7 @@ Windows 打包请在 Windows 机器上执行：
 powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 ```
 
-默认从 `127.0.0.1:9001` 到 `127.0.0.1:9009` 自动尝试，遇到端口占用会继续尝试下一个端口。
+默认从 `127.0.0.1:55271` 到 `127.0.0.1:55279` 自动尝试，遇到端口占用会继续尝试下一个端口。
 
 如果设置了 `GOODHR_AGENT_PORT`，会优先尝试该端口，然后继续尝试默认端口范围。
 
@@ -91,13 +91,7 @@ local-agent/agent_data/machine.json
 
 `machine_id` 优先由系统稳定硬件 UUID 哈希生成：macOS 使用 `IOPlatformUUID`，Windows 使用系统硬件 UUID。重装 Local Agent 后，同一台电脑会得到相同机器码；硬件 UUID 不可用时，会用系统类型、主机名、用户目录等信息兜底。本地只保存哈希后的机器码，不保存原始硬件 UUID。
 
-绑定云端账号后会生成：
-
-```text
-local-agent/agent_data/cloud_account.json
-```
-
-本文件保存当前绑定的云端用户 ID、邮箱、本地调用 token 和绑定时间。
+本地程序不再绑定云端账号，也不保存登录 token。
 
 ## Profile 管理
 

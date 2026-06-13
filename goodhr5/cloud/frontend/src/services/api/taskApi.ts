@@ -1,5 +1,12 @@
 // 本文件负责任务和任务日志相关接口。
-import { api } from "../apiClient";
+import { api, cloudApiBase, getAccessToken } from "../apiClient";
+import {
+  clearLocalTaskLogs,
+  listLocalTaskLogs,
+  runLocalTask,
+  stopLocalTask,
+} from "../localAgentApi";
+import { isLocalConsole, localAgentBase } from "../localConsole";
 
 /**
  * 创建招聘任务。
@@ -46,6 +53,12 @@ export async function listTasks() {
  * @returns {Promise<any>} 返回启动结果。
  */
 export async function runTask(taskID: string) {
+  if (isLocalConsole()) {
+    return runLocalTask(localAgentBase(), taskID, {
+      cloud_api_base: cloudApiBase(),
+      token: getAccessToken(),
+    });
+  }
   return api(`/api/tasks/${taskID}/run`, { method: "POST" });
 }
 
@@ -55,6 +68,12 @@ export async function runTask(taskID: string) {
  * @returns {Promise<any>} 返回停止结果。
  */
 export async function stopTask(taskID: string) {
+  if (isLocalConsole()) {
+    return stopLocalTask(localAgentBase(), taskID, {
+      cloud_api_base: cloudApiBase(),
+      token: getAccessToken(),
+    });
+  }
   return api(`/api/tasks/${taskID}/stop`, { method: "POST" });
 }
 
@@ -68,6 +87,9 @@ export async function listTaskLogs(
   taskID: string,
   params: { since?: string; before?: string; limit?: number } = {},
 ) {
+  if (isLocalConsole()) {
+    return listLocalTaskLogs(localAgentBase(), taskID, { limit: params.limit });
+  }
   const queryParams = new URLSearchParams();
   if (params.since) queryParams.set("since", params.since);
   if (params.before) queryParams.set("before", params.before);
@@ -82,5 +104,9 @@ export async function listTaskLogs(
  * @returns {Promise<void>} 无返回值。
  */
 export async function clearTaskLogs(taskID: string) {
+  if (isLocalConsole()) {
+    await clearLocalTaskLogs(localAgentBase(), taskID);
+    return;
+  }
   await api(`/api/tasks/${taskID}/logs`, { method: "DELETE" });
 }

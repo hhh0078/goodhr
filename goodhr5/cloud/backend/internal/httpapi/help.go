@@ -68,9 +68,6 @@ func (s *HelpService) Guide(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, ok := s.currentSession(w, r); !ok {
-		return
-	}
 	guide, err := s.loadGuide()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load system guide")

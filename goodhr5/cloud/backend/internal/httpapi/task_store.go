@@ -8,8 +8,9 @@ import (
 
 type TaskRun struct {
 	ID, UserEmail, Name, PlatformID, PlatformAccountID, PositionID, Mode, Status, LocalTaskID string
-	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount                         int
-	EnableSound                                                                               bool
+	DailyGreetedDate                                                                          string
+	MatchLimit, ScannedCount, GreetedCount, SkippedCount, FailedCount, DailyGreetedCount      int
+	EnableSound, EnableThinking                                                               bool
 	CreatedAt                                                                                 time.Time
 	StartedAt, FinishedAt                                                                     *time.Time
 }
@@ -109,6 +110,7 @@ func (s *MemoryTaskStore) UpdateTask(taskID string, task TaskRun) (TaskRun, erro
 	existing.Mode = task.Mode
 	existing.MatchLimit = task.MatchLimit
 	existing.EnableSound = task.EnableSound
+	existing.EnableThinking = task.EnableThinking
 	s.tasks[taskID] = existing
 	return existing, nil
 }
@@ -123,6 +125,14 @@ func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, s
 	task.GreetedCount += greeted
 	task.SkippedCount += skipped
 	task.FailedCount += failed
+	if greeted > 0 {
+		today := time.Now().In(time.Local).Format(time.DateOnly)
+		if task.DailyGreetedDate != today {
+			task.DailyGreetedDate = today
+			task.DailyGreetedCount = 0
+		}
+		task.DailyGreetedCount += greeted
+	}
 	s.tasks[taskID] = task
 	return nil
 }

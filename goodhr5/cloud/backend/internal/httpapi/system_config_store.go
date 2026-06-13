@@ -154,7 +154,7 @@ func defaultSystemGuideConfig() string {
 				"id": "local-agent",
 				"title": "本地程序",
 				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-				"content": "前端会检测 http://127.0.0.1:9001/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
 			},
 			{
 				"id": "platform-account",
@@ -200,7 +200,7 @@ func defaultSystemGuideConfig() string {
 					"进入平台账号，选择平台并扫码登录，登录成功后保存账号。",
 					"进入岗位模板，填写岗位名称、岗位要求、问候语、关键词、排除词和 AI 筛选提示。",
 					"进入个人配置，填写 AI API 地址、模型、API Key，以及点击详情前、关闭详情前、打招呼前和摸鱼休息参数。",
-					"进入任务列表，选择平台账号、岗位模板、筛选模式和匹配上限，然后点击开始。"
+					"进入任务列表，选择平台账号、岗位模板、筛选模式和本次打招呼上限，然后点击开始。"
 				]
 			},
 			{
@@ -250,7 +250,7 @@ func defaultSystemGuideConfig() string {
 					"账号是已保存的平台账号 cookie。",
 					"岗位模板决定筛选条件和问候语。",
 					"筛选模式包括关键词筛选和 AI 筛选。",
-					"匹配上限表示本次任务最多打招呼的人数。"
+					"本次打招呼上限表示每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。"
 				]
 			},
 			{
@@ -267,7 +267,7 @@ func defaultSystemGuideConfig() string {
 				"id": "errors",
 				"title": "异常处理",
 				"items": [
-					"本地 Agent 未连接：确认本地程序已启动，端口 9001 到 9009 没被占用。",
+					"本地 Agent 未连接：确认本地程序已启动，端口 55271 到 55279 没被占用。",
 					"版本过低：下载并替换新版 GoodHRLocalAgent。",
 					"cookie 解密失败：确认本机已绑定；旧 cookie 需要重新登录或更新。",
 					"平台账号过期：重新扫码登录并保存 cookie。",

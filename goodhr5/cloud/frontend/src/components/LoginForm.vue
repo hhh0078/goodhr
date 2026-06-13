@@ -1,11 +1,19 @@
 <template>
   <div class="terminal-login">
+    <button
+      v-if="allowClose"
+      class="login-close"
+      type="button"
+      @click="$emit('close')"
+    >
+      关闭
+    </button>
     <div ref="keywordWallRef" class="keyword-wall" aria-hidden="true"></div>
     <section class="product-intro">
       <p class="intro-kicker">GoodHR</p>
       <h1>给招聘人员用的自动化工具</h1>
       <p>
-        自动读取招聘平台候选人列表，根据岗位模板和 AI
+        自动读取招聘平台候选人列表，根据岗位管理和 AI
         配置判断是否匹配，再自动查看详情、评分、筛选并打招呼、沟通确认、推送结果、复核信息、邀约面试。
       </p>
       <div class="intro-points">
@@ -14,7 +22,7 @@
         <span>AI自动沟通确认</span>
       </div>
       <p class="intro-note">
-        准备好本地程序、平台账号、岗位模板和个人 AI 配置后，任务就能自动执行。
+        准备好本地程序、平台账号、岗位管理和个人 AI 配置后，任务就能自动执行。
       </p>
     </section>
     <div class="terminal-window">
@@ -72,7 +80,13 @@
             :disabled="!auth.canSendCode.value"
             @click="auth.sendCode"
           >
-            [ {{ auth.sendCodeCooldown.value > 0 ? `${auth.sendCodeCooldown.value}s后重试` : "发送验证码" }} ]
+            [
+            {{
+              auth.sendCodeCooldown.value > 0
+                ? `${auth.sendCodeCooldown.value}s后重试`
+                : "发送验证码"
+            }}
+            ]
           </button>
           <button
             class="terminal-btn primary"
@@ -96,7 +110,8 @@ import {
   createKeywordCanvasBackground,
   type KeywordCanvasBackground,
 } from "../utils/keywordCanvasBackground";
-const props = defineProps({ auth: Object });
+defineEmits(["close"]);
+const props = defineProps({ auth: Object, allowClose: Boolean });
 const emailRef = ref(null);
 const codeRef = ref(null);
 const keywordWallRef = ref<HTMLElement | null>(null);
@@ -174,6 +189,22 @@ watch(
   width: 100%;
   height: 100%;
   display: block;
+}
+.login-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--fg-dim);
+  padding: 7px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.login-close:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .product-intro {
   position: relative;

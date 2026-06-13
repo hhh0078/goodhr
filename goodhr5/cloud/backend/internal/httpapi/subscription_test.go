@@ -37,7 +37,6 @@ func TestSubscriptionStatusAndPlans(t *testing.T) {
 	}
 
 	plansReq := httptest.NewRequest(http.MethodGet, "/api/subscription/plans", nil)
-	plansReq.Header.Set("Authorization", "Bearer "+token)
 	plansResp := httptest.NewRecorder()
 	routes.ServeHTTP(plansResp, plansReq)
 	if plansResp.Code != http.StatusOK {
