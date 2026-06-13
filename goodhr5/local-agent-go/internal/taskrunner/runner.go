@@ -673,13 +673,11 @@ func (r *Runner) saveCandidateResult(ctx context.Context, task localdb.Task, can
 		r.taskLog(task.ID, "warning", "候选人未同步云端：缺少登录 token")
 		return
 	}
-	r.waitPendingAIVisionDecision(ctx, task, candidate)
-	payload := cloneCandidateForCloud(task, candidate)
-	if err := cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(ctx, options.Token, task.ID, payload); err != nil {
-		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
+	if r.savePendingAIVisionCandidateAsync(ctx, task, candidate, options) {
 		return
 	}
-	r.taskLog(task.ID, "info", "候选人已同步云端："+candidateLogName(candidate))
+	payload := cloneCandidateForCloud(task, candidate)
+	r.saveCandidatePayload(ctx, task, payload, options)
 }
 
 // cloneCandidateForCloud 生成候选人云端入库 JSON。
@@ -702,27 +700,45 @@ func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[str
 	return payload
 }
 
-// waitPendingAIVisionDecision 等待图片详情 AI 完整输出并合并简历 JSON。
-// ctx 为请求上下文，task 为任务记录，candidate 为候选人结果。
-func (r *Runner) waitPendingAIVisionDecision(ctx context.Context, task localdb.Task, candidate map[string]any) {
+// savePendingAIVisionCandidateAsync 在后台等待图片详情 AI 完整输出并入库。
+// ctx 为请求上下文，task 为任务记录，candidate 为候选人结果，options 为启动参数。
+func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task localdb.Task, candidate map[string]any, options StartOptions) bool {
 	raw := candidate[pendingAIVisionDecisionKey]
 	resultCh, ok := raw.(<-chan pendingAIDecisionResult)
 	if !ok || resultCh == nil {
-		return
+		return false
 	}
 	delete(candidate, pendingAIVisionDecisionKey)
-	r.taskLog(task.ID, "info", "等待 AI 完整详情输出后再同步简历："+candidateLogName(candidate))
-	select {
-	case result := <-resultCh:
-		if result.Err != nil {
-			r.taskLog(task.ID, "warning", "AI 完整详情输出失败："+result.Err.Error())
-			return
+	payload := cloneCandidateForCloud(task, candidate)
+	name := candidateLogName(candidate)
+	r.taskLog(task.ID, "info", "AI 完整详情输出将后台同步简历："+name)
+	go func() {
+		select {
+		case result := <-resultCh:
+			if result.Err != nil {
+				r.taskLog(task.ID, "warning", "AI 完整详情输出失败："+result.Err.Error())
+				return
+			}
+			mergeVisionDecisionIntoCandidate(payload, result.Decision)
+			r.taskLog(task.ID, "info", "AI 完整详情输出已合并："+name)
+			saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+			defer cancel()
+			r.saveCandidatePayload(saveCtx, task, payload, options)
+		case <-ctx.Done():
+			r.taskLog(task.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
 		}
-		mergeVisionDecisionIntoCandidate(candidate, result.Decision)
-		r.taskLog(task.ID, "info", "AI 完整详情输出已合并："+candidateLogName(candidate))
-	case <-ctx.Done():
-		r.taskLog(task.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
+	}()
+	return true
+}
+
+// saveCandidatePayload 将候选人入库 payload 同步到云端。
+// ctx 为请求上下文，task 为任务记录，payload 为候选人 JSON，options 为启动参数。
+func (r *Runner) saveCandidatePayload(ctx context.Context, task localdb.Task, payload map[string]any, options StartOptions) {
+	if err := cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(ctx, options.Token, task.ID, payload); err != nil {
+		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
+		return
 	}
+	r.taskLog(task.ID, "info", "候选人已同步云端："+candidateLogName(payload))
 }
 
 // mergeVisionDecisionIntoCandidate 合并图片详情 AI 的最终输出。
