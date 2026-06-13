@@ -154,7 +154,7 @@ func defaultSystemGuideConfig() string {
 				"id": "local-agent",
 				"title": "本地程序",
 				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-				"content": "前端会检测 http://127.0.0.1:95271/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
 			},
 			{
 				"id": "platform-account",
@@ -267,7 +267,7 @@ func defaultSystemGuideConfig() string {
 				"id": "errors",
 				"title": "异常处理",
 				"items": [
-					"本地 Agent 未连接：确认本地程序已启动，端口 95271 到 95279 没被占用。",
+					"本地 Agent 未连接：确认本地程序已启动，端口 55271 到 55279 没被占用。",
 					"版本过低：下载并替换新版 GoodHRLocalAgent。",
 					"cookie 解密失败：确认本机已绑定；旧 cookie 需要重新登录或更新。",
 					"平台账号过期：重新扫码登录并保存 cookie。",

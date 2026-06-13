@@ -18,7 +18,7 @@ func TestAgentBindAndCurrent(t *testing.T) {
 	bindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-test","agent_version":"0.1.0","local_port":95271}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-test","agent_version":"0.1.0","local_port":55271}`),
 	)
 	bindReq.Header.Set("Authorization", "Bearer "+token)
 	bindResp := httptest.NewRecorder()
@@ -59,7 +59,7 @@ func TestAgentBindRejectsAnotherMachine(t *testing.T) {
 	firstReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-first","agent_version":"5.0.0","local_port":95271}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-first","agent_version":"5.0.0","local_port":55271}`),
 	)
 	firstReq.Header.Set("Authorization", "Bearer "+token)
 	firstResp := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestAgentBindRejectsAnotherMachine(t *testing.T) {
 	secondReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-second","agent_version":"5.0.0","local_port":95272}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-second","agent_version":"5.0.0","local_port":55272}`),
 	)
 	secondReq.Header.Set("Authorization", "Bearer "+token)
 	secondResp := httptest.NewRecorder()

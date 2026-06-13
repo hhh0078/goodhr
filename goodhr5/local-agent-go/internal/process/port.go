@@ -13,7 +13,7 @@ func ListenFirstAvailable(host string, start int, end int) (net.Listener, int, e
 		host = "127.0.0.1"
 	}
 	if start <= 0 {
-		start = 95271
+		start = 55271
 	}
 	if end < start {
 		end = start

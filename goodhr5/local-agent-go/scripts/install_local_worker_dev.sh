@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKER_DIR="$ROOT_DIR/worker-node"
-AGENT_PORT="${GOODHR_AGENT_PORT:-95271}"
+AGENT_PORT="${GOODHR_AGENT_PORT:-55271}"
 BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:$AGENT_PORT}"
 NPM_REGISTRY="${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}"
 LOG_DIR="$ROOT_DIR/logs"

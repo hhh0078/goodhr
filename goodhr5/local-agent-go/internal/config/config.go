@@ -12,9 +12,9 @@ const (
 	// DefaultHost 是本地程序默认监听地址。
 	DefaultHost = "127.0.0.1"
 	// DefaultPort 是本地程序默认优先监听端口。
-	DefaultPort = 95271
+	DefaultPort = 55271
 	// MaxPort 是本地程序端口自动探测的最大端口。
-	MaxPort = 95279
+	MaxPort = 55279
 	// AppName 是本地数据目录名称。
 	AppName = "GoodHR"
 	// DefaultRuntimeManifestURL 是运行组件下载清单默认地址。

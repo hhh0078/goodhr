@@ -8,7 +8,7 @@ flowchart LR
   Cloud --> PG["PostgreSQL"]
   Cloud --> Redis["Redis"]
   Cloud --> SMTP["163 SMTP"]
-  Browser --> Agent["Local Agent 127.0.0.1:95271-95279"]
+  Browser --> Agent["Local Agent 127.0.0.1:55271-55279"]
   Agent --> Cloak["CloakBrowser"]
   Cloak --> Platform["Boss / 智联 / 其他招聘平台"]
   Agent --> LocalFiles["agent_data/tasks/*"]
@@ -43,7 +43,7 @@ flowchart LR
 ## 本地 Agent 关键职责
 
 - 只监听 `127.0.0.1`。
-- 自动尝试 `95271-95279` 端口。
+- 自动尝试 `55271-55279` 端口。
 - 提供健康检查、初始化、profile 管理、浏览器控制、页面操作、任务数据管理接口。
 - 保留现有已验证可用的截图和 OCR 实现，迁移时优先复用当前代码。
 - 所有文件读写限制在 `agent_data` 内。

@@ -75,7 +75,7 @@ func TestAdminUserManagementUnbindsAgent(t *testing.T) {
 	bindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-old","agent_version":"5.0.0","local_port":95271}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-old","agent_version":"5.0.0","local_port":55271}`),
 	)
 	bindReq.Header.Set("Authorization", "Bearer "+userToken)
 	bindResp := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestAdminUserManagementUnbindsAgent(t *testing.T) {
 	nextBindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-new","agent_version":"5.0.0","local_port":95272}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-new","agent_version":"5.0.0","local_port":55272}`),
 	)
 	nextBindReq.Header.Set("Authorization", "Bearer "+userToken)
 	nextBindResp := httptest.NewRecorder()
