@@ -31,6 +31,7 @@ const defaultMaxItemsPerRound = 0
 const defaultScrollDistance = 720
 const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
+const pendingAIVisionDecisionKey = "_pending_ai_vision_decision"
 
 // pageEntryCheckAttempts 是入口页面加载检查的最大次数。
 var pageEntryCheckAttempts = 10
@@ -672,6 +673,7 @@ func (r *Runner) saveCandidateResult(ctx context.Context, task localdb.Task, can
 		r.taskLog(task.ID, "warning", "候选人未同步云端：缺少登录 token")
 		return
 	}
+	r.waitPendingAIVisionDecision(ctx, task, candidate)
 	payload := cloneCandidateForCloud(task, candidate)
 	if err := cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(ctx, options.Token, task.ID, payload); err != nil {
 		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
@@ -685,6 +687,9 @@ func (r *Runner) saveCandidateResult(ctx context.Context, task localdb.Task, can
 func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[string]any {
 	payload := make(map[string]any, len(candidate)+5)
 	for key, value := range candidate {
+		if strings.HasPrefix(key, "_pending_") {
+			continue
+		}
 		payload[key] = value
 	}
 	payload["task_id"] = task.ID
@@ -695,6 +700,50 @@ func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[str
 		payload["candidate_name"] = candidateLogName(candidate)
 	}
 	return payload
+}
+
+// waitPendingAIVisionDecision 等待图片详情 AI 完整输出并合并简历 JSON。
+// ctx 为请求上下文，task 为任务记录，candidate 为候选人结果。
+func (r *Runner) waitPendingAIVisionDecision(ctx context.Context, task localdb.Task, candidate map[string]any) {
+	raw := candidate[pendingAIVisionDecisionKey]
+	resultCh, ok := raw.(<-chan pendingAIDecisionResult)
+	if !ok || resultCh == nil {
+		return
+	}
+	delete(candidate, pendingAIVisionDecisionKey)
+	r.taskLog(task.ID, "info", "等待 AI 完整详情输出后再同步简历："+candidateLogName(candidate))
+	select {
+	case result := <-resultCh:
+		if result.Err != nil {
+			r.taskLog(task.ID, "warning", "AI 完整详情输出失败："+result.Err.Error())
+			return
+		}
+		mergeVisionDecisionIntoCandidate(candidate, result.Decision)
+		r.taskLog(task.ID, "info", "AI 完整详情输出已合并："+candidateLogName(candidate))
+	case <-ctx.Done():
+		r.taskLog(task.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
+	}
+}
+
+// mergeVisionDecisionIntoCandidate 合并图片详情 AI 的最终输出。
+// candidate 为候选人结果，decision 为完整 AI 决策。
+func mergeVisionDecisionIntoCandidate(candidate map[string]any, decision localai.Decision) {
+	if text := strings.TrimSpace(decision.DetailText); text != "" {
+		candidate["ai_vision_text"] = text
+	}
+	if len(decision.Usage) > 0 {
+		candidate["ai_usage"] = decision.Usage
+	}
+	if decision.ElapsedMS > 0 {
+		candidate["ai_elapsed_ms"] = decision.ElapsedMS
+	}
+	if decision.ResumeData != nil && len(decision.ResumeData) > 0 {
+		for key, value := range decision.ResumeData {
+			if _, exists := candidate[key]; !exists && value != nil {
+				candidate[key] = value
+			}
+		}
+	}
 }
 
 // buildTaskRuntimeSnapshot 在任务启动时集中读取云端运行配置。
@@ -1034,6 +1083,12 @@ type batchProcessResult struct {
 	Failed  int
 }
 
+// pendingAIDecisionResult 表示后台等待完整 AI 输出的结果。
+type pendingAIDecisionResult struct {
+	Decision localai.Decision
+	Err      error
+}
+
 // candidatePipelineResult 表示单个候选人后台处理结果。
 type candidatePipelineResult struct {
 	Index          int
@@ -1284,14 +1339,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				candidate["ai_usage"] = decision.Usage
 				candidate["ai_elapsed_ms"] = decision.ElapsedMS
 				candidate["ai_greet_scored"] = true
-				// 将 AI 返回的结构化简历数据合并到 candidate，供 SaveCandidate 入库
-				if decision.ResumeData != nil && len(decision.ResumeData) > 0 {
-					for rk, rv := range decision.ResumeData {
-						if _, exists := candidate[rk]; !exists && rv != nil {
-							candidate[rk] = rv
-						}
-					}
-				}
+				mergeVisionDecisionIntoCandidate(candidate, decision)
 				if !decision.ShouldGreet {
 					candidate["status"] = "skipped"
 					candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
@@ -1526,15 +1574,28 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 	if err != nil {
 		return localai.Decision{}, fmt.Errorf("读取详情截图失败：%w", err)
 	}
-	earlyLogged := false
+	earlyCh := make(chan localai.Decision, 1)
+	finalCh := make(chan pendingAIDecisionResult, 1)
 	streamingClient := client.WithEarlyDecision(func(decision localai.Decision) {
-		if earlyLogged {
-			return
+		select {
+		case earlyCh <- decision:
+		default:
 		}
-		earlyLogged = true
-		r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 	})
-	return streamingClient.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
+	go func() {
+		decision, err := streamingClient.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
+		finalCh <- pendingAIDecisionResult{Decision: decision, Err: err}
+	}()
+	select {
+	case decision := <-earlyCh:
+		candidate[pendingAIVisionDecisionKey] = (<-chan pendingAIDecisionResult)(finalCh)
+		r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		return decision, nil
+	case final := <-finalCh:
+		return final.Decision, final.Err
+	case <-ctx.Done():
+		return localai.Decision{}, ctx.Err()
+	}
 }
 
 // scoreCandidateForDetail 使用本地 AI 给单个候选人计算看详情评分。
