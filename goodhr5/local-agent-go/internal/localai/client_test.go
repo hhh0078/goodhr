@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/localdb"
@@ -63,8 +64,11 @@ func TestChatStreamProgress(t *testing.T) {
 	defer server.Close()
 
 	updates := []string{}
+	earlyDecisions := []Decision{}
 	client := New(localdb.AIConfig{BaseURL: server.URL, APIKey: "key-1", Model: "model-1", Timeout: 5}).WithProgress(func(text string) {
 		updates = append(updates, text)
+	}).WithEarlyDecision(func(decision Decision) {
+		earlyDecisions = append(earlyDecisions, decision)
 	})
 	decision, err := client.ScoreForGreet(
 		t.Context(),
@@ -74,7 +78,27 @@ func TestChatStreamProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !decision.ShouldGreet || decision.Score != 88 || len(updates) < 2 {
-		t.Fatalf("decision=%+v updates=%v", decision, updates)
+	if !decision.ShouldGreet || decision.Score != 88 || len(updates) < 2 || len(earlyDecisions) != 1 {
+		t.Fatalf("decision=%+v updates=%v early=%+v", decision, updates, earlyDecisions)
+	}
+	if !earlyDecisions[0].ShouldGreet || earlyDecisions[0].Threshold != 70 {
+		t.Fatalf("early decision = %+v", earlyDecisions[0])
+	}
+}
+
+// TestTryExtractScoreDecisionFromStream 验证能从复杂流式累计文本中提取评分 JSON。
+func TestTryExtractScoreDecisionFromStream(t *testing.T) {
+	content := strings.Join([]string{
+		"AI分析如下：",
+		"```json",
+		`{"resume":{"name":"张三","text":"这里有 { 字符 }"},"analysis":{"score":"82.5","reason":"经验匹配"}}`,
+		"```",
+	}, "\n")
+	decision, ok := TryExtractScoreDecisionFromStream(content)
+	if !ok {
+		t.Fatal("未提前提取到评分 JSON")
+	}
+	if decision.Score != 82.5 || decision.Reason != "经验匹配" {
+		t.Fatalf("decision = %+v", decision)
 	}
 }

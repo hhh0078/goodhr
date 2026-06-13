@@ -1526,7 +1526,15 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 	if err != nil {
 		return localai.Decision{}, fmt.Errorf("读取详情截图失败：%w", err)
 	}
-	return client.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
+	earlyLogged := false
+	streamingClient := client.WithEarlyDecision(func(decision localai.Decision) {
+		if earlyLogged {
+			return
+		}
+		earlyLogged = true
+		r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+	})
+	return streamingClient.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
 }
 
 // scoreCandidateForDetail 使用本地 AI 给单个候选人计算看详情评分。
@@ -1606,7 +1614,7 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	}
 	candidateName := candidateLogName(candidate)
 	r.taskLog(task.ID, "info", "开始 AI 评分："+candidateName)
-	decision, err := client.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+	decision, err := r.scoreCandidateForGreetWithEarlyReturn(ctx, task, candidate, client)
 	if err != nil {
 		r.taskLog(task.ID, "warning", "AI 评分失败："+err.Error())
 		return 0, err
@@ -1625,6 +1633,41 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	candidate["status"] = "ai_passed"
 	r.taskLog(task.ID, "info", fmt.Sprintf("AI 评分通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
 	return 0, nil
+}
+
+// scoreCandidateForGreetWithEarlyReturn 流式评分时提前返回已完整解析到的 score/reason。
+// ctx 为请求上下文，task 为任务记录，candidate 为候选人，client 为 AI 客户端。
+func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
+	type result struct {
+		decision localai.Decision
+		err      error
+	}
+	earlyCh := make(chan localai.Decision, 1)
+	resultCh := make(chan result, 1)
+	streamingClient := client.WithEarlyDecision(func(decision localai.Decision) {
+		select {
+		case earlyCh <- decision:
+		default:
+		}
+	})
+	go func() {
+		decision, err := streamingClient.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+		resultCh <- result{decision: decision, err: err}
+	}()
+	select {
+	case decision := <-earlyCh:
+		r.taskLog(task.ID, "info", fmt.Sprintf("AI 流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		go func() {
+			if final := <-resultCh; final.err != nil {
+				r.taskLog(task.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
+			}
+		}()
+		return decision, nil
+	case final := <-resultCh:
+		return final.decision, final.err
+	case <-ctx.Done():
+		return localai.Decision{}, ctx.Err()
+	}
 }
 
 // tryGreet 带重试地执行单个候选人打招呼。

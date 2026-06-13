@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +64,7 @@ type Client struct {
 	Config         localdb.AIConfig
 	HTTPClient     *http.Client
 	Progress       func(string)
+	EarlyDecision  func(Decision)
 	EnableThinking bool // 开启后显示 reasoning_content 流式思考
 }
 
@@ -114,6 +116,42 @@ func (c *Client) WithProgress(progress func(string)) *Client {
 	return &clone
 }
 
+// WithEarlyDecision 返回带提前评分回调的 AI 客户端副本。
+// earlyDecision 为流式文本中提前解析到评分 JSON 后的回调。
+func (c *Client) WithEarlyDecision(earlyDecision func(Decision)) *Client {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.EarlyDecision = earlyDecision
+	return &clone
+}
+
+// withDecisionThreshold 为提前评分结果补充阈值和动作判断。
+// threshold 为评分阈值，isGreet 表示是否为打招呼评分。
+func (c *Client) withDecisionThreshold(threshold float64, isGreet bool) *Client {
+	if c == nil || c.EarlyDecision == nil {
+		return c
+	}
+	clone := *c
+	origin := c.EarlyDecision
+	clone.EarlyDecision = func(decision Decision) {
+		decision.Score = clampScore(decision.Score)
+		decision.Reason = truncate(decision.Reason, 30)
+		if decision.Reason == "" {
+			decision.Reason = "AI未给出原因"
+		}
+		decision.Threshold = threshold
+		if isGreet {
+			decision.ShouldGreet = decision.Score >= threshold
+		} else {
+			decision.ShouldOpenDetail = decision.Score >= threshold
+		}
+		origin(decision)
+	}
+	return &clone
+}
+
 // ScoreForDetail 给候选人计算查看详情评分。
 // ctx 为请求上下文，position 为岗位快照，candidate 为候选人基础信息。
 func (c *Client) ScoreForDetail(ctx context.Context, position map[string]any, candidate map[string]any) (Decision, error) {
@@ -146,6 +184,7 @@ func (c *Client) ScoreForDetail(ctx context.Context, position map[string]any, ca
 // ctx 为请求上下文，position 为岗位快照，candidate 为候选人信息。
 func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, candidate map[string]any) (Decision, error) {
 	threshold := numberFromAIConfig(position, defaultGreetThreshold, "greet_score_threshold", "greet_threshold")
+	c = c.withDecisionThreshold(threshold, true)
 	prompt := buildGreetPrompt(position, candidate)
 	result, err := c.chat(ctx, prompt, numberFromAIConfig(position, c.Config.Temperature, "temperature"))
 	if err != nil {
@@ -174,6 +213,7 @@ func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, can
 // ctx 为请求上下文，position 为岗位快照，candidate 为候选人信息，imageBytes 为拼接后的详情截图。
 func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]any, candidate map[string]any, imageBytes []byte) (Decision, error) {
 	threshold := numberFromAIConfig(position, defaultGreetThreshold, "greet_score_threshold", "greet_threshold")
+	c = c.withDecisionThreshold(threshold, true)
 	prompt := buildVisionGreetPrompt(position, candidate)
 	content := []map[string]any{
 		{"type": "text", "text": prompt},
@@ -278,7 +318,7 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	}
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 		// log.Printf("[AI流式调试] 检测到 SSE 流式响应，progress=%v", c.Progress != nil)
-		content, usage, err := readChatStream(resp.Body, c.Progress, false)
+		content, usage, err := readChatStream(resp.Body, c.Progress, c.EarlyDecision, false)
 		if err != nil {
 			return ChatResult{}, err
 		}
@@ -290,8 +330,8 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	if err := json.Unmarshal(bodyBytes, &resultPayload); err != nil {
 		// 尝试用 SSE 方式解析（某些供应商 Content-Type 不标准）
 		// log.Printf("[AI流式调试] 非 JSON 响应，尝试 SSE 方式解析，Content-Type=%s", resp.Header.Get("Content-Type"))
-		if c.Progress != nil {
-			content, usage, err := readChatStream(bytes.NewReader(bodyBytes), c.Progress, false)
+		if c.Progress != nil || c.EarlyDecision != nil {
+			content, usage, err := readChatStream(bytes.NewReader(bodyBytes), c.Progress, c.EarlyDecision, false)
 			if err == nil {
 				return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
 			}
@@ -329,14 +369,15 @@ type chatResult struct {
 }
 
 // readChatStream 读取 OpenAI 兼容 SSE 流式响应。
-// reader 为响应体，progress 为实时文本回调。
-func readChatStream(reader io.Reader, progress func(string), enableThinking bool) (string, map[string]any, error) {
+// reader 为响应体，progress 为实时文本回调，earlyDecision 为提前评分回调。
+func readChatStream(reader io.Reader, progress func(string), earlyDecision func(Decision), enableThinking bool) (string, map[string]any, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var builder strings.Builder
 	var displayBuilder strings.Builder
 	usage := map[string]any{}
 	chunkIndex := 0
+	earlySent := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") {
@@ -370,6 +411,12 @@ func readChatStream(reader io.Reader, progress func(string), enableThinking bool
 		}
 		if delta != "" {
 			builder.WriteString(delta)
+			if earlyDecision != nil && !earlySent {
+				if decision, ok := TryExtractScoreDecisionFromStream(builder.String()); ok {
+					earlySent = true
+					earlyDecision(decision)
+				}
+			}
 		}
 		if reasoning != "" {
 			// 累积思考内容到显示用 builder（旧的+新的）
@@ -390,6 +437,118 @@ func readChatStream(reader io.Reader, progress func(string), enableThinking bool
 		return "", nil, fmt.Errorf("读取 AI 流式响应失败：%w", err)
 	}
 	return builder.String(), usage, nil
+}
+
+// TryExtractScoreDecisionFromStream 从累计流式文本中提前提取评分结果。
+// content 为当前已收到的完整文本，返回值 ok 表示已经找到包含 score 和 reason 的完整 JSON。
+func TryExtractScoreDecisionFromStream(content string) (Decision, bool) {
+	for _, item := range completeJSONObjects(content) {
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(item), &payload); err != nil {
+			continue
+		}
+		if score, reason, ok := findScoreReason(payload); ok {
+			return Decision{Score: clampScore(score), Reason: truncate(reason, 30)}, true
+		}
+	}
+	return Decision{}, false
+}
+
+// completeJSONObjects 提取文本中已经闭合的 JSON 对象片段。
+// content 为当前流式累计文本，会忽略字符串内部的大括号。
+func completeJSONObjects(content string) []string {
+	result := []string{}
+	runes := []rune(content)
+	for start, ch := range runes {
+		if ch != '{' {
+			continue
+		}
+		depth := 0
+		inString := false
+		escaped := false
+		for index := start; index < len(runes); index++ {
+			current := runes[index]
+			if inString {
+				if escaped {
+					escaped = false
+					continue
+				}
+				if current == '\\' {
+					escaped = true
+					continue
+				}
+				if current == '"' {
+					inString = false
+				}
+				continue
+			}
+			if current == '"' {
+				inString = true
+				continue
+			}
+			if current == '{' {
+				depth++
+				continue
+			}
+			if current == '}' {
+				depth--
+				if depth == 0 {
+					result = append(result, string(runes[start:index+1]))
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+// findScoreReason 递归查找同一个 JSON 对象里的 score 和 reason。
+// value 为 JSON 解码后的对象。
+func findScoreReason(value any) (float64, string, bool) {
+	switch item := value.(type) {
+	case map[string]any:
+		score, hasScore := numberValueOK(item["score"])
+		reason := stringFromMap(item, "reason")
+		if hasScore && strings.TrimSpace(reason) != "" {
+			return score, reason, true
+		}
+		for _, child := range item {
+			if score, reason, ok := findScoreReason(child); ok {
+				return score, reason, true
+			}
+		}
+	case []any:
+		for _, child := range item {
+			if score, reason, ok := findScoreReason(child); ok {
+				return score, reason, true
+			}
+		}
+	}
+	return 0, "", false
+}
+
+// numberValueOK 将任意数字值转成 float64，并返回是否转换成功。
+// value 为 JSON 字段值。
+func numberValueOK(value any) (float64, bool) {
+	switch item := value.(type) {
+	case float64:
+		return item, true
+	case float32:
+		return float64(item), true
+	case int:
+		return float64(item), true
+	case int64:
+		return float64(item), true
+	case json.Number:
+		if parsed, err := item.Float64(); err == nil {
+			return parsed, true
+		}
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(item), 64); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 // extractStreamDelta 从流式分片中提取增量文本。
