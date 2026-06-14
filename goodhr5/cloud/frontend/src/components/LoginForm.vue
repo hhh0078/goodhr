@@ -8,7 +8,6 @@
     >
       关闭
     </button>
-    <div ref="keywordWallRef" class="keyword-wall" aria-hidden="true"></div>
     <section class="product-intro">
       <p class="intro-kicker">GoodHR</p>
       <h1>给招聘人员用的自动化工具</h1>
@@ -105,17 +104,11 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
-import {
-  createKeywordCanvasBackground,
-  type KeywordCanvasBackground,
-} from "../utils/keywordCanvasBackground";
+import { ref, watch } from "vue";
 defineEmits(["close"]);
 const props = defineProps({ auth: Object, allowClose: Boolean });
 const emailRef = ref(null);
 const codeRef = ref(null);
-const keywordWallRef = ref<HTMLElement | null>(null);
-let keywordBackground: KeywordCanvasBackground | null = null;
 
 /**
  * 聚焦验证码输入框。
@@ -123,37 +116,6 @@ let keywordBackground: KeywordCanvasBackground | null = null;
 function focusCode() {
   codeRef.value?.focus();
 }
-
-/**
- * 创建登录页 OGL 关键词背景。
- */
-async function createKeywordWall() {
-  const host = keywordWallRef.value;
-  if (!host || keywordBackground) return;
-  keywordBackground = await createKeywordCanvasBackground(host, {
-    rowCount: 16,
-    speed: 1.46,
-    minFontSize: 46,
-    maxFontSize: 112,
-    fontScale: 0.082,
-  });
-}
-
-/**
- * 销毁关键词背景，释放 WebGL/canvas 资源。
- */
-function destroyKeywordWall() {
-  keywordBackground?.destroy();
-  keywordBackground = null;
-}
-
-onMounted(() => {
-  createKeywordWall();
-});
-
-onBeforeUnmount(() => {
-  destroyKeywordWall();
-});
 
 watch(
   () => props.auth?.devCode?.value,
@@ -177,18 +139,6 @@ watch(
   width: 100vw;
   padding: 24px;
   background: var(--bg);
-}
-.keyword-wall {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.78;
-}
-.keyword-wall :deep(.keyword-canvas) {
-  width: 100%;
-  height: 100%;
-  display: block;
 }
 .login-close {
   position: fixed;
