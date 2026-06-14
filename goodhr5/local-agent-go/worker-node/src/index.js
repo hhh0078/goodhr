@@ -106,6 +106,7 @@ async function startBrowser(payload) {
     humanize: payload.humanize !== false,
     acceptDownloads: true,
     downloadsPath: payload.downloads_path || downloadDir(),
+    windowsHide: true,
     // 隐藏 Chromium 对 --no-sandbox 等启动参数的顶部提示条。
     args: ["--test-type"],
   };

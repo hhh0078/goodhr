@@ -66,6 +66,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		return WorkerStatus{}, fmt.Errorf("本地程序缺少浏览器控制组件，请重新安装本地程序")
 	}
 	cmd := exec.Command(status.NodePath, status.WorkerEntry)
+	hideCommandWindow(cmd)
 	cmd.Env = append(os.Environ(),
 		"GOODHR_WORKER_ADDR=127.0.0.1:9101",
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,

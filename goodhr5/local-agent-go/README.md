@@ -8,7 +8,7 @@
 - 默认优先监听 `127.0.0.1:55271`，端口被占用时会尝试到 `55279`。
 - `/health` 返回统一 JSON。
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
-- `/api/v1/runtime/install` 支持从 manifest 下载 Node runtime、Node Worker 和 CloakBrowser。
+- `/api/v1/runtime/install` 支持从前端传入配置下载 Node runtime、CloakBrowser 和 OCR；Node Worker 随本地程序安装包内置。
 - `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
 - `/api/v1/console/status` 和 `/api/v1/console/update` 支持检查并更新本地控制台前端包。
 - `/api/v1/local/ocr/status` 和 `/api/v1/local/ocr/recognize` 支持本地 OCR 组件状态和图片文字识别。
@@ -85,7 +85,7 @@ curl -X POST http://127.0.0.1:55271/api/v1/runtime/install-local-worker
 ```bash
 curl -X POST http://127.0.0.1:55271/api/v1/runtime/install \
   -H "Content-Type: application/json" \
-  -d '{"manifest":{"node_runtime":{"win-x64":{"version":"22.19.0","url":"https://oss.58it.cn/goodhr-node-runtime-win-x64.zip","sha256":""}},"node_worker":{"win-x64":{"version":"0.1.0","url":"https://oss.58it.cn/goodhr-browser-worker-win-x64-0.1.0.zip","sha256":""}},"cloakbrowser":{"win-x64":{"version":"146.0.7680.177.5","url":"https://oss.58it.cn/cloakbrowser-windows-x64.zip","sha256":""}},"ocr":{}}}'
+  -d '{"manifest":{"node_runtime":{"win-x64":{"version":"22.19.0","url":"https://oss.58it.cn/goodhr-node-runtime-win-x64.zip","sha256":""}},"cloakbrowser":{"win-x64":{"version":"146.0.7680.177.5","url":"https://oss.58it.cn/cloakbrowser-windows-x64.zip","sha256":""}},"ocr":{}}}'
 ```
 
 实际产品里由前端从 `system.onboarding_config.runtime_components` 读取配置后传给本地程序，不再维护独立的 `goodhr-local-runtime-manifest.json`。

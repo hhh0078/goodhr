@@ -40,7 +40,9 @@ func openDefaultBrowser(url string) error {
 	case "darwin":
 		return exec.Command("open", url).Start()
 	case "windows":
-		return exec.Command("cmd", "/c", "start", "", url).Start()
+		cmd := exec.Command("cmd", "/c", "start", "", url)
+		hideCommandWindow(cmd)
+		return cmd.Start()
 	default:
 		return exec.Command("xdg-open", url).Start()
 	}

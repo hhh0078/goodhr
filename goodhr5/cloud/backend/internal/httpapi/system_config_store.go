@@ -117,10 +117,6 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
 						"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
 					},
-					"node_worker": {
-						"win": {"version": "0.1.0", "url": "https://oss.58it.cn/goodhr-browser-worker-win-x64-0.1.0.zip", "sha256": "1d84febad716db2c41f60e273aa89a116f9b62f92a39f7e3a08f42551b188c5e", "note": "GoodHR 浏览器控制 Worker Windows x64"},
-						"mac": {"version": "0.1.0", "url": "https://oss.58it.cn/goodhr-browser-worker-darwin-arm64-0.1.0.zip", "sha256": "1d84febad716db2c41f60e273aa89a116f9b62f92a39f7e3a08f42551b188c5e", "note": "GoodHR 浏览器控制 Worker macOS Apple Silicon"}
-					},
 					"cloakbrowser": {
 						"win": {"version": "146.0.7680.177.5", "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip", "sha256": "", "note": "CloakBrowser Windows x64"},
 						"mac": {"version": "145.0.7632.109.2", "url": "https://oss.58it.cn/cloakbrowser-darwin-arm64.tar.gz", "sha256": "505582aa1bd3971c577f70e0cbbe016431702bdb693529abfd943b5bd9120c1c", "note": "CloakBrowser macOS Apple Silicon"}

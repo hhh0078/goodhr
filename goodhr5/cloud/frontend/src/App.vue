@@ -202,7 +202,7 @@ const menuItems = computed(() => {
     { id: "personal-config", label: "个人配置" },
     { id: "subscription", label: "订阅" },
     { id: "help", label: "常见问题" },
-    { id: "agent-download", label: "本地程序下载" },
+    { id: "agent-download", label: "组件信息" },
   ];
   if (isLocalConsole()) {
     items.splice(8, 0, { id: "local-data", label: "本地数据" });

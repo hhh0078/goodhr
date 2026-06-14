@@ -9,7 +9,6 @@ type RuntimeAsset = {
 
 type RuntimeManifest = {
   node_runtime: Record<string, RuntimeAsset>;
-  node_worker: Record<string, RuntimeAsset>;
   cloakbrowser: Record<string, RuntimeAsset>;
   ocr: Record<string, RuntimeAsset>;
 };
@@ -23,7 +22,6 @@ const PLATFORM_ALIASES: Record<string, string[]> = {
 
 const COMPONENT_ALIASES: Record<keyof RuntimeManifest, string[]> = {
   node_runtime: ["node_runtime", "nodeRuntime", "node"],
-  node_worker: ["node_worker", "nodeWorker", "worker", "browser_worker", "browserWorker"],
   cloakbrowser: ["cloakbrowser", "cloak_browser", "cloakBrowser", "browser"],
   ocr: ["ocr", "rapidocr", "rapidOCR"],
 };
@@ -43,7 +41,6 @@ export function buildRuntimeInstallPayload() {
     {};
   const manifest: RuntimeManifest = {
     node_runtime: normalizeComponent(source, "node_runtime"),
-    node_worker: normalizeComponent(source, "node_worker"),
     cloakbrowser: normalizeComponent(source, "cloakbrowser"),
     ocr: normalizeComponent(source, "ocr"),
   };

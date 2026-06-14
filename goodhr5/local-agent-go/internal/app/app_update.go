@@ -285,7 +285,9 @@ func startAppInstaller(packagePath string) error {
 			"Start-Sleep -Seconds 2; Start-Process -FilePath '%s' -ArgumentList '/SILENT','/NORESTART'",
 			strings.ReplaceAll(packagePath, "'", "''"),
 		)
-		return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).Start()
+		cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+		hideCommandWindow(cmd)
+		return cmd.Start()
 	case "darwin":
 		if strings.EqualFold(filepath.Ext(packagePath), ".pkg") {
 			return exec.Command("open", packagePath).Start()

@@ -21,7 +21,6 @@ import (
 // Manifest 是本地运行组件下载清单。
 type Manifest struct {
 	NodeRuntime  map[string]Asset `json:"node_runtime"`
-	NodeWorker   map[string]Asset `json:"node_worker"`
 	CloakBrowser map[string]Asset `json:"cloakbrowser"`
 	OCR          map[string]Asset `json:"ocr"`
 }
@@ -103,14 +102,6 @@ func (m *Manager) installLocked(ctx context.Context, manifest Manifest) (Install
 			skipped = append(skipped, "node_runtime")
 		}
 	}
-	if didInstall, err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Worker", "node_worker"); err != nil {
-		m.setProgress(Progress{Running: false, Component: "node_worker", Stage: "failed", Message: err.Error()})
-		return InstallResult{}, err
-	} else if didInstall {
-		installed = append(installed, "node_worker")
-	} else {
-		skipped = append(skipped, "node_worker")
-	}
 	if didInstall, err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
 		return InstallResult{}, err
@@ -135,7 +126,7 @@ func (m *Manager) installLocked(ctx context.Context, manifest Manifest) (Install
 // manifestHasRuntimeAssets 判断配置里是否至少包含一个运行组件下载地址。
 // manifest 为前端整理后的运行组件配置。
 func manifestHasRuntimeAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.NodeWorker, manifest.CloakBrowser, manifest.OCR} {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.CloakBrowser, manifest.OCR} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
 				return true

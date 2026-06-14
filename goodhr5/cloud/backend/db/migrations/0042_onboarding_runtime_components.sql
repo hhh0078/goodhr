@@ -21,20 +21,6 @@ SET
                   "note": "GoodHR Node 运行环境 macOS Apple Silicon"
                 }
               },
-              "node_worker": {
-                "win": {
-                  "version": "0.1.0",
-                  "url": "https://oss.58it.cn/goodhr-browser-worker-win-x64-0.1.0.zip",
-                  "sha256": "1d84febad716db2c41f60e273aa89a116f9b62f92a39f7e3a08f42551b188c5e",
-                  "note": "GoodHR 浏览器控制 Worker Windows x64"
-                },
-                "mac": {
-                  "version": "0.1.0",
-                  "url": "https://oss.58it.cn/goodhr-browser-worker-darwin-arm64-0.1.0.zip",
-                  "sha256": "1d84febad716db2c41f60e273aa89a116f9b62f92a39f7e3a08f42551b188c5e",
-                  "note": "GoodHR 浏览器控制 Worker macOS Apple Silicon"
-                }
-              },
               "cloakbrowser": {
                 "win": {
                   "version": "146.0.7680.177.5",
