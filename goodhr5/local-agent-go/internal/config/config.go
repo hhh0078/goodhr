@@ -17,8 +17,6 @@ const (
 	MaxPort = 55279
 	// AppName 是本地数据目录名称。
 	AppName = "GoodHR"
-	// DefaultRuntimeManifestURL 是运行组件下载清单默认地址。
-	DefaultRuntimeManifestURL = "https://goodhr5.58it.cn/downloads/goodhr-local-runtime-manifest.json"
 	// DefaultConsoleManifestURL 是控制台前端包下载清单默认地址。
 	DefaultConsoleManifestURL = "https://goodhr5.58it.cn/downloads/goodhr-console-manifest.json"
 	// DefaultCloudAPIBase 是本地程序默认访问的云端接口地址。
@@ -36,7 +34,6 @@ type Config struct {
 	ProfilesDir        string
 	DownloadsDir       string
 	ScreenshotsDir     string
-	ManifestURL        string
 	ConsoleManifestURL string
 	CloudAPIBase       string
 	AutoOpenConsole    bool
@@ -78,7 +75,6 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		ProfilesDir:        filepath.Join(dataDir, "profiles"),
 		DownloadsDir:       defaultDownloadsDir(),
 		ScreenshotsDir:     filepath.Join(dataDir, "screenshots"),
-		ManifestURL:        envOrDefault("GOODHR_RUNTIME_MANIFEST_URL", DefaultRuntimeManifestURL),
 		ConsoleManifestURL: envOrDefault("GOODHR_CONSOLE_MANIFEST_URL", DefaultConsoleManifestURL),
 		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", DefaultCloudAPIBase),
 		AutoOpenConsole:    envOrDefault("GOODHR_AUTO_OPEN_CONSOLE", "true") != "false",

@@ -213,7 +213,7 @@ func (s *Server) handleRuntimeEnsure(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, status)
 }
 
-// handleRuntimeInstall 根据 manifest 下载并安装运行组件。
+// handleRuntimeInstall 根据前端传入的运行组件配置下载并安装运行组件。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -225,16 +225,38 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	manifestURL := ""
-	if value, ok := payload["manifest_url"].(string); ok {
-		manifestURL = value
+	manifest, err := runtimeManifestFromPayload(payload)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	status, err := s.runtime.StartInstallFromManifest(manifestURL)
+	status, err := s.runtime.StartInstall(manifest)
 	if err != nil {
 		response.Error(w, http.StatusConflict, err.Error())
 		return
 	}
 	response.Success(w, status)
+}
+
+// runtimeManifestFromPayload 从请求体解析运行组件下载配置。
+// payload 为前端提交的 JSON 请求体。
+func runtimeManifestFromPayload(payload map[string]any) (runtime.Manifest, error) {
+	raw := payload["manifest"]
+	if raw == nil {
+		raw = payload["runtime_components"]
+	}
+	if raw == nil {
+		return runtime.Manifest{}, fmt.Errorf("运行组件下载配置为空")
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return runtime.Manifest{}, fmt.Errorf("运行组件下载配置格式不正确：%w", err)
+	}
+	var manifest runtime.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return runtime.Manifest{}, fmt.Errorf("运行组件下载配置格式不正确：%w", err)
+	}
+	return manifest, nil
 }
 
 // handleWorkerStart 启动 Node Browser Worker。

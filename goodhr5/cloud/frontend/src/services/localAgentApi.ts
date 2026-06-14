@@ -151,7 +151,7 @@ export async function getLocalRuntimeStatus(base: string) {
 /**
  * 触发 Local Agent 更新运行组件。
  * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 可选 manifest_url。
+ * @param {any} payload - 从 system.onboarding_config 生成的运行组件配置。
  * @returns {Promise<any>} 返回更新结果。
  */
 export async function installLocalRuntime(base: string, payload: any = {}) {
@@ -161,7 +161,7 @@ export async function installLocalRuntime(base: string, payload: any = {}) {
 /**
  * 触发 Local Agent 更新控制台前端包。
  * @param {string} base - Local Agent HTTP 基础地址。
- * @param {any} payload - 可选 manifest_url。
+ * @param {any} payload - 可选控制台包 manifest_url。
  * @returns {Promise<any>} 返回更新结果。
  */
 export async function updateLocalConsolePackage(base: string, payload: any = {}) {

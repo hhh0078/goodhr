@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +31,7 @@ type Asset struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
+	Note    string `json:"note,omitempty"`
 }
 
 // InstallResult 表示运行组件安装结果。
@@ -42,40 +42,41 @@ type InstallResult struct {
 	Status    Status   `json:"status"`
 }
 
-// StartInstallFromManifest 在后台启动运行组件安装。
-// manifestURL 为 manifest 地址，返回启动后的组件状态。
-func (m *Manager) StartInstallFromManifest(manifestURL string) (Status, error) {
+// StartInstall 在后台启动运行组件安装。
+// manifest 为前端从 system.onboarding_config 整理后的运行组件配置。
+func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 	if !m.installMu.TryLock() {
 		return m.Status(), fmt.Errorf("运行组件正在更新中，请等待完成")
 	}
-	if strings.TrimSpace(manifestURL) == "" {
-		manifestURL = m.cfg.ManifestURL
+	if !manifestHasRuntimeAssets(manifest) {
+		m.installMu.Unlock()
+		return m.Status(), fmt.Errorf("运行组件下载配置为空，请先在系统配置里填写运行组件下载地址")
 	}
 	m.setProgress(Progress{Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1})
 	go func() {
 		defer m.installMu.Unlock()
-		_, _ = m.installFromManifestLocked(context.Background(), manifestURL)
+		_, _ = m.installLocked(context.Background(), manifest)
 	}()
 	return m.Status(), nil
 }
 
-// InstallFromManifest 根据远程 manifest 安装运行组件。
-// ctx 为请求上下文，manifestURL 为 manifest 地址。
-func (m *Manager) InstallFromManifest(ctx context.Context, manifestURL string) (InstallResult, error) {
+// Install 根据运行组件配置安装运行组件。
+// ctx 为请求上下文，manifest 为运行组件下载配置。
+func (m *Manager) Install(ctx context.Context, manifest Manifest) (InstallResult, error) {
 	if !m.installMu.TryLock() {
 		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
 	}
 	defer m.installMu.Unlock()
-	return m.installFromManifestLocked(ctx, manifestURL)
+	if !manifestHasRuntimeAssets(manifest) {
+		return InstallResult{}, fmt.Errorf("运行组件下载配置为空，请先在系统配置里填写运行组件下载地址")
+	}
+	return m.installLocked(ctx, manifest)
 }
 
-// installFromManifestLocked 根据远程 manifest 安装运行组件。
+// installLocked 根据传入配置安装运行组件。
 // 调用前必须持有安装锁，ctx 为安装上下文。
-func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL string) (InstallResult, error) {
-	if strings.TrimSpace(manifestURL) == "" {
-		manifestURL = m.cfg.ManifestURL
-	}
-	m.setProgress(Progress{Running: true, Stage: "manifest", Message: "正在读取运行组件清单", Percent: 1})
+func (m *Manager) installLocked(ctx context.Context, manifest Manifest) (InstallResult, error) {
+	m.setProgress(Progress{Running: true, Stage: "manifest", Message: "正在读取运行组件配置", Percent: 1})
 	defer func() {
 		progress := m.Progress()
 		if progress.Running {
@@ -86,11 +87,6 @@ func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL str
 			m.setProgress(progress)
 		}
 	}()
-	manifest, err := fetchManifest(ctx, manifestURL)
-	if err != nil {
-		m.setProgress(Progress{Running: false, Stage: "failed", Message: err.Error()})
-		return InstallResult{}, err
-	}
 	platform := platformKey()
 	installed := []string{}
 	skipped := []string{}
@@ -106,6 +102,14 @@ func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL str
 		} else {
 			skipped = append(skipped, "node_runtime")
 		}
+	}
+	if didInstall, err := m.installAsset(ctx, manifest.NodeWorker[platform], "browser-worker", "Node Worker", "node_worker"); err != nil {
+		m.setProgress(Progress{Running: false, Component: "node_worker", Stage: "failed", Message: err.Error()})
+		return InstallResult{}, err
+	} else if didInstall {
+		installed = append(installed, "node_worker")
+	} else {
+		skipped = append(skipped, "node_worker")
 	}
 	if didInstall, err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
 		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
@@ -126,6 +130,19 @@ func (m *Manager) installFromManifestLocked(ctx context.Context, manifestURL str
 		}
 	}
 	return InstallResult{Platform: platform, Installed: installed, Skipped: skipped, Status: m.Status()}, nil
+}
+
+// manifestHasRuntimeAssets 判断配置里是否至少包含一个运行组件下载地址。
+// manifest 为前端整理后的运行组件配置。
+func manifestHasRuntimeAssets(manifest Manifest) bool {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.NodeWorker, manifest.CloakBrowser, manifest.OCR} {
+		for _, asset := range group {
+			if strings.TrimSpace(asset.URL) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // InstallLocalWorker 从仓库源码安装 Node Browser Worker。
@@ -236,29 +253,6 @@ func (m *Manager) componentFileExists(component string) bool {
 	default:
 		return false
 	}
-}
-
-// fetchManifest 下载并解析运行组件清单。
-// ctx 为请求上下文，manifestURL 为清单地址。
-func fetchManifest(ctx context.Context, manifestURL string) (Manifest, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("创建清单请求失败：%w", err)
-	}
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("下载运行组件清单失败：%w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return Manifest{}, fmt.Errorf("下载运行组件清单失败，状态码：%d", resp.StatusCode)
-	}
-	var manifest Manifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return Manifest{}, fmt.Errorf("运行组件清单格式不正确：%w", err)
-	}
-	return manifest, nil
 }
 
 // downloadFile 下载文件到指定路径。
@@ -468,6 +462,9 @@ func platformKey() string {
 	arch := runtime.GOARCH
 	if arch == "amd64" {
 		arch = "x64"
+	}
+	if runtime.GOOS == "windows" {
+		return "win-" + arch
 	}
 	return runtime.GOOS + "-" + arch
 }

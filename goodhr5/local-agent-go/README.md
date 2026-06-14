@@ -85,8 +85,10 @@ curl -X POST http://127.0.0.1:55271/api/v1/runtime/install-local-worker
 ```bash
 curl -X POST http://127.0.0.1:55271/api/v1/runtime/install \
   -H "Content-Type: application/json" \
-  -d '{"manifest_url":"https://goodhr5.58it.cn/goodhr-local-runtime-manifest.json"}'
+  -d '{"manifest":{"node_runtime":{"win-x64":{"version":"22.19.0","url":"https://oss.58it.cn/goodhr-node-runtime-win-x64.zip","sha256":""}},"node_worker":{"win-x64":{"version":"0.1.0","url":"https://oss.58it.cn/goodhr-browser-worker-win-x64-0.1.0.zip","sha256":""}},"cloakbrowser":{"win-x64":{"version":"146.0.7680.177.5","url":"https://oss.58it.cn/cloakbrowser-windows-x64.zip","sha256":""}},"ocr":{}}}'
 ```
+
+实际产品里由前端从 `system.onboarding_config.runtime_components` 读取配置后传给本地程序，不再维护独立的 `goodhr-local-runtime-manifest.json`。
 
 更新控制台前端包：
 
@@ -94,61 +96,6 @@ curl -X POST http://127.0.0.1:55271/api/v1/runtime/install \
 curl -X POST http://127.0.0.1:55271/api/v1/console/update \
   -H "Content-Type: application/json" \
   -d '{"manifest_url":"https://oss.58it.cn/goodhr-console-manifest.json"}'
-```
-
-manifest 示例：
-
-```json
-{
-  "node_runtime": {
-    "darwin-arm64": {
-      "version": "22.0.0",
-      "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz",
-      "sha256": ""
-    },
-    "win-x64": {
-      "version": "22.0.0",
-      "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip",
-      "sha256": ""
-    }
-  },
-  "node_worker": {
-    "darwin-arm64": {
-      "version": "0.1.0",
-      "url": "https://oss.58it.cn/goodhr-browser-worker-darwin-arm64.zip",
-      "sha256": ""
-    },
-    "win-x64": {
-      "version": "0.1.0",
-      "url": "https://oss.58it.cn/goodhr-browser-worker-win-x64.zip",
-      "sha256": ""
-    }
-  },
-  "cloakbrowser": {
-    "darwin-arm64": {
-      "version": "146.0.7680.177.5",
-      "url": "https://oss.58it.cn/cloakbrowser-darwin-arm64.tar.gz",
-      "sha256": ""
-    },
-    "win-x64": {
-      "version": "146.0.7680.177.5",
-      "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip",
-      "sha256": ""
-    }
-  },
-  "ocr": {
-    "win-x64": {
-      "version": "rapidocr-json",
-      "url": "https://oss.58it.cn/goodhr-ocr-win-x64.zip",
-      "sha256": ""
-    },
-    "darwin-arm64": {
-      "version": "rapidocr-json",
-      "url": "https://oss.58it.cn/goodhr-ocr-darwin-arm64.zip",
-      "sha256": ""
-    }
-  }
-}
 ```
 
 OCR 组件是可选运行组件。若使用 RapidOCR-json，压缩包解压后需包含 `RapidOCR-json.exe`、`RapidOCR_json.exe`、`RapidOCR-json` 或 `RapidOCR_json` 之一；也可以通过环境变量 `GOODHR_OCR_EXECUTABLE` 指定可执行文件路径。
@@ -217,7 +164,7 @@ cd goodhr5/local-agent-go
 ./scripts/package_node_runtime.sh
 ```
 
-脚本会输出 zip 路径和 sha256，可填入 OSS manifest。
+脚本会输出 zip 路径和 sha256，可填入 `system.onboarding_config.runtime_components`。
 
 ## Windows 冒烟测试
 

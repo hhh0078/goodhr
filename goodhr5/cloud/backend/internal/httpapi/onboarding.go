@@ -57,6 +57,7 @@ func (s *OnboardingService) Status(w http.ResponseWriter, r *http.Request) {
 		"local_agent_download_url":         "",
 		"local_agent_download_url_mac":     "",
 		"local_agent_download_url_windows": "",
+		"runtime_components":               map[string]any{},
 		"trial_days":                       3,
 	}
 	if cfg, err := s.systemConfigs.Get("system.onboarding_config"); err == nil {

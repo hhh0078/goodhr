@@ -55,6 +55,7 @@ import {
   getLocalRuntimeStatus,
   installLocalRuntime,
 } from "../services/localAgentApi";
+import { buildRuntimeInstallPayload } from "../services/runtimeInstallConfig";
 
 const props = defineProps<{ agent: any }>();
 
@@ -138,7 +139,7 @@ async function installRuntime() {
   error.value = "";
   startRuntimePolling();
   try {
-    await installLocalRuntime(agentBase.value);
+    await installLocalRuntime(agentBase.value, buildRuntimeInstallPayload());
     runtimeInstallStarted = true;
     await pollRuntimeStatus();
     updatingRuntime.value = false;
@@ -219,6 +220,7 @@ async function pollRuntimeStatus() {
 function componentName(value: string) {
   const names: Record<string, string> = {
     node_runtime: "Node 运行环境",
+    node_worker: "Node Worker",
     cloakbrowser: "CloakBrowser",
     ocr: "OCR 组件",
   };

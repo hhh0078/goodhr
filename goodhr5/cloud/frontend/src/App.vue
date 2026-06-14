@@ -168,6 +168,7 @@ const onboardingConfig = ref<any>({
   local_agent_download_url: "",
   local_agent_download_url_mac: "",
   local_agent_download_url_windows: "",
+  runtime_components: {},
   trial_days: 3,
 });
 const ANNOUNCEMENT_DISMISSED_KEY = "goodhr5_dismissed_announcements";
@@ -449,6 +450,7 @@ async function loadOnboardingStatus() {
       local_agent_download_url: "",
       local_agent_download_url_mac: "",
       local_agent_download_url_windows: "",
+      runtime_components: {},
       trial_days: 3,
     };
   }
