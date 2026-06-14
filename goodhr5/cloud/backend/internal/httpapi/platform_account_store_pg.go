@@ -114,7 +114,7 @@ func (s *PostgresPlatformAccountStore) DeletePlatformAccount(userEmail string, a
 		USING users u
 		WHERE pa.user_id = u.id
 		  AND u.email = $1
-		  AND pa.id = $2
+		  AND pa.id = $2::uuid
 		`,
 		userEmail,
 		accountID,

@@ -7,17 +7,8 @@
           > 该功能有助您的团队在不同电脑上切换多个账号，可关闭该功能。
         </div>
 
-        <div v-if="!localConsole" class="top-info">
-          > cookie 为非对称加密存储在服务器。有且仅有您的账号和团队成员可访问,
-        </div>
-        <div v-if="!localConsole" class="top-info">
-          > 即使服务器被黑客攻击,也无法获取到您的cookie。除非黑客攻击了您的电脑
-        </div>
-        <div v-if="!localConsole" class="top-info">
-          > 如果您还想使用该功能，且依旧担心安全问题，可考虑联系作者私有化部署。
-        </div>
-        <div v-else class="top-info">
-          > 当前为本地控制台模式，账号登录状态保存在本机浏览器目录中。
+        <div class="top-info">
+          > 账号登录状态保存在本机浏览器目录中，云端只保存账号名称和本地目录标识。
         </div>
       </div>
       <div style="display: flex; gap: 8px">
@@ -37,19 +28,15 @@
             <option value="liepin">猎聘</option>
           </select></label
         >
-        <label v-if="localConsole || pendingCookies"
+        <label
           >名称<input v-model="form.displayName" placeholder="我的Boss" />
-          <span class="required-tip">{{
-            localConsole
-              ? "请先输入账号名称，系统会用本地账号目录打开登录页"
-              : "已获取 Cookie，请输入账号名称后保存"
-          }}</span>
+          <span class="required-tip">请先输入账号名称，系统会用本地账号目录打开登录页</span>
         </label>
       </div>
       <div class="actions">
         <button
           :disabled="
-            loading || ((localConsole || pendingCookies) && !form.displayName)
+            loading || !form.displayName
           "
           @click="create"
         >
@@ -58,9 +45,7 @@
               ? "处理中..."
               : localConsole
                 ? "登录并保存本地账号"
-                : pendingCookies
-                ? "保存账号"
-                : "登录并获取Cookie"
+                : "登录并保存账号"
           }}
         </button>
       </div></template
@@ -72,7 +57,7 @@
         <div>
           <strong>{{ a.display_name || a.id }}</strong>
           <p class="card-meta">
-            {{ a.platform_id }} | {{ localConsole ? "登录状态" : "cookie" }}:{{
+            {{ a.platform_id }} | 登录状态:{{
               cookieStatusLabel(a.status)
             }}
             | 最近时间:{{ formatLocalTime(a.updated_at) }}
@@ -102,19 +87,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import {
-  claimCookie,
-  createCookie,
+  createPlatformAccount,
   deletePlatformAccount,
   listPlatformConfigs,
   listPlatformAccounts,
-  updateCookie,
-  updateCookieStatus,
 } from "../services/api/accountApi";
-import { getLocalHealth, openPage } from "../services/localAgentApi";
-import {
-  decryptCookieByAgent,
-  pickDecryptPayload,
-} from "../services/cookieCrypto";
+import { openPage } from "../services/localAgentApi";
 import {
   detectCookieExpiredByURL,
   pickPlatformAuthConfig,
@@ -134,7 +112,6 @@ const msgType = ref("error");
 const form = ref({ platformId: "boss", displayName: "" });
 const showForm = ref(false);
 const platformConfigs = ref<any[]>([]);
-const pendingCookies = ref<any[] | null>(null);
 const refreshingAccountId = ref("");
 const openingAccountId = ref("");
 const localConsole = computed(() => isLocalConsole());
@@ -162,8 +139,8 @@ function formatLocalTime(value: string) {
 }
 
 /**
- * 返回 cookie 状态中文文案。
- * @param {string} status - 后端 cookie 状态。
+ * 返回平台账号状态中文文案。
+ * @param {string} status - 后端账号状态。
  * @returns {string} 中文状态。
  */
 function cookieStatusLabel(status: string) {
@@ -172,6 +149,21 @@ function cookieStatusLabel(status: string) {
   if (key === "expired") return "已过期";
   if (key === "in_use") return "使用中";
   return "未登录";
+}
+
+/**
+ * 生成本地浏览器账号目录 ID。
+ * @param {string} platformId - 平台 ID。
+ * @param {string} displayName - 用户输入的账号名称。
+ * @returns {string} 本地 profile ID。
+ */
+function buildLocalProfileID(platformId: string, displayName: string) {
+  const safeName = String(displayName || "account")
+    .trim()
+    .replace(/[^\w-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "account";
+  const randomID = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+  return `${platformId || "platform"}_${safeName}_${randomID}`;
 }
 
 async function load() {
@@ -188,72 +180,30 @@ async function create() {
   loading.value = true;
   msg.value = "";
   try {
-    if (localConsole.value) {
-      const displayName = form.value.displayName.trim();
-      if (!displayName) throw new Error("请先输入账号名称");
-      msg.value = "正在创建本地账号目录";
-      msgType.value = "success";
-      const profile = await createCookie({
-        platform_id: form.value.platformId,
-        display_name: displayName,
-        status: "expired",
-      });
-      const profileID = profile?.local_profile_id || profile?.id;
-      if (!profileID) throw new Error("本地账号目录创建失败");
-      msg.value = "正在打开登录页，请完成平台登录";
-      msgType.value = "success";
-      await runPlatformLoginFlow(
-        effectiveAgentBaseUrl.value,
-        form.value.platformId,
-        platformAuthConfig(form.value.platformId),
-        (message) => {
-          msg.value = message;
-          msgType.value = "success";
-        },
-        {
-          userDataDir: profileID,
-          onExpired: async () => {
-            await updateCookieStatus(profile.id, "expired");
-          },
-        },
-      );
-      const updated = await updateCookie(profile.id, {
-        platform_id: form.value.platformId,
-        display_name: displayName,
-        local_profile_id: profileID,
-        status: "available",
-      });
-      form.value.displayName = "";
-      msg.value = `本地账号已保存，最近时间 ${formatLocalTime(updated?.updated_at)}`;
-      msgType.value = "success";
-      await markOnboardingStep("platform_account");
-      await load();
-      return;
-    }
-    if (!pendingCookies.value) {
-      msg.value = "正在检查平台登录状态";
-      msgType.value = "success";
-      pendingCookies.value = await runPlatformLoginFlow(
-        effectiveAgentBaseUrl.value,
-        form.value.platformId,
-        platformAuthConfig(form.value.platformId),
-        (message) => {
-          msg.value = message;
-          msgType.value = "success";
-        },
-      );
-      msg.value = "已获取 cookie，请输入账号名称";
-      msgType.value = "success";
-      return;
-    }
-    await createCookie({
+    const displayName = form.value.displayName.trim();
+    if (!displayName) throw new Error("请先输入账号名称");
+    const profileID = buildLocalProfileID(form.value.platformId, displayName);
+    msg.value = "正在打开登录页，请完成平台登录";
+    msgType.value = "success";
+    await runPlatformLoginFlow(
+      effectiveAgentBaseUrl.value,
+      form.value.platformId,
+      platformAuthConfig(form.value.platformId),
+      (message) => {
+        msg.value = message;
+        msgType.value = "success";
+      },
+      {
+        userDataDir: profileID,
+      },
+    );
+    const updated = await createPlatformAccount({
       platform_id: form.value.platformId,
-      display_name: form.value.displayName,
-      cookies: pendingCookies.value,
+      display_name: displayName,
+      local_profile_id: profileID,
     });
     form.value.displayName = "";
-    pendingCookies.value = null;
-    msg.value = "创建成功";
+    msg.value = `本地账号已保存：${updated?.display_name || displayName}`;
     msgType.value = "success";
     await markOnboardingStep("platform_account");
     await load();
@@ -266,7 +216,7 @@ async function create() {
 }
 
 /**
- * 为已有平台账号重新执行扫码登录流程，并保存新的 cookie。
+ * 为已有平台账号重新执行扫码登录流程。
  * @param {any} account - 平台账号记录。
  * @returns {Promise<void>} 无返回值。
  */
@@ -278,7 +228,7 @@ async function refreshCookie(account: any) {
   try {
     msg.value = `正在为 ${account.display_name || account.id} 重新登录`;
     msgType.value = "success";
-    const cookies = await runPlatformLoginFlow(
+    await runPlatformLoginFlow(
       effectiveAgentBaseUrl.value,
       account.platform_id,
       platformAuthConfig(account.platform_id),
@@ -288,31 +238,15 @@ async function refreshCookie(account: any) {
       },
       {
         userDataDir: account.local_profile_id || account.id,
-        onExpired: async () => {
-          await markAccountExpired(account, "检测到登录页，已将账号标记为过期");
-        },
       },
     );
     if (localConsole.value) {
-      const updated = await updateCookie(account.id, {
-        platform_id: account.platform_id,
-        display_name: account.display_name,
-        local_profile_id: account.local_profile_id || account.id,
-        status: "available",
-      });
-      msg.value = `本地账号已重新登录，最近时间 ${formatLocalTime(updated?.updated_at)}`;
+      msg.value = "本地账号已重新登录";
       msgType.value = "success";
       await load();
       return;
     }
-    msg.value = `已导出 ${cookies.length} 条 cookie，正在更新云端`;
-    msgType.value = "success";
-    const updated = await updateCookie(account.id, {
-      platform_id: account.platform_id,
-      display_name: account.display_name,
-      cookies,
-    });
-    msg.value = `cookie 已更新，最近时间 ${formatLocalTime(updated?.updated_at)}`;
+    msg.value = "账号已重新登录";
     msgType.value = "success";
     await load();
   } catch (e: any) {
@@ -325,8 +259,8 @@ async function refreshCookie(account: any) {
 }
 
 /**
- * 使用指定 cookie 账号直接打开平台推荐页。
- * @param {any} account - cookie 账号记录。
+ * 使用指定平台账号直接打开平台推荐页。
+ * @param {any} account - 平台账号记录。
  * @returns {Promise<void>} 无返回值。
  */
 async function openWithCookie(account: any) {
@@ -370,24 +304,6 @@ async function openWithCookie(account: any) {
       return;
     }
 
-    try {
-      const health = await getLocalHealth(effectiveAgentBaseUrl.value);
-      const machineID = String(health.machine_id || "").trim();
-      if (machineID) {
-        const claimedPayload = await claimCookie(account.id, {});
-        const decryptPayload = pickDecryptPayload(claimedPayload, machineID);
-        const cookies = await decryptCookieByAgent(
-          effectiveAgentBaseUrl.value,
-          decryptPayload,
-        );
-        if (Array.isArray(cookies) && cookies.length > 0) {
-          openPayload.cookies = cookies;
-        }
-      }
-    } catch (e: any) {
-      throw new Error(`cookie 解密失败，无法打开账号：${e?.message || e}`);
-    }
-
     await openPage(effectiveAgentBaseUrl.value, openPayload);
     const status = await detectCookieExpiredByURL(
       effectiveAgentBaseUrl.value,
@@ -398,7 +314,8 @@ async function openWithCookie(account: any) {
       },
     );
     if (status.expired) {
-      await markAccountExpired(account, "检测到登录页，账号已标记为过期");
+      msg.value = "检测到登录页，请点击重新登录";
+      msgType.value = "error";
       return;
     }
     msg.value = "已打开推荐页";
@@ -420,7 +337,6 @@ async function openWithCookie(account: any) {
  */
 async function markAccountExpired(account: any, message: string) {
   if (!account?.id) return;
-  await updateCookieStatus(account.id, "expired");
   msg.value = message;
   msgType.value = "error";
   await load();
@@ -450,7 +366,6 @@ onMounted(load);
 watch(
   () => form.value.platformId,
   () => {
-    pendingCookies.value = null;
     msg.value = "";
   },
 );

@@ -247,8 +247,7 @@ async function ensurePage() {
       const pages = context.pages?.() || [];
       page = pages.find((item) => !item.isClosed?.()) || null;
       if (!page) {
-        resetBrowserState();
-        throw new Error("浏览器已关闭，请重新启动浏览器");
+        page = await context.newPage();
       }
       registerPage(page);
       return page;

@@ -4,7 +4,6 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	stdlog "log"
 	"net/http"
 	"strings"
@@ -18,7 +17,7 @@ type TaskService struct {
 	positionStore  PositionStore
 	taskLogs       TaskLogService
 	tenantStore    TenantStore
-	cookieStore    CookieStore
+	accounts       PlatformAccountStore
 	candidateStore CandidateStore
 	subscriptions  SubscriptionStore
 	mailer         Mailer
@@ -36,14 +35,14 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入任务元数据和候选人入库所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, cookieStore CookieStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
 		positionStore:  positionStore,
 		taskLogs:       taskLogs,
 		tenantStore:    tenantStore,
-		cookieStore:    cookieStore,
+		accounts:       accounts,
 		candidateStore: candidateStore,
 		subscriptions:  subscriptions,
 		mailer:         mailer,
@@ -136,6 +135,7 @@ func (s *TaskService) List(w http.ResponseWriter, r *http.Request) {
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
 	tasks, err := s.store.ListTasks(tenantID, session.Email, isAdmin)
 	if err != nil {
+		stdlog.Printf("[任务列表] 读取任务失败 user=%s tenant=%s admin=%v err=%v", session.Email, tenantID, isAdmin, err)
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
@@ -386,16 +386,23 @@ func (s *TaskService) publicTaskRunsWithAccount(tenantID string, items []TaskRun
 
 func (s *TaskService) publicTaskRunWithAccount(tenantID string, item TaskRun) map[string]any {
 	result := publicTaskRun(item)
-	if item.PlatformAccountID != "" && tenantID != "" {
-		account, err := s.cookieStore.GetByID(tenantID, item.PlatformAccountID)
+	if item.PlatformAccountID != "" && s.accounts != nil {
+		accounts, err := s.accounts.ListPlatformAccounts(tenantID, item.UserEmail, item.PlatformID, false)
 		if err == nil {
-			result["platform_account_name"] = account.DisplayName
-			result["platform_account"] = map[string]any{
-				"id":           account.ID,
-				"platform_id":  account.PlatformID,
-				"display_name": account.DisplayName,
-				"status":       account.Status,
-				"updated_at":   account.UpdatedAt,
+			for _, account := range accounts {
+				if account.ID != item.PlatformAccountID {
+					continue
+				}
+				result["platform_account_name"] = account.DisplayName
+				result["platform_account"] = map[string]any{
+					"id":               account.ID,
+					"platform_id":      account.PlatformID,
+					"display_name":     account.DisplayName,
+					"local_profile_id": account.LocalProfileID,
+					"status":           "available",
+					"created_at":       account.CreatedAt,
+				}
+				break
 			}
 		}
 	}
@@ -553,9 +560,6 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
 		s.sendTaskStatusNotice(task, "stopped", "")
 	}
-	s.releaseTaskCookieIfOwned(tenantID, task, "停止任务时释放占用的 cookie", func(level, message string) {
-		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
-	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"status": "stopped",
@@ -581,9 +585,14 @@ func (s *TaskService) sendTaskStatusNotice(task TaskRun, status string, errorMes
 		FinishedAt:   time.Now(),
 		ErrorMessage: strings.TrimSpace(errorMessage),
 	}
-	if tenantID != "" && task.PlatformAccountID != "" && s.cookieStore != nil {
-		if account, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID); err == nil {
-			notice.PlatformAccount = account.DisplayName
+	if tenantID != "" && task.PlatformAccountID != "" && s.accounts != nil {
+		if accounts, err := s.accounts.ListPlatformAccounts(tenantID, task.UserEmail, task.PlatformID, false); err == nil {
+			for _, account := range accounts {
+				if account.ID == task.PlatformAccountID {
+					notice.PlatformAccount = account.DisplayName
+					break
+				}
+			}
 		}
 	}
 	if notice.PlatformAccount == "" {
@@ -615,43 +624,6 @@ func (s *TaskService) getTenantInfo(email string) (string, bool) {
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(t.ID, email)
 	return t.ID, isAdmin
-}
-
-func (s *TaskService) releaseTaskCookieIfOwned(tenantID string, task TaskRun, reason string, log func(level, message string)) {
-	if tenantID == "" || task.PlatformAccountID == "" || s.cookieStore == nil {
-		return
-	}
-	current, err := s.cookieStore.GetByID(tenantID, task.PlatformAccountID)
-	if err != nil {
-		if log != nil {
-			log("warn", fmt.Sprintf("%s失败：读取 cookie 失败 cookie=%s err=%v", reason, task.PlatformAccountID, err))
-		}
-		return
-	}
-	if current.Status == "expired" {
-		if log != nil {
-			log("info", fmt.Sprintf("任务 cookie 已标记过期，跳过恢复可用状态：账号=%s cookie=%s", current.DisplayName, current.ID))
-		}
-		return
-	}
-	if current.Status != "in_use" {
-		return
-	}
-	if !current.UsedByTaskID.Valid || current.UsedByTaskID.String != task.ID {
-		if log != nil {
-			log("warn", fmt.Sprintf("跳过释放非当前任务占用的 cookie：账号=%s cookie=%s used_by_task=%s", current.DisplayName, current.ID, current.UsedByTaskID.String))
-		}
-		return
-	}
-	if err := s.cookieStore.UpdateStatus(tenantID, current.ID, "available", ""); err != nil {
-		if log != nil {
-			log("error", fmt.Sprintf("释放任务 cookie 失败：cookie=%s err=%v", current.ID, err))
-		}
-		return
-	}
-	if log != nil {
-		log("info", fmt.Sprintf("%s：账号=%s cookie=%s", reason, current.DisplayName, current.ID))
-	}
 }
 
 // FailNotice 接收本地代理发送的任务失败通知，发送邮件提醒。
@@ -694,9 +666,6 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	if task.UserEmail == "" {
 		task.UserEmail = session.Email
 	}
-	s.releaseTaskCookieIfOwned(tenantID, task, "任务失败时释放占用的 cookie", func(level, message string) {
-		_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, level, message)
-	})
 	if s.mailer == nil {
 		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
 		return

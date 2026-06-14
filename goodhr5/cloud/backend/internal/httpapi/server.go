@@ -68,6 +68,7 @@ func NewServer() (*Server, error) {
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
 	cookieStore := config.CookieStore(db)
+	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
@@ -80,9 +81,9 @@ func NewServer() (*Server, error) {
 		agentWS:          agentWS,
 		ai:               NewAIConfigService(auth, aiConfigStore),
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
-		platformAccounts: NewPlatformAccountService(auth, cookieStore, tenantStore),
+		platformAccounts: NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, cookieStore, candidateStore, subscriptionStore, mailer),
+		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer),
 		taskLogs:         taskLogs,
 		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -131,7 +132,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
-	// 注册平台账号兼容接口，底层统一读取 cookie_data。
+	// 注册平台账号信息接口，只保存名称和本地 profile 标识。
 	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
 	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
 	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
