@@ -2,7 +2,7 @@
 param(
   [string]$TargetOS = "windows",
   [string]$TargetArch = "amd64",
-  [string]$Version = "go-v2-dev"
+  [string]$Version = "0.1.0"
 )
 
 $ErrorActionPreference = "Stop"
