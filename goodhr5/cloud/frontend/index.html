@@ -8,11 +8,39 @@
     <title>GoodHR - 招聘自动化工具</title>
     <link rel="stylesheet" href="/official-site.css" />
     <script defer src="/official-layout.js"></script>
-    <script type="module" src="/src/official-site.ts"></script>
+    <script type="module" crossorigin src="/assets/apiClient.js"></script>
+    <script type="module" crossorigin src="/assets/official-site.js"></script>
   </head>
   <body>
-    <div class="official-keyword-wall" data-keyword-canvas aria-hidden="true"></div>
-    <div data-site-header></div>
+    <div
+      class="official-keyword-wall"
+      data-keyword-canvas
+      aria-hidden="true"
+    ></div>
+    <header class="site-header">
+      <a class="brand" href="/">GoodHR</a>
+      <nav>
+        <a class="active" href="/">首页</a><a href="/features.html">功能介绍</a
+        ><a href="/videos.html">安装视频教程</a
+        ><a href="/pricing.html">产品定价</a
+        ><a href="/contact.html">联系我们</a>
+      </nav>
+      <div class="nav-stats" data-public-stats>
+        <span
+          >已处理
+          <strong data-stat-field="processed_resume_count">--</strong>
+          份简历</span
+        ><span
+          >今日新注册
+          <strong data-stat-field="today_registered_count">--</strong></span
+        >
+      </div>
+      <a
+        class="admin-link"
+        href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F-5.1.1.exe"
+        >立即下载</a
+      >
+    </header>
 
     <main>
       <section class="hero terminal-window">
@@ -23,24 +51,28 @@
           <span class="window-title">GoodHR 控制台预览</span>
         </div>
         <div class="window-content">
-        <p class="kicker">关键词筛选永久免费</p>
-        <h1>HR和猎头的自动招聘助手</h1>
-        <p class="hero-text">
-          自动读取候选人列表，结合岗位模板和 AI
-          判断匹配度。关键词筛选永久免费；需要更智能时，可升级使用 AI
-          筛选、自动聊天跟进候选人和邀约面试。
-        </p>
-        <div class="hero-actions">
-          <a class="primary-btn" href="/admin/">使用免费版</a>
-          <a class="ghost-btn" href="/features.html">查看功能</a>
-        </div>
-        <div class="terminal-strip">
-          <span>$ 不封号、有几百人大群 有异常会及时通知</span>
-          <span>$ 支持 BOSS、智联、猎聘</span>
-          <span>$ AI分析、关键词筛选</span>
-          <span>$ 自动打招呼</span>
-          <span>$ 自动回复消息、自动聊天跟进、邀约面试</span>
-        </div>
+          <p class="kicker">关键词筛选永久免费</p>
+          <h1>HR和猎头的免费自动招聘助手</h1>
+          <p class="hero-text">
+            自动读取候选人列表，结合岗位模板和 AI
+            判断匹配度。关键词筛选永久免费；需要更智能时，可升级使用 AI
+            筛选、自动聊天跟进候选人和邀约面试。
+          </p>
+          <div class="hero-actions">
+            <a
+              class="primary-btn"
+              href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F-5.1.1.exe"
+              >立即下载</a
+            >
+            <a class="ghost-btn" href="/features.html">查看功能</a>
+          </div>
+          <div class="terminal-strip">
+            <span>$ 不封号、有几百人大群 有异常会及时通知</span>
+            <span>$ 支持 BOSS、智联、猎聘</span>
+            <span>$ AI分析、关键词筛选</span>
+            <span>$ 自动打招呼</span>
+            <span>$ 自动回复消息、自动聊天跟进、邀约面试</span>
+          </div>
         </div>
       </section>
 
@@ -78,6 +110,8 @@
       </section>
     </main>
 
-    <div data-site-footer></div>
+    <footer class="site-footer">
+      <span>GoodHR 招聘自动化工具</span><span>联系：17607080935</span>
+    </footer>
   </body>
 </html>
