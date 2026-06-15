@@ -26,6 +26,7 @@ type AgentStore interface {
 	SaveBinding(binding AgentBinding) (AgentBinding, error)
 	CurrentBinding(userEmail string) (AgentBinding, error)
 	DisableBindings(userEmail string) error
+	ActiveBindingCount() (int, error)
 }
 
 // MemoryAgentStore 提供开发期使用的内存机器绑定存储。
@@ -91,4 +92,18 @@ func (s *MemoryAgentStore) DisableBindings(userEmail string) error {
 	binding.LastSeenAt = s.now()
 	s.bindings[userEmail] = binding
 	return nil
+}
+
+// ActiveBindingCount 统计当前有效绑定数量。
+// 返回 bind_status 为 active 的内存绑定数量。
+func (s *MemoryAgentStore) ActiveBindingCount() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, binding := range s.bindings {
+		if binding.BindStatus == "active" {
+			count++
+		}
+	}
+	return count, nil
 }

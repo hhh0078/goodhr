@@ -30,12 +30,24 @@ export async function listAdminPaymentOrders() {
 }
 
 /**
- * 读取超级管理员可见的用户列表。
- * @returns {Promise<any[]>} 返回用户数组。
+ * 读取超级管理员可见的用户分页列表。
+ * @param {{ page?: number; page_size?: number; q?: string }} params - 分页和搜索参数。
+ * @returns {Promise<any>} 返回用户、分页和统计数据。
  */
-export async function listAdminUsers() {
-  const data = await api("/api/admin/users");
-  return data.users || [];
+export async function listAdminUsers(params: { page?: number; page_size?: number; q?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", String(params.page));
+  if (params.page_size) query.set("page_size", String(params.page_size));
+  if (params.q?.trim()) query.set("q", params.q.trim());
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const data = await api(`/api/admin/users${suffix}`);
+  return {
+    users: data.users || [],
+    total: Number(data.total || 0),
+    page: Number(data.page || 1),
+    page_size: Number(data.page_size || params.page_size || 20),
+    stats: data.stats || {},
+  };
 }
 
 /**

@@ -22,6 +22,7 @@ type TaskStore interface {
 	UpdateTask(taskID string, task TaskRun) (TaskRun, error)
 	UpdateTaskStatus(taskID, status string) error
 	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
+	TodayGreetedTotal() (int, error)
 }
 type MemoryTaskStore struct {
 	mu     sync.Mutex
@@ -135,4 +136,19 @@ func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, s
 	}
 	s.tasks[taskID] = task
 	return nil
+}
+
+// TodayGreetedTotal 统计内存任务中今日打招呼总数。
+// 返回 daily_greeted_date 等于今天的 daily_greeted_count 汇总。
+func (s *MemoryTaskStore) TodayGreetedTotal() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	today := time.Now().In(time.Local).Format(time.DateOnly)
+	total := 0
+	for _, task := range s.tasks {
+		if task.DailyGreetedDate == today {
+			total += task.DailyGreetedCount
+		}
+	}
+	return total, nil
 }

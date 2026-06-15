@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,10 +25,33 @@ type AdminUser struct {
 	LastLoginAt  *time.Time    `json:"last_login_at,omitempty"`
 }
 
+// AdminUserListQuery 表示后台用户列表查询条件。
+type AdminUserListQuery struct {
+	Query    string
+	Page     int
+	PageSize int
+}
+
+// AdminUserListResult 表示后台用户列表分页结果。
+type AdminUserListResult struct {
+	Users    []AdminUser
+	Total    int
+	Page     int
+	PageSize int
+}
+
+// AdminUserStats 表示后台用户管理统计数据。
+type AdminUserStats struct {
+	TodayRegisteredCount int `json:"today_registered_count"`
+	AgentBindingCount    int `json:"agent_binding_count"`
+}
+
 // AdminUserStore 定义用户管理读取接口。
 type AdminUserStore interface {
-	// ListUsers 读取用户列表。
-	ListUsers() ([]AdminUser, error)
+	// ListUsers 读取用户分页列表。
+	ListUsers(query AdminUserListQuery) (AdminUserListResult, error)
+	// Stats 读取用户管理统计数据。
+	Stats() (AdminUserStats, error)
 }
 
 type adjustUserSubscriptionRequest struct {
@@ -76,14 +101,25 @@ func (s *AdminUserService) Collection(w http.ResponseWriter, r *http.Request) {
 }
 
 // list 返回超级管理员可见的用户列表。
-func (s *AdminUserService) list(w http.ResponseWriter, _ *http.Request) {
-	users, err := s.users.ListUsers()
+func (s *AdminUserService) list(w http.ResponseWriter, r *http.Request) {
+	query := adminUserListQueryFromRequest(r)
+	result, err := s.users.ListUsers(query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load users")
 		return
 	}
-	result := make([]map[string]any, 0, len(users))
-	for _, user := range users {
+	stats, err := s.users.Stats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load user stats")
+		return
+	}
+	if s.agents != nil {
+		if count, err := s.agents.ActiveBindingCount(); err == nil {
+			stats.AgentBindingCount = count
+		}
+	}
+	users := make([]map[string]any, 0, len(result.Users))
+	for _, user := range result.Users {
 		if s.auth.IsSuperAdmin(user.Email) {
 			user.Role = "super_admin"
 		}
@@ -92,9 +128,16 @@ func (s *AdminUserService) list(w http.ResponseWriter, _ *http.Request) {
 				user.Agent = &binding
 			}
 		}
-		result = append(result, publicAdminUser(user))
+		users = append(users, publicAdminUser(user))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "users": result})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"users":     users,
+		"total":     result.Total,
+		"page":      result.Page,
+		"page_size": result.PageSize,
+		"stats":     stats,
+	})
 }
 
 // adjustSubscription 按正负天数调整用户会员到期时间。
@@ -206,6 +249,48 @@ func publicAdminAgent(agent *AgentBinding) map[string]any {
 	}
 }
 
+// adminUserListQueryFromRequest 从请求中读取用户列表分页和搜索条件。
+// r 为 HTTP 请求，返回规范化后的查询条件。
+func adminUserListQueryFromRequest(r *http.Request) AdminUserListQuery {
+	values := r.URL.Query()
+	return AdminUserListQuery{
+		Query:    strings.TrimSpace(values.Get("q")),
+		Page:     normalizeAdminUserPage(parseAdminPositiveInt(values.Get("page"), 1)),
+		PageSize: normalizeAdminUserPageSize(parseAdminPositiveInt(values.Get("page_size"), 20)),
+	}
+}
+
+// parseAdminPositiveInt 解析后台用户列表正整数参数。
+// value 为原始字符串，fallback 为解析失败时的默认值。
+func parseAdminPositiveInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+// normalizeAdminUserPage 规范用户列表页码。
+// page 为原始页码，返回至少为 1 的页码。
+func normalizeAdminUserPage(page int) int {
+	if page < 1 {
+		return 1
+	}
+	return page
+}
+
+// normalizeAdminUserPageSize 规范用户列表每页数量。
+// pageSize 为原始数量，返回 1 到 100 之间的数量。
+func normalizeAdminUserPageSize(pageSize int) int {
+	if pageSize < 1 {
+		return 20
+	}
+	if pageSize > 100 {
+		return 100
+	}
+	return pageSize
+}
+
 // ---------- 内存实现 ----------
 
 type MemoryAdminUserStore struct {
@@ -217,10 +302,10 @@ func NewMemoryAdminUserStore(subscriptions *MemorySubscriptionStore) *MemoryAdmi
 	return &MemoryAdminUserStore{subscriptions: subscriptions}
 }
 
-// ListUsers 读取内存用户列表。
-func (s *MemoryAdminUserStore) ListUsers() ([]AdminUser, error) {
+// ListUsers 读取内存用户分页列表。
+func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserListResult, error) {
 	if s == nil || s.subscriptions == nil {
-		return []AdminUser{}, nil
+		return AdminUserListResult{Users: []AdminUser{}, Page: 1, PageSize: 20}, nil
 	}
 	users := make([]AdminUser, 0, len(s.subscriptions.items))
 	for email, subscription := range s.subscriptions.items {
@@ -233,7 +318,38 @@ func (s *MemoryAdminUserStore) ListUsers() ([]AdminUser, error) {
 			CreatedAt:    s.subscriptions.now(),
 		})
 	}
-	return users, nil
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].CreatedAt.After(users[j].CreatedAt)
+	})
+	users = filterAdminUsers(users, query.Query)
+	page, pageSize := normalizeAdminUserPage(query.Page), normalizeAdminUserPageSize(query.PageSize)
+	total := len(users)
+	start := (page - 1) * pageSize
+	if start >= total {
+		return AdminUserListResult{Users: []AdminUser{}, Total: total, Page: page, PageSize: pageSize}, nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return AdminUserListResult{Users: users[start:end], Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// Stats 读取内存用户管理统计。
+func (s *MemoryAdminUserStore) Stats() (AdminUserStats, error) {
+	if s == nil || s.subscriptions == nil {
+		return AdminUserStats{}, nil
+	}
+	today := s.subscriptions.now().Format(time.DateOnly)
+	count := 0
+	for range s.subscriptions.items {
+		// 内存订阅没有真实注册时间，测试环境按当前用户数计算今日注册。
+		count++
+	}
+	if today == "" {
+		count = 0
+	}
+	return AdminUserStats{TodayRegisteredCount: count}, nil
 }
 
 // ---------- PostgreSQL 实现 ----------
@@ -247,9 +363,18 @@ func NewPostgresAdminUserStore(db *sql.DB) *PostgresAdminUserStore {
 	return &PostgresAdminUserStore{db: db}
 }
 
-// ListUsers 读取 PostgreSQL 用户列表。
-func (s *PostgresAdminUserStore) ListUsers() ([]AdminUser, error) {
-	rows, err := s.db.QueryContext(context.Background(), `
+// ListUsers 读取 PostgreSQL 用户分页列表。
+func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserListResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	page, pageSize := normalizeAdminUserPage(query.Page), normalizeAdminUserPageSize(query.PageSize)
+	whereSQL, args := adminUserWhere(query.Query)
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users u LEFT JOIN users inviter ON inviter.id = u.inviter_id WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return AdminUserListResult{}, err
+	}
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			u.id::text,
 			u.email,
@@ -261,11 +386,12 @@ func (s *PostgresAdminUserStore) ListUsers() ([]AdminUser, error) {
 			COALESCE(inviter.email, '')
 		FROM users u
 		LEFT JOIN users inviter ON inviter.id = u.inviter_id
+		WHERE `+whereSQL+`
 		ORDER BY u.created_at DESC
-		LIMIT 1000
-	`)
+		LIMIT $`+intString(len(args)-1)+` OFFSET $`+intString(len(args))+`
+	`, args...)
 	if err != nil {
-		return nil, err
+		return AdminUserListResult{}, err
 	}
 	defer rows.Close()
 
@@ -275,11 +401,11 @@ func (s *PostgresAdminUserStore) ListUsers() ([]AdminUser, error) {
 		var rawSubscription []byte
 		var lastLoginAt sql.NullTime
 		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &user.CreatedAt, &lastLoginAt, &user.InviterEmail); err != nil {
-			return nil, err
+			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)
 		if err != nil {
-			return nil, err
+			return AdminUserListResult{}, err
 		}
 		user.Subscription = subscription
 		if lastLoginAt.Valid {
@@ -288,7 +414,48 @@ func (s *PostgresAdminUserStore) ListUsers() ([]AdminUser, error) {
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return AdminUserListResult{}, err
 	}
-	return users, nil
+	return AdminUserListResult{Users: users, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// Stats 读取 PostgreSQL 用户管理统计。
+func (s *PostgresAdminUserStore) Stats() (AdminUserStats, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var stats AdminUserStats
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE u.created_at >= CURRENT_DATE)::int,
+			(SELECT COUNT(*)::int FROM local_agents la WHERE la.bind_status = 'active')
+		FROM users u
+	`).Scan(&stats.TodayRegisteredCount, &stats.AgentBindingCount)
+	return stats, err
+}
+
+// adminUserWhere 构建用户列表搜索条件。
+// keyword 为搜索关键词，返回 WHERE SQL 和参数。
+func adminUserWhere(keyword string) (string, []any) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return "true", []any{}
+	}
+	return `(u.email ILIKE $1 OR COALESCE(u.role, 'user') ILIKE $1 OR COALESCE(u.status, 'active') ILIKE $1 OR COALESCE(inviter.email, '') ILIKE $1)`, []any{"%" + keyword + "%"}
+}
+
+// filterAdminUsers 根据关键词过滤内存用户列表。
+// users 为用户列表，keyword 为空时返回原列表。
+func filterAdminUsers(users []AdminUser, keyword string) []AdminUser {
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return users
+	}
+	result := make([]AdminUser, 0, len(users))
+	for _, user := range users {
+		text := strings.ToLower(strings.Join([]string{user.Email, user.Role, user.Status, user.InviterEmail}, " "))
+		if strings.Contains(text, keyword) {
+			result = append(result, user)
+		}
+	}
+	return result
 }

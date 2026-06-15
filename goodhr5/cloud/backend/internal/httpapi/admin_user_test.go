@@ -36,12 +36,46 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 		Users []struct {
 			Email string `json:"email"`
 		} `json:"users"`
+		Total    int `json:"total"`
+		Page     int `json:"page"`
+		PageSize int `json:"page_size"`
+		Stats    struct {
+			TodayRegisteredCount int `json:"today_registered_count"`
+			AgentBindingCount    int `json:"agent_binding_count"`
+		} `json:"stats"`
 	}
 	if err := json.NewDecoder(listResp.Body).Decode(&listPayload); err != nil {
 		t.Fatal(err)
 	}
 	if len(listPayload.Users) == 0 {
 		t.Fatal("admin users list is empty")
+	}
+	if listPayload.Total == 0 || listPayload.Page != 1 || listPayload.PageSize == 0 {
+		t.Fatalf("unexpected pagination payload: %+v", listPayload)
+	}
+	if listPayload.Stats.TodayRegisteredCount == 0 {
+		t.Fatalf("today registered count = %d", listPayload.Stats.TodayRegisteredCount)
+	}
+
+	searchReq := httptest.NewRequest(http.MethodGet, "/api/admin/users?q=managed-user&page=1&page_size=1", nil)
+	searchReq.Header.Set("Authorization", "Bearer "+adminToken)
+	searchResp := httptest.NewRecorder()
+	routes.ServeHTTP(searchResp, searchReq)
+	if searchResp.Code != http.StatusOK {
+		t.Fatalf("search code = %d, body = %s", searchResp.Code, searchResp.Body.String())
+	}
+	var searchPayload struct {
+		Users []struct {
+			Email string `json:"email"`
+		} `json:"users"`
+		Total    int `json:"total"`
+		PageSize int `json:"page_size"`
+	}
+	if err := json.NewDecoder(searchResp.Body).Decode(&searchPayload); err != nil {
+		t.Fatal(err)
+	}
+	if searchPayload.Total != 1 || searchPayload.PageSize != 1 || searchPayload.Users[0].Email != "managed-user@example.com" {
+		t.Fatalf("unexpected search payload: %+v", searchPayload)
 	}
 
 	adjustReq := httptest.NewRequest(http.MethodPost, "/api/admin/users", bytes.NewBufferString(`{"email":"managed-user@example.com","days":-5,"reason":"测试扣减"}`))
@@ -62,6 +96,42 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	}
 	if adjustPayload.Subscription.MemberType != defaultMemberType {
 		t.Fatalf("member type = %q", adjustPayload.Subscription.MemberType)
+	}
+}
+
+// TestPublicTodayStats 验证官网公开统计接口无需登录即可读取。
+func TestPublicTodayStats(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "public-stats@example.com")
+
+	bindReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-public","agent_version":"5.0.0","local_port":55271}`),
+	)
+	bindReq.Header.Set("Authorization", "Bearer "+token)
+	bindResp := httptest.NewRecorder()
+	routes.ServeHTTP(bindResp, bindReq)
+	if bindResp.Code != http.StatusOK {
+		t.Fatalf("bind code = %d, body = %s", bindResp.Code, bindResp.Body.String())
+	}
+
+	statsReq := httptest.NewRequest(http.MethodGet, "/api/public/stats/today", nil)
+	statsResp := httptest.NewRecorder()
+	routes.ServeHTTP(statsResp, statsReq)
+	if statsResp.Code != http.StatusOK {
+		t.Fatalf("stats code = %d, body = %s", statsResp.Code, statsResp.Body.String())
+	}
+	var payload struct {
+		TodayRegisteredCount int `json:"today_registered_count"`
+		AgentBindingCount    int `json:"agent_binding_count"`
+	}
+	if err := json.NewDecoder(statsResp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TodayRegisteredCount == 0 || payload.AgentBindingCount == 0 {
+		t.Fatalf("unexpected public stats: %+v", payload)
 	}
 }
 

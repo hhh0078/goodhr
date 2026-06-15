@@ -140,3 +140,13 @@ func (s *PostgresAgentStore) DisableBindings(userEmail string) error {
 	)
 	return err
 }
+
+// ActiveBindingCount 统计 PostgreSQL 中当前有效本地程序绑定数量。
+// 返回 bind_status 为 active 的绑定记录数。
+func (s *PostgresAgentStore) ActiveBindingCount() (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*)::int FROM local_agents WHERE bind_status = 'active'`).Scan(&count)
+	return count, err
+}

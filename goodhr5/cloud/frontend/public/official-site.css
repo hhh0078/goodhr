@@ -102,6 +102,32 @@ main {
   z-index: 1;
 }
 
+.official-live-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.official-live-stats > div {
+  border: 1px solid var(--line);
+  background: rgba(2, 2, 2, 0.3);
+  padding: 12px 14px;
+}
+
+.official-live-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.official-live-stats strong {
+  display: block;
+  color: var(--green);
+  font-size: 28px;
+  font-weight: normal;
+}
+
 .hero,
 .page-title {
   border: 1px solid var(--line);
@@ -373,6 +399,7 @@ article:hover,
   .video-grid,
   .pricing-grid,
   .contact-panel,
+  .official-live-stats,
   .compare-row {
     grid-template-columns: 1fr;
   }

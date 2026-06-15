@@ -8,6 +8,41 @@
       </button>
     </div>
 
+    <div class="admin-user-stats">
+      <div>
+        <span>今日注册</span>
+        <strong>{{ stats.today_registered_count || 0 }}</strong>
+      </div>
+      <div>
+        <span>绑定程序</span>
+        <strong>{{ stats.agent_binding_count || 0 }}</strong>
+      </div>
+    </div>
+
+    <div class="search-row">
+      <label>
+        搜索用户
+        <input
+          v-model="searchText"
+          placeholder="邮箱、角色、状态、邀请人"
+          @keyup.enter="search"
+        />
+      </label>
+      <label>
+        每页数量
+        <select v-model.number="pageSize" @change="changePageSize">
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+      </label>
+      <button :disabled="loading" @click="search">搜索</button>
+      <button class="ghost" :disabled="loading" @click="resetSearch">
+        重置
+      </button>
+    </div>
+
     <div class="adjust-box">
       <div class="form-grid">
         <label>
@@ -39,6 +74,22 @@
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="success">{{ message }}</p>
     <p v-if="loading" class="hint">正在读取用户列表...</p>
+
+    <div v-if="total > 0" class="pagination-row top">
+      <span>共 {{ total }} 个用户，第 {{ page }} / {{ totalPages }} 页</span>
+      <div>
+        <button class="ghost" :disabled="loading || page <= 1" @click="goPage(page - 1)">
+          上一页
+        </button>
+        <button
+          class="ghost"
+          :disabled="loading || page >= totalPages"
+          @click="goPage(page + 1)"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
 
     <div v-if="users.length" class="user-table">
       <div class="user-row head">
@@ -79,11 +130,27 @@
       </div>
     </div>
     <p v-else-if="!loading" class="hint">暂无用户</p>
+
+    <div v-if="total > 0" class="pagination-row">
+      <span>共 {{ total }} 个用户，第 {{ page }} / {{ totalPages }} 页</span>
+      <div>
+        <button class="ghost" :disabled="loading || page <= 1" @click="goPage(page - 1)">
+          上一页
+        </button>
+        <button
+          class="ghost"
+          :disabled="loading || page >= totalPages"
+          @click="goPage(page + 1)"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   adjustAdminUserSubscription,
   listAdminUsers,
@@ -92,12 +159,20 @@ import {
 import { alertError, confirmDialog, notifySuccess } from "../services/notify";
 
 const users = ref<any[]>([]);
+const stats = ref<any>({});
+const page = ref(1);
+const pageSize = ref(20);
+const total = ref(0);
+const searchText = ref("");
 const loading = ref(false);
 const adjusting = ref(false);
 const unbinding = ref(false);
 const error = ref("");
 const message = ref("");
 const form = ref({ email: "", days: 7, reason: "" });
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(total.value / pageSize.value)),
+);
 
 /**
  * 读取超级管理员可见的用户列表。
@@ -107,12 +182,60 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    users.value = await listAdminUsers();
+    const data = await listAdminUsers({
+      page: page.value,
+      page_size: pageSize.value,
+      q: searchText.value,
+    });
+    users.value = data.users || [];
+    total.value = Number(data.total || 0);
+    page.value = Number(data.page || page.value);
+    pageSize.value = Number(data.page_size || pageSize.value);
+    stats.value = data.stats || {};
   } catch (e: any) {
     error.value = e?.message || "读取用户列表失败";
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * 按当前关键词重新搜索用户。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function search() {
+  page.value = 1;
+  await load();
+}
+
+/**
+ * 清空搜索并重新读取第一页。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function resetSearch() {
+  searchText.value = "";
+  page.value = 1;
+  await load();
+}
+
+/**
+ * 切换用户列表页码。
+ * @param {number} nextPage - 目标页码。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function goPage(nextPage: number) {
+  if (nextPage < 1 || nextPage > totalPages.value) return;
+  page.value = nextPage;
+  await load();
+}
+
+/**
+ * 切换每页数量并回到第一页。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function changePageSize() {
+  page.value = 1;
+  await load();
 }
 
 /**
@@ -236,6 +359,40 @@ onMounted(load);
 </script>
 
 <style scoped>
+.admin-user-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.admin-user-stats > div {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 12px;
+}
+
+.admin-user-stats span {
+  display: block;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.admin-user-stats strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg);
+  font-size: 24px;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 140px auto auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
 .adjust-box {
   border: 1px solid var(--border);
   background: var(--bg-input);
@@ -251,6 +408,24 @@ onMounted(load);
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+.pagination-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--fg-dim);
+}
+
+.pagination-row.top {
+  margin: 0 0 12px;
+}
+
+.pagination-row > div {
+  display: flex;
+  gap: 8px;
 }
 
 .user-table {
@@ -299,8 +474,15 @@ onMounted(load);
 
 @media (max-width: 800px) {
   .actions,
-  .row-actions {
+  .row-actions,
+  .pagination-row {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-user-stats,
+  .search-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

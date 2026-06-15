@@ -128,6 +128,20 @@ func (s *PostgresTaskStore) CreateTask(task TaskRun) (TaskRun, error) {
 	return saved, nil
 }
 
+// TodayGreetedTotal 统计 PostgreSQL 中今日总打招呼数。
+// 返回 daily_greeted_date 为 CURRENT_DATE 的 daily_greeted_count 汇总。
+func (s *PostgresTaskStore) TodayGreetedTotal() (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var total int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(daily_greeted_count), 0)::int
+		FROM task_runs
+		WHERE daily_greeted_date = CURRENT_DATE
+	`).Scan(&total)
+	return total, err
+}
+
 // ListTasks 列出 PostgreSQL 中当前用户的任务运行记录。
 func (s *PostgresTaskStore) ListTasks(tenantID, userEmail string, isAdmin bool) ([]TaskRun, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
