@@ -100,15 +100,17 @@ async function openAccount(account: any) {
     const authConfig = platformAuthConfig(account.platform_id);
     const targetURL = pickAuthEntryURL(authConfig);
     if (!targetURL) throw new Error("平台配置缺少入口地址");
-    const payload = {
-      url: targetURL,
+    const browserPayload = {
       persistent: true,
       user_data_dir: account.id,
       headless: false,
       humanize: true,
     };
-    await startBrowser(effectiveAgentBaseUrl.value, payload);
-    await openPage(effectiveAgentBaseUrl.value, payload);
+    await startBrowser(effectiveAgentBaseUrl.value, browserPayload);
+    await openPage(effectiveAgentBaseUrl.value, {
+      ...browserPayload,
+      url: targetURL,
+    });
     message.value = `已打开账号：${account.display_name || account.id}`;
     messageType.value = "success";
   } catch (error: any) {

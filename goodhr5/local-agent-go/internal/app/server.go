@@ -899,6 +899,11 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 	log.Printf("[浏览器代理] 收到请求 path=%s profile=%s url=%s timeout=%s", path, logPayloadValue(payload["user_data_dir"]), logPayloadValue(payload["url"]), workerCallTimeout(path))
 	callCtx, cancel := context.WithTimeout(r.Context(), workerCallTimeout(path))
 	defer cancel()
+	if err := s.ensureWorkerReadyForProxy(callCtx, path); err != nil {
+		log.Printf("[浏览器代理] Worker 准备失败 path=%s elapsed=%s err=%s", path, time.Since(startedAt).Round(time.Millisecond), err.Error())
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	result, err := s.worker.Call(callCtx, path, payload)
 	if err != nil {
 		msg := "浏览器 Worker 调用失败"
@@ -914,6 +919,20 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 	}
 	log.Printf("[浏览器代理] 请求成功 path=%s elapsed=%s", path, time.Since(startedAt).Round(time.Millisecond))
 	response.Success(w, workerData(result))
+}
+
+// ensureWorkerReadyForProxy 在浏览器代理请求前确保 Node Worker 已启动。
+// ctx 为请求上下文，path 为 Worker API 路径；停止浏览器时不主动拉起 Worker。
+func (s *Server) ensureWorkerReadyForProxy(ctx context.Context, path string) error {
+	if path == "/api/v1/browser/stop" {
+		return nil
+	}
+	status, err := s.worker.Start(ctx)
+	if err != nil {
+		return err
+	}
+	log.Printf("[浏览器代理] Worker 已准备 path=%s running=%v base_url=%s pid=%d managed=%v", path, status.Running, status.BaseURL, status.PID, status.Managed)
+	return nil
 }
 
 // logPayloadValue 返回适合日志展示的请求字段。

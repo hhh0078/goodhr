@@ -270,16 +270,19 @@ async function openWithCookie(account: any) {
     const authConfig = platformAuthConfig(account.platform_id);
     const targetURL = pickAuthEntryURL(authConfig);
     if (!targetURL) throw new Error("平台配置缺少入口地址");
-    const openPayload: any = {
-      url: targetURL,
+    const browserPayload: any = {
       persistent: true,
       user_data_dir: account.id,
       headless: false,
       humanize: true,
     };
+    const openPayload: any = {
+      ...browserPayload,
+      url: targetURL,
+    };
 
     if (localConsole.value) {
-      await startBrowser(effectiveAgentBaseUrl.value, openPayload);
+      await startBrowser(effectiveAgentBaseUrl.value, browserPayload);
       await openPage(effectiveAgentBaseUrl.value, openPayload);
       const status = await detectCookieExpiredByURL(
         effectiveAgentBaseUrl.value,
@@ -298,7 +301,7 @@ async function openWithCookie(account: any) {
       return;
     }
 
-    await startBrowser(effectiveAgentBaseUrl.value, openPayload);
+    await startBrowser(effectiveAgentBaseUrl.value, browserPayload);
     await openPage(effectiveAgentBaseUrl.value, openPayload);
     const status = await detectCookieExpiredByURL(
       effectiveAgentBaseUrl.value,
