@@ -46,11 +46,13 @@ func New(cfg *config.Config) *Engine {
 // installed 表示是否找到 OCR 可执行文件。
 func (e *Engine) Status() map[string]any {
 	path := e.executablePath()
+	modelsOK := e.modelsReady(path)
 	return map[string]any{
-		"installed": path != "",
+		"installed": path != "" && modelsOK,
 		"path":      path,
 		"dir":       e.cfg.OCRDir,
 		"mode":      "rapidocr-json",
+		"models_ok": modelsOK,
 	}
 }
 
@@ -107,8 +109,12 @@ func (e *Engine) ensureProcessLocked() error {
 	if executable == "" {
 		return fmt.Errorf("OCR 组件未安装，请先安装 RapidOCR-json 运行组件")
 	}
+	if !e.modelsReady(executable) {
+		return fmt.Errorf("OCR 模型文件不完整，请重新安装 OCR 组件")
+	}
 	args := ocrArgs()
 	cmd := exec.Command(executable, args...)
+	cmd.Dir = filepath.Dir(executable)
 	hideCommandWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -253,6 +259,22 @@ func (e *Engine) executablePath() string {
 		}
 	}
 	return ""
+}
+
+// modelsReady 判断 OCR 模型文件是否存在。
+// executable 为 OCR 可执行文件路径。
+func (e *Engine) modelsReady(executable string) bool {
+	executable = strings.TrimSpace(executable)
+	if executable == "" {
+		return false
+	}
+	requiredModels := []string{"ch_PP-OCRv3_det_infer.onnx"}
+	for _, modelName := range requiredModels {
+		if _, err := os.Stat(filepath.Join(filepath.Dir(executable), "models", modelName)); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // ocrExecutableNames 返回当前系统可能的 OCR 可执行文件名。

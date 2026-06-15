@@ -240,7 +240,7 @@ func (m *Manager) componentFileExists(component string) bool {
 	case "cloakbrowser":
 		return fileExists(m.CloakBrowserPath())
 	case "ocr":
-		return fileExists(m.OCRPath())
+		return m.ocrInstalled()
 	default:
 		return false
 	}

@@ -81,7 +81,7 @@ func (m *Manager) Status() Status {
 		WorkerDependencyPath:  workerDependencyPath,
 		CloakBrowserInstalled: fileExists(browserPath),
 		CloakBrowserPath:      browserPath,
-		OCRInstalled:          fileExists(ocrPath),
+		OCRInstalled:          m.ocrInstalled(),
 		OCRPath:               ocrPath,
 		RuntimeDir:            m.cfg.RuntimeDir,
 		InstallProgress:       m.Progress(),
@@ -106,6 +106,22 @@ func (m *Manager) OCRPath() string {
 		return found
 	}
 	return filepath.Join(m.cfg.RuntimeDir, "ocr", names[0])
+}
+
+// ocrInstalled 判断 OCR 可执行文件和模型文件是否完整。
+// 返回 true 表示 OCR 组件可以正常启动。
+func (m *Manager) ocrInstalled() bool {
+	ocrPath := m.OCRPath()
+	if !fileExists(ocrPath) {
+		return false
+	}
+	requiredModels := []string{"ch_PP-OCRv3_det_infer.onnx"}
+	for _, modelName := range requiredModels {
+		if !fileExists(filepath.Join(filepath.Dir(ocrPath), "models", modelName)) {
+			return false
+		}
+	}
+	return true
 }
 
 // Progress 返回当前运行组件安装进度。
