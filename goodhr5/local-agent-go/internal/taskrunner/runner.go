@@ -490,6 +490,7 @@ scanLoop:
 			}
 			emptyLoads = 0
 			queue = append(queue, candidates...)
+			r.syncProcessedResumeCount(ctx, task, len(candidates), options)
 			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取完成：本次新增=%d，重复跳过=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
 		}
 		candidates := queue
@@ -664,6 +665,17 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, pla
 	}
 	r.taskLog(taskID, "info", "候选人列表滚动完成")
 	return nil
+}
+
+// syncProcessedResumeCount 将去重后的新增候选人数量同步给云端公开统计。
+// ctx 为请求上下文，task 为任务记录，count 为新增候选人数量，options 为任务启动参数。
+func (r *Runner) syncProcessedResumeCount(ctx context.Context, task localdb.Task, count int, options StartOptions) {
+	if count <= 0 || strings.TrimSpace(options.Token) == "" {
+		return
+	}
+	if err := cloudapi.New(options.CloudAPIBase).AddProcessedResumes(ctx, options.Token, task.ID, count); err != nil {
+		r.taskLog(task.ID, "warning", "同步已处理简历数失败："+err.Error())
+	}
 }
 
 // saveCandidateResult 将候选人结果同步到云端简历库。

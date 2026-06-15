@@ -27,7 +27,7 @@ async function loadPublicTodayStats() {
     });
     if (!res.ok) return;
     const data = await res.json();
-    setStatText(root, "today_greeted_count", data.today_greeted_count);
+    setStatText(root, "processed_resume_count", data.processed_resume_count);
     setStatText(root, "today_registered_count", data.today_registered_count);
   } catch {
     // 官网统计不影响首页主体展示。

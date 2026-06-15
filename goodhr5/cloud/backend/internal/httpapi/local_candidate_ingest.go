@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+type addProcessedResumesRequest struct {
+	Count int `json:"count"`
+}
+
 // SaveLocalCandidate 保存本地程序回传的候选人结果。
 // w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/candidates。
 func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +93,57 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// AddProcessedResumes 累加本地程序本次去重后新增的已处理简历数量。
+// w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/processed-resumes。
+func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.dailyStats == nil {
+		writeError(w, http.StatusInternalServerError, "daily stats store is not ready")
+		return
+	}
+	taskID := taskSubresourceID(r.URL.Path, "processed-resumes")
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "task id is required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	if _, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	var req addProcessedResumesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.Count <= 0 {
+		writeError(w, http.StatusBadRequest, "count must be greater than 0")
+		return
+	}
+	if req.Count > 500 {
+		writeError(w, http.StatusBadRequest, "count is too large")
+		return
+	}
+	if err := s.dailyStats.IncrementProcessedResumes(req.Count); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update processed resumes")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"count": req.Count,
+	})
+}
+
 // saveLocalCandidateScoreEvents 保存本地程序产生的 AI 评分事件。
 // task 为云端任务，candidateID 和 engagementID 为候选人关系 ID，payload 为本地候选人 JSON。
 func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID string, engagementID string, payload map[string]any) {
@@ -127,9 +182,15 @@ func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID st
 // localCandidateTaskID 从任务候选人路径中提取任务 ID。
 // path 为请求路径。
 func localCandidateTaskID(path string) string {
+	return taskSubresourceID(path, "candidates")
+}
+
+// taskSubresourceID 从任务子资源路径中提取任务 ID。
+// path 为请求路径，resource 为子资源名称。
+func taskSubresourceID(path string, resource string) string {
 	text := strings.Trim(strings.TrimPrefix(path, "/api/tasks/"), "/")
 	parts := strings.Split(text, "/")
-	if len(parts) >= 2 && parts[1] == "candidates" {
+	if len(parts) >= 2 && parts[1] == resource {
 		return strings.TrimSpace(parts[0])
 	}
 	return ""

@@ -192,6 +192,28 @@ func (c *Client) SaveTaskCandidate(ctx context.Context, token string, taskID str
 	return nil
 }
 
+// AddProcessedResumes 上报本地任务本次去重后新增的已处理简历数量。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，count 为新增数量。
+func (c *Client) AddProcessedResumes(ctx context.Context, token string, taskID string, count int) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("任务 ID 不能为空")
+	}
+	if count <= 0 {
+		return nil
+	}
+	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/processed-resumes", map[string]any{
+		"count": count,
+	})
+	if err != nil {
+		return fmt.Errorf("同步已处理简历数失败：%w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "同步已处理简历数失败"))
+	}
+	return nil
+}
+
 // StopTask 通知云端任务已经停止。
 // ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
 func (c *Client) StopTask(ctx context.Context, token string, taskID string) error {

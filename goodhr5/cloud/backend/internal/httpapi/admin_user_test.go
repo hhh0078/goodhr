@@ -104,6 +104,7 @@ func TestPublicTodayStats(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "public-stats@example.com")
+	positionID := createPositionForTest(t, routes, token)
 
 	bindReq := httptest.NewRequest(
 		http.MethodPost,
@@ -117,6 +118,37 @@ func TestPublicTodayStats(t *testing.T) {
 		t.Fatalf("bind code = %d, body = %s", bindResp.Code, bindResp.Body.String())
 	}
 
+	createReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/tasks",
+		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20}`),
+	)
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createResp := httptest.NewRecorder()
+	routes.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("create task code = %d, body = %s", createResp.Code, createResp.Body.String())
+	}
+	var createPayload struct {
+		Task struct {
+			ID string `json:"id"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
+		t.Fatal(err)
+	}
+	processedReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/tasks/"+createPayload.Task.ID+"/processed-resumes",
+		bytes.NewBufferString(`{"count":12}`),
+	)
+	processedReq.Header.Set("Authorization", "Bearer "+token)
+	processedResp := httptest.NewRecorder()
+	routes.ServeHTTP(processedResp, processedReq)
+	if processedResp.Code != http.StatusOK {
+		t.Fatalf("processed code = %d, body = %s", processedResp.Code, processedResp.Body.String())
+	}
+
 	statsReq := httptest.NewRequest(http.MethodGet, "/api/public/stats/today", nil)
 	statsResp := httptest.NewRecorder()
 	routes.ServeHTTP(statsResp, statsReq)
@@ -124,13 +156,14 @@ func TestPublicTodayStats(t *testing.T) {
 		t.Fatalf("stats code = %d, body = %s", statsResp.Code, statsResp.Body.String())
 	}
 	var payload struct {
+		ProcessedResumeCount int `json:"processed_resume_count"`
 		TodayRegisteredCount int `json:"today_registered_count"`
 		AgentBindingCount    int `json:"agent_binding_count"`
 	}
 	if err := json.NewDecoder(statsResp.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.TodayRegisteredCount == 0 || payload.AgentBindingCount == 0 {
+	if payload.ProcessedResumeCount != 12 || payload.TodayRegisteredCount == 0 || payload.AgentBindingCount == 0 {
 		t.Fatalf("unexpected public stats: %+v", payload)
 	}
 }

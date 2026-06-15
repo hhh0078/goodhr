@@ -21,6 +21,7 @@ type TaskService struct {
 	candidateStore CandidateStore
 	subscriptions  SubscriptionStore
 	mailer         Mailer
+	dailyStats     SystemDailyStatsStore
 }
 
 type createTaskRequest struct {
@@ -35,7 +36,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入任务元数据和候选人入库所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer, dailyStats SystemDailyStatsStore) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -46,6 +47,7 @@ func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionSt
 		candidateStore: candidateStore,
 		subscriptions:  subscriptions,
 		mailer:         mailer,
+		dailyStats:     dailyStats,
 	}
 }
 

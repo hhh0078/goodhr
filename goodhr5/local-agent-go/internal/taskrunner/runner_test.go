@@ -38,6 +38,7 @@ func TestRunnerStartStop(t *testing.T) {
 	defer aiServer.Close()
 	var task localdb.Task
 	savedCandidates := []map[string]any{}
+	var processedResumeCount int64
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/subscription/status":
@@ -66,6 +67,17 @@ func TestRunnerStartStop(t *testing.T) {
 					t.Fatalf("decode candidate: %v", err)
 				}
 				savedCandidates = append(savedCandidates, candidate)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/processed-resumes") {
+				var payload struct {
+					Count int `json:"count"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode processed resumes: %v", err)
+				}
+				atomic.AddInt64(&processedResumeCount, int64(payload.Count))
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 				return
 			}
@@ -113,6 +125,9 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	if len(savedCandidates) != 1 || savedCandidates[0]["candidate_name"] != "候选人A" {
 		t.Fatalf("savedCandidates = %+v", savedCandidates)
+	}
+	if atomic.LoadInt64(&processedResumeCount) == 0 {
+		t.Fatal("processed resume count was not synced")
 	}
 	if savedCandidates[0]["status"] != "ai_passed" || savedCandidates[0]["ai_greet_score"] == nil {
 		t.Fatalf("candidate ai fields = %+v", savedCandidates[0])

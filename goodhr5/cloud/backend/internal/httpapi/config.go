@@ -154,6 +154,14 @@ func (c Config) TaskStore(db *sql.DB) TaskStore {
 	return NewMemoryTaskStore()
 }
 
+// SystemDailyStatsStore 创建系统按日统计存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) SystemDailyStatsStore(db *sql.DB) SystemDailyStatsStore {
+	if db != nil {
+		return NewPostgresSystemDailyStatsStore(db)
+	}
+	return NewMemorySystemDailyStatsStore()
+}
+
 // TaskLogStore 创建任务日志存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) CookieStore(db *sql.DB) CookieStore {
 	if db != nil {

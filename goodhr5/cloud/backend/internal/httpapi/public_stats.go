@@ -5,15 +5,16 @@ import "net/http"
 
 // PublicStatsService 处理官网公开统计接口。
 type PublicStatsService struct {
-	users  AdminUserStore
-	tasks  TaskStore
-	agents AgentStore
+	users      AdminUserStore
+	tasks      TaskStore
+	agents     AgentStore
+	dailyStats SystemDailyStatsStore
 }
 
 // NewPublicStatsService 创建官网公开统计服务。
-// users 为用户统计存储，tasks 为任务统计存储，agents 为本地程序绑定存储。
-func NewPublicStatsService(users AdminUserStore, tasks TaskStore, agents AgentStore) *PublicStatsService {
-	return &PublicStatsService{users: users, tasks: tasks, agents: agents}
+// users 为用户统计存储，tasks 为任务统计存储，agents 为本地程序绑定存储，dailyStats 为系统按日统计存储。
+func NewPublicStatsService(users AdminUserStore, tasks TaskStore, agents AgentStore, dailyStats SystemDailyStatsStore) *PublicStatsService {
+	return &PublicStatsService{users: users, tasks: tasks, agents: agents, dailyStats: dailyStats}
 }
 
 // Today 返回官网首页需要展示的今日统计。
@@ -46,11 +47,22 @@ func (s *PublicStatsService) Today(w http.ResponseWriter, r *http.Request) {
 		}
 		todayGreeted = count
 	}
+	processedResumeCount := 0
+	if s.dailyStats != nil {
+		dailyStats, err := s.dailyStats.TodayStats()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load public stats")
+			return
+		}
+		processedResumeCount = dailyStats.ProcessedResumeCount
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                           true,
+		"processed_resume_count":       processedResumeCount,
 		"today_greeted_count":          todayGreeted,
 		"today_registered_count":       stats.TodayRegisteredCount,
 		"agent_binding_count":          stats.AgentBindingCount,
+		"processed_resume_count_label": intString(processedResumeCount),
 		"today_greeted_count_label":    intString(todayGreeted),
 		"today_registered_count_label": intString(stats.TodayRegisteredCount),
 	})

@@ -31,6 +31,7 @@ type Server struct {
 	activationCodes  *ActivationCodeService
 	adminUsers       *AdminUserService
 	publicStats      *PublicStatsService
+	dailyStats       SystemDailyStatsStore
 	help             *HelpService
 	systemConfigs    SystemConfigStore
 	tenants          *TenantService
@@ -66,6 +67,7 @@ func NewServer() (*Server, error) {
 	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
+	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
 	cookieStore := config.CookieStore(db)
@@ -84,7 +86,7 @@ func NewServer() (*Server, error) {
 		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
 		platformAccounts: NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer),
+		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore),
 		taskLogs:         taskLogs,
 		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -93,7 +95,8 @@ func NewServer() (*Server, error) {
 		invitations:      NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		adminUsers:       NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
-		publicStats:      NewPublicStatsService(adminUserStore, taskStore, agentStore),
+		publicStats:      NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
+		dailyStats:       dailyStatsStore,
 		help:             NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:    systemConfigStore,
 		tenants:          NewTenantService(auth, tenantStore),
@@ -188,6 +191,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/candidates") {
 		// 接收本地程序回传的候选人 JSON，并写入云端简历库。
 		s.tasks.SaveLocalCandidate(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/processed-resumes") {
+		// 接收本地程序上报的已处理简历数量，供官网公开统计展示。
+		s.tasks.AddProcessedResumes(w, r)
 		return
 	}
 	// 调用任务服务处理任务详情读取。
