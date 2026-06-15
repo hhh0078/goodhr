@@ -55,6 +55,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		"paths": map[string]DiagnosticDir{
 			"data":        diagnoseDir(s.cfg.DataDir),
 			"runtime":     diagnoseDir(s.cfg.RuntimeDir),
+			"logs":        diagnoseDir(s.cfg.LogsDir),
 			"ocr":         diagnoseDir(s.cfg.OCRDir),
 			"frontend":    diagnoseDir(s.cfg.FrontendDir),
 			"profiles":    diagnoseDir(s.cfg.ProfilesDir),

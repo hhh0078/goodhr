@@ -156,6 +156,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":        version.Value,
 		"port":           s.cfg.Port,
 		"dataDir":        s.cfg.DataDir,
+		"logsDir":        s.cfg.LogsDir,
+		"logPath":        filepath.Join(s.cfg.LogsDir, "local-agent.log"),
 		"profilesDir":    s.cfg.ProfilesDir,
 		"downloadsDir":   s.cfg.DownloadsDir,
 		"screenshotsDir": s.cfg.ScreenshotsDir,
