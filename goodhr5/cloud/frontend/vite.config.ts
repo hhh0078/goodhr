@@ -91,7 +91,7 @@ function buildOfficialHeader(pageName: string) {
     '<span>已处理 <strong data-stat-field="processed_resume_count">--</strong> 份简历</span>',
     '<span>今日新注册 <strong data-stat-field="today_registered_count">--</strong></span>',
     "</div>",
-    '<a class="admin-link" href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F.exe">进入后台</a>',
+    '<a class="admin-link" href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F.exe">立即下载</a>',
     "</header>",
   ].join("");
 }
