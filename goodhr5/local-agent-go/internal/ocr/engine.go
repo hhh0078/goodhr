@@ -13,17 +13,21 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"goodhr5/local-agent-go/internal/config"
 )
 
 // Engine 表示本地 OCR 引擎。
 type Engine struct {
-	cfg    *config.Config
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
+	cfg     *config.Config
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  *bufio.Reader
+	logFile *os.File
+	logPath string
+	done    chan error
 }
 
 // Result 表示 OCR 识别结果。
@@ -105,6 +109,7 @@ func (e *Engine) ensureProcessLocked() error {
 	}
 	args := ocrArgs()
 	cmd := exec.Command(executable, args...)
+	hideCommandWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("创建 OCR 输入管道失败：%w", err)
@@ -113,16 +118,24 @@ func (e *Engine) ensureProcessLocked() error {
 	if err != nil {
 		return fmt.Errorf("创建 OCR 输出管道失败：%w", err)
 	}
-	stderr, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动 OCR 组件失败：%w", err)
+	logFile, logPath, err := openOCRLog(e.cfg.RuntimeDir)
+	if err != nil {
+		return err
 	}
-	if stderr != nil {
-		go io.Copy(io.Discard, stderr)
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return fmt.Errorf("启动 OCR 组件失败：%w", err)
 	}
 	e.cmd = cmd
 	e.stdin = stdin
 	e.stdout = bufio.NewReader(stdout)
+	e.logFile = logFile
+	e.logPath = logPath
+	e.done = make(chan error, 1)
+	go func() {
+		e.done <- cmd.Wait()
+	}()
 	return nil
 }
 
@@ -135,7 +148,7 @@ func (e *Engine) readJSONLineLocked(ctx context.Context) (string, error) {
 		for {
 			line, err := e.stdout.ReadString('\n')
 			if err != nil {
-				errCh <- fmt.Errorf("读取 OCR 返回失败：%w", err)
+				errCh <- e.ocrReadError(err)
 				return
 			}
 			line = strings.TrimSpace(line)
@@ -172,6 +185,50 @@ func (e *Engine) stopLocked() {
 	e.cmd = nil
 	e.stdin = nil
 	e.stdout = nil
+	if e.logFile != nil {
+		_ = e.logFile.Close()
+	}
+	e.logFile = nil
+	e.logPath = ""
+	e.done = nil
+}
+
+// openOCRLog 打开 OCR 组件日志文件。
+// runtimeDir 为运行组件目录，返回日志文件和日志路径。
+func openOCRLog(runtimeDir string) (*os.File, string, error) {
+	logDir := filepath.Join(runtimeDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, "", fmt.Errorf("创建 OCR 日志目录失败：%w", err)
+	}
+	logPath := filepath.Join(logDir, "ocr.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, "", fmt.Errorf("打开 OCR 日志失败：%w", err)
+	}
+	_, _ = fmt.Fprintf(file, "\n[%s] 启动 OCR 组件\n", time.Now().Format(time.RFC3339))
+	return file, logPath, nil
+}
+
+// ocrReadError 格式化 OCR 读取失败错误。
+// err 为 stdout 读取错误。
+func (e *Engine) ocrReadError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if e.done != nil {
+		select {
+		case exitErr := <-e.done:
+			if exitErr != nil {
+				return fmt.Errorf("OCR 组件已退出：%v，请查看日志：%s", exitErr, e.logPath)
+			}
+			return fmt.Errorf("OCR 组件已退出，请查看日志：%s", e.logPath)
+		default:
+		}
+	}
+	if err == io.EOF {
+		return fmt.Errorf("OCR 组件没有返回结果并已关闭输出，请查看日志：%s", e.logPath)
+	}
+	return fmt.Errorf("读取 OCR 返回失败：%w，请查看日志：%s", err, e.logPath)
 }
 
 // executablePath 返回 OCR 可执行文件路径。

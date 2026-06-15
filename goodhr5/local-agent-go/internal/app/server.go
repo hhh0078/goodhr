@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"errors"
@@ -892,16 +893,34 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	s.prepareBrowserPayload(path, payload)
-	result, err := s.worker.Call(r.Context(), path, payload)
+	callCtx, cancel := context.WithTimeout(r.Context(), workerCallTimeout(path))
+	defer cancel()
+	result, err := s.worker.Call(callCtx, path, payload)
 	if err != nil {
 		msg := "浏览器 Worker 调用失败"
 		if err.Error() != "" {
 			msg = err.Error()
 		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			msg = "浏览器启动或操作超时，请关闭残留浏览器后重试"
+		}
 		response.Error(w, http.StatusBadGateway, msg)
 		return
 	}
 	response.Success(w, workerData(result))
+}
+
+// workerCallTimeout 返回 Worker 接口最大等待时间。
+// path 为 Worker 路由，不同操作按耗时给出不同超时。
+func workerCallTimeout(path string) time.Duration {
+	switch path {
+	case "/api/v1/browser/start":
+		return 45 * time.Second
+	case "/api/v1/page/screenshot", "/api/v1/boss/candidates/detail":
+		return 120 * time.Second
+	default:
+		return 60 * time.Second
+	}
 }
 
 // prepareBrowserPayload 补齐浏览器请求的本机目录参数。
