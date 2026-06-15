@@ -8,8 +8,7 @@
     <title>GoodHR - 招聘自动化工具</title>
     <link rel="stylesheet" href="/official-site.css" />
     <script defer src="/official-layout.js"></script>
-    <script type="module" crossorigin src="/assets/apiClient.js"></script>
-    <script type="module" crossorigin src="/assets/official-site.js"></script>
+    <script type="module" src="/src/official-site.ts"></script>
   </head>
   <body>
     <div
@@ -17,30 +16,7 @@
       data-keyword-canvas
       aria-hidden="true"
     ></div>
-    <header class="site-header">
-      <a class="brand" href="/">GoodHR</a>
-      <nav>
-        <a class="active" href="/">首页</a><a href="/features.html">功能介绍</a
-        ><a href="/videos.html">安装视频教程</a
-        ><a href="/pricing.html">产品定价</a
-        ><a href="/contact.html">联系我们</a>
-      </nav>
-      <div class="nav-stats" data-public-stats>
-        <span
-          >已处理
-          <strong data-stat-field="processed_resume_count">--</strong>
-          份简历</span
-        ><span
-          >今日新注册
-          <strong data-stat-field="today_registered_count">--</strong></span
-        >
-      </div>
-      <a
-        class="admin-link"
-        href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F-5.1.1.exe"
-        >立即下载</a
-      >
-    </header>
+    <div data-site-header></div>
 
     <main>
       <section class="hero terminal-window">
@@ -60,8 +36,8 @@
           </p>
           <div class="hero-actions">
             <a
-              class="primary-btn"
-              href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F-5.1.1.exe"
+              class="admin-link"
+              href="https://ssk8864.oss-cn-shenzhen.aliyuncs.com/GooHR%E5%AE%89%E8%A3%85%E7%A8%8B%E5%BA%8F.exe"
               >立即下载</a
             >
             <a class="ghost-btn" href="/features.html">查看功能</a>
@@ -110,8 +86,6 @@
       </section>
     </main>
 
-    <footer class="site-footer">
-      <span>GoodHR 招聘自动化工具</span><span>联系：17607080935</span>
-    </footer>
+    <div data-site-footer></div>
   </body>
 </html>
