@@ -1334,6 +1334,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				candidate["ocr_text"] = detailText
 				candidate["detail_source"] = "ocr"
 				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
+				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别内容：name=%s text=%s", candidateName, logTextPreview(detailText, 800)))
 			}
 		}
 		if mode == "ai" {
@@ -2448,6 +2449,33 @@ func mergeText(base string, extra string) string {
 		return base
 	}
 	return base + "\n" + extra
+}
+
+// logTextPreview 返回适合写入日志的文本摘要。
+// text 为原始文本，limit 为最大字符数。
+func logTextPreview(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "空"
+	}
+	lines := strings.FieldsFunc(text, func(r rune) bool {
+		return r == '\r' || r == '\n' || r == '\t'
+	})
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if item := strings.TrimSpace(line); item != "" {
+			parts = append(parts, item)
+		}
+	}
+	preview := strings.Join(parts, " / ")
+	if limit <= 0 {
+		limit = 800
+	}
+	runes := []rune(preview)
+	if len(runes) > limit {
+		return string(runes[:limit]) + "..."
+	}
+	return preview
 }
 
 // shouldFetchDetail 判断任务是否需要读取候选人详情。
