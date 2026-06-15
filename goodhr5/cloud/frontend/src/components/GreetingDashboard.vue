@@ -17,20 +17,16 @@
 
     <div class="metric-grid">
       <div class="metric-card primary">
-        <span>已打招呼</span>
+        <span>今日已打招呼</span>
         <strong>{{ totals.greeted }}</strong>
       </div>
       <div class="metric-card">
-        <span>已扫描</span>
-        <strong>{{ totals.scanned }}</strong>
+        <span>运行中任务</span>
+        <strong>{{ runningTasks.length }}</strong>
       </div>
       <div class="metric-card">
-        <span>已跳过</span>
-        <strong>{{ totals.skipped }}</strong>
-      </div>
-      <div class="metric-card" :class="{ danger: totals.failed > 0 }">
-        <span>失败</span>
-        <strong>{{ totals.failed }}</strong>
+        <span>任务总数</span>
+        <strong>{{ taskItems.length }}</strong>
       </div>
     </div>
 
@@ -56,7 +52,7 @@
 
       <div class="dashboard-block">
         <div class="block-title">
-          <strong>岗位表现</strong>
+          <strong>今日排行</strong>
           <span>按今日打招呼排序</span>
         </div>
         <div v-if="topTasks.length" class="mini-list">
@@ -64,8 +60,7 @@
             <div>
               <strong>{{ taskName(task) }}</strong>
               <p class="hint">
-                扫描 {{ todayCount(task, "scanned") }} · 跳过
-                {{ todayCount(task, "skipped") }}
+                {{ accountName(task) }} · {{ modeLabel(task.mode) }}
               </p>
             </div>
             <span>{{ todayCount(task, "greeted") }} 人</span>
@@ -83,7 +78,7 @@
       <div v-if="alerts.length" class="alert-list">
         <p v-for="item in alerts" :key="item" class="warn">{{ item }}</p>
       </div>
-      <p v-else class="success">目前没有明显异常，可以继续观察打招呼结果。</p>
+      <p v-else class="success">今日打招呼数据正常。</p>
     </div>
   </section>
 </template>
@@ -97,13 +92,10 @@ const taskItems = computed(() => props.tasks?.tasks?.value || []);
 const totals = computed(() => {
   return taskItems.value.reduce(
     (sum: any, task: any) => {
-      sum.scanned += todayCount(task, "scanned");
       sum.greeted += todayCount(task, "greeted");
-      sum.skipped += todayCount(task, "skipped");
-      sum.failed += todayCount(task, "failed");
       return sum;
     },
-    { scanned: 0, greeted: 0, skipped: 0, failed: 0 },
+    { greeted: 0 },
   );
 });
 const runningTasks = computed(() =>
@@ -116,7 +108,7 @@ const topTasks = computed(() =>
     )
     .filter(
       (task: any) =>
-        todayCount(task, "scanned") > 0 || todayCount(task, "greeted") > 0,
+        todayCount(task, "greeted") > 0,
     )
     .slice(0, 5),
 );
@@ -125,20 +117,6 @@ const alerts = computed(() => {
   if (!taskItems.value.length) {
     result.push("还没有任务。先创建任务后，控制台才会有打招呼数据。");
     return result;
-  }
-  if (totals.value.failed > 0) {
-    result.push(`今天有 ${totals.value.failed} 次失败，建议查看任务日志。`);
-  }
-  if (totals.value.scanned > 0 && totals.value.greeted === 0) {
-    result.push(
-      "今天已经扫描候选人，但还没有打招呼，建议检查岗位条件或账号状态。",
-    );
-  }
-  if (
-    totals.value.scanned >= 20 &&
-    totals.value.skipped > totals.value.greeted * 3
-  ) {
-    result.push("跳过人数明显偏多，可能岗位管理或 AI 提示词过严。");
   }
   if (!runningTasks.value.length && totals.value.greeted === 0) {
     result.push("当前没有运行中的任务，也没有今日打招呼结果。");
@@ -203,7 +181,7 @@ function modeLabel(mode: string) {
 }
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
