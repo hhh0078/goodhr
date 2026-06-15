@@ -352,9 +352,19 @@ func TestApplyKeywordFilter(t *testing.T) {
 		{"id": "2", "raw_text": "本科 外包 项目"},
 		{"id": "3", "raw_text": "本科 客服"},
 	}
-	filtered, skipped := applyKeywordFilter(task, candidates)
+	logs := []string{}
+	filtered, skipped := applyKeywordFilter(task, candidates, func(message string) {
+		logs = append(logs, message)
+	})
 	if skipped != 2 || len(filtered) != 1 || filtered[0]["id"] != "1" {
 		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+	joinedLogs := strings.Join(logs, "\n")
+	if !strings.Contains(joinedLogs, "列表关键词通过") || !strings.Contains(joinedLogs, "命中=本科、销售") {
+		t.Fatalf("logs = %s", joinedLogs)
+	}
+	if !strings.Contains(joinedLogs, "命中排除词=外包") {
+		t.Fatalf("logs = %s", joinedLogs)
 	}
 }
 
@@ -384,9 +394,15 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 			"is_and_mode":      true,
 		},
 	}
-	passed := map[string]any{"detail_text": "本科，五年销售经验"}
-	if skipped := applyKeywordGreetDecision(task, passed); skipped != 0 || passed["status"] != "passed" {
+	logs := []string{}
+	passed := map[string]any{"name": "张三", "detail_text": "本科，五年销售经验"}
+	if skipped := applyKeywordGreetDecisionWithLog(task, passed, func(message string) {
+		logs = append(logs, message)
+	}); skipped != 0 || passed["status"] != "passed" {
 		t.Fatalf("passed = %+v, skipped = %d", passed, skipped)
+	}
+	if joinedLogs := strings.Join(logs, "\n"); !strings.Contains(joinedLogs, "详情关键词通过：name=张三") || !strings.Contains(joinedLogs, "命中=本科、销售") {
+		t.Fatalf("logs = %s", joinedLogs)
 	}
 	rejected := map[string]any{"detail_text": "本科，外包项目经验"}
 	if skipped := applyKeywordGreetDecision(task, rejected); skipped != 1 || rejected["status"] != "skipped" {

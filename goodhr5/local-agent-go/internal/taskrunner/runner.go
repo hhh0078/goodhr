@@ -494,7 +494,7 @@ scanLoop:
 		}
 		candidates := queue
 		queue = nil
-		filtered, skipped := prepareCandidatesForFirstStage(task, candidates)
+		filtered, skipped := r.prepareCandidatesForFirstStage(task, candidates)
 		totalSkipped += skipped
 		if skipped > 0 {
 			r.taskLog(task.ID, "info", fmt.Sprintf("列表关键词过滤完成：保留=%d 跳过=%d", len(filtered), skipped))
@@ -1641,7 +1641,7 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task locald
 		return 0, nil
 	}
 	if taskMode(task) == "keyword" {
-		return applyKeywordGreetDecision(task, candidate), nil
+		return r.applyKeywordGreetDecision(task, candidate), nil
 	}
 	visibleClient, cleanup := r.aiClientForCall(ctx, exec, client, "AI 正在评分", candidateLogName(candidate), "正在根据候选人详情判断是否适合打招呼")
 	itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
@@ -1654,7 +1654,21 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task locald
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
 // task 为任务记录，candidate 为已补充详情的候选人，返回本次是否跳过。
+func (r *Runner) applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int {
+	return applyKeywordGreetDecisionWithLog(task, candidate, func(message string) {
+		r.taskLog(task.ID, "info", message)
+	})
+}
+
+// applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
+// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
 func applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int {
+	return applyKeywordGreetDecisionWithLog(task, candidate, nil)
+}
+
+// applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
+// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
+func applyKeywordGreetDecisionWithLog(task localdb.Task, candidate map[string]any, logf func(string)) int {
 	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
 	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
 	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
@@ -1668,16 +1682,19 @@ func applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int 
 	if matched := matchedWords(text, excludes); len(matched) > 0 {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
+		logKeywordDecision(logf, "详情关键词跳过", candidate, "命中排除词="+strings.Join(matched, "、"))
 		return 1
 	}
 	matched := matchedWords(text, keywords)
 	if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情未命中关键词"
+		logKeywordDecision(logf, "详情关键词跳过", candidate, fmt.Sprintf("命中=%s 需要=%s", keywordListLabel(matched), keywordListLabel(keywords)))
 		return 1
 	}
 	candidate["status"] = "passed"
 	candidate["matched_keywords"] = matched
+	logKeywordDecision(logf, "详情关键词通过", candidate, "命中="+keywordListLabel(matched))
 	return 0
 }
 
@@ -2274,9 +2291,20 @@ func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
 
 // prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
 // task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func (r *Runner) prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
+		return applyKeywordFilter(task, candidates, func(message string) {
+			r.taskLog(task.ID, "info", message)
+		})
+	}
+	return prepareCandidatesForFirstStage(task, candidates)
+}
+
+// prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
+// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
 func prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
 	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
-		return applyKeywordFilter(task, candidates)
+		return applyKeywordFilter(task, candidates, nil)
 	}
 	for _, candidate := range candidates {
 		if strings.TrimSpace(stringFromMap(candidate, "status")) == "" {
@@ -2287,8 +2315,8 @@ func prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]a
 }
 
 // applyKeywordFilter 按任务岗位快照过滤候选人。
-// task 为任务记录，candidates 为候选人列表。
-func applyKeywordFilter(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+// task 为任务记录，candidates 为候选人列表，logf 为空时不写日志。
+func applyKeywordFilter(task localdb.Task, candidates []map[string]any, logf func(string)) ([]map[string]any, int) {
 	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
 	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
 	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
@@ -2302,6 +2330,7 @@ func applyKeywordFilter(task localdb.Task, candidates []map[string]any) ([]map[s
 		if matched := matchedWords(text, excludes); len(matched) > 0 {
 			candidate["status"] = "skipped"
 			candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
+			logKeywordDecision(logf, "列表关键词跳过", candidate, "命中排除词="+strings.Join(matched, "、"))
 			skipped++
 			continue
 		}
@@ -2309,14 +2338,34 @@ func applyKeywordFilter(task localdb.Task, candidates []map[string]any) ([]map[s
 		if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
 			candidate["status"] = "skipped"
 			candidate["skip_reason"] = "未命中关键词"
+			logKeywordDecision(logf, "列表关键词跳过", candidate, fmt.Sprintf("命中=%s 需要=%s", keywordListLabel(matched), keywordListLabel(keywords)))
 			skipped++
 			continue
 		}
 		candidate["status"] = "passed"
 		candidate["matched_keywords"] = matched
+		logKeywordDecision(logf, "列表关键词通过", candidate, "命中="+keywordListLabel(matched))
 		result = append(result, candidate)
 	}
 	return result, skipped
+}
+
+// logKeywordDecision 写入关键词筛选日志。
+// logf 为日志函数，candidate 为候选人，detail 为命中详情。
+func logKeywordDecision(logf func(string), prefix string, candidate map[string]any, detail string) {
+	if logf == nil {
+		return
+	}
+	logf(fmt.Sprintf("%s：name=%s %s", prefix, candidateLogName(candidate), detail))
+}
+
+// keywordListLabel 返回关键词列表日志文案。
+// words 为关键词列表，空列表返回“无”。
+func keywordListLabel(words []string) string {
+	if len(words) == 0 {
+		return "无"
+	}
+	return strings.Join(words, "、")
 }
 
 // taskMode 返回任务运行模式。
