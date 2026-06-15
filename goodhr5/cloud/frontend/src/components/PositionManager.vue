@@ -436,19 +436,19 @@ const modeOptions = [
   {
     value: "ai",
     label: "AI筛选",
-    description: "先看详情评分，再做打招呼评分，适合精细判断。",
+    description: "AI先看详情评分，再做打招呼评分，适合精细判断。适合复杂岗位。",
   },
   {
     value: "keyword",
     label: "关键词筛选",
-    description: "按关键词和排除词判断，永久免费且速度快。",
+    description: "按关键词和排除词判断，永久免费且速度快。适合普通岗位。",
   },
 ];
 const detailModeOptions = [
   {
     value: "dom",
     label: "DOM识别",
-    description: "最快，不截图，适合网页文字能直接读取的页面。",
+    description: "最快，不截图，适合网页文字能直接读取的页面。BOSS不支持",
   },
   {
     value: "ocr",
@@ -557,11 +557,14 @@ async function ensureAIAllowedForPosition() {
  */
 async function confirmSubscriptionForAI() {
   if (hasActiveSubscription.value) return true;
-  const confirmed = await confirmDialog("该功能需要订阅会员，是否前往订阅页面？", {
-    title: "订阅会员",
-    confirmText: "确认",
-    cancelText: "取消",
-  });
+  const confirmed = await confirmDialog(
+    "该功能需要订阅会员，是否前往订阅页面？",
+    {
+      title: "订阅会员",
+      confirmText: "确认",
+      cancelText: "取消",
+    },
+  );
   if (confirmed) app.goMenu?.("subscription");
   return false;
 }
