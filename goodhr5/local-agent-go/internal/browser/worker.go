@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -35,6 +36,7 @@ type WorkerManager struct {
 	cmd     *exec.Cmd
 	done    chan error
 	logFile *os.File
+	logPath string
 	baseURL string
 	// attachedPID 记录复用到的旧 Worker 进程 ID。
 	attachedPID int
@@ -57,6 +59,12 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	if status, ok := m.probeExistingWorkerLocked(ctx); ok {
 		return status, nil
 	}
+	if err := m.selectAvailableBaseURLLocked(ctx); err != nil {
+		return WorkerStatus{}, err
+	}
+	if m.runtime == nil {
+		return WorkerStatus{}, fmt.Errorf("本地程序缺少运行组件管理器")
+	}
 	status, err := m.runtime.Ensure()
 	if err != nil {
 		return WorkerStatus{}, err
@@ -67,11 +75,11 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	cmd := exec.Command(status.NodePath, status.WorkerEntry)
 	hideCommandWindow(cmd)
 	cmd.Env = append(os.Environ(),
-		"GOODHR_WORKER_ADDR=127.0.0.1:9101",
+		"GOODHR_WORKER_ADDR="+workerAddrFromBaseURL(m.baseURL),
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
 		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
 	)
-	logFile, err := openWorkerLog(status.RuntimeDir)
+	logFile, logPath, err := openWorkerLog(status.RuntimeDir)
 	if err != nil {
 		return WorkerStatus{}, err
 	}
@@ -84,6 +92,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	m.cmd = cmd
 	m.attachedPID = 0
 	m.logFile = logFile
+	m.logPath = logPath
 	m.done = make(chan error, 1)
 	go func() {
 		m.done <- cmd.Wait()
@@ -100,18 +109,18 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 
 // openWorkerLog 打开 Node Worker 日志文件。
 // runtimeDir 为运行组件目录。
-func openWorkerLog(runtimeDir string) (*os.File, error) {
+func openWorkerLog(runtimeDir string) (*os.File, string, error) {
 	logDir := filepath.Join(runtimeDir, "logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return nil, fmt.Errorf("创建 Worker 日志目录失败：%w", err)
+		return nil, "", fmt.Errorf("创建 Worker 日志目录失败：%w", err)
 	}
 	logPath := filepath.Join(logDir, "browser-worker.log")
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("打开 Worker 日志失败：%w", err)
+		return nil, "", fmt.Errorf("打开 Worker 日志失败：%w", err)
 	}
 	_, _ = fmt.Fprintf(file, "\n[%s] 启动 Node Browser Worker\n", time.Now().Format(time.RFC3339))
-	return file, nil
+	return file, logPath, nil
 }
 
 // Stop 停止 Node Browser Worker。
@@ -153,6 +162,7 @@ func (m *WorkerManager) closeLogLocked() {
 		_ = m.logFile.Close()
 	}
 	m.logFile = nil
+	m.logPath = ""
 }
 
 // killProcessTree 强制结束 Worker 进程树。
@@ -353,20 +363,38 @@ func (m *WorkerManager) statusLocked() WorkerStatus {
 // probeExistingWorkerLocked 探测并复用已经存在的 GoodHR Node Worker。
 // ctx 为请求上下文，返回值表示 Worker 状态和是否可复用。
 func (m *WorkerManager) probeExistingWorkerLocked(ctx context.Context) (WorkerStatus, bool) {
-	health, ok := m.probeWorker(ctx)
-	if !ok {
-		m.attachedPID = 0
-		return WorkerStatus{}, false
+	if health, ok := probeWorkerAt(ctx, m.baseURL); ok {
+		m.attachedPID = intFromAny(health["pid"])
+		return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
 	}
-	m.attachedPID = intFromAny(health["pid"])
-	return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
+	for port := 9101; port <= 9109; port++ {
+		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
+		if baseURL == m.baseURL {
+			continue
+		}
+		health, ok := probeWorkerAt(ctx, baseURL)
+		if !ok {
+			continue
+		}
+		m.baseURL = baseURL
+		m.attachedPID = intFromAny(health["pid"])
+		return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
+	}
+	m.attachedPID = 0
+	return WorkerStatus{}, false
 }
 
 // probeWorker 请求 Worker 健康检查接口，确认端口上运行的是 GoodHR Worker。
 // ctx 为请求上下文，返回健康检查数据和是否可复用。
 func (m *WorkerManager) probeWorker(ctx context.Context) (map[string]any, bool) {
+	return probeWorkerAt(ctx, m.baseURL)
+}
+
+// probeWorkerAt 请求指定 Worker 健康检查接口。
+// ctx 为请求上下文，baseURL 为 Worker 基础地址。
+func probeWorkerAt(ctx context.Context, baseURL string) (map[string]any, bool) {
 	client := http.Client{Timeout: 500 * time.Millisecond}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
 	if err != nil {
 		return nil, false
 	}
@@ -387,6 +415,36 @@ func (m *WorkerManager) probeWorker(ctx context.Context) (map[string]any, bool) 
 		return nil, false
 	}
 	return data, true
+}
+
+// selectAvailableBaseURLLocked 选择可用 Worker 端口。
+// ctx 为请求上下文，调用前必须持有锁。
+func (m *WorkerManager) selectAvailableBaseURLLocked(ctx context.Context) error {
+	for port := 9101; port <= 9109; port++ {
+		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
+		if _, ok := probeWorkerAt(ctx, baseURL); ok {
+			m.baseURL = baseURL
+			return nil
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		if err == nil {
+			_ = ln.Close()
+			m.baseURL = baseURL
+			return nil
+		}
+	}
+	return fmt.Errorf("Node Browser Worker 没有可用端口：9101-9109")
+}
+
+// workerAddrFromBaseURL 从 Worker 基础地址提取监听地址。
+// baseURL 为 http://host:port 格式。
+func workerAddrFromBaseURL(baseURL string) string {
+	baseURL = strings.TrimPrefix(strings.TrimSpace(baseURL), "http://")
+	baseURL = strings.TrimPrefix(baseURL, "https://")
+	if baseURL == "" {
+		return "127.0.0.1:9101"
+	}
+	return baseURL
 }
 
 // intFromAny 将 JSON 数字转换为 int。
@@ -413,7 +471,7 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-m.done:
-			return fmt.Errorf("Node Browser Worker 已退出：%w", err)
+			return m.workerExitError(err)
 		default:
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+"/health", nil)
@@ -433,4 +491,48 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 		}
 	}
 	return fmt.Errorf("Node Browser Worker 启动超时")
+}
+
+// workerExitError 返回 Worker 启动期退出的可读错误。
+// err 为 cmd.Wait 返回值，可能为空。
+func (m *WorkerManager) workerExitError(err error) error {
+	if m.logFile != nil {
+		_ = m.logFile.Sync()
+	}
+	logText := recentLogTail(m.logPath, 2000)
+	if err == nil {
+		if logText != "" {
+			return fmt.Errorf("Node Browser Worker 已正常退出，最近日志：%s", logText)
+		}
+		return fmt.Errorf("Node Browser Worker 已正常退出")
+	}
+	if logText != "" {
+		return fmt.Errorf("Node Browser Worker 已退出：%v，最近日志：%s", err, logText)
+	}
+	return fmt.Errorf("Node Browser Worker 已退出：%v", err)
+}
+
+// recentLogTail 读取日志末尾摘要。
+// path 为日志路径，limit 为最大字符数。
+func recentLogTail(path string, limit int) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "" {
+		return ""
+	}
+	if limit <= 0 {
+		limit = 2000
+	}
+	runes := []rune(text)
+	if len(runes) > limit {
+		return string(runes[len(runes)-limit:])
+	}
+	return text
 }
