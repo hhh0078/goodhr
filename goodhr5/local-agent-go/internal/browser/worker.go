@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -76,8 +75,8 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	if err != nil {
 		return WorkerStatus{}, err
 	}
-	cmd.Stdout = io.MultiWriter(os.Stdout, logFile)
-	cmd.Stderr = io.MultiWriter(os.Stderr, logFile)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return WorkerStatus{}, fmt.Errorf("启动 Node Browser Worker 失败：%w", err)
