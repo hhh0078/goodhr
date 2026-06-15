@@ -20,6 +20,28 @@ COMMENT ON COLUMN platform_accounts.created_at IS '账号信息创建时间';
 
 CREATE INDEX IF NOT EXISTS idx_platform_accounts_user_id ON platform_accounts(user_id);
 
+-- 将旧 cookie_data 中已有的账号信息回填到 platform_accounts。
+-- 这样升级后前端平台账号页仍能看到历史账号，旧任务引用的账号 ID 也不会断开。
+INSERT INTO platform_accounts (
+    id,
+    user_id,
+    platform_id,
+    display_name,
+    local_profile_id,
+    created_at
+)
+SELECT
+    cd.id,
+    cd.user_id,
+    cd.platform_id,
+    COALESCE(NULLIF(cd.display_name, ''), cd.platform_id || '账号'),
+    cd.id::text,
+    cd.created_at
+FROM cookie_data cd
+WHERE cd.user_id IS NOT NULL
+  AND COALESCE(cd.platform_id, '') <> ''
+ON CONFLICT DO NOTHING;
+
 ALTER TABLE task_runs
     ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS enable_sound BOOLEAN NOT NULL DEFAULT false,
