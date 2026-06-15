@@ -116,7 +116,6 @@
               {{ taskAccountName(task) }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }}
-              | {{ displayRunGreetLimit(task) }}
             </div>
 
             <div>状态 {{ taskStatusLabel(task.status) }}</div>
@@ -147,6 +146,7 @@
               <span>总计 {{ displayTotalGreetedCount(task) }}</span>
               <span>今天 {{ displayTodayGreetedCount(task) }}</span>
               <span>本次 {{ displayCurrentRunGreetedCount(task) }}</span>
+              <span>本次上限 {{ displayRunGreetLimit(task) }}</span>
             </div>
             <label
               :class="[

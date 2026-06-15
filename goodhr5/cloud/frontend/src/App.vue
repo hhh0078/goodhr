@@ -62,10 +62,6 @@
         >
           {{ agent.status.value }}
         </button>
-        ><span class="sep">|</span>
-        <button class="top-info top-link" @click="goMenu('agent-download')">
-          PID {{ agent.info?.value?.port || "---" }}
-        </button>
         <span class="sep">|</span>
         <button class="top-info top-link" @click="openThemeSelector">
           主题
