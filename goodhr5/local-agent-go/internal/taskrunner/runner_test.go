@@ -394,6 +394,15 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 	}
 }
 
+// TestCleanCandidateDetailText 验证平台附加分析内容不会进入候选人详情。
+func TestCleanCandidateDetailText(t *testing.T) {
+	raw := "解婷 25岁 大专 工作经历 主播\n牛人分析器\nVIP专享 同类牛人\n平台隐私声明"
+	cleaned := cleanCandidateDetailText(raw)
+	if cleaned != "解婷 25岁 大专 工作经历 主播" {
+		t.Fatalf("cleaned = %q", cleaned)
+	}
+}
+
 // TestRunOptionBounds 验证任务运行参数默认值和上限。
 func TestRunOptionBounds(t *testing.T) {
 	if scanRounds(StartOptions{}) != defaultScanRounds {
