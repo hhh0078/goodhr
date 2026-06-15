@@ -61,4 +61,6 @@ type Runtime interface {
 	CandidateFilterText(candidate Candidate) string
 	// CandidateFingerprint 返回候选人去重指纹。
 	CandidateFingerprint(candidate Candidate) string
+	// CleanCandidateDetailText 清理平台详情文本中的非简历内容。
+	CleanCandidateDetailText(text string) string
 }

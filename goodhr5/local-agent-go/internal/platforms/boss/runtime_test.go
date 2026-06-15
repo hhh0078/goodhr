@@ -36,3 +36,13 @@ func TestCandidateFingerprintRequiresAge(t *testing.T) {
 		t.Fatalf("缺少年龄时不应生成 ID：%s", id)
 	}
 }
+
+// TestCleanCandidateDetailText 验证 Boss 平台附加分析内容不会进入候选人详情。
+func TestCleanCandidateDetailText(t *testing.T) {
+	runtime := NewRuntime()
+	raw := "解婷 25岁 大专 工作经历 主播\n牛人分析器\nVIP专享 同类牛人\n平台隐私声明"
+	cleaned := runtime.CleanCandidateDetailText(raw)
+	if cleaned != "解婷 25岁 大专 工作经历 主播" {
+		t.Fatalf("cleaned = %q", cleaned)
+	}
+}

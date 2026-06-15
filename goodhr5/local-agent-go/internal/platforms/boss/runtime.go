@@ -254,6 +254,24 @@ func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string 
 	return "boss_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
 }
 
+// CleanCandidateDetailText 清理 Boss 详情文本中的平台附加内容。
+// text 为 OCR、DOM 或 AI 提取出的详情文本。
+func (r *Runtime) CleanCandidateDetailText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	cutMarkers := []string{
+		"牛人分析器",
+	}
+	for _, marker := range cutMarkers {
+		if index := strings.Index(text, marker); index >= 0 {
+			text = strings.TrimSpace(text[:index])
+		}
+	}
+	return text
+}
+
 // candidateAge 读取 Boss 候选人年龄。
 // candidate 为候选人卡片数据，优先读取结构字段，缺失时从文本中提取“xx岁”。
 func candidateAge(candidate platformcore.Candidate) string {

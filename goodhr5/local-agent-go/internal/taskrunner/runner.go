@@ -1330,7 +1330,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				candidate["ocr_error"] = err.Error()
 				r.taskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
 			} else {
-				detailText = cleanCandidateDetailText(ocrText)
+				detailText = platformRuntime.CleanCandidateDetailText(ocrText)
 				candidate["ocr_text"] = detailText
 				candidate["detail_source"] = "ocr"
 				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
@@ -1347,7 +1347,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
 			} else {
 				r.showAIReply(ctx, exec, "AI 详情分析完成", candidateName, formatVisionDecisionReply(decision))
-				detailText = cleanCandidateDetailText(decision.DetailText)
+				detailText = platformRuntime.CleanCandidateDetailText(decision.DetailText)
 				candidate["ai_vision_text"] = detailText
 				candidate["detail_source"] = "ai"
 				candidate["ai_greet_score"] = decision.Score
@@ -1372,7 +1372,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	} else {
 		r.taskLog(task.ID, "info", fmt.Sprintf("当前详情模式=%s，不调用图片详情 AI：%s", detailModeLabel(mode), candidateName))
 	}
-	detailText = cleanCandidateDetailText(detailText)
+	detailText = platformRuntime.CleanCandidateDetailText(detailText)
 	if detailText == "" {
 		if mode == "ai" && stringFromMap(candidate, "status") == "ai_passed" {
 			return 0, nil
@@ -2350,7 +2350,7 @@ func stringListFromMap(item map[string]any, key string) []string {
 	}
 	switch value := item[key].(type) {
 	case []string:
-		return value
+		return cleanStringList(value)
 	case []any:
 		result := []string{}
 		for _, raw := range value {
@@ -2358,10 +2358,40 @@ func stringListFromMap(item map[string]any, key string) []string {
 				result = append(result, strings.TrimSpace(text))
 			}
 		}
-		return result
+		return cleanStringList(result)
+	case string:
+		return splitKeywordText(value)
 	default:
 		return []string{}
 	}
+}
+
+// splitKeywordText 拆分关键词文本，兼容中文逗号、英文逗号、顿号、分号、空格和换行。
+// text 为原始关键词文本。
+func splitKeywordText(text string) []string {
+	return cleanStringList(strings.FieldsFunc(text, func(r rune) bool {
+		return r == ',' || r == '，' || r == '、' || r == ';' || r == '；' || unicode.IsSpace(r)
+	}))
+}
+
+// cleanStringList 清理字符串数组里的空项和重复项。
+// items 为原始字符串数组。
+func cleanStringList(items []string) []string {
+	result := []string{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 // stringFromMap 从 map 中读取字符串。
@@ -2450,24 +2480,6 @@ func mergeText(base string, extra string) string {
 		return base
 	}
 	return base + "\n" + extra
-}
-
-// cleanCandidateDetailText 清理候选人详情中的平台附加内容。
-// text 为 OCR、DOM 或 AI 提取出的详情文本，返回可用于筛选和入库的简历正文。
-func cleanCandidateDetailText(text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return ""
-	}
-	cutMarkers := []string{
-		"牛人分析器",
-	}
-	for _, marker := range cutMarkers {
-		if index := strings.Index(text, marker); index >= 0 {
-			text = strings.TrimSpace(text[:index])
-		}
-	}
-	return text
 }
 
 // logTextPreview 返回适合写入日志的文本摘要。

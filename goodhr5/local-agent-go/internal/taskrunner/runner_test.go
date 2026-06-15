@@ -394,12 +394,18 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 	}
 }
 
-// TestCleanCandidateDetailText 验证平台附加分析内容不会进入候选人详情。
-func TestCleanCandidateDetailText(t *testing.T) {
-	raw := "解婷 25岁 大专 工作经历 主播\n牛人分析器\nVIP专享 同类牛人\n平台隐私声明"
-	cleaned := cleanCandidateDetailText(raw)
-	if cleaned != "解婷 25岁 大专 工作经历 主播" {
-		t.Fatalf("cleaned = %q", cleaned)
+// TestStringListFromMapSplitsKeywordText 验证本地关键词读取兼容中文分隔符。
+func TestStringListFromMapSplitsKeywordText(t *testing.T) {
+	item := map[string]any{"keywords": "本科，销售 主播、直播\n带货;运营；运营"}
+	words := stringListFromMap(item, "keywords")
+	want := []string{"本科", "销售", "主播", "直播", "带货", "运营"}
+	if len(words) != len(want) {
+		t.Fatalf("words = %+v", words)
+	}
+	for index, word := range want {
+		if words[index] != word {
+			t.Fatalf("words = %+v", words)
+		}
 	}
 }
 
@@ -755,6 +761,12 @@ func (r *detailCloseProbeRuntime) CandidateFilterText(candidate platformcore.Can
 // CandidateFingerprint 返回候选人去重标识。
 func (r *detailCloseProbeRuntime) CandidateFingerprint(candidate platformcore.Candidate) string {
 	return stringFromMap(candidate, "candidate_name")
+}
+
+// CleanCandidateDetailText 模拟平台详情文本清理。
+// text 为原始详情文本。
+func (r *detailCloseProbeRuntime) CleanCandidateDetailText(text string) string {
+	return strings.TrimSpace(text)
 }
 
 // Start 模拟启动阻塞 Worker。

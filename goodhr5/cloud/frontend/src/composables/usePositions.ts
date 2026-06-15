@@ -27,8 +27,8 @@ export function usePositions() {
     loading.value = true; error.value = ''
     try {
       fillEmptyDefaultPrompts()
-      const kw = form.value.keywords.split(/[,\s]+/).filter(Boolean)
-      const ek = form.value.excludeKeywords.split(/[,\s]+/).filter(Boolean)
+      const kw = splitKeywordText(form.value.keywords)
+      const ek = splitKeywordText(form.value.excludeKeywords)
       const platformID = normalizePlatformID(form.value.platformId)
       await savePosition({
         id: form.value.id,
@@ -243,4 +243,25 @@ function normalizeDefaultPrompts(value: any) {
  */
 function normalizePromptText(text: string) {
   return String(text || '').replace(/\\n/g, '\n')
+}
+
+/**
+ * 将用户输入的关键词文本拆成数组。
+ * @param {string} text - 可包含空格、中文逗号、英文逗号、顿号、分号或换行的关键词文本。
+ * @returns {string[]} 去空、去重后的关键词数组。
+ */
+function splitKeywordText(text: string) {
+  const seen = new Set<string>()
+  const result: string[] = []
+  String(text || '')
+    .split(/[,\s，、；;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((item) => {
+      const key = item.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      result.push(item)
+    })
+  return result
 }
