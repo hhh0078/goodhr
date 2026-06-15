@@ -8,6 +8,8 @@ import path from "node:path";
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
 const port = Number(rawPort || 9101);
+const rawMaxPort = Number(process.env.GOODHR_WORKER_PORT_END || 9109);
+const maxPort = Number.isFinite(rawMaxPort) ? rawMaxPort : 9109;
 
 let browser = null;
 let context = null;
@@ -1808,9 +1810,28 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, host, () => {
-  console.log(`GoodHR Browser Worker started on http://${host}:${port}`);
-});
+/**
+ * 依次尝试监听 Worker 端口，避免旧 Worker 残留时直接启动失败。
+ * @param {number} startPort - 首次尝试监听的端口。
+ * @returns {void} 无返回值。
+ */
+function listenWithFallback(startPort) {
+  const targetPort = Number(startPort || 9101);
+  server.once("error", (error) => {
+    if (error?.code !== "EADDRINUSE" || targetPort >= maxPort) {
+      console.error("Node Worker 监听端口失败", error);
+      process.exit(1);
+      return;
+    }
+    console.error(`Node Worker 端口 ${targetPort} 已占用，尝试 ${targetPort + 1}`);
+    listenWithFallback(targetPort + 1);
+  });
+  server.listen(targetPort, host, () => {
+    console.log(`GoodHR Browser Worker started on http://${host}:${targetPort}`);
+  });
+}
+
+listenWithFallback(port);
 
 process.on("SIGINT", async () => {
   await stopBrowser();

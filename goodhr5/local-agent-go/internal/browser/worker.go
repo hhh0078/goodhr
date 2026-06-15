@@ -474,15 +474,9 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 			return m.workerExitError(err)
 		default:
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+"/health", nil)
-		if err == nil {
-			resp, err := client.Do(req)
-			if err == nil {
-				_ = resp.Body.Close()
-				if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-					return nil
-				}
-			}
+		if baseURL, ok := m.findReadyWorkerLocked(ctx, &client); ok {
+			m.baseURL = baseURL
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -491,6 +485,39 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 		}
 	}
 	return fmt.Errorf("Node Browser Worker 启动超时")
+}
+
+// findReadyWorkerLocked 查找已经就绪的 GoodHR Worker。
+// ctx 为请求上下文，client 为复用的 HTTP 客户端。
+func (m *WorkerManager) findReadyWorkerLocked(ctx context.Context, client *http.Client) (string, bool) {
+	baseURLs := []string{m.baseURL}
+	for port := 9101; port <= 9109; port++ {
+		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
+		if baseURL != m.baseURL {
+			baseURLs = append(baseURLs, baseURL)
+		}
+	}
+	for _, baseURL := range baseURLs {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		var body map[string]any
+		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 || decodeErr != nil {
+			continue
+		}
+		data, _ := body["data"].(map[string]any)
+		if data["worker"] == "node" {
+			return baseURL, true
+		}
+	}
+	return "", false
 }
 
 // workerExitError 返回 Worker 启动期退出的可读错误。
