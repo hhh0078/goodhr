@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -54,14 +55,17 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.isRunningLocked() {
+		log.Printf("[Node Worker] 复用当前管理的 Worker base_url=%s", m.baseURL)
 		return m.statusLocked(), nil
 	}
 	if status, ok := m.probeExistingWorkerLocked(ctx); ok {
+		log.Printf("[Node Worker] 复用已存在 Worker base_url=%s pid=%d", status.BaseURL, status.PID)
 		return status, nil
 	}
 	if err := m.selectAvailableBaseURLLocked(ctx); err != nil {
 		return WorkerStatus{}, err
 	}
+	log.Printf("[Node Worker] 准备启动 Worker base_url=%s", m.baseURL)
 	if m.runtime == nil {
 		return WorkerStatus{}, fmt.Errorf("本地程序缺少运行组件管理器")
 	}
@@ -89,6 +93,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		_ = logFile.Close()
 		return WorkerStatus{}, fmt.Errorf("启动 Node Browser Worker 失败：%w", err)
 	}
+	log.Printf("[Node Worker] 进程已启动 pid=%d node=%s entry=%s log=%s", cmd.Process.Pid, status.NodePath, status.WorkerEntry, logPath)
 	m.cmd = cmd
 	m.attachedPID = 0
 	m.logFile = logFile
@@ -98,12 +103,14 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		m.done <- cmd.Wait()
 	}()
 	if err := m.waitForReadyLocked(ctx, 8*time.Second); err != nil {
+		log.Printf("[Node Worker] 等待就绪失败 pid=%d err=%v", cmd.Process.Pid, err)
 		_ = killProcessTree(cmd.Process.Pid)
 		m.cmd = nil
 		m.done = nil
 		m.closeLogLocked()
 		return WorkerStatus{}, err
 	}
+	log.Printf("[Node Worker] 已就绪 base_url=%s pid=%d", m.baseURL, cmd.Process.Pid)
 	return m.statusLocked(), nil
 }
 

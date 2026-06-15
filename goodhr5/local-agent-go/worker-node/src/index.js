@@ -20,6 +20,19 @@ const downloads = [];
 const elementRefs = new Map();
 let elementRefSeq = 0;
 
+/**
+ * 写入 Worker 诊断日志。
+ * @param {string} message - 日志内容。
+ * @param {Record<string, any>} data - 附加字段。
+ * @returns {void} 无返回值。
+ */
+function logWorker(message, data = {}) {
+  const fields = Object.entries(data)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value).slice(0, 240)}`);
+  console.log(`[${new Date().toISOString()}] ${message}${fields.length ? ` ${fields.join(" ")}` : ""}`);
+}
+
 process.on("uncaughtException", (error) => {
   console.error("Node Worker 未捕获异常", error);
 });
@@ -88,19 +101,32 @@ function failure(res, status, msg) {
  * @returns {Promise<Record<string, any>>} 启动结果。
  */
 async function startBrowser(payload) {
+  const startedAt = Date.now();
   const userDataDir = String(payload.user_data_dir || "").trim();
+  logWorker("收到浏览器启动请求", {
+    user_data_dir: userDataDir,
+    headless: Boolean(payload.headless),
+    persistent: Boolean(payload.persistent || userDataDir),
+    downloads_path: payload.downloads_path || downloadDir(),
+  });
   if (browser || context || page) {
+    logWorker("检测已有浏览器状态");
     if (!(await hasLiveBrowserSession())) {
+      logWorker("已有浏览器状态不可用，准备清理");
       await disposeBrowserState();
     }
   }
   if (browser || context) {
     if (!userDataDir || userDataDir === currentUserDataDir) {
+      logWorker("复用已有浏览器", { user_data_dir: currentUserDataDir });
       return { running: true, persistent: Boolean(currentUserDataDir), user_data_dir: currentUserDataDir };
     }
+    logWorker("账号目录不同，准备关闭旧浏览器", { old_user_data_dir: currentUserDataDir, new_user_data_dir: userDataDir });
     await stopBrowser();
   }
+  logWorker("准备加载 CloakBrowser Node SDK");
   const cloak = await import("cloakbrowser");
+  logWorker("CloakBrowser Node SDK 加载完成");
   const launchPersistent = cloak.launchPersistentContext;
   const launch = cloak.launch;
   const options = {
@@ -122,22 +148,33 @@ async function startBrowser(payload) {
   if (payload.timezone) options.timezone = String(payload.timezone);
   if (payload.locale) options.locale = String(payload.locale);
   if (payload.user_agent) options.userAgent = String(payload.user_agent);
+  logWorker("浏览器启动参数已准备", {
+    downloads_path: options.downloadsPath,
+    viewport: options.viewport ? `${options.viewport.width}x${options.viewport.height}` : "",
+  });
   if (userDataDir && launchPersistent) {
+    logWorker("准备清理账号目录锁文件", { user_data_dir: userDataDir });
     await cleanupProfileLocks(userDataDir);
+    logWorker("准备启动持久化浏览器", { user_data_dir: userDataDir });
     context = await launchPersistent({ ...options, userDataDir });
+    logWorker("持久化浏览器启动完成", { elapsed_ms: Date.now() - startedAt });
     currentUserDataDir = userDataDir;
     currentDownloadsPath = options.downloadsPath;
     page = context.pages?.()[0] || await context.newPage();
     registerPage(page);
+    logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
     return { running: true, persistent: true, user_data_dir: userDataDir, downloads_path: options.downloadsPath, viewport: options.viewport };
   }
   if (!launch) throw new Error("CloakBrowser Node SDK 缺少启动方法");
+  logWorker("准备启动普通浏览器");
   browser = await launch(options);
+  logWorker("普通浏览器启动完成", { elapsed_ms: Date.now() - startedAt });
   context = await browser.newContext?.({ acceptDownloads: true }) || null;
   currentUserDataDir = "";
   currentDownloadsPath = options.downloadsPath;
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
+  logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
   return { running: true, persistent: false, downloads_path: options.downloadsPath, viewport: options.viewport };
 }
 
@@ -283,14 +320,19 @@ async function ensurePage() {
  * @returns {Promise<Record<string, any>>} 页面结果。
  */
 async function openPage(payload) {
+  const startedAt = Date.now();
   const target = String(payload.url || "").trim();
   if (!target) throw new Error("页面地址不能为空");
+  logWorker("收到页面打开请求", { url: target, user_data_dir: payload.user_data_dir || "" });
   if (!browser && !context && (payload.user_data_dir || payload.persistent)) {
+    logWorker("页面打开前浏览器未启动，准备自动启动");
     await startBrowser(payload);
   }
   const currentPage = await ensurePage();
   clearElementRefs();
+  logWorker("准备跳转页面", { url: target });
   await currentPage.goto(target, { waitUntil: "domcontentloaded", timeout: Number(payload.timeout || 60000) });
+  logWorker("页面跳转完成", { url: currentPage.url(), elapsed_ms: Date.now() - startedAt });
   return { url: currentPage.url() };
 }
 
@@ -1803,9 +1845,12 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const payload = await readJSON(req);
+    logWorker("收到 Worker API 请求", { path: req.url || "" });
     const data = await handler(payload);
+    logWorker("Worker API 请求完成", { path: req.url || "" });
     success(res, data);
   } catch (error) {
+    logWorker("Worker API 请求失败", { path: req.url || "", error: error?.message || error });
     failure(res, 500, error?.message || "浏览器操作失败");
   }
 });

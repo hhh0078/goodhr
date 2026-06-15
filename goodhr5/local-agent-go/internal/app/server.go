@@ -886,6 +886,7 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
+	startedAt := time.Now()
 	var payload map[string]any
 	payload, err := readPayload(r)
 	if err != nil {
@@ -893,6 +894,7 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	s.prepareBrowserPayload(path, payload)
+	log.Printf("[浏览器代理] 收到请求 path=%s profile=%s url=%s timeout=%s", path, logPayloadValue(payload["user_data_dir"]), logPayloadValue(payload["url"]), workerCallTimeout(path))
 	callCtx, cancel := context.WithTimeout(r.Context(), workerCallTimeout(path))
 	defer cancel()
 	result, err := s.worker.Call(callCtx, path, payload)
@@ -904,10 +906,26 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		if errors.Is(err, context.DeadlineExceeded) {
 			msg = "浏览器启动或操作超时，请关闭残留浏览器后重试"
 		}
+		log.Printf("[浏览器代理] 请求失败 path=%s elapsed=%s err=%s", path, time.Since(startedAt).Round(time.Millisecond), msg)
 		response.Error(w, http.StatusBadGateway, msg)
 		return
 	}
+	log.Printf("[浏览器代理] 请求成功 path=%s elapsed=%s", path, time.Since(startedAt).Round(time.Millisecond))
 	response.Success(w, workerData(result))
+}
+
+// logPayloadValue 返回适合日志展示的请求字段。
+// value 为请求字段值，过长时会截断。
+func logPayloadValue(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return "-"
+	}
+	runes := []rune(text)
+	if len(runes) > 160 {
+		return string(runes[:160]) + "..."
+	}
+	return text
 }
 
 // workerCallTimeout 返回 Worker 接口最大等待时间。
