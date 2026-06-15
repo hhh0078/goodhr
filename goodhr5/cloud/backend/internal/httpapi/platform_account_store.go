@@ -78,7 +78,12 @@ func (s *MemoryPlatformAccountStore) SavePlatformAccount(account PlatformAccount
 		}
 	}
 
-	account.ID = s.nextID()
+	if account.ID == "" {
+		account.ID = s.nextID()
+	}
+	if account.LocalProfileID == "" {
+		account.LocalProfileID = account.ID
+	}
 	account.CreatedAt = s.now()
 	s.accounts[account.ID] = account
 	return account, nil

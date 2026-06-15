@@ -77,14 +77,19 @@ func (s *PostgresPlatformAccountStore) SavePlatformAccount(account PlatformAccou
 	err = s.db.QueryRowContext(
 		ctx,
 		`
-		INSERT INTO platform_accounts (user_id, platform_id, display_name, local_profile_id)
-		VALUES ($1, $2, $3, $4)
+		WITH next_account AS (
+			SELECT COALESCE(NULLIF($5, '')::uuid, gen_random_uuid()) AS id
+		)
+		INSERT INTO platform_accounts (id, user_id, platform_id, display_name, local_profile_id)
+		SELECT id, $1, $2, $3, COALESCE(NULLIF($4, ''), id::text)
+		FROM next_account
 		RETURNING id, platform_id, display_name, local_profile_id, created_at
 		`,
 		userID,
 		account.PlatformID,
 		account.DisplayName,
 		account.LocalProfileID,
+		account.ID,
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,

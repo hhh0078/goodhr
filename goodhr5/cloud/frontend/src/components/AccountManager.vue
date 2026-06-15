@@ -92,7 +92,7 @@ import {
   listPlatformConfigs,
   listPlatformAccounts,
 } from "../services/api/accountApi";
-import { openPage } from "../services/localAgentApi";
+import { openPage, startBrowser } from "../services/localAgentApi";
 import {
   detectCookieExpiredByURL,
   pickPlatformAuthConfig,
@@ -151,21 +151,6 @@ function cookieStatusLabel(status: string) {
   return "未登录";
 }
 
-/**
- * 生成本地浏览器账号目录 ID。
- * @param {string} platformId - 平台 ID。
- * @param {string} displayName - 用户输入的账号名称。
- * @returns {string} 本地 profile ID。
- */
-function buildLocalProfileID(platformId: string, displayName: string) {
-  const safeName = String(displayName || "account")
-    .trim()
-    .replace(/[^\w-]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "account";
-  const randomID = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-  return `${platformId || "platform"}_${safeName}_${randomID}`;
-}
-
 async function load() {
   try {
     platformConfigs.value = await listPlatformConfigs();
@@ -179,10 +164,18 @@ async function load() {
 async function create() {
   loading.value = true;
   msg.value = "";
+  let createdAccount: any = null;
   try {
     const displayName = form.value.displayName.trim();
     if (!displayName) throw new Error("请先输入账号名称");
-    const profileID = buildLocalProfileID(form.value.platformId, displayName);
+    msg.value = "正在创建云端账号";
+    msgType.value = "success";
+    createdAccount = await createPlatformAccount({
+      platform_id: form.value.platformId,
+      display_name: displayName,
+    });
+    const profileID = createdAccount?.local_profile_id || createdAccount?.id;
+    if (!profileID) throw new Error("云端账号缺少本地目录 ID");
     msg.value = "正在打开登录页，请完成平台登录";
     msgType.value = "success";
     await runPlatformLoginFlow(
@@ -197,17 +190,17 @@ async function create() {
         userDataDir: profileID,
       },
     );
-    const updated = await createPlatformAccount({
-      platform_id: form.value.platformId,
-      display_name: displayName,
-      local_profile_id: profileID,
-    });
     form.value.displayName = "";
-    msg.value = `本地账号已保存：${updated?.display_name || displayName}`;
+    msg.value = `本地账号已保存：${createdAccount?.display_name || displayName}`;
     msgType.value = "success";
     await markOnboardingStep("platform_account");
     await load();
   } catch (e: any) {
+    if (createdAccount?.id) {
+      try {
+        await deletePlatformAccount(createdAccount.id);
+      } catch {}
+    }
     msg.value = e.message;
     msgType.value = "error";
   } finally {
@@ -286,6 +279,7 @@ async function openWithCookie(account: any) {
     };
 
     if (localConsole.value) {
+      await startBrowser(effectiveAgentBaseUrl.value, openPayload);
       await openPage(effectiveAgentBaseUrl.value, openPayload);
       const status = await detectCookieExpiredByURL(
         effectiveAgentBaseUrl.value,
@@ -304,6 +298,7 @@ async function openWithCookie(account: any) {
       return;
     }
 
+    await startBrowser(effectiveAgentBaseUrl.value, openPayload);
     await openPage(effectiveAgentBaseUrl.value, openPayload);
     const status = await detectCookieExpiredByURL(
       effectiveAgentBaseUrl.value,

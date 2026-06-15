@@ -87,9 +87,6 @@ func (s *PlatformAccountService) Create(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "display_name is required")
 		return
 	}
-	if localProfileID == "" {
-		localProfileID = platformID + "_" + safePlatformProfileName(displayName)
-	}
 	account, err := s.store.SavePlatformAccount(PlatformAccount{
 		UserEmail:      session.Email,
 		PlatformID:     platformID,

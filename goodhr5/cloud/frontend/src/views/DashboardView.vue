@@ -2,6 +2,8 @@
 <template>
   <GreetingDashboard :tasks="app.tasks" />
 
+  <AccountQuickLaunch :agent="app.agent" />
+
   <LocalAgentStatusCard :agent="app.agent" />
 
   <OnboardingGuide
@@ -14,6 +16,7 @@
 
 <script setup lang="ts">
 import GreetingDashboard from "../components/GreetingDashboard.vue";
+import AccountQuickLaunch from "../components/AccountQuickLaunch.vue";
 import LocalAgentStatusCard from "../components/LocalAgentStatusCard.vue";
 import OnboardingGuide from "../components/OnboardingGuide.vue";
 import { useAppContext } from "../composables/useAppContext";
