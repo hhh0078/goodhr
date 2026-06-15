@@ -158,6 +158,7 @@ const personalConfig = usePersonalConfig();
 const { user } = auth;
 const systemAppConfig = ref({
   local_agent_version: "",
+  free_daily_greet_limit: 100,
   announcements_enabled: false,
   announcements: [],
 });
@@ -185,6 +186,8 @@ const tasks = useTasks(
     loadSubscriptionStatus();
   },
   resolvePositionSnapshot,
+  subscription,
+  systemAppConfig,
 );
 const isSuperAdmin = computed(() => user.value?.role === "super_admin");
 const currentRoleLabel = computed(() => user.value?.role_label || "游客");
@@ -223,6 +226,7 @@ provideAppContext({
   tasks,
   user,
   systemAppConfig,
+  subscription,
   onboardingProgress,
   onboardingConfig,
   goMenu,
@@ -542,6 +546,7 @@ async function loadSystemAppConfig() {
   } catch {
     systemAppConfig.value = {
       local_agent_version: "",
+      free_daily_greet_limit: 100,
       announcements_enabled: false,
       announcements: [],
     };

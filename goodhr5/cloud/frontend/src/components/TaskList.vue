@@ -113,9 +113,7 @@
             <div>
               {{ task.name || task.position?.name || "未命名任务" }}
               |
-              {{
-                task.platform_account?.display_name || task.platform_account_id
-              }}
+              {{ taskAccountName(task) }}
               | {{ task.platform_id }} |
               {{ task.mode === "keyword" ? "关键词筛选" : "AI筛选" }}
               | {{ displayRunGreetLimit(task) }}
@@ -391,7 +389,16 @@ function executeTask(taskId: string) {
 }
 function accountLabel(account: any) {
   const platform = platformLabel(account?.platform_id);
-  return `${account?.display_name || account?.id || "未命名账号"} · ${platform}`;
+  return `${account?.display_name || "未命名账号"} · ${platform}`;
+}
+
+/**
+ * 返回任务卡片展示的账号名称。
+ * @param {any} task - 当前任务。
+ * @returns {string} 账号名称。
+ */
+function taskAccountName(task: any) {
+  return task?.platform_account?.display_name || "未命名账号";
 }
 function platformLabel(platformId: string) {
   if (platformId === "boss") return "Boss直聘";

@@ -24,6 +24,7 @@ import {
 import { isLocalConsole, localAgentBase } from "../services/localConsole";
 import { markOnboardingStep } from "../services/onboarding";
 import { alertError, confirmDialog, notifySuccess } from "../services/notify";
+import { freeDailyGreetLimit, isSubscriptionActive } from "../services/subscriptionLimits";
 
 const DEFAULT_RUN_GREET_LIMIT = 50;
 
@@ -31,6 +32,8 @@ export function useTasks(
   agentBaseUrl: Ref<string>,
   onSubscriptionExpired?: () => void,
   positionSnapshotResolver?: (positionID: string) => any,
+  subscriptionRef?: Ref<any>,
+  appConfigRef?: Ref<any>,
 ) {
   const tasks = ref<any[]>([]);
   const loading = ref(false);
@@ -137,15 +140,13 @@ export function useTasks(
         kind: "success",
         confirmText: "开始",
       }))) return;
-      const subscription = await getSubscriptionStatus();
-      if (!subscription?.active) {
-        onSubscriptionExpired?.();
-        throw new Error("会员已到期，请先订阅后再开始任务");
-      }
       const token = getAccessToken();
       if (!token) throw new Error("请先登录后再开始任务");
 
       const task = tasks.value.find((item: any) => item.id === taskId);
+      const subscription = await getSubscriptionStatus();
+      if (subscriptionRef) subscriptionRef.value = subscription;
+      await ensureFreePlanCanRun(task, subscription);
       await ensureTaskAIConfigReady(task);
       if (shouldUseLocalTasks()) {
         expandedTaskId.value = taskId;
@@ -209,8 +210,83 @@ export function useTasks(
    */
   function taskNeedsAIConfig(task: any) {
     const mode = String(task?.mode || "").trim().toLowerCase();
-    const detailMode = String(task?.position_snapshot?.common_config?.detail_mode || "").trim().toLowerCase();
+    const detailMode = String(
+      task?.position_snapshot?.common_config?.detail_mode ||
+        task?.position?.common_config?.detail_mode ||
+        "",
+    ).trim().toLowerCase();
     return mode === "ai" || detailMode === "ai";
+  }
+
+  /**
+   * 确认免费版是否允许启动当前任务。
+   * @param {any} task - 当前任务。
+   * @param {any} subscription - 最新会员状态。
+   * @returns {Promise<void>} 允许启动时返回。
+   */
+  async function ensureFreePlanCanRun(task: any, subscription: any) {
+    if (isSubscriptionActive(subscription)) return;
+    const limit = freeDailyGreetLimit(appConfigRef?.value || {});
+    if (taskNeedsAIConfig(task)) {
+      await promptSubscriptionRequired("该任务使用了 AI 筛选或 AI 详情识别，该功能需要订阅会员，是否前往订阅页面？");
+      throw notifiedError("该功能需要订阅会员");
+    }
+    const todayTotal = totalTodayGreetedCount();
+    const remaining = Math.max(0, limit - todayTotal);
+    const runLimit = normalizeRunGreetLimit(task?.match_limit);
+    if (remaining <= 0) {
+      await promptSubscriptionRequired(`当前是免费版，一天最多只能打 ${limit} 个招呼，订阅会员后无限制。`);
+      throw notifiedError("免费版今日打招呼数量已达上限");
+    }
+    if (runLimit > remaining) {
+      await confirmDialog(`当前是免费版，一天最多只能打 ${limit} 个招呼，今天还剩 ${remaining} 个。请把本次打招呼上限调到 ${remaining} 以内，订阅会员后无限制。`, {
+        title: "免费版限制",
+        confirmText: "知道了",
+        showCancel: false,
+      });
+      throw notifiedError("本次打招呼上限超过免费版今日剩余额度");
+    }
+    await confirmDialog(`当前是免费版，一天最多只能打 ${limit} 个招呼，订阅会员后无限制。今天还剩 ${remaining} 个。`, {
+      title: "免费版限制",
+      confirmText: "知道了",
+      showCancel: false,
+    });
+  }
+
+  /**
+   * 引导用户前往订阅页面。
+   * @param {string} messageText - 弹框提示内容。
+   * @returns {Promise<void>} 无返回值。
+   */
+  async function promptSubscriptionRequired(messageText: string) {
+    const confirmed = await confirmDialog(messageText, {
+      title: "订阅会员",
+      confirmText: "前往订阅",
+      cancelText: "取消",
+    });
+    if (confirmed) onSubscriptionExpired?.();
+  }
+
+  /**
+   * 生成已经弹过窗的错误对象，避免外层重复弹窗。
+   * @param {string} messageText - 错误内容。
+   * @returns {Error} 已标记提醒状态的错误。
+   */
+  function notifiedError(messageText: string) {
+    const err = new Error(messageText) as Error & { notified?: boolean };
+    err.notified = true;
+    return err;
+  }
+
+  /**
+   * 统计今天所有任务已经打招呼数量。
+   * @returns {number} 今日打招呼总数。
+   */
+  function totalTodayGreetedCount() {
+    return tasks.value.reduce((sum: number, item: any) => {
+      const count = Number(item?.today_greeted_count || 0);
+      return sum + (Number.isFinite(count) && count > 0 ? count : 0);
+    }, 0);
   }
 
   async function stop(taskId: string) {

@@ -81,7 +81,7 @@
               }"
               role="radio"
               :aria-checked="positions.form.value.modeDefault === option.value"
-              @click="positions.form.value.modeDefault = option.value"
+              @click="selectModeDefault(option.value)"
             >
               <strong>{{ option.label }}</strong>
               <span>{{ option.description }}</span>
@@ -409,7 +409,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useAppContext } from "../composables/useAppContext";
+import { confirmDialog } from "../services/notify";
+import { isSubscriptionActive } from "../services/subscriptionLimits";
 const props = defineProps({ positions: Object });
+const app = useAppContext();
 const showForm = ref(false);
 const platformOptions = [
   {
@@ -463,6 +467,9 @@ const availableDetailModeOptions = computed(() => {
   }
   return detailModeOptions;
 });
+const hasActiveSubscription = computed(() =>
+  isSubscriptionActive(app.subscription?.value),
+);
 const keywordMatchOptions = [
   {
     value: false,
@@ -485,10 +492,21 @@ function edit(pos: any) {
  * @returns {Promise<void>} 无返回值。
  */
 async function savePosition() {
+  if (!(await ensureAIAllowedForPosition())) return;
   const ok = await props.positions.save();
   if (ok) {
     showForm.value = false;
   }
+}
+
+/**
+ * 选择岗位默认筛选模式。
+ * @param {string} mode - 默认筛选模式。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function selectModeDefault(mode: string) {
+  if (mode === "ai" && !(await confirmSubscriptionForAI())) return;
+  props.positions.form.value.modeDefault = mode;
 }
 
 /**
@@ -509,9 +527,9 @@ function selectPlatform(platformID: string) {
 /**
  * 选择详情读取模式。
  * @param {string} detailMode - 详情读取模式。
- * @returns {void} 无返回值。
+ * @returns {Promise<void>} 无返回值。
  */
-function selectDetailMode(detailMode: string) {
+async function selectDetailMode(detailMode: string) {
   if (
     props.positions.form.value.platformId === "boss" &&
     detailMode === "dom"
@@ -519,7 +537,33 @@ function selectDetailMode(detailMode: string) {
     props.positions.form.value.detailMode = "ocr";
     return;
   }
+  if (detailMode === "ai" && !(await confirmSubscriptionForAI())) return;
   props.positions.form.value.detailMode = detailMode;
+}
+
+/**
+ * 保存岗位前确认免费版没有选择 AI 功能。
+ * @returns {Promise<boolean>} 可以保存返回 true。
+ */
+async function ensureAIAllowedForPosition() {
+  const form = props.positions.form.value;
+  if (form.modeDefault !== "ai" && form.detailMode !== "ai") return true;
+  return confirmSubscriptionForAI();
+}
+
+/**
+ * 免费版选择 AI 功能时引导前往订阅页面。
+ * @returns {Promise<boolean>} 允许使用 AI 返回 true。
+ */
+async function confirmSubscriptionForAI() {
+  if (hasActiveSubscription.value) return true;
+  const confirmed = await confirmDialog("该功能需要订阅会员，是否前往订阅页面？", {
+    title: "订阅会员",
+    confirmText: "确认",
+    cancelText: "取消",
+  });
+  if (confirmed) app.goMenu?.("subscription");
+  return false;
 }
 
 /**
