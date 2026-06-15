@@ -15,7 +15,7 @@ mountKeywordCanvasBackgrounds("[data-keyword-canvas]", {
 loadPublicTodayStats();
 
 /**
- * 加载官网首页公开统计数据。
+ * 加载官网导航公开统计数据。
  * @returns {Promise<void>} 无返回值。
  */
 async function loadPublicTodayStats() {

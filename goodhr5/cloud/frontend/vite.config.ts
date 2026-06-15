@@ -79,6 +79,10 @@ function buildOfficialHeader(pageName: string) {
     '<header class="site-header">',
     '<a class="brand" href="/">GoodHR</a>',
     `<nav>${navHTML}</nav>`,
+    '<div class="nav-stats" data-public-stats>',
+    '<span>今日已打招呼 <strong data-stat-field="today_greeted_count">--</strong></span>',
+    '<span>今日新注册 <strong data-stat-field="today_registered_count">--</strong></span>',
+    '</div>',
     '<a class="admin-link" href="/admin/">进入后台</a>',
     '</header>',
   ].join('')
