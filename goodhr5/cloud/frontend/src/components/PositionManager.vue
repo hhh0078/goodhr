@@ -6,7 +6,7 @@
         <h2>岗位管理</h2>
       </div>
       <div style="display: flex; gap: 8px">
-        <button v-if="!showForm" class="ghost" @click="showForm = true">
+        <button v-if="!showForm" class="ghost" @click="createPosition">
           + 新建岗位
         </button>
         <button v-else class="ghost" @click="showForm = false">收起</button>
@@ -424,12 +424,12 @@ const platformOptions = [
   {
     value: "zhaopin",
     label: "智联招聘",
-    description: "可按页面效果选择解析方式。",
+    description: "开发中，请不要选择。",
   },
   {
     value: "liepin",
     label: "猎聘",
-    description: "可按页面效果选择解析方式。",
+    description: "开发中，请不要选择。",
   },
 ];
 const modeOptions = [
@@ -482,9 +482,25 @@ const keywordMatchOptions = [
     description: "需要命中全部关键词才通过，适合更严格的岗位。",
   },
 ];
-function edit(pos: any) {
+/**
+ * 打开新建岗位表单，并校验默认 AI 功能是否允许。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function createPosition() {
+  showForm.value = true;
+  props.positions.resetForm();
+  await ensureDefaultAIAllowedForForm();
+}
+
+/**
+ * 打开岗位编辑表单，并校验已有 AI 默认值是否允许。
+ * @param {any} pos - 岗位模板记录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function edit(pos: any) {
   showForm.value = true;
   props.positions.edit(pos);
+  await ensureDefaultAIAllowedForForm();
 }
 
 /**
@@ -548,7 +564,34 @@ async function selectDetailMode(detailMode: string) {
 async function ensureAIAllowedForPosition() {
   const form = props.positions.form.value;
   if (form.modeDefault !== "ai" && form.detailMode !== "ai") return true;
-  return confirmSubscriptionForAI();
+  const allowed = await confirmSubscriptionForAI();
+  if (!allowed) applyFreePositionDefaults();
+  return allowed;
+}
+
+/**
+ * 打开表单时校验默认 AI 选项，避免用户不点击选项时绕过会员提示。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function ensureDefaultAIAllowedForForm() {
+  const form = props.positions.form.value;
+  if (hasActiveSubscription.value) return;
+  if (form.modeDefault !== "ai" && form.detailMode !== "ai") return;
+  const allowed = await confirmSubscriptionForAI();
+  if (!allowed) applyFreePositionDefaults();
+}
+
+/**
+ * 将岗位表单调整为免费版可用的默认配置。
+ * @returns {void} 无返回值。
+ */
+function applyFreePositionDefaults() {
+  const form = props.positions.form.value;
+  if (form.modeDefault === "ai") form.modeDefault = "keyword";
+  if (form.detailMode === "ai") form.detailMode = "ocr";
+  if (form.platformId === "boss" && form.detailMode === "dom") {
+    form.detailMode = "ocr";
+  }
 }
 
 /**
