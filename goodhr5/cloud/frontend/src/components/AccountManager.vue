@@ -174,7 +174,7 @@ async function create() {
       platform_id: form.value.platformId,
       display_name: displayName,
     });
-    const profileID = createdAccount?.local_profile_id || createdAccount?.id;
+    const profileID = createdAccount?.id;
     if (!profileID) throw new Error("云端账号缺少本地目录 ID");
     msg.value = "正在打开登录页，请完成平台登录";
     msgType.value = "success";
@@ -230,7 +230,7 @@ async function refreshCookie(account: any) {
         msgType.value = "success";
       },
       {
-        userDataDir: account.local_profile_id || account.id,
+        userDataDir: account.id,
       },
     );
     if (localConsole.value) {
@@ -273,7 +273,7 @@ async function openWithCookie(account: any) {
     const openPayload: any = {
       url: targetURL,
       persistent: true,
-      user_data_dir: account.local_profile_id || account.id,
+      user_data_dir: account.id,
       headless: false,
       humanize: true,
     };

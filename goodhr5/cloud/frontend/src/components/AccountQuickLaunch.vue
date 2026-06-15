@@ -103,7 +103,7 @@ async function openAccount(account: any) {
     const payload = {
       url: targetURL,
       persistent: true,
-      user_data_dir: account.local_profile_id || account.id,
+      user_data_dir: account.id,
       headless: false,
       humanize: true,
     };
