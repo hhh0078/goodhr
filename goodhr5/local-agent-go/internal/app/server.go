@@ -65,11 +65,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 // audioDir 返回音频文件目录路径，优先使用可执行文件所在目录下的 audio 子目录。
 func audioDir(cfg *config.Config) string {
+	execAudioDir := ""
 	execPath, err := os.Executable()
 	if err == nil {
 		execDir := filepath.Dir(execPath)
-		if info, statErr := os.Stat(filepath.Join(execDir, "audio")); statErr == nil && info.IsDir() {
-			return filepath.Join(execDir, "audio")
+		execAudioDir = filepath.Join(execDir, "audio")
+		if info, statErr := os.Stat(execAudioDir); statErr == nil && info.IsDir() {
+			return execAudioDir
 		}
 	}
 	// fallback：从工作目录
@@ -77,8 +79,10 @@ func audioDir(cfg *config.Config) string {
 		absPath, _ := filepath.Abs("audio")
 		return absPath
 	}
-	// 最后兜底
-	return filepath.Join(cfg.DataDir, "..", "..", "local-agent-go", "audio")
+	if execAudioDir != "" {
+		return execAudioDir
+	}
+	return filepath.Join(cfg.DataDir, "audio")
 }
 
 // Run 启动本地 HTTP 服务。

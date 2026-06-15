@@ -36,6 +36,7 @@ Name: "{app}\data"
 [Files]
 Source: "..\dist\installer-input\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\audio\*"; DestDir: "{app}\audio"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\installer-input\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\installer-input\console\*"; DestDir: "{app}\data\console"; Flags: ignoreversion recursesubdirs createallsubdirs
 
