@@ -43,7 +43,7 @@ export function useTasks(
     platformId: "boss",
     platformAccountId: "",
     positionId: "",
-    mode: "ai",
+    mode: "keyword",
     matchLimit: DEFAULT_RUN_GREET_LIMIT,
     enableSound: false,
     enableThinking: false,

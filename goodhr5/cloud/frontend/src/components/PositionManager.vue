@@ -384,7 +384,7 @@
           <p class="card-meta">
             平台: {{ platformLabel(pos.platform_id) }} | 默认模式:
             {{
-              pos.common_config?.mode_default === "keyword" ? "关键词" : "AI"
+              pos.common_config?.mode_default === "ai" ? "AI" : "关键词"
             }}
             | 详情:{{ detailModeLabel(pos.common_config?.detail_mode) }} |
             关键词:{{ (pos.keywords || []).join(" / ") || "无" }} | 排除:{{
@@ -435,7 +435,7 @@ const platformOptions = [
 const modeOptions = [
   {
     value: "ai",
-    label: "AI筛选",
+    label: "AI筛选（会员功能）",
     description: "AI先看详情评分，再做打招呼评分，适合精细判断。适合复杂岗位。",
   },
   {
@@ -457,7 +457,7 @@ const detailModeOptions = [
   },
   {
     value: "ai",
-    label: "AI识别",
+    label: "AI识别（会员功能）",
     description: "理解能力最强，适合复杂简历截图，但速度较慢且需要 AI 配置。",
   },
 ];
@@ -483,13 +483,12 @@ const keywordMatchOptions = [
   },
 ];
 /**
- * 打开新建岗位表单，并校验默认 AI 功能是否允许。
+ * 打开新建岗位表单，默认使用免费版可用的关键词模式。
  * @returns {Promise<void>} 无返回值。
  */
 async function createPosition() {
   showForm.value = true;
   props.positions.resetForm();
-  await ensureDefaultAIAllowedForForm();
 }
 
 /**

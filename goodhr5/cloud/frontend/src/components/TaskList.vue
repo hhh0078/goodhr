@@ -361,7 +361,7 @@ const editForm = ref({
   platformId: "boss",
   platformAccountId: "",
   positionId: "",
-  mode: "ai",
+  mode: "keyword",
   matchLimit: 50,
   enableSound: false,
   enableThinking: false,
@@ -438,7 +438,8 @@ function selectedEditPosition() {
  * @returns {string} 默认模式。
  */
 function positionMode(position: any) {
-  return position?.common_config?.mode_default === "keyword" ? "keyword" : "ai";
+  if (!position) return "keyword";
+  return position?.common_config?.mode_default === "ai" ? "ai" : "keyword";
 }
 /**
  * 返回岗位模板默认模式中文名。

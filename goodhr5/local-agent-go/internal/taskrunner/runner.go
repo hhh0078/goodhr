@@ -781,15 +781,20 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 	if client == nil {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
+	requiresAI := taskRequiresAI(task)
 	r.taskLog(taskID, "info", "开始校验会员")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("会员校验失败：%w", err)
 	}
 	if !boolFromMap(subscription, "active") {
-		return TaskRuntimeSnapshot{}, fmt.Errorf("会员已到期，请先订阅后再开始任务")
+		if requiresAI {
+			return TaskRuntimeSnapshot{}, fmt.Errorf("会员已到期，当前任务使用了 AI 筛选或 AI 详情识别，请先订阅后再开始任务")
+		}
+		r.taskLog(taskID, "info", "当前为免费版，任务未使用会员功能，允许启动")
+	} else {
+		r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
 	}
-	r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
 	if strings.TrimSpace(task.PositionID) != "" && len(task.PositionSnapshot) == 0 {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("云端岗位模板为空，任务无法启动")
 	}
@@ -801,7 +806,7 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 	}
 	options = applyCloudPreferences(options, preferences)
 
-	if taskRequiresAI(task) {
+	if requiresAI {
 		r.updateProgress(taskID, Progress{Stage: "ai_config", Message: "正在读取云端 AI 配置", TotalRounds: totalRounds})
 		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
 		if err != nil {

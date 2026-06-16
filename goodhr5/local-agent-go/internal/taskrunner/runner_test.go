@@ -267,6 +267,66 @@ func TestRunnerStartRequiresToken(t *testing.T) {
 	}
 }
 
+// TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask 验证会员过期时仍允许非 AI 任务启动。
+func TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask(t *testing.T) {
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/subscription/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "subscription": map[string]any{"active": false}})
+		case "/api/config/user-preferences":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
+		case "/api/platforms/config/":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"configs": []map[string]any{
+					{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]}}`},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer cloud.Close()
+
+	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
+	task := localdb.Task{
+		ID:               "task-free-keyword",
+		PlatformID:       "boss",
+		Mode:             "keyword",
+		PositionSnapshot: map[string]any{"common_config": map[string]any{"detail_mode": "ocr"}},
+	}
+	snapshot, err := runner.buildTaskRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), task, StartOptions{Token: "token-1"}, 1)
+	if err != nil {
+		t.Fatalf("keyword task should be allowed when subscription expired: %v", err)
+	}
+	if snapshot.Task.ID != task.ID || len(snapshot.PlatformConfig) == 0 {
+		t.Fatalf("unexpected snapshot = %+v", snapshot)
+	}
+}
+
+// TestBuildTaskRuntimeSnapshotBlocksExpiredAIFeature 验证会员过期时会拦截 AI 功能任务。
+func TestBuildTaskRuntimeSnapshotBlocksExpiredAIFeature(t *testing.T) {
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/subscription/status" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "subscription": map[string]any{"active": false}})
+	}))
+	defer cloud.Close()
+
+	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
+	task := localdb.Task{
+		ID:               "task-ai",
+		PlatformID:       "boss",
+		Mode:             "ai",
+		PositionSnapshot: map[string]any{"common_config": map[string]any{"detail_mode": "ocr"}},
+	}
+	_, err := runner.buildTaskRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), task, StartOptions{Token: "token-1"}, 1)
+	if err == nil || !strings.Contains(err.Error(), "当前任务使用了 AI 筛选或 AI 详情识别") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // TestValidateAIConfig 验证 AI 配置会在任务启动阶段提前校验。
 func TestValidateAIConfig(t *testing.T) {
 	cases := []struct {
