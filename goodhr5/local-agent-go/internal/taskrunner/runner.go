@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -407,10 +408,13 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	userDataDir := filepath.Join(r.profilesDir, profileName)
 	r.taskLog(task.ID, "info", "正在启动浏览器账号目录："+profileName)
 	r.taskLog(task.ID, "info", "准备调用浏览器启动接口：/api/v1/browser/start")
+	viewportWidth, viewportHeight := taskBrowserViewport()
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
-		"humanize":       true,
-		"user_data_dir":  userDataDir,
-		"downloads_path": r.browserDownloadDir(),
+		"humanize":        true,
+		"user_data_dir":   userDataDir,
+		"downloads_path":  r.browserDownloadDir(),
+		"viewport_width":  viewportWidth,
+		"viewport_height": viewportHeight,
 	}); err != nil {
 		return nil, err
 	}
@@ -2744,8 +2748,12 @@ func (r *Runner) playSound(soundName string, taskID string) {
 		r.taskLog(taskID, "warning", "音频文件不存在或为空："+filePath)
 		return
 	}
-	// 使用系统命令播放，优先用 afplay（macOS），fallback 到标准输出提示
-	playCmd := exec.Command("afplay", filePath)
+	playCmd, err := soundPlayCommand(filePath)
+	if err != nil {
+		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
+		return
+	}
+	hideCommandWindow(playCmd)
 	if err := playCmd.Start(); err != nil {
 		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
 		return
@@ -2754,6 +2762,114 @@ func (r *Runner) playSound(soundName string, taskID string) {
 	go func() {
 		_ = playCmd.Wait()
 	}()
+}
+
+// soundPlayCommand 根据当前系统创建音频播放命令。
+// filePath 为本地音频文件路径，返回可执行命令。
+func soundPlayCommand(filePath string) (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		if _, err := exec.LookPath("afplay"); err != nil {
+			return nil, fmt.Errorf("系统未找到 afplay 播放器")
+		}
+		return exec.Command("afplay", filePath), nil
+	case "windows":
+		powershell, err := lookPathAny("powershell.exe", "powershell", "pwsh.exe", "pwsh")
+		if err != nil {
+			return nil, fmt.Errorf("系统未找到 PowerShell 播放器")
+		}
+		script := `$player = New-Object System.Media.SoundPlayer; $player.SoundLocation = $args[0]; $player.PlaySync()`
+		return exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", script, filePath), nil
+	default:
+		if player, err := exec.LookPath("paplay"); err == nil {
+			return exec.Command(player, filePath), nil
+		}
+		if player, err := exec.LookPath("aplay"); err == nil {
+			return exec.Command(player, filePath), nil
+		}
+		return nil, fmt.Errorf("当前系统未找到可用音频播放器")
+	}
+}
+
+// lookPathAny 返回第一个可用命令路径。
+// names 为候选命令名称。
+func lookPathAny(names ...string) (string, error) {
+	for _, name := range names {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("没有找到可用命令")
+}
+
+// taskBrowserViewport 返回任务启动浏览器时使用的窗口尺寸。
+// 尺寸与本地账号打开入口保持同一套保守范围，避免任务窗口过大。
+func taskBrowserViewport() (int, int) {
+	screenWidth, screenHeight := taskCurrentScreenSize()
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return 1100, 780
+	}
+	width := clampInt(int(float64(screenWidth)*0.75), 960, 1180)
+	height := clampInt(int(float64(screenHeight)*0.78), 680, 820)
+	if width > screenWidth-120 {
+		width = screenWidth - 120
+	}
+	if height > screenHeight-120 {
+		height = screenHeight - 120
+	}
+	return clampInt(width, 900, 1180), clampInt(height, 640, 820)
+}
+
+// taskCurrentScreenSize 读取当前主屏幕工作区尺寸。
+// 读取失败时返回 0，由调用方使用默认尺寸。
+func taskCurrentScreenSize() (int, int) {
+	switch runtime.GOOS {
+	case "darwin":
+		if out, err := exec.Command("/bin/sh", "-c", `osascript -l JavaScript -e 'ObjC.import("AppKit"); const f=$.NSScreen.mainScreen.visibleFrame; console.log(Math.round(f.size.width)+","+Math.round(f.size.height));'`).Output(); err == nil {
+			return parseScreenSize(string(out))
+		}
+	case "windows":
+		powershell, err := lookPathAny("powershell.exe", "powershell", "pwsh.exe", "pwsh")
+		if err != nil {
+			return 0, 0
+		}
+		script := `Add-Type -AssemblyName System.Windows.Forms; $r=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; Write-Output "$($r.Width),$($r.Height)"`
+		cmd := exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", script)
+		hideCommandWindow(cmd)
+		if out, err := cmd.Output(); err == nil {
+			return parseScreenSize(string(out))
+		}
+	}
+	return 0, 0
+}
+
+// parseScreenSize 解析屏幕尺寸输出。
+// value 格式为 宽,高，解析失败返回 0。
+func parseScreenSize(value string) (int, int) {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	if len(parts) < 2 {
+		return 0, 0
+	}
+	return parseLooseInt(parts[0]), parseLooseInt(parts[1])
+}
+
+// clampInt 将整数限制在指定范围内。
+// value 为原始数值，min 和 max 为上下限。
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+// parseLooseInt 从字符串中读取整数。
+// value 为原始字符串，解析失败返回 0。
+func parseLooseInt(value string) int {
+	parsed, _ := strconv.Atoi(strings.TrimSpace(value))
+	return parsed
 }
 
 // sendTaskFailNotification 通知云端任务失败，由云端按任务 ID 查用户并发邮件。
