@@ -908,53 +908,82 @@ async function saveLocatorScreenshot(locator, directory, filename) {
 async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo, directory, filename, payload) {
   const box = await locator.boundingBox().catch(() => null);
   if (!box || box.width < 20 || box.height < 20) return [];
-  await currentPage.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 120)).catch(() => {});
+  const mouseX = box.x + box.width / 2;
+  const mouseY = box.y + Math.min(box.height / 2, 120);
+  await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
   await currentPage.waitForTimeout(200);
   const clientHeight = Math.max(1, Number(scrollInfo.clientHeight || box.height || 1));
   const scrollHeight = Math.max(clientHeight, Number(scrollInfo.scrollHeight || clientHeight));
-  const scrollDelta = Math.max(1, Math.round(clientHeight * 0.72));
+  const scrollDelta = Math.max(1, Math.round(clientHeight * 0.8));
   const overlap = Math.max(clientHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(16, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 12)));
-  const estimated = Math.max(1, Math.ceil(Math.max(scrollHeight - clientHeight, 0) / scrollDelta) + 1);
-  const maxScrolls = Math.min(configuredMax, estimated + 1);
+  const conservativeDelta = Math.max(1, Math.round(clientHeight * 0.45));
+  const estimated = Math.max(1, Math.ceil(Math.max(scrollHeight - clientHeight, 0) / conservativeDelta) + 1);
+  const maxScrolls = Math.min(configuredMax, estimated + 2);
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
-  const originalTop = Number(scrollInfo.scrollTop || 0);
-  try {
-    for (let index = 0; index < maxScrolls; index += 1) {
-      const top = Math.min(index * scrollDelta, Math.max(scrollHeight - clientHeight, 0));
-      await locator.evaluate((el, y) => {
-        el.scrollTop = y;
-      }, top).catch(() => {});
-      await currentPage.waitForTimeout(1500);
-      const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
-      const targetPath = path.join(directory, partName);
-      const sizeInfo = await locator.boundingBox().catch(() => null) || box;
-      const currentBuffer = await locator.screenshot({ type: "png" });
-      if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
-        break;
-      }
-      await fs.writeFile(targetPath, currentBuffer);
-      const stat = await fs.stat(targetPath);
-      parts.push({
-        path: targetPath,
-        file_path: targetPath,
-        size: stat.size,
-        width: Math.round(sizeInfo.width || box.width || 0),
-        height: Math.round(sizeInfo.height || box.height || 0),
-        overlap,
-        index,
-        scroll_top: Math.round(top),
-      });
-      previousBuffer = currentBuffer;
-      if (top >= scrollHeight - clientHeight - 2) break;
+  logWorker("详情截图开始：滚轮滚动容器", {
+    filename,
+    clientHeight,
+    scrollHeight,
+    scrollDelta,
+    overlap,
+    estimated,
+    maxScrolls,
+    mouseX: Math.round(mouseX),
+    mouseY: Math.round(mouseY),
+  });
+  for (let index = 0; index < maxScrolls; index += 1) {
+    await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
+    await currentPage.waitForTimeout(index === 0 ? 600 : 1200);
+    const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
+    const targetPath = path.join(directory, partName);
+    const sizeInfo = await locator.boundingBox().catch(() => null) || box;
+    const currentBuffer = await locator.screenshot({ type: "png" });
+    if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
+      logWorker("详情截图停止：检测到重复容器截图", { filename, index: index + 1, parts: parts.length });
+      break;
     }
-  } finally {
-    await locator.evaluate((el, y) => {
-      el.scrollTop = y;
-    }, originalTop).catch(() => {});
+    await fs.writeFile(targetPath, currentBuffer);
+    const stat = await fs.stat(targetPath);
+    const beforeScroll = await pageScrollState(currentPage);
+    parts.push({
+      path: targetPath,
+      file_path: targetPath,
+      size: stat.size,
+      width: Math.round(sizeInfo.width || box.width || 0),
+      height: Math.round(sizeInfo.height || box.height || 0),
+      overlap,
+      index,
+      scroll_top: Math.round(Number(beforeScroll.top || 0)),
+    });
+    previousBuffer = currentBuffer;
+    logWorker("详情截图保存：容器分段", {
+      filename,
+      part: index + 1,
+      size: stat.size,
+      scrollTop: beforeScroll.top,
+      maxed: beforeScroll.maxed,
+    });
+    await currentPage.mouse.wheel(0, scrollDelta);
+    await currentPage.waitForTimeout(1600);
+    const afterScroll = await pageScrollState(currentPage);
+    const moved = scrollStateDistance(beforeScroll, afterScroll);
+    logWorker("详情截图滚轮：容器滚动后状态", {
+      filename,
+      part: index + 1,
+      before: beforeScroll.top,
+      after: afterScroll.top,
+      moved,
+      maxed: afterScroll.maxed,
+    });
+    if (afterScroll.maxed || moved < 3) {
+      logWorker("详情截图停止：容器滚动已到底或未移动", { filename, part: index + 1, moved, maxed: afterScroll.maxed });
+      break;
+    }
   }
+  logWorker("详情截图完成：滚轮滚动容器", { filename, parts: parts.length });
   return parts;
 }
 
@@ -975,21 +1004,37 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const clipBottom = Math.min(Math.round(box.y + box.height), Math.round(viewport.height || 900));
   const clipHeight = Math.max(clipBottom - clipY, 1);
   const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
-  await currentPage.mouse.move(clipX + clipWidth / 2, clipY + clipHeight / 2).catch(() => {});
+  const mouseX = clipX + clipWidth / 2;
+  const mouseY = clipY + clipHeight / 2;
+  await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
   await currentPage.waitForTimeout(1500);
-  const scrollDelta = Math.max(Math.round(clipHeight * 0.7), 1);
+  const scrollDelta = Math.max(Math.round(clipHeight * 0.8), 1);
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
-  const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / scrollDelta) + 1);
-  const maxScrolls = Math.min(configuredMax, estimated + 1);
+  const conservativeDelta = Math.max(1, Math.round(clipHeight * 0.45));
+  const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / conservativeDelta) + 1);
+  const maxScrolls = Math.min(configuredMax, estimated + 2);
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
+  logWorker("详情截图开始：滚轮滚动页面", {
+    filename,
+    clipHeight,
+    boxHeight: Math.round(box.height || 0),
+    scrollDelta,
+    overlap,
+    estimated,
+    maxScrolls,
+    mouseX: Math.round(mouseX),
+    mouseY: Math.round(mouseY),
+  });
   for (let index = 0; index < maxScrolls; index += 1) {
+    await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
     const currentBuffer = await currentPage.screenshot({ clip, type: "png" });
     if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
+      logWorker("详情截图停止：检测到重复页面截图", { filename, index: index + 1, parts: parts.length });
       break;
     }
     await fs.writeFile(targetPath, currentBuffer);
@@ -1003,15 +1048,27 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       overlap,
       index,
     });
+    logWorker("详情截图保存：页面分段", { filename, part: index + 1, size: stat.size });
     previousBuffer = currentBuffer;
     const beforeScroll = await pageScrollState(currentPage);
     await currentPage.mouse.wheel(0, scrollDelta);
     await currentPage.waitForTimeout(2000);
     const afterScroll = await pageScrollState(currentPage);
-    if (afterScroll.maxed || scrollStateDistance(beforeScroll, afterScroll) < 3) {
+    const moved = scrollStateDistance(beforeScroll, afterScroll);
+    logWorker("详情截图滚轮：页面滚动后状态", {
+      filename,
+      part: index + 1,
+      before: beforeScroll.top,
+      after: afterScroll.top,
+      moved,
+      maxed: afterScroll.maxed,
+    });
+    if (afterScroll.maxed || moved < 3) {
+      logWorker("详情截图停止：页面滚动已到底或未移动", { filename, part: index + 1, moved, maxed: afterScroll.maxed });
       break;
     }
   }
+  logWorker("详情截图完成：滚轮滚动页面", { filename, parts: parts.length });
   return parts;
 }
 
