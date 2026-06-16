@@ -2755,6 +2755,12 @@ func (r *Runner) playSound(soundName string, taskID string) {
 	info, err := os.Stat(filePath)
 	if err != nil || info.Size() == 0 {
 		r.taskLog(taskID, "warning", "音频文件不存在或为空："+filePath)
+		playCmd, cmdErr := fallbackSoundCommand()
+		if cmdErr != nil {
+			r.taskLog(taskID, "warning", "播放系统提示音失败："+cmdErr.Error())
+			return
+		}
+		r.startSoundCommand(playCmd, taskID, "系统提示音")
 		return
 	}
 	playCmd, err := soundPlayCommand(filePath)
@@ -2762,14 +2768,23 @@ func (r *Runner) playSound(soundName string, taskID string) {
 		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
 		return
 	}
-	hideCommandWindow(playCmd)
-	if err := playCmd.Start(); err != nil {
+	r.startSoundCommand(playCmd, taskID, soundName)
+}
+
+// startSoundCommand 启动提示音命令并记录启动后失败日志。
+// cmd 为播放命令，taskID 为任务 ID，label 为提示音名称。
+func (r *Runner) startSoundCommand(cmd *exec.Cmd, taskID string, label string) {
+	hideCommandWindow(cmd)
+	if err := cmd.Start(); err != nil {
 		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
 		return
 	}
+	r.taskLog(taskID, "info", "已触发提示音："+label)
 	// 非阻塞——不等待播放结束，避免卡主流程
 	go func() {
-		_ = playCmd.Wait()
+		if err := cmd.Wait(); err != nil {
+			r.taskLog(taskID, "warning", "提示音播放进程异常："+err.Error())
+		}
 	}()
 }
 
@@ -2797,6 +2812,26 @@ func soundPlayCommand(filePath string) (*exec.Cmd, error) {
 			return exec.Command(player, filePath), nil
 		}
 		return nil, fmt.Errorf("当前系统未找到可用音频播放器")
+	}
+}
+
+// fallbackSoundCommand 创建系统默认提示音命令。
+// 当 success.wav/failed.wav 缺失时使用，保证用户仍能听到反馈。
+func fallbackSoundCommand() (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		if player, err := exec.LookPath("osascript"); err == nil {
+			return exec.Command(player, "-e", "beep 1"), nil
+		}
+		return nil, fmt.Errorf("系统未找到 osascript 播放器")
+	case "windows":
+		powershell, err := lookPathAny("powershell.exe", "powershell", "pwsh.exe", "pwsh")
+		if err != nil {
+			return nil, fmt.Errorf("系统未找到 PowerShell 播放器")
+		}
+		return exec.Command(powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "[console]::beep(880,180)"), nil
+	default:
+		return nil, fmt.Errorf("当前系统未配置默认提示音")
 	}
 }
 

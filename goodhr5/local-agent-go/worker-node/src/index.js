@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -915,9 +916,10 @@ async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo
   const overlap = Math.max(clientHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(16, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 12)));
   const estimated = Math.max(1, Math.ceil(Math.max(scrollHeight - clientHeight, 0) / scrollDelta) + 1);
-  const maxScrolls = Math.min(configuredMax, estimated);
+  const maxScrolls = Math.min(configuredMax, estimated + 1);
   const parsed = path.parse(filename);
   const parts = [];
+  let previousBuffer = null;
   const originalTop = Number(scrollInfo.scrollTop || 0);
   try {
     for (let index = 0; index < maxScrolls; index += 1) {
@@ -929,7 +931,11 @@ async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo
       const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
       const targetPath = path.join(directory, partName);
       const sizeInfo = await locator.boundingBox().catch(() => null) || box;
-      await locator.screenshot({ path: targetPath, type: "png" });
+      const currentBuffer = await locator.screenshot({ type: "png" });
+      if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
+        break;
+      }
+      await fs.writeFile(targetPath, currentBuffer);
       const stat = await fs.stat(targetPath);
       parts.push({
         path: targetPath,
@@ -941,6 +947,7 @@ async function screenshotScrollableLocatorParts(currentPage, locator, scrollInfo
         index,
         scroll_top: Math.round(top),
       });
+      previousBuffer = currentBuffer;
       if (top >= scrollHeight - clientHeight - 2) break;
     }
   } finally {
@@ -974,7 +981,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
   const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / scrollDelta) + 1);
-  const maxScrolls = payload.force_scroll || payload.scroll_full ? configuredMax : Math.min(configuredMax, estimated);
+  const maxScrolls = Math.min(configuredMax, estimated + 1);
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
@@ -997,10 +1004,60 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       index,
     });
     previousBuffer = currentBuffer;
+    const beforeScroll = await pageScrollState(currentPage);
     await currentPage.mouse.wheel(0, scrollDelta);
     await currentPage.waitForTimeout(2000);
+    const afterScroll = await pageScrollState(currentPage);
+    if (afterScroll.maxed || scrollStateDistance(beforeScroll, afterScroll) < 3) {
+      break;
+    }
   }
   return parts;
+}
+
+/**
+ * 读取页面当前滚动状态。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @returns {Promise<Record<string, number|boolean>>} 页面滚动状态。
+ */
+async function pageScrollState(currentPage) {
+  return currentPage.evaluate(() => {
+    const doc = document.scrollingElement || document.documentElement;
+    const docTop = Math.round(doc?.scrollTop || window.scrollY || 0);
+    const docHeight = Math.round(doc?.scrollHeight || document.documentElement.scrollHeight || 0);
+    const docClientHeight = Math.round(doc?.clientHeight || window.innerHeight || 0);
+    let top = docTop;
+    let canScrollMore = docTop < Math.max(docHeight - docClientHeight - 2, 0);
+    for (const el of Array.from(document.querySelectorAll("*"))) {
+      const node = /** @type {HTMLElement} */ (el);
+      const scrollHeight = Math.round(node.scrollHeight || 0);
+      const clientHeight = Math.round(node.clientHeight || 0);
+      if (scrollHeight <= clientHeight + 8) continue;
+      const style = window.getComputedStyle(node);
+      if (["hidden", "clip"].includes(style.overflowY || "")) continue;
+      const scrollTop = Math.round(node.scrollTop || 0);
+      top += scrollTop;
+      if (scrollTop < Math.max(scrollHeight - clientHeight - 2, 0)) {
+        canScrollMore = true;
+      }
+    }
+    return {
+      top,
+      height: docHeight,
+      clientHeight: docClientHeight,
+      maxed: !canScrollMore,
+    };
+  }).catch(() => ({ top: 0, height: 0, clientHeight: 0, maxed: false }));
+}
+
+/**
+ * 计算两次滚动状态之间的移动距离。
+ * @param {Record<string, any>} before - 滚动前状态。
+ * @param {Record<string, any>} after - 滚动后状态。
+ * @returns {number} 滚动距离。
+ */
+function scrollStateDistance(before, after) {
+  return Math.abs(Number(after?.top || 0) - Number(before?.top || 0));
 }
 
 /**
@@ -1027,10 +1084,45 @@ async function cleanupScreenshotSeries(directory, filename) {
  * @returns {boolean} 重复返回 true。
  */
 function screenshotsAreDuplicate(previous, current) {
-  // 与 py 版 images_are_scroll_duplicates 逻辑一致：
-  // 1. 比较中间主体区域（忽略边缘 12%~88%）
-  // 2. 像素差异 < 10 算相同
-  // 3. 阈值 0.94
+  if (!previous || !current) return false;
+  const previousImage = decodePNG(previous);
+  const currentImage = decodePNG(current);
+  if (!previousImage || !currentImage) {
+    return compressedScreenshotsAreDuplicate(previous, current);
+  }
+  if (previousImage.width !== currentImage.width || previousImage.height !== currentImage.height) {
+    return false;
+  }
+  const width = previousImage.width;
+  const height = previousImage.height;
+  const startX = Math.floor(width * 0.1);
+  const endX = Math.max(startX + 1, Math.floor(width * 0.9));
+  const startY = Math.floor(height * 0.05);
+  const endY = Math.max(startY + 1, Math.floor(height * 0.95));
+  const stepX = Math.max(1, Math.floor((endX - startX) / 90));
+  const stepY = Math.max(1, Math.floor((endY - startY) / 90));
+  let same = 0;
+  let total = 0;
+  for (let y = startY; y < endY; y += stepY) {
+    for (let x = startX; x < endX; x += stepX) {
+      const offset = (y * width + x) * 4;
+      const diff = Math.abs(previousImage.data[offset] - currentImage.data[offset])
+        + Math.abs(previousImage.data[offset + 1] - currentImage.data[offset + 1])
+        + Math.abs(previousImage.data[offset + 2] - currentImage.data[offset + 2]);
+      total += 1;
+      if (diff <= 24) same += 1;
+    }
+  }
+  return total > 0 && same / total >= 0.98;
+}
+
+/**
+ * 使用压缩后的 PNG 字节粗略判断重复，作为 PNG 解析失败时的兜底。
+ * @param {Buffer} previous - 上一张截图。
+ * @param {Buffer} current - 当前截图。
+ * @returns {boolean} 重复返回 true。
+ */
+function compressedScreenshotsAreDuplicate(previous, current) {
   if (!previous || !current) return false;
   if (previous.length !== current.length) return false;
   const startOffset = Math.floor(previous.length * 0.12);
@@ -1041,28 +1133,113 @@ function screenshotsAreDuplicate(previous, current) {
   let total = 0;
   for (let index = startOffset; index < endOffset && index < previous.length && index < current.length; index += step) {
     total += 1;
-    if (Math.abs(previous[index] - current[index]) <= 10) same += 1;
+    if (Math.abs(previous[index] - current[index]) <= 8) same += 1;
   }
-  return total > 0 && same / total >= 0.94;
+  return total > 0 && same / total >= 0.985;
 }
 
 /**
- * 删除滚动到底后产生的相邻重复截图（与 py 版 remove_duplicate_scroll_screenshots 一致）。
- * @param {Buffer[]} screenshots - 原始截图列表。
- * @returns {Buffer[]} 去重后的截图列表。
+ * 解码 Playwright PNG 截图为 RGBA 像素。
+ * @param {Buffer} buffer - PNG 图片内容。
+ * @returns {{width:number,height:number,data:Buffer}|null} 解码后的图片。
  */
-function removeDuplicateScrollScreenshots(screenshots) {
-  if (!screenshots || screenshots.length <= 1) return screenshots;
-  const filtered = [];
-  let prev = null;
-  for (let i = 0; i < screenshots.length; i++) {
-    if (prev && screenshotsAreDuplicate(prev, screenshots[i])) {
-      continue;
+function decodePNG(buffer) {
+  try {
+    if (!Buffer.isBuffer(buffer) || buffer.length < 33) return null;
+    const signature = buffer.subarray(0, 8).toString("hex");
+    if (signature !== "89504e470d0a1a0a") return null;
+    let offset = 8;
+    let width = 0;
+    let height = 0;
+    let colorType = 0;
+    const idat = [];
+    while (offset + 8 <= buffer.length) {
+      const length = buffer.readUInt32BE(offset);
+      const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + length;
+      if (dataEnd > buffer.length) return null;
+      if (type === "IHDR") {
+        width = buffer.readUInt32BE(dataStart);
+        height = buffer.readUInt32BE(dataStart + 4);
+        const bitDepth = buffer[dataStart + 8];
+        colorType = buffer[dataStart + 9];
+        const interlace = buffer[dataStart + 12];
+        if (bitDepth !== 8 || interlace !== 0 || ![2, 6].includes(colorType)) return null;
+      } else if (type === "IDAT") {
+        idat.push(buffer.subarray(dataStart, dataEnd));
+      } else if (type === "IEND") {
+        break;
+      }
+      offset = dataEnd + 4;
     }
-    filtered.push(screenshots[i]);
-    prev = screenshots[i];
+    if (width <= 0 || height <= 0 || idat.length === 0) return null;
+    const channels = colorType === 6 ? 4 : 3;
+    const stride = width * channels;
+    const inflated = zlib.inflateSync(Buffer.concat(idat));
+    const raw = Buffer.alloc(height * stride);
+    let inputOffset = 0;
+    for (let y = 0; y < height; y += 1) {
+      const filter = inflated[inputOffset];
+      inputOffset += 1;
+      const row = inflated.subarray(inputOffset, inputOffset + stride);
+      inputOffset += stride;
+      unfilterPNGRow(row, raw, y, stride, channels, filter);
+    }
+    const rgba = Buffer.alloc(width * height * 4);
+    for (let i = 0, j = 0; i < raw.length; i += channels, j += 4) {
+      rgba[j] = raw[i];
+      rgba[j + 1] = raw[i + 1];
+      rgba[j + 2] = raw[i + 2];
+      rgba[j + 3] = channels === 4 ? raw[i + 3] : 255;
+    }
+    return { width, height, data: rgba };
+  } catch {
+    return null;
   }
-  return filtered;
+}
+
+/**
+ * 还原 PNG 单行滤镜。
+ * @param {Buffer} row - 当前压缩行。
+ * @param {Buffer} output - 输出像素缓存。
+ * @param {number} y - 当前行号。
+ * @param {number} stride - 每行字节数。
+ * @param {number} channels - 每个像素通道数。
+ * @param {number} filter - PNG 滤镜类型。
+ * @returns {void} 无返回值。
+ */
+function unfilterPNGRow(row, output, y, stride, channels, filter) {
+  const rowStart = y * stride;
+  const prevStart = rowStart - stride;
+  for (let x = 0; x < stride; x += 1) {
+    const left = x >= channels ? output[rowStart + x - channels] : 0;
+    const up = y > 0 ? output[prevStart + x] : 0;
+    const upLeft = y > 0 && x >= channels ? output[prevStart + x - channels] : 0;
+    let value = row[x];
+    if (filter === 1) value += left;
+    if (filter === 2) value += up;
+    if (filter === 3) value += Math.floor((left + up) / 2);
+    if (filter === 4) value += paethPredictor(left, up, upLeft);
+    output[rowStart + x] = value & 0xff;
+  }
+}
+
+/**
+ * PNG Paeth 滤镜预测。
+ * @param {number} left - 左侧像素值。
+ * @param {number} up - 上方像素值。
+ * @param {number} upLeft - 左上像素值。
+ * @returns {number} 预测值。
+ */
+function paethPredictor(left, up, upLeft) {
+  const p = left + up - upLeft;
+  const pa = Math.abs(p - left);
+  const pb = Math.abs(p - up);
+  const pc = Math.abs(p - upLeft);
+  if (pa <= pb && pa <= pc) return left;
+  if (pb <= pc) return up;
+  return upLeft;
 }
 
 /**
