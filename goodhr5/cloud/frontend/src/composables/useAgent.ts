@@ -1,6 +1,7 @@
 /** 本地 Agent 探测 */
 import { ref } from "vue";
 import { getLocalHealth } from "../services/localAgentApi";
+import { localAgentRequiredVersion } from "../services/localAgentRelease";
 import { markOnboardingStep } from "../services/onboarding";
 const LOCAL_PORTS = [55271, 55272, 55273, 55274, 55275, 55276, 55277, 55278, 55279];
 
@@ -46,9 +47,9 @@ export function useAgent() {
   function validateLocalVersion() {
     try {
       const systemAppConfig = JSON.parse(
-        localStorage.getItem("system_app_config") || "{}",
+        localStorage.getItem("system_onboarding_config") || "{}",
       );
-      const requiredVersion = String(systemAppConfig?.local_agent_version || "").trim();
+      const requiredVersion = localAgentRequiredVersion(systemAppConfig);
       if (requiredVersion && requiredVersion !== info.value?.version) {
         status.value = "本地程序需要更新";
       }

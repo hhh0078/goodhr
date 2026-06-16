@@ -51,6 +51,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { detectAgentDownloadPlatform, getAgentDownloadURL } from "../services/agentDownload";
+import { latestLocalAgentRelease, localAgentRequiredVersion } from "../services/localAgentRelease";
 import {
   getLocalAppUpdateStatus,
   startLocalAppUpdate,
@@ -67,7 +68,7 @@ const agentBase = computed(() => String(props.agent?.baseUrl?.value || ""));
 const health = computed(() => props.agent?.info?.value || null);
 const currentVersion = computed(() => String(health.value?.version || ""));
 const requiredVersion = computed(() =>
-  String(props.appConfig?.local_agent_version || readCachedAppConfig()?.local_agent_version || "").trim(),
+  localAgentRequiredVersion(props.onboardingConfig || readCachedOnboardingConfig()),
 );
 const downloadURL = computed(() =>
   getAgentDownloadURL(props.onboardingConfig || readCachedOnboardingConfig(), detectAgentDownloadPlatform()),
@@ -221,47 +222,16 @@ function readCachedOnboardingConfig() {
  * @returns {string} 更新说明文本。
  */
 function localAgentReleaseNote(appConfig: any, onboardingConfig: any) {
-  const asset = platformAgentAsset(onboardingConfig);
+  const release = latestLocalAgentRelease(onboardingConfig, detectAgentDownloadPlatform());
   return firstText(
     appConfig?.local_agent_update_note,
     appConfig?.local_agent_changelog,
     appConfig?.local_agent_release_note,
-    appConfig?.local_agent_version_note,
     onboardingConfig?.local_agent_update_note,
     onboardingConfig?.local_agent_changelog,
     onboardingConfig?.local_agent_release_note,
-    onboardingConfig?.local_agent_version_note,
-    asset?.note,
-    asset?.changelog,
-    asset?.description,
-    asset?.release_note,
+    release.note,
   );
-}
-
-/**
- * 读取当前平台本地程序资源配置。
- * @param {any} onboardingConfig - 新手引导配置。
- * @returns {any} 当前平台资源配置。
- */
-function platformAgentAsset(onboardingConfig: any) {
-  const platform = detectAgentDownloadPlatform();
-  const platformKeys = platform === "windows"
-    ? ["win", "windows", "win-x64", "windows-x64"]
-    : ["mac", "macos", "darwin", "darwin-arm64", "mac-arm64"];
-  const sources = [
-    onboardingConfig?.local_agent,
-    onboardingConfig?.localAgent,
-    onboardingConfig?.local_agent_download,
-    onboardingConfig?.localAgentDownload,
-  ];
-  for (const source of sources) {
-    if (!source || typeof source !== "object") continue;
-    for (const key of platformKeys) {
-      const item = source[key];
-      if (item && typeof item === "object") return item;
-    }
-  }
-  return {};
 }
 
 /**

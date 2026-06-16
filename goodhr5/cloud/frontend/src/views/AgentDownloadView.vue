@@ -67,6 +67,7 @@
 import { computed } from "vue";
 import { useAppContext } from "../composables/useAppContext";
 import { detectAgentDownloadPlatform } from "../services/agentDownload";
+import { latestLocalAgentRelease } from "../services/localAgentRelease";
 
 type ComponentItem = {
   key: string;
@@ -90,8 +91,21 @@ const platformLabel = computed(() => (currentPlatform.value === "windows" ? "Win
 const runtime = computed(() => app.agent.info.value?.runtime || {});
 const runtimeComponents = computed(() => app.onboardingConfig.value?.runtime_components || {});
 const installedVersions = computed(() => runtime.value?.installed_versions || {});
+const localAgentRelease = computed(() => latestLocalAgentRelease(app.onboardingConfig.value, currentPlatform.value));
 
 const componentItems = computed<ComponentItem[]>(() => [
+  {
+    key: "local_agent",
+    name: "GoodHR 本地程序",
+    required: true,
+    installed: connected.value,
+    configVersion: localAgentRelease.value.version,
+    installedVersion: app.agent.info.value?.version || "",
+    url: localAgentRelease.value.url,
+    sha256: localAgentRelease.value.sha256,
+    note: localAgentRelease.value.note || "GoodHR 本地程序安装包。",
+    path: app.agent.info.value?.data_dir || app.agent.info.value?.dataDir || "",
+  },
   buildComponentItem({
     key: "node_runtime",
     name: "Node 运行环境",

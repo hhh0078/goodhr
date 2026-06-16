@@ -26,10 +26,11 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { localAgentRequiredVersion } from "../services/localAgentRelease";
 
-const props = defineProps({ agent: Object, appConfig: Object })
+const props = defineProps({ agent: Object, appConfig: Object, onboardingConfig: Object })
 
-const requiredVersion = computed(() => String(props.appConfig?.local_agent_version || "--"));
+const requiredVersion = computed(() => localAgentRequiredVersion(props.onboardingConfig) || "--");
 const localVersion = computed(() => String(props.agent?.info?.value?.version || ""));
 const requiresUpdate = computed(() => {
   if (!localVersion.value) return false;

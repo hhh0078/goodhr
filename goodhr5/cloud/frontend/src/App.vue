@@ -153,7 +153,6 @@ const positions = usePositions();
 const personalConfig = usePersonalConfig();
 const { user } = auth;
 const systemAppConfig = ref({
-  local_agent_version: "",
   free_daily_greet_limit: 100,
   announcements_enabled: false,
   announcements: [],
@@ -162,9 +161,7 @@ const dismissedSessionAnnouncements = ref<string[]>([]);
 const subscription = ref<any>(null);
 const onboardingProgress = ref<any>({ completed: true, steps: {} });
 const onboardingConfig = ref<any>({
-  local_agent_download_url: "",
-  local_agent_download_url_mac: "",
-  local_agent_download_url_windows: "",
+  local_agent: [],
   runtime_components: {},
   trial_days: 3,
 });
@@ -447,9 +444,7 @@ async function loadOnboardingStatus() {
     }
   } catch {
     onboardingConfig.value = {
-      local_agent_download_url: "",
-      local_agent_download_url_mac: "",
-      local_agent_download_url_windows: "",
+      local_agent: [],
       runtime_components: {},
       trial_days: 3,
     };
@@ -541,7 +536,6 @@ async function loadSystemAppConfig() {
     );
   } catch {
     systemAppConfig.value = {
-      local_agent_version: "",
       free_daily_greet_limit: 100,
       announcements_enabled: false,
       announcements: [],

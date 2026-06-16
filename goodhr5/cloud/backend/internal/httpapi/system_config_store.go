@@ -48,7 +48,6 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 		"system.app_config": {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{
-				"local_agent_version": "5.0.0",
 				"free_daily_greet_limit": 100,
 				"position_requirement_optimize_prompt": "你是一个招聘筛选规则整理助手。请把用户输入的岗位要求整理成适合 AI 筛选候选人简历的规则。\n\n要求：\n1. 只保留候选人自身条件，不要保留岗位福利、薪资待遇、工作时间、公司介绍、岗位职责、工作内容。\n2. 去掉无法从简历中稳定判断的主观要求，例如：有上进心、责任心强、抗压能力强、沟通能力好、性格开朗、团队意识强、吃苦耐劳等。\n3. 优先保留硬性条件，例如：学历、专业、工作年限、行业经验、岗位经验、证书、技能、城市、年龄、到岗状态。\n4. 如果原文里有模糊条件，请改写成更清晰的筛选规则。\n5. 输出中文，按条目列出，不要解释，不要输出 JSON。\n\n用户输入：\n{{input}}",
 				"email_domain_whitelist": ["qq.com", "foxmail.com", "163.com", "126.com", "yeah.net", "sina.com", "sina.cn", "sohu.com", "aliyun.com", "139.com", "189.cn", "wo.cn", "gmail.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "yahoo.com", "proton.me", "protonmail.com"],
@@ -110,9 +109,9 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 		"system.onboarding_config": {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
-				"local_agent_download_url": "",
-				"local_agent_download_url_mac": "",
-				"local_agent_download_url_windows": "",
+				"local_agent": [
+					{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
+				],
 				"runtime_components": {
 					"node_runtime": {
 						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},

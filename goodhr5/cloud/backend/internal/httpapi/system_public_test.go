@@ -27,7 +27,7 @@ func TestAppConfigWithoutLogin(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Config["local_agent_version"] == "" {
+	if payload.Config["free_daily_greet_limit"] == nil {
 		t.Fatalf("unexpected config: %+v", payload.Config)
 	}
 }
