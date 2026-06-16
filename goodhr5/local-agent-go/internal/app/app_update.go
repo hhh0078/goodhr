@@ -35,6 +35,7 @@ type appUpdateProgress struct {
 	URL            string `json:"url"`
 	TargetVersion  string `json:"target_version"`
 	CurrentVersion string `json:"current_version"`
+	ReleaseNote    string `json:"release_note"`
 	PackagePath    string `json:"package_path"`
 	UpdatedAt      string `json:"updated_at"`
 }
@@ -54,6 +55,7 @@ func (p *appUpdateProgress) snapshot() map[string]any {
 		"url":             p.URL,
 		"target_version":  p.TargetVersion,
 		"current_version": version.Value,
+		"release_note":    p.ReleaseNote,
 		"package_path":    p.PackagePath,
 		"updated_at":      p.UpdatedAt,
 	}
@@ -84,6 +86,9 @@ func (p *appUpdateProgress) set(progress appUpdateProgress) {
 	}
 	if progress.TargetVersion != "" {
 		p.TargetVersion = progress.TargetVersion
+	}
+	if progress.ReleaseNote != "" {
+		p.ReleaseNote = progress.ReleaseNote
 	}
 	if progress.PackagePath != "" {
 		p.PackagePath = progress.PackagePath
@@ -121,6 +126,7 @@ func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	targetVersion := strings.TrimSpace(stringValue(payload["target_version"]))
+	releaseNote := strings.TrimSpace(stringValue(payload["release_note"]))
 	if appUpdateRunning() {
 		response.Success(w, appUpdateState.snapshot())
 		return
@@ -132,6 +138,7 @@ func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
 		Percent:       1,
 		URL:           downloadURL,
 		TargetVersion: targetVersion,
+		ReleaseNote:   releaseNote,
 	})
 	go s.runAppUpdate(context.Background(), downloadURL, targetVersion)
 	response.Success(w, appUpdateState.snapshot())

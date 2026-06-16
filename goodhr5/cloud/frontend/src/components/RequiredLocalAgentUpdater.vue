@@ -11,6 +11,11 @@
         当前本地程序版本和后台要求版本不一致。更新完成前不能继续使用后台。
       </p>
 
+      <div v-if="releaseNote" class="release-note">
+        <span>本次更新</span>
+        <p>{{ releaseNote }}</p>
+      </div>
+
       <div class="version-grid">
         <div>
           <span>当前版本</span>
@@ -66,6 +71,12 @@ const requiredVersion = computed(() =>
 );
 const downloadURL = computed(() =>
   getAgentDownloadURL(props.onboardingConfig || readCachedOnboardingConfig(), detectAgentDownloadPlatform()),
+);
+const releaseNote = computed(() =>
+  firstText(
+    localAgentReleaseNote(props.appConfig || readCachedAppConfig(), props.onboardingConfig || readCachedOnboardingConfig()),
+    progress.value?.release_note,
+  ),
 );
 const versionMismatch = computed(() =>
   Boolean(agentBase.value && currentVersion.value && requiredVersion.value && currentVersion.value !== requiredVersion.value),
@@ -124,6 +135,7 @@ async function startUpdate() {
     const status = await startLocalAppUpdate(agentBase.value, {
       url,
       target_version: requiredVersion.value,
+      release_note: releaseNote.value,
     });
     progress.value = status || {};
   } catch (e: any) {
@@ -200,6 +212,69 @@ function readCachedOnboardingConfig() {
   } catch {
     return {};
   }
+}
+
+/**
+ * 读取本地程序更新说明。
+ * @param {any} appConfig - 系统应用配置。
+ * @param {any} onboardingConfig - 新手引导配置。
+ * @returns {string} 更新说明文本。
+ */
+function localAgentReleaseNote(appConfig: any, onboardingConfig: any) {
+  const asset = platformAgentAsset(onboardingConfig);
+  return firstText(
+    appConfig?.local_agent_update_note,
+    appConfig?.local_agent_changelog,
+    appConfig?.local_agent_release_note,
+    appConfig?.local_agent_version_note,
+    onboardingConfig?.local_agent_update_note,
+    onboardingConfig?.local_agent_changelog,
+    onboardingConfig?.local_agent_release_note,
+    onboardingConfig?.local_agent_version_note,
+    asset?.note,
+    asset?.changelog,
+    asset?.description,
+    asset?.release_note,
+  );
+}
+
+/**
+ * 读取当前平台本地程序资源配置。
+ * @param {any} onboardingConfig - 新手引导配置。
+ * @returns {any} 当前平台资源配置。
+ */
+function platformAgentAsset(onboardingConfig: any) {
+  const platform = detectAgentDownloadPlatform();
+  const platformKeys = platform === "windows"
+    ? ["win", "windows", "win-x64", "windows-x64"]
+    : ["mac", "macos", "darwin", "darwin-arm64", "mac-arm64"];
+  const sources = [
+    onboardingConfig?.local_agent,
+    onboardingConfig?.localAgent,
+    onboardingConfig?.local_agent_download,
+    onboardingConfig?.localAgentDownload,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of platformKeys) {
+      const item = source[key];
+      if (item && typeof item === "object") return item;
+    }
+  }
+  return {};
+}
+
+/**
+ * 返回第一个非空文本。
+ * @param {...any} values - 候选文本。
+ * @returns {string} 非空文本。
+ */
+function firstText(...values: any[]) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 /**
@@ -290,6 +365,25 @@ function formatBytes(bytes: number) {
 }
 .version-grid strong {
   overflow-wrap: anywhere;
+}
+.release-note {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  padding: 8px 10px;
+  margin: 12px 0;
+}
+.release-note span {
+  display: block;
+  color: var(--fg-dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.release-note p {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 .agent-update-progress {
   border: 1px solid var(--border);

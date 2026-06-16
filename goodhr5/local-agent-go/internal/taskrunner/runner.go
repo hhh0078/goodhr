@@ -418,9 +418,18 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	}); err != nil {
 		return nil, err
 	}
-	r.taskLog(task.ID, "info", "浏览器启动成功，准备打开入口页面")
-	if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
-		return nil, err
+	r.taskLog(task.ID, "info", "浏览器启动成功，准备确认当前页面")
+	onEntryPage, err := platformRuntime.IsTaskEntryPage(ctx, exec, platformConfig)
+	if err != nil {
+		r.taskLog(task.ID, "warning", "读取当前页面地址失败，将打开入口页面："+err.Error())
+	}
+	if onEntryPage {
+		r.taskLog(task.ID, "info", "当前页面已命中入口地址，跳过入口页跳转")
+	} else {
+		r.taskLog(task.ID, "info", "当前页面未命中入口地址，准备打开入口页面")
+		if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
+			return nil, err
+		}
 	}
 	seen := map[string]struct{}{}
 	queue := make([]map[string]any, 0)
