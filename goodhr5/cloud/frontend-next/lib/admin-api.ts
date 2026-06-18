@@ -16,18 +16,19 @@ export function getToken() {
 /** cloudRequest 统一请求云端接口并处理鉴权与错误。 */
 export async function cloudRequest(path: string, options: RequestOptions = {}) {
   const { body, auth = true, headers, ...rest } = options;
+  const token = auth ? getToken() : "";
   let response: Response;
   try {
     response = await fetch(`${CLOUD_API_BASE}${path}`, {
       ...rest,
       cache: "no-store",
-      headers: { "Content-Type": "application/json", ...(auth && getToken() ? { Authorization: `Bearer ${getToken()}` } : {}), ...(headers || {}) },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(headers || {}) },
       body: body == null ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     });
   } catch {
     throw new Error("无法连接云端服务，请检查网络后重试");
   }
-  return parseResponse(response, "云端请求失败");
+  return parseResponse(response, "云端请求失败", Boolean(token));
 }
 
 /** localRequest 统一请求本地程序接口。 */
@@ -43,7 +44,7 @@ export async function localRequest(baseURL: string, path: string, options: Reque
       headers: { "Content-Type": "application/json", ...(headers || {}) },
       body: body == null ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     });
-    const data = await parseResponse(response, "本地程序请求失败");
+    const data = await parseResponse(response, "本地程序请求失败", false);
     return data?.data ?? data;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw new Error("本地程序请求超时，请稍后重试");
@@ -54,8 +55,12 @@ export async function localRequest(baseURL: string, path: string, options: Reque
 }
 
 /** detectLocalAgent 探测 55271 至 55279 的本地程序端口。 */
-export async function detectLocalAgent() {
-  for (const port of LOCAL_AGENT_PORTS) {
+export async function detectLocalAgent(preferredBaseURL = "") {
+  const preferredPort = Number(preferredBaseURL.match(/:(\d+)$/)?.[1] || 0);
+  const ports = preferredPort && LOCAL_AGENT_PORTS.includes(preferredPort)
+    ? [preferredPort, ...LOCAL_AGENT_PORTS.filter((port) => port !== preferredPort)]
+    : LOCAL_AGENT_PORTS;
+  for (const port of ports) {
     const baseURL = `http://127.0.0.1:${port}`;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 450);
@@ -72,7 +77,7 @@ export async function detectLocalAgent() {
 }
 
 /** parseResponse 解析统一 JSON 响应并输出中文错误。 */
-async function parseResponse(response: Response, fallback: string) {
+async function parseResponse(response: Response, fallback: string, clearInvalidToken: boolean) {
   const text = await response.text();
   let data: any = {};
   try {
@@ -82,7 +87,7 @@ async function parseResponse(response: Response, fallback: string) {
   }
   const code = Number(data.code || (response.ok && data.ok !== false ? 200 : response.status));
   if (!response.ok || data.ok === false || (data.code != null && code !== 200)) {
-    if (response.status === 401) localStorage.removeItem(TOKEN_KEY);
+    if (response.status === 401 && clearInvalidToken) localStorage.removeItem(TOKEN_KEY);
     throw new Error(String(data.msg || data.error || data.detail || fallback));
   }
   return data;

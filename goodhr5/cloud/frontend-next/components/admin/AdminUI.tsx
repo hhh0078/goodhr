@@ -22,3 +22,8 @@ export function EmptyState({ text = "暂无数据", action }: { text?: string; a
 export function RefreshButton({ loading, onClick }: { loading?: boolean; onClick: () => void }) {
   return <Button variant="outlined" disabled={loading} onClick={onClick}>{loading ? "刷新中" : "刷新"}</Button>;
 }
+
+/** FormActionRow 输出不会挤压按钮的输入框与操作按钮横向布局。 */
+export function FormActionRow({ field, action, maxWidth = 620 }: { field: ReactNode; action: ReactNode; maxWidth?: number | string }) {
+  return <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(220px, 1fr) auto" }, gap: 1.25, alignItems: "start", width: "100%", maxWidth, "& .MuiButton-root": { whiteSpace: "nowrap", minWidth: "max-content" } }}>{field}{action}</Box>;
+}

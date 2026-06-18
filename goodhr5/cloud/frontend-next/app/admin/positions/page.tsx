@@ -51,7 +51,7 @@ export default function PositionsPage() {
     try {
       const [positions, prompts] = await Promise.all([
         cloudRequest("/api/positions"),
-        cloudRequest("/api/system/default-prompts", { auth: false }),
+        cloudRequest("/api/system/default-prompts"),
       ]);
       setItems(positions.positions || []);
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
@@ -294,6 +294,9 @@ export default function PositionsPage() {
         onConfirm={() => void save()}
       >
         <Stack spacing={3}>
+          <Alert severity='info' variant='outlined'>
+            运行时先读取候选人基础信息，完成第一次筛选并决定是否打开详情；读取详情后再进行第二次分析，决定是否打招呼。请按这个顺序配置下面的内容。
+          </Alert>
           <Box>
             <Typography
               component='h3'
@@ -355,6 +358,9 @@ export default function PositionsPage() {
               },
             ]}
           />
+          <Typography sx={{ mt: -2, color: "text.secondary", fontSize: 13 }}>
+            选择哪种详情方式就只使用哪一种：DOM 最快，OCR 在本地识别截图文字，AI 能理解完整页面但耗时更长。
+          </Typography>
           <ChoiceCards
             label='详情信息筛选模式  (决定是否打招呼)'
             value={form.detail_mode}
@@ -410,6 +416,9 @@ export default function PositionsPage() {
                       },
                     ]}
                   />
+                  <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+                    关键词模式是否打开详情，由“个人配置”中的详情查看概率控制。满足任一关键词更宽松，必须同时满足则更严格。
+                  </Typography>
                   <Box
                     sx={{
                       display: "grid",
@@ -486,12 +495,19 @@ export default function PositionsPage() {
                     }
                     multiline
                     minRows={7}
-                    helperText='只写能从候选人简历中判断的学历、经验、技能、行业、城市和到岗条件。'
+                    helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
+                  <Box sx={{ p: 1.5, borderLeft: "3px solid", borderColor: "primary.main", bgcolor: "#f5f8f6" }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 760 }}>岗位要求示例</Typography>
+                    <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13, lineHeight: 1.75 }}>
+                      求职意向必须匹配目标岗位；具备 3 年以上相关经验；拥有岗位要求的证书或技能；当前状态满足到岗要求。薪资越高或岗位越重要，条件应写得越明确。
+                    </Typography>
+                  </Box>
                   <PromptField
                     label='打开详情提示词'
                     value={form.open_detail_prompt}
                     defaultValue={defaults.open_detail_prompt}
+                    description='只用于第一次分析，判断候选人是否值得打开详情。普通岗位可以宽松一些，高级岗位可以更严格。'
                     onChange={(value) =>
                       setForm({ ...form, open_detail_prompt: value })
                     }
@@ -513,6 +529,7 @@ export default function PositionsPage() {
                     label='最终筛选提示词'
                     value={form.filter_prompt}
                     defaultValue={defaults.filter_prompt}
+                    description='用于详情分析并决定候选人的最终分数，直接影响是否执行打招呼。'
                     onChange={(value) =>
                       setForm({ ...form, filter_prompt: value })
                     }
@@ -534,6 +551,7 @@ export default function PositionsPage() {
                     label='复核提示词（可选）'
                     value={form.review_prompt}
                     defaultValue={defaults.review_prompt}
+                    description='当详情分数接近打招呼阈值时执行二次复核；留空则不会触发复核。'
                     onChange={(value) =>
                       setForm({ ...form, review_prompt: value })
                     }
@@ -594,11 +612,13 @@ function PromptField({
   label,
   value,
   defaultValue,
+  description,
   onChange,
 }: {
   label: string;
   value: string;
   defaultValue: string;
+  description: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -622,7 +642,9 @@ function PromptField({
         multiline
         minRows={6}
         fullWidth
+        placeholder={defaultValue ? "已加载系统默认提示词" : "系统暂未配置默认提示词"}
       />
+      <Typography sx={{ mt: 0.75, color: "text.secondary", fontSize: 12.5, lineHeight: 1.6 }}>{description}</Typography>
     </Box>
   );
 }

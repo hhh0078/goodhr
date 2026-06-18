@@ -18,32 +18,34 @@ import { cloudRequest, localRequest } from "@/lib/admin-api";
 
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { agentBase, subscription, onboardingConfig, refreshAgent, notify } = useAdmin();
+  const { agentBase, subscription, onboarding, refreshAgent, notify } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
   const [runtime, setRuntime] = useState<any>({});
-  const [onboarding, setOnboarding] = useState<any>({ completed: false, steps: {} });
   const [loading, setLoading] = useState(true);
 
-  /** load 读取控制台所需的云端和本地数据。 */
+  /** load 读取控制台所需的云端数据。 */
   async function load() {
     setLoading(true);
     try {
-      const results = await Promise.allSettled([cloudRequest("/api/tasks"), cloudRequest("/api/platform-accounts"), cloudRequest("/api/positions"), cloudRequest("/api/candidates?page=1&page_size=1"), cloudRequest("/api/onboarding/status")]);
+      const results = await Promise.allSettled([cloudRequest("/api/tasks"), cloudRequest("/api/platform-accounts"), cloudRequest("/api/positions"), cloudRequest("/api/candidates?page=1&page_size=1")]);
       if (results[0].status === "fulfilled") setTasks(results[0].value.tasks || []);
       if (results[1].status === "fulfilled") setAccounts(results[1].value.accounts || []);
       if (results[2].status === "fulfilled") setPositions(results[2].value.positions || []);
       if (results[3].status === "fulfilled") setResumeCount(Number(results[3].value.total || 0));
-      if (results[4].status === "fulfilled") setOnboarding(results[4].value.progress || results[4].value.onboarding || results[4].value);
-      if (agentBase) {
-        try { setRuntime(await localRequest(agentBase, "/api/v1/runtime/status")); } catch { setRuntime({}); }
-      }
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { void load(); }, [agentBase]);
+  /** loadRuntime 在本地连接变化时单独读取运行状态。 */
+  async function loadRuntime(baseURL = agentBase) {
+    if (!baseURL) { setRuntime({}); return; }
+    try { setRuntime(await localRequest(baseURL, "/api/v1/runtime/status")); } catch { setRuntime({}); }
+  }
+
+  useEffect(() => { void load(); }, []);
+  useEffect(() => { void loadRuntime(); }, [agentBase]);
   const summary = useMemo(() => ({ today: tasks.reduce((sum, item) => sum + Number(item.today_greeted_count || 0), 0), total: tasks.reduce((sum, item) => sum + Number(item.greeted_count || 0), 0), running: tasks.filter((item) => item.status === "running").length }), [tasks]);
   const metrics = [["今日打招呼", summary.today, TaskAltRoundedIcon], ["累计打招呼", summary.total, PlayCircleRoundedIcon], ["运行中任务", summary.running, WorkRoundedIcon], ["简历数量", resumeCount, ArticleRoundedIcon]] as const;
 
@@ -56,7 +58,7 @@ export default function DashboardPage() {
   const steps = [{ key: "agent_connected", label: "连接本地程序", done: Boolean(agentBase), href: "/admin/agent-download" }, { key: "platform_account", label: "创建并登录平台账号", done: accounts.length > 0, href: "/admin/accounts" }, { key: "position_template", label: "创建岗位模板", done: positions.length > 0, href: "/admin/positions" }, { key: "task_started", label: "创建并开始任务", done: tasks.length > 0 || Boolean(onboarding.steps?.task_started), href: "/admin/tasks" }];
   const doneCount = steps.filter((item) => item.done).length;
 
-  return <><PageHeader title="控制台" description="今天的招聘进展、本地组件和常用账号都在这里。" actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={loading} onClick={() => void Promise.all([refreshAgent(), load()])}>刷新状态</Button>} />
+  return <><PageHeader title="控制台" description="今天的招聘进展、本地组件和常用账号都在这里。" actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={loading} onClick={() => void Promise.all([refreshAgent(), load(), loadRuntime()])}>刷新状态</Button>} />
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>{metrics.map(([label, value, Icon]) => <Box key={label} sx={{ p: 2, bgcolor: "#f7faf8", borderRadius: "8px", border: "1px solid", borderColor: "divider" }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Icon color="primary" /></Stack><Typography sx={{ mt: 1.5, fontSize: 31, fontWeight: 800 }}>{loading ? <CircularProgress size={22} /> : value}</Typography></Box>)}</Box>
     <Box sx={{ mt: 2, display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.1fr .9fr" }, gap: 2 }}>
       <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>平台账号快捷入口</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>直接打开已登录的招聘平台账号。</Typography></Box><Button component={Link} href="/admin/accounts">管理账号</Button></Stack><Stack spacing={1} sx={{ mt: 2 }}>{accounts.length ? accounts.slice(0, 6).map((account) => <Stack key={account.id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1, borderBottom: "1px solid", borderColor: "divider" }}><AccountCircleRoundedIcon color="primary" /><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 730 }}>{account.display_name || "未命名账号"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{account.platform_id || "未知平台"} · {account.status === "available" ? "已登录" : "需要登录"}</Typography></Box><Button size="small" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account)}>打开</Button></Stack>) : <Typography color="text.secondary">暂无平台账号</Typography>}</Stack></SectionPanel>
