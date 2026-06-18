@@ -4,11 +4,14 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
-import { Button, Chip, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import LoginRoundedIcon from "@mui/icons-material/LoginRounded";
+import { Button, Chip, Stack, TextField, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { cloudRequest, formatDate, localRequest } from "@/lib/admin-api";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import AdminDialog from "@/components/admin/AdminDialog";
+import ChoiceCards from "@/components/admin/ChoiceCards";
 
 const defaultURLs: Record<string, string> = { boss: "https://www.zhipin.com/web/chat/recommend", zhaopin: "https://rd6.zhaopin.com", liepin: "https://lpt.liepin.com" };
 
@@ -56,7 +59,7 @@ export default function AccountsPage() {
     if (!agentBase) throw new Error("请先启动本地程序");
     const config = platforms.find((item) => String(item.platform_id || item.id) === account.platform_id) || {};
     const url = String(config.entry_url || config.login_url || config.url || defaultURLs[account.platform_id] || "");
-    await localRequest(agentBase, "/api/v1/browser/start", { method: "POST", body: { url, persistent: true, user_data_dir: account.id, headless: false, humanize: true } });
+    await localRequest(agentBase, "/api/v1/browser/start", { method: "POST", body: { url, persistent: true, platform_account_id: account.id, user_data_dir: account.id, headless: false, humanize: true } });
   }
 
   /** remove 删除指定平台账号。 */
@@ -65,5 +68,10 @@ export default function AccountsPage() {
     try { await cloudRequest(`/api/platform-accounts/${account.id}`, { method: "DELETE" }); notify("账号已删除", "success"); await load(); } catch (error) { notify(error instanceof Error ? error.message : "删除失败", "error"); }
   }
 
-  return <><PageHeader title="平台账号" description="云端保存账号名称，本地程序保存招聘平台登录状态。" actions={<><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setShowForm((value) => !value)}>{showForm ? "收起" : "新增账号"}</Button><RefreshButton loading={loading} onClick={() => void load()} /></>} />{showForm ? <SectionPanel sx={{ mb: 2 }}><Stack direction={{ xs: "column", sm: "row" }} spacing={2}><TextField select label="招聘平台" value={form.platform_id} onChange={(event) => setForm({ ...form, platform_id: event.target.value })} sx={{ minWidth: 180 }}><MenuItem value="boss">Boss直聘</MenuItem><MenuItem value="zhaopin">智联招聘</MenuItem><MenuItem value="liepin">猎聘</MenuItem></TextField><TextField label="账号名称" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} fullWidth placeholder="例如：成都招聘账号" /><Button variant="contained" disabled={loading} onClick={() => void create()}>创建并登录</Button></Stack></SectionPanel> : null}<SectionPanel>{accounts.length ? <Stack divider={<span style={{ borderTop: "1px solid #dce5e0" }} />}>{accounts.map((account) => <Stack key={account.id} direction={{ xs: "column", md: "row" }} spacing={2} sx={{ py: 2, alignItems: { md: "center" } }}><Stack sx={{ flex: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography sx={{ fontWeight: 760 }}>{account.display_name || "未命名账号"}</Typography><Chip size="small" label={account.platform_id || "未知平台"} /></Stack><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>状态：{account.status === "available" ? "已登录" : "未登录"} · 更新：{formatDate(account.updated_at)}</Typography></Stack><Stack direction="row" spacing={1}><Button variant="outlined" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account).then(() => notify("浏览器已打开", "success")).catch((error) => notify(error.message, "error"))}>打开</Button><Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => void remove(account)}>删除</Button></Stack></Stack>)}</Stack> : <EmptyState text="暂无平台账号" />}</SectionPanel></>;
+  return <><PageHeader title="平台账号" description="云端保存账号名称，本地程序保存招聘平台登录状态。" actions={<><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setShowForm(true)}>新增账号</Button><RefreshButton loading={loading} onClick={() => void load()} /></>} /><SectionPanel>{accounts.length ? <Stack divider={<span style={{ borderTop: "1px solid #dce5e0" }} />}>{accounts.map((account) => <Stack key={account.id} direction={{ xs: "column", md: "row" }} spacing={2} sx={{ py: 2, alignItems: { md: "center" } }}><Stack sx={{ flex: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography sx={{ fontWeight: 760 }}>{account.display_name || "未命名账号"}</Typography><Chip size="small" label={platformLabel(account.platform_id)} /></Stack><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>状态：{account.status === "available" ? "已登录" : "需要登录"} · 更新：{formatDate(account.updated_at)}</Typography></Stack><Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}><Button variant="outlined" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account).then(() => notify("浏览器已打开", "success")).catch((error) => notify(error.message, "error"))}>打开</Button><Button startIcon={<LoginRoundedIcon />} onClick={() => void openAccount(account).then(() => notify("请在浏览器中重新登录", "info")).catch((error) => notify(error.message, "error"))}>重新登录</Button><Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => void remove(account)}>删除</Button></Stack></Stack>)}</Stack> : <EmptyState text="暂无平台账号" />}</SectionPanel><AdminDialog open={showForm} title="新增平台账号" description="创建后将立即打开浏览器，请在招聘平台中完成登录。" confirmText="创建并登录" loading={loading} confirmDisabled={!form.display_name.trim()} onClose={() => setShowForm(false)} onConfirm={() => void create()}><Stack spacing={2.5}><ChoiceCards label="招聘平台" value={form.platform_id} columns={3} onChange={(value) => setForm({ ...form, platform_id: String(value) })} options={[{ value: "boss", label: "Boss直聘", description: "当前主要支持的平台。" }, { value: "zhaopin", label: "智联招聘", description: "平台适配开发中。", disabled: true }, { value: "liepin", label: "猎聘", description: "平台适配开发中。", disabled: true }]} /><TextField label="账号名称" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} fullWidth placeholder="例如：成都招聘账号" helperText="用于在任务和控制台中区分不同招聘账号。" /></Stack></AdminDialog></>;
+}
+
+/** platformLabel 返回平台中文名称。 */
+function platformLabel(platformID: string) {
+  return platformID === "boss" ? "Boss直聘" : platformID === "zhaopin" ? "智联招聘" : platformID === "liepin" ? "猎聘" : platformID || "未知平台";
 }

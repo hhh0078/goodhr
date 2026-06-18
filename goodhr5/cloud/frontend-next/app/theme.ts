@@ -3,15 +3,26 @@
 
 import { createTheme } from "@mui/material/styles";
 
-const theme = createTheme({
+export type ThemePreference = "green" | "rose" | "amber";
+
+const accents: Record<ThemePreference, { main: string; dark: string; soft: string }> = {
+  green: { main: "#159a62", dark: "#0f754a", soft: "#edf7f1" },
+  rose: { main: "#b24b67", dark: "#87354d", soft: "#fbf0f3" },
+  amber: { main: "#a86b12", dark: "#7d4e0b", soft: "#fbf5e9" },
+};
+
+/** createGoodHRTheme 根据用户选择生成统一浅色主题。 */
+export function createGoodHRTheme(preference: ThemePreference = "green") {
+  const accent = accents[preference] || accents.green;
+  return createTheme({
   palette: {
     mode: "light",
-    primary: { main: "#159a62", dark: "#0f754a", contrastText: "#ffffff" },
+    primary: { main: accent.main, dark: accent.dark, contrastText: "#ffffff" },
     secondary: { main: "#17211c" },
     background: { default: "#f6f9f7", paper: "#ffffff" },
     text: { primary: "#17211c", secondary: "#637069" },
     divider: "#dce5e0",
-    success: { main: "#159a62" },
+    success: { main: accent.main },
     warning: { main: "#c47a1a" },
     error: { main: "#c83f49" },
   },
@@ -47,6 +58,7 @@ const theme = createTheme({
       },
     },
   },
-});
+  });
+}
 
-export default theme;
+export default createGoodHRTheme();

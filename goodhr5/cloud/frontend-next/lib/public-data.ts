@@ -5,6 +5,17 @@ export type PublicStatsData = {
   todayRegisteredCount: number | null;
 };
 
+export type PublicPlanData = {
+  id: string;
+  name: string;
+  memberType: string;
+  durationDays: number;
+  originalPrice: number;
+  discountAmount: number;
+  description: string;
+  features: string[];
+};
+
 /** getPublicStats 在服务端读取官网统计，失败时返回空数据且不影响页面。 */
 export async function getPublicStats(): Promise<PublicStatsData> {
   const baseURL = (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
@@ -19,6 +30,38 @@ export async function getPublicStats(): Promise<PublicStatsData> {
   } catch {
     return emptyStats();
   }
+}
+
+/** getPublicPlans 在服务端读取无需登录的订阅套餐配置。 */
+export async function getPublicPlans(): Promise<PublicPlanData[]> {
+  const baseURL = cloudBaseURL();
+  try {
+    const response = await fetch(`${baseURL}/api/subscription/plans`, { next: { revalidate: 300 } });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data?.plans) ? data.plans.map(normalizePlan).filter((item: PublicPlanData) => item.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** cloudBaseURL 返回服务端访问云端 API 的统一地址。 */
+function cloudBaseURL() {
+  return (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+}
+
+/** normalizePlan 将云端套餐字段转换为官网展示结构。 */
+function normalizePlan(value: Record<string, unknown>): PublicPlanData {
+  return {
+    id: String(value?.id || ""),
+    name: String(value?.name || "订阅套餐"),
+    memberType: String(value?.member_type || "plus"),
+    durationDays: Math.max(0, Number(value?.duration_days || 0)),
+    originalPrice: Math.max(0, Number(value?.original_price || 0)),
+    discountAmount: Math.max(0, Number(value?.discount_amount || 0)),
+    description: String(value?.description || ""),
+    features: Array.isArray(value?.features) ? value.features.map((item) => String(item)).filter(Boolean) : [],
+  };
 }
 
 /** emptyStats 返回接口不可用时的空统计。 */
