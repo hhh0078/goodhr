@@ -1,0 +1,7 @@
+# 本文件负责排除 Next.js 构建缓存、本地配置和设计检查产物。
+.next/
+node_modules/
+.npm-cache/
+artifacts/
+.env.local
+*.tsbuildinfo

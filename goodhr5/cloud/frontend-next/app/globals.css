@@ -1,0 +1,57 @@
+/* 本文件负责 GoodHR 新版前端的全局基础样式和轻量动效。 */
+:root {
+  color-scheme: light;
+  --goodhr-green: #159a62;
+  --goodhr-ink: #17211c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: #fff;
+  background: var(--goodhr-green);
+}
+
+@keyframes signalFlow {
+  0% {
+    transform: translateX(-6px);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateX(6px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-6px);
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
