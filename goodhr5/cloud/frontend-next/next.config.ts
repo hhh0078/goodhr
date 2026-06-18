@@ -4,6 +4,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  async redirects() {
+    return ["features", "pricing", "videos", "contact"].map((name) => ({ source: `/${name}.html`, destination: `/${name}`, permanent: true }));
+  },
 };
 
 export default nextConfig;

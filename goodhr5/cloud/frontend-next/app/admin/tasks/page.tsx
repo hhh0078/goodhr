@@ -1,0 +1,94 @@
+/** 本文件负责新版后台任务的创建、编辑、运行、停止、日志和删除。 */
+"use client";
+
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
+import StopRoundedIcon from "@mui/icons-material/StopRounded";
+import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from "@mui/material";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { CLOUD_API_BASE, cloudRequest, formatDate, getToken, localRequest } from "@/lib/admin-api";
+import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { useAdmin } from "@/components/admin/AdminApp";
+
+const emptyForm = { name: "", platform_account_id: "", position_id: "", match_limit: 50, enable_sound: false, enable_thinking: false };
+
+/** TasksPage 管理招聘任务完整生命周期。 */
+export default function TasksPage() {
+  const { agentBase, notify, confirm } = useAdmin();
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [positions, setPositions] = useState<any[]>([]);
+  const [logs, setLogs] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ...emptyForm });
+
+  /** load 读取任务及创建任务需要的账号和岗位。 */
+  async function load() {
+    setLoading(true);
+    try {
+      const [taskData, accountData, positionData] = await Promise.all([cloudRequest("/api/tasks"), cloudRequest("/api/platform-accounts"), cloudRequest("/api/positions")]);
+      setTasks(taskData.tasks || []); setAccounts(accountData.accounts || []); setPositions(positionData.positions || []);
+    } catch (error) { notify(error instanceof Error ? error.message : "任务读取失败", "error"); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  /** create 创建带岗位快照的招聘任务。 */
+  async function create() {
+    const account = accounts.find((item) => item.id === form.platform_account_id);
+    const position = positions.find((item) => item.id === form.position_id);
+    if (!account || !position) return notify("请选择平台账号和岗位模板", "warning");
+    setLoading(true);
+    try {
+      await cloudRequest("/api/tasks", { method: "POST", body: { name: form.name.trim() || `${position.name}招聘任务`, platform_id: account.platform_id, platform_account_id: account.id, position_id: position.id, mode: position.common_config?.mode_default || "keyword", match_limit: Math.max(1, Number(form.match_limit || 50)), enable_sound: form.enable_sound, enable_thinking: form.enable_thinking, position_snapshot: position } });
+      notify("任务已创建", "success"); setForm({ ...emptyForm }); setShowForm(false); await load();
+    } catch (error) { notify(error instanceof Error ? error.message : "创建任务失败", "error"); }
+    finally { setLoading(false); }
+  }
+
+  /** run 在校验登录、会员和本地程序后启动任务。 */
+  async function run(task: any) {
+    if (!agentBase) return notify("请先启动本地程序", "error");
+    if (!(await confirm("开始招聘任务", `确认开始“${task.name}”吗？`))) return;
+    try {
+      const subscriptionData = await cloudRequest("/api/subscription/status");
+      const active = Boolean(subscriptionData.subscription?.active);
+      const position = positions.find((item) => item.id === task.position_id) || task.position_snapshot || {};
+      const usesAI = task.mode === "ai" || position.common_config?.mode_default === "ai" || position.common_config?.detail_mode === "ai";
+      if (usesAI && !active) return notify("当前任务使用会员 AI 功能，请订阅后再开始", "warning");
+      if (!active) notify("当前为免费版，今日打招呼数量受系统免费额度限制", "info");
+      await localRequest(agentBase, `/api/v1/local/tasks/${encodeURIComponent(task.id)}/run`, { method: "POST", body: { cloud_api_base: CLOUD_API_BASE, token: getToken() } });
+      notify("任务已开始", "success"); await load(); void loadLogs(task.id);
+    } catch (error) { notify(error instanceof Error ? error.message : "任务启动失败", "error"); }
+  }
+
+  /** stop 停止任务但保持浏览器打开。 */
+  async function stop(task: any) {
+    if (!agentBase) return notify("本地程序未连接", "error");
+    try { await localRequest(agentBase, `/api/v1/local/tasks/${encodeURIComponent(task.id)}/stop`, { method: "POST", body: { cloud_api_base: CLOUD_API_BASE, token: getToken() } }); notify("任务已停止，浏览器保持打开", "success"); await load(); } catch (error) { notify(error instanceof Error ? error.message : "停止任务失败", "error"); }
+  }
+
+  /** remove 删除指定招聘任务。 */
+  async function remove(task: any) {
+    if (!(await confirm("删除任务", `确认删除“${task.name}”吗？`))) return;
+    try { await cloudRequest(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" }); notify("任务已删除", "success"); await load(); } catch (error) { notify(error instanceof Error ? error.message : "删除失败", "error"); }
+  }
+
+  /** loadLogs 从本地程序读取指定任务日志。 */
+  async function loadLogs(taskID: string) {
+    if (!agentBase) return;
+    try { const data = await localRequest(agentBase, `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs?limit=200`); setLogs((value) => ({ ...value, [taskID]: data.logs || [] })); } catch (error) { notify(error instanceof Error ? error.message : "日志读取失败", "error"); }
+  }
+
+  return <><PageHeader title="任务列表" description="创建任务后由本地程序运行，任务信息和岗位配置来自云端。" actions={<><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setShowForm((value) => !value)}>{showForm ? "收起" : "创建任务"}</Button><RefreshButton loading={loading} onClick={() => void load()} /></>} />{showForm ? <SectionPanel sx={{ mb: 2 }}><Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, gap: 2 }}><TextField label="任务名称" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="不填写则按岗位自动生成" /><TextField select label="平台账号" value={form.platform_account_id} onChange={(event) => setForm({ ...form, platform_account_id: event.target.value })}>{accounts.map((item) => <MenuItem key={item.id} value={item.id}>{item.display_name} · {item.platform_id}</MenuItem>)}</TextField><TextField select label="岗位模板" value={form.position_id} onChange={(event) => setForm({ ...form, position_id: event.target.value })}>{positions.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</TextField><TextField label="本次打招呼上限" type="number" value={form.match_limit} onChange={(event) => setForm({ ...form, match_limit: Number(event.target.value) })} /><FormControlLabel control={<Switch checked={form.enable_sound} onChange={(event) => setForm({ ...form, enable_sound: event.target.checked })} />} label="打招呼成功后播放提示音" /><FormControlLabel control={<Switch checked={form.enable_thinking} onChange={(event) => setForm({ ...form, enable_thinking: event.target.checked })} />} label="在浏览器显示 AI 思考过程" /></Box><Stack direction="row" sx={{ mt: 3, justifyContent: "flex-end" }}><Button variant="contained" disabled={loading} onClick={() => void create()}>保存任务</Button></Stack></SectionPanel> : null}<SectionPanel>{tasks.length ? <Stack spacing={1.5}>{tasks.map((task) => <Box key={task.id} sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 1.5 }}><Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ alignItems: { md: "center" } }}><Box sx={{ flex: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography sx={{ fontWeight: 760 }}>{task.name || "未命名任务"}</Typography><Chip size="small" color={task.status === "running" ? "success" : "default"} label={statusLabel(task.status)} /></Stack><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>{task.platform_account?.display_name || "未选择账号"} · 本次上限 {Number(task.match_limit || 50)} · 总计 {Number(task.greeted_count || 0)} · 今日 {Number(task.today_greeted_count || 0)} · 本次 {Number(task.current_run_greeted_count || 0)}</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 12 }}>更新时间：{formatDate(task.updated_at)}</Typography></Box><Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>{task.status === "running" ? <Button color="warning" startIcon={<StopRoundedIcon />} onClick={() => void stop(task)}>停止</Button> : <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void run(task)}>开始</Button>}<Button component={Link} href={`/admin/resumes?task_id=${encodeURIComponent(task.id)}`}>简历</Button><Button onClick={() => void loadLogs(task.id)}>日志</Button><Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => void remove(task)}>删除</Button></Stack></Stack>{logs[task.id] ? <Accordion elevation={0} disableGutters sx={{ mt: 1, bgcolor: "#f7faf8" }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}><Typography>本地任务日志（{logs[task.id].length}）</Typography></AccordionSummary><AccordionDetails><Box component="pre" sx={{ m: 0, maxHeight: 360, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.7 }}>{logs[task.id].map((item) => `${formatDate(item.created_at || item.time)}  ${item.message || item.msg || ""}`).join("\n") || "暂无日志"}</Box></AccordionDetails></Accordion> : null}</Box>)}</Stack> : <EmptyState text="暂无招聘任务" />}</SectionPanel></>;
+}
+
+/** statusLabel 将任务状态转换为中文。 */
+function statusLabel(status: string) {
+  return ({ created: "待运行", running: "运行中", done: "已停止", stopped: "已停止", failed: "失败" } as Record<string, string>)[String(status || "").toLowerCase()] || status || "未知";
+}

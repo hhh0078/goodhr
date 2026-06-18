@@ -2,9 +2,9 @@
 # GoodHR Next Frontend Design QA
 
 - Source visual truth: `/var/folders/r0/6ywnrqgj39n16q_1l0_khxlm0000gp/T/codex-clipboard-cae17809-3fd4-48c2-a5d3-5a17429b672a.png`
-- Implementation screenshot: `/Users/Zhuanz/Downloads/goodHR/goodhr5/cloud/frontend-next/artifacts/home-desktop-viewport.png`
-- Additional screenshots: `artifacts/home-mobile.png`, `artifacts/login-desktop.png`, `artifacts/login-mobile.png`
-- Viewport: desktop `1440x1024`; mobile `390x844`
+- Implementation screenshot: `/Users/Zhuanz/Downloads/goodHR/goodhr5/cloud/frontend-next/artifacts/home-desktop-current.png`
+- Additional screenshots: `artifacts/home-mobile-current.png`, `artifacts/login-desktop.png`, `artifacts/login-mobile.png`
+- Viewport: desktop `1280x720`; mobile `390x844`
 - State: 首页公开统计已加载；登录页默认状态和输入后可用状态
 
 ## Full-view Comparison Evidence
@@ -37,6 +37,10 @@
 - 统一首页与登录页按钮为胶囊圆角，移除导航选项的明显边框。
 - 登录输入框调整为 `18px` 圆角，登录卡片调整为 `24px` 圆角。
 - 复查桌面 `1440px` 和手机 `390px` 布局，页面均无横向溢出。
+- 补齐功能、定价、教程、联系和下载公开页面，并统一导航与 SEO 元数据。
+- 补齐普通用户和超级管理员后台页面，后台未登录访问会携带原地址跳转登录页。
+- 公开统计改为 Next.js 服务端读取，公开页面在浏览器中不直接访问云端接口。
+- 复查公开页面标题、旧 `.html` 跳转、手机首屏和浏览器控制台，均未发现 P0/P1/P2 问题。
 
 ## Follow-up Polish
 

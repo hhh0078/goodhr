@@ -33,12 +33,6 @@ export default function LoginForm() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const inviteID = String(params.get("invite") || "").trim();
-    if (inviteID) localStorage.setItem(INVITE_CACHE_KEY, inviteID);
-  }, []);
-
-  useEffect(() => {
     if (cooldown <= 0) return undefined;
     const timer = window.setInterval(
       () => setCooldown((value) => Math.max(0, value - 1)),
@@ -97,7 +91,9 @@ export default function LoginForm() {
       localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
       setMessage("登录成功，正在进入控制台");
-      window.location.assign(legacyAdminURL());
+      const nextPath = new URLSearchParams(window.location.search).get("next");
+      const safeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : legacyAdminURL();
+      window.location.assign(safeNextPath);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {

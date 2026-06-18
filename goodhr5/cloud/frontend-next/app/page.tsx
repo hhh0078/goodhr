@@ -91,16 +91,8 @@ export default function HomePage() {
                 自动读取候选人，结合岗位模板完成筛选、分析、打招呼和后续跟进。流程持续运转，判断始终清楚可见。
               </Typography>
 
-              <Typography
-                sx={{
-                  mt: 3,
-                  maxWidth: 720,
-                  color: "text.secondary",
-                  fontSize: { xs: 17, md: 20 },
-                  lineHeight: 1.8,
-                }}
-              >
-                HR和猎头的免费自动招聘助手
+              <Typography sx={{ mt: 1.5, color: "primary.dark", fontSize: 15, fontWeight: 700 }}>
+                HR 和猎头的免费自动招聘助手
               </Typography>
               <Stack
                 direction={{ xs: "column", sm: "row" }}
