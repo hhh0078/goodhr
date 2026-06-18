@@ -100,7 +100,7 @@ export default function HomePage() {
                   lineHeight: 1.8,
                 }}
               >
-                自动读取候选人，结合岗位模板完成筛选、分析、打招呼和后续跟进。流程持续运转，判断始终清楚可见。
+                HR和猎头的免费自动招聘助手
               </Typography>
               <Stack
                 direction={{ xs: "column", sm: "row" }}

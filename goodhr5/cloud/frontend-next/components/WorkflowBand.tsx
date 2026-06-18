@@ -7,22 +7,23 @@ import { Box, Container, Typography } from "@mui/material";
 
 const workflow = [
   {
-    icon: FilterAltRoundedIcon,
+    icon: AutoAwesomeRoundedIcon,
     index: "01",
-    title: "筛选",
-    description: "按关键词或 AI 判断匹配度",
+    title: "AI分析",
+    description: "AI根据岗位模板分析候选人",
   },
   {
-    icon: AutoAwesomeRoundedIcon,
-    index: "02",
-    title: "分析",
-    description: "读取详情并生成清晰理由",
+    icon: FilterAltRoundedIcon,
+    index: "01",
+    title: "自动打招呼",
+    description: "自动打招呼并持续跟进",
   },
+
   {
     icon: ForumRoundedIcon,
     index: "03",
-    title: "沟通",
-    description: "自动打招呼并持续跟进",
+    title: "自动回复沟通",
+    description: "AI根据设置好的目标，自动跟候选人确认",
   },
   {
     icon: CalendarMonthRoundedIcon,

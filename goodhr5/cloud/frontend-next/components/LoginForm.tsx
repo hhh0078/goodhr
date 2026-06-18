@@ -4,9 +4,24 @@
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
-import { Alert, Box, Button, CircularProgress, InputAdornment, Stack, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  InputAdornment,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { useEffect, useState } from "react";
-import { apiRequest, INVITE_CACHE_KEY, legacyAdminURL, SESSION_EMAIL_KEY, TOKEN_KEY } from "@/lib/api";
+import {
+  apiRequest,
+  INVITE_CACHE_KEY,
+  legacyAdminURL,
+  SESSION_EMAIL_KEY,
+  TOKEN_KEY,
+} from "@/lib/api";
 
 /** LoginForm 提供验证码发送、倒计时和登录状态保存。 */
 export default function LoginForm() {
@@ -25,7 +40,10 @@ export default function LoginForm() {
 
   useEffect(() => {
     if (cooldown <= 0) return undefined;
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
+    const timer = window.setInterval(
+      () => setCooldown((value) => Math.max(0, value - 1)),
+      1000,
+    );
     return () => window.clearInterval(timer);
   }, [cooldown]);
 
@@ -68,7 +86,11 @@ export default function LoginForm() {
       const inviterID = localStorage.getItem(INVITE_CACHE_KEY) || "";
       const data = await apiRequest("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: normalizedEmail, code: code.trim(), inviter_id: inviterID }),
+        body: JSON.stringify({
+          email: normalizedEmail,
+          code: code.trim(),
+          inviter_id: inviterID,
+        }),
       });
       const token = String(data.access_token || "");
       if (!token) throw new Error("登录成功但未返回登录凭证");
@@ -84,32 +106,59 @@ export default function LoginForm() {
   }
 
   return (
-    <Box component="form" onSubmit={(event) => { event.preventDefault(); void login(); }} noValidate>
+    <Box
+      component='form'
+      onSubmit={(event) => {
+        event.preventDefault();
+        void login();
+      }}
+      noValidate
+    >
       <Stack spacing={2.25}>
         <TextField
-          label="邮箱"
-          type="email"
-          autoComplete="email"
+          label='邮箱'
+          placeholder='请输入邮箱(12242993@qq.com 为示例)'
+          type='email'
+          autoComplete='email'
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           disabled={loading}
           fullWidth
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><MailOutlineRoundedIcon color="action" /></InputAdornment> } }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position='start'>
+                  <MailOutlineRoundedIcon color='action' />
+                </InputAdornment>
+              ),
+            },
+          }}
         />
         <TextField
-          label="验证码"
-          inputMode="numeric"
-          autoComplete="one-time-code"
+          label='验证码'
+          inputMode='numeric'
+          placeholder='请输入4位验证码'
+          autoComplete='one-time-code'
           value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
+          onChange={(event) =>
+            setCode(event.target.value.replace(/\D/g, "").slice(0, 4))
+          }
           disabled={loading}
           fullWidth
           slotProps={{
             input: {
-              startAdornment: <InputAdornment position="start"><VerifiedRoundedIcon color="action" /></InputAdornment>,
+              startAdornment: (
+                <InputAdornment position='start'>
+                  <VerifiedRoundedIcon color='action' />
+                </InputAdornment>
+              ),
               endAdornment: (
-                <InputAdornment position="end">
-                  <Button onClick={() => void sendCode()} disabled={loading || cooldown > 0 || !email.trim()} size="small">
+                <InputAdornment position='end'>
+                  <Button
+                    onClick={() => void sendCode()}
+                    disabled={loading || cooldown > 0 || !email.trim()}
+                    size='small'
+                  >
                     {cooldown > 0 ? `${cooldown}s 后重试` : "发送验证码"}
                   </Button>
                 </InputAdornment>
@@ -117,14 +166,29 @@ export default function LoginForm() {
             },
           }}
         />
-        {error ? <Alert severity="error">{error}</Alert> : null}
-        {message ? <Alert severity="success">{message}</Alert> : null}
-        <Button type="submit" variant="contained" size="large" disabled={loading || !email.trim() || code.length !== 4} endIcon={loading ? <CircularProgress size={18} color="inherit" /> : <ArrowForwardRoundedIcon />}>
+        {error ? <Alert severity='error'>{error}</Alert> : null}
+        {message ? <Alert severity='success'>{message}</Alert> : null}
+        <Button
+          type='submit'
+          variant='contained'
+          size='large'
+          disabled={loading || !email.trim() || code.length !== 4}
+          endIcon={
+            loading ? (
+              <CircularProgress size={18} color='inherit' />
+            ) : (
+              <ArrowForwardRoundedIcon />
+            )
+          }
+        >
           {loading ? "正在处理" : "登录并进入控制台"}
         </Button>
       </Stack>
-      <Typography sx={{ mt: 2.5, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
-        未注册的邮箱首次登录后会自动创建账号。登录即表示你同意仅将 GoodHR 用于合法招聘工作。
+      <Typography
+        sx={{ mt: 2.5, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}
+      >
+        未注册的邮箱首次登录后会自动创建账号。登录即表示你同意仅将 GoodHR
+        用于合法招聘工作。
       </Typography>
     </Box>
   );
