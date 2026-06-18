@@ -4,10 +4,19 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+// RoundTrip 执行测试自定义 HTTP 响应逻辑。
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 // TestAIConfigEffectiveUserOnly 验证最终生效 AI 配置只来自用户配置。
 func TestAIConfigEffectiveUserOnly(t *testing.T) {
@@ -98,5 +107,55 @@ func TestAIConfigRejectsAnonymous(t *testing.T) {
 
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("effective status = %d, want %d", resp.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestAIConfigTestProxy 验证 AI 配置测试由云端后端代发并返回成功结果。
+func TestAIConfigTestProxy(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "1224299352@qq.com")
+
+	server.ai.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://token-plan.example.com/compatible-mode/v1/chat/completions" {
+			t.Fatalf("AI request URL = %q", req.URL.String())
+		}
+		if req.Header.Get("Authorization") != "Bearer test-secret" {
+			t.Fatalf("Authorization = %q", req.Header.Get("Authorization"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"成功"}}]}`)),
+		}, nil
+	})}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config/test-ai", bytes.NewBufferString(`{"base_url":"https://token-plan.example.com/compatible-mode/v1/chat/completions","model":"test-model","api_key":"test-secret"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("test AI status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		OK      bool   `json:"ok"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.OK || payload.Content != "成功" {
+		t.Fatalf("test AI response = %+v", payload)
+	}
+}
+
+// TestAIConfigTestRejectsAnonymous 验证匿名用户不能借助云端测试任意 AI 地址。
+func TestAIConfigTestRejectsAnonymous(t *testing.T) {
+	server := mustNewServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/config/test-ai", bytes.NewBufferString(`{"base_url":"https://example.com/v1/chat/completions","model":"test-model","api_key":"test-secret"}`))
+	resp := httptest.NewRecorder()
+	server.Routes().ServeHTTP(resp, req)
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("test AI anonymous status = %d, want %d", resp.Code, http.StatusUnauthorized)
 	}
 }

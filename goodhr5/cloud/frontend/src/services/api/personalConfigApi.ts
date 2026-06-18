@@ -21,6 +21,15 @@ export async function updateUserAIConfig(payload: any) {
 }
 
 /**
+ * 通过云端后端测试 AI 配置，避免浏览器跨域限制。
+ * @param {any} payload - 待测试的 AI 地址、模型和 Key。
+ * @returns {Promise<any>} 返回测试结果。
+ */
+export async function testUserAIConfig(payload: any) {
+  return api("/api/config/test-ai", { method: "POST", body: payload });
+}
+
+/**
  * 读取当前用户操作偏好。
  * @returns {Promise<any>} 返回用户偏好配置。
  */

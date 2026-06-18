@@ -122,6 +122,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册 AI 配置接口，用于读取用户自定义和最终生效配置。
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
+	mux.HandleFunc("/api/config/test-ai", s.ai.Test)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
