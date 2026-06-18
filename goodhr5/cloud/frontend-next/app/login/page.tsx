@@ -36,7 +36,7 @@ export default function LoginPage() {
               ))}
             </Stack>
           </Box>
-          <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, borderColor: "divider", boxShadow: "0 24px 70px rgba(31, 55, 43, 0.10)" }}>
+          <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, borderRadius: "24px", borderColor: "divider", boxShadow: "0 24px 70px rgba(31, 55, 43, 0.10)" }}>
             <Typography component="h2" sx={{ color: "text.primary", fontSize: 28, fontWeight: 750 }}>欢迎回来</Typography>
             <Typography sx={{ mt: 1, mb: 3.5, color: "text.secondary" }}>输入邮箱，获取 4 位验证码</Typography>
             <LoginForm />

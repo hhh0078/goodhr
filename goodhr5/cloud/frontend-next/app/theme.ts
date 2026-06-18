@@ -27,7 +27,12 @@ const theme = createTheme({
   components: {
     MuiButton: {
       styleOverrides: {
-        root: { minHeight: 44, borderRadius: 6, boxShadow: "none" },
+        root: {
+          minHeight: 44,
+          borderRadius: 999,
+          boxShadow: "none",
+          paddingInline: 20,
+        },
       },
     },
     MuiPaper: {
@@ -35,6 +40,11 @@ const theme = createTheme({
     },
     MuiTextField: {
       defaultProps: { variant: "outlined" },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: { minHeight: 56, borderRadius: 18 },
+      },
     },
   },
 });
