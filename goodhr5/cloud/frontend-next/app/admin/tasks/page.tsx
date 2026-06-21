@@ -11,6 +11,7 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CLOUD_API_BASE, cloudRequest, formatDate, getToken, localRequest } from "@/lib/admin-api";
+import { markOnboardingStep } from "@/lib/onboarding";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import AdminDialog from "@/components/admin/AdminDialog";
@@ -19,7 +20,7 @@ const emptyForm = { id: "", name: "", platform_account_id: "", position_id: "", 
 
 /** TasksPage 管理招聘任务完整生命周期。 */
 export default function TasksPage() {
-  const { agentBase, notify, confirm } = useAdmin();
+  const { agentBase, user, notify, confirm } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
@@ -75,6 +76,7 @@ export default function TasksPage() {
       if (usesAI && !active) return notify("当前任务使用会员 AI 功能，请订阅后再开始", "warning");
       if (!active) notify("当前为免费版，今日打招呼数量受系统免费额度限制", "info");
       await localRequest(agentBase, `/api/v1/local/tasks/${encodeURIComponent(task.id)}/run`, { method: "POST", body: { cloud_api_base: CLOUD_API_BASE, token: getToken() } });
+      await markOnboardingStep(String(user?.email || ""), "task_started");
       notify("任务已开始", "success"); await load(); void loadLogs(task.id);
     } catch (error) { notify(error instanceof Error ? error.message : "任务启动失败", "error"); }
   }

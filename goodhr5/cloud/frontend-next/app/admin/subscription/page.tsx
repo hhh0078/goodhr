@@ -9,10 +9,11 @@ import { useEffect, useState } from "react";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import { EmptyState, FormActionRow, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import { markOnboardingStep } from "@/lib/onboarding";
 
 /** SubscriptionPage 展示会员状态并处理套餐购买和激活码。 */
 export default function SubscriptionPage() {
-  const { notify, subscription, refreshSession } = useAdmin();
+  const { user, notify, subscription, refreshSession } = useAdmin();
   const [plans, setPlans] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [code, setCode] = useState("");
@@ -34,6 +35,7 @@ export default function SubscriptionPage() {
   }
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => { void markOnboardingStep(String(user?.email || ""), "subscription_viewed"); }, [user?.email]);
 
   /** redeem 兑换会员激活码并刷新当前会员状态。 */
   async function redeem() {
