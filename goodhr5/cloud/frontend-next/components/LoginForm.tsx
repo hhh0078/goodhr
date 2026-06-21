@@ -33,6 +33,11 @@ export default function LoginForm() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY) || "";
+    if (token) window.location.replace(resolveNextPath());
+  }, []);
+
+  useEffect(() => {
     if (cooldown <= 0) return undefined;
     const timer = window.setInterval(
       () => setCooldown((value) => Math.max(0, value - 1)),
@@ -90,10 +95,9 @@ export default function LoginForm() {
       if (!token) throw new Error("登录成功但未返回登录凭证");
       localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
+      localStorage.removeItem(INVITE_CACHE_KEY);
       setMessage("登录成功，正在进入控制台");
-      const nextPath = new URLSearchParams(window.location.search).get("next");
-      const safeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : legacyAdminURL();
-      window.location.assign(safeNextPath);
+      window.location.assign(resolveNextPath());
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -188,6 +192,14 @@ export default function LoginForm() {
       </Typography>
     </Box>
   );
+}
+
+/** resolveNextPath 返回登录完成后的安全站内跳转地址。 */
+function resolveNextPath() {
+  const nextPath = new URLSearchParams(window.location.search).get("next");
+  return nextPath?.startsWith("/") && !nextPath.startsWith("//")
+    ? nextPath
+    : legacyAdminURL();
 }
 
 /** errorMessage 从未知异常中提取可展示的信息。 */
