@@ -6,8 +6,9 @@ import PhoneRoundedIcon from "@mui/icons-material/PhoneRounded";
 import { Box, Container, Link, Stack, Typography } from "@mui/material";
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
+import { createPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "联系我们", description: "联系 GoodHR，咨询产品使用、本地程序安装、订阅和技术支持。", alternates: { canonical: "/contact" } };
+export const metadata: Metadata = createPageMetadata({ title: "联系GoodHR - 招聘自动化与AI招聘工具咨询", description: "联系 GoodHR，咨询 BOSS、猎聘、智联等招聘平台自动化、AI筛选、自动打招呼、自动回复、本地程序安装和订阅问题。", path: "/contact", keywords: ["招聘自动化咨询", "AI招聘工具客服", "BOSS自动打招呼技术支持"] });
 
 const contacts = [
   { icon: PhoneRoundedIcon, label: "手机与微信", value: "17607080935", href: "tel:17607080935", note: "工作日和周末都可以留言。" },

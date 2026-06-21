@@ -12,13 +12,11 @@ import {
 } from "@mui/material";
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
+import StructuredData from "@/components/StructuredData";
 import { getPublicPlans, type PublicPlanData } from "@/lib/public-data";
+import { absoluteURL, createPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "产品定价",
-  description: "GoodHR 关键词筛选永久免费，AI 筛选和智能沟通功能可按需订阅。",
-  alternates: { canonical: "/pricing" },
-};
+export const metadata: Metadata = createPageMetadata({ title: "GoodHR价格与免费版 - 招聘自动化和AI筛选套餐", description: "GoodHR 关键词筛选、基础招聘任务和自动打招呼可免费使用；AI筛选简历、AI详情分析和招聘消息智能回复可按需订阅。", path: "/pricing", keywords: ["免费招聘自动化工具", "免费自动打招呼软件", "AI招聘软件价格", "猎头软件价格"] });
 
 const comparisons = [
   ["关键词筛选", true, true],
@@ -32,8 +30,10 @@ const comparisons = [
 /** PricingPage 展示免费版和 Plus 订阅方案。 */
 export default async function PricingPage() {
   const remotePlans = await getPublicPlans();
-  const plans = [...remotePlans];
+  const plans = [freePlan(), ...remotePlans];
   return (
+    <>
+    <StructuredData data={{ "@context": "https://schema.org", "@type": "Product", name: "GoodHR AI招聘助手", url: absoluteURL("/pricing"), description: "招聘平台自动筛选、自动打招呼、AI分析和自动回复工具。", offers: plans.map((plan) => ({ "@type": "Offer", name: plan.name, price: finalPrice(plan), priceCurrency: "CNY", availability: "https://schema.org/InStock", url: absoluteURL("/pricing") })) }} />
     <MarketingShell
       eyebrow='永久免费 + AI 订阅'
       title='关键词免费用，AI 能力按需升级'
@@ -170,6 +170,7 @@ export default async function PricingPage() {
         </Container>
       </Box>
     </MarketingShell>
+    </>
   );
 }
 

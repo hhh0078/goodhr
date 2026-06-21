@@ -2,17 +2,26 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import InviteCapture from "@/components/InviteCapture";
+import StructuredData from "@/components/StructuredData";
+import { CORE_SEO_KEYWORDS, SITE_URL } from "@/lib/seo";
 import Providers from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://goodhr5.58it.cn"),
-  title: { default: "GoodHR - AI 招聘助手", template: "%s | GoodHR" },
-  description: "GoodHR 招聘自动化工具，支持候选人筛选、详情分析、自动打招呼和任务管理。",
-  keywords: ["AI 招聘", "招聘自动化", "候选人筛选", "自动打招呼", "GoodHR"],
+  metadataBase: new URL(SITE_URL),
+  applicationName: "GoodHR",
+  title: { default: "GoodHR AI招聘助手 - 自动筛选简历、自动打招呼与招聘消息回复", template: "%s | GoodHR AI招聘助手" },
+  description: "GoodHR 是面向 HR 和猎头的招聘自动化工具，覆盖招聘平台自动筛选、AI筛选简历、自动打招呼、AI打招呼、自动回复消息和简历下载管理。",
+  keywords: CORE_SEO_KEYWORDS,
+  authors: [{ name: "GoodHR", url: SITE_URL }],
+  creator: "GoodHR",
+  publisher: "GoodHR",
+  category: "招聘软件",
+  referrer: "origin-when-cross-origin",
   alternates: { canonical: "/" },
-  openGraph: { type: "website", locale: "zh_CN", siteName: "GoodHR", title: "GoodHR - AI 招聘助手", description: "把重复招聘交给 GoodHR，把时间留给人。" },
-  robots: { index: true, follow: true },
+  openGraph: { type: "website", locale: "zh_CN", siteName: "GoodHR", url: SITE_URL, title: "GoodHR AI招聘助手", description: "自动筛选候选人、自动打招呼、AI招聘消息回复和简历管理。" },
+  twitter: { card: "summary_large_image", title: "GoodHR AI招聘助手", description: "面向 HR 和猎头的招聘自动化工具。" },
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
 };
 
 type RootLayoutProps = { children: ReactNode };
@@ -22,6 +31,10 @@ export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="zh-CN">
       <body>
+        <StructuredData data={[
+          { "@context": "https://schema.org", "@type": "Organization", name: "GoodHR", url: SITE_URL, email: "1224299352@qq.com", telephone: "+86-17607080935", description: "面向 HR、招聘团队和猎头顾问的 AI 招聘自动化工具。" },
+          { "@context": "https://schema.org", "@type": "WebSite", name: "GoodHR", url: SITE_URL, inLanguage: "zh-CN", description: "招聘平台自动筛选、自动打招呼、AI自动回复和简历管理工具。" },
+        ]} />
         <Providers><InviteCapture />{children}</Providers>
       </body>
     </html>

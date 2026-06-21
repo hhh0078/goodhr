@@ -31,16 +31,16 @@ export default function SiteHeaderClient({ stats }: { stats: PublicStatsData }) 
   return (
     <Box component="header" sx={{ position: "relative", zIndex: 10, pt: { xs: 1.5, md: 2.5 } }}>
       <Container maxWidth="lg">
-        <Paper variant="outlined" sx={{ minHeight: 72, px: { xs: 2, md: 2.5 }, display: "flex", borderRadius: "999px", alignItems: "center", justifyContent: "space-between", borderColor: "divider", boxShadow: "0 16px 48px rgba(31, 55, 43, 0.08)" }}>
+        <Paper variant="outlined" sx={{ minHeight: 72, px: { xs: 1.25, sm: 2, md: 2.5 }, display: "flex", borderRadius: "999px", alignItems: "center", justifyContent: "space-between", borderColor: "divider", boxShadow: "0 16px 48px rgba(31, 55, 43, 0.08)" }}>
           <BrandMark />
           <Stack direction="row" spacing={0.25} sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}>
             {navItems.map((item) => <Button key={item.href} component={Link} href={item.href} color="secondary" sx={{ minWidth: 0, px: 1.25, "&:hover": { bgcolor: "#edf5f0" } }}>{item.label}</Button>)}
           </Stack>
-          <Stack direction="row" spacing={1.5} sx={{ display: { xs: "none", xl: "flex" }, alignItems: "center" }}>
+          <Stack direction="row" spacing={1.25} sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}>
             <PublicStats stats={stats} compact />
             <Button component={Link} href="/login" variant="contained">进入控制台</Button>
           </Stack>
-          <Button component={Link} href="/login" variant="contained" sx={{ display: { xs: "none", md: "inline-flex", xl: "none" } }}>进入控制台</Button>
+          <Box sx={{ display: { xs: "block", md: "none" }, ml: "auto", mr: 0.5 }}><PublicStats stats={stats} compact mobile /></Box>
           <IconButton aria-label="打开导航菜单" onClick={() => setOpen(true)} sx={{ display: { md: "none" } }}><MenuRoundedIcon /></IconButton>
         </Paper>
       </Container>

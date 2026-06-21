@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   async redirects() {
-    return ["features", "pricing", "videos", "contact"].map((name) => ({ source: `/${name}.html`, destination: `/${name}`, permanent: true }));
+    return ["features", "pricing", "videos", "download", "contact"].map((name) => ({ source: `/${name}.html`, destination: `/${name}`, permanent: true }));
   },
 };
 

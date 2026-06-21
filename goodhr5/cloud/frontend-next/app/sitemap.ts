@@ -5,5 +5,6 @@ import type { MetadataRoute } from "next";
 /** sitemap 返回官网公开页面地址。 */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseURL = (process.env.NEXT_PUBLIC_SITE_URL || "https://goodhr5.58it.cn").replace(/\/$/, "");
-  return ["", "/features", "/pricing", "/videos", "/download", "/contact"].map((path, index) => ({ url: `${baseURL}${path || "/"}`, changeFrequency: index === 0 ? "daily" : "monthly", priority: index === 0 ? 1 : 0.8 }));
+  const updatedAt = new Date();
+  return ["", "/features", "/pricing", "/videos", "/download", "/contact"].map((path, index) => ({ url: `${baseURL}${path || "/"}`, lastModified: updatedAt, changeFrequency: index === 0 ? "daily" : index < 4 ? "weekly" : "monthly", priority: index === 0 ? 1 : index === 1 ? 0.9 : 0.8 }));
 }
