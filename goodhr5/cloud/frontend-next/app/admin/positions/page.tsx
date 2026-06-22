@@ -127,7 +127,7 @@ export default function PositionsPage() {
             click_prompt: form.filter_prompt || defaults.filter_prompt,
             open_detail_prompt:
               form.open_detail_prompt || defaults.open_detail_prompt,
-            review_prompt: form.review_prompt || defaults.review_prompt,
+            review_prompt: normalizePrompt(form.review_prompt),
             detail_score_threshold: Number(form.detail_score_threshold || 60),
             greet_score_threshold: Number(form.greet_score_threshold || 70),
           },
@@ -224,6 +224,7 @@ export default function PositionsPage() {
             <Button
               variant='contained'
               startIcon={<AddRoundedIcon />}
+              disabled={loading}
               onClick={openCreate}
             >
               新建岗位
@@ -568,7 +569,9 @@ export default function PositionsPage() {
                   <PromptField
                     label='复核提示词（可选）'
                     value={form.review_prompt}
-                    defaultValue={defaults.review_prompt}
+                    defaultValue=''
+                    defaultActionLabel='清空'
+                    emptyPlaceholder='可留空，不填写则不会触发复核'
                     description='当详情分数接近打招呼阈值时执行二次复核；留空则不会触发复核。'
                     onChange={(value) =>
                       setForm({ ...form, review_prompt: value })
@@ -630,12 +633,16 @@ function PromptField({
   label,
   value,
   defaultValue,
+  defaultActionLabel = "设为系统默认",
+  emptyPlaceholder = "系统暂未配置默认提示词",
   description,
   onChange,
 }: {
   label: string;
   value: string;
   defaultValue: string;
+  defaultActionLabel?: string;
+  emptyPlaceholder?: string;
   description: string;
   onChange: (value: string) => void;
 }) {
@@ -651,7 +658,7 @@ function PromptField({
           startIcon={<RestartAltRoundedIcon />}
           onClick={() => onChange(defaultValue)}
         >
-          设为系统默认
+          {defaultActionLabel}
         </Button>
       </Stack>
       <TextField
@@ -661,7 +668,7 @@ function PromptField({
         minRows={6}
         fullWidth
         placeholder={
-          defaultValue ? "已加载系统默认提示词" : "系统暂未配置默认提示词"
+          defaultValue ? "已加载系统默认提示词" : emptyPlaceholder
         }
       />
       <Typography
@@ -744,7 +751,7 @@ function fillPrompts(
     ...form,
     open_detail_prompt: form.open_detail_prompt || defaults.open_detail_prompt,
     filter_prompt: form.filter_prompt || defaults.filter_prompt,
-    review_prompt: form.review_prompt || defaults.review_prompt,
+    review_prompt: form.review_prompt || "",
   };
 }
 
