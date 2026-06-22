@@ -97,5 +97,5 @@ async function parseResponse(response: Response, fallback: string, clearInvalidT
 export function formatDate(value: unknown) {
   if (!value) return "--";
   const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString("zh-CN");
+  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleDateString("zh-CN");
 }

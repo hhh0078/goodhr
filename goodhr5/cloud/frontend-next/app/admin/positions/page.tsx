@@ -359,7 +359,8 @@ export default function PositionsPage() {
             ]}
           />
           <Typography sx={{ mt: -2, color: "text.secondary", fontSize: 13 }}>
-            选择哪种详情方式就只使用哪一种：DOM 最快，OCR 在本地识别截图文字，AI 能理解完整页面但耗时更长。
+            选择哪种详情方式就只使用哪一种：DOM 最快，OCR 在本地识别截图文字，AI
+            能理解完整页面但耗时更长。
           </Typography>
           <ChoiceCards
             label='详情信息筛选模式  (决定是否打招呼)'
@@ -497,10 +498,27 @@ export default function PositionsPage() {
                     minRows={7}
                     helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
-                  <Box sx={{ p: 1.5, borderLeft: "3px solid", borderColor: "primary.main", bgcolor: "#f5f8f6" }}>
-                    <Typography sx={{ fontSize: 13, fontWeight: 760 }}>岗位要求示例</Typography>
-                    <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13, lineHeight: 1.75 }}>
-                      求职意向必须匹配目标岗位；具备 3 年以上相关经验；拥有岗位要求的证书或技能；当前状态满足到岗要求。薪资越高或岗位越重要，条件应写得越明确。
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      borderLeft: "3px solid",
+                      borderColor: "primary.main",
+                      bgcolor: "#f5f8f6",
+                    }}
+                  >
+                    <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
+                      岗位要求示例
+                    </Typography>
+                    <Typography
+                      sx={{
+                        mt: 0.5,
+                        color: "text.secondary",
+                        fontSize: 13,
+                        lineHeight: 1.75,
+                      }}
+                    >
+                      求职意向必须匹配目标岗位；具备 3
+                      年以上相关经验；拥有岗位要求的证书或技能；当前状态满足到岗要求。薪资越高或岗位越重要，条件应写得越明确。
                     </Typography>
                   </Box>
                   <PromptField
@@ -526,7 +544,7 @@ export default function PositionsPage() {
                     helperText='首次评分大于等于该值时打开候选人详情。'
                   />
                   <PromptField
-                    label='最终筛选提示词'
+                    label='打招呼提示词'
                     value={form.filter_prompt}
                     defaultValue={defaults.filter_prompt}
                     description='用于详情分析并决定候选人的最终分数，直接影响是否执行打招呼。'
@@ -642,9 +660,20 @@ function PromptField({
         multiline
         minRows={6}
         fullWidth
-        placeholder={defaultValue ? "已加载系统默认提示词" : "系统暂未配置默认提示词"}
+        placeholder={
+          defaultValue ? "已加载系统默认提示词" : "系统暂未配置默认提示词"
+        }
       />
-      <Typography sx={{ mt: 0.75, color: "text.secondary", fontSize: 12.5, lineHeight: 1.6 }}>{description}</Typography>
+      <Typography
+        sx={{
+          mt: 0.75,
+          color: "text.secondary",
+          fontSize: 12.5,
+          lineHeight: 1.6,
+        }}
+      >
+        {description}
+      </Typography>
     </Box>
   );
 }
