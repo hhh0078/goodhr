@@ -33,7 +33,7 @@ export default function PersonalConfigPage() {
       const ai = aiData.config || {};
       const preference = preferenceData.config || {};
       setKeySet(Boolean(ai.api_key_set));
-      setForm({ ...defaults, ...preference, base_url: ai.base_url || defaults.base_url, model: ai.model || preference.ai_model || defaults.model, api_key: "" });
+      setForm({ ...defaults, ...preference, base_url: ai.base_url || defaults.base_url, model: ai.model || preference.ai_model || defaults.model, api_key: ai.api_key || "" });
     } catch (error) {
       notify(error instanceof Error ? error.message : "个人配置读取失败", "error");
     } finally {
@@ -45,7 +45,7 @@ export default function PersonalConfigPage() {
 
   /** testAI 通过云端代理验证当前填写的 AI 接口。 */
   async function testAI() {
-    if (!form.api_key.trim()) return notify(keySet ? "测试时需要重新填写 AI Key" : "测试前请填写 AI Key", "warning");
+    if (!form.api_key.trim()) return notify("测试前请填写 AI Key", "warning");
     setLoading(true);
     try {
       await cloudRequest("/api/config/test-ai", { method: "POST", body: { base_url: form.base_url.trim(), model: form.model.trim(), api_key: form.api_key.trim(), temperature: 0, enabled: true } });
@@ -67,7 +67,6 @@ export default function PersonalConfigPage() {
       const { base_url: _baseURL, model, api_key: _key, ...preference } = form;
       await cloudRequest("/api/config/user-preferences", { method: "PUT", body: { ...preference, ai_model: model } });
       setKeySet(true);
-      setForm((value) => ({ ...value, api_key: "" }));
       notify("个人配置已保存", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存配置失败", "error");
@@ -103,7 +102,7 @@ export default function PersonalConfigPage() {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.55fr) minmax(220px, .65fr)" }, gap: 2 }}>
         <TextField label="API 地址" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} helperText="默认使用千问兼容 OpenAI 的 Chat Completions 地址。" />
         <TextField label="模型名称" value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} helperText="例如 qwen3.7-plus" />
-        <TextField label="API Key" type="password" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} placeholder={keySet ? "已配置，留空表示不修改" : "请输入 API Key"} helperText={keySet ? "当前已有可用 Key；只有填写新值时才会更新。" : "请先从 AI 平台创建可用的 API Key。"} sx={{ gridColumn: { lg: "1 / -1" }, maxWidth: 760 }} />
+        <TextField label="API Key" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} placeholder="请输入 API Key" helperText="这里会明文显示当前保存的 Key，方便复制和修改。" sx={{ gridColumn: { lg: "1 / -1" }, maxWidth: 760 }} />
       </Box>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: 2.25, alignItems: { sm: "center" } }}>
         <Button variant="contained" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()} sx={{ borderRadius: "999px", px: 2.4 }}>先测试 AI</Button>

@@ -37,6 +37,26 @@ func TestAIConfigEffectiveUserOnly(t *testing.T) {
 		t.Fatalf("update user status = %d, body = %s", updateUserResp.Code, updateUserResp.Body.String())
 	}
 
+	// 调用个人配置接口，确认后台表单可直接显示明文 Key。
+	userReq := httptest.NewRequest(http.MethodGet, "/api/config/user-ai", nil)
+	userReq.Header.Set("Authorization", "Bearer "+token)
+	userResp := httptest.NewRecorder()
+	routes.ServeHTTP(userResp, userReq)
+	if userResp.Code != http.StatusOK {
+		t.Fatalf("user ai status = %d, body = %s", userResp.Code, userResp.Body.String())
+	}
+	var userPayload struct {
+		Config struct {
+			APIKey string `json:"api_key"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(userResp.Body).Decode(&userPayload); err != nil {
+		t.Fatal(err)
+	}
+	if userPayload.Config.APIKey != "user-secret-key" {
+		t.Fatalf("user api_key = %q", userPayload.Config.APIKey)
+	}
+
 	// 调用最终生效配置接口，确认返回用户配置。
 	effectiveReq := httptest.NewRequest(http.MethodGet, "/api/config/effective-ai", nil)
 	effectiveReq.Header.Set("Authorization", "Bearer "+token)
