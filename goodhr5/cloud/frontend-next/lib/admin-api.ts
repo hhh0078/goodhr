@@ -6,10 +6,22 @@ import { TOKEN_KEY } from "./api";
 export const CLOUD_API_BASE = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
 export const LOCAL_AGENT_PORTS = Array.from({ length: 9 }, (_, index) => 55271 + index);
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
+const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean };
-let localAgentDetecting: Promise<string> | null = null;
-let localAgentDetectCache = { baseURL: "", checkedAt: 0 };
+
+type LocalAgentDetectState = {
+  detecting: Promise<string> | null;
+  cache: { baseURL: string; checkedAt: number };
+};
+
+declare global {
+  interface Window {
+    __goodhrLocalAgentDetectState?: LocalAgentDetectState;
+  }
+}
+
+const localAgentDetectFallbackState: LocalAgentDetectState = { detecting: null, cache: { baseURL: "", checkedAt: 0 } };
 
 /** getToken 返回浏览器缓存的登录凭证。 */
 export function getToken() {
@@ -59,16 +71,18 @@ export async function localRequest(baseURL: string, path: string, options: Reque
 
 /** detectLocalAgent 探测本地程序端口，并合并短时间内的重复探测。 */
 export async function detectLocalAgent(preferredBaseURL = "") {
-  if (isLocalAgentDetectCacheValid(preferredBaseURL)) return localAgentDetectCache.baseURL;
-  if (localAgentDetecting) return localAgentDetecting;
-  localAgentDetecting = detectLocalAgentOnce(preferredBaseURL).finally(() => {
-    localAgentDetecting = null;
+  const state = localAgentDetectState();
+  syncLocalAgentDetectCacheFromStorage(state);
+  if (isLocalAgentDetectCacheValid(state, preferredBaseURL)) return state.cache.baseURL;
+  if (state.detecting) return state.detecting;
+  state.detecting = detectLocalAgentOnce(state, preferredBaseURL).finally(() => {
+    state.detecting = null;
   });
-  return localAgentDetecting;
+  return state.detecting;
 }
 
 /** detectLocalAgentOnce 执行一次真实端口探测。 */
-async function detectLocalAgentOnce(preferredBaseURL = "") {
+async function detectLocalAgentOnce(state: LocalAgentDetectState, preferredBaseURL = "") {
   const preferredPort = Number(preferredBaseURL.match(/:(\d+)$/)?.[1] || 0);
   const ports = preferredPort && LOCAL_AGENT_PORTS.includes(preferredPort)
     ? [preferredPort, ...LOCAL_AGENT_PORTS.filter((port) => port !== preferredPort)]
@@ -80,7 +94,8 @@ async function detectLocalAgentOnce(preferredBaseURL = "") {
     try {
       const response = await fetch(`${baseURL}/health`, { cache: "no-store", signal: controller.signal });
       if (response.ok) {
-        localAgentDetectCache = { baseURL, checkedAt: Date.now() };
+        state.cache = { baseURL, checkedAt: Date.now() };
+        saveLocalAgentDetectCache(state.cache);
         return baseURL;
       }
     } catch {
@@ -89,16 +104,48 @@ async function detectLocalAgentOnce(preferredBaseURL = "") {
       window.clearTimeout(timeout);
     }
   }
-  localAgentDetectCache = { baseURL: "", checkedAt: Date.now() };
+  state.cache = { baseURL: "", checkedAt: Date.now() };
+  saveLocalAgentDetectCache(state.cache);
   return "";
 }
 
 /** isLocalAgentDetectCacheValid 判断上次本地程序探测结果是否还能复用。 */
-function isLocalAgentDetectCacheValid(preferredBaseURL: string) {
-  if (!localAgentDetectCache.checkedAt) return false;
-  if (Date.now() - localAgentDetectCache.checkedAt > LOCAL_AGENT_DETECT_CACHE_MS) return false;
-  if (preferredBaseURL && localAgentDetectCache.baseURL && preferredBaseURL !== localAgentDetectCache.baseURL) return false;
+function isLocalAgentDetectCacheValid(state: LocalAgentDetectState, preferredBaseURL: string) {
+  if (!state.cache.checkedAt) return false;
+  if (Date.now() - state.cache.checkedAt > LOCAL_AGENT_DETECT_CACHE_MS) return false;
+  if (preferredBaseURL && state.cache.baseURL && preferredBaseURL !== state.cache.baseURL) return false;
   return true;
+}
+
+/** localAgentDetectState 返回浏览器全局共享的本地程序探测状态。 */
+function localAgentDetectState() {
+  if (typeof window === "undefined") return localAgentDetectFallbackState;
+  window.__goodhrLocalAgentDetectState ||= { detecting: null, cache: { baseURL: "", checkedAt: 0 } };
+  return window.__goodhrLocalAgentDetectState;
+}
+
+/** syncLocalAgentDetectCacheFromStorage 从浏览器缓存同步最近一次本地程序探测结果。 */
+function syncLocalAgentDetectCacheFromStorage(state: LocalAgentDetectState) {
+  if (typeof window === "undefined" || state.cache.checkedAt) return;
+  try {
+    const raw = localStorage.getItem(LOCAL_AGENT_DETECT_CACHE_KEY);
+    const cache = raw ? JSON.parse(raw) : null;
+    if (cache && typeof cache.baseURL === "string" && typeof cache.checkedAt === "number") {
+      state.cache = cache;
+    }
+  } catch {
+    // 浏览器缓存不可读时忽略，继续走实时探测。
+  }
+}
+
+/** saveLocalAgentDetectCache 保存最近一次本地程序探测结果，减少页面切换后的重复 health 请求。 */
+function saveLocalAgentDetectCache(cache: { baseURL: string; checkedAt: number }) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LOCAL_AGENT_DETECT_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // 浏览器缓存不可写时忽略，不影响本次探测结果。
+  }
 }
 
 /** parseResponse 解析统一 JSON 响应并输出中文错误。 */

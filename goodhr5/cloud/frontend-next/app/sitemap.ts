@@ -2,6 +2,8 @@
 
 import type { MetadataRoute } from "next";
 
+export const dynamic = "force-static";
+
 /** sitemap 返回官网公开页面地址。 */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseURL = (process.env.NEXT_PUBLIC_SITE_URL || "https://goodhr5.58it.cn").replace(/\/$/, "");

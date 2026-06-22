@@ -838,8 +838,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(requested, "..") {
 		requested = "index.html"
 	}
-	target := filepath.Join(staticDir, requested)
-	if info, err := os.Stat(target); err == nil && !info.IsDir() {
+	if target, ok := consoleStaticFile(staticDir, requested); ok {
 		http.ServeFile(w, r, target)
 		return
 	}
@@ -866,11 +865,13 @@ func (s *Server) consoleDevURL() string {
 }
 
 // consoleStaticDir 返回可用的前端构建目录。
-// 优先使用已下载目录，其次使用仓库内 cloud/frontend/dist。
+// 优先使用已下载目录，其次使用仓库内新版 Next 静态导出目录和旧版前端目录。
 func (s *Server) consoleStaticDir() string {
 	candidates := []string{
 		s.cfg.FrontendDir,
 		filepath.Join(s.cfg.FrontendDir, "dist"),
+		filepath.Join("..", "cloud", "frontend-next", "out"),
+		filepath.Join("goodhr5", "cloud", "frontend-next", "out"),
 		filepath.Join("..", "cloud", "frontend", "dist"),
 		filepath.Join("goodhr5", "cloud", "frontend", "dist"),
 	}
@@ -883,6 +884,25 @@ func (s *Server) consoleStaticDir() string {
 		}
 	}
 	return ""
+}
+
+// consoleStaticFile 根据请求路径查找静态前端文件，兼容 Next 静态导出的 .html 和目录形式路由。
+// staticDir 为前端根目录，requested 为清理后的相对路径。
+func consoleStaticFile(staticDir string, requested string) (string, bool) {
+	candidates := []string{filepath.Join(staticDir, requested)}
+	if filepath.Ext(requested) == "" {
+		candidates = append(candidates,
+			filepath.Join(staticDir, requested+".html"),
+			filepath.Join(staticDir, requested, "index.html"),
+		)
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 // proxyWorkerPost 读取请求体并转发给 Node Worker。

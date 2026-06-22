@@ -11,7 +11,8 @@ $ConsoleInputDir = Join-Path $DistInputDir "console"
 $SourceExe = Join-Path $RootDir "dist\bin\goodhr-local-agent-windows-amd64.exe"
 $TargetExe = Join-Path $DistInputDir "goodhr-local-agent.exe"
 $IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
-$FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend")
+$FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
+$FrontendOutDir = Join-Path $FrontendDir "out"
 
 # Write-Step prints the current build step.
 # message is the build step text.
@@ -95,12 +96,17 @@ try {
       throw "Frontend npm install failed with exit code $LASTEXITCODE."
     }
   }
+  $env:GOODHR_STATIC_EXPORT = "1"
   & $npm run build
   if ($LASTEXITCODE -ne 0) {
     throw "Frontend build failed with exit code $LASTEXITCODE."
   }
+  if (!(Test-Path (Join-Path $FrontendOutDir "index.html"))) {
+    throw "Frontend static export output was not found: $FrontendOutDir"
+  }
 }
 finally {
+  Remove-Item Env:\GOODHR_STATIC_EXPORT -ErrorAction SilentlyContinue
   Pop-Location
 }
 
@@ -113,8 +119,7 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
 }
 Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
-Copy-Item -Force (Join-Path $FrontendDir "dist\admin\index.html") (Join-Path $ConsoleInputDir "index.html")
-Copy-Item -Recurse -Force (Join-Path $FrontendDir "dist\assets") (Join-Path $ConsoleInputDir "assets")
+Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir
 
 $iscc = Find-InnoSetup
 Write-Step "Create Windows installer"
