@@ -5,8 +5,11 @@ import { TOKEN_KEY } from "./api";
 
 export const CLOUD_API_BASE = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
 export const LOCAL_AGENT_PORTS = Array.from({ length: 9 }, (_, index) => 55271 + index);
+const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean };
+let localAgentDetecting: Promise<string> | null = null;
+let localAgentDetectCache = { baseURL: "", checkedAt: 0 };
 
 /** getToken 返回浏览器缓存的登录凭证。 */
 export function getToken() {
@@ -54,8 +57,18 @@ export async function localRequest(baseURL: string, path: string, options: Reque
   }
 }
 
-/** detectLocalAgent 探测 55271 至 55279 的本地程序端口。 */
+/** detectLocalAgent 探测本地程序端口，并合并短时间内的重复探测。 */
 export async function detectLocalAgent(preferredBaseURL = "") {
+  if (isLocalAgentDetectCacheValid(preferredBaseURL)) return localAgentDetectCache.baseURL;
+  if (localAgentDetecting) return localAgentDetecting;
+  localAgentDetecting = detectLocalAgentOnce(preferredBaseURL).finally(() => {
+    localAgentDetecting = null;
+  });
+  return localAgentDetecting;
+}
+
+/** detectLocalAgentOnce 执行一次真实端口探测。 */
+async function detectLocalAgentOnce(preferredBaseURL = "") {
   const preferredPort = Number(preferredBaseURL.match(/:(\d+)$/)?.[1] || 0);
   const ports = preferredPort && LOCAL_AGENT_PORTS.includes(preferredPort)
     ? [preferredPort, ...LOCAL_AGENT_PORTS.filter((port) => port !== preferredPort)]
@@ -66,14 +79,26 @@ export async function detectLocalAgent(preferredBaseURL = "") {
     const timeout = window.setTimeout(() => controller.abort(), 450);
     try {
       const response = await fetch(`${baseURL}/health`, { cache: "no-store", signal: controller.signal });
-      if (response.ok) return baseURL;
+      if (response.ok) {
+        localAgentDetectCache = { baseURL, checkedAt: Date.now() };
+        return baseURL;
+      }
     } catch {
       // 当前端口不可用时继续检查下一个端口。
     } finally {
       window.clearTimeout(timeout);
     }
   }
+  localAgentDetectCache = { baseURL: "", checkedAt: Date.now() };
   return "";
+}
+
+/** isLocalAgentDetectCacheValid 判断上次本地程序探测结果是否还能复用。 */
+function isLocalAgentDetectCacheValid(preferredBaseURL: string) {
+  if (!localAgentDetectCache.checkedAt) return false;
+  if (Date.now() - localAgentDetectCache.checkedAt > LOCAL_AGENT_DETECT_CACHE_MS) return false;
+  if (preferredBaseURL && localAgentDetectCache.baseURL && preferredBaseURL !== localAgentDetectCache.baseURL) return false;
+  return true;
 }
 
 /** parseResponse 解析统一 JSON 响应并输出中文错误。 */
