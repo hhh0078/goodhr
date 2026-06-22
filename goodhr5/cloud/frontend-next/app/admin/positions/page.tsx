@@ -10,6 +10,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Divider,
   Stack,
   TextField,
@@ -478,11 +479,17 @@ export default function PositionsPage() {
                     </Typography>
                   </Box>
                   <Button
-                    startIcon={<AutoFixHighRoundedIcon />}
+                    startIcon={
+                      optimizing ? (
+                        <CircularProgress size={16} color='inherit' />
+                      ) : (
+                        <AutoFixHighRoundedIcon />
+                      )
+                    }
                     disabled={optimizing || !form.position_requirement.trim()}
                     onClick={() => void optimizeRequirement()}
                   >
-                    {optimizing ? "优化中" : "AI 优化岗位要求"}
+                    {optimizing ? "优化中..." : "AI 优化岗位要求"}
                   </Button>
                 </Stack>
                 <Stack spacing={2}>
