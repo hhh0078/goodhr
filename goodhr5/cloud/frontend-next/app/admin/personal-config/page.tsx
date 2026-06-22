@@ -3,6 +3,7 @@
 
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
@@ -83,22 +84,31 @@ export default function PersonalConfigPage() {
   return <>
     <PageHeader title="个人配置" description="设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。" actions={<><Button variant="outlined" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()}>测试 AI</Button><Button variant="contained" startIcon={<SaveRoundedIcon />} disabled={loading} onClick={() => void save()}>{loading ? "处理中" : "保存配置"}</Button></>} />
 
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1.5, mb: 2 }}>
-      <QuickLink href="https://www.qianwenai.com/" external icon={<PsychologyAltRoundedIcon />} title="获取 AI 接口" description="前往千问平台申请多模态模型和 API Key" />
-      <QuickLink href="/videos" icon={<PlayCircleOutlineRoundedIcon />} title="查看配置教程" description="跟随视频完成 AI 接口申请、填写和测试" />
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" }, gap: 2, mb: 2 }}>
+      <QuickLink href="/videos" icon={<PlayCircleOutlineRoundedIcon />} eyebrow="新手推荐" title="查看视频教程" description="按视频一步步完成 AI 平台申请、接口填写、测试和保存。" primary />
+      <QuickLink href="https://www.qianwenai.com/" external icon={<PsychologyAltRoundedIcon />} eyebrow="AI 接入" title="获取 AI 接口" description="前往千问平台申请多模态模型和 API Key。" />
     </Box>
 
-    <Alert severity="info" icon={<ApiRoundedIcon />} sx={{ mb: 2, border: "1px solid #cbded4", bgcolor: "#f3f8f5", color: "#244d3b", "& .MuiAlert-icon": { color: "#1e6545" } }}>
-      可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和 OpenAI。模型必须支持图片识别；DeepSeek 当前不支持图片输入，请不要用于详情 AI 识别。
-    </Alert>
-
-    <SectionPanel sx={{ mb: 2 }}>
-      <SectionTitle icon={<ApiRoundedIcon />} title="AI 接口" description="API Key 仅用于你的任务调用，已经配置时留空不会覆盖原值。" />
-      <Box sx={{ mt: 2.5, display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.55fr) minmax(220px, .65fr)" }, gap: 2 }}>
+    <SectionPanel sx={{ mb: 2, borderColor: "#9fbca9", bgcolor: "#f8fbf8", boxShadow: "0 16px 44px rgba(38, 88, 57, .08)" }}>
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { md: "flex-start" }, mb: 2 }}>
+        <SectionTitle icon={<ApiRoundedIcon />} title="AI 配置" description="这是 AI 筛选和详情识别的核心配置，建议先测试成功再保存。" />
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 1.35, py: 0.8, borderRadius: "999px", border: "1px solid", borderColor: keySet ? "#a9c8b2" : "#e5cda3", bgcolor: keySet ? "#edf6ef" : "#fff8ea", color: keySet ? "#1d6844" : "#8a5a10", fontSize: 13, fontWeight: 760, width: "fit-content" }}>
+          <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
+          {keySet ? "已保存 AI Key" : "还未保存 AI Key"}
+        </Stack>
+      </Stack>
+      <Alert severity="info" icon={<ApiRoundedIcon />} sx={{ mb: 2, border: "1px solid #cbded4", bgcolor: "#f3f8f5", color: "#244d3b", "& .MuiAlert-icon": { color: "#1e6545" } }}>
+        可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和 OpenAI。模型必须支持图片识别；DeepSeek 当前不支持图片输入，请不要用于详情 AI 识别。
+      </Alert>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.55fr) minmax(220px, .65fr)" }, gap: 2 }}>
         <TextField label="API 地址" value={form.base_url} onChange={(event) => setForm({ ...form, base_url: event.target.value })} helperText="默认使用千问兼容 OpenAI 的 Chat Completions 地址。" />
         <TextField label="模型名称" value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} helperText="例如 qwen3.7-plus" />
         <TextField label="API Key" type="password" value={form.api_key} onChange={(event) => setForm({ ...form, api_key: event.target.value })} placeholder={keySet ? "已配置，留空表示不修改" : "请输入 API Key"} helperText={keySet ? "当前已有可用 Key；只有填写新值时才会更新。" : "请先从 AI 平台创建可用的 API Key。"} sx={{ gridColumn: { lg: "1 / -1" }, maxWidth: 760 }} />
       </Box>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: 2.25, alignItems: { sm: "center" } }}>
+        <Button variant="contained" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()} sx={{ borderRadius: "999px", px: 2.4 }}>先测试 AI</Button>
+        <Typography sx={{ color: "text.secondary", fontSize: 13 }}>测试成功后再点右上角保存，任务运行时就会使用这套配置。</Typography>
+      </Stack>
     </SectionPanel>
 
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", xl: "repeat(2, minmax(0, 1fr))" }, gap: 2 }}>
@@ -126,8 +136,8 @@ export default function PersonalConfigPage() {
 }
 
 /** QuickLink 展示个人配置页的外部帮助入口。 */
-function QuickLink({ href, icon, title, description, external = false }: { href: string; icon: React.ReactNode; title: string; description: string; external?: boolean }) {
-  const content = <Stack direction="row" spacing={1.5} sx={{ p: 2, height: "100%", alignItems: "center", border: "1px solid #d8e4dc", borderRadius: "8px", bgcolor: "#fbfdfc", color: "text.primary", transition: "150ms ease", "&:hover": { borderColor: "#82a891", bgcolor: "#f4f8f5", transform: "translateY(-1px)" } }}><Box sx={{ width: 42, height: 42, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "#e7f1ea", color: "#1e6545", flexShrink: 0 }}>{icon}</Box><Box sx={{ flex: 1 }}><Typography sx={{ fontWeight: 760 }}>{title}</Typography><Typography sx={{ mt: 0.25, color: "text.secondary", fontSize: 13 }}>{description}</Typography></Box><ArrowOutwardRoundedIcon sx={{ color: "text.secondary", fontSize: 20 }} /></Stack>;
+function QuickLink({ href, icon, eyebrow, title, description, external = false, primary = false }: { href: string; icon: React.ReactNode; eyebrow: string; title: string; description: string; external?: boolean; primary?: boolean }) {
+  const content = <Stack direction="row" spacing={1.75} sx={{ p: { xs: 2, md: primary ? 2.5 : 2 }, minHeight: primary ? 140 : 118, height: "100%", alignItems: "center", border: "1px solid", borderColor: primary ? "#9fc7ae" : "#d8e4dc", borderRadius: "8px", bgcolor: primary ? "#f3faf5" : "#fbfdfc", color: "text.primary", boxShadow: primary ? "0 18px 44px rgba(38, 88, 57, .1)" : "none", transition: "150ms ease", "&:hover": { borderColor: "#82a891", bgcolor: primary ? "#eef7f1" : "#f4f8f5", transform: "translateY(-1px)" } }}><Box sx={{ width: primary ? 58 : 46, height: primary ? 58 : 46, borderRadius: "999px", display: "grid", placeItems: "center", bgcolor: primary ? "#1f7048" : "#e7f1ea", color: primary ? "#fff" : "#1e6545", flexShrink: 0, "& .MuiSvgIcon-root": { fontSize: primary ? 31 : 24 } }}>{icon}</Box><Box sx={{ flex: 1, minWidth: 0 }}><Typography sx={{ mb: 0.45, width: "fit-content", px: 1, py: 0.35, borderRadius: "999px", bgcolor: primary ? "#dff0e4" : "#eef4f0", color: "#1e6545", fontSize: 12, fontWeight: 760 }}>{eyebrow}</Typography><Typography sx={{ fontSize: primary ? 22 : 17, fontWeight: 820, lineHeight: 1.2 }}>{title}</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", fontSize: 13.5, lineHeight: 1.65 }}>{description}</Typography></Box><ArrowOutwardRoundedIcon sx={{ color: primary ? "#1e6545" : "text.secondary", fontSize: 22, flexShrink: 0 }} /></Stack>;
   return external ? <Box component="a" href={href} target="_blank" rel="noreferrer" sx={{ textDecoration: "none" }}>{content}</Box> : <Link href={href} style={{ textDecoration: "none" }}>{content}</Link>;
 }
 
