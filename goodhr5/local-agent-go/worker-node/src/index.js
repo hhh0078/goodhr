@@ -834,11 +834,12 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
     }
   }
   
-  // 第二步：容器不可滚动，检查是否超出视口（需整体滚动页面）
+  // 第二步：容器不可滚动，检查是否超出视口或被业务强制要求滚动截图（需整体滚动页面）
   const needsScroll = box.y < 0 || box.y + box.height > viewport.height;
-  console.log("[截图Debug] needsScroll:", needsScroll, "box.y:", box.y, "box.bottom:", box.y + box.height, "viewport.height:", viewport.height);
-  if (needsScroll) {
-    console.log("[截图Debug] 详情超出视口，使用鼠标滚轮分段截图");
+  const forceScroll = Boolean(payload.force_scroll || payload.scroll_full || payload.forceScroll);
+  console.log("[截图Debug] needsScroll:", needsScroll, "forceScroll:", forceScroll, "box.y:", box.y, "box.bottom:", box.y + box.height, "viewport.height:", viewport.height);
+  if (needsScroll || forceScroll) {
+    console.log("[截图Debug] 详情使用鼠标滚轮分段截图");
     const parts = await screenshotLocatorParts(currentPage, box, viewport, directory, filename, payload);
     if (parts.length > 0) {
       const result = {
@@ -849,7 +850,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
         parts_count: parts.length,
         overlap: parts[0].overlap || 0,
         wheel_scroll: true,
-        _scroll_debug: JSON.stringify({ wheel_scroll: true, parts_count: parts.length, boxH: Math.round(box.height), vpH: viewport.height }),
+        _scroll_debug: JSON.stringify({ wheel_scroll: true, force_scroll: forceScroll, needsScroll, parts_count: parts.length, boxH: Math.round(box.height), boxY: Math.round(box.y), boxBottom: Math.round(box.y + box.height), vpH: viewport.height }),
       };
       return result;
     }
@@ -1017,11 +1018,16 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const mouseY = clipY + clipHeight / 2;
   await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
   await currentPage.waitForTimeout(1500);
-  const scrollDelta = Math.max(Math.round(clipHeight * 0.8), 1);
+  const forceScroll = Boolean(payload.force_scroll || payload.scroll_full || payload.forceScroll);
+  const scrollState = await pageScrollState(currentPage);
+  const scrollDelta = Math.max(Math.round(clipHeight * 0.72), 1);
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
   const conservativeDelta = Math.max(1, Math.round(clipHeight * 0.45));
-  const estimated = Math.max(1, Math.ceil(Math.max(box.height - clipHeight, 0) / conservativeDelta) + 1);
+  const remainingPageScroll = Math.max(0, Number(scrollState.scrollHeight || 0) - Number(scrollState.clientHeight || 0) - Number(scrollState.top || 0));
+  const estimatedByBox = Math.ceil(Math.max(box.height - clipHeight, 0) / conservativeDelta) + 1;
+  const estimatedByPage = forceScroll ? Math.ceil(remainingPageScroll / conservativeDelta) + 1 : 1;
+  const estimated = Math.max(1, estimatedByBox, estimatedByPage);
   const maxScrolls = Math.min(configuredMax, estimated + 2);
   const parsed = path.parse(filename);
   const parts = [];
@@ -1030,10 +1036,14 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     filename,
     clipHeight,
     boxHeight: Math.round(box.height || 0),
+    forceScroll,
     scrollDelta,
     overlap,
     estimated,
     maxScrolls,
+    pageScrollTop: scrollState.top,
+    pageScrollHeight: scrollState.scrollHeight,
+    pageClientHeight: scrollState.clientHeight,
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
   });
