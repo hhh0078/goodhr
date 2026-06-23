@@ -22,7 +22,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CLOUD_API_BASE,
   cloudRequest,
-  formatDate,
   getToken,
   localRequest,
 } from "@/lib/admin-api";
@@ -47,6 +46,7 @@ const emptyForm = {
 };
 const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 50;
+const ALL_LOG_LIMIT = 5000;
 
 /** TasksPage 管理招聘任务完整生命周期。 */
 export default function TasksPage() {
@@ -56,10 +56,10 @@ export default function TasksPage() {
   const [positions, setPositions] = useState<any[]>([]);
   const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [expandedLogTaskID, setExpandedLogTaskID] = useState("");
-  const [expandedLogRows, setExpandedLogRows] = useState<
-    Record<string, boolean>
-  >({});
   const [logLoadingTaskID, setLogLoadingTaskID] = useState("");
+  const [allLogs, setAllLogs] = useState<any[]>([]);
+  const [allLogTask, setAllLogTask] = useState<any | null>(null);
+  const [allLogLoading, setAllLogLoading] = useState(false);
   const [runningTaskIDs, setRunningTaskIDs] = useState<Record<string, boolean>>(
     {},
   );
@@ -301,14 +301,6 @@ export default function TasksPage() {
     void loadLogs(taskID);
   }
 
-  /** toggleLogRow 展开或收起单条长日志内容。 */
-  function toggleLogRow(rowID: string) {
-    setExpandedLogRows((current) => ({
-      ...current,
-      [rowID]: !current[rowID],
-    }));
-  }
-
   /** clearLogs 清空指定任务的本地日志。 */
   async function clearLogs(taskID: string) {
     if (
@@ -326,6 +318,37 @@ export default function TasksPage() {
       notify("任务日志已清空", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "清空日志失败", "error");
+    }
+  }
+
+  /**
+   * loadAllLogs 拉取指定任务的完整日志并打开查看弹框。
+   * @param task - 当前任务对象。
+   */
+  async function loadAllLogs(task: any) {
+    if (!agentBase) return notify("本地程序未连接", "error");
+    setAllLogTask(task);
+    setAllLogLoading(true);
+    try {
+      const data = await localRequest(
+        agentBase,
+        `/api/v1/local/tasks/${encodeURIComponent(task.id)}/logs?limit=${ALL_LOG_LIMIT}`,
+      );
+      setAllLogs(data.logs || []);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "完整日志读取失败", "error");
+    } finally {
+      setAllLogLoading(false);
+    }
+  }
+
+  /** copyAllLogs 复制完整日志文本，方便用户反馈异常。 */
+  async function copyAllLogs() {
+    try {
+      await navigator.clipboard.writeText(buildLogText(allLogs));
+      notify("完整日志已复制", "success");
+    } catch {
+      notify("复制失败，请手动选中日志内容复制", "warning");
     }
   }
 
@@ -391,11 +414,6 @@ export default function TasksPage() {
                       {Number(task.current_run_greeted_count || 0)} · 提示音{" "}
                       {task.enable_sound ? "开" : "关"}
                     </Typography>
-                    <Typography
-                      sx={{ mt: 0.5, color: "text.secondary", fontSize: 12 }}
-                    >
-                      {/* 更新时间：{formatDate(task.updated_at)} */}
-                    </Typography>
                   </Box>
                   <Stack
                     direction='row'
@@ -451,10 +469,9 @@ export default function TasksPage() {
                   <TaskLogPanel
                     logs={logs[task.id] || []}
                     loading={logLoadingTaskID === task.id}
-                    expandedRows={expandedLogRows}
                     onRefresh={() => void loadLogs(task.id)}
+                    onViewAll={() => void loadAllLogs(task)}
                     onClear={() => void clearLogs(task.id)}
-                    onToggleRow={toggleLogRow}
                   />
                 ) : null}
               </Box>
@@ -571,6 +588,38 @@ export default function TasksPage() {
           />
         </Box>
       </AdminDialog>
+      <AdminDialog
+        open={Boolean(allLogTask)}
+        title='查看全部任务日志'
+        description='如果任务有异常，请点击复制全部，把完整日志发给作者。'
+        confirmText='复制全部'
+        cancelText='关闭'
+        loading={allLogLoading}
+        maxWidth='lg'
+        onClose={() => {
+          setAllLogTask(null);
+          setAllLogs([]);
+        }}
+        onConfirm={() => void copyAllLogs()}
+      >
+        <Box
+          component='pre'
+          sx={{
+            m: 0,
+            maxHeight: 560,
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontSize: 12,
+            lineHeight: 1.7,
+            bgcolor: "#f4f7f5",
+            borderRadius: "8px",
+            p: 1.5,
+          }}
+        >
+          {allLogs.length ? buildLogText(allLogs) : "暂无日志"}
+        </Box>
+      </AdminDialog>
     </>
   );
 }
@@ -583,12 +632,11 @@ export default function TasksPage() {
 function TaskLogPanel(props: {
   logs: any[];
   loading: boolean;
-  expandedRows: Record<string, boolean>;
   onRefresh: () => void;
+  onViewAll: () => void;
   onClear: () => void;
-  onToggleRow: (rowID: string) => void;
 }) {
-  const { logs, loading, expandedRows, onRefresh, onClear, onToggleRow } = props;
+  const { logs, loading, onRefresh, onViewAll, onClear } = props;
   return (
     <Box
       sx={{
@@ -612,9 +660,17 @@ function TaskLogPanel(props: {
           borderColor: "divider",
         }}
       >
-        <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
-          本地任务日志（最近 {LOG_LIMIT} 条）
-        </Typography>
+        <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
+            本地任务日志（最近 {LOG_LIMIT} 条）
+          </Typography>
+          <Button size='small' onClick={onViewAll}>
+            查看全部
+          </Button>
+          <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+            有异常请复制全部信息给作者
+          </Typography>
+        </Stack>
         <Stack direction='row' spacing={1}>
           <Button size='small' onClick={onRefresh} disabled={loading}>
             {loading ? "刷新中" : "刷新"}
@@ -633,67 +689,13 @@ function TaskLogPanel(props: {
         }}
       >
         {logs.length ? (
-          logs.map((item, index) => {
-            const rowID = getLogRowID(item, index);
-            const message = getLogMessage(item);
-            const expanded = Boolean(expandedRows[rowID]);
-            const canExpand = message.length > 150 || message.includes("\n");
-            return (
-              <Box
-                key={rowID}
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    md: "112px 72px minmax(0, 1fr)",
-                  },
-                  gap: 1,
-                  px: 1,
-                  py: 0.9,
-                  borderRadius: 2,
-                  bgcolor: "#fff",
-                  border: "1px solid",
-                  borderColor: "rgba(30, 41, 59, 0.08)",
-                }}
-              >
-                <Typography
-                  sx={{ color: "text.secondary", fontSize: 12, pt: 0.25 }}
-                >
-                  {formatDate(item.created_at || item.time)}
-                </Typography>
-                <Chip
-                  size='small'
-                  color={getLogLevelColor(item.level)}
-                  label={getLogLevelLabel(item.level)}
-                  sx={{ width: "fit-content", height: 24 }}
-                />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      color: "text.primary",
-                      fontSize: 13,
-                      lineHeight: 1.65,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      maxHeight: expanded || !canExpand ? "none" : 44,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {message}
-                  </Typography>
-                  {canExpand ? (
-                    <Button
-                      size='small'
-                      sx={{ mt: 0.25, minWidth: 0, px: 0 }}
-                      onClick={() => onToggleRow(rowID)}
-                    >
-                      {expanded ? "收起" : "展开"}
-                    </Button>
-                  ) : null}
-                </Box>
-              </Box>
-            );
-          })
+          logs.map((item, index) => (
+            <LogLine
+              key={String(item.id || `${item.created_at || item.time}-${index}`)}
+              item={item}
+              previous={index > 0 ? logs[index - 1] : null}
+            />
+          ))
         ) : (
           <Box
             sx={{
@@ -712,13 +714,47 @@ function TaskLogPanel(props: {
 }
 
 /**
- * getLogRowID 生成日志行的稳定展示 ID。
- * @param item - 日志对象。
- * @param index - 当前列表下标。
- * @returns 日志行 ID。
+ * LogLine 渲染一条简单任务日志。
+ * @param props - 当前日志和上一条日志。
+ * @returns 单条日志展示内容。
  */
-function getLogRowID(item: any, index: number) {
-  return String(item.id || `${item.created_at || item.time || "log"}-${index}`);
+function LogLine(props: { item: any; previous: any | null }) {
+  const { item, previous } = props;
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "1fr",
+          md: "190px 82px 82px minmax(0, 1fr)",
+        },
+        gap: 1,
+        py: 0.75,
+        borderBottom: "1px solid",
+        borderColor: "divider",
+      }}
+    >
+      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+        {formatLogTime(item.created_at || item.time)}
+      </Typography>
+      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+        {getLogDelta(item, previous)}
+      </Typography>
+      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+        {getLogLevelLabel(item.level)}
+      </Typography>
+      <Typography
+        sx={{
+          fontSize: 13,
+          lineHeight: 1.65,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+      >
+        {getLogMessage(item)}
+      </Typography>
+    </Box>
+  );
 }
 
 /**
@@ -728,6 +764,56 @@ function getLogRowID(item: any, index: number) {
  */
 function getLogMessage(item: any) {
   return String(item.message || item.msg || item.detail || "");
+}
+
+/**
+ * getLogTimeMs 将日志时间转换为毫秒时间戳。
+ * @param value - 原始时间。
+ * @returns 毫秒时间戳，解析失败返回 0。
+ */
+function getLogTimeMs(value: unknown) {
+  const time = new Date(String(value || "")).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+/**
+ * formatLogTime 格式化日志时间，精确到毫秒。
+ * @param value - 原始时间。
+ * @returns 本地时间字符串。
+ */
+function formatLogTime(value: unknown) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "--";
+  const pad = (input: number, size = 2) => String(input).padStart(size, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+/**
+ * getLogDelta 计算当前日志距离上一条日志的耗时。
+ * @param item - 当前日志。
+ * @param previous - 上一条日志。
+ * @returns 间隔毫秒文案。
+ */
+function getLogDelta(item: any, previous: any | null) {
+  if (!previous) return "+0ms";
+  const currentMs = getLogTimeMs(item.created_at || item.time);
+  const previousMs = getLogTimeMs(previous.created_at || previous.time);
+  if (!currentMs || !previousMs) return "+--ms";
+  return `+${Math.max(0, currentMs - previousMs)}ms`;
+}
+
+/**
+ * buildLogText 构建可复制的完整日志文本。
+ * @param logs - 日志列表。
+ * @returns 多行日志文本。
+ */
+function buildLogText(logs: any[]) {
+  return logs
+    .map((item, index) => {
+      const previous = index > 0 ? logs[index - 1] : null;
+      return `${formatLogTime(item.created_at || item.time)} ${getLogDelta(item, previous)} ${getLogLevelLabel(item.level)} ${getLogMessage(item)}`;
+    })
+    .join("\n");
 }
 
 /**
@@ -748,19 +834,6 @@ function getLogLevelLabel(level: string) {
       } as Record<string, string>
     )[value] || "信息"
   );
-}
-
-/**
- * getLogLevelColor 将日志等级转换成 MUI 颜色。
- * @param level - 原始日志等级。
- * @returns 标签颜色。
- */
-function getLogLevelColor(level: string) {
-  const value = String(level || "info").toLowerCase();
-  if (value === "error") return "error";
-  if (value === "warning" || value === "warn") return "warning";
-  if (value === "debug") return "default";
-  return "info";
 }
 
 /** statusLabel 将任务状态转换为中文。 */

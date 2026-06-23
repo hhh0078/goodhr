@@ -262,7 +262,7 @@ func (db *DB) AddTaskLog(taskID string, level string, message string) (Log, erro
 // ListTaskLogs 读取本地任务日志。
 // taskID 为任务 ID，limit 为最大返回数量。
 func (db *DB) ListTaskLogs(taskID string, limit int) ([]Log, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 || limit > 5000 {
 		limit = 100
 	}
 	rows, err := db.conn.Query(
