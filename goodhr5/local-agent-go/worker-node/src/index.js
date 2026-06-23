@@ -850,7 +850,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
         parts_count: parts.length,
         overlap: parts[0].overlap || 0,
         wheel_scroll: true,
-        _scroll_debug: JSON.stringify({ wheel_scroll: true, force_scroll: forceScroll, needsScroll, parts_count: parts.length, boxH: Math.round(box.height), boxY: Math.round(box.y), boxBottom: Math.round(box.y + box.height), vpH: viewport.height }),
+        _scroll_debug: JSON.stringify({ wheel_scroll: true, force_scroll: forceScroll, needsScroll, parts_count: parts.length, boxH: Math.round(box.height), boxY: Math.round(box.y), boxBottom: Math.round(box.y + box.height), vpH: viewport.height, initial: parts[0]._debug_initial || null, rounds: parts[0]._debug_rounds || [] }),
       };
       return result;
     }
@@ -1032,6 +1032,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
+  const debugRounds = [];
   logWorker("详情截图开始：滚轮滚动页面", {
     filename,
     clipHeight,
@@ -1051,9 +1052,18 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
+    const beforeShot = await pageScrollState(currentPage);
+    logWorker("详情截图准备保存：页面分段", {
+      filename,
+      part: index + 1,
+      maxScrolls,
+      beforeShot,
+      clip,
+    });
     const currentBuffer = await currentPage.screenshot({ clip, type: "png" });
     if (previousBuffer && screenshotsAreDuplicate(previousBuffer, currentBuffer)) {
-      logWorker("详情截图停止：检测到重复页面截图", { filename, index: index + 1, parts: parts.length });
+      debugRounds.push({ part: index + 1, beforeShot, duplicate: true, stop_reason: "duplicate_before_save" });
+      logWorker("详情截图停止：检测到重复页面截图", { filename, index: index + 1, parts: parts.length, beforeShot });
       break;
     }
     await fs.writeFile(targetPath, currentBuffer);
@@ -1067,7 +1077,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       overlap,
       index,
     });
-    logWorker("详情截图保存：页面分段", { filename, part: index + 1, size: stat.size });
+    logWorker("详情截图保存：页面分段", { filename, part: index + 1, size: stat.size, beforeShot });
     previousBuffer = currentBuffer;
     const beforeScroll = await pageScrollState(currentPage);
     await currentPage.mouse.wheel(0, scrollDelta);
@@ -1082,12 +1092,45 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       moved,
       maxed: afterScroll.maxed,
     });
+    const round = {
+      part: index + 1,
+      saved: true,
+      size: stat.size,
+      beforeShot,
+      beforeScroll,
+      afterScroll,
+      moved,
+      maxed: afterScroll.maxed,
+    };
     if (afterScroll.maxed || moved < 3) {
-      logWorker("详情截图停止：页面滚动已到底或未移动", { filename, part: index + 1, moved, maxed: afterScroll.maxed });
+      round.stop_reason = afterScroll.maxed ? "maxed_after_scroll" : "moved_lt_3";
+      debugRounds.push(round);
+      logWorker("详情截图停止：页面滚动已到底或未移动", { filename, part: index + 1, moved, maxed: afterScroll.maxed, beforeScroll, afterScroll, stopReason: round.stop_reason });
       break;
     }
+    round.stop_reason = "";
+    debugRounds.push(round);
   }
-  logWorker("详情截图完成：滚轮滚动页面", { filename, parts: parts.length });
+  logWorker("详情截图完成：滚轮滚动页面", { filename, parts: parts.length, debugRounds });
+  if (parts.length > 0) {
+    parts[0]._debug_rounds = debugRounds;
+    parts[0]._debug_initial = {
+      forceScroll,
+      clip,
+      clipHeight,
+      boxHeight: Math.round(box.height || 0),
+      scrollDelta,
+      overlap,
+      configuredMax,
+      conservativeDelta,
+      remainingPageScroll,
+      estimatedByBox,
+      estimatedByPage,
+      estimated,
+      maxScrolls,
+      scrollState,
+    };
+  }
   return parts;
 }
 
@@ -1120,10 +1163,11 @@ async function pageScrollState(currentPage) {
     return {
       top,
       height: docHeight,
+      scrollHeight: docHeight,
       clientHeight: docClientHeight,
       maxed: !canScrollMore,
     };
-  }).catch(() => ({ top: 0, height: 0, clientHeight: 0, maxed: false }));
+  }).catch(() => ({ top: 0, height: 0, scrollHeight: 0, clientHeight: 0, maxed: false }));
 }
 
 /**
