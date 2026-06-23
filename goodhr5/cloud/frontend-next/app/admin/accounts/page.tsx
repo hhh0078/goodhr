@@ -13,7 +13,7 @@ import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/component
 import { useAdmin } from "@/components/admin/AdminApp";
 import PlatformLogo, { platformIconSrc, platformLabel } from "@/components/admin/PlatformLogo";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
-import { openPlatformBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
+import { openPlatformBrowser, openPlatformLoginBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 
@@ -83,7 +83,7 @@ export default function AccountsPage() {
   async function loginWithAccount(account: any) {
     if (!agentBase) throw new Error("请先启动本地程序");
     const auth = pickPlatformAuthConfig(platforms, account.platform_id);
-    await openPlatformBrowser(agentBase, account, auth);
+    await openPlatformLoginBrowser(agentBase, account, auth);
     setLoginStatus("请点击右下角蓝色浏览器图标，打开浏览器并完成登录。");
     await waitForPlatformLoggedIn(agentBase, auth, setLoginStatus);
   }

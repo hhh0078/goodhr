@@ -7,6 +7,7 @@ export type PlatformPageRule = {
   url?: string;
   title?: string;
   match?: "contains" | "prefix" | "exact";
+  code?: string;
   entry?: boolean;
 };
 
@@ -16,6 +17,7 @@ export type PlatformAuthConfig = {
 };
 
 const URL_CHECK_INTERVAL_MS = 3000;
+const URL_FIRST_CHECK_DELAY_MS = 5000;
 const LOGIN_SUCCESS_CONFIRM_TIMES = 3;
 
 /** pickPlatformAuthConfig 从平台配置列表中取出指定平台登录规则。 */
@@ -58,6 +60,13 @@ export function pickAuthEntryURL(auth: PlatformAuthConfig) {
   return String(page?.url || "");
 }
 
+/** pickLoginEntryURL 从公开页面规则中选择登录页。 */
+export function pickLoginEntryURL(auth: PlatformAuthConfig) {
+  const pages = auth.public_pages || [];
+  const page = pages.find((item) => item.code === "login" && item.url) || pages.find((item) => item.url);
+  return String(page?.url || "");
+}
+
 /** openPlatformBrowser 打开平台账号对应的本地浏览器并导航到入口页。 */
 export async function openPlatformBrowser(agentBase: string, account: any, auth: PlatformAuthConfig) {
   const targetURL = pickAuthEntryURL(auth);
@@ -73,9 +82,26 @@ export async function openPlatformBrowser(agentBase: string, account: any, auth:
   await openLocalPage(agentBase, { ...browserPayload, url: targetURL });
 }
 
+/** openPlatformLoginBrowser 打开平台账号对应的本地浏览器并直接导航到登录页。 */
+export async function openPlatformLoginBrowser(agentBase: string, account: any, auth: PlatformAuthConfig) {
+  const targetURL = pickLoginEntryURL(auth);
+  if (!targetURL) throw new Error("平台配置缺少登录页面地址");
+  const browserPayload = {
+    persistent: true,
+    platform_account_id: account.id,
+    user_data_dir: account.id,
+    headless: false,
+    humanize: true,
+  };
+  await localRequest(agentBase, "/api/v1/browser/start", { method: "POST", body: browserPayload });
+  await openLocalPage(agentBase, { ...browserPayload, url: targetURL });
+}
+
 /** waitForPlatformLoggedIn 连续确认当前页面命中已登录规则后返回。 */
 export async function waitForPlatformLoggedIn(agentBase: string, auth: PlatformAuthConfig, onStatus: (message: string) => void) {
   let loggedInHits = 0;
+  onStatus("登录页面加载中，请稍等...");
+  await delay(URL_FIRST_CHECK_DELAY_MS);
   for (let index = 0; index < 180; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS);
     const url = await currentLocalPageURL(agentBase);
