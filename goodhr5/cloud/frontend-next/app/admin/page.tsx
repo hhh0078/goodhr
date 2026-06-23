@@ -1,7 +1,6 @@
 /** 本文件负责新版后台控制台概览、醒目新手引导、账号快捷入口和本地状态。 */
 "use client";
 
-import AccountCircleRoundedIcon from "@mui/icons-material/AccountCircleRounded";
 import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
@@ -20,6 +19,8 @@ import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { onboardingFinished, readOnboardingProgress, syncOnboardingProgress, type OnboardingProgress, type OnboardingStep } from "@/lib/onboarding";
+import PlatformLogo, { platformLabel } from "@/components/admin/PlatformLogo";
+import { openPlatformBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 
 type GuideStep = {
   key: OnboardingStep;
@@ -111,7 +112,9 @@ export default function DashboardPage() {
   async function openAccount(account: any) {
     if (!agentBase) return notify("本地程序未连接", "error");
     try {
-      await localRequest(agentBase, "/api/v1/browser/start", { method: "POST", body: { url: account.login_url || "https://www.zhipin.com/web/chat/recommend", persistent: true, user_data_dir: account.id, platform_account_id: account.id, headless: false, humanize: true } });
+      const platformData = await cloudRequest("/api/platforms/config/", { auth: false });
+      const auth = pickPlatformAuthConfig(platformData.platforms || platformData.configs || [], account.platform_id);
+      await openPlatformBrowser(agentBase, account, auth);
       notify("账号浏览器已打开", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "账号打开失败", "error");
@@ -126,7 +129,7 @@ export default function DashboardPage() {
     <Box sx={{ mt: showGuide ? 2.5 : 0, display: "grid", gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>{metrics.map(([label, value, Icon]) => <Box key={label} sx={{ p: 2, bgcolor: "#f7faf8", borderRadius: "8px", border: "1px solid", borderColor: "divider" }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Icon color="primary" /></Stack><Typography sx={{ mt: 1.5, fontSize: 31, fontWeight: 800 }}>{loading ? <CircularProgress size={22} /> : value}</Typography></Box>)}</Box>
 
     <Box sx={{ mt: 2, display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.1fr .9fr" }, gap: 2 }}>
-      <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>平台账号快捷入口</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>直接打开已登录的招聘平台账号。</Typography></Box><Button component={Link} href="/admin/accounts">管理账号</Button></Stack><Stack spacing={1} sx={{ mt: 2 }}>{accounts.length ? accounts.slice(0, 6).map((account) => <Stack key={account.id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1, borderBottom: "1px solid", borderColor: "divider" }}><AccountCircleRoundedIcon color="primary" /><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 730 }}>{account.display_name || "未命名账号"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{account.platform_id || "未知平台"} · {account.status === "available" ? "已登录" : "需要登录"}</Typography></Box><Button size="small" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account)}>打开</Button></Stack>) : <Typography color="text.secondary">暂无平台账号</Typography>}</Stack></SectionPanel>
+      <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>平台账号快捷入口</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>直接打开已登录的招聘平台账号。</Typography></Box><Button component={Link} href="/admin/accounts">管理账号</Button></Stack><Stack spacing={1} sx={{ mt: 2 }}>{accounts.length ? accounts.slice(0, 6).map((account) => <Stack key={account.id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1, borderBottom: "1px solid", borderColor: "divider" }}><PlatformLogo platformID={account.platform_id} size={32} /><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 730 }}>{account.display_name || "未命名账号"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{platformLabel(account.platform_id)} · {account.status === "available" ? "已创建" : "需要登录"}</Typography></Box><Button size="small" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account)}>打开</Button></Stack>) : <Typography color="text.secondary">暂无平台账号</Typography>}</Stack></SectionPanel>
       <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>本地程序</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>{agentBase ? `已连接 ${agentBase}` : "尚未检测到本地程序"}</Typography></Box><Chip color={agentBase ? "success" : "error"} label={agentBase ? "已连接" : "未连接"} /></Stack><Box sx={{ mt: 2, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}><StatusItem label="程序版本" value={runtime.version || runtime.agent_version || "--"} /><StatusItem label="会员状态" value={subscription.active ? `${subscription.member_type || "Plus"} 有效` : "免费版"} /><StatusItem label="浏览器组件" value={runtime.cloakbrowser_installed || runtime.runtime?.cloakbrowser_installed ? "已安装" : "待检查"} /><StatusItem label="OCR 组件" value={runtime.ocr_installed || runtime.runtime?.ocr_installed ? "已安装" : "可选组件"} /></Box><Stack direction="row" spacing={1} sx={{ mt: 2 }}><Button component={Link} href="/admin/agent-download" variant="contained">组件与更新</Button><Button component={Link} href="/admin/local-data" variant="outlined">诊断本地数据</Button></Stack></SectionPanel>
     </Box>
   </>;

@@ -69,6 +69,17 @@ export async function localRequest(baseURL: string, path: string, options: Reque
   }
 }
 
+/** openLocalPage 通过本地程序打开当前浏览器页面。 */
+export async function openLocalPage(baseURL: string, payload: unknown) {
+  return localRequest(baseURL, "/api/v1/page/open", { method: "POST", body: payload });
+}
+
+/** currentLocalPageURL 读取本地浏览器当前页面地址。 */
+export async function currentLocalPageURL(baseURL: string) {
+  const data = await localRequest(baseURL, "/api/v1/page/url");
+  return String(data?.url || "");
+}
+
 /** detectLocalAgent 探测本地程序端口，并合并短时间内的重复探测。 */
 export async function detectLocalAgent(preferredBaseURL = "") {
   const state = localAgentDetectState();

@@ -27,6 +27,7 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import { platformIconSrc, platformLabel } from "@/components/admin/PlatformLogo";
 import { cloudRequest } from "@/lib/admin-api";
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
@@ -327,6 +328,8 @@ export default function PositionsPage() {
                 value: "boss",
                 label: "Boss直聘",
                 description: "支持 OCR 和 AI 详情识别。",
+                iconSrc: platformIconSrc("boss"),
+                iconOnly: true,
               },
               {
                 value: "zhaopin",
@@ -338,6 +341,8 @@ export default function PositionsPage() {
                 value: "liepin",
                 label: "猎聘",
                 description: "平台适配开发中。",
+                iconSrc: platformIconSrc("liepin"),
+                iconOnly: true,
                 disabled: true,
               },
             ]}
@@ -798,17 +803,6 @@ function splitKeywords(value: string) {
       seen.add(key);
       return true;
     });
-}
-
-/** platformLabel 返回平台中文名称。 */
-function platformLabel(value: string) {
-  return value === "boss"
-    ? "Boss直聘"
-    : value === "zhaopin"
-      ? "智联招聘"
-      : value === "liepin"
-        ? "猎聘"
-        : value || "未知平台";
 }
 
 /** detailModeLabel 返回详情模式中文名称。 */
