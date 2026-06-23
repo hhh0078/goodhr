@@ -560,8 +560,8 @@ func TestRunOptionBounds(t *testing.T) {
 	}
 }
 
-// TestRunnerStopCancelsRunningTask 验证停止任务会取消正在执行的 Worker 调用。
-func TestRunnerStopCancelsRunningTask(t *testing.T) {
+// TestRunnerStopWaitsForCurrentStep 验证停止任务不会取消当前 Worker 调用。
+func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	speedUpPageEntryCheck(t)
 	var task localdb.Task
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -595,7 +595,7 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := &blockingWorker{extractStarted: make(chan struct{}), released: make(chan struct{})}
+	worker := &blockingWorker{extractStarted: make(chan struct{}), allowFinish: make(chan struct{}), released: make(chan struct{})}
 	runner := newTestRunner(t, db, worker)
 	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
@@ -615,10 +615,23 @@ func TestRunnerStopCancelsRunningTask(t *testing.T) {
 	if _, err := runner.Stop(task.ID); err != nil {
 		t.Fatal(err)
 	}
+	status, err = runner.Status(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status["running"] != false {
+		t.Fatalf("stopping status = %+v", status)
+	}
+	select {
+	case <-worker.released:
+		t.Fatal("停止任务不应该立刻取消当前 Worker 调用")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(worker.allowFinish)
 	select {
 	case <-worker.released:
 	case <-time.After(2 * time.Second):
-		t.Fatal("停止任务后 Worker 未释放")
+		t.Fatal("当前步骤结束后 Worker 未释放")
 	}
 	waitForTaskStatus(t, db, task.ID, "stopped")
 }
@@ -816,6 +829,7 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 // blockingWorker 模拟会阻塞到 ctx 取消的 Worker。
 type blockingWorker struct {
 	extractStarted chan struct{}
+	allowFinish    chan struct{}
 	released       chan struct{}
 }
 
@@ -898,7 +912,7 @@ func (w *blockingWorker) Start(ctx context.Context) (browser.WorkerStatus, error
 	return browser.WorkerStatus{Running: true}, nil
 }
 
-// Call 模拟 Worker API，并在候选人提取时等待取消。
+// Call 模拟 Worker API，并在候选人提取时等待当前步骤完成。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
 	if path == "/api/v1/page/list" {
@@ -913,9 +927,21 @@ func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (ma
 	}
 	if path == "/api/v1/boss/candidates/extract" {
 		close(w.extractStarted)
-		<-ctx.Done()
-		close(w.released)
-		return nil, ctx.Err()
+		select {
+		case <-w.allowFinish:
+			close(w.released)
+			return map[string]any{"data": map[string]any{"candidates": []any{map[string]any{
+				"id":             "boss_stop_1",
+				"candidate_name": "停止候选人",
+				"name":           "停止候选人",
+				"status":         "scanned",
+				"raw_text":       "停止候选人 本科 5年",
+				"filter_text":    "停止候选人 本科 5年",
+			}}}}, nil
+		case <-ctx.Done():
+			close(w.released)
+			return nil, ctx.Err()
+		}
 	}
 	return map[string]any{"data": map[string]any{}}, nil
 }

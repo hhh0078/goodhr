@@ -263,7 +263,6 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	}
 	if r.isUserStopped(taskID) {
 		r.taskLog(taskID, "info", "任务已被用户停止，忽略扫描完成结果")
-		r.notifyCloudTaskStopped(taskID, options)
 		return
 	}
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
@@ -280,7 +279,7 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
 	r.taskLog(taskID, "info", "收到停止任务请求")
-	r.markUserStoppedAndCancel(taskID)
+	r.markUserStopped(taskID)
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
 		return nil, err
@@ -380,7 +379,11 @@ func (r *Runner) Progress(taskID string, task localdb.Task) Progress {
 func (r *Runner) IsRunning(taskID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.running[strings.TrimSpace(taskID)]
+	taskID = strings.TrimSpace(taskID)
+	if r.userStopped[taskID] {
+		return false
+	}
+	_, ok := r.running[taskID]
 	return ok
 }
 
@@ -542,6 +545,9 @@ scanLoop:
 			pending := map[int]candidatePipelineResult{}
 			nextIndex := 0
 			for nextIndex < len(filtered) {
+				if r.isUserStopped(task.ID) {
+					break
+				}
 				if reachedRunGreetLimit(task, totalGreeted+batchResult.Greeted) {
 					r.taskLog(task.ID, "info", fmt.Sprintf("已达到本次上限 %d，停止继续处理候选人", task.MatchLimit))
 					break
@@ -603,13 +609,13 @@ scanLoop:
 						candidate["skip_reason"] = fmt.Sprintf("未命中打开详情概率：%d%%", detailOpenProbability(options))
 						batchResult.Skipped++
 						r.taskLog(task.ID, "info", fmt.Sprintf("打开详情概率跳过：name=%s probability=%d%%", candidateLogName(candidate), detailOpenProbability(options)))
-						continue
-					}
-					r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
-					itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
-					batchResult.Skipped += itemSkipped
-					if err != nil {
-						return nil, err
+					} else {
+						r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
+						itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						batchResult.Skipped += itemSkipped
+						if err != nil {
+							return nil, err
+						}
 					}
 				}
 
@@ -648,6 +654,10 @@ scanLoop:
 				if err := r.maybeRestAfterCandidate(ctx, task.ID, options); err != nil {
 					return nil, err
 				}
+				if r.isUserStopped(task.ID) {
+					r.taskLog(task.ID, "info", "当前候选人已处理完成，按停止请求结束任务")
+					break
+				}
 			}
 
 			totalSaved += batchResult.Saved
@@ -655,6 +665,9 @@ scanLoop:
 			totalGreeted += batchResult.Greeted
 			totalFailed += batchResult.Failed
 			r.taskLog(task.ID, "info", fmt.Sprintf("候选人队列处理完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
+			if r.isUserStopped(task.ID) {
+				break scanLoop
+			}
 			if reachedRunGreetLimit(task, totalGreeted) {
 				break scanLoop
 			}
@@ -2292,6 +2305,14 @@ func (r *Runner) cancel(taskID string) {
 	if state != nil && state.cancel != nil {
 		state.cancel()
 	}
+}
+
+// markUserStopped 标记任务收到停止请求，但不打断当前候选人处理。
+// taskID 为任务 ID。
+func (r *Runner) markUserStopped(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.userStopped[taskID] = true
 }
 
 // markUserStoppedAndCancel 标记用户主动停止并取消运行任务。
