@@ -1744,6 +1744,100 @@ async function aiOverlay(payload) {
 }
 
 /**
+ * 在招聘平台页面右上角显示 OCR 关键词匹配浮层。
+ * @param {Record<string, any>} payload - 关键词匹配展示参数。
+ * @returns {Promise<Record<string, any>>} 浮层结果。
+ */
+async function keywordOverlay(payload) {
+  const currentPage = await ensurePage();
+  const action = String(payload.action || "show").trim().toLowerCase();
+  if (action === "hide" || action === "close" || action === "remove") {
+    await currentPage.evaluate(() => {
+      const box = document.getElementById("__goodhr_keyword_overlay");
+      if (box) box.remove();
+    }).catch(() => {});
+    return { visible: false };
+  }
+  const title = String(payload.title || "关键词匹配").trim();
+  const subtitle = String(payload.subtitle || "").trim();
+  const keywords = cleanOverlayWords(payload.keywords);
+  const excludes = cleanOverlayWords(payload.exclude_keywords || payload.excludes);
+  const matchedKeywords = cleanOverlayWords(payload.matched_keywords);
+  const matchedExcludes = cleanOverlayWords(payload.matched_excludes || payload.matched_exclude_keywords);
+  const text = String(payload.text || "").trim() || "OCR 未识别到文字";
+  await currentPage.evaluate(({ title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text }) => {
+    const chip = (word, color, bg) => {
+      const item = document.createElement("span");
+      item.textContent = word;
+      item.style.cssText = "display:inline-flex;align-items:center;max-width:100%;padding:2px 7px;border-radius:999px;font-size:12px;font-weight:650;color:" + color + ";background:" + bg + ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      return item;
+    };
+    const renderWords = (wrap, words, matched, color, bg) => {
+      wrap.textContent = "";
+      if (!words.length) {
+        const empty = document.createElement("span");
+        empty.textContent = "无";
+        empty.style.cssText = "font-size:12px;color:#7b867f;";
+        wrap.appendChild(empty);
+        return;
+      }
+      const matchedSet = new Set(matched.map((word) => String(word).toLowerCase()));
+      words.forEach((word) => {
+        wrap.appendChild(chip(word, matchedSet.has(String(word).toLowerCase()) ? color : "#56635c", matchedSet.has(String(word).toLowerCase()) ? bg : "rgba(86,99,92,.10)"));
+      });
+    };
+    const highlightText = (wrap, source, greenWords, redWords) => {
+      wrap.textContent = "";
+      const words = [...redWords.map((word) => ({ word, color: "#b4232c", bg: "rgba(180,35,44,.14)" })), ...greenWords.map((word) => ({ word, color: "#157347", bg: "rgba(21,115,71,.14)" }))].filter((item) => item.word);
+      if (!words.length) {
+        wrap.textContent = source;
+        return;
+      }
+      const escaped = words.map((item) => item.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).sort((a, b) => b.length - a.length);
+      const pattern = new RegExp("(" + escaped.join("|") + ")", "gi");
+      let last = 0;
+      source.replace(pattern, (match, _value, offset) => {
+        if (offset > last) wrap.appendChild(document.createTextNode(source.slice(last, offset)));
+        const found = words.find((item) => item.word.toLowerCase() === match.toLowerCase()) || words[0];
+        const mark = document.createElement("span");
+        mark.textContent = match;
+        mark.style.cssText = "color:" + found.color + ";background:" + found.bg + ";border-radius:4px;padding:0 2px;font-weight:750;";
+        wrap.appendChild(mark);
+        last = offset + match.length;
+        return match;
+      });
+      if (last < source.length) wrap.appendChild(document.createTextNode(source.slice(last)));
+    };
+    let box = document.getElementById("__goodhr_keyword_overlay");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "__goodhr_keyword_overlay";
+      document.body.appendChild(box);
+    }
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const width = Math.min(360, Math.max(260, vw - 32));
+    box.style.cssText = "position:fixed;right:16px;top:16px;z-index:2147483647;width:" + width + "px;box-sizing:border-box;padding:14px;border-radius:14px;background:rgba(252,250,244,.96);color:#18221d;box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.45;pointer-events:none;border:1px solid rgba(48,79,63,.18);backdrop-filter:saturate(1.1) blur(10px);";
+    box.innerHTML = [
+      '<div style="font-size:14px;font-weight:750;color:#18221d;"></div>',
+      '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
+      '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
+      '<div style="display:grid;grid-template-columns:42px 1fr;gap:7px 8px;align-items:start;"></div>',
+      '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
+      '<div style="max-height:230px;overflow-y:auto;color:#405249;white-space:pre-wrap;word-break:break-word;"></div>',
+    ].join("");
+    box.children[0].textContent = title;
+    box.children[1].textContent = subtitle;
+    const grid = box.children[3];
+    grid.innerHTML = '<div style="font-size:12px;color:#6d7a72;">关键词</div><div style="display:flex;gap:5px;flex-wrap:wrap;min-width:0;"></div><div style="font-size:12px;color:#6d7a72;">排除词</div><div style="display:flex;gap:5px;flex-wrap:wrap;min-width:0;"></div>';
+    renderWords(grid.children[1], keywords, matchedKeywords, "#157347", "rgba(21,115,71,.14)");
+    renderWords(grid.children[3], excludes, matchedExcludes, "#b4232c", "rgba(180,35,44,.14)");
+    highlightText(box.children[5], text, matchedKeywords, matchedExcludes);
+    box.children[5].scrollTop = 0;
+  }, { title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text });
+  return { visible: true, title, subtitle };
+}
+
+/**
  * 读取页面截图尺寸。
  * @param {any} targetPage - Playwright 页面对象。
  * @param {boolean} fullPage - 是否整页截图。
@@ -1890,6 +1984,25 @@ function downloadID(filePath, url) {
 function firstSelector(payload) {
   const selectors = selectorList(payload.selector || payload.css || payload.element || payload.elements);
   return selectors[0] || "";
+}
+
+/**
+ * 清理浮层展示用关键词数组。
+ * @param {any} value - 原始关键词数组。
+ * @returns {string[]} 清理后的关键词。
+ */
+function cleanOverlayWords(value) {
+  const items = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const word = String(item || "").trim();
+    const key = word.toLowerCase();
+    if (!word || seen.has(key)) continue;
+    seen.add(key);
+    result.push(word);
+  }
+  return result;
 }
 
 /**
@@ -2140,6 +2253,7 @@ const routes = {
   "/api/v1/page/list-click-by-index": listClickByIndex,
   "/api/v1/page/screenshot": screenshotPage,
   "/api/v1/page/ai-overlay": aiOverlay,
+  "/api/v1/page/keyword-overlay": keywordOverlay,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,

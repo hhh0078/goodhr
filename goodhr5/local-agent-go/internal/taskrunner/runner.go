@@ -148,24 +148,26 @@ type StartOptions struct {
 	ScrollDistance int
 	PageReadyDelay int
 	// 以下为模拟人工操作的延时配置（随机范围）
-	ScrollDelayMin         int // 两次滚动之间的延时（秒）
-	ScrollDelayMax         int
-	ListViewDelayMin       float64 // 查看候选人列表后的停留（秒）
-	ListViewDelayMax       float64
-	DetailViewDelayMin     float64 // 查看候选人详情后的停留（秒）
-	DetailViewDelayMax     float64
-	DetailOpenDelayMin     float64 // 打开详情前的延时（秒）
-	DetailOpenDelayMax     float64
-	DetailCloseDelayMin    float64 // 关闭详情前的延时（秒）
-	DetailCloseDelayMax    float64
-	GreetBeforeDelayMin    float64 // 打招呼前点击按钮的延时（秒）
-	GreetBeforeDelayMax    float64
-	RestAfterCandidatesMin int // 处理多少候选人后摸鱼休息
-	RestAfterCandidatesMax int
-	RestTimesMin           int // 整个任务最多摸鱼休息几次
-	RestTimesMax           int
-	RestDurationMin        float64 // 每次摸鱼休息多少分钟
-	RestDurationMax        float64
+	ScrollDelayMin           int // 两次滚动之间的延时（秒）
+	ScrollDelayMax           int
+	ListViewDelayMin         float64 // 查看候选人列表后的停留（秒）
+	ListViewDelayMax         float64
+	DetailViewDelayMin       float64 // 查看候选人详情后的停留（秒）
+	DetailViewDelayMax       float64
+	DetailOpenProbability    int     // 打开详情概率（0-100）
+	detailOpenProbabilitySet bool    // 是否已从个人配置读取打开详情概率
+	DetailOpenDelayMin       float64 // 打开详情前的延时（秒）
+	DetailOpenDelayMax       float64
+	DetailCloseDelayMin      float64 // 关闭详情前的延时（秒）
+	DetailCloseDelayMax      float64
+	GreetBeforeDelayMin      float64 // 打招呼前点击按钮的延时（秒）
+	GreetBeforeDelayMax      float64
+	RestAfterCandidatesMin   int // 处理多少候选人后摸鱼休息
+	RestAfterCandidatesMax   int
+	RestTimesMin             int // 整个任务最多摸鱼休息几次
+	RestTimesMax             int
+	RestDurationMin          float64 // 每次摸鱼休息多少分钟
+	RestDurationMax          float64
 	// 提示音和通知
 	EnableSound    bool   `json:"enable_sound"`     // 是否开启提示音
 	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱
@@ -595,6 +597,13 @@ scanLoop:
 
 				// 6. 非 AI 主模式下，如果任务要求看详情，也按配置读取详情。
 				if !needsAI && shouldFetchDetail(task) && canContinueCandidate(stringFromMap(candidate, "status")) {
+					if taskMode(task) == "keyword" && !shouldOpenDetailByProbability(options) {
+						candidate["status"] = "skipped"
+						candidate["skip_reason"] = fmt.Sprintf("未命中打开详情概率：%d%%", detailOpenProbability(options))
+						batchResult.Skipped++
+						r.taskLog(task.ID, "info", fmt.Sprintf("打开详情概率跳过：name=%s probability=%d%%", candidateLogName(candidate), detailOpenProbability(options)))
+						continue
+					}
 					r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
 					itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 					batchResult.Skipped += itemSkipped
@@ -916,6 +925,10 @@ func applyCloudPreferences(options StartOptions, preferences map[string]any) Sta
 	options.ListViewDelayMax = floatFromMapOr(preferences, "list_view_delay_max", options.ListViewDelayMax)
 	options.DetailViewDelayMin = floatFromMapOr(preferences, "detail_view_delay_min", options.DetailViewDelayMin)
 	options.DetailViewDelayMax = floatFromMapOr(preferences, "detail_view_delay_max", options.DetailViewDelayMax)
+	if _, ok := preferences["detail_open_probability"]; ok {
+		options.DetailOpenProbability = intFromMapOr(preferences, "detail_open_probability", options.DetailOpenProbability)
+		options.detailOpenProbabilitySet = true
+	}
 	options.DetailOpenDelayMin = floatFromMapOr(preferences, "detail_open_delay_min", options.DetailOpenDelayMin)
 	options.DetailOpenDelayMax = floatFromMapOr(preferences, "detail_open_delay_max", options.DetailOpenDelayMax)
 	options.DetailCloseDelayMin = floatFromMapOr(preferences, "detail_close_delay_min", options.DetailCloseDelayMin)
@@ -1516,6 +1529,22 @@ func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title s
 	})
 }
 
+// showKeywordMatchOverlay 在浏览器浮层中展示 OCR 关键词匹配结果。
+// ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
+func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
+	state := buildKeywordMatchState(task, candidate)
+	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/keyword-overlay", map[string]any{
+		"action":           "show",
+		"title":            "关键词匹配",
+		"subtitle":         candidateLogName(candidate),
+		"keywords":         state.Keywords,
+		"exclude_keywords": state.Excludes,
+		"matched_keywords": state.Matched,
+		"matched_excludes": state.Excluded,
+		"text":             state.Text,
+	})
+}
+
 // playAIThinking 周期性刷新浏览器里的 AI 思考步骤。
 // ctx 为请求上下文，exec 为 Worker 执行器，steps 为要展示的思考过程。
 func (r *Runner) playAIThinking(ctx context.Context, exec platformExecutor, title string, subtitle string, steps []string, thinkingCh <-chan string, done <-chan struct{}) {
@@ -1674,6 +1703,7 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task locald
 		return 0, nil
 	}
 	if taskMode(task) == "keyword" {
+		r.showKeywordMatchOverlay(ctx, exec, task, candidate)
 		return r.applyKeywordGreetDecision(task, candidate), nil
 	}
 	visibleClient, cleanup := r.aiClientForCall(ctx, exec, client, "AI 正在评分", candidateLogName(candidate), "正在根据候选人详情判断是否适合打招呼")
@@ -1699,35 +1729,58 @@ func applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int 
 	return applyKeywordGreetDecisionWithLog(task, candidate, nil)
 }
 
-// applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
-// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
-func applyKeywordGreetDecisionWithLog(task localdb.Task, candidate map[string]any, logf func(string)) int {
+// keywordMatchState 保存一次关键词匹配结果。
+type keywordMatchState struct {
+	Keywords []string
+	Excludes []string
+	Matched  []string
+	Excluded []string
+	Text     string
+	AndMode  bool
+}
+
+// buildKeywordMatchState 汇总候选人文本并计算关键词命中情况。
+// task 为任务记录，candidate 为候选人。
+func buildKeywordMatchState(task localdb.Task, candidate map[string]any) keywordMatchState {
 	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
 	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
-	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
-	text := strings.ToLower(strings.Join([]string{
+	text := strings.TrimSpace(strings.Join([]string{
 		stringFromMap(candidate, "detail_text"),
 		stringFromMap(candidate, "filter_text"),
 		stringFromMap(candidate, "raw_text"),
 		stringFromMap(candidate, "ocr_text"),
 		stringFromMap(candidate, "ai_vision_text"),
 	}, " "))
-	if matched := matchedWords(text, excludes); len(matched) > 0 {
+	lowerText := strings.ToLower(text)
+	return keywordMatchState{
+		Keywords: keywords,
+		Excludes: excludes,
+		Matched:  matchedWords(lowerText, keywords),
+		Excluded: matchedWords(lowerText, excludes),
+		Text:     text,
+		AndMode:  boolFromMap(task.PositionSnapshot, "is_and_mode"),
+	}
+}
+
+// applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
+// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
+func applyKeywordGreetDecisionWithLog(task localdb.Task, candidate map[string]any, logf func(string)) int {
+	state := buildKeywordMatchState(task, candidate)
+	if len(state.Excluded) > 0 {
 		candidate["status"] = "skipped"
-		candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
-		logKeywordDecision(logf, "详情关键词跳过", candidate, "命中排除词="+strings.Join(matched, "、"))
+		candidate["skip_reason"] = "命中排除词：" + strings.Join(state.Excluded, "、")
+		logKeywordDecision(logf, "详情关键词跳过", candidate, "命中排除词="+strings.Join(state.Excluded, "、"))
 		return 1
 	}
-	matched := matchedWords(text, keywords)
-	if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
+	if len(state.Keywords) > 0 && ((!state.AndMode && len(state.Matched) == 0) || (state.AndMode && len(state.Matched) < len(state.Keywords))) {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情未命中关键词"
-		logKeywordDecision(logf, "详情关键词跳过", candidate, fmt.Sprintf("命中=%s 需要=%s", keywordListLabel(matched), keywordListLabel(keywords)))
+		logKeywordDecision(logf, "详情关键词跳过", candidate, fmt.Sprintf("命中=%s 需要=%s", keywordListLabel(state.Matched), keywordListLabel(state.Keywords)))
 		return 1
 	}
 	candidate["status"] = "passed"
-	candidate["matched_keywords"] = matched
-	logKeywordDecision(logf, "详情关键词通过", candidate, "命中="+keywordListLabel(matched))
+	candidate["matched_keywords"] = state.Matched
+	logKeywordDecision(logf, "详情关键词通过", candidate, "命中="+keywordListLabel(state.Matched))
 	return 0
 }
 
@@ -1922,6 +1975,34 @@ func scrollDistance(options StartOptions) int {
 		return 3000
 	}
 	return options.ScrollDistance
+}
+
+// detailOpenProbability 返回关键词详情阶段的打开概率。
+// options 为任务启动参数，未读取到个人配置时默认 100，避免旧任务突然不打开详情。
+func detailOpenProbability(options StartOptions) int {
+	if !options.detailOpenProbabilitySet && options.DetailOpenProbability <= 0 {
+		return 100
+	}
+	if options.DetailOpenProbability < 0 {
+		return 0
+	}
+	if options.DetailOpenProbability > 100 {
+		return 100
+	}
+	return options.DetailOpenProbability
+}
+
+// shouldOpenDetailByProbability 判断本次是否按个人概率打开详情。
+// options 为任务启动参数，返回 true 表示继续打开候选人详情。
+func shouldOpenDetailByProbability(options StartOptions) bool {
+	probability := detailOpenProbability(options)
+	if probability >= 100 {
+		return true
+	}
+	if probability <= 0 {
+		return false
+	}
+	return rand.Intn(100) < probability
 }
 
 // randomFloatRange 从浮点范围中随机一个值。

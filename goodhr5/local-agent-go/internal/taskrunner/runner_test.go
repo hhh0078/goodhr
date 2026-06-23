@@ -517,6 +517,16 @@ func TestRunOptionBounds(t *testing.T) {
 	if scrollDistance(StartOptions{ScrollDistance: 9999}) != 3000 {
 		t.Fatal("scrollDistance 上限不正确")
 	}
+	if detailOpenProbability(StartOptions{}) != 100 {
+		t.Fatal("未读取个人配置时打开详情概率应默认 100")
+	}
+	if shouldOpenDetailByProbability(StartOptions{DetailOpenProbability: 0, detailOpenProbabilitySet: true}) {
+		t.Fatal("打开详情概率为 0 时不应打开详情")
+	}
+	prefsOptions := applyCloudPreferences(StartOptions{}, map[string]any{"detail_open_probability": 0})
+	if detailOpenProbability(prefsOptions) != 0 || shouldOpenDetailByProbability(prefsOptions) {
+		t.Fatal("个人配置里的 0 概率应生效")
+	}
 	for i := 0; i < 20; i++ {
 		distance := randomScrollDistance(StartOptions{})
 		if distance < 560 || distance > 880 {
