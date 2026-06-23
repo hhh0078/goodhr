@@ -288,7 +288,7 @@ export default function PositionsPage() {
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
         description='按运行顺序填写。只有当前选择模式需要的字段会显示。'
-        maxWidth='lg'
+        maxWidth='md'
         confirmText={form.id ? "保存修改" : "创建岗位"}
         loading={loading}
         confirmDisabled={!form.name.trim()}
@@ -379,7 +379,7 @@ export default function PositionsPage() {
               {
                 value: "ocr",
                 label: "OCR 识别",
-                description: "离线识别截图文字，速度快。",
+                description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
               },
               {
                 value: "ai",
@@ -475,7 +475,8 @@ export default function PositionsPage() {
                     <Typography
                       sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
                     >
-                      第一次分析决定是否打开详情，第二次分析决定是否打招呼。
+                      请将JD岗位要求复制到“岗位要求”中，点击“AI
+                      优化岗位要求”按钮，AI会自动优化。
                     </Typography>
                   </Box>
                   <Button
@@ -503,6 +504,8 @@ export default function PositionsPage() {
                       })
                     }
                     multiline
+                    fullWidth
+                    placeholder='必须有3年以上教学经验，必须有教师资格证，学历年龄 等基础条件可以在平台提前筛选好，更不要写跟岗位要求无关的 比如 岗位福利，工作环境等。'
                     minRows={7}
                     helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
@@ -674,9 +677,7 @@ function PromptField({
         multiline
         minRows={6}
         fullWidth
-        placeholder={
-          defaultValue ? "已加载系统默认提示词" : emptyPlaceholder
-        }
+        placeholder={defaultValue ? "已加载系统默认提示词" : emptyPlaceholder}
       />
       <Typography
         sx={{
