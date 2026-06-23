@@ -4,6 +4,7 @@ package taskrunner
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf16"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -2813,8 +2815,9 @@ func soundPlayCommand(filePath string) (*exec.Cmd, error) {
 		if err != nil {
 			return nil, fmt.Errorf("系统未找到 PowerShell 播放器")
 		}
-		script := `$player = New-Object System.Media.SoundPlayer; $player.SoundLocation = $args[0]; $player.PlaySync()`
-		return exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", script, filePath), nil
+		escapedPath := strings.ReplaceAll(filePath, "'", "''")
+		script := fmt.Sprintf(`$player = New-Object System.Media.SoundPlayer; $player.SoundLocation = '%s'; $player.PlaySync()`, escapedPath)
+		return exec.Command(powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", powershellEncodedCommand(script)), nil
 	default:
 		if player, err := exec.LookPath("paplay"); err == nil {
 			return exec.Command(player, filePath), nil
@@ -2824,6 +2827,17 @@ func soundPlayCommand(filePath string) (*exec.Cmd, error) {
 		}
 		return nil, fmt.Errorf("当前系统未找到可用音频播放器")
 	}
+}
+
+// powershellEncodedCommand 将 PowerShell 脚本编码为 -EncodedCommand 需要的 UTF-16LE Base64。
+// script 为待执行脚本，返回可直接传给 PowerShell 的编码字符串。
+func powershellEncodedCommand(script string) string {
+	encoded := utf16.Encode([]rune(script))
+	data := make([]byte, 0, len(encoded)*2)
+	for _, value := range encoded {
+		data = append(data, byte(value), byte(value>>8))
+	}
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 // fallbackSoundCommand 创建系统默认提示音命令。
