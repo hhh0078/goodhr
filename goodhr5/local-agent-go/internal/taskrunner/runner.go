@@ -1371,6 +1371,16 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		r.attachDetailScreenshot(candidate, screenshot)
 		r.taskLog(task.ID, "info", fmt.Sprintf("详情截图已返回：name=%s path=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
 		if mode == "ocr" {
+			if taskMode(task) == "keyword" {
+				r.showKeywordOCRLoadingOverlay(ctx, exec, task, candidate)
+			} else {
+				_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+					"action":   "show",
+					"title":    "AI 正在分析详情",
+					"subtitle": candidateName,
+					"message":  "OCR图文识别中...",
+				})
+			}
 			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
@@ -1542,6 +1552,22 @@ func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecu
 		"matched_keywords": state.Matched,
 		"matched_excludes": state.Excluded,
 		"text":             state.Text,
+	})
+}
+
+// showKeywordOCRLoadingOverlay 在浏览器浮层中展示 OCR 识别等待状态。
+// ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
+func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
+	state := buildKeywordMatchState(task, candidate)
+	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/keyword-overlay", map[string]any{
+		"action":           "show",
+		"title":            "关键词匹配",
+		"subtitle":         candidateLogName(candidate),
+		"keywords":         state.Keywords,
+		"exclude_keywords": state.Excludes,
+		"loading":          true,
+		"text":             "OCR图文识别中...",
+		"max_age_ms":       30000,
 	})
 }
 

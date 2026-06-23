@@ -1751,11 +1751,12 @@ async function aiOverlay(payload) {
 async function keywordOverlay(payload) {
   const currentPage = await ensurePage();
   const action = String(payload.action || "show").trim().toLowerCase();
-  if (action === "hide" || action === "close" || action === "remove") {
-    await currentPage.evaluate(() => {
-      const box = document.getElementById("__goodhr_keyword_overlay");
-      if (box) box.remove();
-    }).catch(() => {});
+ if (action === "hide" || action === "close" || action === "remove") {
+ await currentPage.evaluate(() => {
+ if (window.__goodhrKeywordOverlayTimer) clearTimeout(window.__goodhrKeywordOverlayTimer);
+ const box = document.getElementById("__goodhr_keyword_overlay");
+ if (box) box.remove();
+ }).catch(() => {});
     return { visible: false };
   }
   const title = String(payload.title || "关键词匹配").trim();
@@ -1764,8 +1765,10 @@ async function keywordOverlay(payload) {
   const excludes = cleanOverlayWords(payload.exclude_keywords || payload.excludes);
   const matchedKeywords = cleanOverlayWords(payload.matched_keywords);
   const matchedExcludes = cleanOverlayWords(payload.matched_excludes || payload.matched_exclude_keywords);
-  const text = String(payload.text || "").trim() || "OCR 未识别到文字";
-  await currentPage.evaluate(({ title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text }) => {
+ const loading = Boolean(payload.loading);
+ const text = String(payload.text || "").trim() || (loading ? "OCR图文识别中..." : "OCR 未识别到文字");
+ const maxAgeMS = Math.max(3000, Math.min(60000, Number(payload.max_age_ms || payload.maxAgeMS || 20000)));
+ await currentPage.evaluate(({ title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text, maxAgeMS }) => {
     const chip = (word, color, bg) => {
       const item = document.createElement("span");
       item.textContent = word;
@@ -1808,7 +1811,11 @@ async function keywordOverlay(payload) {
       });
       if (last < source.length) wrap.appendChild(document.createTextNode(source.slice(last)));
     };
-    let box = document.getElementById("__goodhr_keyword_overlay");
+ const removeOverlay = () => {
+ const oldBox = document.getElementById("__goodhr_keyword_overlay");
+ if (oldBox) oldBox.remove();
+ };
+ let box = document.getElementById("__goodhr_keyword_overlay");
     if (!box) {
       box = document.createElement("div");
       box.id = "__goodhr_keyword_overlay";
@@ -1816,8 +1823,10 @@ async function keywordOverlay(payload) {
     }
     const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
     const width = Math.min(360, Math.max(260, vw - 32));
-    box.style.cssText = "position:fixed;right:16px;top:16px;z-index:2147483647;width:" + width + "px;box-sizing:border-box;padding:14px;border-radius:14px;background:rgba(252,250,244,.96);color:#18221d;box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.45;pointer-events:none;border:1px solid rgba(48,79,63,.18);backdrop-filter:saturate(1.1) blur(10px);";
-    box.innerHTML = [
+ box.style.cssText = "position:fixed;right:16px;top:16px;z-index:2147483647;width:" + width + "px;box-sizing:border-box;padding:14px;border-radius:14px;background:rgba(252,250,244,.96);color:#18221d;box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.45;pointer-events:none;border:1px solid rgba(48,79,63,.18);backdrop-filter:saturate(1.1) blur(10px);";
+ if (window.__goodhrKeywordOverlayTimer) clearTimeout(window.__goodhrKeywordOverlayTimer);
+ window.__goodhrKeywordOverlayTimer = setTimeout(removeOverlay, maxAgeMS);
+ box.innerHTML = [
       '<div style="font-size:14px;font-weight:750;color:#18221d;"></div>',
       '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
       '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
@@ -1833,7 +1842,7 @@ async function keywordOverlay(payload) {
     renderWords(grid.children[3], excludes, matchedExcludes, "#b4232c", "rgba(180,35,44,.14)");
     highlightText(box.children[5], text, matchedKeywords, matchedExcludes);
     box.children[5].scrollTop = 0;
-  }, { title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text });
+ }, { title, subtitle, keywords, excludes, matchedKeywords, matchedExcludes, text, maxAgeMS });
   return { visible: true, title, subtitle };
 }
 

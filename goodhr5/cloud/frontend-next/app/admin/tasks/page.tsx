@@ -91,6 +91,12 @@ export default function TasksPage() {
   }, []);
 
   useEffect(() => {
+    const taskIDs = tasks.map((task) => String(task.id || "")).filter(Boolean);
+    if (!agentBase || taskIDs.length === 0) return;
+    void syncLocalRunningStates(taskIDs);
+  }, [agentBase, tasks]);
+
+  useEffect(() => {
     const ids = Object.keys(runningTaskIDs).filter(
       (taskID) => runningTaskIDs[taskID],
     );
@@ -109,6 +115,29 @@ export default function TasksPage() {
       })),
     [runningTaskIDs, tasks],
   );
+
+  /** syncLocalRunningStates 批量同步本地任务真实运行状态。 */
+  async function syncLocalRunningStates(taskIDs: string[]) {
+    if (!agentBase) return;
+    const results = await Promise.allSettled(
+      taskIDs.map(async (taskID) => {
+        const data = await localRequest(
+          agentBase,
+          `/api/v1/local/tasks/${encodeURIComponent(taskID)}/status`,
+        );
+        return { taskID, running: data.running === true };
+      }),
+    );
+    setRunningTaskIDs((current) => {
+      const next = { ...current };
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          next[result.value.taskID] = result.value.running;
+        }
+      });
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!agentBase || !expandedLogTaskID) return;
@@ -241,6 +270,10 @@ export default function TasksPage() {
         agentBase,
         `/api/v1/local/tasks/${encodeURIComponent(taskID)}/status`,
       );
+      if (data.running === true) {
+        setRunningTaskIDs((current) => ({ ...current, [taskID]: true }));
+        return;
+      }
       if (data.running === false) {
         setRunningTaskIDs((current) => ({ ...current, [taskID]: false }));
         await load();
