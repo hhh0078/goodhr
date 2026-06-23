@@ -27,7 +27,10 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { platformIconSrc, platformLabel } from "@/components/admin/PlatformLogo";
+import PlatformLogo, {
+  platformIconSrc,
+  platformLabel,
+} from "@/components/admin/PlatformLogo";
 import { cloudRequest } from "@/lib/admin-api";
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
@@ -252,16 +255,27 @@ export default function PositionsPage() {
               >
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 760 }}>{item.name}</Typography>
-                  <Typography
-                    sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
+                  <Stack
+                    direction='row'
+                    spacing={0.75}
+                    sx={{
+                      mt: 0.5,
+                      alignItems: "center",
+                      color: "text.secondary",
+                      flexWrap: "wrap",
+                    }}
                   >
-                    {platformLabel(item.platform_id)} ·{" "}
-                    {item.common_config?.mode_default === "ai"
-                      ? "AI 筛选"
-                      : "关键词筛选"}{" "}
-                    · 详情：{detailModeLabel(item.common_config?.detail_mode)} ·
-                    关键词：{(item.keywords || []).join(" / ") || "无"}
-                  </Typography>
+                    <PlatformLogo platformID={item.platform_id} size={20} />
+                    <Typography sx={{ fontSize: 13 }}>
+                      {platformLabel(item.platform_id)} ·{" "}
+                      {item.common_config?.mode_default === "ai"
+                        ? "AI 筛选"
+                        : "关键词筛选"}{" "}
+                      · 详情：
+                      {detailModeLabel(item.common_config?.detail_mode)} ·
+                      关键词：{(item.keywords || []).join(" / ") || "无"}
+                    </Typography>
+                  </Stack>
                 </Box>
                 <Stack direction='row' spacing={1}>
                   <Button
@@ -329,7 +343,6 @@ export default function PositionsPage() {
                 label: "Boss直聘",
                 description: "支持 OCR 和 AI 详情识别。",
                 iconSrc: platformIconSrc("boss"),
-                iconOnly: true,
               },
               {
                 value: "zhaopin",
@@ -342,7 +355,6 @@ export default function PositionsPage() {
                 label: "猎聘",
                 description: "平台适配开发中。",
                 iconSrc: platformIconSrc("liepin"),
-                iconOnly: true,
                 disabled: true,
               },
             ]}

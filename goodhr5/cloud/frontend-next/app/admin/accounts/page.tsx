@@ -186,9 +186,9 @@ export default function AccountsPage() {
             columns={3}
             onChange={(value) => setForm({ ...form, platform_id: String(value) })}
             options={[
-              { value: "boss", label: "Boss直聘", description: "当前主要支持的平台。", iconSrc: platformIconSrc("boss"), iconOnly: true },
+              { value: "boss", label: "Boss直聘", description: "当前主要支持的平台。", iconSrc: platformIconSrc("boss") },
               { value: "zhaopin", label: "智联招聘", description: "平台适配开发中。", disabled: true },
-              { value: "liepin", label: "猎聘", description: "平台适配开发中。", iconSrc: platformIconSrc("liepin"), iconOnly: true, disabled: true },
+              { value: "liepin", label: "猎聘", description: "平台适配开发中。", iconSrc: platformIconSrc("liepin"), disabled: true },
             ]}
           />
           <TextField
