@@ -2,6 +2,7 @@
 package taskrunner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -2775,16 +2776,26 @@ func (r *Runner) playSound(soundName string, taskID string) {
 // cmd 为播放命令，taskID 为任务 ID，label 为提示音名称。
 func (r *Runner) startSoundCommand(cmd *exec.Cmd, taskID string, label string) {
 	hideCommandWindow(cmd)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	if err := cmd.Start(); err != nil {
 		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
 		return
 	}
-	r.taskLog(taskID, "info", "已触发提示音："+label)
+	r.taskLog(taskID, "info", "提示音播放命令已启动："+label)
 	// 非阻塞——不等待播放结束，避免卡主流程
 	go func() {
 		if err := cmd.Wait(); err != nil {
+			detail := strings.TrimSpace(output.String())
+			if detail != "" {
+				r.taskLog(taskID, "warning", "提示音播放进程异常："+err.Error()+"，输出："+detail)
+				return
+			}
 			r.taskLog(taskID, "warning", "提示音播放进程异常："+err.Error())
+			return
 		}
+		r.taskLog(taskID, "info", "提示音播放成功："+label)
 	}()
 }
 

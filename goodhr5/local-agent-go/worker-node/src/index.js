@@ -1019,7 +1019,8 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
   await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
   await currentPage.waitForTimeout(1500);
   const forceScroll = Boolean(payload.force_scroll || payload.scroll_full || payload.forceScroll);
-  const scrollState = await pageScrollState(currentPage);
+  const scrollPoint = { x: mouseX, y: mouseY };
+  const scrollState = await pageScrollState(currentPage, scrollPoint);
   const scrollDelta = Math.max(Math.round(clipHeight * 0.72), 1);
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(1, Math.min(12, Number(payload.max_scrolls || payload.screenshot_max_scrolls || 10)));
@@ -1052,7 +1053,7 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
-    const beforeShot = await pageScrollState(currentPage);
+    const beforeShot = await pageScrollState(currentPage, scrollPoint);
     logWorker("详情截图准备保存：页面分段", {
       filename,
       part: index + 1,
@@ -1079,11 +1080,12 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
     });
     logWorker("详情截图保存：页面分段", { filename, part: index + 1, size: stat.size, beforeShot });
     previousBuffer = currentBuffer;
-    const beforeScroll = await pageScrollState(currentPage);
+    const beforeScroll = await pageScrollState(currentPage, scrollPoint);
     await currentPage.mouse.wheel(0, scrollDelta);
     await currentPage.waitForTimeout(2000);
-    const afterScroll = await pageScrollState(currentPage);
+    const afterScroll = await pageScrollState(currentPage, scrollPoint);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
+    const hasExpectedMoreParts = parts.length < Math.min(maxScrolls, Math.max(2, estimatedByBox));
     logWorker("详情截图滚轮：页面滚动后状态", {
       filename,
       part: index + 1,
@@ -1091,6 +1093,9 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       after: afterScroll.top,
       moved,
       maxed: afterScroll.maxed,
+      hasExpectedMoreParts,
+      targetBefore: beforeScroll.target,
+      targetAfter: afterScroll.target,
     });
     const round = {
       part: index + 1,
@@ -1102,13 +1107,13 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
       moved,
       maxed: afterScroll.maxed,
     };
-    if (afterScroll.maxed || moved < 3) {
+    if ((afterScroll.maxed || moved < 3) && !hasExpectedMoreParts) {
       round.stop_reason = afterScroll.maxed ? "maxed_after_scroll" : "moved_lt_3";
       debugRounds.push(round);
       logWorker("详情截图停止：页面滚动已到底或未移动", { filename, part: index + 1, moved, maxed: afterScroll.maxed, beforeScroll, afterScroll, stopReason: round.stop_reason });
       break;
     }
-    round.stop_reason = "";
+    round.stop_reason = afterScroll.maxed || moved < 3 ? "continue_for_expected_parts" : "";
     debugRounds.push(round);
   }
   logWorker("详情截图完成：滚轮滚动页面", { filename, parts: parts.length, debugRounds });
@@ -1137,16 +1142,47 @@ async function screenshotLocatorParts(currentPage, box, viewport, directory, fil
 /**
  * 读取页面当前滚动状态。
  * @param {any} currentPage - Playwright 页面对象。
- * @returns {Promise<Record<string, number|boolean>>} 页面滚动状态。
+ * @param {{x:number,y:number}=} point - 鼠标所在视口位置，用于定位实际滚动容器。
+ * @returns {Promise<Record<string, any>>} 页面滚动状态。
  */
-async function pageScrollState(currentPage) {
-  return currentPage.evaluate(() => {
+async function pageScrollState(currentPage, point) {
+  return currentPage.evaluate((mousePoint) => {
     const doc = document.scrollingElement || document.documentElement;
     const docTop = Math.round(doc?.scrollTop || window.scrollY || 0);
     const docHeight = Math.round(doc?.scrollHeight || document.documentElement.scrollHeight || 0);
     const docClientHeight = Math.round(doc?.clientHeight || window.innerHeight || 0);
     let top = docTop;
     let canScrollMore = docTop < Math.max(docHeight - docClientHeight - 2, 0);
+    let target = null;
+    if (mousePoint && Number.isFinite(mousePoint.x) && Number.isFinite(mousePoint.y)) {
+      const start = document.elementFromPoint(mousePoint.x, mousePoint.y);
+      let node = start instanceof HTMLElement ? start : null;
+      let depth = 0;
+      while (node && depth < 12) {
+        const scrollHeight = Math.round(node.scrollHeight || 0);
+        const clientHeight = Math.round(node.clientHeight || 0);
+        const scrollTop = Math.round(node.scrollTop || 0);
+        const style = window.getComputedStyle(node);
+        const overflowY = style.overflowY || "";
+        if (scrollHeight > clientHeight + 8 && !["hidden", "clip"].includes(overflowY)) {
+          const maxTop = Math.max(scrollHeight - clientHeight - 2, 0);
+          target = {
+            tag: node.tagName,
+            className: String(node.className || "").slice(0, 120),
+            scrollTop,
+            scrollHeight,
+            clientHeight,
+            overflowY,
+            maxed: scrollTop >= maxTop,
+          };
+          top += scrollTop * 3;
+          if (!target.maxed) canScrollMore = true;
+          break;
+        }
+        node = node.parentElement;
+        depth += 1;
+      }
+    }
     for (const el of Array.from(document.querySelectorAll("*"))) {
       const node = /** @type {HTMLElement} */ (el);
       const scrollHeight = Math.round(node.scrollHeight || 0);
@@ -1166,8 +1202,14 @@ async function pageScrollState(currentPage) {
       scrollHeight: docHeight,
       clientHeight: docClientHeight,
       maxed: !canScrollMore,
+      doc: {
+        scrollTop: docTop,
+        scrollHeight: docHeight,
+        clientHeight: docClientHeight,
+      },
+      target,
     };
-  }).catch(() => ({ top: 0, height: 0, scrollHeight: 0, clientHeight: 0, maxed: false }));
+  }, point || null).catch(() => ({ top: 0, height: 0, scrollHeight: 0, clientHeight: 0, maxed: false, target: null }));
 }
 
 /**
