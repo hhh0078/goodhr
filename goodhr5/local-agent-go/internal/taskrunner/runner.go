@@ -239,6 +239,7 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	task = snapshot.Task
 	options = snapshot.Options
 	options.EnableSound = task.EnableSound
+	r.initRestState(taskID, options)
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
 	r.taskLog(taskID, "info", "本地任务运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, task, snapshot.PlatformConfig, options)
@@ -643,6 +644,9 @@ scanLoop:
 					r.saveCandidateResult(ctx, task, candidate, options)
 					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已处理：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
 					batchResult.Saved++
+				}
+				if err := r.maybeRestAfterCandidate(ctx, task.ID, options); err != nil {
+					return nil, err
 				}
 			}
 
@@ -1922,6 +1926,64 @@ func waitBeforeGreet(ctx context.Context, r *Runner, taskID string, options Star
 		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
 	}
 	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
+}
+
+// initRestState 初始化本次任务的模拟休息计划。
+// taskID 为任务 ID，options 为任务启动参数。
+func (r *Runner) initRestState(taskID string, options StartOptions) {
+	maxTimes := randomIntRange(options.RestTimesMin, options.RestTimesMax)
+	nextAfter := randomIntRange(options.RestAfterCandidatesMin, options.RestAfterCandidatesMax)
+	if maxTimes <= 0 || nextAfter <= 0 || options.RestDurationMax <= 0 {
+		return
+	}
+	r.mu.Lock()
+	state := r.running[taskID]
+	if state != nil {
+		state.restMaxTimes = maxTimes
+		state.restUsed = 0
+		state.restNextAfter = nextAfter
+		state.restSinceLast = 0
+	}
+	r.mu.Unlock()
+	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息已启用：最多休息 %d 次，首次约处理 %d 人后休息", maxTimes, nextAfter))
+}
+
+// maybeRestAfterCandidate 在候选人处理后按计划模拟休息。
+// ctx 为任务上下文，taskID 为任务 ID，options 为任务启动参数。
+func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, options StartOptions) error {
+	r.mu.Lock()
+	state := r.running[taskID]
+	if state == nil || state.restMaxTimes <= 0 || state.restUsed >= state.restMaxTimes || state.restNextAfter <= 0 {
+		r.mu.Unlock()
+		return nil
+	}
+	state.restSinceLast++
+	if state.restSinceLast < state.restNextAfter {
+		r.mu.Unlock()
+		return nil
+	}
+	processed := state.restSinceLast
+	state.restUsed++
+	restIndex := state.restUsed
+	state.restSinceLast = 0
+	state.restNextAfter = randomIntRange(options.RestAfterCandidatesMin, options.RestAfterCandidatesMax)
+	r.mu.Unlock()
+
+	maxDuration := options.RestDurationMax
+	if maxDuration < options.RestDurationMin {
+		maxDuration = options.RestDurationMin
+	}
+	durationMinutes := randomFloatRange(options.RestDurationMin, maxDuration)
+	if durationMinutes <= 0 {
+		return nil
+	}
+	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息：已连续处理 %d 人，第 %d 次休息 %.1f 分钟", processed, restIndex, durationMinutes))
+	r.updateProgress(taskID, Progress{Stage: "resting", Message: fmt.Sprintf("模拟休息中，预计 %.1f 分钟", durationMinutes)})
+	if err := sleepWithContext(ctx, time.Duration(durationMinutes*float64(time.Minute))); err != nil {
+		return err
+	}
+	r.updateProgress(taskID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
+	return nil
 }
 
 // sleepWithContext 带停止信号地等待。

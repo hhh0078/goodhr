@@ -1753,9 +1753,10 @@ async function keywordOverlay(payload) {
   const action = String(payload.action || "show").trim().toLowerCase();
  if (action === "hide" || action === "close" || action === "remove") {
  await currentPage.evaluate(() => {
- if (window.__goodhrKeywordOverlayTimer) clearTimeout(window.__goodhrKeywordOverlayTimer);
- const box = document.getElementById("__goodhr_keyword_overlay");
- if (box) box.remove();
+ const ctx = window.__gohCtx = window.__gohCtx || {};
+ if (ctx.keywordTimer) clearTimeout(ctx.keywordTimer);
+ if (ctx.keywordCard && ctx.keywordCard.parentNode) ctx.keywordCard.remove();
+ ctx.keywordCard = null;
  }).catch(() => {});
     return { visible: false };
   }
@@ -1811,21 +1812,22 @@ async function keywordOverlay(payload) {
       });
       if (last < source.length) wrap.appendChild(document.createTextNode(source.slice(last)));
     };
+ const ctx = window.__gohCtx = window.__gohCtx || {};
  const removeOverlay = () => {
- const oldBox = document.getElementById("__goodhr_keyword_overlay");
- if (oldBox) oldBox.remove();
+ if (ctx.keywordCard && ctx.keywordCard.parentNode) ctx.keywordCard.remove();
+ ctx.keywordCard = null;
  };
- let box = document.getElementById("__goodhr_keyword_overlay");
-    if (!box) {
-      box = document.createElement("div");
-      box.id = "__goodhr_keyword_overlay";
-      document.body.appendChild(box);
-    }
+ let box = ctx.keywordCard && ctx.keywordCard.parentNode ? ctx.keywordCard : null;
+ if (!box) {
+ box = document.createElement("div");
+ document.body.appendChild(box);
+ ctx.keywordCard = box;
+ }
     const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
     const width = Math.min(360, Math.max(260, vw - 32));
  box.style.cssText = "position:fixed;right:16px;top:16px;z-index:2147483647;width:" + width + "px;box-sizing:border-box;padding:14px;border-radius:14px;background:rgba(252,250,244,.96);color:#18221d;box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.45;pointer-events:none;border:1px solid rgba(48,79,63,.18);backdrop-filter:saturate(1.1) blur(10px);";
- if (window.__goodhrKeywordOverlayTimer) clearTimeout(window.__goodhrKeywordOverlayTimer);
- window.__goodhrKeywordOverlayTimer = setTimeout(removeOverlay, maxAgeMS);
+ if (ctx.keywordTimer) clearTimeout(ctx.keywordTimer);
+ ctx.keywordTimer = setTimeout(removeOverlay, maxAgeMS);
  box.innerHTML = [
       '<div style="font-size:14px;font-weight:750;color:#18221d;"></div>',
       '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',

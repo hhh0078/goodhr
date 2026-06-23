@@ -214,6 +214,28 @@ func TestFreshCandidatesDedupesByPlatformID(t *testing.T) {
 	}
 }
 
+// TestMaybeRestAfterCandidate 验证候选人处理后会按模拟休息配置进入休息路径。
+func TestMaybeRestAfterCandidate(t *testing.T) {
+	runner := &Runner{running: map[string]*runState{"task-rest": &runState{progress: Progress{Stage: "running"}}}}
+	options := StartOptions{
+		RestAfterCandidatesMin: 1,
+		RestAfterCandidatesMax: 1,
+		RestTimesMin:           1,
+		RestTimesMax:           1,
+		RestDurationMin:        1,
+		RestDurationMax:        1,
+	}
+	runner.initRestState("task-rest", options)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := runner.maybeRestAfterCandidate(ctx, "task-rest", options); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if runner.running["task-rest"].restUsed != 1 {
+		t.Fatalf("restUsed = %d", runner.running["task-rest"].restUsed)
+	}
+}
+
 // TestPlatformEntryURL 验证平台入口页读取规则与云端运行时一致。
 func TestPlatformEntryURL(t *testing.T) {
 	config := cloudapi.PlatformConfig{
