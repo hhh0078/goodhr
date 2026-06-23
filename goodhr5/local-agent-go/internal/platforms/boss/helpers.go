@@ -35,6 +35,18 @@ func intFromMap(item map[string]any, key string) int {
 	return 0
 }
 
+// formatElapsedMS 将毫秒耗时格式化成适合任务日志展示的文本。
+// value 为毫秒数，小于等于零时返回 0ms。
+func formatElapsedMS(value int) string {
+	if value <= 0 {
+		return "0ms"
+	}
+	if value < 1000 {
+		return fmt.Sprintf("%dms", value)
+	}
+	return fmt.Sprintf("%.1fs", float64(value)/1000)
+}
+
 // mapFromAny 将任意值转成 map。
 // value 为原始值。
 func mapFromAny(value any) map[string]any {

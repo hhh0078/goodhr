@@ -527,6 +527,7 @@ async function listClickByIndex(payload) {
  * @returns {Promise<Record<string, any>>} 候选人列表。
  */
 async function extractBossCandidates(payload) {
+  const startedAt = Date.now();
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
   const rawMaxItems = Number(payload.max_items || 0);
@@ -537,6 +538,7 @@ async function extractBossCandidates(payload) {
     fields: rules.field_requests,
     max_items: maxItems,
   });
+  const foundAt = Date.now();
   const candidates = [];
   for (const item of findResp.items || []) {
     try {
@@ -558,7 +560,14 @@ async function extractBossCandidates(payload) {
       continue;
     }
   }
-  return { candidates, count: candidates.length };
+  return {
+    candidates,
+    count: candidates.length,
+    found_count: Number(findResp.count || (findResp.items || []).length || 0),
+    find_elapsed_ms: foundAt - startedAt,
+    convert_elapsed_ms: Date.now() - foundAt,
+    elapsed_ms: Date.now() - startedAt,
+  };
 }
 
 /**
