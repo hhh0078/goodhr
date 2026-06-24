@@ -108,10 +108,7 @@ export default function UsersPage() {
 
   return <>
     <PageHeader title="用户管理" description="查看注册、登录、会员、用户画像和本地程序绑定情况。" actions={<RefreshButton loading={loading} onClick={() => void load()} />} />
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(2, 220px)" }, gap: 1.5, mb: 2 }}>
-      <Metric label="今日注册" value={Number(stats.today_registered_count || 0)} />
-      <Metric label="绑定程序" value={Number(stats.agent_binding_count || 0)} />
-    </Box>
+    <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>今日注册 {Number(stats.today_registered_count || 0)} 人，绑定程序 {Number(stats.agent_binding_count || 0)} 台</Typography>
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(260px, 520px) 110px auto auto" }, gap: 1.25, mb: 2, alignItems: "center" }}>
       <TextField size="small" label="搜索用户" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(1); }} placeholder="邮箱、角色、状态或邀请人" />
       <TextField select size="small" label="每页" value={pageSize} onChange={(event) => { const size = Number(event.target.value); setPageSize(size); void load(1, size); }}>
@@ -229,11 +226,6 @@ function UserActions({ item, openAdjust, unbind }: { item: AdminUserItem; openAd
     <Button size="small" onClick={() => openAdjust(item, -7)}>减天数</Button>
     <Button size="small" color="error" startIcon={<LinkOffRoundedIcon />} onClick={() => void unbind(item)}>解绑</Button>
   </Stack>;
-}
-
-/** Metric 展示用户管理顶部统计。 */
-function Metric({ label, value }: { label: string; value: number }) {
-  return <Box sx={{ p: 2, bgcolor: "#f7faf8", border: "1px solid", borderColor: "divider", borderRadius: "8px" }}><Typography color="text.secondary" sx={{ fontSize: 13 }}>{label}</Typography><Typography sx={{ mt: 0.5, fontSize: 30, fontWeight: 800 }}>{value}</Typography></Box>;
 }
 
 /** SmallTag 展示用户画像小标签。 */
