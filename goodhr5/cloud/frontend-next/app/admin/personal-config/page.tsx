@@ -4,6 +4,7 @@
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
@@ -24,7 +25,8 @@ export default function PersonalConfigPage() {
   const { notify } = useAdmin();
   const [form, setForm] = useState({ ...defaults });
   const [keySet, setKeySet] = useState(false);
-  const [loading, setLoading] = useState(false);
+	const [loading, setLoading] = useState(false);
+	const [profileOpenSignal, setProfileOpenSignal] = useState(0);
 
   /** load 读取个人 AI 配置和操作偏好。 */
   async function load() {
@@ -82,8 +84,8 @@ export default function PersonalConfigPage() {
   }
 
 	return <>
-	<NotificationProfileDialog />
-	<PageHeader title="个人配置" description="设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。" actions={<><Button variant="outlined" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()}>测试 AI</Button><Button variant="contained" startIcon={<SaveRoundedIcon />} disabled={loading} onClick={() => void save()}>{loading ? "处理中" : "保存配置"}</Button></>} />
+	<NotificationProfileDialog openSignal={profileOpenSignal} />
+	<PageHeader title="个人配置" description="设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。" actions={<><Button variant="outlined" startIcon={<NotificationsActiveRoundedIcon />} onClick={() => setProfileOpenSignal((value) => value + 1)}>通知偏好</Button><Button variant="outlined" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()}>测试 AI</Button><Button variant="contained" startIcon={<SaveRoundedIcon />} disabled={loading} onClick={() => void save()}>{loading ? "处理中" : "保存配置"}</Button></>} />
 
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" }, gap: 2, mb: 2 }}>
       <QuickLink href="/videos" icon={<PlayCircleOutlineRoundedIcon />} eyebrow="新手推荐" title="查看视频教程" description="按视频一步步完成 AI 平台申请、接口填写、测试和保存。" primary />

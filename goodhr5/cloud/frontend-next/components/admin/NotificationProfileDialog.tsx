@@ -25,7 +25,7 @@ const genders = [
   { value: "unknown", label: "不方便说" },
 ];
 
-const platforms = ["BOSS直聘", "智联招聘", "智联猎头端", "前程无忧", "猎聘", "脉脉", "LinkedIn"];
+const platforms = ["BOSS直聘", "智联招聘", "猎聘猎头端", "前程无忧", "猎聘", "脉脉", "LinkedIn"];
 
 type NotificationProfile = {
   completed?: boolean;
@@ -38,7 +38,7 @@ type NotificationProfile = {
 };
 
 /** NotificationProfileDialog 渲染轻量邮件通知画像收集流程。 */
-export default function NotificationProfileDialog() {
+export default function NotificationProfileDialog({ openSignal = 0 }: { openSignal?: number }) {
   const { notify } = useAdmin();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
@@ -71,6 +71,12 @@ export default function NotificationProfileDialog() {
       alive = false;
     };
   }, [device.browser, device.os]);
+
+  useEffect(() => {
+    if (!openSignal) return;
+    setStep(1);
+    setOpen(true);
+  }, [openSignal]);
 
   /** cancel 记录用户本次跳过，避免重复打扰。 */
   async function cancel() {

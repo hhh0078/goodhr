@@ -14,15 +14,16 @@ import (
 
 // AdminUser 表示超级管理员页面可见的用户信息。
 type AdminUser struct {
-	ID           string        `json:"id"`
-	Email        string        `json:"email"`
-	Role         string        `json:"role"`
-	Status       string        `json:"status"`
-	InviterEmail string        `json:"inviter_email"`
-	Agent        *AgentBinding `json:"agent,omitempty"`
-	Subscription Subscription  `json:"subscription"`
-	CreatedAt    time.Time     `json:"created_at"`
-	LastLoginAt  *time.Time    `json:"last_login_at,omitempty"`
+	ID                  string              `json:"id"`
+	Email               string              `json:"email"`
+	Role                string              `json:"role"`
+	Status              string              `json:"status"`
+	InviterEmail        string              `json:"inviter_email"`
+	Agent               *AgentBinding       `json:"agent,omitempty"`
+	Subscription        Subscription        `json:"subscription"`
+	NotificationProfile NotificationProfile `json:"notification_profile"`
+	CreatedAt           time.Time           `json:"created_at"`
+	LastLoginAt         *time.Time          `json:"last_login_at,omitempty"`
 }
 
 // AdminUserListQuery 表示后台用户列表查询条件。
@@ -222,15 +223,16 @@ func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 // publicAdminUser 转换用户信息为前端响应。
 func publicAdminUser(user AdminUser) map[string]any {
 	return map[string]any{
-		"id":            user.ID,
-		"email":         user.Email,
-		"role":          user.Role,
-		"status":        user.Status,
-		"inviter_email": user.InviterEmail,
-		"agent":         publicAdminAgent(user.Agent),
-		"subscription":  publicSubscription(user.Subscription),
-		"created_at":    user.CreatedAt,
-		"last_login_at": user.LastLoginAt,
+		"id":                   user.ID,
+		"email":                user.Email,
+		"role":                 user.Role,
+		"status":               user.Status,
+		"inviter_email":        user.InviterEmail,
+		"agent":                publicAdminAgent(user.Agent),
+		"subscription":         publicSubscription(user.Subscription),
+		"notification_profile": user.NotificationProfile,
+		"created_at":           user.CreatedAt,
+		"last_login_at":        user.LastLoginAt,
 	}
 }
 
@@ -381,6 +383,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			COALESCE(u.role, 'user'),
 			COALESCE(u.status, 'active'),
 			u.subscription,
+			u.notification_profile,
 			u.created_at,
 			u.last_login_at,
 			COALESCE(inviter.email, '')
@@ -399,8 +402,9 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 	for rows.Next() {
 		var user AdminUser
 		var rawSubscription []byte
+		var rawNotificationProfile []byte
 		var lastLoginAt sql.NullTime
-		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &user.CreatedAt, &lastLoginAt, &user.InviterEmail); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)
@@ -408,6 +412,11 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			return AdminUserListResult{}, err
 		}
 		user.Subscription = subscription
+		notificationProfile, err := decodeNotificationProfile(rawNotificationProfile)
+		if err != nil {
+			return AdminUserListResult{}, err
+		}
+		user.NotificationProfile = notificationProfile
 		if lastLoginAt.Valid {
 			user.LastLoginAt = &lastLoginAt.Time
 		}
