@@ -130,6 +130,14 @@ func (c Config) UserPreferencesStore(db *sql.DB) UserPreferencesStore {
 	return NewMemoryUserPreferencesStore()
 }
 
+// NotificationProfileStore 创建邮件通知画像存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) NotificationProfileStore(db *sql.DB) NotificationProfileStore {
+	if db != nil {
+		return NewPostgresNotificationProfileStore(db)
+	}
+	return NewMemoryNotificationProfileStore()
+}
+
 // PlatformAccountStore 创建平台账号映射存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) PlatformAccountStore(db *sql.DB) PlatformAccountStore {
 	if db != nil {

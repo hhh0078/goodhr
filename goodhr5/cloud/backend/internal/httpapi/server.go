@@ -14,28 +14,29 @@ type updateAdminSystemConfigRequest struct {
 }
 
 type Server struct {
-	auth             *AuthService
-	agent            *AgentService
-	agentWS          *AgentWSHub
-	ai               *AIConfigService
-	userPreferences  *UserPreferencesService
-	platformAccounts *PlatformAccountService
-	positions        *PositionService
-	tasks            *TaskService
-	taskLogs         *TaskLogService
-	candidates       *CandidateService
-	subscriptions    *SubscriptionService
-	payments         *PaymentService
-	onboarding       *OnboardingService
-	invitations      *InvitationService
-	activationCodes  *ActivationCodeService
-	adminUsers       *AdminUserService
-	publicStats      *PublicStatsService
-	dailyStats       SystemDailyStatsStore
-	help             *HelpService
-	systemConfigs    SystemConfigStore
-	tenants          *TenantService
-	cookies          *CookieService
+	auth                *AuthService
+	agent               *AgentService
+	agentWS             *AgentWSHub
+	ai                  *AIConfigService
+	userPreferences     *UserPreferencesService
+	notificationProfile *NotificationProfileService
+	platformAccounts    *PlatformAccountService
+	positions           *PositionService
+	tasks               *TaskService
+	taskLogs            *TaskLogService
+	candidates          *CandidateService
+	subscriptions       *SubscriptionService
+	payments            *PaymentService
+	onboarding          *OnboardingService
+	invitations         *InvitationService
+	activationCodes     *ActivationCodeService
+	adminUsers          *AdminUserService
+	publicStats         *PublicStatsService
+	dailyStats          SystemDailyStatsStore
+	help                *HelpService
+	systemConfigs       SystemConfigStore
+	tenants             *TenantService
+	cookies             *CookieService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -75,32 +76,34 @@ func NewServer() (*Server, error) {
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
+	notificationProfileStore := config.NotificationProfileStore(db)
 	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, NewHaoshoumiProvider(config))
 	return &Server{
-		auth:             auth,
-		agent:            NewAgentService(auth, agentStore, systemConfigStore),
-		agentWS:          agentWS,
-		ai:               NewAIConfigService(auth, aiConfigStore),
-		userPreferences:  NewUserPreferencesService(auth, userPreferencesStore),
-		platformAccounts: NewPlatformAccountService(auth, platformAccountStore, tenantStore),
-		positions:        NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:            NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore),
-		taskLogs:         taskLogs,
-		candidates:       NewCandidateService(auth, candidateStore, tenantStore),
-		subscriptions:    NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
-		payments:         paymentService,
-		onboarding:       NewOnboardingService(auth, onboardingStore, systemConfigStore),
-		invitations:      NewInvitationService(auth, invitationStore, systemConfigStore),
-		activationCodes:  NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
-		adminUsers:       NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
-		publicStats:      NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
-		dailyStats:       dailyStatsStore,
-		help:             NewHelpService(auth, systemConfigStore, aiConfigStore),
-		systemConfigs:    systemConfigStore,
-		tenants:          NewTenantService(auth, tenantStore),
-		cookies:          NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
+		auth:                auth,
+		agent:               NewAgentService(auth, agentStore, systemConfigStore),
+		agentWS:             agentWS,
+		ai:                  NewAIConfigService(auth, aiConfigStore),
+		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
+		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
+		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
+		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
+		tasks:               NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore),
+		taskLogs:            taskLogs,
+		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
+		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
+		payments:            paymentService,
+		onboarding:          NewOnboardingService(auth, onboardingStore, systemConfigStore),
+		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
+		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
+		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
+		publicStats:         NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
+		dailyStats:          dailyStatsStore,
+		help:                NewHelpService(auth, systemConfigStore, aiConfigStore),
+		systemConfigs:       systemConfigStore,
+		tenants:             NewTenantService(auth, tenantStore),
+		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
 }
 
@@ -124,6 +127,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/test-ai", s.ai.Test)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
+	mux.HandleFunc("/api/config/notification-profile", s.notificationProfile.User)
 	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)

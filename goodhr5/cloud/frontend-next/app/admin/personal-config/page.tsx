@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
 
 const defaults = { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", model: "qwen3.7-plus", api_key: "", click_frequency: 80, detail_open_probability: 80, detail_open_delay_min: 1, detail_open_delay_max: 2, detail_close_delay_min: 0, detail_close_delay_max: 0, greet_before_delay_min: 1, greet_before_delay_max: 2, rest_after_candidates_min: 40, rest_after_candidates_max: 70, rest_times_min: 2, rest_times_max: 3, rest_duration_min: 2, rest_duration_max: 7 };
 
@@ -80,8 +81,9 @@ export default function PersonalConfigPage() {
     setForm((current) => ({ ...current, [key]: Number(value || 0) }));
   }
 
-  return <>
-    <PageHeader title="个人配置" description="设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。" actions={<><Button variant="outlined" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()}>测试 AI</Button><Button variant="contained" startIcon={<SaveRoundedIcon />} disabled={loading} onClick={() => void save()}>{loading ? "处理中" : "保存配置"}</Button></>} />
+	return <>
+	<NotificationProfileDialog />
+	<PageHeader title="个人配置" description="设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。" actions={<><Button variant="outlined" startIcon={<ScienceRoundedIcon />} disabled={loading} onClick={() => void testAI()}>测试 AI</Button><Button variant="contained" startIcon={<SaveRoundedIcon />} disabled={loading} onClick={() => void save()}>{loading ? "处理中" : "保存配置"}</Button></>} />
 
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" }, gap: 2, mb: 2 }}>
       <QuickLink href="/videos" icon={<PlayCircleOutlineRoundedIcon />} eyebrow="新手推荐" title="查看视频教程" description="按视频一步步完成 AI 平台申请、接口填写、测试和保存。" primary />
