@@ -52,7 +52,7 @@ import {
 import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
-import { cloudRequest, detectLocalAgent, formatDate } from "@/lib/admin-api";
+import { bindLocalAgent, cloudRequest, detectLocalAgent, formatDate } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
@@ -180,6 +180,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       const nextBase = await detectLocalAgent(agentBaseRef.current);
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
+      if (nextBase) void bindLocalAgent(nextBase).catch(() => {});
     } finally {
       agentChecking.current = false;
     }

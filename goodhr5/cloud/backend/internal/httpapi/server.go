@@ -65,7 +65,7 @@ func NewServer() (*Server, error) {
 	if config.RedisAddr != "" {
 		log.Print("Redis 连接检查成功")
 	}
-	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.SuperAdmins)
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), config.SuperAdmins)
 	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	dailyStatsStore := config.SystemDailyStatsStore(db)

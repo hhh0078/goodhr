@@ -7,6 +7,8 @@ export const CLOUD_API_BASE = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https:
 export const LOCAL_AGENT_PORTS = Array.from({ length: 9 }, (_, index) => 55271 + index);
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
+const LOCAL_AGENT_BIND_CACHE_MS = 60_000;
+const LOCAL_AGENT_BIND_CACHE_KEY = "goodhr5_local_agent_bind_cache";
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean };
 
@@ -76,8 +78,47 @@ export async function openLocalPage(baseURL: string, payload: unknown) {
 
 /** currentLocalPageURL 读取本地浏览器当前页面地址。 */
 export async function currentLocalPageURL(baseURL: string) {
-  const data = await localRequest(baseURL, "/api/v1/page/url");
-  return String(data?.url || "");
+ const data = await localRequest(baseURL, "/api/v1/page/url");
+ return String(data?.url || "");
+}
+
+/** bindLocalAgent 将当前本地程序绑定信息上报云端。 */
+export async function bindLocalAgent(baseURL: string) {
+ if (!baseURL || !getToken()) return;
+ const cacheKey = `${LOCAL_AGENT_BIND_CACHE_KEY}:${baseURL}`;
+ const lastBoundAt = Number(localStorage.getItem(cacheKey) || 0);
+ if (Date.now() - lastBoundAt < LOCAL_AGENT_BIND_CACHE_MS) return;
+ const health = await localRequest(baseURL, "/health");
+ const machineID = await localAgentMachineID(baseURL, health);
+ await cloudRequest("/api/agents/bind", {
+  method: "POST",
+  body: {
+   machine_id: machineID,
+   agent_version: String(health?.version || health?.agent_version || ""),
+   local_port: Number(health?.port || baseURL.match(/:(\d+)$/)?.[1] || 0),
+  },
+ });
+ localStorage.setItem(cacheKey, String(Date.now()));
+}
+
+/** localAgentMachineID 生成当前本地程序稳定机器码。 */
+async function localAgentMachineID(baseURL: string, health: any) {
+ const stableParts = [
+  health?.machine_id,
+  health?.machineId,
+  health?.dataDir,
+  health?.data_dir,
+  health?.dbPath,
+  health?.db_path,
+ ].filter(Boolean).join("|");
+ return `local-${await sha256(stableParts || baseURL)}`;
+}
+
+/** sha256 计算短哈希字符串。 */
+async function sha256(value: string) {
+ const bytes = new TextEncoder().encode(value);
+ const hash = await crypto.subtle.digest("SHA-256", bytes);
+ return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** detectLocalAgent 探测本地程序端口，并合并短时间内的重复探测。 */

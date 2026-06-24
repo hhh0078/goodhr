@@ -26,6 +26,7 @@ type AuthService struct {
 	invitations     InvitationStore
 	subscriptions   SubscriptionStore
 	systemConfigs   SystemConfigStore
+	userActivity    UserActivityStore
 	superAdmins     map[string]struct{}
 }
 
@@ -39,7 +40,7 @@ type loginRequest struct {
 	InviterID string `json:"inviter_id"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, superAdmins []string) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, superAdmins []string) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -57,6 +58,7 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		invitations:     invitations,
 		subscriptions:   subscriptions,
 		systemConfigs:   systemConfigs,
+		userActivity:    userActivity,
 		superAdmins:     superAdminMap,
 	}
 }
@@ -157,6 +159,10 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: now,
 	}, sessionTTL); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save session")
+		return
+	}
+	if err := s.userActivity.RecordLogin(email, now); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record login")
 		return
 	}
 
