@@ -29,6 +29,7 @@ type AdminUserItem = {
   subscription?: { member_type?: string; expires_at?: string; active?: boolean };
   agent?: { machine_id?: string; agent_version?: string };
   notification_profile?: NotificationProfile;
+  flow?: { current_step?: string; completed?: boolean; steps?: { key: string; name: string; done: boolean }[] };
 };
 
 /** UsersPage 提供超级管理员用户列表和用户操作。 */
@@ -130,8 +131,9 @@ export default function UsersPage() {
                 <TableCell sx={{ width: "32%" }}>用户</TableCell>
                 <TableCell sx={{ width: "16%" }}>会员</TableCell>
                 <TableCell sx={{ width: "18%" }}>时间</TableCell>
-                <TableCell sx={{ width: "18%" }}>本地程序</TableCell>
-                <TableCell sx={{ width: "16%" }}>操作</TableCell>
+                <TableCell sx={{ width: "16%" }}>本地程序</TableCell>
+                <TableCell sx={{ width: "12%" }}>流程卡点</TableCell>
+                <TableCell sx={{ width: "12%" }}>操作</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -140,6 +142,7 @@ export default function UsersPage() {
                 <TableCell><SubscriptionInfo item={item} /></TableCell>
                 <TableCell><TimeInfo item={item} /></TableCell>
                 <TableCell><AgentInfo item={item} /></TableCell>
+                <TableCell><FlowInfo item={item} /></TableCell>
                 <TableCell><UserActions item={item} openAdjust={openAdjust} unbind={unbind} /></TableCell>
               </TableRow>)}
             </TableBody>
@@ -175,6 +178,7 @@ function UserCard({ item, openAdjust, unbind }: { item: AdminUserItem; openAdjus
       <TimeInfo item={item} />
     </Box>
     <Box sx={{ mt: 1.5 }}><AgentInfo item={item} /></Box>
+    <Box sx={{ mt: 1.5 }}><FlowInfo item={item} /></Box>
     <Box sx={{ mt: 1.5 }}><UserActions item={item} openAdjust={openAdjust} unbind={unbind} /></Box>
   </Box>;
 }
@@ -218,6 +222,12 @@ function AgentInfo({ item }: { item: AdminUserItem }) {
     <Typography noWrap sx={{ color: "text.secondary", fontSize: 11 }}>{item.agent?.agent_version || "暂无版本"}</Typography>
   </Stack>;
 }
+
+/** FlowInfo 展示用户当前流程卡点。 */
+function FlowInfo({ item }: { item: AdminUserItem }) { const label = item.flow?.current_step || "暂无"; return <Stack spacing={0.5}>
+    <Typography sx={{ fontSize: 12, fontWeight: 720 }}>流程卡点</Typography>
+    <Chip size="small" color={item.flow?.completed ? "success" : "warning"} label={label} sx={{ width: "fit-content", maxWidth: "100%" }} />
+  </Stack>; }
 
 /** UserActions 展示用户管理操作按钮。 */
 function UserActions({ item, openAdjust, unbind }: { item: AdminUserItem; openAdjust: (item: AdminUserItem, days: number) => void; unbind: (item: AdminUserItem) => Promise<void> }) {

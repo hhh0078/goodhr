@@ -22,8 +22,23 @@ type AdminUser struct {
 	Agent               *AgentBinding       `json:"agent,omitempty"`
 	Subscription        Subscription        `json:"subscription"`
 	NotificationProfile NotificationProfile `json:"notification_profile"`
+	Flow                AdminUserFlow       `json:"flow"`
 	CreatedAt           time.Time           `json:"created_at"`
 	LastLoginAt         *time.Time          `json:"last_login_at,omitempty"`
+}
+
+// AdminUserFlow 表示用户关键流程完成情况。
+type AdminUserFlow struct {
+	Steps       []AdminUserFlowStep `json:"steps"`
+	CurrentStep string              `json:"current_step"`
+	Completed   bool                `json:"completed"`
+}
+
+// AdminUserFlowStep 表示用户流程中的一个是/否节点。
+type AdminUserFlowStep struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Done bool   `json:"done"`
 }
 
 // AdminUserListQuery 表示后台用户列表查询条件。
@@ -231,6 +246,7 @@ func publicAdminUser(user AdminUser) map[string]any {
 		"agent":                publicAdminAgent(user.Agent),
 		"subscription":         publicSubscription(user.Subscription),
 		"notification_profile": user.NotificationProfile,
+		"flow":                 user.Flow,
 		"created_at":           user.CreatedAt,
 		"last_login_at":        user.LastLoginAt,
 	}
@@ -249,6 +265,25 @@ func publicAdminAgent(agent *AgentBinding) map[string]any {
 		"last_seen_at":  agent.LastSeenAt,
 		"created_at":    agent.CreatedAt,
 	}
+}
+
+// buildAdminUserFlow 生成用户流程链条和当前卡点。
+// hasAgent 到 hasPaid 依次表示流程节点是否完成。
+func buildAdminUserFlow(hasAgent bool, hasAI bool, hasPlatformAccount bool, hasPosition bool, hasGreeted bool, hasPaid bool) AdminUserFlow {
+	steps := []AdminUserFlowStep{
+		{Key: "local_agent", Name: "未绑定本地程序", Done: hasAgent},
+		{Key: "ai_config", Name: "未配置AI", Done: hasAI},
+		{Key: "platform_account", Name: "未创建平台账号", Done: hasPlatformAccount},
+		{Key: "position", Name: "未创建岗位", Done: hasPosition},
+		{Key: "greet_success", Name: "未打招呼成功", Done: hasGreeted},
+		{Key: "paid", Name: "未支付", Done: hasPaid},
+	}
+	for _, step := range steps {
+		if !step.Done {
+			return AdminUserFlow{Steps: steps, CurrentStep: step.Name, Completed: false}
+		}
+	}
+	return AdminUserFlow{Steps: steps, CurrentStep: "流程完成", Completed: true}
 }
 
 // adminUserListQueryFromRequest 从请求中读取用户列表分页和搜索条件。
@@ -317,6 +352,7 @@ func (s *MemoryAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserLis
 			Role:         "user",
 			Status:       "active",
 			Subscription: subscription,
+			Flow:         buildAdminUserFlow(false, false, false, false, false, subscriptionActive(subscription)),
 			CreatedAt:    s.subscriptions.now(),
 		})
 	}
@@ -386,7 +422,13 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			u.notification_profile,
 			u.created_at,
 			u.last_login_at,
-			COALESCE(inviter.email, '')
+			COALESCE(inviter.email, ''),
+			EXISTS (SELECT 1 FROM local_agents la WHERE la.user_id = u.id AND la.bind_status = 'active'),
+			EXISTS (SELECT 1 FROM user_ai_configs ai WHERE ai.user_id = u.id AND ai.enabled = true AND COALESCE(ai.base_url, '') <> '' AND COALESCE(ai.model, '') <> '' AND COALESCE(ai.api_key_encrypted, '') <> ''),
+			EXISTS (SELECT 1 FROM platform_accounts pa WHERE pa.user_id = u.id),
+			EXISTS (SELECT 1 FROM positions p WHERE p.user_id = u.id),
+			EXISTS (SELECT 1 FROM task_runs tr WHERE tr.user_id = u.id AND (tr.greeted_count > 0 OR tr.daily_greeted_count > 0)),
+			EXISTS (SELECT 1 FROM payment_orders po WHERE po.user_id = u.id AND po.status = 'paid')
 		FROM users u
 		LEFT JOIN users inviter ON inviter.id = u.inviter_id
 		WHERE `+whereSQL+`
@@ -404,7 +446,8 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		var rawSubscription []byte
 		var rawNotificationProfile []byte
 		var lastLoginAt sql.NullTime
-		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail); err != nil {
+		var hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid bool
+		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)
@@ -417,6 +460,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			return AdminUserListResult{}, err
 		}
 		user.NotificationProfile = notificationProfile
+		user.Flow = buildAdminUserFlow(hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid)
 		if lastLoginAt.Valid {
 			user.LastLoginAt = &lastLoginAt.Time
 		}
