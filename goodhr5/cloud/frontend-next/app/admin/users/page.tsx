@@ -75,7 +75,7 @@ export default function UsersPage() {
   /** adjust 提交会员天数调整。 */
   async function adjust() {
     try {
-      await cloudRequest("/api/admin/users", { method: "PUT", body: form });
+      await cloudRequest("/api/admin/users", { method: "POST", body: form });
       notify("会员时间已调整", "success");
       setDialogOpen(false);
       await load();
