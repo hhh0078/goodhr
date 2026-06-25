@@ -160,6 +160,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
   const agentChecking = useRef(false);
+  const agentBindNoticeShown = useRef(false);
   const [notice, setNotice] = useState({
     open: false,
     message: "",
@@ -180,7 +181,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       const nextBase = await detectLocalAgent(agentBaseRef.current);
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
-      if (nextBase) void bindLocalAgent(nextBase).catch(() => {});
+      if (nextBase) void bindLocalAgent(nextBase).catch((error) => {
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("已经绑定") && !agentBindNoticeShown.current) {
+          agentBindNoticeShown.current = true;
+          notify("我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。", "warning");
+        }
+      });
     } finally {
       agentChecking.current = false;
     }
