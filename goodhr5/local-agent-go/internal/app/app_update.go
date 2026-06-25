@@ -2,6 +2,7 @@
 package app
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
 	"io"
@@ -160,15 +161,20 @@ func (s *Server) runAppUpdate(ctx context.Context, downloadURL string, targetVer
 		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 0})
 		return
 	}
+	installerPath, err := prepareAppInstaller(packagePath)
+	if err != nil {
+		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 100, PackagePath: packagePath})
+		return
+	}
 	appUpdateState.set(appUpdateProgress{
 		Running:     true,
 		Stage:       "install",
 		Message:     "下载完成，正在启动安装更新",
 		Percent:     100,
-		PackagePath: packagePath,
+		PackagePath: installerPath,
 	})
-	if err := startAppInstaller(packagePath); err != nil {
-		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 100, PackagePath: packagePath})
+	if err := startAppInstaller(installerPath); err != nil {
+		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 100, PackagePath: installerPath})
 		return
 	}
 	go func() {
@@ -281,6 +287,99 @@ func appUpdatePackageName(downloadURL string, targetVersion string) string {
 	}
 	versionText = strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-").Replace(versionText)
 	return "goodhr-local-agent-update-" + versionText + ext
+}
+
+// prepareAppInstaller 准备可启动的安装器路径。
+// packagePath 为下载后的文件，zip 包会先解压并查找 exe 安装器。
+func prepareAppInstaller(packagePath string) (string, error) {
+	if runtime.GOOS != "windows" || !strings.EqualFold(filepath.Ext(packagePath), ".zip") {
+		return packagePath, nil
+	}
+	targetDir := strings.TrimSuffix(packagePath, filepath.Ext(packagePath))
+	if err := os.RemoveAll(targetDir); err != nil {
+		return "", fmt.Errorf("清理更新解压目录失败：%w", err)
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建更新解压目录失败：%w", err)
+	}
+	installerPath, err := extractAppUpdateZip(packagePath, targetDir)
+	if err != nil {
+		return "", err
+	}
+	return installerPath, nil
+}
+
+// extractAppUpdateZip 解压自动更新 zip，并返回其中的 exe 安装器路径。
+// archivePath 为 zip 包路径，targetDir 为安全解压目录。
+func extractAppUpdateZip(archivePath string, targetDir string) (string, error) {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("打开更新压缩包失败：%w", err)
+	}
+	defer reader.Close()
+	installerPath := ""
+	for _, file := range reader.File {
+		targetPath, err := safeAppUpdatePath(targetDir, file.Name)
+		if err != nil {
+			return "", err
+		}
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return "", err
+		}
+		src, err := file.Open()
+		if err != nil {
+			return "", err
+		}
+		dst, err := os.Create(targetPath)
+		if err != nil {
+			_ = src.Close()
+			return "", err
+		}
+		_, copyErr := io.Copy(dst, src)
+		closeErr := dst.Close()
+		_ = src.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		if installerPath == "" && strings.EqualFold(filepath.Ext(targetPath), ".exe") {
+			installerPath = targetPath
+		}
+	}
+	if installerPath == "" {
+		return "", fmt.Errorf("更新压缩包内未找到 exe 安装器")
+	}
+	return installerPath, nil
+}
+
+// safeAppUpdatePath 返回 zip 条目的安全落盘路径。
+// targetDir 为解压根目录，name 为 zip 内部文件名。
+func safeAppUpdatePath(targetDir string, name string) (string, error) {
+	cleanName := filepath.Clean(name)
+	if filepath.IsAbs(cleanName) || cleanName == "." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) || cleanName == ".." {
+		return "", fmt.Errorf("更新压缩包包含非法路径：%s", name)
+	}
+	targetPath := filepath.Join(targetDir, cleanName)
+	absTargetDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		return "", err
+	}
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", err
+	}
+	if absTargetPath != absTargetDir && !strings.HasPrefix(absTargetPath, absTargetDir+string(os.PathSeparator)) {
+		return "", fmt.Errorf("更新压缩包包含越界路径：%s", name)
+	}
+	return targetPath, nil
 }
 
 // startAppInstaller 启动本地程序安装器。
