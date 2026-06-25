@@ -34,7 +34,7 @@ try {
   $env:CGO_ENABLED = "0"
   $env:GOOS = $TargetOS
   $env:GOARCH = $TargetArch
-  go build -trimpath -ldflags="$SubsystemFlag-s -w -X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
+  go build -trimpath -ldflags="$SubsystemFlag-X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
 }
 finally {
   Pop-Location

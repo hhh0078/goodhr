@@ -17,9 +17,9 @@ log() {
 if [ "$TARGET_OS" = "windows" ]; then
   EXT=".exe"
 fi
-LDFLAGS="-s -w"
+LDFLAGS=""
 if [ "$TARGET_OS" = "windows" ]; then
-  LDFLAGS="-H windowsgui $LDFLAGS"
+  LDFLAGS="-H windowsgui"
 fi
 
 mkdir -p "$DIST_DIR"
