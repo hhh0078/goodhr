@@ -57,13 +57,21 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"id": "2026-05-26-v1",
 						"title": "GoodHR 5 更新公告",
 						"content": "GoodHR 5 本地执行器版本从 5.0.0 起步，低版本请及时更新。",
+						"url": "",
 						"once": true,
 						"enabled": true,
 						"created_at": "2026-05-26"
 					}
-				]
+				],
+				"admin_banner": {
+					"enabled": true,
+					"text": "GoodHR 猎头管理系统已上线（完全免费），点击前往体验。",
+					"background_color": "#fff7df",
+					"text_color": "#6b4a00",
+					"url": "https://goodhr5.58it.cn"
+				}
 			}`,
-			Description: "前端公共系统配置：本地执行器版本要求和系统公告列表",
+			Description: "前端公共系统配置：本地执行器版本要求、系统公告列表和后台广告位",
 			Enabled:     true,
 		},
 		"system.subscription_plans": {

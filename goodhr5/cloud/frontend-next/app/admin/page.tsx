@@ -43,7 +43,7 @@ const guideSteps: GuideStep[] = [
 
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { user, agentBase, subscription, onboarding, refreshAgent, notify } = useAdmin();
+  const { user, agentBase, subscription, onboarding, appConfig, refreshAgent, notify } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
@@ -107,6 +107,7 @@ export default function DashboardPage() {
   const metrics = [["今日打招呼", summary.today, TaskAltRoundedIcon], ["累计打招呼", summary.total, PlayCircleRoundedIcon], ["运行中任务", summary.running, WorkRoundedIcon], ["简历数量", resumeCount, ArticleRoundedIcon]] as const;
   const doneCount = guideSteps.filter((item) => guideProgress.steps[item.key]).length;
   const showGuide = !onboarding.completed && !onboardingFinished(guideProgress);
+  const adminBanner = appConfig?.admin_banner || {};
 
   /** openAccount 使用云端账号 ID 打开对应本地浏览器档案。 */
   async function openAccount(account: any) {
@@ -127,12 +128,24 @@ export default function DashboardPage() {
     {showGuide ? <OnboardingGuide progress={guideProgress} doneCount={doneCount} /> : null}
 
     <Box sx={{ mt: showGuide ? 2.5 : 0, display: "grid", gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>{metrics.map(([label, value, Icon]) => <Box key={label} sx={{ p: 2, bgcolor: "#f7faf8", borderRadius: "8px", border: "1px solid", borderColor: "divider" }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Icon color="primary" /></Stack><Typography sx={{ mt: 1.5, fontSize: 31, fontWeight: 800 }}>{loading ? <CircularProgress size={22} /> : value}</Typography></Box>)}</Box>
+    {adminBanner?.enabled !== false && adminBanner?.text ? <AdminBanner banner={adminBanner} /> : null}
 
     <Box sx={{ mt: 2, display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.1fr .9fr" }, gap: 2 }}>
       <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>平台账号快捷入口</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>直接打开已登录的招聘平台账号。</Typography></Box><Button component={Link} href="/admin/accounts">管理账号</Button></Stack><Stack spacing={1} sx={{ mt: 2 }}>{accounts.length ? accounts.slice(0, 6).map((account) => <Stack key={account.id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1, borderBottom: "1px solid", borderColor: "divider" }}><PlatformLogo platformID={account.platform_id} size={32} /><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 730 }}>{account.display_name || "未命名账号"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{platformLabel(account.platform_id)} · {account.status === "available" ? "已创建" : "需要登录"}</Typography></Box><Button size="small" startIcon={<LaunchRoundedIcon />} onClick={() => void openAccount(account)}>打开</Button></Stack>) : <Typography color="text.secondary">暂无平台账号</Typography>}</Stack></SectionPanel>
       <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>本地程序</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>{agentBase ? `已连接 ${agentBase}` : "尚未检测到本地程序"}</Typography></Box><Chip color={agentBase ? "success" : "error"} label={agentBase ? "已连接" : "未连接"} /></Stack><Box sx={{ mt: 2, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}><StatusItem label="程序版本" value={runtime.version || runtime.agent_version || "--"} /><StatusItem label="会员状态" value={subscription.active ? `${subscription.member_type || "Plus"} 有效` : "免费版"} /><StatusItem label="浏览器组件" value={runtime.cloakbrowser_installed || runtime.runtime?.cloakbrowser_installed ? "已安装" : "待检查"} /><StatusItem label="OCR 组件" value={runtime.ocr_installed || runtime.runtime?.ocr_installed ? "已安装" : "可选组件"} /></Box><Stack direction="row" spacing={1} sx={{ mt: 2 }}><Button component={Link} href="/admin/agent-download" variant="contained">组件与更新</Button><Button component={Link} href="/admin/local-data" variant="outlined">诊断本地数据</Button></Stack></SectionPanel>
     </Box>
   </>;
+}
+
+/** AdminBanner 展示后台首页常驻广告位。 */
+function AdminBanner({ banner }: { banner: any }) {
+  return <Box onClick={() => openExternalURL(banner.url)} sx={{ mt: 1.5, px: { xs: 1.5, md: 2 }, py: 1.15, borderRadius: "8px", bgcolor: banner.background_color || "#fff7df", color: banner.text_color || "#6b4a00", fontSize: 13, fontWeight: 720, lineHeight: 1.7, cursor: banner.url ? "pointer" : "default", border: "1px solid rgba(107, 74, 0, .12)" }}>{banner.text}</Box>;
+}
+
+/** openExternalURL 新开页面打开配置里的外部链接。 */
+function openExternalURL(url?: string) {
+  const value = String(url || "").trim();
+  if (value) window.open(value, "_blank", "noopener,noreferrer");
 }
 
 /** OnboardingGuide 展示与旧版步骤一致的醒目新手引导。 */
