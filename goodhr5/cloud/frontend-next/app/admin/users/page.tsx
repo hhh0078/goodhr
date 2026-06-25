@@ -1,7 +1,6 @@
 /** 本文件负责超级管理员用户搜索、用户画像标签、分页、会员调整和程序解绑。 */
 "use client";
 
-import LinkOffRoundedIcon from "@mui/icons-material/LinkOffRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import { Box, Button, Chip, MenuItem, Pagination, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
@@ -171,15 +170,39 @@ export default function UsersPage() {
 
 /** UserCard 展示移动端用户卡片。 */
 function UserCard({ item, openAdjust, unbind }: { item: AdminUserItem; openAdjust: (item: AdminUserItem, days: number) => void; unbind: (item: AdminUserItem) => Promise<void> }) {
-  return <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px", bgcolor: "#fff" }}>
-    <UserIdentity item={item} />
-    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5, mt: 1.5 }}>
-      <SubscriptionInfo item={item} />
-      <TimeInfo item={item} />
+  const memberLabel = item.subscription?.active ? "会员有效" : "已过期";
+  const agentLabel = item.agent?.machine_id ? "已绑定" : "未绑定";
+  const flowLabel = item.flow?.current_step || "暂无";
+
+  return <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px", bgcolor: "#fff", boxShadow: "0 8px 20px rgba(39, 77, 55, 0.06)" }}>
+    <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+      <Typography noWrap title={item.email} sx={{ fontFamily: "monospace", fontSize: 14, fontWeight: 800, color: "#1f2a23" }}>{item.email}</Typography>
+      <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap", rowGap: 0.75 }}>
+        <SmallTag label={roleText(item.role)} />
+        <SmallTag label={statusText(item.status)} />
+        {profileTags(item.notification_profile).slice(0, 4).map((tag) => <SmallTag key={tag} label={tag} />)}
+      </Stack>
+      {item.inviter_email ? <Typography noWrap title={item.inviter_email} sx={{ color: "text.secondary", fontSize: 11 }}>邀请：{item.inviter_email}</Typography> : null}
+    </Stack>
+    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mt: 1.5 }}>
+      <MobileInfoBlock title="会员" lines={[memberLabel, item.subscription?.member_type || "免费版", formatDate(item.subscription?.expires_at)]} strong={item.subscription?.active} />
+      <MobileInfoBlock title="注册 / 登录" lines={[`注册：${formatDate(item.created_at)}`, `登录：${formatDate(item.last_login_at) || "暂无"}`]} />
+      <MobileInfoBlock title="本地程序" lines={[agentLabel, item.agent?.agent_version || "暂无版本"]} strong={Boolean(item.agent?.machine_id)} />
+      <MobileInfoBlock title="流程卡点" lines={[flowLabel]} strong={Boolean(item.flow?.completed)} />
     </Box>
-    <Box sx={{ mt: 1.5 }}><AgentInfo item={item} /></Box>
-    <Box sx={{ mt: 1.5 }}><FlowInfo item={item} /></Box>
-    <Box sx={{ mt: 1.5 }}><UserActions item={item} openAdjust={openAdjust} unbind={unbind} /></Box>
+    <Box sx={{ mt: 1.25, pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
+      <UserActions item={item} openAdjust={openAdjust} unbind={unbind} />
+    </Box>
+  </Box>;
+}
+
+/** MobileInfoBlock 展示移动端卡片里的简短信息块。 */
+function MobileInfoBlock({ title, lines, strong }: { title: string; lines: (string | undefined)[]; strong?: boolean }) {
+  return <Box sx={{ p: 1, borderRadius: "8px", bgcolor: "#f8fbf8", minWidth: 0 }}>
+    <Typography sx={{ mb: 0.5, fontSize: 11, color: "text.secondary" }}>{title}</Typography>
+    <Stack spacing={0.25}>
+      {lines.filter(Boolean).map((line, index) => <Typography key={`${title}-${index}`} noWrap title={line} sx={{ fontSize: index === 0 ? 12 : 11, fontWeight: index === 0 ? 720 : 400, color: index === 0 && strong ? "#15945f" : index === 0 ? "#1f2a23" : "text.secondary" }}>{line}</Typography>)}
+    </Stack>
   </Box>;
 }
 
@@ -232,9 +255,8 @@ function FlowInfo({ item }: { item: AdminUserItem }) { const label = item.flow?.
 /** UserActions 展示用户管理操作按钮。 */
 function UserActions({ item, openAdjust, unbind }: { item: AdminUserItem; openAdjust: (item: AdminUserItem, days: number) => void; unbind: (item: AdminUserItem) => Promise<void> }) {
   return <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", rowGap: 0.75 }}>
-    <Button size="small" onClick={() => openAdjust(item, 7)}>加天数</Button>
-    <Button size="small" onClick={() => openAdjust(item, -7)}>减天数</Button>
-    <Button size="small" color="error" startIcon={<LinkOffRoundedIcon />} onClick={() => void unbind(item)}>解绑</Button>
+    <Button size="small" onClick={() => openAdjust(item, 7)}>天数</Button>
+    <Button size="small" color="error" onClick={() => void unbind(item)}>解绑</Button>
   </Stack>;
 }
 
