@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -48,7 +49,8 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, ok := s.currentSession(w, r); !ok {
+	session, ok := s.currentSession(w, r)
+	if !ok {
 		return
 	}
 	req, ok := s.readConfigRequest(w, r)
@@ -62,11 +64,15 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), aiConfigTestTimeout)
 	defer cancel()
+	start := time.Now()
+	log.Printf("[AI配置测试] 开始 user=%s model=%s target=%s", session.Email, strings.TrimSpace(req.Model), safeAIURLForLog(normalizeAIChatCompletionsURL(req.BaseURL)))
 	content, err := s.requestAITest(ctx, req)
 	if err != nil {
+		log.Printf("[AI配置测试] 失败 user=%s model=%s target=%s elapsed=%s err=%v", session.Email, strings.TrimSpace(req.Model), safeAIURLForLog(normalizeAIChatCompletionsURL(req.BaseURL)), time.Since(start).Round(time.Millisecond), err)
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	log.Printf("[AI配置测试] 成功 user=%s model=%s target=%s elapsed=%s", session.Email, strings.TrimSpace(req.Model), safeAIURLForLog(normalizeAIChatCompletionsURL(req.BaseURL)), time.Since(start).Round(time.Millisecond))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": "AI 配置测试成功",
@@ -92,6 +98,7 @@ func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequ
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(config.APIKey))
 	req.Header.Set("Content-Type", "application/json")
+	start := time.Now()
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -100,6 +107,7 @@ func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequ
 		return "", fmt.Errorf("AI 服务连接失败：%w", err)
 	}
 	defer resp.Body.Close()
+	log.Printf("[AI配置测试] AI响应 target=%s status=%d elapsed=%s", safeAIURLForLog(req.URL.String()), resp.StatusCode, time.Since(start).Round(time.Millisecond))
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return "", fmt.Errorf("读取 AI 服务响应失败：%w", err)
@@ -127,6 +135,15 @@ func normalizeAIChatCompletionsURL(baseURL string) string {
 		return value + "/chat/completions"
 	}
 	return value + "/v1/chat/completions"
+}
+
+// safeAIURLForLog 返回脱敏后的 AI 地址，只保留协议、域名和路径。
+func safeAIURLForLog(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "<invalid-url>"
+	}
+	return parsed.Scheme + "://" + parsed.Host + parsed.Path
 }
 
 // validateAIConfigTestRequest 校验 AI 测试参数和公网 HTTPS 地址。
@@ -183,12 +200,15 @@ func dialPublicAIEndpoint(ctx context.Context, network string, address string) (
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	for _, address := range addresses {
 		if !isPublicAIIP(address.IP) {
+			log.Printf("[AI配置测试] 跳过非公网IP host=%s ip=%s", host, address.IP.String())
 			continue
 		}
 		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(address.IP.String(), port))
 		if err == nil {
+			log.Printf("[AI配置测试] 连接成功 host=%s ip=%s port=%s", host, address.IP.String(), port)
 			return conn, nil
 		}
+		log.Printf("[AI配置测试] 连接失败 host=%s ip=%s port=%s err=%v", host, address.IP.String(), port, err)
 		lastErr = err
 	}
 	if lastErr != nil {
