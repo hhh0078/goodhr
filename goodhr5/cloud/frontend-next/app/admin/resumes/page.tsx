@@ -1,25 +1,16 @@
-/** 本文件负责新版后台简历库的搜索、状态筛选、分页、详情跳转和清空。 */
+/** 本文件负责新版后台简历库的搜索、分页、详情跳转和清空。 */
 "use client";
 
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Avatar, Box, Button, Chip, InputAdornment, MenuItem, Pagination, Stack, TextField, Typography } from "@mui/material";
+import { Avatar, Box, Button, InputAdornment, MenuItem, Pagination, Stack, TextField, Typography } from "@mui/material";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest } from "@/lib/admin-api";
-import { experienceLine, normalizeCandidate, scoreText, statusText, type NormalizedCandidate } from "@/lib/candidate-normalize";
-
-const statusTabs = [
-  ["", "全部状态"],
-  ["created", "新建"],
-  ["greeted", "沟通中"],
-  ["pooled", "已入库"],
-  ["rejected", "不合适"],
-  ["blacklist", "黑名单"],
-] as const;
+import { experienceLine, normalizeCandidate, scoreText, type NormalizedCandidate } from "@/lib/candidate-normalize";
 
 /** ResumesPage 展示云端保存的候选人简历列表。 */
 export default function ResumesPage() {
@@ -27,7 +18,6 @@ export default function ResumesPage() {
   const { notify, confirm } = useAdmin();
   const [items, setItems] = useState<any[]>([]);
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState("");
   const [tasks, setTasks] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
   const [selectedTask, setSelectedTask] = useState(params.get("task_id") || "");
@@ -37,7 +27,7 @@ export default function ResumesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const taskID = params.get("task_id") || "";
-  const candidates = useMemo(() => items.map(normalizeCandidate).filter((item) => !status || item.status === status || (status === "greeted" && ["analyzed", "greeted"].includes(item.status)) || (status === "rejected" && ["skipped", "failed", "rejected"].includes(item.status))), [items, status]);
+  const candidates = useMemo(() => items.map(normalizeCandidate), [items]);
 
   /** load 按任务、关键词和页码读取简历。 */
   async function load(nextPage = page) {
@@ -71,7 +61,6 @@ export default function ResumesPage() {
   /** resetFilters 清空简历筛选条件。 */
   function resetFilters() {
     setKeyword("");
-    setStatus("");
     setSelectedTask(taskID);
     setSelectedPosition("");
     void load(1);
@@ -90,7 +79,7 @@ export default function ResumesPage() {
   }
 
   return <>
-    <PageHeader title="简历库" description={selectedTask ? "当前显示指定任务产生的简历。" : "按状态、任务、岗位和关键词筛选结构化简历。"} actions={<Button color="error" startIcon={<DeleteSweepRoundedIcon />} onClick={() => void clearAll()}>清空简历库</Button>} />
+    <PageHeader title="简历库" description={selectedTask ? "当前显示指定任务产生的简历。" : "按任务、岗位和关键词筛选结构化简历。"} actions={<Button color="error" startIcon={<DeleteSweepRoundedIcon />} onClick={() => void clearAll()}>清空简历库</Button>} />
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(240px,1fr) 220px 220px 100px auto auto" }, gap: 1.25, mb: 1.5 }}>
       <TextField size="small" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void load(1); }} placeholder="搜索姓名、岗位、公司或关键词" slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRoundedIcon /></InputAdornment> } }} />
       <TextField select size="small" label="任务" value={selectedTask} onChange={(event) => setSelectedTask(event.target.value)}><MenuItem value="">全部任务</MenuItem>{tasks.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</TextField>
@@ -99,13 +88,10 @@ export default function ResumesPage() {
       <Button variant="contained" disabled={loading} onClick={() => void load(1)}>查询</Button>
       <Button color="secondary" onClick={resetFilters}>重置</Button>
     </Box>
-    <Stack direction="row" sx={{ mb: 2, overflowX: "auto", bgcolor: "#eef4f0", borderRadius: "8px", p: 0.4, width: "fit-content", maxWidth: "100%" }}>
-      {statusTabs.map(([value, label]) => <Button key={value || "all"} size="small" color={status === value ? "primary" : "secondary"} variant={status === value ? "contained" : "text"} onClick={() => setStatus(value)} sx={{ whiteSpace: "nowrap" }}>{label}</Button>)}
-    </Stack>
     <SectionPanel sx={{ p: 0, overflow: "hidden" }}>
       {candidates.length ? <>
         <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "1.1fr 1.6fr .8fr", px: 2, py: 1.5, bgcolor: "#fafbfa", borderBottom: "1px solid", borderColor: "divider", "& p": { fontWeight: 800 } }}>
-          <Typography>候选人</Typography><Typography>经历</Typography><Typography>推荐</Typography>
+          <Typography>候选人</Typography><Typography>经历</Typography><Typography>AI分析</Typography>
         </Box>
         <Stack>{candidates.map((item) => <ResumeRow key={`${item.id}-${item.engagementId}`} item={item} />)}</Stack>
       </> : <EmptyState text={loading ? "正在读取简历" : "暂无简历"} />}
@@ -125,7 +111,7 @@ function ResumeRow({ item }: { item: NormalizedCandidate }) {
   return <Button component={Link} href={href} color="secondary" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.6fr .8fr" }, gap: { xs: 1.25, md: 2 }, alignItems: "center", width: "100%", px: 2, py: 2, textAlign: "left", borderRadius: 0, borderBottom: "1px solid", borderColor: "divider" }}>
     <Stack direction="row" spacing={1.5} sx={{ minWidth: 0, alignItems: "center" }}>
       <Avatar src={item.avatarUrl}>{item.name.slice(0, 1)}</Avatar>
-      <Box sx={{ minWidth: 0 }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography noWrap sx={{ fontWeight: 820 }}>{item.name}</Typography><Chip size="small" label={statusText(item.status)} /></Stack><Typography noWrap sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>{facts || "暂无基础信息"}</Typography><Typography noWrap sx={{ mt: 0.6 }}>{item.expectedPosition || "暂无期望职位"}</Typography></Box>
+      <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 820 }}>{item.name}</Typography><Typography noWrap sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>{facts || "暂无基础信息"}</Typography><Typography noWrap sx={{ mt: 0.6 }}>{item.expectedPosition || "暂无期望职位"}</Typography></Box>
     </Stack>
     <Stack spacing={0.6} sx={{ minWidth: 0 }}>{experiences.length ? experiences.map((line) => <Typography key={line} noWrap sx={{ fontSize: 14 }}>{line}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>
     <Stack spacing={0.8} sx={{ minWidth: 0 }}><AIText label="第一次" score={item.aiFirstAnalysis.score} reason={item.aiFirstAnalysis.reason} /><AIText label="第二次" score={item.aiSecondAnalysis.score} reason={item.aiSecondAnalysis.reason} /><AIText label="复核" score={item.aiReviewAnalysis.score} reason={item.aiReviewAnalysis.reason} /></Stack>
@@ -135,5 +121,5 @@ function ResumeRow({ item }: { item: NormalizedCandidate }) {
 /** AIText 展示一次 AI 判断结果。 */
 function AIText({ label, score, reason }: { label: string; score: unknown; reason: string }) {
   if (!reason && scoreText(score) === "无") return null;
-  return <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}><Box component="span" sx={{ color: "#16724c", fontWeight: 800 }}>{label} {scoreText(score)}</Box>{reason ? `：${reason}` : ""}</Typography>;
+  return <Typography sx={{ color: "text.secondary", fontSize: 12, lineHeight: 1.6, overflowWrap: "anywhere", whiteSpace: "normal" }}><Box component="span" sx={{ color: "#16724c", fontWeight: 800 }}>{label} {scoreText(score)}</Box>{reason ? `：${reason}` : ""}</Typography>;
 }
