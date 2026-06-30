@@ -605,6 +605,7 @@ func stablePrompt(prompt string) string {
 // buildResumeJSONExample 返回可直接入库的结构化简历 JSON 示例。
 func buildResumeJSONExample() string {
 	return `{
+  "analysis": {"score": 80, "reason": "原因"},
   "candidate_name": "徐英",
   "birth_ym": "1990-05",
   "phone": "13800000000",
@@ -616,20 +617,66 @@ func buildResumeJSONExample() string {
   "education_level": "本科",
   "expected_position": "商品经理/主管",
   "online_status": "刚刚活跃",
-  "personal_description": "有快时尚品牌10年以上和户外品牌企划买手工作经验。",
+  "personal_description": "有快时尚品牌10年以上和户外品牌企划买手工作经验，有丰富的产品开发采购经验和供应链资源。有带领3人以上买手组团队经验，所采购产品上市30天内售罄率50%以上。",
   "work_status": "在职-月内到岗",
-  "work_experiences": [{"company_name": "荟品仓", "position_name": "产品企划经理", "content": "负责商品企划、选品采购、供应商管理。", "start_ym": "2026-04", "end_ym": ""}],
-  "educations": [{"school_name": "陕西科技大学", "major_name": "服装设计与工程", "education_level": "本科", "start_ym": "2008-09", "end_ym": "2012-06"}],
-  "certificates": [{"certificate_name": "商品企划相关培训证书", "issued_by": "行业培训机构", "issued_ym": "2021-06"}],
-  "honors": [{"honor_name": "优秀买手主管", "issued_by": "云蝠服饰", "issued_ym": "2025-12", "description": "负责品类上市后售罄率表现优秀。"}],
-  "project_experiences": [{"project_name": "快时尚女装春夏商品企划", "role_name": "项目负责人", "content": "负责商品结构、价格带和上市节奏规划。", "start_ym": "2024-05", "end_ym": "2024-09"}],
-  "colleague_communications": [{"communicator_name": "招聘顾问", "communicated_at": "2026-06-30", "content": "候选人关注商品企划方向，接受上海机会。"}],
-  "ai": {
-    "detail": {"score": 70, "reason": "学历经验达标，建议核验。"},
-    "greet": {"score": 75, "reason": "商品企划经验扎实，建议沟通。"}
-  },
-  "raw_text": "徐英 22-30K\n刚刚活跃\n36岁 10年以上 本科 在职-月内到岗"
-}`
+  "work_experiences": [
+    {
+      "company_name": "荟品仓",
+      "position_name": "产品企划经理",
+      "content": "负责商品企划、选品采购、供应商管理和产品上市节奏规划。",
+      "start_ym": "2026-04",
+      "end_ym": ""
+    },
+    {
+      "company_name": "云蝠服饰",
+      "position_name": "买手主管",
+      "content": "负责买手团队管理、商品结构规划、供应链协同和销售表现复盘。",
+      "start_ym": "2024-04",
+      "end_ym": "2026-04"
+    }
+  ],
+  "educations": [
+    {
+      "school_name": "陕西科技大学",
+      "major_name": "服装设计与工程",
+      "education_level": "本科",
+      "start_ym": "2008-09",
+      "end_ym": "2012-06"
+    }
+  ],
+  "certificates": [
+    {
+      "certificate_name": "商品企划相关培训证书",
+      "issued_by": "行业培训机构",
+      "issued_ym": "2021-06"
+    }
+  ],
+  "honors": [
+    {
+      "honor_name": "优秀买手主管",
+      "issued_by": "云蝠服饰",
+      "issued_ym": "2025-12",
+      "description": "负责品类上市后售罄率表现优秀。"
+    }
+  ],
+  "project_experiences": [
+    {
+      "project_name": "快时尚女装春夏商品企划",
+      "role_name": "项目负责人",
+      "content": "负责商品结构、价格带、供应商协同和上市节奏规划。",
+      "start_ym": "2024-05",
+      "end_ym": "2024-09"
+    }
+  ],
+  "colleague_communications": [
+    {
+      "communicator_name": "招聘顾问",
+      "communicated_at": "2026-06-30",
+      "content": "候选人关注商品企划方向，接受上海机会。"
+    }
+  ],
+}
+`
 }
 
 // buildVisionSystemPrompt 构建视觉识别稳定规则。
