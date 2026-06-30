@@ -26,10 +26,11 @@ import {
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
-  experienceLine,
   normalizeCandidate,
+  periodText,
   scoreText,
   type NormalizedCandidate,
+  type NormalizedExperience,
   type NormalizedNote,
 } from "@/lib/candidate-normalize";
 
@@ -344,10 +345,7 @@ function ResumeRow({
   ]
     .filter(Boolean)
     .join("  ");
-  const experiences = [...item.workExperiences, ...item.educations]
-    .map(experienceLine)
-    .filter(Boolean)
-    .slice(0, 3);
+  const experiences = [...item.workExperiences, ...item.educations].slice(0, 3);
   return (
     <Box
       sx={{
@@ -405,10 +403,11 @@ function ResumeRow({
       </Button>
       <Stack spacing={0.6} sx={{ minWidth: 0 }}>
         {experiences.length ? (
-          experiences.map((line) => (
-            <Typography key={line} noWrap sx={{ fontSize: 14 }}>
-              {line}
-            </Typography>
+          experiences.map((experience, index) => (
+            <ExperienceSummary
+              key={`${experience.companyName || experience.schoolName || experience.projectName || index}-${index}`}
+              item={experience}
+            />
           ))
         ) : (
           <Typography color='text.secondary'>暂无经历</Typography>
@@ -428,6 +427,32 @@ function ResumeRow({
       </Stack>
       <NotePreview notes={item.notes} onClick={() => onOpenNotes(item)} />
     </Box>
+  );
+}
+
+/** ExperienceSummary 展示简历库列表中的经历摘要。 */
+function ExperienceSummary({ item }: { item: NormalizedExperience }) {
+  const mainText = item.companyName || item.schoolName || item.projectName || "";
+  const detailText = [
+    item.positionName || item.majorName || item.roleName || item.educationLevel,
+    periodText(item),
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  if (!mainText && !detailText) return null;
+
+  return (
+    <Typography noWrap sx={{ fontSize: 14 }}>
+      {item.companyName ? (
+        <Box component='span' sx={{ fontWeight: 820 }}>
+          {item.companyName}
+        </Box>
+      ) : (
+        mainText
+      )}
+      {detailText ? `${mainText ? " / " : ""}${detailText}` : ""}
+    </Typography>
   );
 }
 
