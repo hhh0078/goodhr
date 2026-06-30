@@ -86,7 +86,7 @@ func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequ
 	if err != nil {
 		return "", fmt.Errorf("AI 测试参数生成失败：%w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(config.BaseURL), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeAIChatCompletionsURL(config.BaseURL), bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("AI 接口地址无效：%w", err)
 	}
@@ -112,6 +112,21 @@ func (s *AIConfigService) requestAITest(ctx context.Context, config aiConfigRequ
 		return "", errors.New("AI 服务响应中没有可用内容，请检查模型名称")
 	}
 	return content, nil
+}
+
+// normalizeAIChatCompletionsURL 补全 OpenAI 兼容的 chat/completions 调用地址。
+func normalizeAIChatCompletionsURL(baseURL string) string {
+	value := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if value == "" {
+		return ""
+	}
+	if strings.HasSuffix(value, "/chat/completions") {
+		return value
+	}
+	if strings.HasSuffix(value, "/v1") {
+		return value + "/chat/completions"
+	}
+	return value + "/v1/chat/completions"
 }
 
 // validateAIConfigTestRequest 校验 AI 测试参数和公网 HTTPS 地址。
@@ -164,11 +179,20 @@ func dialPublicAIEndpoint(ctx context.Context, network string, address string) (
 	if err != nil {
 		return nil, err
 	}
+	var lastErr error
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	for _, address := range addresses {
 		if !isPublicAIIP(address.IP) {
 			continue
 		}
-		return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(address.IP.String(), port))
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(address.IP.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	return nil, errors.New("AI 接口未解析到可用的公网地址")
 }

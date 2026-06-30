@@ -169,6 +169,30 @@ func TestAIConfigTestProxy(t *testing.T) {
 	}
 }
 
+// TestAIConfigTestProxyNormalizesBaseURL 验证 AI 测试会补全 OpenAI 兼容调用地址。
+func TestAIConfigTestProxyNormalizesBaseURL(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "1224299352@qq.com")
+	server.ai.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://token-plan.example.com/compatible-mode/v1/chat/completions" {
+			t.Fatalf("AI request URL = %q", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"成功"}}]}`)),
+		}, nil
+	})}
+	req := httptest.NewRequest(http.MethodPost, "/api/config/test-ai", bytes.NewBufferString(`{"base_url":"https://token-plan.example.com/compatible-mode/v1","model":"test-model","api_key":"test-secret"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("test AI status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+}
+
 // TestAIConfigTestRejectsAnonymous 验证匿名用户不能借助云端测试任意 AI 地址。
 func TestAIConfigTestRejectsAnonymous(t *testing.T) {
 	server := mustNewServer(t)
