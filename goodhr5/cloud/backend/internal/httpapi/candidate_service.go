@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,6 +14,10 @@ type CandidateService struct {
 	auth        *AuthService
 	store       CandidateStore
 	tenantStore TenantStore
+}
+
+type candidateNoteRequest struct {
+	Content string `json:"content"`
 }
 
 // NewCandidateService 创建候选人查询服务。
@@ -141,6 +146,76 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Notes 处理候选人备注列表和新增请求。
+// 路径格式为 /api/candidates/{id}/notes，权限沿用简历详情可见范围。
+func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.store == nil || s.tenantStore == nil {
+		writeError(w, http.StatusInternalServerError, "candidate store not ready")
+		return
+	}
+	candidateID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/candidates/"), "/notes")
+	if candidateID == "" || candidateID == r.URL.Path {
+		writeError(w, http.StatusBadRequest, "candidate id required")
+		return
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed get tenant")
+		return
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	if _, err := s.store.GetTaskCandidate(tenant.ID, candidateID, "", session.Email, isAdmin); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "candidate not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed load candidate")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		notes, err := s.store.ListCandidateNotes(tenant.ID, candidateID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed list notes")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "notes": publicCandidateNotes(notes)})
+	case http.MethodPost:
+		var req candidateNoteRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		content := strings.TrimSpace(req.Content)
+		if content == "" {
+			writeError(w, http.StatusBadRequest, "备注内容不能为空")
+			return
+		}
+		if len([]rune(content)) > 1000 {
+			writeError(w, http.StatusBadRequest, "备注有点长，我先小声拦一下，控制在1000字内")
+			return
+		}
+		noteEvent, err := s.store.SaveCandidateEvent(CandidateEvent{
+			CandidateID: candidateID,
+			EventType:   "manual_note",
+			MessageText: content,
+			Metadata:    map[string]any{"author_email": session.Email},
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed save note")
+			return
+		}
+		note := CandidateNote{ID: noteEvent.ID, CandidateID: candidateID, Content: content, AuthorEmail: session.Email, CreatedAt: noteEvent.CreatedAt}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "note": publicCandidateNote(note)})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // currentSession 从请求中解析当前登录会话。
 func (s *CandidateService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
@@ -211,12 +286,35 @@ func publicTaskCandidate(item TaskCandidate) map[string]any {
 			"detail": map[string]any{"score": item.AIDetailScore, "reason": item.AIDetailReason},
 			"greet":  map[string]any{"score": item.AIGreetScore, "reason": item.AIGreetReason},
 		},
+		"notes":             publicCandidateNotes(item.Notes),
 		"raw_text":          item.RawText,
 		"first_seen_at":     item.FirstSeenAt,
 		"detail_fetched_at": item.DetailFetchedAt,
 		"greeted_at":        item.GreetedAt,
 		"created_at":        item.CreatedAt,
 		"updated_at":        item.UpdatedAt,
+	}
+}
+
+// publicCandidateNotes 将备注列表转换为前端响应结构。
+// items 为候选人备注记录，返回安全数组。
+func publicCandidateNotes(items []CandidateNote) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, publicCandidateNote(item))
+	}
+	return result
+}
+
+// publicCandidateNote 将单条备注转换为前端响应结构。
+// item 为候选人备注记录。
+func publicCandidateNote(item CandidateNote) map[string]any {
+	return map[string]any{
+		"id":           item.ID,
+		"candidate_id": item.CandidateID,
+		"content":      item.Content,
+		"author_email": item.AuthorEmail,
+		"created_at":   item.CreatedAt,
 	}
 }
 

@@ -13,6 +13,13 @@ export type NormalizedExperience = {
   endYm?: string;
 };
 
+export type NormalizedNote = {
+  id: string;
+  content: string;
+  authorEmail: string;
+  createdAt: string;
+};
+
 export type NormalizedCandidate = {
   id: string;
   engagementId: string;
@@ -38,6 +45,7 @@ export type NormalizedCandidate = {
   rawText: string;
   aiFirstAnalysis: { score: unknown; reason: string };
   aiSecondAnalysis: { score: unknown; reason: string };
+  notes: NormalizedNote[];
   creatorEmail: string;
   createdAt: string;
   updatedAt: string;
@@ -90,6 +98,12 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
     rawText: stringValue(source.raw_text),
     aiFirstAnalysis: { score: source.ai?.detail?.score, reason: stringValue(source.ai?.detail?.reason) },
     aiSecondAnalysis: { score: source.ai?.greet?.score, reason: stringValue(source.ai?.greet?.reason) },
+    notes: arrayValue(source.notes).map((item) => ({
+      id: stringValue(item.id),
+      content: stringValue(item.content),
+      authorEmail: stringValue(item.author_email),
+      createdAt: stringValue(item.created_at),
+    })),
     creatorEmail: stringValue(source.user_email),
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),

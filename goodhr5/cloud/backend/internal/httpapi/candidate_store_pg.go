@@ -392,6 +392,32 @@ func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID s
 	return items[0], nil
 }
 
+// ListCandidateNotes 读取候选人的人工备注记录。
+// tenantID 为团队 ID，candidateID 为候选人 ID，返回最新备注在前的列表。
+func (s *PostgresCandidateStore) ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id::text, candidate_id::text, message_text, COALESCE(metadata->>'author_email', ''), created_at
+FROM candidate_events
+WHERE tenant_id = $1 AND candidate_id::text = $2 AND event_type = 'manual_note'
+ORDER BY created_at DESC
+`, tenantID, candidateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	notes := make([]CandidateNote, 0)
+	for rows.Next() {
+		var note CandidateNote
+		if err := rows.Scan(&note.ID, &note.CandidateID, &note.Content, &note.AuthorEmail, &note.CreatedAt); err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, rows.Err()
+}
+
 // DeleteTeamCandidates 清空团队候选人数据。
 // tenantID 为当前团队 ID，返回删除的候选人主体数量；事件和触达记录由外键级联删除。
 func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
@@ -493,7 +519,8 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		latest_engagement.detail_fetched_at,
 		latest_engagement.greeted_at,
 		cp.created_at,
-		cp.updated_at
+		cp.updated_at,
+		COALESCE(latest_notes.notes, '[]'::jsonb)
 	FROM candidate_profiles cp
 	LEFT JOIN LATERAL (
 		SELECT * FROM candidate_engagements ce2
@@ -502,6 +529,22 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		ORDER BY ce2.created_at DESC
 		LIMIT 1
 	) latest_engagement ON true
+	LEFT JOIN LATERAL (
+		SELECT jsonb_agg(jsonb_build_object(
+			'id', note.id::text,
+			'candidate_id', note.candidate_id::text,
+			'content', note.message_text,
+			'author_email', COALESCE(note.metadata->>'author_email', ''),
+			'created_at', note.created_at
+		) ORDER BY note.created_at DESC) AS notes
+		FROM (
+			SELECT id, candidate_id, message_text, metadata, created_at
+			FROM candidate_events
+			WHERE candidate_id = cp.id AND event_type = 'manual_note'
+			ORDER BY created_at DESC
+			LIMIT 2
+		) note
+	) latest_notes ON true
 	LEFT JOIN users u ON u.id = cp.created_by_user_id
 	LEFT JOIN positions p ON p.id = latest_engagement.position_id
 	` + whereClause + `
@@ -576,6 +619,7 @@ func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
 		&item.GreetedAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
+		jsonScanner(&item.Notes),
 	)
 	return item, err
 }

@@ -57,6 +57,7 @@ type TaskCandidate struct {
 	GreetedAt           *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	Notes               []CandidateNote
 	Events              []CandidateEvent
 }
 
@@ -136,6 +137,15 @@ type CandidateEvent struct {
 	CreatedAt         time.Time      `json:"created_at"`
 }
 
+// CandidateNote 表示人工添加的候选人备注。
+type CandidateNote struct {
+	ID          string    `json:"id"`
+	CandidateID string    `json:"candidate_id"`
+	Content     string    `json:"content"`
+	AuthorEmail string    `json:"author_email"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // CandidateStore 定义候选人主体、触达上下文和事件流水能力。
 type CandidateStore interface {
 	SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error)
@@ -144,6 +154,7 @@ type CandidateStore interface {
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
 	GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error)
+	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
 	DeleteTeamCandidates(tenantID string) (int, error)
 }
 
@@ -264,6 +275,31 @@ func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candidat
 	item.CreatedAt = s.now()
 	s.events[item.CandidateID] = append(s.events[item.CandidateID], item)
 	return item, nil
+}
+
+// ListCandidateNotes 读取内存候选人的人工备注。
+// tenantID 为团队 ID，candidateID 为候选人 ID，返回最新备注在前的列表。
+func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.profiles[candidateID]; !ok {
+		return nil, ErrNotFound
+	}
+	notes := make([]CandidateNote, 0)
+	for index := len(s.events[candidateID]) - 1; index >= 0; index-- {
+		event := s.events[candidateID][index]
+		if event.EventType != "manual_note" {
+			continue
+		}
+		notes = append(notes, CandidateNote{
+			ID:          event.ID,
+			CandidateID: event.CandidateID,
+			Content:     event.MessageText,
+			AuthorEmail: stringFromMap(event.Metadata, "author_email"),
+			CreatedAt:   event.CreatedAt,
+		})
+	}
+	return notes, nil
 }
 
 // UpdateCandidateEngagementStatus 更新触达上下文状态。
@@ -390,4 +426,16 @@ func toJSONB(value any) []byte {
 		return []byte("null")
 	}
 	return raw
+}
+
+// stringFromMap 从 map 中读取字符串字段。
+// value 为扩展字段对象，key 为目标字段名；不存在时返回空字符串。
+func stringFromMap(value map[string]any, key string) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value[key].(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return ""
 }
