@@ -588,9 +588,48 @@ func buildGreetMessages(position map[string]any, candidate map[string]any) []map
 // system 为稳定规则，jobDesc 和 candidateText 为本次变量。
 func scoringMessages(system string, jobDesc string, candidateText string) []map[string]string {
 	return []map[string]string{
-		{"role": "system", "content": strings.TrimSpace(system)},
+		{"role": "system", "content": stablePrompt(system)},
 		{"role": "user", "content": "岗位要求：\n" + jobDesc + "\n\n候选人信息：\n" + candidateText},
 	}
+}
+
+// stablePrompt 替换稳定提示词占位符，不混入岗位和候选人变量。
+// prompt 为系统提示词。
+func stablePrompt(prompt string) string {
+	text := strings.TrimSpace(prompt)
+	text = strings.ReplaceAll(text, "${结构化简历}", buildResumeJSONExample())
+	text = strings.ReplaceAll(text, "{default_prompt}", defaultVisionSystem)
+	return text
+}
+
+// buildResumeJSONExample 返回可直接入库的结构化简历 JSON 示例。
+func buildResumeJSONExample() string {
+	return `{
+  "candidate_name": "徐英",
+  "birth_ym": "1990-05",
+  "phone": "13800000000",
+  "email": "xuying@example.com",
+  "work_region": "上海",
+  "work_years": "10年以上",
+  "expected_salary_min": 22,
+  "expected_salary_max": 30,
+  "education_level": "本科",
+  "expected_position": "商品经理/主管",
+  "online_status": "刚刚活跃",
+  "personal_description": "有快时尚品牌10年以上和户外品牌企划买手工作经验。",
+  "work_status": "在职-月内到岗",
+  "work_experiences": [{"company_name": "荟品仓", "position_name": "产品企划经理", "content": "负责商品企划、选品采购、供应商管理。", "start_ym": "2026-04", "end_ym": ""}],
+  "educations": [{"school_name": "陕西科技大学", "major_name": "服装设计与工程", "education_level": "本科", "start_ym": "2008-09", "end_ym": "2012-06"}],
+  "certificates": [{"certificate_name": "商品企划相关培训证书", "issued_by": "行业培训机构", "issued_ym": "2021-06"}],
+  "honors": [{"honor_name": "优秀买手主管", "issued_by": "云蝠服饰", "issued_ym": "2025-12", "description": "负责品类上市后售罄率表现优秀。"}],
+  "project_experiences": [{"project_name": "快时尚女装春夏商品企划", "role_name": "项目负责人", "content": "负责商品结构、价格带和上市节奏规划。", "start_ym": "2024-05", "end_ym": "2024-09"}],
+  "colleague_communications": [{"communicator_name": "招聘顾问", "communicated_at": "2026-06-30", "content": "候选人关注商品企划方向，接受上海机会。"}],
+  "ai": {
+    "detail": {"score": 70, "reason": "学历经验达标，建议核验。"},
+    "greet": {"score": 75, "reason": "商品企划经验扎实，建议沟通。"}
+  },
+  "raw_text": "徐英 22-30K\n刚刚活跃\n36岁 10年以上 本科 在职-月内到岗"
+}`
 }
 
 // buildVisionSystemPrompt 构建视觉识别稳定规则。
@@ -599,9 +638,9 @@ func buildVisionSystemPrompt(position map[string]any) string {
 	aiConfig := mapValue(position["ai_config"])
 	custom := strings.TrimSpace(stringFromMap(aiConfig, "vision_prompt"))
 	if custom != "" {
-		return custom
+		return stablePrompt(custom)
 	}
-	return defaultVisionSystem
+	return stablePrompt(defaultVisionSystem)
 }
 
 // buildVisionUserPrompt 构建视觉识别本次变量消息。
