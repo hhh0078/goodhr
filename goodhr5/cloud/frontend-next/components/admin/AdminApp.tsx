@@ -53,7 +53,7 @@ import {
 import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
-import { bindLocalAgent, cloudRequest, detectLocalAgent, formatDate } from "@/lib/admin-api";
+import { bindLocalAgent, clearLocalAgentDetectCache, cloudRequest, detectLocalAgent, formatDate } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
@@ -175,6 +175,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     steps: {},
   });
   const [agentBase, setAgentBase] = useState("");
+  const [agentBindBlocked, setAgentBindBlocked] = useState(false);
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
   const agentChecking = useRef(false);
@@ -195,18 +196,37 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const refreshAgent = useCallback(async () => {
     if (agentChecking.current) return;
     agentChecking.current = true;
+  try {
+    const nextBase = await detectLocalAgent(agentBaseRef.current);
+    if (!nextBase) {
+      agentBaseRef.current = "";
+      setAgentBase("");
+      setAgentBindBlocked(false);
+      return;
+    }
     try {
-      const nextBase = await detectLocalAgent(agentBaseRef.current);
+      await bindLocalAgent(nextBase);
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
-      if (nextBase) void bindLocalAgent(nextBase).catch((error) => {
-        const message = error instanceof Error ? error.message : "";
-        if (message.includes("已经绑定") && !agentBindNoticeShown.current) {
-          agentBindNoticeShown.current = true;
-          notify("我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。", "warning");
-        }
-      });
-    } finally {
+      setAgentBindBlocked(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!message.includes("已经绑定")) {
+        agentBaseRef.current = nextBase;
+        setAgentBase(nextBase);
+        setAgentBindBlocked(false);
+        return;
+      }
+      clearLocalAgentDetectCache();
+      agentBaseRef.current = "";
+      setAgentBase("");
+      setAgentBindBlocked(true);
+      if (!agentBindNoticeShown.current) {
+        agentBindNoticeShown.current = true;
+        notify("我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。", "warning");
+      }
+    }
+  } finally {
       agentChecking.current = false;
     }
   }, []);
@@ -295,9 +315,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       subscription,
       appConfig,
       onboardingConfig,
-      onboarding,
-      agentBase,
-      refreshAgent,
+    onboarding,
+    agentBase,
+    agentBindBlocked,
+    refreshAgent,
       refreshSession,
       notify,
       confirm,
@@ -534,9 +555,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 display: { xs: "none", sm: "inline-flex" },
               }}
             >
-              {agentBase
-                ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
-                : "本地程序未连接"}
+              {agentBindBlocked
+                ? "该账号已经绑定其它设备"
+                : agentBase
+                  ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
+                  : "本地程序未连接"}
             </Button>
             <Tooltip title='选择主题'>
               <IconButton

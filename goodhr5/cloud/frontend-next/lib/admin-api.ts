@@ -176,6 +176,19 @@ function localAgentDetectState() {
   return window.__goodhrLocalAgentDetectState;
 }
 
+/** clearLocalAgentDetectCache 清空本地程序探测缓存。 */
+export function clearLocalAgentDetectCache() {
+  const state = localAgentDetectState();
+  state.cache = { baseURL: "", checkedAt: 0 };
+  state.detecting = null;
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(LOCAL_AGENT_DETECT_CACHE_KEY);
+  } catch {
+    // 浏览器缓存不可写时忽略，页面状态已经清空。
+  }
+}
+
 /** syncLocalAgentDetectCacheFromStorage 从浏览器缓存同步最近一次本地程序探测结果。 */
 function syncLocalAgentDetectCacheFromStorage(state: LocalAgentDetectState) {
   if (typeof window === "undefined" || state.cache.checkedAt) return;
