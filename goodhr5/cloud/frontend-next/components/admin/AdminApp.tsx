@@ -551,23 +551,24 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           sx={{
             ml: { md: `${drawerWidth + 16}px` },
             pt: { xs: "80px", md: "86px" },
-            minHeight: "100vh",
+            height: "100vh",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-<AdminBanners appConfig={appConfig} />
+          <AdminBanners appConfig={appConfig} />
           <Paper
             elevation={0}
             sx={{
-              minHeight: {
-                xs: "calc(100vh - 80px)",
-                md: "calc(100vh - 102px)",
-              },
+              flex: 1,
+              minHeight: 0,
               p: { xs: 2, md: 3 },
               border: "1px solid",
               borderColor: "divider",
               borderRadius: { xs: "8px 8px 0 0", md: "8px" },
               boxShadow: "0 16px 42px rgba(31,54,42,.06)",
-              overflow: "hidden",
+              overflow: "auto",
             }}
           >
             {children}
