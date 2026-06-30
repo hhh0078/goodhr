@@ -608,17 +608,41 @@ export default function TasksPage() {
             }
             label='打招呼成功后播放提示音'
           />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={form.enable_thinking}
-                onChange={(event) =>
-                  setForm({ ...form, enable_thinking: event.target.checked })
-                }
-              />
-            }
-            label='在浏览器显示 AI 思考过程'
-          />
+          <Box>
+            <Typography sx={{ mb: 1, fontWeight: 800 }}>思考模式</Typography>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+              {[
+                { value: false, title: "普通模式", desc: "速度快，费用低，适合日常批量打招呼。准度正常，我会努力不添乱。" },
+                { value: true, title: "思考模式", desc: "准度更高，会多想一会儿；缺点是速度更慢，费用也更贵一点。" },
+              ].map((option) => {
+                const selected = form.enable_thinking === option.value;
+                return (
+                  <Button
+                    key={option.title}
+                    type='button'
+                    onClick={() => setForm({ ...form, enable_thinking: option.value })}
+                    sx={{
+                      alignItems: "flex-start",
+                      border: "1px solid",
+                      borderColor: selected ? "#16724c" : "divider",
+                      bgcolor: selected ? "#edf7f1" : "#fff",
+                      color: "text.primary",
+                      flexDirection: "column",
+                      p: 1.5,
+                      textAlign: "left",
+                      whiteSpace: "normal",
+                      "&:hover": { bgcolor: selected ? "#e3f1e9" : "#fafbfa", borderColor: "#16724c" },
+                    }}
+                  >
+                    <Typography sx={{ fontWeight: 900 }}>{option.title}</Typography>
+                    <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>
+                      {option.desc}
+                    </Typography>
+                  </Button>
+                );
+              })}
+            </Box>
+          </Box>
         </Box>
       </AdminDialog>
       <AdminDialog
