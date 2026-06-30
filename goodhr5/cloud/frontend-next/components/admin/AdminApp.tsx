@@ -551,7 +551,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           sx={{
             ml: { md: `${drawerWidth + 16}px` },
             pt: { xs: "80px", md: "86px" },
-            height: "100vh",
+            height: { xs: "100vh", md: "calc(100vh - 16px)" },
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
