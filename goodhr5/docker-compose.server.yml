@@ -7,12 +7,5 @@ services:
     volumes: ["./cloud/backend:/app", "/app/tmp"]
 
   frontend:
-    build: ./cloud/frontend
-    ports: ["5173:5173"]
-    volumes:
-      [
-        "./cloud/frontend/src:/app/src",
-        "./cloud/frontend/index.html:/app/index.html",
-        "./cloud/frontend/vite.config.ts:/app/vite.config.ts",
-        "./cloud/frontend/tsconfig.json:/app/tsconfig.json",
-      ]
+    build: ./cloud/frontend-next
+    ports: ["5173:3000"]
