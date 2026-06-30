@@ -15,11 +15,40 @@ import (
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
+	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"goodhr5/local-agent-go/internal/platforms"
 )
+
+// TestMergeVisionDecisionKeepsAIScoreFields 验证结构化简历不会覆盖两次真实 AI 分析结果。
+func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
+	candidate := map[string]any{
+		"ai_detail_score":  72.0,
+		"ai_detail_reason": "第一次真实原因",
+		"ai_greet_score":   75.0,
+		"ai_greet_reason":  "第二次真实原因",
+	}
+	mergeVisionDecisionIntoCandidate(candidate, localai.Decision{
+		ResumeData: map[string]any{
+			"candidate_name":   "徐英",
+			"ai_detail_score":  10.0,
+			"ai_detail_reason": "不该覆盖",
+			"ai_greet_score":   20.0,
+			"ai_greet_reason":  "也不该覆盖",
+		},
+	})
+	if candidate["candidate_name"] != "徐英" {
+		t.Fatalf("candidate_name = %v", candidate["candidate_name"])
+	}
+	if candidate["ai_detail_score"] != 72.0 || candidate["ai_detail_reason"] != "第一次真实原因" {
+		t.Fatalf("detail score fields were overwritten: %+v", candidate)
+	}
+	if candidate["ai_greet_score"] != 75.0 || candidate["ai_greet_reason"] != "第二次真实原因" {
+		t.Fatalf("greet score fields were overwritten: %+v", candidate)
+	}
+}
 
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {

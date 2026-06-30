@@ -809,10 +809,24 @@ func mergeVisionDecisionIntoCandidate(candidate map[string]any, decision localai
 	}
 	if decision.ResumeData != nil && len(decision.ResumeData) > 0 {
 		for key, value := range decision.ResumeData {
+			if isAIScoreField(key) {
+				continue
+			}
 			if value != nil {
 				candidate[key] = value
 			}
 		}
+	}
+}
+
+// isAIScoreField 判断字段是否为两次 AI 分析的真实结果字段。
+// key 为候选人字段名，返回 true 表示不允许结构化简历覆盖。
+func isAIScoreField(key string) bool {
+	switch key {
+	case "ai_detail_score", "ai_detail_reason", "ai_greet_score", "ai_greet_reason":
+		return true
+	default:
+		return false
 	}
 }
 
