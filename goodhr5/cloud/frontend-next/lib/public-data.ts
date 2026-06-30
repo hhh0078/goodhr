@@ -57,7 +57,7 @@ export async function getPublicPlans(): Promise<PublicPlanData[]> {
 export async function getLocalAgentUpdates(): Promise<LocalAgentUpdate[]> {
 	const baseURL = cloudBaseURL();
 	try {
-		const response = await fetch(`${baseURL}/api/system/local-agent-updates`, { next: { revalidate: 300 } });
+		const response = await fetch(`${baseURL}/api/system/local-agent-updates`, { cache: "no-store" });
 		if (!response.ok) return [];
 		const data = await response.json();
 		return Array.isArray(data?.local_agent) ? data.local_agent.map(normalizeLocalAgentUpdate) : [];

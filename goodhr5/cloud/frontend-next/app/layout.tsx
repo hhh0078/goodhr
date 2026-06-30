@@ -1,4 +1,5 @@
 /** 本文件负责 GoodHR 新版前端的根布局和页面元信息。 */
+import Script from "next/script";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import InviteCapture from "@/components/InviteCapture";
@@ -35,8 +36,15 @@ export default function RootLayout({ children }: RootLayoutProps) {
           { "@context": "https://schema.org", "@type": "Organization", name: "GoodHR", url: SITE_URL, email: "1224299352@qq.com", telephone: "+86-17607080935", description: "面向 HR、招聘团队和猎头顾问的 AI 招聘自动化工具。" },
           { "@context": "https://schema.org", "@type": "WebSite", name: "GoodHR", url: SITE_URL, inLanguage: "zh-CN", description: "招聘平台自动筛选、自动打招呼、AI自动回复和简历管理工具。" },
         ]} />
-        <Providers><InviteCapture />{children}</Providers>
-      </body>
+				<Providers><InviteCapture />{children}</Providers>
+				<Script id="baidu-analytics" strategy="afterInteractive">{`var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?089e2d5bc4ddf06b7bf5ab053d5b6fe1";
+  var s = document.getElementsByTagName("script")[0];
+  s.parentNode.insertBefore(hm, s);
+})();`}</Script>
+			</body>
     </html>
   );
 }
