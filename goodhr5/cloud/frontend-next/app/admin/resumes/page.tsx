@@ -122,5 +122,6 @@ function ResumeRow({ item }: { item: NormalizedCandidate }) {
 /** AIText 展示一次 AI 判断结果。 */
 function AIText({ label, score, reason }: { label: string; score: unknown; reason: string }) {
   if (!reason && scoreText(score) === "无") return null;
-  return <Typography sx={{ color: "text.secondary", fontSize: 12, lineHeight: 1.6, overflowWrap: "anywhere", whiteSpace: "normal" }}><Box component="span" sx={{ color: "#16724c", fontWeight: 800 }}>{label} {scoreText(score)}</Box>{reason ? `：${reason}` : ""}</Typography>;
+  const text = `${label} ${scoreText(score)}${reason ? `：${reason}` : ""}`;
+  return <Typography title={text} sx={{ color: "text.secondary", display: "-webkit-box", fontSize: 12, lineHeight: 1.6, overflow: "hidden", overflowWrap: "anywhere", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, whiteSpace: "normal" }}><Box component="span" sx={{ color: "#16724c", fontWeight: 800 }}>{label} {scoreText(score)}</Box>{reason ? `：${reason}` : ""}</Typography>;
 }
