@@ -20,27 +20,42 @@ type CandidateWorkExperience struct {
 
 // CandidateEducation 表示教育经历。
 type CandidateEducation struct {
-	SchoolName       string `json:"school_name"`
-	MajorName        string `json:"major_name"`
-	EducationLevel   string `json:"education_level"`
-	CampusExperience string `json:"campus_experience"`
-	StartYM          string `json:"start_ym"`
-	EndYM            string `json:"end_ym"`
+	SchoolName     string `json:"school_name"`
+	MajorName      string `json:"major_name"`
+	EducationLevel string `json:"education_level"`
+	StartYM        string `json:"start_ym"`
+	EndYM          string `json:"end_ym"`
+}
+
+// CandidateCertificate 表示资格证书。
+type CandidateCertificate struct {
+	CertificateName string `json:"certificate_name"`
+	IssuedBy        string `json:"issued_by"`
+	IssuedYM        string `json:"issued_ym"`
+}
+
+// CandidateHonor 表示候选人荣誉。
+type CandidateHonor struct {
+	HonorName   string `json:"honor_name"`
+	IssuedBy    string `json:"issued_by"`
+	IssuedYM    string `json:"issued_ym"`
+	Description string `json:"description"`
 }
 
 // CandidateProjectExperience 表示项目经验。
 type CandidateProjectExperience struct {
-	CompanyName  string `json:"company_name"`
-	PositionName string `json:"position_name"`
-	Content      string `json:"content"`
-	StartYM      string `json:"start_ym"`
-	EndYM        string `json:"end_ym"`
+	ProjectName string `json:"project_name"`
+	RoleName    string `json:"role_name"`
+	Content     string `json:"content"`
+	StartYM     string `json:"start_ym"`
+	EndYM       string `json:"end_ym"`
 }
 
 // CandidateCommunication 表示沟通记录。
 type CandidateCommunication struct {
-	Content string `json:"content"`
-	Time    string `json:"time"`
+	CommunicatorName string `json:"communicator_name"`
+	CommunicatedAt   string `json:"communicated_at"`
+	Content          string `json:"content"`
 }
 
 // CandidateBasicProfile 表示在线简历基础信息。
@@ -120,7 +135,6 @@ type Candidate struct {
 	BasicProfile        CandidateBasicProfile     `json:"basic_profile"`
 	ResumeAttachment    CandidateResumeAttachment `json:"resume_attachment"`
 	RawText             string                    `json:"raw_text"`
-	FilterText          string                    `json:"filter_text"`
 	Detail              CandidateDetail           `json:"detail"`
 	AI                  CandidateAIScores         `json:"ai"`
 	Runtime             CandidateRuntime          `json:"runtime"`

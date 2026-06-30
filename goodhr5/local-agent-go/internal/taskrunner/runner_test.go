@@ -807,7 +807,6 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 						"name":           "候选人A",
 						"status":         "scanned",
 						"raw_text":       "候选人A 28岁 本科 5年",
-						"filter_text":    "候选人A 28岁 本科 5年",
 						"fields": map[string]any{
 							"name":       "候选人A",
 							"basic_info": "28岁 本科 5年",
@@ -936,7 +935,6 @@ func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (ma
 				"name":           "停止候选人",
 				"status":         "scanned",
 				"raw_text":       "停止候选人 本科 5年",
-				"filter_text":    "停止候选人 本科 5年",
 			}}}}, nil
 		case <-ctx.Done():
 			close(w.released)

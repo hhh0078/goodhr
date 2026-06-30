@@ -54,15 +54,30 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		PlatformID:          firstNonEmpty(localCandidateString(payload, "platform_id"), task.PlatformID),
 		PlatformCandidateID: localCandidateString(payload, "id"),
 		CandidateName:       firstNonEmpty(localCandidateString(payload, "candidate_name"), localCandidateString(payload, "name")),
+		BirthYM:             localCandidateString(payload, "birth_ym"),
+		Phone:               localCandidateString(payload, "phone"),
+		Email:               localCandidateString(payload, "email"),
+		WorkRegion:          localCandidateString(payload, "work_region"),
+		WorkYears:           localCandidateString(payload, "work_years"),
+		ExpectedSalaryMin:   localCandidateIntPtr(payload, "expected_salary_min"),
+		ExpectedSalaryMax:   localCandidateIntPtr(payload, "expected_salary_max"),
 		BasicInfo:           firstNonEmpty(localCandidateString(payload, "basic_info"), localCandidateString(payload, "summary")),
 		EducationLevel:      localCandidateString(payload, "education_level"),
 		ExpectedPosition:    localCandidateString(payload, "expected_position"),
 		OnlineStatus:        localCandidateString(payload, "online_status"),
 		PersonalDescription: firstNonEmpty(localCandidateString(payload, "personal_description"), localCandidateString(payload, "description")),
-		RawText:             firstNonEmpty(localCandidateString(payload, "raw_text"), localCandidateString(payload, "detail_text")),
-		FilterText:          firstNonEmpty(localCandidateString(payload, "filter_text"), localCandidateString(payload, "raw_text")),
-		ResumeText:          firstNonEmpty(localCandidateString(payload, "resume_text"), localCandidateString(payload, "detail_text")),
-		Ext:                 map[string]any{"local_candidate_json": payload},
+		WorkStatus:          localCandidateString(payload, "work_status"),
+		RawText:             localCandidateString(payload, "raw_text"),
+		WorkExperiences:     localCandidateJSONList[CandidateWorkExperience](payload, "work_experiences"),
+		Educations:          localCandidateJSONList[CandidateEducation](payload, "educations"),
+		Certificates:        localCandidateJSONList[CandidateCertificate](payload, "certificates"),
+		Honors:              localCandidateJSONList[CandidateHonor](payload, "honors"),
+		ProjectExperiences:  localCandidateJSONList[CandidateProjectExperience](payload, "project_experiences"),
+		Communications:      localCandidateJSONList[CandidateCommunication](payload, "colleague_communications"),
+		AIDetailReason:      localCandidateString(payload, "ai_detail_reason"),
+		AIDetailScore:       localCandidateFloatPtr(payload, "ai_detail_score"),
+		AIGreetReason:       localCandidateString(payload, "ai_greet_reason"),
+		AIGreetScore:        localCandidateFloatPtr(payload, "ai_greet_score"),
 		FirstSeenAt:         &now,
 	})
 	if err != nil {
@@ -154,7 +169,6 @@ func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID st
 	}{
 		{Type: "detail_analysis", ScoreKey: "ai_detail_score", ReasonKey: "ai_detail_reason"},
 		{Type: "greet_analysis", ScoreKey: "ai_greet_score", ReasonKey: "ai_greet_reason"},
-		{Type: "review_analysis", ScoreKey: "ai_review_score", ReasonKey: "ai_review_reason"},
 	}
 	for _, item := range events {
 		score, ok := localCandidateFloat(payload, item.ScoreKey)
@@ -172,7 +186,7 @@ func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID st
 			EventType:         item.Type,
 			Score:             float64Ptr(score),
 			Reason:            reason,
-			InputText:         firstNonEmpty(localCandidateString(payload, "filter_text"), localCandidateString(payload, "raw_text")),
+			InputText:         localCandidateString(payload, "raw_text"),
 			OutputText:        localCandidateString(payload, item.ReasonKey),
 			Metadata:          map[string]any{"source": "local-agent-go"},
 		})
@@ -224,6 +238,50 @@ func localCandidateFloat(item map[string]any, key string) (float64, bool) {
 	}
 }
 
+// localCandidateFloatPtr 从候选人 JSON 中读取可空分数。
+// item 为候选人 JSON，key 为字段名。
+func localCandidateFloatPtr(item map[string]any, key string) *float64 {
+	value, ok := localCandidateFloat(item, key)
+	if !ok {
+		return nil
+	}
+	return &value
+}
+
+// localCandidateIntPtr 从候选人 JSON 中读取可空整数。
+// item 为候选人 JSON，key 为字段名。
+func localCandidateIntPtr(item map[string]any, key string) *int {
+	if item == nil {
+		return nil
+	}
+	switch value := item[key].(type) {
+	case float64:
+		parsed := int(value)
+		return &parsed
+	case int:
+		return &value
+	default:
+		return nil
+	}
+}
+
+// localCandidateJSONList 将 JSON 数组规范成指定结构数组。
+// item 为候选人 JSON，key 为数组字段名。
+func localCandidateJSONList[T any](item map[string]any, key string) []T {
+	if item == nil || item[key] == nil {
+		return []T{}
+	}
+	raw, err := json.Marshal(item[key])
+	if err != nil {
+		return []T{}
+	}
+	var result []T
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return []T{}
+	}
+	return result
+}
+
 // localCandidateStatus 返回候选人触达状态。
 // item 为候选人 JSON。
 func localCandidateStatus(item map[string]any) string {
@@ -237,7 +295,7 @@ func localCandidateStatus(item map[string]any) string {
 // localDetailFetchedAt 根据候选人状态返回详情读取时间。
 // item 为候选人 JSON，now 为当前时间。
 func localDetailFetchedAt(item map[string]any, now time.Time) *time.Time {
-	if localCandidateString(item, "detail_text") != "" || localCandidateString(item, "resume_text") != "" {
+	if localCandidateString(item, "detail_text") != "" || localCandidateString(item, "raw_text") != "" {
 		return &now
 	}
 	return nil

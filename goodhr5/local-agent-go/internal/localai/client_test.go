@@ -91,7 +91,7 @@ func TestTryExtractScoreDecisionFromStream(t *testing.T) {
 	content := strings.Join([]string{
 		"AI分析如下：",
 		"```json",
-		`{"resume":{"name":"张三","text":"这里有 { 字符 }"},"analysis":{"score":"82.5","reason":"经验匹配"}}`,
+		`{"candidate_name":"张三","ai":{"greet":{"score":"82.5","reason":"经验匹配"}},"raw_text":"这里有 { 字符 }"}`,
 		"```",
 	}, "\n")
 	decision, ok := TryExtractScoreDecisionFromStream(content)
@@ -105,7 +105,7 @@ func TestTryExtractScoreDecisionFromStream(t *testing.T) {
 
 // TestTryExtractScoreDecisionFromBrokenOuterStream 验证外层 JSON 未完整时也能提取内部评分对象。
 func TestTryExtractScoreDecisionFromBrokenOuterStream(t *testing.T) {
-	content := `["analysis":{"score":95.0,"reason":"具备服装及男装直播带货经验，有百万GMV业绩，完全符合岗位要求。","should greet": true },"resume".{"name":"邓英杰","age": 24`
+	content := `["ai":{"greet":{"score":95.0,"reason":"具备服装及男装直播带货经验，有百万GMV业绩，完全符合岗位要求。"}},"candidate_name":"邓英杰"`
 	decision, ok := TryExtractScoreDecisionFromStream(content)
 	if !ok {
 		t.Fatal("未从不完整外层文本中提前提取评分 JSON")

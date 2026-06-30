@@ -46,7 +46,7 @@ export default function ResumeDetailPage() {
           {candidate.workExperiences.length ? <ResumeSection title="工作经历">{candidate.workExperiences.map((item, index) => <Experience key={`work-${index}`} item={item} />)}</ResumeSection> : null}
           {candidate.projectExperiences.length ? <ResumeSection title="项目经历">{candidate.projectExperiences.map((item, index) => <Experience key={`project-${index}`} item={item} project />)}</ResumeSection> : null}
           {candidate.educations.length ? <ResumeSection title="教育经历">{candidate.educations.map((item, index) => <Experience key={`edu-${index}`} item={item} />)}</ResumeSection> : null}
-          {candidate.rawText || candidate.resumeText ? <ResumeSection title="原始文本"><Typography sx={{ whiteSpace: "pre-wrap", color: "text.secondary", lineHeight: 1.8 }}>{candidate.resumeText || candidate.rawText}</Typography></ResumeSection> : null}
+          {candidate.rawText ? <ResumeSection title="原始文本"><Typography sx={{ whiteSpace: "pre-wrap", color: "text.secondary", lineHeight: 1.8 }}>{candidate.rawText}</Typography></ResumeSection> : null}
           <Accordion elevation={0} sx={{ mt: 3, bgcolor: "#f7faf8" }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}><Typography sx={{ fontWeight: 720 }}>查看完整接口数据</Typography></AccordionSummary><AccordionDetails><JsonTree value={candidate.raw} /></AccordionDetails></Accordion>
         </Box>
         <SidePanel candidate={candidate} />
@@ -74,7 +74,6 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
     <Stack spacing={1.25}>
       <AIBlock title="第一次分析" score={candidate.aiFirstAnalysis.score} reason={candidate.aiFirstAnalysis.reason} />
       <AIBlock title="第二次分析" score={candidate.aiSecondAnalysis.score} reason={candidate.aiSecondAnalysis.reason} />
-      <AIBlock title="最终复核" score={candidate.aiReviewAnalysis.score} reason={candidate.aiReviewAnalysis.reason} />
     </Stack>
     <Typography sx={{ mt: 3, mb: 1.5, fontWeight: 820 }}>经历概览</Typography>
     <Stack spacing={1}>{overview.length ? overview.map((item) => <Typography key={item} sx={{ pl: 1.25, borderLeft: "3px solid #8fcf9d", fontSize: 13, lineHeight: 1.6 }}>{item}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>

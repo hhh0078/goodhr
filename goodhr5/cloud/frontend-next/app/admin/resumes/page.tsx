@@ -114,7 +114,7 @@ function ResumeRow({ item }: { item: NormalizedCandidate }) {
       <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 820 }}>{item.name}</Typography><Typography noWrap sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>{facts || "暂无基础信息"}</Typography><Typography noWrap sx={{ mt: 0.6 }}>{item.expectedPosition || "暂无期望职位"}</Typography></Box>
     </Stack>
     <Stack spacing={0.6} sx={{ minWidth: 0 }}>{experiences.length ? experiences.map((line) => <Typography key={line} noWrap sx={{ fontSize: 14 }}>{line}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>
-    <Stack spacing={0.8} sx={{ minWidth: 0 }}><AIText label="第一次" score={item.aiFirstAnalysis.score} reason={item.aiFirstAnalysis.reason} /><AIText label="第二次" score={item.aiSecondAnalysis.score} reason={item.aiSecondAnalysis.reason} /><AIText label="复核" score={item.aiReviewAnalysis.score} reason={item.aiReviewAnalysis.reason} /></Stack>
+    <Stack spacing={0.8} sx={{ minWidth: 0 }}><AIText label="第一次" score={item.aiFirstAnalysis.score} reason={item.aiFirstAnalysis.reason} /><AIText label="第二次" score={item.aiSecondAnalysis.score} reason={item.aiSecondAnalysis.reason} /></Stack>
   </Button>;
 }
 

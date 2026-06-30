@@ -1,4 +1,4 @@
-/** 本文件负责把 GoodHR 候选人接口数据统一成前端简历库展示结构。 */
+/** 本文件负责把 GoodHR 新版候选人接口数据整理成简历库展示结构。 */
 
 export type NormalizedExperience = {
   companyName?: string;
@@ -31,47 +31,66 @@ export type NormalizedCandidate = {
   personalDescription: string;
   workExperiences: NormalizedExperience[];
   educations: NormalizedExperience[];
+  certificates: any[];
+  honors: any[];
   projectExperiences: NormalizedExperience[];
+  communications: any[];
   rawText: string;
-  resumeText: string;
   aiFirstAnalysis: { score: unknown; reason: string };
   aiSecondAnalysis: { score: unknown; reason: string };
-  aiReviewAnalysis: { score: unknown; reason: string };
   createdAt: string;
   updatedAt: string;
   raw: any;
 };
 
-/** normalizeCandidate 统一候选人字段命名，避免页面到处猜字段。 */
+/** normalizeCandidate 按新版扁平简历模型整理候选人。 */
 export function normalizeCandidate(input: any): NormalizedCandidate {
   const source = input || {};
-  const resume = source.resume_json || source.resume || source.detail_json || {};
   return {
     id: stringValue(source.id),
-    engagementId: stringValue(source.engagement_id || source.engagementId),
-    status: stringValue(source.engagement_status || source.status || "created"),
-    name: stringValue(source.candidate_name || source.name || resume.candidate_name || resume.name || "未命名候选人"),
-    avatarUrl: stringValue(source.avatar_url || source.avatarUrl || resume.avatar_url || resume.avatarUrl),
-    age: stringValue(source.age || resume.age),
-    gender: stringValue(source.gender || resume.gender),
-    workRegion: stringValue(source.work_region || source.workRegion || resume.work_region || resume.workRegion || source.city || resume.city),
-    workYears: stringValue(source.work_years || source.workYears || resume.work_years || resume.workYears || source.experience || resume.experience),
-    educationLevel: stringValue(source.education_level || source.educationLevel || resume.education_level || resume.educationLevel || source.education || resume.education),
-    expectedPosition: stringValue(source.expected_position || source.expectedPosition || resume.expected_position || resume.expectedPosition || source.position_name || source.positionName),
-    expectedSalary: salaryText(source),
-    workStatus: stringValue(source.work_status || source.workStatus || resume.work_status || resume.workStatus || source.job_status || resume.job_status),
-    onlineStatus: stringValue(source.online_status || source.onlineStatus || resume.online_status || resume.onlineStatus),
-    personalDescription: stringValue(source.personal_description || source.personalDescription || resume.personal_description || resume.personalDescription || source.summary || resume.summary || source.description),
-    workExperiences: arrayValue(source.work_experiences || source.workExperiences || resume.work_experiences || resume.workExperiences).map(normalizeExperience),
-    educations: arrayValue(source.educations || source.education_experiences || source.educationExperiences || resume.educations || resume.education_experiences || resume.educationExperiences).map(normalizeExperience),
-    projectExperiences: arrayValue(source.project_experiences || source.projectExperiences || source.projects || resume.project_experiences || resume.projectExperiences || resume.projects).map(normalizeExperience),
-    rawText: stringValue(source.raw_text || source.rawText || resume.raw_text || resume.rawText),
-    resumeText: stringValue(source.resume_text || source.resumeText || source.resume_attachment_extracted_text || resume.resume_text || resume.resumeText),
-    aiFirstAnalysis: { score: source.ai_detail_score ?? source.aiFirstScore ?? source.analysis?.detail?.score, reason: stringValue(source.ai_detail_reason || source.aiFirstReason || source.analysis?.detail?.reason) },
-    aiSecondAnalysis: { score: source.ai_greet_score ?? source.aiSecondScore ?? source.analysis?.greet?.score, reason: stringValue(source.ai_greet_reason || source.aiSecondReason || source.analysis?.greet?.reason) },
-    aiReviewAnalysis: { score: source.ai_review_score ?? source.aiReviewScore ?? source.analysis?.review?.score, reason: stringValue(source.ai_review_reason || source.aiReviewReason || source.analysis?.review?.reason) },
-    createdAt: stringValue(source.created_at || source.createdAt),
-    updatedAt: stringValue(source.updated_at || source.updatedAt),
+    engagementId: stringValue(source.engagement_id),
+    status: stringValue(source.engagement_status || "created"),
+    name: stringValue(source.candidate_name || "未命名候选人"),
+    avatarUrl: "",
+    age: ageFromBirthYM(source.birth_ym),
+    gender: "",
+    workRegion: stringValue(source.work_region),
+    workYears: stringValue(source.work_years),
+    educationLevel: stringValue(source.education_level),
+    expectedPosition: stringValue(source.expected_position),
+    expectedSalary: salaryText(source.expected_salary_min, source.expected_salary_max),
+    workStatus: stringValue(source.work_status),
+    onlineStatus: stringValue(source.online_status),
+    personalDescription: stringValue(source.personal_description || source.basic_info),
+    workExperiences: arrayValue(source.work_experiences).map((item) => ({
+      companyName: stringValue(item.company_name),
+      positionName: stringValue(item.position_name),
+      content: stringValue(item.content),
+      startYm: stringValue(item.start_ym),
+      endYm: stringValue(item.end_ym),
+    })),
+    educations: arrayValue(source.educations).map((item) => ({
+      schoolName: stringValue(item.school_name),
+      majorName: stringValue(item.major_name),
+      educationLevel: stringValue(item.education_level),
+      startYm: stringValue(item.start_ym),
+      endYm: stringValue(item.end_ym),
+    })),
+    certificates: arrayValue(source.certificates),
+    honors: arrayValue(source.honors),
+    projectExperiences: arrayValue(source.project_experiences).map((item) => ({
+      projectName: stringValue(item.project_name),
+      roleName: stringValue(item.role_name),
+      content: stringValue(item.content),
+      startYm: stringValue(item.start_ym),
+      endYm: stringValue(item.end_ym),
+    })),
+    communications: arrayValue(source.colleague_communications),
+    rawText: stringValue(source.raw_text),
+    aiFirstAnalysis: { score: source.ai?.detail?.score, reason: stringValue(source.ai?.detail?.reason) },
+    aiSecondAnalysis: { score: source.ai?.greet?.score, reason: stringValue(source.ai?.greet?.reason) },
+    createdAt: stringValue(source.created_at),
+    updatedAt: stringValue(source.updated_at),
     raw: source,
   };
 }
@@ -108,28 +127,19 @@ function arrayValue(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** normalizeExperience 统一经历字段命名。 */
-function normalizeExperience(item: any): NormalizedExperience {
-  return {
-    companyName: stringValue(item?.company_name || item?.companyName || item?.company),
-    positionName: stringValue(item?.position_name || item?.positionName || item?.position),
-    projectName: stringValue(item?.project_name || item?.projectName || item?.name),
-    roleName: stringValue(item?.role_name || item?.roleName || item?.role),
-    schoolName: stringValue(item?.school_name || item?.schoolName || item?.school),
-    majorName: stringValue(item?.major_name || item?.majorName || item?.major),
-    educationLevel: stringValue(item?.education_level || item?.educationLevel || item?.degree || item?.education),
-    content: stringValue(item?.content || item?.description),
-    startYm: stringValue(item?.start_ym || item?.startYm || item?.start_date || item?.startDate),
-    endYm: stringValue(item?.end_ym || item?.endYm || item?.end_date || item?.endDate),
-  };
+/** salaryText 返回薪资展示文本。 */
+function salaryText(min: unknown, max: unknown) {
+  const left = Number(min);
+  const right = Number(max);
+  if (Number.isFinite(left) && Number.isFinite(right)) return `${left}-${right}K`;
+  if (Number.isFinite(left)) return `${left}K起`;
+  if (Number.isFinite(right)) return `${right}K以内`;
+  return "";
 }
 
-/** salaryText 返回期望薪资文本。 */
-function salaryText(source: any) {
-  const min = source.expected_salary_min ?? source.expectedSalaryMin;
-  const max = source.expected_salary_max ?? source.expectedSalaryMax;
-  if (min && max) return `${min}-${max}/月`;
-  if (min) return `${min}+/月`;
-  if (max) return `${max}/月以内`;
-  return stringValue(source.expected_salary || source.expectedSalary);
+/** ageFromBirthYM 根据出生年月粗略计算年龄。 */
+function ageFromBirthYM(birthYM: unknown) {
+  const text = stringValue(birthYM);
+  const year = Number(text.slice(0, 4));
+  return Number.isFinite(year) && year > 1900 ? String(new Date().getFullYear() - year) : "";
 }

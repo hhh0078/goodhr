@@ -39,8 +39,8 @@ type TaskCandidate struct {
 	FilterText          string
 	WorkExperiences     []CandidateWorkExperience
 	Educations          []CandidateEducation
-	Certificates        []string
-	Honors              []string
+	Certificates        []CandidateCertificate
+	Honors              []CandidateHonor
 	ProjectExperiences  []CandidateProjectExperience
 	Communications      []CandidateCommunication
 	ResumeURL           string
@@ -83,12 +83,16 @@ type CandidateProfileInput struct {
 	FilterText          string
 	WorkExperiences     []CandidateWorkExperience
 	Educations          []CandidateEducation
-	Certificates        []string
-	Honors              []string
+	Certificates        []CandidateCertificate
+	Honors              []CandidateHonor
 	ProjectExperiences  []CandidateProjectExperience
 	Communications      []CandidateCommunication
 	ResumeURL           string
 	ResumeText          string
+	AIDetailReason      string
+	AIDetailScore       *float64
+	AIGreetReason       string
+	AIGreetScore        *float64
 	Ext                 map[string]any
 	FirstSeenAt         *time.Time
 }
@@ -223,6 +227,10 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		ResumeURL:           item.ResumeURL,
 		ResumeText:          item.ResumeText,
 		Ext:                 item.Ext,
+		AIDetailReason:      item.AIDetailReason,
+		AIDetailScore:       item.AIDetailScore,
+		AIGreetReason:       item.AIGreetReason,
+		AIGreetScore:        item.AIGreetScore,
 		FirstSeenAt:         item.FirstSeenAt,
 		CreatedAt:           now,
 		UpdatedAt:           now,

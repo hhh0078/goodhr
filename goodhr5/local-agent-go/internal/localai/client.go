@@ -22,41 +22,9 @@ import (
 const (
 	defaultGreetThreshold  = 70.0
 	defaultDetailThreshold = 60.0
-	defaultGreetPrompt     = `你是一个资深的HR专家。
-请根据岗位要求给候选人打“打招呼建议分”。
-
-重要提示：
-1. 仅输出 JSON，不能输出其它内容。
-2. 返回字段必须是 score 和 reason。
-3. score 范围是 0-100，可以是小数。
-4. reason 控制在30字以内。
-5. 禁止输出 Markdown，禁止输出 Markdown 代码块。
-
-岗位要求：
-{job_desc}
-
-候选人信息：
-{candidate_text}
-
-请返回JSON：{"score": 78, "reason": "匹配核心要求"}`
-	defaultDetailPrompt = `你是一个资深的HR专家。
-请根据岗位要求给候选人打“查看详情建议分”。
-
-重要提示：
-1. 仅根据候选人基础信息评估是否值得打开详情。
-2. 仅输出 JSON，不能输出其它内容。
-3. 返回字段必须是 score 和 reason。
-4. score 范围是 0-100，可以是小数。
-5. reason 控制在30字以内。
-6. 禁止输出 Markdown，禁止输出 Markdown 代码块。
-
-岗位要求：
-{job_desc}
-
-候选人基础信息：
-{candidate_text}
-
-请返回JSON：{"score": 66, "reason": "可进一步确认细节"}`
+	defaultGreetPrompt     = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultDetailPrompt    = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成打招呼评分。只输出 JSON，禁止 Markdown。JSON 必须可直接入库，字段固定为：candidate_name、birth_ym、phone、email、work_region、work_years、expected_salary_min、expected_salary_max、education_level、expected_position、online_status、personal_description、work_status、work_experiences、educations、certificates、honors、project_experiences、colleague_communications、ai、raw_text。ai.detail 和 ai.greet 均包含 score、reason。经历数组字段格式必须固定：work_experiences 使用 company_name、position_name、content、start_ym、end_ym；educations 使用 school_name、major_name、education_level、start_ym、end_ym；certificates 使用 certificate_name、issued_by、issued_ym；honors 使用 honor_name、issued_by、issued_ym、description；project_experiences 使用 project_name、role_name、content、start_ym、end_ym；colleague_communications 使用 communicator_name、communicated_at、content。没有的信息用空字符串、null 或空数组。`
 )
 
 // Client 是本地 AI 调用客户端。
@@ -156,8 +124,7 @@ func (c *Client) withDecisionThreshold(threshold float64, isGreet bool) *Client 
 // ctx 为请求上下文，position 为岗位快照，candidate 为候选人基础信息。
 func (c *Client) ScoreForDetail(ctx context.Context, position map[string]any, candidate map[string]any) (Decision, error) {
 	threshold := numberFromAIConfig(position, defaultDetailThreshold, "detail_score_threshold", "open_detail_threshold", "detail_threshold")
-	prompt := buildDetailPrompt(position, candidate)
-	result, err := c.chat(ctx, prompt, numberFromAIConfig(position, c.Config.Temperature, "temperature"))
+	result, err := c.chatMessages(ctx, buildDetailMessages(position, candidate), numberFromAIConfig(position, c.Config.Temperature, "temperature"))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -185,8 +152,7 @@ func (c *Client) ScoreForDetail(ctx context.Context, position map[string]any, ca
 func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, candidate map[string]any) (Decision, error) {
 	threshold := numberFromAIConfig(position, defaultGreetThreshold, "greet_score_threshold", "greet_threshold")
 	c = c.withDecisionThreshold(threshold, true)
-	prompt := buildGreetPrompt(position, candidate)
-	result, err := c.chat(ctx, prompt, numberFromAIConfig(position, c.Config.Temperature, "temperature"))
+	result, err := c.chatMessages(ctx, buildGreetMessages(position, candidate), numberFromAIConfig(position, c.Config.Temperature, "temperature"))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -214,13 +180,13 @@ func (c *Client) ScoreForGreet(ctx context.Context, position map[string]any, can
 func (c *Client) ScoreVisionForGreet(ctx context.Context, position map[string]any, candidate map[string]any, imageBytes []byte) (Decision, error) {
 	threshold := numberFromAIConfig(position, defaultGreetThreshold, "greet_score_threshold", "greet_threshold")
 	c = c.withDecisionThreshold(threshold, true)
-	prompt := buildVisionGreetPrompt(position, candidate)
+	userText := buildVisionUserPrompt(position, candidate)
 	content := []map[string]any{
-		{"type": "text", "text": prompt},
+		{"type": "text", "text": userText},
 		{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes)}},
 	}
 	result, err := c.Chat(ctx, map[string]any{
-		"messages":        []map[string]any{{"role": "user", "content": content}},
+		"messages":        []map[string]any{{"role": "system", "content": buildVisionSystemPrompt(position)}, {"role": "user", "content": content}},
 		"temperature":     0.1,
 		"enable_thinking": c.EnableThinking,
 	})
@@ -355,6 +321,21 @@ func (c *Client) chat(ctx context.Context, prompt string, temperature float64) (
 		"enable_thinking": c.EnableThinking,
 	}
 	result, err := c.Chat(ctx, payload)
+	if err != nil {
+		return chatResult{}, err
+	}
+	return chatResult{Content: result.Content, Usage: result.Usage, ElapsedMS: result.ElapsedMS}, nil
+}
+
+// chatMessages 调用 OpenAI 兼容聊天接口，并保持稳定规则和动态内容分离。
+// ctx 为请求上下文，messages 为聊天消息，temperature 为温度。
+func (c *Client) chatMessages(ctx context.Context, messages []map[string]string, temperature float64) (chatResult, error) {
+	result, err := c.Chat(ctx, map[string]any{
+		"messages":        messages,
+		"temperature":     temperature,
+		"stream":          true,
+		"enable_thinking": c.EnableThinking,
+	})
 	if err != nil {
 		return chatResult{}, err
 	}
@@ -587,140 +568,46 @@ func extractReasoningContent(payload map[string]any) string {
 	return ""
 }
 
-// buildDetailPrompt 构建查看详情评分提示词。
+// buildDetailMessages 构建缓存友好的详情评分消息。
 // position 为岗位快照，candidate 为候选人基础信息。
-func buildDetailPrompt(position map[string]any, candidate map[string]any) string {
+func buildDetailMessages(position map[string]any, candidate map[string]any) []map[string]string {
 	aiConfig := mapValue(position["ai_config"])
-	custom := stringFromMap(aiConfig, "open_detail_prompt")
-	jobDesc := positionDescription(position)
-	candidateText := firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text"))
-	fallback := strings.ReplaceAll(defaultDetailPrompt, "{job_desc}", jobDesc)
-	fallback = strings.ReplaceAll(fallback, "{candidate_text}", candidateText)
-	if custom == "" {
-		return fallback
-	}
-	return templatePrompt(custom, jobDesc, candidateText, fallback)
+	system := firstNonEmpty(stringFromMap(aiConfig, "open_detail_prompt"), defaultDetailPrompt)
+	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"))
 }
 
-// buildGreetPrompt 构建打招呼评分提示词。
+// buildGreetMessages 构建缓存友好的打招呼评分消息。
 // position 为岗位快照，candidate 为候选人信息。
-func buildGreetPrompt(position map[string]any, candidate map[string]any) string {
+func buildGreetMessages(position map[string]any, candidate map[string]any) []map[string]string {
 	aiConfig := mapValue(position["ai_config"])
-	custom := firstNonEmpty(
-		stringFromMap(aiConfig, "greet_prompt"),
-		stringFromMap(aiConfig, "filter_prompt"),
-		stringFromMap(aiConfig, "click_prompt"),
-	)
-	jobDesc := positionDescription(position)
-	candidateText := firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text"))
-	fallback := strings.ReplaceAll(defaultGreetPrompt, "{job_desc}", jobDesc)
-	fallback = strings.ReplaceAll(fallback, "{candidate_text}", candidateText)
-	if custom == "" {
-		return fallback
-	}
-	return templatePrompt(custom, jobDesc, candidateText, fallback)
+	system := firstNonEmpty(stringFromMap(aiConfig, "greet_prompt"), stringFromMap(aiConfig, "filter_prompt"), stringFromMap(aiConfig, "click_prompt"), defaultGreetPrompt)
+	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"))
 }
 
-// applyResumeTemplate 替换提示词中的通用占位符和 ${结构化简历} 占位符。
-// template 为提示词模板，jobDesc/candidateText 为替换内容，fallback 为默认提示词。
-func applyResumeTemplate(template string, jobDesc string, candidateText string, fallback string) string {
-	prompt := strings.TrimSpace(template)
-	prompt = strings.ReplaceAll(prompt, "${岗位信息}", jobDesc)
-	prompt = strings.ReplaceAll(prompt, "${候选人信息}", candidateText)
-	prompt = strings.ReplaceAll(prompt, "{job_desc}", jobDesc)
-	prompt = strings.ReplaceAll(prompt, "{candidate_text}", candidateText)
-	prompt = strings.ReplaceAll(prompt, "{default_prompt}", fallback)
-	if strings.Contains(prompt, "${结构化简历}") {
-		resumeJSON := buildResumeJSONExample()
-		prompt = strings.ReplaceAll(prompt, "${结构化简历}", resumeJSON)
+// scoringMessages 将稳定评分规则和本次变量拆成不同消息。
+// system 为稳定规则，jobDesc 和 candidateText 为本次变量。
+func scoringMessages(system string, jobDesc string, candidateText string) []map[string]string {
+	return []map[string]string{
+		{"role": "system", "content": strings.TrimSpace(system)},
+		{"role": "user", "content": "岗位要求：\n" + jobDesc + "\n\n候选人信息：\n" + candidateText},
 	}
-	if !strings.Contains(prompt, jobDesc) || !strings.Contains(prompt, candidateText) {
-		prompt += "\n\n岗位要求：\n" + jobDesc + "\n\n候选人信息：\n" + candidateText
-	}
-	return prompt
 }
 
-// buildResumeJSONExample 返回与云端对齐的结构化简历 JSON 示例，用于替换提示词中的 ${结构化简历} 占位符。
-func buildResumeJSONExample() string {
-	return `{
-  "analysis": {
-    "score": 78,
-    "should_greet": true,
-    "reason": "匹配核心要求"
-  },
-  "resume": {
-    "candidate_name": "张三",
-    "birth_ym": "1995-06",
-    "phone": "13812345678",
-    "email": "zhangsan@example.com",
-    "work_region": "北京",
-    "work_years": "5年",
-    "expected_salary_min": 15000,
-    "expected_salary_max": 30000,
-    "education_level": "本科",
-    "expected_position": "产品经理",
-    "online_status": "在线",
-    "personal_description": "多年经验，擅长...",
-    "work_status": "在职",
-    "work_experiences": [
-      {
-        "company_name": "某公司",
-        "position_name": "产品经理",
-        "content": "负责产品规划与需求分析",
-        "start_ym": "2020-01",
-        "end_ym": "2023-06"
-      }
-    ],
-    "educations": [
-      {
-        "school_name": "某大学",
-        "major_name": "计算机科学",
-        "education_level": "本科",
-        "start_ym": "2014-09",
-        "end_ym": "2018-06"
-      }
-    ],
-    "certificates": [],
-    "honors": [],
-    "project_experiences": [],
-    "colleague_communications": []
-  }
-}`
-}
-
-// buildVisionGreetPrompt 构建图片详情识别和打招呼评分提示词。
-// position 为岗位快照，candidate 为候选人基础信息。
-// 支持从 ai_config 读取自定义 vision_prompt，支持 ${结构化简历}、${岗位信息}、${候选人信息} 占位符。
-func buildVisionGreetPrompt(position map[string]any, candidate map[string]any) string {
-	jobDesc := positionDescription(position)
-	candidateText := firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text"))
-	fallback := `你是一个资深的HR专家。
-请根据岗位要求、候选人基础信息，以及图片中的候选人详情，直接完成打招呼评分。
-
-重要提示：
-1. 你必须先识别图片中的候选人详情，再结合岗位要求评分。
-2. 仅输出 JSON，不能输出其它内容。
-3. 输出结构必须包含 analysis 和 resume 两个字段。
-4. analysis.score 范围是 0-100，可以是小数。
-5. analysis.reason 控制在30字以内。
-6. analysis.should_greet 为布尔值，表示是否建议打招呼。
-7. resume 为从图片中提取的结构化简历信息。
-8. 禁止输出 Markdown，禁止输出 Markdown 代码块。
-
-岗位要求：
-` + jobDesc + `
-
-候选人基础信息：
-` + candidateText + `
-
-请严格按以下格式返回JSON，没有的信息就为空：`
-	// 检查是否有自定义 vision_prompt
+// buildVisionSystemPrompt 构建视觉识别稳定规则。
+// position 为岗位快照，可读取用户自定义视觉提示词。
+func buildVisionSystemPrompt(position map[string]any) string {
 	aiConfig := mapValue(position["ai_config"])
 	custom := strings.TrimSpace(stringFromMap(aiConfig, "vision_prompt"))
 	if custom != "" {
-		return applyResumeTemplate(custom, jobDesc, candidateText, fallback)
+		return custom
 	}
-	return applyResumeTemplate(fallback, jobDesc, candidateText, fallback)
+	return defaultVisionSystem
+}
+
+// buildVisionUserPrompt 构建视觉识别本次变量消息。
+// position 为岗位快照，candidate 为候选人基础信息。
+func buildVisionUserPrompt(position map[string]any, candidate map[string]any) string {
+	return "岗位要求：\n" + positionDescription(position) + "\n\n候选人基础信息：\n" + stringFromMap(candidate, "raw_text")
 }
 
 // positionDescription 返回岗位要求文本。
@@ -744,28 +631,6 @@ func positionDescription(position map[string]any) string {
 		}
 	}
 	return strings.Join(result, "\n")
-}
-
-// templatePrompt 替换自定义提示词变量。
-// template 为自定义模板，jobDesc 为岗位要求，candidateText 为候选人信息。
-func templatePrompt(template string, jobDesc string, candidateText string, fallback string) string {
-	replacements := map[string]string{
-		"${岗位信息}":          jobDesc,
-		"${候选人信息}":         candidateText,
-		"{{岗位信息}}":         jobDesc,
-		"{{候选人信息}}":        candidateText,
-		"{job_desc}":       jobDesc,
-		"{candidate_text}": candidateText,
-		"{default_prompt}": fallback,
-	}
-	prompt := strings.TrimSpace(template)
-	for key, value := range replacements {
-		prompt = strings.ReplaceAll(prompt, key, value)
-	}
-	if !strings.Contains(prompt, jobDesc) || !strings.Contains(prompt, candidateText) {
-		prompt += "\n\n岗位要求：\n" + jobDesc + "\n\n候选人信息：\n" + candidateText
-	}
-	return prompt
 }
 
 // parseScoreJSON 解析 AI 输出的评分 JSON。
@@ -795,7 +660,7 @@ func parseVisionScoreJSON(content string) (float64, string, string, error) {
 }
 
 // parseVisionScoreJSONWithResume 解析图片详情 AI 输出的评分、详情文本和结构化简历。
-// 同时支持旧格式 {score, reason, detail_text} 和新格式 {analysis: {score, should_greet, reason}, resume: {...}}。
+// 只支持新版扁平简历模型，ai.greet 中保存第二次分析分数和原因。
 // content 为 AI 原始正文。
 // 返回 score, reason, detailText, resumeData, error。
 // resumeData 可能为 nil（如果 AI 没有返回 resume 字段）。
@@ -811,36 +676,34 @@ func parseVisionScoreJSONWithResume(content string) (float64, string, string, ma
 		if err := json.Unmarshal([]byte(item), &payload); err != nil {
 			continue
 		}
-		// 优先读取新格式 {analysis: {score, should_greet, reason}, resume: {...}}
-		analysis := mapValue(payload["analysis"])
-		if len(analysis) > 0 {
-			score := numberValue(analysis["score"], 0)
-			reason := stringFromMap(analysis, "reason")
-			resumeData := mapValue(payload["resume"])
-			var detailText string
-			if len(resumeData) > 0 {
-				if resumeBytes, err := json.Marshal(resumeData); err == nil {
-					detailText = string(resumeBytes)
-				}
-			}
-			if detailText == "" {
-				detailText = firstNonEmpty(
-					stringFromMap(payload, "detail_text"),
-					stringFromMap(payload, "candidate_detail"),
-					stringFromMap(payload, "text"),
-				)
-			}
-			return score, reason, detailText, resumeData, nil
-		}
-		// 兼容旧格式 {score, reason, detail_text}
-		detailText := firstNonEmpty(
-			stringFromMap(payload, "detail_text"),
-			stringFromMap(payload, "candidate_detail"),
-			stringFromMap(payload, "text"),
-		)
-		return numberValue(payload["score"], 0), stringFromMap(payload, "reason"), detailText, nil, nil
+		ai := mapValue(payload["ai"])
+		greet := mapValue(ai["greet"])
+		score := numberValue(greet["score"], 0)
+		reason := stringFromMap(greet, "reason")
+		return score, reason, stringFromMap(payload, "raw_text"), normalizeResumePayload(payload), nil
 	}
 	return 0, "", "", nil, fmt.Errorf("AI 返回不是合法 JSON")
+}
+
+// normalizeResumePayload 只保留可直接入库的标准简历字段。
+// payload 为 AI 返回 JSON。
+func normalizeResumePayload(payload map[string]any) map[string]any {
+	result := map[string]any{}
+	for _, key := range []string{"candidate_name", "birth_ym", "phone", "email", "work_region", "work_years", "expected_salary_min", "expected_salary_max", "education_level", "expected_position", "online_status", "personal_description", "work_status", "work_experiences", "educations", "certificates", "honors", "project_experiences", "colleague_communications", "raw_text"} {
+		if value, ok := payload[key]; ok {
+			result[key] = value
+		}
+	}
+	ai := mapValue(payload["ai"])
+	if detail := mapValue(ai["detail"]); len(detail) > 0 {
+		result["ai_detail_score"] = detail["score"]
+		result["ai_detail_reason"] = stringFromMap(detail, "reason")
+	}
+	if greet := mapValue(ai["greet"]); len(greet) > 0 {
+		result["ai_greet_score"] = greet["score"]
+		result["ai_greet_reason"] = stringFromMap(greet, "reason")
+	}
+	return result
 }
 
 // extractChatContent 提取 OpenAI 兼容响应正文。

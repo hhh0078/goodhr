@@ -45,14 +45,14 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			candidate_name, birth_ym, phone, email, work_region, work_years,
 			expected_salary_min, expected_salary_max, basic_info, education_level,
 			expected_position, online_status, personal_description, work_status,
-			raw_text, filter_text, work_experiences, educations, certificates,
-			honors, project_experiences, colleague_communications,
-			resume_attachment_url, resume_attachment_extracted_text, ext, first_seen_at
+			raw_text, work_experiences, educations, certificates, honors,
+			project_experiences, colleague_communications,
+			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at
 		)
 		VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-			$16,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,
-			$25::jsonb,$26::jsonb,$27,$28,$29::jsonb,$30
+			$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,
+			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30
 		)
 		ON CONFLICT (tenant_id, source_platform_id, source_platform_candidate_id)
 		DO UPDATE SET
@@ -71,25 +71,25 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			personal_description = EXCLUDED.personal_description,
 			work_status = EXCLUDED.work_status,
 			raw_text = EXCLUDED.raw_text,
-			filter_text = EXCLUDED.filter_text,
 			work_experiences = EXCLUDED.work_experiences,
 			educations = EXCLUDED.educations,
 			certificates = EXCLUDED.certificates,
 			honors = EXCLUDED.honors,
 			project_experiences = EXCLUDED.project_experiences,
 			colleague_communications = EXCLUDED.colleague_communications,
-			resume_attachment_url = EXCLUDED.resume_attachment_url,
-			resume_attachment_extracted_text = EXCLUDED.resume_attachment_extracted_text,
-			ext = EXCLUDED.ext,
+			ai_detail_reason = EXCLUDED.ai_detail_reason,
+			ai_detail_score = EXCLUDED.ai_detail_score,
+			ai_greet_reason = EXCLUDED.ai_greet_reason,
+			ai_greet_score = EXCLUDED.ai_greet_score,
 			first_seen_at = COALESCE(candidate_profiles.first_seen_at, EXCLUDED.first_seen_at),
 			updated_at = now()
 		RETURNING
 			id, source_platform_id, source_platform_candidate_id, candidate_name, birth_ym,
 			phone, email, work_region, work_years, expected_salary_min, expected_salary_max,
 			basic_info, education_level, expected_position, online_status, personal_description,
-			work_status, raw_text, filter_text, work_experiences, educations, certificates,
-			honors, project_experiences, colleague_communications, resume_attachment_url,
-			resume_attachment_extracted_text, ext, first_seen_at, created_at, updated_at
+			work_status, raw_text, work_experiences, educations, certificates, honors,
+			project_experiences, colleague_communications, ai_detail_reason, ai_detail_score,
+			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at
 		`,
 		tenantID,
 		userID,
@@ -110,16 +110,16 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		item.PersonalDescription,
 		item.WorkStatus,
 		item.RawText,
-		item.FilterText,
 		string(toJSONB(item.WorkExperiences)),
 		string(toJSONB(item.Educations)),
 		string(toJSONB(item.Certificates)),
 		string(toJSONB(item.Honors)),
 		string(toJSONB(item.ProjectExperiences)),
 		string(toJSONB(item.Communications)),
-		item.ResumeURL,
-		item.ResumeText,
-		string(toJSONB(item.Ext)),
+		item.AIDetailReason,
+		item.AIDetailScore,
+		item.AIGreetReason,
+		item.AIGreetScore,
 		item.FirstSeenAt,
 	).Scan(
 		&saved.ID,
@@ -140,16 +140,16 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		&saved.PersonalDescription,
 		&saved.WorkStatus,
 		&saved.RawText,
-		&saved.FilterText,
 		jsonScanner(&saved.WorkExperiences),
 		jsonScanner(&saved.Educations),
 		jsonScanner(&saved.Certificates),
 		jsonScanner(&saved.Honors),
 		jsonScanner(&saved.ProjectExperiences),
 		jsonScanner(&saved.Communications),
-		&saved.ResumeURL,
-		&saved.ResumeText,
-		jsonScanner(&saved.Ext),
+		&saved.AIDetailReason,
+		&saved.AIDetailScore,
+		&saved.AIGreetReason,
+		&saved.AIGreetScore,
 		&saved.FirstSeenAt,
 		&saved.CreatedAt,
 		&saved.UpdatedAt,
@@ -485,24 +485,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		cp.online_status,
 		cp.personal_description,
 		cp.work_status,
-		cp.raw_text,
-		cp.filter_text,
-		cp.work_experiences,
-		cp.educations,
-		cp.certificates,
-		cp.honors,
-		cp.project_experiences,
-		cp.colleague_communications,
-		cp.resume_attachment_url,
-		cp.resume_attachment_extracted_text,
-		COALESCE(detail_event.reason, ''),
-		detail_event.score,
-		COALESCE(greet_event.reason, ''),
-		greet_event.score,
-		COALESCE(review_event.reason, ''),
-		review_event.score,
-		cp.ext,
-		cp.first_seen_at,
+		cp.raw_text, cp.work_experiences, cp.educations, cp.certificates, cp.honors, cp.project_experiences, cp.colleague_communications, cp.ai_detail_reason, cp.ai_detail_score, cp.ai_greet_reason, cp.ai_greet_score, cp.first_seen_at,
 		latest_engagement.detail_fetched_at,
 		latest_engagement.greeted_at,
 		cp.created_at,
@@ -517,24 +500,6 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 	) latest_engagement ON true
 	LEFT JOIN users u ON u.id = cp.created_by_user_id
 	LEFT JOIN positions p ON p.id = latest_engagement.position_id
-	LEFT JOIN LATERAL (
-		SELECT score, reason FROM candidate_events ev
-		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'detail_analysis'
-		ORDER BY ev.created_at DESC
-		LIMIT 1
-	) detail_event ON true
-	LEFT JOIN LATERAL (
-		SELECT score, reason FROM candidate_events ev
-		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'greet_analysis'
-		ORDER BY ev.created_at DESC
-		LIMIT 1
-	) greet_event ON true
-	LEFT JOIN LATERAL (
-		SELECT score, reason FROM candidate_events ev
-		WHERE ev.engagement_id = latest_engagement.id AND ev.event_type = 'review_analysis'
-		ORDER BY ev.created_at DESC
-		LIMIT 1
-	) review_event ON true
 	` + whereClause + `
 	`
 }
@@ -602,24 +567,7 @@ func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
 		&item.OnlineStatus,
 		&item.PersonalDescription,
 		&item.WorkStatus,
-		&item.RawText,
-		&item.FilterText,
-		jsonScanner(&item.WorkExperiences),
-		jsonScanner(&item.Educations),
-		jsonScanner(&item.Certificates),
-		jsonScanner(&item.Honors),
-		jsonScanner(&item.ProjectExperiences),
-		jsonScanner(&item.Communications),
-		&item.ResumeURL,
-		&item.ResumeText,
-		&item.AIDetailReason,
-		&item.AIDetailScore,
-		&item.AIGreetReason,
-		&item.AIGreetScore,
-		&item.AIReviewReason,
-		&item.AIReviewScore,
-		jsonScanner(&item.Ext),
-		&item.FirstSeenAt,
+		&item.RawText, jsonScanner(&item.WorkExperiences), jsonScanner(&item.Educations), jsonScanner(&item.Certificates), jsonScanner(&item.Honors), jsonScanner(&item.ProjectExperiences), jsonScanner(&item.Communications), &item.AIDetailReason, &item.AIDetailScore, &item.AIGreetReason, &item.AIGreetScore, &item.FirstSeenAt,
 		&item.DetailFetchedAt,
 		&item.GreetedAt,
 		&item.CreatedAt,
@@ -652,10 +600,7 @@ func buildCandidateWhere(tenantID string, query TaskCandidateQuery) (string, []a
 			OR cp.education_level ILIKE `+placeholder+`
 			OR cp.expected_position ILIKE `+placeholder+`
 			OR cp.basic_info ILIKE `+placeholder+`
-			OR cp.personal_description ILIKE `+placeholder+`
-			OR cp.raw_text ILIKE `+placeholder+`
-			OR cp.filter_text ILIKE `+placeholder+`
-			OR cp.resume_attachment_extracted_text ILIKE `+placeholder+`)`)
+			OR cp.personal_description ILIKE `+placeholder+` OR cp.raw_text ILIKE `+placeholder+`)`)
 	}
 	return strings.Join(clauses, " AND "), args
 }

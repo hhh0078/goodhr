@@ -809,7 +809,7 @@ func mergeVisionDecisionIntoCandidate(candidate map[string]any, decision localai
 	}
 	if decision.ResumeData != nil && len(decision.ResumeData) > 0 {
 		for key, value := range decision.ResumeData {
-			if _, exists := candidate[key]; !exists && value != nil {
+			if value != nil {
 				candidate[key] = value
 			}
 		}
@@ -1456,7 +1456,6 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 1, nil
 	}
 	candidate["detail_text"] = detailText
-	candidate["filter_text"] = mergeText(stringFromMap(candidate, "filter_text"), detailText)
 	candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
 	candidate["status"] = "detail_fetched"
 	r.taskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
@@ -1789,7 +1788,6 @@ func buildKeywordMatchState(task localdb.Task, candidate map[string]any) keyword
 	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
 	text := strings.TrimSpace(strings.Join([]string{
 		stringFromMap(candidate, "detail_text"),
-		stringFromMap(candidate, "filter_text"),
 		stringFromMap(candidate, "raw_text"),
 		stringFromMap(candidate, "ocr_text"),
 		stringFromMap(candidate, "ai_vision_text"),
@@ -2549,7 +2547,7 @@ func applyKeywordFilter(task localdb.Task, candidates []map[string]any, logf fun
 	result := []map[string]any{}
 	skipped := 0
 	for _, candidate := range candidates {
-		text := strings.ToLower(stringFromMap(candidate, "filter_text") + " " + stringFromMap(candidate, "raw_text"))
+		text := strings.ToLower(stringFromMap(candidate, "raw_text"))
 		if matched := matchedWords(text, excludes); len(matched) > 0 {
 			candidate["status"] = "skipped"
 			candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
