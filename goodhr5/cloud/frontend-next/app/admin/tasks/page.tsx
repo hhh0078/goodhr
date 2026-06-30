@@ -610,35 +610,41 @@ export default function TasksPage() {
           />
           <Box>
             <Typography sx={{ mb: 1, fontWeight: 800 }}>思考模式</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
               {[
                 { value: false, title: "普通模式", desc: "速度快，费用低，适合日常批量打招呼。准度正常，我会努力不添乱。" },
                 { value: true, title: "思考模式", desc: "准度更高，会多想一会儿；缺点是速度更慢，费用也更贵一点。" },
               ].map((option) => {
                 const selected = form.enable_thinking === option.value;
                 return (
-                  <Button
+                  <Box
                     key={option.title}
-                    type='button'
+                    role='button'
+                    tabIndex={0}
                     onClick={() => setForm({ ...form, enable_thinking: option.value })}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") setForm({ ...form, enable_thinking: option.value });
+                    }}
                     sx={{
-                      alignItems: "flex-start",
                       border: "1px solid",
                       borderColor: selected ? "#16724c" : "divider",
+                      borderRadius: "8px",
                       bgcolor: selected ? "#edf7f1" : "#fff",
-                      color: "text.primary",
-                      flexDirection: "column",
+                      cursor: "pointer",
+                      minHeight: 112,
                       p: 1.5,
-                      textAlign: "left",
-                      whiteSpace: "normal",
-                      "&:hover": { bgcolor: selected ? "#e3f1e9" : "#fafbfa", borderColor: "#16724c" },
+                      transition: "border-color .15s ease, background-color .15s ease",
+                      "&:hover": { bgcolor: selected ? "#e3f1e9" : "#fafbfa", borderColor: selected ? "#16724c" : "#9bb8aa" },
                     }}
                   >
-                    <Typography sx={{ fontWeight: 900 }}>{option.title}</Typography>
+                    <Stack direction='row' spacing={1} sx={{ alignItems: "center", mb: 0.75 }}>
+                      <Box sx={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid", borderColor: selected ? "#16724c" : "#aeb8b2", bgcolor: selected ? "#16724c" : "transparent", flex: "0 0 auto" }} />
+                      <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>{option.title}</Typography>
+                    </Stack>
                     <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>
                       {option.desc}
                     </Typography>
-                  </Button>
+                  </Box>
                 );
               })}
             </Box>
