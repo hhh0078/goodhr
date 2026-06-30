@@ -140,6 +140,17 @@ export function useAdmin() {
   return value;
 }
 
+/** AdminBanner 展示后台全局常驻广告位。 */
+function AdminBanner({ banner }: { banner: any }) {
+  return <Box onClick={() => openExternalURL(banner.url)} sx={{ mb: 1.5, mx: { xs: 1, md: 0 }, px: { xs: 1.5, md: 2 }, py: 1.15, borderRadius: "8px", bgcolor: banner.background_color || "#fff7df", color: banner.text_color || "#6b4a00", fontSize: 13, fontWeight: 720, lineHeight: 1.7, cursor: banner.url ? "pointer" : "default", border: "1px solid rgba(107, 74, 0, .12)" }}>{banner.text}</Box>;
+}
+
+/** openExternalURL 新开页面打开配置里的外部链接。 */
+function openExternalURL(url?: string) {
+  const value = String(url || "").trim();
+  if (value) window.open(value, "_blank", "noopener,noreferrer");
+}
+
 /** AdminApp 输出后台悬浮三卡布局并完成用户身份校验。 */
 export default function AdminApp({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -300,6 +311,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const visibleGroups = menuGroups.filter(
     (group) => !group.superOnly || user?.role === "super_admin",
   );
+  const adminBanner = appConfig?.admin_banner || {};
 
   /** logout 清除登录状态并返回登录页。 */
   function logout() {
@@ -538,6 +550,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             minHeight: "100vh",
           }}
         >
+          {adminBanner?.enabled !== false && adminBanner?.text ? <AdminBanner banner={adminBanner} /> : null}
           <Paper
             elevation={0}
             sx={{
