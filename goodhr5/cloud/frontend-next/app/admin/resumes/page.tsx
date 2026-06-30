@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { cloudRequest } from "@/lib/admin-api";
+import { cloudRequest, formatDate } from "@/lib/admin-api";
 import { experienceLine, normalizeCandidate, scoreText, type NormalizedCandidate } from "@/lib/candidate-normalize";
 
 /** ResumesPage 展示云端保存的候选人简历列表。 */
@@ -107,11 +107,12 @@ export default function ResumesPage() {
 function ResumeRow({ item }: { item: NormalizedCandidate }) {
   const href = `/admin/resumes/detail?candidate_id=${encodeURIComponent(item.id)}${item.engagementId ? `&engagement_id=${encodeURIComponent(item.engagementId)}` : ""}`;
   const facts = [item.workRegion, item.age ? `${item.age}岁` : "", item.gender, item.workYears, item.educationLevel].filter(Boolean).join(" / ");
+  const ownerLine = [item.creatorEmail ? `创建人：${item.creatorEmail}` : "", item.createdAt ? `创建时间：${formatDate(item.createdAt)}` : ""].filter(Boolean).join("  ");
   const experiences = [...item.workExperiences, ...item.educations].map(experienceLine).filter(Boolean).slice(0, 3);
   return <Button component={Link} href={href} color="secondary" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.6fr .8fr" }, gap: { xs: 1.25, md: 2 }, alignItems: "center", width: "100%", px: 2, py: 2, textAlign: "left", borderRadius: 0, borderBottom: "1px solid", borderColor: "divider" }}>
     <Stack direction="row" spacing={1.5} sx={{ minWidth: 0, alignItems: "center" }}>
       <Avatar src={item.avatarUrl}>{item.name.slice(0, 1)}</Avatar>
-      <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 820 }}>{item.name}</Typography><Typography noWrap sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>{facts || "暂无基础信息"}</Typography><Typography noWrap sx={{ mt: 0.6 }}>{item.expectedPosition || "暂无期望职位"}</Typography></Box>
+      <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontWeight: 820 }}>{item.name}</Typography><Typography noWrap sx={{ mt: 0.4, color: "text.secondary", fontSize: 13 }}>{facts || "暂无基础信息"}</Typography><Typography noWrap sx={{ mt: 0.6 }}>{item.expectedPosition || "暂无期望职位"}</Typography>{ownerLine ? <Typography noWrap sx={{ mt: 0.5, color: "text.secondary", fontSize: 12 }}>{ownerLine}</Typography> : null}</Box>
     </Stack>
     <Stack spacing={0.6} sx={{ minWidth: 0 }}>{experiences.length ? experiences.map((line) => <Typography key={line} noWrap sx={{ fontSize: 14 }}>{line}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>
     <Stack spacing={0.8} sx={{ minWidth: 0 }}><AIText label="第一次" score={item.aiFirstAnalysis.score} reason={item.aiFirstAnalysis.reason} /><AIText label="第二次" score={item.aiSecondAnalysis.score} reason={item.aiSecondAnalysis.reason} /></Stack>

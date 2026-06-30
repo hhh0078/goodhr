@@ -17,6 +17,7 @@ import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
+import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
 import SensorsRoundedIcon from "@mui/icons-material/SensorsRounded";
@@ -105,10 +106,11 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
-    label: "团队与账户",
-    items: [
-      ["/admin/team", "团队管理", GroupRoundedIcon],
-      ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
+      label: "团队与账户",
+      items: [
+        ["/admin/team", "团队管理", GroupRoundedIcon],
+        ["/admin/team-stats", "团队统计", QueryStatsRoundedIcon],
+        ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
     ],

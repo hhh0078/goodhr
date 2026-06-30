@@ -32,11 +32,16 @@ func (s *TenantService) Members(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, ok := s.currentSession(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	tenant, err := s.store.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	if !s.requireTenantAdmin(w, tenant.ID, session.Email) {
 		return
 	}
 
@@ -56,11 +61,16 @@ func (s *TenantService) Invite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, ok := s.currentSession(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	tenant, err := s.store.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	if !s.requireTenantAdmin(w, tenant.ID, session.Email) {
 		return
 	}
 
@@ -92,11 +102,16 @@ func (s *TenantService) UpdateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, ok := s.currentSession(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	tenant, err := s.store.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	if !s.requireTenantAdmin(w, tenant.ID, session.Email) {
 		return
 	}
 
@@ -121,11 +136,26 @@ func (s *TenantService) UpdateMember(w http.ResponseWriter, r *http.Request) {
 
 // ToggleCookieSharing 切换 cookie 共享开关。
 func (s *TenantService) ToggleCookieSharing(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeError(w, 405, "method not allowed"); return }
-	session, ok := s.currentSession(w, r); if !ok { return }
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
 	tenant, err := s.store.GetOrCreateTenant(session.Email)
-	if err != nil { writeError(w, 500, "failed to get tenant"); return }
-	var req struct { Enabled bool `json:"enabled"` }; json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		writeError(w, 500, "failed to get tenant")
+		return
+	}
+	if !s.requireTenantAdmin(w, tenant.ID, session.Email) {
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
 	s.store.SetCookieSharing(tenant.ID, req.Enabled)
 	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})
 }
@@ -137,11 +167,16 @@ func (s *TenantService) DeleteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, ok := s.currentSession(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	tenant, err := s.store.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	if !s.requireTenantAdmin(w, tenant.ID, session.Email) {
 		return
 	}
 
@@ -165,4 +200,15 @@ func (s *TenantService) currentSession(w http.ResponseWriter, r *http.Request) (
 		return Session{}, false
 	}
 	return session, true
+}
+
+// requireTenantAdmin 校验当前邮箱是否为团队管理员。
+// tenantID 为团队 ID，email 为当前登录邮箱；不通过时直接写入 403 响应。
+func (s *TenantService) requireTenantAdmin(w http.ResponseWriter, tenantID string, email string) bool {
+	isAdmin, err := s.store.IsTenantAdmin(tenantID, email)
+	if err != nil || !isAdmin {
+		writeError(w, http.StatusForbidden, "只有团队管理员才能操作")
+		return false
+	}
+	return true
 }

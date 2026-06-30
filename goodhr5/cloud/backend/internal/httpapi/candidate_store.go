@@ -143,7 +143,7 @@ type CandidateStore interface {
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
 	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
-	GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error)
+	GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error)
 	DeleteTeamCandidates(tenantID string) (int, error)
 }
 
@@ -152,6 +152,7 @@ type TaskCandidateQuery struct {
 	TaskID     string
 	PositionID string
 	Keyword    string
+	UserEmail  string
 	Page       int
 	PageSize   int
 }
@@ -300,6 +301,9 @@ func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCan
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	items := make([]TaskCandidate, 0)
 	for _, item := range s.profiles {
+		if query.UserEmail != "" && item.UserEmail != query.UserEmail {
+			continue
+		}
 		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
 			continue
 		}
@@ -320,13 +324,16 @@ func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCan
 }
 
 // GetTaskCandidate 读取单个内存候选人记录。
-// tenantID 为团队 ID，candidateID 为候选人 ID，engagementID 为空时返回全部事件。
-func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error) {
+// tenantID 为团队 ID，candidateID 为候选人 ID，userEmail 为空或管理员时不限制创建人。
+func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	item, ok := s.profiles[candidateID]
 	if !ok {
+		return TaskCandidate{}, ErrNotFound
+	}
+	if !isAdmin && userEmail != "" && item.UserEmail != userEmail {
 		return TaskCandidate{}, ErrNotFound
 	}
 	events := s.events[candidateID]

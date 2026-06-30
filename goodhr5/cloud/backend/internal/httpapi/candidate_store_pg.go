@@ -357,12 +357,16 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 
 // GetTaskCandidate 按 ID 读取当前团队内的候选人详情。
 // tenantID 为当前用户团队 ID，candidateID 为候选人主体 ID，engagementID 为空时使用最近一次触达。
-func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string) (TaskCandidate, error) {
+func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	args := []any{tenantID, candidateID}
 	whereClause := "WHERE cp.tenant_id = $1 AND cp.id::text = $2"
 	engagementScope := ""
+	if !isAdmin {
+		args = append(args, userEmail)
+		whereClause += fmt.Sprintf(" AND u.email = $%d", len(args))
+	}
 	if strings.TrimSpace(engagementID) != "" {
 		args = append(args, strings.TrimSpace(engagementID))
 		whereClause += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM candidate_engagements ce_match WHERE ce_match.candidate_id = cp.id AND ce_match.id::text = $%d)", len(args))
@@ -581,6 +585,10 @@ func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
 func buildCandidateWhere(tenantID string, query TaskCandidateQuery) (string, []any) {
 	clauses := []string{"cp.tenant_id = $1"}
 	args := []any{tenantID}
+	if query.UserEmail != "" {
+		args = append(args, query.UserEmail)
+		clauses = append(clauses, fmt.Sprintf("u.email = $%d", len(args)))
+	}
 	if query.TaskID != "" {
 		args = append(args, query.TaskID)
 		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.task_id::text = $%d)", len(args)))

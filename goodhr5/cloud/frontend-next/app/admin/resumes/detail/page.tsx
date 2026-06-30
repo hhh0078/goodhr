@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import JsonTree from "@/components/admin/JsonTree";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { cloudRequest } from "@/lib/admin-api";
+import { cloudRequest, formatDate } from "@/lib/admin-api";
 import { experienceLine, normalizeCandidate, periodText, scoreText, statusText, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
 
 /** ResumeDetailPage 展示候选人基本信息、经历和分析结果。 */
@@ -70,6 +70,11 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
   return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "#fbfcfb" }}>
     <Typography sx={{ mb: 1.5, color: "text.secondary", fontWeight: 760 }}>候选人状态</Typography>
     <Chip label={statusText(candidate.status)} color="primary" sx={{ mb: 3 }} />
+    <Typography sx={{ mb: 1.5, fontWeight: 820 }}>记录来源</Typography>
+    <Stack spacing={0.7} sx={{ mb: 3 }}>
+      <Typography sx={{ color: "text.secondary", fontSize: 13 }}>创建人：{candidate.creatorEmail || "暂时没记上"}</Typography>
+      <Typography sx={{ color: "text.secondary", fontSize: 13 }}>创建时间：{candidate.createdAt ? formatDate(candidate.createdAt) : "暂时没记上"}</Typography>
+    </Stack>
     <Typography sx={{ mb: 1.5, fontWeight: 820 }}>AI 判断</Typography>
     <Stack spacing={1.25}>
       <AIBlock title="第一次分析" score={candidate.aiFirstAnalysis.score} reason={candidate.aiFirstAnalysis.reason} />

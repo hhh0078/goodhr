@@ -49,9 +49,13 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	query := TaskCandidateQuery{
 		TaskID:     strings.TrimSpace(r.URL.Query().Get("task_id")),
 		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
-		Keyword:    strings.TrimSpace(r.URL.Query().Get("keyword")),
+		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
 		Page:       parsePositiveInt(r.URL.Query().Get("page")),
 		PageSize:   parsePositiveInt(r.URL.Query().Get("page_size")),
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	if !isAdmin {
+		query.UserEmail = session.Email
 	}
 	result, err := s.store.ListTaskCandidates(tenant.ID, query)
 	if err != nil {
@@ -81,6 +85,11 @@ func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
 	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	if !isAdmin {
+		writeError(w, http.StatusForbidden, "只有团队管理员才能清空简历库")
 		return
 	}
 	deleted, err := s.store.DeleteTeamCandidates(tenant.ID)
@@ -116,7 +125,8 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get tenant")
 		return
 	}
-	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID, engagementID)
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID, engagementID, session.Email, isAdmin)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "candidate not found")
 		return

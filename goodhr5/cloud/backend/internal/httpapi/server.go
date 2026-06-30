@@ -32,6 +32,7 @@ type Server struct {
 	activationCodes     *ActivationCodeService
 	adminUsers          *AdminUserService
 	publicStats         *PublicStatsService
+	teamStats           *TeamStatsService
 	dailyStats          SystemDailyStatsStore
 	help                *HelpService
 	systemConfigs       SystemConfigStore
@@ -99,6 +100,7 @@ func NewServer() (*Server, error) {
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
 		publicStats:         NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
+		teamStats:           NewTeamStatsService(auth, db, tenantStore),
 		dailyStats:          dailyStatsStore,
 		help:                NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:       systemConfigStore,
@@ -137,6 +139,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/onboarding/status", s.onboarding.Status)
 	mux.HandleFunc("/api/onboarding/complete", s.onboarding.Complete)
 	mux.HandleFunc("/api/invitations/summary", s.invitations.Summary)
+	mux.HandleFunc("/api/team/stats", s.teamStats.Summary)
 	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)

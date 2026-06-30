@@ -38,6 +38,7 @@ export type NormalizedCandidate = {
   rawText: string;
   aiFirstAnalysis: { score: unknown; reason: string };
   aiSecondAnalysis: { score: unknown; reason: string };
+  creatorEmail: string;
   createdAt: string;
   updatedAt: string;
   raw: any;
@@ -89,6 +90,7 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
     rawText: stringValue(source.raw_text),
     aiFirstAnalysis: { score: source.ai?.detail?.score, reason: stringValue(source.ai?.detail?.reason) },
     aiSecondAnalysis: { score: source.ai?.greet?.score, reason: stringValue(source.ai?.greet?.reason) },
+    creatorEmail: stringValue(source.user_email),
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),
     raw: source,
