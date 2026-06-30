@@ -748,10 +748,26 @@ func cloneCandidateForCloud(task localdb.Task, candidate map[string]any) map[str
 	payload["platform_id"] = task.PlatformID
 	payload["position_id"] = task.PositionID
 	payload["platform_account_id"] = task.PlatformAccountID
+	payload["ai"] = candidateAIResult(payload)
 	if _, ok := payload["candidate_name"]; !ok {
 		payload["candidate_name"] = candidateLogName(candidate)
 	}
 	return payload
+}
+
+// candidateAIResult 将两次真实 AI 分析结果组装成展示用嵌套结构。
+// payload 为即将同步云端的候选人数据，返回 ai.detail 和 ai.greet。
+func candidateAIResult(payload map[string]any) map[string]any {
+	return map[string]any{
+		"detail": map[string]any{
+			"score":  payload["ai_detail_score"],
+			"reason": payload["ai_detail_reason"],
+		},
+		"greet": map[string]any{
+			"score":  payload["ai_greet_score"],
+			"reason": payload["ai_greet_reason"],
+		},
+	}
 }
 
 // savePendingAIVisionCandidateAsync 在后台等待图片详情 AI 完整输出并入库。

@@ -53,6 +53,35 @@ func TestParseScoreJSON(t *testing.T) {
 	}
 }
 
+// TestParseScoreJSONAnalysis 验证 analysis 包裹的评分结果可以解析。
+func TestParseScoreJSONAnalysis(t *testing.T) {
+	score, reason, err := parseScoreJSON(`{"analysis":{"score":72,"reason":"学历经验达标"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 72 || reason != "学历经验达标" {
+		t.Fatalf("score=%v reason=%s", score, reason)
+	}
+}
+
+// TestParseVisionScoreJSONWithResumeAnalysis 验证结构化简历只从 analysis 取本次分数。
+func TestParseVisionScoreJSONWithResumeAnalysis(t *testing.T) {
+	score, reason, _, resumeData, err := parseVisionScoreJSONWithResume(`{
+		"analysis":{"score":75,"reason":"经验匹配"},
+		"candidate_name":"徐英",
+		"ai":{"greet":{"score":10,"reason":"不该读取"}}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 75 || reason != "经验匹配" {
+		t.Fatalf("score=%v reason=%s", score, reason)
+	}
+	if _, ok := resumeData["ai_greet_score"]; ok {
+		t.Fatalf("resumeData should not include ai_greet_score: %+v", resumeData)
+	}
+}
+
 // TestChatStreamProgress 验证流式 AI 响应会实时回调完整文本。
 func TestChatStreamProgress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

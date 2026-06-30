@@ -50,6 +50,26 @@ func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
 	}
 }
 
+// TestCloneCandidateForCloudIncludesAIResult 验证同步云端前会组装 ai.detail 和 ai.greet。
+func TestCloneCandidateForCloudIncludesAIResult(t *testing.T) {
+	payload := cloneCandidateForCloud(localdb.Task{ID: "task-1", PlatformID: "boss", PositionID: "pos-1"}, map[string]any{
+		"candidate_name":   "徐英",
+		"ai_detail_score":  72.0,
+		"ai_detail_reason": "第一次真实原因",
+		"ai_greet_score":   75.0,
+		"ai_greet_reason":  "第二次真实原因",
+	})
+	ai := payload["ai"].(map[string]any)
+	detail := ai["detail"].(map[string]any)
+	greet := ai["greet"].(map[string]any)
+	if detail["score"] != 72.0 || detail["reason"] != "第一次真实原因" {
+		t.Fatalf("detail = %+v", detail)
+	}
+	if greet["score"] != 75.0 || greet["reason"] != "第二次真实原因" {
+		t.Fatalf("greet = %+v", greet)
+	}
+}
+
 // TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {
 	speedUpPageEntryCheck(t)

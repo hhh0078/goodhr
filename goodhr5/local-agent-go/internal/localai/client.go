@@ -24,7 +24,7 @@ const (
 	defaultDetailThreshold = 60.0
 	defaultGreetPrompt     = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
 	defaultDetailPrompt    = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成打招呼评分。只输出 JSON，禁止 Markdown。JSON 必须可直接入库，字段固定为：candidate_name、birth_ym、phone、email、work_region、work_years、expected_salary_min、expected_salary_max、education_level、expected_position、online_status、personal_description、work_status、work_experiences、educations、certificates、honors、project_experiences、colleague_communications、ai、raw_text。ai.detail 和 ai.greet 均包含 score、reason。经历数组字段格式必须固定：work_experiences 使用 company_name、position_name、content、start_ym、end_ym；educations 使用 school_name、major_name、education_level、start_ym、end_ym；certificates 使用 certificate_name、issued_by、issued_ym；honors 使用 honor_name、issued_by、issued_ym、description；project_experiences 使用 project_name、role_name、content、start_ym、end_ym；colleague_communications 使用 communicator_name、communicated_at、content。没有的信息用空字符串、null 或空数组。`
+	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。JSON 必须可直接入库，字段固定为：analysis、candidate_name、birth_ym、phone、email、work_region、work_years、expected_salary_min、expected_salary_max、education_level、expected_position、online_status、personal_description、work_status、work_experiences、educations、certificates、honors、project_experiences、colleague_communications、raw_text。analysis 必须包含 score、reason，reason 控制在30字以内。经历数组字段格式必须固定：work_experiences 使用 company_name、position_name、content、start_ym、end_ym；educations 使用 school_name、major_name、education_level、start_ym、end_ym；certificates 使用 certificate_name、issued_by、issued_ym；honors 使用 honor_name、issued_by、issued_ym、description；project_experiences 使用 project_name、role_name、content、start_ym、end_ym；colleague_communications 使用 communicator_name、communicated_at、content。没有的信息用空字符串、null 或空数组。`
 )
 
 // Client 是本地 AI 调用客户端。
@@ -733,9 +733,19 @@ func parseScoreJSON(content string) (float64, string, error) {
 		if err := json.Unmarshal([]byte(item), &payload); err != nil {
 			continue
 		}
-		return numberValue(payload["score"], 0), stringFromMap(payload, "reason"), nil
+		return scoreReasonFromPayload(payload)
 	}
 	return 0, "", fmt.Errorf("AI 返回不是合法 JSON")
+}
+
+// scoreReasonFromPayload 从 AI 单次分析结果中取出分数和原因。
+// payload 为 AI 返回 JSON，优先读取 analysis，兼容旧的顶层 score/reason。
+func scoreReasonFromPayload(payload map[string]any) (float64, string, error) {
+	analysis := mapValue(payload["analysis"])
+	if len(analysis) > 0 {
+		return numberValue(analysis["score"], 0), stringFromMap(analysis, "reason"), nil
+	}
+	return numberValue(payload["score"], 0), stringFromMap(payload, "reason"), nil
 }
 
 // parseVisionScoreJSON 解析图片详情 AI 输出的评分和详情文本（无 resume 数据版本，向后兼容）。
@@ -745,8 +755,8 @@ func parseVisionScoreJSON(content string) (float64, string, string, error) {
 	return score, reason, detailText, err
 }
 
-// parseVisionScoreJSONWithResume 解析图片详情 AI 输出的评分、详情文本和结构化简历。
-// 只支持新版扁平简历模型，ai.greet 中保存第二次分析分数和原因。
+// parseVisionScoreJSONWithResume 解析图片详情 AI 输出的本次分析结果和结构化简历。
+// 只支持新版扁平简历模型，analysis 保存本次 AI 分数和原因。
 // content 为 AI 原始正文。
 // 返回 score, reason, detailText, resumeData, error。
 // resumeData 可能为 nil（如果 AI 没有返回 resume 字段）。
@@ -762,10 +772,10 @@ func parseVisionScoreJSONWithResume(content string) (float64, string, string, ma
 		if err := json.Unmarshal([]byte(item), &payload); err != nil {
 			continue
 		}
-		ai := mapValue(payload["ai"])
-		greet := mapValue(ai["greet"])
-		score := numberValue(greet["score"], 0)
-		reason := stringFromMap(greet, "reason")
+		score, reason, err := scoreReasonFromPayload(payload)
+		if err != nil {
+			continue
+		}
 		return score, reason, stringFromMap(payload, "raw_text"), normalizeResumePayload(payload), nil
 	}
 	return 0, "", "", nil, fmt.Errorf("AI 返回不是合法 JSON")
@@ -779,15 +789,6 @@ func normalizeResumePayload(payload map[string]any) map[string]any {
 		if value, ok := payload[key]; ok {
 			result[key] = value
 		}
-	}
-	ai := mapValue(payload["ai"])
-	if detail := mapValue(ai["detail"]); len(detail) > 0 {
-		result["ai_detail_score"] = detail["score"]
-		result["ai_detail_reason"] = stringFromMap(detail, "reason")
-	}
-	if greet := mapValue(ai["greet"]); len(greet) > 0 {
-		result["ai_greet_score"] = greet["score"]
-		result["ai_greet_reason"] = stringFromMap(greet, "reason")
 	}
 	return result
 }
