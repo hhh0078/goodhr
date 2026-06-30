@@ -69,7 +69,16 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"background_color": "#fff7df",
 					"text_color": "#6b4a00",
 					"url": "https://goodhr5.58it.cn"
-				}
+				},
+				"admin_banners": [
+					{
+						"enabled": true,
+						"text": "GoodHR 猎头管理系统已上线（完全免费），点击前往体验。",
+						"background_color": "#fff7df",
+						"text_color": "#6b4a00",
+						"url": "https://goodhr5.58it.cn"
+					}
+				]
 			}`,
 			Description: "前端公共系统配置：本地执行器版本要求、系统公告列表和后台广告位",
 			Enabled:     true,

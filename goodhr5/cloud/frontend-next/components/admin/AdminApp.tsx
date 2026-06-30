@@ -140,9 +140,14 @@ export function useAdmin() {
   return value;
 }
 
-/** AdminBanner 展示后台全局常驻广告位。 */
-function AdminBanner({ banner }: { banner: any }) {
-  return <Box onClick={() => openExternalURL(banner.url)} sx={{ mb: 1.5, mx: { xs: 1, md: 0 }, px: { xs: 1.5, md: 2 }, py: 1.15, borderRadius: "8px", bgcolor: banner.background_color || "#fff7df", color: banner.text_color || "#6b4a00", fontSize: 13, fontWeight: 720, lineHeight: 1.7, cursor: banner.url ? "pointer" : "default", border: "1px solid rgba(107, 74, 0, .12)" }}>{banner.text}</Box>;
+/** AdminBanners 展示后台全局常驻广告位，最多显示三条。 */
+function AdminBanners({ appConfig }: { appConfig: any }) {
+ const source = Array.isArray(appConfig?.admin_banners) ? appConfig.admin_banners : [appConfig?.admin_banner];
+ const banners = source.filter((item: any) => item?.enabled !== false && String(item?.text || "").trim()).slice(0, 3);
+ if (!banners.length) return null;
+ return <Box sx={{ mb: 1.5, mx: { xs: 1, md: 0 }, display: "grid", gridTemplateColumns: { xs: "1fr", md: `repeat(${banners.length}, minmax(0, 1fr))` }, gap: 1 }}>
+  {banners.map((banner: any, index: number) => <Box key={`${banner.text}-${index}`} onClick={() => openExternalURL(banner.url)} sx={{ minHeight: 46, height: "100%", display: "flex", alignItems: "center", px: { xs: 1.5, md: 2 }, py: 1.15, borderRadius: "8px", bgcolor: banner.background_color || "#fff7df", color: banner.text_color || "#6b4a00", fontSize: 13, fontWeight: 720, lineHeight: 1.7, cursor: banner.url ? "pointer" : "default", border: "1px solid rgba(107, 74, 0, .12)", overflowWrap: "anywhere" }}>{banner.text}</Box>)}
+ </Box>;
 }
 
 /** openExternalURL 新开页面打开配置里的外部链接。 */
@@ -311,7 +316,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const visibleGroups = menuGroups.filter(
     (group) => !group.superOnly || user?.role === "super_admin",
   );
-  const adminBanner = appConfig?.admin_banner || {};
 
   /** logout 清除登录状态并返回登录页。 */
   function logout() {
@@ -550,7 +554,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             minHeight: "100vh",
           }}
         >
-          {adminBanner?.enabled !== false && adminBanner?.text ? <AdminBanner banner={adminBanner} /> : null}
+<AdminBanners appConfig={appConfig} />
           <Paper
             elevation={0}
             sx={{
