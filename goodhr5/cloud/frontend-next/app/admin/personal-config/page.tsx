@@ -20,6 +20,15 @@ import NotificationProfileDialog from "@/components/admin/NotificationProfileDia
 
 const defaults = { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", model: "qwen3.7-plus", api_key: "", click_frequency: 80, detail_open_probability: 80, detail_open_delay_min: 1, detail_open_delay_max: 2, detail_close_delay_min: 0, detail_close_delay_max: 0, greet_before_delay_min: 1, greet_before_delay_max: 2, rest_after_candidates_min: 40, rest_after_candidates_max: 70, rest_times_min: 2, rest_times_max: 3, rest_duration_min: 2, rest_duration_max: 7 };
 
+/** normalizeAIBaseURL 补全 OpenAI 兼容的 Chat Completions 地址。 */
+function normalizeAIBaseURL(baseURL: string) {
+  const value = baseURL.trim().replace(/\/+$/, "");
+  if (!value) return "";
+  if (value.endsWith("/chat/completions")) return value;
+  if (value.endsWith("/v1")) return `${value}/chat/completions`;
+  return `${value}/v1/chat/completions`;
+}
+
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
@@ -49,9 +58,12 @@ export default function PersonalConfigPage() {
   /** testAI 通过云端代理验证当前填写的 AI 接口。 */
   async function testAI() {
     if (!form.api_key.trim()) return notify("测试前请填写 AI Key", "warning");
+    const baseURL = normalizeAIBaseURL(form.base_url);
+    if (!baseURL || !form.model.trim()) return notify("请填写 AI 地址和模型", "warning");
     setLoading(true);
     try {
-      await cloudRequest("/api/config/test-ai", { method: "POST", body: { base_url: form.base_url.trim(), model: form.model.trim(), api_key: form.api_key.trim(), temperature: 0, enabled: true } });
+      setForm((current) => ({ ...current, base_url: baseURL }));
+      await cloudRequest("/api/config/test-ai", { method: "POST", body: { base_url: baseURL, model: form.model.trim(), api_key: form.api_key.trim(), temperature: 0, enabled: true } });
       notify("AI 接口测试成功", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "AI 接口测试失败", "error");
@@ -62,11 +74,13 @@ export default function PersonalConfigPage() {
 
   /** save 保存 AI 配置和操作偏好。 */
   async function save() {
-    if (!form.base_url.trim() || !form.model.trim()) return notify("请填写 AI 地址和模型", "warning");
+    const baseURL = normalizeAIBaseURL(form.base_url);
+    if (!baseURL || !form.model.trim()) return notify("请填写 AI 地址和模型", "warning");
     if (!keySet && !form.api_key.trim()) return notify("请填写 AI Key", "warning");
     setLoading(true);
     try {
-      await cloudRequest("/api/config/user-ai", { method: "PUT", body: { base_url: form.base_url.trim(), model: form.model.trim(), api_key: form.api_key.trim(), temperature: 0, prompt_template: "", enabled: true } });
+      setForm((current) => ({ ...current, base_url: baseURL }));
+      await cloudRequest("/api/config/user-ai", { method: "PUT", body: { base_url: baseURL, model: form.model.trim(), api_key: form.api_key.trim(), temperature: 0, prompt_template: "", enabled: true } });
       const { base_url: _baseURL, model, api_key: _key, ...preference } = form;
       await cloudRequest("/api/config/user-preferences", { method: "PUT", body: { ...preference, ai_model: model } });
       setKeySet(true);
