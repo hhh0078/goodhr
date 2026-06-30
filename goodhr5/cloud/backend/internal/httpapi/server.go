@@ -171,6 +171,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
+	mux.HandleFunc("/api/system/local-agent-updates", s.GetLocalAgentUpdates)
 	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
 	mux.HandleFunc("/api/admin/system/configs/", s.adminSystemConfigs)
 	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
@@ -274,6 +275,40 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"config": value,
+	})
+}
+
+// GetLocalAgentUpdates 返回官网可展示的本地程序更新记录。
+func (s *Server) GetLocalAgentUpdates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	cfg, err := s.systemConfigs.Get("system.onboarding_config")
+	if err != nil {
+		if errors.Is(err, ErrConfigNotFound) {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "local_agent": []any{}})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load local agent updates")
+		return
+	}
+
+	var value struct {
+		LocalAgent []map[string]any `json:"local_agent"`
+	}
+	if err := json.Unmarshal([]byte(cfg.ConfigValue), &value); err != nil {
+		writeError(w, http.StatusInternalServerError, "local agent updates invalid")
+		return
+	}
+	if value.LocalAgent == nil {
+		value.LocalAgent = []map[string]any{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"local_agent": value.LocalAgent,
 	})
 }
 
