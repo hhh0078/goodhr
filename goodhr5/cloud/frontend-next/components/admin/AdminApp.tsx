@@ -57,6 +57,7 @@ import { bindLocalAgent, clearLocalAgentDetectCache, cloudRequest, detectLocalAg
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
+import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
 
 type AdminContextValue = {
   user: any;
@@ -609,6 +610,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             {notice.message}
           </Alert>
         </Snackbar>
+        <RequiredRuntimeInstaller agentBase={agentBase} onboardingConfig={onboardingConfig} notify={notify} />
         <AdminSystemDialogs appConfig={appConfig} onboardingConfig={onboardingConfig} agentBase={agentBase} refreshAgent={refreshAgent} />
         <AdminDialog
           open={confirmState.open}
