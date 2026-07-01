@@ -55,6 +55,7 @@ export async function getPublicPlans(): Promise<PublicPlanData[]> {
 
 /** getLocalAgentUpdates 在服务端读取官网本地程序更新记录。 */
 export async function getLocalAgentUpdates(): Promise<LocalAgentUpdate[]> {
+	if (process.env.GOODHR_STATIC_EXPORT === "1") return [];
 	const baseURL = cloudBaseURL();
 	try {
 		const response = await fetch(`${baseURL}/api/system/local-agent-updates`, { cache: "no-store" });

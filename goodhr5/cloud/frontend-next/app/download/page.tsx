@@ -13,8 +13,6 @@ import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({ title: "下载GoodHR - HR与猎头招聘自动化工具", description: "下载 GoodHR Windows 或 macOS 本地程序，用于招聘平台自动筛选、AI筛选、自动打招呼、AI自动回复、OCR和简历下载管理。", path: "/download", keywords: ["招聘软件免费下载", "BOSS自动打招呼软件下载", "猎聘自动化工具下载", "HR招聘助手下载"] });
 
-export const dynamic = "force-dynamic";
-
 /** DownloadPage 提供 Windows 和 macOS 本地程序下载入口。 */
 export default async function DownloadPage() {
 	const updates = await getLocalAgentUpdates();
