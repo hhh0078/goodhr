@@ -192,6 +192,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     message: string;
     resolve?: (value: boolean) => void;
   }>({ open: false, title: "", message: "" });
+  const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] = useState(false);
+  const localAgentInstallNoticeOpen = Boolean(user && !loading && !agentBase && !agentBindBlocked && !localAgentInstallNoticeClosed);
 
   /** refreshAgent 重新探测本地程序。 */
   const refreshAgent = useCallback(async () => {
@@ -610,6 +612,16 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             {notice.message}
           </Alert>
         </Snackbar>
+        <AdminDialog
+          open={localAgentInstallNoticeOpen}
+          title='请先安装本地程序'
+          confirmText='去安装'
+          showCancel={false}
+          onClose={() => setLocalAgentInstallNoticeClosed(true)}
+          onConfirm={() => router.push("/download")}
+        >
+          <Typography color='text.secondary'>本地程序必须安装，不安装核心功能用不了。</Typography>
+        </AdminDialog>
         <RequiredRuntimeInstaller agentBase={agentBase} onboardingConfig={onboardingConfig} notify={notify} />
         <AdminSystemDialogs appConfig={appConfig} onboardingConfig={onboardingConfig} agentBase={agentBase} refreshAgent={refreshAgent} />
         <AdminDialog
