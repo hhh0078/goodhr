@@ -7,10 +7,12 @@ import (
 
 	"goodhr5/local-agent-go/internal/platformcore"
 	"goodhr5/local-agent-go/internal/platforms/boss"
+	"goodhr5/local-agent-go/internal/platforms/hliepin"
 )
 
 var registry = map[string]platformcore.Runtime{
-	"boss": boss.NewRuntime(),
+	"boss":    boss.NewRuntime(),
+	"hliepin": hliepin.NewRuntime(),
 }
 
 // RuntimeFor 按平台 ID 返回平台运行时。

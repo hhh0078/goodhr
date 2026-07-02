@@ -139,6 +139,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/type", s.handlePageType)
 	mux.HandleFunc("/api/v1/page/scroll", s.handlePageScroll)
 	mux.HandleFunc("/api/v1/page/extract-text", s.handlePageExtractText)
+	mux.HandleFunc("/api/v1/page/find-elements", s.handlePageFindElements)
+	mux.HandleFunc("/api/v1/page/list-click-by-index", s.handlePageListClickByIndex)
+	mux.HandleFunc("/api/v1/page/press-key", s.handlePagePressKey)
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
 	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
 	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
@@ -701,6 +704,24 @@ func (s *Server) handlePageScroll(w http.ResponseWriter, r *http.Request) {
 // w 为响应对象，r 为请求对象。
 func (s *Server) handlePageExtractText(w http.ResponseWriter, r *http.Request) {
 	s.proxyWorkerPost(w, r, "/api/v1/page/extract-text")
+}
+
+// handlePageFindElements 转发页面元素查询请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageFindElements(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/find-elements")
+}
+
+// handlePageListClickByIndex 转发列表元素点击请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePageListClickByIndex(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/list-click-by-index")
+}
+
+// handlePagePressKey 转发页面按键请求给 Node Worker。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handlePagePressKey(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/press-key")
 }
 
 // handlePageScreenshot 转发页面截图请求给 Node Worker。

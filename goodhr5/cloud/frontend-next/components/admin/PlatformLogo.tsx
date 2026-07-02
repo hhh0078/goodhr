@@ -5,6 +5,7 @@ import { Box } from "@mui/material";
 
 export const PLATFORM_ICON_SRC: Record<string, string> = {
   boss: "/assets/platforms/boss.png",
+  hliepin: "/assets/platforms/liepin.ico",
   liepin: "/assets/platforms/liepin.ico",
   zhaopin: "",
 };
@@ -13,6 +14,8 @@ export const PLATFORM_ICON_SRC: Record<string, string> = {
 export function platformLabel(platformID: string) {
   return platformID === "boss"
     ? "Boss直聘"
+    : platformID === "hliepin"
+      ? "猎聘猎头端"
     : platformID === "zhaopin"
       ? "智联招聘"
       : platformID === "liepin"

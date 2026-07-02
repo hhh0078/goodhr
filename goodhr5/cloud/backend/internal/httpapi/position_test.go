@@ -72,6 +72,33 @@ func TestPositionLifecycle(t *testing.T) {
 	}
 }
 
+// TestApplyPositionPlatformRules 验证不同平台会修正不支持的详情识别模式。
+func TestApplyPositionPlatformRules(t *testing.T) {
+	cases := []struct {
+		name       string
+		platformID string
+		mode       string
+		want       string
+	}{
+		{name: "Boss 不支持 DOM", platformID: "boss", mode: "dom", want: "ocr"},
+		{name: "猎聘猎头端只支持 DOM", platformID: "hliepin", mode: "ai", want: "dom"},
+		{name: "普通平台保留 OCR", platformID: "other", mode: "ocr", want: "ocr"},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			position := &Position{
+				PlatformID:   item.platformID,
+				CommonConfig: map[string]any{"detail_mode": item.mode},
+			}
+			applyPositionPlatformRules(position)
+			if position.CommonConfig["detail_mode"] != item.want {
+				t.Fatalf("detail_mode = %v, want %s", position.CommonConfig["detail_mode"], item.want)
+			}
+		})
+	}
+}
+
 // TestPositionRejectsMissingName 验证岗位配置名称不能为空。
 func TestPositionRejectsMissingName(t *testing.T) {
 	server := mustNewServer(t)

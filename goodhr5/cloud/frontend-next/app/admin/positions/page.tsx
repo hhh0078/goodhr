@@ -194,6 +194,8 @@ export default function PositionsPage() {
   async function selectDetailMode(value: string) {
     if (form.platform_id === "boss" && value === "dom")
       return notify("Boss直聘不支持 DOM 详情识别", "warning");
+    if (form.platform_id === "hliepin" && value !== "dom")
+      return notify("猎聘猎头端只能用 DOM 详情识别", "warning");
     if (value === "ai" && !subscription.active) return requireMembership();
     setForm((current) => ({ ...current, detail_mode: value }));
   }
@@ -203,10 +205,7 @@ export default function PositionsPage() {
     setForm((current) => ({
       ...current,
       platform_id: value,
-      detail_mode:
-        value === "boss" && current.detail_mode === "dom"
-          ? "ocr"
-          : current.detail_mode,
+      detail_mode: normalizeDetailMode(value, current.detail_mode),
     }));
   }
 
@@ -344,15 +343,21 @@ export default function PositionsPage() {
                 description: "支持 OCR 和 AI 详情识别。",
                 iconSrc: platformIconSrc("boss"),
               },
-              {
-                value: "zhaopin",
-                label: "智联招聘",
-                description: "平台适配开发中。",
-                disabled: true,
-              },
-              {
-                value: "liepin",
-                label: "猎聘",
+            {
+              value: "zhaopin",
+              label: "智联招聘",
+              description: "平台适配开发中。",
+              disabled: true,
+            },
+            {
+              value: "hliepin",
+              label: "猎聘猎头端",
+              description: "只支持 DOM 详情识别。",
+              iconSrc: platformIconSrc("hliepin"),
+            },
+            {
+              value: "liepin",
+              label: "猎聘",
                 description: "平台适配开发中。",
                 iconSrc: platformIconSrc("liepin"),
                 disabled: true,
@@ -387,23 +392,25 @@ export default function PositionsPage() {
             columns={3}
             onChange={(value) => void selectDetailMode(String(value))}
             options={[
-              {
-                value: "dom",
-                label: "DOM 识别",
-                description: "速度最快，适合可直接读取文字的平台。",
-                disabled: form.platform_id === "boss",
-              },
-              {
-                value: "ocr",
-                label: "OCR 识别",
-                description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
-              },
-              {
-                value: "ai",
-                label: "AI 识别（会员功能）",
-                description: "直接理解完整详情截图，效果最好但更慢。",
-                memberOnly: true,
-              },
+          {
+            value: "dom",
+            label: "DOM 识别",
+            description: "速度最快，适合可直接读取文字的平台。",
+            disabled: form.platform_id === "boss",
+          },
+          {
+            value: "ocr",
+            label: "OCR 识别",
+            description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
+            disabled: form.platform_id === "hliepin",
+          },
+          {
+            value: "ai",
+            label: "AI 识别（会员功能）",
+            description: "直接理解完整详情截图，效果最好但更慢。",
+            disabled: form.platform_id === "hliepin",
+            memberOnly: true,
+          },
             ]}
           />
           {form.mode_default === "keyword" ? (
@@ -796,11 +803,9 @@ function normalizePrompt(value: unknown) {
 
 /** normalizeDetailMode 修正平台不支持的详情模式。 */
 function normalizeDetailMode(platformID: string, mode: string) {
-  return platformID === "boss" && mode === "dom"
-    ? "ocr"
-    : ["dom", "ocr", "ai"].includes(mode)
-      ? mode
-      : "ocr";
+  if (platformID === "hliepin") return "dom";
+  if (platformID === "boss" && mode === "dom") return "ocr";
+  return ["dom", "ocr", "ai"].includes(mode) ? mode : "ocr";
 }
 
 /** splitKeywords 将多种分隔符转换成忽略大小写的去重关键词数组。 */
