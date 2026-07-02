@@ -24,13 +24,14 @@ type AdminEmailService struct {
 }
 
 type sendAdminEmailRequest struct {
-	Subject string            `json:"subject"`
-	HTML    string            `json:"html"`
-	Mode    string            `json:"mode"`
-	Emails  []string          `json:"emails"`
-	Tags    []string          `json:"tags"`
-	Flows   []string          `json:"flows"`
-	Meta    map[string]string `json:"meta"`
+	Subject             string            `json:"subject"`
+	HTML                string            `json:"html"`
+	Mode                string            `json:"mode"`
+	Emails              []string          `json:"emails"`
+	Tags                []string          `json:"tags"`
+	Flows               []string          `json:"flows"`
+	LastLoginBeforeDays int               `json:"last_login_before_days"`
+	Meta                map[string]string `json:"meta"`
 }
 
 // NewAdminEmailService 创建超管邮件服务。
@@ -266,8 +267,8 @@ func (s *AdminEmailService) resolveRecipients(req sendAdminEmailRequest) ([]stri
 			add(part)
 		}
 	}
-	if len(req.Tags) > 0 || len(req.Flows) > 0 {
-		users, err := s.store.FindTargetUsers(EmailTargetFilter{Tags: req.Tags, FlowSteps: req.Flows})
+	if len(req.Tags) > 0 || len(req.Flows) > 0 || req.LastLoginBeforeDays > 0 {
+		users, err := s.store.FindTargetUsers(EmailTargetFilter{Tags: req.Tags, FlowSteps: req.Flows, LastLoginBeforeDays: req.LastLoginBeforeDays})
 		if err != nil {
 			return nil, "", err
 		}
@@ -284,6 +285,9 @@ func (s *AdminEmailService) resolveRecipients(req sendAdminEmailRequest) ([]stri
 	}
 	if len(req.Flows) > 0 {
 		parts = append(parts, "流程："+strings.Join(req.Flows, ","))
+	}
+	if req.LastLoginBeforeDays > 0 {
+		parts = append(parts, fmt.Sprintf("至少%d天未登录", req.LastLoginBeforeDays))
 	}
 	return sortedEmails(seen), strings.Join(parts, "；"), nil
 }

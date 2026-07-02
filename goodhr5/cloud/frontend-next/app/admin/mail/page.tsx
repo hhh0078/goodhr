@@ -58,6 +58,7 @@ export default function AdminMailPage() {
   const [emails, setEmails] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [flows, setFlows] = useState<string[]>([]);
+  const [lastLoginBeforeDays, setLastLoginBeforeDays] = useState("");
   const [batches, setBatches] = useState<EmailBatch[]>([]);
   const [activeBatch, setActiveBatch] = useState<EmailBatch | null>(null);
   const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
@@ -134,6 +135,7 @@ export default function AdminMailPage() {
           emails: emails.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
           tags,
           flows,
+          last_login_before_days: Math.max(0, Number(lastLoginBeforeDays) || 0),
         },
       });
       notify("邮件批次已创建，正在发送", "success");
@@ -159,6 +161,15 @@ export default function AdminMailPage() {
           </TextField>
           {mode !== "all" ? <>
             <TextField label="指定邮箱" value={emails} onChange={(event) => setEmails(event.target.value)} multiline minRows={3} helperText="一行一个，也支持逗号分隔。" />
+            <TextField
+              label="最近未登录天数"
+              type="number"
+              value={lastLoginBeforeDays}
+              onChange={(event) => setLastLoginBeforeDays(event.target.value)}
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              helperText="比如填 5，就是筛选至少 5 天没上线的用户。"
+              fullWidth
+            />
             <OptionGroup title="用户标记" value={tags} options={profileOptions} onChange={setTags} />
             <OptionGroup title="流程卡点" value={flows} options={flowOptions} onChange={setFlows} />
           </> : null}

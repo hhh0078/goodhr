@@ -38,11 +38,12 @@ type EmailRecipient struct {
 }
 
 type EmailTargetFilter struct {
-	Mode       string
-	Emails     []string
-	Tags       []string
-	FlowSteps  []string
-	CreatedDay string
+	Mode                string
+	Emails              []string
+	Tags                []string
+	FlowSteps           []string
+	CreatedDay          string
+	LastLoginBeforeDays int
 }
 
 type EmailTargetUser struct {
