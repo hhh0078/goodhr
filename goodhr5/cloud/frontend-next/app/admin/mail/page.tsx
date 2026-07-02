@@ -1,14 +1,12 @@
 /** 本文件负责超级管理员富文本邮件群发、图片上传、发送进度和查看记录。 */
 "use client";
 
-import CloudUploadRoundedIcon from "@mui/icons-material/CloudUploadRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import { Box, Button, Chip, LinearProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import Image from "@tiptap/extension-image";
-import Link from "@tiptap/extension-link";
-import StarterKit from "@tiptap/starter-kit";
-import { EditorContent, useEditor } from "@tiptap/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { IDomEditor, IEditorConfig, IToolbarConfig } from "@wangeditor/editor";
+import "@wangeditor/editor/dist/css/style.css";
+import { Editor, Toolbar } from "@wangeditor/editor-for-react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { CLOUD_API_BASE, cloudRequest, formatDate, getToken } from "@/lib/admin-api";
@@ -34,38 +32,65 @@ const flowOptions = [
   ["paid", "未支付"],
 ];
 
+type EmailBatch = {
+  id: string;
+  subject: string;
+  total_count: number;
+  sent_count: number;
+  failed_count: number;
+  opened_count: number;
+  created_at: string;
+};
+
+type EmailRecipient = {
+  id: string;
+  email: string;
+  status: string;
+  opened: boolean;
+};
+
 /** AdminMailPage 展示超管邮件群发工作台。 */
 export default function AdminMailPage() {
   const { user, notify } = useAdmin();
   const [subject, setSubject] = useState("");
+  const [mailHtml, setMailHtml] = useState("");
   const [mode, setMode] = useState("filter");
   const [emails, setEmails] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [flows, setFlows] = useState<string[]>([]);
-  const [batches, setBatches] = useState<any[]>([]);
-  const [activeBatch, setActiveBatch] = useState<any>(null);
-  const [recipients, setRecipients] = useState<any[]>([]);
+  const [batches, setBatches] = useState<EmailBatch[]>([]);
+  const [activeBatch, setActiveBatch] = useState<EmailBatch | null>(null);
+  const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const editor = useEditor({
-    extensions: [StarterKit, Link.configure({ openOnClick: false }), Image.configure({ inline: false })],
-    content: "<p>你好，</p><p>我小声提醒一下……</p>",
-    editorProps: {
-      attributes: { class: "goodhr-mail-editor" },
-    },
-    immediatelyRender: false,
-  });
+  const [editor, setEditor] = useState<IDomEditor | null>(null);
+  const progress = activeBatch?.total_count ? Math.round(((activeBatch.sent_count + activeBatch.failed_count) / activeBatch.total_count) * 100) : 0;
 
-  const progress = useMemo(() => {
-    const total = Number(activeBatch?.total_count || 0);
-    const done = Number(activeBatch?.sent_count || 0) + Number(activeBatch?.failed_count || 0);
-    return total ? Math.round((done / total) * 100) : 0;
-  }, [activeBatch]);
+  const toolbarConfig: Partial<IToolbarConfig> = useMemo(() => ({}), []);
+  const editorConfig: Partial<IEditorConfig> = useMemo(() => ({
+    placeholder: "写邮件正文，图片请用编辑器里的上传图片按钮。",
+    MENU_CONF: {
+      uploadImage: {
+        server: `${CLOUD_API_BASE}/api/admin/emails/upload-image`,
+        fieldName: "file",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        maxFileSize: 5 * 1024 * 1024,
+        allowedFileTypes: ["image/*"],
+        customInsert(response: any, insertFn: (url: string, alt?: string, href?: string) => void) {
+          const url = response?.absolute_url || response?.url;
+          if (url) insertFn(url);
+        },
+      },
+    },
+  }), []);
 
   useEffect(() => {
     if (user?.role === "super_admin") void load();
-  }, [user]);
+  }, [user?.role]);
+
+  useEffect(() => () => {
+    editor?.destroy();
+  }, [editor]);
 
   useEffect(() => {
     if (!activeBatch?.id || progress >= 100) return;
@@ -96,18 +121,17 @@ export default function AdminMailPage() {
 
   /** send 发送邮件并开始轮询进度。 */
   async function send() {
-    const html = editor?.getHTML() || "";
     if (!subject.trim()) return notify("邮件标题要填一下", "warning");
-    if (!html.trim() || html === "<p></p>") return notify("正文还空着，我发不出去", "warning");
+    if (!mailHtml.replace(/<[^>]+>/g, "").trim() && !mailHtml.includes("<img")) return notify("正文还空着，我发不出去", "warning");
     setSending(true);
     try {
       const data = await cloudRequest("/api/admin/emails", {
         method: "POST",
         body: {
           subject,
-          html,
+          html: mailHtml,
           mode,
-          emails: emails.split(/\n/).map((item) => item.trim()).filter(Boolean),
+          emails: emails.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
           tags,
           flows,
         },
@@ -118,27 +142,6 @@ export default function AdminMailPage() {
       notify(error instanceof Error ? error.message : "发送失败", "error");
     } finally {
       setSending(false);
-    }
-  }
-
-  /** uploadImage 上传图片并插入富文本。 */
-  async function uploadImage(file?: File) {
-    if (!file || !editor) return;
-    const form = new FormData();
-    form.append("file", file);
-    try {
-      const response = await fetch(`${CLOUD_API_BASE}/api/admin/emails/upload-image`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body: form,
-      });
-      const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.error || "图片上传失败");
-      editor.chain().focus().setImage({ src: data.absolute_url || data.url }).run();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "图片上传失败", "error");
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
@@ -159,15 +162,9 @@ export default function AdminMailPage() {
             <OptionGroup title="用户标记" value={tags} options={profileOptions} onChange={setTags} />
             <OptionGroup title="流程卡点" value={flows} options={flowOptions} onChange={setFlows} />
           </> : null}
-          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
-            <Button size="small" variant="outlined" onClick={() => editor?.chain().focus().toggleBold().run()}>B</Button>
-            <Button size="small" variant="outlined" onClick={() => editor?.chain().focus().toggleBulletList().run()}>列表</Button>
-            <Button size="small" variant="outlined" onClick={() => editor?.chain().focus().setHorizontalRule().run()}>分割线</Button>
-            <Button size="small" variant="outlined" startIcon={<CloudUploadRoundedIcon />} onClick={() => fileRef.current?.click()}>上传图片</Button>
-            <input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={(event) => void uploadImage(event.target.files?.[0])} />
-          </Stack>
-          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: "8px", p: 1.5, minHeight: 260, "& .goodhr-mail-editor": { minHeight: 220, outline: "none", lineHeight: 1.8 }, "& img": { maxWidth: "100%", height: "auto", borderRadius: "8px" } }}>
-            <EditorContent editor={editor} />
+          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: "8px", overflow: "hidden", "& .w-e-text-container": { minHeight: "260px !important" }, "& img": { maxWidth: "100%", height: "auto" } }}>
+            <Toolbar editor={editor} defaultConfig={toolbarConfig} mode="default" style={{ borderBottom: "1px solid #eee" }} />
+            <Editor defaultConfig={editorConfig} value={mailHtml} onCreated={setEditor} onChange={(nextEditor) => setMailHtml(nextEditor.getHtml())} mode="default" style={{ height: 320, overflowY: "hidden" }} />
           </Box>
           <Button variant="contained" size="large" startIcon={<SendRoundedIcon />} disabled={sending} onClick={() => void send()}>{sending ? "正在创建批次" : "发送邮件"}</Button>
         </Stack>
@@ -213,6 +210,7 @@ function OptionGroup({ title, value, options, onChange }: { title: string; value
   </ToggleButtonGroup></Box>;
 }
 
+/** statusText 返回邮件收件人的发送状态文案。 */
 function statusText(value: string) {
   return value === "sent" ? "已发送" : value === "failed" ? "失败" : "等待中";
 }
