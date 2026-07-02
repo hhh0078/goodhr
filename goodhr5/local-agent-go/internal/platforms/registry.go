@@ -13,6 +13,8 @@ import (
 var registry = map[string]platformcore.Runtime{
 	"boss":    boss.NewRuntime(),
 	"hliepin": hliepin.NewRuntime(),
+	"liepin":  hliepin.NewPlatformRuntime("liepin", "猎聘企业端"),
+	"zhaopin": hliepin.NewPlatformRuntime("zhaopin", "智联招聘"),
 }
 
 // RuntimeFor 按平台 ID 返回平台运行时。

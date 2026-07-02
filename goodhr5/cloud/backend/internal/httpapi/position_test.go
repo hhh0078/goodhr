@@ -82,6 +82,8 @@ func TestApplyPositionPlatformRules(t *testing.T) {
 	}{
 		{name: "Boss 不支持 DOM", platformID: "boss", mode: "dom", want: "ocr"},
 		{name: "猎聘猎头端只支持 DOM", platformID: "hliepin", mode: "ai", want: "dom"},
+		{name: "猎聘企业端只支持 DOM", platformID: "liepin", mode: "ocr", want: "dom"},
+		{name: "智联只支持 DOM", platformID: "zhaopin", mode: "ai", want: "dom"},
 		{name: "普通平台保留 OCR", platformID: "other", mode: "ocr", want: "ocr"},
 	}
 

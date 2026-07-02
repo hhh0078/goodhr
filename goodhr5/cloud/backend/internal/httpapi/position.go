@@ -323,7 +323,7 @@ func normalizePositionPlatformID(platformID string) string {
 }
 
 // applyPositionPlatformRules 根据平台修正岗位模板参数。
-// position 为岗位模板；Boss 不支持 DOM 时改为 OCR，猎聘猎头端只允许 DOM。
+// position 为岗位模板；Boss 不支持 DOM 时改为 OCR，智联和猎聘只允许 DOM。
 func applyPositionPlatformRules(position *Position) {
 	if position == nil {
 		return
@@ -331,12 +331,23 @@ func applyPositionPlatformRules(position *Position) {
 	if position.CommonConfig == nil {
 		position.CommonConfig = map[string]any{}
 	}
-	if strings.EqualFold(position.PlatformID, "hliepin") {
+	if isDOMOnlyPlatform(position.PlatformID) {
 		position.CommonConfig["detail_mode"] = "dom"
 		return
 	}
 	if strings.EqualFold(position.PlatformID, "boss") && strings.EqualFold(fmt.Sprint(position.CommonConfig["detail_mode"]), "dom") {
 		position.CommonConfig["detail_mode"] = "ocr"
+	}
+}
+
+// isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。
+// platformID 为招聘平台标识。
+func isDOMOnlyPlatform(platformID string) bool {
+	switch strings.ToLower(strings.TrimSpace(platformID)) {
+	case "hliepin", "liepin", "zhaopin":
+		return true
+	default:
+		return false
 	}
 }
 

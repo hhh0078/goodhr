@@ -1,4 +1,4 @@
-// Package hliepin 提供猎聘猎头端平台的本地运行时实现。
+// Package hliepin 提供猎聘、猎聘猎头端、智联等 DOM 详情平台的本地运行时实现。
 package hliepin
 
 import (
@@ -12,11 +12,19 @@ import (
 	"goodhr5/local-agent-go/internal/platformcore"
 )
 
-// Runtime 实现猎聘猎头端平台运行时能力。
-type Runtime struct{}
+// Runtime 实现 DOM 详情平台运行时能力。
+type Runtime struct {
+	platformID   string
+	platformName string
+}
 
 // NewRuntime 创建猎聘猎头端平台运行时实例。
-func NewRuntime() *Runtime { return &Runtime{} }
+func NewRuntime() *Runtime { return NewPlatformRuntime("hliepin", "猎聘猎头端") }
+
+// NewPlatformRuntime 创建指定 DOM 详情平台的运行时实例。
+func NewPlatformRuntime(platformID string, platformName string) *Runtime {
+	return &Runtime{platformID: platformID, platformName: platformName}
+}
 
 // OpenEntryPage 打开猎聘猎头端入口页面。
 func (r *Runtime) OpenEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, entryURL string) error {
@@ -95,7 +103,7 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 		_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{"index": intFromMap(found, "index"), "item": item})
 		return err
 	}
-	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和猎聘猎头端岗位名称一致", positionName)
+	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和%s岗位名称一致", positionName, r.platformName)
 }
 
 // ListVisibleCandidates 提取当前可见猎聘猎头端候选人。
@@ -121,7 +129,7 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 			"status":         "scanned",
 			"raw_text":       rawText,
 			"filter_text":    rawText,
-			"platform_id":    "hliepin",
+			"platform_id":    r.platformID,
 			"card_index":     intFromMap(item, "index"),
 			"element_ref":    stringFromMap(item, "ref"),
 			"fields":         fields,
@@ -145,7 +153,7 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 // FetchCandidateDetail 读取猎聘猎头端新开详情页中的 DOM 文本。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	if strings.ToLower(strings.TrimSpace(request.Mode)) != "dom" {
-		return platformcore.DetailResult{}, fmt.Errorf("猎聘猎头端只支持 DOM 详情识别")
+		return platformcore.DetailResult{}, fmt.Errorf("%s只支持 DOM 详情识别", r.platformName)
 	}
 	item := platformElement(cfg, "card", "item")
 	if item == nil {
@@ -212,7 +220,7 @@ func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string 
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(age) == "" {
 		return ""
 	}
-	return "hliepin_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
+	return r.platformID + "_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
 }
 
 // CleanCandidateDetailText 清理猎聘猎头端详情文本中的平台附加内容。

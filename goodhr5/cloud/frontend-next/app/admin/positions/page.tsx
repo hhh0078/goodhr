@@ -194,8 +194,8 @@ export default function PositionsPage() {
   async function selectDetailMode(value: string) {
     if (form.platform_id === "boss" && value === "dom")
       return notify("Boss直聘不支持 DOM 详情识别", "warning");
-    if (form.platform_id === "hliepin" && value !== "dom")
-      return notify("猎聘猎头端只能用 DOM 详情识别", "warning");
+    if (isDOMOnlyPlatform(form.platform_id) && value !== "dom")
+      return notify(`${platformLabel(form.platform_id)}只能用 DOM 详情识别`, "warning");
     if (value === "ai" && !subscription.active) return requireMembership();
     setForm((current) => ({ ...current, detail_mode: value }));
   }
@@ -346,8 +346,8 @@ export default function PositionsPage() {
             {
               value: "zhaopin",
               label: "智联招聘",
-              description: "平台适配开发中。",
-              disabled: true,
+              description: "只支持 DOM 详情识别。",
+              iconSrc: platformIconSrc("zhaopin"),
             },
             {
               value: "hliepin",
@@ -357,11 +357,10 @@ export default function PositionsPage() {
             },
             {
               value: "liepin",
-              label: "猎聘",
-                description: "平台适配开发中。",
-                iconSrc: platformIconSrc("liepin"),
-                disabled: true,
-              },
+              label: "猎聘企业端",
+              description: "只支持 DOM 详情识别。",
+              iconSrc: platformIconSrc("liepin"),
+            },
             ]}
           />
           <ChoiceCards
@@ -402,13 +401,13 @@ export default function PositionsPage() {
             value: "ocr",
             label: "OCR 识别",
             description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
-            disabled: form.platform_id === "hliepin",
+            disabled: isDOMOnlyPlatform(form.platform_id),
           },
           {
             value: "ai",
             label: "AI 识别（会员功能）",
             description: "直接理解完整详情截图，效果最好但更慢。",
-            disabled: form.platform_id === "hliepin",
+            disabled: isDOMOnlyPlatform(form.platform_id),
             memberOnly: true,
           },
             ]}
@@ -803,9 +802,14 @@ function normalizePrompt(value: unknown) {
 
 /** normalizeDetailMode 修正平台不支持的详情模式。 */
 function normalizeDetailMode(platformID: string, mode: string) {
-  if (platformID === "hliepin") return "dom";
+  if (isDOMOnlyPlatform(platformID)) return "dom";
   if (platformID === "boss" && mode === "dom") return "ocr";
   return ["dom", "ocr", "ai"].includes(mode) ? mode : "ocr";
+}
+
+/** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
+function isDOMOnlyPlatform(platformID: string) {
+  return ["hliepin", "liepin", "zhaopin"].includes(platformID);
 }
 
 /** splitKeywords 将多种分隔符转换成忽略大小写的去重关键词数组。 */
