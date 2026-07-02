@@ -146,6 +146,14 @@ func (c Config) NotificationProfileStore(db *sql.DB) NotificationProfileStore {
 	return NewMemoryNotificationProfileStore()
 }
 
+// EmailCampaignStore 创建超管邮件记录存储。
+func (c Config) EmailCampaignStore(db *sql.DB) EmailCampaignStore {
+	if db != nil {
+		return NewPostgresEmailCampaignStore(db)
+	}
+	return NewMemoryEmailCampaignStore()
+}
+
 // PlatformAccountStore 创建平台账号映射存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) PlatformAccountStore(db *sql.DB) PlatformAccountStore {
 	if db != nil {

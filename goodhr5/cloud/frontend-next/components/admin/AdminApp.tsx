@@ -8,6 +8,7 @@ import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
 import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import HelpRoundedIcon from "@mui/icons-material/HelpRounded";
 import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
@@ -129,6 +130,7 @@ const menuGroups: MenuGroup[] = [
     superOnly: true,
     items: [
       ["/admin/users", "用户管理", PersonRoundedIcon],
+      ["/admin/mail", "邮件群发", EmailRoundedIcon],
       ["/admin/activation-codes", "激活码管理", AdminPanelSettingsRoundedIcon],
       ["/admin/payment-records", "支付记录", PaidRoundedIcon],
       ["/admin/system-config", "系统配置", SettingsRoundedIcon],

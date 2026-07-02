@@ -86,7 +86,7 @@ function configCategory(key: string): (typeof categories)[number] {
 }
 
 /** configTitle 返回系统配置的中文标题。 */
-function configTitle(key: string) { return ({ "ai.default_prompts": "AI 默认提示词", "system.app_config": "公共系统配置", "system.subscription_plans": "订阅套餐", "system.onboarding_config": "本地程序与组件", "system.invite_config": "邀请奖励", "system.guide": "帮助中心" } as Record<string, string>)[key] || key; }
+function configTitle(key: string) { return ({ "ai.default_prompts": "AI 默认提示词", "system.app_config": "公共系统配置", "system.subscription_plans": "订阅套餐", "system.onboarding_config": "本地程序与组件", "system.invite_config": "邀请奖励", "system.email_recovery": "自动挽回邮件", "system.guide": "帮助中心" } as Record<string, string>)[key] || key; }
 
 /** prettyJSON 将任意配置值格式化为缩进 JSON。 */
 function prettyJSON(value: unknown) { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return JSON.stringify(parsed ?? {}, null, 2); } catch { return String(value || ""); } }

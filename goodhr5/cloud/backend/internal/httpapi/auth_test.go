@@ -232,6 +232,11 @@ func (m *recordingMailer) SendTaskStatus(email string, notice TaskStatusNotice) 
 	return nil
 }
 
+// SendCustomHTML 忽略自定义邮件发送请求。
+func (m *recordingMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
+	return nil
+}
+
 // TestAuthRejectsEmailDomainNotAllowed 验证发送验证码时会拦截非白名单邮箱域名。
 func TestAuthRejectsEmailDomainNotAllowed(t *testing.T) {
 	server := mustNewServer(t)

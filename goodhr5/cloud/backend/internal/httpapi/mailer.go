@@ -11,6 +11,7 @@ import (
 	"net/smtp"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -19,6 +20,7 @@ type Mailer interface {
 	SendLoginCode(email string, code string) error
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
 	SendTaskStatus(email string, notice TaskStatusNotice) error
+	SendCustomHTML(email string, subject string, htmlBody string, plainText string) error
 }
 
 // SubscriptionRewardNotice 表示会员天数变动提醒邮件内容。
@@ -63,6 +65,12 @@ func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewar
 // SendTaskStatus 在开发模式下记录任务状态提醒。
 func (m DevMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
 	log.Printf("GoodHR dev task status for %s: task=%s status=%s error=%s", email, notice.TaskID, notice.StatusLabel, notice.ErrorMessage)
+	return nil
+}
+
+// SendCustomHTML 在开发模式下记录自定义邮件发送请求。
+func (m DevMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
+	log.Printf("GoodHR dev custom mail for %s: subject=%s", email, subject)
 	return nil
 }
 
@@ -155,6 +163,25 @@ func (m SMTPMailer) SendTaskStatus(email string, notice TaskStatusNotice) error 
 		"FinishedAt":      finishedAt.Format("2006-01-02 15:04:05"),
 		"ErrorMessage":    strings.TrimSpace(notice.ErrorMessage),
 	}, lines)
+}
+
+// SendCustomHTML 发送超管自定义 HTML 邮件。
+func (m SMTPMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
+	addr := fmt.Sprintf("%s:%d", m.Host, m.Port)
+	auth := smtp.PlainAuth("", m.Username, m.Password, m.Host)
+	from := strings.TrimSpace(m.From)
+	if from == "" {
+		from = m.Username
+	}
+	plainText = strings.TrimSpace(plainText)
+	if plainText == "" {
+		plainText = htmlToPlainText(htmlBody)
+	}
+	message := buildMailMessage(from, email, subject, plainText, wrapCustomMailHTML(subject, htmlBody))
+	if m.Port == 465 {
+		return m.sendTLS(addr, auth, from, email, message)
+	}
+	return smtp.SendMail(addr, auth, from, []string{email}, []byte(message))
 }
 
 // sendMessage 发送一封同时包含纯文本和 HTML 的邮件。
@@ -309,4 +336,17 @@ func (m SMTPMailer) sendTLS(addr string, auth smtp.Auth, from string, to string,
 		return err
 	}
 	return client.Quit()
+}
+
+// wrapCustomMailHTML 包装移动端友好的自定义邮件 HTML。
+func wrapCustomMailHTML(subject string, body string) string {
+	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>` + template.HTMLEscapeString(subject) + `</title></head><body style="margin:0;background:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2a23;"><div style="max-width:640px;margin:0 auto;padding:20px 14px;"><div style="background:#fff;border:1px solid #e2e8e3;border-radius:12px;padding:22px;line-height:1.8;font-size:15px;"><h1 style="font-size:20px;line-height:1.35;margin:0 0 16px;">` + template.HTMLEscapeString(subject) + `</h1><div style="word-break:break-word;">` + body + `</div></div></div></body></html>`
+}
+
+// htmlToPlainText 将 HTML 粗略转成纯文本兜底。
+func htmlToPlainText(value string) string {
+	text := regexp.MustCompile(`(?is)<br\s*/?>`).ReplaceAllString(value, "\n")
+	text = regexp.MustCompile(`(?is)</p>`).ReplaceAllString(text, "\n")
+	text = regexp.MustCompile(`(?is)<[^>]+>`).ReplaceAllString(text, "")
+	return strings.TrimSpace(text)
 }

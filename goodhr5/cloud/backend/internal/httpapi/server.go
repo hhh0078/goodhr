@@ -31,6 +31,7 @@ type Server struct {
 	invitations         *InvitationService
 	activationCodes     *ActivationCodeService
 	adminUsers          *AdminUserService
+	adminEmails         *AdminEmailService
 	publicStats         *PublicStatsService
 	teamStats           *TeamStatsService
 	dailyStats          SystemDailyStatsStore
@@ -78,9 +79,12 @@ func NewServer() (*Server, error) {
 	aiConfigStore := config.AIConfigStore(db)
 	userPreferencesStore := config.UserPreferencesStore(db)
 	notificationProfileStore := config.NotificationProfileStore(db)
+	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, NewHaoshoumiProvider(config))
+	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
+	adminEmails.StartRecoveryScheduler()
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
@@ -99,6 +103,7 @@ func NewServer() (*Server, error) {
 		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
+		adminEmails:         adminEmails,
 		publicStats:         NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
 		teamStats:           NewTeamStatsService(auth, db, tenantStore),
 		dailyStats:          dailyStatsStore,
@@ -144,6 +149,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
+	mux.HandleFunc("/api/admin/emails", s.adminEmails.Collection)
+	mux.HandleFunc("/api/admin/emails/upload-image", s.adminEmails.UploadImage)
+	mux.HandleFunc("/api/admin/emails/", s.adminEmails.Detail)
+	mux.HandleFunc("/api/public/mail/open", s.adminEmails.OpenPixel)
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
 	// 注册平台账号信息接口，只保存名称和本地 profile 标识。

@@ -31,6 +31,11 @@ func (m *taskNoticeMailer) SendTaskStatus(email string, notice TaskStatusNotice)
 	return nil
 }
 
+// SendCustomHTML 忽略自定义邮件发送请求。
+func (m *taskNoticeMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
+	return nil
+}
+
 // TestTaskStatusNoticeLabel 验证任务状态邮件区分结束和失败。
 func TestTaskStatusNoticeLabel(t *testing.T) {
 	if got := taskStatusNoticeLabel("failed"); got != "任务失败" {
