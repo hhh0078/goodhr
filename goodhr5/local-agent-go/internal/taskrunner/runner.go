@@ -1027,11 +1027,11 @@ func taskRequiresAI(task localdb.Task) bool {
 }
 
 // taskProfileName 返回任务对应的本机浏览器目录名。
-// task 为本地任务，优先使用平台账号 ID。
+// task 为本地任务，有平台账号时用账号 ID，否则统一使用默认浏览器目录。
 func taskProfileName(task localdb.Task) string {
 	accountID := strings.TrimSpace(task.PlatformAccountID)
 	if accountID == "" {
-		accountID = strings.TrimSpace(task.PlatformID) + "_default"
+		accountID = "default"
 	}
 	return safePathName(accountID)
 }

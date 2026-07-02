@@ -38,7 +38,6 @@ import AdminDialog from "@/components/admin/AdminDialog";
 const emptyForm = {
   id: "",
   name: "",
-  platform_account_id: "",
   position_id: "",
   match_limit: 50,
   enable_sound: false,
@@ -52,7 +51,6 @@ const ALL_LOG_LIMIT = 5000;
 export default function TasksPage() {
   const { agentBase, user, notify, confirm } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
   const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [expandedLogTaskID, setExpandedLogTaskID] = useState("");
@@ -67,17 +65,15 @@ export default function TasksPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
 
-  /** load 读取任务及创建任务需要的账号和岗位。 */
+  /** load 读取任务及创建任务需要的岗位。 */
   async function load() {
     setLoading(true);
     try {
-      const [taskData, accountData, positionData] = await Promise.all([
+      const [taskData, positionData] = await Promise.all([
         cloudRequest("/api/tasks"),
-        cloudRequest("/api/platform-accounts"),
         cloudRequest("/api/positions"),
       ]);
       setTasks(taskData.tasks || []);
-      setAccounts(accountData.accounts || []);
       setPositions(positionData.positions || []);
     } catch (error) {
       notify(error instanceof Error ? error.message : "任务读取失败", "error");
@@ -151,18 +147,14 @@ export default function TasksPage() {
 
   /** save 创建或更新带岗位快照的招聘任务。 */
   async function save() {
-    const account = accounts.find(
-      (item) => item.id === form.platform_account_id,
-    );
     const position = positions.find((item) => item.id === form.position_id);
-    if (!account || !position)
-      return notify("请选择平台账号和岗位模板", "warning");
+    if (!position) return notify("请选择岗位模板", "warning");
     setLoading(true);
     try {
       const payload = {
         name: form.name.trim() || `${position.name}招聘任务`,
-        platform_id: account.platform_id,
-        platform_account_id: account.id,
+        platform_id: position.platform_id,
+        platform_account_id: "",
         position_id: position.id,
         mode: position.common_config?.mode_default || "keyword",
         match_limit: Math.max(1, Number(form.match_limit || 50)),
@@ -192,12 +184,10 @@ export default function TasksPage() {
   }
 
   /** openEdit 将任务数据填入编辑弹框。 */
-  function openEdit(task: any) {
+function openEdit(task: any) {
     setForm({
       id: task.id || "",
       name: task.name || "",
-      platform_account_id:
-        task.platform_account_id || task.platform_account?.id || "",
       position_id: task.position_id || task.position?.id || "",
       match_limit: Number(task.match_limit || 50),
       enable_sound: Boolean(task.enable_sound),
@@ -440,7 +430,7 @@ export default function TasksPage() {
                     <Typography
                       sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
                     >
-                      {task.platform_account?.display_name || "未选择账号"} ·
+                      {task.position?.name || task.platform_id || "未选择岗位"} ·
                       本次上限 {Number(task.match_limit || 50)} · 总计{" "}
                       {Number(task.greeted_count || 0)} · 今日{" "}
                       {Number(task.today_greeted_count || 0)} · 本次{" "}
@@ -539,52 +529,15 @@ export default function TasksPage() {
           />
           <TextField
             select
-            label='平台账号'
-            value={form.platform_account_id}
-            onChange={(event) => {
-              const account = accounts.find(
-                (item) => item.id === event.target.value,
-              );
-              const validPosition = positions.find(
-                (item) =>
-                  item.id === form.position_id &&
-                  item.platform_id === account?.platform_id,
-              );
-              setForm({
-                ...form,
-                platform_account_id: event.target.value,
-                position_id: validPosition ? form.position_id : "",
-              });
-            }}
-          >
-            {accounts.map((item) => (
-              <MenuItem key={item.id} value={item.id}>
-                {item.display_name} · {item.platform_id}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
             label='岗位模板'
             value={form.position_id}
             onChange={(event) =>
               setForm({ ...form, position_id: event.target.value })
             }
           >
-            {positions
-              .filter((item) => {
-                const account = accounts.find(
-                  (current) => current.id === form.platform_account_id,
-                );
-                return (
-                  !account ||
-                  !item.platform_id ||
-                  item.platform_id === account.platform_id
-                );
-              })
-              .map((item) => (
+            {positions.map((item) => (
                 <MenuItem key={item.id} value={item.id}>
-                  {item.name}
+                  {item.name} · {item.platform_id || "未设置平台"}
                 </MenuItem>
               ))}
           </TextField>

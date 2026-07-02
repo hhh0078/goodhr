@@ -3,7 +3,6 @@
 
 import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
 import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
-import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
 import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
@@ -101,7 +100,6 @@ const menuGroups: MenuGroup[] = [
   {
     label: "招聘管理",
     items: [
-      ["/admin/accounts", "平台账号", BadgeRoundedIcon],
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
       ["/admin/tasks", "任务列表", TaskAltRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],

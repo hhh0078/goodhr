@@ -316,10 +316,6 @@ func (r createTaskRequest) toTask(w http.ResponseWriter, userEmail string) (Task
 		writeError(w, http.StatusBadRequest, "platform_id is required")
 		return TaskRun{}, false
 	}
-	if task.PlatformAccountID == "" {
-		writeError(w, http.StatusBadRequest, "platform_account_id is required")
-		return TaskRun{}, false
-	}
 	if task.Mode == "" {
 		task.Mode = "keyword"
 	}

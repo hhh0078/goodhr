@@ -215,8 +215,8 @@ func TestBossPositionDetailModeRules(t *testing.T) {
 	}
 }
 
-// TestTaskCreateRejectsMissingAccount 验证创建任务时必须选择平台账号。
-func TestTaskCreateRejectsMissingAccount(t *testing.T) {
+// TestTaskCreateAllowsMissingAccount 验证创建任务时允许不选择平台账号。
+func TestTaskCreateAllowsMissingAccount(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "task-missing@example.com")
@@ -226,7 +226,7 @@ func TestTaskCreateRejectsMissingAccount(t *testing.T) {
 	resp := httptest.NewRecorder()
 	routes.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("create status = %d, want %d", resp.Code, http.StatusBadRequest)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("create status = %d, want %d", resp.Code, http.StatusOK)
 	}
 }
