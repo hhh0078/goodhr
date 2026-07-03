@@ -44,6 +44,7 @@ type EmailTargetFilter struct {
 	FlowSteps           []string
 	CreatedDay          string
 	LastLoginBeforeDays int
+	LastLoginExactDays  int
 }
 
 type EmailTargetUser struct {

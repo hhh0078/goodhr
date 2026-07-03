@@ -162,6 +162,10 @@ func (s *PostgresEmailCampaignStore) FindTargetUsers(filter EmailTargetFilter) (
 		args = append(args, filter.LastLoginBeforeDays)
 		where = append(where, "(u.last_login_at IS NULL OR u.last_login_at <= now() - ($"+intString(len(args))+"::int * interval '1 day'))")
 	}
+	if filter.LastLoginExactDays > 0 {
+		args = append(args, filter.LastLoginExactDays)
+		where = append(where, "u.last_login_at::date = (CURRENT_DATE - $"+intString(len(args))+"::int)")
+	}
 	rows, err := s.db.Query(`
 		SELECT
 			u.email,

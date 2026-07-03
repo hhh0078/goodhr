@@ -152,6 +152,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/emails", s.adminEmails.Collection)
 	mux.HandleFunc("/api/admin/emails/upload-image", s.adminEmails.UploadImage)
 	mux.HandleFunc("/api/admin/emails/", s.adminEmails.Detail)
+	mux.HandleFunc("/api/public/email-jobs/", s.adminEmails.PublicJob)
 	mux.HandleFunc("/api/public/mail/open", s.adminEmails.OpenPixel)
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/api/help/guide", s.help.Guide)

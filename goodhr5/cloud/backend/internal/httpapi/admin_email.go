@@ -34,6 +34,12 @@ type sendAdminEmailRequest struct {
 	Meta                map[string]string `json:"meta"`
 }
 
+type automaticEmailResult struct {
+	Job     string       `json:"job"`
+	Batches []EmailBatch `json:"batches"`
+	Skipped []string     `json:"skipped"`
+}
+
 // NewAdminEmailService 创建超管邮件服务。
 func NewAdminEmailService(auth *AuthService, store EmailCampaignStore, mailer Mailer, systemConfigs SystemConfigStore) *AdminEmailService {
 	return &AdminEmailService{auth: auth, store: store, mailer: mailer, systemConfigs: systemConfigs}
@@ -182,6 +188,26 @@ func (s *AdminEmailService) OpenPixel(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte{71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 255, 255, 255, 0, 0, 0, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0, 59})
 }
 
+// PublicJob 处理外部定时任务触发的自动邮件。
+// w 为响应对象，r 为请求对象；路径格式为 /api/public/email-jobs/{job}。
+func (s *AdminEmailService) PublicJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.validJobToken(r) {
+		writeError(w, http.StatusUnauthorized, "token 不对，我先不敢发邮件")
+		return
+	}
+	job := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/public/email-jobs/"), "/")
+	result, err := s.SendAutomaticJob(job, publicBaseURL(r))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
+}
+
 // StartRecoveryScheduler 启动每日自动挽回邮件任务。
 func (s *AdminEmailService) StartRecoveryScheduler() {
 	go func() {
@@ -193,16 +219,42 @@ func (s *AdminEmailService) StartRecoveryScheduler() {
 	}()
 }
 
+// SendAutomaticJob 按任务名发送自动邮件并创建发送记录。
+// job 为自动邮件任务名，baseURL 用于追加已读追踪图片。
+func (s *AdminEmailService) SendAutomaticJob(job string, baseURL string) (automaticEmailResult, error) {
+	job = strings.TrimSpace(job)
+	switch job {
+	case "yesterday-incomplete":
+		return s.sendYesterdayIncomplete(baseURL), nil
+	case "inactive-3-days":
+		return s.sendInactiveDays(3, baseURL), nil
+	case "inactive-7-days":
+		return s.sendInactiveDays(7, baseURL), nil
+	case "inactive-30-days":
+		return s.sendInactiveDays(30, baseURL), nil
+	default:
+		return automaticEmailResult{}, fmt.Errorf("未知邮件任务：%s", job)
+	}
+}
+
 // SendYesterdayRecovery 给昨天注册且卡在流程节点的用户发送挽回邮件。
 func (s *AdminEmailService) SendYesterdayRecovery() {
-	cfg := s.recoveryConfig()
-	if !cfg.Enabled {
+	if !s.recoveryConfig().Enabled {
 		return
 	}
+	_ = s.sendYesterdayIncomplete("")
+}
+
+// sendYesterdayIncomplete 给昨天注册且流程未完成的用户发送提醒。
+// baseURL 用于已读追踪图片，返回创建的邮件批次。
+func (s *AdminEmailService) sendYesterdayIncomplete(baseURL string) automaticEmailResult {
+	cfg := s.recoveryConfig()
 	day := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
 	users, err := s.store.FindTargetUsers(EmailTargetFilter{CreatedDay: day})
+	result := automaticEmailResult{Job: "yesterday-incomplete"}
 	if err != nil {
-		return
+		result.Skipped = append(result.Skipped, err.Error())
+		return result
 	}
 	grouped := map[string][]string{}
 	for _, user := range users {
@@ -215,19 +267,66 @@ func (s *AdminEmailService) SendYesterdayRecovery() {
 	for key, emails := range grouped {
 		tpl, ok := cfg.Templates[key]
 		if !ok || strings.TrimSpace(tpl.Subject) == "" || strings.TrimSpace(tpl.HTML) == "" {
+			result.Skipped = append(result.Skipped, key)
 			continue
 		}
 		sourceKey := "recovery:" + day + ":" + key
 		exists, _ := s.store.SourceKeyExists(sourceKey)
 		if exists {
+			result.Skipped = append(result.Skipped, sourceKey)
 			continue
 		}
-		html := tpl.HTML + `<p style="margin-top:18px;color:#66756b;font-size:13px;">需要人工帮忙的话，可以加微信：` + template.HTMLEscapeString(cfg.Wechat) + `</p>`
+		html := appendEmailFooter(tpl.HTML, cfg.Wechat)
 		batch, recipients, err := s.store.CreateBatch(tpl.Subject, "自动挽回："+key+"："+day, sourceKey, "system", emails)
 		if err == nil {
-			go s.sendBatch(batch, recipients, html, "")
+			result.Batches = append(result.Batches, batch)
+			go s.sendBatch(batch, recipients, html, baseURL)
+		} else {
+			result.Skipped = append(result.Skipped, err.Error())
 		}
 	}
+	return result
+}
+
+// sendInactiveDays 给精确 N 天未登录的用户发送提醒。
+// days 为未登录天数，baseURL 用于已读追踪图片。
+func (s *AdminEmailService) sendInactiveDays(days int, baseURL string) automaticEmailResult {
+	key := fmt.Sprintf("inactive_%d_days", days)
+	cfg := s.recoveryConfig()
+	result := automaticEmailResult{Job: fmt.Sprintf("inactive-%d-days", days)}
+	tpl, ok := cfg.Templates[key]
+	if !ok || strings.TrimSpace(tpl.Subject) == "" || strings.TrimSpace(tpl.HTML) == "" {
+		result.Skipped = append(result.Skipped, key)
+		return result
+	}
+	day := time.Now().Format(time.DateOnly)
+	sourceKey := "recovery:" + day + ":" + key
+	exists, _ := s.store.SourceKeyExists(sourceKey)
+	if exists {
+		result.Skipped = append(result.Skipped, sourceKey)
+		return result
+	}
+	users, err := s.store.FindTargetUsers(EmailTargetFilter{LastLoginExactDays: days})
+	if err != nil {
+		result.Skipped = append(result.Skipped, err.Error())
+		return result
+	}
+	emails := make([]string, 0, len(users))
+	for _, user := range users {
+		emails = append(emails, user.Email)
+	}
+	if len(emails) == 0 {
+		result.Skipped = append(result.Skipped, "no recipients")
+		return result
+	}
+	batch, recipients, err := s.store.CreateBatch(tpl.Subject, fmt.Sprintf("自动挽回：%d天未登录", days), sourceKey, "system", emails)
+	if err != nil {
+		result.Skipped = append(result.Skipped, err.Error())
+		return result
+	}
+	result.Batches = append(result.Batches, batch)
+	go s.sendBatch(batch, recipients, appendEmailFooter(tpl.HTML, cfg.Wechat), baseURL)
+	return result
 }
 
 func (s *AdminEmailService) sendBatch(batch EmailBatch, recipients []EmailRecipient, html string, baseURL string) {
@@ -348,6 +447,18 @@ func trackingPixel(baseURL string, recipientID string) string {
 	return `<img src="` + template.HTMLEscapeString(strings.TrimRight(baseURL, "/")+"/api/public/mail/open?id="+recipientID) + `" width="1" height="1" style="display:none" alt="">`
 }
 
+func (s *AdminEmailService) validJobToken(r *http.Request) bool {
+	token := strings.TrimSpace(os.Getenv("GOODHR_EMAIL_JOB_TOKEN"))
+	if token == "" {
+		return false
+	}
+	got := strings.TrimSpace(r.URL.Query().Get("token"))
+	if got == "" {
+		got = strings.TrimPrefix(strings.TrimSpace(r.Header.Get("Authorization")), "Bearer ")
+	}
+	return got == token
+}
+
 type recoveryEmailConfig struct {
 	Enabled   bool                             `json:"enabled"`
 	Hour      int                              `json:"hour"`
@@ -360,13 +471,81 @@ type recoveryEmailTemplate struct {
 	HTML    string `json:"html"`
 }
 
+// defaultRecoveryEmailTemplates 返回自动邮件的默认模板。
+// 模板不包含已读追踪图，追踪图由 sendBatch 统一追加。
+func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
+	subjects := map[string]string{
+		"local_agent":      "我小声提醒一下，本地程序还没绑定",
+		"ai_config":        "AI 还没配置，我有点使不上劲",
+		"platform_account": "招聘平台账号还没加，我暂时没地方开工",
+		"position":         "岗位还没创建，我不知道该找谁",
+		"greet_success":    "差一点就能开始自动打招呼了",
+		"inactive_3_days":  "3 天没见你了，我先小声冒个泡",
+		"inactive_7_days":  "一周没见，GoodHR 还在原地等你",
+		"inactive_30_days": "一个月没见，我来弱弱问候一下",
+	}
+	return map[string]recoveryEmailTemplate{
+		"local_agent":      {Subject: subjects["local_agent"], HTML: automaticEmailTemplateHTML("local_agent")},
+		"ai_config":        {Subject: subjects["ai_config"], HTML: automaticEmailTemplateHTML("ai_config")},
+		"platform_account": {Subject: subjects["platform_account"], HTML: automaticEmailTemplateHTML("platform_account")},
+		"position":         {Subject: subjects["position"], HTML: automaticEmailTemplateHTML("position")},
+		"greet_success":    {Subject: subjects["greet_success"], HTML: automaticEmailTemplateHTML("greet_success")},
+		"inactive_3_days":  {Subject: subjects["inactive_3_days"], HTML: automaticEmailTemplateHTML("inactive_3_days")},
+		"inactive_7_days":  {Subject: subjects["inactive_7_days"], HTML: automaticEmailTemplateHTML("inactive_7_days")},
+		"inactive_30_days": {Subject: subjects["inactive_30_days"], HTML: automaticEmailTemplateHTML("inactive_30_days")},
+	}
+}
+
+// appendEmailFooter 给自动邮件追加统一反馈文案。
+// html 为邮件正文，wechat 为作者微信号。
+func appendEmailFooter(html string, wechat string) string {
+	footer := automaticEmailTemplateHTML("footer")
+	if strings.TrimSpace(footer) == "" {
+		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">如果是我哪里做得不够好，也可以直接回复这封邮件告诉我原因。你也可以加作者微信：{{wechat}}，我会认真看，不嘴硬。</p>`
+	}
+	footer = strings.ReplaceAll(footer, "{{wechat}}", template.HTMLEscapeString(strings.TrimSpace(wechat)))
+	if strings.Contains(html, "{{footer}}") {
+		return strings.ReplaceAll(html, "{{footer}}", footer)
+	}
+	return strings.TrimSpace(html) + footer
+}
+
+// automaticEmailTemplateHTML 读取自动邮件 HTML 模板文件。
+// name 为模板名，不包含 .html 后缀。
+func automaticEmailTemplateHTML(name string) string {
+	for _, base := range []string{
+		filepath.Join("templates", "automatic_emails", name+".html"),
+		filepath.Join("..", "..", "templates", "automatic_emails", name+".html"),
+		filepath.Join("cloud", "backend", "templates", "automatic_emails", name+".html"),
+		filepath.Join("goodhr5", "cloud", "backend", "templates", "automatic_emails", name+".html"),
+	} {
+		raw, err := os.ReadFile(base)
+		if err == nil {
+			return strings.TrimSpace(string(raw))
+		}
+	}
+	return ""
+}
+
 func (s *AdminEmailService) recoveryConfig() recoveryEmailConfig {
-	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "a1224299352", Templates: map[string]recoveryEmailTemplate{}}
+	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "a1224299352", Templates: defaultRecoveryEmailTemplates()}
 	item, err := s.systemConfigs.Get("system.email_recovery")
 	if err != nil {
 		return cfg
 	}
-	_ = json.Unmarshal([]byte(item.ConfigValue), &cfg)
+	custom := recoveryEmailConfig{}
+	if err := json.Unmarshal([]byte(item.ConfigValue), &custom); err == nil {
+		cfg.Enabled = custom.Enabled
+		if custom.Hour != 0 {
+			cfg.Hour = custom.Hour
+		}
+		if strings.TrimSpace(custom.Wechat) != "" {
+			cfg.Wechat = custom.Wechat
+		}
+		for key, tpl := range custom.Templates {
+			cfg.Templates[key] = tpl
+		}
+	}
 	return cfg
 }
 
