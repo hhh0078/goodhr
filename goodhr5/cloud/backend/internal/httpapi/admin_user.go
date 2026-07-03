@@ -156,7 +156,7 @@ func (s *AdminUserService) list(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// adjustSubscription 按正负天数调整用户会员到期时间。
+// adjustSubscription 按正数天数增加用户会员到期时间。
 func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Request) {
 	var req adjustUserSubscriptionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -168,8 +168,8 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
-	if req.Days == 0 {
-		writeError(w, http.StatusBadRequest, "days must not be zero")
+	if req.Days <= 0 {
+		writeError(w, http.StatusBadRequest, "days must be positive")
 		return
 	}
 	reason := strings.TrimSpace(req.Reason)

@@ -85,7 +85,7 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 		t.Fatalf("unexpected search payload: %+v", searchPayload)
 	}
 
-	adjustReq := httptest.NewRequest(http.MethodPost, "/api/admin/users", bytes.NewBufferString(`{"email":"managed-user@example.com","days":-5,"reason":"测试扣减"}`))
+	adjustReq := httptest.NewRequest(http.MethodPost, "/api/admin/users", bytes.NewBufferString(`{"email":"managed-user@example.com","days":5,"reason":"测试补偿"}`))
 	adjustReq.Header.Set("Authorization", "Bearer "+adminToken)
 	adjustResp := httptest.NewRecorder()
 	routes.ServeHTTP(adjustResp, adjustReq)
@@ -103,6 +103,14 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	}
 	if adjustPayload.Subscription.MemberType != defaultMemberType {
 		t.Fatalf("member type = %q", adjustPayload.Subscription.MemberType)
+	}
+
+	negativeReq := httptest.NewRequest(http.MethodPost, "/api/admin/users", bytes.NewBufferString(`{"email":"managed-user@example.com","days":-1,"reason":"测试扣减"}`))
+	negativeReq.Header.Set("Authorization", "Bearer "+adminToken)
+	negativeResp := httptest.NewRecorder()
+	routes.ServeHTTP(negativeResp, negativeReq)
+	if negativeResp.Code != http.StatusBadRequest {
+		t.Fatalf("negative adjust code = %d, body = %s", negativeResp.Code, negativeResp.Body.String())
 	}
 }
 

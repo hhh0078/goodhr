@@ -68,12 +68,13 @@ export default function UsersPage() {
 
   /** openAdjust 打开会员天数调整弹框。 */
   function openAdjust(item: AdminUserItem, days: number) {
-    setForm({ email: item.email, days, reason: days > 0 ? "补偿会员天数" : "扣减会员天数" });
+    setForm({ email: item.email, days: Math.max(1, days), reason: "补偿会员天数" });
     setDialogOpen(true);
   }
 
   /** adjust 提交会员天数调整。 */
   async function adjust() {
+    if (!Number.isFinite(form.days) || form.days <= 0) return notify("天数要填正数，我不能倒扣会员时间了", "warning");
     try {
       await cloudRequest("/api/admin/users", { method: "POST", body: form });
       notify("会员时间已调整", "success");
@@ -161,7 +162,7 @@ export default function UsersPage() {
     <AdminDialog open={dialogOpen} title="调整会员时间" description={`当前用户：${form.email || "--"}`} confirmText="确认调整" loading={loading} onClose={() => setDialogOpen(false)} onConfirm={() => void adjust()}>
       <Stack spacing={2}>
         <TextField label="用户邮箱" value={form.email} disabled fullWidth />
-        <TextField label="调整天数" type="number" value={form.days} onChange={(event) => setForm({ ...form, days: Number(event.target.value) })} fullWidth helperText="正数增加，负数减少，不能为 0。" />
+        <TextField label="增加天数" type="number" value={form.days} onChange={(event) => setForm({ ...form, days: Math.max(1, Number(event.target.value) || 1) })} fullWidth slotProps={{ htmlInput: { min: 1, step: 1 } }} helperText="只能输入正数，用来增加会员时间。" />
         <TextField label="调整原因" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} fullWidth />
       </Stack>
     </AdminDialog>
