@@ -239,12 +239,12 @@ export default function PositionsPage() {
   return (
     <>
       <PageHeader
-        title="岗位管理"
-        description="岗位模板决定首次筛选、详情识别和最终打招呼判断。"
+        title='岗位管理'
+        description='岗位模板决定首次筛选、详情识别和最终打招呼判断。'
         actions={
           <>
             <Button
-              variant="contained"
+              variant='contained'
               startIcon={<AddRoundedIcon />}
               disabled={loading}
               onClick={openCreate}
@@ -273,7 +273,7 @@ export default function PositionsPage() {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 760 }}>{item.name}</Typography>
                   <Stack
-                    direction="row"
+                    direction='row'
                     spacing={0.75}
                     sx={{
                       mt: 0.5,
@@ -294,7 +294,7 @@ export default function PositionsPage() {
                     </Typography>
                   </Stack>
                 </Box>
-                <Stack direction="row" spacing={1}>
+                <Stack direction='row' spacing={1}>
                   <Button
                     startIcon={<EditRoundedIcon />}
                     onClick={() => void openEdit(item)}
@@ -302,7 +302,7 @@ export default function PositionsPage() {
                     编辑
                   </Button>
                   <Button
-                    color="error"
+                    color='error'
                     startIcon={<DeleteOutlineRoundedIcon />}
                     onClick={() => void remove(item)}
                   >
@@ -313,14 +313,14 @@ export default function PositionsPage() {
             ))}
           </Stack>
         ) : (
-          <EmptyState text="暂无岗位模板" />
+          <EmptyState text='暂无岗位模板' />
         )}
       </SectionPanel>
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description="按运行顺序填写。只有当前选择模式需要的字段会显示。"
-        maxWidth="md"
+        description='按运行顺序填写。只有当前选择模式需要的字段会显示。'
+        maxWidth='md'
         confirmText={form.id ? "保存修改" : "创建岗位"}
         loading={loading}
         confirmDisabled={!form.name.trim()}
@@ -328,25 +328,25 @@ export default function PositionsPage() {
         onConfirm={() => void save()}
       >
         <Stack spacing={3}>
-          <Alert severity="info" variant="outlined">
+          <Alert severity='info' variant='outlined'>
             运行时先读取候选人基础信息，完成第一次筛选并决定是否打开详情；读取详情后再进行第二次分析，决定是否打招呼。请按这个顺序配置下面的内容。
           </Alert>
           <Box>
             <Typography
-              component="h3"
+              component='h3'
               sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
             >
               基础信息
             </Typography>
             <TextField
-              label="岗位名称"
+              label='岗位名称'
               value={form.name}
               onChange={(event) =>
                 setForm({ ...form, name: event.target.value })
               }
               fullWidth
-              placeholder="例如：服装带货主播"
-              helperText="岗位名称必须和平台岗位岗位名称保持一致。(请前往招聘平台复制岗位名称)"
+              placeholder='例如：服装带货主播'
+              helperText='岗位名称必须和平台岗位岗位名称保持一致。(请前往招聘平台复制岗位名称)'
               slotProps={{
                 formHelperText: {
                   sx: { color: "error.main", fontSize: 14, fontWeight: "bold" },
@@ -355,7 +355,7 @@ export default function PositionsPage() {
             />
           </Box>
           <ChoiceCards
-            label="招聘平台"
+            label='招聘平台'
             value={form.platform_id}
             columns={3}
             autoWidth
@@ -413,20 +413,20 @@ export default function PositionsPage() {
             >
               <PlatformTipCard
                 iconSrc={CHROMIUM_ICON_SRC}
-                title="浏览器图标"
-                text="创建任务后点右下角蓝色浏览器图标，完成对应平台登录。"
+                title='浏览器图标'
+                text='创建任务后点右下角蓝色浏览器图标，完成对应平台登录。'
               />
               {form.platform_id === "boss" ? (
                 <PlatformTipCard
                   imageSrc={BOSS_NOTICE_IMAGE_SRC}
-                  title="BOSS 插件、外挂 提示"
-                  text="很多账号会提示插件、外挂等招聘辅助工具，这是平台通用公告，不等于封号。点“我已知晓”即可，别高频操作。"
+                  title='BOSS 插件、外挂 提示'
+                  text='很多账号会提示插件、外挂等招聘辅助工具，这是平台通用公告，不等于封号。点“我已知晓”即可，别高频操作。'
                 />
               ) : null}
             </Box>
           </Box>
           <ChoiceCards
-            label="基础信息筛选模式   (决定是否打开查看详情)"
+            label='基础信息筛选模式   (决定是否打开查看详情)'
             value={form.mode_default}
             onChange={(value) => void selectMode(String(value))}
             options={[
@@ -452,7 +452,7 @@ export default function PositionsPage() {
                 在本地识别截图文字，AI 能理解完整页面但耗时更长。
               </Typography>
               <ChoiceCards
-                label="详情信息筛选模式  (决定是否打招呼)"
+                label='详情信息筛选模式  (决定是否打招呼)'
                 value={form.detail_mode}
                 columns={3}
                 onChange={(value) => void selectDetailMode(String(value))}
@@ -486,14 +486,14 @@ export default function PositionsPage() {
               <Divider />
               <Box>
                 <Typography
-                  component="h3"
+                  component='h3'
                   sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
                 >
                   关键词筛选
                 </Typography>
                 <Stack spacing={2}>
                   <ChoiceCards
-                    label="匹配方式"
+                    label='匹配方式'
                     value={form.is_and_mode}
                     onChange={(value) =>
                       setForm({ ...form, is_and_mode: Boolean(value) })
@@ -522,17 +522,17 @@ export default function PositionsPage() {
                     }}
                   >
                     <TextField
-                      label="关键词"
+                      label='关键词'
                       value={form.keywords}
                       onChange={(event) =>
                         setForm({ ...form, keywords: event.target.value })
                       }
                       multiline
                       minRows={3}
-                      helperText="支持空格、中文逗号、英文逗号或换行分隔。"
+                      helperText='支持空格、中文逗号、英文逗号或换行分隔。'
                     />
                     <TextField
-                      label="排除词"
+                      label='排除词'
                       value={form.exclude_keywords}
                       onChange={(event) =>
                         setForm({
@@ -542,7 +542,7 @@ export default function PositionsPage() {
                       }
                       multiline
                       minRows={3}
-                      helperText="命中排除词后直接跳过。"
+                      helperText='命中排除词后直接跳过。'
                     />
                   </Box>
                 </Stack>
@@ -559,7 +559,7 @@ export default function PositionsPage() {
                 >
                   <Box>
                     <Typography
-                      component="h3"
+                      component='h3'
                       sx={{ fontSize: 17, fontWeight: 780 }}
                     >
                       AI 配置
@@ -574,7 +574,7 @@ export default function PositionsPage() {
                   <Button
                     startIcon={
                       optimizing ? (
-                        <CircularProgress size={16} color="inherit" />
+                        <CircularProgress size={16} color='inherit' />
                       ) : (
                         <AutoFixHighRoundedIcon />
                       )
@@ -587,7 +587,7 @@ export default function PositionsPage() {
                 </Stack>
                 <Stack spacing={2}>
                   <TextField
-                    label="岗位要求"
+                    label='岗位要求'
                     value={form.position_requirement}
                     onChange={(event) =>
                       setForm({
@@ -597,9 +597,9 @@ export default function PositionsPage() {
                     }
                     multiline
                     fullWidth
-                    placeholder="必须有3年以上教学经验，必须有教师资格证，学历年龄 等基础条件可以在平台提前筛选好，更不要写跟岗位要求无关的 比如 岗位福利，工作环境等。"
+                    placeholder='必须有3年以上教学经验，必须有教师资格证，学历年龄 等基础条件可以在平台提前筛选好，更不要写跟岗位要求无关的 比如 岗位福利，工作环境等。'
                     minRows={7}
-                    helperText="建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。"
+                    helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
                   <Box
                     sx={{
@@ -610,8 +610,9 @@ export default function PositionsPage() {
                     }}
                   >
                     <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
-                      岗位要求示例
+                      强烈建议 先看右上角的视频教程，了解各项参数的意义
                     </Typography>
+
                     <Typography
                       sx={{
                         mt: 0.5,
@@ -670,17 +671,17 @@ export default function PositionsPage() {
                     <Collapse in={advancedOpen} unmountOnExit>
                       <Stack spacing={2} sx={{ px: 1.5, pb: 1.5 }}>
                         <PromptField
-                          label="打开详情提示词（一般不需要修改）"
+                          label='打开详情提示词（一般不需要修改）'
                           value={form.open_detail_prompt}
                           defaultValue={defaults.open_detail_prompt}
-                          description="只用于第一次分析，判断候选人是否值得打开详情。普通岗位可以宽松一些，高级岗位可以更严格。"
+                          description='只用于第一次分析，判断候选人是否值得打开详情。普通岗位可以宽松一些，高级岗位可以更严格。'
                           onChange={(value) =>
                             setForm({ ...form, open_detail_prompt: value })
                           }
                         />
                         <TextField
-                          label="看详情阈值分"
-                          type="number"
+                          label='看详情阈值分'
+                          type='number'
                           value={form.detail_score_threshold}
                           onChange={(event) =>
                             setForm({
@@ -691,20 +692,20 @@ export default function PositionsPage() {
                             })
                           }
                           slotProps={{ htmlInput: { min: 0, max: 100 } }}
-                          helperText="首次评分大于等于该值时打开候选人详情。"
+                          helperText='首次评分大于等于该值时打开候选人详情。'
                         />
                         <PromptField
-                          label="打招呼提示词（一般不需要修改）"
+                          label='打招呼提示词（一般不需要修改）'
                           value={form.filter_prompt}
                           defaultValue={defaults.filter_prompt}
-                          description="用于详情分析并决定候选人的最终分数，直接影响是否执行打招呼。"
+                          description='用于详情分析并决定候选人的最终分数，直接影响是否执行打招呼。'
                           onChange={(value) =>
                             setForm({ ...form, filter_prompt: value })
                           }
                         />
                         <TextField
-                          label="打招呼阈值分"
-                          type="number"
+                          label='打招呼阈值分'
+                          type='number'
                           value={form.greet_score_threshold}
                           onChange={(event) =>
                             setForm({
@@ -713,15 +714,15 @@ export default function PositionsPage() {
                             })
                           }
                           slotProps={{ htmlInput: { min: 0, max: 100 } }}
-                          helperText="详情评分大于等于该值时执行打招呼。"
+                          helperText='详情评分大于等于该值时执行打招呼。'
                         />
                         <PromptField
-                          label="复核提示词（可选）（一般不需要修改）"
+                          label='复核提示词（可选）（一般不需要修改）'
                           value={form.review_prompt}
-                          defaultValue=""
-                          defaultActionLabel="清空"
-                          emptyPlaceholder="可留空，不填写则不会触发复核"
-                          description="当详情分数接近打招呼阈值时执行二次复核；留空则不会触发复核。"
+                          defaultValue=''
+                          defaultActionLabel='清空'
+                          emptyPlaceholder='可留空，不填写则不会触发复核'
+                          description='当详情分数接近打招呼阈值时执行二次复核；留空则不会触发复核。'
                           onChange={(value) =>
                             setForm({ ...form, review_prompt: value })
                           }
@@ -736,7 +737,7 @@ export default function PositionsPage() {
           <Divider />
           <Box>
             <Typography
-              component="h3"
+              component='h3'
               sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
             >
               可选信息
@@ -749,7 +750,7 @@ export default function PositionsPage() {
               }}
             >
               <TextField
-                label="问候语，暂时不填"
+                label='问候语，暂时不填'
                 value={form.greet_message}
                 onChange={(event) =>
                   setForm({ ...form, greet_message: event.target.value })
@@ -758,7 +759,7 @@ export default function PositionsPage() {
                 minRows={3}
               />
               <TextField
-                label="岗位描述 暂时不填"
+                label='岗位描述 暂时不填'
                 value={form.description}
                 onChange={(event) =>
                   setForm({ ...form, description: event.target.value })
@@ -771,7 +772,7 @@ export default function PositionsPage() {
           {!subscription.active &&
           (form.mode_default === "ai" ||
             (form.id && form.detail_mode === "ai")) ? (
-            <Alert severity="warning">
+            <Alert severity='warning'>
               当前会员已到期，AI 选项无法保存。可以改为关键词筛选和 OCR 识别。
             </Alert>
           ) : null}
@@ -802,12 +803,12 @@ function PromptField({
   return (
     <Box>
       <Stack
-        direction="row"
+        direction='row'
         sx={{ mb: 0.75, justifyContent: "space-between", alignItems: "center" }}
       >
         <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{label}</Typography>
         <Button
-          size="small"
+          size='small'
           startIcon={<RestartAltRoundedIcon />}
           onClick={() => onChange(defaultValue)}
         >
@@ -862,7 +863,7 @@ function PlatformTipCard({
     >
       {imageSrc ? (
         <Box
-          component="img"
+          component='img'
           src={imageSrc}
           alt={title}
           sx={{
@@ -875,7 +876,7 @@ function PlatformTipCard({
         />
       ) : (
         <Box
-          component="img"
+          component='img'
           src={iconSrc}
           alt={title}
           sx={{ width: 34, height: 34, justifySelf: "center" }}
