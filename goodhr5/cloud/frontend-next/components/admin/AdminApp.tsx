@@ -59,7 +59,6 @@ import {
   cloudRequest,
   detectLocalAgent,
   formatDate,
-  localRequest,
   openLocalPage,
 } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
@@ -335,10 +334,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBaseRef.current = baseURL;
       setAgentBase(baseURL);
       setAgentBindBlocked(false);
-      await localRequest(baseURL, "/api/v1/browser/start", {
-        method: "POST",
-        body: browserPayload,
-      });
       await openLocalPage(baseURL, {
         ...browserPayload,
         url: "https://www.bing.com",
@@ -480,7 +475,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       <Box sx={{ px: 2.25, py: 2.25 }}>
         <BrandMark />
       </Box>
-      <Box component='nav' sx={{ flex: 1, px: 1.25, pb: 2, overflowY: "auto" }}>
+      <Box component="nav" sx={{ flex: 1, px: 1.25, pb: 2, overflowY: "auto" }}>
         {visibleGroups.map((group) => (
           <Box key={group.label} sx={{ mt: 1.25 }}>
             <Typography
@@ -574,7 +569,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         }}
       >
         <Paper
-          component='aside'
+          component="aside"
           elevation={0}
           sx={{
             display: { xs: "none", md: "block" },
@@ -602,8 +597,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           {drawer}
         </Drawer>
         <AppBar
-          position='fixed'
-          color='inherit'
+          position="fixed"
+          color="inherit"
           elevation={0}
           sx={{
             top: { xs: 0, md: 16 },
@@ -618,7 +613,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         >
           <Toolbar sx={{ minHeight: { xs: 64, md: 70 }, gap: 1.25 }}>
             <IconButton
-              aria-label='打开菜单'
+              aria-label="打开菜单"
               onClick={() => setMobileOpen(true)}
               sx={{ display: { md: "none" } }}
             >
@@ -634,12 +629,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               </Typography>
             </Box>
             <Button
-              variant='outlined'
+              variant="outlined"
               startIcon={
                 <Box
-                  component='img'
+                  component="img"
                   src={CHROMIUM_ICON_SRC}
-                  alt=''
+                  alt=""
                   sx={{ width: 18, height: 18, display: "block" }}
                 />
               }
@@ -651,9 +646,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             >
               打开浏览器
             </Button>
-            <Tooltip title='打开浏览器'>
+            <Tooltip title="打开浏览器">
               <IconButton
-                aria-label='打开浏览器'
+                aria-label="打开浏览器"
                 onClick={() => void openBingBrowser()}
                 sx={{
                   display: { xs: "inline-flex", sm: "none" },
@@ -661,17 +656,17 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 }}
               >
                 <Box
-                  component='img'
+                  component="img"
                   src={CHROMIUM_ICON_SRC}
-                  alt=''
+                  alt=""
                   sx={{ width: 22, height: 22, display: "block" }}
                 />
               </IconButton>
             </Tooltip>
             <Button
               component={Link}
-              href='/videos'
-              variant='contained'
+              href="/videos"
+              variant="contained"
               startIcon={<PlayCircleRoundedIcon />}
               sx={{
                 ...topStatusButtonSx,
@@ -681,12 +676,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             >
               视频教程
             </Button>
-            <Tooltip title='视频教程'>
+            <Tooltip title="视频教程">
               <IconButton
                 component={Link}
-                href='/videos'
-                aria-label='视频教程'
-                color='primary'
+                href="/videos"
+                aria-label="视频教程"
+                color="primary"
                 sx={{
                   display: { xs: "inline-flex", sm: "none" },
                   bgcolor: "#e7f5ed",
@@ -696,7 +691,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               </IconButton>
             </Tooltip>
             <Button
-              variant='outlined'
+              variant="outlined"
               color={subscription.active ? "success" : "warning"}
               startIcon={<CalendarMonthRoundedIcon />}
               onClick={() => router.push("/admin/subscription")}
@@ -711,7 +706,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Button>
             <Button
               color={agentBase ? "success" : "error"}
-              variant='outlined'
+              variant="outlined"
               startIcon={<SensorsRoundedIcon />}
               onClick={() => void refreshAgent()}
               sx={{
@@ -725,9 +720,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
                   : "本地程序未连接"}
             </Button>
-            <Tooltip title='选择主题'>
+            <Tooltip title="选择主题">
               <IconButton
-                aria-label='选择主题'
+                aria-label="选择主题"
                 onClick={() => setThemeOpen(true)}
               >
                 <PaletteRoundedIcon />
@@ -736,7 +731,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           </Toolbar>
         </AppBar>
         <Box
-          component='main'
+          component="main"
           sx={{
             ml: { md: `${drawerWidth + 16}px` },
             pt: { xs: "80px", md: "86px" },
@@ -769,32 +764,32 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           onClose={() => setNotice((value) => ({ ...value, open: false }))}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
-          <Alert severity={notice.severity} variant='filled'>
+          <Alert severity={notice.severity} variant="filled">
             {notice.message}
           </Alert>
         </Snackbar>
         <AdminDialog
           open={trialWelcomeOpen}
-          title='体验会员已到账'
-          confirmText='我知道了'
+          title="体验会员已到账"
+          confirmText="我知道了"
           showCancel={false}
           onClose={() => void ackTrialWelcome()}
           onConfirm={() => void ackTrialWelcome()}
         >
-          <Typography color='text.secondary'>
+          <Typography color="text.secondary">
             赠送的 3
             天体验会员已到账，请尽快体验。会员到期后，您可以选择续费，或者改用免费版。
           </Typography>
         </AdminDialog>{" "}
         <AdminDialog
           open={localAgentInstallNoticeOpen}
-          title='请先安装本地程序'
-          confirmText='去安装'
+          title="请先安装本地程序"
+          confirmText="去安装"
           showCancel={false}
           onClose={() => setLocalAgentInstallNoticeClosed(true)}
           onConfirm={() => router.push("/download")}
         >
-          <Typography color='text.secondary'>
+          <Typography color="text.secondary">
             如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
           </Typography>
         </AdminDialog>
@@ -812,22 +807,22 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         <AdminDialog
           open={confirmState.open}
           title={confirmState.title}
-          confirmText='确认'
+          confirmText="确认"
           onClose={() => closeConfirm(false)}
           onConfirm={() => closeConfirm(true)}
         >
-          <Typography color='text.secondary'>{confirmState.message}</Typography>
+          <Typography color="text.secondary">{confirmState.message}</Typography>
         </AdminDialog>
         <AdminDialog
           open={themeOpen}
-          title='选择后台主题'
-          description='选择后会立即生效，并保存在当前浏览器。'
-          confirmText='完成'
+          title="选择后台主题"
+          description="选择后会立即生效，并保存在当前浏览器。"
+          confirmText="完成"
           onClose={() => setThemeOpen(false)}
           onConfirm={() => setThemeOpen(false)}
         >
           <ChoiceCards
-            label='主题色'
+            label="主题色"
             value={preference}
             columns={3}
             onChange={(value) =>
