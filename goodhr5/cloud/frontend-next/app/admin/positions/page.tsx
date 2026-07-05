@@ -269,7 +269,11 @@ export default function PositionsPage() {
                 bgcolor: "background.paper",
               }}
             >
-              <Stack direction='row' spacing={2} sx={{ alignItems: "flex-start" }}>
+              <Stack
+                direction='row'
+                spacing={2}
+                sx={{ alignItems: "flex-start" }}
+              >
                 <PlatformLogo platformID={item.platform_id} size={42} />
                 <Stack
                   direction={{ xs: "column", md: "row" }}
@@ -282,7 +286,9 @@ export default function PositionsPage() {
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 760 }}>{item.name}</Typography>
+                    <Typography sx={{ fontWeight: 760 }}>
+                      {item.name}
+                    </Typography>
                     <Typography
                       sx={{
                         mt: 0.5,
@@ -373,25 +379,29 @@ export default function PositionsPage() {
               {
                 value: "boss",
                 label: "Boss直聘",
+
                 description: "支持 OCR 和 AI 详情识别。",
                 iconSrc: platformIconSrc("boss"),
               },
               {
                 value: "zhaopin",
                 label: "智联招聘",
-                description: "只支持 DOM 详情识别。",
+                disabled: true,
+                description: "即将上线",
                 iconSrc: platformIconSrc("zhaopin"),
               },
               {
                 value: "hliepin",
                 label: "猎聘猎头端",
-                description: "只支持 DOM 详情识别。",
+                disabled: true,
+                description: "即将上线",
                 iconSrc: platformIconSrc("hliepin"),
               },
               {
                 value: "liepin",
                 label: "猎聘企业端",
-                description: "只支持 DOM 详情识别。",
+                disabled: true,
+                description: "即将上线",
                 iconSrc: platformIconSrc("liepin"),
               },
             ]}
