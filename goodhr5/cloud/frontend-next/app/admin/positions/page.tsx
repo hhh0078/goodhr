@@ -256,35 +256,41 @@ export default function PositionsPage() {
           </>
         }
       />
-      <SectionPanel>
-        {items.length ? (
-          <Stack>
-            {items.map((item) => (
-              <Stack
-                key={item.id}
-                direction={{ xs: "column", md: "row" }}
-                spacing={2}
-                sx={{
-                  py: 2,
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  alignItems: { md: "center" },
-                }}
-              >
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontWeight: 760 }}>{item.name}</Typography>
-                  <Stack
-                    direction='row'
-                    spacing={0.75}
-                    sx={{
-                      mt: 0.5,
-                      alignItems: "center",
-                      color: "text.secondary",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <PlatformLogo platformID={item.platform_id} size={20} />
-                    <Typography sx={{ fontSize: 13 }}>
+      {items.length ? (
+        <Stack spacing={1.5}>
+          {items.map((item) => (
+            <Box
+              key={item.id}
+              sx={{
+                p: { xs: 1.5, sm: 2 },
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: "8px",
+                bgcolor: "background.paper",
+              }}
+            >
+              <Stack direction='row' spacing={2} sx={{ alignItems: "flex-start" }}>
+                <PlatformLogo platformID={item.platform_id} size={42} />
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  spacing={1.5}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    alignItems: { md: "center" },
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 760 }}>{item.name}</Typography>
+                    <Typography
+                      sx={{
+                        mt: 0.5,
+                        color: "text.secondary",
+                        fontSize: 13,
+                        overflowWrap: "anywhere",
+                      }}
+                    >
                       {platformLabel(item.platform_id)} ·{" "}
                       {item.common_config?.mode_default === "ai"
                         ? "AI 筛选"
@@ -293,30 +299,32 @@ export default function PositionsPage() {
                       {detailModeLabel(item.common_config?.detail_mode)} ·
                       关键词：{(item.keywords || []).join(" / ") || "无"}
                     </Typography>
+                  </Box>
+                  <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
+                    <Button
+                      startIcon={<EditRoundedIcon />}
+                      onClick={() => void openEdit(item)}
+                    >
+                      编辑
+                    </Button>
+                    <Button
+                      color='error'
+                      startIcon={<DeleteOutlineRoundedIcon />}
+                      onClick={() => void remove(item)}
+                    >
+                      删除
+                    </Button>
                   </Stack>
-                </Box>
-                <Stack direction='row' spacing={1}>
-                  <Button
-                    startIcon={<EditRoundedIcon />}
-                    onClick={() => void openEdit(item)}
-                  >
-                    编辑
-                  </Button>
-                  <Button
-                    color='error'
-                    startIcon={<DeleteOutlineRoundedIcon />}
-                    onClick={() => void remove(item)}
-                  >
-                    删除
-                  </Button>
                 </Stack>
               </Stack>
-            ))}
-          </Stack>
-        ) : (
+            </Box>
+          ))}
+        </Stack>
+      ) : (
+        <SectionPanel>
           <EmptyState text='暂无岗位模板' />
-        )}
-      </SectionPanel>
+        </SectionPanel>
+      )}
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}

@@ -25,6 +25,7 @@ import {
   getToken,
   localRequest,
 } from "@/lib/admin-api";
+import PlatformLogo from "@/components/admin/PlatformLogo";
 import { markOnboardingStep } from "@/lib/onboarding";
 import {
   EmptyState,
@@ -419,28 +420,39 @@ export default function TasksPage() {
           </>
         }
       />
-      <SectionPanel>
-        {taskList.length ? (
-          <Stack spacing={1.5}>
-            {taskList.map((task) => (
-              <Box
-                key={task.id}
-                sx={{
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  pb: 1.5,
-                }}
-              >
+      {taskList.length ? (
+        <Stack spacing={1.5}>
+          {taskList.map((task) => (
+            <Box
+              key={task.id}
+              sx={{
+                p: { xs: 1.5, sm: 2 },
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: "8px",
+                bgcolor: "background.paper",
+              }}
+            >
+              <Stack direction='row' spacing={2} sx={{ alignItems: "flex-start" }}>
+                <PlatformLogo
+                  platformID={task.platform_id || task.position?.platform_id}
+                  size={42}
+                />
                 <Stack
                   direction={{ xs: "column", md: "row" }}
-                  spacing={2}
-                  sx={{ alignItems: { md: "center" } }}
+                  spacing={1.5}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    alignItems: { md: "center" },
+                    justifyContent: "space-between",
+                  }}
                 >
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
                     <Stack
                       direction='row'
                       spacing={1}
-                      sx={{ alignItems: "center" }}
+                      sx={{ alignItems: "center", flexWrap: "wrap" }}
                     >
                       <Typography sx={{ fontWeight: 760 }}>
                         {task.name || "未命名任务"}
@@ -454,7 +466,12 @@ export default function TasksPage() {
                       />
                     </Stack>
                     <Typography
-                      sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
+                      sx={{
+                        mt: 0.5,
+                        color: "text.secondary",
+                        fontSize: 13,
+                        overflowWrap: "anywhere",
+                      }}
                     >
                       {task.position?.name || task.platform_id || "未选择岗位"}{" "}
                       · 本次上限 {Number(task.match_limit || 50)} · 总计{" "}
@@ -519,22 +536,24 @@ export default function TasksPage() {
                     </Button>
                   </Stack>
                 </Stack>
-                {expandedLogTaskID === task.id ? (
-                  <TaskLogPanel
-                    logs={logs[task.id] || []}
-                    loading={logLoadingTaskID === task.id}
-                    onRefresh={() => void loadLogs(task.id)}
-                    onViewAll={() => void loadAllLogs(task)}
-                    onClear={() => void clearLogs(task.id)}
-                  />
-                ) : null}
-              </Box>
-            ))}
-          </Stack>
-        ) : (
+              </Stack>
+              {expandedLogTaskID === task.id ? (
+                <TaskLogPanel
+                  logs={logs[task.id] || []}
+                  loading={logLoadingTaskID === task.id}
+                  onRefresh={() => void loadLogs(task.id)}
+                  onViewAll={() => void loadAllLogs(task)}
+                  onClear={() => void clearLogs(task.id)}
+                />
+              ) : null}
+            </Box>
+          ))}
+        </Stack>
+      ) : (
+        <SectionPanel>
           <EmptyState text='暂无招聘任务' />
-        )}
-      </SectionPanel>
+        </SectionPanel>
+      )}
       <AdminDialog
         open={showForm}
         title={form.id ? "编辑招聘任务" : "创建招聘任务"}
