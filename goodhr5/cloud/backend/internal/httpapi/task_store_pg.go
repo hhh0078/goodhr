@@ -525,3 +525,35 @@ func (s *PostgresTaskStore) IncrementTaskCounts(taskID string, scanned, greeted,
 		scanned, greeted, skipped, failed, taskID, today)
 	return err
 }
+
+// SyncTaskCounts 按本地程序累计值同步 PostgreSQL 任务统计，避免同一轮重复累加。
+func (s *PostgresTaskStore) SyncTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	today := time.Now().In(time.Local).Format(time.DateOnly)
+	_, err := s.db.ExecContext(ctx, `
+		WITH current_counts AS (
+			SELECT greeted_count
+			FROM task_runs
+			WHERE id = $5::uuid
+		)
+		UPDATE task_runs
+		SET
+			scanned_count = GREATEST(scanned_count, $1),
+			greeted_count = GREATEST(greeted_count, $2),
+			daily_greeted_count = CASE
+				WHEN GREATEST($2 - current_counts.greeted_count, 0) <= 0 THEN daily_greeted_count
+				WHEN daily_greeted_date = $6::date THEN daily_greeted_count + GREATEST($2 - current_counts.greeted_count, 0)
+				ELSE GREATEST($2 - current_counts.greeted_count, 0)
+			END,
+			daily_greeted_date = CASE
+				WHEN GREATEST($2 - current_counts.greeted_count, 0) > 0 THEN $6::date
+				ELSE daily_greeted_date
+			END,
+			skipped_count = GREATEST(skipped_count, $3),
+			failed_count = GREATEST(failed_count, $4)
+		FROM current_counts
+		WHERE task_runs.id = $5::uuid
+	`, scanned, greeted, skipped, failed, taskID, today)
+	return err
+}

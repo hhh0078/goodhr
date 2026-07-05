@@ -677,7 +677,10 @@ scanLoop:
 		}
 	}
 	if totalSaved > 0 || totalSkipped > 0 {
-		_, _ = r.db.IncrementTaskCounts(task.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
+		updatedTask, err := r.db.IncrementTaskCounts(task.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
+		if err == nil {
+			r.syncTaskCounts(ctx, updatedTask, options)
+		}
 		r.taskLog(task.ID, "info", fmt.Sprintf("本次扫描处理 %d 个候选人，跳过 %d 个，打招呼 %d 个，失败 %d 个", totalSaved, totalSkipped, totalGreeted, totalFailed))
 	} else {
 		r.taskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
@@ -717,6 +720,23 @@ func (r *Runner) syncProcessedResumeCount(ctx context.Context, task localdb.Task
 	}
 	if err := cloudapi.New(options.CloudAPIBase).AddProcessedResumes(ctx, options.Token, task.ID, count); err != nil {
 		r.taskLog(task.ID, "warning", "同步已处理简历数失败："+err.Error())
+	}
+}
+
+// syncTaskCounts 将本地任务累计统计同步给云端任务列表。
+// ctx 为请求上下文，task 为本地任务记录，options 为任务启动参数。
+func (r *Runner) syncTaskCounts(ctx context.Context, task localdb.Task, options StartOptions) {
+	if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(options.Token) == "" {
+		return
+	}
+	counts := map[string]any{
+		"scanned_count": task.ScannedCount,
+		"greeted_count": task.GreetedCount,
+		"skipped_count": task.SkippedCount,
+		"failed_count":  task.FailedCount,
+	}
+	if err := cloudapi.New(options.CloudAPIBase).SyncTaskCounts(ctx, options.Token, task.ID, counts); err != nil {
+		r.taskLog(task.ID, "warning", "同步任务统计失败："+err.Error())
 	}
 }
 

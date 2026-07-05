@@ -214,6 +214,23 @@ func (c *Client) AddProcessedResumes(ctx context.Context, token string, taskID s
 	return nil
 }
 
+// SyncTaskCounts 将本地任务累计统计同步到云端任务记录。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，counts 为统计字段。
+func (c *Client) SyncTaskCounts(ctx context.Context, token string, taskID string, counts map[string]any) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("任务 ID 不能为空")
+	}
+	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/counts", counts)
+	if err != nil {
+		return fmt.Errorf("同步任务统计失败：%w", err)
+	}
+	if status >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "同步任务统计失败"))
+	}
+	return nil
+}
+
 // StopTask 通知云端任务已经停止。
 // ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
 func (c *Client) StopTask(ctx context.Context, token string, taskID string) error {

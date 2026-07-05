@@ -224,6 +224,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 		s.tasks.AddProcessedResumes(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/counts") {
+		// 接收本地程序上报的任务累计统计，供任务列表展示。
+		s.tasks.SyncTaskCounts(w, r)
+		return
+	}
 	// 调用任务服务处理任务详情读取。
 	s.tasks.Detail(w, r)
 }

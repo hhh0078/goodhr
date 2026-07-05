@@ -22,6 +22,7 @@ type TaskStore interface {
 	UpdateTask(taskID string, task TaskRun) (TaskRun, error)
 	UpdateTaskStatus(taskID, status string) error
 	IncrementTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
+	SyncTaskCounts(taskID string, scanned, greeted, skipped, failed int) error
 	TodayGreetedTotal() (int, error)
 }
 type MemoryTaskStore struct {
@@ -136,6 +137,40 @@ func (s *MemoryTaskStore) IncrementTaskCounts(taskID string, scanned, greeted, s
 	}
 	s.tasks[taskID] = task
 	return nil
+}
+
+// SyncTaskCounts 按本地程序累计值同步内存任务统计，避免重复累加。
+func (s *MemoryTaskStore) SyncTaskCounts(taskID string, scanned, greeted, skipped, failed int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return ErrNotFound
+	}
+	deltaGreeted := taskCountMax(0, greeted-task.GreetedCount)
+	task.ScannedCount = taskCountMax(task.ScannedCount, scanned)
+	task.GreetedCount = taskCountMax(task.GreetedCount, greeted)
+	task.SkippedCount = taskCountMax(task.SkippedCount, skipped)
+	task.FailedCount = taskCountMax(task.FailedCount, failed)
+	if deltaGreeted > 0 {
+		today := time.Now().In(time.Local).Format(time.DateOnly)
+		if task.DailyGreetedDate != today {
+			task.DailyGreetedDate = today
+			task.DailyGreetedCount = deltaGreeted
+		} else {
+			task.DailyGreetedCount += deltaGreeted
+		}
+	}
+	s.tasks[taskID] = task
+	return nil
+}
+
+// taskCountMax 返回两个任务统计数中的较大值。
+func taskCountMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // TodayGreetedTotal 统计内存任务中今日打招呼总数。

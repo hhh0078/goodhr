@@ -13,6 +13,13 @@ type addProcessedResumesRequest struct {
 	Count int `json:"count"`
 }
 
+type syncTaskCountsRequest struct {
+	ScannedCount int `json:"scanned_count"`
+	GreetedCount int `json:"greeted_count"`
+	SkippedCount int `json:"skipped_count"`
+	FailedCount  int `json:"failed_count"`
+}
+
 // SaveLocalCandidate 保存本地程序回传的候选人结果。
 // w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/candidates。
 func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +164,46 @@ func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request
 		"ok":    true,
 		"count": req.Count,
 	})
+}
+
+// SyncTaskCounts 接收本地程序同步的任务累计统计。
+// w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/counts。
+func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	taskID := taskSubresourceID(r.URL.Path, "counts")
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "task id required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	if _, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load task")
+		return
+	}
+	var req syncTaskCountsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.ScannedCount < 0 || req.GreetedCount < 0 || req.SkippedCount < 0 || req.FailedCount < 0 {
+		writeError(w, http.StatusBadRequest, "counts must greater or equal 0")
+		return
+	}
+	if err := s.store.SyncTaskCounts(taskID, req.ScannedCount, req.GreetedCount, req.SkippedCount, req.FailedCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to sync task counts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // saveLocalCandidateScoreEvents 保存本地程序产生的 AI 评分事件。

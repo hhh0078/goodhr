@@ -33,6 +33,9 @@ import PlatformLogo, {
 } from "@/components/admin/PlatformLogo";
 import { cloudRequest } from "@/lib/admin-api";
 
+const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
+const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
+
 type PositionForm = ReturnType<typeof createEmptyForm>;
 
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
@@ -195,7 +198,10 @@ export default function PositionsPage() {
     if (form.platform_id === "boss" && value === "dom")
       return notify("Boss直聘不支持 DOM 详情识别", "warning");
     if (isDOMOnlyPlatform(form.platform_id) && value !== "dom")
-      return notify(`${platformLabel(form.platform_id)}只能用 DOM 详情识别`, "warning");
+      return notify(
+        `${platformLabel(form.platform_id)}只能用 DOM 详情识别`,
+        "warning",
+      );
     if (value === "ai" && !subscription.active) return requireMembership();
     setForm((current) => ({ ...current, detail_mode: value }));
   }
@@ -328,7 +334,12 @@ export default function PositionsPage() {
               }
               fullWidth
               placeholder='例如：服装带货主播'
-              helperText='建议与招聘平台中的岗位名称保持一致，任务会根据名称自动切换岗位。'
+              helperText='岗位名称必须和平台岗位岗位名称保持一致。(请前往招聘平台复制岗位名称)'
+              slotProps={{
+                formHelperText: {
+                  sx: { color: "error.main", fontSize: 14, fontWeight: "bold" },
+                },
+              }}
             />
           </Box>
           <ChoiceCards
@@ -344,26 +355,64 @@ export default function PositionsPage() {
                 description: "支持 OCR 和 AI 详情识别。",
                 iconSrc: platformIconSrc("boss"),
               },
-            {
-              value: "zhaopin",
-              label: "智联招聘",
-              description: "只支持 DOM 详情识别。",
-              iconSrc: platformIconSrc("zhaopin"),
-            },
-            {
-              value: "hliepin",
-              label: "猎聘猎头端",
-              description: "只支持 DOM 详情识别。",
-              iconSrc: platformIconSrc("hliepin"),
-            },
-            {
-              value: "liepin",
-              label: "猎聘企业端",
-              description: "只支持 DOM 详情识别。",
-              iconSrc: platformIconSrc("liepin"),
-            },
+              {
+                value: "zhaopin",
+                label: "智联招聘",
+                description: "只支持 DOM 详情识别。",
+                iconSrc: platformIconSrc("zhaopin"),
+              },
+              {
+                value: "hliepin",
+                label: "猎聘猎头端",
+                description: "只支持 DOM 详情识别。",
+                iconSrc: platformIconSrc("hliepin"),
+              },
+              {
+                value: "liepin",
+                label: "猎聘企业端",
+                description: "只支持 DOM 详情识别。",
+                iconSrc: platformIconSrc("liepin"),
+              },
             ]}
           />
+          <Box
+            sx={{
+              p: 1.25,
+              border: "1px solid",
+              borderColor: "#d9c485",
+              borderRadius: "8px",
+              bgcolor: "#fffaf0",
+            }}
+          >
+            <Typography
+              sx={{ mb: 1, color: "#7a4d00", fontSize: 13, fontWeight: 780 }}
+            >
+              平台提示（不用选择）
+            </Typography>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns:
+                  form.platform_id === "boss"
+                    ? { xs: "1fr", md: "minmax(0, .9fr) minmax(0, 1.1fr)" }
+                    : "1fr",
+                gap: { xs: 1, md: 1.75 },
+              }}
+            >
+              <PlatformTipCard
+                iconSrc={CHROMIUM_ICON_SRC}
+                title='浏览器图标'
+                text='创建任务后点右下角蓝色浏览器图标，完成对应平台登录。'
+              />
+              {form.platform_id === "boss" ? (
+                <PlatformTipCard
+                  imageSrc={BOSS_NOTICE_IMAGE_SRC}
+                  title='BOSS 插件、外挂 提示'
+                  text='很多账号会提示插件、外挂等招聘辅助工具，这是平台通用公告，不等于封号。点“我已知晓”即可，别高频操作。'
+                />
+              ) : null}
+            </Box>
+          </Box>
           <ChoiceCards
             label='基础信息筛选模式   (决定是否打开查看详情)'
             value={form.mode_default}
@@ -392,25 +441,25 @@ export default function PositionsPage() {
             columns={3}
             onChange={(value) => void selectDetailMode(String(value))}
             options={[
-          {
-            value: "dom",
-            label: "DOM 识别",
-            description: "速度最快，适合可直接读取文字的平台。",
-            disabled: form.platform_id === "boss",
-          },
-          {
-            value: "ocr",
-            label: "OCR 识别",
-            description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
-            disabled: isDOMOnlyPlatform(form.platform_id),
-          },
-          {
-            value: "ai",
-            label: "AI 识别（会员功能）",
-            description: "直接理解完整详情截图，效果最好但更慢。",
-            disabled: isDOMOnlyPlatform(form.platform_id),
-            memberOnly: true,
-          },
+              {
+                value: "dom",
+                label: "DOM 识别",
+                description: "BOSS直聘不支持DOM识别，速度快，精度高，免费",
+                disabled: form.platform_id === "boss",
+              },
+              {
+                value: "ocr",
+                label: "OCR 识别",
+                description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
+                disabled: isDOMOnlyPlatform(form.platform_id),
+              },
+              {
+                value: "ai",
+                label: "AI 识别（会员功能）",
+                description: "直接理解完整详情截图，效果最好但更慢。",
+                disabled: isDOMOnlyPlatform(form.platform_id),
+                memberOnly: true,
+              },
             ]}
           />
           {form.mode_default === "keyword" ? (
@@ -557,7 +606,7 @@ export default function PositionsPage() {
                     </Typography>
                   </Box>
                   <PromptField
-                    label='打开详情提示词'
+                    label='打开详情提示词（一般不需要修改）'
                     value={form.open_detail_prompt}
                     defaultValue={defaults.open_detail_prompt}
                     description='只用于第一次分析，判断候选人是否值得打开详情。普通岗位可以宽松一些，高级岗位可以更严格。'
@@ -579,7 +628,7 @@ export default function PositionsPage() {
                     helperText='首次评分大于等于该值时打开候选人详情。'
                   />
                   <PromptField
-                    label='打招呼提示词'
+                    label='打招呼提示词（一般不需要修改）'
                     value={form.filter_prompt}
                     defaultValue={defaults.filter_prompt}
                     description='用于详情分析并决定候选人的最终分数，直接影响是否执行打招呼。'
@@ -601,7 +650,7 @@ export default function PositionsPage() {
                     helperText='详情评分大于等于该值时执行打招呼。'
                   />
                   <PromptField
-                    label='复核提示词（可选）'
+                    label='复核提示词（可选）（一般不需要修改）'
                     value={form.review_prompt}
                     defaultValue=''
                     defaultActionLabel='清空'
@@ -631,7 +680,7 @@ export default function PositionsPage() {
               }}
             >
               <TextField
-                label='问候语'
+                label='问候语，暂时不填'
                 value={form.greet_message}
                 onChange={(event) =>
                   setForm({ ...form, greet_message: event.target.value })
@@ -640,7 +689,7 @@ export default function PositionsPage() {
                 minRows={3}
               />
               <TextField
-                label='岗位描述'
+                label='岗位描述 暂时不填'
                 value={form.description}
                 onChange={(event) =>
                   setForm({ ...form, description: event.target.value })
@@ -713,6 +762,65 @@ function PromptField({
       >
         {description}
       </Typography>
+    </Box>
+  );
+}
+
+/** PlatformTipCard 展示平台选择后的图文提醒。 */
+function PlatformTipCard({
+  iconSrc,
+  imageSrc,
+  title,
+  text,
+}: {
+  iconSrc?: string;
+  imageSrc?: string;
+  title: string;
+  text: string;
+}) {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: imageSrc
+          ? "minmax(92px, 130px) minmax(0, 1fr)"
+          : "40px minmax(0, 1fr)",
+        gap: 1.25,
+        alignItems: "center",
+        minHeight: 72,
+      }}
+    >
+      {imageSrc ? (
+        <Box
+          component='img'
+          src={imageSrc}
+          alt={title}
+          sx={{
+            width: "100%",
+            height: 70,
+            objectFit: "cover",
+            borderRadius: "6px",
+            border: "1px solid rgba(0,0,0,.08)",
+          }}
+        />
+      ) : (
+        <Box
+          component='img'
+          src={iconSrc}
+          alt={title}
+          sx={{ width: 34, height: 34, justifySelf: "center" }}
+        />
+      )}
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ color: "#22372c", fontSize: 13, fontWeight: 780 }}>
+          {title}
+        </Typography>
+        <Typography
+          sx={{ mt: 0.35, color: "#54635a", fontSize: 12.5, lineHeight: 1.55 }}
+        >
+          {text}
+        </Typography>
+      </Box>
     </Box>
   );
 }

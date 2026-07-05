@@ -61,6 +61,7 @@ export default function TasksPage() {
   const [runningTaskIDs, setRunningTaskIDs] = useState<Record<string, boolean>>(
     {},
   );
+  const [localTaskStats, setLocalTaskStats] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
@@ -107,9 +108,10 @@ export default function TasksPage() {
     () =>
       tasks.map((task) => ({
         ...task,
+        ...(localTaskStats[task.id] || {}),
         status: runningTaskIDs[task.id] ? "running" : task.status,
       })),
-    [runningTaskIDs, tasks],
+    [localTaskStats, runningTaskIDs, tasks],
   );
 
   /** syncLocalRunningStates 批量同步本地任务真实运行状态。 */
@@ -121,7 +123,11 @@ export default function TasksPage() {
           agentBase,
           `/api/v1/local/tasks/${encodeURIComponent(taskID)}/status`,
         );
-        return { taskID, running: data.running === true };
+        return {
+          taskID,
+          running: data.running === true,
+          task: data.task || {},
+        };
       }),
     );
     setRunningTaskIDs((current) => {
@@ -129,6 +135,15 @@ export default function TasksPage() {
       results.forEach((result) => {
         if (result.status === "fulfilled") {
           next[result.value.taskID] = result.value.running;
+        }
+      });
+      return next;
+    });
+    setLocalTaskStats((current) => {
+      const next = { ...current };
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          next[result.value.taskID] = pickLocalTaskStats(result.value.task);
         }
       });
       return next;
@@ -184,7 +199,7 @@ export default function TasksPage() {
   }
 
   /** openEdit 将任务数据填入编辑弹框。 */
-function openEdit(task: any) {
+  function openEdit(task: any) {
     setForm({
       id: task.id || "",
       name: task.name || "",
@@ -262,10 +277,18 @@ function openEdit(task: any) {
       );
       if (data.running === true) {
         setRunningTaskIDs((current) => ({ ...current, [taskID]: true }));
+        setLocalTaskStats((current) => ({
+          ...current,
+          [taskID]: pickLocalTaskStats(data.task || {}),
+        }));
         return;
       }
       if (data.running === false) {
         setRunningTaskIDs((current) => ({ ...current, [taskID]: false }));
+        setLocalTaskStats((current) => ({
+          ...current,
+          [taskID]: pickLocalTaskStats(data.task || {}),
+        }));
         await load();
         if (expandedLogTaskID === taskID) await loadLogs(taskID);
       }
@@ -293,10 +316,7 @@ function openEdit(task: any) {
    * @param taskID - 要读取日志的任务 ID。
    * @param options - silent 为 true 时不显示按钮加载状态和错误弹窗。
    */
-  async function loadLogs(
-    taskID: string,
-    options: { silent?: boolean } = {},
-  ) {
+  async function loadLogs(taskID: string, options: { silent?: boolean } = {}) {
     if (!agentBase) return;
     if (!options.silent) setLogLoadingTaskID(taskID);
     try {
@@ -307,7 +327,10 @@ function openEdit(task: any) {
       setLogs((value) => ({ ...value, [taskID]: data.logs || [] }));
     } catch (error) {
       if (!options.silent) {
-        notify(error instanceof Error ? error.message : "日志读取失败", "error");
+        notify(
+          error instanceof Error ? error.message : "日志读取失败",
+          "error",
+        );
       }
     } finally {
       if (!options.silent) setLogLoadingTaskID("");
@@ -359,7 +382,10 @@ function openEdit(task: any) {
       );
       setAllLogs(data.logs || []);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "完整日志读取失败", "error");
+      notify(
+        error instanceof Error ? error.message : "完整日志读取失败",
+        "error",
+      );
     } finally {
       setAllLogLoading(false);
     }
@@ -378,12 +404,12 @@ function openEdit(task: any) {
   return (
     <>
       <PageHeader
-        title='任务列表'
-        description='创建任务后由本地程序运行，云端保存任务和岗位配置。'
+        title="任务列表"
+        description="创建任务后由本地程序运行，云端保存任务和岗位配置。"
         actions={
           <>
             <Button
-              variant='contained'
+              variant="contained"
               startIcon={<AddRoundedIcon />}
               onClick={openCreate}
             >
@@ -412,7 +438,7 @@ function openEdit(task: any) {
                 >
                   <Box sx={{ flex: 1 }}>
                     <Stack
-                      direction='row'
+                      direction="row"
                       spacing={1}
                       sx={{ alignItems: "center" }}
                     >
@@ -420,7 +446,7 @@ function openEdit(task: any) {
                         {task.name || "未命名任务"}
                       </Typography>
                       <Chip
-                        size='small'
+                        size="small"
                         color={
                           task.status === "running" ? "success" : "default"
                         }
@@ -430,22 +456,26 @@ function openEdit(task: any) {
                     <Typography
                       sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
                     >
-                      {task.position?.name || task.platform_id || "未选择岗位"} ·
-                      本次上限 {Number(task.match_limit || 50)} · 总计{" "}
+                      {task.position?.name || task.platform_id || "未选择岗位"}{" "}
+                      · 本次上限 {Number(task.match_limit || 50)} · 总计{" "}
                       {Number(task.greeted_count || 0)} · 今日{" "}
-                      {Number(task.today_greeted_count || 0)} · 本次{" "}
+                      {Math.max(
+                        Number(task.today_greeted_count || 0),
+                        Number(task.current_run_greeted_count || 0),
+                      )}{" "}
+                      · 本次{" "}
                       {Number(task.current_run_greeted_count || 0)} · 提示音{" "}
                       {task.enable_sound ? "开" : "关"}
                     </Typography>
                   </Box>
                   <Stack
-                    direction='row'
+                    direction="row"
                     spacing={0.5}
                     sx={{ flexWrap: "wrap" }}
                   >
                     {task.status === "running" ? (
                       <Button
-                        color='warning'
+                        color="warning"
                         startIcon={<StopRoundedIcon />}
                         onClick={() => void stop(task)}
                       >
@@ -453,7 +483,7 @@ function openEdit(task: any) {
                       </Button>
                     ) : (
                       <Button
-                        variant='contained'
+                        variant="contained"
                         startIcon={<PlayArrowRoundedIcon />}
                         onClick={() => void run(task)}
                       >
@@ -474,13 +504,15 @@ function openEdit(task: any) {
                       简历
                     </Button>
                     <Button
-                      variant={expandedLogTaskID === task.id ? "contained" : "text"}
+                      variant={
+                        expandedLogTaskID === task.id ? "contained" : "text"
+                      }
                       onClick={() => toggleLogs(task.id)}
                     >
                       {expandedLogTaskID === task.id ? "收起日志" : "日志"}
                     </Button>
                     <Button
-                      color='error'
+                      color="error"
                       startIcon={<DeleteOutlineRoundedIcon />}
                       onClick={() => void remove(task)}
                     >
@@ -501,16 +533,16 @@ function openEdit(task: any) {
             ))}
           </Stack>
         ) : (
-          <EmptyState text='暂无招聘任务' />
+          <EmptyState text="暂无招聘任务" />
         )}
       </SectionPanel>
       <AdminDialog
         open={showForm}
         title={form.id ? "编辑招聘任务" : "创建招聘任务"}
-        description='账号决定招聘平台，岗位模板决定筛选和详情识别方式。'
+        description="账号决定招聘平台，岗位模板决定筛选和详情识别方式。"
         confirmText={form.id ? "保存修改" : "创建任务"}
         loading={loading}
-        maxWidth='md'
+        maxWidth="md"
         onClose={() => setShowForm(false)}
         onConfirm={() => void save()}
       >
@@ -522,33 +554,33 @@ function openEdit(task: any) {
           }}
         >
           <TextField
-            label='任务名称'
+            label="任务名称"
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder='不填写则按岗位自动生成'
+            placeholder="不填写则按岗位自动生成"
           />
           <TextField
             select
-            label='岗位模板'
+            label="岗位模板"
             value={form.position_id}
             onChange={(event) =>
               setForm({ ...form, position_id: event.target.value })
             }
           >
             {positions.map((item) => (
-                <MenuItem key={item.id} value={item.id}>
-                  {item.name} · {item.platform_id || "未设置平台"}
-                </MenuItem>
-              ))}
+              <MenuItem key={item.id} value={item.id}>
+                {item.name} · {item.platform_id || "未设置平台"}
+              </MenuItem>
+            ))}
           </TextField>
           <TextField
-            label='本次打招呼上限'
-            type='number'
+            label="本次打招呼上限"
+            type="number"
             value={form.match_limit}
             onChange={(event) =>
               setForm({ ...form, match_limit: Number(event.target.value) })
             }
-            helperText='本次运行达到该数量后自动停止，默认 50。'
+            helperText="本次运行达到该数量后自动停止，默认 50。"
           />
           <FormControlLabel
             control={
@@ -559,24 +591,41 @@ function openEdit(task: any) {
                 }
               />
             }
-            label='打招呼成功后播放提示音'
+            label="打招呼成功后播放提示音"
           />
           <Box>
             <Typography sx={{ mb: 1, fontWeight: 800 }}>思考模式</Typography>
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1 }}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+                gap: 1,
+              }}
+            >
               {[
-                { value: false, title: "普通模式", desc: "速度快，费用低，适合日常批量打招呼。准度正常，我会努力不添乱。" },
-                { value: true, title: "思考模式", desc: "准度更高，会多想一会儿；缺点是速度更慢，费用也更贵一点。" },
+                {
+                  value: false,
+                  title: "普通模式",
+                  desc: "速度快，费用低，适合日常批量打招呼。准度正常，我会努力不添乱。",
+                },
+                {
+                  value: true,
+                  title: "思考模式",
+                  desc: "准度更高，会多想一会儿；缺点是速度更慢，费用也更贵一点。",
+                },
               ].map((option) => {
                 const selected = form.enable_thinking === option.value;
                 return (
                   <Box
                     key={option.title}
-                    role='button'
+                    role="button"
                     tabIndex={0}
-                    onClick={() => setForm({ ...form, enable_thinking: option.value })}
+                    onClick={() =>
+                      setForm({ ...form, enable_thinking: option.value })
+                    }
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") setForm({ ...form, enable_thinking: option.value });
+                      if (event.key === "Enter" || event.key === " ")
+                        setForm({ ...form, enable_thinking: option.value });
                     }}
                     sx={{
                       border: "1px solid",
@@ -586,15 +635,42 @@ function openEdit(task: any) {
                       cursor: "pointer",
                       minHeight: 112,
                       p: 1.5,
-                      transition: "border-color .15s ease, background-color .15s ease",
-                      "&:hover": { bgcolor: selected ? "#e3f1e9" : "#fafbfa", borderColor: selected ? "#16724c" : "#9bb8aa" },
+                      transition:
+                        "border-color .15s ease, background-color .15s ease",
+                      "&:hover": {
+                        bgcolor: selected ? "#e3f1e9" : "#fafbfa",
+                        borderColor: selected ? "#16724c" : "#9bb8aa",
+                      },
                     }}
                   >
-                    <Stack direction='row' spacing={1} sx={{ alignItems: "center", mb: 0.75 }}>
-                      <Box sx={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid", borderColor: selected ? "#16724c" : "#aeb8b2", bgcolor: selected ? "#16724c" : "transparent", flex: "0 0 auto" }} />
-                      <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>{option.title}</Typography>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: "center", mb: 0.75 }}
+                    >
+                      <Box
+                        sx={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: "50%",
+                          border: "2px solid",
+                          borderColor: selected ? "#16724c" : "#aeb8b2",
+                          bgcolor: selected ? "#16724c" : "transparent",
+                          flex: "0 0 auto",
+                        }}
+                      />
+                      <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>
+                        {option.title}
+                      </Typography>
                     </Stack>
-                    <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>
+                    <Typography
+                      sx={{
+                        mt: 0.5,
+                        color: "text.secondary",
+                        fontSize: 13,
+                        lineHeight: 1.6,
+                      }}
+                    >
                       {option.desc}
                     </Typography>
                   </Box>
@@ -606,12 +682,12 @@ function openEdit(task: any) {
       </AdminDialog>
       <AdminDialog
         open={Boolean(allLogTask)}
-        title='查看全部任务日志'
-        description='如果任务有异常，请点击复制全部，把完整日志发给作者。'
-        confirmText='复制全部'
-        cancelText='关闭'
+        title="查看全部任务日志"
+        description="如果任务有异常，请点击复制全部，把完整日志发给作者。"
+        confirmText="复制全部"
+        cancelText="关闭"
         loading={allLogLoading}
-        maxWidth='lg'
+        maxWidth="lg"
         onClose={() => {
           setAllLogTask(null);
           setAllLogs([]);
@@ -619,7 +695,7 @@ function openEdit(task: any) {
         onConfirm={() => void copyAllLogs()}
       >
         <Box
-          component='pre'
+          component="pre"
           sx={{
             m: 0,
             maxHeight: 560,
@@ -676,22 +752,22 @@ function TaskLogPanel(props: {
           borderColor: "divider",
         }}
       >
-        <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
           <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
             本地任务日志（最近 {LOG_LIMIT} 条）
           </Typography>
-          <Button size='small' onClick={onViewAll}>
+          <Button size="small" onClick={onViewAll}>
             查看全部
           </Button>
           <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
             有异常请复制全部信息给作者
           </Typography>
         </Stack>
-        <Stack direction='row' spacing={1}>
-          <Button size='small' onClick={onRefresh} disabled={loading}>
+        <Stack direction="row" spacing={1}>
+          <Button size="small" onClick={onRefresh} disabled={loading}>
             {loading ? "刷新中" : "刷新"}
           </Button>
-          <Button color='error' size='small' onClick={onClear}>
+          <Button color="error" size="small" onClick={onClear}>
             清空
           </Button>
         </Stack>
@@ -707,7 +783,9 @@ function TaskLogPanel(props: {
         {logs.length ? (
           logs.map((item, index) => (
             <LogLine
-              key={String(item.id || `${item.created_at || item.time}-${index}`)}
+              key={String(
+                item.id || `${item.created_at || item.time}-${index}`,
+              )}
               item={item}
               previous={index > 0 ? logs[index - 1] : null}
             />
@@ -850,6 +928,27 @@ function getLogLevelLabel(level: string) {
       } as Record<string, string>
     )[value] || "信息"
   );
+}
+
+/**
+ * pickLocalTaskStats 提取本地程序返回的任务统计。
+ * @param task - 本地程序任务状态对象。
+ * @returns 可合并到任务卡片的统计字段。
+ */
+function pickLocalTaskStats(task: any) {
+  const result: Record<string, number> = {};
+  [
+    "scanned_count",
+    "greeted_count",
+    "skipped_count",
+    "failed_count",
+    "current_run_greeted_count",
+  ].forEach((key) => {
+    if (task?.[key] !== undefined && task?.[key] !== null) {
+      result[key] = Number(task[key] || 0);
+    }
+  });
+  return result;
 }
 
 /** statusLabel 将任务状态转换为中文。 */
