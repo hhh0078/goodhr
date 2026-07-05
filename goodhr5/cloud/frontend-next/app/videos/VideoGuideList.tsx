@@ -1,67 +1,10 @@
-/** 本文件负责从云端 system.guide 配置读取并展示视频教程列表。 */
-"use client";
-
+/** 本文件负责展示服务端传入的视频教程列表。 */
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
-import { Box, CircularProgress, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { Box, Typography } from "@mui/material";
+import type { GuideVideo } from "@/lib/public-data";
 
-type GuideVideo = {
-  id: string;
-  title: string;
-  description: string;
-  src: string;
-  enabled: boolean;
-};
-
-const CLOUD_API_BASE = (
-  process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn"
-).replace(/\/$/, "");
-
-/** VideoGuideList 从云端读取视频教程配置并渲染。 */
-export default function VideoGuideList() {
-  const [videos, setVideos] = useState<GuideVideo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let alive = true;
-
-    loadGuideVideos()
-      .then((items) => {
-        if (alive) {
-          setVideos(items);
-        }
-      })
-      .catch((loadError) => {
-        if (alive) {
-          setError(
-            loadError instanceof Error ? loadError.message : "视频教程读取失败",
-          );
-        }
-      })
-      .finally(() => {
-        if (alive) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <Box sx={{ py: 8, display: "grid", placeItems: "center" }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return <EmptyVideoState text={`视频教程没读出来：${error}`} />;
-  }
-
+/** VideoGuideList 渲染视频教程配置。 */
+export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
   if (!videos.length) {
     return (
       <EmptyVideoState text="这里暂时还没有视频教程。配置好 system.guide.videos 后，我刷新一下就能看见。" />
@@ -114,44 +57,6 @@ export default function VideoGuideList() {
       ))}
     </Box>
   );
-}
-
-/** loadGuideVideos 每次从云端无缓存读取视频教程配置。 */
-async function loadGuideVideos(): Promise<GuideVideo[]> {
-  const response = await fetch(
-    `${CLOUD_API_BASE}/api/help/guide?t=${Date.now()}`,
-    {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(`接口状态 ${response.status}`);
-  }
-
-  const data = await response.json();
-  const source = Array.isArray(data?.guide?.videos) ? data.guide.videos : [];
-
-  return source
-    .map(normalizeVideo)
-    .filter((item: GuideVideo) => item.enabled && item.title && item.src);
-}
-
-/** normalizeVideo 兼容常见视频地址字段，统一成页面可渲染格式。 */
-function normalizeVideo(value: Record<string, unknown>): GuideVideo {
-  return {
-    id: String(value?.id || value?.title || ""),
-    title: String(value?.title || ""),
-    description: String(value?.description || ""),
-    src: String(
-      value?.src || value?.url || value?.iframe_url || value?.video_url || "",
-    ),
-    enabled: value?.enabled !== false,
-  };
 }
 
 /** EmptyVideoState 展示视频教程空状态。 */

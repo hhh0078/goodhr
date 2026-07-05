@@ -4,6 +4,7 @@ import { Box, Container } from "@mui/material";
 import type { Metadata } from "next";
 import MarketingShell from "@/components/MarketingShell";
 import StructuredData from "@/components/StructuredData";
+import { getGuideVideos } from "@/lib/public-data";
 import VideoGuideList from "./VideoGuideList";
 import { absoluteURL, createPageMetadata } from "@/lib/seo";
 
@@ -21,7 +22,9 @@ export const metadata: Metadata = createPageMetadata({
 });
 
 /** VideosPage 展示安装和使用视频教程。 */
-export default function VideosPage() {
+export default async function VideosPage() {
+  const videos = await getGuideVideos();
+
   return (
     <>
       <StructuredData
@@ -39,7 +42,7 @@ export default function VideosPage() {
       >
         <Box component="section" sx={{ pb: { xs: 8, md: 12 } }}>
           <Container maxWidth="lg">
-            <VideoGuideList />
+            <VideoGuideList videos={videos} />
           </Container>
         </Box>
       </MarketingShell>

@@ -24,6 +24,14 @@ export type LocalAgentUpdate = {
 	note: string;
 };
 
+export type GuideVideo = {
+	id: string;
+	title: string;
+	description: string;
+	src: string;
+	enabled: boolean;
+};
+
 /** getPublicStats 在服务端读取官网统计，失败时返回空数据且不影响页面。 */
 export async function getPublicStats(): Promise<PublicStatsData> {
   const baseURL = (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
@@ -67,6 +75,22 @@ export async function getLocalAgentUpdates(): Promise<LocalAgentUpdate[]> {
 	}
 }
 
+/** getGuideVideos 在服务端读取官网视频教程配置。 */
+export async function getGuideVideos(): Promise<GuideVideo[]> {
+	if (process.env.GOODHR_STATIC_EXPORT === "1") return [];
+	const baseURL = cloudBaseURL();
+	try {
+		const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
+		if (!response.ok) return [];
+		const data = await response.json();
+		return Array.isArray(data?.guide?.videos)
+			? data.guide.videos.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src)
+			: [];
+	} catch {
+		return [];
+	}
+}
+
 /** cloudBaseURL 返回服务端访问云端 API 的统一地址。 */
 function cloudBaseURL() {
 	return (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
@@ -94,6 +118,17 @@ function normalizeLocalAgentUpdate(value: any): LocalAgentUpdate {
 		urlMac: String(value?.url_mac || ""),
 		sha256: String(value?.sha256 || ""),
 		note: String(value?.note || ""),
+	};
+}
+
+/** normalizeGuideVideo 将系统指南视频字段整理成页面展示结构。 */
+function normalizeGuideVideo(value: Record<string, unknown>): GuideVideo {
+	return {
+		id: String(value?.id || value?.title || ""),
+		title: String(value?.title || ""),
+		description: String(value?.description || ""),
+		src: String(value?.src || value?.url || value?.iframe_url || value?.video_url || ""),
+		enabled: value?.enabled !== false,
 	};
 }
 
