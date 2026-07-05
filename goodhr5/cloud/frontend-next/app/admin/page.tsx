@@ -72,7 +72,15 @@ export default function DashboardPage() {
   /** loadRuntime 在本地连接变化时读取运行组件状态。 */
   async function loadRuntime(baseURL = agentBase) {
     if (!baseURL) { setRuntime({}); return; }
-    try { setRuntime(await localRequest(baseURL, "/api/v1/runtime/status")); } catch { setRuntime({}); }
+    try {
+      const [runtimeResult, healthResult] = await Promise.allSettled([
+        localRequest(baseURL, "/api/v1/runtime/status"),
+        localRequest(baseURL, "/health"),
+      ]);
+      const runtimeData = runtimeResult.status === "fulfilled" ? runtimeResult.value : {};
+      const healthData = healthResult.status === "fulfilled" ? healthResult.value : {};
+      setRuntime({ ...runtimeData, ...healthData });
+    } catch { setRuntime({}); }
   }
 
   useEffect(() => { void load(); }, []);
@@ -107,7 +115,7 @@ export default function DashboardPage() {
 
     <Box sx={{ mt: showGuide ? 2.5 : 0, display: "grid", gridTemplateColumns: { xs: "1fr 1fr", lg: "repeat(4, 1fr)" }, gap: 1.5 }}>{metrics.map(([label, value, Icon]) => <Box key={label} sx={{ p: 2, bgcolor: "#f7faf8", borderRadius: "8px", border: "1px solid", borderColor: "divider" }}><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Icon color="primary" /></Stack><Typography sx={{ mt: 1.5, fontSize: 31, fontWeight: 800 }}>{loading ? <CircularProgress size={22} /> : value}</Typography></Box>)}</Box>
     <Box sx={{ mt: 2 }}>
-      <SectionPanel><Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}><Box><Typography component="h2" sx={{ fontSize: 19, fontWeight: 780 }}>本地程序</Typography><Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>{agentBase ? `已连接 ${agentBase}` : "尚未检测到本地程序"}</Typography></Box><Chip color={agentBase ? "success" : "error"} label={agentBase ? "已连接" : "未连接"} /></Stack><Box sx={{ mt: 2, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}><StatusItem label="程序版本" value={runtime.version || runtime.agent_version || "--"} /><StatusItem label="会员状态" value={subscription.active ? `${subscription.member_type || "Plus"} 有效` : "免费版"} /><StatusItem label="浏览器组件" value={runtime.cloakbrowser_installed || runtime.runtime?.cloakbrowser_installed ? "已安装" : "待检查"} /><StatusItem label="OCR 组件" value={runtime.ocr_installed || runtime.runtime?.ocr_installed ? "已安装" : "可选组件"} /></Box><Stack direction="row" spacing={1} sx={{ mt: 2 }}><Button component={Link} href="/admin/agent-download" variant="contained">组件与更新</Button><Button component={Link} href="/admin/local-data" variant="outlined">诊断本地数据</Button></Stack></SectionPanel>
+<SectionPanel><Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ justifyContent: "space-between", alignItems: { sm: "center" } }}><Box><Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><Typography component="h2" sx={{ fontSize: 18, fontWeight: 780 }}>本地程序</Typography><Chip size="small" color={agentBase ? "success" : "error"} label={agentBase ? "已连接" : "未连接"} /></Stack><Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}>{agentBase ? `${agentBase} · ${runtime.version || runtime.agent_version || "版本未知"} · ${subscription.active ? `${subscription.member_type || "Plus"} 有效` : "免费版"}` : "尚未检测到本地程序"}</Typography></Box><Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}><Button component={Link} href="/admin/agent-download" size="small" variant="contained">组件</Button><Button component={Link} href="/admin/local-data" size="small" variant="outlined">诊断</Button></Stack></Stack><Box sx={{ mt: 1.5, p: 1.25, borderRadius: "8px", bgcolor: "#fff8ed", border: "1px solid #f0d8ac" }}><Typography sx={{ color: "#7a4d00", fontSize: 13, lineHeight: 1.65 }}>我小声提醒一下：由于浏览器限制，在浏览器内下载的文件请到“我的电脑 - 下载”里查看。如果没有，请在以下目录内查看：</Typography><Typography sx={{ mt: 0.5, color: "#5f3b00", fontSize: 12, fontFamily: "monospace", overflowWrap: "anywhere" }}>{runtime.downloadsDir || runtime.downloads_dir || "本地程序未返回下载目录"}</Typography></Box></SectionPanel>
     </Box>
   </>;
 }
@@ -136,9 +144,4 @@ function GuideCard({ step, index, done, active }: { step: GuideStep; index: numb
     <Stack component="ol" spacing={0.4} sx={{ mt: 1.25, mb: 1.5, pl: 2.25, color: "text.secondary", fontSize: 12, lineHeight: 1.5 }}>{step.tips.map((tip) => <li key={tip}>{tip}</li>)}</Stack>
     {!done ? <Button component={Link} href={step.href} variant={active ? "contained" : "outlined"} size="small" sx={{ mt: "auto", alignSelf: "flex-start" }}>{step.action}</Button> : null}
   </Box>;
-}
-
-/** StatusItem 展示本地程序的一项简短状态。 */
-function StatusItem({ label, value }: { label: string; value: string }) {
-  return <Box sx={{ p: 1.5, bgcolor: "#f7faf8", borderRadius: "8px" }}><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{label}</Typography><Typography sx={{ mt: 0.5, fontWeight: 720 }}>{value}</Typography></Box>;
 }
