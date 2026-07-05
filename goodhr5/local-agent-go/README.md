@@ -5,7 +5,7 @@
 ## 当前能力
 
 - Go 主程序可启动本地 HTTP 服务。
-- 默认优先监听 `127.0.0.1:55271`，端口被占用时会尝试到 `55279`。
+- 默认固定监听 `127.0.0.1:55271`，端口被占用时直接启动失败。
 - `/health` 返回统一 JSON。
 - `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
 - `/api/v1/runtime/install` 支持从前端传入配置下载 Node runtime、CloakBrowser 和 OCR；Node Worker 随本地程序安装包内置。
@@ -48,7 +48,7 @@ cd goodhr5/local-agent-go
 go run ./cmd/goodhr-local-agent
 ```
 
-启动成功后会自动使用默认浏览器打开 `http://127.0.0.1:端口/admin/`。
+启动成功后会自动使用默认浏览器打开 `http://127.0.0.1:55271/admin/`。
 
 关闭自动打开：
 

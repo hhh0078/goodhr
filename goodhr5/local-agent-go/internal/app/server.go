@@ -86,9 +86,9 @@ func audioDir(cfg *config.Config) string {
 }
 
 // Run 启动本地 HTTP 服务。
-// 会优先监听配置端口，失败时尝试到最大端口。
+// 固定监听配置端口，端口被占用时直接返回错误。
 func (s *Server) Run() error {
-	ln, port, err := process.ListenFirstAvailable(s.cfg.Host, s.cfg.Port, config.MaxPort)
+	ln, port, err := process.ListenFirstAvailable(s.cfg.Host, s.cfg.Port, s.cfg.Port)
 	if err != nil {
 		return err
 	}
