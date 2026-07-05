@@ -404,12 +404,12 @@ export default function TasksPage() {
   return (
     <>
       <PageHeader
-        title="任务列表"
-        description="创建任务后由本地程序运行，云端保存任务和岗位配置。"
+        title='任务列表'
+        description='创建任务后由本地程序运行，云端保存任务和岗位配置。'
         actions={
           <>
             <Button
-              variant="contained"
+              variant='contained'
               startIcon={<AddRoundedIcon />}
               onClick={openCreate}
             >
@@ -438,7 +438,7 @@ export default function TasksPage() {
                 >
                   <Box sx={{ flex: 1 }}>
                     <Stack
-                      direction="row"
+                      direction='row'
                       spacing={1}
                       sx={{ alignItems: "center" }}
                     >
@@ -446,7 +446,7 @@ export default function TasksPage() {
                         {task.name || "未命名任务"}
                       </Typography>
                       <Chip
-                        size="small"
+                        size='small'
                         color={
                           task.status === "running" ? "success" : "default"
                         }
@@ -463,19 +463,18 @@ export default function TasksPage() {
                         Number(task.today_greeted_count || 0),
                         Number(task.current_run_greeted_count || 0),
                       )}{" "}
-                      · 本次{" "}
-                      {Number(task.current_run_greeted_count || 0)} · 提示音{" "}
-                      {task.enable_sound ? "开" : "关"}
+                      · 本次 {Number(task.current_run_greeted_count || 0)} ·
+                      提示音 {task.enable_sound ? "开" : "关"}
                     </Typography>
                   </Box>
                   <Stack
-                    direction="row"
+                    direction='row'
                     spacing={0.5}
                     sx={{ flexWrap: "wrap" }}
                   >
                     {task.status === "running" ? (
                       <Button
-                        color="warning"
+                        color='warning'
                         startIcon={<StopRoundedIcon />}
                         onClick={() => void stop(task)}
                       >
@@ -483,7 +482,7 @@ export default function TasksPage() {
                       </Button>
                     ) : (
                       <Button
-                        variant="contained"
+                        variant='contained'
                         startIcon={<PlayArrowRoundedIcon />}
                         onClick={() => void run(task)}
                       >
@@ -512,7 +511,7 @@ export default function TasksPage() {
                       {expandedLogTaskID === task.id ? "收起日志" : "日志"}
                     </Button>
                     <Button
-                      color="error"
+                      color='error'
                       startIcon={<DeleteOutlineRoundedIcon />}
                       onClick={() => void remove(task)}
                     >
@@ -533,16 +532,16 @@ export default function TasksPage() {
             ))}
           </Stack>
         ) : (
-          <EmptyState text="暂无招聘任务" />
+          <EmptyState text='暂无招聘任务' />
         )}
       </SectionPanel>
       <AdminDialog
         open={showForm}
         title={form.id ? "编辑招聘任务" : "创建招聘任务"}
-        description="账号决定招聘平台，岗位模板决定筛选和详情识别方式。"
+        description='账号决定招聘平台，岗位模板决定筛选和详情识别方式。'
         confirmText={form.id ? "保存修改" : "创建任务"}
         loading={loading}
-        maxWidth="md"
+        maxWidth='md'
         onClose={() => setShowForm(false)}
         onConfirm={() => void save()}
       >
@@ -554,14 +553,8 @@ export default function TasksPage() {
           }}
         >
           <TextField
-            label="任务名称"
-            value={form.name}
-            onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="不填写则按岗位自动生成"
-          />
-          <TextField
             select
-            label="岗位模板"
+            label='岗位模板'
             value={form.position_id}
             onChange={(event) =>
               setForm({ ...form, position_id: event.target.value })
@@ -574,13 +567,19 @@ export default function TasksPage() {
             ))}
           </TextField>
           <TextField
-            label="本次打招呼上限"
-            type="number"
+            label='任务名称'
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            placeholder='不填写则按岗位自动生成'
+          />
+          <TextField
+            label='本次打招呼上限'
+            type='number'
             value={form.match_limit}
             onChange={(event) =>
               setForm({ ...form, match_limit: Number(event.target.value) })
             }
-            helperText="本次运行达到该数量后自动停止，默认 50。"
+            helperText='本次运行达到该数量后自动停止，默认 50。'
           />
           <FormControlLabel
             control={
@@ -591,7 +590,7 @@ export default function TasksPage() {
                 }
               />
             }
-            label="打招呼成功后播放提示音"
+            label='打招呼成功后播放提示音'
           />
           <Box>
             <Typography sx={{ mb: 1, fontWeight: 800 }}>思考模式</Typography>
@@ -618,7 +617,7 @@ export default function TasksPage() {
                 return (
                   <Box
                     key={option.title}
-                    role="button"
+                    role='button'
                     tabIndex={0}
                     onClick={() =>
                       setForm({ ...form, enable_thinking: option.value })
@@ -644,7 +643,7 @@ export default function TasksPage() {
                     }}
                   >
                     <Stack
-                      direction="row"
+                      direction='row'
                       spacing={1}
                       sx={{ alignItems: "center", mb: 0.75 }}
                     >
@@ -682,12 +681,12 @@ export default function TasksPage() {
       </AdminDialog>
       <AdminDialog
         open={Boolean(allLogTask)}
-        title="查看全部任务日志"
-        description="如果任务有异常，请点击复制全部，把完整日志发给作者。"
-        confirmText="复制全部"
-        cancelText="关闭"
+        title='查看全部任务日志'
+        description='如果任务有异常，请点击复制全部，把完整日志发给作者。'
+        confirmText='复制全部'
+        cancelText='关闭'
         loading={allLogLoading}
-        maxWidth="lg"
+        maxWidth='lg'
         onClose={() => {
           setAllLogTask(null);
           setAllLogs([]);
@@ -695,7 +694,7 @@ export default function TasksPage() {
         onConfirm={() => void copyAllLogs()}
       >
         <Box
-          component="pre"
+          component='pre'
           sx={{
             m: 0,
             maxHeight: 560,
