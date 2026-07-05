@@ -83,6 +83,7 @@ export default function PositionsPage() {
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
     const next = createEmptyForm();
+    next.mode_default = defaultCreateMode(subscription.active);
     next.detail_mode = defaultCreateDetailMode(
       next.platform_id,
       subscription.active,
@@ -991,6 +992,11 @@ function normalizeDetailMode(platformID: string, mode: string) {
 function defaultCreateDetailMode(platformID: string, memberActive: boolean) {
   if (platformID === "boss") return memberActive ? "ai" : "ocr";
   return "dom";
+}
+
+/** defaultCreateMode 返回新增岗位时自动使用的基础筛选模式。 */
+function defaultCreateMode(memberActive: boolean) {
+  return memberActive ? "ai" : "keyword";
 }
 
 /** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
