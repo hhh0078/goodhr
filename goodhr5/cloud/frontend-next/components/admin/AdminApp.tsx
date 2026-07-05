@@ -324,7 +324,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
     const browserPayload = {
       persistent: true,
-      user_data_dir: "goodhr_manual_browser",
+      user_data_dir: "default",
       headless: false,
       humanize: true,
     };
