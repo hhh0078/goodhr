@@ -205,13 +205,23 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
-	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds})
+	totalRounds := scanRounds(options)
+	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: totalRounds})
 	// 保存通知邮箱到运行状态
 	r.mu.Lock()
 	if state, ok := r.running[taskID]; ok {
 		state.emailForNotify = options.EmailForNotify
 	}
 	r.mu.Unlock()
+	snapshot, err := r.buildTaskRuntimeSnapshot(ctx, client, task, options, totalRounds)
+	if err != nil {
+		cancel()
+		r.failStart(taskID, err.Error(), options)
+		return map[string]any{"task": taskStatusAfterStartFailure(r.db, taskID, task), "running": false}, err
+	}
+	task = snapshot.Task
+	options = snapshot.Options
+	options.EnableSound = task.EnableSound
 	updated, err := r.db.UpdateTaskStatus(taskID, "running")
 	if err != nil {
 		r.clear(taskID)
@@ -219,23 +229,16 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		return nil, err
 	}
 	r.taskLog(taskID, "info", "本地任务已进入后台运行")
-	go r.runTask(runCtx, task, options)
+	go r.runTask(runCtx, task, options, snapshot)
 	return map[string]any{"task": updated, "running": true}, nil
 }
 
 // runTask 在后台执行本地任务主流程。
 // ctx 为运行上下文，task 为任务记录，options 为启动参数。
-func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions) {
+func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions, snapshot TaskRuntimeSnapshot) {
 	taskID := task.ID
 	defer r.clear(taskID)
 	totalRounds := scanRounds(options)
-	r.updateProgress(taskID, Progress{Stage: "subscription", Message: "正在校验会员", TotalRounds: totalRounds})
-	client := cloudapi.New(options.CloudAPIBase)
-	snapshot, err := r.buildTaskRuntimeSnapshot(ctx, client, task, options, totalRounds)
-	if err != nil {
-		r.failStart(taskID, err.Error(), options)
-		return
-	}
 	task = snapshot.Task
 	options = snapshot.Options
 	options.EnableSound = task.EnableSound
@@ -383,7 +386,11 @@ func (r *Runner) IsRunning(taskID string) bool {
 	if r.userStopped[taskID] {
 		return false
 	}
-	_, ok := r.running[taskID]
+	state := r.running[taskID]
+	if state != nil && isTerminalStage(state.progress.Stage) {
+		return false
+	}
+	ok := state != nil
 	return ok
 }
 
@@ -2229,6 +2236,17 @@ func statusMessage(status string) string {
 	}
 }
 
+// isTerminalStage 判断进度阶段是否已经结束。
+// stage 为当前进度阶段。
+func isTerminalStage(stage string) bool {
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case "completed", "failed", "stopped":
+		return true
+	default:
+		return false
+	}
+}
+
 // failStart 记录启动失败日志并清理运行锁，自动播放失败提示音和发送邮件通知。
 // taskID 为任务 ID，msg 为失败原因，options 为本次任务启动参数。
 func (r *Runner) failStart(taskID string, msg string, options StartOptions) {
@@ -2240,6 +2258,18 @@ func (r *Runner) failStart(taskID string, msg string, options StartOptions) {
 		r.playSound("failed.wav", taskID)
 	}
 	r.sendTaskFailNotification(context.Background(), taskID, msg, options)
+}
+
+// taskStatusAfterStartFailure 返回启动失败后的最新任务状态。
+// db 为本地数据库，taskID 为任务 ID，fallback 为读取失败时的兜底任务。
+func taskStatusAfterStartFailure(db *localdb.DB, taskID string, fallback localdb.Task) localdb.Task {
+	if db != nil {
+		if task, err := db.GetTask(taskID); err == nil {
+			return task
+		}
+	}
+	fallback.Status = "failed"
+	return fallback
 }
 
 // isBrowserClosedTaskError 判断错误是否来自用户关闭浏览器。

@@ -813,6 +813,7 @@ function TaskLogPanel(props: {
  */
 function LogLine(props: { item: any; previous: any | null }) {
   const { item, previous } = props;
+  const isError = isErrorLogLevel(item.level);
   return (
     <Box
       sx={{
@@ -824,21 +825,34 @@ function LogLine(props: { item: any; previous: any | null }) {
         gap: 1,
         py: 0.75,
         borderBottom: "1px solid",
-        borderColor: "divider",
+        borderColor: isError ? "#f0b4b4" : "divider",
+        color: isError ? "error.main" : "inherit",
       }}
     >
-      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+      <Typography
+        sx={{ color: isError ? "error.main" : "text.secondary", fontSize: 12 }}
+      >
         {formatLogTime(item.created_at || item.time)}
       </Typography>
-      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+      <Typography
+        sx={{ color: isError ? "error.main" : "text.secondary", fontSize: 12 }}
+      >
         {getLogDelta(item, previous)}
       </Typography>
-      <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+      <Typography
+        sx={{
+          color: isError ? "error.main" : "text.secondary",
+          fontSize: 12,
+          fontWeight: isError ? 800 : 400,
+        }}
+      >
         {getLogLevelLabel(item.level)}
       </Typography>
       <Typography
         sx={{
           fontSize: 13,
+          color: isError ? "error.main" : "inherit",
+          fontWeight: isError ? 760 : 400,
           lineHeight: 1.65,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
@@ -927,6 +941,11 @@ function getLogLevelLabel(level: string) {
       } as Record<string, string>
     )[value] || "信息"
   );
+}
+
+/** isErrorLogLevel 判断日志等级是否为错误。 */
+function isErrorLogLevel(level: string) {
+  return String(level || "").toLowerCase() === "error";
 }
 
 /**
