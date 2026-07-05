@@ -184,6 +184,7 @@ export default function AccountsPage() {
             label='招聘平台'
             value={form.platform_id}
             columns={3}
+            autoWidth
             onChange={(value) => setForm({ ...form, platform_id: String(value) })}
             options={[
               { value: "boss", label: "Boss直聘", description: "当前主要支持的平台。", iconSrc: platformIconSrc("boss") },

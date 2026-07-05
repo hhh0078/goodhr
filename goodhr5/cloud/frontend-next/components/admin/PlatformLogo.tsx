@@ -5,9 +5,9 @@ import { Box } from "@mui/material";
 
 export const PLATFORM_ICON_SRC: Record<string, string> = {
   boss: "/assets/platforms/boss.png",
-  hliepin: "/assets/platforms/liepin.png",
-  liepin: "/assets/platforms/liepin.png",
-  zhaopin: "/assets/platforms/zhaopin.png",
+  hliepin: "/assets/platforms/liepin-logo.jpg",
+  liepin: "/assets/platforms/liepin-logo.jpg",
+  zhaopin: "/assets/platforms/zhaopin-logo.jpg",
 };
 
 /** platformLabel 返回招聘平台中文名称。 */

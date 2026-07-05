@@ -335,6 +335,7 @@ export default function PositionsPage() {
             label='招聘平台'
             value={form.platform_id}
             columns={3}
+            autoWidth
             onChange={(value) => selectPlatform(String(value))}
             options={[
               {
