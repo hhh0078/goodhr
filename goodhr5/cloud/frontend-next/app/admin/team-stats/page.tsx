@@ -67,7 +67,7 @@ export default function TeamStatsPage() {
           <TextField size="small" label="开始日期" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
           <TextField size="small" label="结束日期" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
         </> : null}
-        <Button variant="contained" disabled={loading} onClick={() => void load()}>查询</Button>
+        <Button variant="contained" disabled={loading} onClick={() => void load()} sx={{ width: { xs: "100%", md: "auto" }, justifySelf: { md: "start" } }}>查询</Button>
       </Box>
     </SectionPanel>
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(7, minmax(0, 1fr))" }, gap: 1.25, mb: 1.5 }}>
