@@ -4,8 +4,6 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import AdminApp from "@/components/admin/AdminApp";
 
-export const dynamic = "force-dynamic";
-
 export const metadata: Metadata = { title: "控制台", robots: { index: false, follow: false } };
 
 /** AdminLayout 为全部后台页面挂载统一应用框架。 */
