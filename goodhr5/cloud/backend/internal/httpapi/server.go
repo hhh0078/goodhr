@@ -123,6 +123,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
+	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
 	// 注册机器绑定接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)

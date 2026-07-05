@@ -53,7 +53,13 @@ import {
 import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
-import { bindLocalAgent, clearLocalAgentDetectCache, cloudRequest, detectLocalAgent, formatDate } from "@/lib/admin-api";
+import {
+  bindLocalAgent,
+  clearLocalAgentDetectCache,
+  cloudRequest,
+  detectLocalAgent,
+  formatDate,
+} from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
@@ -106,11 +112,11 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
-      label: "团队与账户",
-      items: [
-        ["/admin/team", "团队管理", GroupRoundedIcon],
-        ["/admin/team-stats", "团队统计", QueryStatsRoundedIcon],
-        ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
+    label: "团队与账户",
+    items: [
+      ["/admin/team", "团队管理", GroupRoundedIcon],
+      ["/admin/team-stats", "团队统计", QueryStatsRoundedIcon],
+      ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
     ],
@@ -145,12 +151,55 @@ export function useAdmin() {
 
 /** AdminBanners 展示后台全局常驻广告位，最多显示三条。 */
 function AdminBanners({ appConfig }: { appConfig: any }) {
- const source = Array.isArray(appConfig?.admin_banners) ? appConfig.admin_banners : [appConfig?.admin_banner];
- const banners = source.filter((item: any) => item?.enabled !== false && String(item?.text || "").trim()).slice(0, 3);
- if (!banners.length) return null;
- return <Box sx={{ mb: 1.5, mx: { xs: 1, md: 0 }, display: "grid", gridTemplateColumns: { xs: "1fr", md: `repeat(${banners.length}, minmax(0, 1fr))` }, gap: 1 }}>
-  {banners.map((banner: any, index: number) => <Box key={`${banner.text}-${index}`} onClick={() => openExternalURL(banner.url)} sx={{ minHeight: 46, height: "100%", display: "flex", alignItems: "center", px: { xs: 1.5, md: 2 }, py: 1.15, borderRadius: "8px", bgcolor: banner.background_color || "#fff7df", color: banner.text_color || "#6b4a00", fontSize: 13, fontWeight: 720, lineHeight: 1.7, cursor: banner.url ? "pointer" : "default", border: "1px solid rgba(107, 74, 0, .12)", overflowWrap: "anywhere" }}>{banner.text}</Box>)}
- </Box>;
+  const source = Array.isArray(appConfig?.admin_banners)
+    ? appConfig.admin_banners
+    : [appConfig?.admin_banner];
+  const banners = source
+    .filter(
+      (item: any) => item?.enabled !== false && String(item?.text || "").trim(),
+    )
+    .slice(0, 3);
+  if (!banners.length) return null;
+  return (
+    <Box
+      sx={{
+        mb: 1.5,
+        mx: { xs: 1, md: 0 },
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "1fr",
+          md: `repeat(${banners.length}, minmax(0, 1fr))`,
+        },
+        gap: 1,
+      }}
+    >
+      {banners.map((banner: any, index: number) => (
+        <Box
+          key={`${banner.text}-${index}`}
+          onClick={() => openExternalURL(banner.url)}
+          sx={{
+            minHeight: 46,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            px: { xs: 1.5, md: 2 },
+            py: 1.15,
+            borderRadius: "8px",
+            bgcolor: banner.background_color || "#fff7df",
+            color: banner.text_color || "#6b4a00",
+            fontSize: 13,
+            fontWeight: 720,
+            lineHeight: 1.7,
+            cursor: banner.url ? "pointer" : "default",
+            border: "1px solid rgba(107, 74, 0, .12)",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {banner.text}
+        </Box>
+      ))}
+    </Box>
+  );
 }
 
 /** openExternalURL 新开页面打开配置里的外部链接。 */
@@ -176,6 +225,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     steps: {},
   });
   const [agentBase, setAgentBase] = useState("");
+  const [agentDetected, setAgentDetected] = useState(false);
   const [agentBindBlocked, setAgentBindBlocked] = useState(false);
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
@@ -192,44 +242,58 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     message: string;
     resolve?: (value: boolean) => void;
   }>({ open: false, title: "", message: "" });
-  const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] = useState(false);
-  const localAgentInstallNoticeOpen = Boolean(user && !loading && !agentBase && !agentBindBlocked && !localAgentInstallNoticeClosed);
+  const [trialWelcomeOpen, setTrialWelcomeOpen] = useState(false);
+  const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
+    useState(false);
+  const localAgentInstallNoticeOpen = Boolean(
+    user &&
+      !loading &&
+      !trialWelcomeOpen &&
+      agentDetected &&
+      !agentBase &&
+      !agentBindBlocked &&
+    !localAgentInstallNoticeClosed,
+  );
 
   /** refreshAgent 重新探测本地程序。 */
   const refreshAgent = useCallback(async () => {
     if (agentChecking.current) return;
     agentChecking.current = true;
-  try {
-    const nextBase = await detectLocalAgent(agentBaseRef.current);
-    if (!nextBase) {
-      agentBaseRef.current = "";
-      setAgentBase("");
-      setAgentBindBlocked(false);
-      return;
-    }
     try {
-      await bindLocalAgent(nextBase);
-      agentBaseRef.current = nextBase;
-      setAgentBase(nextBase);
-      setAgentBindBlocked(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (!message.includes("已经绑定")) {
-        agentBaseRef.current = nextBase;
-        setAgentBase(nextBase);
+      const nextBase = await detectLocalAgent(agentBaseRef.current);
+      if (!nextBase) {
+        agentBaseRef.current = "";
+        setAgentBase("");
         setAgentBindBlocked(false);
         return;
       }
-      clearLocalAgentDetectCache();
-      agentBaseRef.current = "";
-      setAgentBase("");
-      setAgentBindBlocked(true);
-      if (!agentBindNoticeShown.current) {
-        agentBindNoticeShown.current = true;
-        notify("我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。", "warning");
+      try {
+        await bindLocalAgent(nextBase);
+        agentBaseRef.current = nextBase;
+        setAgentBase(nextBase);
+        setAgentBindBlocked(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!message.includes("已经绑定")) {
+          agentBaseRef.current = nextBase;
+          setAgentBase(nextBase);
+          setAgentBindBlocked(false);
+          return;
+        }
+        clearLocalAgentDetectCache();
+        agentBaseRef.current = "";
+        setAgentBase("");
+        setAgentBindBlocked(true);
+        if (!agentBindNoticeShown.current) {
+          agentBindNoticeShown.current = true;
+          notify(
+            "我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。",
+            "warning",
+          );
+        }
       }
-    }
-  } finally {
+    } finally {
+      setAgentDetected(true);
       agentChecking.current = false;
     }
   }, []);
@@ -260,6 +324,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     setConfirmState({ open: false, title: "", message: "" });
   }
 
+  /** ackTrialWelcome 确认新用户试用会员到账提醒。 */
+  async function ackTrialWelcome() {
+    const welcomeKey = `goodhr_trial_welcome_${user?.email || ""}`;
+    localStorage.setItem(welcomeKey, "1");
+    setTrialWelcomeOpen(false);
+    try {
+      await cloudRequest("/api/auth/trial-welcome/ack", { method: "POST" });
+    } catch {
+      notify("体验提醒已关闭，确认状态稍后会再同步。", "info");
+    }
+  }
+
   /** refreshSession 刷新用户、会员和系统公共配置。 */
   const refreshSession = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -270,7 +346,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     ]);
     const authResult = results[0];
     if (authResult.status === "rejected") throw authResult.reason;
-    setUser(authResult.value.user || authResult.value);
+    const authPayload = authResult.value;
+    const nextUser = authPayload.user || authPayload;
+    setUser(nextUser);
+    const welcomeKey = `goodhr_trial_welcome_${nextUser?.email || ""}`;
+    setTrialWelcomeOpen(
+      Boolean(authPayload.show_trial_welcome) &&
+        !localStorage.getItem(welcomeKey),
+    );
     if (results[1].status === "fulfilled")
       setSubscription(results[1].value.subscription || {});
     if (results[2].status === "fulfilled") {
@@ -305,10 +388,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       .finally(() => {
         if (active) setLoading(false);
       });
-    const timer = window.setInterval(() => void refreshAgent(), 10000);
     return () => {
       active = false;
-      window.clearInterval(timer);
     };
   }, [notify, refreshAgent, refreshSession, router]);
 
@@ -318,10 +399,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       subscription,
       appConfig,
       onboardingConfig,
-    onboarding,
-    agentBase,
-    agentBindBlocked,
-    refreshAgent,
+      onboarding,
+      agentBase,
+      agentBindBlocked,
+      refreshAgent,
       refreshSession,
       notify,
       confirm,
@@ -354,7 +435,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       <Box sx={{ px: 2.25, py: 2.25 }}>
         <BrandMark />
       </Box>
-      <Box component='nav' sx={{ flex: 1, px: 1.25, pb: 2, overflowY: "auto" }}>
+      <Box component="nav" sx={{ flex: 1, px: 1.25, pb: 2, overflowY: "auto" }}>
         {visibleGroups.map((group) => (
           <Box key={group.label} sx={{ mt: 1.25 }}>
             <Typography
@@ -448,7 +529,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         }}
       >
         <Paper
-          component='aside'
+          component="aside"
           elevation={0}
           sx={{
             display: { xs: "none", md: "block" },
@@ -476,8 +557,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           {drawer}
         </Drawer>
         <AppBar
-          position='fixed'
-          color='inherit'
+          position="fixed"
+          color="inherit"
           elevation={0}
           sx={{
             top: { xs: 0, md: 16 },
@@ -492,7 +573,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         >
           <Toolbar sx={{ minHeight: { xs: 64, md: 70 }, gap: 1.25 }}>
             <IconButton
-              aria-label='打开菜单'
+              aria-label="打开菜单"
               onClick={() => setMobileOpen(true)}
               sx={{ display: { md: "none" } }}
             >
@@ -509,8 +590,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Box>
             <Button
               component={Link}
-              href='/videos'
-              variant='contained'
+              href="/videos"
+              variant="contained"
               startIcon={<PlayCircleRoundedIcon />}
               sx={{
                 ...topStatusButtonSx,
@@ -520,12 +601,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             >
               视频教程
             </Button>
-            <Tooltip title='视频教程'>
+            <Tooltip title="视频教程">
               <IconButton
                 component={Link}
-                href='/videos'
-                aria-label='视频教程'
-                color='primary'
+                href="/videos"
+                aria-label="视频教程"
+                color="primary"
                 sx={{
                   display: { xs: "inline-flex", sm: "none" },
                   bgcolor: "#e7f5ed",
@@ -535,7 +616,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               </IconButton>
             </Tooltip>
             <Button
-              variant='outlined'
+              variant="outlined"
               color={subscription.active ? "success" : "warning"}
               startIcon={<CalendarMonthRoundedIcon />}
               onClick={() => router.push("/admin/subscription")}
@@ -550,7 +631,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Button>
             <Button
               color={agentBase ? "success" : "error"}
-              variant='outlined'
+              variant="outlined"
               startIcon={<SensorsRoundedIcon />}
               onClick={() => void refreshAgent()}
               sx={{
@@ -564,9 +645,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
                   : "本地程序未连接"}
             </Button>
-            <Tooltip title='选择主题'>
+            <Tooltip title="选择主题">
               <IconButton
-                aria-label='选择主题'
+                aria-label="选择主题"
                 onClick={() => setThemeOpen(true)}
               >
                 <PaletteRoundedIcon />
@@ -575,7 +656,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           </Toolbar>
         </AppBar>
         <Box
-          component='main'
+          component="main"
           sx={{
             ml: { md: `${drawerWidth + 16}px` },
             pt: { xs: "80px", md: "86px" },
@@ -608,41 +689,63 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           onClose={() => setNotice((value) => ({ ...value, open: false }))}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
-          <Alert severity={notice.severity} variant='filled'>
+          <Alert severity={notice.severity} variant="filled">
             {notice.message}
           </Alert>
         </Snackbar>
         <AdminDialog
+          open={trialWelcomeOpen}
+          title="体验会员已到账"
+          confirmText="我知道了"
+          showCancel={false}
+          onClose={() => void ackTrialWelcome()}
+          onConfirm={() => void ackTrialWelcome()}
+        >
+          <Typography color="text.secondary">
+            赠送的 3 天体验会员已到账，请尽快体验。会员到期后，您可以选择续费，或者改用免费版。
+          </Typography>
+        </AdminDialog> <AdminDialog
           open={localAgentInstallNoticeOpen}
-          title='请先安装本地程序'
-          confirmText='去安装'
+          title="请先安装本地程序"
+          confirmText="去安装"
           showCancel={false}
           onClose={() => setLocalAgentInstallNoticeClosed(true)}
           onConfirm={() => router.push("/download")}
         >
-          <Typography color='text.secondary'>本地程序必须安装，不安装核心功能用不了。</Typography>
+          <Typography color="text.secondary">
+            本地程序必须安装，不安装核心功能用不了。
+          </Typography>
         </AdminDialog>
-        <RequiredRuntimeInstaller agentBase={agentBase} onboardingConfig={onboardingConfig} notify={notify} />
-        <AdminSystemDialogs appConfig={appConfig} onboardingConfig={onboardingConfig} agentBase={agentBase} refreshAgent={refreshAgent} />
+        <RequiredRuntimeInstaller
+          agentBase={agentBase}
+          onboardingConfig={onboardingConfig}
+          notify={notify}
+        />
+        <AdminSystemDialogs
+          appConfig={appConfig}
+          onboardingConfig={onboardingConfig}
+          agentBase={agentBase}
+          refreshAgent={refreshAgent}
+        />
         <AdminDialog
           open={confirmState.open}
           title={confirmState.title}
-          confirmText='确认'
+          confirmText="确认"
           onClose={() => closeConfirm(false)}
           onConfirm={() => closeConfirm(true)}
         >
-          <Typography color='text.secondary'>{confirmState.message}</Typography>
+          <Typography color="text.secondary">{confirmState.message}</Typography>
         </AdminDialog>
         <AdminDialog
           open={themeOpen}
-          title='选择后台主题'
-          description='选择后会立即生效，并保存在当前浏览器。'
-          confirmText='完成'
+          title="选择后台主题"
+          description="选择后会立即生效，并保存在当前浏览器。"
+          confirmText="完成"
           onClose={() => setThemeOpen(false)}
           onConfirm={() => setThemeOpen(false)}
         >
           <ChoiceCards
-            label='主题色'
+            label="主题色"
             value={preference}
             columns={3}
             onChange={(value) =>

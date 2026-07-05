@@ -202,6 +202,15 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	showTrialWelcome := false
+	if s.userActivity != nil {
+		if show, err := s.userActivity.ShouldShowTrialWelcome(session.Email); err == nil {
+			showTrialWelcome = show
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed read trial welcome status")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"user": s.publicUser(session.Email),
@@ -209,7 +218,32 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"created_at": session.CreatedAt,
 			"expires_at": session.ExpiresAt,
 		},
+		"show_trial_welcome": showTrialWelcome,
 	})
+}
+
+// AckTrialWelcome 记录当前用户已确认试用会员到账弹框。
+func (s *AuthService) AckTrialWelcome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.SessionFromRequest(r)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if s.userActivity != nil {
+		if err := s.userActivity.AckTrialWelcome(session.Email, time.Now()); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed ack trial welcome")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // loginCodeMatched 判断登录验证码是否有效。

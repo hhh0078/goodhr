@@ -135,7 +135,7 @@ func (c Config) UserActivityStore(db *sql.DB) UserActivityStore {
 	if db != nil {
 		return NewPostgresUserActivityStore(db)
 	}
-	return NoopUserActivityStore{}
+	return NewMemoryUserActivityStore()
 }
 
 // NotificationProfileStore 创建邮件通知画像存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
