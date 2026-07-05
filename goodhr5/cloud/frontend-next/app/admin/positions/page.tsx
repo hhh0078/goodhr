@@ -82,7 +82,12 @@ export default function PositionsPage() {
 
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
-    setForm(fillPrompts(createEmptyForm(), defaults));
+    const next = createEmptyForm();
+    next.detail_mode = defaultCreateDetailMode(
+      next.platform_id,
+      subscription.active,
+    );
+    setForm(fillPrompts(next, defaults));
     setAdvancedOpen(false);
     setDialogOpen(true);
   }
@@ -108,9 +113,12 @@ export default function PositionsPage() {
   /** save 保存岗位模板并保留旧后端所需字段结构。 */
   async function save() {
     if (!form.name.trim()) return notify("请填写岗位名称", "warning");
+    const detailMode = form.id
+      ? normalizeDetailMode(form.platform_id, form.detail_mode)
+      : defaultCreateDetailMode(form.platform_id, subscription.active);
     if (
       !subscription.active &&
-      (form.mode_default === "ai" || form.detail_mode === "ai")
+      (form.mode_default === "ai" || detailMode === "ai")
     )
       return requireMembership();
     setLoading(true);
@@ -128,10 +136,7 @@ export default function PositionsPage() {
           is_and_mode: form.is_and_mode,
           common_config: {
             mode_default: form.mode_default,
-            detail_mode: normalizeDetailMode(
-              form.platform_id,
-              form.detail_mode,
-            ),
+            detail_mode: detailMode,
           },
           ai_config: {
             position_requirement: form.position_requirement,
@@ -216,7 +221,9 @@ export default function PositionsPage() {
     setForm((current) => ({
       ...current,
       platform_id: value,
-      detail_mode: normalizeDetailMode(value, current.detail_mode),
+      detail_mode: current.id
+        ? normalizeDetailMode(value, current.detail_mode)
+        : defaultCreateDetailMode(value, subscription.active),
     }));
   }
 
@@ -436,37 +443,44 @@ export default function PositionsPage() {
               },
             ]}
           />
-          <Typography sx={{ mt: -2, color: "text.secondary", fontSize: 13 }}>
-            选择哪种详情方式就只使用哪一种：DOM 最快，OCR 在本地识别截图文字，AI
-            能理解完整页面但耗时更长。
-          </Typography>
-          <ChoiceCards
-            label="详情信息筛选模式  (决定是否打招呼)"
-            value={form.detail_mode}
-            columns={3}
-            onChange={(value) => void selectDetailMode(String(value))}
-            options={[
-              {
-                value: "dom",
-                label: "DOM 识别",
-                description: "BOSS直聘不支持DOM识别，速度快，精度高，免费",
-                disabled: form.platform_id === "boss",
-              },
-              {
-                value: "ocr",
-                label: "OCR 识别",
-                description: "离线识别截图文字，速度快。电脑配置低就别选这个。",
-                disabled: isDOMOnlyPlatform(form.platform_id),
-              },
-              {
-                value: "ai",
-                label: "AI 识别（会员功能）",
-                description: "直接理解完整详情截图，效果最好但更慢。",
-                disabled: isDOMOnlyPlatform(form.platform_id),
-                memberOnly: true,
-              },
-            ]}
-          />
+          {form.id ? (
+            <>
+              <Typography
+                sx={{ mt: -2, color: "text.secondary", fontSize: 13 }}
+              >
+                选择哪种详情方式就只使用哪一种：DOM 最快，OCR
+                在本地识别截图文字，AI 能理解完整页面但耗时更长。
+              </Typography>
+              <ChoiceCards
+                label="详情信息筛选模式  (决定是否打招呼)"
+                value={form.detail_mode}
+                columns={3}
+                onChange={(value) => void selectDetailMode(String(value))}
+                options={[
+                  {
+                    value: "dom",
+                    label: "DOM 识别",
+                    description: "BOSS直聘不支持DOM识别，速度快，精度高，免费",
+                    disabled: form.platform_id === "boss",
+                  },
+                  {
+                    value: "ocr",
+                    label: "OCR 识别",
+                    description:
+                      "离线识别截图文字，速度快。电脑配置低就别选这个。",
+                    disabled: isDOMOnlyPlatform(form.platform_id),
+                  },
+                  {
+                    value: "ai",
+                    label: "AI 识别（会员功能）",
+                    description: "直接理解完整详情截图，效果最好但更慢。",
+                    disabled: isDOMOnlyPlatform(form.platform_id),
+                    memberOnly: true,
+                  },
+                ]}
+              />
+            </>
+          ) : null}
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -535,7 +549,7 @@ export default function PositionsPage() {
               </Box>
             </>
           ) : null}
-          {form.mode_default === "ai" || form.detail_mode === "ai" ? (
+          {form.mode_default === "ai" ? (
             <>
               <Divider />
               <Box>
@@ -755,7 +769,8 @@ export default function PositionsPage() {
             </Box>
           </Box>
           {!subscription.active &&
-          (form.mode_default === "ai" || form.detail_mode === "ai") ? (
+          (form.mode_default === "ai" ||
+            (form.id && form.detail_mode === "ai")) ? (
             <Alert severity="warning">
               当前会员已到期，AI 选项无法保存。可以改为关键词筛选和 OCR 识别。
             </Alert>
@@ -969,6 +984,12 @@ function normalizeDetailMode(platformID: string, mode: string) {
   if (isDOMOnlyPlatform(platformID)) return "dom";
   if (platformID === "boss" && mode === "dom") return "ocr";
   return ["dom", "ocr", "ai"].includes(mode) ? mode : "ocr";
+}
+
+/** defaultCreateDetailMode 返回新增岗位时自动使用的详情识别模式。 */
+function defaultCreateDetailMode(platformID: string, memberActive: boolean) {
+  if (platformID === "boss") return memberActive ? "ai" : "ocr";
+  return "dom";
 }
 
 /** isDOMOnlyPlatform 判断平台是否只支持 DOM 详情识别。 */
