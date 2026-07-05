@@ -5,6 +5,8 @@ import { Box, Button, Container, Paper, Stack, Typography } from "@mui/material"
 import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
 
+export const dynamic = "force-dynamic";
+
 const loginPoints = ["邮箱验证码登录，无需记密码", "登录状态与现有后台完全兼容", "平台账号与浏览器数据仍保留在本地"];
 
 /** LoginPage 输出与新版首页统一的明亮登录界面。 */
