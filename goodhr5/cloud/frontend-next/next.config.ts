@@ -11,29 +11,9 @@ const nextConfig: NextConfig = {
     ? {}
     : {
         async redirects() {
-          return ["features", "pricing", "videos", "download", "contact"].map(
-            (name) => ({
-              source: `/${name}.html`,
-              destination: `/${name}`,
-              permanent: true,
-            }),
-          );
+          return ["features", "pricing", "videos", "download", "contact"].map((name) => ({ source: `/${name}.html`, destination: `/${name}`, permanent: true }));
         },
       }),
-  async headers() {
-    return [
-      {
-        source:
-          "/((?!_next/static|favicon.ico|robots.txt|sitemap.xml|llms.txt).*)",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "no-store, no-cache, must-revalidate, proxy-revalidate",
-          },
-        ],
-      },
-    ];
-  },
 };
 
 export default nextConfig;
