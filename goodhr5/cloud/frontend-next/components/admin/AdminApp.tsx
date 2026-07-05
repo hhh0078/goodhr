@@ -59,6 +59,8 @@ import {
   cloudRequest,
   detectLocalAgent,
   formatDate,
+  localRequest,
+  openLocalPage,
 } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
@@ -90,6 +92,7 @@ type MenuGroup = {
 
 const AdminContext = createContext<AdminContextValue | null>(null);
 const drawerWidth = 248;
+const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const topStatusButtonSx = {
   minHeight: 38,
   height: 38,
@@ -247,11 +250,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     useState(false);
   const localAgentInstallNoticeOpen = Boolean(
     user &&
-      !loading &&
-      !trialWelcomeOpen &&
-      agentDetected &&
-      !agentBase &&
-      !agentBindBlocked &&
+    !loading &&
+    !trialWelcomeOpen &&
+    agentDetected &&
+    !agentBase &&
+    !agentBindBlocked &&
     !localAgentInstallNoticeClosed,
   );
 
@@ -308,6 +311,48 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  /** openBingBrowser 通过本地程序打开浏览器并导航到必应。 */
+  const openBingBrowser = useCallback(async () => {
+    let baseURL = agentBaseRef.current || agentBase;
+    if (!baseURL) {
+      baseURL = await detectLocalAgent(agentBaseRef.current);
+    }
+    if (!baseURL) {
+      notify("我没叫醒本地程序，你先确认它开着，再点我一次。", "warning");
+      return;
+    }
+
+    const browserPayload = {
+      persistent: true,
+      user_data_dir: "goodhr_manual_browser",
+      headless: false,
+      humanize: true,
+    };
+
+    try {
+      await bindLocalAgent(baseURL);
+      agentBaseRef.current = baseURL;
+      setAgentBase(baseURL);
+      setAgentBindBlocked(false);
+      await localRequest(baseURL, "/api/v1/browser/start", {
+        method: "POST",
+        body: browserPayload,
+      });
+      await openLocalPage(baseURL, {
+        ...browserPayload,
+        url: "https://www.bing.com",
+      });
+      notify("浏览器已打开，我已经把它带到必应了。", "success");
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "浏览器没打开成功，我再小声努力一次也行。",
+        "error",
+      );
+    }
+  }, [agentBase, notify]);
 
   /** confirm 显示需要用户确认的中间弹框。 */
   const confirm = useCallback(
@@ -589,6 +634,41 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               </Typography>
             </Box>
             <Button
+              variant="outlined"
+              startIcon={
+                <Box
+                  component="img"
+                  src={CHROMIUM_ICON_SRC}
+                  alt=""
+                  sx={{ width: 18, height: 18, display: "block" }}
+                />
+              }
+              onClick={() => void openBingBrowser()}
+              sx={{
+                ...topStatusButtonSx,
+                display: { xs: "none", sm: "inline-flex" },
+              }}
+            >
+              打开浏览器
+            </Button>
+            <Tooltip title="打开浏览器">
+              <IconButton
+                aria-label="打开浏览器"
+                onClick={() => void openBingBrowser()}
+                sx={{
+                  display: { xs: "inline-flex", sm: "none" },
+                  bgcolor: "#f2f7f4",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={CHROMIUM_ICON_SRC}
+                  alt=""
+                  sx={{ width: 22, height: 22, display: "block" }}
+                />
+              </IconButton>
+            </Tooltip>
+            <Button
               component={Link}
               href="/videos"
               variant="contained"
@@ -702,9 +782,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           onConfirm={() => void ackTrialWelcome()}
         >
           <Typography color="text.secondary">
-            赠送的 3 天体验会员已到账，请尽快体验。会员到期后，您可以选择续费，或者改用免费版。
+            赠送的 3
+            天体验会员已到账，请尽快体验。会员到期后，您可以选择续费，或者改用免费版。
           </Typography>
-        </AdminDialog> <AdminDialog
+        </AdminDialog>{" "}
+        <AdminDialog
           open={localAgentInstallNoticeOpen}
           title="请先安装本地程序"
           confirmText="去安装"
