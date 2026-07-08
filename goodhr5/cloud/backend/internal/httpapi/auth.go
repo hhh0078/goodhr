@@ -60,6 +60,7 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		subscriptions:   subscriptions,
 		systemConfigs:   systemConfigs,
 		userActivity:    userActivity,
+		aiWallet:        aiWallet,
 		superAdmins:     superAdminMap,
 	}
 }

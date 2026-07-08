@@ -115,6 +115,38 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UseBuiltin 将当前用户的 AI 配置切换为系统内置 AI。
+func (s *AIWalletService) UseBuiltin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		return
+	}
+	config, err := s.ConfigureUserBuiltinAI(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed use builtin ai")
+		return
+	}
+	balance, err := s.wallet.BalanceCents(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed load ai balance")
+		return
+	}
+	cfg := s.loadBuiltinAIConfig()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"config":        publicUserAIConfig(config),
+		"balance_cents": balance,
+		"balance":       centsToYuanString(balance),
+		"default_model": cfg.DefaultModel,
+		"models":        cfg.Models,
+	})
+}
+
 // CompatibleChat 处理 OpenAI 兼容的 Chat Completions 请求。
 func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -193,6 +225,54 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
+}
+
+// ConfigureUserBuiltinAI 为用户保存系统内置 AI 配置，已有内置 Key 时尽量复用。
+func (s *AIWalletService) ConfigureUserBuiltinAI(email string) (AIConfig, error) {
+	if s == nil || s.aiConfigs == nil || s.wallet == nil {
+		return AIConfig{}, errors.New("内置 AI 服务未初始化")
+	}
+	cfg := s.loadBuiltinAIConfig()
+	current, err := s.aiConfigs.UserConfig(email)
+	hasConfig := err == nil
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return AIConfig{}, err
+	}
+	apiKey := strings.TrimSpace(current.APIKey)
+	if !hasConfig || !strings.HasPrefix(apiKey, "ghai_") || strings.TrimSpace(current.BaseURL) != strings.TrimSpace(cfg.PublicBaseURL) {
+		apiKey, err = generateBuiltinAIKey()
+		if err != nil {
+			return AIConfig{}, err
+		}
+	}
+	saved, err := s.aiConfigs.SaveUserConfig(email, AIConfig{
+		BaseURL:     cfg.PublicBaseURL,
+		Model:       cfg.DefaultModel,
+		APIKey:      apiKey,
+		Temperature: 0,
+		Enabled:     true,
+	})
+	if err != nil {
+		return AIConfig{}, err
+	}
+	if memory, ok := s.wallet.(*MemoryAIWalletStore); ok {
+		memory.BindAIKey(apiKey, email)
+	}
+	if !hasConfig {
+		bonus := cfg.SignupBonusCents
+		if bonus <= 0 {
+			bonus = defaultSignupBonusCents
+		}
+		if _, err := s.wallet.AdjustBalance(AIWalletRecord{
+			UserEmail:   email,
+			ChangeCents: bonus,
+			Category:    "signup_bonus",
+			Reason:      "注册赠送内置AI余额",
+		}); err != nil {
+			return AIConfig{}, err
+		}
+	}
+	return saved, nil
 }
 
 // EnsureUserDefaultAI 确保用户有默认内置 AI 配置，并在首次初始化时赠送余额。

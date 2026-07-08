@@ -3,6 +3,7 @@
 
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
+import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
@@ -92,6 +93,27 @@ export default function PersonalConfigPage() {
     }
   }
 
+  /** useBuiltinAI 切换为系统内置 AI，并把分配好的配置填入表单。 */
+  async function useBuiltinAI() {
+    setLoading(true);
+    try {
+      const data = await cloudRequest("/api/ai-wallet/use-builtin", { method: "POST" });
+      const config = data.config || {};
+      setForm((current) => ({
+        ...current,
+        base_url: config.base_url || current.base_url,
+        model: config.model || current.model,
+        api_key: config.api_key || current.api_key,
+      }));
+      setKeySet(Boolean(config.api_key));
+      notify("已切到内置 AI，余额够的话我就能开工。", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "内置 AI 没切成功，我们再来一次。", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   /** setNumber 更新一个数字配置字段。 */
   function setNumber(key: keyof typeof defaults, value: string) {
     setForm((current) => ({ ...current, [key]: Number(value || 0) }));
@@ -109,9 +131,12 @@ export default function PersonalConfigPage() {
     <SectionPanel sx={{ mb: 2, borderColor: "#9fbca9", bgcolor: "#f8fbf8", boxShadow: "0 16px 44px rgba(38, 88, 57, .08)" }}>
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { md: "flex-start" }, mb: 2 }}>
         <SectionTitle icon={<ApiRoundedIcon />} title="AI 配置" description="这是 AI 筛选和详情识别的核心配置，建议先测试成功再保存。" />
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 1.35, py: 0.8, borderRadius: "999px", border: "1px solid", borderColor: keySet ? "#a9c8b2" : "#e5cda3", bgcolor: keySet ? "#edf6ef" : "#fff8ea", color: keySet ? "#1d6844" : "#8a5a10", fontSize: 13, fontWeight: 760, width: "fit-content" }}>
-          <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
-          {keySet ? "已保存 AI Key" : "还未保存 AI Key"}
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { xs: "stretch", sm: "center" } }}>
+          <Button variant="contained" startIcon={<AutoAwesomeRoundedIcon />} disabled={loading} onClick={() => void useBuiltinAI()} sx={{ borderRadius: "999px", px: 2.2, bgcolor: "#1f7048", "&:hover": { bgcolor: "#185c3a" } }}>使用内置 AI</Button>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", px: 1.35, py: 0.8, borderRadius: "999px", border: "1px solid", borderColor: keySet ? "#a9c8b2" : "#e5cda3", bgcolor: keySet ? "#edf6ef" : "#fff8ea", color: keySet ? "#1d6844" : "#8a5a10", fontSize: 13, fontWeight: 760, width: "fit-content" }}>
+            <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
+            {keySet ? "已保存 AI Key" : "还未保存 AI Key"}
+          </Stack>
         </Stack>
       </Stack>
       <Alert severity="info" icon={<ApiRoundedIcon />} sx={{ mb: 2, border: "1px solid #cbded4", bgcolor: "#f3f8f5", color: "#244d3b", "& .MuiAlert-icon": { color: "#1e6545" } }}>

@@ -140,6 +140,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/test-ai", s.ai.Test)
 	mux.HandleFunc("/api/ai-wallet", s.aiWallet.Summary)
+	mux.HandleFunc("/api/ai-wallet/use-builtin", s.aiWallet.UseBuiltin)
 	mux.HandleFunc("/api/ai-compatible/v1/chat/completions", s.aiWallet.CompatibleChat)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/config/notification-profile", s.notificationProfile.User)
