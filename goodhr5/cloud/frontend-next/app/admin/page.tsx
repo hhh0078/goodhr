@@ -519,40 +519,46 @@ function AIWalletCard({
   const modelLabel = currentModel || wallet.default_model || "未配置";
   return (
     <SectionPanel>
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 340px" },
-          gap: { xs: 2.5, md: 3 },
-          alignItems: "center",
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Stack
-            direction='row'
-            spacing={1}
-            sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.75 }}
-          >
+      <Stack spacing={1.75}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{
+            alignItems: { xs: "flex-start", sm: "center" },
+            justifyContent: "space-between",
+          }}
+        >
+          <Stack direction='row' spacing={1} sx={{ alignItems: "center" }}>
             <CreditCardRoundedIcon color='primary' />
             <Typography component='h2' sx={{ fontSize: 20, fontWeight: 820 }}>
               AI 余额
             </Typography>
-            <Chip
-              size='small'
-              label={`当前模型：${modelLabel}`}
-              clickable
-              onClick={onOpenModelDialog}
-              sx={{
-                bgcolor: "#eef6f0",
-                color: "#2f6f4f",
-                fontSize: 13,
-                fontWeight: 700,
-              }}
-            />
           </Stack>
+          <Chip
+            size='small'
+            label={`当前模型：${modelLabel}`}
+            clickable
+            onClick={onOpenModelDialog}
+            sx={{
+              bgcolor: "#eef6f0",
+              color: "#2f6f4f",
+              fontSize: 13,
+              fontWeight: 700,
+              maxWidth: "100%",
+            }}
+          />
+        </Stack>
+
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.5}
+          sx={{
+            alignItems: { xs: "flex-start", sm: "center" },
+            justifyContent: "space-between",
+          }}
+        >
           <Typography
             sx={{
-              mt: 1.25,
               fontSize: { xs: 40, md: 46 },
               lineHeight: 1,
               fontWeight: 850,
@@ -561,30 +567,7 @@ function AIWalletCard({
           >
             ￥{wallet.balance || "0.0000"}
           </Typography>
-          <Typography
-            sx={{
-              mt: 1.25,
-              maxWidth: 560,
-              color: "text.secondary",
-              fontSize: 14,
-              lineHeight: 1.75,
-            }}
-          >
-            默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。
-          </Typography>
-        </Box>
-
-        <Box
-          sx={{
-            minWidth: 0,
-            pt: { xs: 2, md: 0 },
-            pl: { md: 3 },
-            borderTop: { xs: "1px solid", md: "none" },
-            borderLeft: { md: "1px solid" },
-            borderColor: "divider",
-          }}
-        >
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
             <Button
               variant='contained'
               disabled={loading}
@@ -602,8 +585,18 @@ function AIWalletCard({
               使用记录
             </Button>
           </Stack>
-        </Box>
-      </Box>
+        </Stack>
+
+        <Typography
+          sx={{
+            color: "text.secondary",
+            fontSize: 13,
+            lineHeight: 1.7,
+          }}
+        >
+          默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。
+        </Typography>
+      </Stack>
     </SectionPanel>
   );
 }
