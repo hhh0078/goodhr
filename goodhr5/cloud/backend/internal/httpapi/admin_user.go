@@ -22,6 +22,7 @@ type AdminUser struct {
 	Agent               *AgentBinding       `json:"agent,omitempty"`
 	Subscription        Subscription        `json:"subscription"`
 	NotificationProfile NotificationProfile `json:"notification_profile"`
+	AIBalanceCents      int                 `json:"ai_balance_cents"`
 	Flow                AdminUserFlow       `json:"flow"`
 	CreatedAt           time.Time           `json:"created_at"`
 	LastLoginAt         *time.Time          `json:"last_login_at,omitempty"`
@@ -76,6 +77,13 @@ type adjustUserSubscriptionRequest struct {
 	Reason string `json:"reason"`
 }
 
+type adjustUserAIBalanceRequest struct {
+	Email       string `json:"email"`
+	AmountCents int    `json:"amount_cents"`
+	AmountYuan  string `json:"amount_yuan"`
+	Reason      string `json:"reason"`
+}
+
 type unbindUserAgentRequest struct {
 	Email string `json:"email"`
 }
@@ -87,11 +95,12 @@ type AdminUserService struct {
 	subscriptions SubscriptionStore
 	mailer        Mailer
 	agents        AgentStore
+	aiWallet      AIWalletStore
 }
 
 // NewAdminUserService 创建超级管理员用户管理服务。
-func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, mailer Mailer, agents AgentStore) *AdminUserService {
-	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, mailer: mailer, agents: agents}
+func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, mailer Mailer, agents AgentStore, aiWallet AIWalletStore) *AdminUserService {
+	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, mailer: mailer, agents: agents, aiWallet: aiWallet}
 }
 
 // Collection 根据请求方法分发用户列表读取和会员天数调整。
@@ -235,6 +244,64 @@ func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// AdjustAIBalance 调整指定用户的内置 AI 余额。
+func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Request) {
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		return
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req adjustUserAIBalanceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	amountCents := req.AmountCents
+	if amountCents == 0 && strings.TrimSpace(req.AmountYuan) != "" {
+		amountCents, err = yuanTextToCents(req.AmountYuan)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "余额金额不太对，我没敢动。")
+			return
+		}
+	}
+	if amountCents == 0 {
+		writeError(w, http.StatusBadRequest, "amount must not be zero")
+		return
+	}
+	if s.aiWallet == nil {
+		writeError(w, http.StatusInternalServerError, "ai wallet is not ready")
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "超级管理员调整AI余额"
+	}
+	balance, err := s.aiWallet.AdjustBalance(AIWalletRecord{
+		UserEmail:   email,
+		ChangeCents: amountCents,
+		Category:    "admin_adjust",
+		Reason:      reason,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed adjust ai balance")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "balance_cents": balance, "balance": centsToYuanString(balance)})
+}
+
 // publicAdminUser 转换用户信息为前端响应。
 func publicAdminUser(user AdminUser) map[string]any {
 	return map[string]any{
@@ -246,6 +313,8 @@ func publicAdminUser(user AdminUser) map[string]any {
 		"agent":                publicAdminAgent(user.Agent),
 		"subscription":         publicSubscription(user.Subscription),
 		"notification_profile": user.NotificationProfile,
+		"ai_balance_cents":     user.AIBalanceCents,
+		"ai_balance":           centsToYuanString(user.AIBalanceCents),
 		"flow":                 user.Flow,
 		"created_at":           user.CreatedAt,
 		"last_login_at":        user.LastLoginAt,
@@ -418,6 +487,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			u.email,
 			COALESCE(u.role, 'user'),
 			COALESCE(u.status, 'active'),
+			COALESCE(u.ai_balance_cents, 0),
 			u.subscription,
 			u.notification_profile,
 			u.created_at,
@@ -447,7 +517,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		var rawNotificationProfile []byte
 		var lastLoginAt sql.NullTime
 		var hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid bool
-		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &user.AIBalanceCents, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)

@@ -123,6 +123,14 @@ func (c Config) AIConfigStore(db *sql.DB) AIConfigStore {
 	return NewMemoryAIConfigStore()
 }
 
+// AIWalletStore 创建内置 AI 钱包存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) AIWalletStore(db *sql.DB) AIWalletStore {
+	if db != nil {
+		return NewPostgresAIWalletStore(db)
+	}
+	return NewMemoryAIWalletStore()
+}
+
 func (c Config) UserPreferencesStore(db *sql.DB) UserPreferencesStore {
 	if db != nil {
 		return NewPostgresUserPreferencesStore(db)

@@ -45,6 +45,8 @@ type AdminUserItem = {
   inviter_email?: string;
   created_at?: string;
   last_login_at?: string;
+  ai_balance?: string;
+  ai_balance_cents?: number;
   subscription?: {
     member_type?: string;
     expires_at?: string;
@@ -69,7 +71,9 @@ export default function UsersPage() {
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [form, setForm] = useState({ email: "", days: "7", reason: "" });
+  const [balanceForm, setBalanceForm] = useState({ email: "", amount_yuan: "10", reason: "补充AI余额" });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   /** load 按分页和关键词读取用户。 */
@@ -114,6 +118,12 @@ export default function UsersPage() {
     setDialogOpen(true);
   }
 
+  /** openBalanceAdjust 打开 AI 余额调整弹框。 */
+  function openBalanceAdjust(item: AdminUserItem) {
+    setBalanceForm({ email: item.email, amount_yuan: "10", reason: "补充AI余额" });
+    setBalanceDialogOpen(true);
+  }
+
   /** adjust 提交会员天数调整。 */
   async function adjust() {
     const days = Number(form.days);
@@ -129,6 +139,20 @@ export default function UsersPage() {
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "调整失败", "error");
+    }
+  }
+
+  /** adjustBalance 提交 AI 余额调整。 */
+  async function adjustBalance() {
+    const amount = Number(balanceForm.amount_yuan);
+    if (!Number.isFinite(amount) || amount === 0) return notify("金额不能为 0，正数增加，负数减少", "warning");
+    try {
+      await cloudRequest("/api/admin/users/adjust-ai-balance", { method: "POST", body: balanceForm });
+      notify("AI余额已调整", "success");
+      setBalanceDialogOpen(false);
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "余额调整失败", "error");
     }
   }
 
@@ -236,9 +260,10 @@ export default function UsersPage() {
                 <TableHead>
                   <TableRow sx={{ bgcolor: "#f6faf7" }}>
                     <TableCell sx={{ width: "32%" }}>用户</TableCell>
-                    <TableCell sx={{ width: "16%" }}>会员</TableCell>
-                    <TableCell sx={{ width: "18%" }}>时间</TableCell>
-                    <TableCell sx={{ width: "16%" }}>本地程序</TableCell>
+                    <TableCell sx={{ width: "14%" }}>会员</TableCell>
+                    <TableCell sx={{ width: "10%" }}>AI余额</TableCell>
+                    <TableCell sx={{ width: "16%" }}>时间</TableCell>
+                    <TableCell sx={{ width: "14%" }}>本地程序</TableCell>
                     <TableCell sx={{ width: "12%" }}>流程卡点</TableCell>
                     <TableCell sx={{ width: "12%" }}>操作</TableCell>
                   </TableRow>
@@ -257,6 +282,9 @@ export default function UsersPage() {
                         <SubscriptionInfo item={item} />
                       </TableCell>
                       <TableCell>
+                        <BalanceInfo item={item} />
+                      </TableCell>
+                      <TableCell>
                         <TimeInfo item={item} />
                       </TableCell>
                       <TableCell>
@@ -269,6 +297,7 @@ export default function UsersPage() {
                         <UserActions
                           item={item}
                           openAdjust={openAdjust}
+                          openBalanceAdjust={openBalanceAdjust}
                           unbind={unbind}
                         />
                       </TableCell>
@@ -286,6 +315,7 @@ export default function UsersPage() {
                   key={item.email}
                   item={item}
                   openAdjust={openAdjust}
+                  openBalanceAdjust={openBalanceAdjust}
                   unbind={unbind}
                 />
               ))}
@@ -345,19 +375,54 @@ export default function UsersPage() {
           />
         </Stack>
       </AdminDialog>
+      <AdminDialog
+        open={balanceDialogOpen}
+        title="调整AI余额"
+        description={`当前用户：${balanceForm.email || "--"}`}
+        confirmText="确认调整"
+        loading={loading}
+        onClose={() => setBalanceDialogOpen(false)}
+        onConfirm={() => void adjustBalance()}
+      >
+        <Stack spacing={2}>
+          <TextField label="用户邮箱" value={balanceForm.email} disabled fullWidth />
+          <TextField
+            label="调整金额"
+            value={balanceForm.amount_yuan}
+            onChange={(event) =>
+              setBalanceForm({
+                ...balanceForm,
+                amount_yuan: event.target.value,
+              })
+            }
+            fullWidth
+            helperText="单位是元，正数增加，负数减少。"
+          />
+          <TextField
+            label="调整原因"
+            value={balanceForm.reason}
+            onChange={(event) =>
+              setBalanceForm({ ...balanceForm, reason: event.target.value })
+            }
+            fullWidth
+          />
+        </Stack>
+      </AdminDialog>
     </>
   );
 }
 
 /** UserCard 展示移动端用户卡片。 */
 function UserCard({
-  item,
-  openAdjust,
-  unbind,
+item,
+openAdjust,
+openBalanceAdjust,
+unbind,
 }: {
-  item: AdminUserItem;
-  openAdjust: (item: AdminUserItem, days: number) => void;
-  unbind: (item: AdminUserItem) => Promise<void>;
+item: AdminUserItem;
+openAdjust: (item: AdminUserItem, days: number) => void;
+openBalanceAdjust: (item: AdminUserItem) => void;
+unbind: (item: AdminUserItem) => Promise<void>;
 }) {
   const memberLabel = item.subscription?.active ? "会员有效" : "已过期";
   const agentLabel = item.agent?.machine_id ? "已绑定" : "未绑定";
@@ -435,6 +500,11 @@ function UserCard({
           ]}
         />
         <MobileInfoBlock
+          title="AI余额"
+          lines={[`￥${item.ai_balance || "0.00"}`]}
+          strong={Number(item.ai_balance_cents || 0) > 0}
+        />
+        <MobileInfoBlock
           title="本地程序"
           lines={[agentLabel, item.agent?.agent_version || "暂无版本"]}
           strong={Boolean(item.agent?.machine_id)}
@@ -448,7 +518,7 @@ function UserCard({
       <Box
         sx={{ mt: 1.25, pt: 1, borderTop: "1px solid", borderColor: "divider" }}
       >
-        <UserActions item={item} openAdjust={openAdjust} unbind={unbind} />
+        <UserActions item={item} openAdjust={openAdjust} openBalanceAdjust={openBalanceAdjust} unbind={unbind} />
       </Box>
     </Box>
   );
@@ -549,6 +619,16 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
   );
 }
 
+/** BalanceInfo 展示用户内置 AI 余额。 */
+function BalanceInfo({ item }: { item: AdminUserItem }) {
+  return <Stack spacing={0.5}>
+      <Typography sx={{ fontSize: 12, fontWeight: 720 }}>AI余额</Typography>
+      <Typography sx={{ color: Number(item.ai_balance_cents || 0) > 0 ? "#15945f" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
+        ￥{item.ai_balance || "0.00"}
+      </Typography>
+    </Stack>;
+}
+
 /** TimeInfo 展示注册时间和最近登录时间。 */
 function TimeInfo({ item }: { item: AdminUserItem }) {
   return (
@@ -601,13 +681,15 @@ function FlowInfo({ item }: { item: AdminUserItem }) {
 
 /** UserActions 展示用户管理操作按钮。 */
 function UserActions({
-  item,
-  openAdjust,
-  unbind,
+item,
+openAdjust,
+openBalanceAdjust,
+unbind,
 }: {
-  item: AdminUserItem;
-  openAdjust: (item: AdminUserItem, days: number) => void;
-  unbind: (item: AdminUserItem) => Promise<void>;
+item: AdminUserItem;
+openAdjust: (item: AdminUserItem, days: number) => void;
+openBalanceAdjust: (item: AdminUserItem) => void;
+unbind: (item: AdminUserItem) => Promise<void>;
 }) {
   return (
     <Stack
@@ -617,6 +699,9 @@ function UserActions({
     >
       <Button size="small" onClick={() => openAdjust(item, 7)}>
         天数
+      </Button>
+      <Button size="small" onClick={() => openBalanceAdjust(item)}>
+        余额
       </Button>
       <Button size="small" color="error" onClick={() => void unbind(item)}>
         解绑

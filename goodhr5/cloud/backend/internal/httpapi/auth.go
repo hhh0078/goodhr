@@ -27,6 +27,7 @@ type AuthService struct {
 	subscriptions   SubscriptionStore
 	systemConfigs   SystemConfigStore
 	userActivity    UserActivityStore
+	aiWallet        *AIWalletService
 	superAdmins     map[string]struct{}
 }
 
@@ -40,7 +41,7 @@ type loginRequest struct {
 	InviterID string `json:"inviter_id"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, superAdmins []string) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -169,6 +170,12 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 	if err := s.notifyInitialSubscription(email, now); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send trial reward email")
 		return
+	}
+	if s.aiWallet != nil {
+		if err := s.aiWallet.EnsureUserDefaultAI(email); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to init ai wallet")
+			return
+		}
 	}
 
 	if err := s.applyInviteOnLogin(email, strings.TrimSpace(req.InviterID)); err != nil {

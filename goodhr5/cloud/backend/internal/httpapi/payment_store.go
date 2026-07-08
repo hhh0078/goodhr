@@ -14,6 +14,7 @@ import (
 type PaymentOrder struct {
 	ID                  string     `json:"id"`
 	OrderNo             string     `json:"order_no"`
+	OrderType           string     `json:"order_type"`
 	UserEmail           string     `json:"user_email"`
 	PlanID              string     `json:"plan_id"`
 	PlanName            string     `json:"plan_name"`
@@ -65,6 +66,7 @@ func (s *MemoryPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) {
 	if order.ID == "" {
 		order.ID = order.OrderNo
 	}
+	order.OrderType = defaultString(order.OrderType, "subscription")
 	order.CreatedAt = now
 	order.UpdatedAt = now
 	s.orders[order.OrderNo] = order
@@ -145,14 +147,15 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 	}
 	err = s.db.QueryRow(`
 		INSERT INTO payment_orders (
-			order_no, user_id, user_email, plan_id, plan_name, member_type, duration_days,
+			order_no, order_type, user_id, user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
 			status, expired_at, notify_data
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '{}'::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '{}'::jsonb)
 		RETURNING id, created_at, updated_at
-		`,
+	`,
 		order.OrderNo,
+		defaultString(order.OrderType, "subscription"),
 		userID,
 		order.UserEmail,
 		order.PlanID,
@@ -175,7 +178,7 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 // ByOrderNo 按订单号读取 PostgreSQL 支付记录。
 func (s *PostgresPaymentStore) ByOrderNo(orderNo string) (PaymentOrder, error) {
 	return scanPaymentOrder(s.db.QueryRow(`
-		SELECT id, order_no, user_email, plan_id, plan_name, member_type, duration_days,
+		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
@@ -186,7 +189,7 @@ func (s *PostgresPaymentStore) ByOrderNo(orderNo string) (PaymentOrder, error) {
 // ListByUser 列出指定用户自己的 PostgreSQL 支付记录。
 func (s *PostgresPaymentStore) ListByUser(email string) ([]PaymentOrder, error) {
 	rows, err := s.db.Query(`
-		SELECT id, order_no, user_email, plan_id, plan_name, member_type, duration_days,
+		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
@@ -203,7 +206,7 @@ func (s *PostgresPaymentStore) ListByUser(email string) ([]PaymentOrder, error) 
 // ListAll 列出全部 PostgreSQL 支付记录。
 func (s *PostgresPaymentStore) ListAll() ([]PaymentOrder, error) {
 	rows, err := s.db.Query(`
-		SELECT id, order_no, user_email, plan_id, plan_name, member_type, duration_days,
+		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
 			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
@@ -249,6 +252,7 @@ func scanPaymentOrder(row interface{ Scan(dest ...any) error }) (PaymentOrder, e
 	err := row.Scan(
 		&order.ID,
 		&order.OrderNo,
+		&order.OrderType,
 		&order.UserEmail,
 		&order.PlanID,
 		&order.PlanName,

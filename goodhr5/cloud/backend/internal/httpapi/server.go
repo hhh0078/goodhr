@@ -18,6 +18,7 @@ type Server struct {
 	agent               *AgentService
 	agentWS             *AgentWSHub
 	ai                  *AIConfigService
+	aiWallet            *AIWalletService
 	userPreferences     *UserPreferencesService
 	notificationProfile *NotificationProfileService
 	platformAccounts    *PlatformAccountService
@@ -67,8 +68,6 @@ func NewServer() (*Server, error) {
 	if config.RedisAddr != "" {
 		log.Print("Redis 连接检查成功")
 	}
-	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), config.SuperAdmins)
-	agentWS := NewAgentWSHub(auth)
 	taskStore := config.TaskStore(db)
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
@@ -77,12 +76,17 @@ func NewServer() (*Server, error) {
 	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
+	aiWalletStore := config.AIWalletStore(db)
+	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins)
+	aiWalletService.auth = auth
+	agentWS := NewAgentWSHub(auth)
 	userPreferencesStore := config.UserPreferencesStore(db)
 	notificationProfileStore := config.NotificationProfileStore(db)
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
-	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, NewHaoshoumiProvider(config))
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewHaoshoumiProvider(config))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
 	return &Server{
@@ -90,6 +94,7 @@ func NewServer() (*Server, error) {
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
 		agentWS:             agentWS,
 		ai:                  NewAIConfigService(auth, aiConfigStore),
+		aiWallet:            aiWalletService,
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
@@ -102,7 +107,7 @@ func NewServer() (*Server, error) {
 		onboarding:          NewOnboardingService(auth, onboardingStore, systemConfigStore),
 		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
-		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore),
+		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore, aiWalletStore),
 		adminEmails:         adminEmails,
 		publicStats:         NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
 		teamStats:           NewTeamStatsService(auth, db, tenantStore),
@@ -134,11 +139,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
 	mux.HandleFunc("/api/config/test-ai", s.ai.Test)
+	mux.HandleFunc("/api/ai-wallet", s.aiWallet.Summary)
+	mux.HandleFunc("/api/ai-compatible/v1/chat/completions", s.aiWallet.CompatibleChat)
 	mux.HandleFunc("/api/config/user-preferences", s.userPreferences.User)
 	mux.HandleFunc("/api/config/notification-profile", s.notificationProfile.User)
 	mux.HandleFunc("/api/subscription/status", s.subscriptions.Status)
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
+	mux.HandleFunc("/api/payment/ai-balance", s.payments.AIBalanceOrder)
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/haoshoumi", s.payments.HaoshoumiNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
@@ -150,6 +158,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
+	mux.HandleFunc("/api/admin/users/adjust-ai-balance", s.adminUsers.AdjustAIBalance)
 	mux.HandleFunc("/api/admin/emails", s.adminEmails.Collection)
 	mux.HandleFunc("/api/admin/emails/upload-image", s.adminEmails.UploadImage)
 	mux.HandleFunc("/api/admin/emails/", s.adminEmails.Detail)

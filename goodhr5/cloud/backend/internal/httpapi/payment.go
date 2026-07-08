@@ -18,6 +18,11 @@ type createPaymentOrderRequest struct {
 	PlanID string `json:"plan_id"`
 }
 
+type createAIBalanceOrderRequest struct {
+	AmountCents int    `json:"amount_cents"`
+	AmountYuan  string `json:"amount_yuan"`
+}
+
 type subscriptionPlan struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
@@ -38,11 +43,12 @@ type PaymentService struct {
 	systemConfigs SystemConfigStore
 	invitations   InvitationStore
 	mailer        Mailer
+	aiWallet      AIWalletStore
 	providers     map[string]PaymentProvider
 }
 
 // NewPaymentService 创建支付服务。
-func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, invitations InvitationStore, mailer Mailer, providers ...PaymentProvider) *PaymentService {
+func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, invitations InvitationStore, mailer Mailer, aiWallet AIWalletStore, providers ...PaymentProvider) *PaymentService {
 	providerMap := map[string]PaymentProvider{}
 	for _, provider := range providers {
 		if provider == nil {
@@ -57,6 +63,7 @@ func NewPaymentService(auth *AuthService, orders PaymentStore, subscriptions Sub
 		systemConfigs: systemConfigs,
 		invitations:   invitations,
 		mailer:        mailer,
+		aiWallet:      aiWallet,
 		providers:     providerMap,
 	}
 }
@@ -144,6 +151,76 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		"order":   publicPaymentOrder(order),
 		"payment": payResult,
 	})
+}
+
+// AIBalanceOrder 为当前用户创建内置 AI 余额充值订单。
+func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	var req createAIBalanceOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	amountCents := req.AmountCents
+	if amountCents <= 0 && strings.TrimSpace(req.AmountYuan) != "" {
+		amountCents, err = yuanTextToCents(req.AmountYuan)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "充值金额不太对，我没敢收。")
+			return
+		}
+	}
+	if amountCents <= 0 {
+		amountCents = defaultAIRechargeAmountCents
+	}
+	if amountCents < 100 || amountCents > 100000 {
+		writeError(w, http.StatusBadRequest, "充值金额建议在 1 元到 1000 元之间。")
+		return
+	}
+	provider, ok := s.providers[defaultPaymentProvider]
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "payment provider not configured")
+		return
+	}
+	orderNo := generatePaymentOrderNo()
+	expiredAt := time.Now().Add(30 * time.Minute)
+	order, err := s.orders.Create(PaymentOrder{
+		OrderNo:             orderNo,
+		OrderType:           "ai_balance",
+		UserEmail:           session.Email,
+		PlanID:              "ai_balance",
+		PlanName:            "AI余额充值",
+		MemberType:          "",
+		DurationDays:        0,
+		OriginalAmountCents: amountCents,
+		DiscountAmountCents: 0,
+		AmountCents:         amountCents,
+		PaymentProvider:     defaultPaymentProvider,
+		Status:              "pending",
+		ExpiredAt:           &expiredAt,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed create payment order")
+		return
+	}
+	payResult, err := provider.CreateOrder(PaymentProviderOrderInput{
+		OrderNo:     order.OrderNo,
+		Title:       "GoodHR AI余额充值",
+		AmountCents: order.AmountCents,
+		Remark:      "user:" + session.Email + ",type:ai_balance",
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "order": publicPaymentOrder(order), "payment": payResult})
 }
 
 // ListMyOrders 返回当前用户自己的支付记录。
@@ -249,6 +326,19 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 		return err
 	}
 	if changed {
+		if paidOrder.OrderType == "ai_balance" {
+			if s.aiWallet == nil {
+				return fmt.Errorf("ai wallet not configured")
+			}
+			_, err = s.aiWallet.AdjustBalance(AIWalletRecord{
+				UserEmail:      paidOrder.UserEmail,
+				ChangeCents:    paidOrder.AmountCents,
+				Category:       "recharge",
+				Reason:         "AI余额充值成功",
+				RelatedOrderNo: paidOrder.OrderNo,
+			})
+			return err
+		}
 		subscription, err := s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays)
 		if err != nil {
 			return err
@@ -344,6 +434,7 @@ func publicPaymentOrder(order PaymentOrder) map[string]any {
 	return map[string]any{
 		"id":                    order.ID,
 		"order_no":              order.OrderNo,
+		"order_type":            defaultString(order.OrderType, "subscription"),
 		"user_email":            order.UserEmail,
 		"plan_id":               order.PlanID,
 		"plan_name":             order.PlanName,
