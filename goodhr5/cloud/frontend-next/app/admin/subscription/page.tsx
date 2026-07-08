@@ -34,7 +34,9 @@ export default function SubscriptionPage() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void Promise.all([refreshSession(), load()]);
+  }, [refreshSession]);
   useEffect(() => { void markOnboardingStep(String(user?.email || ""), "subscription_viewed"); }, [user?.email]);
 
   /** redeem 兑换会员激活码并刷新当前会员状态。 */
