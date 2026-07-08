@@ -83,9 +83,8 @@ export async function getGuideVideos(): Promise<GuideVideo[]> {
 		const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
 		if (!response.ok) return [];
 		const data = await response.json();
-		return Array.isArray(data?.guide?.videos)
-			? data.guide.videos.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src)
-			: [];
+		const source = Array.isArray(data?.guide?.videos) ? data.guide.videos : Array.isArray(data?.videos) ? data.videos : [];
+		return source.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src);
 	} catch {
 		return [];
 	}

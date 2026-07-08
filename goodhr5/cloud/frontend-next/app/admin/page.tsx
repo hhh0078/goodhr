@@ -7,7 +7,6 @@ import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import { Box, Button, Chip, CircularProgress, LinearProgress, Stack, TextField, Typography } from "@mui/material";
@@ -30,7 +29,6 @@ type GuideStep = {
 
 const guideSteps: GuideStep[] = [
   { key: "local_agent", title: "确认本地程序已启动", description: "浏览器控制、截图和 OCR 都依赖本地 GoodHR 程序。", tips: ["启动本地 GoodHR 程序", "连接成功后会自动完成", "未安装时前往组件信息页面"], href: "/admin/agent-download", action: "检查本地程序", icon: DownloadRoundedIcon },
-  { key: "personal_config", title: "保存个人配置", description: "配置支持图片识别的 AI 地址、模型和 API Key。", tips: ["前往个人配置", "填写 API 地址、模型和 Key", "测试成功后保存配置"], href: "/admin/personal-config", action: "配置 AI", icon: SettingsRoundedIcon },
   { key: "position_template", title: "创建岗位管理", description: "岗位管理决定筛选条件、岗位要求和打招呼逻辑。", tips: ["进入岗位管理", "点击新建岗位", "填写岗位要求或关键词后保存"], href: "/admin/positions", action: "创建岗位", icon: WorkRoundedIcon },
   { key: "task_started", title: "创建并运行任务", description: "选择岗位创建任务，然后成功启动一次。", tips: ["进入任务列表", "创建任务并选择岗位", "点击开始，成功启动后自动完成"], href: "/admin/tasks", action: "创建任务", icon: PlayCircleRoundedIcon },
   { key: "subscription_viewed", title: "查看订阅页面", description: "查看会员到期时间、可用套餐和自己的支付记录。", tips: ["进入订阅会员", "查看当前会员状态", "需要续期时选择合适套餐"], href: "/admin/subscription", action: "查看订阅", icon: CreditCardRoundedIcon },
@@ -43,7 +41,6 @@ export default function DashboardPage() {
   const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
   const [runtime, setRuntime] = useState<any>({});
-  const [aiConfigured, setAIConfigured] = useState(false);
   const [currentAIModel, setCurrentAIModel] = useState("");
   const [wallet, setWallet] = useState<any>({});
   const [rechargeAmount, setRechargeAmount] = useState("10");
@@ -67,7 +64,6 @@ export default function DashboardPage() {
       if (results[2].status === "fulfilled") setResumeCount(Number(results[2].value.total || 0));
       if (results[3].status === "fulfilled") {
         const config = results[3].value.config || {};
-        setAIConfigured(Boolean(config.api_key_set && config.base_url && config.model && config.enabled !== false));
         setCurrentAIModel(config.model || "");
       }
       if (results[4].status === "fulfilled") setWallet(results[4].value || {});
@@ -103,12 +99,10 @@ export default function DashboardPage() {
     if (!email) return;
     void syncOnboardingProgress(email, {
       local_agent: Boolean(agentBase),
-      personal_config: aiConfigured,
-      platform_account: true,
       position_template: positions.length > 0,
       task_started: taskWasStarted,
     }, Boolean(onboarding.completed)).then(setGuideProgress);
-  }, [agentBase, aiConfigured, onboarding.completed, positions.length, taskWasStarted, user?.email]);
+  }, [agentBase, onboarding.completed, positions.length, taskWasStarted, user?.email]);
 
   const summary = useMemo(() => ({ today: tasks.reduce((sum, item) => sum + Number(item.today_greeted_count || 0), 0), total: tasks.reduce((sum, item) => sum + Number(item.greeted_count || 0), 0), running: tasks.filter((item) => item.status === "running").length }), [tasks]);
   const metrics = [["今日打招呼", summary.today, TaskAltRoundedIcon], ["累计打招呼", summary.total, PlayCircleRoundedIcon], ["运行中任务", summary.running, WorkRoundedIcon], ["简历数量", resumeCount, ArticleRoundedIcon]] as const;
@@ -144,7 +138,7 @@ export default function DashboardPage() {
 /** AIWalletCard 展示内置 AI 余额和充值入口。 */
 function AIWalletCard({ wallet, currentModel, amount, setAmount, loading, onRecharge }: { wallet: any; currentModel: string; amount: string; setAmount: (value: string) => void; loading: boolean; onRecharge: () => void }) {
   const modelLabel = currentModel || wallet.default_model || "未配置";
-  return <SectionPanel><Stack direction={{ xs: "column", md: "row" }} spacing={1.5} sx={{ justifyContent: "space-between", alignItems: { md: "center" } }}><Box><Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><CreditCardRoundedIcon color="primary" /><Typography component="h2" sx={{ fontSize: 18, fontWeight: 780 }}>AI 余额</Typography><Chip size="small" label={`当前模型：${modelLabel}`} sx={{ bgcolor: "#eef6f0", color: "#2f6f4f" }} /></Stack><Typography sx={{ mt: 0.75, fontSize: 30, fontWeight: 850 }}>￥{wallet.balance || "0.00"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。</Typography></Box><Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", md: "auto" }, alignItems: { sm: "center" } }}><TextField size="small" label="充值金额（元）" value={amount} onChange={(event) => setAmount(event.target.value)} sx={{ width: { xs: "100%", sm: 150 } }} /><Button variant="contained" disabled={loading} onClick={onRecharge}>{loading ? "正在下单" : "充值"}</Button></Stack></Stack></SectionPanel>;
+  return <SectionPanel><Stack direction={{ xs: "column", md: "row" }} spacing={1.5} sx={{ justifyContent: "space-between", alignItems: { md: "center" } }}><Box><Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><CreditCardRoundedIcon color="primary" /><Typography component="h2" sx={{ fontSize: 18, fontWeight: 780 }}>AI 余额</Typography><Chip size="small" label={`当前模型：${modelLabel}`} sx={{ bgcolor: "#eef6f0", color: "#2f6f4f" }} /></Stack><Typography sx={{ mt: 0.75, fontSize: 30, fontWeight: 850 }}>￥{wallet.balance || "0.00"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。</Typography></Box><Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", md: "auto" }, alignItems: { sm: "center" } }}><TextField size="small" label="充值金额（元）" value={amount} onChange={(event) => setAmount(event.target.value)} sx={{ width: { xs: "100%", sm: 150 } }} /><Button component={Link} href="/admin/ai-records" variant="outlined">使用记录</Button><Button variant="contained" disabled={loading} onClick={onRecharge}>{loading ? "正在下单" : "充值"}</Button></Stack></Stack></SectionPanel>;
 }
 
 /** submitPayment 创建并提交第三方支付表单。 */
@@ -171,7 +165,7 @@ function OnboardingGuide({ progress, doneCount }: { progress: OnboardingProgress
   const activeKey = guideSteps.find((item) => !progress.steps[item.key])?.key || "";
   return <Box component="section" sx={{ p: { xs: 2, md: 2.5 }, border: "1px solid #b9d4c1", borderRadius: "8px", bgcolor: "#edf6ef", boxShadow: "0 12px 28px rgba(33, 85, 57, .08)" }}>
     <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ justifyContent: "space-between", alignItems: { md: "center" } }}>
-      <Box><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Chip size="small" label="新手必看" sx={{ bgcolor: "#1e6545", color: "white", fontWeight: 760 }} /><Typography component="h2" sx={{ fontSize: { xs: 21, md: 24 }, fontWeight: 800 }}>完成 6 步，开始第一条招聘任务</Typography></Stack><Typography sx={{ mt: 0.75, color: "#52665a" }}>每完成一步都会自动记录；全部完成后，这个教程会自动隐藏。</Typography></Box>
+      <Box><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Chip size="small" label="新手必看" sx={{ bgcolor: "#1e6545", color: "white", fontWeight: 760 }} /><Typography component="h2" sx={{ fontSize: { xs: 21, md: 24 }, fontWeight: 800 }}>完成 4 步，开始第一条招聘任务</Typography></Stack><Typography sx={{ mt: 0.75, color: "#52665a" }}>每完成一步都会自动记录；全部完成后，这个教程会自动隐藏。</Typography></Box>
       <Box sx={{ minWidth: { md: 210 } }}><Stack direction="row" sx={{ mb: 0.75, justifyContent: "space-between" }}><Typography sx={{ color: "#52665a", fontSize: 13 }}>上手进度</Typography><Typography sx={{ color: "#1e6545", fontWeight: 800 }}>{doneCount}/{guideSteps.length}</Typography></Stack><LinearProgress variant="determinate" value={(doneCount / guideSteps.length) * 100} sx={{ height: 9, borderRadius: "8px", bgcolor: "#d5e5d9" }} /></Box>
     </Stack>
     <Box sx={{ mt: 2.5, display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" }, gap: 1.5 }}>

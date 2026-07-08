@@ -174,6 +174,7 @@ func defaultSystemGuideConfig() string {
 		"version": "2026-05-27",
 		"title": "GoodHR 5 系统指南",
 		"summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、任务、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
+		"videos": [],
 		"cards": [
 			{
 				"id": "quick-start",

@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ const (
 
 // AIWalletRecord 表示一条内置 AI 余额流水。
 type AIWalletRecord struct {
+	ID                string
 	UserEmail         string
 	ChangeCents       int
 	BalanceAfterCents int
@@ -45,6 +47,8 @@ type AIWalletStore interface {
 	BalanceCents(email string) (int, error)
 	// AdjustBalance 调整指定用户的 AI 余额并写入流水。
 	AdjustBalance(record AIWalletRecord) (int, error)
+	// ListRecords 读取指定用户的 AI 余额流水。
+	ListRecords(email string, limit int, offset int) ([]AIWalletRecord, int, error)
 	// UserEmailByAIKey 通过用户专属 AI Key 找到账号邮箱。
 	UserEmailByAIKey(apiKey string) (string, error)
 }
@@ -112,6 +116,52 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 		"default_recharge_cents": defaultAIRechargeAmountCents,
 		"default_model":          cfg.DefaultModel,
 		"models":                 cfg.Models,
+	})
+}
+
+// Records 返回当前用户或超管指定用户的内置 AI 余额流水。
+func (s *AIWalletService) Records(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		return
+	}
+	email := session.Email
+	requestedEmail := strings.TrimSpace(r.URL.Query().Get("email"))
+	if requestedEmail != "" {
+		if !s.auth.IsSuperAdmin(session.Email) {
+			writeError(w, http.StatusForbidden, "super admin access required")
+			return
+		}
+		normalized, ok := normalizeEmail(requestedEmail)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid email")
+			return
+		}
+		email = normalized
+	}
+	limit := boundedQueryInt(r, "page_size", 20, 1, 100)
+	page := boundedQueryInt(r, "page", 1, 1, 100000)
+	records, total, err := s.wallet.ListRecords(email, limit, (page-1)*limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed load ai records")
+		return
+	}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, publicAIWalletRecord(record))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"email":    email,
+		"records":  items,
+		"total":    total,
+		"page":     page,
+		"pageSize": limit,
 	})
 }
 
@@ -406,6 +456,28 @@ func (s *MemoryAIWalletStore) AdjustBalance(record AIWalletRecord) (int, error) 
 	return record.BalanceAfterCents, nil
 }
 
+// ListRecords 读取内存中的 AI 余额流水。
+func (s *MemoryAIWalletStore) ListRecords(email string, limit int, offset int) ([]AIWalletRecord, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	filtered := make([]AIWalletRecord, 0, len(s.records))
+	for i := len(s.records) - 1; i >= 0; i-- {
+		record := s.records[i]
+		if record.UserEmail == email {
+			filtered = append(filtered, record)
+		}
+	}
+	total := len(filtered)
+	if offset >= total {
+		return []AIWalletRecord{}, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return append([]AIWalletRecord{}, filtered[offset:end]...), total, nil
+}
+
 // UserEmailByAIKey 通过内存 AI Key 查找用户邮箱。
 func (s *MemoryAIWalletStore) UserEmailByAIKey(apiKey string) (string, error) {
 	s.mu.Lock()
@@ -477,6 +549,43 @@ func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int, error
 		return 0, err
 	}
 	return balance, nil
+}
+
+// ListRecords 读取 PostgreSQL 中的 AI 余额流水。
+func (s *PostgresAIWalletStore) ListRecords(email string, limit int, offset int) ([]AIWalletRecord, int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := ensureUserID(ctx, s.db, email); err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_balance_records WHERE user_email=$1`, email).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id::text, user_email, change_cents, balance_after_cents, category, reason,
+		       related_order_no, model_id, prompt_tokens, completion_tokens, created_at
+		FROM ai_balance_records
+		WHERE user_email=$1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, email, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	records := []AIWalletRecord{}
+	for rows.Next() {
+		var record AIWalletRecord
+		if err := rows.Scan(&record.ID, &record.UserEmail, &record.ChangeCents, &record.BalanceAfterCents, &record.Category, &record.Reason, &record.RelatedOrderNo, &record.ModelID, &record.PromptTokens, &record.CompletionTokens, &record.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return records, total, nil
 }
 
 // UserEmailByAIKey 通过 PostgreSQL 中的 AI Key 查找用户邮箱。
@@ -553,6 +662,38 @@ func aiUsageCostCents(model builtinAIModel, promptTokens int, completionTokens i
 		return 1
 	}
 	return int(math.Ceil(cost))
+}
+
+// publicAIWalletRecord 将 AI 余额流水转换为前端展示结构。
+func publicAIWalletRecord(record AIWalletRecord) map[string]any {
+	return map[string]any{
+		"id":                  record.ID,
+		"user_email":          record.UserEmail,
+		"change_cents":        record.ChangeCents,
+		"change":              centsToYuanString(record.ChangeCents),
+		"balance_after_cents": record.BalanceAfterCents,
+		"balance_after":       centsToYuanString(record.BalanceAfterCents),
+		"category":            record.Category,
+		"reason":              record.Reason,
+		"related_order_no":    record.RelatedOrderNo,
+		"model_id":            record.ModelID,
+		"prompt_tokens":       record.PromptTokens,
+		"completion_tokens":   record.CompletionTokens,
+		"total_tokens":        record.PromptTokens + record.CompletionTokens,
+		"created_at":          record.CreatedAt,
+	}
+}
+
+// boundedQueryInt 读取带上下限的分页参数。
+func boundedQueryInt(r *http.Request, key string, fallback int, minValue int, maxValue int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get(key)))
+	if err != nil || value < minValue {
+		return fallback
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 // copyHeader 复制上游响应头。

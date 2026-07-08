@@ -18,6 +18,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import {
@@ -621,7 +622,7 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
 
 /** BalanceInfo 展示用户内置 AI 余额。 */
 function BalanceInfo({ item }: { item: AdminUserItem }) {
-  return <Stack spacing={0.5}>
+  return <Stack component={Link} href={`/admin/ai-records?email=${encodeURIComponent(item.email)}`} spacing={0.5} sx={{ color: "inherit", textDecoration: "none" }}>
       <Typography sx={{ fontSize: 12, fontWeight: 720 }}>AI余额</Typography>
       <Typography sx={{ color: Number(item.ai_balance_cents || 0) > 0 ? "#15945f" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
         ￥{item.ai_balance || "0.00"}
@@ -701,7 +702,10 @@ unbind: (item: AdminUserItem) => Promise<void>;
         天数
       </Button>
       <Button size="small" onClick={() => openBalanceAdjust(item)}>
-        余额
+        调余额
+      </Button>
+      <Button size="small" component={Link} href={`/admin/ai-records?email=${encodeURIComponent(item.email)}`}>
+        记录
       </Button>
       <Button size="small" color="error" onClick={() => void unbind(item)}>
         解绑

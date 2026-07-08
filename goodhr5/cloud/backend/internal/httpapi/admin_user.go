@@ -338,11 +338,9 @@ func publicAdminAgent(agent *AgentBinding) map[string]any {
 
 // buildAdminUserFlow 生成用户流程链条和当前卡点。
 // hasAgent 到 hasPaid 依次表示流程节点是否完成。
-func buildAdminUserFlow(hasAgent bool, hasAI bool, hasPlatformAccount bool, hasPosition bool, hasGreeted bool, hasPaid bool) AdminUserFlow {
+func buildAdminUserFlow(hasAgent bool, _ bool, _ bool, hasPosition bool, hasGreeted bool, hasPaid bool) AdminUserFlow {
 	steps := []AdminUserFlowStep{
 		{Key: "local_agent", Name: "未绑定本地程序", Done: hasAgent},
-		{Key: "ai_config", Name: "未配置AI", Done: hasAI},
-		{Key: "platform_account", Name: "未创建平台账号", Done: hasPlatformAccount},
 		{Key: "position", Name: "未创建岗位", Done: hasPosition},
 		{Key: "greet_success", Name: "未打招呼成功", Done: hasGreeted},
 		{Key: "paid", Name: "未支付", Done: hasPaid},

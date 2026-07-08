@@ -1,11 +1,19 @@
 /** 本文件负责展示服务端传入的视频教程列表。 */
+"use client";
+
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import { Box, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
 import type { GuideVideo } from "@/lib/public-data";
 
 /** VideoGuideList 渲染视频教程配置。 */
 export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
-  if (!videos.length) {
+  const [clientVideos, setClientVideos] = useState<GuideVideo[]>(videos);
+  useEffect(() => {
+    if (videos.length) return;
+    void loadGuideVideos().then(setClientVideos);
+  }, [videos]);
+  if (!clientVideos.length) {
     return (
       <EmptyVideoState text="这里暂时还没有视频教程。配置好 system.guide.videos 后，我刷新一下就能看见。" />
     );
@@ -19,7 +27,7 @@ export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
         gap: 4,
       }}
     >
-      {videos.map((video) => (
+      {clientVideos.map((video) => (
         <Box component="article" key={video.id || video.title}>
           <Box
             sx={{
@@ -57,6 +65,31 @@ export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
       ))}
     </Box>
   );
+}
+
+/** loadGuideVideos 在浏览器端兜底读取云端视频教程配置。 */
+async function loadGuideVideos() {
+  const baseURL = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+  try {
+    const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = await response.json();
+    const source = Array.isArray(data?.guide?.videos) ? data.guide.videos : Array.isArray(data?.videos) ? data.videos : [];
+    return source.map(normalizeGuideVideo).filter((item: GuideVideo) => item.enabled && item.title && item.src);
+  } catch {
+    return [];
+  }
+}
+
+/** normalizeGuideVideo 将接口视频字段整理为页面展示结构。 */
+function normalizeGuideVideo(value: Record<string, unknown>): GuideVideo {
+  return {
+    id: String(value?.id || value?.title || ""),
+    title: String(value?.title || ""),
+    description: String(value?.description || ""),
+    src: String(value?.src || value?.url || value?.iframe_url || value?.video_url || ""),
+    enabled: value?.enabled !== false,
+  };
 }
 
 /** EmptyVideoState 展示视频教程空状态。 */

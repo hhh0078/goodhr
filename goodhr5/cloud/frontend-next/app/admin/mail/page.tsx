@@ -25,8 +25,6 @@ const profileOptions = [
 
 const flowOptions = [
   ["local_agent", "未绑定本地程序"],
-  ["ai_config", "未配置AI"],
-  ["platform_account", "未创建平台账号"],
   ["position", "未创建岗位"],
   ["greet_success", "未打招呼成功"],
   ["paid", "未支付"],

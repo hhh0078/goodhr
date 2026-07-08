@@ -121,6 +121,7 @@ const menuGroups: MenuGroup[] = [
       ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
+      ["/admin/ai-records", "AI记录", PaidRoundedIcon],
     ],
   },
   {

@@ -5,8 +5,6 @@ import { cloudRequest } from "./admin-api";
 
 export const ONBOARDING_STEPS = [
   "local_agent",
-  "personal_config",
-  "platform_account",
   "position_template",
   "task_started",
   "subscription_viewed",
