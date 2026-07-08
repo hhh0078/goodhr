@@ -10,6 +10,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   FormControlLabel,
   MenuItem,
   Stack,
@@ -60,6 +61,9 @@ export default function TasksPage() {
   const [allLogTask, setAllLogTask] = useState<any | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [runningTaskIDs, setRunningTaskIDs] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [stoppingTaskIDs, setStoppingTaskIDs] = useState<Record<string, boolean>>(
     {},
   );
   const [localTaskStats, setLocalTaskStats] = useState<Record<string, any>>({});
@@ -251,6 +255,7 @@ export default function TasksPage() {
   /** stop 停止任务但保持浏览器打开。 */
   async function stop(task: any) {
     if (!agentBase) return notify("本地程序未连接", "error");
+    setStoppingTaskIDs((current) => ({ ...current, [task.id]: true }));
     try {
       await localRequest(
         agentBase,
@@ -265,6 +270,8 @@ export default function TasksPage() {
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "停止任务失败", "error");
+    } finally {
+      setStoppingTaskIDs((current) => ({ ...current, [task.id]: false }));
     }
   }
 
@@ -492,7 +499,14 @@ export default function TasksPage() {
                     {task.status === "running" ? (
                       <Button
                         color='warning'
-                        startIcon={<StopRoundedIcon />}
+                        disabled={Boolean(stoppingTaskIDs[task.id])}
+                        startIcon={
+                          stoppingTaskIDs[task.id] ? (
+                            <CircularProgress size={16} color='inherit' />
+                          ) : (
+                            <StopRoundedIcon />
+                          )
+                        }
                         onClick={() => void stop(task)}
                       >
                         停止

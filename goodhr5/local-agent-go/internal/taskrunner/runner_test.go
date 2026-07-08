@@ -671,15 +671,32 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	if status["running"] != true {
 		t.Fatalf("running status = %+v", status)
 	}
-	if _, err := runner.Stop(task.ID); err != nil {
-		t.Fatal(err)
+	stopDone := make(chan error, 1)
+	go func() {
+		_, err := runner.Stop(task.ID)
+		stopDone <- err
+	}()
+	stopMarked := false
+	deadline := time.After(2 * time.Second)
+	for !stopMarked {
+		status, err = runner.Status(task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status["running"] == false {
+			stopMarked = true
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("等待停止标记超时：%+v", status)
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
-	status, err = runner.Status(task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status["running"] != false {
-		t.Fatalf("stopping status = %+v", status)
+	select {
+	case err := <-stopDone:
+		t.Fatalf("停止任务不应该在当前 Worker 完成前返回：%v", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 	select {
 	case <-worker.released:
@@ -687,6 +704,14 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(worker.allowFinish)
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("当前步骤结束后停止接口未返回")
+	}
 	select {
 	case <-worker.released:
 	case <-time.After(2 * time.Second):

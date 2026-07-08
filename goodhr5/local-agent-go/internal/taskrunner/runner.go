@@ -35,6 +35,8 @@ const defaultMaxItemsPerRound = 0
 const defaultScrollDistance = 720
 const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
+const stopGracefulTimeout = 10 * time.Second
+const stopPollInterval = 500 * time.Millisecond
 const pendingAIVisionDecisionKey = "_pending_ai_vision_decision"
 
 // pageEntryCheckAttempts 是入口页面加载检查的最大次数。
@@ -287,8 +289,21 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r.hasRunningLock(taskID) {
+		r.updateProgress(taskID, Progress{Stage: "running", Message: "正在处理当前候选人，处理完会停止"})
+		r.taskLog(taskID, "info", "正在等待当前候选人处理完成后停止")
+		if !r.waitUntilStopped(taskID, stopGracefulTimeout) {
+			r.taskLog(taskID, "warning", "停止等待超时，已强制停止任务")
+			r.markUserStoppedAndCancel(taskID)
+			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "停止等待超时，已强制停止"})
+			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
+		}
+	}
 	r.taskLog(taskID, "info", "本地任务已停止，浏览器保持打开")
-	return map[string]any{"task": task, "running": false}, nil
+	if latest, getErr := r.db.GetTask(taskID); getErr == nil {
+		task = latest
+	}
+	return map[string]any{"task": localTaskStatusMap(task), "running": r.hasRunningLock(taskID)}, nil
 }
 
 // StopAll 停止所有正在运行的本地任务。
@@ -392,6 +407,32 @@ func (r *Runner) IsRunning(taskID string) bool {
 	}
 	ok := state != nil
 	return ok
+}
+
+// hasRunningLock 判断任务运行锁是否还存在，不受用户停止标记影响。
+func (r *Runner) hasRunningLock(taskID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.running[strings.TrimSpace(taskID)]
+	return ok
+}
+
+// waitUntilStopped 等待任务运行锁释放，超时返回 false。
+func (r *Runner) waitUntilStopped(taskID string, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(stopPollInterval)
+	defer ticker.Stop()
+	for {
+		if !r.hasRunningLock(taskID) {
+			return true
+		}
+		select {
+		case <-deadline.C:
+			return !r.hasRunningLock(taskID)
+		case <-ticker.C:
+		}
+	}
 }
 
 // scanOnce 执行一轮候选人扫描并保存到本地数据库。
