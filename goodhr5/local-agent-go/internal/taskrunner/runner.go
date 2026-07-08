@@ -37,6 +37,18 @@ const defaultScrollDistanceJitter = 160
 const defaultCandidatePipelineConcurrency = 5
 const stopGracefulTimeout = 10 * time.Second
 const stopPollInterval = 500 * time.Millisecond
+const candidateTotalTimeout = 3 * time.Minute
+const aiPrecheckTimeout = 60 * time.Second
+const detailFetchTimeout = 60 * time.Second
+const ocrRecognizeTimeout = 60 * time.Second
+const aiDetailTimeout = 120 * time.Second
+const aiScoreTimeout = 60 * time.Second
+const greetActionTimeout = 30 * time.Second
+const cloudCandidateSyncTimeout = 30 * time.Second
+const cloudStatsSyncTimeout = 15 * time.Second
+const detailCloseTimeout = 10 * time.Second
+const overlayActionTimeout = 5 * time.Second
+const pendingAIVisionOutputTimeout = 3 * time.Minute
 const pendingAIVisionDecisionKey = "_pending_ai_vision_decision"
 
 // pageEntryCheckAttempts 是入口页面加载检查的最大次数。
@@ -435,6 +447,37 @@ func (r *Runner) waitUntilStopped(taskID string, timeout time.Duration) bool {
 	}
 }
 
+// withOperationTimeout 给单个候选人的关键操作加超时、异常捕获和耗时日志。
+func (r *Runner) withOperationTimeout(ctx context.Context, taskID string, candidateName string, operation string, timeout time.Duration, fn func(context.Context) error) (err error) {
+	operation = strings.TrimSpace(operation)
+	if operation == "" {
+		operation = "未命名操作"
+	}
+	candidateName = strings.TrimSpace(candidateName)
+	if candidateName == "" {
+		candidateName = "未知候选人"
+	}
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	startedAt := time.Now()
+	r.taskLog(taskID, "info", fmt.Sprintf("开始%s：name=%s timeout=%s", operation, candidateName, timeout.Round(time.Second)))
+	defer func() {
+		elapsed := time.Since(startedAt).Round(time.Millisecond)
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("%s异常：%v", operation, recovered)
+		}
+		if errors.Is(opCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("%s超时：超过%s", operation, timeout.Round(time.Second))
+		}
+		if err != nil {
+			r.taskLog(taskID, "warning", fmt.Sprintf("%s失败：name=%s elapsed=%s err=%s", operation, candidateName, elapsed, err.Error()))
+			return
+		}
+		r.taskLog(taskID, "info", fmt.Sprintf("%s完成：name=%s elapsed=%s", operation, candidateName, elapsed))
+	}()
+	return fn(opCtx)
+}
+
 // scanOnce 执行一轮候选人扫描并保存到本地数据库。
 // ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置。
 func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig cloudapi.PlatformConfig, options StartOptions) (map[string]any, error) {
@@ -619,12 +662,20 @@ scanLoop:
 				nextIndex++
 				if item.Err != nil {
 					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理失败：index=%d err=%v", item.Index, item.Err))
-					return nil, item.Err
+					if errors.Is(item.Err, context.Canceled) || isBrowserClosedTaskError(item.Err) {
+						return nil, item.Err
+					}
+					item.Candidate["status"] = "failed"
+					item.Candidate["error"] = item.Err.Error()
+					batchResult.Failed++
+					continue
 				}
 
 				candidate := item.Candidate
 				processedCount++
-				r.taskLog(task.ID, "info", fmt.Sprintf("按队列顺序处理候选人：序号=%d name=%s status=%s", processedCount, candidateLogName(candidate), stringFromMap(candidate, "status")))
+				candidateName := candidateLogName(candidate)
+				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
+				r.taskLog(task.ID, "info", fmt.Sprintf("按队列顺序处理候选人：序号=%d name=%s status=%s timeout=%s", processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
 
 				// 5. 如果预评分通过，再打开详情；详情模式由任务配置决定：DOM、OCR 或 AI 图片。
@@ -642,9 +693,10 @@ scanLoop:
 						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分跳过：name=%s score=%.1f threshold=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
 						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分通过，准备打开详情：name=%s score=%.1f threshold=%.1f", candidateLogName(candidate), decision.Score, decision.Threshold))
-						itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						batchResult.Skipped += itemSkipped
 						if err != nil {
+							candidateCancel()
 							return nil, err
 						}
 					}
@@ -659,9 +711,10 @@ scanLoop:
 						r.taskLog(task.ID, "info", fmt.Sprintf("打开详情概率跳过：name=%s probability=%d%%", candidateLogName(candidate), detailOpenProbability(options)))
 					} else {
 						r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
-						itemSkipped, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						batchResult.Skipped += itemSkipped
 						if err != nil {
+							candidateCancel()
 							return nil, err
 						}
 					}
@@ -669,7 +722,7 @@ scanLoop:
 
 				// 7. 第二次详情分析：详情 AI 已经一次性评分时跳过；否则按任务模式做最终判断。
 				if canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
-					itemSkipped, err := r.finalizeCandidateGreetDecision(ctx, task, exec, candidate, aiClient)
+					itemSkipped, err := r.finalizeCandidateGreetDecision(candidateCtx, task, exec, candidate, aiClient)
 					batchResult.Skipped += itemSkipped
 					if err != nil {
 						candidate["status"] = "failed"
@@ -681,8 +734,9 @@ scanLoop:
 
 				// 8. 评分通过后执行打招呼，然后保存候选人结果。
 				if options.EnableGreet {
-					greeted, failed, itemSkipped, err := r.consumeCandidateForGreet(ctx, task, platformRuntime, exec, platformConfig, candidate, totalGreeted+batchResult.Greeted, options)
+					greeted, failed, itemSkipped, err := r.consumeCandidateForGreet(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, totalGreeted+batchResult.Greeted, options)
 					if err != nil {
+						candidateCancel()
 						return nil, err
 					}
 					batchResult.Greeted += greeted
@@ -699,6 +753,13 @@ scanLoop:
 					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已处理：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
 					batchResult.Saved++
 				}
+				if errors.Is(candidateCtx.Err(), context.DeadlineExceeded) {
+					candidate["status"] = "failed"
+					candidate["error"] = fmt.Sprintf("候选人处理总超时：超过%s", candidateTotalTimeout.Round(time.Second))
+					batchResult.Failed++
+					r.taskLog(task.ID, "warning", fmt.Sprintf("候选人处理总超时，已跳过：index=%d name=%s timeout=%s", item.Index, candidateName, candidateTotalTimeout.Round(time.Second)))
+				}
+				candidateCancel()
 				if err := r.maybeRestAfterCandidate(ctx, task.ID, options); err != nil {
 					return nil, err
 				}
@@ -766,7 +827,10 @@ func (r *Runner) syncProcessedResumeCount(ctx context.Context, task localdb.Task
 	if count <= 0 || strings.TrimSpace(options.Token) == "" {
 		return
 	}
-	if err := cloudapi.New(options.CloudAPIBase).AddProcessedResumes(ctx, options.Token, task.ID, count); err != nil {
+	err := r.withOperationTimeout(ctx, task.ID, task.Name, "同步已处理简历数", cloudStatsSyncTimeout, func(syncCtx context.Context) error {
+		return cloudapi.New(options.CloudAPIBase).AddProcessedResumes(syncCtx, options.Token, task.ID, count)
+	})
+	if err != nil {
 		r.taskLog(task.ID, "warning", "同步已处理简历数失败："+err.Error())
 	}
 }
@@ -783,7 +847,10 @@ func (r *Runner) syncTaskCounts(ctx context.Context, task localdb.Task, options 
 		"skipped_count": task.SkippedCount,
 		"failed_count":  task.FailedCount,
 	}
-	if err := cloudapi.New(options.CloudAPIBase).SyncTaskCounts(ctx, options.Token, task.ID, counts); err != nil {
+	err := r.withOperationTimeout(ctx, task.ID, task.Name, "同步任务统计", cloudStatsSyncTimeout, func(syncCtx context.Context) error {
+		return cloudapi.New(options.CloudAPIBase).SyncTaskCounts(syncCtx, options.Token, task.ID, counts)
+	})
+	if err != nil {
 		r.taskLog(task.ID, "warning", "同步任务统计失败："+err.Error())
 	}
 }
@@ -851,6 +918,8 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 	name := candidateLogName(candidate)
 	r.taskLog(task.ID, "info", "AI 完整详情输出将后台同步简历："+name)
 	go func() {
+		timer := time.NewTimer(pendingAIVisionOutputTimeout)
+		defer timer.Stop()
 		select {
 		case result := <-resultCh:
 			if result.Err != nil {
@@ -864,6 +933,8 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 			r.saveCandidatePayload(saveCtx, task, payload, options)
 		case <-ctx.Done():
 			r.taskLog(task.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
+		case <-timer.C:
+			r.taskLog(task.ID, "warning", fmt.Sprintf("等待 AI 完整详情输出超时：name=%s timeout=%s", name, pendingAIVisionOutputTimeout.Round(time.Second)))
 		}
 	}()
 	return true
@@ -872,11 +943,15 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 // saveCandidatePayload 将候选人入库 payload 同步到云端。
 // ctx 为请求上下文，task 为任务记录，payload 为候选人 JSON，options 为启动参数。
 func (r *Runner) saveCandidatePayload(ctx context.Context, task localdb.Task, payload map[string]any, options StartOptions) {
-	if err := cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(ctx, options.Token, task.ID, payload); err != nil {
+	name := candidateLogName(payload)
+	err := r.withOperationTimeout(ctx, task.ID, name, "同步候选人到云端", cloudCandidateSyncTimeout, func(syncCtx context.Context) error {
+		return cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(syncCtx, options.Token, task.ID, payload)
+	})
+	if err != nil {
 		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
 		return
 	}
-	r.taskLog(task.ID, "info", "候选人已同步云端："+candidateLogName(payload))
+	r.taskLog(task.ID, "info", "候选人已同步云端："+name)
 }
 
 // mergeVisionDecisionIntoCandidate 合并图片详情 AI 的最终输出。
@@ -1297,7 +1372,12 @@ func (r *Runner) startCandidateDetailWorkers(ctx context.Context, task localdb.T
 					subtitle = candidateLogName(item.Candidate)
 				}
 				visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, title, subtitle, "正在判断是否值得打开详情")
-				decision, err := r.scoreCandidateForDetail(ctx, task, item.Candidate, visibleClient)
+				var decision localai.Decision
+				err := r.withOperationTimeout(ctx, task.ID, candidateLogName(item.Candidate), "AI基础预评分", aiPrecheckTimeout, func(opCtx context.Context) error {
+					nextDecision, scoreErr := r.scoreCandidateForDetail(opCtx, task, item.Candidate, visibleClient)
+					decision = nextDecision
+					return scoreErr
+				})
 				cleanup()
 				if err == nil {
 					item.DetailDecision = &decision
@@ -1372,7 +1452,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 		return 0, 0, 0, err
 	}
 	r.taskLog(task.ID, "info", fmt.Sprintf("准备打招呼：name=%s greeted_so_far=%d", candidateLogName(candidate), greetedSoFar))
-	if err := r.tryGreet(ctx, platformRuntime, exec, platformConfig, candidate, options); err != nil {
+	if err := r.tryGreet(ctx, task.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
 		r.taskLog(task.ID, "warning", "打招呼失败："+err.Error())
@@ -1447,17 +1527,24 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	if err := r.delayRandomRange(ctx, task.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
 		r.taskLog(task.ID, "warning", "打开详情前延时被中断")
 	}
-	detailResult, err := platformRuntime.FetchCandidateDetail(ctx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
-		TaskID:         task.ID,
-		Mode:           mode,
-		ScreenshotsDir: r.screenshotsDir,
-		Filename:       "detail-latest.png",
+	var detailResult platformcore.DetailResult
+	err := r.withOperationTimeout(ctx, task.ID, candidateName, "读取候选人详情", detailFetchTimeout, func(opCtx context.Context) error {
+		nextDetailResult, fetchErr := platformRuntime.FetchCandidateDetail(opCtx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
+			TaskID:         task.ID,
+			Mode:           mode,
+			ScreenshotsDir: r.screenshotsDir,
+			Filename:       "detail-latest.png",
+		})
+		detailResult = nextDetailResult
+		return fetchErr
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
 		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
 		if !r.isUserStopped(task.ID) {
-			_ = platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate))
+			_ = r.withOperationTimeout(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", detailCloseTimeout, func(closeCtx context.Context) error {
+				return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
+			})
 		}
 		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
 		if isBrowserClosedTaskError(err) {
@@ -1472,7 +1559,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		}
 		// 关闭详情前模拟人工浏览延时，然后再执行关闭
 		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
-		if err := platformRuntime.CloseCandidateDetail(context.WithoutCancel(ctx), exec, platformConfig, platformcore.Candidate(candidate)); err != nil {
+		if err := r.withOperationTimeout(context.WithoutCancel(ctx), task.ID, candidateName, "关闭详情页", detailCloseTimeout, func(closeCtx context.Context) error {
+			return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
+		}); err != nil {
 			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 		}
 	}()
@@ -1489,14 +1578,21 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			if taskMode(task) == "keyword" {
 				r.showKeywordOCRLoadingOverlay(ctx, exec, task, candidate)
 			} else {
-				_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+				overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+				_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
 					"action":   "show",
 					"title":    "AI 正在分析详情",
 					"subtitle": candidateName,
 					"message":  "OCR图文识别中...",
 				})
+				overlayCancel()
 			}
-			ocrText, err := r.recognizeDetailScreenshot(ctx, screenshot)
+			ocrText := ""
+			err := r.withOperationTimeout(ctx, task.ID, candidateName, "OCR识别详情截图", ocrRecognizeTimeout, func(ocrCtx context.Context) error {
+				nextText, ocrErr := r.recognizeDetailScreenshot(ocrCtx, screenshot)
+				ocrText = nextText
+				return ocrErr
+			})
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
 				r.taskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
@@ -1511,7 +1607,12 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		if mode == "ai" {
 			r.taskLog(task.ID, "info", "开始 AI 图片详情评分："+candidateName)
 			visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼")
-			decision, err := r.scoreDetailScreenshotWithClient(ctx, task, candidate, screenshot, visibleClient)
+			var decision localai.Decision
+			err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI图片详情评分", aiDetailTimeout, func(aiCtx context.Context) error {
+				nextDecision, aiErr := r.scoreDetailScreenshotWithClient(aiCtx, task, candidate, screenshot, visibleClient)
+				decision = nextDecision
+				return aiErr
+			})
 			cleanup()
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
@@ -1607,12 +1708,14 @@ func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, cli
 		message = "正在等待 AI 返回结果"
 	}
 	steps := aiThinkingSteps(message)
-	_, _ = exec.Post(ctx, "/api/v1/page/ai-overlay", map[string]any{
+	overlayCtx, overlayCancel := context.WithTimeout(ctx, overlayActionTimeout)
+	_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
 		"action":   "show",
 		"title":    title,
 		"subtitle": subtitle,
 		"message":  steps[0],
 	})
+	overlayCancel()
 	done := make(chan struct{})
 	thinkingCh := make(chan string, 100)
 	go r.playAIThinking(ctx, exec, title, subtitle, steps, thinkingCh, done)
@@ -1645,19 +1748,22 @@ func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title s
 	if reply == "" {
 		reply = "AI 已完成分析"
 	}
-	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+	_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
 		"action":   "show",
 		"title":    title,
 		"subtitle": subtitle,
 		"message":  reply,
 	})
+	overlayCancel()
 }
 
 // showKeywordMatchOverlay 在浏览器浮层中展示 OCR 关键词匹配结果。
 // ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
 func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
 	state := buildKeywordMatchState(task, candidate)
-	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/keyword-overlay", map[string]any{
+	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
 		"title":            "关键词匹配",
 		"subtitle":         candidateLogName(candidate),
@@ -1667,13 +1773,15 @@ func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecu
 		"matched_excludes": state.Excluded,
 		"text":             state.Text,
 	})
+	overlayCancel()
 }
 
 // showKeywordOCRLoadingOverlay 在浏览器浮层中展示 OCR 识别等待状态。
 // ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
 func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
 	state := buildKeywordMatchState(task, candidate)
-	_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/keyword-overlay", map[string]any{
+	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
 		"title":            "关键词匹配",
 		"subtitle":         candidateLogName(candidate),
@@ -1683,6 +1791,7 @@ func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platform
 		"text":             "OCR图文识别中...",
 		"max_age_ms":       30000,
 	})
+	overlayCancel()
 }
 
 // playAIThinking 周期性刷新浏览器里的 AI 思考步骤。
@@ -1704,23 +1813,27 @@ func (r *Runner) playAIThinking(ctx context.Context, exec platformExecutor, titl
 		case thinking := <-thinkingCh:
 			// 标记已收到流式内容，后续 ticker 不再覆盖
 			streamingStarted = true
-			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+			overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+			_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
 				"action":   "show",
 				"title":    title,
 				"subtitle": subtitle,
 				"message":  thinking,
 			})
+			overlayCancel()
 		case <-ticker.C:
 			// 收到真实流式内容后不再显示固定步骤
 			if streamingStarted {
 				continue
 			}
-			_, _ = exec.Post(context.WithoutCancel(ctx), "/api/v1/page/ai-overlay", map[string]any{
+			overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
+			_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
 				"action":   "show",
 				"title":    title,
 				"subtitle": subtitle,
 				"message":  steps[index%len(steps)],
 			})
+			overlayCancel()
 			index++
 		}
 	}
@@ -1935,7 +2048,12 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	}
 	candidateName := candidateLogName(candidate)
 	r.taskLog(task.ID, "info", "开始 AI 评分："+candidateName)
-	decision, err := r.scoreCandidateForGreetWithEarlyReturn(ctx, task, candidate, client)
+	var decision localai.Decision
+	err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI最终打招呼评分", aiScoreTimeout, func(scoreCtx context.Context) error {
+		nextDecision, scoreErr := r.scoreCandidateForGreetWithEarlyReturn(scoreCtx, task, candidate, client)
+		decision = nextDecision
+		return scoreErr
+	})
 	if err != nil {
 		r.taskLog(task.ID, "warning", "AI 评分失败："+err.Error())
 		return 0, err
@@ -1993,7 +2111,7 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task
 
 // tryGreet 带重试地执行单个候选人打招呼。
 // ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
-func (r *Runner) tryGreet(ctx context.Context, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
+func (r *Runner) tryGreet(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
 	retries := maxInt(0, options.GreetRetries)
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
@@ -2001,7 +2119,9 @@ func (r *Runner) tryGreet(ctx context.Context, platformRuntime platformcore.Runt
 			return err
 		}
 		log.Printf("[本地任务] level=info 准备调用打招呼接口 attempt=%d", attempt+1)
-		err := platformRuntime.GreetCandidate(ctx, exec, platformConfig, platformcore.Candidate(candidate))
+		err := r.withOperationTimeout(ctx, taskID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
+			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))
+		})
 		if err == nil {
 			return nil
 		}
