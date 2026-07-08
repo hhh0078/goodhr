@@ -2,6 +2,7 @@
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import GitHubIcon from "@mui/icons-material/GitHub";
 import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import MarkChatReadRoundedIcon from "@mui/icons-material/MarkChatReadRounded";
 import PersonSearchRoundedIcon from "@mui/icons-material/PersonSearchRounded";
@@ -14,13 +15,13 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
-import { absoluteURL, createPageMetadata, RECRUITMENT_PLATFORMS } from "@/lib/seo";
+import { absoluteURL, createPageMetadata, GITHUB_REPOSITORY_URL, RECRUITMENT_PLATFORMS } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR AI招聘助手 - 自动筛选、自动打招呼与招聘消息回复",
-  description: "GoodHR 帮助 HR 和猎头在主流招聘平台完成自动筛选简历、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理，关键词模式与基础流程可免费使用。",
+  description: "GoodHR 是完全开源的 AI 招聘助手，帮助 HR 和猎头在主流招聘平台完成自动筛选简历、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理。",
   path: "/",
-  keywords: ["免费招聘软件", "免费自动打招呼", "猎头AI工具", "HR自动化招聘", "多招聘平台自动化"],
+  keywords: ["免费招聘软件", "免费自动打招呼", "猎头AI工具", "HR自动化招聘", "多招聘平台自动化", "开源招聘系统", "开源AI招聘助手"],
 });
 
 const benefits = [
@@ -60,7 +61,7 @@ export default function HomePage() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <StructuredData data={[
-        { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "GoodHR", applicationCategory: "BusinessApplication", operatingSystem: "Windows, macOS", url: absoluteURL("/"), downloadUrl: absoluteURL("/download"), description: "面向 HR 和猎头的招聘平台自动化工具，支持自动筛选、AI筛选、自动打招呼、AI自动回复和简历管理。", offers: { "@type": "Offer", price: "0", priceCurrency: "CNY", description: "关键词筛选与基础招聘流程可免费使用" }, featureList: automationScenes.map((item) => item.title) },
+        { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "GoodHR", applicationCategory: "BusinessApplication", operatingSystem: "Windows, macOS", url: absoluteURL("/"), downloadUrl: absoluteURL("/download"), codeRepository: GITHUB_REPOSITORY_URL, description: "完全开源的 HR 和猎头招聘平台自动化工具，支持自动筛选、AI筛选、自动打招呼、AI自动回复和简历管理。", offers: { "@type": "Offer", price: "0", priceCurrency: "CNY", description: "关键词筛选与基础招聘流程可免费使用" }, featureList: automationScenes.map((item) => item.title) },
         { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faqs.map((item) => ({ "@type": "Question", name: item.question, acceptedAnswer: { "@type": "Answer", text: item.answer } })) },
       ]} />
       <SiteHeader />
@@ -120,7 +121,7 @@ export default function HomePage() {
               </Typography>
 
               <Typography sx={{ mt: 1.5, color: "primary.dark", fontSize: 15, fontWeight: 700 }}>
-                HR 和猎头的免费自动招聘助手
+                HR 和猎头的免费自动招聘助手，完全开源，代码公开。
               </Typography>
               <Stack
                 direction={{ xs: "column", sm: "row" }}
@@ -147,6 +148,19 @@ export default function HomePage() {
                   sx={{ px: 3 }}
                 >
                   进入控制台
+                </Button>
+                <Button
+                  component='a'
+                  href={GITHUB_REPOSITORY_URL}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  variant='outlined'
+                  color='secondary'
+                  size='large'
+                  startIcon={<GitHubIcon />}
+                  sx={{ px: 3 }}
+                >
+                  开源地址
                 </Button>
               </Stack>
             </Box>
