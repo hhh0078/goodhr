@@ -22,7 +22,9 @@ const (
 	defaultBuiltinAIBaseURL      = "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions"
 	defaultBuiltinAIModel        = "qwen3.7-plus"
 	defaultSignupBonusCents      = 70
-	defaultAIRechargeAmountCents = 1000
+	defaultAIRechargeAmountCents = 500
+	aiWalletUnitsPerYuan         = 10000
+	aiWalletUnitsPerCent         = 100
 	maxAICompatibleBodyBytes     = 8 << 20
 )
 
@@ -30,8 +32,8 @@ const (
 type AIWalletRecord struct {
 	ID                string
 	UserEmail         string
-	ChangeCents       int
-	BalanceAfterCents int
+	ChangeUnits       int64
+	BalanceAfterUnits int64
 	Category          string
 	Reason            string
 	RelatedOrderNo    string
@@ -43,10 +45,10 @@ type AIWalletRecord struct {
 
 // AIWalletStore 定义内置 AI 钱包持久化能力。
 type AIWalletStore interface {
-	// BalanceCents 读取指定用户的 AI 余额。
-	BalanceCents(email string) (int, error)
+	// BalanceUnits 读取指定用户的 AI 余额，单位为 0.0001 元。
+	BalanceUnits(email string) (int64, error)
 	// AdjustBalance 调整指定用户的 AI 余额并写入流水。
-	AdjustBalance(record AIWalletRecord) (int, error)
+	AdjustBalance(record AIWalletRecord) (int64, error)
 	// ListRecords 读取指定用户的 AI 余额流水。
 	ListRecords(email string, limit int, offset int) ([]AIWalletRecord, int, error)
 	// UserEmailByAIKey 通过用户专属 AI Key 找到账号邮箱。
@@ -103,7 +105,7 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "session invalid or expired")
 		return
 	}
-	balance, err := s.wallet.BalanceCents(session.Email)
+	balance, err := s.wallet.BalanceUnits(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
@@ -111,10 +113,12 @@ func (s *AIWalletService) Summary(w http.ResponseWriter, r *http.Request) {
 	cfg := s.loadBuiltinAIConfig()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                     true,
-		"balance_cents":          balance,
-		"balance":                centsToYuanString(balance),
+		"balance_units":          balance,
+		"balance_cents":          aiUnitsToCents(balance),
+		"balance":                aiUnitsToYuanString(balance),
 		"default_recharge_cents": defaultAIRechargeAmountCents,
 		"default_model":          cfg.DefaultModel,
+		"public_base_url":        cfg.PublicBaseURL,
 		"models":                 cfg.Models,
 	})
 }
@@ -181,19 +185,21 @@ func (s *AIWalletService) UseBuiltin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed use builtin ai")
 		return
 	}
-	balance, err := s.wallet.BalanceCents(session.Email)
+	balance, err := s.wallet.BalanceUnits(session.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
 	}
 	cfg := s.loadBuiltinAIConfig()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":            true,
-		"config":        publicUserAIConfig(config),
-		"balance_cents": balance,
-		"balance":       centsToYuanString(balance),
-		"default_model": cfg.DefaultModel,
-		"models":        cfg.Models,
+		"ok":              true,
+		"config":          publicUserAIConfig(config),
+		"balance_units":   balance,
+		"balance_cents":   aiUnitsToCents(balance),
+		"balance":         aiUnitsToYuanString(balance),
+		"default_model":   cfg.DefaultModel,
+		"public_base_url": cfg.PublicBaseURL,
+		"models":          cfg.Models,
 	})
 }
 
@@ -213,7 +219,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnauthorized, "AI Key 不太对，我先不敢乱花钱。")
 		return
 	}
-	balance, err := s.wallet.BalanceCents(email)
+	balance, err := s.wallet.BalanceUnits(email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed load ai balance")
 		return
@@ -235,7 +241,12 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	modelID := aiModelFromBody(body, cfg.DefaultModel)
 	model, ok := cfg.modelByID(modelID)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "这个模型暂时不在可用列表里。")
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":               false,
+			"error":            "这个模型暂时不在可用列表里。",
+			"model":            modelID,
+			"supported_models": cfg.modelIDs(),
+		})
 		return
 	}
 	body = rewriteAIModel(body, model.ID)
@@ -259,11 +270,11 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
-		cost := aiUsageCostCents(model, promptTokens, completionTokens)
+		cost := aiUsageCostUnits(model, promptTokens, completionTokens)
 		if cost > 0 {
 			_, _ = s.wallet.AdjustBalance(AIWalletRecord{
 				UserEmail:        email,
-				ChangeCents:      -cost,
+				ChangeUnits:      -cost,
 				Category:         "ai_usage",
 				Reason:           "内置AI调用扣费",
 				ModelID:          model.ID,
@@ -315,7 +326,7 @@ func (s *AIWalletService) ConfigureUserBuiltinAI(email string) (AIConfig, error)
 		}
 		if _, err := s.wallet.AdjustBalance(AIWalletRecord{
 			UserEmail:   email,
-			ChangeCents: bonus,
+			ChangeUnits: centsToAIUnits(bonus),
 			Category:    "signup_bonus",
 			Reason:      "注册赠送内置AI余额",
 		}); err != nil {
@@ -359,7 +370,7 @@ func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
 	}
 	_, err = s.wallet.AdjustBalance(AIWalletRecord{
 		UserEmail:   email,
-		ChangeCents: bonus,
+		ChangeUnits: centsToAIUnits(bonus),
 		Category:    "signup_bonus",
 		Reason:      "注册赠送内置AI余额",
 	})
@@ -425,35 +436,46 @@ func (c builtinAIConfig) modelByID(modelID string) (builtinAIModel, bool) {
 	return builtinAIModel{}, false
 }
 
+// modelIDs 返回当前内置 AI 配置中允许使用的模型 ID。
+func (c builtinAIConfig) modelIDs() []string {
+	ids := make([]string, 0, len(c.Models))
+	for _, model := range c.Models {
+		if strings.TrimSpace(model.ID) != "" {
+			ids = append(ids, model.ID)
+		}
+	}
+	return ids
+}
+
 // MemoryAIWalletStore 在内存中保存 AI 余额，用于开发环境。
 type MemoryAIWalletStore struct {
 	mu       sync.Mutex
-	balances map[string]int
+	balances map[string]int64
 	records  []AIWalletRecord
 	aiKeys   map[string]string
 }
 
 // NewMemoryAIWalletStore 创建内存 AI 钱包存储。
 func NewMemoryAIWalletStore() *MemoryAIWalletStore {
-	return &MemoryAIWalletStore{balances: map[string]int{}, aiKeys: map[string]string{}}
+	return &MemoryAIWalletStore{balances: map[string]int64{}, aiKeys: map[string]string{}}
 }
 
-// BalanceCents 读取内存中的 AI 余额。
-func (s *MemoryAIWalletStore) BalanceCents(email string) (int, error) {
+// BalanceUnits 读取内存中的 AI 余额。
+func (s *MemoryAIWalletStore) BalanceUnits(email string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.balances[email], nil
 }
 
 // AdjustBalance 调整内存中的 AI 余额并写流水。
-func (s *MemoryAIWalletStore) AdjustBalance(record AIWalletRecord) (int, error) {
+func (s *MemoryAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record.CreatedAt = time.Now()
-	record.BalanceAfterCents = s.balances[record.UserEmail] + record.ChangeCents
-	s.balances[record.UserEmail] = record.BalanceAfterCents
+	record.BalanceAfterUnits = s.balances[record.UserEmail] + record.ChangeUnits
+	s.balances[record.UserEmail] = record.BalanceAfterUnits
 	s.records = append(s.records, record)
-	return record.BalanceAfterCents, nil
+	return record.BalanceAfterUnits, nil
 }
 
 // ListRecords 读取内存中的 AI 余额流水。
@@ -506,20 +528,20 @@ func NewPostgresAIWalletStore(db *sql.DB) *PostgresAIWalletStore {
 	return &PostgresAIWalletStore{db: db}
 }
 
-// BalanceCents 读取 PostgreSQL 中的 AI 余额。
-func (s *PostgresAIWalletStore) BalanceCents(email string) (int, error) {
+// BalanceUnits 读取 PostgreSQL 中的 AI 余额。
+func (s *PostgresAIWalletStore) BalanceUnits(email string) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if _, err := ensureUserID(ctx, s.db, email); err != nil {
 		return 0, err
 	}
-	var balance int
-	err := s.db.QueryRowContext(ctx, `SELECT ai_balance_cents FROM users WHERE email=$1`, email).Scan(&balance)
+	var balance int64
+	err := s.db.QueryRowContext(ctx, `SELECT ai_balance_units FROM users WHERE email=$1`, email).Scan(&balance)
 	return balance, err
 }
 
 // AdjustBalance 调整 PostgreSQL 中的 AI 余额并写流水。
-func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int, error) {
+func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -531,17 +553,17 @@ func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int, error
 	if err != nil {
 		return 0, err
 	}
-	var balance int
-	err = tx.QueryRowContext(ctx, `UPDATE users SET ai_balance_cents=ai_balance_cents+$2 WHERE id=$1 RETURNING ai_balance_cents`, userID, record.ChangeCents).Scan(&balance)
+	var balance int64
+	err = tx.QueryRowContext(ctx, `UPDATE users SET ai_balance_units=ai_balance_units+$2 WHERE id=$1 RETURNING ai_balance_units`, userID, record.ChangeUnits).Scan(&balance)
 	if err != nil {
 		return 0, err
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ai_balance_records (
-			user_id, user_email, change_cents, balance_after_cents, category, reason,
+			user_id, user_email, change_units, balance_after_units, category, reason,
 			related_order_no, model_id, prompt_tokens, completion_tokens
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-	`, userID, record.UserEmail, record.ChangeCents, balance, record.Category, record.Reason, record.RelatedOrderNo, record.ModelID, record.PromptTokens, record.CompletionTokens)
+	`, userID, record.UserEmail, record.ChangeUnits, balance, record.Category, record.Reason, record.RelatedOrderNo, record.ModelID, record.PromptTokens, record.CompletionTokens)
 	if err != nil {
 		return 0, err
 	}
@@ -563,7 +585,7 @@ func (s *PostgresAIWalletStore) ListRecords(email string, limit int, offset int)
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id::text, user_email, change_cents, balance_after_cents, category, reason,
+	SELECT id::text, user_email, change_units, balance_after_units, category, reason,
 		       related_order_no, model_id, prompt_tokens, completion_tokens, created_at
 		FROM ai_balance_records
 		WHERE user_email=$1
@@ -577,7 +599,7 @@ func (s *PostgresAIWalletStore) ListRecords(email string, limit int, offset int)
 	records := []AIWalletRecord{}
 	for rows.Next() {
 		var record AIWalletRecord
-		if err := rows.Scan(&record.ID, &record.UserEmail, &record.ChangeCents, &record.BalanceAfterCents, &record.Category, &record.Reason, &record.RelatedOrderNo, &record.ModelID, &record.PromptTokens, &record.CompletionTokens, &record.CreatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.UserEmail, &record.ChangeUnits, &record.BalanceAfterUnits, &record.Category, &record.Reason, &record.RelatedOrderNo, &record.ModelID, &record.PromptTokens, &record.CompletionTokens, &record.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		records = append(records, record)
@@ -654,14 +676,14 @@ func aiUsageFromResponse(body []byte) (int, int) {
 	return payload.Usage.PromptTokens, payload.Usage.CompletionTokens
 }
 
-// aiUsageCostCents 按模型价格和 token 用量计算本次费用。
-func aiUsageCostCents(model builtinAIModel, promptTokens int, completionTokens int) int {
-	cost := float64(promptTokens)*float64(model.InputPricePer1MCents)/1_000_000 +
-		float64(completionTokens)*float64(model.OutputPricePer1MCents)/1_000_000
+// aiUsageCostUnits 按模型价格和 token 用量计算本次费用，单位为 0.0001 元。
+func aiUsageCostUnits(model builtinAIModel, promptTokens int, completionTokens int) int64 {
+	cost := float64(promptTokens)*float64(model.InputPricePer1MCents)*aiWalletUnitsPerCent/1_000_000 +
+		float64(completionTokens)*float64(model.OutputPricePer1MCents)*aiWalletUnitsPerCent/1_000_000
 	if cost <= 0 && promptTokens+completionTokens > 0 {
 		return 1
 	}
-	return int(math.Ceil(cost))
+	return int64(math.Ceil(cost))
 }
 
 // publicAIWalletRecord 将 AI 余额流水转换为前端展示结构。
@@ -669,10 +691,12 @@ func publicAIWalletRecord(record AIWalletRecord) map[string]any {
 	return map[string]any{
 		"id":                  record.ID,
 		"user_email":          record.UserEmail,
-		"change_cents":        record.ChangeCents,
-		"change":              centsToYuanString(record.ChangeCents),
-		"balance_after_cents": record.BalanceAfterCents,
-		"balance_after":       centsToYuanString(record.BalanceAfterCents),
+		"change_units":        record.ChangeUnits,
+		"change_cents":        aiUnitsToCents(record.ChangeUnits),
+		"change":              aiUnitsToYuanString(record.ChangeUnits),
+		"balance_after_units": record.BalanceAfterUnits,
+		"balance_after_cents": aiUnitsToCents(record.BalanceAfterUnits),
+		"balance_after":       aiUnitsToYuanString(record.BalanceAfterUnits),
 		"category":            record.Category,
 		"reason":              record.Reason,
 		"related_order_no":    record.RelatedOrderNo,

@@ -332,7 +332,7 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 			}
 			_, err = s.aiWallet.AdjustBalance(AIWalletRecord{
 				UserEmail:      paidOrder.UserEmail,
-				ChangeCents:    paidOrder.AmountCents,
+				ChangeUnits:    centsToAIUnits(paidOrder.AmountCents),
 				Category:       "recharge",
 				Reason:         "AI余额充值成功",
 				RelatedOrderNo: paidOrder.OrderNo,

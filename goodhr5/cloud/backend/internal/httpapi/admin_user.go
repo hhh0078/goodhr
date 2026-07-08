@@ -22,7 +22,7 @@ type AdminUser struct {
 	Agent               *AgentBinding       `json:"agent,omitempty"`
 	Subscription        Subscription        `json:"subscription"`
 	NotificationProfile NotificationProfile `json:"notification_profile"`
-	AIBalanceCents      int                 `json:"ai_balance_cents"`
+	AIBalanceUnits      int64               `json:"ai_balance_units"`
 	Flow                AdminUserFlow       `json:"flow"`
 	CreatedAt           time.Time           `json:"created_at"`
 	LastLoginAt         *time.Time          `json:"last_login_at,omitempty"`
@@ -291,7 +291,7 @@ func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Reques
 	}
 	balance, err := s.aiWallet.AdjustBalance(AIWalletRecord{
 		UserEmail:   email,
-		ChangeCents: amountCents,
+		ChangeUnits: centsToAIUnits(amountCents),
 		Category:    "admin_adjust",
 		Reason:      reason,
 	})
@@ -299,7 +299,7 @@ func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed adjust ai balance")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "balance_cents": balance, "balance": centsToYuanString(balance)})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "balance_units": balance, "balance_cents": aiUnitsToCents(balance), "balance": aiUnitsToYuanString(balance)})
 }
 
 // publicAdminUser 转换用户信息为前端响应。
@@ -313,8 +313,9 @@ func publicAdminUser(user AdminUser) map[string]any {
 		"agent":                publicAdminAgent(user.Agent),
 		"subscription":         publicSubscription(user.Subscription),
 		"notification_profile": user.NotificationProfile,
-		"ai_balance_cents":     user.AIBalanceCents,
-		"ai_balance":           centsToYuanString(user.AIBalanceCents),
+		"ai_balance_units":     user.AIBalanceUnits,
+		"ai_balance_cents":     aiUnitsToCents(user.AIBalanceUnits),
+		"ai_balance":           aiUnitsToYuanString(user.AIBalanceUnits),
 		"flow":                 user.Flow,
 		"created_at":           user.CreatedAt,
 		"last_login_at":        user.LastLoginAt,
@@ -485,7 +486,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 			u.email,
 			COALESCE(u.role, 'user'),
 			COALESCE(u.status, 'active'),
-			COALESCE(u.ai_balance_cents, 0),
+			COALESCE(u.ai_balance_units, 0),
 			u.subscription,
 			u.notification_profile,
 			u.created_at,
@@ -515,7 +516,7 @@ func (s *PostgresAdminUserStore) ListUsers(query AdminUserListQuery) (AdminUserL
 		var rawNotificationProfile []byte
 		var lastLoginAt sql.NullTime
 		var hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid bool
-		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &user.AIBalanceCents, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Role, &user.Status, &user.AIBalanceUnits, &rawSubscription, &rawNotificationProfile, &user.CreatedAt, &lastLoginAt, &user.InviterEmail, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
 			return AdminUserListResult{}, err
 		}
 		subscription, err := parseSubscription(rawSubscription)

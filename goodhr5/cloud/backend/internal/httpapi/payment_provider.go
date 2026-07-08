@@ -155,3 +155,23 @@ func (p *HaoshoumiProvider) sign(values map[string]string) string {
 func centsToYuanString(cents int) string {
 	return fmt.Sprintf("%.2f", float64(cents)/100)
 }
+
+// centsToAIUnits 将分转换成 AI 钱包 0.0001 元精度单位。
+func centsToAIUnits(cents int) int64 {
+	return int64(cents) * aiWalletUnitsPerCent
+}
+
+// aiUnitsToCents 将 AI 钱包余额按分返回，主要兼容旧前端字段。
+func aiUnitsToCents(units int64) int64 {
+	return units / aiWalletUnitsPerCent
+}
+
+// aiUnitsToYuanString 将 AI 钱包 0.0001 元单位转换为四位小数元字符串。
+func aiUnitsToYuanString(units int64) string {
+	sign := ""
+	if units < 0 {
+		sign = "-"
+		units = -units
+	}
+	return fmt.Sprintf("%s%d.%04d", sign, units/aiWalletUnitsPerYuan, units%aiWalletUnitsPerYuan)
+}
