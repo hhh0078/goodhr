@@ -249,7 +249,7 @@ func TestAuthRejectsEmailDomainNotAllowed(t *testing.T) {
 	if sendResp.Code != http.StatusForbidden {
 		t.Fatalf("send code status = %d, want %d, body = %s", sendResp.Code, http.StatusForbidden, sendResp.Body.String())
 	}
-	if !strings.Contains(sendResp.Body.String(), "该邮箱不在白名单内，请联系站长") {
+	if !strings.Contains(sendResp.Body.String(), "该邮箱域名不在白名单内，请使用qq邮箱、163 等等常见邮箱域名") {
 		t.Fatalf("unexpected body: %s", sendResp.Body.String())
 	}
 }

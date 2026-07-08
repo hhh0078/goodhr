@@ -83,7 +83,7 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.emailDomainAllowed(email) {
-		writeError(w, http.StatusForbidden, "该邮箱不在白名单内，请联系站长")
+		writeError(w, http.StatusForbidden, "该邮箱域名不在白名单内，请使用qq邮箱、163 等等常见邮箱域名")
 		return
 	}
 
@@ -410,7 +410,7 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 func (s *AuthService) SessionFromRequest(r *http.Request) (Session, error) {
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
-		return Session{}, errors.New("missing bearer token")
+		return Session{}, errors.New("请刷新浏览器，重新登录")
 	}
 	return s.SessionFromToken(token)
 }
