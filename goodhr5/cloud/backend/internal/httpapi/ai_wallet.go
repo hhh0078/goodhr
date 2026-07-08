@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -281,6 +282,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 				PromptTokens:     promptTokens,
 				CompletionTokens: completionTokens,
 			}); err != nil {
+				log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s cost_units=%d prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, cost, promptTokens, completionTokens, err)
 				writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
 				return
 			}
@@ -563,10 +565,10 @@ func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, err
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO ai_balance_records (
-			user_id, user_email, change_units, balance_after_units, category, reason,
+			user_id, user_email, change_cents, balance_after_cents, change_units, balance_after_units, category, reason,
 			related_order_no, model_id, prompt_tokens, completion_tokens
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-	`, userID, record.UserEmail, record.ChangeUnits, balance, record.Category, record.Reason, record.RelatedOrderNo, record.ModelID, record.PromptTokens, record.CompletionTokens)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+	`, userID, record.UserEmail, aiUnitsToCents(record.ChangeUnits), aiUnitsToCents(balance), record.ChangeUnits, balance, record.Category, record.Reason, record.RelatedOrderNo, record.ModelID, record.PromptTokens, record.CompletionTokens)
 	if err != nil {
 		return 0, err
 	}
