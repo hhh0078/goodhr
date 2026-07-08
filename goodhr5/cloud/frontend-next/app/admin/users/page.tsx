@@ -47,6 +47,7 @@ type AdminUserItem = {
   created_at?: string;
   last_login_at?: string;
   ai_balance?: string;
+  ai_balance_units?: number;
   ai_balance_cents?: number;
   subscription?: {
     member_type?: string;
@@ -503,7 +504,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
         <MobileInfoBlock
           title="AI余额"
           lines={[`￥${item.ai_balance || "0.00"}`]}
-          strong={Number(item.ai_balance_cents || 0) > 0}
+          strong={Number(item.ai_balance_units || 0) > 0}
         />
         <MobileInfoBlock
           title="本地程序"
@@ -624,7 +625,7 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
 function BalanceInfo({ item }: { item: AdminUserItem }) {
   return <Stack component={Link} href={`/admin/ai-records?email=${encodeURIComponent(item.email)}`} spacing={0.5} sx={{ color: "inherit", textDecoration: "none" }}>
       <Typography sx={{ fontSize: 12, fontWeight: 720 }}>AI余额</Typography>
-      <Typography sx={{ color: Number(item.ai_balance_cents || 0) > 0 ? "#15945f" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
+      <Typography sx={{ color: Number(item.ai_balance_units || 0) > 0 ? "#15945f" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
         ￥{item.ai_balance || "0.00"}
       </Typography>
     </Stack>;
