@@ -272,7 +272,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
 		cost := aiUsageCostUnits(model, promptTokens, completionTokens)
 		if cost > 0 {
-			_, _ = s.wallet.AdjustBalance(AIWalletRecord{
+			if _, err := s.wallet.AdjustBalance(AIWalletRecord{
 				UserEmail:        email,
 				ChangeUnits:      -cost,
 				Category:         "ai_usage",
@@ -280,7 +280,10 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 				ModelID:          model.ID,
 				PromptTokens:     promptTokens,
 				CompletionTokens: completionTokens,
-			})
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
+				return
+			}
 		}
 	}
 	copyHeader(w.Header(), resp.Header)

@@ -12,7 +12,10 @@ import (
 
 func RunMigrations(db *sql.DB) error {
 	d := "db/migrations"
-	es, _ := os.ReadDir(d)
+	es, err := os.ReadDir(d)
+	if err != nil {
+		return err
+	}
 	var fs []string
 	for _, e := range es {
 		n := e.Name()

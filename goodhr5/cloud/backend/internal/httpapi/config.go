@@ -77,7 +77,10 @@ func (c Config) PostgresDB() (*sql.DB, error) {
 	}
 
 	// 自动执行数据库迁移；连接检查通过后再迁移，避免连接配置错误时日志不清晰。
-	RunMigrations(db)
+	if err := RunMigrations(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("PostgreSQL 自动迁移失败: %w", err)
+	}
 	return db, nil
 }
 
