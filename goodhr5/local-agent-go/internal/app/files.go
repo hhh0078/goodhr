@@ -387,9 +387,9 @@ func revealLocalFile(filePath string) error {
 // filePath 为已经校验过的本地文件路径。
 func runWindowsOpenFileAttempts(filePath string) error {
 	attempts := []windowsOpenAttempt{
+		{name: "cmd-start", cmd: exec.Command("cmd", "/c", "start", "", filePath), hideWindow: true},
 		{name: "powershell-start-process", cmd: windowsPowerShellCommand(`Start-Process -LiteralPath $env:GOODHR_DOWNLOAD_PATH`, filePath), hideWindow: true},
 		{name: "powershell-invoke-item", cmd: windowsPowerShellCommand(`Invoke-Item -LiteralPath $env:GOODHR_DOWNLOAD_PATH`, filePath), hideWindow: true},
-		{name: "cmd-start", cmd: exec.Command("cmd", "/c", "start", "", filePath), hideWindow: true},
 		{name: "rundll32-file-protocol", cmd: exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath), hideWindow: true},
 		{name: "explorer-open-file", cmd: exec.Command("explorer.exe", filePath)},
 	}
@@ -402,11 +402,11 @@ func runWindowsRevealFileAttempts(filePath string) error {
 	selectArg := `/select,"` + filePath + `"`
 	dirPath := filepath.Dir(filePath)
 	attempts := []windowsOpenAttempt{
-		{name: "explorer-select", cmd: exec.Command("explorer.exe", selectArg)},
 		{name: "cmd-start-explorer-select", cmd: exec.Command("cmd", "/c", "start", "", "explorer.exe", selectArg), hideWindow: true},
 		{name: "powershell-start-explorer-select", cmd: windowsPowerShellCommand(`Start-Process -FilePath explorer.exe -ArgumentList ('/select,"' + $env:GOODHR_DOWNLOAD_PATH + '"')`, filePath), hideWindow: true},
-		{name: "explorer-open-folder", cmd: exec.Command("explorer.exe", dirPath)},
 		{name: "cmd-start-folder", cmd: exec.Command("cmd", "/c", "start", "", dirPath), hideWindow: true},
+		{name: "explorer-select", cmd: exec.Command("explorer.exe", selectArg)},
+		{name: "explorer-open-folder", cmd: exec.Command("explorer.exe", dirPath)},
 	}
 	return runWindowsOpenAttempts("打开文件夹", filePath, attempts)
 }
@@ -421,7 +421,6 @@ type windowsOpenAttempt struct {
 // action 为操作名称，filePath 为文件路径，attempts 为待执行命令列表。
 func runWindowsOpenAttempts(action string, filePath string, attempts []windowsOpenAttempt) error {
 	var lastErr error
-	successCount := 0
 	for _, attempt := range attempts {
 		if attempt.cmd == nil {
 			continue
@@ -437,11 +436,8 @@ func runWindowsOpenAttempts(action string, filePath string, attempts []windowsOp
 			log.Printf("[下载提示] Windows %s 尝试失败 method=%s output=%s err=%v", action, attempt.name, text, err)
 			continue
 		}
-		successCount++
 		log.Printf("[下载提示] Windows %s 尝试完成 method=%s output=%s", action, attempt.name, text)
-	}
-	if successCount > 0 {
-		log.Printf("[下载提示] Windows %s 多方案尝试结束 success_count=%d total=%d file_path=%s", action, successCount, len(attempts), filePath)
+		log.Printf("[下载提示] Windows %s 已命中可用方案 method=%s file_path=%s", action, attempt.name, filePath)
 		return nil
 	}
 	if lastErr != nil {
