@@ -4,6 +4,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	stdlog "log"
 	"net/http"
 	"strings"
 	"time"
@@ -55,6 +56,8 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	candidateName := localCandidateDisplayName(payload)
+	s.writeCandidateIngestLog(task.ID, task.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
 	now := time.Now().UTC()
 	profile, err := s.candidateStore.SaveCandidateProfile(CandidateProfileInput{
 		UserEmail:           task.UserEmail,
@@ -88,6 +91,7 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		FirstSeenAt:         &now,
 	})
 	if err != nil {
+		s.writeCandidateIngestLog(task.ID, task.UserEmail, "warning", "云端候选人主体保存失败："+candidateName+"，原因："+err.Error())
 		writeError(w, http.StatusInternalServerError, "failed to save candidate")
 		return
 	}
@@ -102,17 +106,27 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		FirstSeenAt:       &now,
 	})
 	if err != nil {
+		s.writeCandidateIngestLog(task.ID, task.UserEmail, "warning", "云端候选人任务关联保存失败："+candidateName+"，原因："+err.Error())
 		writeError(w, http.StatusInternalServerError, "failed to save candidate engagement")
 		return
 	}
 	s.saveLocalCandidateScoreEvents(task, profile.ID, engagement.ID, payload)
 	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now))
 	_ = s.store.IncrementTaskCounts(task.ID, 1, localCountIfStatus(payload, "greeted"), localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
+	s.writeCandidateIngestLog(task.ID, task.UserEmail, "info", "云端候选人入库成功："+candidateName+"，状态："+localCandidateStatus(payload))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"candidate":  publicTaskCandidate(profile),
 		"engagement": engagement.ID,
 	})
+}
+
+// writeCandidateIngestLog 写入云端候选人入库链路日志。
+// taskID 为任务 ID，userEmail 为任务所属用户，level 为日志级别，message 为日志内容。
+func (s *TaskService) writeCandidateIngestLog(taskID string, userEmail string, level string, message string) {
+	if err := s.taskLogs.WriteLog(taskID, userEmail, level, message); err != nil {
+		stdlog.Printf("[云端候选人入库] 写任务日志失败 task=%s user=%s level=%s err=%v message=%s", taskID, userEmail, level, err, message)
+	}
 }
 
 // AddProcessedResumes 累加本地程序本次去重后新增的已处理简历数量。
@@ -267,6 +281,16 @@ func localCandidateString(item map[string]any, key string) string {
 		return strings.TrimSpace(value)
 	}
 	return ""
+}
+
+// localCandidateDisplayName 返回云端候选人入库日志里的展示名。
+// item 为候选人 JSON，返回候选人姓名或平台候选人 ID。
+func localCandidateDisplayName(item map[string]any) string {
+	name := firstNonEmpty(firstNonEmpty(localCandidateString(item, "candidate_name"), localCandidateString(item, "name")), localCandidateString(item, "id"))
+	if name == "" {
+		return "未知候选人"
+	}
+	return name
 }
 
 // localCandidateFloat 从候选人 JSON 中读取分数。

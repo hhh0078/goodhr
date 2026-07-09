@@ -944,6 +944,7 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 // ctx 为请求上下文，task 为任务记录，payload 为候选人 JSON，options 为启动参数。
 func (r *Runner) saveCandidatePayload(ctx context.Context, task localdb.Task, payload map[string]any, options StartOptions) {
 	name := candidateLogName(payload)
+	r.taskLog(task.ID, "info", "准备同步候选人到云端："+name)
 	err := r.withOperationTimeout(ctx, task.ID, name, "同步候选人到云端", cloudCandidateSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(syncCtx, options.Token, task.ID, payload)
 	})
