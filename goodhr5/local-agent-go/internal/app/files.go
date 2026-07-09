@@ -42,30 +42,41 @@ func (s *Server) handleDownloadNotify(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
+	log.Printf("[下载提示] 收到下载完成通知 remote=%s", r.RemoteAddr)
 	payload, err := readPayload(r)
 	if err != nil {
+		log.Printf("[下载提示] 读取请求失败 err=%v", err)
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	log.Printf("[下载提示] 请求参数 file_path=%s path=%s file_name=%s url=%s status=%s", stringValue(payload["file_path"]), stringValue(payload["path"]), stringValue(payload["file_name"]), stringValue(payload["url"]), stringValue(payload["status"]))
 	filePath, err := s.downloadFilePathFromPayload(payload)
 	if err != nil {
+		log.Printf("[下载提示] 文件路径校验失败 err=%v", err)
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	log.Printf("[下载提示] 文件路径校验通过 file_path=%s", filePath)
 	payload["file_path"] = filePath
 	if stringValue(payload["file_name"]) == "" {
 		payload["file_name"] = filepath.Base(filePath)
 	}
 	if s.db != nil {
 		if _, err := s.db.SaveDownload(payload); err != nil {
-			log.Printf("保存下载记录失败：%v", err)
+			log.Printf("[下载提示] 保存下载记录失败 err=%v", err)
+		} else {
+			log.Printf("[下载提示] 下载记录已保存 file_path=%s", filePath)
 		}
 	}
 	go func() {
+		log.Printf("[下载提示] 准备弹出轻量提示窗 file_path=%s os=%s", filePath, goruntime.GOOS)
 		if err := showDownloadToast(filePath); err != nil {
-			log.Printf("下载完成提示窗失败：%v", err)
+			log.Printf("[下载提示] 轻量提示窗失败 file_path=%s err=%v", filePath, err)
+			return
 		}
+		log.Printf("[下载提示] 轻量提示窗流程结束 file_path=%s", filePath)
 	}()
+	log.Printf("[下载提示] 已接受通知请求 file_path=%s", filePath)
 	response.Success(w, map[string]any{"notified": true, "file_path": filePath})
 }
 
@@ -124,6 +135,7 @@ func (s *Server) downloadFilePathFromPayload(payload map[string]any) (string, er
 func showDownloadToast(filePath string) error {
 	var action string
 	var err error
+	log.Printf("[下载提示] 开始显示提示窗 file_path=%s os=%s", filePath, goruntime.GOOS)
 	switch goruntime.GOOS {
 	case "darwin":
 		action, err = showDownloadToastDarwin(filePath)
@@ -133,12 +145,16 @@ func showDownloadToast(filePath string) error {
 		action, err = showDownloadToastLinux(filePath)
 	}
 	if err != nil {
+		log.Printf("[下载提示] 提示窗脚本执行失败 file_path=%s err=%v", filePath, err)
 		return err
 	}
+	log.Printf("[下载提示] 提示窗返回动作 file_path=%s action=%s", filePath, strings.TrimSpace(action))
 	switch strings.TrimSpace(action) {
 	case "open":
+		log.Printf("[下载提示] 用户选择打开文件 file_path=%s", filePath)
 		return openLocalFile(filePath)
 	case "reveal":
+		log.Printf("[下载提示] 用户选择打开文件夹 file_path=%s", filePath)
 		return revealLocalFile(filePath)
 	default:
 		return nil
@@ -148,6 +164,7 @@ func showDownloadToast(filePath string) error {
 // showDownloadToastDarwin 使用 AppleScript 弹出 macOS 轻量提示窗。
 // filePath 为下载文件路径，返回用户动作。
 func showDownloadToastDarwin(filePath string) (string, error) {
+	log.Printf("[下载提示] macOS AppleScript 提示窗开始 file_name=%s", filepath.Base(filePath))
 	script := `
 on run argv
 set fileName to item 1 of argv
@@ -170,13 +187,19 @@ on error number -128
 end try
 end run
 `
-	out, err := exec.Command("osascript", "-e", script, filepath.Base(filePath)).Output()
+	out, err := exec.Command("osascript", "-e", script, filepath.Base(filePath)).CombinedOutput()
+	if err != nil {
+		log.Printf("[下载提示] macOS AppleScript 提示窗失败 output=%s err=%v", strings.TrimSpace(string(out)), err)
+	} else {
+		log.Printf("[下载提示] macOS AppleScript 提示窗完成 output=%s", strings.TrimSpace(string(out)))
+	}
 	return strings.TrimSpace(string(out)), err
 }
 
 // showDownloadToastWindows 使用 PowerShell 弹出 Windows 轻量提示窗。
 // filePath 为下载文件路径，返回用户动作。
 func showDownloadToastWindows(filePath string) (string, error) {
+	log.Printf("[下载提示] Windows PowerShell 提示窗开始 file_name=%s", filepath.Base(filePath))
 	script := `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -216,7 +239,12 @@ if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
 `
 	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, filepath.Base(filePath))
 	hideCommandWindow(cmd)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[下载提示] Windows PowerShell 提示窗失败 output=%s err=%v", strings.TrimSpace(string(out)), err)
+	} else {
+		log.Printf("[下载提示] Windows PowerShell 提示窗完成 output=%s", strings.TrimSpace(string(out)))
+	}
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -224,6 +252,7 @@ if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
 // filePath 为下载文件路径，返回用户动作。
 func showDownloadToastLinux(filePath string) (string, error) {
 	if _, err := exec.LookPath("zenity"); err == nil {
+		log.Printf("[下载提示] Linux zenity 提示窗开始 file_name=%s", filepath.Base(filePath))
 		cmd := exec.Command(
 			"zenity",
 			"--question",
@@ -236,6 +265,7 @@ func showDownloadToastLinux(filePath string) (string, error) {
 		)
 		out, err := cmd.Output()
 		text := strings.TrimSpace(string(out))
+		log.Printf("[下载提示] Linux zenity 提示窗完成 output=%s err=%v", text, err)
 		if text == "打开文件夹" {
 			return "reveal", nil
 		}
@@ -244,6 +274,7 @@ func showDownloadToastLinux(filePath string) (string, error) {
 		}
 		return "dismiss", nil
 	}
+	log.Printf("[下载提示] Linux 未找到 zenity，跳过提示窗 file_path=%s", filePath)
 	return "", nil
 }
 

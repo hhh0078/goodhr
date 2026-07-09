@@ -2660,9 +2660,17 @@ async function notifyDownloadSaved(record) {
     return;
   }
   try {
-    await postAgentJSON("/api/v1/downloads/notify", record);
+    logWorker("准备通知本地程序弹出下载提示", {
+      agent_base_url: agentBaseURL,
+      api_path: "/api/v1/downloads/notify",
+      file_path: record.file_path || record.path || "",
+      file_name: record.file_name || record.filename || "",
+    });
+    const result = await postAgentJSON("/api/v1/downloads/notify", record);
     logWorker("已通知本地程序弹出下载提示", {
       file_path: record.file_path || record.path || "",
+      status_code: result.statusCode,
+      response: result.body,
     });
   } catch (error) {
     logWorker("通知本地程序弹出下载提示失败", {
@@ -2676,7 +2684,7 @@ async function notifyDownloadSaved(record) {
  * 向 Go 本地程序发送 JSON 请求。
  * @param {string} apiPath - 本地接口路径。
  * @param {Record<string, any>} payload - 请求参数。
- * @returns {Promise<void>} 无返回值。
+ * @returns {Promise<{statusCode:number,body:string}>} 响应结果。
  */
 function postAgentJSON(apiPath, payload) {
   return new Promise((resolve, reject) => {
@@ -2695,20 +2703,32 @@ function postAgentJSON(apiPath, payload) {
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
+          const responseBody = Buffer.concat(chunks).toString("utf8").slice(0, 500);
+          logWorker("本地程序接口响应", {
+            path: apiPath,
+            status_code: res.statusCode,
+            body: responseBody,
+          });
           if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve();
+            resolve({ statusCode: res.statusCode, body: responseBody });
             return;
           }
           reject(
             new Error(
-              `本地接口返回 ${res.statusCode}: ${Buffer.concat(chunks).toString("utf8").slice(0, 200)}`,
+              `本地接口返回 ${res.statusCode}: ${responseBody.slice(0, 200)}`,
             ),
           );
         });
       },
     );
     req.setTimeout(1800, () => req.destroy(new Error("本地接口请求超时")));
-    req.on("error", reject);
+    req.on("error", (error) => {
+      logWorker("本地程序接口请求失败", {
+        path: apiPath,
+        message: error?.message || String(error),
+      });
+      reject(error);
+    });
     req.write(body);
     req.end();
   });
