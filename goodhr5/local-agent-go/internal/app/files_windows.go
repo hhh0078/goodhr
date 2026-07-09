@@ -107,8 +107,6 @@ type windowsMsg struct {
 func showDownloadToastWindowsNative(filePath string) (string, error) {
 	windowsToastMu.Lock()
 	defer windowsToastMu.Unlock()
-
-	log.Printf("[下载提示] Windows 原生提示窗开始 file_name=%s", filepath.Base(filePath))
 	if err := registerWindowsToastClass(); err != nil {
 		log.Printf("[下载提示] Windows 原生提示窗注册失败 err=%v", err)
 		return "", err
@@ -169,7 +167,6 @@ func showDownloadToastWindowsNative(filePath string) (string, error) {
 	default:
 	}
 	currentToast = nil
-	log.Printf("[下载提示] Windows 原生提示窗完成 action=%s", action)
 	return action, nil
 }
 

@@ -2660,18 +2660,7 @@ async function notifyDownloadSaved(record) {
     return;
   }
   try {
-    logWorker("准备通知本地程序弹出下载提示", {
-      agent_base_url: agentBaseURL,
-      api_path: "/api/v1/downloads/notify",
-      file_path: record.file_path || record.path || "",
-      file_name: record.file_name || record.filename || "",
-    });
-    const result = await postAgentJSON("/api/v1/downloads/notify", record);
-    logWorker("已通知本地程序弹出下载提示", {
-      file_path: record.file_path || record.path || "",
-      status_code: result.statusCode,
-      response: result.body,
-    });
+    await postAgentJSON("/api/v1/downloads/notify", record);
   } catch (error) {
     logWorker("通知本地程序弹出下载提示失败", {
       message: error?.message || String(error),
@@ -2704,11 +2693,6 @@ function postAgentJSON(apiPath, payload) {
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
           const responseBody = Buffer.concat(chunks).toString("utf8").slice(0, 500);
-          logWorker("本地程序接口响应", {
-            path: apiPath,
-            status_code: res.statusCode,
-            body: responseBody,
-          });
           if (res.statusCode >= 200 && res.statusCode < 300) {
             resolve({ statusCode: res.statusCode, body: responseBody });
             return;
