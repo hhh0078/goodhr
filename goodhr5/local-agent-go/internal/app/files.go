@@ -359,7 +359,7 @@ func openLocalFile(filePath string) error {
 	case "darwin":
 		cmd = exec.Command("open", filePath)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", filePath)
+		return runWindowsOpenFileAttempts(filePath)
 	default:
 		cmd = exec.Command("xdg-open", filePath)
 	}
@@ -375,10 +375,85 @@ func revealLocalFile(filePath string) error {
 	case "darwin":
 		cmd = exec.Command("open", "-R", filePath)
 	case "windows":
-		cmd = exec.Command("explorer", "/select,"+filePath)
+		return runWindowsRevealFileAttempts(filePath)
 	default:
 		cmd = exec.Command("xdg-open", filepath.Dir(filePath))
 	}
 	hideCommandWindow(cmd)
 	return cmd.Start()
+}
+
+// runWindowsOpenFileAttempts 依次尝试多种 Windows 打开文件方式。
+// filePath 为已经校验过的本地文件路径。
+func runWindowsOpenFileAttempts(filePath string) error {
+	attempts := []windowsOpenAttempt{
+		{name: "powershell-start-process", cmd: windowsPowerShellCommand(`Start-Process -LiteralPath $env:GOODHR_DOWNLOAD_PATH`, filePath), hideWindow: true},
+		{name: "powershell-invoke-item", cmd: windowsPowerShellCommand(`Invoke-Item -LiteralPath $env:GOODHR_DOWNLOAD_PATH`, filePath), hideWindow: true},
+		{name: "cmd-start", cmd: exec.Command("cmd", "/c", "start", "", filePath), hideWindow: true},
+		{name: "rundll32-file-protocol", cmd: exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath), hideWindow: true},
+		{name: "explorer-open-file", cmd: exec.Command("explorer.exe", filePath)},
+	}
+	return runWindowsOpenAttempts("打开文件", filePath, attempts)
+}
+
+// runWindowsRevealFileAttempts 依次尝试多种 Windows 定位文件方式。
+// filePath 为已经校验过的本地文件路径。
+func runWindowsRevealFileAttempts(filePath string) error {
+	selectArg := `/select,"` + filePath + `"`
+	dirPath := filepath.Dir(filePath)
+	attempts := []windowsOpenAttempt{
+		{name: "explorer-select", cmd: exec.Command("explorer.exe", selectArg)},
+		{name: "cmd-start-explorer-select", cmd: exec.Command("cmd", "/c", "start", "", "explorer.exe", selectArg), hideWindow: true},
+		{name: "powershell-start-explorer-select", cmd: windowsPowerShellCommand(`Start-Process -FilePath explorer.exe -ArgumentList ('/select,"' + $env:GOODHR_DOWNLOAD_PATH + '"')`, filePath), hideWindow: true},
+		{name: "explorer-open-folder", cmd: exec.Command("explorer.exe", dirPath)},
+		{name: "cmd-start-folder", cmd: exec.Command("cmd", "/c", "start", "", dirPath), hideWindow: true},
+	}
+	return runWindowsOpenAttempts("打开文件夹", filePath, attempts)
+}
+
+type windowsOpenAttempt struct {
+	name       string
+	cmd        *exec.Cmd
+	hideWindow bool
+}
+
+// runWindowsOpenAttempts 执行所有 Windows 打开尝试并记录每一步结果。
+// action 为操作名称，filePath 为文件路径，attempts 为待执行命令列表。
+func runWindowsOpenAttempts(action string, filePath string, attempts []windowsOpenAttempt) error {
+	var lastErr error
+	successCount := 0
+	for _, attempt := range attempts {
+		if attempt.cmd == nil {
+			continue
+		}
+		if attempt.hideWindow {
+			hideCommandWindow(attempt.cmd)
+		}
+		log.Printf("[下载提示] Windows %s 尝试开始 method=%s file_path=%s command=%s args=%v", action, attempt.name, filePath, attempt.cmd.Path, attempt.cmd.Args)
+		out, err := attempt.cmd.CombinedOutput()
+		text := strings.TrimSpace(string(out))
+		if err != nil {
+			lastErr = err
+			log.Printf("[下载提示] Windows %s 尝试失败 method=%s output=%s err=%v", action, attempt.name, text, err)
+			continue
+		}
+		successCount++
+		log.Printf("[下载提示] Windows %s 尝试完成 method=%s output=%s", action, attempt.name, text)
+	}
+	if successCount > 0 {
+		log.Printf("[下载提示] Windows %s 多方案尝试结束 success_count=%d total=%d file_path=%s", action, successCount, len(attempts), filePath)
+		return nil
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("没有可用的 Windows %s 方式", action)
+}
+
+// windowsPowerShellCommand 创建隐藏窗口的 PowerShell 命令。
+// script 为 PowerShell 脚本，filePath 为传入脚本的文件路径。
+func windowsPowerShellCommand(script string, filePath string) *exec.Cmd {
+	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = append(os.Environ(), "GOODHR_DOWNLOAD_PATH="+filePath)
+	return cmd
 }
