@@ -39,6 +39,8 @@ type WorkerManager struct {
 	logFile *os.File
 	logPath string
 	baseURL string
+	// agentBaseURL 是 Go 本地程序地址，供 Node Worker 回调本地能力。
+	agentBaseURL string
 	// attachedPID 记录复用到的旧 Worker 进程 ID。
 	attachedPID int
 }
@@ -47,6 +49,14 @@ type WorkerManager struct {
 // runtimeManager 为运行组件管理器。
 func NewWorkerManager(runtimeManager *runtime.Manager) *WorkerManager {
 	return &WorkerManager{runtime: runtimeManager, baseURL: "http://127.0.0.1:9101"}
+}
+
+// SetAgentBaseURL 设置 Go 本地程序回调地址。
+// baseURL 为本地程序 HTTP 基础地址。
+func (m *WorkerManager) SetAgentBaseURL(baseURL string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.agentBaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 }
 
 // Start 启动 Node Browser Worker。
@@ -83,6 +93,9 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
 		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
 	)
+	if m.agentBaseURL != "" {
+		cmd.Env = append(cmd.Env, "GOODHR_AGENT_BASE_URL="+m.agentBaseURL)
+	}
 	logFile, logPath, err := openWorkerLog(status.RuntimeDir)
 	if err != nil {
 		return WorkerStatus{}, err
@@ -371,6 +384,10 @@ func (m *WorkerManager) statusLocked() WorkerStatus {
 // ctx 为请求上下文，返回值表示 Worker 状态和是否可复用。
 func (m *WorkerManager) probeExistingWorkerLocked(ctx context.Context) (WorkerStatus, bool) {
 	if health, ok := probeWorkerAt(ctx, m.baseURL); ok {
+		if !m.workerHealthReusable(health) {
+			log.Printf("[Node Worker] 跳过不兼容的旧 Worker base_url=%s", m.baseURL)
+			return WorkerStatus{}, false
+		}
 		m.attachedPID = intFromAny(health["pid"])
 		return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
 	}
@@ -381,6 +398,10 @@ func (m *WorkerManager) probeExistingWorkerLocked(ctx context.Context) (WorkerSt
 		}
 		health, ok := probeWorkerAt(ctx, baseURL)
 		if !ok {
+			continue
+		}
+		if !m.workerHealthReusable(health) {
+			log.Printf("[Node Worker] 跳过不兼容的旧 Worker base_url=%s", baseURL)
 			continue
 		}
 		m.baseURL = baseURL
@@ -429,7 +450,10 @@ func probeWorkerAt(ctx context.Context, baseURL string) (map[string]any, bool) {
 func (m *WorkerManager) selectAvailableBaseURLLocked(ctx context.Context) error {
 	for port := 9101; port <= 9109; port++ {
 		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
-		if _, ok := probeWorkerAt(ctx, baseURL); ok {
+		if health, ok := probeWorkerAt(ctx, baseURL); ok {
+			if !m.workerHealthReusable(health) {
+				continue
+			}
 			m.baseURL = baseURL
 			return nil
 		}
@@ -441,6 +465,15 @@ func (m *WorkerManager) selectAvailableBaseURLLocked(ctx context.Context) error 
 		}
 	}
 	return fmt.Errorf("Node Browser Worker 没有可用端口：9101-9109")
+}
+
+// workerHealthReusable 判断已有 Worker 是否兼容当前本地程序。
+// health 为 Worker 健康检查数据。
+func (m *WorkerManager) workerHealthReusable(health map[string]any) bool {
+	if m.agentBaseURL == "" {
+		return true
+	}
+	return boolFromAny(health["agent_notify"])
 }
 
 // workerAddrFromBaseURL 从 Worker 基础地址提取监听地址。
@@ -467,6 +500,19 @@ func intFromAny(value any) int {
 		return parsed
 	default:
 		return 0
+	}
+}
+
+// boolFromAny 将任意值转换为布尔值。
+// value 为任意 JSON 字段。
+func boolFromAny(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	default:
+		return false
 	}
 }
 
@@ -520,7 +566,7 @@ func (m *WorkerManager) findReadyWorkerLocked(ctx context.Context, client *http.
 			continue
 		}
 		data, _ := body["data"].(map[string]any)
-		if data["worker"] == "node" {
+		if data["worker"] == "node" && m.workerHealthReusable(data) {
 			return baseURL, true
 		}
 	}

@@ -93,6 +93,9 @@ func (s *Server) Run() error {
 		return err
 	}
 	s.cfg.Port = port
+	if s.worker != nil {
+		s.worker.SetAgentBaseURL("http://" + net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
+	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
@@ -132,6 +135,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/local/screenshots", s.handleLocalScreenshots)
 	mux.HandleFunc("/api/v1/files/open", s.handleFileOpen)
 	mux.HandleFunc("/api/v1/files/reveal", s.handleFileReveal)
+	mux.HandleFunc("/api/v1/downloads/notify", s.handleDownloadNotify)
 	mux.HandleFunc("/api/v1/cloud/platform-config", s.handleCloudPlatformConfig)
 	mux.HandleFunc("/api/v1/cloud/subscription/status", s.handleCloudSubscriptionStatus)
 	mux.HandleFunc("/api/v1/browser/start", s.handleBrowserStart)

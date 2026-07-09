@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 
 	"goodhr5/local-agent-go/internal/response"
 )
+
+const downloadToastTimeoutSeconds = 5
 
 // handleFileOpen 用系统默认程序打开下载文件。
 // w 为响应对象，r 为请求对象。
@@ -30,6 +33,40 @@ func (s *Server) handleFileOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]any{"file_path": filePath})
+}
+
+// handleDownloadNotify 弹出下载完成提示窗。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleDownloadNotify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	filePath, err := s.downloadFilePathFromPayload(payload)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	payload["file_path"] = filePath
+	if stringValue(payload["file_name"]) == "" {
+		payload["file_name"] = filepath.Base(filePath)
+	}
+	if s.db != nil {
+		if _, err := s.db.SaveDownload(payload); err != nil {
+			log.Printf("保存下载记录失败：%v", err)
+		}
+	}
+	go func() {
+		if err := showDownloadToast(filePath); err != nil {
+			log.Printf("下载完成提示窗失败：%v", err)
+		}
+	}()
+	response.Success(w, map[string]any{"notified": true, "file_path": filePath})
 }
 
 // handleFileReveal 在系统文件管理器中定位下载文件。
@@ -58,6 +95,12 @@ func (s *Server) downloadFilePathFromRequest(r *http.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return s.downloadFilePathFromPayload(payload)
+}
+
+// downloadFilePathFromPayload 从请求参数中读取并校验下载文件路径。
+// payload 为请求 JSON 参数。
+func (s *Server) downloadFilePathFromPayload(payload map[string]any) (string, error) {
 	rawPath := firstNonEmptyString(stringValue(payload["file_path"]), stringValue(payload["path"]))
 	if strings.TrimSpace(rawPath) == "" {
 		return "", fmt.Errorf("文件路径不能为空")
@@ -74,6 +117,134 @@ func (s *Server) downloadFilePathFromRequest(r *http.Request) (string, error) {
 		return "", fmt.Errorf("这里需要一个文件路径，不是文件夹")
 	}
 	return filePath, nil
+}
+
+// showDownloadToast 弹出下载完成轻量提示窗。
+// filePath 为已经校验过的本地文件路径。
+func showDownloadToast(filePath string) error {
+	var action string
+	var err error
+	switch goruntime.GOOS {
+	case "darwin":
+		action, err = showDownloadToastDarwin(filePath)
+	case "windows":
+		action, err = showDownloadToastWindows(filePath)
+	default:
+		action, err = showDownloadToastLinux(filePath)
+	}
+	if err != nil {
+		return err
+	}
+	switch strings.TrimSpace(action) {
+	case "open":
+		return openLocalFile(filePath)
+	case "reveal":
+		return revealLocalFile(filePath)
+	default:
+		return nil
+	}
+}
+
+// showDownloadToastDarwin 使用 AppleScript 弹出 macOS 轻量提示窗。
+// filePath 为下载文件路径，返回用户动作。
+func showDownloadToastDarwin(filePath string) (string, error) {
+	script := `
+on run argv
+set fileName to item 1 of argv
+set dialogText to "我下载好了，公主请验收：" & return & fileName
+try
+	set dialogResult to display dialog dialogText with title "GoodHR" buttons {"打开文件夹", "打开文件", "先放着"} default button "打开文件" cancel button "先放着" giving up after 5
+	if gave up of dialogResult is true then
+		return "timeout"
+	end if
+	set clickedButton to button returned of dialogResult
+	if clickedButton is "打开文件" then
+		return "open"
+	else if clickedButton is "打开文件夹" then
+		return "reveal"
+	else
+		return "dismiss"
+	end if
+on error number -128
+	return "dismiss"
+end try
+end run
+`
+	out, err := exec.Command("osascript", "-e", script, filepath.Base(filePath)).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// showDownloadToastWindows 使用 PowerShell 弹出 Windows 轻量提示窗。
+// filePath 为下载文件路径，返回用户动作。
+func showDownloadToastWindows(filePath string) (string, error) {
+	script := `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$fileName = $args[0]
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "GoodHR"
+$form.StartPosition = "Manual"
+$form.Size = New-Object System.Drawing.Size(380, 140)
+$form.FormBorderStyle = "FixedToolWindow"
+$form.TopMost = $true
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$form.Location = New-Object System.Drawing.Point(($screen.Right - $form.Width - 16), ($screen.Bottom - $form.Height - 16))
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "我下载好了，公主请验收：" + [Environment]::NewLine + $fileName
+$label.AutoSize = $false
+$label.Location = New-Object System.Drawing.Point(14, 12)
+$label.Size = New-Object System.Drawing.Size(340, 45)
+$form.Controls.Add($label)
+$openButton = New-Object System.Windows.Forms.Button
+$openButton.Text = "打开文件"
+$openButton.Location = New-Object System.Drawing.Point(95, 72)
+$openButton.Size = New-Object System.Drawing.Size(88, 28)
+$openButton.Add_Click({ $form.Tag = "open"; $form.Close() })
+$form.Controls.Add($openButton)
+$revealButton = New-Object System.Windows.Forms.Button
+$revealButton.Text = "打开文件夹"
+$revealButton.Location = New-Object System.Drawing.Point(194, 72)
+$revealButton.Size = New-Object System.Drawing.Size(96, 28)
+$revealButton.Add_Click({ $form.Tag = "reveal"; $form.Close() })
+$form.Controls.Add($revealButton)
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 5000
+$timer.Add_Tick({ $timer.Stop(); if (-not $form.Tag) { $form.Tag = "timeout" }; $form.Close() })
+$form.Add_Shown({ $timer.Start(); $form.Activate() })
+[void]$form.ShowDialog()
+if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
+`
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, filepath.Base(filePath))
+	hideCommandWindow(cmd)
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// showDownloadToastLinux 使用常见 Linux 桌面工具弹出提示窗。
+// filePath 为下载文件路径，返回用户动作。
+func showDownloadToastLinux(filePath string) (string, error) {
+	if _, err := exec.LookPath("zenity"); err == nil {
+		cmd := exec.Command(
+			"zenity",
+			"--question",
+			"--timeout="+fmt.Sprint(downloadToastTimeoutSeconds),
+			"--title=GoodHR",
+			"--text=我下载好了，公主请验收：\n"+filepath.Base(filePath),
+			"--ok-label=打开文件",
+			"--cancel-label=先放着",
+			"--extra-button=打开文件夹",
+		)
+		out, err := cmd.Output()
+		text := strings.TrimSpace(string(out))
+		if text == "打开文件夹" {
+			return "reveal", nil
+		}
+		if err == nil {
+			return "open", nil
+		}
+		return "dismiss", nil
+	}
+	return "", nil
 }
 
 // safeDownloadFilePath 校验文件路径必须位于下载目录内。

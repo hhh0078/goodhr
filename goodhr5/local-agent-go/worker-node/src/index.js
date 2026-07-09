@@ -11,6 +11,7 @@ const [host, rawPort] = addr.split(":");
 const port = Number(rawPort || 9101);
 const rawMaxPort = Number(process.env.GOODHR_WORKER_PORT_END || 9109);
 const maxPort = Number.isFinite(rawMaxPort) ? rawMaxPort : 9109;
+const agentBaseURL = String(process.env.GOODHR_AGENT_BASE_URL || "").replace(/\/+$/, "");
 
 let browser = null;
 let context = null;
@@ -297,6 +298,8 @@ async function workerHealth() {
     persistent: Boolean(currentUserDataDir),
     user_data_dir: currentUserDataDir,
     downloads_path: currentDownloadsPath || downloadDir(),
+    agent_notify: Boolean(agentBaseURL),
+    download_handler: downloadHandlerVersion,
   };
 }
 
@@ -2597,7 +2600,7 @@ function registerPage(targetPage) {
       if (failure) throw new Error(`下载失败：${failure}`);
       savedPath = await ensureDownloadExtension(targetPath);
       const stat = await fs.stat(savedPath).catch(() => null);
-      downloads.unshift({
+      const record = {
         id: downloadID(savedPath, downloadURL),
         path: savedPath,
         file_path: savedPath,
@@ -2608,13 +2611,15 @@ function registerPage(targetPage) {
         size: stat?.size || 0,
         status: "saved",
         created_at: new Date().toISOString(),
-      });
+      };
+      downloads.unshift(record);
       logWorker("下载文件保存完成", {
         path: savedPath,
         file_name: path.basename(savedPath),
         size: stat?.size || 0,
         elapsed_ms: Date.now() - startedAt,
       });
+      await notifyDownloadSaved(record);
       if (downloads.length > 100) downloads.length = 100;
     } catch (error) {
       logWorker("保存下载文件失败", {
@@ -2640,6 +2645,73 @@ function listDownloads() {
     directory: downloadDir(),
     downloads_path: currentDownloadsPath || downloadDir(),
   };
+}
+
+/**
+ * 通知 Go 本地程序下载文件已保存。
+ * @param {Record<string, any>} record - 下载记录。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function notifyDownloadSaved(record) {
+  if (!agentBaseURL) {
+    logWorker("未配置本地下载通知地址，跳过提示窗", {
+      file_path: record.file_path || record.path || "",
+    });
+    return;
+  }
+  try {
+    await postAgentJSON("/api/v1/downloads/notify", record);
+    logWorker("已通知本地程序弹出下载提示", {
+      file_path: record.file_path || record.path || "",
+    });
+  } catch (error) {
+    logWorker("通知本地程序弹出下载提示失败", {
+      message: error?.message || String(error),
+      file_path: record.file_path || record.path || "",
+    });
+  }
+}
+
+/**
+ * 向 Go 本地程序发送 JSON 请求。
+ * @param {string} apiPath - 本地接口路径。
+ * @param {Record<string, any>} payload - 请求参数。
+ * @returns {Promise<void>} 无返回值。
+ */
+function postAgentJSON(apiPath, payload) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload || {});
+    const url = new URL(apiPath, `${agentBaseURL}/`);
+    const req = http.request(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve();
+            return;
+          }
+          reject(
+            new Error(
+              `本地接口返回 ${res.statusCode}: ${Buffer.concat(chunks).toString("utf8").slice(0, 200)}`,
+            ),
+          );
+        });
+      },
+    );
+    req.setTimeout(1800, () => req.destroy(new Error("本地接口请求超时")));
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 /**
