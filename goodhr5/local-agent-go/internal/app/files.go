@@ -14,7 +14,7 @@ import (
 	"goodhr5/local-agent-go/internal/response"
 )
 
-const downloadToastTimeoutSeconds = 5
+const downloadToastTimeoutSeconds = 10
 
 // handleFileOpen 用系统默认程序打开下载文件。
 // w 为响应对象，r 为请求对象。
@@ -152,10 +152,20 @@ func showDownloadToast(filePath string) error {
 	switch strings.TrimSpace(action) {
 	case "open":
 		log.Printf("[下载提示] 用户选择打开文件 file_path=%s", filePath)
-		return openLocalFile(filePath)
+		if err := openLocalFile(filePath); err != nil {
+			log.Printf("[下载提示] 打开文件失败 file_path=%s err=%v", filePath, err)
+			return err
+		}
+		log.Printf("[下载提示] 已调用系统打开文件 file_path=%s", filePath)
+		return nil
 	case "reveal":
 		log.Printf("[下载提示] 用户选择打开文件夹 file_path=%s", filePath)
-		return revealLocalFile(filePath)
+		if err := revealLocalFile(filePath); err != nil {
+			log.Printf("[下载提示] 打开文件夹失败 file_path=%s err=%v", filePath, err)
+			return err
+		}
+		log.Printf("[下载提示] 已调用系统打开文件夹 file_path=%s", filePath)
+		return nil
 	default:
 		return nil
 	}
@@ -208,37 +218,60 @@ if ([string]::IsNullOrWhiteSpace($fileName)) { $fileName = "下载文件" }
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "GoodHR"
 $form.StartPosition = "Manual"
-$form.Size = New-Object System.Drawing.Size(380, 140)
+$form.Size = New-Object System.Drawing.Size(420, 160)
 $form.FormBorderStyle = "FixedToolWindow"
 $form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 250)
+$form.ShowInTaskbar = $false
+$form.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$form.Location = New-Object System.Drawing.Point(($screen.Right - $form.Width - 16), ($screen.Bottom - $form.Height - 16))
+$form.Location = New-Object System.Drawing.Point(($screen.Right - $form.Width - 18), ($screen.Bottom - $form.Height - 18))
+
+$title = New-Object System.Windows.Forms.Label
+$title.Text = "下载好了，公主请验收"
+$title.AutoSize = $false
+$title.Location = New-Object System.Drawing.Point(18, 16)
+$title.Size = New-Object System.Drawing.Size(370, 22)
+$title.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($title)
+
 $label = New-Object System.Windows.Forms.Label
-$label.Text = "我下载好了，公主请验收：" + [Environment]::NewLine + $fileName
+$label.Text = $fileName
 $label.AutoSize = $false
-$label.Location = New-Object System.Drawing.Point(14, 12)
-$label.Size = New-Object System.Drawing.Size(340, 45)
+$label.Location = New-Object System.Drawing.Point(18, 42)
+$label.Size = New-Object System.Drawing.Size(370, 38)
+$label.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
 $form.Controls.Add($label)
+
 $openButton = New-Object System.Windows.Forms.Button
 $openButton.Text = "打开文件"
-$openButton.Location = New-Object System.Drawing.Point(95, 72)
-$openButton.Size = New-Object System.Drawing.Size(88, 28)
+$openButton.Location = New-Object System.Drawing.Point(128, 96)
+$openButton.Size = New-Object System.Drawing.Size(88, 30)
 $openButton.Add_Click({ $form.Tag = "open"; $form.Close() })
 $form.Controls.Add($openButton)
+
 $revealButton = New-Object System.Windows.Forms.Button
 $revealButton.Text = "打开文件夹"
-$revealButton.Location = New-Object System.Drawing.Point(194, 72)
-$revealButton.Size = New-Object System.Drawing.Size(96, 28)
+$revealButton.Location = New-Object System.Drawing.Point(226, 96)
+$revealButton.Size = New-Object System.Drawing.Size(104, 30)
 $revealButton.Add_Click({ $form.Tag = "reveal"; $form.Close() })
 $form.Controls.Add($revealButton)
+
+$closeButton = New-Object System.Windows.Forms.Button
+$closeButton.Text = "先放着"
+$closeButton.Location = New-Object System.Drawing.Point(36, 96)
+$closeButton.Size = New-Object System.Drawing.Size(82, 30)
+$closeButton.Add_Click({ $form.Tag = "dismiss"; $form.Close() })
+$form.Controls.Add($closeButton)
+
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 5000
+$timer.Interval = 10000
 $timer.Add_Tick({ $timer.Stop(); if (-not $form.Tag) { $form.Tag = "timeout" }; $form.Close() })
-$form.Add_Shown({ $timer.Start(); $form.Activate() })
+$form.Add_Shown({ $timer.Start(); $form.Activate(); $form.BringToFront() })
 [void]$form.ShowDialog()
 if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-Command", script)
 	cmd.Env = append(os.Environ(), "GOODHR_DOWNLOAD_FILE_NAME="+filepath.Base(filePath))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -326,7 +359,7 @@ func openLocalFile(filePath string) error {
 	case "darwin":
 		cmd = exec.Command("open", filePath)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath)
+		cmd = exec.Command("cmd", "/c", "start", "", filePath)
 	default:
 		cmd = exec.Command("xdg-open", filePath)
 	}
