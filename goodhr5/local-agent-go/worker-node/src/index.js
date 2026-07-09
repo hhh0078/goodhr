@@ -20,6 +20,7 @@ let currentDownloadsPath = "";
 const downloads = [];
 const elementRefs = new Map();
 let elementRefSeq = 0;
+const downloadHandlerVersion = "2026-07-09-context-pages";
 
 /**
  * 写入 Worker 诊断日志。
@@ -125,6 +126,8 @@ async function startBrowser(payload) {
   }
   if (browser || context) {
     if (!userDataDir || userDataDir === currentUserDataDir) {
+      registerContext(context);
+      registerPage(page);
       logWorker("复用已有浏览器", { user_data_dir: currentUserDataDir });
       return {
         running: true,
@@ -179,6 +182,7 @@ async function startBrowser(payload) {
     logWorker("持久化浏览器启动完成", { elapsed_ms: Date.now() - startedAt });
     currentUserDataDir = userDataDir;
     currentDownloadsPath = options.downloadsPath;
+    registerContext(context);
     page = context.pages?.()[0] || (await context.newPage());
     registerPage(page);
     logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
@@ -197,6 +201,7 @@ async function startBrowser(payload) {
   context = (await browser.newContext?.({ acceptDownloads: true })) || null;
   currentUserDataDir = "";
   currentDownloadsPath = options.downloadsPath;
+  registerContext(context);
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
   logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
@@ -2514,6 +2519,43 @@ async function importCookies(payload) {
 }
 
 /**
+ * 注册浏览器上下文页面监听，避免新页面下载事件漏掉。
+ * @param {any} targetContext - Playwright 浏览器上下文。
+ * @returns {void} 无返回值。
+ */
+function registerContext(targetContext) {
+  if (!targetContext || targetContext.__goodhrPageListenerRegistered) return;
+  targetContext.__goodhrPageListenerRegistered = true;
+  const pages = targetContext.pages?.() || [];
+  logWorker("已注册浏览器上下文页面监听", {
+    pages: pages.length,
+    downloads_path: currentDownloadsPath || downloadDir(),
+    download_handler: downloadHandlerVersion,
+  });
+  for (const item of pages) registerPage(item);
+  targetContext.on?.("page", (newPage) => {
+    logWorker("检测到新页面，准备注册下载监听", {
+      url: pageURL(newPage),
+      download_handler: downloadHandlerVersion,
+    });
+    registerPage(newPage);
+  });
+}
+
+/**
+ * 安全读取页面地址。
+ * @param {any} targetPage - Playwright 页面对象。
+ * @returns {string} 页面地址。
+ */
+function pageURL(targetPage) {
+  try {
+    return targetPage?.url?.() || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * 注册页面下载事件。
  * @param {any} targetPage - Playwright 页面对象。
  * @returns {void} 无返回值。
@@ -2521,39 +2563,67 @@ async function importCookies(payload) {
 function registerPage(targetPage) {
   if (!targetPage || targetPage.__goodhrDownloadRegistered) return;
   targetPage.__goodhrDownloadRegistered = true;
+  logWorker("已注册页面下载监听", {
+    url: pageURL(targetPage),
+    downloads_path: currentDownloadsPath || downloadDir(),
+    download_handler: downloadHandlerVersion,
+  });
   targetPage.on("close", () => {
     if (page === targetPage) page = null;
     clearElementRefs();
   });
   targetPage.on("download", async (download) => {
+    const startedAt = Date.now();
+    let downloadURL = "";
+    let targetPath = "";
+    let savedPath = "";
     try {
       const directory = currentDownloadsPath || downloadDir();
       await fs.mkdir(directory, { recursive: true });
-      const url = download.url?.() || "";
-      const suggested = filenameWithExtension(
-        download.suggestedFilename?.() || "download",
-        url,
-      );
-      const targetPath = await uniquePath(directory, suggested);
+      downloadURL = download.url?.() || "";
+      const rawSuggested = download.suggestedFilename?.() || "download";
+      const suggested = filenameWithExtension(rawSuggested, downloadURL);
+      logWorker("捕获页面下载事件", {
+        page_url: pageURL(targetPage),
+        url: downloadURL,
+        suggested_filename: rawSuggested,
+        fixed_filename: suggested,
+        downloads_path: directory,
+      });
+      targetPath = await uniquePath(directory, suggested);
+      logWorker("准备保存下载文件", { target_path: targetPath });
       await download.saveAs(targetPath);
       const failure = await download.failure?.();
       if (failure) throw new Error(`下载失败：${failure}`);
-      const savedPath = await ensureDownloadExtension(targetPath);
+      savedPath = await ensureDownloadExtension(targetPath);
       const stat = await fs.stat(savedPath).catch(() => null);
       downloads.unshift({
-        id: downloadID(savedPath, url),
+        id: downloadID(savedPath, downloadURL),
         path: savedPath,
         file_path: savedPath,
         file_name: path.basename(savedPath),
         filename: path.basename(savedPath),
         suggested_filename: suggested,
-        url,
+        url: downloadURL,
         size: stat?.size || 0,
         status: "saved",
         created_at: new Date().toISOString(),
       });
+      logWorker("下载文件保存完成", {
+        path: savedPath,
+        file_name: path.basename(savedPath),
+        size: stat?.size || 0,
+        elapsed_ms: Date.now() - startedAt,
+      });
       if (downloads.length > 100) downloads.length = 100;
     } catch (error) {
+      logWorker("保存下载文件失败", {
+        message: error?.message || String(error),
+        url: downloadURL,
+        target_path: targetPath,
+        saved_path: savedPath,
+        elapsed_ms: Date.now() - startedAt,
+      });
       console.error("保存下载文件失败", error);
     }
   });
@@ -2614,12 +2684,24 @@ async function ensureDownloadExtension(filePath) {
   try {
     if (path.extname(filePath)) return filePath;
     const ext = await extensionFromFile(filePath);
-    if (!ext) return filePath;
+    if (!ext) {
+      logWorker("下载文件未识别到可补充后缀", { path: filePath });
+      return filePath;
+    }
     const parsed = path.parse(filePath);
     const targetPath = await uniquePath(parsed.dir, `${parsed.base}${ext}`);
     await fs.rename(filePath, targetPath);
+    logWorker("下载文件已补充后缀", {
+      original_path: filePath,
+      final_path: targetPath,
+      ext,
+    });
     return targetPath;
   } catch (error) {
+    logWorker("补充下载文件后缀失败", {
+      path: filePath,
+      message: error?.message || String(error),
+    });
     console.error("补充下载文件后缀失败", error);
     return filePath;
   }
