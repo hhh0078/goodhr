@@ -326,11 +326,11 @@ func runWindowsRevealFileAttempts(filePath string) error {
 	selectArg := `/select,"` + filePath + `"`
 	dirPath := filepath.Dir(filePath)
 	attempts := []windowsOpenAttempt{
-		{name: "cmd-start-explorer-select", cmd: exec.Command("cmd", "/c", "start", "", "explorer.exe", selectArg), hideWindow: true},
 		{name: "powershell-start-explorer-select", cmd: windowsPowerShellCommand(`Start-Process -FilePath explorer.exe -ArgumentList ('/select,"' + $env:GOODHR_DOWNLOAD_PATH + '"')`, filePath), hideWindow: true},
-		{name: "cmd-start-folder", cmd: exec.Command("cmd", "/c", "start", "", dirPath), hideWindow: true},
 		{name: "explorer-select", cmd: exec.Command("explorer.exe", selectArg)},
 		{name: "explorer-open-folder", cmd: exec.Command("explorer.exe", dirPath)},
+		{name: "cmd-start-folder", cmd: exec.Command("cmd", "/c", "start", "", dirPath), hideWindow: true},
+		{name: "cmd-start-explorer-select", cmd: exec.Command("cmd", "/c", "start", "", "explorer.exe", selectArg), hideWindow: true},
 	}
 	return runWindowsOpenAttempts("打开文件夹", filePath, attempts)
 }
