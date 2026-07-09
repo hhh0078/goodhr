@@ -6,6 +6,23 @@ export type RequiredRuntimeComponent = {
 	installed: boolean;
 };
 
+const requiredWinRuntimeAssets: Record<string, string> = {
+	node_runtime: "Node 运行环境",
+	cloakbrowser: "CloakBrowser 浏览器",
+	ocr: "OCR 组件",
+};
+
+/** missingRequiredWinRuntimeURLs 返回 Windows 必需运行组件里缺少下载地址的项目。 */
+export function missingRequiredWinRuntimeURLs(config: any) {
+	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
+	return Object.entries(requiredWinRuntimeAssets)
+		.filter(([key]) => {
+			const item = source?.[key] || {};
+			return !String(item?.win?.url || item?.windows?.url || "").trim();
+		})
+		.map(([, name]) => name);
+}
+
 /** buildRuntimeInstallPayload 将系统组件配置转换为本地程序安装接口参数。 */
 export function buildRuntimeInstallPayload(config: any) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
@@ -48,4 +65,3 @@ export function formatRuntimeBytes(bytes: number) {
 	}
 	return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
-
