@@ -2536,13 +2536,16 @@ function registerPage(targetPage) {
       );
       const targetPath = await uniquePath(directory, suggested);
       await download.saveAs(targetPath);
-      const stat = await fs.stat(targetPath).catch(() => null);
+      const failure = await download.failure?.();
+      if (failure) throw new Error(`下载失败：${failure}`);
+      const savedPath = await ensureDownloadExtension(targetPath);
+      const stat = await fs.stat(savedPath).catch(() => null);
       downloads.unshift({
-        id: downloadID(targetPath, url),
-        path: targetPath,
-        file_path: targetPath,
-        file_name: path.basename(targetPath),
-        filename: path.basename(targetPath),
+        id: downloadID(savedPath, url),
+        path: savedPath,
+        file_path: savedPath,
+        file_name: path.basename(savedPath),
+        filename: path.basename(savedPath),
         suggested_filename: suggested,
         url,
         size: stat?.size || 0,
@@ -2603,6 +2606,26 @@ function filenameWithExtension(suggested, url) {
 }
 
 /**
+ * 给已保存下载文件补充可识别的文件后缀。
+ * @param {string} filePath - 已保存的下载文件路径。
+ * @returns {Promise<string>} 最终文件路径。
+ */
+async function ensureDownloadExtension(filePath) {
+  try {
+    if (path.extname(filePath)) return filePath;
+    const ext = await extensionFromFile(filePath);
+    if (!ext) return filePath;
+    const parsed = path.parse(filePath);
+    const targetPath = await uniquePath(parsed.dir, `${parsed.base}${ext}`);
+    await fs.rename(filePath, targetPath);
+    return targetPath;
+  } catch (error) {
+    console.error("补充下载文件后缀失败", error);
+    return filePath;
+  }
+}
+
+/**
  * 从 URL 中提取常见文件后缀。
  * @param {string} url - 原始地址。
  * @returns {string} 文件后缀。
@@ -2616,6 +2639,65 @@ function extensionFromURL(url) {
     return "";
   }
   return "";
+}
+
+/**
+ * 根据文件头识别常见下载文件后缀。
+ * @param {string} filePath - 文件路径。
+ * @returns {Promise<string>} 文件后缀。
+ */
+async function extensionFromFile(filePath) {
+  const handle = await fs.open(filePath, "r").catch(() => null);
+  if (!handle) return "";
+  try {
+    const buffer = Buffer.alloc(65536);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return extensionFromBuffer(buffer.subarray(0, bytesRead));
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/**
+ * 根据文件内容识别常见文件后缀。
+ * @param {Buffer} buffer - 文件头内容。
+ * @returns {string} 文件后缀。
+ */
+function extensionFromBuffer(buffer) {
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("latin1") === "%PDF")
+    return ".pdf";
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return ".png";
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff)
+    return ".jpg";
+  if (buffer.length >= 6 && /^GIF8[79]a$/.test(buffer.subarray(0, 6).toString("latin1")))
+    return ".gif";
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])))
+    return ".doc";
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("latin1") === "{\\rt")
+    return ".rtf";
+  if (buffer.length >= 6 && buffer.subarray(0, 6).toString("latin1") === "Rar!\x1a\x07")
+    return ".rar";
+  if (buffer.length >= 6 && buffer.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c])))
+    return ".7z";
+  if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b)
+    return ".gz";
+  if (buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b)
+    return officeOrZipExtension(buffer);
+  return "";
+}
+
+/**
+ * 根据 ZIP 内部标记识别 Office 文档后缀。
+ * @param {Buffer} buffer - ZIP 文件头内容。
+ * @returns {string} 文件后缀。
+ */
+function officeOrZipExtension(buffer) {
+  const text = buffer.toString("latin1");
+  if (text.includes("word/")) return ".docx";
+  if (text.includes("xl/")) return ".xlsx";
+  if (text.includes("ppt/")) return ".pptx";
+  return ".zip";
 }
 
 /**
