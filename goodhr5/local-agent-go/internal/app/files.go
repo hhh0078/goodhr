@@ -238,9 +238,8 @@ $form.Add_Shown({ $timer.Start(); $form.Activate() })
 [void]$form.ShowDialog()
 if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script)
 	cmd.Env = append(os.Environ(), "GOODHR_DOWNLOAD_FILE_NAME="+filepath.Base(filePath))
-	hideCommandWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("[下载提示] Windows PowerShell 提示窗失败 output=%s err=%v", strings.TrimSpace(string(out)), err)
