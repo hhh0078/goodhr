@@ -203,7 +203,8 @@ func showDownloadToastWindows(filePath string) (string, error) {
 	script := `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$fileName = $args[0]
+$fileName = $env:GOODHR_DOWNLOAD_FILE_NAME
+if ([string]::IsNullOrWhiteSpace($fileName)) { $fileName = "下载文件" }
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "GoodHR"
 $form.StartPosition = "Manual"
@@ -237,7 +238,8 @@ $form.Add_Shown({ $timer.Start(); $form.Activate() })
 [void]$form.ShowDialog()
 if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
 `
-	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, filepath.Base(filePath))
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = append(os.Environ(), "GOODHR_DOWNLOAD_FILE_NAME="+filepath.Base(filePath))
 	hideCommandWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
