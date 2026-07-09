@@ -140,7 +140,7 @@ func showDownloadToast(filePath string) error {
 	case "darwin":
 		action, err = showDownloadToastDarwin(filePath)
 	case "windows":
-		action, err = showDownloadToastWindows(filePath)
+		action, err = showDownloadToastWindowsNative(filePath)
 	default:
 		action, err = showDownloadToastLinux(filePath)
 	}
@@ -202,82 +202,6 @@ end run
 		log.Printf("[下载提示] macOS AppleScript 提示窗失败 output=%s err=%v", strings.TrimSpace(string(out)), err)
 	} else {
 		log.Printf("[下载提示] macOS AppleScript 提示窗完成 output=%s", strings.TrimSpace(string(out)))
-	}
-	return strings.TrimSpace(string(out)), err
-}
-
-// showDownloadToastWindows 使用 PowerShell 弹出 Windows 轻量提示窗。
-// filePath 为下载文件路径，返回用户动作。
-func showDownloadToastWindows(filePath string) (string, error) {
-	log.Printf("[下载提示] Windows PowerShell 提示窗开始 file_name=%s", filepath.Base(filePath))
-	script := `
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$fileName = $env:GOODHR_DOWNLOAD_FILE_NAME
-if ([string]::IsNullOrWhiteSpace($fileName)) { $fileName = "下载文件" }
-$form = New-Object System.Windows.Forms.Form
-$form.Text = "GoodHR"
-$form.StartPosition = "Manual"
-$form.Size = New-Object System.Drawing.Size(420, 160)
-$form.FormBorderStyle = "FixedToolWindow"
-$form.TopMost = $true
-$form.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 250)
-$form.ShowInTaskbar = $false
-$form.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$form.Location = New-Object System.Drawing.Point(($screen.Right - $form.Width - 18), ($screen.Bottom - $form.Height - 18))
-
-$title = New-Object System.Windows.Forms.Label
-$title.Text = "下载好了，公主请验收"
-$title.AutoSize = $false
-$title.Location = New-Object System.Drawing.Point(18, 16)
-$title.Size = New-Object System.Drawing.Size(370, 22)
-$title.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 10, [System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($title)
-
-$label = New-Object System.Windows.Forms.Label
-$label.Text = $fileName
-$label.AutoSize = $false
-$label.Location = New-Object System.Drawing.Point(18, 42)
-$label.Size = New-Object System.Drawing.Size(370, 38)
-$label.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
-$form.Controls.Add($label)
-
-$openButton = New-Object System.Windows.Forms.Button
-$openButton.Text = "打开文件"
-$openButton.Location = New-Object System.Drawing.Point(128, 96)
-$openButton.Size = New-Object System.Drawing.Size(88, 30)
-$openButton.Add_Click({ $form.Tag = "open"; $form.Close() })
-$form.Controls.Add($openButton)
-
-$revealButton = New-Object System.Windows.Forms.Button
-$revealButton.Text = "打开文件夹"
-$revealButton.Location = New-Object System.Drawing.Point(226, 96)
-$revealButton.Size = New-Object System.Drawing.Size(104, 30)
-$revealButton.Add_Click({ $form.Tag = "reveal"; $form.Close() })
-$form.Controls.Add($revealButton)
-
-$closeButton = New-Object System.Windows.Forms.Button
-$closeButton.Text = "先放着"
-$closeButton.Location = New-Object System.Drawing.Point(36, 96)
-$closeButton.Size = New-Object System.Drawing.Size(82, 30)
-$closeButton.Add_Click({ $form.Tag = "dismiss"; $form.Close() })
-$form.Controls.Add($closeButton)
-
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 10000
-$timer.Add_Tick({ $timer.Stop(); if (-not $form.Tag) { $form.Tag = "timeout" }; $form.Close() })
-$form.Add_Shown({ $timer.Start(); $form.Activate(); $form.BringToFront() })
-[void]$form.ShowDialog()
-if ($form.Tag) { Write-Output $form.Tag } else { Write-Output "dismiss" }
-`
-	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-Command", script)
-	cmd.Env = append(os.Environ(), "GOODHR_DOWNLOAD_FILE_NAME="+filepath.Base(filePath))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("[下载提示] Windows PowerShell 提示窗失败 output=%s err=%v", strings.TrimSpace(string(out)), err)
-	} else {
-		log.Printf("[下载提示] Windows PowerShell 提示窗完成 output=%s", strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), err
 }
