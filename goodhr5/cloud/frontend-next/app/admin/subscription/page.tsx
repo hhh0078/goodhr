@@ -356,34 +356,56 @@ export default function SubscriptionPage() {
           </Stack>
         </InfoCard>
 
-        <InfoCard
-          icon={<CreditCardRoundedIcon />}
-          title='会员激活码'
-          value=''
-          contentFullWidth
-        >
-          <FormActionRow
-            field={
-              <TextField
-                size='small'
-                label='会员激活码'
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                fullWidth
-              />
-            }
-            action={
-              <Button
-                variant='contained'
-                disabled={!code.trim()}
-                onClick={() => void redeem()}
+        <SectionPanel sx={{ bgcolor: "#fbfdfc" }}>
+          <Stack spacing={1.4}>
+            <Stack
+              direction='row'
+              spacing={1.25}
+              sx={{ alignItems: "center", minWidth: 0 }}
+            >
+              <Box
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "8px",
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
+                  bgcolor: "#e9f2ec",
+                  color: "#1e6545",
+                }}
               >
-                激活
-              </Button>
-            }
-            maxWidth='100%'
-          />
-        </InfoCard>
+                <CreditCardRoundedIcon />
+              </Box>
+              <Typography noWrap sx={{ color: "text.secondary" }}>
+                会员激活码
+              </Typography>
+            </Stack>
+            <FormActionRow
+              field={
+                <TextField
+                  size='small'
+                  label='会员激活码'
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  fullWidth
+                  sx={{ minWidth: 0 }}
+                />
+              }
+              action={
+                <Button
+                  variant='contained'
+                  disabled={!code.trim()}
+                  onClick={() => void redeem()}
+                  sx={{ minWidth: 76 }}
+                >
+                  激活
+                </Button>
+              }
+              maxWidth='100%'
+            />
+          </Stack>
+        </SectionPanel>
       </Box>
 
       <Box sx={{ mb: 2.25 }}>
@@ -554,7 +576,6 @@ function InfoCard({
   value,
   tone = "plain",
   compact = false,
-  contentFullWidth = false,
   children,
 }: {
   icon: React.ReactNode;
@@ -562,7 +583,6 @@ function InfoCard({
   value: string;
   tone?: "plain" | "dark";
   compact?: boolean;
-  contentFullWidth?: boolean;
   children?: React.ReactNode;
 }) {
   const dark = tone === "dark";
@@ -623,11 +643,9 @@ function InfoCard({
           <Box
             sx={{
               minWidth: 0,
-              width: { xs: "100%", sm: contentFullWidth ? "auto" : undefined },
-              flex: contentFullWidth ? "1 1 auto" : "0 1 auto",
-              maxWidth: contentFullWidth
-                ? "none"
-                : { xs: "100%", sm: "52%" },
+              width: { xs: "100%", sm: undefined },
+              flex: "0 1 auto",
+              maxWidth: { xs: "100%", sm: "52%" },
             }}
           >
             {children}
