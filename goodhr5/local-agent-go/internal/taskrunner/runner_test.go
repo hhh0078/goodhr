@@ -227,6 +227,39 @@ func TestRunnerStartStop(t *testing.T) {
 	assertTaskLogContains(t, db, task2.ID, "音频文件不存在或为空")
 }
 
+// TestCancelRunningTasksAfterSleep 验证检测到休眠恢复后会取消任务并写入日志。
+func TestCancelRunningTasksAfterSleep(t *testing.T) {
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{"name": "休眠测试任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "休眠测试任务"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if !runner.setRunning(task.ID, cancel, StartOptions{}) {
+		t.Fatal("setRunning failed")
+	}
+	runner.cancelRunningTasksAfterSleep(3 * time.Minute)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("任务没有被休眠检测取消")
+	}
+	logs, err := db.ListTaskLogs(task.ID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := ""
+	for _, item := range logs {
+		joined += item.Message + "\n"
+	}
+	if !strings.Contains(joined, "电脑休眠检测") || !strings.Contains(joined, "心跳中断=3m0s") {
+		t.Fatalf("logs = %s", joined)
+	}
+	runner.clear(task.ID)
+}
+
 // TestRunnerStatusPendingWhenTaskMissing 验证未启动的云端任务查询本地状态时不会报错。
 func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
 	db := openRunnerTestDB(t)

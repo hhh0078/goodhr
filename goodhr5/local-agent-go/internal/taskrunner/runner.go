@@ -27,6 +27,7 @@ import (
 	"goodhr5/local-agent-go/internal/ocr"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"goodhr5/local-agent-go/internal/platforms"
+	"goodhr5/local-agent-go/internal/power"
 )
 
 const defaultScanRounds = 3
@@ -49,6 +50,8 @@ const detailCloseTimeout = 10 * time.Second
 const overlayActionTimeout = 5 * time.Second
 const pendingAIVisionOutputTimeout = 3 * time.Minute
 const pendingAIVisionDecisionKey = "_pending_ai_vision_decision"
+const sleepMonitorInterval = 30 * time.Second
+const sleepResumeThreshold = 2 * time.Minute
 
 // pageEntryCheckAttempts 是入口页面加载检查的最大次数。
 var pageEntryCheckAttempts = 10
@@ -86,6 +89,8 @@ type Runner struct {
 	mu             sync.Mutex
 	running        map[string]*runState
 	userStopped    map[string]bool
+	powerGuard     power.Inhibitor
+	sleepCancel    context.CancelFunc
 }
 
 // runState 保存单个运行任务的控制句柄。
@@ -93,7 +98,9 @@ type runState struct {
 	cancel         context.CancelFunc
 	progress       Progress
 	emailForNotify string // 失败通知邮箱
-	runGreeted     int    // 本次运行已打招呼数量
+	options        StartOptions
+	cancelReason   string
+	runGreeted     int // 本次运行已打招呼数量
 	// 摸鱼休息状态
 	restMaxTimes  int
 	restUsed      int
@@ -215,11 +222,16 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	r.taskLog(taskID, "info", "任务启动：正在准备本地运行环境")
 	r.taskLog(taskID, "info", fmt.Sprintf("任务启动：任务配置读取完成，平台=%s，岗位=%s，模式=%s，轮次=%d", task.PlatformID, taskPositionName(task), task.Mode, scanRounds(options)))
 	runCtx, cancel := context.WithCancel(context.Background())
-	if !r.setRunning(taskID, cancel) {
+	if !r.setRunning(taskID, cancel, options) {
 		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
 	r.taskLog(taskID, "info", "任务启动：本地运行锁已创建")
+	if err := r.ensurePowerProtection(taskID); err != nil {
+		r.taskLog(taskID, "warning", "任务启动：防睡眠保护启动失败，错误="+err.Error())
+	} else {
+		r.taskLog(taskID, "info", "任务启动：防睡眠保护已开启")
+	}
 	totalRounds := scanRounds(options)
 	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: totalRounds})
 	// 保存通知邮箱到运行状态
@@ -257,12 +269,18 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	task = snapshot.Task
 	options = snapshot.Options
 	options.EnableSound = task.EnableSound
+	r.updateRunOptions(taskID, options)
 	r.initRestState(taskID, options)
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
 	r.taskLog(taskID, "info", "任务启动：本地任务运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, task, snapshot.PlatformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
+			if reason := r.cancelReason(taskID); reason != "" {
+				r.updateProgress(taskID, Progress{Stage: "failed", Message: reason, TotalRounds: totalRounds})
+				r.failStart(taskID, reason, options)
+				return
+			}
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 			r.taskLog(taskID, "info", "任务停止：收到停止信号，正在同步云端停止状态")
@@ -2526,17 +2544,129 @@ func (r *Runner) taskLog(taskID string, level string, msg string) {
 	}
 }
 
+// ensurePowerProtection 确保运行任务期间系统不会自动睡眠。
+// taskID 为当前任务 ID，失败时返回错误但不阻断任务。
+func (r *Runner) ensurePowerProtection(taskID string) error {
+	r.mu.Lock()
+	if r.powerGuard != nil {
+		r.mu.Unlock()
+		return nil
+	}
+	r.mu.Unlock()
+	guard, err := power.PreventSleep("GoodHR 任务运行中")
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if r.powerGuard != nil {
+		r.mu.Unlock()
+		_ = guard.Stop()
+		return nil
+	}
+	r.powerGuard = guard
+	if r.sleepCancel == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		r.sleepCancel = cancel
+		go r.monitorSleepResume(ctx)
+	}
+	r.mu.Unlock()
+	return nil
+}
+
+// releasePowerProtectionIfIdle 在没有运行任务时释放防睡眠保护。
+func (r *Runner) releasePowerProtectionIfIdle() {
+	r.mu.Lock()
+	if len(r.running) > 0 {
+		r.mu.Unlock()
+		return
+	}
+	guard := r.powerGuard
+	cancel := r.sleepCancel
+	r.powerGuard = nil
+	r.sleepCancel = nil
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if guard != nil {
+		_ = guard.Stop()
+	}
+}
+
+// monitorSleepResume 检测电脑是否发生过睡眠/休眠恢复。
+// ctx 结束时检测停止；发现时间断层后会取消正在运行的任务并让任务失败邮件接管通知。
+func (r *Runner) monitorSleepResume(ctx context.Context) {
+	ticker := time.NewTicker(sleepMonitorInterval)
+	defer ticker.Stop()
+	last := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			gap := now.Sub(last)
+			last = now
+			if gap > sleepResumeThreshold {
+				r.cancelRunningTasksAfterSleep(gap)
+			}
+		}
+	}
+}
+
+// cancelRunningTasksAfterSleep 在检测到疑似睡眠恢复后取消所有运行任务。
+// gap 为检测到的时间断层，用于日志和邮件说明。
+func (r *Runner) cancelRunningTasksAfterSleep(gap time.Duration) {
+	reason := fmt.Sprintf("检测到电脑可能已休眠或息屏，任务已停止；心跳中断=%s", gap.Round(time.Second))
+	r.mu.Lock()
+	items := make(map[string]context.CancelFunc, len(r.running))
+	for taskID, state := range r.running {
+		if state == nil {
+			continue
+		}
+		state.cancelReason = reason
+		items[taskID] = state.cancel
+	}
+	r.mu.Unlock()
+	for taskID, cancel := range items {
+		r.taskLog(taskID, "error", "任务失败：环节=电脑休眠检测，错误="+reason)
+		if cancel != nil {
+			cancel()
+		}
+	}
+}
+
 // setRunning 标记任务正在运行。
 // taskID 为任务 ID，cancel 为停止回调。
-func (r *Runner) setRunning(taskID string, cancel context.CancelFunc) bool {
+func (r *Runner) setRunning(taskID string, cancel context.CancelFunc, options StartOptions) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.running[taskID]; ok {
 		return false
 	}
 	delete(r.userStopped, taskID)
-	r.running[taskID] = &runState{cancel: cancel, progress: Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	r.running[taskID] = &runState{cancel: cancel, options: options, progress: Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	return true
+}
+
+// updateRunOptions 更新运行任务使用的启动参数。
+// taskID 为任务 ID，options 为最新启动参数。
+func (r *Runner) updateRunOptions(taskID string, options StartOptions) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		state.options = options
+	}
+}
+
+// cancelReason 返回任务被系统取消的原因。
+// taskID 为任务 ID，返回空字符串表示不是系统原因取消。
+func (r *Runner) cancelReason(taskID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		return strings.TrimSpace(state.cancelReason)
+	}
+	return ""
 }
 
 // updateProgress 更新任务运行进度。
@@ -2612,6 +2742,7 @@ func (r *Runner) markUserStoppedAndCancel(taskID string) {
 	if state != nil && state.cancel != nil {
 		state.cancel()
 	}
+	r.releasePowerProtectionIfIdle()
 }
 
 // isUserStopped 判断任务是否由用户主动停止。
@@ -2626,9 +2757,10 @@ func (r *Runner) isUserStopped(taskID string) bool {
 // taskID 为任务 ID。
 func (r *Runner) clear(taskID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	delete(r.running, taskID)
 	delete(r.userStopped, taskID)
+	r.mu.Unlock()
+	r.releasePowerProtectionIfIdle()
 }
 
 // boolFromMap 从 map 中读取布尔值。
