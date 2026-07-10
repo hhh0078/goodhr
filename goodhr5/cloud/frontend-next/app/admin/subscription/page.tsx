@@ -279,6 +279,7 @@ export default function SubscriptionPage() {
           gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
           gap: 2,
           mb: 3,
+          alignItems: "start",
         }}
       >
         <InfoCard
@@ -359,30 +360,29 @@ export default function SubscriptionPage() {
           icon={<CreditCardRoundedIcon />}
           title='会员激活码'
           value=''
+          contentFullWidth
         >
-          <Box sx={{ mt: 1.5 }}>
-            <FormActionRow
-              field={
-                <TextField
-                  size='small'
-                  label='会员激活码'
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                  fullWidth
-                />
-              }
-              action={
-                <Button
-                  variant='contained'
-                  disabled={!code.trim()}
-                  onClick={() => void redeem()}
-                >
-                  激活
-                </Button>
-              }
-              maxWidth={520}
-            />
-          </Box>
+          <FormActionRow
+            field={
+              <TextField
+                size='small'
+                label='会员激活码'
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                fullWidth
+              />
+            }
+            action={
+              <Button
+                variant='contained'
+                disabled={!code.trim()}
+                onClick={() => void redeem()}
+              >
+                激活
+              </Button>
+            }
+            maxWidth='100%'
+          />
         </InfoCard>
       </Box>
 
@@ -554,6 +554,7 @@ function InfoCard({
   value,
   tone = "plain",
   compact = false,
+  contentFullWidth = false,
   children,
 }: {
   icon: React.ReactNode;
@@ -561,13 +562,13 @@ function InfoCard({
   value: string;
   tone?: "plain" | "dark";
   compact?: boolean;
+  contentFullWidth?: boolean;
   children?: React.ReactNode;
 }) {
   const dark = tone === "dark";
   return (
     <SectionPanel
       sx={{
-        minHeight: compact ? 150 : 190,
         bgcolor: dark ? "#15271e" : "#fbfdfc",
         color: dark ? "#f8f1da" : "text.primary",
         borderColor: dark ? "#4d5a48" : "divider",
@@ -585,7 +586,7 @@ function InfoCard({
         <Stack
           direction='row'
           spacing={1.5}
-          sx={{ alignItems: "center", minWidth: 0 }}
+          sx={{ alignItems: "center", minWidth: 0, flexShrink: 0 }}
         >
           <Box
             sx={{
@@ -619,7 +620,16 @@ function InfoCard({
           </Box>
         </Stack>
         {children ? (
-          <Box sx={{ flexShrink: 0, maxWidth: { xs: "100%", sm: "52%" } }}>
+          <Box
+            sx={{
+              minWidth: 0,
+              width: { xs: "100%", sm: contentFullWidth ? "auto" : undefined },
+              flex: contentFullWidth ? "1 1 auto" : "0 1 auto",
+              maxWidth: contentFullWidth
+                ? "none"
+                : { xs: "100%", sm: "52%" },
+            }}
+          >
             {children}
           </Box>
         ) : null}
