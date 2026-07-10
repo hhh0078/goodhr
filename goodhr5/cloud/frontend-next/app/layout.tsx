@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   authors: [{ name: "GoodHR", url: SITE_URL }],
   creator: "GoodHR",
   publisher: "GoodHR",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png", sizes: "192x192" },
+    ],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   category: "招聘软件",
   referrer: "origin-when-cross-origin",
   alternates: { canonical: "/" },
