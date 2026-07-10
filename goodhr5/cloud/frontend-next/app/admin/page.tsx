@@ -348,21 +348,7 @@ export default function DashboardPage() {
           </Box>
         ))}
       </Box>
-      <Box
-        sx={{
-          mt: 2,
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", lg: "repeat(2, minmax(0, 1fr))" },
-          gap: 2,
-        }}
-      >
-        <AIWalletCard
-          wallet={wallet}
-          currentModel={currentAIModel}
-          loading={recharging}
-          onOpenRechargeDialog={() => setRechargeDialogOpen(true)}
-          onOpenModelDialog={openModelDialog}
-        />
+<Box sx={{ mt: 2 }}>
         <SectionPanel>
           <Stack
             direction={{ xs: "column", sm: "row" }}

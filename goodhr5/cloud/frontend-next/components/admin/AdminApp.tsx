@@ -121,7 +121,6 @@ const menuGroups: MenuGroup[] = [
       ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
-      ["/admin/ai-records", "AI记录", PaidRoundedIcon],
     ],
   },
   {
@@ -211,6 +210,11 @@ function openExternalURL(url?: string) {
   if (value) window.open(value, "_blank", "noopener,noreferrer");
 }
 
+/** formatAIBalance 格式化顶部栏 AI 余额。 */
+function formatAIBalance(wallet: any) {
+  return `￥${String(wallet?.balance || "0.00")}`;
+}
+
 /** AdminApp 输出后台悬浮三卡布局并完成用户身份校验。 */
 export default function AdminApp({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -221,6 +225,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [subscription, setSubscription] = useState<any>({});
+  const [aiWallet, setAIWallet] = useState<any>({});
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
   const [onboarding, setOnboarding] = useState<any>({
@@ -384,6 +389,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       cloudRequest("/api/subscription/status"),
       cloudRequest("/api/system/app-config", { auth: false }),
       cloudRequest("/api/onboarding/status"),
+      cloudRequest("/api/ai-wallet"),
     ]);
     const authResult = results[0];
     if (authResult.status === "rejected") throw authResult.reason;
@@ -397,6 +403,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     );
     if (results[1].status === "fulfilled")
       setSubscription(results[1].value.subscription || {});
+    if (results[4].status === "fulfilled")
+      setAIWallet(results[4].value.wallet || {});
     if (results[2].status === "fulfilled") {
       const payload = results[2].value;
       setAppConfig(payload.config || payload.app_config || payload || {});
@@ -702,8 +710,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               }}
             >
               {subscription.active
-                ? `${subscription.member_type || "Plus"} · 到期 ${formatDate(subscription.expires_at)}`
-                : `免费版 · ${subscription.expires_at ? `已到期 ${formatDate(subscription.expires_at)}` : "未开通"}`}
+                ? `${subscription.member_type || "Plus"} · 到期 ${formatDate(subscription.expires_at)} · AI余额 ${formatAIBalance(aiWallet)}`
+                : `免费版 · ${subscription.expires_at ? `已到期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
             </Button>
             <Button
               color={agentBase ? "success" : "error"}
