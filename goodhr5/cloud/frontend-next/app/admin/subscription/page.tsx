@@ -83,7 +83,7 @@ export default function SubscriptionPage() {
       );
       setPlans(Array.isArray(planData.plans) ? planData.plans : []);
       setOrders(Array.isArray(orderData.orders) ? orderData.orders : []);
-      setWallet(walletData.wallet || {});
+      setWallet(walletData.wallet || walletData || {});
       const config = aiConfigData.config || {};
       setAIConfig(config);
       setCurrentAIModel(config.model || "");
