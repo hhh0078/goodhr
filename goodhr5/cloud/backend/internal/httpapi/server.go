@@ -195,6 +195,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
 	mux.HandleFunc("/api/system/local-agent-updates", s.GetLocalAgentUpdates)
+	mux.HandleFunc("/api/system/local-agent-console-url", s.GetLocalAgentConsoleURL)
 	mux.HandleFunc("/api/system/default-prompts", s.GetDefaultPrompts)
 	mux.HandleFunc("/api/admin/system/configs/", s.adminSystemConfigs)
 	mux.HandleFunc("/api/admin/platforms/config/", s.adminPlatformConfigs)
@@ -342,6 +343,38 @@ func (s *Server) GetLocalAgentUpdates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
 		"local_agent": value.LocalAgent,
+	})
+}
+
+// GetLocalAgentConsoleURL 返回本地程序启动后需要打开的控制台地址。
+// w 为响应对象，r 为请求对象。
+func (s *Server) GetLocalAgentConsoleURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	cfg, err := s.systemConfigs.Get("system.onboarding_config")
+	if err != nil {
+		if errors.Is(err, ErrConfigNotFound) {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": ""})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed load local agent console url")
+		return
+	}
+
+	var value struct {
+		LocalAgentConsoleURL string `json:"local_agent_console_url"`
+	}
+	if err := json.Unmarshal([]byte(cfg.ConfigValue), &value); err != nil {
+		writeError(w, http.StatusInternalServerError, "local agent console url invalid")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":  true,
+		"url": strings.TrimSpace(value.LocalAgentConsoleURL),
 	})
 }
 

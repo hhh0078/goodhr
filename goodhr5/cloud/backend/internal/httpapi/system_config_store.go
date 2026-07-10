@@ -126,10 +126,11 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 		"system.onboarding_config": {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
-				"local_agent": [
-					{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
-				],
-				"runtime_components": {
+	"local_agent": [
+		{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
+	],
+	"local_agent_console_url": "https://goodhr5.58it.cn/admin",
+	"runtime_components": {
 					"node_runtime": {
 						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
 						"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}

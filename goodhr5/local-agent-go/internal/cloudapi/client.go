@@ -47,6 +47,28 @@ func New(baseURL string) *Client {
 	}
 }
 
+// FetchLocalAgentConsoleURL 从云端公共接口读取本地程序启动后要打开的控制台地址。
+// ctx 为请求上下文。
+func (c *Client) FetchLocalAgentConsoleURL(ctx context.Context) (string, error) {
+	baseURL, err := c.safeBaseURL()
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/system/local-agent-console-url", nil)
+	if err != nil {
+		return "", fmt.Errorf("创建控制台地址请求失败：%w", err)
+	}
+	payload, status, err := c.doJSON(req)
+	if err != nil {
+		return "", fmt.Errorf("读取控制台地址失败：%w", err)
+	}
+	if status >= 400 {
+		return "", fmt.Errorf("%s", cloudMessage(payload, "读取控制台地址失败"))
+	}
+	rawURL, _ := payload["url"].(string)
+	return strings.TrimSpace(rawURL), nil
+}
+
 // FetchPlatformConfig 从云端公开接口读取指定平台配置。
 // ctx 为请求上下文，platformID 为平台 ID。
 func (c *Client) FetchPlatformConfig(ctx context.Context, platformID string) (PlatformConfig, error) {
