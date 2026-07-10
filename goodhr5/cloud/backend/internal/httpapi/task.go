@@ -66,8 +66,9 @@ func (s *TaskService) Collection(w http.ResponseWriter, r *http.Request) {
 // Create 创建云端任务运行记录。
 func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 	// 调用认证服务读取当前用户，用于把任务归属到该账号下。
-	session, ok := s.currentSession(w, r)
-	if !ok {
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
 		return
 	}
 
@@ -296,6 +297,25 @@ func (s *TaskService) currentSession(w http.ResponseWriter, r *http.Request) (Se
 		return Session{}, false
 	}
 	return session, true
+}
+
+// currentSessionForFailNotice 从请求中解析任务失败通知身份，允许旧会话仅用于发停止通知。
+func (s *TaskService) currentSessionForFailNotice(w http.ResponseWriter, r *http.Request) (Session, bool) {
+	// 本地任务被单点登录挤下线后，严格登录态会失效；这里用旧会话兜底找到邮件接收人。
+	session, err := s.auth.SessionFromRequest(r)
+	if err == nil {
+		return session, true
+	}
+	session, unsafeErr := s.auth.UnsafeSessionFromRequest(r)
+	if unsafeErr == nil {
+		return session, true
+	}
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		return Session{}, false
+	}
+	writeError(w, http.StatusUnauthorized, err.Error())
+	return Session{}, false
 }
 
 // toTask 将任务创建请求转换为任务模型。
@@ -691,7 +711,7 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	session, ok := s.currentSession(w, r)
+	session, ok := s.currentSessionForFailNotice(w, r)
 	if !ok {
 		return
 	}
@@ -719,7 +739,13 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load task")
 		return
 	}
-	_ = s.store.UpdateTaskStatus(task.ID, "failed")
+	status := "failed"
+	statusLabel := "任务失败"
+	if strings.Contains(errorMessage, "账号已在其他地方登录") {
+		status = "stopped"
+		statusLabel = "任务已停止"
+	}
+	_ = s.store.UpdateTaskStatus(task.ID, status)
 	if task.UserEmail == "" {
 		task.UserEmail = session.Email
 	}
@@ -729,8 +755,8 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	}
 	notice := TaskStatusNotice{
 		TaskID:       task.ID,
-		Status:       "failed",
-		StatusLabel:  "任务失败",
+		Status:       status,
+		StatusLabel:  statusLabel,
 		PlatformID:   task.PlatformID,
 		Mode:         task.Mode,
 		MatchLimit:   task.MatchLimit,

@@ -277,6 +277,11 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 			r.sendTaskFailNotification(context.Background(), taskID, message, options)
 			return
 		}
+		var authErr cloudapi.AuthExpiredError
+		if errors.As(err, &authErr) {
+			r.notifyCloudTaskStopped(taskID, options)
+			return
+		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error(), options)
 		return
 	}
@@ -551,6 +556,9 @@ scanLoop:
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if err := r.ensureCloudSessionActive(ctx, task, options); err != nil {
+			return nil, err
+		}
 		if len(queue) == 0 {
 			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
 			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
@@ -812,6 +820,37 @@ scanLoop:
 		"processed_count":  processedCount,
 		"entry_url":        entryURL,
 	}, nil
+}
+
+// ensureCloudSessionActive 确认当前账号登录态仍然有效。
+// ctx 为任务上下文，task 为本地任务，options 为启动参数。
+func (r *Runner) ensureCloudSessionActive(ctx context.Context, task localdb.Task, options StartOptions) error {
+	token := strings.TrimSpace(options.Token)
+	if token == "" {
+		return nil
+	}
+	baseURL := strings.TrimSpace(options.CloudAPIBase)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(r.cloudAPIBase)
+	}
+	if baseURL == "" {
+		baseURL = "https://goodhr5.58it.cn"
+	}
+	err := cloudapi.New(baseURL).ValidateSession(ctx, token)
+	if err == nil {
+		return nil
+	}
+	var authErr cloudapi.AuthExpiredError
+	if !errors.As(err, &authErr) {
+		r.taskLog(task.ID, "warning", "账号验证暂时失败，先继续任务："+err.Error())
+		return nil
+	}
+	message := "账号已在其他地方登录，当前任务已停止。请重新登录后再启动任务。"
+	r.taskLog(task.ID, "warning", message)
+	r.updateProgress(task.ID, Progress{Stage: "stopped", Message: message})
+	_, _ = r.db.UpdateTaskStatus(task.ID, "stopped")
+	r.sendTaskFailNotification(context.Background(), task.ID, message, options)
+	return authErr
 }
 
 // scrollForMoreCandidates 滚动候选人列表以加载更多候选人。

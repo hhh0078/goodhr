@@ -1,5 +1,5 @@
 -- 本文件定义 GoodHR 5 云端数据库初始表结构。
--- 云端只保存账号、配置、机器绑定、任务元信息和统计摘要。
+-- 云端只保存账号、配置、本地程序连接记录、任务元信息和统计摘要。
 -- 候选人详情、截图、OCR 原文、招聘平台 cookie/profile 必须留在本地 Agent。
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -16,7 +16,7 @@ COMMENT ON TABLE users IS '云端登录用户表';
 COMMENT ON COLUMN users.email IS '用户邮箱，验证码登录的唯一账号';
 COMMENT ON COLUMN users.last_login_at IS '最近一次验证码登录成功时间';
 
--- local_agents 保存本地 Agent 的机器绑定记录。
+-- local_agents 保存本地 Agent 的连接记录。
 CREATE TABLE IF NOT EXISTS local_agents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -28,9 +28,9 @@ CREATE TABLE IF NOT EXISTS local_agents (
     UNIQUE (user_id, machine_id)
 );
 
-COMMENT ON TABLE local_agents IS '用户本地 Agent 机器绑定记录';
+COMMENT ON TABLE local_agents IS '用户本地 Agent 连接记录';
 COMMENT ON COLUMN local_agents.machine_id IS 'Local Agent 上报的哈希机器码';
-COMMENT ON COLUMN local_agents.bind_status IS '绑定状态，初期使用 active/disabled';
+COMMENT ON COLUMN local_agents.bind_status IS '连接记录状态，初期使用 active/disabled';
 
 -- platform_accounts 保存云端可见的平台账号映射，不保存真实 cookie。
 CREATE TABLE IF NOT EXISTS platform_accounts (

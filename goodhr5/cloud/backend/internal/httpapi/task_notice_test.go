@@ -131,3 +131,52 @@ func TestFailNoticeRequiresAuth(t *testing.T) {
 		t.Fatalf("notice = %+v", mailer.notices[0])
 	}
 }
+
+// TestFailNoticeUsesOldSessionAfterSingleLoginKick 验证旧登录被挤下线后仍能发送任务停止通知。
+func TestFailNoticeUsesOldSessionAfterSingleLoginKick(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	oldToken := loginForTest(t, routes, "notice-kicked@example.com")
+	server.tasks.mailer = &taskNoticeMailer{}
+
+	task, err := server.tasks.store.CreateTask(TaskRun{
+		UserEmail:  "notice-kicked@example.com",
+		PlatformID: "boss",
+		Mode:       "ai",
+		MatchLimit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginForTest(t, routes, "notice-kicked@example.com")
+
+	body, err := json.Marshal(map[string]any{
+		"task_id":       task.ID,
+		"error_message": "账号已在其他地方登录，当前任务已停止。请重新登录后再启动任务。",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/fail-notice", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+oldToken)
+	resp := httptest.NewRecorder()
+
+	routes.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	mailer, ok := server.tasks.mailer.(*taskNoticeMailer)
+	if !ok {
+		t.Fatal("mailer type mismatch")
+	}
+	if len(mailer.emails) != 1 || mailer.emails[0] != "notice-kicked@example.com" {
+		t.Fatalf("emails = %+v", mailer.emails)
+	}
+	if len(mailer.notices) != 1 {
+		t.Fatalf("notice count = %d", len(mailer.notices))
+	}
+	if mailer.notices[0].StatusLabel != "任务已停止" {
+		t.Fatalf("status label = %s", mailer.notices[0].StatusLabel)
+	}
+}

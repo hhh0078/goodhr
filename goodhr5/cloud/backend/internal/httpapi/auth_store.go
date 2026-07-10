@@ -13,6 +13,7 @@ type AuthStore interface {
 	ConsumeLoginCode(email string, code string) (bool, error)
 	SaveSession(token string, session Session, ttl time.Duration) error
 	GetSession(token string) (Session, error)
+	GetSessionUnsafe(token string) (Session, error)
 }
 
 type Session struct {
@@ -25,6 +26,7 @@ type MemoryAuthStore struct {
 	mu       sync.Mutex
 	codes    map[string]loginCode
 	sessions map[string]Session
+	current  map[string]string
 	now      func() time.Time
 }
 
@@ -37,6 +39,7 @@ func NewMemoryAuthStore() *MemoryAuthStore {
 	return &MemoryAuthStore{
 		codes:    make(map[string]loginCode),
 		sessions: make(map[string]Session),
+		current:  make(map[string]string),
 		now:      time.Now,
 	}
 }
@@ -78,10 +81,33 @@ func (s *MemoryAuthStore) SaveSession(token string, session Session, ttl time.Du
 
 	session.ExpiresAt = s.now().Add(ttl)
 	s.sessions[token] = session
+	s.current[session.Email] = token
 	return nil
 }
 
 func (s *MemoryAuthStore) GetSession(token string) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[token]
+	if !ok {
+		return Session{}, ErrNotFound
+	}
+	if s.now().After(session.ExpiresAt) {
+		delete(s.sessions, token)
+		if s.current[session.Email] == token {
+			delete(s.current, session.Email)
+		}
+		return Session{}, ErrNotFound
+	}
+	currentToken := s.current[session.Email]
+	if currentToken != "" && currentToken != token {
+		return Session{}, ErrNotFound
+	}
+	return session, nil
+}
+
+func (s *MemoryAuthStore) GetSessionUnsafe(token string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

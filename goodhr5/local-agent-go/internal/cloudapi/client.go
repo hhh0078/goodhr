@@ -20,6 +20,19 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+// AuthExpiredError 表示云端登录态已经失效。
+type AuthExpiredError struct {
+	Message string
+}
+
+// Error 返回登录态失效的提示。
+func (e AuthExpiredError) Error() string {
+	if strings.TrimSpace(e.Message) == "" {
+		return "账号已在其他地方登录，请重新登录"
+	}
+	return e.Message
+}
+
 // PlatformConfig 表示从云端读取到的平台配置。
 type PlatformConfig map[string]any
 
@@ -103,6 +116,22 @@ func (c *Client) FetchSubscription(ctx context.Context, token string) (map[strin
 		return nil, fmt.Errorf("会员校验返回格式错误")
 	}
 	return subscription, nil
+}
+
+// ValidateSession 验证当前云端登录态是否仍然有效。
+// ctx 为请求上下文，token 为登录令牌。
+func (c *Client) ValidateSession(ctx context.Context, token string) error {
+	payload, status, err := c.getAuthed(ctx, token, "/api/auth/me")
+	if err != nil {
+		return fmt.Errorf("验证账号登录态失败：%w", err)
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return AuthExpiredError{Message: cloudMessage(payload, "账号已在其他地方登录，请重新登录")}
+	}
+	if status >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "验证账号登录态失败"))
+	}
+	return nil
 }
 
 // FetchTask 读取云端任务详情。

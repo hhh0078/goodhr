@@ -103,6 +103,31 @@ func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 	}
 }
 
+// TestAuthLoginKicksPreviousSession 验证同一账号后登录会让旧 token 失效。
+func TestAuthLoginKicksPreviousSession(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	oldToken := loginForTest(t, routes, "single-login@example.com")
+	newToken := loginForTest(t, routes, "single-login@example.com")
+
+	oldReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	oldReq.Header.Set("Authorization", "Bearer "+oldToken)
+	oldResp := httptest.NewRecorder()
+	routes.ServeHTTP(oldResp, oldReq)
+	if oldResp.Code != http.StatusUnauthorized {
+		t.Fatalf("old token status = %d, want %d", oldResp.Code, http.StatusUnauthorized)
+	}
+
+	newReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	newReq.Header.Set("Authorization", "Bearer "+newToken)
+	newResp := httptest.NewRecorder()
+	routes.ServeHTTP(newResp, newReq)
+	if newResp.Code != http.StatusOK {
+		t.Fatalf("new token status = %d, body = %s", newResp.Code, newResp.Body.String())
+	}
+}
+
 // TestUniversalLoginCode 验证动态万能验证码按当前时间加 3 分钟计算。
 func TestUniversalLoginCode(t *testing.T) {
 	china := chinaLocation()

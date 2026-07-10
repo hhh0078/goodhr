@@ -1,4 +1,4 @@
-// 本文件负责提供云端 Agent 机器绑定相关 HTTP API。
+// 本文件负责提供云端 Agent 本地程序连接记录相关 HTTP API。
 package httpapi
 
 import (
@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// AgentService 处理本地 Agent 机器绑定和查询请求。
+// AgentService 处理本地 Agent 连接记录和查询请求。
 type AgentService struct {
 	auth          *AuthService
 	store         AgentStore
@@ -22,7 +22,7 @@ type bindAgentRequest struct {
 	PublicKey    string `json:"public_key"`
 }
 
-// NewAgentService 创建 Agent API 服务，并注入认证服务和机器绑定存储。
+// NewAgentService 创建 Agent API 服务，并注入认证服务和连接记录存储。
 func NewAgentService(auth *AuthService, store AgentStore, systemConfigs SystemConfigStore) *AgentService {
 	return &AgentService{
 		auth:          auth,
@@ -31,14 +31,14 @@ func NewAgentService(auth *AuthService, store AgentStore, systemConfigs SystemCo
 	}
 }
 
-// Bind 保存当前登录用户与本地 Agent 机器码的绑定关系。
+// Bind 保存当前登录用户的本地 Agent 连接记录。
 func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	// 调用认证服务读取当前会话，用于确认是哪一个云端账号在绑定机器。
+	// 调用认证服务读取当前会话，用于确认是哪一个云端账号在连接本地程序。
 	session, ok := s.currentSession(w, r)
 	if !ok {
 		return
@@ -56,7 +56,7 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用 AgentStore 保存绑定关系，后续会替换为 PostgreSQL 实现。
+	// 调用 AgentStore 保存连接记录，后续会替换为 PostgreSQL 实现。
 	binding, err := s.store.SaveBinding(AgentBinding{
 		UserEmail:    session.Email,
 		MachineID:    machineID,
@@ -64,10 +64,6 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		LocalPort:    req.LocalPort,
 		PublicKey:    strings.TrimSpace(req.PublicKey),
 	})
-	if errors.Is(err, ErrAgentAlreadyBound) {
-		writeError(w, http.StatusConflict, "该账号已经绑定其它电脑")
-		return
-	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to bind agent")
 		return
@@ -87,7 +83,7 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// Current 返回当前登录用户已经绑定的本地 Agent 信息。
+// Current 返回当前登录用户最近连接的本地 Agent 信息。
 func (s *AgentService) Current(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -135,11 +131,12 @@ func extractJSONString(raw, key string) string {
 		return ""
 	}
 	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok { return s }
+		if s, ok := v.(string); ok {
+			return s
+		}
 	}
 	return ""
 }
-
 
 func (s *AgentService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	// 调用认证服务解析请求会话，避免 Agent API 自己重复处理 token 规则。

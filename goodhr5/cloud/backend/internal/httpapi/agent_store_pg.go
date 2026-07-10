@@ -1,4 +1,4 @@
-// 本文件负责提供 Agent 机器绑定的 PostgreSQL 存储实现。
+// 本文件负责提供 Agent 本地程序连接记录的 PostgreSQL 存储实现。
 package httpapi
 
 import (
@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// PostgresAgentStore 使用 PostgreSQL 持久化机器绑定记录。
+// PostgresAgentStore 使用 PostgreSQL 持久化本地程序连接记录。
 type PostgresAgentStore struct {
 	db *sql.DB
 }
 
-// NewPostgresAgentStore 创建 PostgreSQL Agent 机器绑定存储。
+// NewPostgresAgentStore 创建 PostgreSQL Agent 连接记录存储。
 func NewPostgresAgentStore(db *sql.DB) *PostgresAgentStore {
 	return &PostgresAgentStore{db: db}
 }
 
-// SaveBinding 保存或更新 PostgreSQL 中当前用户和机器的绑定关系。
+// SaveBinding 保存或更新 PostgreSQL 中当前用户和本地程序的连接记录。
 func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -31,26 +31,6 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 	status := binding.BindStatus
 	if status == "" {
 		status = "active"
-	}
-
-	var activeMachineID string
-	err = s.db.QueryRowContext(
-		ctx,
-		`
-		SELECT machine_id
-		FROM local_agents
-		WHERE user_id = $1 AND bind_status = 'active' AND machine_id <> $2
-		ORDER BY last_seen_at DESC NULLS LAST, created_at DESC
-		LIMIT 1
-		`,
-		userID,
-		binding.MachineID,
-	).Scan(&activeMachineID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return AgentBinding{}, err
-	}
-	if activeMachineID != "" && activeMachineID != binding.MachineID {
-		return AgentBinding{}, ErrAgentAlreadyBound
 	}
 
 	var saved AgentBinding
@@ -123,7 +103,7 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 	return binding, nil
 }
 
-// DisableBindings 解除 PostgreSQL 中指定用户的全部本地机器绑定。
+// DisableBindings 清理 PostgreSQL 中指定用户的全部本地程序连接记录。
 func (s *PostgresAgentStore) DisableBindings(userEmail string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

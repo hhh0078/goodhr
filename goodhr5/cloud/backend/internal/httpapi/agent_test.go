@@ -1,4 +1,4 @@
-// 本文件负责测试云端 Agent 机器绑定 API。
+// 本文件负责测试云端 Agent 本地程序连接记录 API。
 package httpapi
 
 import (
@@ -50,8 +50,8 @@ func TestAgentBindAndCurrent(t *testing.T) {
 	}
 }
 
-// TestAgentBindRejectsAnotherMachine 验证同一账号不能绑定第二台电脑。
-func TestAgentBindRejectsAnotherMachine(t *testing.T) {
+// TestAgentBindAllowsAnotherMachine 验证同一账号可以换电脑连接本地程序。
+func TestAgentBindAllowsAnotherMachine(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "agent-conflict@example.com")
@@ -76,8 +76,8 @@ func TestAgentBindRejectsAnotherMachine(t *testing.T) {
 	secondReq.Header.Set("Authorization", "Bearer "+token)
 	secondResp := httptest.NewRecorder()
 	routes.ServeHTTP(secondResp, secondReq)
-	if secondResp.Code != http.StatusConflict {
-		t.Fatalf("second bind status = %d, want %d, body = %s", secondResp.Code, http.StatusConflict, secondResp.Body.String())
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("second bind status = %d, want %d, body = %s", secondResp.Code, http.StatusOK, secondResp.Body.String())
 	}
 }
 

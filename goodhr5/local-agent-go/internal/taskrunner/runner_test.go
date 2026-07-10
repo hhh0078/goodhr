@@ -100,6 +100,8 @@ func TestRunnerStartStop(t *testing.T) {
 	var processedResumeCount int64
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/auth/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "runner@example.com"}})
 		case "/api/subscription/status":
 			if r.Header.Get("Authorization") != "Bearer token-1" {
 				t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
@@ -352,6 +354,8 @@ func TestRunnerStartRequiresToken(t *testing.T) {
 func TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask(t *testing.T) {
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/auth/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "runner@example.com"}})
 		case "/api/subscription/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "subscription": map[string]any{"active": false}})
 		case "/api/config/user-preferences":
@@ -625,6 +629,8 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	var task localdb.Task
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/auth/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "runner@example.com"}})
 		case "/api/subscription/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":           true,
@@ -764,6 +770,8 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	var failNoticeMessage atomic.Value
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/auth/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "runner@example.com"}})
 		case "/api/subscription/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "subscription": map[string]any{"active": true}})
 		case "/api/platforms/config/":

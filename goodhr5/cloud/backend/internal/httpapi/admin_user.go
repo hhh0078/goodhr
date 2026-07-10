@@ -207,7 +207,7 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// UnbindAgent 解除指定用户当前本地程序机器绑定。
+// UnbindAgent 清理指定用户当前本地程序连接记录。
 func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
@@ -341,7 +341,7 @@ func publicAdminAgent(agent *AgentBinding) map[string]any {
 // hasAgent 到 hasPaid 依次表示流程节点是否完成。
 func buildAdminUserFlow(hasAgent bool, _ bool, _ bool, hasPosition bool, hasGreeted bool, hasPaid bool) AdminUserFlow {
 	steps := []AdminUserFlowStep{
-		{Key: "local_agent", Name: "未绑定本地程序", Done: hasAgent},
+		{Key: "local_agent", Name: "未连接本地程序", Done: hasAgent},
 		{Key: "position", Name: "未创建岗位", Done: hasPosition},
 		{Key: "greet_success", Name: "未打招呼成功", Done: hasGreeted},
 		{Key: "paid", Name: "未支付", Done: hasPaid},

@@ -427,7 +427,7 @@ openBalanceAdjust: (item: AdminUserItem) => void;
 unbind: (item: AdminUserItem) => Promise<void>;
 }) {
   const memberLabel = item.subscription?.active ? "会员有效" : "已过期";
-  const agentLabel = item.agent?.machine_id ? "已绑定" : "未绑定";
+  const agentLabel = item.agent?.machine_id ? "已连接" : "未连接";
   const flowLabel = item.flow?.current_step || "暂无";
 
   return (
@@ -648,7 +648,7 @@ function TimeInfo({ item }: { item: AdminUserItem }) {
   );
 }
 
-/** AgentInfo 展示本地程序绑定状态。 */
+/** AgentInfo 展示本地程序连接状态。 */
 function AgentInfo({ item }: { item: AdminUserItem }) {
   return (
     <Stack spacing={0.5}>
@@ -656,7 +656,7 @@ function AgentInfo({ item }: { item: AdminUserItem }) {
       <Typography noWrap sx={{ fontSize: 12 }}>
         {item.agent?.machine_id
           ? String(item.agent.machine_id).slice(0, 14)
-          : "未绑定"}
+          : "未连接"}
       </Typography>
       <Typography noWrap sx={{ color: "text.secondary", fontSize: 11 }}>
         {item.agent?.agent_version || "暂无版本"}

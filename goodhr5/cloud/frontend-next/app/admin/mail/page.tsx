@@ -24,7 +24,7 @@ const profileOptions = [
 ];
 
 const flowOptions = [
-  ["local_agent", "未绑定本地程序"],
+  ["local_agent", "未连接本地程序"],
   ["position", "未创建岗位"],
   ["greet_success", "未打招呼成功"],
   ["paid", "未支付"],

@@ -186,13 +186,13 @@ func defaultSystemGuideConfig() string {
 				"id": "local-agent",
 				"title": "本地程序",
 				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会绑定机器信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
 			},
 			{
 				"id": "platform-account",
 				"title": "平台账号",
 				"summary": "平台账号保存为加密 cookie，用于自动打开招聘平台。",
-				"content": "创建平台账号时，本地浏览器会打开招聘平台登录页。扫码登录后，系统导出 cookie 并加密保存。cookie 会按团队成员已绑定的本地程序公钥分别加密。新成员后加入时，旧 cookie 可能需要重新登录或更新。"
+				"content": "创建平台账号时，本地浏览器会打开招聘平台登录页。扫码登录后，系统导出 cookie 并加密保存。cookie 会按团队成员已连接过的本地程序公钥分别加密。新成员后加入时，旧 cookie 可能需要重新登录或更新。"
 			},
 			{
 				"id": "task-run",
@@ -210,7 +210,7 @@ func defaultSystemGuideConfig() string {
 				"id": "errors",
 				"title": "常见异常",
 				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已绑定，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
 			}
 		],
 		"sections": [
@@ -239,7 +239,7 @@ func defaultSystemGuideConfig() string {
 				"id": "console",
 				"title": "控制台说明",
 				"items": [
-					"控制台展示本地 Agent 连接状态、版本、绑定状态、WebSocket 状态、机器码和端口。",
+					"控制台展示本地 Agent 连接状态、版本、WebSocket 状态、机器码和端口。",
 					"如果本地版本低于系统配置要求，顶部和控制台会提醒更新。",
 					"控制台还展示今日打招呼概览，便于 HR 快速知道当前自动化效果。"
 				]
@@ -250,7 +250,7 @@ func defaultSystemGuideConfig() string {
 				"items": [
 					"平台账号底层使用 cookie_data 保存，不在前端暴露 cookie 明文。",
 					"cookie 内容使用 AES-GCM 加密，数据密钥再用每台本地 Agent 的公钥加密。",
-					"同一团队成员如果在保存 cookie 前已经绑定过本地 Agent，后续可以共享解密。",
+					"同一团队成员如果在保存 cookie 前已经连接过本地 Agent，后续可以共享解密。",
 					"如果成员或电脑在 cookie 保存后才绑定，需要让可用账号重新登录或更新一次 cookie。"
 				]
 			},
@@ -301,7 +301,7 @@ func defaultSystemGuideConfig() string {
 				"items": [
 					"本地 Agent 未连接：确认本地程序已启动，端口 55271 到 55279 没被占用。",
 					"版本过低：下载并替换新版 GoodHRLocalAgent。",
-					"cookie 解密失败：确认本机已绑定；旧 cookie 需要重新登录或更新。",
+					"cookie 解密失败：确认本机已连接；旧 cookie 需要重新登录或更新。",
 					"平台账号过期：重新扫码登录并保存 cookie。",
 					"AI API 错误：检查 API 地址、模型名、API Key 和余额。",
 					"任务卡住或失败：打开任务日志，查看浏览器启动、页面选择器、OCR、AI 请求和打招呼动作的错误。"

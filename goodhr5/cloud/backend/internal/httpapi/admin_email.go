@@ -475,7 +475,7 @@ type recoveryEmailTemplate struct {
 // 模板不包含已读追踪图，追踪图由 sendBatch 统一追加。
 func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 	subjects := map[string]string{
-		"local_agent":      "我小声提醒一下，本地程序还没绑定",
+		"local_agent":      "我小声提醒一下，本地程序还没连接",
 		"ai_config":        "AI 还没配置，我有点使不上劲",
 		"platform_account": "招聘平台账号还没加，我暂时没地方开工",
 		"position":         "岗位还没创建，我不知道该找谁",

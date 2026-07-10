@@ -57,16 +57,21 @@ func (s *RedisAuthStore) ConsumeLoginCode(email string, code string) (bool, erro
 }
 
 func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Duration) error {
+	ctx := context.Background()
 	session.ExpiresAt = time.Now().Add(ttl)
 	body, err := json.Marshal(session)
 	if err != nil {
 		return err
 	}
-	return s.client.Set(context.Background(), sessionKey(token), body, ttl).Err()
+	if err := s.client.Set(ctx, sessionKey(token), body, ttl).Err(); err != nil {
+		return err
+	}
+	return s.client.Set(ctx, currentSessionKey(session.Email), token, ttl).Err()
 }
 
 func (s *RedisAuthStore) GetSession(token string) (Session, error) {
-	body, err := s.client.Get(context.Background(), sessionKey(token)).Bytes()
+	ctx := context.Background()
+	body, err := s.client.Get(ctx, sessionKey(token)).Bytes()
 	if err == redis.Nil {
 		return Session{}, ErrNotFound
 	}
@@ -74,6 +79,28 @@ func (s *RedisAuthStore) GetSession(token string) (Session, error) {
 		return Session{}, err
 	}
 
+	var session Session
+	if err := json.Unmarshal(body, &session); err != nil {
+		return Session{}, err
+	}
+	currentToken, err := s.client.Get(ctx, currentSessionKey(session.Email)).Result()
+	if err != nil && err != redis.Nil {
+		return Session{}, err
+	}
+	if currentToken != "" && currentToken != token {
+		return Session{}, ErrNotFound
+	}
+	return session, nil
+}
+
+func (s *RedisAuthStore) GetSessionUnsafe(token string) (Session, error) {
+	body, err := s.client.Get(context.Background(), sessionKey(token)).Bytes()
+	if err == redis.Nil {
+		return Session{}, ErrNotFound
+	}
+	if err != nil {
+		return Session{}, err
+	}
 	var session Session
 	if err := json.Unmarshal(body, &session); err != nil {
 		return Session{}, err
@@ -87,4 +114,8 @@ func loginCodeKey(email string) string {
 
 func sessionKey(token string) string {
 	return "session:" + token
+}
+
+func currentSessionKey(email string) string {
+	return "session_current:" + email
 }

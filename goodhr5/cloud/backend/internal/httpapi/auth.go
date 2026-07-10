@@ -426,6 +426,16 @@ func (s *AuthService) SessionFromToken(token string) (Session, error) {
 	return session, nil
 }
 
+// UnsafeSessionFromRequest 从请求头读取旧会话身份，仅用于登录态失效后的通知兜底。
+// r 为 HTTP 请求，返回的会话不能用于授权业务操作。
+func (s *AuthService) UnsafeSessionFromRequest(r *http.Request) (Session, error) {
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		return Session{}, errors.New("请刷新浏览器，重新登录")
+	}
+	return s.store.GetSessionUnsafe(token)
+}
+
 func normalizeEmail(value string) (string, bool) {
 	email := strings.ToLower(strings.TrimSpace(value))
 	if email == "" {

@@ -54,11 +54,9 @@ import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
 import {
-  bindLocalAgent,
-  clearLocalAgentDetectCache,
-  cloudRequest,
-  detectLocalAgent,
-  formatDate,
+	cloudRequest,
+	detectLocalAgent,
+	formatDate,
   openLocalPage,
 } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
@@ -232,13 +230,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     completed: false,
     steps: {},
   });
-  const [agentBase, setAgentBase] = useState("");
-  const [agentDetected, setAgentDetected] = useState(false);
-  const [agentBindBlocked, setAgentBindBlocked] = useState(false);
-  const agentBaseRef = useRef("");
-  const initialPath = useRef(pathname);
-  const agentChecking = useRef(false);
-  const agentBindNoticeShown = useRef(false);
+	const [agentBase, setAgentBase] = useState("");
+	const [agentDetected, setAgentDetected] = useState(false);
+	const agentBaseRef = useRef("");
+	const initialPath = useRef(pathname);
+	const agentChecking = useRef(false);
   const [notice, setNotice] = useState({
     open: false,
     message: "",
@@ -254,14 +250,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
     useState(false);
   const localAgentInstallNoticeOpen = Boolean(
-    user &&
-    !loading &&
-    !trialWelcomeOpen &&
-    agentDetected &&
-    !agentBase &&
-    !agentBindBlocked &&
-    !localAgentInstallNoticeClosed,
-  );
+		user &&
+		!loading &&
+		!trialWelcomeOpen &&
+		agentDetected &&
+		!agentBase &&
+		!localAgentInstallNoticeClosed,
+	);
 
   /** refreshAgent 重新探测本地程序。 */
   const refreshAgent = useCallback(async () => {
@@ -269,38 +264,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     agentChecking.current = true;
     try {
       const nextBase = await detectLocalAgent(agentBaseRef.current);
-      if (!nextBase) {
-        agentBaseRef.current = "";
-        setAgentBase("");
-        setAgentBindBlocked(false);
-        return;
-      }
-      try {
-        await bindLocalAgent(nextBase);
-        agentBaseRef.current = nextBase;
-        setAgentBase(nextBase);
-        setAgentBindBlocked(false);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        if (!message.includes("已经绑定")) {
-          agentBaseRef.current = nextBase;
-          setAgentBase(nextBase);
-          setAgentBindBlocked(false);
-          return;
-        }
-        clearLocalAgentDetectCache();
-        agentBaseRef.current = "";
-        setAgentBase("");
-        setAgentBindBlocked(true);
-        if (!agentBindNoticeShown.current) {
-          agentBindNoticeShown.current = true;
-          notify(
-            "我小声提醒一下：这个账号已经绑定过另一台电脑。要换电脑的话，先去用户管理里解绑一下。",
-            "warning",
-          );
-        }
-      }
-    } finally {
+			if (!nextBase) {
+				agentBaseRef.current = "";
+				setAgentBase("");
+				return;
+			}
+			agentBaseRef.current = nextBase;
+			setAgentBase(nextBase);
+		} finally {
       setAgentDetected(true);
       agentChecking.current = false;
     }
@@ -335,14 +306,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       humanize: true,
     };
 
-    try {
-      await bindLocalAgent(baseURL);
-      agentBaseRef.current = baseURL;
-      setAgentBase(baseURL);
-      setAgentBindBlocked(false);
-      await openLocalPage(baseURL, {
-        ...browserPayload,
-        url: "https://www.bing.com",
+	try {
+		agentBaseRef.current = baseURL;
+		setAgentBase(baseURL);
+		await openLocalPage(baseURL, {
+			...browserPayload,
+			url: "https://www.bing.com",
       });
       notify("浏览器已打开，我已经把它带到必应了。", "success");
     } catch (error) {
@@ -447,13 +416,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       user,
       subscription,
       appConfig,
-      onboardingConfig,
-      onboarding,
-      agentBase,
-      agentBindBlocked,
-      refreshAgent,
-      refreshSession,
-      notify,
+		onboardingConfig,
+		onboarding,
+		agentBase,
+		refreshAgent,
+		refreshSession,
+		notify,
       confirm,
     }),
     [
@@ -723,11 +691,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 display: { xs: "none", sm: "inline-flex" },
               }}
             >
-              {agentBindBlocked
-                ? "该账号已经绑定其它设备"
-                : agentBase
-                  ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
-                  : "本地程序未连接"}
+		{agentBase
+			? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
+			: "本地程序未连接"}
             </Button>
             <Tooltip title="选择主题">
               <IconButton
