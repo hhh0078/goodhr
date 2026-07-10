@@ -557,7 +557,7 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 	}); skipped != 0 || passed["status"] != "passed" {
 		t.Fatalf("passed = %+v, skipped = %d", passed, skipped)
 	}
-	if joinedLogs := strings.Join(logs, "\n"); !strings.Contains(joinedLogs, "详情关键词通过：name=张三") || !strings.Contains(joinedLogs, "命中=本科、销售") {
+	if joinedLogs := strings.Join(logs, "\n"); !strings.Contains(joinedLogs, "列表过滤：详情关键词通过，候选人=张三") || !strings.Contains(joinedLogs, "命中=本科、销售") {
 		t.Fatalf("logs = %s", joinedLogs)
 	}
 	rejected := map[string]any{"detail_text": "本科，外包项目经验"}

@@ -256,7 +256,30 @@ func (db *DB) AddTaskLog(taskID string, level string, message string) (Log, erro
 		return Log{}, fmt.Errorf("写入任务日志失败：%w", err)
 	}
 	id, _ := result.LastInsertId()
+	_ = db.TrimTaskLogs(taskID, 1000)
 	return Log{ID: id, TaskID: taskID, Level: level, Message: message, CreatedAt: now}, nil
+}
+
+// TrimTaskLogs 只保留指定任务最近 limit 条日志。
+// taskID 为任务 ID，limit 为保留数量；清理失败时返回错误。
+func (db *DB) TrimTaskLogs(taskID string, limit int) error {
+	if limit <= 0 {
+		limit = 1000
+	}
+	_, err := db.conn.Exec(
+		`DELETE FROM local_task_logs
+		 WHERE task_id=?
+		   AND id NOT IN (
+		     SELECT id FROM local_task_logs WHERE task_id=? ORDER BY id DESC LIMIT ?
+		   )`,
+		taskID,
+		taskID,
+		limit,
+	)
+	if err != nil {
+		return fmt.Errorf("清理旧任务日志失败：%w", err)
+	}
+	return nil
 }
 
 // ListTaskLogs 读取本地任务日志。

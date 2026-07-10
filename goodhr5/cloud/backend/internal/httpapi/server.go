@@ -226,6 +226,11 @@ func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
 		s.tasks.Stop(w, r)
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/status") {
+		// 接收本地程序同步的任务最终状态。
+		s.tasks.SyncStatus(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/candidates") {
 		// 接收本地程序回传的候选人 JSON，并写入云端简历库。
 		s.tasks.SaveLocalCandidate(w, r)

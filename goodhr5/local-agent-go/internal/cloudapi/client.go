@@ -248,6 +248,27 @@ func (c *Client) StopTask(ctx context.Context, token string, taskID string) erro
 	return nil
 }
 
+// SyncTaskStatus 通知云端任务当前状态。
+// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，status 为 completed、stopped 或 running。
+func (c *Client) SyncTaskStatus(ctx context.Context, token string, taskID string, status string) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return fmt.Errorf("任务 ID 不能为空")
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return fmt.Errorf("任务状态不能为空")
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/status", map[string]any{"status": status})
+	if err != nil {
+		return fmt.Errorf("同步云端任务状态失败：%w", err)
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "同步云端任务状态失败"))
+	}
+	return nil
+}
+
 // getAuthed 使用 Bearer Token 请求云端接口。
 // ctx 为请求上下文，token 为登录令牌，path 为以 / 开头的云端路径。
 func (c *Client) getAuthed(ctx context.Context, token string, path string) (map[string]any, int, error) {

@@ -36,13 +36,16 @@ func (m *taskNoticeMailer) SendCustomHTML(email string, subject string, htmlBody
 	return nil
 }
 
-// TestTaskStatusNoticeLabel 验证任务状态邮件区分结束和失败。
+// TestTaskStatusNoticeLabel 验证任务状态邮件区分完成、停止和失败。
 func TestTaskStatusNoticeLabel(t *testing.T) {
 	if got := taskStatusNoticeLabel("failed"); got != "任务失败" {
 		t.Fatalf("failed label = %s", got)
 	}
-	if got := taskStatusNoticeLabel("stopped"); got != "任务结束" {
+	if got := taskStatusNoticeLabel("stopped"); got != "任务已停止" {
 		t.Fatalf("stopped label = %s", got)
+	}
+	if got := taskStatusNoticeLabel("completed"); got != "任务完成" {
+		t.Fatalf("completed label = %s", got)
 	}
 }
 

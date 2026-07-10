@@ -564,6 +564,59 @@ func (s *TaskService) Stop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SyncStatus 接收本地程序同步的任务状态。
+// 请求体中的 status 只允许 completed、stopped、running，用于避免完成任务被误标记为停止。
+func (s *TaskService) SyncStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	taskID = strings.TrimSuffix(taskID, "/status")
+	taskID = strings.Trim(taskID, "/")
+	var payload struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	status := strings.ToLower(strings.TrimSpace(payload.Status))
+	if status != "completed" && status != "stopped" && status != "running" {
+		writeError(w, http.StatusBadRequest, "unsupported status")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed load task")
+		return
+	}
+	if task.Status != status {
+		_ = s.store.UpdateTaskStatus(task.ID, status)
+		if status == "completed" {
+			_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "info", "任务已完成")
+			s.sendTaskStatusNotice(task, "completed", "")
+		}
+		if status == "stopped" {
+			_ = s.taskLogs.WriteLog(task.ID, task.UserEmail, "warn", "任务已停止")
+			s.sendTaskStatusNotice(task, "stopped", "")
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": status,
+	})
+}
+
 // sendTaskStatusNotice 发送任务结束或失败邮件提醒。
 func (s *TaskService) sendTaskStatusNotice(task TaskRun, status string, errorMessage string) {
 	if s.mailer == nil || strings.TrimSpace(task.UserEmail) == "" {
@@ -609,10 +662,16 @@ func (s *TaskService) sendTaskStatusNotice(task TaskRun, status string, errorMes
 
 // taskStatusNoticeLabel 返回任务状态邮件里的中文状态。
 func taskStatusNoticeLabel(status string) string {
-	if status == "failed" {
+	switch status {
+	case "failed":
 		return "任务失败"
+	case "stopped":
+		return "任务已停止"
+	case "completed":
+		return "任务完成"
+	default:
+		return "任务结束"
 	}
-	return "任务结束"
 }
 
 func (s *TaskService) getTenantInfo(email string) (string, bool) {

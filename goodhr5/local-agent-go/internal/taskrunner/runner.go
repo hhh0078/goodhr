@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -213,12 +212,14 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 	if err != nil {
 		return nil, err
 	}
-	r.taskLog(taskID, "info", fmt.Sprintf("收到任务启动请求：name=%s platform=%s mode=%s", task.Name, task.PlatformID, task.Mode))
+	r.taskLog(taskID, "info", "任务启动：正在准备本地运行环境")
+	r.taskLog(taskID, "info", fmt.Sprintf("任务启动：任务配置读取完成，平台=%s，岗位=%s，模式=%s，轮次=%d", task.PlatformID, taskPositionName(task), task.Mode, scanRounds(options)))
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !r.setRunning(taskID, cancel) {
 		cancel()
 		return nil, fmt.Errorf("任务正在运行")
 	}
+	r.taskLog(taskID, "info", "任务启动：本地运行锁已创建")
 	totalRounds := scanRounds(options)
 	r.updateProgress(taskID, Progress{Stage: "starting", Message: "任务准备启动", TotalRounds: totalRounds})
 	// 保存通知邮箱到运行状态
@@ -242,7 +243,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		cancel()
 		return nil, err
 	}
-	r.taskLog(taskID, "info", "本地任务已进入后台运行")
+	r.taskLog(taskID, "info", "任务启动：已进入后台运行")
 	go r.runTask(runCtx, task, options, snapshot)
 	return map[string]any{"task": updated, "running": true}, nil
 }
@@ -258,34 +259,35 @@ func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOp
 	options.EnableSound = task.EnableSound
 	r.initRestState(taskID, options)
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "任务已开始执行", TotalRounds: totalRounds})
-	r.taskLog(taskID, "info", "本地任务运行器已启动，准备进入扫描流程")
+	r.taskLog(taskID, "info", "任务启动：本地任务运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, task, snapshot.PlatformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "任务已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
-			r.taskLog(taskID, "info", "本地任务收到停止信号")
+			r.taskLog(taskID, "info", "任务停止：收到停止信号，正在同步云端停止状态")
 			r.notifyCloudTaskStopped(taskID, options)
 			return
 		}
 		if isBrowserClosedTaskError(err) {
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "浏览器已关闭，任务已自动结束", TotalRounds: totalRounds})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
-			r.taskLog(taskID, "warning", "浏览器已关闭，任务已自动结束："+err.Error())
-			r.sendTaskFailNotification(context.Background(), taskID, "浏览器已关闭，任务已自动结束："+err.Error(), options)
+			message := "浏览器已关闭，任务已自动结束：" + err.Error()
+			r.taskLog(taskID, "error", "任务失败：环节=浏览器运行，错误="+message)
+			r.sendTaskFailNotification(context.Background(), taskID, message, options)
 			return
 		}
 		r.failStart(taskID, "本地任务扫描失败："+err.Error(), options)
 		return
 	}
 	if r.isUserStopped(taskID) {
-		r.taskLog(taskID, "info", "任务已被用户停止，忽略扫描完成结果")
+		r.taskLog(taskID, "info", "任务停止：任务已被用户停止，忽略扫描完成结果")
 		return
 	}
 	r.updateProgress(taskID, Progress{Stage: "completed", Message: "任务已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdateTaskStatus(taskID, "completed")
-	r.taskLog(taskID, "info", fmt.Sprintf("后台任务已完成：%v", scanResult))
-	r.notifyCloudTaskStopped(taskID, options)
+	r.taskLog(taskID, "info", fmt.Sprintf("任务完成：本次运行结束，扫描=%d，打招呼=%d，跳过=%d，失败=%d", intFromMap(scanResult, "saved"), intFromMap(scanResult, "greeted"), intFromMap(scanResult, "skipped"), intFromMap(scanResult, "failed")))
+	r.notifyCloudTaskCompleted(taskID, options)
 }
 
 // Stop 停止本地任务运行器。
@@ -295,7 +297,7 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("任务 ID 不能为空")
 	}
-	r.taskLog(taskID, "info", "收到停止任务请求")
+	r.taskLog(taskID, "info", "任务停止：收到用户停止请求")
 	r.markUserStopped(taskID)
 	task, err := r.db.UpdateTaskStatus(taskID, "stopped")
 	if err != nil {
@@ -303,15 +305,15 @@ func (r *Runner) Stop(taskID string) (map[string]any, error) {
 	}
 	if r.hasRunningLock(taskID) {
 		r.updateProgress(taskID, Progress{Stage: "running", Message: "正在处理当前候选人，处理完会停止"})
-		r.taskLog(taskID, "info", "正在等待当前候选人处理完成后停止")
+		r.taskLog(taskID, "info", "任务停止：正在等待当前候选人处理完成")
 		if !r.waitUntilStopped(taskID, stopGracefulTimeout) {
-			r.taskLog(taskID, "warning", "停止等待超时，已强制停止任务")
+			r.taskLog(taskID, "warning", fmt.Sprintf("任务停止：等待超时，已强制停止，超过=%s", stopGracefulTimeout.Round(time.Second)))
 			r.markUserStoppedAndCancel(taskID)
 			r.updateProgress(taskID, Progress{Stage: "stopped", Message: "停止等待超时，已强制停止"})
 			_, _ = r.db.UpdateTaskStatus(taskID, "stopped")
 		}
 	}
-	r.taskLog(taskID, "info", "本地任务已停止，浏览器保持打开")
+	r.taskLog(taskID, "info", "任务停止：当前候选人处理完成，任务停止，浏览器保持打开")
 	if latest, getErr := r.db.GetTask(taskID); getErr == nil {
 		task = latest
 	}
@@ -460,7 +462,7 @@ func (r *Runner) withOperationTimeout(ctx context.Context, taskID string, candid
 	opCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	startedAt := time.Now()
-	r.taskLog(taskID, "info", fmt.Sprintf("开始%s：name=%s timeout=%s", operation, candidateName, timeout.Round(time.Second)))
+	r.taskLog(taskID, "info", fmt.Sprintf("%s：开始，候选人=%s，超时=%s", operation, candidateName, timeout.Round(time.Second)))
 	defer func() {
 		elapsed := time.Since(startedAt).Round(time.Millisecond)
 		if recovered := recover(); recovered != nil {
@@ -470,10 +472,14 @@ func (r *Runner) withOperationTimeout(ctx context.Context, taskID string, candid
 			err = fmt.Errorf("%s超时：超过%s", operation, timeout.Round(time.Second))
 		}
 		if err != nil {
-			r.taskLog(taskID, "warning", fmt.Sprintf("%s失败：name=%s elapsed=%s err=%s", operation, candidateName, elapsed, err.Error()))
+			if errors.Is(opCtx.Err(), context.DeadlineExceeded) {
+				r.taskLog(taskID, "error", fmt.Sprintf("%s：超时，候选人=%s，超过=%s，耗时=%s，错误=%s", operation, candidateName, timeout.Round(time.Second), elapsed, err.Error()))
+				return
+			}
+			r.taskLog(taskID, "warning", fmt.Sprintf("%s：失败，候选人=%s，耗时=%s，错误=%s", operation, candidateName, elapsed, err.Error()))
 			return
 		}
-		r.taskLog(taskID, "info", fmt.Sprintf("%s完成：name=%s elapsed=%s", operation, candidateName, elapsed))
+		r.taskLog(taskID, "info", fmt.Sprintf("%s：完成，候选人=%s，耗时=%s", operation, candidateName, elapsed))
 	}()
 	return fn(opCtx)
 }
@@ -497,17 +503,15 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
 	}
 	// 1. 准备平台运行时和浏览器。
-	r.taskLog(task.ID, "info", "平台入口地址已确认："+entryURL)
-	r.taskLog(task.ID, "info", "准备启动浏览器 Worker")
+	r.taskLog(task.ID, "info", "页面准备：正在打开招聘平台页面")
 	workerStatus, err := r.worker.Start(ctx)
 	if err != nil {
 		return nil, err
 	}
-	r.taskLog(task.ID, "info", fmt.Sprintf("浏览器 Worker 已启动：running=%v base_url=%s", workerStatus.Running, workerStatus.BaseURL))
+	r.taskLog(task.ID, "info", fmt.Sprintf("页面准备：浏览器 Worker 已启动，running=%v，base_url=%s", workerStatus.Running, workerStatus.BaseURL))
 	profileName := taskProfileName(task)
 	userDataDir := filepath.Join(r.profilesDir, profileName)
-	r.taskLog(task.ID, "info", "正在启动浏览器账号目录："+profileName)
-	r.taskLog(task.ID, "info", "准备调用浏览器启动接口：/api/v1/browser/start")
+	r.taskLog(task.ID, "info", "页面准备：正在启动浏览器账号目录="+profileName)
 	viewportWidth, viewportHeight := taskBrowserViewport()
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
 		"humanize":        true,
@@ -518,18 +522,19 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	}); err != nil {
 		return nil, err
 	}
-	r.taskLog(task.ID, "info", "浏览器启动成功，准备确认当前页面")
+	r.taskLog(task.ID, "info", "页面准备：浏览器启动完成，准备确认当前页面")
 	onEntryPage, err := platformRuntime.IsTaskEntryPage(ctx, exec, platformConfig)
 	if err != nil {
-		r.taskLog(task.ID, "warning", "读取当前页面地址失败，将打开入口页面："+err.Error())
+		r.taskLog(task.ID, "warning", "页面准备：读取当前页面地址失败，将打开入口页面，错误="+err.Error())
 	}
 	if onEntryPage {
-		r.taskLog(task.ID, "info", "当前页面已命中入口地址，跳过入口页跳转")
+		r.taskLog(task.ID, "info", "页面准备：当前页面已命中入口地址，跳过入口页跳转")
 	} else {
-		r.taskLog(task.ID, "info", "当前页面未命中入口地址，准备打开入口页面")
+		r.taskLog(task.ID, "info", "页面准备：当前页面未命中入口地址，准备打开入口页面")
 		if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
 			return nil, err
 		}
+		r.taskLog(task.ID, "info", "页面准备：招聘平台页面打开完成")
 	}
 	seen := map[string]struct{}{}
 	queue := make([]map[string]any, 0)
@@ -549,6 +554,7 @@ scanLoop:
 		if len(queue) == 0 {
 			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
 			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
+			r.taskLog(task.ID, "info", "页面准备：正在确认当前页面和岗位")
 			if err := r.waitTaskEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig); err != nil {
 				return nil, err
 			}
@@ -561,10 +567,11 @@ scanLoop:
 			if err != nil {
 				return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
 			}
+			r.taskLog(task.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，任务岗位=%s", currentName, positionName))
 			if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
-				r.taskLog(task.ID, "info", "页面岗位匹配："+currentName)
+				r.taskLog(task.ID, "info", "页面准备：岗位匹配成功")
 			} else {
-				r.taskLog(task.ID, "warning", fmt.Sprintf("页面岗位与任务岗位不一致，准备切换：页面=%s，任务=%s", currentName, positionName))
+				r.taskLog(task.ID, "warning", "页面准备：岗位不一致，准备切换岗位")
 				if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 					return nil, fmt.Errorf("切换页面岗位失败：%w", err)
 				}
@@ -575,7 +582,7 @@ scanLoop:
 				if !strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
 					return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
 				}
-				r.taskLog(task.ID, "info", "页面岗位已切换为："+confirmedName)
+				r.taskLog(task.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
 			}
 			delay := pageReadyDelay(options)
 			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
@@ -584,7 +591,7 @@ scanLoop:
 			}
 			// 3. 读取当前屏幕可见候选人，并追加到待处理队列。
 			r.updateProgress(task.ID, Progress{Stage: "extracting", Message: "正在提取候选人"})
-			r.taskLog(task.ID, "info", fmt.Sprintf("开始提取候选人：max_items=%d", maxItems))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取：正在读取当前页面候选人，最多=%d", maxItems))
 			platformCandidates, err := platformRuntime.ListVisibleCandidates(ctx, exec, platformConfig, maxItems)
 			if err != nil {
 				return nil, err
@@ -592,8 +599,9 @@ scanLoop:
 			candidates, duplicateCount := freshCandidates(candidateMaps(platformCandidates), seen)
 			if len(candidates) == 0 {
 				emptyLoads++
-				r.taskLog(task.ID, "info", fmt.Sprintf("本次未发现新候选人，重复跳过=%d，连续空加载=%d/%d", duplicateCount, emptyLoads, emptyLimit))
+				r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取：本轮没有新候选人，重复=%d，连续空轮次=%d/%d", duplicateCount, emptyLoads, emptyLimit))
 				if emptyLoads >= emptyLimit {
+					r.taskLog(task.ID, "info", "候选人提取：达到连续空轮次上限，停止继续滚动")
 					break
 				}
 				if err := r.scrollForMoreCandidates(ctx, task.ID, platformRuntime, exec, platformConfig, options); err != nil {
@@ -604,18 +612,19 @@ scanLoop:
 			emptyLoads = 0
 			queue = append(queue, candidates...)
 			r.syncProcessedResumeCount(ctx, task, len(candidates), options)
-			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取完成：本次新增=%d，重复跳过=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
 		}
 		candidates := queue
 		queue = nil
 		filtered, skipped := r.prepareCandidatesForFirstStage(task, candidates)
 		totalSkipped += skipped
+		r.taskLog(task.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
 		if skipped > 0 {
-			r.taskLog(task.ID, "info", fmt.Sprintf("列表关键词过滤完成：保留=%d 跳过=%d", len(filtered), skipped))
+			r.taskLog(task.ID, "info", fmt.Sprintf("列表过滤：有 %d 个候选人已跳过", skipped))
 		}
 		if len(filtered) > 0 {
 			r.updateProgress(task.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在处理候选人队列，待处理 %d 个", len(filtered))})
-			r.taskLog(task.ID, "info", fmt.Sprintf("开始处理候选人队列：数量=%d", len(filtered)))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：队列开始，数量=%d", len(filtered)))
 
 			// 4. 并发做“是否值得看详情”的预评分，但主流程仍按页面顺序消费候选人。
 			batchResult := batchProcessResult{}
@@ -628,7 +637,7 @@ scanLoop:
 			needsAI := taskMode(task) == "ai"
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
-				r.taskLog(task.ID, "info", fmt.Sprintf("正在并发分析多个候选人：数量=%d，并发数=%d", len(filtered), workerCount))
+				r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：开始并发分析，数量=%d，并发数=%d", len(filtered), workerCount))
 				r.startCandidateDetailWorkers(ctx, task, exec, aiClient, aiJobs, precheckCh, workerCount)
 			}
 			go r.feedCandidatePipeline(ctx, task, filtered, needsAI, aiJobs, precheckCh)
@@ -640,7 +649,7 @@ scanLoop:
 					break
 				}
 				if reachedRunGreetLimit(task, totalGreeted+batchResult.Greeted) {
-					r.taskLog(task.ID, "info", fmt.Sprintf("已达到本次上限 %d，停止继续处理候选人", task.MatchLimit))
+					r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取：达到本次打招呼上限，停止继续处理，上限=%d", task.MatchLimit))
 					break
 				}
 				if err := ctx.Err(); err != nil {
@@ -661,7 +670,7 @@ scanLoop:
 				delete(pending, nextIndex)
 				nextIndex++
 				if item.Err != nil {
-					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理失败：index=%d err=%v", item.Index, item.Err))
+					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理：失败，序号=%d，错误=%v", item.Index+1, item.Err))
 					if errors.Is(item.Err, context.Canceled) || isBrowserClosedTaskError(item.Err) {
 						return nil, item.Err
 					}
@@ -675,7 +684,7 @@ scanLoop:
 				processedCount++
 				candidateName := candidateLogName(candidate)
 				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
-				r.taskLog(task.ID, "info", fmt.Sprintf("按队列顺序处理候选人：序号=%d name=%s status=%s timeout=%s", processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
+				r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：开始处理，序号=%d/%d，姓名=%s，状态=%s，超时=%s", processedCount, len(filtered), candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
 
 				// 5. 如果预评分通过，再打开详情；详情模式由任务配置决定：DOM、OCR 或 AI 图片。
@@ -690,9 +699,9 @@ scanLoop:
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
 						batchResult.Skipped++
-						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分跳过：name=%s score=%.1f threshold=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
+						r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：跳过候选人，候选人=%s，分数=%.1f，阈值=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
-						r.taskLog(task.ID, "info", fmt.Sprintf("看详情评分通过，准备打开详情：name=%s score=%.1f threshold=%.1f", candidateLogName(candidate), decision.Score, decision.Threshold))
+						r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否看详情=是", candidateLogName(candidate), decision.Score, decision.Threshold))
 						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						batchResult.Skipped += itemSkipped
 						if err != nil {
@@ -708,9 +717,9 @@ scanLoop:
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("未命中打开详情概率：%d%%", detailOpenProbability(options))
 						batchResult.Skipped++
-						r.taskLog(task.ID, "info", fmt.Sprintf("打开详情概率跳过：name=%s probability=%d%%", candidateLogName(candidate), detailOpenProbability(options)))
+						r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
 					} else {
-						r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：index=%d name=%s", item.Index, candidateLogName(candidate)))
+						r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateLogName(candidate), detailModeLabel(detailMode(task))))
 						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						batchResult.Skipped += itemSkipped
 						if err != nil {
@@ -728,7 +737,7 @@ scanLoop:
 						candidate["status"] = "failed"
 						candidate["error"] = err.Error()
 						batchResult.Failed++
-						r.taskLog(task.ID, "warning", "最终打招呼判断失败："+err.Error())
+						r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼判断：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 					}
 				}
 
@@ -749,22 +758,23 @@ scanLoop:
 
 				status := stringFromMap(candidate, "status")
 				if shouldSaveCandidateResult(status) {
+					r.taskLog(task.ID, "info", fmt.Sprintf("结果保存：准备保存候选人，候选人=%s，状态=%s", candidateName, status))
 					r.saveCandidateResult(ctx, task, candidate, options)
-					r.taskLog(task.ID, "info", fmt.Sprintf("候选人已处理：index=%d name=%s status=%s", item.Index, candidateLogName(candidate), status))
+					r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：候选人处理完成，姓名=%s，结果=%s", candidateLogName(candidate), status))
 					batchResult.Saved++
 				}
 				if errors.Is(candidateCtx.Err(), context.DeadlineExceeded) {
 					candidate["status"] = "failed"
 					candidate["error"] = fmt.Sprintf("候选人处理总超时：超过%s", candidateTotalTimeout.Round(time.Second))
 					batchResult.Failed++
-					r.taskLog(task.ID, "warning", fmt.Sprintf("候选人处理总超时，已跳过：index=%d name=%s timeout=%s", item.Index, candidateName, candidateTotalTimeout.Round(time.Second)))
+					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
 				}
 				candidateCancel()
 				if err := r.maybeRestAfterCandidate(ctx, task.ID, options); err != nil {
 					return nil, err
 				}
 				if r.isUserStopped(task.ID) {
-					r.taskLog(task.ID, "info", "当前候选人已处理完成，按停止请求结束任务")
+					r.taskLog(task.ID, "info", "任务停止：当前候选人处理完成，按停止请求结束任务")
 					break
 				}
 			}
@@ -773,7 +783,7 @@ scanLoop:
 			totalSkipped += batchResult.Skipped
 			totalGreeted += batchResult.Greeted
 			totalFailed += batchResult.Failed
-			r.taskLog(task.ID, "info", fmt.Sprintf("候选人队列处理完成：保存=%d 跳过=%d 打招呼=%d 失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
+			r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：队列完成，保存=%d，跳过=%d，打招呼=%d，失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
 			if r.isUserStopped(task.ID) {
 				break scanLoop
 			}
@@ -790,9 +800,9 @@ scanLoop:
 		if err == nil {
 			r.syncTaskCounts(ctx, updatedTask, options)
 		}
-		r.taskLog(task.ID, "info", fmt.Sprintf("本次扫描处理 %d 个候选人，跳过 %d 个，打招呼 %d 个，失败 %d 个", totalSaved, totalSkipped, totalGreeted, totalFailed))
+		r.taskLog(task.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalSaved, totalSkipped, totalGreeted, totalFailed))
 	} else {
-		r.taskLog(task.ID, "warning", "当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
+		r.taskLog(task.ID, "warning", "候选人提取：当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
 	return map[string]any{
 		"candidates_count": totalSaved,
@@ -812,12 +822,12 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, pla
 	}
 	r.updateProgress(taskID, Progress{Stage: "scrolling", Message: "正在加载更多候选人"})
 	scrollDistance := randomScrollDistance(options)
-	r.taskLog(taskID, "info", fmt.Sprintf("准备滚动候选人列表：distance=%d", scrollDistance))
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人提取：准备滚动加载更多候选人，距离=%dpx", scrollDistance))
 	if err := platformRuntime.ScrollCandidateList(ctx, exec, platformConfig, scrollDistance); err != nil {
-		r.taskLog(taskID, "warning", "滚动候选人列表失败："+err.Error())
+		r.taskLog(taskID, "warning", "候选人提取：滚动失败，错误="+err.Error())
 		return nil
 	}
-	r.taskLog(taskID, "info", "候选人列表滚动完成")
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人提取：滚动完成，距离=%dpx", scrollDistance))
 	return nil
 }
 
@@ -847,11 +857,12 @@ func (r *Runner) syncTaskCounts(ctx context.Context, task localdb.Task, options 
 		"skipped_count": task.SkippedCount,
 		"failed_count":  task.FailedCount,
 	}
+	r.taskLog(task.ID, "info", fmt.Sprintf("统计同步：准备同步任务统计，扫描=%d，打招呼=%d，跳过=%d，失败=%d", task.ScannedCount, task.GreetedCount, task.SkippedCount, task.FailedCount))
 	err := r.withOperationTimeout(ctx, task.ID, task.Name, "同步任务统计", cloudStatsSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SyncTaskCounts(syncCtx, options.Token, task.ID, counts)
 	})
 	if err != nil {
-		r.taskLog(task.ID, "warning", "同步任务统计失败："+err.Error())
+		r.taskLog(task.ID, "warning", "统计同步：同步失败，错误="+err.Error())
 	}
 }
 
@@ -859,7 +870,7 @@ func (r *Runner) syncTaskCounts(ctx context.Context, task localdb.Task, options 
 // ctx 为请求上下文，task 为任务记录，candidate 为候选人结果，options 为启动参数。
 func (r *Runner) saveCandidateResult(ctx context.Context, task localdb.Task, candidate map[string]any, options StartOptions) {
 	if strings.TrimSpace(options.Token) == "" {
-		r.taskLog(task.ID, "warning", "候选人未同步云端：缺少登录 token")
+		r.taskLog(task.ID, "warning", "结果保存：云端同步失败，错误=缺少登录 token")
 		return
 	}
 	if r.savePendingAIVisionCandidateAsync(ctx, task, candidate, options) {
@@ -934,7 +945,7 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 		case <-ctx.Done():
 			r.taskLog(task.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
 		case <-timer.C:
-			r.taskLog(task.ID, "warning", fmt.Sprintf("等待 AI 完整详情输出超时：name=%s timeout=%s", name, pendingAIVisionOutputTimeout.Round(time.Second)))
+			r.taskLog(task.ID, "warning", fmt.Sprintf("AI图片详情：超时，候选人=%s，超过=%s", name, pendingAIVisionOutputTimeout.Round(time.Second)))
 		}
 	}()
 	return true
@@ -944,15 +955,15 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, task loc
 // ctx 为请求上下文，task 为任务记录，payload 为候选人 JSON，options 为启动参数。
 func (r *Runner) saveCandidatePayload(ctx context.Context, task localdb.Task, payload map[string]any, options StartOptions) {
 	name := candidateLogName(payload)
-	r.taskLog(task.ID, "info", "准备同步候选人到云端："+name)
+	r.taskLog(task.ID, "info", "结果保存：准备同步云端，候选人="+name)
 	err := r.withOperationTimeout(ctx, task.ID, name, "同步候选人到云端", cloudCandidateSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SaveTaskCandidate(syncCtx, options.Token, task.ID, payload)
 	})
 	if err != nil {
-		r.taskLog(task.ID, "warning", "候选人同步云端失败："+err.Error())
+		r.taskLog(task.ID, "warning", fmt.Sprintf("结果保存：云端同步失败，候选人=%s，错误=%s", name, err.Error()))
 		return
 	}
-	r.taskLog(task.ID, "info", "候选人已同步云端："+name)
+	r.taskLog(task.ID, "info", "结果保存：云端同步完成，候选人="+name)
 }
 
 // mergeVisionDecisionIntoCandidate 合并图片详情 AI 的最终输出。
@@ -998,7 +1009,7 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 		return TaskRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
 	requiresAI := taskRequiresAI(task)
-	r.taskLog(taskID, "info", "开始校验会员")
+	r.taskLog(taskID, "info", "任务启动：正在校验会员状态")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("会员校验失败：%w", err)
@@ -1007,23 +1018,26 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 		if requiresAI {
 			return TaskRuntimeSnapshot{}, fmt.Errorf("会员已到期，当前任务使用了 AI 筛选或 AI 详情识别，请先订阅后再开始任务")
 		}
-		r.taskLog(taskID, "info", "当前为免费版，任务未使用会员功能，允许启动")
+		r.taskLog(taskID, "info", "任务启动：当前为免费版，任务未使用会员功能，允许启动")
 	} else {
-		r.taskLog(taskID, "info", fmt.Sprintf("会员校验通过：member_type=%s expires_at=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
+		r.taskLog(taskID, "info", fmt.Sprintf("任务启动：会员校验通过，类型=%s，到期=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
 	}
 	if strings.TrimSpace(task.PositionID) != "" && len(task.PositionSnapshot) == 0 {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("云端岗位模板为空，任务无法启动")
 	}
 
 	r.updateProgress(taskID, Progress{Stage: "preferences", Message: "正在读取云端个人配置", TotalRounds: totalRounds})
+	r.taskLog(taskID, "info", "任务启动：正在读取个人偏好配置")
 	preferences, err := client.FetchUserPreferences(ctx, options.Token)
 	if err != nil {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端个人配置失败：%w", err)
 	}
 	options = applyCloudPreferences(options, preferences)
+	r.taskLog(taskID, "info", "任务启动：个人偏好配置读取完成")
 
 	if requiresAI {
 		r.updateProgress(taskID, Progress{Stage: "ai_config", Message: "正在读取云端 AI 配置", TotalRounds: totalRounds})
+		r.taskLog(taskID, "info", "任务启动：正在读取 AI 配置")
 		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
 		if err != nil {
 			return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端 AI 配置失败：%w", err)
@@ -1032,7 +1046,7 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 		if err := validateAIConfig(options.AIConfig); err != nil {
 			return TaskRuntimeSnapshot{}, err
 		}
-		r.taskLog(taskID, "info", fmt.Sprintf("云端 AI 配置读取成功：model=%s", options.AIConfig.Model))
+		r.taskLog(taskID, "info", fmt.Sprintf("任务启动：AI 配置读取完成，模型=%s", options.AIConfig.Model))
 	}
 
 	r.updateProgress(taskID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
@@ -1040,7 +1054,7 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 	if platformID == "" {
 		platformID = "boss"
 	}
-	r.taskLog(taskID, "info", "开始读取云端平台配置：platform="+platformID)
+	r.taskLog(taskID, "info", "任务启动：正在读取平台配置，平台="+platformID)
 	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
 	if err != nil {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("读取云端平台配置失败：%w", err)
@@ -1048,7 +1062,7 @@ func (r *Runner) buildTaskRuntimeSnapshot(ctx context.Context, client *cloudapi.
 	if len(platformConfig) == 0 {
 		return TaskRuntimeSnapshot{}, fmt.Errorf("云端平台配置为空，任务无法启动")
 	}
-	r.taskLog(taskID, "info", "云端平台配置读取成功：platform="+platformID)
+	r.taskLog(taskID, "info", "任务启动：平台配置读取完成，平台="+platformID)
 
 	return TaskRuntimeSnapshot{
 		Task:           task,
@@ -1440,7 +1454,7 @@ func (r *Runner) pipelineAIClient(task localdb.Task, options StartOptions) (*loc
 func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
 	status := stringFromMap(candidate, "status")
 	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
-		r.taskLog(task.ID, "info", fmt.Sprintf("跳过打招呼：name=%s status=%s", candidateLogName(candidate), status))
+		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
 		return 0, 0, 0, nil
 	}
 	if task.MatchLimit > 0 && greetedSoFar >= task.MatchLimit {
@@ -1452,16 +1466,16 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 	if err := waitBeforeGreet(ctx, r, task.ID, options); err != nil {
 		return 0, 0, 0, err
 	}
-	r.taskLog(task.ID, "info", fmt.Sprintf("准备打招呼：name=%s greeted_so_far=%d", candidateLogName(candidate), greetedSoFar))
+	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
 	if err := r.tryGreet(ctx, task.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
-		r.taskLog(task.ID, "warning", "打招呼失败："+err.Error())
+		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 		return 0, 1, 0, nil
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-	r.taskLog(task.ID, "info", "打招呼成功："+candidateLogName(candidate))
+	r.taskLog(task.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
 	if task.EnableSound {
 		r.playSound("success.wav", task.ID)
 	}
@@ -1523,10 +1537,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", fmt.Sprintf("准备读取候选人详情：name=%s detail_mode=%s", candidateName, detailModeLabel(mode)))
+	r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateName, detailModeLabel(mode)))
 	// 打开详情前模拟人工点击延时
 	if err := r.delayRandomRange(ctx, task.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
-		r.taskLog(task.ID, "warning", "打开详情前延时被中断")
+		r.taskLog(task.ID, "warning", "详情读取：打开详情前等待被中断，候选人="+candidateName)
 	}
 	var detailResult platformcore.DetailResult
 	err := r.withOperationTimeout(ctx, task.ID, candidateName, "读取候选人详情", detailFetchTimeout, func(opCtx context.Context) error {
@@ -1541,7 +1555,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
-		r.taskLog(task.ID, "warning", "读取候选人详情失败："+err.Error())
+		r.taskLog(task.ID, "warning", fmt.Sprintf("详情读取：失败，候选人=%s，错误=%s", candidateName, err.Error()))
 		if !r.isUserStopped(task.ID) {
 			_ = r.withOperationTimeout(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", detailCloseTimeout, func(closeCtx context.Context) error {
 				return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
@@ -1566,7 +1580,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 		}
 	}()
-	r.taskLog(task.ID, "info", "详情提取接口返回成功："+candidateName)
+	r.taskLog(task.ID, "info", "详情读取：详情接口返回成功，候选人="+candidateName)
 	detailText := ""
 	if mode == "dom" {
 		detailText = strings.TrimSpace(detailResult.Text)
@@ -1574,7 +1588,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	}
 	if screenshot := detailResult.Screenshot; len(screenshot) > 0 {
 		r.attachDetailScreenshot(candidate, screenshot)
-		r.taskLog(task.ID, "info", fmt.Sprintf("详情截图已返回：name=%s path=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
+		r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：详情截图已返回，候选人=%s，图片=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
 		if mode == "ocr" {
 			if taskMode(task) == "keyword" {
 				r.showKeywordOCRLoadingOverlay(ctx, exec, task, candidate)
@@ -1596,17 +1610,16 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			})
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
-				r.taskLog(task.ID, "warning", "OCR 识别失败："+err.Error())
+				r.taskLog(task.ID, "warning", fmt.Sprintf("OCR识别：失败，候选人=%s，错误=%s", candidateName, err.Error()))
 			} else {
 				detailText = platformRuntime.CleanCandidateDetailText(ocrText)
 				candidate["ocr_text"] = detailText
 				candidate["detail_source"] = "ocr"
-				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别完成：name=%s length=%d", candidateName, len([]rune(detailText))))
-				r.taskLog(task.ID, "info", fmt.Sprintf("OCR 识别内容：name=%s text=%s", candidateName, logTextPreview(detailText, 800)))
+				r.taskLog(task.ID, "info", fmt.Sprintf("OCR识别：完成，候选人=%s，文本长度=%d", candidateName, len([]rune(detailText))))
 			}
 		}
 		if mode == "ai" {
-			r.taskLog(task.ID, "info", "开始 AI 图片详情评分："+candidateName)
+			r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：开始，候选人=%s，超时=%s", candidateName, aiDetailTimeout.Round(time.Second)))
 			visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼")
 			var decision localai.Decision
 			err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI图片详情评分", aiDetailTimeout, func(aiCtx context.Context) error {
@@ -1617,7 +1630,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			cleanup()
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
-				r.taskLog(task.ID, "warning", "AI 图片详情评分失败："+err.Error())
+				r.taskLog(task.ID, "warning", fmt.Sprintf("AI图片详情：失败，候选人=%s，错误=%s", candidateName, err.Error()))
 			} else {
 				r.showAIReply(ctx, exec, "AI 详情分析完成", candidateName, formatVisionDecisionReply(decision))
 				detailText = platformRuntime.CleanCandidateDetailText(decision.DetailText)
@@ -1633,17 +1646,17 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				if !decision.ShouldGreet {
 					candidate["status"] = "skipped"
 					candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-					r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情评分未通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
+					r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
 					return 1, nil
 				}
 				candidate["status"] = "ai_passed"
-				r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情评分通过：name=%s score=%.1f threshold=%.1f length=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
+				r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是，文本长度=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
 			}
 		}
 	} else if mode == "ai" {
-		r.taskLog(task.ID, "warning", "详情模式为 AI，但详情截图为空，无法调用详情 AI："+candidateName)
+		r.taskLog(task.ID, "warning", "AI图片详情：失败，候选人="+candidateName+"，错误=详情截图为空")
 	} else {
-		r.taskLog(task.ID, "info", fmt.Sprintf("当前详情模式=%s，不调用图片详情 AI：%s", detailModeLabel(mode), candidateName))
+		r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：当前详情模式=%s，不调用图片详情 AI，候选人=%s", detailModeLabel(mode), candidateName))
 	}
 	detailText = platformRuntime.CleanCandidateDetailText(detailText)
 	if detailText == "" {
@@ -1652,13 +1665,13 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		}
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情文本为空"
-		r.taskLog(task.ID, "warning", "候选人详情文本为空，已跳过："+candidateName)
+		r.taskLog(task.ID, "warning", "详情读取：失败，候选人="+candidateName+"，错误=详情文本为空")
 		return 1, nil
 	}
 	candidate["detail_text"] = detailText
 	candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
 	candidate["status"] = "detail_fetched"
-	r.taskLog(task.ID, "info", fmt.Sprintf("%s 详情已读取，模式=%s，长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
+	r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：完成，候选人=%s，来源=%s，文本长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, nil
 }
 
@@ -1923,7 +1936,7 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 	select {
 	case decision := <-earlyCh:
 		candidate[pendingAIVisionDecisionKey] = (<-chan pendingAIDecisionResult)(finalCh)
-		r.taskLog(task.ID, "info", fmt.Sprintf("AI 图片详情流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		return decision, nil
 	case final := <-finalCh:
 		return final.Decision, final.Err
@@ -2048,7 +2061,7 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 		return 0, fmt.Errorf("AI 客户端未配置")
 	}
 	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", "开始 AI 评分："+candidateName)
+	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分开始，候选人=%s，超时=%s", candidateName, aiScoreTimeout.Round(time.Second)))
 	var decision localai.Decision
 	err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI最终打招呼评分", aiScoreTimeout, func(scoreCtx context.Context) error {
 		nextDecision, scoreErr := r.scoreCandidateForGreetWithEarlyReturn(scoreCtx, task, candidate, client)
@@ -2056,7 +2069,7 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 		return scoreErr
 	})
 	if err != nil {
-		r.taskLog(task.ID, "warning", "AI 评分失败："+err.Error())
+		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼判断：AI评分失败，候选人=%s，错误=%s", candidateName, err.Error()))
 		return 0, err
 	}
 	candidate["ai_greet_score"] = decision.Score
@@ -2067,11 +2080,11 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	if !decision.ShouldGreet {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-		r.taskLog(task.ID, "info", fmt.Sprintf("AI 评分未通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
+		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
 		return 1, nil
 	}
 	candidate["status"] = "ai_passed"
-	r.taskLog(task.ID, "info", fmt.Sprintf("AI 评分通过：name=%s score=%.1f threshold=%.1f", candidateName, decision.Score, decision.Threshold))
+	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是", candidateName, decision.Score, decision.Threshold))
 	return 0, nil
 }
 
@@ -2096,7 +2109,7 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task
 	}()
 	select {
 	case decision := <-earlyCh:
-		r.taskLog(task.ID, "info", fmt.Sprintf("AI 流式评分已提前解析：name=%s score=%.1f reason=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		go func() {
 			if final := <-resultCh; final.err != nil {
 				r.taskLog(task.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
@@ -2119,7 +2132,7 @@ func (r *Runner) tryGreet(ctx context.Context, taskID string, platformRuntime pl
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		log.Printf("[本地任务] level=info 准备调用打招呼接口 attempt=%d", attempt+1)
+		r.taskLog(taskID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
 		err := r.withOperationTimeout(ctx, taskID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
 			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))
 		})
@@ -2412,7 +2425,7 @@ func isTerminalStage(stage string) bool {
 // failStart 记录启动失败日志并清理运行锁，自动播放失败提示音和发送邮件通知。
 // taskID 为任务 ID，msg 为失败原因，options 为本次任务启动参数。
 func (r *Runner) failStart(taskID string, msg string, options StartOptions) {
-	r.taskLog(taskID, "error", msg)
+	r.taskLog(taskID, "error", "任务失败：环节=任务运行，错误="+msg)
 	_, _ = r.db.UpdateTaskStatus(taskID, "failed")
 	r.clear(taskID)
 	// 自动播放失败提示音（如果任务开启了提示音）
@@ -2457,7 +2470,7 @@ func isBrowserClosedTaskError(err error) bool {
 	return false
 }
 
-// taskLog 输出任务日志到命令行并写入本地任务日志。
+// taskLog 写入本地任务日志。
 // taskID 为任务 ID，level 为日志等级，msg 为日志内容。
 func (r *Runner) taskLog(taskID string, level string, msg string) {
 	taskID = strings.TrimSpace(taskID)
@@ -2469,7 +2482,6 @@ func (r *Runner) taskLog(taskID string, level string, msg string) {
 	if msg == "" {
 		return
 	}
-	log.Printf("[本地任务] task=%s level=%s %s", taskID, level, msg)
 	if r.db != nil && taskID != "" {
 		_, _ = r.db.AddTaskLog(taskID, level, msg)
 	}
@@ -2504,11 +2516,6 @@ func (r *Runner) updateProgress(taskID string, progress Progress) {
 		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	state.progress = progress
-	if progress.Round > 0 {
-		log.Printf("[本地任务] task=%s progress stage=%s round=%d/%d message=%s", taskID, progress.Stage, progress.Round, progress.TotalRounds, progress.Message)
-		return
-	}
-	log.Printf("[本地任务] task=%s progress stage=%s message=%s", taskID, progress.Stage, progress.Message)
 }
 
 // incrementRunGreeted 增加当前任务本次运行已打招呼数量。
@@ -2819,7 +2826,7 @@ func logKeywordDecision(logf func(string), prefix string, candidate map[string]a
 	if logf == nil {
 		return
 	}
-	logf(fmt.Sprintf("%s：name=%s %s", prefix, candidateLogName(candidate), detail))
+	logf(fmt.Sprintf("列表过滤：%s，候选人=%s，%s", prefix, candidateLogName(candidate), detail))
 }
 
 // keywordListLabel 返回关键词列表日志文案。
@@ -3383,13 +3390,27 @@ func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, er
 	}
 	client := cloudapi.New(baseURL)
 	if err := client.SendTaskFailNotice(ctx, options.Token, taskID, errorMsg); err != nil {
-		r.taskLog(taskID, "warning", "发送失败邮件通知失败："+err.Error())
+		r.taskLog(taskID, "warning", "任务失败：邮件通知发送失败，错误="+err.Error())
+		return
 	}
+	r.taskLog(taskID, "info", "任务失败：已发送邮件通知")
 }
 
-// notifyCloudTaskStopped 通知云端任务已经停止或完成。
+// notifyCloudTaskStopped 通知云端任务已经停止。
 // taskID 为云端任务 ID，options 为本次启动参数。
 func (r *Runner) notifyCloudTaskStopped(taskID string, options StartOptions) {
+	r.syncCloudTaskStatus(taskID, "stopped", "任务停止", options)
+}
+
+// notifyCloudTaskCompleted 通知云端任务已经完成。
+// taskID 为云端任务 ID，options 为本次启动参数。
+func (r *Runner) notifyCloudTaskCompleted(taskID string, options StartOptions) {
+	r.syncCloudTaskStatus(taskID, "completed", "任务完成", options)
+}
+
+// syncCloudTaskStatus 同步云端任务状态。
+// taskID 为云端任务 ID，status 为云端状态，label 为任务日志前缀。
+func (r *Runner) syncCloudTaskStatus(taskID string, status string, label string, options StartOptions) {
 	token := strings.TrimSpace(options.Token)
 	if token == "" {
 		return
@@ -3404,7 +3425,10 @@ func (r *Runner) notifyCloudTaskStopped(taskID string, options StartOptions) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	client := cloudapi.New(baseURL)
-	if err := client.StopTask(ctx, token, taskID); err != nil {
-		r.taskLog(taskID, "warning", "同步云端任务停止状态失败："+err.Error())
+	r.taskLog(taskID, "info", label+"：正在同步云端状态")
+	if err := client.SyncTaskStatus(ctx, token, taskID, status); err != nil {
+		r.taskLog(taskID, "warning", label+"：云端状态同步失败，错误="+err.Error())
+		return
 	}
+	r.taskLog(taskID, "info", label+"：云端状态同步成功")
 }
