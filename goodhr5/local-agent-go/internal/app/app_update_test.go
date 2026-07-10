@@ -36,6 +36,31 @@ func TestExtractAppUpdateZipRejectsUnsafePath(t *testing.T) {
 	}
 }
 
+// TestIsNewerAppVersion 验证只有目标版本更高时才需要更新。
+func TestIsNewerAppVersion(t *testing.T) {
+	cases := []struct {
+		name    string
+		current string
+		target  string
+		want    bool
+	}{
+		{name: "目标版本更高", current: "5.1.3", target: "5.1.4", want: true},
+		{name: "版本相等", current: "5.1.3", target: "5.1.3", want: false},
+		{name: "当前版本更高", current: "5.1.4", target: "5.1.3", want: false},
+		{name: "多位数字版本", current: "5.1.2", target: "5.1.10", want: true},
+		{name: "短版本等于补零版本", current: "5.1", target: "5.1.0", want: false},
+		{name: "支持 v 前缀", current: "v5.1.3", target: "5.1.4", want: true},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			got := isNewerAppVersion(item.current, item.target)
+			if got != item.want {
+				t.Fatalf("isNewerAppVersion(%q, %q) = %v, want %v", item.current, item.target, got, item.want)
+			}
+		})
+	}
+}
+
 // writeTestZip 写入测试 zip 文件。
 // files 为 zip 内文件名和内容。
 func writeTestZip(t *testing.T, archivePath string, files map[string]string) {

@@ -28,7 +28,7 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
   const [updateError, setUpdateError] = useState("");
   const release = useMemo(() => latestLocalAgentRelease(onboardingConfig), [onboardingConfig]);
   const updateRunning = Boolean(updateProgress.running || activeUpdateStages.includes(String(updateProgress.stage || "")));
-  const versionMismatch = Boolean(agentBase && currentVersion && release.version && currentVersion !== release.version);
+  const versionMismatch = Boolean(agentBase && currentVersion && release.version && isVersionLower(currentVersion, release.version));
   const updateOpen = versionMismatch || updateRunning;
 
   useEffect(() => {
@@ -139,6 +139,33 @@ function latestLocalAgentRelease(config: any) {
     url: String(isWindows ? item.url_win || item.url_windows || item.url || "" : item.url_mac || item.url_macos || item.url || "").trim(),
     note: String(item.note || item.changelog || item.description || item.release_note || "").trim(),
   };
+}
+
+/** isVersionLower 判断当前版本是否低于目标版本。 */
+function isVersionLower(current: string, target: string) {
+  return compareVersion(target, current) > 0;
+}
+
+/** compareVersion 按点分数字比较版本号。 */
+function compareVersion(left: string, right: string) {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
+  const maxLen = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < maxLen; index += 1) {
+    const leftValue = leftParts[index] || 0;
+    const rightValue = rightParts[index] || 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+  return 0;
+}
+
+/** parseVersionParts 将版本号拆成数字片段。 */
+function parseVersionParts(value: string) {
+  return String(value || "").trim().replace(/^v/i, "").split(".").map((part) => {
+    const match = part.trim().match(/^\d+/);
+    return match ? Number(match[0]) : 0;
+  });
 }
 
 /** readDismissedAnnouncements 读取旧版兼容的一次性公告已读记录。 */

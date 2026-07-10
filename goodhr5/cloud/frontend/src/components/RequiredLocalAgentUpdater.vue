@@ -80,7 +80,7 @@ const releaseNote = computed(() =>
   ),
 );
 const versionMismatch = computed(() =>
-  Boolean(agentBase.value && currentVersion.value && requiredVersion.value && currentVersion.value !== requiredVersion.value),
+  Boolean(agentBase.value && currentVersion.value && requiredVersion.value && isVersionLower(currentVersion.value, requiredVersion.value)),
 );
 const visible = computed(() => versionMismatch.value);
 const updateRunning = computed(() => Boolean(updating.value || progress.value?.running || progress.value?.stage === "install"));
@@ -245,6 +245,47 @@ function firstText(...values: any[]) {
     if (text) return text;
   }
   return "";
+}
+
+/**
+ * 判断当前版本是否低于目标版本。
+ * @param {string} current - 当前版本号。
+ * @param {string} target - 目标版本号。
+ * @returns {boolean} 当前版本低于目标版本时返回 true。
+ */
+function isVersionLower(current: string, target: string) {
+  return compareVersion(target, current) > 0;
+}
+
+/**
+ * 按点分数字比较版本号。
+ * @param {string} left - 左侧版本号。
+ * @param {string} right - 右侧版本号。
+ * @returns {number} left 更高返回 1，right 更高返回 -1，相等返回 0。
+ */
+function compareVersion(left: string, right: string) {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
+  const maxLen = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < maxLen; index += 1) {
+    const leftValue = leftParts[index] || 0;
+    const rightValue = rightParts[index] || 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+  return 0;
+}
+
+/**
+ * 将版本号拆成数字片段。
+ * @param {string} value - 原始版本号。
+ * @returns {number[]} 数字片段列表。
+ */
+function parseVersionParts(value: string) {
+  return String(value || "").trim().replace(/^v/i, "").split(".").map((part) => {
+    const match = part.trim().match(/^\d+/);
+    return match ? Number(match[0]) : 0;
+  });
 }
 
 /**

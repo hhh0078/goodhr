@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -132,6 +133,19 @@ func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, appUpdateState.snapshot())
 		return
 	}
+	if targetVersion != "" && !isNewerAppVersion(version.Value, targetVersion) {
+		appUpdateState.set(appUpdateProgress{
+			Running:       false,
+			Stage:         "idle",
+			Message:       "当前版本不低于最新版，先不折腾你更新了",
+			Percent:       0,
+			URL:           downloadURL,
+			TargetVersion: targetVersion,
+			ReleaseNote:   releaseNote,
+		})
+		response.Success(w, appUpdateState.snapshot())
+		return
+	}
 	appUpdateState.set(appUpdateProgress{
 		Running:       true,
 		Stage:         "queued",
@@ -151,6 +165,73 @@ func appUpdateRunning() bool {
 	status := appUpdateState.snapshot()
 	running, _ := status["running"].(bool)
 	return running
+}
+
+// isNewerAppVersion 判断目标版本是否高于当前版本。
+// currentVersion 为当前版本，targetVersion 为后台最新版本。
+func isNewerAppVersion(currentVersion string, targetVersion string) bool {
+	return compareAppVersion(targetVersion, currentVersion) > 0
+}
+
+// compareAppVersion 比较两个本地程序版本号。
+// left 和 right 为点分版本号，返回 1 表示 left 更高，-1 表示 right 更高，0 表示相等。
+func compareAppVersion(left string, right string) int {
+	leftParts := parseAppVersionParts(left)
+	rightParts := parseAppVersionParts(right)
+	maxLen := len(leftParts)
+	if len(rightParts) > maxLen {
+		maxLen = len(rightParts)
+	}
+	for index := 0; index < maxLen; index++ {
+		leftValue := 0
+		if index < len(leftParts) {
+			leftValue = leftParts[index]
+		}
+		rightValue := 0
+		if index < len(rightParts) {
+			rightValue = rightParts[index]
+		}
+		if leftValue > rightValue {
+			return 1
+		}
+		if leftValue < rightValue {
+			return -1
+		}
+	}
+	return 0
+}
+
+// parseAppVersionParts 将版本号拆成可比较的数字片段。
+// value 为原始版本号，返回数字片段列表。
+func parseAppVersionParts(value string) []int {
+	text := strings.TrimSpace(strings.TrimPrefix(value, "v"))
+	if text == "" {
+		return nil
+	}
+	rawParts := strings.Split(text, ".")
+	parts := make([]int, 0, len(rawParts))
+	for _, rawPart := range rawParts {
+		partText := strings.TrimSpace(rawPart)
+		if partText == "" {
+			parts = append(parts, 0)
+			continue
+		}
+		digitEnd := 0
+		for digitEnd < len(partText) && partText[digitEnd] >= '0' && partText[digitEnd] <= '9' {
+			digitEnd++
+		}
+		if digitEnd == 0 {
+			parts = append(parts, 0)
+			continue
+		}
+		value, err := strconv.Atoi(partText[:digitEnd])
+		if err != nil {
+			parts = append(parts, 0)
+			continue
+		}
+		parts = append(parts, value)
+	}
+	return parts
 }
 
 // runAppUpdate 下载更新包并启动安装器。
