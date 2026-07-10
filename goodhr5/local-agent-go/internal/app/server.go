@@ -969,6 +969,9 @@ func (s *Server) proxyWorkerPost(w http.ResponseWriter, r *http.Request, path st
 		return
 	}
 	log.Printf("[浏览器代理] 请求成功 path=%s elapsed=%s", path, time.Since(startedAt).Round(time.Millisecond))
+	if shouldFocusBrowserAfterWorkerCall(path) {
+		go focusCloakBrowserWindow()
+	}
 	response.Success(w, workerData(result))
 }
 
