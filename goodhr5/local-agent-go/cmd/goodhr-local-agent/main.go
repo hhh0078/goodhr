@@ -10,6 +10,7 @@ import (
 	goruntime "runtime"
 
 	"goodhr5/local-agent-go/internal/app"
+	"goodhr5/local-agent-go/internal/browserprofile"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/process"
 )
@@ -39,6 +40,7 @@ func main() {
 	if logFile != nil {
 		defer logFile.Close()
 	}
+	browserprofile.EnsureDefaultsAsync(cfg.ProfilesDir)
 	cfg.AutoOpenConsole = *openConsole
 	server, err := app.NewServer(cfg)
 	if err != nil {
