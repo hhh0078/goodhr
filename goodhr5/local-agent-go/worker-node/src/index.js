@@ -444,8 +444,9 @@ async function clickPage(payload) {
     await currentPage.waitForTimeout(
       Math.max(0, Number(payload.delay_before) * 1000),
     );
-  await locator.click({ timeout: Number(payload.timeout || 10000) });
-  return { clicked: true };
+  const move = await moveMouseToElement(currentPage, locator, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  return { clicked: true, mouse: move, click };
 }
 
 /**
@@ -492,11 +493,12 @@ async function scrollPage(payload) {
     true,
   );
   if (locator) {
-    await locator.evaluate((el, y) => el.scrollBy(0, y), distance);
-    return { scrolled: true, distance };
+    const move = await moveMouseToElement(currentPage, locator, payload);
+    await currentPage.mouse.wheel(0, distance);
+    return { scrolled: true, distance, mouse: move, target: "element" };
   }
   await currentPage.mouse.wheel(0, distance);
-  return { scrolled: true, distance };
+  return { scrolled: true, distance, target: "page" };
 }
 
 /**
@@ -600,15 +602,14 @@ async function listClickByIndex(payload) {
   const locators = await allLocators(currentPage, element, true);
   const target = locators[index]?.locator || locators[index];
   if (!target) throw new Error("指定列表项不存在");
-  await target
-    .scrollIntoViewIfNeeded({ timeout: Number(payload.timeout || 3000) })
-    .catch(() => {});
   const clickTarget = payload.click_target || payload.clickTarget;
   const nested = clickTarget
     ? await firstLocator(target, clickTarget, true)
     : null;
-  await (nested || target).click({ timeout: Number(payload.timeout || 10000) });
-  return { clicked: true, index };
+  const locator = nested || target;
+  const move = await moveMouseToElement(currentPage, locator, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  return { clicked: true, index, mouse: move, click };
 }
 
 /**
@@ -676,14 +677,42 @@ async function scrollBossCandidates(payload) {
       const locator = currentPage.locator(selector).first();
       if ((await locator.count()) <= 0) continue;
       if (!(await locator.isVisible().catch(() => false))) continue;
-      await locator.evaluate((el, y) => el.scrollBy(0, y), distance);
-      return { scrolled: true, selector, distance };
+      const before = await isElementInViewport(locator);
+      const move = await moveMouseToElement(currentPage, locator, payload);
+      await currentPage.mouse.wheel(0, distance);
+      const waitMs = Math.max(120, Number(payload.wait_ms || 600));
+      await currentPage.waitForTimeout(waitMs);
+      const after = await isElementInViewport(locator);
+      return {
+        scrolled: true,
+        selector,
+        distance,
+        mouse: move,
+        before,
+        after,
+        wait_ms: waitMs,
+        fallback: false,
+      };
     } catch {
       continue;
     }
   }
+  const cardLocator = await firstLocator(currentPage, rules.candidate_card, true);
+  if (cardLocator) {
+    const move = await moveMouseToElement(currentPage, cardLocator, payload);
+    await currentPage.mouse.wheel(0, distance);
+    const waitMs = Math.max(120, Number(payload.wait_ms || 600));
+    await currentPage.waitForTimeout(waitMs);
+    return {
+      scrolled: true,
+      distance,
+      mouse: move,
+      wait_ms: waitMs,
+      fallback: "candidate-card",
+    };
+  }
   await currentPage.mouse.wheel(0, distance);
-  return { scrolled: true, distance, fallback: true };
+  return { scrolled: true, distance, fallback: "page" };
 }
 
 /**
@@ -748,7 +777,10 @@ async function extractBossCandidateDetail(payload) {
     selectorList(rules.detail_buttons),
     1500,
   );
-  if (!opened) await card.click({ timeout: 1500 });
+  if (!opened) {
+    await moveMouseToElement(currentPage, card, payload);
+    await humanMouseClick(currentPage, payload);
+  }
   await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
   const detailText = await firstDetailText(
     currentPage,
@@ -803,15 +835,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     payload.element_ref || payload.ref,
   );
   if (refLocator) {
-    await refLocator
-      .evaluate((el) => {
-        if (el && el.scrollIntoView)
-          el.scrollIntoView({ block: "center", inline: "nearest" });
-      })
-      .catch(() => {});
-    await refLocator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
-    if (await refLocator.isVisible().catch(() => false))
-      return { card: refLocator, attempts: 1, by_ref: true };
+    const view = await isElementInViewport(refLocator);
+    if (view.in_viewport) return { card: refLocator, attempts: 1, by_ref: true };
   }
   const cardSelectors = selectorList(rules.candidate_card);
   if (cardSelectors.length <= 0)
@@ -827,6 +852,27 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     Number(payload.card_scroll_distance || payload.distance || 720),
   );
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (refLocator) {
+      const result = await wheelUntilElementVisible(
+        currentPage,
+        refLocator,
+        rules.scroll_containers || rules.candidate_card,
+        {
+          ...payload,
+          distance,
+          max_attempts: 1,
+          margin: 8,
+        },
+      );
+      if (result.visible) {
+        return {
+          card: refLocator,
+          attempts: attempt,
+          by_ref: true,
+          scroll_result: result,
+        };
+      }
+    }
     if (cardIndex >= count) {
       await scrollBossListByRules(currentPage, rules, distance);
       await currentPage.waitForTimeout(250);
@@ -835,15 +881,9 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       continue;
     }
     let card = cards[cardIndex]?.locator || cards[cardIndex];
-    await card
-      .evaluate((el) => {
-        if (el && el.scrollIntoView)
-          el.scrollIntoView({ block: "center", inline: "nearest" });
-      })
-      .catch(() => {});
-    await card.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
-    if (await card.isVisible().catch(() => false)) {
-      return { card, attempts: attempt };
+    const view = await isElementInViewport(card, { margin: 8 });
+    if (view.in_viewport) {
+      return { card, attempts: attempt, view };
     }
     await scrollBossListByRules(currentPage, rules, distance);
     await currentPage.waitForTimeout(250);
@@ -867,13 +907,23 @@ async function scrollBossListByRules(currentPage, rules, distance) {
       const locator = currentPage.locator(selector).first();
       if ((await locator.count()) <= 0) continue;
       if (!(await locator.isVisible().catch(() => false))) continue;
-      await locator.evaluate((el, y) => el.scrollBy(0, y), distance);
+      await moveMouseToElement(currentPage, locator);
+      await currentPage.mouse.wheel(0, distance);
+      await currentPage.waitForTimeout(450);
       return true;
     } catch {
       continue;
     }
   }
+  const cardLocator = await firstLocator(currentPage, rules.candidate_card, true);
+  if (cardLocator) {
+    await moveMouseToElement(currentPage, cardLocator);
+    await currentPage.mouse.wheel(0, distance);
+    await currentPage.waitForTimeout(450);
+    return true;
+  }
   await currentPage.mouse.wheel(0, distance);
+  await currentPage.waitForTimeout(450);
   return false;
 }
 
@@ -1012,7 +1062,6 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   );
   await fs.mkdir(directory, { recursive: true });
   await cleanupScreenshotSeries(directory, filename);
-  await locator.scrollIntoViewIfNeeded({ timeout: 1200 }).catch(() => {});
   const box = await locator.boundingBox().catch(() => null);
   const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
   if (!box || box.width < 20 || box.height < 20) {
@@ -1212,7 +1261,7 @@ async function screenshotScrollableLocatorParts(
   if (!box || box.width < 20 || box.height < 20) return [];
   const mouseX = box.x + box.width / 2;
   const mouseY = box.y + Math.min(box.height / 2, 120);
-  await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
+  await moveMouseToBox(currentPage, box).catch(() => {});
   await currentPage.waitForTimeout(200);
   const clientHeight = Math.max(
     1,
@@ -1252,7 +1301,7 @@ async function screenshotScrollableLocatorParts(
     mouseY: Math.round(mouseY),
   });
   for (let index = 0; index < maxScrolls; index += 1) {
-    await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
+    await moveMouseToBox(currentPage, box).catch(() => {});
     await currentPage.waitForTimeout(index === 0 ? 600 : 1200);
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
@@ -1345,7 +1394,7 @@ async function screenshotLocatorParts(
   const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
   const mouseX = clipX + clipWidth / 2;
   const mouseY = clipY + clipHeight / 2;
-  await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
+  await moveMouseToBox(currentPage, clip).catch(() => {});
   await currentPage.waitForTimeout(1500);
   const forceScroll = Boolean(
     payload.force_scroll || payload.scroll_full || payload.forceScroll,
@@ -1395,7 +1444,7 @@ async function screenshotLocatorParts(
     mouseY: Math.round(mouseY),
   });
   for (let index = 0; index < maxScrolls; index += 1) {
-    await currentPage.mouse.move(mouseX, mouseY).catch(() => {});
+    await moveMouseToBox(currentPage, clip).catch(() => {});
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
     const beforeShot = await pageScrollState(currentPage, scrollPoint);
@@ -1834,7 +1883,10 @@ async function clickFirstVisible(scope, selectors, timeout = 1000) {
       const locator = scope.locator(selector).first();
       if ((await locator.count()) <= 0) continue;
       if (!(await locator.isVisible().catch(() => false))) continue;
-      await locator.click({ timeout });
+      const currentPage =
+        typeof locator.page === "function" ? locator.page() : page;
+      await moveMouseToElement(currentPage, locator, { timeout });
+      await humanMouseClick(currentPage, { timeout });
       return true;
     } catch {
       continue;
@@ -2983,6 +3035,156 @@ async function moveMouseToBox(currentPage, box, options = {}) {
     padding_y: point.paddingY,
     steps,
     elapsed_ms: Date.now() - startedAt,
+  };
+}
+
+/**
+ * 判断元素是否已经处在浏览器可视范围内。
+ * @param {any} locator - Playwright 元素定位器。
+ * @param {Record<string, any>} options - 检测选项。
+ * @returns {Promise<Record<string, any>>} 可视范围检测结果。
+ */
+async function isElementInViewport(locator, options = {}) {
+  const visible = await locator.isVisible().catch(() => false);
+  if (!visible) {
+    return { visible: false, in_viewport: false, reason: "not-visible" };
+  }
+  const box = await locator.boundingBox().catch(() => null);
+  if (!box || box.width <= 0 || box.height <= 0) {
+    return { visible: true, in_viewport: false, reason: "no-box", box };
+  }
+  const pageForViewport =
+    typeof locator.page === "function" ? locator.page() : page;
+  const viewport = pageForViewport?.viewportSize?.() || {
+    width: 1280,
+    height: 900,
+  };
+  const margin = Math.max(0, Number(options.margin || 0));
+  const requireFull = Boolean(options.full || options.require_full);
+  const left = box.x;
+  const right = box.x + box.width;
+  const top = box.y;
+  const bottom = box.y + box.height;
+  const partiallyVisible =
+    right > margin &&
+    bottom > margin &&
+    left < viewport.width - margin &&
+    top < viewport.height - margin;
+  const fullyVisible =
+    left >= margin &&
+    top >= margin &&
+    right <= viewport.width - margin &&
+    bottom <= viewport.height - margin;
+  const inViewport = requireFull ? fullyVisible : partiallyVisible;
+  return {
+    visible: true,
+    in_viewport: inViewport,
+    partially_visible: partiallyVisible,
+    fully_visible: fullyVisible,
+    box: {
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+    },
+    viewport,
+  };
+}
+
+/**
+ * 将鼠标移动到选择器或元素配置命中的元素范围内。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {any} elementConfig - 元素选择器、平台元素配置或 Locator。
+ * @param {Record<string, any>} options - 鼠标移动选项。
+ * @returns {Promise<Record<string, any>>} 鼠标移动结果。
+ */
+async function moveMouseToElement(currentPage, elementConfig, options = {}) {
+  const base = options.element_ref
+    ? locatorByRef(currentPage, options.element_ref) || currentPage
+    : currentPage;
+  const locator =
+    elementConfig && typeof elementConfig.boundingBox === "function"
+      ? elementConfig
+      : await firstLocator(base, elementConfig || options.element || options, true);
+  if (!locator) throw new Error("鼠标移动目标选择器不能为空或未找到元素");
+  const view = await isElementInViewport(locator, {
+    margin: options.viewport_margin || 0,
+    full: options.require_full,
+  });
+  if (!view.visible) throw new Error("鼠标移动目标元素不可见");
+  const box = await locator.boundingBox().catch(() => null);
+  if (!box || box.width <= 0 || box.height <= 0) {
+    throw new Error("鼠标移动目标元素没有有效位置");
+  }
+  const move = await moveMouseToBox(
+    currentPage,
+    {
+      x1: box.x,
+      y1: box.y,
+      x2: box.x + box.width,
+      y2: box.y + box.height,
+    },
+    options,
+  );
+  return { ...move, locator_visible: view };
+}
+
+/**
+ * 执行拟人化鼠标点击，按下和松开之间保留随机停顿。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, any>} options - 点击选项。
+ * @returns {Promise<Record<string, any>>} 点击结果。
+ */
+async function humanMouseClick(currentPage, options = {}) {
+  const minDown = Math.max(20, Number(options.down_min_ms || 80));
+  const maxDown = Math.max(minDown, Number(options.down_max_ms || 220));
+  const holdMs = Math.round(minDown + Math.random() * (maxDown - minDown));
+  const button = String(options.button || "left");
+  const startedAt = Date.now();
+  await currentPage.mouse.down({ button });
+  await currentPage.waitForTimeout(holdMs);
+  await currentPage.mouse.up({ button });
+  return {
+    clicked: true,
+    button,
+    hold_ms: holdMs,
+    elapsed_ms: Date.now() - startedAt,
+  };
+}
+
+/**
+ * 真实滚轮滚动，直到目标元素进入可视范围或达到次数上限。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {any} targetLocator - 需要检查的目标元素。
+ * @param {any} wheelTarget - 鼠标滚轮应该停留的元素。
+ * @param {Record<string, any>} options - 滚动选项。
+ * @returns {Promise<Record<string, any>>} 滚动检测结果。
+ */
+async function wheelUntilElementVisible(
+  currentPage,
+  targetLocator,
+  wheelTarget,
+  options = {},
+) {
+  const maxAttempts = Math.max(1, Number(options.max_attempts || 6));
+  const distance = Number(options.distance || options.y || 720);
+  const waitMs = Math.max(100, Number(options.wait_ms || 450));
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const view = await isElementInViewport(targetLocator, options);
+    if (view.in_viewport) {
+      return { visible: true, attempts, final_view: view };
+    }
+    const move = await moveMouseToElement(currentPage, wheelTarget, options);
+    await currentPage.mouse.wheel(0, distance);
+    await currentPage.waitForTimeout(waitMs);
+    attempts.push({ attempt, distance, mouse: move });
+  }
+  const finalView = await isElementInViewport(targetLocator, options);
+  return {
+    visible: Boolean(finalView.in_viewport),
+    attempts,
+    final_view: finalView,
   };
 }
 
