@@ -37,6 +37,25 @@ func (s *Server) openConsoleAfterStart(port int) {
 	}()
 }
 
+// openExistingConsole 打开已运行本地程序对应的控制台。
+// port 为旧实例监听端口，返回 true 表示已确认旧实例可用并尝试打开控制台。
+func (s *Server) openExistingConsole(port int) bool {
+	if !s.cfg.AutoOpenConsole {
+		return false
+	}
+	fallbackURL := s.consoleURL(port)
+	if err := waitConsoleReady(s.healthURL(port), 800*time.Millisecond); err != nil {
+		return false
+	}
+	targetURL := s.resolveConsoleURL(fallbackURL)
+	if err := openDefaultBrowser(targetURL); err != nil {
+		log.Printf("打开已运行控制台失败，请手动访问 %s：%v", targetURL, err)
+		return true
+	}
+	log.Printf("已打开正在运行的控制台：%s", targetURL)
+	return true
+}
+
 // consoleURL 返回本地控制台地址。
 // port 为实际监听端口。
 func (s *Server) consoleURL(port int) string {

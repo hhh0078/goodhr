@@ -86,10 +86,14 @@ func audioDir(cfg *config.Config) string {
 }
 
 // Run 启动本地 HTTP 服务。
-// 固定监听配置端口，端口被占用时直接返回错误。
+// 固定监听配置端口；如果旧实例已在运行，则只打开已有控制台并退出。
 func (s *Server) Run() error {
 	ln, port, err := process.ListenFirstAvailable(s.cfg.Host, s.cfg.Port, s.cfg.Port)
 	if err != nil {
+		if s.openExistingConsole(s.cfg.Port) {
+			log.Printf("本地程序已在运行，本次启动只打开控制台后退出")
+			return nil
+		}
 		return err
 	}
 	s.cfg.Port = port
