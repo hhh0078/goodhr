@@ -7,12 +7,13 @@ $ErrorActionPreference = "Stop"
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $DistInputDir = Join-Path $RootDir "dist\installer-input"
-$ConsoleInputDir = Join-Path $DistInputDir "console"
+# $ConsoleInputDir = Join-Path $DistInputDir "console"
 $SourceExe = Join-Path $RootDir "dist\bin\goodhr-local-agent-windows-amd64.exe"
 $TargetExe = Join-Path $DistInputDir "goodhr-local-agent.exe"
 $IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
-$FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
-$FrontendOutDir = Join-Path $FrontendDir "out"
+# 暂时不把 frontend-next 打进本地程序安装包，避免前端构建影响本地程序打包。
+# $FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
+# $FrontendOutDir = Join-Path $FrontendDir "out"
 
 # Write-Step prints the current build step.
 # message is the build step text.
@@ -84,31 +85,31 @@ function Ensure-NodeOnPath {
 Write-Step "Build Windows x64 Go local agent"
 & (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
 
-Write-Step "Build local console frontend"
-$npm = Find-Npm
-Ensure-NodeOnPath
-Push-Location $FrontendDir
-try {
-  if (!(Test-Path (Join-Path $FrontendDir "node_modules"))) {
-    Write-Step "Install frontend dependencies"
-    & $npm install
-    if ($LASTEXITCODE -ne 0) {
-      throw "Frontend npm install failed with exit code $LASTEXITCODE."
-    }
-  }
-  $env:GOODHR_STATIC_EXPORT = "1"
-  & $npm run build
-  if ($LASTEXITCODE -ne 0) {
-    throw "Frontend build failed with exit code $LASTEXITCODE."
-  }
-  if (!(Test-Path (Join-Path $FrontendOutDir "index.html"))) {
-    throw "Frontend static export output was not found: $FrontendOutDir"
-  }
-}
-finally {
-  Remove-Item Env:\GOODHR_STATIC_EXPORT -ErrorAction SilentlyContinue
-  Pop-Location
-}
+# Write-Step "Build local console frontend"
+# $npm = Find-Npm
+# Ensure-NodeOnPath
+# Push-Location $FrontendDir
+# try {
+#   if (!(Test-Path (Join-Path $FrontendDir "node_modules"))) {
+#     Write-Step "Install frontend dependencies"
+#     & $npm install
+#     if ($LASTEXITCODE -ne 0) {
+#       throw "Frontend npm install failed with exit code $LASTEXITCODE."
+#     }
+#   }
+#   $env:GOODHR_STATIC_EXPORT = "1"
+#   & $npm run build
+#   if ($LASTEXITCODE -ne 0) {
+#     throw "Frontend build failed with exit code $LASTEXITCODE."
+#   }
+#   if (!(Test-Path (Join-Path $FrontendOutDir "index.html"))) {
+#     throw "Frontend static export output was not found: $FrontendOutDir"
+#   }
+# }
+# finally {
+#   Remove-Item Env:\GOODHR_STATIC_EXPORT -ErrorAction SilentlyContinue
+#   Pop-Location
+# }
 
 Write-Step "Prepare installer input directory"
 New-Item -ItemType Directory -Force -Path $DistInputDir | Out-Null
@@ -117,9 +118,9 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
   Remove-Item -Recurse -Force (Join-Path $DistInputDir "worker-node") -ErrorAction SilentlyContinue
   Copy-Item -Recurse -Force (Join-Path $RootDir "worker-node") (Join-Path $DistInputDir "worker-node")
 }
-Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
-Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir
+# Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
+# New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
+# Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir
 
 $iscc = Find-InnoSetup
 Write-Step "Create Windows installer"

@@ -38,7 +38,8 @@ Source: "..\dist\installer-input\{#MyAppExeName}"; DestDir: "{app}"; Flags: igno
 Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\audio\*"; DestDir: "{app}\audio"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\installer-input\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\dist\installer-input\console\*"; DestDir: "{app}\data\console"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 暂时不把 frontend-next 打进本地程序安装包，避免前端包影响本地程序打包。
+; Source: "..\dist\installer-input\console\*"; DestDir: "{app}\data\console"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--restart --data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"
