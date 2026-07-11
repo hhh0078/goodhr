@@ -54,9 +54,9 @@ import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
 import {
-	cloudRequest,
-	detectLocalAgent,
-	formatDate,
+  cloudRequest,
+  detectLocalAgent,
+  formatDate,
   openLocalPage,
 } from "@/lib/admin-api";
 import AdminDialog from "./AdminDialog";
@@ -230,11 +230,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     completed: false,
     steps: {},
   });
-	const [agentBase, setAgentBase] = useState("");
-	const [agentDetected, setAgentDetected] = useState(false);
-	const agentBaseRef = useRef("");
-	const initialPath = useRef(pathname);
-	const agentChecking = useRef(false);
+  const [agentBase, setAgentBase] = useState("");
+  const [agentDetected, setAgentDetected] = useState(false);
+  const agentBaseRef = useRef("");
+  const initialPath = useRef(pathname);
+  const agentChecking = useRef(false);
   const [notice, setNotice] = useState({
     open: false,
     message: "",
@@ -250,13 +250,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
     useState(false);
   const localAgentInstallNoticeOpen = Boolean(
-		user &&
-		!loading &&
-		!trialWelcomeOpen &&
-		agentDetected &&
-		!agentBase &&
-		!localAgentInstallNoticeClosed,
-	);
+    user &&
+    !loading &&
+    !trialWelcomeOpen &&
+    agentDetected &&
+    !agentBase &&
+    !localAgentInstallNoticeClosed,
+  );
 
   /** refreshAgent 重新探测本地程序。 */
   const refreshAgent = useCallback(async () => {
@@ -264,14 +264,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     agentChecking.current = true;
     try {
       const nextBase = await detectLocalAgent(agentBaseRef.current);
-			if (!nextBase) {
-				agentBaseRef.current = "";
-				setAgentBase("");
-				return;
-			}
-			agentBaseRef.current = nextBase;
-			setAgentBase(nextBase);
-		} finally {
+      if (!nextBase) {
+        agentBaseRef.current = "";
+        setAgentBase("");
+        return;
+      }
+      agentBaseRef.current = nextBase;
+      setAgentBase(nextBase);
+    } finally {
       setAgentDetected(true);
       agentChecking.current = false;
     }
@@ -306,12 +306,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       humanize: true,
     };
 
-	try {
-		agentBaseRef.current = baseURL;
-		setAgentBase(baseURL);
-		await openLocalPage(baseURL, {
-			...browserPayload,
-			url: "https://www.bing.com",
+    try {
+      agentBaseRef.current = baseURL;
+      setAgentBase(baseURL);
+      await openLocalPage(baseURL, {
+        ...browserPayload,
+        url: "https://www.bing.com",
       });
       notify("浏览器已打开，我已经把它带到必应了。", "success");
     } catch (error) {
@@ -373,7 +373,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (results[1].status === "fulfilled")
       setSubscription(results[1].value.subscription || {});
     if (results[4].status === "fulfilled")
-      setAIWallet(results[4].value.wallet || {});
+      setAIWallet(results[4].value.wallet || results[4].value || {});
     if (results[2].status === "fulfilled") {
       const payload = results[2].value;
       setAppConfig(payload.config || payload.app_config || payload || {});
@@ -416,12 +416,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       user,
       subscription,
       appConfig,
-		onboardingConfig,
-		onboarding,
-		agentBase,
-		refreshAgent,
-		refreshSession,
-		notify,
+      onboardingConfig,
+      onboarding,
+      agentBase,
+      refreshAgent,
+      refreshSession,
+      notify,
       confirm,
     }),
     [
@@ -675,11 +675,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               sx={{
                 ...topStatusButtonSx,
                 display: { xs: "none", lg: "inline-flex" },
+                px: 1.15,
+                fontSize: 12.5,
               }}
             >
               {subscription.active
-                ? `${subscription.member_type || "Plus"} · 到期 ${formatDate(subscription.expires_at)} · AI余额 ${formatAIBalance(aiWallet)}`
-                : `免费版 · ${subscription.expires_at ? `已到期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
+                ? `${formatDate(subscription.expires_at)} · AI余额 ${formatAIBalance(aiWallet)}`
+                : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
             </Button>
             <Button
               color={agentBase ? "success" : "error"}
@@ -691,9 +693,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 display: { xs: "none", sm: "inline-flex" },
               }}
             >
-		{agentBase
-			? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
-			: "本地程序未连接"}
+              {agentBase
+                ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
+                : "本地程序未连接"}
             </Button>
             <Tooltip title="选择主题">
               <IconButton
