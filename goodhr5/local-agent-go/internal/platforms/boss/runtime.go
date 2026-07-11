@@ -224,7 +224,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	screenshot := mapFromAny(data["screenshot"])
 	if len(screenshot) > 0 {
 		if scrollDebug := stringFromMap(screenshot, "_scroll_debug"); scrollDebug != "" {
-			exec.Log("info", "详情截图滚动调试: "+scrollDebug)
+			// exec.Log("info", "详情截图滚动调试: "+scrollDebug)
 		}
 		if partsCount := intFromMap(screenshot, "parts_count"); partsCount > 0 {
 			exec.Log("info", fmt.Sprintf("详情截图分段完成：name=%s parts=%d scrollable=%v", name, partsCount, screenshot["scrollable_container"] == true))
