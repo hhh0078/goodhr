@@ -2913,6 +2913,80 @@ function randomDistance(payload) {
 }
 
 /**
+ * 将传入的矩形范围整理成安全的鼠标目标框。
+ * @param {Record<string, any>} box - 鼠标目标范围，支持 x1/x2/y1/y2 或 x/y/width/height。
+ * @returns {{x1:number,x2:number,y1:number,y2:number,width:number,height:number}} 安全目标框。
+ */
+function normalizeMouseTargetBox(box) {
+  const x1 = Number(box?.x1 ?? box?.left ?? box?.x ?? 0);
+  const y1 = Number(box?.y1 ?? box?.top ?? box?.y ?? 0);
+  const rawX2 = Number(box?.x2 ?? box?.right ?? x1 + Number(box?.width || 0));
+  const rawY2 = Number(box?.y2 ?? box?.bottom ?? y1 + Number(box?.height || 0));
+  const safeX1 = Math.min(x1, rawX2);
+  const safeX2 = Math.max(x1, rawX2);
+  const safeY1 = Math.min(y1, rawY2);
+  const safeY2 = Math.max(y1, rawY2);
+  const width = safeX2 - safeX1;
+  const height = safeY2 - safeY1;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+    throw new Error("鼠标目标范围无效");
+  return { x1: safeX1, x2: safeX2, y1: safeY1, y2: safeY2, width, height };
+}
+
+/**
+ * 在目标框内部随机选择一个更靠近中间的落点。
+ * @param {{x1:number,x2:number,y1:number,y2:number,width:number,height:number}} box - 安全目标框。
+ * @param {number} paddingRatio - 内边距比例。
+ * @returns {{x:number,y:number,paddingX:number,paddingY:number}} 鼠标落点。
+ */
+function randomPointInBox(box, paddingRatio = 0.2) {
+  const ratio = Math.max(0, Math.min(0.45, Number(paddingRatio) || 0));
+  const paddingX = Math.min(box.width * ratio, Math.max(0, box.width / 2 - 1));
+  const paddingY = Math.min(box.height * ratio, Math.max(0, box.height / 2 - 1));
+  const minX = box.x1 + paddingX;
+  const maxX = box.x2 - paddingX;
+  const minY = box.y1 + paddingY;
+  const maxY = box.y2 - paddingY;
+  const x = minX + Math.random() * Math.max(0, maxX - minX);
+  const y = minY + Math.random() * Math.max(0, maxY - minY);
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    paddingX: Math.round(paddingX),
+    paddingY: Math.round(paddingY),
+  };
+}
+
+/**
+ * 将鼠标移动到一个矩形范围内的随机点，并返回实际停留位置。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, any>} box - 鼠标目标范围，支持 x1/x2/y1/y2 或 x/y/width/height。
+ * @param {Record<string, any>} options - 鼠标移动选项。
+ * @returns {Promise<Record<string, any>>} 鼠标移动结果。
+ */
+async function moveMouseToBox(currentPage, box, options = {}) {
+  const startedAt = Date.now();
+  const safeBox = normalizeMouseTargetBox(box);
+  const paddingRatio = Number(options.padding_ratio ?? options.paddingRatio ?? 0.2);
+  const point = randomPointInBox(safeBox, paddingRatio);
+  const minSteps = Math.max(1, Number(options.min_steps || 8));
+  const maxSteps = Math.max(minSteps, Number(options.max_steps || 18));
+  const steps = Math.round(minSteps + Math.random() * (maxSteps - minSteps));
+  await currentPage.mouse.move(point.x, point.y, { steps });
+  return {
+    moved: true,
+    x: point.x,
+    y: point.y,
+    box: safeBox,
+    padding_ratio: Math.max(0, Math.min(0.45, paddingRatio || 0)),
+    padding_x: point.paddingX,
+    padding_y: point.paddingY,
+    steps,
+    elapsed_ms: Date.now() - startedAt,
+  };
+}
+
+/**
  * 将选择器配置转换为列表。
  * @param {any} value - 选择器配置。
  * @returns {string[]} CSS 选择器列表。
