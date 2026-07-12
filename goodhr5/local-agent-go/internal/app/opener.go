@@ -19,16 +19,20 @@ import (
 // port 为实际监听端口。
 func (s *Server) openConsoleAfterStart(port int) {
 	if !s.cfg.AutoOpenConsole {
+		log.Printf("自动打开控制台已关闭：port=%d", port)
 		return
 	}
 	url := s.consoleURL(port)
 	healthURL := s.healthURL(port)
+	log.Printf("准备自动打开控制台：fallback_url=%s health_url=%s", url, healthURL)
 	go func() {
 		if err := waitConsoleReady(healthURL, 6*time.Second); err != nil {
 			log.Printf("本地服务还没准备好，暂不自动打开控制台，请手动访问 %s：%v", url, err)
 			return
 		}
+		log.Printf("本地健康检查通过，准备解析控制台地址：fallback_url=%s", url)
 		url = s.resolveConsoleURL(url)
+		log.Printf("准备调用系统默认浏览器打开控制台：target_url=%s", url)
 		if err := openDefaultBrowser(url); err != nil {
 			log.Printf("打开控制台失败，请手动访问 %s：%v", url, err)
 			return
@@ -41,13 +45,16 @@ func (s *Server) openConsoleAfterStart(port int) {
 // port 为旧实例监听端口，返回 true 表示已确认旧实例可用并尝试打开控制台。
 func (s *Server) openExistingConsole(port int) bool {
 	if !s.cfg.AutoOpenConsole {
+		log.Printf("检测到旧实例但自动打开控制台已关闭：port=%d", port)
 		return false
 	}
 	fallbackURL := s.consoleURL(port)
 	if err := waitConsoleReady(s.healthURL(port), 800*time.Millisecond); err != nil {
+		log.Printf("端口被占用但未确认旧实例可用：port=%d err=%v", port, err)
 		return false
 	}
 	targetURL := s.resolveConsoleURL(fallbackURL)
+	log.Printf("检测到旧实例可用，准备打开已有控制台：fallback_url=%s target_url=%s", fallbackURL, targetURL)
 	if err := openDefaultBrowser(targetURL); err != nil {
 		log.Printf("打开已运行控制台失败，请手动访问 %s：%v", targetURL, err)
 		return true
@@ -73,6 +80,7 @@ func (s *Server) healthURL(port int) string {
 func (s *Server) resolveConsoleURL(fallbackURL string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	log.Printf("开始读取云端控制台地址：cloud_api=%s fallback_url=%s", s.cfg.CloudAPIBase, fallbackURL)
 	remoteURL, err := cloudapi.New(s.cfg.CloudAPIBase).FetchLocalAgentConsoleURL(ctx)
 	if err != nil {
 		log.Printf("读取云端控制台地址失败，使用本地控制台地址：%v", err)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -113,6 +114,8 @@ func (s *Server) handleAppUpdateStatus(w http.ResponseWriter, r *http.Request) {
 // handleAppUpdateStart 开始下载并启动本地程序更新。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
+	log.Printf("收到本地程序更新启动请求：method=%s remote=%s origin=%s referer=%s ua=%s",
+		r.Method, r.RemoteAddr, r.Header.Get("Origin"), r.Header.Get("Referer"), r.UserAgent())
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
@@ -129,7 +132,10 @@ func (s *Server) handleAppUpdateStart(w http.ResponseWriter, r *http.Request) {
 	}
 	targetVersion := strings.TrimSpace(stringValue(payload["target_version"]))
 	releaseNote := strings.TrimSpace(stringValue(payload["release_note"]))
+	log.Printf("本地程序更新参数：target_version=%s url=%s release_note_length=%d current_version=%s",
+		targetVersion, downloadURL, len(releaseNote), version.Value)
 	if appUpdateRunning() {
+		log.Printf("本地程序更新已在运行，返回当前进度")
 		response.Success(w, appUpdateState.snapshot())
 		return
 	}
@@ -237,16 +243,21 @@ func parseAppVersionParts(value string) []int {
 // runAppUpdate 下载更新包并启动安装器。
 // ctx 为上下文，downloadURL 为安装包地址，targetVersion 为目标版本。
 func (s *Server) runAppUpdate(ctx context.Context, downloadURL string, targetVersion string) {
+	log.Printf("开始本地程序更新流程：target_version=%s url=%s", targetVersion, downloadURL)
 	packagePath, err := s.downloadAppUpdatePackage(ctx, downloadURL, targetVersion)
 	if err != nil {
+		log.Printf("本地程序更新包下载失败：target_version=%s err=%v", targetVersion, err)
 		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 0})
 		return
 	}
+	log.Printf("本地程序更新包下载完成：package_path=%s", packagePath)
 	installerPath, err := prepareAppInstaller(packagePath)
 	if err != nil {
+		log.Printf("本地程序更新包准备失败：package_path=%s err=%v", packagePath, err)
 		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 100, PackagePath: packagePath})
 		return
 	}
+	log.Printf("准备启动本地程序安装器：installer_path=%s", installerPath)
 	appUpdateState.set(appUpdateProgress{
 		Running:     true,
 		Stage:       "install",
@@ -255,9 +266,11 @@ func (s *Server) runAppUpdate(ctx context.Context, downloadURL string, targetVer
 		PackagePath: installerPath,
 	})
 	if err := startAppInstaller(installerPath); err != nil {
+		log.Printf("启动本地程序安装器失败：installer_path=%s err=%v", installerPath, err)
 		appUpdateState.set(appUpdateProgress{Running: false, Stage: "failed", Message: err.Error(), Percent: 100, PackagePath: installerPath})
 		return
 	}
+	log.Printf("本地程序安装器已启动，准备退出当前进程：installer_path=%s", installerPath)
 	go func() {
 		time.Sleep(1200 * time.Millisecond)
 		os.Exit(0)
@@ -472,6 +485,7 @@ func startAppInstaller(packagePath string) error {
 			"Start-Sleep -Seconds 2; Start-Process -FilePath '%s' -ArgumentList '/SILENT','/NORESTART'",
 			strings.ReplaceAll(packagePath, "'", "''"),
 		)
+		log.Printf("准备通过 PowerShell 启动 Windows 安装器：package_path=%s", packagePath)
 		cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
 		hideCommandWindow(cmd)
 		return cmd.Start()

@@ -1407,6 +1407,10 @@ func defaultWorkerSourceDir() string {
 // next 为下一个 HTTP 处理器。
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if shouldLogLocalRequest(r.URL.Path) {
+			log.Printf("收到本地关键接口请求：method=%s path=%s remote=%s origin=%s referer=%s ua=%s",
+				r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("Origin"), r.Header.Get("Referer"), r.UserAgent())
+		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GoodHR-Agent-BaseURL")
@@ -1417,4 +1421,20 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// shouldLogLocalRequest 判断本地请求是否需要写入排查日志。
+// path 为请求路径。
+func shouldLogLocalRequest(path string) bool {
+	switch path {
+	case "/health",
+		"/api/v1/runtime/status",
+		"/api/v1/runtime/ensure",
+		"/api/v1/runtime/install",
+		"/api/v1/app-update/status",
+		"/api/v1/app-update/start":
+		return true
+	default:
+		return false
+	}
 }

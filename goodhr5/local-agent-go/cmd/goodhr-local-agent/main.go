@@ -23,9 +23,14 @@ func main() {
 	openConsole := flag.Bool("open-console", os.Getenv("GOODHR_AUTO_OPEN_CONSOLE") != "false", "启动后自动打开控制台")
 	restart := flag.Bool("restart", false, "启动前先关闭旧的本地程序")
 	flag.Parse()
+	log.Printf("本地程序进程启动：pid=%d args=%v host=%s port=%d data_dir=%s open_console=%v restart=%v",
+		os.Getpid(), os.Args, *host, *port, *dataDir, *openConsole, *restart)
 	if *restart {
+		log.Printf("收到 restart 参数，准备关闭旧本地程序：pid=%d", os.Getpid())
 		if err := process.StopOtherInstances("goodhr-local-agent.exe", os.Getpid()); err != nil {
 			log.Printf("关闭旧本地程序失败，继续尝试启动：%v", err)
+		} else {
+			log.Printf("旧本地程序关闭流程完成")
 		}
 	}
 
@@ -40,6 +45,9 @@ func main() {
 	if logFile != nil {
 		defer logFile.Close()
 	}
+	log.Printf("文件日志已启用：path=%s pid=%d args=%v", filepath.Join(cfg.LogsDir, "local-agent.log"), os.Getpid(), os.Args)
+	log.Printf("本地程序配置：host=%s port=%d data_dir=%s frontend_dir=%s cloud_api=%s auto_open_console=%v",
+		cfg.Host, cfg.Port, cfg.DataDir, cfg.FrontendDir, cfg.CloudAPIBase, *openConsole)
 	browserprofile.EnsureDefaultsAsync(cfg.ProfilesDir)
 	cfg.AutoOpenConsole = *openConsole
 	server, err := app.NewServer(cfg)
