@@ -1,0 +1,429 @@
+{
+  "id": "boss",
+  "name": "Boss直聘",
+  "open": true,
+  "domain": "zhipin.com",
+  "description": "Boss直聘平台规整版配置草案，用于把页面、初始化动作、岗位切换、候选人列表和候选人详情按业务含义分组。",
+  "schema_version": "2026-07-13.normalized-draft",
+  "legacy_source": "goodhr5/cloud/backend/boss.json",
+  "runtime_notes": {
+    "current_status": "草案文件，当前运行代码仍读取 boss.json。",
+    "selector_protocol": "每个选择器对象都保留 id、title、description、parent_selectors、target_selectors，后续可转换成旧版 parent_classes、target_classes。",
+    "code_mapping": {
+      "entry_page": "local-agent-go/internal/platforms/boss/navigation.go platformEntryPage/pageMatchesEntry",
+      "init_actions": "local-agent-go/internal/platforms/boss/runtime.go PrepareEntryPage 当前有硬编码 .boss-dialog__body 和 .boss-dialog__footer .btn",
+      "job_switch": "local-agent-go/internal/platforms/boss/runtime.go CurrentPositionName/SelectPosition",
+      "candidate_list": "local-agent-go/worker-node/src/index.js bossRules/extractBossCandidates/scrollBossCandidates/greetBossCandidate",
+      "candidate_detail": "local-agent-go/worker-node/src/index.js extractBossCandidateDetail/screenshotDetailContainer"
+    }
+  },
+  "pages": {
+    "public": [
+      {
+        "id": "boss_login",
+        "title": "Boss登录页",
+        "description": "未登录时进入的 Boss 登录页面。",
+        "url": "https://login.zhipin.com",
+        "match": "prefix",
+        "legacy_path": "public.pages[0]"
+      },
+      {
+        "id": "boss_user_login",
+        "title": "Boss用户登录页",
+        "description": "Boss 用户登录相关页面。",
+        "url": "https://www.zhipin.com/web/user/",
+        "match": "prefix",
+        "legacy_path": "public.pages[1]"
+      }
+    ],
+    "auth_required": [
+      {
+        "id": "chat_home",
+        "title": "登录后通用路由",
+        "description": "登录后聊天工作台通用地址，用于判断已经处于 Boss 登录态页面。",
+        "url": "https://www.zhipin.com/web/chat",
+        "match": "contains",
+        "entry": false,
+        "legacy_path": "auth.pages[0]"
+      },
+      {
+        "id": "recommend_candidates",
+        "title": "推荐牛人",
+        "description": "任务入口页面，进入后开始确认岗位和读取推荐候选人。",
+        "url": "https://www.zhipin.com/web/chat/recommend",
+        "match": "prefix",
+        "entry": true,
+        "legacy_path": "auth.pages[1]"
+      }
+    ],
+    "auth_rules": {
+      "entry_url": "https://www.zhipin.com/web/chat/recommend",
+      "login_url_prefixes": [
+        "https://login.zhipin.com",
+        "https://www.zhipin.com/web/user/"
+      ],
+      "logged_in_url_prefix": "https://www.zhipin.com/web/chat",
+      "logged_in_url_contains": ["www.zhipin.com/web/chat"],
+      "legacy_path": "auth"
+    }
+  },
+  "init_actions": [
+    {
+      "id": "entry_confirm_dialog",
+      "title": "公告弹窗",
+      "description": "页面打开后可能出现的确认弹框，当前 Boss runtime 会检测弹框正文，存在时点击底部按钮。",
+      "trigger": {
+        "type": "element_exists",
+        "selector": {
+          "id": "entry_confirm_dialog_body",
+          "title": "确认弹框正文",
+          "description": "用于判断 Boss 入口页是否出现确认类弹框。",
+          "parent_selectors": [],
+          "target_selectors": [".boss-dialog__body"],
+          "legacy_path": "runtime hardcode PrepareEntryPage.dialog"
+        }
+      },
+      "action": {
+        "type": "click",
+        "selector": {
+          "id": "entry_confirm_dialog_button",
+          "title": "确认弹框按钮",
+          "description": "用于关闭或确认 Boss 入口页弹框。",
+          "parent_selectors": [".boss-dialog__footer"],
+          "target_selectors": [".btn"],
+          "legacy_path": "runtime hardcode PrepareEntryPage.button"
+        }
+      }
+    },
+    {
+      "id": "resume_custom_close",
+      "title": "简历弹层关闭",
+      "description": "候选人详情弹层关闭按钮，当前也作为 detail.closeBtn 使用。",
+      "trigger": {
+        "type": "element_exists",
+        "selector": {
+          "id": "resume_popup_close",
+          "title": "详情关闭按钮",
+          "description": "用于关闭 Boss 候选人详情弹层。",
+          "parent_selectors": [],
+          "target_selectors": [".boss-popup__close", ".resume-custom-close"],
+          "legacy_path": "detail.closeBtn"
+        }
+      },
+      "action": {
+        "type": "click",
+        "selector_ref": "resume_popup_close"
+      }
+    }
+  ],
+  "job_switch": {
+    "description": "Boss 岗位切换区域。Go runtime 会先读取当前岗位，若与任务岗位不一致，则点击岗位下拉并从列表中选择目标岗位。",
+    "current_job": {
+      "id": "current_job",
+      "title": "当前岗位",
+      "description": "读取当前页面正在操作的岗位名称。",
+      "parent_selectors": [
+        ".ui-dropmenu.ui-dropmenu-label-arrow.ui-dropmenu-drop-arrow.job-selecter-wrap"
+      ],
+      "target_selectors": [".ui-dropmenu-label"],
+      "legacy_path": "position.current"
+    },
+    "switch_button": {
+      "id": "job_switch_button",
+      "title": "岗位切换按钮",
+      "description": "点击后展开岗位列表。",
+      "parent_selectors": [
+        ".ui-dropmenu.ui-dropmenu-label-arrow.ui-dropmenu-drop-arrow.job-selecter-wrap"
+      ],
+      "target_selectors": [".ui-dropmenu-label"],
+      "legacy_path": "position.switchBtn"
+    },
+    "job_list_container": {
+      "id": "job_list_container",
+      "title": "岗位列表容器",
+      "description": "岗位下拉列表的外层容器。",
+      "parent_selectors": [".job-selecter-options"],
+      "target_selectors": [".job-list"],
+      "legacy_path": "position.list"
+    },
+    "job_item": {
+      "id": "job_item",
+      "title": "岗位项",
+      "description": "岗位列表中的单个岗位项，当前旧配置直接命中岗位名称 label。",
+      "parent_selectors": [".job-list"],
+      "target_selectors": [".label"],
+      "legacy_path": "position.item"
+    },
+    "job_item_text": {
+      "id": "job_item_text",
+      "title": "岗位名称文本",
+      "description": "从岗位项中读取岗位名称，用于和任务岗位名称匹配。",
+      "parent_selectors": [],
+      "target_selectors": [".label"],
+      "legacy_path": "position.itemText"
+    },
+    "job_item_click_target": {
+      "id": "job_item_click_target",
+      "title": "岗位点击目标",
+      "description": "岗位项内部真正要点击的元素。旧配置里是占位文本，需要后续用真实 CSS 替换。",
+      "parent_selectors": [],
+      "target_selectors": ["岗位列表岗位点击目标选择器，请改成真实CSS"],
+      "legacy_path": "position.clickTarget",
+      "todo": "当前不是有效 CSS，需要实测后修正。"
+    }
+  },
+  "candidate_list": {
+    "description": "候选人列表读取、滚动、卡片字段提取和卡片内打招呼按钮配置。",
+    "list_container": {
+      "id": "candidate_list_container",
+      "title": "候选人列表容器",
+      "description": "推荐候选人列表滚动容器。Node 滚动时会优先把鼠标移动到这里再滚轮。",
+      "parent_selectors": [],
+      "target_selectors": [".card-list"],
+      "legacy_path": "card.scroll"
+    },
+    "candidate_card": {
+      "id": "candidate_card",
+      "title": "候选人卡片",
+      "description": "单个候选人卡片，用于提取列表候选人、打开详情、定位打招呼按钮。",
+      "parent_selectors": [".card-list"],
+      "target_selectors": [
+        ".candidate-card-wrap",
+        ".geek-info-card",
+        ".card-container",
+        ".card-inner.clear-fix",
+        ".card-inner.common-wrap"
+      ],
+      "legacy_path": "card.item"
+    },
+    "card_actions": {
+      "greet_button": {
+        "id": "candidate_card_greet_button",
+        "title": "卡片打招呼按钮",
+        "description": "候选人卡片内的打招呼或获取联系方式按钮。",
+        "parent_selectors": [],
+        "target_selectors": [".btn.btn-greet", ".btn.btn-getcontact"],
+        "legacy_path": "actions.greetBtn"
+      },
+      "continue_button": {
+        "id": "candidate_card_continue_button",
+        "title": "继续沟通按钮",
+        "description": "打招呼流程中可能出现的继续按钮。",
+        "parent_selectors": [],
+        "target_selectors": [".btn.btn-continue.btn-outline"],
+        "legacy_path": "actions.continueBtn"
+      },
+      "confirm_button": {
+        "id": "candidate_card_confirm_button",
+        "title": "确认按钮",
+        "description": "打招呼流程中可能出现的确认按钮，当前旧配置为空。",
+        "parent_selectors": [],
+        "target_selectors": [],
+        "legacy_path": "actions.confirmBtn"
+      },
+      "phone_button": {
+        "id": "candidate_card_phone_button",
+        "title": "电话按钮",
+        "description": "候选人卡片电话入口，当前旧配置为空。",
+        "parent_selectors": [],
+        "target_selectors": [],
+        "legacy_path": "actions.phoneBtn"
+      },
+      "resume_button": {
+        "id": "candidate_card_resume_button",
+        "title": "简历按钮",
+        "description": "候选人卡片简历入口，当前旧配置为空。",
+        "parent_selectors": [],
+        "target_selectors": [],
+        "legacy_path": "actions.resumeBtn"
+      },
+      "wechat_button": {
+        "id": "candidate_card_wechat_button",
+        "title": "微信按钮",
+        "description": "候选人卡片微信入口，当前旧配置为空。",
+        "parent_selectors": [],
+        "target_selectors": [],
+        "legacy_path": "actions.wechatBtn"
+      }
+    },
+    "card_fields": [
+      {
+        "id": "candidate_name",
+        "title": "候选人姓名",
+        "description": "从候选人卡片中提取姓名。Go 去重会优先使用姓名加年龄。",
+        "field": "name",
+        "parent_selectors": [],
+        "target_selectors": [".name"],
+        "legacy_path": "card.fields.name"
+      },
+      {
+        "id": "candidate_basic_info",
+        "title": "候选人基础信息",
+        "description": "候选人卡片左侧基础信息，常包含年龄、经验、期望等文本，也用于筛选文本兜底。",
+        "field": "basic_info",
+        "parent_selectors": [],
+        "target_selectors": [".job-card-left"],
+        "legacy_path": "card.fields.basic_info"
+      },
+      {
+        "id": "candidate_education",
+        "title": "学历和基础详情",
+        "description": "候选人学历、经验等卡片摘要信息。",
+        "field": "education",
+        "parent_selectors": [],
+        "target_selectors": [".base-info.join-text-wrap", ".geek-info-detail"],
+        "legacy_path": "card.fields.education"
+      },
+      {
+        "id": "candidate_university",
+        "title": "学校或经历内容",
+        "description": "候选人卡片中的学校、公司或经历内容区域。",
+        "field": "university",
+        "parent_selectors": [],
+        "target_selectors": [".content.join-text-wrap"],
+        "legacy_path": "card.fields.university"
+      },
+      {
+        "id": "candidate_description",
+        "title": "候选人描述",
+        "description": "候选人卡片中的通用内容文本。",
+        "field": "description",
+        "parent_selectors": [],
+        "target_selectors": [".content"],
+        "legacy_path": "card.fields.description"
+      }
+    ],
+    "behavior": {
+      "supports_paging": false,
+      "next_page_button": "",
+      "next_page_disabled_class": "",
+      "needs_detail_page": true,
+      "legacy_path": "behavior"
+    }
+  },
+  "candidate_detail": {
+    "description": "候选人详情弹层或详情区域配置，用于打开详情、读取详情文本、截图和关闭详情。",
+    "open_target": {
+      "id": "candidate_detail_open_target",
+      "title": "详情打开目标",
+      "description": "候选人卡片中可点击打开详情的区域。",
+      "parent_selectors": [],
+      "target_selectors": [
+        ".card-inner.common-wrap",
+        ".card-inner.clear-fix",
+        ".candidate-card-wrap"
+      ],
+      "legacy_path": "detail.openTarget"
+    },
+    "detail_container": {
+      "id": "candidate_detail_container",
+      "title": "详情容器",
+      "description": "Boss 候选人详情内容容器，DOM 提取和截图优先使用该区域。",
+      "parent_selectors": [],
+      "target_selectors": ["#resume"],
+      "legacy_path": "detail.content"
+    },
+    "close_button": {
+      "id": "candidate_detail_close_button",
+      "title": "详情关闭按钮",
+      "description": "关闭候选人详情弹层。",
+      "parent_selectors": [],
+      "target_selectors": [".boss-popup__close", ".resume-custom-close"],
+      "legacy_path": "detail.closeBtn"
+    },
+    "message_tip": {
+      "id": "candidate_detail_message_tip",
+      "title": "详情沟通提示",
+      "description": "详情页沟通提示区域，当前旧配置为空。",
+      "parent_selectors": [],
+      "target_selectors": [],
+      "legacy_path": "detail.messageTip"
+    },
+    "message_item": {
+      "id": "candidate_detail_message_item",
+      "title": "沟通记录项",
+      "description": "详情页沟通记录单项，当前旧配置为空。",
+      "parent_selectors": [],
+      "target_selectors": [],
+      "legacy_path": "detail.messageItem"
+    },
+    "favorite_button": {
+      "id": "candidate_detail_favorite_button",
+      "title": "收藏按钮",
+      "description": "候选人详情里的收藏按钮，当前旧配置没有对应选择器。",
+      "parent_selectors": [],
+      "target_selectors": [],
+      "legacy_path": ""
+    },
+    "reject_button": {
+      "id": "candidate_detail_reject_button",
+      "title": "不合适按钮",
+      "description": "候选人详情里的不合适按钮，当前旧配置没有对应选择器。",
+      "parent_selectors": [],
+      "target_selectors": [],
+      "legacy_path": ""
+    },
+    "detail_fields": [
+      {
+        "id": "detail_salary",
+        "title": "薪资",
+        "description": "候选人详情中的薪资信息。",
+        "field": "salary",
+        "parent_selectors": [],
+        "target_selectors": [".salary-text"],
+        "legacy_path": "extras[0]"
+      },
+      {
+        "id": "detail_basic_info",
+        "title": "基本信息",
+        "description": "候选人详情中的基本信息区域。",
+        "field": "basic_info",
+        "parent_selectors": [],
+        "target_selectors": [".job-info-primary"],
+        "legacy_path": "extras[1]"
+      },
+      {
+        "id": "detail_tags",
+        "title": "标签",
+        "description": "候选人详情中的标签区域。",
+        "field": "tags",
+        "parent_selectors": [],
+        "target_selectors": [".tags-wrap"],
+        "legacy_path": "extras[2]"
+      },
+      {
+        "id": "detail_company_info",
+        "title": "公司信息",
+        "description": "候选人详情中的公司或经历内容。",
+        "field": "company_info",
+        "parent_selectors": [],
+        "target_selectors": [".content.join-text-wrap"],
+        "legacy_path": "extras[3]"
+      }
+    ]
+  },
+  "legacy_compatibility": {
+    "auth.pages": "pages.auth_required",
+    "auth.entry_url": "pages.auth_rules.entry_url",
+    "public.pages": "pages.public",
+    "card.item": "candidate_list.candidate_card",
+    "card.scroll": "candidate_list.list_container",
+    "card.fields": "candidate_list.card_fields",
+    "actions": "candidate_list.card_actions",
+    "detail.content": "candidate_detail.detail_container",
+    "detail.openTarget": "candidate_detail.open_target",
+    "detail.closeBtn": "candidate_detail.close_button",
+    "detail.messageTip": "candidate_detail.message_tip",
+    "detail.messageItem": "candidate_detail.message_item",
+    "position": "job_switch",
+    "behavior": "candidate_list.behavior",
+    "extras": "candidate_detail.detail_fields"
+  },
+  "todos": [
+    "把 position.clickTarget 的占位文本换成真实 CSS。",
+    "补齐 candidate_detail.favorite_button 收藏按钮选择器。",
+    "补齐 candidate_detail.reject_button 不合适按钮选择器。",
+    "确认 detail.messageTip 和 detail.messageItem 是否仍需要保留。",
+    "后续如要正式接入，需要写兼容转换或同步调整 bossRules/platformElement 读取新结构。"
+  ]
+}
