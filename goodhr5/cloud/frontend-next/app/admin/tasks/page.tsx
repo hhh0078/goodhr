@@ -36,6 +36,7 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import AdminDialog from "@/components/admin/AdminDialog";
+import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 
 const emptyForm = {
   id: "",
@@ -54,6 +55,7 @@ export default function TasksPage() {
   const { agentBase, user, notify, confirm } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
+  const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
   const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [expandedLogTaskID, setExpandedLogTaskID] = useState("");
   const [logLoadingTaskID, setLogLoadingTaskID] = useState("");
@@ -75,12 +77,14 @@ export default function TasksPage() {
   async function load() {
     setLoading(true);
     try {
-      const [taskData, positionData] = await Promise.all([
+      const [taskData, positionData, platformData] = await Promise.all([
         cloudRequest("/api/tasks"),
         cloudRequest("/api/positions"),
+        cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
       setTasks(taskData.tasks || []);
       setPositions(positionData.positions || []);
+      setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
       notify(error instanceof Error ? error.message : "任务读取失败", "error");
     } finally {
@@ -227,6 +231,10 @@ export default function TasksPage() {
         positions.find((item) => item.id === task.position_id) ||
         task.position_snapshot ||
         {};
+      const platformID = String(position.platform_id || task.platform_id || "");
+      if (!isPlatformOpen(platformConfigs, platformID)) {
+        return notify("该平台暂未开放，请联系作者", "warning");
+      }
       const usesAI =
         task.mode === "ai" ||
         position.common_config?.mode_default === "ai" ||

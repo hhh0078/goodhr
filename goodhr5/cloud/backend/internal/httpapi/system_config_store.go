@@ -440,6 +440,7 @@ func (s *PostgresSystemConfigStore) Save(cfg SystemConfig) error {
 type PlatformConfig struct {
 	ID       string           `json:"id"`
 	Name     string           `json:"name"`
+	Open     *bool            `json:"open,omitempty"`
 	Domain   string           `json:"domain"`
 	Auth     PlatformSection  `json:"auth"`
 	Public   PlatformSection  `json:"public"`

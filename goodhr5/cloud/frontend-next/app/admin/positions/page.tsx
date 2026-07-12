@@ -34,6 +34,7 @@ import PlatformLogo, {
   platformLabel,
 } from "@/components/admin/PlatformLogo";
 import { cloudRequest } from "@/lib/admin-api";
+import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
@@ -50,6 +51,7 @@ export default function PositionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
+  const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
   const [defaults, setDefaults] = useState({
     filter_prompt: "",
     open_detail_prompt: "",
@@ -60,12 +62,14 @@ export default function PositionsPage() {
   async function load() {
     setLoading(true);
     try {
-      const [positions, prompts] = await Promise.all([
+      const [positions, prompts, platformData] = await Promise.all([
         cloudRequest("/api/positions"),
         cloudRequest("/api/system/default-prompts"),
+        cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
       setItems(positions.positions || []);
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
+      setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "岗位模板读取失败",
@@ -114,6 +118,9 @@ export default function PositionsPage() {
   /** save 保存岗位模板并保留旧后端所需字段结构。 */
   async function save() {
     if (!form.name.trim()) return notify("请填写岗位名称", "warning");
+    if (!isPlatformOpen(platformConfigs, form.platform_id)) {
+      return notify("该平台暂未开放，请联系作者", "warning");
+    }
     const detailMode = form.id
       ? normalizeDetailMode(form.platform_id, form.detail_mode)
       : defaultCreateDetailMode(form.platform_id, subscription.active);
@@ -379,29 +386,37 @@ export default function PositionsPage() {
               {
                 value: "boss",
                 label: "Boss直聘",
-
-                description: "支持 OCR 和 AI 详情识别。",
+                disabled: !isPlatformOpen(platformConfigs, "boss"),
+                description: isPlatformOpen(platformConfigs, "boss")
+                  ? "支持 OCR 和 AI 详情识别。"
+                  : "暂未开放",
                 iconSrc: platformIconSrc("boss"),
               },
               {
                 value: "zhaopin",
                 label: "智联招聘",
-                disabled: true,
-                description: "即将上线",
+                disabled: !isPlatformOpen(platformConfigs, "zhaopin"),
+                description: isPlatformOpen(platformConfigs, "zhaopin")
+                  ? "支持 DOM 详情识别。"
+                  : "暂未开放",
                 iconSrc: platformIconSrc("zhaopin"),
               },
               {
                 value: "hliepin",
                 label: "猎聘猎头端",
-                disabled: true,
-                description: "即将上线",
+                disabled: !isPlatformOpen(platformConfigs, "hliepin"),
+                description: isPlatformOpen(platformConfigs, "hliepin")
+                  ? "支持 DOM 详情识别。"
+                  : "暂未开放",
                 iconSrc: platformIconSrc("hliepin"),
               },
               {
                 value: "liepin",
                 label: "猎聘企业端",
-                disabled: true,
-                description: "即将上线",
+                disabled: !isPlatformOpen(platformConfigs, "liepin"),
+                description: isPlatformOpen(platformConfigs, "liepin")
+                  ? "支持 DOM 详情识别。"
+                  : "暂未开放",
                 iconSrc: platformIconSrc("liepin"),
               },
             ]}
