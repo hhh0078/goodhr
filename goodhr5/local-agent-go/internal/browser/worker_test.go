@@ -1,4 +1,4 @@
-// Package browser 负责测试 Node Browser Worker 进程复用逻辑。
+// Package browser 负责测试 Node Browser Worker 固定端口和重启逻辑。
 package browser
 
 import (
@@ -11,9 +11,19 @@ import (
 	"testing"
 )
 
-// TestStartReusesExistingWorker 验证端口上已有 GoodHR Worker 时会直接复用。
+// TestSetAgentBaseURLUsesNextPort 验证 Worker 固定使用本地程序端口加一。
 // t 为测试对象。
-func TestStartReusesExistingWorker(t *testing.T) {
+func TestSetAgentBaseURLUsesNextPort(t *testing.T) {
+	manager := NewWorkerManager(nil)
+	manager.SetAgentBaseURL("http://127.0.0.1:55271")
+	if manager.baseURL != "http://127.0.0.1:55272" {
+		t.Fatalf("baseURL = %s", manager.baseURL)
+	}
+}
+
+// TestStatusReadsOnlyFixedWorker 验证状态只读取固定 Worker 地址。
+// t 为测试对象。
+func TestStatusReadsOnlyFixedWorker(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -32,18 +42,15 @@ func TestStartReusesExistingWorker(t *testing.T) {
 
 	manager := NewWorkerManager(nil)
 	manager.baseURL = server.URL
-	status, err := manager.Start(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Running || status.Managed || status.PID != 12345 {
+	status := manager.Status()
+	if !status.Running || status.Managed || status.PID != 12345 || status.BaseURL != server.URL {
 		t.Fatalf("status = %+v", status)
 	}
 }
 
 // TestCanceledCallDoesNotRestartWorker 验证任务停止导致的请求取消不会触发 Worker 重启。
 func TestCanceledCallDoesNotRestartWorker(t *testing.T) {
-	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:9101/api: %w", context.Canceled))
+	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:55272/api: %w", context.Canceled))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
@@ -54,7 +61,7 @@ func TestCanceledCallDoesNotRestartWorker(t *testing.T) {
 
 // TestDeadlineCallDoesNotRestartWorker 验证请求超时不会触发 Worker 重启。
 func TestDeadlineCallDoesNotRestartWorker(t *testing.T) {
-	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:9101/api: %w", context.DeadlineExceeded))
+	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:55272/api: %w", context.DeadlineExceeded))
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v", err)
 	}

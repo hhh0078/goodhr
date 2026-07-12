@@ -48,7 +48,7 @@ type WorkerManager struct {
 // NewWorkerManager 创建 Node Worker 管理器。
 // runtimeManager 为运行组件管理器。
 func NewWorkerManager(runtimeManager *runtime.Manager) *WorkerManager {
-	return &WorkerManager{runtime: runtimeManager, baseURL: "http://127.0.0.1:9101"}
+	return &WorkerManager{runtime: runtimeManager, baseURL: "http://127.0.0.1:55272"}
 }
 
 // SetAgentBaseURL 设置 Go 本地程序回调地址。
@@ -57,6 +57,20 @@ func (m *WorkerManager) SetAgentBaseURL(baseURL string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.agentBaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if workerBaseURL := fixedWorkerBaseURL(m.agentBaseURL); workerBaseURL != "" {
+		m.baseURL = workerBaseURL
+	}
+}
+
+// CleanupFixedWorker 清理固定端口上的旧 GoodHR Node Worker。
+// ctx 为请求上下文，通常在 Go 本地程序启动后调用。
+func (m *WorkerManager) CleanupFixedWorker(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.isRunningLocked() {
+		return nil
+	}
+	return m.cleanupFixedWorkerLocked(ctx)
 }
 
 // Start 启动 Node Browser Worker。
@@ -68,11 +82,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		log.Printf("[Node Worker] 复用当前管理的 Worker base_url=%s", m.baseURL)
 		return m.statusLocked(), nil
 	}
-	if status, ok := m.probeExistingWorkerLocked(ctx); ok {
-		log.Printf("[Node Worker] 复用已存在 Worker base_url=%s pid=%d", status.BaseURL, status.PID)
-		return status, nil
-	}
-	if err := m.selectAvailableBaseURLLocked(ctx); err != nil {
+	if err := m.cleanupFixedWorkerLocked(ctx); err != nil {
 		return WorkerStatus{}, err
 	}
 	log.Printf("[Node Worker] 准备启动 Worker base_url=%s", m.baseURL)
@@ -192,7 +202,9 @@ func killProcessTree(pid int) error {
 		return nil
 	}
 	if goruntime.GOOS == "windows" {
-		return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+		cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+		hideCommandWindow(cmd)
+		return cmd.Run()
 	}
 	children := childPIDs(pid)
 	for _, child := range children {
@@ -230,8 +242,8 @@ func (m *WorkerManager) Status() WorkerStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.isRunningLocked() {
-		if status, ok := m.probeExistingWorkerLocked(context.Background()); ok {
-			return status
+		if health, ok := probeWorkerAt(context.Background(), m.baseURL); ok {
+			return WorkerStatus{Running: true, PID: intFromAny(health["pid"]), BaseURL: m.baseURL, Managed: false}
 		}
 	}
 	return m.statusLocked()
@@ -380,38 +392,6 @@ func (m *WorkerManager) statusLocked() WorkerStatus {
 	return status
 }
 
-// probeExistingWorkerLocked 探测并复用已经存在的 GoodHR Node Worker。
-// ctx 为请求上下文，返回值表示 Worker 状态和是否可复用。
-func (m *WorkerManager) probeExistingWorkerLocked(ctx context.Context) (WorkerStatus, bool) {
-	if health, ok := probeWorkerAt(ctx, m.baseURL); ok {
-		if !m.workerHealthReusable(health) {
-			log.Printf("[Node Worker] 跳过不兼容的旧 Worker base_url=%s", m.baseURL)
-			return WorkerStatus{}, false
-		}
-		m.attachedPID = intFromAny(health["pid"])
-		return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
-	}
-	for port := 9101; port <= 9109; port++ {
-		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
-		if baseURL == m.baseURL {
-			continue
-		}
-		health, ok := probeWorkerAt(ctx, baseURL)
-		if !ok {
-			continue
-		}
-		if !m.workerHealthReusable(health) {
-			log.Printf("[Node Worker] 跳过不兼容的旧 Worker base_url=%s", baseURL)
-			continue
-		}
-		m.baseURL = baseURL
-		m.attachedPID = intFromAny(health["pid"])
-		return WorkerStatus{Running: true, PID: m.attachedPID, BaseURL: m.baseURL, Managed: false}, true
-	}
-	m.attachedPID = 0
-	return WorkerStatus{}, false
-}
-
 // probeWorker 请求 Worker 健康检查接口，确认端口上运行的是 GoodHR Worker。
 // ctx 为请求上下文，返回健康检查数据和是否可复用。
 func (m *WorkerManager) probeWorker(ctx context.Context) (map[string]any, bool) {
@@ -445,26 +425,57 @@ func probeWorkerAt(ctx context.Context, baseURL string) (map[string]any, bool) {
 	return data, true
 }
 
-// selectAvailableBaseURLLocked 选择可用 Worker 端口。
+// cleanupFixedWorkerLocked 清理固定端口上的旧 GoodHR Worker。
 // ctx 为请求上下文，调用前必须持有锁。
-func (m *WorkerManager) selectAvailableBaseURLLocked(ctx context.Context) error {
-	for port := 9101; port <= 9109; port++ {
-		baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
-		if health, ok := probeWorkerAt(ctx, baseURL); ok {
-			if !m.workerHealthReusable(health) {
-				continue
-			}
-			m.baseURL = baseURL
-			return nil
+func (m *WorkerManager) cleanupFixedWorkerLocked(ctx context.Context) error {
+	if health, ok := probeWorkerAt(ctx, m.baseURL); ok {
+		pid := intFromAny(health["pid"])
+		if pid <= 0 {
+			return fmt.Errorf("固定 Node Worker 端口已被占用，但没有读取到旧进程 PID：%s", m.baseURL)
 		}
-		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-		if err == nil {
-			_ = ln.Close()
-			m.baseURL = baseURL
-			return nil
-		}
+		log.Printf("[Node Worker] 固定端口发现旧 Worker，准备重启 base_url=%s pid=%d", m.baseURL, pid)
+		_ = killProcessTree(pid)
+		time.Sleep(300 * time.Millisecond)
 	}
-	return fmt.Errorf("Node Browser Worker 没有可用端口：9101-9109")
+	if err := ensureWorkerPortAvailable(m.baseURL); err != nil {
+		return err
+	}
+	m.attachedPID = 0
+	return nil
+}
+
+// fixedWorkerBaseURL 根据 Go 本地程序地址计算固定 Node Worker 地址。
+// agentBaseURL 为 Go 本地程序 HTTP 地址，返回端口加一后的 Worker 地址。
+func fixedWorkerBaseURL(agentBaseURL string) string {
+	raw := strings.TrimSpace(agentBaseURL)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.TrimPrefix(strings.TrimPrefix(raw, "http://"), "https://")
+	host, portText, err := net.SplitHostPort(raw)
+	if err != nil {
+		return ""
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port+1))
+}
+
+// ensureWorkerPortAvailable 确认固定 Worker 端口可监听。
+// baseURL 为 Worker HTTP 地址。
+func ensureWorkerPortAvailable(baseURL string) error {
+	addr := workerAddrFromBaseURL(baseURL)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("固定 Node Worker 端口不可用：%s，可能被其他程序占用", addr)
+	}
+	_ = ln.Close()
+	return nil
 }
 
 // workerHealthReusable 判断已有 Worker 是否兼容当前本地程序。

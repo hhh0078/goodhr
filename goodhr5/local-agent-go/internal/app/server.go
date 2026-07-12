@@ -99,6 +99,9 @@ func (s *Server) Run() error {
 	s.cfg.Port = port
 	if s.worker != nil {
 		s.worker.SetAgentBaseURL("http://" + net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
+		if err := s.worker.CleanupFixedWorker(context.Background()); err != nil {
+			log.Printf("[Node Worker] 启动时清理固定端口失败：%v", err)
+		}
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
