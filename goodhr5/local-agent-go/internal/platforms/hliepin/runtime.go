@@ -43,12 +43,19 @@ func (r *Runtime) PrepareEntryPage(context.Context, platformcore.Executor, cloud
 
 // IsTaskEntryPage 判断当前页面是否仍是猎聘猎头端任务入口页。
 func (r *Runtime) IsTaskEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
-	result, err := exec.Post(ctx, "/api/v1/page/url", map[string]any{})
+	entry := platformEntryPage(cfg)
+	if strings.TrimSpace(stringFromMap(entry, "url")) == "" {
+		return false, fmt.Errorf("云端平台配置缺少入口页面地址")
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/list", map[string]any{})
 	if err != nil {
 		return false, err
 	}
-	entry := platformEntryPage(cfg)
-	current := workerDataMap(result)
+	pages := mapList(workerData(result, "pages"))
+	if len(pages) == 0 {
+		return false, nil
+	}
+	current := currentDefaultPage(pages)
 	return pageMatchesEntry(stringFromMap(current, "url"), entry), nil
 }
 
