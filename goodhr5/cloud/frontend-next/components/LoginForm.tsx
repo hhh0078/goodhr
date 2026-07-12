@@ -33,6 +33,8 @@ export default function LoginForm() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "").trim().toLowerCase();
+    if (cachedEmail) setEmail(cachedEmail);
     const token = localStorage.getItem(TOKEN_KEY) || "";
     if (token) window.location.replace(resolveNextPath());
   }, []);
