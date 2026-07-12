@@ -1,5 +1,5 @@
-// Package hliepin 提供猎聘猎头端平台的本地运行时实现。
-package hliepin
+// Package liepin 提供猎聘企业端平台的本地运行时实现。
+package liepin
 
 import (
 	"context"
@@ -12,16 +12,16 @@ import (
 	"goodhr5/local-agent-go/internal/platformcore"
 )
 
-// Runtime 实现猎聘猎头端平台运行时能力。
+// Runtime 实现猎聘企业端平台运行时能力。
 type Runtime struct {
 	platformID   string
 	platformName string
 }
 
-// NewRuntime 创建猎聘猎头端平台运行时实例。
-func NewRuntime() *Runtime { return &Runtime{platformID: "hliepin", platformName: "猎聘猎头端"} }
+// NewRuntime 创建猎聘企业端平台运行时实例。
+func NewRuntime() *Runtime { return &Runtime{platformID: "liepin", platformName: "猎聘企业端"} }
 
-// OpenEntryPage 打开猎聘猎头端入口页面。
+// OpenEntryPage 打开猎聘企业端入口页面。
 func (r *Runtime) OpenEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, entryURL string) error {
 	if strings.TrimSpace(entryURL) == "" {
 		return fmt.Errorf("云端平台配置缺少入口页面地址")
@@ -31,12 +31,12 @@ func (r *Runtime) OpenEntryPage(ctx context.Context, exec platformcore.Executor,
 	return err
 }
 
-// PrepareEntryPage 处理猎聘猎头端入口页初始化动作。
+// PrepareEntryPage 处理猎聘企业端入口页初始化动作。
 func (r *Runtime) PrepareEntryPage(context.Context, platformcore.Executor, cloudapi.PlatformConfig) error {
 	return nil
 }
 
-// IsTaskEntryPage 判断当前页面是否仍是猎聘猎头端任务入口页。
+// IsTaskEntryPage 判断当前页面是否仍是猎聘企业端任务入口页。
 func (r *Runtime) IsTaskEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
 	entry := platformEntryPage(cfg)
 	if strings.TrimSpace(stringFromMap(entry, "url")) == "" {
@@ -72,7 +72,7 @@ func (r *Runtime) CurrentPositionName(ctx context.Context, exec platformcore.Exe
 	return name, nil
 }
 
-// SelectPosition 在猎聘猎头端页面切换岗位。
+// SelectPosition 在猎聘企业端页面切换岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionName string) error {
 	switchButton := platformElement(cfg, "position", "switchBtn")
 	if switchButton == nil {
@@ -108,7 +108,7 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和%s岗位名称一致", positionName, r.platformName)
 }
 
-// ListVisibleCandidates 提取当前可见猎聘猎头端候选人。
+// ListVisibleCandidates 提取当前可见猎聘企业端候选人。
 func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, maxItems int) ([]platformcore.Candidate, error) {
 	startedAt := time.Now()
 	item := platformElement(cfg, "card", "item")
@@ -141,7 +141,7 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 	return candidates, nil
 }
 
-// ScrollCandidateList 滚动猎聘猎头端候选人列表。
+// ScrollCandidateList 滚动猎聘企业端候选人列表。
 func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, distance int) error {
 	scroll := platformElement(cfg, "card", "scroll")
 	if scroll != nil {
@@ -152,7 +152,7 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 	return err
 }
 
-// FetchCandidateDetail 读取猎聘猎头端新开详情页中的 DOM 文本。
+// FetchCandidateDetail 读取猎聘企业端新开详情页中的 DOM 文本。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	if strings.ToLower(strings.TrimSpace(request.Mode)) != "dom" {
 		return platformcore.DetailResult{}, fmt.Errorf("%s只支持 DOM 详情识别", r.platformName)
@@ -185,7 +185,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	return platformcore.DetailResult{Text: text, Source: "dom"}, nil
 }
 
-// CloseCandidateDetail 关闭猎聘猎头端候选人详情页。
+// CloseCandidateDetail 关闭猎聘企业端候选人详情页。
 func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	closeBtn := platformElement(cfg, "detail", "closeBtn")
 	if closeBtn != nil {
@@ -198,7 +198,7 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Ex
 	return err
 }
 
-// GreetCandidate 执行猎聘猎头端候选人打招呼。
+// GreetCandidate 执行猎聘企业端候选人打招呼。
 func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	item := platformElement(cfg, "card", "item")
 	greetBtn := platformElement(cfg, "actions", "greetBtn")
@@ -209,12 +209,12 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	return err
 }
 
-// CandidateFilterText 返回猎聘猎头端候选人筛选文本。
+// CandidateFilterText 返回猎聘企业端候选人筛选文本。
 func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
 	return strings.TrimSpace(firstNonEmpty(stringFromMap(candidate, "filter_text"), stringFromMap(candidate, "raw_text")))
 }
 
-// CandidateFingerprint 返回猎聘猎头端候选人去重指纹。
+// CandidateFingerprint 返回猎聘企业端候选人去重指纹。
 func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
 	fields := mapFromAny(candidate["fields"])
 	name := firstNonEmpty(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"), stringFromMap(fields, "name"))
@@ -225,7 +225,7 @@ func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string 
 	return r.platformID + "_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
 }
 
-// CleanCandidateDetailText 清理猎聘猎头端详情文本中的平台附加内容。
+// CleanCandidateDetailText 清理猎聘企业端详情文本中的平台附加内容。
 func (r *Runtime) CleanCandidateDetailText(text string) string {
 	return strings.TrimSpace(text)
 }
@@ -241,7 +241,7 @@ func candidateRawText(fields map[string]any) string {
 	return strings.Join(parts, "\n")
 }
 
-// candidateAge 读取猎聘猎头端候选人年龄。
+// candidateAge 读取猎聘企业端候选人年龄。
 func candidateAge(candidate platformcore.Candidate) string {
 	fields := mapFromAny(candidate["fields"])
 	age := firstNonEmpty(stringFromMap(candidate, "age"), stringFromMap(candidate, "candidate_age"), stringFromMap(fields, "age"), stringFromMap(fields, "candidate_age"))
@@ -256,7 +256,7 @@ func candidateAge(candidate platformcore.Candidate) string {
 	return ""
 }
 
-// normalizeCandidateIDPart 规范化猎聘猎头端候选人 ID 组成部分。
+// normalizeCandidateIDPart 规范化猎聘企业端候选人 ID 组成部分。
 func normalizeCandidateIDPart(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
 }

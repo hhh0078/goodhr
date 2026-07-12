@@ -1,5 +1,5 @@
-// Package hliepin 测试猎聘猎头端平台运行时逻辑。
-package hliepin
+// Package liepin 测试猎聘企业端平台运行时逻辑。
+package liepin
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func (e *testExecutor) Post(_ context.Context, path string, _ any) (map[string]a
 	return map[string]any{
 		"data": map[string]any{
 			"pages": []any{
-				map[string]any{"url": "https://h.liepin.com/search/getConditionItem", "is_default": true},
+				map[string]any{"url": "https://lpt.liepin.com/recommend", "is_default": true},
 			},
 		},
 	}, nil
@@ -42,7 +42,7 @@ func TestIsTaskEntryPageUsesPageList(t *testing.T) {
 	ok, err := runtime.IsTaskEntryPage(context.Background(), exec, cloudapi.PlatformConfig{
 		"auth": map[string]any{
 			"pages": []any{
-				map[string]any{"url": "https://h.liepin.com/search/getConditionItem", "entry": true},
+				map[string]any{"url": "https://lpt.liepin.com/recommend", "entry": true},
 			},
 		},
 	})
