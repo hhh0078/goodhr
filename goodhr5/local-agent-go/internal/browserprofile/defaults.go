@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 
@@ -29,6 +30,13 @@ const (
 	chromiumProfileDir = "Default"
 	bingGUID           = "485bf7d3-0215-45af-87dc-538868000003"
 	prefHashSeed       = "61eff07de4f37ac1c6969c91034a447ef6cd394d"
+)
+
+var (
+	machineDeviceIDOnce sync.Once
+	machineDeviceIDText string
+	machineDeviceIDErr  error
+	deviceIDWarnOnce    sync.Once
 )
 
 var recruitBookmarks = []bookmarkSpec{
@@ -211,7 +219,9 @@ func ensureBookmarkFolder(roots map[string]any, key string, id string, name stri
 func ensureBingSearch(defaultDir string) error {
 	deviceID, err := machineDeviceID()
 	if err != nil {
-		log.Printf("跳过默认搜索引擎初始化：读取设备 ID 失败：%v", err)
+		deviceIDWarnOnce.Do(func() {
+			log.Printf("跳过默认搜索引擎初始化：读取设备 ID 失败：%v", err)
+		})
 		return nil
 	}
 	if err := ensureBingPreferences(defaultDir, deviceID); err != nil {
@@ -438,14 +448,17 @@ func bingTemplateData() map[string]any {
 // machineDeviceID 读取 Chromium 计算保护校验时使用的设备 ID。
 // macOS 使用 IOPlatformUUID，Windows 使用计算机名对应的 SID。
 func machineDeviceID() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		return darwinDeviceID()
-	case "windows":
-		return windowsDeviceID()
-	default:
-		return "", fmt.Errorf("当前系统暂不支持：%s", runtime.GOOS)
-	}
+	machineDeviceIDOnce.Do(func() {
+		switch runtime.GOOS {
+		case "darwin":
+			machineDeviceIDText, machineDeviceIDErr = darwinDeviceID()
+		case "windows":
+			machineDeviceIDText, machineDeviceIDErr = windowsDeviceID()
+		default:
+			machineDeviceIDErr = fmt.Errorf("当前系统暂不支持：%s", runtime.GOOS)
+		}
+	})
+	return machineDeviceIDText, machineDeviceIDErr
 }
 
 // darwinDeviceID 读取 macOS 的 IOPlatformUUID。
@@ -476,7 +489,7 @@ func windowsDeviceID() (string, error) {
 		{"powershell", "-NoProfile", "-Command", `[System.Security.Principal.NTAccount]::new($env:COMPUTERNAME).Translate([System.Security.Principal.SecurityIdentifier]).Value`},
 	}
 	for _, args := range commands {
-		output, err := exec.Command(args[0], args[1:]...).Output()
+		output, err := browserProfileCommand(args[0], args[1:]...).Output()
 		if err == nil {
 			value := strings.TrimSpace(string(output))
 			if strings.HasPrefix(value, "S-") {
