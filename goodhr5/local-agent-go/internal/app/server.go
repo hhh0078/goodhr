@@ -1063,17 +1063,33 @@ func (s *Server) prepareBrowserViewport(payload map[string]any) {
 func adaptiveBrowserViewport() (int, int) {
 	screenWidth, screenHeight := currentScreenSize()
 	if screenWidth <= 0 || screenHeight <= 0 {
-		return 1100, 780
+		return 1440, 810
 	}
-	width := clampInt(int(float64(screenWidth)*0.75), 960, 1180)
-	height := clampInt(int(float64(screenHeight)*0.78), 680, 820)
-	if width > screenWidth-120 {
-		width = screenWidth - 120
+	return browserViewport16x9(screenWidth, screenHeight)
+}
+
+// browserViewport16x9 根据屏幕可用尺寸计算 16:9 浏览器窗口尺寸。
+// screenWidth 和 screenHeight 为屏幕工作区宽高。
+func browserViewport16x9(screenWidth, screenHeight int) (int, int) {
+	const (
+		minWidth  = 1280
+		minHeight = 720
+		maxWidth  = 1920
+		maxHeight = 1080
+		margin    = 120
+	)
+	availableWidth := screenWidth - margin
+	availableHeight := screenHeight - margin
+	if availableWidth <= 0 || availableHeight <= 0 {
+		return 1440, 810
 	}
-	if height > screenHeight-120 {
-		height = screenHeight - 120
+	width := clampInt(availableWidth, minWidth, maxWidth)
+	height := width * 9 / 16
+	if height > availableHeight {
+		height = clampInt(availableHeight, minHeight, maxHeight)
+		width = height * 16 / 9
 	}
-	return clampInt(width, 900, 1180), clampInt(height, 640, 820)
+	return clampInt(width, minWidth, maxWidth), clampInt(height, minHeight, maxHeight)
 }
 
 // currentScreenSize 读取当前主屏幕尺寸。
