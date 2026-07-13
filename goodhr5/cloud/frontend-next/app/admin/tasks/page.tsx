@@ -37,6 +37,11 @@ import {
 import { useAdmin } from "@/components/admin/AdminApp";
 import AdminDialog from "@/components/admin/AdminDialog";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
+import {
+  confirmPlatformLoggedInForTask,
+  openPlatformTaskBrowser,
+  pickPlatformAuthConfig,
+} from "@/lib/platform-login";
 
 const emptyForm = {
   id: "",
@@ -232,11 +237,27 @@ export default function TasksPage() {
         task.position_snapshot ||
         {};
       const platformID = String(position.platform_id || task.platform_id || "");
-      if (!isPlatformOpen(platformConfigs, platformID)) {
-        return notify("该平台暂未开放，请联系作者", "warning");
-      }
-      const usesAI =
-        task.mode === "ai" ||
+    if (!isPlatformOpen(platformConfigs, platformID)) {
+      return notify("该平台暂未开放，请联系作者", "warning");
+    }
+    const auth = pickPlatformAuthConfig(platformConfigs, platformID);
+    notify("正在打开招聘平台，先确认一下账号有没有登录。", "info");
+    await openPlatformTaskBrowser(agentBase, platformID, auth);
+    try {
+      await confirmPlatformLoggedInForTask(agentBase, auth, (message) =>
+        notify(message, "info"),
+      );
+    } catch (loginError) {
+      await confirm(
+        "需要先登录招聘平台",
+        loginError instanceof Error
+          ? loginError.message
+          : "招聘平台还没登录，请先去浏览器完成登录，再回来开始任务。",
+      );
+      return;
+    }
+    const usesAI =
+      task.mode === "ai" ||
         position.common_config?.mode_default === "ai" ||
         position.common_config?.detail_mode === "ai";
       if (usesAI && !active)

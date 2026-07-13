@@ -19,6 +19,7 @@ export type PlatformAuthConfig = {
 const URL_CHECK_INTERVAL_MS = 3000;
 const URL_FIRST_CHECK_DELAY_MS = 5000;
 const LOGIN_SUCCESS_CONFIRM_TIMES = 3;
+const TASK_LOGIN_CHECK_TIMES = 3;
 
 /** pickPlatformAuthConfig 从平台配置列表中取出指定平台登录规则。 */
 export function pickPlatformAuthConfig(configs: any[], platformID: string) {
@@ -113,6 +114,51 @@ export async function openPlatformLoginBrowser(
     humanize: true,
   };
   await openLocalPage(agentBase, { ...browserPayload, url: targetURL });
+}
+
+/** openPlatformTaskBrowser 使用默认本地浏览器资料目录打开任务平台入口页。 */
+export async function openPlatformTaskBrowser(
+  agentBase: string,
+  platformID: string,
+  auth: PlatformAuthConfig,
+) {
+  const targetURL = pickAuthEntryURL(auth);
+  if (!targetURL) throw new Error("平台配置缺少入口页面地址");
+  await openLocalPage(agentBase, {
+    persistent: true,
+    platform_id: platformID,
+    user_data_dir: `platform-${platformID || "default"}`,
+    headless: false,
+    humanize: true,
+    url: targetURL,
+  });
+}
+
+/** confirmPlatformLoggedInForTask 快速确认任务平台是否已登录。 */
+export async function confirmPlatformLoggedInForTask(
+  agentBase: string,
+  auth: PlatformAuthConfig,
+  onStatus: (message: string) => void,
+) {
+  let loggedInHits = 0;
+  for (let index = 0; index < TASK_LOGIN_CHECK_TIMES; index += 1) {
+    await delay(URL_CHECK_INTERVAL_MS);
+    const url = await currentLocalPageURL(agentBase);
+    if (isLoggedInURL(url, auth)) {
+      loggedInHits += 1;
+      onStatus(`正在确认平台登录状态 ${loggedInHits}/${TASK_LOGIN_CHECK_TIMES}`);
+      continue;
+    }
+    loggedInHits = 0;
+    onStatus(
+      isLoginURL(url, auth)
+        ? "招聘平台还停在登录页"
+        : `招聘平台还没确认登录：${shortURL(url)}`,
+    );
+  }
+  if (loggedInHits < TASK_LOGIN_CHECK_TIMES) {
+    throw new Error("招聘平台还没登录，请先打开浏览器完成登录，再回来开始任务。");
+  }
 }
 
 /** waitForPlatformLoggedIn 连续确认当前页面命中已登录规则后返回。 */
