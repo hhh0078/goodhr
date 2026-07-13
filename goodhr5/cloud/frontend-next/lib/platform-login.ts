@@ -127,7 +127,7 @@ export async function openPlatformTaskBrowser(
   await openLocalPage(agentBase, {
     persistent: true,
     platform_id: platformID,
-    user_data_dir: `platform-${platformID || "default"}`,
+    user_data_dir: "default",
     headless: false,
     humanize: true,
     url: targetURL,

@@ -50,13 +50,13 @@ func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
 	}
 }
 
-// TestTaskProfileNameUsesGlobalDefault 验证未选择平台账号时复用统一浏览器目录。
+// TestTaskProfileNameUsesGlobalDefault 验证开始任务始终复用统一浏览器目录。
 func TestTaskProfileNameUsesGlobalDefault(t *testing.T) {
 	if got := taskProfileName(localdb.Task{PlatformID: "boss"}); got != "default" {
 		t.Fatalf("profile = %q, want default", got)
 	}
-	if got := taskProfileName(localdb.Task{PlatformAccountID: "account-1"}); got != "account-1" {
-		t.Fatalf("profile = %q, want account-1", got)
+	if got := taskProfileName(localdb.Task{PlatformAccountID: "account-1"}); got != "default" {
+		t.Fatalf("profile = %q, want default", got)
 	}
 }
 
