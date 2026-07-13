@@ -126,6 +126,12 @@ type TaskRuntimeSnapshot struct {
 	AIConfig       localdb.AIConfig
 }
 
+// candidateVisibleRuntime 表示平台支持把候选人卡片滚动到可见区域。
+type candidateVisibleRuntime interface {
+	// EnsureCandidateVisible 确保指定候选人卡片滚动到当前可见区域。
+	EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error
+}
+
 // platformExecutor 适配平台 runtime 调用 Worker 和写任务日志。
 type platformExecutor struct {
 	runner *Runner
@@ -722,6 +728,7 @@ scanLoop:
 					candidate["ai_detail_usage"] = decision.Usage
 					candidate["ai_detail_elapsed_ms"] = decision.ElapsedMS
 					if !decision.ShouldOpenDetail {
+						r.ensureCandidateVisibleBeforeSkip(candidateCtx, task.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate), "详情评分低于阈值")
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
 						batchResult.Skipped++
@@ -886,6 +893,22 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, pla
 	}
 	r.taskLog(taskID, "info", fmt.Sprintf("候选人提取：滚动完成，距离=%dpx", scrollDistance))
 	return nil
+}
+
+// ensureCandidateVisibleBeforeSkip 在跳过候选人前先滚动到对应卡片，确保页面位置随候选人顺序推进。
+// ctx 为候选人处理上下文，taskID 为任务 ID，platformRuntime 为平台运行时，exec 为 Worker 执行器，platformConfig 为平台配置，candidate 为候选人，reason 为跳过原因。
+func (r *Runner) ensureCandidateVisibleBeforeSkip(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate platformcore.Candidate, reason string) {
+	visibleRuntime, ok := platformRuntime.(candidateVisibleRuntime)
+	if !ok {
+		return
+	}
+	name := candidateLogName(map[string]any(candidate))
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：准备滚动到低分候选人，姓名=%s，原因=%s", name, reason))
+	if err := visibleRuntime.EnsureCandidateVisible(ctx, exec, platformConfig, candidate); err != nil {
+		r.taskLog(taskID, "warning", fmt.Sprintf("候选人处理：低分候选人滚动到位失败，姓名=%s，错误=%s", name, err.Error()))
+		return
+	}
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：低分候选人已滚动到位，姓名=%s", name))
 }
 
 // syncProcessedResumeCount 将去重后的新增候选人数量同步给云端公开统计。

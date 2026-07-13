@@ -809,6 +809,31 @@ async function extractBossCandidateDetail(payload) {
 }
 
 /**
+ * 滚动到指定 Boss 候选人卡片，但不点击任何按钮。
+ * @param {Record<string, any>} payload - 候选人定位参数。
+ * @returns {Promise<Record<string, any>>} 可见性结果。
+ */
+async function ensureBossCandidateVisible(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossRules(platformConfig);
+  const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  const cardInfo = await bossCardByIndex(
+    currentPage,
+    rules,
+    cardIndex,
+    payload,
+  );
+  const move = await moveMouseToElement(currentPage, cardInfo.card, payload);
+  return {
+    visible: true,
+    card_index: cardIndex,
+    scroll_attempts: cardInfo.attempts,
+    mouse: move,
+  };
+}
+
+/**
  * 关闭 Boss 候选人详情页或详情弹层。
  * @param {Record<string, any>} payload - 关闭参数。
  * @returns {Promise<Record<string, any>>} 关闭结果。
@@ -3473,6 +3498,7 @@ const routes = {
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,
+  "/api/v1/boss/candidates/visible": ensureBossCandidateVisible,
   "/api/v1/boss/candidates/greet": greetBossCandidate,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,

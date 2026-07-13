@@ -198,6 +198,19 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 	return err
 }
 
+// EnsureCandidateVisible 滚动到指定 Boss 候选人卡片，确保低分跳过也会推进列表位置。
+// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
+func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", map[string]any{
+		"platform_config": cfg,
+		"card_index":      intFromMap(candidate, "card_index"),
+		"element_ref":     stringFromMap(candidate, "element_ref"),
+		"distance":        520,
+		"wait_ms":         300,
+	})
+	return err
+}
+
 // FetchCandidateDetail 读取 Boss 候选人详情。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，request 为详情请求。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
