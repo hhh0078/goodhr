@@ -76,6 +76,9 @@ export default function TasksPage() {
   const [localTaskStats, setLocalTaskStats] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [startTask, setStartTask] = useState<any | null>(null);
+  const [startLoading, setStartLoading] = useState(false);
+  const [startStatus, setStartStatus] = useState("");
   const [form, setForm] = useState({ ...emptyForm });
 
   /** load 读取任务及创建任务需要的岗位。 */
@@ -225,10 +228,19 @@ export default function TasksPage() {
     setShowForm(true);
   }
 
-  /** run 在校验登录、会员和本地程序后启动任务。 */
-  async function run(task: any) {
+  /** openStartConfirm 打开开始任务确认弹框。 */
+  function openStartConfirm(task: any) {
     if (!agentBase) return notify("请先启动本地程序", "error");
-    if (!(await confirm("开始招聘任务", `确认开始“${task.name}”吗？`))) return;
+    setStartStatus("");
+    setStartTask(task);
+  }
+
+  /** confirmStartTask 在确认弹框内等待登录检测和本地任务启动完成。 */
+  async function confirmStartTask() {
+    const task = startTask;
+    if (!task || !agentBase) return;
+    setStartLoading(true);
+    setStartStatus("正在检查任务启动条件...");
     try {
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const active = Boolean(subscriptionData.subscription?.active);
@@ -237,33 +249,37 @@ export default function TasksPage() {
         task.position_snapshot ||
         {};
       const platformID = String(position.platform_id || task.platform_id || "");
-    if (!isPlatformOpen(platformConfigs, platformID)) {
-      return notify("该平台暂未开放，请联系作者", "warning");
-    }
-    const auth = pickPlatformAuthConfig(platformConfigs, platformID);
-    notify("正在打开招聘平台，先确认一下账号有没有登录。", "info");
-    await openPlatformTaskBrowser(agentBase, platformID, auth);
-    try {
-      await confirmPlatformLoggedInForTask(agentBase, auth, (message) =>
-        notify(message, "info"),
-      );
-    } catch (loginError) {
-      await confirm(
-        "需要先登录招聘平台",
-        loginError instanceof Error
-          ? loginError.message
-          : "招聘平台还没登录，请先去浏览器完成登录，再回来开始任务。",
-      );
-      return;
-    }
+      if (!isPlatformOpen(platformConfigs, platformID)) {
+        setStartStatus("该平台暂未开放，请联系作者");
+        return;
+      }
+      const auth = pickPlatformAuthConfig(platformConfigs, platformID);
+      setStartStatus("正在打开招聘平台，先确认一下账号有没有登录。");
+      notify("正在打开招聘平台，先确认一下账号有没有登录。", "info");
+      await openPlatformTaskBrowser(agentBase, platformID, auth);
+      try {
+        await confirmPlatformLoggedInForTask(agentBase, auth, (message) =>
+          setStartStatus(message),
+        );
+      } catch (loginError) {
+        setStartStatus(
+          loginError instanceof Error
+            ? loginError.message
+            : "招聘平台还没登录，请先去浏览器完成登录，再回来开始任务。",
+        );
+        return;
+      }
     const usesAI =
       task.mode === "ai" ||
         position.common_config?.mode_default === "ai" ||
         position.common_config?.detail_mode === "ai";
-      if (usesAI && !active)
-        return notify("当前任务使用会员 AI 功能，请订阅后再开始", "warning");
+      if (usesAI && !active) {
+        setStartStatus("当前任务使用会员 AI 功能，请订阅后再开始");
+        return;
+      }
       if (!active)
         notify("当前为免费版，今日打招呼数量受系统免费额度限制", "info");
+      setStartStatus("登录确认完成，正在启动本地任务...");
       await localRequest(
         agentBase,
         `/api/v1/local/tasks/${encodeURIComponent(task.id)}/run`,
@@ -275,9 +291,14 @@ export default function TasksPage() {
       setRunningTaskIDs((current) => ({ ...current, [task.id]: true }));
       await markOnboardingStep(String(user?.email || ""), "task_started");
       notify("任务已开始", "success");
+      setStartTask(null);
+      setStartStatus("");
       await load();
     } catch (error) {
+      setStartStatus(error instanceof Error ? error.message : "任务启动失败");
       notify(error instanceof Error ? error.message : "任务启动失败", "error");
+    } finally {
+      setStartLoading(false);
     }
   }
 
@@ -544,7 +565,7 @@ export default function TasksPage() {
                       <Button
                         variant='contained'
                         startIcon={<PlayArrowRoundedIcon />}
-                        onClick={() => void run(task)}
+                        onClick={() => openStartConfirm(task)}
                       >
                         开始
                       </Button>
@@ -740,6 +761,38 @@ export default function TasksPage() {
             </Box>
           </Box>
         </Box>
+      </AdminDialog>
+      <AdminDialog
+        open={Boolean(startTask)}
+        title='开始招聘任务'
+        confirmText='确认开始'
+        loading={startLoading}
+        onClose={() => {
+          if (startLoading) return;
+          setStartTask(null);
+          setStartStatus("");
+        }}
+        onConfirm={() => void confirmStartTask()}
+      >
+        <Stack spacing={1.5}>
+          <Typography>
+            确认开始“{startTask?.name || ""}”吗？我会先确认招聘平台是否已登录。
+          </Typography>
+          {startStatus ? (
+            <Typography
+              color={
+                startStatus.includes("没登录") ||
+                startStatus.includes("失败") ||
+                startStatus.includes("请订阅") ||
+                startStatus.includes("暂未开放")
+                  ? "error"
+                  : "text.secondary"
+              }
+            >
+              {startStatus}
+            </Typography>
+          ) : null}
+        </Stack>
       </AdminDialog>
       <AdminDialog
         open={Boolean(allLogTask)}
