@@ -40,6 +40,26 @@ function logWorker(message, data = {}) {
   );
 }
 
+/**
+ * 压缩元素位置日志，避免单行日志过长。
+ * @param {Record<string, any>} box - 元素位置。
+ * @returns {string} 简短位置描述。
+ */
+function compactBoxLog(box) {
+  if (!box) return "";
+  return `x=${box.x},y=${box.y},w=${box.width},h=${box.height}`;
+}
+
+/**
+ * 压缩视口检测日志，保留排查滚动问题的关键信息。
+ * @param {Record<string, any>} view - 视口检测结果。
+ * @returns {string} 简短视口描述。
+ */
+function compactViewportLog(view) {
+  if (!view) return "";
+  return `in=${Boolean(view.in_viewport)},full=${Boolean(view.fully_visible)},box=[${compactBoxLog(view.box)}]`;
+}
+
 process.on("uncaughtException", (error) => {
   console.error("Node Worker 未捕获异常", error);
 });
@@ -765,13 +785,28 @@ async function extractBossCandidateDetail(payload) {
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  logWorker("Boss候选人详情定位开始", {
+    card_index: cardIndex,
+    has_ref: Boolean(payload.element_ref || payload.ref),
+    force_scroll: Boolean(payload.force_scroll),
+  });
   const cardInfo = await bossCardByIndex(
     currentPage,
     rules,
     cardIndex,
-    payload,
+    {
+      ...payload,
+      require_full: payload.require_full !== false,
+      viewport_margin: payload.viewport_margin || 12,
+    },
   );
   const card = cardInfo.card;
+  logWorker("Boss候选人详情定位完成", {
+    card_index: cardIndex,
+    attempts: cardInfo.attempts,
+    by_ref: Boolean(cardInfo.by_ref),
+    final_view: compactViewportLog(cardInfo.view || cardInfo.scroll_result?.final_view),
+  });
   const opened = await clickFirstVisible(
     card,
     selectorList(rules.detail_buttons),
@@ -818,13 +853,28 @@ async function ensureBossCandidateVisible(payload) {
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  logWorker("Boss候选人可见性定位开始", {
+    card_index: cardIndex,
+    has_ref: Boolean(payload.element_ref || payload.ref),
+  });
   const cardInfo = await bossCardByIndex(
     currentPage,
     rules,
     cardIndex,
-    payload,
+    {
+      ...payload,
+      force_scroll: true,
+      require_full: payload.require_full !== false,
+      viewport_margin: payload.viewport_margin || 12,
+    },
   );
   const move = await moveMouseToElement(currentPage, cardInfo.card, payload);
+  logWorker("Boss候选人可见性定位完成", {
+    card_index: cardIndex,
+    attempts: cardInfo.attempts,
+    by_ref: Boolean(cardInfo.by_ref),
+    final_view: compactViewportLog(cardInfo.view || cardInfo.scroll_result?.final_view),
+  });
   return {
     visible: true,
     card_index: cardIndex,
@@ -855,13 +905,25 @@ async function closeBossCandidateDetail(payload) {
  * @returns {Promise<{card:any, attempts:number}>} 候选人卡片和滚动次数。
  */
 async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
+  const requireFull = payload.require_full !== false || Boolean(payload.force_scroll);
+  const viewportMargin = Number(payload.viewport_margin || payload.margin || 12);
+  const viewOptions = {
+    margin: viewportMargin,
+    full: requireFull,
+  };
   const refLocator = locatorByRef(
     currentPage,
     payload.element_ref || payload.ref,
   );
   if (refLocator) {
-    const view = await isElementInViewport(refLocator);
-    if (view.in_viewport) return { card: refLocator, attempts: 1, by_ref: true };
+    const view = await isElementInViewport(refLocator, viewOptions);
+    logWorker("Boss候选人ref可见性检查", {
+      card_index: cardIndex,
+      in_viewport: view.in_viewport,
+      fully_visible: view.fully_visible,
+      box: compactBoxLog(view.box),
+    });
+    if (view.in_viewport) return { card: refLocator, attempts: 1, by_ref: true, view };
   }
   const cardSelectors = selectorList(rules.candidate_card);
   if (cardSelectors.length <= 0)
@@ -886,9 +948,16 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
           ...payload,
           distance,
           max_attempts: 1,
-          margin: 8,
+          margin: viewportMargin,
+          require_full: requireFull,
         },
       );
+      logWorker("Boss候选人ref滚动检查", {
+        card_index: cardIndex,
+        attempt,
+        visible: result.visible,
+        final_view: compactViewportLog(result.final_view),
+      });
       if (result.visible) {
         return {
           card: refLocator,
@@ -906,7 +975,15 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       continue;
     }
     let card = cards[cardIndex]?.locator || cards[cardIndex];
-    const view = await isElementInViewport(card, { margin: 8 });
+    const view = await isElementInViewport(card, viewOptions);
+    logWorker("Boss候选人index可见性检查", {
+      card_index: cardIndex,
+      attempt,
+      count,
+      in_viewport: view.in_viewport,
+      fully_visible: view.fully_visible,
+      box: compactBoxLog(view.box),
+    });
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }

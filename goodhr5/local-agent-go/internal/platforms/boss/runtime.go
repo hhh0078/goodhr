@@ -207,6 +207,8 @@ func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.
 		"element_ref":     stringFromMap(candidate, "element_ref"),
 		"distance":        520,
 		"wait_ms":         300,
+		"require_full":    true,
+		"viewport_margin": 12,
 	})
 	return err
 }
@@ -222,6 +224,8 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"element_ref":     stringFromMap(candidate, "element_ref"),
 		"screenshot":      request.Mode == "ocr" || request.Mode == "ai",
 		"force_scroll":    true,
+		"require_full":    true,
+		"viewport_margin": 12,
 		"dir":             filepath.Join(request.ScreenshotsDir, request.TaskID),
 		"filename":        request.Filename,
 	})
