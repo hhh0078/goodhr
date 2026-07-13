@@ -393,7 +393,9 @@ async function openPage(payload) {
   });
   if (!browser && !context && (payload.user_data_dir || payload.persistent)) {
     logWorker("页面打开前浏览器未启动，准备自动启动");
-    await startBrowser(payload);
+    const startupPayload = { ...payload };
+    delete startupPayload.url;
+    await startBrowser(startupPayload);
   }
   const currentPage = await ensurePage();
   clearElementRefs();
