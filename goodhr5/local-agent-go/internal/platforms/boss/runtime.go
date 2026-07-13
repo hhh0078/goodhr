@@ -209,7 +209,7 @@ func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.
 		"wait_ms":              260,
 		"card_scroll_attempts": 18,
 		"require_full":         true,
-		"viewport_margin":      12,
+		"viewport_margin":      80,
 	})
 	return err
 }
@@ -229,7 +229,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"wait_ms":              260,
 		"card_scroll_attempts": 18,
 		"require_full":         true,
-		"viewport_margin":      12,
+		"viewport_margin":      80,
 		"dir":                  filepath.Join(request.ScreenshotsDir, request.TaskID),
 		"filename":             request.Filename,
 	})

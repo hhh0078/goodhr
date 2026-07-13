@@ -932,7 +932,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   let count = cards.length;
   const maxAttempts = Math.max(
     1,
-    Math.min(12, Number(payload.card_scroll_attempts || 8)),
+    Math.min(24, Number(payload.card_scroll_attempts || 8)),
   );
   const distance = Math.max(
     120,
@@ -950,6 +950,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
           max_attempts: 1,
           margin: viewportMargin,
           require_full: requireFull,
+          previous_wheel_locator: previousCandidateCard(cards, cardIndex),
         },
       );
       logWorker("Boss候选人ref滚动检查", {
@@ -967,8 +968,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         };
       }
     }
-    if (cardIndex >= count) {
-      await scrollBossListByRules(currentPage, rules, distance);
+  if (cardIndex >= count) {
+      await scrollBossListByRules(currentPage, rules, distance, previousCandidateCard(cards, cardIndex));
       await currentPage.waitForTimeout(250);
       cards = await allLocators(currentPage, rules.candidate_card, true, 0);
       count = cards.length;
@@ -987,7 +988,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }
-    await scrollBossListByRules(currentPage, rules, distance);
+    await scrollBossListByRules(currentPage, rules, distance, previousCandidateCard(cards, cardIndex));
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
@@ -1000,9 +1001,23 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
  * @param {any} currentPage - Playwright 页面对象。
  * @param {Record<string, any>} rules - Boss 平台规则。
  * @param {number} distance - 滚动距离。
+ * @param {any|null} preferredWheelTarget - 优先使用的滚轮停靠点。
  * @returns {Promise<boolean>} 是否命中列表容器。
  */
-async function scrollBossListByRules(currentPage, rules, distance) {
+async function scrollBossListByRules(currentPage, rules, distance, preferredWheelTarget = null) {
+  if (preferredWheelTarget) {
+    try {
+      await moveMouseToElement(currentPage, preferredWheelTarget, { require_full: false });
+      await currentPage.mouse.wheel(0, distance);
+      await currentPage.waitForTimeout(450);
+      logWorker("Boss候选人滚动列表：使用上一个候选人卡片");
+      return true;
+    } catch (error) {
+      logWorker("Boss候选人滚动列表：上一个候选人卡片不可用", {
+        error: error?.message || error,
+      });
+    }
+  }
   const selectors = selectorList(rules.scroll_containers);
   for (const selector of selectors) {
     try {
@@ -1027,6 +1042,19 @@ async function scrollBossListByRules(currentPage, rules, distance) {
   await currentPage.mouse.wheel(0, distance);
   await currentPage.waitForTimeout(450);
   return false;
+}
+
+/**
+ * 返回目标候选人之前的一个候选人卡片，作为滚轮停靠点。
+ * @param {Array<any>} cards - 当前候选人卡片列表。
+ * @param {number} cardIndex - 目标候选人序号。
+ * @returns {any|null} 上一个候选人卡片定位器。
+ */
+function previousCandidateCard(cards, cardIndex) {
+  if (!Array.isArray(cards) || cards.length <= 0 || cardIndex <= 0) return null;
+  const previousIndex = Math.min(cardIndex - 1, cards.length - 1);
+  const previous = cards[previousIndex];
+  return previous?.locator || previous || null;
 }
 
 /**
@@ -3255,7 +3283,7 @@ async function humanMouseClick(currentPage, options = {}) {
 }
 
 /**
- * 安全移动到滚轮停靠目标，找不到配置容器时使用当前鼠标位置滚动。
+ * 安全移动到滚轮停靠目标，找不到配置容器时优先使用上一个候选人卡片滚动。
  * @param {any} currentPage - Playwright 页面对象。
  * @param {any} wheelTarget - 配置的滚轮停靠目标。
  * @param {Record<string, any>} options - 滚动选项。
@@ -3266,10 +3294,25 @@ async function moveMouseToWheelTarget(currentPage, wheelTarget, options = {}) {
     const move = await moveMouseToElement(currentPage, wheelTarget, options);
     return { ...move, wheel_target: "configured" };
   } catch (error) {
-    logWorker("Boss候选人滚动目标不可用，使用当前鼠标位置滚轮", {
+    logWorker("Boss候选人滚动目标不可用，准备使用上一个候选人兜底", {
       target: "configured",
       error: error?.message || error,
     });
+  }
+  if (options.previous_wheel_locator) {
+    try {
+      const move = await moveMouseToElement(
+        currentPage,
+        options.previous_wheel_locator,
+        { ...options, require_full: false },
+      );
+      logWorker("Boss候选人滚动目标改用上一个候选人卡片");
+      return { ...move, wheel_target: "previous-card" };
+    } catch (error) {
+      logWorker("Boss候选人上一个卡片兜底不可用，使用当前鼠标位置滚轮", {
+        error: error?.message || error,
+      });
+    }
   }
   return { moved: false, wheel_target: "current-mouse" };
 }
