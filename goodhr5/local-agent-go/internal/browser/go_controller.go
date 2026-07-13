@@ -137,7 +137,6 @@ type BrowserStartOptions struct {
 	ExecutablePath string `json:"executable_path,omitempty"`
 	UserDataDir    string `json:"user_data_dir,omitempty"`
 	DownloadsPath  string `json:"downloads_path,omitempty"`
-	InitialURL     string `json:"url,omitempty"`
 	Headless       bool   `json:"headless,omitempty"`
 	Persistent     bool   `json:"persistent,omitempty"`
 	ViewportWidth  int    `json:"viewport_width,omitempty"`
@@ -365,11 +364,7 @@ func (c *GoController) StartBrowser(ctx context.Context, options BrowserStartOpt
 	if options.ViewportWidth > 0 && options.ViewportHeight > 0 {
 		args = append(args, fmt.Sprintf("--window-size=%d,%d", options.ViewportWidth, options.ViewportHeight))
 	}
-	initialURL := strings.TrimSpace(options.InitialURL)
-	if initialURL == "" {
-		initialURL = "about:blank"
-	}
-	args = append(args, initialURL)
+	args = append(args, "about:blank")
 
 	cmd := exec.CommandContext(context.Background(), executable, args...)
 	if err := cmd.Start(); err != nil {
@@ -487,12 +482,7 @@ func (c *GoController) UsePage(ctx context.Context, index int) (PageInfo, error)
 func (c *GoController) CurrentURL(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.currentURLLocked(ctx)
-}
 
-// currentURLLocked 在已持有锁时读取当前页面地址。
-// ctx 为调用上下文，返回当前页面地址。
-func (c *GoController) currentURLLocked(ctx context.Context) (string, error) {
 	page, err := c.ensurePageLocked(ctx)
 	if err != nil {
 		return "", err
@@ -519,11 +509,6 @@ func (c *GoController) OpenPage(ctx context.Context, rawURL string) (PageInfo, e
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return PageInfo{}, fmt.Errorf("页面地址不能为空")
-	}
-	currentURL, _ := c.currentURLLocked(ctx)
-	if samePageURL(currentURL, rawURL) {
-		page.URL = currentURL
-		return PageInfo{Index: 0, ID: page.ID, URL: currentURL, Title: page.Title}, nil
 	}
 	if _, err := page.client.Call(ctx, "Page.navigate", map[string]any{"url": rawURL}); err != nil {
 		return PageInfo{}, err
@@ -1639,35 +1624,11 @@ func browserExecutableName() string {
 	}
 }
 
-// samePageURL 判断两个地址是否指向同一页面。
-// current 为当前地址，target 为目标地址，比较时忽略 hash 和末尾斜杠。
-func samePageURL(current string, target string) bool {
-	left := normalizePageURL(current)
-	right := normalizePageURL(target)
-	return left != "" && right != "" && left == right
-}
-
-// normalizePageURL 归一化页面地址。
-// value 为原始地址，返回去掉 hash 和末尾斜杠后的地址。
-func normalizePageURL(value string) string {
-	text := strings.TrimSpace(value)
-	if text == "" || text == "about:blank" {
-		return ""
-	}
-	parsed, err := url.Parse(text)
-	if err != nil || parsed.Scheme == "" {
-		return strings.TrimRight(strings.Split(text, "#")[0], "/")
-	}
-	parsed.Fragment = ""
-	return strings.TrimRight(parsed.String(), "/")
-}
-
 func browserStartOptionsFromPayload(payload map[string]any) BrowserStartOptions {
 	return BrowserStartOptions{
 		ExecutablePath: stringFromAny(firstNonEmpty(payload["executable_path"], payload["browser_path"], payload["cloakbrowser_path"])),
 		UserDataDir:    stringFromAny(payload["user_data_dir"]),
 		DownloadsPath:  stringFromAny(payload["downloads_path"]),
-		InitialURL:     stringFromAny(payload["url"]),
 		Headless:       goBoolFromAny(payload["headless"]),
 		Persistent:     goBoolFromAny(payload["persistent"]),
 		ViewportWidth:  goIntFromAny(payload["viewport_width"]),
