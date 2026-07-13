@@ -174,7 +174,7 @@ export default function ResumesPage() {
         description={
           selectedTask
             ? "当前显示指定任务产生的简历。"
-            : "简易的简历库，后续会持续升级功能。"
+            : "目前已经默认不生成简历、降低AI消耗，如果需要生成简历，请在岗位设置->高级设置 中开启。"
         }
         actions={
           <Button
@@ -432,7 +432,8 @@ function ResumeRow({
 
 /** ExperienceSummary 展示简历库列表中的经历摘要。 */
 function ExperienceSummary({ item }: { item: NormalizedExperience }) {
-  const mainText = item.companyName || item.schoolName || item.projectName || "";
+  const mainText =
+    item.companyName || item.schoolName || item.projectName || "";
   const detailText = [
     item.positionName || item.majorName || item.roleName || item.educationLevel,
     periodText(item),

@@ -51,7 +51,9 @@ export default function PositionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
-  const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
+  const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
+    [],
+  );
   const [defaults, setDefaults] = useState({
     filter_prompt: "",
     open_detail_prompt: "",
@@ -730,7 +732,7 @@ export default function PositionsPage() {
                           helperText='首次评分大于等于该值时打开候选人详情。'
                         />
                         <ChoiceCards
-                          label='是否输出简历结构化信息'
+                          label='是否生成简历'
                           value={form.output_structured_resume}
                           onChange={(value) =>
                             setForm({
@@ -741,13 +743,13 @@ export default function PositionsPage() {
                           options={[
                             {
                               value: false,
-                              label: "关闭",
-                              description: "价格低、不会存简历。",
+                              label: "不需要",
+                              description: "AI消耗少、不会存简历。",
                             },
                             {
                               value: true,
-                              label: "开启",
-                              description: "价格高，会把信息放到简历库里。",
+                              label: "需要",
+                              description: "AI消耗多，会把信息放到简历库里。",
                             },
                           ]}
                         />
