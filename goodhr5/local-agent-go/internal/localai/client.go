@@ -24,7 +24,7 @@ const (
 	defaultDetailThreshold = 60.0
 	defaultGreetPrompt     = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
 	defaultDetailPrompt    = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。JSON 必须可直接入库，字段固定为：analysis、candidate_name、birth_ym、phone、email、work_region、work_years、expected_salary_min、expected_salary_max、education_level、expected_position、online_status、personal_description、work_status、work_experiences、educations、certificates、honors、project_experiences、colleague_communications、raw_text。analysis 必须包含 score、reason，reason 控制在30字以内。经历数组字段格式必须固定：work_experiences 使用 company_name、position_name、content、start_ym、end_ym；educations 使用 school_name、major_name、education_level、start_ym、end_ym；certificates 使用 certificate_name、issued_by、issued_ym；honors 使用 honor_name、issued_by、issued_ym、description；project_experiences 使用 project_name、role_name、content、start_ym、end_ym；colleague_communications 使用 communicator_name、communicated_at、content。没有的信息用空字符串、null 或空数组。`
+	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。必须按下面示例返回，analysis 必须包含 score、reason，reason 控制在30字以内：${结构化简历}`
 )
 
 // Client 是本地 AI 调用客户端。
@@ -573,7 +573,7 @@ func extractReasoningContent(payload map[string]any) string {
 func buildDetailMessages(position map[string]any, candidate map[string]any) []map[string]string {
 	aiConfig := mapValue(position["ai_config"])
 	system := firstNonEmpty(stringFromMap(aiConfig, "open_detail_prompt"), defaultDetailPrompt)
-	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"))
+	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"), false)
 }
 
 // buildGreetMessages 构建缓存友好的打招呼评分消息。
@@ -581,29 +581,36 @@ func buildDetailMessages(position map[string]any, candidate map[string]any) []ma
 func buildGreetMessages(position map[string]any, candidate map[string]any) []map[string]string {
 	aiConfig := mapValue(position["ai_config"])
 	system := firstNonEmpty(stringFromMap(aiConfig, "greet_prompt"), stringFromMap(aiConfig, "filter_prompt"), stringFromMap(aiConfig, "click_prompt"), defaultGreetPrompt)
-	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"))
+	return scoringMessages(system, positionDescription(position), stringFromMap(candidate, "raw_text"), positionOutputStructuredResume(position))
 }
 
 // scoringMessages 将稳定评分规则和本次变量拆成不同消息。
 // system 为稳定规则，jobDesc 和 candidateText 为本次变量。
-func scoringMessages(system string, jobDesc string, candidateText string) []map[string]string {
+func scoringMessages(system string, jobDesc string, candidateText string, outputStructuredResume bool) []map[string]string {
 	return []map[string]string{
-		{"role": "system", "content": stablePrompt(system)},
+		{"role": "system", "content": stablePrompt(system, outputStructuredResume)},
 		{"role": "user", "content": "岗位要求：\n" + jobDesc + "\n\n候选人信息：\n" + candidateText},
 	}
 }
 
 // stablePrompt 替换稳定提示词占位符，不混入岗位和候选人变量。
 // prompt 为系统提示词。
-func stablePrompt(prompt string) string {
+// outputStructuredResume 为 true 时允许 AI 输出可入库简历字段。
+func stablePrompt(prompt string, outputStructuredResume bool) string {
 	text := strings.TrimSpace(prompt)
-	text = strings.ReplaceAll(text, "${结构化简历}", buildResumeJSONExample())
 	text = strings.ReplaceAll(text, "{default_prompt}", defaultVisionSystem)
+	text = strings.ReplaceAll(text, "${结构化简历}", buildResumeJSONExample(outputStructuredResume))
 	return text
 }
 
 // buildResumeJSONExample 返回可直接入库的结构化简历 JSON 示例。
-func buildResumeJSONExample() string {
+// outputStructuredResume 为 false 时只要求 AI 返回本次分析结果。
+func buildResumeJSONExample(outputStructuredResume bool) string {
+	if !outputStructuredResume {
+		return `{
+  "analysis": {"score": 80, "reason": "原因"}
+}`
+	}
 	return `{
   "analysis": {"score": 80, "reason": "原因"},
   "candidate_name": "徐英",
@@ -685,15 +692,22 @@ func buildVisionSystemPrompt(position map[string]any) string {
 	aiConfig := mapValue(position["ai_config"])
 	custom := strings.TrimSpace(stringFromMap(aiConfig, "vision_prompt"))
 	if custom != "" {
-		return stablePrompt(custom)
+		return stablePrompt(custom, positionOutputStructuredResume(position))
 	}
-	return stablePrompt(defaultVisionSystem)
+	return stablePrompt(defaultVisionSystem, positionOutputStructuredResume(position))
 }
 
 // buildVisionUserPrompt 构建视觉识别本次变量消息。
 // position 为岗位快照，candidate 为候选人基础信息。
 func buildVisionUserPrompt(position map[string]any, candidate map[string]any) string {
 	return "岗位要求：\n" + positionDescription(position) + "\n\n候选人基础信息：\n" + stringFromMap(candidate, "raw_text")
+}
+
+// positionOutputStructuredResume 判断岗位是否要求输出结构化简历。
+// position 为岗位快照，默认不输出结构化简历以节省 token。
+func positionOutputStructuredResume(position map[string]any) bool {
+	commonConfig := mapValue(position["common_config"])
+	return boolValue(commonConfig["output_structured_resume"], false)
 }
 
 // positionDescription 返回岗位要求文本。
@@ -790,6 +804,9 @@ func normalizeResumePayload(payload map[string]any) map[string]any {
 			result[key] = value
 		}
 	}
+	if len(result) == 0 {
+		return nil
+	}
 	return result
 }
 
@@ -862,6 +879,32 @@ func numberValue(value any, fallback float64) float64 {
 		var parsed float64
 		if _, err := fmt.Sscanf(typed, "%f", &parsed); err == nil {
 			return parsed
+		}
+	}
+	return fallback
+}
+
+// boolValue 将任意值转换为布尔值。
+// value 为原始值，fallback 为默认值。
+func boolValue(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed != 0
+		}
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "y", "on":
+			return true
+		case "false", "0", "no", "n", "off":
+			return false
 		}
 	}
 	return fallback

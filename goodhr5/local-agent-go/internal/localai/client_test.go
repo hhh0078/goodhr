@@ -82,6 +82,38 @@ func TestParseVisionScoreJSONWithResumeAnalysis(t *testing.T) {
 	}
 }
 
+// TestParseVisionScoreJSONWithoutResume 验证关闭结构化简历时不会生成空简历数据。
+func TestParseVisionScoreJSONWithoutResume(t *testing.T) {
+	score, reason, _, resumeData, err := parseVisionScoreJSONWithResume(`{
+		"analysis":{"score":80,"reason":"原因"}
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 80 || reason != "原因" {
+		t.Fatalf("score=%v reason=%s", score, reason)
+	}
+	if resumeData != nil {
+		t.Fatalf("resumeData should be nil: %+v", resumeData)
+	}
+}
+
+// TestBuildResumeJSONExampleSwitch 验证岗位开关会控制 AI 是否输出简历字段。
+func TestBuildResumeJSONExampleSwitch(t *testing.T) {
+	closed := buildVisionSystemPrompt(map[string]any{
+		"common_config": map[string]any{"output_structured_resume": false},
+	})
+	if strings.Contains(closed, "candidate_name") {
+		t.Fatalf("closed prompt should not include resume fields: %s", closed)
+	}
+	opened := buildVisionSystemPrompt(map[string]any{
+		"common_config": map[string]any{"output_structured_resume": true},
+	})
+	if !strings.Contains(opened, "candidate_name") {
+		t.Fatalf("opened prompt should include resume fields: %s", opened)
+	}
+}
+
 // TestChatStreamProgress 验证流式 AI 响应会实时回调完整文本。
 func TestChatStreamProgress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

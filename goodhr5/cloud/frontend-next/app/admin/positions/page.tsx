@@ -145,6 +145,7 @@ export default function PositionsPage() {
           common_config: {
             mode_default: form.mode_default,
             detail_mode: detailMode,
+            output_structured_resume: form.output_structured_resume,
           },
           ai_config: {
             position_requirement: form.position_requirement,
@@ -583,6 +584,34 @@ export default function PositionsPage() {
               </Box>
             </>
           ) : null}
+          <Divider />
+          <Box>
+            <Typography
+              component='h3'
+              sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
+            >
+              简历库
+            </Typography>
+            <ChoiceCards
+              label='是否输出简历结构化信息'
+              value={form.output_structured_resume}
+              onChange={(value) =>
+                setForm({ ...form, output_structured_resume: Boolean(value) })
+              }
+              options={[
+                {
+                  value: false,
+                  label: "关闭",
+                  description: "价格低、不会存简历。",
+                },
+                {
+                  value: true,
+                  label: "开启",
+                  description: "价格高，会把信息放到简历库里。",
+                },
+              ]}
+            />
+          </Box>
           {form.mode_default === "ai" ? (
             <>
               <Divider />
@@ -947,6 +976,7 @@ function createEmptyForm() {
     review_prompt: "",
     detail_score_threshold: 60,
     greet_score_threshold: 70,
+    output_structured_resume: false,
     greet_message: "",
     description: "",
   };
@@ -969,6 +999,7 @@ function formFromItem(
         item.platform_id,
         common.detail_mode || "ocr",
       ),
+      output_structured_resume: Boolean(common.output_structured_resume),
       keywords: (item.keywords || []).join(" "),
       exclude_keywords: (item.exclude_keywords || []).join(" "),
       is_and_mode: Boolean(item.is_and_mode),

@@ -331,6 +331,9 @@ func applyPositionPlatformRules(position *Position) {
 	if position.CommonConfig == nil {
 		position.CommonConfig = map[string]any{}
 	}
+	if _, ok := position.CommonConfig["output_structured_resume"]; !ok {
+		position.CommonConfig["output_structured_resume"] = false
+	}
 	if isDOMOnlyPlatform(position.PlatformID) {
 		position.CommonConfig["detail_mode"] = "dom"
 		return
