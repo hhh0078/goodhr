@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -251,6 +252,10 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	body = rewriteAIModel(body, model.ID)
+	streamRequest := aiRequestWantsStream(body)
+	if streamRequest {
+		body = ensureAIStreamUsage(body)
+	}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, normalizeAIChatCompletionsURL(cfg.UpstreamBaseURL), bytes.NewReader(body))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "AI 接口地址无效")
@@ -264,6 +269,25 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer resp.Body.Close()
+	if streamRequest && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		copyHeader(w.Header(), resp.Header)
+		w.Header().Del("Content-Length")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(resp.StatusCode)
+		promptTokens, completionTokens, err := proxyAIStreamAndUsage(w, resp.Body)
+		if err != nil {
+			log.Printf("[内置AI] 流式响应转发失败 user=%s model=%s err=%v", email, model.ID, err)
+			return
+		}
+		if promptTokens+completionTokens == 0 {
+			log.Printf("[内置AI] 流式响应未返回 usage，无法扣费 user=%s model=%s", email, model.ID)
+			return
+		}
+		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+			log.Printf("[内置AI] 流式扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
+		}
+		return
+	}
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxAICompatibleBodyBytes))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed read ai response")
@@ -271,26 +295,34 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
-		cost := aiUsageCostUnits(model, promptTokens, completionTokens)
-		if cost > 0 {
-			if _, err := s.wallet.AdjustBalance(AIWalletRecord{
-				UserEmail:        email,
-				ChangeUnits:      -cost,
-				Category:         "ai_usage",
-				Reason:           "内置AI调用扣费",
-				ModelID:          model.ID,
-				PromptTokens:     promptTokens,
-				CompletionTokens: completionTokens,
-			}); err != nil {
-				log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s cost_units=%d prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, cost, promptTokens, completionTokens, err)
-				writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
-				return
-			}
+		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
+			log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
+			writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
+			return
 		}
 	}
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
+}
+
+// chargeAIUsage 根据 token 用量扣除用户内置 AI 余额。
+// email 为用户邮箱，model 为计费模型，promptTokens 和 completionTokens 为本次用量。
+func (s *AIWalletService) chargeAIUsage(email string, model builtinAIModel, promptTokens int, completionTokens int) error {
+	cost := aiUsageCostUnits(model, promptTokens, completionTokens)
+	if cost <= 0 {
+		return nil
+	}
+	_, err := s.wallet.AdjustBalance(AIWalletRecord{
+		UserEmail:        email,
+		ChangeUnits:      -cost,
+		Category:         "ai_usage",
+		Reason:           "内置AI调用扣费",
+		ModelID:          model.ID,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+	})
+	return err
 }
 
 // ConfigureUserBuiltinAI 为用户保存系统内置 AI 配置，已有内置 Key 时尽量复用。
@@ -665,6 +697,85 @@ func rewriteAIModel(body []byte, modelID string) []byte {
 		return body
 	}
 	return rewritten
+}
+
+// aiRequestWantsStream 判断 OpenAI 兼容请求是否启用了流式输出。
+// body 为原始请求体 JSON。
+func aiRequestWantsStream(body []byte) bool {
+	var payload struct {
+		Stream bool `json:"stream"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return false
+	}
+	return payload.Stream
+}
+
+// ensureAIStreamUsage 为流式请求补充 usage 返回开关。
+// body 为原始请求体 JSON，返回补充后的请求体。
+func ensureAIStreamUsage(body []byte) []byte {
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) != nil {
+		return body
+	}
+	options := mapFromAny(payload["stream_options"])
+	options["include_usage"] = true
+	payload["stream_options"] = options
+	rewritten, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}
+
+// mapFromAny 将任意值安全转换为字符串键 map。
+// value 为原始 JSON 字段值，无法转换时返回空 map。
+func mapFromAny(value any) map[string]any {
+	if item, ok := value.(map[string]any); ok {
+		return item
+	}
+	return map[string]any{}
+}
+
+// proxyAIStreamAndUsage 转发上游 SSE 流，并从分片中提取 token 用量。
+// w 为客户端响应，reader 为上游响应体，返回最终读取到的 token 用量。
+func proxyAIStreamAndUsage(w http.ResponseWriter, reader io.Reader) (int, int, error) {
+	flusher, _ := w.(http.Flusher)
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxAICompatibleBodyBytes)
+	promptTokens := 0
+	completionTokens := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if _, err := io.WriteString(w, line+"\n"); err != nil {
+			return promptTokens, completionTokens, err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		if prompt, completion := aiUsageFromStreamLine(line); prompt+completion > 0 {
+			promptTokens = prompt
+			completionTokens = completion
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return promptTokens, completionTokens, err
+	}
+	return promptTokens, completionTokens, nil
+}
+
+// aiUsageFromStreamLine 从单行 SSE data 中读取 token 用量。
+// line 为上游流式响应中的一行文本。
+func aiUsageFromStreamLine(line string) (int, int) {
+	data := strings.TrimSpace(line)
+	if !strings.HasPrefix(data, "data:") {
+		return 0, 0
+	}
+	data = strings.TrimSpace(strings.TrimPrefix(data, "data:"))
+	if data == "" || data == "[DONE]" {
+		return 0, 0
+	}
+	return aiUsageFromResponse([]byte(data))
 }
 
 // aiUsageFromResponse 从 OpenAI 兼容响应中读取 token 用量。
