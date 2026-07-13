@@ -718,6 +718,7 @@ scanLoop:
 				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
 				r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：开始处理，序号=%d/%d，姓名=%s，状态=%s，超时=%s", processedCount, len(filtered), candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
+				r.ensureCandidateVisibleBeforeDecision(candidateCtx, task.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate))
 
 				// 5. 如果预评分通过，再打开详情；详情模式由任务配置决定：DOM、OCR 或 AI 图片。
 				if item.DetailDecision != nil {
@@ -728,7 +729,6 @@ scanLoop:
 					candidate["ai_detail_usage"] = decision.Usage
 					candidate["ai_detail_elapsed_ms"] = decision.ElapsedMS
 					if !decision.ShouldOpenDetail {
-						r.ensureCandidateVisibleBeforeSkip(candidateCtx, task.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate), "详情评分低于阈值")
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
 						batchResult.Skipped++
@@ -895,20 +895,20 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, taskID string, pla
 	return nil
 }
 
-// ensureCandidateVisibleBeforeSkip 在跳过候选人前先滚动到对应卡片，确保页面位置随候选人顺序推进。
-// ctx 为候选人处理上下文，taskID 为任务 ID，platformRuntime 为平台运行时，exec 为 Worker 执行器，platformConfig 为平台配置，candidate 为候选人，reason 为跳过原因。
-func (r *Runner) ensureCandidateVisibleBeforeSkip(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate platformcore.Candidate, reason string) {
+// ensureCandidateVisibleBeforeDecision 在查看候选人分数前先滚动到对应卡片，确保页面位置随候选人顺序推进。
+// ctx 为候选人处理上下文，taskID 为任务 ID，platformRuntime 为平台运行时，exec 为 Worker 执行器，platformConfig 为平台配置，candidate 为候选人。
+func (r *Runner) ensureCandidateVisibleBeforeDecision(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate platformcore.Candidate) {
 	visibleRuntime, ok := platformRuntime.(candidateVisibleRuntime)
 	if !ok {
 		return
 	}
 	name := candidateLogName(map[string]any(candidate))
-	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：准备滚动到低分候选人，姓名=%s，原因=%s", name, reason))
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：查看分数前确认候选人可见，姓名=%s", name))
 	if err := visibleRuntime.EnsureCandidateVisible(ctx, exec, platformConfig, candidate); err != nil {
-		r.taskLog(taskID, "warning", fmt.Sprintf("候选人处理：低分候选人滚动到位失败，姓名=%s，错误=%s", name, err.Error()))
+		r.taskLog(taskID, "warning", fmt.Sprintf("候选人处理：查看分数前滚动到位失败，姓名=%s，错误=%s", name, err.Error()))
 		return
 	}
-	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：低分候选人已滚动到位，姓名=%s", name))
+	r.taskLog(taskID, "info", fmt.Sprintf("候选人处理：候选人已在可见范围，姓名=%s", name))
 }
 
 // syncProcessedResumeCount 将去重后的新增候选人数量同步给云端公开统计。

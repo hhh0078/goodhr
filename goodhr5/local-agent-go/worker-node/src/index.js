@@ -936,7 +936,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   );
   const distance = Math.max(
     120,
-    Number(payload.card_scroll_distance || payload.distance || 720),
+    Number(payload.card_scroll_distance || payload.distance || 120),
   );
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (refLocator) {
@@ -3289,7 +3289,7 @@ async function wheelUntilElementVisible(
   options = {},
 ) {
   const maxAttempts = Math.max(1, Number(options.max_attempts || 6));
-  const distance = Number(options.distance || options.y || 720);
+  const distance = Number(options.distance || options.y || 120);
   const waitMs = Math.max(100, Number(options.wait_ms || 450));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

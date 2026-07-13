@@ -198,17 +198,18 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 	return err
 }
 
-// EnsureCandidateVisible 滚动到指定 Boss 候选人卡片，确保低分跳过也会推进列表位置。
+// EnsureCandidateVisible 使用小步滚轮滚动到指定 Boss 候选人卡片。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", map[string]any{
-		"platform_config": cfg,
-		"card_index":      intFromMap(candidate, "card_index"),
-		"element_ref":     stringFromMap(candidate, "element_ref"),
-		"distance":        520,
-		"wait_ms":         300,
-		"require_full":    true,
-		"viewport_margin": 12,
+		"platform_config":      cfg,
+		"card_index":           intFromMap(candidate, "card_index"),
+		"element_ref":          stringFromMap(candidate, "element_ref"),
+		"distance":             120,
+		"wait_ms":              260,
+		"card_scroll_attempts": 18,
+		"require_full":         true,
+		"viewport_margin":      12,
 	})
 	return err
 }
@@ -219,15 +220,18 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-		"platform_config": cfg,
-		"card_index":      intFromMap(candidate, "card_index"),
-		"element_ref":     stringFromMap(candidate, "element_ref"),
-		"screenshot":      request.Mode == "ocr" || request.Mode == "ai",
-		"force_scroll":    true,
-		"require_full":    true,
-		"viewport_margin": 12,
-		"dir":             filepath.Join(request.ScreenshotsDir, request.TaskID),
-		"filename":        request.Filename,
+		"platform_config":      cfg,
+		"card_index":           intFromMap(candidate, "card_index"),
+		"element_ref":          stringFromMap(candidate, "element_ref"),
+		"screenshot":           request.Mode == "ocr" || request.Mode == "ai",
+		"force_scroll":         true,
+		"distance":             120,
+		"wait_ms":              260,
+		"card_scroll_attempts": 18,
+		"require_full":         true,
+		"viewport_margin":      12,
+		"dir":                  filepath.Join(request.ScreenshotsDir, request.TaskID),
+		"filename":             request.Filename,
 	})
 	if err != nil {
 		return platformcore.DetailResult{}, err
