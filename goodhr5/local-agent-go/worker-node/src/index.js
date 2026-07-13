@@ -950,7 +950,6 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
           max_attempts: 1,
           margin: viewportMargin,
           require_full: requireFull,
-          fallback_wheel_target: rules.candidate_card,
         },
       );
       logWorker("Boss候选人ref滚动检查", {
@@ -3256,53 +3255,19 @@ async function humanMouseClick(currentPage, options = {}) {
 }
 
 /**
- * 安全移动到滚轮停靠目标，找不到配置容器时使用候选人卡片或当前鼠标位置兜底。
+ * 安全移动到滚轮停靠目标，找不到配置容器时使用当前鼠标位置滚动。
  * @param {any} currentPage - Playwright 页面对象。
  * @param {any} wheelTarget - 配置的滚轮停靠目标。
- * @param {any} targetLocator - 目标候选人元素。
  * @param {Record<string, any>} options - 滚动选项。
  * @returns {Promise<Record<string, any>>} 鼠标移动结果。
  */
-async function moveMouseToWheelTarget(currentPage, wheelTarget, targetLocator, options = {}) {
+async function moveMouseToWheelTarget(currentPage, wheelTarget, options = {}) {
   try {
     const move = await moveMouseToElement(currentPage, wheelTarget, options);
     return { ...move, wheel_target: "configured" };
   } catch (error) {
-    logWorker("Boss候选人滚动目标不可用，准备兜底", {
+    logWorker("Boss候选人滚动目标不可用，使用当前鼠标位置滚轮", {
       target: "configured",
-      error: error?.message || error,
-    });
-  }
-  if (options.fallback_wheel_target) {
-    try {
-      const fallback = await firstLocator(
-        currentPage,
-        options.fallback_wheel_target,
-        true,
-      );
-      if (fallback) {
-        const move = await moveMouseToElement(currentPage, fallback, {
-          ...options,
-          require_full: false,
-        });
-        logWorker("Boss候选人滚动目标改用候选人卡片兜底");
-        return { ...move, wheel_target: "candidate-card" };
-      }
-    } catch (error) {
-      logWorker("Boss候选人卡片兜底滚动目标不可用", {
-        error: error?.message || error,
-      });
-    }
-  }
-  try {
-    const move = await moveMouseToElement(currentPage, targetLocator, {
-      ...options,
-      require_full: false,
-    });
-    logWorker("Boss候选人滚动目标改用目标卡片兜底");
-    return { ...move, wheel_target: "target-card" };
-  } catch (error) {
-    logWorker("Boss候选人滚动目标全部不可用，使用当前鼠标位置滚轮", {
       error: error?.message || error,
     });
   }
@@ -3335,7 +3300,6 @@ async function wheelUntilElementVisible(
     const move = await moveMouseToWheelTarget(
       currentPage,
       wheelTarget,
-      targetLocator,
       options,
     );
     await currentPage.mouse.wheel(0, distance);
