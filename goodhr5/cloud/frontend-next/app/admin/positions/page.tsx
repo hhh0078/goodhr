@@ -584,34 +584,6 @@ export default function PositionsPage() {
               </Box>
             </>
           ) : null}
-          <Divider />
-          <Box>
-            <Typography
-              component='h3'
-              sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
-            >
-              简历库
-            </Typography>
-            <ChoiceCards
-              label='是否输出简历结构化信息'
-              value={form.output_structured_resume}
-              onChange={(value) =>
-                setForm({ ...form, output_structured_resume: Boolean(value) })
-              }
-              options={[
-                {
-                  value: false,
-                  label: "关闭",
-                  description: "价格低、不会存简历。",
-                },
-                {
-                  value: true,
-                  label: "开启",
-                  description: "价格高，会把信息放到简历库里。",
-                },
-              ]}
-            />
-          </Box>
           {form.mode_default === "ai" ? (
             <>
               <Divider />
@@ -756,6 +728,28 @@ export default function PositionsPage() {
                           }
                           slotProps={{ htmlInput: { min: 0, max: 100 } }}
                           helperText='首次评分大于等于该值时打开候选人详情。'
+                        />
+                        <ChoiceCards
+                          label='是否输出简历结构化信息'
+                          value={form.output_structured_resume}
+                          onChange={(value) =>
+                            setForm({
+                              ...form,
+                              output_structured_resume: Boolean(value),
+                            })
+                          }
+                          options={[
+                            {
+                              value: false,
+                              label: "关闭",
+                              description: "价格低、不会存简历。",
+                            },
+                            {
+                              value: true,
+                              label: "开启",
+                              description: "价格高，会把信息放到简历库里。",
+                            },
+                          ]}
                         />
                         <PromptField
                           label='打招呼提示词（一般不需要修改）'
