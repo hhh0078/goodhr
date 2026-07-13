@@ -1,0 +1,42 @@
+# GoodHR 自动化工具配置文件示例
+# 复制为 config.yaml 后填入实际值
+
+ai:
+  api_key: "your_api_key_here"
+  model: "gpt-5.1-chat"
+  base_url: "https://ai.58it.cn/v1/chat/completions"
+  click_prompt: ""
+  contact_prompt: ""
+  temperature: 0.3
+
+browser:
+  headless: false
+  humanize: true
+  human_preset: "default"
+  proxy: ""
+
+task:
+  match_limit: 60
+  scroll_delay_min: 3
+  scroll_delay_max: 8
+  list_view_delay_min: 1.0
+  list_view_delay_max: 3.0
+  detail_view_delay_min: 2.0
+  detail_view_delay_max: 5.0
+  greet_delay_min: 1.0
+  greet_delay_max: 3.0
+  rest_after_candidates_min: 1
+  rest_after_candidates_max: 10
+  rest_times_min: 1
+  rest_times_max: 3
+  rest_duration_min: 2.0
+  rest_duration_max: 8.0
+  keyword_detail_open_probability: 50
+  click_frequency: 7
+
+web:
+  host: "127.0.0.1"
+  port: 8788
+
+database:
+  url: "sqlite+aiosqlite:///./data/goodhr.db"

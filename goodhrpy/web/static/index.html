@@ -1,0 +1,1565 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoodHR 自动化工具</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #f5f7fa;
+        color: #333;
+      }
+      .navbar {
+        background: #1a56db;
+        color: white;
+        padding: 12px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .navbar h1 {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 24px auto;
+        padding: 0 24px;
+      }
+      .card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .card h2 {
+        font-size: 16px;
+        margin-bottom: 16px;
+        color: #1a56db;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .stat-card .value {
+        font-size: 32px;
+        font-weight: 700;
+        color: #1a56db;
+      }
+      .stat-card .label {
+        font-size: 13px;
+        color: #666;
+        margin-top: 4px;
+      }
+      .btn {
+        padding: 8px 20px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      .btn-primary {
+        background: #1a56db;
+        color: white;
+      }
+      .btn-primary:hover {
+        background: #1544b0;
+      }
+      .btn-danger {
+        background: #dc2626;
+        color: white;
+      }
+      .btn-danger:hover {
+        background: #b91c1c;
+      }
+      .btn-success {
+        background: #16a34a;
+        color: white;
+      }
+      .btn-success:hover {
+        background: #15803d;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .form-group {
+        margin-bottom: 12px;
+      }
+      .form-group label {
+        display: block;
+        font-size: 13px;
+        color: #555;
+        margin-bottom: 4px;
+      }
+      .form-group input,
+      .form-group select,
+      .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .form-group textarea {
+        height: 80px;
+        resize: vertical;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+        font-size: 13px;
+      }
+      th {
+        background: #f8fafc;
+        color: #555;
+        font-weight: 600;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+      }
+      .status-greeted {
+        background: #dcfce7;
+        color: #16a34a;
+      }
+      .status-skipped {
+        background: #fef3c7;
+        color: #d97706;
+      }
+      .status-pending {
+        background: #dbeafe;
+        color: #2563eb;
+      }
+      .status-failed {
+        background: #fecaca;
+        color: #dc2626;
+      }
+      .candidate-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+      }
+      .candidate-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        background: #fff;
+      }
+      .candidate-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .candidate-name {
+        font-size: 16px;
+        font-weight: 700;
+        color: #111827;
+      }
+      .candidate-meta {
+        color: #6b7280;
+        font-size: 12px;
+        margin-top: 3px;
+      }
+      .candidate-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .candidate-tag {
+        background: #f3f4f6;
+        color: #374151;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .candidate-section {
+        font-size: 12px;
+        line-height: 1.5;
+        color: #4b5563;
+        margin-top: 8px;
+      }
+      .candidate-section strong {
+        color: #374151;
+      }
+      .candidate-empty {
+        color: #9ca3af;
+        text-align: center;
+        padding: 28px 0;
+        font-size: 13px;
+      }
+      .candidate-group {
+        margin-bottom: 18px;
+      }
+      .candidate-group-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #374151;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .candidate-group-count {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .log-area {
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 16px;
+        border-radius: 6px;
+        font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+        font-size: 12px;
+        height: 300px;
+        overflow-y: auto;
+        line-height: 1.6;
+      }
+      .log-info {
+        color: #93c5fd;
+      }
+      .log-success {
+        color: #86efac;
+      }
+      .log-warning {
+        color: #fcd34d;
+      }
+      .log-error {
+        color: #fca5a5;
+      }
+      .tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: 16px;
+        border-bottom: 2px solid #e5e7eb;
+      }
+      .tab {
+        padding: 10px 20px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #666;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+      }
+      .tab.active {
+        color: #1a56db;
+        border-bottom-color: #1a56db;
+        font-weight: 600;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .task-controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .runtime-task-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .runtime-task-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 14px;
+        background: #fff;
+      }
+      .runtime-task-title {
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 6px;
+      }
+      .runtime-task-meta {
+        color: #6b7280;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .account-list {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .account-row {
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        padding: 8px;
+        font-size: 12px;
+      }
+      .running-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
+      .running-indicator.running {
+        background: #16a34a;
+        animation: pulse 1.5s infinite;
+      }
+      .running-indicator.idle {
+        background: #999;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="navbar">
+      <h1>GoodHR 自动化工具</h1>
+      <span id="version">v0.1.0</span>
+    </nav>
+
+    <div class="container">
+      <div class="stats">
+        <div class="stat-card">
+          <div class="value" id="stat-total">0</div>
+          <div class="label">扫描总数</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-greeted">0</div>
+          <div class="label">已打招呼</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-skipped">0</div>
+          <div class="label">已跳过</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-failed">0</div>
+          <div class="label">失败</div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="login">平台登录</div>
+        <div class="tab" data-tab="task">任务控制</div>
+        <div class="tab" data-tab="positions">岗位管理</div>
+        <div class="tab" data-tab="candidates">候选人</div>
+        <div class="tab" data-tab="config">系统配置</div>
+      </div>
+
+      <div id="tab-login" class="tab-content active">
+        <div class="card">
+          <h2>平台登录</h2>
+          <p style="color: #666; margin-bottom: 16px; font-size: 13px">
+            首次使用需要扫码登录，登录后自动保存会话，后续无需重复登录
+          </p>
+          <div
+            id="platform-list"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+              gap: 16px;
+            "
+          ></div>
+        </div>
+        <div class="card" id="login-status-card" style="display: none">
+          <h2>登录状态</h2>
+          <div
+            id="login-status-msg"
+            style="padding: 12px; border-radius: 6px; font-size: 14px"
+          ></div>
+        </div>
+      </div>
+
+      <div id="tab-task" class="tab-content">
+        <div class="card">
+          <h2>任务控制</h2>
+          <div class="task-controls">
+            <span
+              ><span class="running-indicator idle" id="task-indicator"></span
+              ><span id="task-status-text">空闲</span></span
+            >
+          </div>
+          <div
+            class="form-group"
+            style="
+              display: grid;
+              grid-template-columns: 1fr 1.4fr 2fr 1fr 1fr auto;
+              gap: 12px;
+              align-items: end;
+            "
+          >
+            <div>
+              <label>选择平台</label>
+              <select id="task-platform" onchange="refreshTaskAccountOptions()"></select>
+            </div>
+            <div>
+              <label>选择账号</label>
+              <select id="task-account"></select>
+            </div>
+            <div>
+              <label>选择岗位</label>
+              <select id="task-position"></select>
+            </div>
+            <div>
+              <label>筛选模式</label>
+              <select id="task-mode">
+                <option value="ai">AI 智能筛选</option>
+                <option value="keyword">关键词筛选</option>
+              </select>
+            </div>
+            <div>
+              <label>匹配上限</label>
+              <input
+                type="number"
+                id="task-limit"
+                value="60"
+                min="1"
+                max="500"
+              />
+            </div>
+            <div>
+              <button
+                class="btn btn-primary"
+                onclick="startTask()"
+                id="btn-start"
+              >
+                创建并启动
+              </button>
+              <button
+                class="btn btn-danger"
+                id="btn-stop"
+                onclick="stopTask()"
+                disabled
+              >
+                停止
+              </button>
+            </div>
+          </div>
+          <div style="margin-top: 16px">
+            <h3 style="font-size: 14px; margin-bottom: 8px; color: #555">
+              任务列表
+            </h3>
+            <div id="runtime-task-list" class="runtime-task-grid"></div>
+          </div>
+          <div style="margin-top: 16px">
+            <h3 style="font-size: 14px; margin-bottom: 8px; color: #555">
+              最近任务实时日志
+            </h3>
+            <div class="log-area" id="log-area" style="height: 200px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-positions" class="tab-content">
+        <div class="card">
+          <h2>岗位列表</h2>
+          <div style="margin-bottom: 12px">
+            <button class="btn btn-primary" onclick="showPositionModal()">
+              新增岗位
+            </button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>关键词</th>
+                <th>排除词</th>
+                <th>描述</th>
+                <th>打招呼消息</th>
+                <th>匹配模式</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="position-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div
+        id="position-modal"
+        style="
+          display: none;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.4);
+          z-index: 1000;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            width: 520px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+          "
+        >
+          <h3
+            id="position-modal-title"
+            style="margin-bottom: 16px; font-size: 16px; color: #1a56db"
+          >
+            新增岗位
+          </h3>
+          <input type="hidden" id="position-edit-id" value="" />
+          <div class="form-group">
+            <label>岗位名称 *</label>
+            <input type="text" id="pos-name" placeholder="如：前端开发工程师" />
+          </div>
+          <div class="form-group">
+            <label>筛选关键词（逗号分隔）</label>
+            <input
+              type="text"
+              id="pos-keywords"
+              placeholder="如：React,Vue,TypeScript"
+            />
+          </div>
+          <div class="form-group">
+            <label>排除关键词（逗号分隔）</label>
+            <input
+              type="text"
+              id="pos-exclude-keywords"
+              placeholder="如：外包,实习"
+            />
+          </div>
+          <div class="form-group">
+            <label>岗位描述/要求</label>
+            <textarea
+              id="pos-description"
+              placeholder="岗位要求描述，AI 筛选时使用"
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <label>打招呼消息模板</label>
+            <textarea
+              id="pos-greet-message"
+              placeholder="自定义打招呼消息，留空使用默认"
+            ></textarea>
+          </div>
+          <div
+            class="form-group"
+            style="display: flex; align-items: center; gap: 8px"
+          >
+            <input type="checkbox" id="pos-and-mode" />
+            <label for="pos-and-mode" style="margin: 0"
+              >关键词与模式（勾选后需全部匹配）</label
+            >
+          </div>
+          <div style="display: flex; gap: 12px; margin-top: 16px">
+            <button class="btn btn-primary" onclick="savePosition()">
+              保存
+            </button>
+            <button
+              class="btn"
+              style="background: #e5e7eb; color: #333"
+              onclick="closePositionModal()"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-candidates" class="tab-content">
+        <div class="card">
+          <h2>候选人列表</h2>
+          <div id="candidate-list" class="candidate-grid"></div>
+        </div>
+      </div>
+
+      <div id="tab-config" class="tab-content">
+        <div class="card">
+          <h2>AI 配置</h2>
+          <div class="form-group">
+            <label>API Key</label>
+            <input
+              type="password"
+              id="cfg-api-key"
+              placeholder="输入 AI API Key"
+            />
+          </div>
+          <div class="form-group">
+            <label>模型</label>
+            <select id="cfg-model">
+              <option value="gpt-5.1-chat">GPT-5.1 - 高性能</option>
+              <option value="deepseek-v3">DeepSeek V3 - 高性价比</option>
+              <option value="qwen-plus">通义千问Plus - 均衡</option>
+              <option value="moonshot-v1">Kimi - 经济实惠</option>
+            </select>
+          </div>
+          <button class="btn btn-success" onclick="saveAIConfig()">
+            保存 AI 配置
+          </button>
+        </div>
+
+        <div class="card">
+          <h2>任务配置</h2>
+          <div class="form-group">
+            <label>详情获取模式</label>
+            <select id="cfg-detail-mode">
+              <option value="dom">
+                DOM 选择器（快速、准确，依赖页面结构）
+              </option>
+              <option value="ocr">截图 OCR（适配性强，依赖 PaddleOCR）</option>
+            </select>
+          </div>
+          <div style="font-size: 12px; color: #888; margin-bottom: 12px">
+            DOM 模式通过 CSS
+            选择器读取页面文字，速度快但网站改版需更新选择器；<br />
+            OCR 模式对详情弹框截图后识别文字，适配性更强但速度稍慢。
+          </div>
+          <div class="form-group">
+            <label>候选人列表查看随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-list-view-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-list-view-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>候选人详情弹框打开后随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-detail-view-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-detail-view-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>打招呼前随机延迟（秒）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-greet-delay-min"
+                min="0"
+                step="0.1"
+                placeholder="最小值"
+              />
+              <input
+                type="number"
+                id="cfg-greet-delay-max"
+                min="0"
+                step="0.1"
+                placeholder="最大值"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>处理 N 个候选人后随机休息</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-after-candidates-min"
+                min="0"
+                step="1"
+                placeholder="最少候选人数"
+              />
+              <input
+                type="number"
+                id="cfg-rest-after-candidates-max"
+                min="0"
+                step="1"
+                placeholder="最多候选人数"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>单次任务随机休息次数</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-times-min"
+                min="0"
+                step="1"
+                placeholder="最少次数"
+              />
+              <input
+                type="number"
+                id="cfg-rest-times-max"
+                min="0"
+                step="1"
+                placeholder="最多次数"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>每次随机休息时长（分钟）</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+              <input
+                type="number"
+                id="cfg-rest-duration-min"
+                min="0"
+                step="0.1"
+                placeholder="最短分钟"
+              />
+              <input
+                type="number"
+                id="cfg-rest-duration-max"
+                min="0"
+                step="0.1"
+                placeholder="最长分钟"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>关键词模式打开详情概率（%）</label>
+            <input
+              type="number"
+              id="cfg-keyword-detail-open-probability"
+              min="0"
+              max="100"
+              step="1"
+            />
+            <div style="font-size: 12px; color: #888; margin-top: 6px">
+              默认真人摸鱼时间：关键词模式列表初筛通过后，按该概率打开详情；AI 模式仍按 AI 筛选流程处理详情。
+            </div>
+          </div>
+          <button class="btn btn-success" onclick="saveTaskConfig()">
+            保存任务配置
+          </button>
+        </div>
+
+        <div class="card">
+          <h2>截图管理</h2>
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 12px;
+            "
+          >
+            <span style="font-size: 13px; color: #666" id="screenshot-count"
+              >共 0 张截图</span
+            >
+            <button
+              class="btn btn-danger"
+              onclick="clearScreenshots()"
+              id="btn-clear-screenshots"
+            >
+              一键清理
+            </button>
+          </div>
+          <div
+            id="screenshot-grid"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+              gap: 12px;
+              max-height: 400px;
+              overflow-y: auto;
+            "
+          >
+            <div
+              style="
+                color: #999;
+                font-size: 13px;
+                padding: 20px;
+                text-align: center;
+              "
+            >
+              暂无截图
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API = "";
+      let pollTimer = null;
+      let loginPollTimer = null;
+      let platformAccounts = [];
+
+      async function api(path, opts = {}) {
+        const res = await fetch(API + path, {
+          headers: { "Content-Type": "application/json" },
+          ...opts,
+        });
+        return res.json();
+      }
+
+      async function loadPlatforms() {
+        const data = await api("/api/v1/login/platforms");
+        platformAccounts = await api("/api/v1/login/accounts");
+        const container = document.getElementById("platform-list");
+        container.innerHTML = data
+          .map(
+            (p) => {
+              const accounts = platformAccounts.filter((account) => account.platform === p.id);
+              return `
+            <div class="card" style="margin:0;padding:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <strong style="font-size:15px">${p.name}</strong>
+                    <span class="status-badge ${p.logged_in ? "status-greeted" : "status-pending"}">${p.logged_in ? "已登录" : "未登录"}</span>
+                </div>
+                <div style="font-size:12px;color:#888;margin-bottom:12px">${p.domain}</div>
+                <div class="account-list">
+                  ${
+                    accounts.length
+                      ? accounts.map((account) => `
+                        <div class="account-row">
+                          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">
+                            <strong>${escapeHtml(account.name)}</strong>
+                            <span class="status-badge ${account.logged_in ? "status-greeted" : "status-pending"}">${account.logged_in ? "已登录" : "未登录"}</span>
+                          </div>
+                          <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="doLogin('${p.id}','${account.id}')">登录</button>
+                          <button class="btn btn-success" style="padding:4px 10px;font-size:12px;margin-right:4px" onclick="doOpenPlatform('${p.id}','${account.id}')">打开</button>
+                          <button class="btn btn-danger" style="padding:4px 10px;font-size:12px" onclick="doLogout('${p.id}','${account.id}')">注销</button>
+                        </div>
+                      `).join("")
+                      : '<div style="font-size:12px;color:#999;margin-bottom:8px">暂无账号</div>'
+                  }
+                </div>
+                <div style="display:flex;gap:8px">
+                  <input id="account-name-${p.id}" placeholder="新账号名称" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px" />
+                  <button class="btn btn-primary" style="padding:8px 12px" onclick="doLogin('${p.id}', '', document.getElementById('account-name-${p.id}').value)">新增登录</button>
+                </div>
+            </div>
+        `;
+            },
+          )
+          .join("");
+
+        const sel = document.getElementById("task-platform");
+        sel.innerHTML = data
+          .map(
+            (p) =>
+              `<option value="${p.id}" ${p.logged_in ? "" : "disabled"}>${p.name}${p.logged_in ? " ✅" : "（未登录）"}</option>`,
+          )
+          .join("");
+        refreshTaskAccountOptions();
+      }
+
+      async function doLogin(platform, accountId = "", accountName = "") {
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        if (accountName) params.set("account_name", accountName);
+        const data = await api(`/api/v1/login/login?${params.toString()}`, {
+          method: "POST",
+        });
+        if (data.ok) {
+          showLoginStatus("info", data.msg);
+          startLoginPoll();
+        } else {
+          showLoginStatus("warning", data.msg);
+        }
+      }
+
+      async function doOpenPlatform(platform, accountId = "") {
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        const data = await api(`/api/v1/login/open?${params.toString()}`, {
+          method: "POST",
+        });
+        if (data.ok) {
+          showLoginStatus("success", data.msg);
+        } else {
+          showLoginStatus("warning", data.msg);
+        }
+      }
+
+      async function doLogout(platform, accountId = "") {
+        if (!confirm("确认注销登录？注销后需要重新扫码登录。")) return;
+        const params = new URLSearchParams({ platform });
+        if (accountId) params.set("account_id", accountId);
+        const data = await api(`/api/v1/login/logout?${params.toString()}`, {
+          method: "POST",
+        });
+        showLoginStatus("info", data.msg);
+        await loadPlatforms();
+      }
+
+      function refreshTaskAccountOptions() {
+        const platform = document.getElementById("task-platform").value;
+        const accountSelect = document.getElementById("task-account");
+        const accounts = platformAccounts.filter((account) => account.platform === platform && account.logged_in);
+        accountSelect.innerHTML = accounts
+          .map((account) => `<option value="${account.id}">${escapeHtml(account.name)}</option>`)
+          .join("");
+      }
+
+      function showLoginStatus(type, msg) {
+        const card = document.getElementById("login-status-card");
+        const el = document.getElementById("login-status-msg");
+        card.style.display = "block";
+        const colors = {
+          info: "#dbeafe",
+          success: "#dcfce7",
+          warning: "#fef3c7",
+          error: "#fecaca",
+        };
+        const textColors = {
+          info: "#1e40af",
+          success: "#166534",
+          warning: "#92400e",
+          error: "#991b1b",
+        };
+        el.style.background = colors[type] || colors.info;
+        el.style.color = textColors[type] || textColors.info;
+        el.textContent = msg;
+      }
+
+      function startLoginPoll() {
+        if (loginPollTimer) clearInterval(loginPollTimer);
+        loginPollTimer = setInterval(async () => {
+          const data = await api("/api/v1/login/status");
+          if (data.status === "logged_in") {
+            showLoginStatus("success", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+            await loadPlatforms();
+          } else if (data.status === "logging_in") {
+            showLoginStatus("info", data.message);
+          } else if (data.status === "timeout") {
+            showLoginStatus("warning", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+          } else if (data.status === "error") {
+            showLoginStatus("error", data.message);
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+          }
+        }, 2000);
+      }
+
+      async function loadPositions() {
+        const data = await api("/api/v1/positions");
+        const sel = document.getElementById("task-position");
+        sel.innerHTML = data
+          .map((p) => `<option value="${p.id}">${p.name}</option>`)
+          .join("");
+        const tbody = document.getElementById("position-list");
+        tbody.innerHTML = data
+          .map(
+            (p) => `<tr>
+            <td>${p.name}</td>
+            <td>${p.keywords.join(", ") || "-"}</td>
+            <td>${p.exclude_keywords.join(", ") || "-"}</td>
+            <td>${(p.description || "").slice(0, 40)}${p.description && p.description.length > 40 ? "..." : ""}</td>
+            <td>${(p.greet_message || "").slice(0, 30)}${p.greet_message && p.greet_message.length > 30 ? "..." : ""}</td>
+            <td>${p.is_and_mode ? "与模式" : "或模式"}</td>
+            <td><span class="status-badge ${p.is_active ? "status-greeted" : "status-skipped"}">${p.is_active ? "启用" : "禁用"}</span></td>
+            <td>
+              <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;margin-right:4px" onclick="editPosition(${p.id})">编辑</button>
+              <button class="btn btn-danger" style="padding:4px 12px;font-size:12px" onclick="deletePosition(${p.id})">删除</button>
+            </td>
+        </tr>`,
+          )
+          .join("");
+      }
+
+      function showPositionModal(editId) {
+        const modal = document.getElementById("position-modal");
+        document.getElementById("position-edit-id").value = editId || "";
+        document.getElementById("position-modal-title").textContent = editId
+          ? "编辑岗位"
+          : "新增岗位";
+        if (!editId) {
+          document.getElementById("pos-name").value = "";
+          document.getElementById("pos-keywords").value = "";
+          document.getElementById("pos-exclude-keywords").value = "";
+          document.getElementById("pos-description").value = "";
+          document.getElementById("pos-greet-message").value = "";
+          document.getElementById("pos-and-mode").checked = false;
+        }
+        modal.style.display = "flex";
+      }
+
+      function closePositionModal() {
+        document.getElementById("position-modal").style.display = "none";
+      }
+
+      async function editPosition(id) {
+        const data = await api(`/api/v1/positions/${id}`);
+        document.getElementById("pos-name").value = data.name || "";
+        document.getElementById("pos-keywords").value = (
+          data.keywords || []
+        ).join(", ");
+        document.getElementById("pos-exclude-keywords").value = (
+          data.exclude_keywords || []
+        ).join(", ");
+        document.getElementById("pos-description").value =
+          data.description || "";
+        document.getElementById("pos-greet-message").value =
+          data.greet_message || "";
+        document.getElementById("pos-and-mode").checked = !!data.is_and_mode;
+        showPositionModal(id);
+      }
+
+      async function savePosition() {
+        const editId = document.getElementById("position-edit-id").value;
+        const name = document.getElementById("pos-name").value.trim();
+        if (!name) {
+          alert("请输入岗位名称");
+          return;
+        }
+        const keywords = document
+          .getElementById("pos-keywords")
+          .value.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const excludeKeywords = document
+          .getElementById("pos-exclude-keywords")
+          .value.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const description = document
+          .getElementById("pos-description")
+          .value.trim();
+        const greetMessage = document
+          .getElementById("pos-greet-message")
+          .value.trim();
+        const isAndMode = document.getElementById("pos-and-mode").checked;
+
+        const body = {
+          name,
+          keywords,
+          exclude_keywords: excludeKeywords,
+          description,
+          greet_message: greetMessage,
+          is_and_mode: isAndMode,
+        };
+
+        try {
+          if (editId) {
+            await api(`/api/v1/positions/${editId}`, {
+              method: "PUT",
+              body: JSON.stringify(body),
+            });
+          } else {
+            await api("/api/v1/positions", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+          }
+          closePositionModal();
+          await loadPositions();
+        } catch (e) {
+          alert("保存失败: " + (e.message || "未知错误"));
+        }
+      }
+
+      async function deletePosition(id) {
+        if (!confirm("确认删除该岗位？")) return;
+        try {
+          await api(`/api/v1/positions/${id}`, { method: "DELETE" });
+          await loadPositions();
+        } catch (e) {
+          alert("删除失败: " + (e.message || "未知错误"));
+        }
+      }
+
+      async function loadCandidates() {
+        const list = document.getElementById("candidate-list");
+        try {
+          const data = await api("/api/v1/candidates");
+          if (!data.items || data.items.length === 0) {
+            list.innerHTML = '<div class="candidate-empty">暂无候选人记录</div>';
+            return;
+          }
+          list.innerHTML = renderCandidateGroups(data.items);
+        } catch (e) {
+          list.innerHTML = `<div class="candidate-empty">候选人加载失败：${escapeHtml(e.message || "未知错误")}</div>`;
+        }
+      }
+
+      function renderCandidateGroups(items) {
+        const groups = [
+          { status: "greeted", title: "已打招呼" },
+          { status: "skipped", title: "已跳过" },
+          { status: "failed", title: "失败" },
+          { status: "pending", title: "待处理" },
+        ];
+        const html = groups
+          .map((group) => {
+            const groupItems = items.filter((item) => item.status === group.status);
+            if (groupItems.length === 0) return "";
+            return `<section class="candidate-group">
+              <div class="candidate-group-header">
+                <span class="status-badge status-${group.status}">${group.title}</span>
+                <span class="candidate-group-count">${groupItems.length} 人</span>
+              </div>
+              <div class="candidate-grid">
+                ${groupItems.map(renderCandidateCard).join("")}
+              </div>
+            </section>`;
+          })
+          .join("");
+        return html || '<div class="candidate-empty">暂无候选人记录</div>';
+      }
+
+      function renderCandidateCard(candidate) {
+        const statusText = {
+          greeted: "已打招呼",
+          skipped: "已跳过",
+          pending: "待处理",
+          failed: "失败",
+        }[candidate.status] || candidate.status || "未知";
+        const meta = [
+          candidate.platform || "未知平台",
+          formatDateTime(candidate.created_at),
+        ].filter(Boolean).join(" · ");
+        const tags = [
+          candidate.age,
+          candidate.education,
+          candidate.experience,
+          candidate.salary,
+        ].filter(Boolean);
+        const skillTags = splitCandidateText(candidate.skills).slice(0, 8);
+        const reason = candidate.filter_reason || "暂无筛选原因";
+        const raw = candidate.raw_data || "";
+
+        return `<article class="candidate-card">
+          <div class="candidate-card-header">
+            <div>
+              <div class="candidate-name">${escapeHtml(candidate.name || "未知候选人")}</div>
+              <div class="candidate-meta">${escapeHtml(meta)}</div>
+            </div>
+            <span class="status-badge status-${escapeHtml(candidate.status || "pending")}">${escapeHtml(statusText)}</span>
+          </div>
+          <div class="candidate-tags">
+            ${tags.map((tag) => `<span class="candidate-tag">${escapeHtml(tag)}</span>`).join("")}
+            ${skillTags.map((tag) => `<span class="candidate-tag">${escapeHtml(tag)}</span>`).join("")}
+          </div>
+          <div class="candidate-section"><strong>原因：</strong>${escapeHtml(reason)}</div>
+          <div class="candidate-section"><strong>详情：</strong>${escapeHtml(truncateText(raw, 180) || "暂无详情")}</div>
+        </article>`;
+      }
+
+      function splitCandidateText(text) {
+        return (text || "")
+          .split(/[\s,，、|]+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+
+      function truncateText(text, maxLength) {
+        if (!text) return "";
+        return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
+      }
+
+      function formatDateTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return date.toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      async function updateTaskStatus() {
+        const data = await api("/api/v1/tasks/status");
+        const ind = document.getElementById("task-indicator");
+        const txt = document.getElementById("task-status-text");
+        const btnStart = document.getElementById("btn-start");
+        const btnStop = document.getElementById("btn-stop");
+        if (data.status === "running") {
+          ind.className = "running-indicator running";
+          txt.textContent = `运行中 (匹配: ${data.match_count}/${data.total_count})`;
+          btnStart.disabled = true;
+          btnStop.disabled = false;
+        } else {
+          ind.className = "running-indicator idle";
+          txt.textContent = "空闲";
+          btnStart.disabled = false;
+          btnStop.disabled = true;
+        }
+        await loadRuntimeTasks();
+      }
+
+      async function loadRuntimeTasks() {
+        const list = document.getElementById("runtime-task-list");
+        if (!list) return;
+        try {
+          const tasks = await api("/api/v1/tasks/instances");
+          if (!tasks.length) {
+            list.innerHTML = '<div class="candidate-empty">暂无任务，选择平台、账号和岗位后创建</div>';
+            return;
+          }
+          list.innerHTML = tasks.map(renderRuntimeTaskCard).join("");
+        } catch (e) {
+          list.innerHTML = `<div class="candidate-empty">任务加载失败：${escapeHtml(e.message || "未知错误")}</div>`;
+        }
+      }
+
+      function renderRuntimeTaskCard(task) {
+        const statusText = {
+          idle: "待启动",
+          running: "运行中",
+          stopping: "停止中",
+        }[task.status] || task.status;
+        return `<div class="runtime-task-card">
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px">
+            <div>
+              <div class="runtime-task-title">${escapeHtml(task.account_name || task.account_id)}</div>
+              <div class="runtime-task-meta">${escapeHtml(task.platform_id)} · ${escapeHtml(task.mode)} · 岗位 ${task.position_id}</div>
+            </div>
+            <span class="status-badge status-${task.status === "running" ? "greeted" : "pending"}">${escapeHtml(statusText)}</span>
+          </div>
+          <div class="runtime-task-meta">
+            扫描 ${task.total_count || 0} · 打招呼 ${task.match_count || 0} · 跳过 ${task.skipped_count || 0} · 失败 ${task.failed_count || 0}
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="startTaskInstance('${task.id}')" ${task.status !== "idle" ? "disabled" : ""}>启动</button>
+            <button class="btn btn-danger" style="padding:5px 12px;font-size:12px" onclick="stopTaskInstance('${task.id}')" ${task.status !== "running" ? "disabled" : ""}>停止</button>
+            <button class="btn" style="padding:5px 12px;font-size:12px;background:#e5e7eb" onclick="loadTaskLogs('${task.id}')">日志</button>
+          </div>
+        </div>`;
+      }
+
+      async function loadStats() {
+        const data = await api("/api/v1/candidates/stats");
+        document.getElementById("stat-total").textContent = data.total;
+        document.getElementById("stat-greeted").textContent = data.greeted;
+        document.getElementById("stat-skipped").textContent = data.skipped;
+        document.getElementById("stat-failed").textContent = data.failed;
+      }
+
+      let _taskStarting = false;
+
+      async function startTask() {
+        const btn = document.getElementById("btn-start");
+        if (btn.disabled || _taskStarting) return;
+        _taskStarting = true;
+        btn.disabled = true;
+        btn.textContent = "启动中...";
+        const positionId = parseInt(
+          document.getElementById("task-position").value,
+        );
+        const mode = document.getElementById("task-mode").value;
+        const limit = parseInt(document.getElementById("task-limit").value);
+        const platformId = document.getElementById("task-platform").value;
+        const accountId = document.getElementById("task-account").value;
+        if (!accountId) {
+          addLog("请先选择已登录账号", "warning");
+          btn.disabled = false;
+          btn.textContent = "创建并启动";
+          _taskStarting = false;
+          return;
+        }
+        try {
+          const task = await api("/api/v1/tasks/create", {
+            method: "POST",
+            body: JSON.stringify({
+              position_id: positionId,
+              mode,
+              match_limit: limit,
+              platform_id: platformId,
+              account_id: accountId,
+            }),
+          });
+          await api(`/api/v1/tasks/${task.id}/start`, { method: "POST" });
+          document.getElementById("log-area").innerHTML = "";
+          _lastLogSeq = 0;
+          addLog("任务已创建并启动", "info");
+          btn.textContent = "创建并启动";
+          btn.disabled = false;
+          await loadRuntimeTasks();
+        } catch (e) {
+          addLog("启动请求失败: " + e.message, "error");
+          btn.disabled = false;
+          btn.textContent = "创建并启动";
+        }
+        _taskStarting = false;
+        updateTaskStatus();
+      }
+
+      async function stopTask() {
+        await api("/api/v1/tasks/stop", { method: "POST" });
+        addLog("任务停止中...", "warning");
+      }
+
+      async function startTaskInstance(taskId) {
+        await api(`/api/v1/tasks/${taskId}/start`, { method: "POST" });
+        addLog(`任务 ${taskId} 启动中...`, "info");
+        await loadRuntimeTasks();
+      }
+
+      async function stopTaskInstance(taskId) {
+        await api(`/api/v1/tasks/${taskId}/stop`, { method: "POST" });
+        addLog(`任务 ${taskId} 停止中...`, "warning");
+        await loadRuntimeTasks();
+      }
+
+      async function loadTaskLogs(taskId) {
+        const data = await api(`/api/v1/tasks/${taskId}/realtime_logs`);
+        document.getElementById("log-area").innerHTML = "";
+        _lastLogSeq = data.last_seq || 0;
+        (data.logs || []).forEach((log) => addLog(log.message, log.level));
+      }
+
+      function addLog(msg, level) {
+        const area = document.getElementById("log-area");
+        const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        area.innerHTML += `<div class="log-${level}">[${time}] ${msg}</div>`;
+        while (area.children.length > 100) {
+          area.removeChild(area.firstChild);
+        }
+        area.scrollTop = area.scrollHeight;
+      }
+
+      let _lastLogSeq = 0;
+
+      async function pollRealtimeLogs() {
+        try {
+          const data = await api(
+            `/api/v1/tasks/realtime_logs?since_id=${_lastLogSeq}`,
+          );
+          if (data.logs && data.logs.length > 0) {
+            for (const log of data.logs) {
+              addLog(log.message, log.level);
+            }
+          }
+          if (data.last_seq !== undefined) {
+            _lastLogSeq = data.last_seq;
+          }
+        } catch (e) {}
+      }
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.onclick = () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("active"));
+          document
+            .querySelectorAll(".tab-content")
+            .forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          document
+            .getElementById("tab-" + tab.dataset.tab)
+            .classList.add("active");
+          if (tab.dataset.tab === "candidates") {
+            loadCandidates();
+          }
+        };
+      });
+
+      async function init() {
+        await loadPlatforms();
+        await loadPositions();
+        await loadCandidates();
+        await loadStats();
+        await updateTaskStatus();
+        await loadConfig();
+        await loadScreenshots();
+        pollTimer = setInterval(async () => {
+          await updateTaskStatus();
+          await loadStats();
+          if (document.getElementById("tab-candidates").classList.contains("active")) {
+            await loadCandidates();
+          }
+          await pollRealtimeLogs();
+        }, 2000);
+      }
+
+      async function loadConfig() {
+        try {
+          const data = await api("/api/v1/config");
+          if (data.task && data.task.detail_mode) {
+            document.getElementById("cfg-detail-mode").value =
+              data.task.detail_mode;
+          }
+          if (data.task) {
+            setNumberValue("cfg-list-view-delay-min", data.task.list_view_delay_min);
+            setNumberValue("cfg-list-view-delay-max", data.task.list_view_delay_max);
+            setNumberValue("cfg-detail-view-delay-min", data.task.detail_view_delay_min);
+            setNumberValue("cfg-detail-view-delay-max", data.task.detail_view_delay_max);
+            setNumberValue("cfg-greet-delay-min", data.task.greet_delay_min);
+            setNumberValue("cfg-greet-delay-max", data.task.greet_delay_max);
+            setNumberValue("cfg-rest-after-candidates-min", data.task.rest_after_candidates_min);
+            setNumberValue("cfg-rest-after-candidates-max", data.task.rest_after_candidates_max);
+            setNumberValue("cfg-rest-times-min", data.task.rest_times_min);
+            setNumberValue("cfg-rest-times-max", data.task.rest_times_max);
+            setNumberValue("cfg-rest-duration-min", data.task.rest_duration_min);
+            setNumberValue("cfg-rest-duration-max", data.task.rest_duration_max);
+            setNumberValue(
+              "cfg-keyword-detail-open-probability",
+              data.task.keyword_detail_open_probability
+            );
+          }
+        } catch (e) {}
+      }
+
+      async function saveTaskConfig() {
+        const detailMode = document.getElementById("cfg-detail-mode").value;
+        const payload = {
+          detail_mode: detailMode,
+          list_view_delay_min: readNumberValue("cfg-list-view-delay-min"),
+          list_view_delay_max: readNumberValue("cfg-list-view-delay-max"),
+          detail_view_delay_min: readNumberValue("cfg-detail-view-delay-min"),
+          detail_view_delay_max: readNumberValue("cfg-detail-view-delay-max"),
+          greet_delay_min: readNumberValue("cfg-greet-delay-min"),
+          greet_delay_max: readNumberValue("cfg-greet-delay-max"),
+          rest_after_candidates_min: readIntegerValue("cfg-rest-after-candidates-min"),
+          rest_after_candidates_max: readIntegerValue("cfg-rest-after-candidates-max"),
+          rest_times_min: readIntegerValue("cfg-rest-times-min"),
+          rest_times_max: readIntegerValue("cfg-rest-times-max"),
+          rest_duration_min: readNumberValue("cfg-rest-duration-min"),
+          rest_duration_max: readNumberValue("cfg-rest-duration-max"),
+          keyword_detail_open_probability: clampNumber(
+            readIntegerValue("cfg-keyword-detail-open-probability"),
+            0,
+            100
+          ),
+        };
+        try {
+          await api("/api/v1/config/task", {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          });
+          addLog("任务配置已保存", "success");
+        } catch (e) {
+          addLog("保存任务配置失败: " + e.message, "error");
+        }
+      }
+
+      function setNumberValue(id, value) {
+        const el = document.getElementById(id);
+        if (el && value !== undefined && value !== null) {
+          el.value = Number(value).toFixed(1);
+        }
+      }
+
+      function readNumberValue(id) {
+        const value = parseFloat(document.getElementById(id).value);
+        return Number.isFinite(value) ? Math.max(value, 0) : 0;
+      }
+
+      function readIntegerValue(id) {
+        const value = parseInt(document.getElementById(id).value, 10);
+        return Number.isFinite(value) ? Math.max(value, 0) : 0;
+      }
+
+      function clampNumber(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      async function loadScreenshots() {
+        try {
+          const data = await api("/api/v1/screenshots");
+          document.getElementById("screenshot-count").textContent =
+            `共 ${data.total} 张截图`;
+          const grid = document.getElementById("screenshot-grid");
+          if (!data.screenshots || data.screenshots.length === 0) {
+            grid.innerHTML =
+              '<div style="color:#999;font-size:13px;padding:20px;text-align:center">暂无截图</div>';
+            return;
+          }
+          grid.innerHTML = data.screenshots
+            .map(
+              (s) => `
+            <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;cursor:pointer" onclick="window.open('/api/v1/screenshots/${s.filename}','_blank')">
+              <img src="/api/v1/screenshots/${s.filename}" style="width:100%;height:120px;object-fit:cover" loading="lazy" />
+              <div style="padding:6px 8px;font-size:11px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${s.filename}
+              </div>
+              <div style="padding:0 8px 6px;font-size:10px;color:#999">
+                ${s.size_kb} KB · ${s.created_at}
+              </div>
+            </div>
+          `,
+            )
+            .join("");
+        } catch (e) {
+          console.error("加载截图失败:", e);
+        }
+      }
+
+      async function clearScreenshots() {
+        if (!confirm("确认清理所有截图？此操作不可恢复。")) return;
+        try {
+          const data = await api("/api/v1/screenshots/clear", {
+            method: "DELETE",
+          });
+          addLog(`已清理 ${data.deleted} 张截图`, "success");
+          await loadScreenshots();
+        } catch (e) {
+          addLog("清理截图失败: " + e.message, "error");
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>

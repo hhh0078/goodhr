@@ -1,0 +1,106 @@
+/* GoodHR 后台主题变量 */
+:root,
+:root[data-theme="pine"] {
+  --bg: #07130f;
+  --bg-panel: #0d1f18;
+  --bg-input: #0a1813;
+  --fg: #d7efe2;
+  --fg-dim: #b8d8c7;
+  --fg-muted: #74917f;
+  --fg-error: #f87171;
+  --fg-warn: #fbbf24;
+  --border: #244537;
+  --border-focus: #66d19e;
+  --accent: #66d19e;
+  --accent-soft: rgba(102, 209, 158, 0.14);
+  --accent-contrast: #07100d;
+  --success: #8ee0b1;
+  --danger: #f87171;
+  --window-close: #d96b63;
+  --window-min: #d6a85f;
+  --window-max: #66d19e;
+}
+
+:root[data-theme="mist"] {
+  --bg: #fff1f6;
+  --bg-panel: #ffffff;
+  --bg-input: #fde7f0;
+  --fg: #5f3345;
+  --fg-dim: #7d5365;
+  --fg-muted: #b88da0;
+  --fg-error: #c2415d;
+  --fg-warn: #9a6700;
+  --border: #efc8d8;
+  --border-focus: #e86f9a;
+  --accent: #d94f83;
+  --accent-soft: rgba(232, 111, 154, 0.14);
+  --accent-contrast: #ffffff;
+  --success: #2f7d57;
+  --danger: #c2415d;
+  --window-close: #e86f86;
+  --window-min: #e0b15f;
+  --window-max: #d27aa0;
+}
+
+:root[data-theme="copper"] {
+  --bg: #fbf0e2;
+  --bg-panel: #fffaf3;
+  --bg-input: #f4dfc7;
+  --fg: #4b3423;
+  --fg-dim: #6b503a;
+  --fg-muted: #a48668;
+  --fg-error: #b64036;
+  --fg-warn: #9a6700;
+  --border: #dfc2a2;
+  --border-focus: #b87a45;
+  --accent: #a86532;
+  --accent-soft: rgba(184, 122, 69, 0.14);
+  --accent-contrast: #fffaf3;
+  --success: #2f7d57;
+  --danger: #b64036;
+  --window-close: #d06b63;
+  --window-min: #d2a45f;
+  --window-max: #8faf72;
+}
+
+:root[data-theme="paper"] {
+  --bg: #f7f4ee;
+  --bg-panel: #fffdf8;
+  --bg-input: #f1ece3;
+  --fg: #24322c;
+  --fg-dim: #4e5d56;
+  --fg-muted: #8a958e;
+  --fg-error: #c2413b;
+  --fg-warn: #a16207;
+  --border: #d8cec0;
+  --border-focus: #4f8f74;
+  --accent: #3f7f68;
+  --accent-soft: rgba(63, 127, 104, 0.12);
+  --accent-contrast: #fffdf8;
+  --success: #2f7d57;
+  --danger: #c2413b;
+  --window-close: #d06b63;
+  --window-min: #d3a65e;
+  --window-max: #6ea879;
+}
+
+:root[data-theme="morning"] {
+  --bg: #edf9f7;
+  --bg-panel: #ffffff;
+  --bg-input: #dff2ef;
+  --fg: #243d3b;
+  --fg-dim: #466562;
+  --fg-muted: #7fa09c;
+  --fg-error: #c2413b;
+  --fg-warn: #9a6700;
+  --border: #b8d8d3;
+  --border-focus: #2f9b91;
+  --accent: #2f9b91;
+  --accent-soft: rgba(47, 155, 145, 0.13);
+  --accent-contrast: #ffffff;
+  --success: #2f7d57;
+  --danger: #c2413b;
+  --window-close: #d06b63;
+  --window-min: #d3a65e;
+  --window-max: #6ea879;
+}
