@@ -38,6 +38,7 @@ import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
+const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
 
@@ -88,7 +89,13 @@ export default function PositionsPage() {
 
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
+    const openPlatformID = firstOpenPlatformID(platformConfigs);
+    if (!openPlatformID) {
+      notify("暂时没有可用招聘平台，请联系作者", "warning");
+      return;
+    }
     const next = createEmptyForm();
+    next.platform_id = openPlatformID;
     next.mode_default = defaultCreateMode(subscription.active);
     next.detail_mode = defaultCreateDetailMode(
       next.platform_id,
@@ -229,6 +236,10 @@ export default function PositionsPage() {
 
   /** selectPlatform 切换平台并修正平台不支持的详情模式。 */
   function selectPlatform(value: string) {
+    if (!isPlatformOpen(platformConfigs, value)) {
+      notify("该平台暂未开放，请联系作者", "warning");
+      return;
+    }
     setForm((current) => ({
       ...current,
       platform_id: value,
@@ -976,6 +987,13 @@ function createEmptyForm() {
     greet_message: "",
     description: "",
   };
+}
+
+/** firstOpenPlatformID 返回第一个已经开放的招聘平台。 */
+function firstOpenPlatformID(configs: PlatformConfigLike[]) {
+  return PLATFORM_OPEN_ORDER.find((platformID) =>
+    isPlatformOpen(configs, platformID),
+  );
 }
 
 /** formFromItem 将后端岗位数据转换为编辑表单。 */

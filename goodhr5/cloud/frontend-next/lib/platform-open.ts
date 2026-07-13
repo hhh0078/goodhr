@@ -43,11 +43,11 @@ export function findPlatformConfig(configs: PlatformConfigLike[], platformID: st
   return (configs || []).find((config) => platformConfigID(config) === target) || null;
 }
 
-/** isPlatformOpen 判断平台是否开放；配置存在但未写 open 时默认开放。 */
+/** isPlatformOpen 判断平台是否开放；必须明确写 open: true 才算开放。 */
 export function isPlatformOpen(configs: PlatformConfigLike[], platformID: string) {
   const config = findPlatformConfig(configs, platformID);
   if (!config) return false;
   const parsed = parsePlatformConfig(config);
   if (!parsed) return false;
-  return parsed?.open !== false;
+  return parsed?.open === true;
 }
