@@ -112,8 +112,10 @@ function failure(res, status, msg) {
 async function startBrowser(payload) {
   const startedAt = Date.now();
   const userDataDir = String(payload.user_data_dir || "").trim();
+  const initialURL = String(payload.url || "").trim();
   logWorker("收到浏览器启动请求", {
     user_data_dir: userDataDir,
+    url: initialURL,
     headless: Boolean(payload.headless),
     persistent: Boolean(payload.persistent || userDataDir),
     downloads_path: payload.downloads_path || downloadDir(),
@@ -156,6 +158,7 @@ async function startBrowser(payload) {
     // 隐藏 Chromium 对 --no-sandbox 等启动参数的顶部提示条。
     args: ["--test-type"],
   };
+  if (initialURL) options.args.push(initialURL);
   await fs.mkdir(options.downloadsPath, { recursive: true });
   if (payload.proxy) options.proxy = payload.proxy;
   if (payload.viewport_width && payload.viewport_height) {
@@ -184,8 +187,21 @@ async function startBrowser(payload) {
     currentUserDataDir = userDataDir;
     currentDownloadsPath = options.downloadsPath;
     registerContext(context);
-    page = context.pages?.()[0] || (await context.newPage());
+    const pages = context.pages?.() || [];
+    page =
+      (initialURL &&
+        pages.find((item) => samePageURL(pageURL(item), initialURL))) ||
+      pages.find((item) => pageURL(item) && pageURL(item) !== "about:blank") ||
+      pages[0] ||
+      (await context.newPage());
     registerPage(page);
+    if (initialURL && !samePageURL(pageURL(page), initialURL)) {
+      logWorker("持久化浏览器启动后准备跳转初始地址", { url: initialURL });
+      await page.goto(initialURL, {
+        waitUntil: "domcontentloaded",
+        timeout: Number(payload.timeout || 60000),
+      });
+    }
     logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
     return {
       running: true,
@@ -205,6 +221,13 @@ async function startBrowser(payload) {
   registerContext(context);
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
+  if (initialURL && !samePageURL(pageURL(page), initialURL)) {
+    logWorker("普通浏览器启动后准备跳转初始地址", { url: initialURL });
+    await page.goto(initialURL, {
+      waitUntil: "domcontentloaded",
+      timeout: Number(payload.timeout || 60000),
+    });
+  }
   logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
   return {
     running: true,
@@ -374,6 +397,14 @@ async function openPage(payload) {
   }
   const currentPage = await ensurePage();
   clearElementRefs();
+  if (samePageURL(pageURL(currentPage), target)) {
+    await currentPage.bringToFront().catch(() => {});
+    logWorker("页面已在目标地址，跳过重复跳转", {
+      url: currentPage.url(),
+      elapsed_ms: Date.now() - startedAt,
+    });
+    return { url: currentPage.url() };
+  }
   logWorker("准备跳转页面", { url: target });
   await currentPage.goto(target, {
     waitUntil: "domcontentloaded",
@@ -2607,6 +2638,35 @@ function pageURL(targetPage) {
     return targetPage?.url?.() || "";
   } catch {
     return "";
+  }
+}
+
+/**
+ * 判断两个页面地址是否指向同一个页面。
+ * @param {string} current - 当前页面地址。
+ * @param {string} target - 目标页面地址。
+ * @returns {boolean} 地址相同返回 true。
+ */
+function samePageURL(current, target) {
+  const left = normalizePageURL(current);
+  const right = normalizePageURL(target);
+  return Boolean(left && right && left === right);
+}
+
+/**
+ * 归一化页面地址，忽略 hash 和末尾斜杠。
+ * @param {string} value - 原始页面地址。
+ * @returns {string} 归一化后的地址。
+ */
+function normalizePageURL(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "about:blank") return "";
+  try {
+    const parsed = new URL(text);
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return text.replace(/#.*$/, "").replace(/\/$/, "");
   }
 }
 

@@ -538,6 +538,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	viewportWidth, viewportHeight := taskBrowserViewport()
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
 		"humanize":        true,
+		"url":             entryURL,
 		"user_data_dir":   userDataDir,
 		"downloads_path":  r.browserDownloadDir(),
 		"viewport_width":  viewportWidth,
