@@ -19,10 +19,12 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	exec.Log("info", fmt.Sprintf("调用智联详情 DOM 提取接口：name=%s card_index=%d", name, intFromMap(candidate, "card_index")))
 	payload := zhaopinCandidateVisiblePayload(cfg, candidate)
 	payload["screenshot"] = false
-	payload["force_scroll"] = true
-	payload["wait_ms"] = 600
-	payload["detail_ready_timeout"] = 15000
-	payload["viewport_margin"] = 80
+	payload["force_scroll"] = false
+	payload["card_scroll_attempts"] = 3
+	payload["require_full"] = false
+	payload["wait_ms"] = 300
+	payload["detail_ready_timeout"] = 8000
+	payload["viewport_margin"] = 24
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", payload)
 	if err != nil {
 		return platformcore.DetailResult{}, err

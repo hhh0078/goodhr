@@ -414,7 +414,7 @@ func pageReadyDelay(options StartOptions) time.Duration {
 	if options.PageReadyDelay > 0 {
 		return time.Duration(options.PageReadyDelay) * time.Millisecond
 	}
-	return 10 * time.Second
+	return 2 * time.Second
 }
 
 // statusMessage 返回任务状态中文说明。

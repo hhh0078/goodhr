@@ -543,6 +543,17 @@ func TestShouldSkipPositionSelection(t *testing.T) {
 	}
 }
 
+// TestPageReadyDelayUsesShortDefault 验证候选人提取前默认只等待两秒。
+// t 为测试对象。
+func TestPageReadyDelayUsesShortDefault(t *testing.T) {
+	if delay := pageReadyDelay(StartOptions{}); delay != 2*time.Second {
+		t.Fatalf("默认页面稳定等待 = %s", delay)
+	}
+	if delay := pageReadyDelay(StartOptions{PageReadyDelay: 750}); delay != 750*time.Millisecond {
+		t.Fatalf("自定义页面稳定等待 = %s", delay)
+	}
+}
+
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
 func TestApplyKeywordFilter(t *testing.T) {
 	task := localdb.Task{

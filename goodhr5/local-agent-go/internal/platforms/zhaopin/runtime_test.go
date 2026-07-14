@@ -145,6 +145,9 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	if exec.payload["platform_id"] != "zhaopin" || exec.payload["screenshot"] != false {
 		t.Fatalf("payload = %+v", exec.payload)
 	}
+	if exec.payload["force_scroll"] != false || exec.payload["card_scroll_attempts"] != 3 || exec.payload["require_full"] != false {
+		t.Fatalf("智联详情不应持续强制滚动，payload = %+v", exec.payload)
+	}
 	if result.Text != "候选人详情" || result.Source != "dom" || len(result.Screenshot) != 0 {
 		t.Fatalf("result = %+v", result)
 	}
