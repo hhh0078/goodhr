@@ -806,7 +806,7 @@ func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	defer runner.clear(task.ID)
 	runner.markUserStoppedAndCancel(task.ID)
 	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("详情读取已取消")}
-	_, err = runner.enrichCandidateWithDetail(
+	_, _, err = runner.enrichCandidateWithDetail(
 		t.Context(),
 		task,
 		runtime,
@@ -821,6 +821,30 @@ func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	}
 	if runtime.closeCalls != 1 {
 		t.Fatalf("用户停止后应关闭详情一次，closeCalls=%d", runtime.closeCalls)
+	}
+}
+
+// TestDetailScrollingStopsImmediatelyAfterAnalysis 验证 AI 返回时会取消滚动并等待滚动协程退出。
+// t 为测试对象。
+func TestDetailScrollingStopsImmediatelyAfterAnalysis(t *testing.T) {
+	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
+	runtime := &detailScrollProbeRuntime{started: make(chan struct{}, 1)}
+	stop := runner.startCandidateDetailScrolling(
+		t.Context(),
+		"",
+		runtime,
+		platformExecutor{runner: runner},
+		cloudapi.PlatformConfig{},
+		map[string]any{"candidate_name": "候选人A"},
+	)
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("详情滚动未启动")
+	}
+	stop()
+	if runtime.calls.Load() != 1 {
+		t.Fatalf("取消后仍触发额外滚动，calls=%d", runtime.calls.Load())
 	}
 }
 
@@ -990,6 +1014,25 @@ type blockingWorker struct {
 type detailCloseProbeRuntime struct {
 	fetchErr   error
 	closeCalls int
+}
+
+// detailScrollProbeRuntime 模拟可在 AI 分析期间持续滚动且响应取消的平台。
+type detailScrollProbeRuntime struct {
+	detailCloseProbeRuntime
+	started chan struct{}
+	calls   atomic.Int32
+}
+
+// ScrollCandidateDetail 模拟一次持续到上下文取消的详情滚动。
+// ctx 为滚动上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，distance 为滚动距离。
+func (r *detailScrollProbeRuntime) ScrollCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, distance int) error {
+	r.calls.Add(1)
+	select {
+	case r.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // OpenEntryPage 模拟打开入口页。

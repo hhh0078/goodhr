@@ -243,6 +243,7 @@ scanLoop:
 				processedCount++
 				candidateName := candidateLogName(candidate)
 				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
+				var detailSession *candidateDetailSession
 				r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：开始处理，序号=%d/%d，姓名=%s，状态=%s，超时=%s", processedCount, len(filtered), candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
 				r.ensureCandidateVisibleBeforeDecision(candidateCtx, task.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate))
@@ -262,7 +263,8 @@ scanLoop:
 						r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：跳过候选人，候选人=%s，分数=%.1f，阈值=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
 						r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否看详情=是", candidateLogName(candidate), decision.Score, decision.Threshold))
-						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
 						if err != nil {
 							candidateCancel()
@@ -280,7 +282,8 @@ scanLoop:
 						r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
 					} else {
 						r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateLogName(candidate), detailModeLabel(detailMode(task))))
-						itemSkipped, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
 						if err != nil {
 							candidateCancel()
@@ -290,7 +293,16 @@ scanLoop:
 				}
 
 				// 7. 第二次详情分析：详情 AI 已经一次性评分时跳过；否则按任务模式做最终判断。
-				if canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored") {
+				if _, supportsDetailScrolling := platformRuntime.(platformcore.DetailAnalysisScroller); detailSession != nil && !supportsDetailScrolling {
+					_ = detailSession.Close(context.WithoutCancel(candidateCtx))
+					detailSession = nil
+				}
+				shouldFinalizeWithAI := canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored")
+				stopDetailScrolling := func() {}
+				if detailSession != nil && shouldFinalizeWithAI && taskMode(task) != "keyword" {
+					stopDetailScrolling = r.startCandidateDetailScrolling(candidateCtx, task.ID, platformRuntime, exec, platformConfig, candidate)
+				}
+				if shouldFinalizeWithAI {
 					itemSkipped, err := r.finalizeCandidateGreetDecision(candidateCtx, task, exec, candidate, aiClient)
 					batchResult.Skipped += itemSkipped
 					if err != nil {
@@ -299,6 +311,11 @@ scanLoop:
 						batchResult.Failed++
 						r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼判断：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 					}
+				}
+				stopDetailScrolling()
+				if detailSession != nil {
+					_ = detailSession.Close(context.WithoutCancel(candidateCtx))
+					detailSession = nil
 				}
 
 				// 8. 评分通过后执行打招呼，然后保存候选人结果。

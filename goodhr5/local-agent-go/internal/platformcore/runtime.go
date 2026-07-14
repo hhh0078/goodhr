@@ -82,3 +82,9 @@ type PositionSelectionSkipper interface {
 	// ShouldSkipPositionSelection 返回平台是否应跳过全部页面岗位处理。
 	ShouldSkipPositionSelection() bool
 }
+
+// DetailAnalysisScroller 定义 AI 分析期间可滚动候选人详情的平台能力。
+type DetailAnalysisScroller interface {
+	// ScrollCandidateDetail 在当前已打开的候选人详情中滚动一次。
+	ScrollCandidateDetail(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate, distance int) error
+}

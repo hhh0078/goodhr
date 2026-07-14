@@ -153,6 +153,22 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	}
 }
 
+// TestScrollCandidateDetailTargetsResumeDialog 验证 AI 分析期间只滚动智联详情弹框。
+// t 为测试对象。
+func TestScrollCandidateDetailTargetsResumeDialog(t *testing.T) {
+	exec := &testExecutor{}
+	if err := NewRuntime().ScrollCandidateDetail(context.Background(), exec, nil, nil, 260); err != nil {
+		t.Fatal(err)
+	}
+	if exec.lastPath != "/api/v1/page/scroll" || exec.payload["distance"] != 260 {
+		t.Fatalf("path=%s payload=%+v", exec.lastPath, exec.payload)
+	}
+	element := mapFromAny(exec.payload["element"])
+	if !strings.Contains(stringFromMap(element, "selector"), ".new-resume-detail--inner") {
+		t.Fatalf("详情滚动选择器错误：%+v", element)
+	}
+}
+
 // TestFetchCandidateDetailRejectsScreenshotMode 验证智联拒绝 OCR 和截图详情模式。
 // t 为测试对象。
 func TestFetchCandidateDetailRejectsScreenshotMode(t *testing.T) {
