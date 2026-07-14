@@ -160,14 +160,16 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 			"distance":        120,
 			"wait_ms":         260,
 			"max_attempts":    10,
-			"viewport_margin": 80,
+			"viewport_margin": 24,
 			"require_full":    true,
+			"vertical_only":   true,
 		})
 		if err != nil {
 			return err
 		}
 		scrollData := workerDataMap(scrollResult)
-		exec.Log("info", fmt.Sprintf("匹配岗位滚动完成：attempts=%d", len(mapList(scrollData["attempts"]))))
+		finalView := mapFromAny(scrollData["final_view"])
+		exec.Log("info", fmt.Sprintf("匹配岗位滚动完成：attempts=%d visible=%v full=%v", len(mapList(scrollData["attempts"])), finalView["in_viewport"], finalView["fully_visible"]))
 		exec.Log("info", "匹配岗位已滚动到可点击区域，准备点击："+name)
 		_, err = exec.Post(ctx, "/api/v1/page/click", map[string]any{
 			"element_ref":     elementRef,

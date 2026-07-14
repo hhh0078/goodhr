@@ -3303,22 +3303,35 @@ async function isElementInContainerViewport(
   const containerRight = containerBox.x + containerBox.width - margin;
   const containerTop = containerBox.y + margin;
   const containerBottom = containerBox.y + containerBox.height - margin;
+  const verticalOnly = Boolean(options.vertical_only || options.verticalOnly);
   const partiallyVisible =
     right > containerLeft &&
     bottom > containerTop &&
     left < containerRight &&
     top < containerBottom;
+  const verticallyVisible = bottom > containerTop && top < containerBottom;
+  const verticallyFullyVisible = top >= containerTop && bottom <= containerBottom;
+  const horizontallyVisible = right > containerBox.x && left < containerBox.x + containerBox.width;
   const fullyVisible =
-    left >= containerLeft &&
+    (verticalOnly ? horizontallyVisible : left >= containerLeft) &&
     top >= containerTop &&
-    right <= containerRight &&
+    (verticalOnly ? true : right <= containerRight) &&
     bottom <= containerBottom;
-  const inViewport = requireFull ? fullyVisible : partiallyVisible;
+  const inViewport = verticalOnly
+    ? requireFull
+      ? verticallyFullyVisible && horizontallyVisible
+      : verticallyVisible && horizontallyVisible
+    : requireFull
+      ? fullyVisible
+      : partiallyVisible;
   return {
     visible: true,
     in_viewport: inViewport,
     partially_visible: partiallyVisible,
     fully_visible: fullyVisible,
+    vertically_visible: verticallyVisible,
+    vertically_fully_visible: verticallyFullyVisible,
+    horizontally_visible: horizontallyVisible,
     box: {
       x: Math.round(box.x),
       y: Math.round(box.y),
