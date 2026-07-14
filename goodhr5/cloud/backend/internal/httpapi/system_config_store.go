@@ -537,6 +537,7 @@ type PlatformPosition struct {
 	List         ElementLocatorConfig `json:"list"`
 	Item         ElementLocatorConfig `json:"item"`
 	ItemText     ElementLocatorConfig `json:"itemText,omitempty"`
+	SearchInput  ElementLocatorConfig `json:"searchInput,omitempty"`
 	ClickTarget  ElementLocatorConfig `json:"clickTarget,omitempty"`
 }
 

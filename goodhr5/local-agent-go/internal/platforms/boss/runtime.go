@@ -122,6 +122,15 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 	if item == nil || itemText == nil {
 		return fmt.Errorf("平台配置中无岗位列表或岗位文字选择器")
 	}
+	if searchInput := platformElement(cfg, "position", "searchInput"); searchInput != nil {
+		handled, searchErr := r.selectPositionBySearch(ctx, exec, searchInput, item, itemText, positionName)
+		if handled {
+			return searchErr
+		}
+		if searchErr != nil {
+			exec.Log("warning", "岗位搜索框不可用，回退为列表滚动查找："+searchErr.Error())
+		}
+	}
 	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
 		"element":      item,
 		"visible_only": true,
@@ -181,6 +190,63 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 		return err
 	}
 	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和Boss直聘岗位名称一致", positionName)
+}
+
+// selectPositionBySearch 通过 Boss 岗位搜索框切换到目标岗位。
+// ctx 为运行上下文，exec 为执行器，searchInput 为搜索框定位，item 为岗位项定位，itemText 为岗位名称定位，positionName 为目标岗位名。
+func (r *Runtime) selectPositionBySearch(ctx context.Context, exec platformcore.Executor, searchInput map[string]any, item map[string]any, itemText map[string]any, positionName string) (bool, error) {
+	query := strings.TrimSpace(positionName)
+	if query == "" {
+		return false, nil
+	}
+	exec.Log("info", "准备通过岗位搜索框查找："+query)
+	if _, err := exec.Post(ctx, "/api/v1/page/type", map[string]any{
+		"element": searchInput,
+		"text":    query,
+		"timeout": 10000,
+	}); err != nil {
+		return false, fmt.Errorf("输入岗位搜索关键词失败：%w", err)
+	}
+	if err := exec.Delay(ctx, "等待岗位搜索结果刷新", 0.8); err != nil {
+		return true, err
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      item,
+		"visible_only": true,
+		"fields":       []any{map[string]any{"position_name": itemText}},
+	})
+	if err != nil {
+		return true, err
+	}
+	items := mapList(workerData(result, "items"))
+	exec.Log("info", fmt.Sprintf("岗位搜索结果数量：%d", len(items)))
+	if len(items) == 0 {
+		return true, fmt.Errorf("岗位不存在：%s，请确认岗位模板名称是否和Boss直聘岗位名称一致", positionName)
+	}
+	found := items[0]
+	fields := mapFromAny(found["fields"])
+	name := firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(found, "text"))
+	exec.Log("info", "岗位搜索命中第一个结果，准备点击："+name)
+	elementRef := stringFromMap(found, "element_ref")
+	if elementRef == "" {
+		elementRef = stringFromMap(found, "ref")
+	}
+	if elementRef == "" {
+		exec.Log("warning", "岗位搜索结果缺少元素引用，回退为按序号点击："+name)
+		_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
+			"index": intFromMap(found, "index"),
+			"item":  item,
+		})
+		return true, err
+	}
+	_, err = exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		"element_ref":     elementRef,
+		"delay_before":    0.15,
+		"viewport_margin": 24,
+		"require_full":    true,
+		"timeout":         10000,
+	})
+	return true, err
 }
 
 // ListVisibleCandidates 提取当前可见 Boss 候选人。
