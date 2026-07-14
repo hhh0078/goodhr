@@ -531,6 +531,18 @@ func TestEnsureTaskPageReadyRetries(t *testing.T) {
 	}
 }
 
+// TestShouldSkipPositionSelection 验证猎聘猎头端跳过全部页面岗位处理。
+// t 为测试对象。
+func TestShouldSkipPositionSelection(t *testing.T) {
+	platformRuntime, err := platforms.RuntimeFor("hliepin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !shouldSkipPositionSelection(platformRuntime) {
+		t.Fatal("猎聘猎头端应跳过页面岗位处理")
+	}
+}
+
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
 func TestApplyKeywordFilter(t *testing.T) {
 	task := localdb.Task{

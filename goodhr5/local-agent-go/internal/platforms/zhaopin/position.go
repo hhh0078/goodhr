@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
-	"strings"
 )
 
 // CurrentPositionName 读取智联招聘当前岗位名称。
@@ -29,171 +28,75 @@ func (r *Runtime) CurrentPositionName(ctx context.Context, exec platformcore.Exe
 	return name, nil
 }
 
-// SelectPosition 在智联招聘页面切换岗位。
+// SelectPosition 在智联招聘页面通过职位选择弹层切换岗位。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，positionName 为目标岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionName string) error {
-	switchButton := platformElement(cfg, "position", "switchBtn")
-	if switchButton == nil {
-		return fmt.Errorf("平台配置中无岗位选择入口")
-	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": switchButton, "timeout": 10000}); err != nil {
-		return err
-	}
-	if err := exec.Delay(ctx, "等待岗位列表展开", 0.5); err != nil {
-		return err
-	}
-	list := platformElement(cfg, "position", "list")
-	item := positionListItemElement(list, platformElement(cfg, "position", "item"))
-	itemText := platformElement(cfg, "position", "itemText")
-	if item == nil || itemText == nil {
-		return fmt.Errorf("平台配置中无岗位列表或岗位文字选择器")
-	}
-	if searchInput := platformElement(cfg, "position", "searchInput"); searchInput != nil {
-		handled, searchErr := r.selectPositionBySearch(ctx, exec, searchInput, item, itemText, positionName)
-		if handled {
-			return searchErr
-		}
-		if searchErr != nil {
-			exec.Log("warning", "岗位搜索框不可用，回退为列表滚动查找："+searchErr.Error())
-		}
-	}
-	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
-		"element":      item,
-		"visible_only": true,
-		"fields":       []any{map[string]any{"position_name": itemText}},
-	})
-	if err != nil {
-		return err
-	}
-	items := mapList(workerData(result, "items"))
-	exec.Log("info", fmt.Sprintf("岗位列表共查找到 %d 个岗位项", len(items)))
-	target := normalizePositionName(positionName)
-	for _, found := range items {
-		fields := mapFromAny(found["fields"])
-		name := firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(found, "text"))
-		exec.Log("info", fmt.Sprintf("岗位列表项：index=%d name=%s", intFromMap(found, "index"), name))
-		if target == "" || !strings.Contains(normalizePositionName(name), target) {
-			continue
-		}
-		exec.Log("info", "找到匹配岗位，准备点击："+name)
-		elementRef := stringFromMap(found, "element_ref")
-		if elementRef == "" {
-			elementRef = stringFromMap(found, "ref")
-		}
-		if elementRef == "" {
-			exec.Log("warning", "岗位列表项缺少元素引用，回退为按序号点击："+name)
-			_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-				"index": intFromMap(found, "index"),
-				"item":  item,
-			})
-			return err
-		}
-		exec.Log("info", fmt.Sprintf("准备滚动到匹配岗位：index=%d name=%s", intFromMap(found, "index"), name))
-		scrollResult, err := exec.Post(ctx, "/api/v1/page/ensure-visible", map[string]any{
-			"element_ref":     elementRef,
-			"wheel_target":    list,
-			"distance":        120,
-			"wait_ms":         260,
-			"max_attempts":    10,
-			"viewport_margin": 24,
-			"require_full":    true,
-			"vertical_only":   true,
-		})
-		if err != nil {
-			return err
-		}
-		scrollData := workerDataMap(scrollResult)
-		finalView := mapFromAny(scrollData["final_view"])
-		exec.Log("info", fmt.Sprintf("匹配岗位滚动完成：attempts=%d visible=%v full=%v", len(mapList(scrollData["attempts"])), finalView["in_viewport"], finalView["fully_visible"]))
-		exec.Log("info", "匹配岗位已滚动到可点击区域，准备点击："+name)
-		_, err = exec.Post(ctx, "/api/v1/page/click", map[string]any{
-			"element_ref":     elementRef,
-			"delay_before":    0.15,
-			"viewport_margin": 40,
-			"require_full":    true,
-			"timeout":         10000,
-		})
-		return err
-	}
-	return fmt.Errorf("岗位列表中未找到岗位：%s，请确认岗位模板名称是否和智联招聘岗位名称一致", positionName)
-}
-
-// selectPositionBySearch 通过智联招聘岗位搜索框切换到目标岗位。
-// ctx 为运行上下文，exec 为执行器，searchInput 为搜索框定位，item 为岗位项定位，itemText 为岗位名称定位，positionName 为目标岗位名。
-func (r *Runtime) selectPositionBySearch(ctx context.Context, exec platformcore.Executor, searchInput map[string]any, item map[string]any, itemText map[string]any, positionName string) (bool, error) {
 	query := positionSearchQuery(positionName)
 	if query == "" {
-		return false, nil
+		return fmt.Errorf("任务岗位名称为空")
 	}
-	exec.Log("info", "准备通过岗位搜索框查找："+query)
+	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		"element": map[string]any{"selector": "a[zp-stat-id=\"talent_more_jobs\"]"},
+		"timeout": 10000,
+	}); err != nil {
+		return fmt.Errorf("打开智联职位选择弹层失败：%w", err)
+	}
+	if err := exec.Delay(ctx, "等待智联职位选择弹层展开", 0.5); err != nil {
+		return err
+	}
+	searchInput := map[string]any{"selector": ".job-side-selector__filter input"}
 	if _, err := exec.Post(ctx, "/api/v1/page/type", map[string]any{
 		"element": searchInput,
 		"text":    query,
 		"timeout": 10000,
 	}); err != nil {
-		return false, fmt.Errorf("输入岗位搜索关键词失败：%w", err)
+		return fmt.Errorf("输入智联岗位搜索关键词失败：%w", err)
 	}
-	target := normalizePositionName(positionName)
-	var found map[string]any
-	var name string
-	for attempt := 1; attempt <= 4; attempt++ {
-		if err := exec.Delay(ctx, "等待岗位搜索结果刷新", 0.4); err != nil {
-			return true, err
-		}
-		result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
-			"element":      item,
-			"visible_only": true,
-			"fields":       []any{map[string]any{"position_name": itemText}},
-		})
-		if err != nil {
-			return true, err
-		}
-		items := mapList(workerData(result, "items"))
-		exec.Log("info", fmt.Sprintf("岗位搜索结果检查：第%d次，共%d项", attempt, len(items)))
-		for _, candidate := range items {
-			fields := mapFromAny(candidate["fields"])
-			candidateName := firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(candidate, "text"))
-			if target == "" || !strings.Contains(normalizePositionName(candidateName), target) {
-				continue
-			}
-			found = candidate
-			name = candidateName
-			break
-		}
-		if found != nil {
-			break
-		}
+	if err := exec.Delay(ctx, "等待智联岗位搜索结果刷新", 0.7); err != nil {
+		return err
 	}
-	if found == nil {
-		_, clearErr := exec.Post(ctx, "/api/v1/page/type", map[string]any{
-			"element": searchInput,
-			"text":    "",
-			"timeout": 10000,
-		})
-		if clearErr == nil {
-			_ = exec.Delay(ctx, "清空岗位搜索关键词", 0.3)
-		}
-		return false, fmt.Errorf("岗位搜索没有匹配到：%s，已回退到完整岗位列表查找", positionName)
-	}
-	exec.Log("info", "岗位搜索已匹配，准备点击："+name)
-	elementRef := stringFromMap(found, "element_ref")
-	if elementRef == "" {
-		elementRef = stringFromMap(found, "ref")
-	}
-	if elementRef == "" {
-		exec.Log("warning", "岗位搜索结果缺少元素引用，回退为按序号点击："+name)
-		_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-			"index": intFromMap(found, "index"),
-			"item":  item,
-		})
-		return true, err
-	}
-	_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-		"element_ref":     elementRef,
-		"delay_before":    0.15,
-		"viewport_margin": 24,
-		"require_full":    true,
-		"timeout":         10000,
+	item := map[string]any{"selector": ".job-side-selector__item"}
+	itemText := map[string]any{"selector": ".job-side-selector__title"}
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      item,
+		"visible_only": true,
+		"max_items":    20,
+		"fields":       []any{map[string]any{"position_name": itemText}},
 	})
-	return true, err
+	if err != nil {
+		return fmt.Errorf("读取智联岗位搜索结果失败：%w", err)
+	}
+	items := mapList(workerData(result, "items"))
+	if len(items) == 0 {
+		return fmt.Errorf("智联岗位搜索没有结果：%s", query)
+	}
+	first := items[0]
+	name := firstNonEmpty(stringFromMap(mapFromAny(first["fields"]), "position_name"), stringFromMap(first, "text"))
+	elementRef := firstNonEmpty(stringFromMap(first, "element_ref"), stringFromMap(first, "ref"))
+	if elementRef == "" {
+		return fmt.Errorf("智联第一条岗位搜索结果缺少元素引用")
+	}
+	exec.Log("info", fmt.Sprintf("智联岗位搜索完成：query=%s count=%d first=%s", query, len(items), name))
+	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		"element_ref":  elementRef,
+		"require_full": false,
+		"timeout":      10000,
+	}); err != nil {
+		return fmt.Errorf("点击智联第一条岗位搜索结果失败：%w", err)
+	}
+	if err := exec.Delay(ctx, "等待智联岗位切换完成", 0.8); err != nil {
+		return err
+	}
+	panelResult, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      map[string]any{"selector": ".job-side-selector"},
+		"visible_only": true,
+		"max_items":    1,
+	})
+	if err != nil {
+		return fmt.Errorf("确认智联职位选择弹层状态失败：%w", err)
+	}
+	if len(mapList(workerData(panelResult, "items"))) > 0 {
+		return fmt.Errorf("智联职位选择弹层未关闭")
+	}
+	return nil
 }

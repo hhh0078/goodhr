@@ -17,6 +17,45 @@ type testExecutor struct {
 	response map[string]any
 }
 
+// positionCall 记录一次智联职位切换 Worker 调用。
+type positionCall struct {
+	path    string
+	payload map[string]any
+}
+
+// positionExecutor 模拟智联职位选择弹层的搜索和点击结果。
+type positionExecutor struct {
+	calls     []positionCall
+	findCalls int
+}
+
+// Post 返回智联职位搜索结果，并记录第一条结果点击。
+// ctx 为运行上下文，path 为 Worker 路由，payload 为请求参数。
+func (e *positionExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
+	data, _ := payload.(map[string]any)
+	e.calls = append(e.calls, positionCall{path: path, payload: data})
+	if path != "/api/v1/page/find-elements" {
+		return map[string]any{"data": map[string]any{}}, nil
+	}
+	e.findCalls++
+	if e.findCalls == 1 {
+		return map[string]any{"data": map[string]any{"items": []any{
+			map[string]any{
+				"element_ref": "job-ref-1",
+				"fields":      map[string]any{"position_name": "线下运营销售"},
+			},
+		}}}, nil
+	}
+	return map[string]any{"data": map[string]any{"items": []any{}}}, nil
+}
+
+// Log 模拟智联职位切换日志。
+func (e *positionExecutor) Log(string, string) {}
+
+// Delay 模拟智联职位切换等待。
+// ctx 为运行上下文，label 为等待说明，seconds 为等待秒数。
+func (e *positionExecutor) Delay(context.Context, string, float64) error { return nil }
+
 // Post 记录调用路径并返回页面列表。
 // ctx 为运行上下文，path 为 Worker 路由，payload 为请求参数。
 func (e *testExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
@@ -52,6 +91,37 @@ func TestCandidateFingerprintUsesZhaopinPrefix(t *testing.T) {
 func TestShouldSelectPositionDirectly(t *testing.T) {
 	if !NewRuntime().ShouldSelectPositionDirectly() {
 		t.Fatal("智联招聘应直接切换任务岗位")
+	}
+}
+
+// TestSelectPositionSearchesAndClicksFirstResult 验证智联点击选择职位、搜索并点击第一条结果。
+// t 为测试对象。
+func TestSelectPositionSearchesAndClicksFirstResult(t *testing.T) {
+	exec := &positionExecutor{}
+	err := NewRuntime().SelectPosition(context.Background(), exec, nil, "线下运营销售 _ 德阳 6-11K")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := []string{
+		"/api/v1/page/click",
+		"/api/v1/page/type",
+		"/api/v1/page/find-elements",
+		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
+	}
+	if len(exec.calls) != len(wantPaths) {
+		t.Fatalf("calls = %+v", exec.calls)
+	}
+	for index, path := range wantPaths {
+		if exec.calls[index].path != path {
+			t.Fatalf("call %d path = %s", index, exec.calls[index].path)
+		}
+	}
+	if exec.calls[1].payload["text"] != "线下运营销售" {
+		t.Fatalf("search text = %v", exec.calls[1].payload["text"])
+	}
+	if exec.calls[3].payload["element_ref"] != "job-ref-1" {
+		t.Fatalf("click payload = %+v", exec.calls[3].payload)
 	}
 }
 

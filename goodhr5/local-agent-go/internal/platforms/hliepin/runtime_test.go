@@ -123,33 +123,24 @@ func TestListVisibleCandidatesFallsBackToTableRows(t *testing.T) {
 	}
 }
 
-// TestSelectPositionUsesPublishedJobsAndHiddenFilters 验证猎聘切岗不使用输入框。
-func TestSelectPositionUsesPublishedJobsAndHiddenFilters(t *testing.T) {
+// TestPositionSelectionIsSkipped 验证猎聘跳过岗位切换和三个隐藏筛选。
+// t 为测试对象。
+func TestPositionSelectionIsSkipped(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &routeExecutor{}
+	if !runtime.ShouldSkipPositionSelection() {
+		t.Fatal("猎聘应跳过页面岗位处理")
+	}
 	if err := runtime.SelectPosition(context.Background(), exec, nil, "Java开发工程师"); err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.currentPosition; got != "Java开发工程师" {
-		t.Fatalf("current position = %q", got)
-	}
-	clickCalls, checkedCalls := 0, 0
-	for _, path := range exec.paths {
-		if path == "/api/v1/page/open" {
-			t.Fatal("选择岗位不应再打开慢速职位管理页")
-		}
-		switch path {
-		case "/api/v1/page/click-by-text":
-			clickCalls++
-		case "/api/v1/page/ensure-checked-by-text":
-			checkedCalls++
-		}
-	}
-	if clickCalls != 2 || checkedCalls != 3 {
-		t.Fatalf("click calls = %d, checked calls = %d", clickCalls, checkedCalls)
+	if len(exec.paths) != 0 {
+		t.Fatalf("猎聘岗位处理不应调用页面接口，paths=%#v", exec.paths)
 	}
 }
 
+// TestPreparePositionSearchTypesKeywordThenClicksSearch 验证猎聘仍按岗位关键词搜索候选人。
+// t 为测试对象。
 func TestPreparePositionSearchTypesKeywordThenClicksSearch(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{}
@@ -171,6 +162,8 @@ func TestPreparePositionSearchTypesKeywordThenClicksSearch(t *testing.T) {
 	}
 }
 
+// TestPreparePositionSearchSkipsEmptyKeyword 验证猎聘搜索关键词为空时不操作页面。
+// t 为测试对象。
 func TestPreparePositionSearchSkipsEmptyKeyword(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{}

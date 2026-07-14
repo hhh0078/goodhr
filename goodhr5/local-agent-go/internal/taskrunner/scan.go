@@ -86,6 +86,7 @@ scanLoop:
 			return nil, err
 		}
 		if len(queue) == 0 {
+			skipPositionSelection := shouldSkipPositionSelection(platformRuntime)
 			forcePositionSelection := shouldSelectPositionDirectly(platformRuntime)
 			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
 			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
@@ -101,41 +102,45 @@ scanLoop:
 						return nil, fmt.Errorf("应用岗位搜索关键词失败：%w", err)
 					}
 					r.taskLog(task.ID, "info", "候选人搜索：岗位搜索关键词已应用")
-					forcePositionSelection = true
+					forcePositionSelection = !skipPositionSelection
 				}
 				positionSearchPrepared = true
 			}
-			positionName := taskPositionName(task)
-			if strings.TrimSpace(positionName) == "" {
-				return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
-			}
-			if forcePositionSelection {
-				r.taskLog(task.ID, "info", "页面准备：平台要求每次选择任务岗位，准备直接切换")
-				if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
-					return nil, fmt.Errorf("切换页面岗位失败：%w", err)
-				}
-				r.taskLog(task.ID, "info", "页面准备：任务岗位已选择="+positionName)
+			if skipPositionSelection {
+				r.taskLog(task.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
 			} else {
-				currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
-				if err != nil {
-					return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
+				positionName := taskPositionName(task)
+				if strings.TrimSpace(positionName) == "" {
+					return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
 				}
-				r.taskLog(task.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，任务岗位=%s", currentName, positionName))
-				if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
-					r.taskLog(task.ID, "info", "页面准备：岗位匹配成功")
-				} else {
-					r.taskLog(task.ID, "warning", "页面准备：岗位不一致，准备切换岗位")
+				if forcePositionSelection {
+					r.taskLog(task.ID, "info", "页面准备：平台要求每次选择任务岗位，准备直接切换")
 					if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 						return nil, fmt.Errorf("切换页面岗位失败：%w", err)
 					}
-					confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
+					r.taskLog(task.ID, "info", "页面准备：任务岗位已选择="+positionName)
+				} else {
+					currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
 					if err != nil {
-						return nil, fmt.Errorf("切换后确认页面岗位失败：%w", err)
+						return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
 					}
-					if !strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
-						return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+					r.taskLog(task.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，任务岗位=%s", currentName, positionName))
+					if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
+						r.taskLog(task.ID, "info", "页面准备：岗位匹配成功")
+					} else {
+						r.taskLog(task.ID, "warning", "页面准备：岗位不一致，准备切换岗位")
+						if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
+							return nil, fmt.Errorf("切换页面岗位失败：%w", err)
+						}
+						confirmedName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
+						if err != nil {
+							return nil, fmt.Errorf("切换后确认页面岗位失败：%w", err)
+						}
+						if !strings.Contains(normalizeTaskPositionName(confirmedName), normalizeTaskPositionName(positionName)) {
+							return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+						}
+						r.taskLog(task.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
 					}
-					r.taskLog(task.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
 				}
 			}
 			delay := pageReadyDelay(options)
@@ -447,6 +452,10 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if strings.TrimSpace(positionName) == "" {
 		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
 	}
+	if shouldSkipPositionSelection(platformRuntime) {
+		r.taskLog(task.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
+		return nil
+	}
 	if shouldSelectPositionDirectly(platformRuntime) {
 		r.taskLog(task.ID, "info", "页面准备：平台无需读取当前岗位，准备直接切换任务岗位")
 		if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
@@ -476,6 +485,13 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 		return nil
 	}
 	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+}
+
+// shouldSkipPositionSelection 判断平台是否应跳过全部页面岗位处理。
+// platformRuntime 为当前平台运行时。
+func shouldSkipPositionSelection(platformRuntime platformcore.Runtime) bool {
+	skipper, ok := platformRuntime.(platformcore.PositionSelectionSkipper)
+	return ok && skipper.ShouldSkipPositionSelection()
 }
 
 // shouldSelectPositionDirectly 判断平台是否要求跳过当前岗位读取并直接切换。

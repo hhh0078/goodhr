@@ -76,3 +76,9 @@ type DirectPositionSelector interface {
 	// ShouldSelectPositionDirectly 返回平台是否应跳过当前岗位读取和切换后复核。
 	ShouldSelectPositionDirectly() bool
 }
+
+// PositionSelectionSkipper 定义完全不需要读取或切换页面岗位的平台策略。
+type PositionSelectionSkipper interface {
+	// ShouldSkipPositionSelection 返回平台是否应跳过全部页面岗位处理。
+	ShouldSkipPositionSelection() bool
+}
