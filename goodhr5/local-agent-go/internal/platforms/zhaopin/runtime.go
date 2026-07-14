@@ -2,29 +2,34 @@
 package zhaopin
 
 import (
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"regexp"
 	"strings"
 )
 
 // Runtime 实现智联招聘平台运行时能力。
-type Runtime struct {
-	platformID   string
-	platformName string
-}
+type Runtime struct{}
 
 // NewRuntime 创建智联招聘平台运行时实例。
-func NewRuntime() *Runtime { return &Runtime{platformID: "zhaopin", platformName: "智联招聘"} }
+func NewRuntime() *Runtime {
+	return &Runtime{}
+}
 
-// candidateRawText 组装候选人卡片原始文本。
-func candidateRawText(fields map[string]any) string {
-	parts := []string{}
-	for _, key := range []string{"name", "basic_info", "education", "university", "description"} {
-		if text := stringFromMap(fields, key); text != "" {
-			parts = append(parts, text)
-		}
+// zhaopinCandidateVisiblePayload 返回智联候选人可见定位通用参数。
+// cfg 为平台配置，candidate 为候选人。
+func zhaopinCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) map[string]any {
+	return map[string]any{
+		"platform_id":          "zhaopin",
+		"platform_config":      cfg,
+		"card_index":           intFromMap(candidate, "card_index"),
+		"element_ref":          stringFromMap(candidate, "element_ref"),
+		"distance":             120,
+		"wait_ms":              260,
+		"card_scroll_attempts": 18,
+		"require_full":         true,
+		"viewport_margin":      0,
 	}
-	return strings.Join(parts, "\n")
 }
 
 // candidateAge 读取智联招聘候选人年龄。

@@ -10,52 +10,50 @@ import (
 )
 
 // FetchCandidateDetail 读取智联招聘新开详情页中的 DOM 文本。
+// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，request 为详情请求。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	if strings.ToLower(strings.TrimSpace(request.Mode)) != "dom" {
-		return platformcore.DetailResult{}, fmt.Errorf("%s只支持 DOM 详情识别", r.platformName)
+		return platformcore.DetailResult{}, fmt.Errorf("智联招聘只支持 DOM 详情识别")
 	}
-	item := platformElement(cfg, "card", "item")
-	if item == nil {
-		return platformcore.DetailResult{}, fmt.Errorf("平台配置中无候选人卡片选择器")
-	}
-	clickTarget := platformElement(cfg, "detail", "openTarget")
-	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": clickTarget, "timeout": 10000}); err != nil {
-		return platformcore.DetailResult{}, err
-	}
-	if err := exec.Delay(ctx, "等待猎聘详情页打开", 1.2); err != nil {
-		return platformcore.DetailResult{}, err
-	}
-	content := platformElement(cfg, "detail", "content")
-	payload := map[string]any{"timeout": 5000}
-	if content != nil {
-		payload["element"] = content
-	}
-	result, err := exec.Post(ctx, "/api/v1/page/extract-text", payload)
+	name := candidateName(candidate)
+	exec.Log("info", fmt.Sprintf("调用智联详情 DOM 提取接口：name=%s card_index=%d", name, intFromMap(candidate, "card_index")))
+	payload := zhaopinCandidateVisiblePayload(cfg, candidate)
+	payload["screenshot"] = false
+	payload["force_scroll"] = true
+	payload["wait_ms"] = 600
+	payload["detail_ready_timeout"] = 15000
+	payload["viewport_margin"] = 80
+	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", payload)
 	if err != nil {
 		return platformcore.DetailResult{}, err
 	}
 	data := workerDataMap(result)
-	text := strings.TrimSpace(firstNonEmpty(stringFromMap(data, "text"), firstStringFromAny(data["texts"])))
+	text := strings.TrimSpace(firstNonEmpty(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
 	if text == "" {
-		return platformcore.DetailResult{}, fmt.Errorf("猎聘详情页未读取到 DOM 文本")
+		return platformcore.DetailResult{}, fmt.Errorf("智联招聘详情弹框未读取到 DOM 文本")
 	}
 	return platformcore.DetailResult{Text: text, Source: "dom"}, nil
 }
 
 // CloseCandidateDetail 关闭智联招聘候选人详情页。
+// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	closeBtn := platformElement(cfg, "detail", "closeBtn")
-	if closeBtn != nil {
-		_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": closeBtn, "timeout": 1500})
-		if err == nil {
-			return nil
-		}
+	name := candidateName(candidate)
+	exec.Log("info", "正在关闭"+name+"详情")
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/detail/close", map[string]any{
+		"platform_id":     "zhaopin",
+		"platform_config": cfg,
+		"key":             "Escape",
+		"candidate_name":  name,
+	})
+	if err == nil {
+		exec.Log("info", name+"详情已关闭")
 	}
-	_, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape", "wait_ms": 200})
 	return err
 }
 
 // CleanCandidateDetailText 清理智联招聘详情文本中的平台附加内容。
+// text 为 DOM 提取出的详情文本。
 func (r *Runtime) CleanCandidateDetailText(text string) string {
 	return strings.TrimSpace(text)
 }

@@ -10,11 +10,13 @@ import (
 
 // GreetCandidate 执行智联招聘候选人打招呼。
 func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	item := platformElement(cfg, "card", "item")
-	greetBtn := platformElement(cfg, "actions", "greetBtn")
-	if item == nil || greetBtn == nil {
-		return fmt.Errorf("平台配置中无候选人卡片或打招呼按钮选择器")
+	exec.Log("info", fmt.Sprintf("准备调用打招呼接口：name=%s", candidateName(candidate)))
+	payload := zhaopinCandidateVisiblePayload(cfg, candidate)
+	payload["debug_stage"] = "greet-before"
+	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", payload); err != nil {
+		return err
 	}
-	_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": greetBtn, "timeout": 10000})
+	payload["debug_stage"] = "greet-click"
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload)
 	return err
 }

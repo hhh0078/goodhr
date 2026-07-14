@@ -1091,6 +1091,10 @@ async function closePage(payload) {
 async function extractBossCandidates(payload) {
   const startedAt = Date.now();
   const platformConfig = payload.platform_config || payload.config || {};
+  const platformID =
+    String(payload.platform_id || platformConfig.id || "boss")
+      .trim()
+      .toLowerCase() || "boss";
   const rules = bossRules(platformConfig);
   const rawMaxItems = Number(payload.max_items || 0);
   const maxItems = rawMaxItems > 0 ? rawMaxItems : 0;
@@ -1113,7 +1117,7 @@ async function extractBossCandidates(payload) {
         status: "scanned",
         raw_text: rawText,
         filter_text: rawText,
-        platform_id: "boss",
+        platform_id: platformID,
         card_index: item.index,
         element_ref: item.ref || item.element_ref,
         fields,
@@ -1268,7 +1272,7 @@ async function extractBossCandidateDetail(payload) {
     await humanMouseClick(currentPage, payload);
   }
   await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
-  const detailSelectors = selectorList(rules.detail_containers);
+  const detailSelectors = detailSelectorList(rules.detail_containers);
   const detailReady = await waitForBossDetailVisualReady(
     currentPage,
     detailSelectors,
@@ -1366,6 +1370,20 @@ async function ensureBossCandidateVisible(payload) {
  */
 async function closeBossCandidateDetail(payload) {
   const currentPage = await ensurePage();
+  const platformID = String(
+    payload.platform_id || payload.platform_config?.id || "boss",
+  )
+    .trim()
+    .toLowerCase();
+  if (platformID === "zhaopin" && pageURL(currentPage).includes("resumeNumber=")) {
+    await currentPage.goBack({
+      waitUntil: "domcontentloaded",
+      timeout: Number(payload.timeout || 10000),
+    });
+    clearElementRefs();
+    await currentPage.waitForTimeout(Number(payload.wait_ms || 200));
+    return { closed: true, action: "go-back", platform_id: platformID };
+  }
   const key = String(payload.key || "Escape").trim() || "Escape";
   await currentPage.keyboard.press(key);
   await currentPage.waitForTimeout(Number(payload.wait_ms || 200));
@@ -4278,6 +4296,19 @@ function selectorList(value) {
     ];
   }
   return [];
+}
+
+/**
+ * 将详情选择器转换为列表，并把 body 降级为最终兜底。
+ * @param {any} value - 详情容器选择器配置。
+ * @returns {string[]} 优先匹配详情容器的 CSS 选择器列表。
+ */
+function detailSelectorList(value) {
+  const selectors = selectorList(value);
+  return [
+    ...selectors.filter((selector) => selector.toLowerCase() !== "body"),
+    ...selectors.filter((selector) => selector.toLowerCase() === "body"),
+  ];
 }
 
 /**
