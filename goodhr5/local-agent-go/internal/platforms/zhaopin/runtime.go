@@ -16,6 +16,11 @@ func NewRuntime() *Runtime {
 	return &Runtime{}
 }
 
+// ShouldSelectPositionDirectly 表示智联招聘每次直接切换任务岗位，不读取页面当前岗位。
+func (r *Runtime) ShouldSelectPositionDirectly() bool {
+	return true
+}
+
 // zhaopinCandidateVisiblePayload 返回智联候选人可见定位通用参数。
 // cfg 为平台配置，candidate 为候选人。
 func zhaopinCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) map[string]any {

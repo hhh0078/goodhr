@@ -70,3 +70,9 @@ type Runtime interface {
 type PositionSearchPreparer interface {
 	PreparePositionSearch(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error
 }
+
+// DirectPositionSelector 定义无需读取当前岗位、每次直接切换任务岗位的平台策略。
+type DirectPositionSelector interface {
+	// ShouldSelectPositionDirectly 返回平台是否应跳过当前岗位读取和切换后复核。
+	ShouldSelectPositionDirectly() bool
+}

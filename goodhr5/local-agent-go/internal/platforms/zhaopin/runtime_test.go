@@ -47,6 +47,14 @@ func TestCandidateFingerprintUsesZhaopinPrefix(t *testing.T) {
 	}
 }
 
+// TestShouldSelectPositionDirectly 验证智联跳过当前岗位读取并直接切换。
+// t 为测试对象。
+func TestShouldSelectPositionDirectly(t *testing.T) {
+	if !NewRuntime().ShouldSelectPositionDirectly() {
+		t.Fatal("智联招聘应直接切换任务岗位")
+	}
+}
+
 // TestFetchCandidateDetailUsesDOM 验证智联详情复用稳定定位链路且不请求截图。
 // t 为测试对象。
 func TestFetchCandidateDetailUsesDOM(t *testing.T) {

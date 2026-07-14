@@ -86,7 +86,7 @@ scanLoop:
 			return nil, err
 		}
 		if len(queue) == 0 {
-			forcePositionSelection := false
+			forcePositionSelection := shouldSelectPositionDirectly(platformRuntime)
 			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
 			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
 			r.taskLog(task.ID, "info", "页面准备：正在确认当前页面和岗位")
@@ -447,6 +447,14 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 	if strings.TrimSpace(positionName) == "" {
 		return fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
 	}
+	if shouldSelectPositionDirectly(platformRuntime) {
+		r.taskLog(task.ID, "info", "页面准备：平台无需读取当前岗位，准备直接切换任务岗位")
+		if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
+			return fmt.Errorf("切换页面岗位失败：%w", err)
+		}
+		r.taskLog(task.ID, "info", "页面准备：任务岗位已选择="+positionName)
+		return nil
+	}
 	currentName, err := r.waitCurrentPositionName(ctx, task.ID, platformRuntime, exec, platformConfig)
 	if err != nil {
 		return fmt.Errorf("获取页面当前岗位失败：%w", err)
@@ -468,6 +476,13 @@ func (r *Runner) ensureTaskPageReady(ctx context.Context, task localdb.Task, pla
 		return nil
 	}
 	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，任务岗位=%s", confirmedName, positionName)
+}
+
+// shouldSelectPositionDirectly 判断平台是否要求跳过当前岗位读取并直接切换。
+// platformRuntime 为当前平台运行时。
+func shouldSelectPositionDirectly(platformRuntime platformcore.Runtime) bool {
+	selector, ok := platformRuntime.(platformcore.DirectPositionSelector)
+	return ok && selector.ShouldSelectPositionDirectly()
 }
 
 // prepareEntryPage 调用平台入口页准备动作，失败时只记录日志不中断主流程。
