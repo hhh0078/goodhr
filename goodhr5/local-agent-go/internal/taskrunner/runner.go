@@ -85,12 +85,13 @@ type Runner struct {
 
 // runState 保存单个运行任务的控制句柄。
 type runState struct {
-	cancel         context.CancelFunc
-	progress       Progress
-	emailForNotify string // 失败通知邮箱
-	options        StartOptions
-	cancelReason   string
-	runGreeted     int // 本次运行已打招呼数量
+	cancel             context.CancelFunc
+	progress           Progress
+	emailForNotify     string // 失败通知邮箱
+	options            StartOptions
+	cancelReason       string
+	runGreeted         int                         // 本次运行已打招呼数量
+	pendingDetailClose func(context.Context) error // 当前可能仍打开的候选人详情清理动作
 	// 摸鱼休息状态
 	restMaxTimes  int
 	restUsed      int

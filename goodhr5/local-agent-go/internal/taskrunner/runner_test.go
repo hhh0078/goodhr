@@ -759,8 +759,8 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	waitForTaskStatus(t, db, task.ID, "stopped")
 }
 
-// TestRunnerUserStopSkipsDetailClose 验证用户主动停止后不再执行详情关闭动作。
-func TestRunnerUserStopSkipsDetailClose(t *testing.T) {
+// TestRunnerUserStopClosesCandidateDetail 验证用户主动停止后仍会执行详情关闭动作。
+func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	db := openRunnerTestDB(t)
 	task, err := db.CreateTask(map[string]any{
 		"name":        "停止详情任务",
@@ -775,6 +775,12 @@ func TestRunnerUserStopSkipsDetailClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := newTestRunner(t, db, &fakeWorker{})
+	_, stopCancel := context.WithCancel(t.Context())
+	defer stopCancel()
+	if !runner.setRunning(task.ID, stopCancel, StartOptions{}) {
+		t.Fatal("创建测试运行状态失败")
+	}
+	defer runner.clear(task.ID)
 	runner.markUserStoppedAndCancel(task.ID)
 	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("详情读取已取消")}
 	_, err = runner.enrichCandidateWithDetail(
@@ -790,8 +796,8 @@ func TestRunnerUserStopSkipsDetailClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.closeCalls != 0 {
-		t.Fatalf("用户停止后不应关闭详情，closeCalls=%d", runtime.closeCalls)
+	if runtime.closeCalls != 1 {
+		t.Fatalf("用户停止后应关闭详情一次，closeCalls=%d", runtime.closeCalls)
 	}
 }
 

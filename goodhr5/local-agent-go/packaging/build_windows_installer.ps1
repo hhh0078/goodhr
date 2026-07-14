@@ -1,6 +1,6 @@
 # Purpose: build GoodHR Go Local Agent and create the Windows installer.
 param(
-  [string]$Version = "0.1.0"
+  [string]$Version = "5.1.9"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,8 @@ function Find-InnoSetup {
   $candidates = @(
     "ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
   )
   foreach ($candidate in $candidates) {
     if (Get-Command $candidate -ErrorAction SilentlyContinue) {

@@ -55,6 +55,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		r.taskLog(task.ID, "warning", "详情读取：打开详情前等待被中断，候选人="+candidateName)
 	}
 	var detailResult platformcore.DetailResult
+	closeDetail := func(closeCtx context.Context) error {
+		return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
+	}
+	r.setPendingDetailClose(task.ID, closeDetail)
 	err := r.withOperationTimeout(ctx, task.ID, candidateName, "读取候选人详情", detailFetchTimeout, func(opCtx context.Context) error {
 		nextDetailResult, fetchErr := platformRuntime.FetchCandidateDetail(opCtx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
 			TaskID:         task.ID,
@@ -68,10 +72,8 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	if err != nil {
 		candidate["detail_error"] = err.Error()
 		r.taskLog(task.ID, "warning", fmt.Sprintf("详情读取：失败，候选人=%s，错误=%s", candidateName, err.Error()))
-		if !r.isUserStopped(task.ID) {
-			_ = r.withOperationTimeout(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", detailCloseTimeout, func(closeCtx context.Context) error {
-				return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
-			})
+		if closeErr := r.closeCandidateDetailNow(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", closeDetail); closeErr != nil {
+			r.taskLog(task.ID, "warning", "异常后关闭"+candidateName+"详情失败："+closeErr.Error())
 		}
 		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
 		if isBrowserClosedTaskError(err) {
@@ -80,15 +82,11 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		return 0, nil
 	}
 	defer func() {
-		if r.isUserStopped(task.ID) {
-			r.taskLog(task.ID, "info", "任务已被用户停止，跳过详情关闭动作")
-			return
-		}
 		// 关闭详情前模拟人工浏览延时，然后再执行关闭
-		_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
-		if err := r.withOperationTimeout(context.WithoutCancel(ctx), task.ID, candidateName, "关闭详情页", detailCloseTimeout, func(closeCtx context.Context) error {
-			return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
-		}); err != nil {
+		if !r.isUserStopped(task.ID) {
+			_ = r.delayRandomRange(context.WithoutCancel(ctx), task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
+		}
+		if err := r.closeCandidateDetailNow(context.WithoutCancel(ctx), task.ID, candidateName, "关闭详情页", closeDetail); err != nil {
 			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 		}
 	}()
@@ -185,6 +183,56 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	candidate["status"] = "detail_fetched"
 	r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：完成，候选人=%s，来源=%s，文本长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, nil
+}
+
+// setPendingDetailClose 登记当前候选人详情的清理动作，供正常流程和任务收尾共同使用。
+func (r *Runner) setPendingDetailClose(taskID string, closeFn func(context.Context) error) {
+	r.mu.Lock()
+	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		state.pendingDetailClose = closeFn
+	}
+	r.mu.Unlock()
+}
+
+// closeCandidateDetailNow 执行当前候选人详情清理，成功后清除待处理标记。
+func (r *Runner) closeCandidateDetailNow(ctx context.Context, taskID string, candidateName string, operation string, fallback func(context.Context) error) error {
+	r.mu.Lock()
+	state := r.running[strings.TrimSpace(taskID)]
+	var closeFn func(context.Context) error
+	if state != nil {
+		closeFn = state.pendingDetailClose
+	}
+	r.mu.Unlock()
+	if closeFn == nil {
+		closeFn = fallback
+	}
+	if closeFn == nil {
+		return nil
+	}
+	err := r.withOperationTimeout(ctx, taskID, candidateName, operation, detailCloseTimeout, closeFn)
+	if err == nil {
+		r.mu.Lock()
+		if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+			state.pendingDetailClose = nil
+		}
+		r.mu.Unlock()
+	}
+	return err
+}
+
+// closePendingCandidateDetail 在任务退出前补关仍可能打开的候选人详情。
+func (r *Runner) closePendingCandidateDetail(taskID string) {
+	r.mu.Lock()
+	state := r.running[strings.TrimSpace(taskID)]
+	hasPending := state != nil && state.pendingDetailClose != nil
+	r.mu.Unlock()
+	if !hasPending {
+		return
+	}
+	r.taskLog(taskID, "info", "任务收尾：检测到候选人详情可能仍打开，执行最后关闭")
+	if err := r.closeCandidateDetailNow(context.Background(), taskID, "当前候选人", "任务收尾关闭详情页", nil); err != nil {
+		r.taskLog(taskID, "warning", "任务收尾：关闭候选人详情失败，错误="+err.Error())
+	}
 }
 
 // attachDetailScreenshot 将详情截图路径挂到候选人结果上，不再写入本地截图记录表。

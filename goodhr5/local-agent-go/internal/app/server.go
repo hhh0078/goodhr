@@ -453,7 +453,7 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
 		CloudAPIBase:           s.cloudAPIBase(payload),
 		Token:                  token,
-		EnableGreet:            boolValue(payload["enable_greet"]),
+		EnableGreet:            boolValueDefault(payload["enable_greet"], true),
 		GreetRetries:           0,
 		ScrollDelayMin:         3,
 		ScrollDelayMax:         8,
@@ -1352,6 +1352,24 @@ func boolValue(value any) bool {
 	default:
 		return false
 	}
+}
+
+// boolValueDefault 将请求字段转换为布尔值，字段缺失时返回默认值。
+// value 为原始字段值，fallback 为字段缺失或格式无法识别时的默认值。
+func boolValueDefault(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		value := strings.TrimSpace(typed)
+		if strings.EqualFold(value, "true") {
+			return true
+		}
+		if strings.EqualFold(value, "false") {
+			return false
+		}
+	}
+	return fallback
 }
 
 // floatValue 将请求字段转换为浮点数。

@@ -945,22 +945,32 @@ async function extractBossCandidateDetail(payload) {
     await humanMouseClick(currentPage, payload);
   }
   await currentPage.waitForTimeout(Number(payload.wait_ms || 800));
+  const detailSelectors = selectorList(rules.detail_containers);
+  const detailReady = await waitForBossDetailVisualReady(
+    currentPage,
+    detailSelectors,
+    Number(payload.detail_ready_timeout || 15000),
+  );
+  if (!detailReady.ready) {
+    throw new Error(`候选人详情加载超时：${detailReady.reason}`);
+  }
   const detailText = await firstDetailText(
     currentPage,
-    selectorList(rules.detail_containers),
+    detailSelectors,
   );
   const screenshot = payload.screenshot
     ? await screenshotDetailContainer(
         currentPage,
-        selectorList(rules.detail_containers),
+        detailSelectors,
         payload,
       )
     : null;
   const debugInfo = JSON.stringify({
-    selectors: selectorList(rules.detail_containers),
+    selectors: detailSelectors,
     hadContainer: !!detailText,
     cardFound: !!card,
     opened,
+    detailReady,
   });
   return {
     detail_text: detailText,
@@ -1337,6 +1347,77 @@ async function firstDetailText(currentPage, selectors) {
       .innerText({ timeout: 1500 })
       .catch(() => "")
   ).trim();
+}
+
+/**
+ * 等待 Boss 详情 iframe 和容器出现，并确认“正在加载简历”提示消失。
+ * 这里只保护截图入口，不改变原有截图和滚轮分段实现。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {string[]} selectors - 详情容器选择器。
+ * @param {number} timeoutMs - 最长等待时间。
+ * @returns {Promise<Record<string, any>>} 视觉就绪状态。
+ */
+async function waitForBossDetailVisualReady(currentPage, selectors, timeoutMs) {
+  const startedAt = Date.now();
+  const timeout = Math.max(3000, Math.min(Number(timeoutMs || 15000), 45000));
+  const minimumSettleMs = 1800;
+  let stableRounds = 0;
+  let attempts = 0;
+  let lastReason = "未找到可见详情容器";
+  while (Date.now() - startedAt < timeout) {
+    attempts += 1;
+    const containers = [];
+    for (const selector of selectors) {
+      containers.push(
+        ...(await allLocators(currentPage, selector, true, 10).catch(() => [])),
+      );
+    }
+    let loadingVisible = false;
+    for (const frame of currentPage.frames?.() || []) {
+      for (const loadingText of ["正在加载简历", "简历加载中"]) {
+        const locator = frame.locator(`text=${loadingText}`).first();
+        if (
+          (await locator.count().catch(() => 0)) > 0 &&
+          (await locator.isVisible().catch(() => false))
+        ) {
+          loadingVisible = true;
+          break;
+        }
+      }
+      if (loadingVisible) break;
+    }
+    const elapsed = Date.now() - startedAt;
+    if (containers.length === 0) {
+      stableRounds = 0;
+      lastReason = "未找到可见详情容器";
+    } else if (loadingVisible) {
+      stableRounds = 0;
+      lastReason = "详情仍显示正在加载简历";
+    } else if (elapsed < minimumSettleMs) {
+      stableRounds = 0;
+      lastReason = "等待详情界面稳定";
+    } else {
+      stableRounds += 1;
+      lastReason = "ready";
+      if (stableRounds >= 2) {
+        return {
+          ready: true,
+          attempts,
+          elapsed_ms: elapsed,
+          containers: containers.length,
+          reason: "ready",
+        };
+      }
+    }
+    await currentPage.waitForTimeout(250);
+  }
+  return {
+    ready: false,
+    attempts,
+    elapsed_ms: Date.now() - startedAt,
+    containers: 0,
+    reason: lastReason,
+  };
 }
 
 /**

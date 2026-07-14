@@ -4,7 +4,7 @@ setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
 set "VERSION=%~1"
-if "%VERSION%"=="" set "VERSION=0.1.0"
+if "%VERSION%"=="" set "VERSION=5.1.9"
 
 echo [GoodHR] Start Windows installer build. Version: %VERSION%
 echo [GoodHR] Project dir: %ROOT_DIR%
@@ -33,6 +33,7 @@ if not errorlevel 1 (
 )
 if not defined ISCC_PATH if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if not defined ISCC_PATH if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not defined ISCC_PATH if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%LocalAppData%\Programs\Inno Setup 6\ISCC.exe"
 
 if not defined ISCC_PATH (
   echo [GoodHR][ERROR] Inno Setup 6 was not found.
@@ -42,6 +43,7 @@ if not defined ISCC_PATH (
   exit /b 1
 )
 echo [GoodHR] Inno Setup found: %ISCC_PATH%
+for %%i in ("%ISCC_PATH%") do set "PATH=%%~dpi;%PATH%"
 
 REM Check Worker directory and dependencies.
 if not exist "%ROOT_DIR%worker-node\package.json" (

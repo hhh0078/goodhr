@@ -68,6 +68,11 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 		cancel()
 		return nil, err
 	}
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if syncErr := client.SyncTaskStatus(syncCtx, options.Token, taskID, "running"); syncErr != nil {
+		r.taskLog(taskID, "warning", "任务启动：云端运行状态同步失败，错误="+syncErr.Error())
+	}
+	syncCancel()
 	r.taskLog(taskID, "info", "任务启动：已进入后台运行")
 	go r.runTask(runCtx, task, options, snapshot)
 	return map[string]any{"task": updated, "running": true}, nil
@@ -78,6 +83,7 @@ func (r *Runner) Start(ctx context.Context, taskID string, options StartOptions)
 func (r *Runner) runTask(ctx context.Context, task localdb.Task, options StartOptions, snapshot TaskRuntimeSnapshot) {
 	taskID := task.ID
 	defer r.clear(taskID)
+	defer r.closePendingCandidateDetail(taskID)
 	totalRounds := scanRounds(options)
 	task = snapshot.Task
 	options = snapshot.Options
