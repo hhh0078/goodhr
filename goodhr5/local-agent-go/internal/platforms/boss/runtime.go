@@ -141,9 +141,37 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 			continue
 		}
 		exec.Log("info", "找到匹配岗位，准备点击："+name)
-		_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-			"index": intFromMap(found, "index"),
-			"item":  item,
+		elementRef := stringFromMap(found, "element_ref")
+		if elementRef == "" {
+			elementRef = stringFromMap(found, "ref")
+		}
+		if elementRef == "" {
+			exec.Log("warning", "岗位列表项缺少元素引用，回退为按序号点击："+name)
+			_, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
+				"index": intFromMap(found, "index"),
+				"item":  item,
+			})
+			return err
+		}
+		exec.Log("info", fmt.Sprintf("准备滚动到匹配岗位：index=%d name=%s", intFromMap(found, "index"), name))
+		if _, err := exec.Post(ctx, "/api/v1/page/ensure-visible", map[string]any{
+			"element_ref":     elementRef,
+			"wheel_target":    list,
+			"distance":        120,
+			"wait_ms":         260,
+			"max_attempts":    10,
+			"viewport_margin": 80,
+			"require_full":    true,
+		}); err != nil {
+			return err
+		}
+		exec.Log("info", "匹配岗位已滚动到可点击区域，准备点击："+name)
+		_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+			"element_ref":     elementRef,
+			"delay_before":    0.15,
+			"viewport_margin": 40,
+			"require_full":    true,
+			"timeout":         10000,
 		})
 		return err
 	}

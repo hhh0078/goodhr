@@ -455,10 +455,14 @@ async function currentPageURL() {
  */
 async function clickPage(payload) {
   const currentPage = await ensurePage();
-  const base = payload.element_ref
-    ? locatorByRef(currentPage, payload.element_ref) || currentPage
-    : currentPage;
-  const locator = await firstLocator(base, payload.element || payload, true);
+  const refLocator = payload.element_ref
+    ? locatorByRef(currentPage, payload.element_ref)
+    : null;
+  const base = refLocator || currentPage;
+  const locator =
+    refLocator && !payload.element
+      ? refLocator
+      : await firstLocator(base, payload.element || payload, true);
   if (!locator) throw new Error("点击选择器不能为空或未找到元素");
   if (payload.delay_before)
     await currentPage.waitForTimeout(
@@ -467,6 +471,30 @@ async function clickPage(payload) {
   const move = await moveMouseToElement(currentPage, locator, payload);
   const click = await humanMouseClick(currentPage, payload);
   return { clicked: true, mouse: move, click };
+}
+
+/**
+ * 使用真实滚轮把元素滚动到可见区域。
+ * @param {Record<string, any>} payload - 元素引用、滚轮目标和滚动参数。
+ * @returns {Promise<Record<string, any>>} 滚动结果。
+ */
+async function ensureElementVisible(payload) {
+  const currentPage = await ensurePage();
+  const refLocator = payload.element_ref
+    ? locatorByRef(currentPage, payload.element_ref)
+    : null;
+  const target =
+    refLocator ||
+    (await firstLocator(currentPage, payload.element || payload, false));
+  if (!target) throw new Error("滚动目标元素不存在");
+  const wheelTarget = payload.wheel_target || payload.wheelTarget || target;
+  const result = await wheelUntilElementVisible(currentPage, target, wheelTarget, {
+    ...payload,
+    margin: payload.viewport_margin ?? payload.margin ?? 60,
+    require_full: payload.require_full ?? true,
+  });
+  if (!result.visible) throw new Error("滚动后目标元素仍不在可点击区域");
+  return { ok: true, ...result };
 }
 
 /**
@@ -3491,7 +3519,6 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
             frameURL: current.frameURL || "",
           });
           if (!unlimited && result.length >= limit) return result;
-          continue;
         }
       }
       const locator = currentScope.locator(selector);
@@ -3630,6 +3657,7 @@ const routes = {
   "/api/v1/page/use": usePage,
   "/api/v1/page/open": openPage,
   "/api/v1/page/click": clickPage,
+  "/api/v1/page/ensure-visible": ensureElementVisible,
   "/api/v1/page/type": typePage,
   "/api/v1/page/press-key": pressKey,
   "/api/v1/page/scroll": scrollPage,
