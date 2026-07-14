@@ -35,9 +35,16 @@ try {
   $env:GOOS = $TargetOS
   $env:GOARCH = $TargetArch
   go build -trimpath -ldflags="$SubsystemFlag-X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
+  if ($LASTEXITCODE -ne 0) {
+    throw "Go build failed with exit code $LASTEXITCODE."
+  }
 }
 finally {
   Pop-Location
+}
+
+if (!(Test-Path $Output)) {
+  throw "Go build output was not found: $Output"
 }
 
 Write-Step "Build completed: $Output"

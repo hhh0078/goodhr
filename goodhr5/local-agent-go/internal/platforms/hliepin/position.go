@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
-	"regexp"
 	"strings"
-	"time"
 )
 
 // CurrentPositionName 读取当前页面岗位名称。
@@ -38,7 +36,6 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 	if target == "" {
 		return fmt.Errorf("任务岗位名称为空")
 	}
-	jobID, lookupErr := r.publishedJobID(ctx, exec, target)
 	// 猎聘猎头端的岗位来自“正在发布的职位”，不使用输入框搜索。
 	_, _ = exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
 		"text": "展开更多职位", "exact": true, "timeout": 2500,
@@ -46,18 +43,12 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 	if err := exec.Delay(ctx, "等待正在发布的职位展开", 0.4); err != nil {
 		return err
 	}
-	if jobID != "" {
-		selector := fmt.Sprintf(`[data-tlg-ext*="%%22hjob_id%%22%%3A%s"]`, jobID)
-		if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": map[string]any{"selector": selector}, "timeout": 8000}); err != nil {
-			return fmt.Errorf("点击正在发布的职位失败：%s：%w", positionName, err)
-		}
-	} else {
-		_, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-			"text": target, "exact": false, "element": map[string]any{"selector": "li"}, "timeout": 8000,
-		})
-		if err != nil {
-			return fmt.Errorf("正在发布的职位中未找到岗位：%s，完整岗位映射错误=%v，页面匹配错误=%w", positionName, lookupErr, err)
-		}
+	_, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
+		"text": target, "exact": true, "element": map[string]any{"selector": "li"},
+		"resolve_tooltip": true, "tooltip_wait_ms": 300, "timeout": 8000,
+	})
+	if err != nil {
+		return fmt.Errorf("正在发布的职位中未找到岗位：%s：%w", positionName, err)
 	}
 	r.currentPosition = target
 	if err := exec.Delay(ctx, "等待猎聘候选人结果刷新", 1.2); err != nil {
@@ -67,54 +58,6 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 		return err
 	}
 	return nil
-}
-
-// publishedJobID 从猎聘职位管理页读取完整岗位名对应的 hjob_id。
-// 猎聘找人页会把长岗位名直接截断为省略号，使用 ID 可避免同前缀岗位被选错。
-func (r *Runtime) publishedJobID(ctx context.Context, exec platformcore.Executor, positionName string) (string, error) {
-	opened, err := exec.Post(ctx, "/api/v1/page/open", map[string]any{
-		"url": "https://h.liepin.com/job/showlistpage?jobStatus=11", "new_page": true, "timeout": 30000,
-	})
-	if err != nil {
-		return "", err
-	}
-	openData := workerDataMap(opened)
-	detailToken := stringFromMap(openData, "page_token")
-	returnToken := stringFromMap(openData, "previous_page_token")
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_, _ = exec.Post(cleanupCtx, "/api/v1/page/close", map[string]any{
-			"page_token": detailToken, "return_page_token": returnToken,
-			"only_url_contains": "/job/showlistpage", "return_url_contains": "h.liepin.com/search/",
-		})
-	}()
-	if err := exec.Delay(ctx, "等待猎聘完整职位列表", 0.8); err != nil {
-		return "", err
-	}
-	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
-		"element": map[string]any{"selector": "tbody tr"}, "visible_only": true, "include_html": true,
-		"fields":    []any{map[string]any{"position_name": map[string]any{"selector": ".name-link"}}},
-		"max_items": 200,
-	})
-	if err != nil {
-		return "", err
-	}
-	target := normalizePositionName(positionName)
-	idPattern := regexp.MustCompile(`data-row-key=["']([0-9]+)["']`)
-	for _, item := range mapList(workerData(result, "items")) {
-		fields := mapFromAny(item["fields"])
-		name := normalizePositionName(firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(item, "text")))
-		if name != target {
-			continue
-		}
-		match := idPattern.FindStringSubmatch(stringFromMap(item, "html"))
-		if len(match) >= 2 {
-			return match[1], nil
-		}
-		return "", fmt.Errorf("岗位“%s”未读到 hjob_id", positionName)
-	}
-	return "", fmt.Errorf("职位管理页未找到完整岗位名：%s", positionName)
 }
 
 // ensureHiddenCandidateFilters 确保猎聘结果页的三个隐藏筛选已选中。

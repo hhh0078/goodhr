@@ -135,6 +135,9 @@ func TestSelectPositionUsesPublishedJobsAndHiddenFilters(t *testing.T) {
 	}
 	clickCalls, checkedCalls := 0, 0
 	for _, path := range exec.paths {
+		if path == "/api/v1/page/open" {
+			t.Fatal("选择岗位不应再打开慢速职位管理页")
+		}
 		switch path {
 		case "/api/v1/page/click-by-text":
 			clickCalls++

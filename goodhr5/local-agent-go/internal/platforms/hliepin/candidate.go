@@ -32,6 +32,13 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 		}
 		rawItems = mapList(workerData(result, "items"))
 	}
+	if len(rawItems) == 0 {
+		pageURL := ""
+		if pageResult, pageErr := exec.Post(ctx, "/api/v1/page/url", map[string]any{}); pageErr == nil {
+			pageURL = stringFromMap(workerDataMap(pageResult), "url")
+		}
+		exec.Log("warning", fmt.Sprintf("猎聘候选人提取为空：url=%s selector=%s max_items=%d", pageURL, stringFromMap(item, "selector"), maxItems))
+	}
 	candidates := make([]platformcore.Candidate, 0, len(rawItems))
 	for _, found := range rawItems {
 		fields := mapFromAny(found["fields"])
@@ -62,12 +69,16 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 	behavior := platformSection(cfg, "behavior")
 	nextSelector := firstNonEmpty(stringFromMap(behavior, "nextPageBtn"), ".ant-pagination-next")
 	disabledClass := firstNonEmpty(stringFromMap(behavior, "nextPageDisabledClass"), "ant-pagination-disabled")
-	_, err := exec.Post(ctx, "/api/v1/page/scroll-or-click-next", map[string]any{
+	result, err := exec.Post(ctx, "/api/v1/page/scroll-or-click-next", map[string]any{
 		"distance":       distance,
 		"next_element":   map[string]any{"selector": nextSelector},
 		"disabled_class": disabledClass,
 		"next_wait_ms":   1800,
 	})
+	if err == nil {
+		data := workerDataMap(result)
+		exec.Log("info", fmt.Sprintf("猎聘候选人列表推进：action=%s reason=%s", stringFromMap(data, "action"), stringFromMap(data, "reason")))
+	}
 	return err
 }
 

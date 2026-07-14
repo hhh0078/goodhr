@@ -84,7 +84,17 @@ function Ensure-NodeOnPath {
 }
 
 Write-Step "Build Windows x64 Go local agent"
+$buildStartedAt = Get-Date
 & (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
+if ($LASTEXITCODE -ne 0) {
+  throw "Go build script failed with exit code $LASTEXITCODE."
+}
+if (!(Test-Path $SourceExe)) {
+  throw "Go executable was not found after build: $SourceExe"
+}
+if ((Get-Item $SourceExe).LastWriteTime -lt $buildStartedAt.AddSeconds(-2)) {
+  throw "Go executable was not refreshed; refusing to package a stale file: $SourceExe"
+}
 
 # Write-Step "Build local console frontend"
 # $npm = Find-Npm
