@@ -308,7 +308,7 @@ func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.
 		"wait_ms":              260,
 		"card_scroll_attempts": 18,
 		"require_full":         true,
-		"viewport_margin":      5,
+		"viewport_margin":      0,
 	})
 	return err
 }

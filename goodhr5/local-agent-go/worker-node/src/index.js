@@ -976,14 +976,16 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     120,
     Number(payload.card_scroll_distance || payload.distance || 120),
   );
+  const listContainer = await firstLocator(currentPage, rules.scroll_containers, true);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (refLocator) {
       const result = await wheelUntilElementVisible(
         currentPage,
         refLocator,
-        rules.scroll_containers || rules.candidate_card,
+        listContainer || rules.scroll_containers || rules.candidate_card,
         {
           ...payload,
+          container_locator: listContainer || null,
           distance,
           max_attempts: 1,
           margin: viewportMargin,
@@ -1014,7 +1016,9 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       continue;
     }
     let card = cards[cardIndex]?.locator || cards[cardIndex];
-    const view = await isElementInViewport(card, viewOptions);
+    const view = listContainer
+      ? await isElementInContainerViewport(card, listContainer, viewOptions)
+      : await isElementInViewport(card, viewOptions);
     logWorker("Boss候选人index可见性检查", {
       card_index: cardIndex,
       attempt,
@@ -1022,11 +1026,12 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       in_viewport: view.in_viewport,
       fully_visible: view.fully_visible,
       box: compactBoxLog(view.box),
+      container_box: compactBoxLog(view.container_box),
     });
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }
-    await scrollBossListByRules(currentPage, rules, distance, previousCandidateCard(cards, cardIndex));
+    await scrollBossListByRules(currentPage, rules, wheelDistanceForView(view, distance), previousCandidateCard(cards, cardIndex));
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
@@ -3332,6 +3337,7 @@ async function isElementInContainerViewport(
     vertically_visible: verticallyVisible,
     vertically_fully_visible: verticallyFullyVisible,
     horizontally_visible: horizontallyVisible,
+    margin,
     box: {
       x: Math.round(box.x),
       y: Math.round(box.y),
@@ -3477,9 +3483,10 @@ async function wheelUntilElementVisible(
       wheelTarget,
       options,
     );
-    await currentPage.mouse.wheel(0, distance);
+    const wheelDistance = wheelDistanceForView(view, distance);
+    await currentPage.mouse.wheel(0, wheelDistance);
     await currentPage.waitForTimeout(waitMs);
-    attempts.push({ attempt, distance, mouse: move });
+    attempts.push({ attempt, distance: wheelDistance, mouse: move });
   }
   const finalView = options.container_locator
     ? await isElementInContainerViewport(
@@ -3493,6 +3500,28 @@ async function wheelUntilElementVisible(
     attempts,
     final_view: finalView,
   };
+}
+
+/**
+ * 根据目标元素和容器位置决定滚轮方向。
+ * @param {Record<string, any>} view - 当前可见性检测结果。
+ * @param {number} baseDistance - 基础滚动距离。
+ * @returns {number} 带方向的滚动距离。
+ */
+function wheelDistanceForView(view, baseDistance) {
+  const distance = Math.abs(Number(baseDistance || 120));
+  const box = view?.box;
+  const containerBox = view?.container_box;
+  if (!box || !containerBox) return distance;
+  const margin = Math.max(0, Number(view.margin || 0));
+  const containerTop = Number(containerBox.y || 0) + margin;
+  const containerBottom =
+    Number(containerBox.y || 0) + Number(containerBox.height || 0) - margin;
+  const top = Number(box.y || 0);
+  const bottom = top + Number(box.height || 0);
+  if (top < containerTop) return -distance;
+  if (bottom > containerBottom) return distance;
+  return distance;
 }
 
 /**
