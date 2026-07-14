@@ -12,11 +12,6 @@ const port = Number(rawPort || 9101);
 const rawMaxPort = Number(process.env.GOODHR_WORKER_PORT_END || 9109);
 const maxPort = Number.isFinite(rawMaxPort) ? rawMaxPort : 9109;
 const agentBaseURL = String(process.env.GOODHR_AGENT_BASE_URL || "").replace(/\/+$/, "");
-const runtimeDir = String(process.env.GOODHR_WORKER_RUNTIME_DIR || "").trim();
-const bossScrollDebugLogPath = runtimeDir
-  ? path.join(runtimeDir, "logs", "boss-candidate-scroll-debug.log")
-  : "";
-const bossScrollDebugMaxBytes = 2 * 1024 * 1024;
 
 let browser = null;
 let context = null;
@@ -52,40 +47,7 @@ function logWorker(message, data = {}) {
  * @returns {Promise<void>} 无返回值。
  */
 async function logBossCandidateScrollDebug(stage, data = {}) {
-  if (!bossScrollDebugLogPath) return;
-  try {
-    await rotateBossCandidateScrollDebugLog();
-    const line = JSON.stringify({
-      time: new Date().toISOString(),
-      stage,
-      ...data,
-    });
-    await fs.appendFile(bossScrollDebugLogPath, `${line}\n`, "utf8");
-  } catch {
-    // 调试日志不能影响主流程。
-  }
-}
-
-/**
- * 控制 Boss 候选人滚动调试日志大小。
- * @returns {Promise<void>} 无返回值。
- */
-async function rotateBossCandidateScrollDebugLog() {
-  const dir = path.dirname(bossScrollDebugLogPath);
-  await fs.mkdir(dir, { recursive: true });
-  const stat = await fs.stat(bossScrollDebugLogPath).catch(() => null);
-  if (stat && stat.size > bossScrollDebugMaxBytes) {
-    await fs.writeFile(
-      bossScrollDebugLogPath,
-      JSON.stringify({
-        time: new Date().toISOString(),
-        stage: "rotate",
-        reason: "日志超过2MB，已重建",
-        previous_size: stat.size,
-      }) + "\n",
-      "utf8",
-    );
-  }
+  logWorker("Boss候选人滚动诊断", { stage, ...data });
 }
 
 /**
@@ -106,6 +68,68 @@ function compactBoxLog(box) {
 function compactViewportLog(view) {
   if (!view) return "";
   return `in=${Boolean(view.in_viewport)},full=${Boolean(view.fully_visible)},box=[${compactBoxLog(view.box)}]`;
+}
+
+/**
+ * 选择真正可作为可视区域参照的 Boss 候选人列表容器。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {Record<string, any>} rules - Boss 平台规则。
+ * @returns {Promise<Record<string, any>>} 容器判断结果。
+ */
+async function bossListViewportContainer(currentPage, rules) {
+  const viewport = currentPage.viewportSize() || { width: 0, height: 0 };
+  const selectors = selectorList(rules.scroll_containers);
+  const rejected = [];
+  for (const selector of selectors) {
+    try {
+      const locator = currentPage.locator(selector).first();
+      if ((await locator.count()) <= 0) continue;
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      const box = await locator.boundingBox().catch(() => null);
+      if (!box || box.width <= 0 || box.height <= 0) {
+        rejected.push({ selector, reason: "no-box", box: compactBoxLog(box) });
+        continue;
+      }
+      const tooTall =
+        viewport.height > 0 && Number(box.height || 0) > viewport.height * 1.15;
+      const outsideViewport =
+        viewport.height > 0 &&
+        (Number(box.y || 0) >= viewport.height ||
+          Number(box.y || 0) + Number(box.height || 0) <= 0);
+      if (tooTall || outsideViewport) {
+        rejected.push({
+          selector,
+          reason: tooTall ? "too-tall" : "outside-viewport",
+          box: compactBoxLog(box),
+        });
+        continue;
+      }
+      return {
+        locator,
+        selector,
+        usable: true,
+        reason: "ok",
+        box,
+        viewport,
+        rejected,
+      };
+    } catch (error) {
+      rejected.push({
+        selector,
+        reason: "error",
+        error: error?.message || String(error),
+      });
+    }
+  }
+  return {
+    locator: null,
+    selector: "",
+    usable: false,
+    reason: "no-usable-container",
+    box: null,
+    viewport,
+    rejected,
+  };
 }
 
 process.on("uncaughtException", (error) => {
@@ -1044,7 +1068,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     120,
     Number(payload.card_scroll_distance || payload.distance || 120),
   );
-  const listContainer = await firstLocator(currentPage, rules.scroll_containers, true);
+  const listContainerInfo = await bossListViewportContainer(currentPage, rules);
+  const listContainer = listContainerInfo.usable ? listContainerInfo.locator : null;
   await logBossCandidateScrollDebug("locate-start", {
     debug_stage: payload.debug_stage || "",
     card_index: cardIndex,
@@ -1054,7 +1079,14 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     require_full: requireFull,
     viewport_margin: viewportMargin,
     has_list_container: Boolean(listContainer),
-    list_container_box: listContainer ? compactBoxLog(await listContainer.boundingBox().catch(() => null)) : null,
+    list_container_usable: Boolean(listContainerInfo.usable),
+    list_container_reason: listContainerInfo.reason,
+    list_container_selector: listContainerInfo.selector,
+    list_container_box: compactBoxLog(listContainerInfo.box),
+    viewport: listContainerInfo.viewport
+      ? `w=${listContainerInfo.viewport.width},h=${listContainerInfo.viewport.height}`
+      : "",
+    rejected_containers: JSON.stringify(listContainerInfo.rejected || []).slice(0, 600),
   });
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (refLocator) {
@@ -1122,6 +1154,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       in_viewport: view.in_viewport,
       wheel_distance: wheelDistance,
       direction: wheelDirectionLabel(wheelDistance),
+      list_container_usable: Boolean(listContainerInfo.usable),
+      list_container_reason: listContainerInfo.reason,
       view: viewDebugInfo(view),
     });
     logWorker("Boss候选人index可见性检查", {
@@ -1132,6 +1166,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       fully_visible: view.fully_visible,
       box: compactBoxLog(view.box),
       container_box: compactBoxLog(view.container_box),
+      list_container_usable: Boolean(listContainerInfo.usable),
+      list_container_reason: listContainerInfo.reason,
     });
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
@@ -1182,11 +1218,25 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
     }
   }
   const selectors = selectorList(rules.scroll_containers);
+  const viewport = currentPage.viewportSize() || { width: 0, height: 0 };
   for (const selector of selectors) {
     try {
       const locator = currentPage.locator(selector).first();
       if ((await locator.count()) <= 0) continue;
       if (!(await locator.isVisible().catch(() => false))) continue;
+      const box = await locator.boundingBox().catch(() => null);
+      if (
+        box &&
+        viewport.height > 0 &&
+        Number(box.height || 0) > viewport.height * 1.15
+      ) {
+        logWorker("Boss候选人滚动列表：跳过过高容器", {
+          selector,
+          box: compactBoxLog(box),
+          viewport_height: viewport.height,
+        });
+        continue;
+      }
       await moveMouseToElement(currentPage, locator);
       await currentPage.mouse.wheel(0, distance);
       await currentPage.waitForTimeout(450);
