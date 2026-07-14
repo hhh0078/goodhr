@@ -835,7 +835,7 @@ async function extractBossCandidateDetail(payload) {
     {
       ...payload,
       require_full: payload.require_full !== false,
-      viewport_margin: payload.viewport_margin || 12,
+      viewport_margin: payload.viewport_margin ?? 12,
     },
   );
   const card = cardInfo.card;
@@ -903,7 +903,7 @@ async function ensureBossCandidateVisible(payload) {
       ...payload,
       force_scroll: true,
       require_full: payload.require_full !== false,
-      viewport_margin: payload.viewport_margin || 12,
+      viewport_margin: payload.viewport_margin ?? 12,
     },
   );
   const move = await moveMouseToElement(currentPage, cardInfo.card, payload);
@@ -944,7 +944,7 @@ async function closeBossCandidateDetail(payload) {
  */
 async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   const requireFull = payload.require_full !== false || Boolean(payload.force_scroll);
-  const viewportMargin = Number(payload.viewport_margin || payload.margin || 12);
+  const viewportMargin = Number(payload.viewport_margin ?? payload.margin ?? 12);
   const viewOptions = {
     margin: viewportMargin,
     full: requireFull,

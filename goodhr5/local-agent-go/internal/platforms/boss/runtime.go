@@ -300,16 +300,7 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 // EnsureCandidateVisible 使用小步滚轮滚动到指定 Boss 候选人卡片。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", map[string]any{
-		"platform_config":      cfg,
-		"card_index":           intFromMap(candidate, "card_index"),
-		"element_ref":          stringFromMap(candidate, "element_ref"),
-		"distance":             120,
-		"wait_ms":              260,
-		"card_scroll_attempts": 18,
-		"require_full":         true,
-		"viewport_margin":      0,
-	})
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", bossCandidateVisiblePayload(cfg, candidate))
 	return err
 }
 
@@ -368,12 +359,27 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Ex
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	exec.Log("info", fmt.Sprintf("准备调用打招呼接口：name=%s", candidateName(candidate)))
-	_, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", map[string]any{
-		"platform_config": cfg,
-		"card_index":      intFromMap(candidate, "card_index"),
-		"element_ref":     stringFromMap(candidate, "element_ref"),
-	})
+	payload := bossCandidateVisiblePayload(cfg, candidate)
+	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", payload); err != nil {
+		return err
+	}
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload)
 	return err
+}
+
+// bossCandidateVisiblePayload 返回 Boss 候选人可见定位通用参数。
+// cfg 为平台配置，candidate 为候选人。
+func bossCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) map[string]any {
+	return map[string]any{
+		"platform_config":      cfg,
+		"card_index":           intFromMap(candidate, "card_index"),
+		"element_ref":          stringFromMap(candidate, "element_ref"),
+		"distance":             120,
+		"wait_ms":              260,
+		"card_scroll_attempts": 18,
+		"require_full":         true,
+		"viewport_margin":      0,
+	}
 }
 
 // CandidateFilterText 返回 Boss 候选人筛选文本。
