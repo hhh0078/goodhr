@@ -300,7 +300,9 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 // EnsureCandidateVisible 使用小步滚轮滚动到指定 Boss 候选人卡片。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", bossCandidateVisiblePayload(cfg, candidate))
+	payload := bossCandidateVisiblePayload(cfg, candidate)
+	payload["debug_stage"] = "decision-before"
+	_, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", payload)
 	return err
 }
 
@@ -360,9 +362,11 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Ex
 func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	exec.Log("info", fmt.Sprintf("准备调用打招呼接口：name=%s", candidateName(candidate)))
 	payload := bossCandidateVisiblePayload(cfg, candidate)
+	payload["debug_stage"] = "greet-before"
 	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", payload); err != nil {
 		return err
 	}
+	payload["debug_stage"] = "greet-click"
 	_, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload)
 	return err
 }

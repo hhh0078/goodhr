@@ -12,6 +12,11 @@ const port = Number(rawPort || 9101);
 const rawMaxPort = Number(process.env.GOODHR_WORKER_PORT_END || 9109);
 const maxPort = Number.isFinite(rawMaxPort) ? rawMaxPort : 9109;
 const agentBaseURL = String(process.env.GOODHR_AGENT_BASE_URL || "").replace(/\/+$/, "");
+const runtimeDir = String(process.env.GOODHR_WORKER_RUNTIME_DIR || "").trim();
+const bossScrollDebugLogPath = runtimeDir
+  ? path.join(runtimeDir, "logs", "boss-candidate-scroll-debug.log")
+  : "";
+const bossScrollDebugMaxBytes = 2 * 1024 * 1024;
 
 let browser = null;
 let context = null;
@@ -38,6 +43,49 @@ function logWorker(message, data = {}) {
   console.log(
     `[${new Date().toISOString()}] ${message}${fields.length ? ` ${fields.join(" ")}` : ""}`,
   );
+}
+
+/**
+ * 写入 Boss 候选人滚动定位专用日志。
+ * @param {string} stage - 当前阶段。
+ * @param {Record<string, any>} data - 调试字段。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function logBossCandidateScrollDebug(stage, data = {}) {
+  if (!bossScrollDebugLogPath) return;
+  try {
+    await rotateBossCandidateScrollDebugLog();
+    const line = JSON.stringify({
+      time: new Date().toISOString(),
+      stage,
+      ...data,
+    });
+    await fs.appendFile(bossScrollDebugLogPath, `${line}\n`, "utf8");
+  } catch {
+    // 调试日志不能影响主流程。
+  }
+}
+
+/**
+ * 控制 Boss 候选人滚动调试日志大小。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function rotateBossCandidateScrollDebugLog() {
+  const dir = path.dirname(bossScrollDebugLogPath);
+  await fs.mkdir(dir, { recursive: true });
+  const stat = await fs.stat(bossScrollDebugLogPath).catch(() => null);
+  if (stat && stat.size > bossScrollDebugMaxBytes) {
+    await fs.writeFile(
+      bossScrollDebugLogPath,
+      JSON.stringify({
+        time: new Date().toISOString(),
+        stage: "rotate",
+        reason: "日志超过2MB，已重建",
+        previous_size: stat.size,
+      }) + "\n",
+      "utf8",
+    );
+  }
 }
 
 /**
@@ -891,6 +939,13 @@ async function ensureBossCandidateVisible(payload) {
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  await logBossCandidateScrollDebug("visible-start", {
+    debug_stage: payload.debug_stage || "",
+    card_index: cardIndex,
+    has_ref: Boolean(payload.element_ref || payload.ref),
+    viewport_margin: payload.viewport_margin,
+    require_full: payload.require_full,
+  });
   logWorker("Boss候选人可见性定位开始", {
     card_index: cardIndex,
     has_ref: Boolean(payload.element_ref || payload.ref),
@@ -907,6 +962,14 @@ async function ensureBossCandidateVisible(payload) {
     },
   );
   const move = await moveMouseToElement(currentPage, cardInfo.card, payload);
+  await logBossCandidateScrollDebug("visible-done", {
+    debug_stage: payload.debug_stage || "",
+    card_index: cardIndex,
+    attempts: cardInfo.attempts,
+    by_ref: Boolean(cardInfo.by_ref),
+    final_view: viewDebugInfo(cardInfo.view || cardInfo.scroll_result?.final_view),
+    mouse: move,
+  });
   logWorker("Boss候选人可见性定位完成", {
     card_index: cardIndex,
     attempts: cardInfo.attempts,
@@ -955,6 +1018,11 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   );
   if (refLocator) {
     const view = await isElementInViewport(refLocator, viewOptions);
+    await logBossCandidateScrollDebug("ref-initial-view", {
+      debug_stage: payload.debug_stage || "",
+      card_index: cardIndex,
+      view: viewDebugInfo(view),
+    });
     logWorker("Boss候选人ref可见性检查", {
       card_index: cardIndex,
       in_viewport: view.in_viewport,
@@ -977,6 +1045,17 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     Number(payload.card_scroll_distance || payload.distance || 120),
   );
   const listContainer = await firstLocator(currentPage, rules.scroll_containers, true);
+  await logBossCandidateScrollDebug("locate-start", {
+    debug_stage: payload.debug_stage || "",
+    card_index: cardIndex,
+    count,
+    max_attempts: maxAttempts,
+    distance,
+    require_full: requireFull,
+    viewport_margin: viewportMargin,
+    has_list_container: Boolean(listContainer),
+    list_container_box: listContainer ? compactBoxLog(await listContainer.boundingBox().catch(() => null)) : null,
+  });
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (refLocator) {
       const result = await wheelUntilElementVisible(
@@ -999,6 +1078,14 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         visible: result.visible,
         final_view: compactViewportLog(result.final_view),
       });
+      await logBossCandidateScrollDebug("ref-scroll-result", {
+        debug_stage: payload.debug_stage || "",
+        card_index: cardIndex,
+        attempt,
+        visible: result.visible,
+        final_view: viewDebugInfo(result.final_view),
+        attempts: result.attempts,
+      });
       if (result.visible) {
         return {
           card: refLocator,
@@ -1008,7 +1095,14 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         };
       }
     }
-  if (cardIndex >= count) {
+    if (cardIndex >= count) {
+      await logBossCandidateScrollDebug("index-out-of-range-scroll", {
+        debug_stage: payload.debug_stage || "",
+        card_index: cardIndex,
+        attempt,
+        count,
+        distance,
+      });
       await scrollBossListByRules(currentPage, rules, distance, previousCandidateCard(cards, cardIndex));
       await currentPage.waitForTimeout(250);
       cards = await allLocators(currentPage, rules.candidate_card, true, 0);
@@ -1019,6 +1113,17 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     const view = listContainer
       ? await isElementInContainerViewport(card, listContainer, viewOptions)
       : await isElementInViewport(card, viewOptions);
+    const wheelDistance = wheelDistanceForView(view, distance);
+    await logBossCandidateScrollDebug("index-before-scroll", {
+      debug_stage: payload.debug_stage || "",
+      card_index: cardIndex,
+      attempt,
+      count,
+      in_viewport: view.in_viewport,
+      wheel_distance: wheelDistance,
+      direction: wheelDirectionLabel(wheelDistance),
+      view: viewDebugInfo(view),
+    });
     logWorker("Boss候选人index可见性检查", {
       card_index: cardIndex,
       attempt,
@@ -1031,10 +1136,25 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }
-    await scrollBossListByRules(currentPage, rules, wheelDistanceForView(view, distance), previousCandidateCard(cards, cardIndex));
+    await scrollBossListByRules(currentPage, rules, wheelDistance, previousCandidateCard(cards, cardIndex));
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
+    const nextCard = cards[cardIndex]?.locator || cards[cardIndex];
+    const afterView = nextCard
+      ? listContainer
+        ? await isElementInContainerViewport(nextCard, listContainer, viewOptions)
+        : await isElementInViewport(nextCard, viewOptions)
+      : null;
+    await logBossCandidateScrollDebug("index-after-scroll", {
+      debug_stage: payload.debug_stage || "",
+      card_index: cardIndex,
+      attempt,
+      count,
+      wheel_distance: wheelDistance,
+      direction: wheelDirectionLabel(wheelDistance),
+      view: viewDebugInfo(afterView),
+    });
   }
   throw new Error("候选人卡片已不在当前页面");
 }
@@ -3484,9 +3604,31 @@ async function wheelUntilElementVisible(
       options,
     );
     const wheelDistance = wheelDistanceForView(view, distance);
+    await logBossCandidateScrollDebug("wheel-before", {
+      debug_stage: options.debug_stage || "",
+      attempt,
+      wheel_distance: wheelDistance,
+      direction: wheelDirectionLabel(wheelDistance),
+      view: viewDebugInfo(view),
+      mouse: move,
+    });
     await currentPage.mouse.wheel(0, wheelDistance);
     await currentPage.waitForTimeout(waitMs);
-    attempts.push({ attempt, distance: wheelDistance, mouse: move });
+    const afterView = options.container_locator
+      ? await isElementInContainerViewport(
+        targetLocator,
+        options.container_locator,
+        options,
+      )
+      : await isElementInViewport(targetLocator, options);
+    await logBossCandidateScrollDebug("wheel-after", {
+      debug_stage: options.debug_stage || "",
+      attempt,
+      wheel_distance: wheelDistance,
+      direction: wheelDirectionLabel(wheelDistance),
+      view: viewDebugInfo(afterView),
+    });
+    attempts.push({ attempt, distance: wheelDistance, mouse: move, after_view: afterView });
   }
   const finalView = options.container_locator
     ? await isElementInContainerViewport(
@@ -3522,6 +3664,62 @@ function wheelDistanceForView(view, baseDistance) {
   if (top < containerTop) return -distance;
   if (bottom > containerBottom) return distance;
   return distance;
+}
+
+/**
+ * 返回滚动方向标签。
+ * @param {number} distance - 滚动距离。
+ * @returns {string} 方向。
+ */
+function wheelDirectionLabel(distance) {
+  if (Number(distance) < 0) return "up";
+  if (Number(distance) > 0) return "down";
+  return "none";
+}
+
+/**
+ * 整理可见性调试信息。
+ * @param {Record<string, any>|null|undefined} view - 可见性检测结果。
+ * @returns {Record<string, any>|null} 调试信息。
+ */
+function viewDebugInfo(view) {
+  if (!view) return null;
+  const box = view.box || null;
+  const containerBox = view.container_box || null;
+  const info = {
+    reason: view.reason || "",
+    in_viewport: Boolean(view.in_viewport),
+    visible: view.visible,
+    fully_visible: view.fully_visible,
+    vertically_visible: view.vertically_visible,
+    vertically_fully_visible: view.vertically_fully_visible,
+    horizontally_visible: view.horizontally_visible,
+    margin: view.margin,
+    box: compactBoxLog(box),
+    container_box: compactBoxLog(containerBox),
+  };
+  if (box && containerBox) {
+    const topDelta = Math.round(Number(box.y || 0) - Number(containerBox.y || 0));
+    const bottomDelta = Math.round(
+      Number(containerBox.y || 0) +
+      Number(containerBox.height || 0) -
+      Number(box.y || 0) -
+      Number(box.height || 0),
+    );
+    info.relative = {
+      top_delta: topDelta,
+      bottom_delta: bottomDelta,
+      card_center_y: Math.round(Number(box.y || 0) + Number(box.height || 0) / 2),
+      container_center_y: Math.round(Number(containerBox.y || 0) + Number(containerBox.height || 0) / 2),
+      position:
+        topDelta < 0
+          ? "above"
+          : bottomDelta < 0
+            ? "below"
+            : "inside",
+    };
+  }
+  return info;
 }
 
 /**

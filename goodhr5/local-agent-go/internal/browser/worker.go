@@ -102,6 +102,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 		"GOODHR_WORKER_ADDR="+workerAddrFromBaseURL(m.baseURL),
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
 		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
+		"GOODHR_WORKER_RUNTIME_DIR="+status.RuntimeDir,
 	)
 	if m.agentBaseURL != "" {
 		cmd.Env = append(cmd.Env, "GOODHR_AGENT_BASE_URL="+m.agentBaseURL)
