@@ -44,7 +44,7 @@ var recruitBookmarks = []bookmarkSpec{
 	{Name: "BOSS直聘", URL: "https://www.zhipin.com/web/chat/recommend"},
 	{Name: "猎聘猎头端", URL: "https://h.liepin.com/"},
 	{Name: "猎聘", URL: "https://www.liepin.com/"},
-	{Name: "智联招聘", URL: "https://www.zhaopin.com/"},
+	{Name: "智联招聘", URL: "https://rd6.zhaopin.com/app/recommend"},
 }
 
 // bookmarkSpec 描述需要固定到书签栏的招聘平台入口。
