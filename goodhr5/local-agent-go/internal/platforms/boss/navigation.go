@@ -1,7 +1,13 @@
 // Package boss 提供 Boss 直聘平台的页面和岗位辅助逻辑。
 package boss
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// positionSearchNotePattern 匹配岗位名称中的中英文括号说明。
+var positionSearchNotePattern = regexp.MustCompile(`（[^（）]*）|\([^()]*\)`)
 
 // platformEntryPage 返回平台入口页配置。
 // cfg 为平台配置。
@@ -68,6 +74,22 @@ func pageMatchesEntry(rawURL string, entry map[string]any) bool {
 // value 为原始岗位名称。
 func normalizePositionName(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
+}
+
+// positionSearchQuery 生成 Boss 岗位搜索框可识别的精简关键词。
+// value 为页面展示或任务配置中的完整岗位名称。
+func positionSearchQuery(value string) string {
+	original := strings.TrimSpace(value)
+	query := original
+	if index := strings.Index(query, " _ "); index >= 0 {
+		query = query[:index]
+	}
+	query = positionSearchNotePattern.ReplaceAllString(query, "")
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return original
+	}
+	return query
 }
 
 // positionListItemElement 合并岗位列表容器和岗位项配置。

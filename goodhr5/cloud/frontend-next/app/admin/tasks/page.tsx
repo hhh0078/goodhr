@@ -285,7 +285,11 @@ export default function TasksPage() {
         `/api/v1/local/tasks/${encodeURIComponent(task.id)}/run`,
         {
           method: "POST",
-          body: { cloud_api_base: CLOUD_API_BASE, token: getToken() },
+          body: {
+            cloud_api_base: CLOUD_API_BASE,
+            token: getToken(),
+            enable_greet: true,
+          },
         },
       );
       setRunningTaskIDs((current) => ({ ...current, [task.id]: true }));

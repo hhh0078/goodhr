@@ -195,7 +195,7 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 // selectPositionBySearch 通过 Boss 岗位搜索框切换到目标岗位。
 // ctx 为运行上下文，exec 为执行器，searchInput 为搜索框定位，item 为岗位项定位，itemText 为岗位名称定位，positionName 为目标岗位名。
 func (r *Runtime) selectPositionBySearch(ctx context.Context, exec platformcore.Executor, searchInput map[string]any, item map[string]any, itemText map[string]any, positionName string) (bool, error) {
-	query := strings.TrimSpace(positionName)
+	query := positionSearchQuery(positionName)
 	if query == "" {
 		return false, nil
 	}
@@ -207,26 +207,49 @@ func (r *Runtime) selectPositionBySearch(ctx context.Context, exec platformcore.
 	}); err != nil {
 		return false, fmt.Errorf("输入岗位搜索关键词失败：%w", err)
 	}
-	if err := exec.Delay(ctx, "等待岗位搜索结果刷新", 0.8); err != nil {
-		return true, err
+	target := normalizePositionName(positionName)
+	var found map[string]any
+	var name string
+	for attempt := 1; attempt <= 4; attempt++ {
+		if err := exec.Delay(ctx, "等待岗位搜索结果刷新", 0.4); err != nil {
+			return true, err
+		}
+		result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+			"element":      item,
+			"visible_only": true,
+			"fields":       []any{map[string]any{"position_name": itemText}},
+		})
+		if err != nil {
+			return true, err
+		}
+		items := mapList(workerData(result, "items"))
+		exec.Log("info", fmt.Sprintf("岗位搜索结果检查：第%d次，共%d项", attempt, len(items)))
+		for _, candidate := range items {
+			fields := mapFromAny(candidate["fields"])
+			candidateName := firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(candidate, "text"))
+			if target == "" || !strings.Contains(normalizePositionName(candidateName), target) {
+				continue
+			}
+			found = candidate
+			name = candidateName
+			break
+		}
+		if found != nil {
+			break
+		}
 	}
-	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
-		"element":      item,
-		"visible_only": true,
-		"fields":       []any{map[string]any{"position_name": itemText}},
-	})
-	if err != nil {
-		return true, err
+	if found == nil {
+		_, clearErr := exec.Post(ctx, "/api/v1/page/type", map[string]any{
+			"element": searchInput,
+			"text":    "",
+			"timeout": 10000,
+		})
+		if clearErr == nil {
+			_ = exec.Delay(ctx, "清空岗位搜索关键词", 0.3)
+		}
+		return false, fmt.Errorf("岗位搜索没有匹配到：%s，已回退到完整岗位列表查找", positionName)
 	}
-	items := mapList(workerData(result, "items"))
-	exec.Log("info", fmt.Sprintf("岗位搜索结果数量：%d", len(items)))
-	if len(items) == 0 {
-		return true, fmt.Errorf("岗位不存在：%s，请确认岗位模板名称是否和Boss直聘岗位名称一致", positionName)
-	}
-	found := items[0]
-	fields := mapFromAny(found["fields"])
-	name := firstNonEmpty(stringFromMap(fields, "position_name"), stringFromMap(found, "text"))
-	exec.Log("info", "岗位搜索命中第一个结果，准备点击："+name)
+	exec.Log("info", "岗位搜索已匹配，准备点击："+name)
 	elementRef := stringFromMap(found, "element_ref")
 	if elementRef == "" {
 		elementRef = stringFromMap(found, "ref")
@@ -239,7 +262,7 @@ func (r *Runtime) selectPositionBySearch(ctx context.Context, exec platformcore.
 		})
 		return true, err
 	}
-	_, err = exec.Post(ctx, "/api/v1/page/click", map[string]any{
+	_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
 		"element_ref":     elementRef,
 		"delay_before":    0.15,
 		"viewport_margin": 24,

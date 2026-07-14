@@ -453,7 +453,7 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
 		CloudAPIBase:           s.cloudAPIBase(payload),
 		Token:                  token,
-		EnableGreet:            true,
+		EnableGreet:            boolValue(payload["enable_greet"]),
 		GreetRetries:           0,
 		ScrollDelayMin:         3,
 		ScrollDelayMax:         8,

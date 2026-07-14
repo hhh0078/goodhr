@@ -38,6 +38,14 @@ func TestCandidateFingerprintRequiresAge(t *testing.T) {
 	}
 }
 
+// TestPositionSearchQueryRemovesBossDisplaySuffix 验证岗位搜索词会去掉括号说明、城市和薪资。
+func TestPositionSearchQueryRemovesBossDisplaySuffix(t *testing.T) {
+	name := "门店前台销售（最低月薪5k+入职校长带教） _ 德阳 6-11K"
+	if query := positionSearchQuery(name); query != "门店前台销售" {
+		t.Fatalf("岗位搜索词不对：%s", query)
+	}
+}
+
 // TestSelectPositionUsesSearchInputFirst 验证 Boss 切换岗位优先使用岗位搜索框。
 func TestSelectPositionUsesSearchInputFirst(t *testing.T) {
 	runtime := NewRuntime()
@@ -73,6 +81,43 @@ func TestSelectPositionUsesSearchInputFirst(t *testing.T) {
 	}
 }
 
+// TestSelectPositionSearchClicksMatchingResult 验证岗位搜索不会误点排在前面的相似岗位。
+func TestSelectPositionSearchClicksMatchingResult(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &selectPositionSearchExecutor{items: []any{
+		map[string]any{
+			"index":       0,
+			"element_ref": "job-ref-wrong",
+			"text":        "门店销售经理 _ 德阳 8-13K",
+		},
+		map[string]any{
+			"index":       1,
+			"element_ref": "job-ref-right",
+			"text":        "门店前台销售（最低月薪5k+入职校长带教） _ 德阳 6-11K",
+		},
+	}}
+	cfg := map[string]any{
+		"position": map[string]any{
+			"switchBtn":   map[string]any{"target_classes": []any{[]any{".job-switch"}}},
+			"searchInput": map[string]any{"target_classes": []any{[]any{".ipt.chat-job-search"}}},
+			"list":        map[string]any{"target_classes": []any{[]any{".job-list"}}},
+			"item":        map[string]any{"target_classes": []any{[]any{".job-item"}}},
+			"itemText":    map[string]any{"target_classes": []any{[]any{".label"}}},
+		},
+	}
+	positionName := "门店前台销售（最低月薪5k+入职校长带教） _ 德阳 6-11K"
+	if err := runtime.SelectPosition(context.Background(), exec, cfg, positionName); err != nil {
+		t.Fatalf("切换岗位不应失败：%v", err)
+	}
+	if query := exec.calls[1].payload["text"]; query != "门店前台销售" {
+		t.Fatalf("应该使用精简后的岗位搜索词：%v", query)
+	}
+	lastCall := exec.calls[len(exec.calls)-1]
+	if lastCall.path != "/api/v1/page/click" || lastCall.payload["element_ref"] != "job-ref-right" {
+		t.Fatalf("应该点击名称匹配的岗位：%v", lastCall)
+	}
+}
+
 type selectPositionSearchCall struct {
 	path    string
 	payload map[string]any
@@ -80,6 +125,7 @@ type selectPositionSearchCall struct {
 
 type selectPositionSearchExecutor struct {
 	calls []selectPositionSearchCall
+	items []any
 }
 
 // Post 记录 Boss 切换岗位时调用的 Worker 接口，并返回模拟搜索结果。
@@ -87,15 +133,19 @@ func (e *selectPositionSearchExecutor) Post(ctx context.Context, path string, pa
 	data, _ := payload.(map[string]any)
 	e.calls = append(e.calls, selectPositionSearchCall{path: path, payload: data})
 	if path == "/api/v1/page/find-elements" {
+		items := e.items
+		if items == nil {
+			items = []any{
+				map[string]any{
+					"index":       0,
+					"element_ref": "job-ref-1",
+					"fields":      map[string]any{"position_name": "销售顾问"},
+				},
+			}
+		}
 		return map[string]any{
 			"data": map[string]any{
-				"items": []any{
-					map[string]any{
-						"index":       0,
-						"element_ref": "job-ref-1",
-						"fields":      map[string]any{"position_name": "销售顾问"},
-					},
-				},
+				"items": items,
 			},
 		}, nil
 	}

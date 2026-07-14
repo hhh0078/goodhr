@@ -585,15 +585,33 @@ async function ensureElementVisible(payload) {
  * @returns {Promise<Record<string, any>>} 输入结果。
  */
 async function typePage(payload) {
-  const selector = firstSelector(payload);
   const text = String(payload.text || "");
-  if (!selector) throw new Error("输入选择器不能为空");
   const currentPage = await ensurePage();
-  await currentPage
-    .locator(selector)
-    .first()
-    .fill(text, { timeout: Number(payload.timeout || 10000) });
-  return { typed: true };
+  const timeout = Math.max(1000, Number(payload.timeout || 10000));
+  const locator = await firstLocator(
+    currentPage,
+    payload.element || payload,
+    true,
+  );
+  if (!locator) throw new Error("没有找到可见的输入框");
+  await locator.waitFor({ state: "visible", timeout });
+  if (!(await locator.isEditable({ timeout }).catch(() => false))) {
+    throw new Error("找到输入框了，但它当前不可输入");
+  }
+  const move = await moveMouseToElement(currentPage, locator, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  await currentPage.keyboard.press("Control+A");
+  await currentPage.keyboard.press("Backspace");
+  if (text) {
+    await currentPage.keyboard.type(text, {
+      delay: Math.max(0, Number(payload.typing_delay_ms || 25)),
+    });
+  }
+  const value = await locator.inputValue({ timeout });
+  if (value !== text) {
+    throw new Error(`输入框内容校验失败：期望 ${text.length} 字，实际 ${value.length} 字`);
+  }
+  return { typed: true, verified: true, value, mouse: move, click };
 }
 
 /**
@@ -1035,6 +1053,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   const viewOptions = {
     margin: viewportMargin,
     full: requireFull,
+    vertical_only: true,
   };
   const refLocator = locatorByRef(
     currentPage,
@@ -1101,7 +1120,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
           max_attempts: 1,
           margin: viewportMargin,
           require_full: requireFull,
-          previous_wheel_locator: previousCandidateCard(cards, cardIndex),
+          vertical_only: true,
+          previous_wheel_locator: await candidateWheelAnchor(cards, cardIndex),
         },
       );
       logWorker("Boss候选人ref滚动检查", {
@@ -1135,7 +1155,12 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         count,
         distance,
       });
-      await scrollBossListByRules(currentPage, rules, distance, previousCandidateCard(cards, cardIndex));
+      await scrollBossListByRules(
+        currentPage,
+        rules,
+        distance,
+        await candidateWheelAnchor(cards, cardIndex),
+      );
       await currentPage.waitForTimeout(250);
       cards = await allLocators(currentPage, rules.candidate_card, true, 0);
       count = cards.length;
@@ -1172,7 +1197,12 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }
-    await scrollBossListByRules(currentPage, rules, wheelDistance, previousCandidateCard(cards, cardIndex));
+    await scrollBossListByRules(
+      currentPage,
+      rules,
+      wheelDistance,
+      await candidateWheelAnchor(cards, cardIndex),
+    );
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
@@ -1258,16 +1288,29 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
 }
 
 /**
- * 返回目标候选人之前的一个候选人卡片，作为滚轮停靠点。
+ * 返回目标候选人附近且当前位于视口内的卡片，作为滚轮停靠点。
+ * 从距离目标最近的卡片开始查找，避免把鼠标移动到已经滚出屏幕的 Locator。
  * @param {Array<any>} cards - 当前候选人卡片列表。
  * @param {number} cardIndex - 目标候选人序号。
- * @returns {any|null} 上一个候选人卡片定位器。
+ * @returns {Promise<any|null>} 附近可见候选人卡片定位器。
  */
-function previousCandidateCard(cards, cardIndex) {
-  if (!Array.isArray(cards) || cards.length <= 0 || cardIndex <= 0) return null;
-  const previousIndex = Math.min(cardIndex - 1, cards.length - 1);
-  const previous = cards[previousIndex];
-  return previous?.locator || previous || null;
+async function candidateWheelAnchor(cards, cardIndex) {
+  if (!Array.isArray(cards) || cards.length <= 1) return null;
+  const indices = [];
+  for (let offset = 1; offset < cards.length; offset += 1) {
+    const previousIndex = cardIndex - offset;
+    const nextIndex = cardIndex + offset;
+    if (previousIndex >= 0) indices.push(previousIndex);
+    if (nextIndex < cards.length) indices.push(nextIndex);
+  }
+  for (const index of indices) {
+    const item = cards[index];
+    const locator = item?.locator || item;
+    if (!locator) continue;
+    const view = await isElementInViewport(locator, { margin: 8 });
+    if (view.in_viewport) return locator;
+  }
+  return null;
 }
 
 /**
@@ -3404,6 +3447,7 @@ async function isElementInViewport(locator, options = {}) {
   };
   const margin = Math.max(0, Number(options.margin || 0));
   const requireFull = Boolean(options.full || options.require_full);
+  const verticalOnly = Boolean(options.vertical_only || options.verticalOnly);
   const left = box.x;
   const right = box.x + box.width;
   const top = box.y;
@@ -3418,12 +3462,27 @@ async function isElementInViewport(locator, options = {}) {
     top >= margin &&
     right <= viewport.width - margin &&
     bottom <= viewport.height - margin;
-  const inViewport = requireFull ? fullyVisible : partiallyVisible;
+  const verticallyVisible = bottom > margin && top < viewport.height - margin;
+  const verticallyFullyVisible =
+    top >= margin && bottom <= viewport.height - margin;
+  const horizontallyVisible = right > 0 && left < viewport.width;
+  const inViewport = verticalOnly
+    ? requireFull
+      ? verticallyFullyVisible && horizontallyVisible
+      : verticallyVisible && horizontallyVisible
+    : requireFull
+      ? fullyVisible
+      : partiallyVisible;
   return {
     visible: true,
     in_viewport: inViewport,
     partially_visible: partiallyVisible,
     fully_visible: fullyVisible,
+    vertically_visible: verticallyVisible,
+    vertically_fully_visible: verticallyFullyVisible,
+    horizontally_visible: horizontallyVisible,
+    vertical_only: verticalOnly,
+    margin,
     box: {
       x: Math.round(box.x),
       y: Math.round(box.y),
@@ -3704,11 +3763,16 @@ function wheelDistanceForView(view, baseDistance) {
   const distance = Math.abs(Number(baseDistance || 120));
   const box = view?.box;
   const containerBox = view?.container_box;
-  if (!box || !containerBox) return distance;
+  if (!box) return distance;
   const margin = Math.max(0, Number(view.margin || 0));
-  const containerTop = Number(containerBox.y || 0) + margin;
-  const containerBottom =
-    Number(containerBox.y || 0) + Number(containerBox.height || 0) - margin;
+  const viewport = view?.viewport;
+  const containerTop = containerBox
+    ? Number(containerBox.y || 0) + margin
+    : margin;
+  const containerBottom = containerBox
+    ? Number(containerBox.y || 0) + Number(containerBox.height || 0) - margin
+    : Number(viewport?.height || 0) - margin;
+  if (!containerBox && containerBottom <= containerTop) return distance;
   const top = Number(box.y || 0);
   const bottom = top + Number(box.height || 0);
   if (top < containerTop) return -distance;
