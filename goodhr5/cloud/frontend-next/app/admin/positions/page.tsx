@@ -155,6 +155,7 @@ export default function PositionsPage() {
             mode_default: form.mode_default,
             detail_mode: detailMode,
             output_structured_resume: form.output_structured_resume,
+            hliepin_search_keyword: form.hliepin_search_keyword.trim(),
           },
           ai_config: {
             position_requirement: form.position_requirement,
@@ -200,14 +201,25 @@ export default function PositionsPage() {
     try {
       const data = await cloudRequest("/api/positions/optimize-requirement", {
         method: "POST",
-        body: { text: form.position_requirement },
+        body: {
+          text: form.position_requirement,
+          name: form.name.trim(),
+          platform_id: form.platform_id,
+        },
       });
       setForm((current) => ({
         ...current,
         position_requirement:
           data.optimized || data.text || current.position_requirement,
+        hliepin_search_keyword:
+          data.search_keyword || current.hliepin_search_keyword,
       }));
-      notify("岗位要求已优化", "success");
+      notify(
+        form.platform_id === "hliepin"
+          ? "岗位要求和猎聘搜索关键词已生成"
+          : "岗位要求已优化",
+        "success",
+      );
     } catch (error) {
       notify(error instanceof Error ? error.message : "AI 优化失败", "error");
     } finally {
@@ -593,6 +605,21 @@ export default function PositionsPage() {
                       helperText='命中排除词后直接跳过。'
                     />
                   </Box>
+                  {form.platform_id === "hliepin" ? (
+                    <TextField
+                      label='猎聘搜索关键词'
+                      value={form.hliepin_search_keyword}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          hliepin_search_keyword: event.target.value,
+                        })
+                      }
+                      fullWidth
+                      placeholder='例如：AI 应用开发 Python'
+                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
+                    />
+                  ) : null}
                 </Stack>
               </Box>
             </>
@@ -630,7 +657,11 @@ export default function PositionsPage() {
                     disabled={optimizing || !form.position_requirement.trim()}
                     onClick={() => void optimizeRequirement()}
                   >
-                    {optimizing ? "优化中..." : "AI 优化岗位要求"}
+                    {optimizing
+                      ? "分析中..."
+                      : form.platform_id === "hliepin"
+                        ? "AI 分析岗位"
+                        : "AI 优化岗位要求"}
                   </Button>
                 </Stack>
                 <Stack spacing={2}>
@@ -649,6 +680,21 @@ export default function PositionsPage() {
                     minRows={7}
                     helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
+                  {form.platform_id === "hliepin" ? (
+                    <TextField
+                      label='猎聘搜索关键词'
+                      value={form.hliepin_search_keyword}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          hliepin_search_keyword: event.target.value,
+                        })
+                      }
+                      fullWidth
+                      placeholder='点击右上角“AI 分析岗位”可自动生成，也可手动填写'
+                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
+                    />
+                  ) : null}
                   <Box
                     sx={{
                       p: 1.5,
@@ -978,6 +1024,7 @@ function createEmptyForm() {
     exclude_keywords: "",
     is_and_mode: false,
     position_requirement: "",
+    hliepin_search_keyword: "",
     open_detail_prompt: "",
     filter_prompt: "",
     review_prompt: "",
@@ -1018,6 +1065,7 @@ function formFromItem(
       exclude_keywords: (item.exclude_keywords || []).join(" "),
       is_and_mode: Boolean(item.is_and_mode),
       position_requirement: ai.position_requirement || "",
+      hliepin_search_keyword: common.hliepin_search_keyword || "",
       open_detail_prompt: normalizePrompt(ai.open_detail_prompt),
       filter_prompt: normalizePrompt(
         ai.greet_prompt || ai.filter_prompt || ai.click_prompt,

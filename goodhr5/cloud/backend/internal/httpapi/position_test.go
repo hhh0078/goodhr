@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +115,19 @@ func TestPositionRejectsMissingName(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("create status = %d, want %d", resp.Code, http.StatusBadRequest)
+	}
+}
+
+func TestNormalizeHLiepinSearchKeyword(t *testing.T) {
+	got := normalizeHLiepinSearchKeyword("猎聘搜索关键词：AI 应用开发，Python；LLM\n")
+	if got != "AI 应用开发 Python LLM" {
+		t.Fatalf("keyword = %q", got)
+	}
+}
+
+func TestHLiepinSearchKeywordPromptContainsPosition(t *testing.T) {
+	prompt := hliepinSearchKeywordPrompt("AI应用开发", "熟悉 Python 和大模型应用")
+	if !strings.Contains(prompt, "岗位名称：AI应用开发") || !strings.Contains(prompt, "熟悉 Python 和大模型应用") {
+		t.Fatalf("prompt does not contain position data: %s", prompt)
 	}
 }

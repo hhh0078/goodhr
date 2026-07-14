@@ -21,6 +21,9 @@ let currentDownloadsPath = "";
 const downloads = [];
 const elementRefs = new Map();
 let elementRefSeq = 0;
+const pageTokens = new WeakMap();
+const pagesByToken = new Map();
+let pageTokenSeq = 0;
 const downloadHandlerVersion = "2026-07-09-context-pages";
 
 /**
@@ -464,7 +467,13 @@ async function openPage(payload) {
     logWorker("页面打开前浏览器未启动，准备自动启动");
     await startBrowser(payload);
   }
-  const currentPage = await ensurePage();
+  const previousPage = await ensurePage();
+  const previousPageToken = rememberPage(previousPage);
+  const currentPage = payload.new_page ? await context.newPage() : previousPage;
+  if (payload.new_page) {
+    page = currentPage;
+    registerPage(currentPage);
+  }
   clearElementRefs();
   logWorker("准备跳转页面", { url: target });
   await currentPage.goto(target, {
@@ -476,7 +485,12 @@ async function openPage(payload) {
     url: currentPage.url(),
     elapsed_ms: Date.now() - startedAt,
   });
-  return { url: currentPage.url() };
+  return {
+    url: currentPage.url(),
+    new_page: Boolean(payload.new_page),
+    page_token: rememberPage(currentPage),
+    previous_page_token: previousPageToken,
+  };
 }
 
 /**
@@ -488,6 +502,7 @@ async function listPages() {
   const pages = context.pages?.() || [];
   const items = pages.map((item, index) => ({
     page_id: String(index),
+    page_token: rememberPage(item),
     url: item.url?.() || "",
     title: "",
     is_default: item === page,
@@ -503,12 +518,17 @@ async function listPages() {
 async function usePage(payload) {
   if (!context) throw new Error("浏览器未启动，无法切换页面");
   const pages = context.pages?.() || [];
+  const token = String(payload.page_token || "").trim();
   const index = Number(payload.page_id || payload.index || 0);
-  const nextPage = pages[index];
+  const nextPage = token ? pagesByToken.get(token) : pages[index];
   if (!nextPage || nextPage.isClosed?.()) throw new Error("指定页面不存在");
   page = nextPage;
   registerPage(page);
-  return { page_id: String(index), url: page.url?.() || "" };
+  return {
+    page_id: String(pages.indexOf(page)),
+    page_token: rememberPage(page),
+    url: page.url?.() || "",
+  };
 }
 
 /**
@@ -727,13 +747,17 @@ async function findElements(payload) {
       }
     }
     const ref = rememberElement(locator);
-    items.push({
+    const resultItem = {
       index,
       ref,
       element_ref: ref,
       text: await locator.innerText({ timeout: 800 }).catch(() => ""),
       fields: extracted,
-    });
+    };
+    if (payload.include_html) {
+      resultItem.html = await locator.evaluate((element) => element.outerHTML).catch(() => "");
+    }
+    items.push(resultItem);
   }
   return { items, count: items.length };
 }
@@ -755,9 +779,308 @@ async function listClickByIndex(payload) {
     ? await firstLocator(target, clickTarget, true)
     : null;
   const locator = nested || target;
+  const visibility = await wheelUntilElementVisible(
+    currentPage,
+    locator,
+    target,
+    {
+      ...payload,
+      distance: Math.max(240, Number(payload.scroll_distance || 560)),
+      max_attempts: Math.max(4, Number(payload.scroll_attempts || 12)),
+      wait_ms: Math.max(120, Number(payload.scroll_wait_ms || 350)),
+      margin: payload.viewport_margin ?? 12,
+      require_full: payload.require_full !== false,
+      debug_stage: "list-click-by-index",
+    },
+  );
+  if (!visibility.visible) throw new Error("指定列表项无法滚动到可点击范围");
+  const previousURL = currentPage.url();
+  const previousPageToken = rememberPage(currentPage);
+  const waitForNewPage = Boolean(
+    payload.wait_for_new_page || payload.waitForNewPage || payload.use_new_page,
+  );
+  const newPagePromise = waitForNewPage
+    ? context
+        .waitForEvent("page", {
+          timeout: Math.max(500, Number(payload.new_page_timeout || payload.timeout || 10000)),
+        })
+        .catch(() => null)
+    : null;
   const move = await moveMouseToElement(currentPage, locator, payload);
   const click = await humanMouseClick(currentPage, payload);
-  return { clicked: true, index, mouse: move, click };
+  if (!waitForNewPage) return { clicked: true, index, mouse: move, click };
+
+  const newPage = await newPagePromise;
+  if (!newPage || newPage.isClosed?.()) {
+    const navigated = currentPage.url() !== previousURL;
+    if (payload.require_new_page && !navigated)
+      throw new Error("点击后未检测到新页面");
+    return {
+      clicked: true,
+      index,
+      mouse: move,
+      click,
+      new_page: false,
+      navigated,
+      previous_url: previousURL,
+      previous_page_token: previousPageToken,
+      url: currentPage.url(),
+    };
+  }
+  registerPage(newPage);
+  await newPage.waitForLoadState("domcontentloaded", {
+    timeout: Math.max(1000, Number(payload.load_timeout || payload.timeout || 10000)),
+  }).catch(() => {});
+  page = newPage;
+  clearElementRefs();
+  await newPage.bringToFront().catch(() => {});
+  return {
+    clicked: true,
+    index,
+    mouse: move,
+    click,
+    new_page: true,
+    previous_url: previousURL,
+    previous_page_token: previousPageToken,
+    page_token: rememberPage(newPage),
+    page_id: String((context.pages?.() || []).indexOf(newPage)),
+    url: newPage.url(),
+  };
+}
+
+/**
+ * 按可见文字点击元素。
+ * @param {Record<string, any>} payload - 文字、可选元素范围和匹配方式。
+ * @returns {Promise<Record<string, any>>} 点击结果。
+ */
+async function clickByText(payload) {
+  const currentPage = await ensurePage();
+  const text = String(payload.text || "").trim();
+  if (!text) throw new Error("点击文字不能为空");
+  const exact = payload.exact !== false;
+  const selectors = selectorList(payload.element || payload.selectors);
+  const selector = selectors.join(",") || "button,a,label,li,[role='button'],span,div";
+  const timeout = Math.max(300, Number(payload.timeout || 5000));
+  const deadline = Date.now() + timeout;
+  let match = null;
+  let fuzzyCandidates = [];
+  while (Date.now() <= deadline && !match) {
+    const items = currentPage.locator(selector);
+    const count = await items.count().catch(() => 0);
+    const candidates = [];
+    fuzzyCandidates = [];
+    for (let index = 0; index < count; index += 1) {
+      const item = items.nth(index);
+      if (!(await item.isVisible().catch(() => false))) continue;
+      const value = String(await item.innerText({ timeout: 300 }).catch(() => "")).trim();
+      const values = [
+        value,
+        String(await item.textContent({ timeout: 300 }).catch(() => "")).trim(),
+        String(await item.getAttribute("title").catch(() => "")).trim(),
+        String(await item.getAttribute("aria-label").catch(() => "")).trim(),
+        String(await item.getAttribute("data-title").catch(() => "")).trim(),
+      ].filter(Boolean);
+      const matched = values.some((candidateText) =>
+        exact ? candidateText === text : candidateText.includes(text),
+      );
+      const visiblePrefix = value.split("…", 1)[0].trim();
+      if (!matched && visiblePrefix.length >= 2 && text.startsWith(visiblePrefix)) {
+        fuzzyCandidates.push(item);
+      }
+      if (!matched) continue;
+      const box = await item.boundingBox().catch(() => null);
+      candidates.push({ item, area: box ? box.width * box.height : Number.MAX_SAFE_INTEGER });
+    }
+    candidates.sort((left, right) => left.area - right.area);
+    match = candidates[0]?.item || null;
+    if (!match && fuzzyCandidates.length > 0) break;
+    if (!match) await currentPage.waitForTimeout(120);
+  }
+  if (!match && fuzzyCandidates.length > 0 && payload.resolve_tooltip !== false) {
+    const tooltipSelector = String(
+      payload.tooltip_selector || ".ant-tooltip-inner,[role='tooltip']",
+    );
+    for (const item of fuzzyCandidates) {
+      await moveMouseToElement(currentPage, item, payload).catch(() => {});
+      await currentPage.waitForTimeout(Math.max(120, Number(payload.tooltip_wait_ms || 350)));
+      const tooltips = currentPage.locator(tooltipSelector);
+      const tooltipCount = await tooltips.count().catch(() => 0);
+      let tooltipMatched = false;
+      for (let index = 0; index < tooltipCount; index += 1) {
+        const tooltip = tooltips.nth(index);
+        if (!(await tooltip.isVisible().catch(() => false))) continue;
+        const value = String(await tooltip.innerText({ timeout: 300 }).catch(() => "")).trim();
+        if (value === text || value.includes(text)) {
+          tooltipMatched = true;
+          break;
+        }
+      }
+      if (tooltipMatched) {
+        match = item;
+        break;
+      }
+    }
+    if (!match && fuzzyCandidates.length === 1) match = fuzzyCandidates[0];
+  }
+  if (!match) throw new Error(`未找到文字元素：${text}`);
+  const move = await moveMouseToElement(currentPage, match, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  return { clicked: true, text, exact, mouse: move, click };
+}
+
+/**
+ * 根据标签文字确保复选框已选中。
+ * @param {Record<string, any>} payload - 标签文字和等待参数。
+ * @returns {Promise<Record<string, any>>} 复选框状态。
+ */
+async function ensureCheckedByText(payload) {
+  const currentPage = await ensurePage();
+  const text = String(payload.text || "").trim();
+  if (!text) throw new Error("复选框标签不能为空");
+  const timeout = Math.max(300, Number(payload.timeout || 5000));
+  const deadline = Date.now() + timeout;
+  let label = null;
+  while (Date.now() <= deadline && !label) {
+    const labels = currentPage.locator("label");
+    const count = await labels.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      const item = labels.nth(index);
+      if (!(await item.isVisible().catch(() => false))) continue;
+      const value = String(await item.innerText({ timeout: 300 }).catch(() => "")).trim();
+      if (value === text) {
+        label = item;
+        break;
+      }
+    }
+    if (!label) await currentPage.waitForTimeout(120);
+  }
+  if (!label) {
+    if (payload.required === false) return { found: false, checked: false, text };
+    throw new Error(`未找到复选框：${text}`);
+  }
+  const input = label.locator("input[type='checkbox']").first();
+  if ((await input.count().catch(() => 0)) <= 0)
+    throw new Error(`标签中没有复选框：${text}`);
+  const visibility = await wheelUntilElementVisible(currentPage, label, label, {
+    ...payload,
+    distance: Math.max(80, Number(payload.scroll_distance || 160)),
+    max_attempts: Math.max(4, Number(payload.scroll_attempts || 12)),
+    wait_ms: Math.max(120, Number(payload.scroll_wait_ms || 300)),
+    margin: Math.max(20, Number(payload.viewport_margin || 140)),
+    require_full: true,
+    debug_stage: "ensure-checked-by-text",
+  });
+  if (!visibility.visible) throw new Error(`复选框无法滚动到可点击范围：${text}`);
+  let checked = await input.isChecked().catch(() => false);
+  let clicked = false;
+  if (!checked) {
+    await moveMouseToElement(currentPage, input, payload);
+    await humanMouseClick(currentPage, payload);
+    clicked = true;
+    // React 筛选会刷新整个结果区，原 input locator 可能立即失效。
+    // 重新按标签定位并等待选中状态，避免把已成功的点击误报为失败。
+    const verifyDeadline = Date.now() + Math.max(1200, Number(payload.verify_timeout || 4000));
+    while (Date.now() <= verifyDeadline && !checked) {
+      const freshLabels = currentPage.locator("label");
+      const freshCount = await freshLabels.count().catch(() => 0);
+      for (let index = 0; index < freshCount; index += 1) {
+        const freshLabel = freshLabels.nth(index);
+        const value = String(
+          await freshLabel.innerText({ timeout: 300 }).catch(() => ""),
+        ).trim();
+        if (value !== text) continue;
+        const freshInput = freshLabel.locator("input[type='checkbox']").first();
+        checked = await freshInput.isChecked().catch(() => false);
+        break;
+      }
+      if (!checked) await currentPage.waitForTimeout(120);
+    }
+  }
+  if (!checked) throw new Error(`复选框未成功选中：${text}`);
+  return { found: true, checked: true, clicked, text };
+}
+
+/**
+ * 使用真实滚轮向下滚动，到达页底后点击下一页。
+ * @param {Record<string, any>} payload - 滚动和分页参数。
+ * @returns {Promise<Record<string, any>>} 翻页或滚动结果。
+ */
+async function scrollOrClickNext(payload) {
+  const currentPage = await ensurePage();
+  const distance = Math.max(100, Math.abs(Number(payload.distance || 720)));
+  const state = await currentPage.evaluate((threshold) => {
+    const root = document.scrollingElement || document.documentElement;
+    const top = Number(root?.scrollTop || window.scrollY || 0);
+    const viewport = Number(window.innerHeight || document.documentElement.clientHeight || 0);
+    const height = Number(root?.scrollHeight || document.documentElement.scrollHeight || 0);
+    return { top, viewport, height, at_bottom: top + viewport >= height - threshold };
+  }, Math.max(20, Number(payload.bottom_threshold || 160)));
+  if (!state.at_bottom) {
+    await currentPage.mouse.wheel(0, distance);
+    await currentPage.waitForTimeout(Math.max(120, Number(payload.scroll_wait_ms || 500)));
+    return { action: "scroll", scrolled: true, distance, before: state };
+  }
+  const next = await firstLocator(currentPage, payload.next_element || payload.nextElement, true);
+  if (!next) return { action: "end", reason: "next-not-found", before: state };
+  const disabledClass = String(payload.disabled_class || payload.disabledClass || "").trim();
+  const disabled = await next.evaluate((element, className) => {
+    return Boolean(
+      element.disabled ||
+      element.getAttribute("aria-disabled") === "true" ||
+      (className && element.classList.contains(className)) ||
+      element.closest?.("[aria-disabled='true'],.ant-pagination-disabled")
+    );
+  }, disabledClass).catch(() => false);
+  if (disabled) return { action: "end", reason: "next-disabled", before: state };
+  const move = await moveMouseToElement(currentPage, next, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  await currentPage.waitForTimeout(Math.max(300, Number(payload.next_wait_ms || 1500)));
+  return { action: "next", clicked: true, mouse: move, click, before: state };
+}
+
+/**
+ * 关闭指定页面并切回返回页面；同页跳转时可退回。
+ * @param {Record<string, any>} payload - 目标页和返回页条件。
+ * @returns {Promise<Record<string, any>>} 关闭结果。
+ */
+async function closePage(payload) {
+  if (!context) throw new Error("浏览器未启动，无法关闭页面");
+  const pages = context.pages?.() || [];
+  const targetContains = String(payload.target_url_contains || "").trim();
+  const onlyContains = String(payload.only_url_contains || "").trim();
+  const targetToken = String(payload.page_token || "").trim();
+  let target = targetToken ? pagesByToken.get(targetToken) : null;
+  if (!target && targetContains)
+    target = [...pages].reverse().find((item) => pageURL(item).includes(targetContains));
+  if (!target) target = await ensurePage();
+  if (!target || target.isClosed?.()) return { closed: false, reason: "target-not-found" };
+  if (onlyContains && !pageURL(target).includes(onlyContains))
+    return { closed: false, reason: "url-mismatch", url: pageURL(target) };
+
+  const returnToken = String(payload.return_page_token || "").trim();
+  const returnContains = String(payload.return_url_contains || "").trim();
+  let returnPage = returnToken ? pagesByToken.get(returnToken) : null;
+  if (!returnPage && returnContains)
+    returnPage = pages.find((item) => item !== target && pageURL(item).includes(returnContains));
+  if (target === returnPage || (pages.length === 1 && payload.go_back_if_same)) {
+    await target.goBack({ waitUntil: "domcontentloaded", timeout: Number(payload.timeout || 10000) });
+    page = target;
+    clearElementRefs();
+    return { closed: false, went_back: true, url: pageURL(target) };
+  }
+  const closedURL = pageURL(target);
+  await target.close({ runBeforeUnload: false });
+  if (!returnPage || returnPage.isClosed?.())
+    returnPage = (context.pages?.() || []).find((item) => !item.isClosed?.()) || null;
+  page = returnPage;
+  clearElementRefs();
+  if (page) await page.bringToFront().catch(() => {});
+  return {
+    closed: true,
+    closed_url: closedURL,
+    page_token: page ? rememberPage(page) : "",
+    url: pageURL(page),
+  };
 }
 
 /**
@@ -3078,12 +3401,30 @@ function pageURL(targetPage) {
 }
 
 /**
+ * 为页面分配跨调用稳定的引用标识。
+ * @param {any} targetPage - Playwright 页面对象。
+ * @returns {string} 页面标识。
+ */
+function rememberPage(targetPage) {
+  if (!targetPage) return "";
+  const existing = pageTokens.get(targetPage);
+  if (existing) return existing;
+  pageTokenSeq += 1;
+  const token = `page_${Date.now()}_${pageTokenSeq}`;
+  pageTokens.set(targetPage, token);
+  pagesByToken.set(token, targetPage);
+  return token;
+}
+
+/**
  * 注册页面下载事件。
  * @param {any} targetPage - Playwright 页面对象。
  * @returns {void} 无返回值。
  */
 function registerPage(targetPage) {
-  if (!targetPage || targetPage.__goodhrDownloadRegistered) return;
+  if (!targetPage) return;
+  const token = rememberPage(targetPage);
+  if (targetPage.__goodhrDownloadRegistered) return;
   targetPage.__goodhrDownloadRegistered = true;
   logWorker("已注册页面下载监听", {
     url: pageURL(targetPage),
@@ -3092,6 +3433,7 @@ function registerPage(targetPage) {
   });
   targetPage.on("close", () => {
     if (page === targetPage) page = null;
+    pagesByToken.delete(token);
     clearElementRefs();
   });
   targetPage.on("download", async (download) => {
@@ -4196,6 +4538,10 @@ const routes = {
   "/api/v1/page/extract-text": extractText,
   "/api/v1/page/find-elements": findElements,
   "/api/v1/page/list-click-by-index": listClickByIndex,
+  "/api/v1/page/click-by-text": clickByText,
+  "/api/v1/page/ensure-checked-by-text": ensureCheckedByText,
+  "/api/v1/page/scroll-or-click-next": scrollOrClickNext,
+  "/api/v1/page/close": closePage,
   "/api/v1/page/screenshot": screenshotPage,
   "/api/v1/page/ai-overlay": aiOverlay,
   "/api/v1/page/keyword-overlay": keywordOverlay,

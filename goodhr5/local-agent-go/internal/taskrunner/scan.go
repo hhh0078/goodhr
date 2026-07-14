@@ -74,6 +74,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	totalFailed := 0
 	processedCount := 0
 	emptyLoads := 0
+	positionSearchPrepared := false
 	emptyLimit := emptyLoadLimit(options)
 	maxItems := maxItemsPerLoad(options)
 scanLoop:
@@ -85,6 +86,7 @@ scanLoop:
 			return nil, err
 		}
 		if len(queue) == 0 {
+			forcePositionSelection := false
 			// 2. 确认当前网页已经进入任务入口，并切到任务对应岗位。
 			r.updateProgress(task.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
 			r.taskLog(task.ID, "info", "页面准备：正在确认当前页面和岗位")
@@ -92,6 +94,17 @@ scanLoop:
 				return nil, err
 			}
 			r.prepareEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig)
+			if !positionSearchPrepared {
+				if preparer, ok := platformRuntime.(platformcore.PositionSearchPreparer); ok {
+					r.taskLog(task.ID, "info", "候选人搜索：正在应用岗位搜索关键词")
+					if err := preparer.PreparePositionSearch(ctx, exec, platformConfig, task.PositionSnapshot); err != nil {
+						return nil, fmt.Errorf("应用岗位搜索关键词失败：%w", err)
+					}
+					r.taskLog(task.ID, "info", "候选人搜索：岗位搜索关键词已应用")
+					forcePositionSelection = true
+				}
+				positionSearchPrepared = true
+			}
 			positionName := taskPositionName(task)
 			if strings.TrimSpace(positionName) == "" {
 				return nil, fmt.Errorf("任务岗位名称为空，无法确认页面岗位")
@@ -101,7 +114,7 @@ scanLoop:
 				return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
 			}
 			r.taskLog(task.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，任务岗位=%s", currentName, positionName))
-			if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) {
+			if strings.Contains(normalizeTaskPositionName(currentName), normalizeTaskPositionName(positionName)) && !forcePositionSelection {
 				r.taskLog(task.ID, "info", "页面准备：岗位匹配成功")
 			} else {
 				r.taskLog(task.ID, "warning", "页面准备：岗位不一致，准备切换岗位")

@@ -14,14 +14,23 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	if strings.ToLower(strings.TrimSpace(request.Mode)) != "dom" {
 		return platformcore.DetailResult{}, fmt.Errorf("%s只支持 DOM 详情识别", r.platformName)
 	}
-	item := platformElement(cfg, "card", "item")
-	if item == nil {
-		return platformcore.DetailResult{}, fmt.Errorf("平台配置中无候选人卡片选择器")
-	}
+	item := candidateItemElement(candidate, cfg)
 	clickTarget := platformElement(cfg, "detail", "openTarget")
-	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": clickTarget, "timeout": 10000}); err != nil {
+	if clickTarget == nil {
+		clickTarget = map[string]any{"selector": "a"}
+	} else {
+		clickTarget["selectors"] = []any{"a"}
+	}
+	openResult, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
+		"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": clickTarget,
+		"timeout": 10000, "wait_for_new_page": true, "require_new_page": true,
+	})
+	if err != nil {
 		return platformcore.DetailResult{}, err
 	}
+	openData := workerDataMap(openResult)
+	candidate["detail_page_token"] = stringFromMap(openData, "page_token")
+	candidate["detail_return_page_token"] = stringFromMap(openData, "previous_page_token")
 	if err := exec.Delay(ctx, "等待猎聘详情页打开", 1.2); err != nil {
 		return platformcore.DetailResult{}, err
 	}
@@ -44,14 +53,16 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 
 // CloseCandidateDetail 关闭猎聘猎头端候选人详情页。
 func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	closeBtn := platformElement(cfg, "detail", "closeBtn")
-	if closeBtn != nil {
-		_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": closeBtn, "timeout": 1500})
-		if err == nil {
-			return nil
-		}
+	payload := map[string]any{
+		"page_token":          stringFromMap(candidate, "detail_page_token"),
+		"return_page_token":   stringFromMap(candidate, "detail_return_page_token"),
+		"target_url_contains": "/resume/showresumedetail/",
+		"only_url_contains":   "/resume/showresumedetail/",
+		"return_url_contains": "h.liepin.com/search/",
+		"go_back_if_same":     true,
+		"timeout":             10000,
 	}
-	_, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape", "wait_ms": 200})
+	_, err := exec.Post(ctx, "/api/v1/page/close", payload)
 	return err
 }
 

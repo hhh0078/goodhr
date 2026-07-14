@@ -20,7 +20,8 @@ func (r *Runtime) OpenEntryPage(ctx context.Context, exec platformcore.Executor,
 }
 
 // PrepareEntryPage 处理猎聘猎头端入口页初始化动作。
-func (r *Runtime) PrepareEntryPage(context.Context, platformcore.Executor, cloudapi.PlatformConfig) error {
+func (r *Runtime) PrepareEntryPage(ctx context.Context, exec platformcore.Executor, _ cloudapi.PlatformConfig) error {
+	// 搜索会刷新候选人条件；岗位选择和隐藏筛选统一在搜索完成后执行。
 	return nil
 }
 

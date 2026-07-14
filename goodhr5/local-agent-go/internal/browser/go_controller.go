@@ -300,6 +300,8 @@ func (c *GoController) Call(ctx context.Context, path string, payload any) (map[
 	case "/api/v1/page/list-click-by-index":
 		err := c.ClickListItemByIndex(ctx, data)
 		return map[string]any{"clicked": err == nil, "index": goIntFromAny(data["index"]), "worker": WorkerModeGo}, err
+	case "/api/v1/page/click-by-text", "/api/v1/page/ensure-checked-by-text", "/api/v1/page/scroll-or-click-next", "/api/v1/page/close":
+		return nil, fmt.Errorf("Go 浏览器控制器尚未实现组合操作：%s", path)
 	case "/api/v1/page/screenshot":
 		result, err := c.screenshotFromPayload(ctx, data)
 		return map[string]any{"path": result.Path, "file": result.File, "screenshot": result, "worker": WorkerModeGo}, err

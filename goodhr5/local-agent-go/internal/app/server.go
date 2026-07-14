@@ -155,6 +155,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/find-elements", s.handlePageFindElements)
 	mux.HandleFunc("/api/v1/page/ensure-visible", s.handlePageEnsureVisible)
 	mux.HandleFunc("/api/v1/page/list-click-by-index", s.handlePageListClickByIndex)
+	mux.HandleFunc("/api/v1/page/click-by-text", s.handlePageClickByText)
+	mux.HandleFunc("/api/v1/page/ensure-checked-by-text", s.handlePageEnsureCheckedByText)
+	mux.HandleFunc("/api/v1/page/scroll-or-click-next", s.handlePageScrollOrClickNext)
+	mux.HandleFunc("/api/v1/page/close", s.handlePageClose)
 	mux.HandleFunc("/api/v1/page/press-key", s.handlePagePressKey)
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
 	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
@@ -736,6 +740,26 @@ func (s *Server) handlePageEnsureVisible(w http.ResponseWriter, r *http.Request)
 // w 为响应对象，r 为请求对象。
 func (s *Server) handlePageListClickByIndex(w http.ResponseWriter, r *http.Request) {
 	s.proxyWorkerPost(w, r, "/api/v1/page/list-click-by-index")
+}
+
+// handlePageClickByText 转发按可见文字点击请求给浏览器 Worker。
+func (s *Server) handlePageClickByText(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/click-by-text")
+}
+
+// handlePageEnsureCheckedByText 转发按标签确保复选框选中请求。
+func (s *Server) handlePageEnsureCheckedByText(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/ensure-checked-by-text")
+}
+
+// handlePageScrollOrClickNext 转发滚动到底后翻页请求。
+func (s *Server) handlePageScrollOrClickNext(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/scroll-or-click-next")
+}
+
+// handlePageClose 转发关闭页面并切回原页请求。
+func (s *Server) handlePageClose(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/page/close")
 }
 
 // handlePagePressKey 转发页面按键请求给 Node Worker。

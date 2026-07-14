@@ -64,3 +64,9 @@ type Runtime interface {
 	// CleanCandidateDetailText 清理平台详情文本中的非简历内容。
 	CleanCandidateDetailText(text string) string
 }
+
+// PositionSearchPreparer 是平台可选实现的任务搜索准备能力。
+// 主流程会在首次确认岗位前调用；只有需要先按岗位配置搜索候选人的平台才需要实现。
+type PositionSearchPreparer interface {
+	PreparePositionSearch(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error
+}
