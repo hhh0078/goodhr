@@ -1,0 +1,232 @@
+// Package taskrunner 文件作用：按职责承载本地任务运行流程的拆分实现。
+package taskrunner
+
+import (
+	"context"
+	"fmt"
+	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/platformcore"
+	"math/rand"
+	"strings"
+	"time"
+)
+
+// consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
+// greetedSoFar 为任务已打招呼数量。
+func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
+	status := stringFromMap(candidate, "status")
+	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
+		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
+		return 0, 0, 0, nil
+	}
+	if task.MatchLimit > 0 && greetedSoFar >= task.MatchLimit {
+		candidate["status"] = "skipped"
+		candidate["skip_reason"] = "已达到任务打招呼上限"
+		return 0, 0, 1, nil
+	}
+	// 打招呼前模拟人工点击延时
+	if err := waitBeforeGreet(ctx, r, task.ID, options); err != nil {
+		return 0, 0, 0, err
+	}
+	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
+	if err := r.tryGreet(ctx, task.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
+		candidate["status"] = "failed"
+		candidate["error"] = err.Error()
+		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
+		return 0, 1, 0, nil
+	}
+	candidate["status"] = "greeted"
+	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	r.taskLog(task.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
+	if task.EnableSound {
+		r.playSound("success.wav", task.ID)
+	}
+	return 1, 0, 0, nil
+}
+
+// tryGreet 带重试地执行单个候选人打招呼。
+// ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
+func (r *Runner) tryGreet(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
+	retries := maxInt(0, options.GreetRetries)
+	var lastErr error
+	for attempt := 0; attempt <= retries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		r.taskLog(taskID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
+		err := r.withOperationTimeout(ctx, taskID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
+			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))
+		})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < retries {
+			if err := sleepWithContext(ctx, 300*time.Millisecond); err != nil {
+				return err
+			}
+		}
+	}
+	return lastErr
+}
+
+// waitBeforeGreet 在打招呼前随机等待。
+// ctx 为请求上下文，options 为任务启动参数。
+// r 为 Runner 实例，用于写任务日志。
+func waitBeforeGreet(ctx context.Context, r *Runner, taskID string, options StartOptions) error {
+	minDelay := options.GreetBeforeDelayMin
+	maxDelay := options.GreetBeforeDelayMax
+	if minDelay <= 0 && maxDelay <= 0 {
+		return nil
+	}
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+	delay := minDelay
+	if maxDelay > minDelay {
+		delay += rand.Float64() * (maxDelay - minDelay)
+	}
+	if r != nil && taskID != "" {
+		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
+	}
+	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
+}
+
+// initRestState 初始化本次任务的模拟休息计划。
+// taskID 为任务 ID，options 为任务启动参数。
+func (r *Runner) initRestState(taskID string, options StartOptions) {
+	maxTimes := randomIntRange(options.RestTimesMin, options.RestTimesMax)
+	nextAfter := randomIntRange(options.RestAfterCandidatesMin, options.RestAfterCandidatesMax)
+	if maxTimes <= 0 || nextAfter <= 0 || options.RestDurationMax <= 0 {
+		return
+	}
+	r.mu.Lock()
+	state := r.running[taskID]
+	if state != nil {
+		state.restMaxTimes = maxTimes
+		state.restUsed = 0
+		state.restNextAfter = nextAfter
+		state.restSinceLast = 0
+	}
+	r.mu.Unlock()
+	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息已启用：最多休息 %d 次，首次约处理 %d 人后休息", maxTimes, nextAfter))
+}
+
+// maybeRestAfterCandidate 在候选人处理后按计划模拟休息。
+// ctx 为任务上下文，taskID 为任务 ID，options 为任务启动参数。
+func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, options StartOptions) error {
+	r.mu.Lock()
+	state := r.running[taskID]
+	if state == nil || state.restMaxTimes <= 0 || state.restUsed >= state.restMaxTimes || state.restNextAfter <= 0 {
+		r.mu.Unlock()
+		return nil
+	}
+	state.restSinceLast++
+	if state.restSinceLast < state.restNextAfter {
+		r.mu.Unlock()
+		return nil
+	}
+	processed := state.restSinceLast
+	state.restUsed++
+	restIndex := state.restUsed
+	state.restSinceLast = 0
+	state.restNextAfter = randomIntRange(options.RestAfterCandidatesMin, options.RestAfterCandidatesMax)
+	r.mu.Unlock()
+
+	maxDuration := options.RestDurationMax
+	if maxDuration < options.RestDurationMin {
+		maxDuration = options.RestDurationMin
+	}
+	durationMinutes := randomFloatRange(options.RestDurationMin, maxDuration)
+	if durationMinutes <= 0 {
+		return nil
+	}
+	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息：已连续处理 %d 人，第 %d 次休息 %.1f 分钟", processed, restIndex, durationMinutes))
+	r.updateProgress(taskID, Progress{Stage: "resting", Message: fmt.Sprintf("模拟休息中，预计 %.1f 分钟", durationMinutes)})
+	if err := sleepWithContext(ctx, time.Duration(durationMinutes*float64(time.Minute))); err != nil {
+		return err
+	}
+	r.updateProgress(taskID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
+	return nil
+}
+
+// freshCandidates 过滤已见过的候选人。
+// candidates 为候选人列表，seen 为已见候选人 ID 集合，返回新增候选人和重复数量。
+func freshCandidates(candidates []map[string]any, seen map[string]struct{}) ([]map[string]any, int) {
+	result := []map[string]any{}
+	duplicateCount := 0
+	for _, candidate := range candidates {
+		id := stringFromMap(candidate, "id")
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			duplicateCount++
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result, duplicateCount
+}
+
+// candidateMaps 将平台候选人转换成主流程保存用 map。
+// candidates 为平台 runtime 返回的候选人列表。
+func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
+	result := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, map[string]any(candidate))
+	}
+	return result
+}
+
+// prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
+// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func (r *Runner) prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
+		return applyKeywordFilter(task, candidates, func(message string) {
+			r.taskLog(task.ID, "info", message)
+		})
+	}
+	return prepareCandidatesForFirstStage(task, candidates)
+}
+
+// prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
+// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
+	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
+		return applyKeywordFilter(task, candidates, nil)
+	}
+	for _, candidate := range candidates {
+		if strings.TrimSpace(stringFromMap(candidate, "status")) == "" {
+			candidate["status"] = "passed"
+		}
+	}
+	return candidates, 0
+}
+
+// candidateLogName 返回候选人日志展示名称。
+// candidate 为候选人字段集合。
+func candidateLogName(candidate map[string]any) string {
+	return firstNonEmptyString(
+		stringFromMap(candidate, "candidate_name"),
+		stringFromMap(candidate, "name"),
+		stringFromMap(candidate, "id"),
+		"候选人",
+	)
+}
+
+// canContinueCandidate 判断候选人是否可以继续进入详情或 AI 阶段。
+// status 为候选人当前状态。
+func canContinueCandidate(status string) bool {
+	status = strings.TrimSpace(status)
+	return status == "" || status == "scanned" || status == "passed" || status == "detail_fetched" || status == "ai_passed"
+}
+
+// shouldSaveCandidateResult 判断候选人结果是否需要入库。
+// status 为候选人当前状态，返回 true 表示该候选人是有效扫描结果。
+func shouldSaveCandidateResult(status string) bool {
+	status = strings.TrimSpace(status)
+	return status == "scanned" || status == "passed" || status == "detail_fetched" || status == "ai_passed" || status == "greeted"
+}
