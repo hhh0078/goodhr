@@ -154,7 +154,7 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 			return err
 		}
 		exec.Log("info", fmt.Sprintf("准备滚动到匹配岗位：index=%d name=%s", intFromMap(found, "index"), name))
-		if _, err := exec.Post(ctx, "/api/v1/page/ensure-visible", map[string]any{
+		scrollResult, err := exec.Post(ctx, "/api/v1/page/ensure-visible", map[string]any{
 			"element_ref":     elementRef,
 			"wheel_target":    list,
 			"distance":        120,
@@ -162,11 +162,14 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 			"max_attempts":    10,
 			"viewport_margin": 80,
 			"require_full":    true,
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		scrollData := workerDataMap(scrollResult)
+		exec.Log("info", fmt.Sprintf("匹配岗位滚动完成：attempts=%d", len(mapList(scrollData["attempts"]))))
 		exec.Log("info", "匹配岗位已滚动到可点击区域，准备点击："+name)
-		_, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		_, err = exec.Post(ctx, "/api/v1/page/click", map[string]any{
 			"element_ref":     elementRef,
 			"delay_before":    0.15,
 			"viewport_margin": 40,

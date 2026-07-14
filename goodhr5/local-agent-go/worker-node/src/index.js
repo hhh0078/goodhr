@@ -488,11 +488,21 @@ async function ensureElementVisible(payload) {
     (await firstLocator(currentPage, payload.element || payload, false));
   if (!target) throw new Error("滚动目标元素不存在");
   const wheelTarget = payload.wheel_target || payload.wheelTarget || target;
-  const result = await wheelUntilElementVisible(currentPage, target, wheelTarget, {
-    ...payload,
-    margin: payload.viewport_margin ?? payload.margin ?? 60,
-    require_full: payload.require_full ?? true,
-  });
+  const wheelLocator =
+    wheelTarget && typeof wheelTarget.boundingBox === "function"
+      ? wheelTarget
+      : await firstLocator(currentPage, wheelTarget, false);
+  const result = await wheelUntilElementVisible(
+    currentPage,
+    target,
+    wheelLocator || wheelTarget,
+    {
+      ...payload,
+      container_locator: wheelLocator || null,
+      margin: payload.viewport_margin ?? payload.margin ?? 60,
+      require_full: payload.require_full ?? true,
+    },
+  );
   if (!result.visible) throw new Error("滚动后目标元素仍不在可点击区域");
   return { ok: true, ...result };
 }
@@ -3250,6 +3260,81 @@ async function isElementInViewport(locator, options = {}) {
 }
 
 /**
+ * 判断元素是否在指定滚动容器的可见范围内。
+ * @param {any} locator - 目标元素定位器。
+ * @param {any} containerLocator - 滚动容器定位器。
+ * @param {Record<string, any>} options - 检测选项。
+ * @returns {Promise<Record<string, any>>} 容器内可见范围检测结果。
+ */
+async function isElementInContainerViewport(
+  locator,
+  containerLocator,
+  options = {},
+) {
+  const visible = await locator.isVisible().catch(() => false);
+  if (!visible) {
+    return { visible: false, in_viewport: false, reason: "not-visible" };
+  }
+  const box = await locator.boundingBox().catch(() => null);
+  const containerBox = await containerLocator.boundingBox().catch(() => null);
+  if (!box || box.width <= 0 || box.height <= 0) {
+    return { visible: true, in_viewport: false, reason: "no-box", box };
+  }
+  if (
+    !containerBox ||
+    containerBox.width <= 0 ||
+    containerBox.height <= 0
+  ) {
+    return {
+      visible: true,
+      in_viewport: false,
+      reason: "no-container-box",
+      box,
+      container_box: containerBox,
+    };
+  }
+  const margin = Math.max(0, Number(options.margin || 0));
+  const requireFull = Boolean(options.full || options.require_full);
+  const left = box.x;
+  const right = box.x + box.width;
+  const top = box.y;
+  const bottom = box.y + box.height;
+  const containerLeft = containerBox.x + margin;
+  const containerRight = containerBox.x + containerBox.width - margin;
+  const containerTop = containerBox.y + margin;
+  const containerBottom = containerBox.y + containerBox.height - margin;
+  const partiallyVisible =
+    right > containerLeft &&
+    bottom > containerTop &&
+    left < containerRight &&
+    top < containerBottom;
+  const fullyVisible =
+    left >= containerLeft &&
+    top >= containerTop &&
+    right <= containerRight &&
+    bottom <= containerBottom;
+  const inViewport = requireFull ? fullyVisible : partiallyVisible;
+  return {
+    visible: true,
+    in_viewport: inViewport,
+    partially_visible: partiallyVisible,
+    fully_visible: fullyVisible,
+    box: {
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+    },
+    container_box: {
+      x: Math.round(containerBox.x),
+      y: Math.round(containerBox.y),
+      width: Math.round(containerBox.width),
+      height: Math.round(containerBox.height),
+    },
+  };
+}
+
+/**
  * 将鼠标移动到选择器或元素配置命中的元素范围内。
  * @param {any} currentPage - Playwright 页面对象。
  * @param {any} elementConfig - 元素选择器、平台元素配置或 Locator。
@@ -3364,7 +3449,13 @@ async function wheelUntilElementVisible(
   const waitMs = Math.max(100, Number(options.wait_ms || 450));
   const attempts = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const view = await isElementInViewport(targetLocator, options);
+    const view = options.container_locator
+      ? await isElementInContainerViewport(
+          targetLocator,
+          options.container_locator,
+          options,
+        )
+      : await isElementInViewport(targetLocator, options);
     if (view.in_viewport) {
       return { visible: true, attempts, final_view: view };
     }
@@ -3377,7 +3468,13 @@ async function wheelUntilElementVisible(
     await currentPage.waitForTimeout(waitMs);
     attempts.push({ attempt, distance, mouse: move });
   }
-  const finalView = await isElementInViewport(targetLocator, options);
+  const finalView = options.container_locator
+    ? await isElementInContainerViewport(
+        targetLocator,
+        options.container_locator,
+        options,
+      )
+    : await isElementInViewport(targetLocator, options);
   return {
     visible: Boolean(finalView.in_viewport),
     attempts,
