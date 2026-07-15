@@ -244,7 +244,7 @@ scanLoop:
 				candidateName := candidateLogName(candidate)
 				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
 				var detailSession *candidateDetailSession
-				r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：开始处理，序号=%d/%d，姓名=%s，状态=%s，超时=%s", processedCount, len(filtered), candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
+				r.taskLog(task.ID, "info", fmt.Sprintf("候选人处理：开始处理，本页序号=%d/%d，累计处理=%d，姓名=%s，状态=%s，超时=%s", item.Index+1, len(filtered), processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
 				r.ensureCandidateVisibleBeforeDecision(candidateCtx, task.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate))
 
@@ -347,7 +347,7 @@ scanLoop:
 					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
 				}
 				candidateCancel()
-				if err := r.maybeRestAfterCandidate(ctx, task.ID, options); err != nil {
+				if err := r.maybeRestAfterCandidate(ctx, task.ID, exec, options); err != nil {
 					return nil, err
 				}
 				if r.isUserStopped(task.ID) {

@@ -3,7 +3,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { aiOverlayMatchKey } from "./ai-overlay-policy.js";
+import {
+  aiOverlayMatchKey,
+  normalizeAIOverlayMaxAge,
+} from "./ai-overlay-policy.js";
 
 test("同一候选人的分析中和分析完成状态复用同一张卡片", () => {
   assert.equal(aiOverlayMatchKey("AI 正在评分", "张女士"), "张女士");
@@ -15,4 +18,10 @@ test("不同候选人使用不同浮层标识", () => {
     aiOverlayMatchKey("AI 正在评分", "张女士"),
     aiOverlayMatchKey("AI 正在评分", "李先生"),
   );
+});
+
+test("休息浮层可以按休息时长保留且具有安全上限", () => {
+  assert.equal(normalizeAIOverlayMaxAge(6 * 60 * 1000), 6 * 60 * 1000);
+  assert.equal(normalizeAIOverlayMaxAge(100), 3000);
+  assert.equal(normalizeAIOverlayMaxAge(Number.POSITIVE_INFINITY), 15000);
 });

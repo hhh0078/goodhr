@@ -322,11 +322,18 @@ func TestMaybeRestAfterCandidate(t *testing.T) {
 	runner.initRestState("task-rest", options)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := runner.maybeRestAfterCandidate(ctx, "task-rest", options); !errors.Is(err, context.Canceled) {
+	if err := runner.maybeRestAfterCandidate(ctx, "task-rest", platformExecutor{}, options); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	if runner.running["task-rest"].restUsed != 1 {
 		t.Fatalf("restUsed = %d", runner.running["task-rest"].restUsed)
+	}
+}
+
+// TestFormatRestDuration 验证休息时长会格式化为清楚的分钟和秒数。
+func TestFormatRestDuration(t *testing.T) {
+	if got := formatRestDuration(6*time.Minute + 42*time.Second); got != "6 分 42 秒" {
+		t.Fatalf("formatRestDuration() = %s", got)
 	}
 }
 

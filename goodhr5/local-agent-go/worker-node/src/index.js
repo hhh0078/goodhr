@@ -9,7 +9,10 @@ import {
   fixedBrowserViewport,
   normalizeBrowserDisplay,
 } from "./browser-display.js";
-import { aiOverlayMatchKey } from "./ai-overlay-policy.js";
+import {
+  aiOverlayMatchKey,
+  normalizeAIOverlayMaxAge,
+} from "./ai-overlay-policy.js";
 import {
   bestCandidateTextMatch,
   candidateCardLocator,
@@ -3240,8 +3243,9 @@ async function aiOverlay(payload) {
   const subtitle = String(payload.subtitle || payload.target || "").trim();
   const message = String(payload.message || "正在分析候选人，请稍候").trim();
   const matchKey = aiOverlayMatchKey(title, subtitle);
+  const maxAgeMS = normalizeAIOverlayMaxAge(payload.max_age_ms);
   await currentPage.evaluate(
-    ({ title, subtitle, message, matchKey }) => {
+    ({ title, subtitle, message, matchKey, maxAgeMS }) => {
       const randStr = (len) =>
         Math.random()
           .toString(36)
@@ -3265,12 +3269,21 @@ async function aiOverlay(payload) {
           mEl.textContent = message;
           mEl.scrollTop = mEl.scrollHeight;
         }
+        if (ctx.removeTimer) clearTimeout(ctx.removeTimer);
+        ctx.removeTimer = setTimeout(function () {
+          if (ctx.card && ctx.card.parentNode) ctx.card.remove();
+          if (ctx.style && ctx.style.parentNode) ctx.style.remove();
+          ctx.card = null;
+          ctx.style = null;
+          ctx.removeTimer = null;
+        }, maxAgeMS);
         return; // 不复用旧卡片，不走删除流程
       }
 
       // 切换候选人时立即移除旧卡片，避免旧姓名与当前详情同时显示。
       if (ctx.card && ctx.card.parentNode && !ctx.removing) {
         ctx.removing = true;
+        if (ctx.removeTimer) clearTimeout(ctx.removeTimer);
         var s = ctx.style;
         var c = ctx.card;
         if (s && s.parentNode) s.remove();
@@ -3365,25 +3378,21 @@ async function aiOverlay(payload) {
         }
       }
 
-      // 15秒自动移除兜底
-      setTimeout(function () {
-        if (box && box.parentNode) {
-          box.style.transition = "opacity 0.3s ease";
-          box.style.opacity = "0.3";
-          setTimeout(function () {
-            if (style && style.parentNode) style.remove();
-            if (box && box.parentNode) box.remove();
-          }, 500);
-        }
-      }, 15000);
-
       // 更新上下文为当前卡片，供下次流式更新时复用
       ctx.matchKey = mk;
       ctx.card = box;
       ctx.style = style;
       ctx.removing = false;
+      ctx.removeTimer = setTimeout(function () {
+        if (ctx.card !== box) return;
+        if (style && style.parentNode) style.remove();
+        if (box && box.parentNode) box.remove();
+        ctx.card = null;
+        ctx.style = null;
+        ctx.removeTimer = null;
+      }, maxAgeMS);
     },
-    { title, subtitle, message, matchKey },
+    { title, subtitle, message, matchKey, maxAgeMS },
   );
   return { visible: true, title, subtitle, message };
 }

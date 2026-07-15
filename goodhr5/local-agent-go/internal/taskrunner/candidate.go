@@ -115,7 +115,7 @@ func (r *Runner) initRestState(taskID string, options StartOptions) {
 
 // maybeRestAfterCandidate 在候选人处理后按计划模拟休息。
 // ctx 为任务上下文，taskID 为任务 ID，options 为任务启动参数。
-func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, options StartOptions) error {
+func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, exec platformExecutor, options StartOptions) error {
 	r.mu.Lock()
 	state := r.running[taskID]
 	if state == nil || state.restMaxTimes <= 0 || state.restUsed >= state.restMaxTimes || state.restNextAfter <= 0 {
@@ -142,13 +142,88 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, opt
 	if durationMinutes <= 0 {
 		return nil
 	}
-	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息：已连续处理 %d 人，第 %d 次休息 %.1f 分钟", processed, restIndex, durationMinutes))
-	r.updateProgress(taskID, Progress{Stage: "resting", Message: fmt.Sprintf("模拟休息中，预计 %.1f 分钟", durationMinutes)})
-	if err := sleepWithContext(ctx, time.Duration(durationMinutes*float64(time.Minute))); err != nil {
+	duration := time.Duration(durationMinutes * float64(time.Minute))
+	endsAt := time.Now().Add(duration)
+	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
+	if err := r.waitForSimulatedRest(ctx, taskID, exec, restIndex, duration, endsAt); err != nil {
 		return err
 	}
 	r.updateProgress(taskID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
+	r.taskLog(taskID, "info", "模拟休息：结束，继续处理候选人")
 	return nil
+}
+
+// waitForSimulatedRest 等待模拟休息结束，并定期更新页面浮层和任务进度。
+// 浮层调用始终异步且忽略错误，页面展示异常不会影响任务主流程。
+func (r *Runner) waitForSimulatedRest(ctx context.Context, taskID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) error {
+	const updateInterval = 30 * time.Second
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	ticker := time.NewTicker(updateInterval)
+	defer ticker.Stop()
+
+	r.updateRestDisplay(taskID, exec, restIndex, duration, endsAt, false)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		case <-ticker.C:
+			remaining := time.Until(endsAt)
+			if remaining <= 0 {
+				return nil
+			}
+			r.updateRestDisplay(taskID, exec, restIndex, remaining, endsAt, true)
+		}
+	}
+}
+
+// updateRestDisplay 更新模拟休息进度，并以非阻塞方式刷新浏览器页面浮层。
+func (r *Runner) updateRestDisplay(taskID string, exec platformExecutor, restIndex int, remaining time.Duration, endsAt time.Time, writeLog bool) {
+	remainingText := formatRestDuration(remaining)
+	message := fmt.Sprintf("模拟休息中，剩余约 %s，预计 %s 继续处理", remainingText, endsAt.Format("15:04:05"))
+	r.updateProgress(taskID, Progress{Stage: "resting", Message: message})
+	if writeLog {
+		r.taskLog(taskID, "info", "模拟休息："+message)
+	}
+	r.showRestOverlayAsync(exec, restIndex, message, remaining+time.Minute)
+}
+
+// showRestOverlayAsync 异步显示模拟休息浮层，任何 Worker 或页面异常都不会阻塞任务。
+func (r *Runner) showRestOverlayAsync(exec platformExecutor, restIndex int, message string, maxAge time.Duration) {
+	if exec.runner == nil || exec.runner.worker == nil {
+		return
+	}
+	go func() {
+		defer func() { _ = recover() }()
+		overlayCtx, overlayCancel := context.WithTimeout(context.Background(), overlayActionTimeout)
+		defer overlayCancel()
+		_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
+			"action":     "show",
+			"title":      "模拟休息中",
+			"subtitle":   fmt.Sprintf("第 %d 次休息", restIndex),
+			"message":    message,
+			"max_age_ms": maxAge.Milliseconds(),
+		})
+	}()
+}
+
+// formatRestDuration 将休息时长格式化为便于用户阅读的分钟和秒数。
+func formatRestDuration(duration time.Duration) string {
+	if duration < 0 {
+		duration = 0
+	}
+	duration = duration.Round(time.Second)
+	minutes := int(duration / time.Minute)
+	seconds := int((duration % time.Minute) / time.Second)
+	if minutes <= 0 {
+		return fmt.Sprintf("%d 秒", seconds)
+	}
+	if seconds <= 0 {
+		return fmt.Sprintf("%d 分钟", minutes)
+	}
+	return fmt.Sprintf("%d 分 %d 秒", minutes, seconds)
 }
 
 // freshCandidates 过滤已见过的候选人。
