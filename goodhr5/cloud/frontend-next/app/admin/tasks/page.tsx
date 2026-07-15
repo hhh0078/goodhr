@@ -2,15 +2,11 @@
 "use client";
 
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
-import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
-import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   FormControlLabel,
   MenuItem,
   Stack,
@@ -19,7 +15,7 @@ import {
   Typography,
 } from "@mui/material";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CLOUD_API_BASE,
   cloudRequest,
@@ -54,6 +50,12 @@ const emptyForm = {
 const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 50;
 const ALL_LOG_LIMIT = 5000;
+const compactTextButtonSx = {
+  minWidth: "auto",
+  px: 0.5,
+  py: 0.5,
+  whiteSpace: "nowrap",
+};
 
 /** TasksPage 管理招聘任务完整生命周期。 */
 export default function TasksPage() {
@@ -554,61 +556,64 @@ export default function TasksPage() {
                   </Box>
                   <Stack
                     direction='row'
-                    spacing={0.5}
-                    sx={{ flexWrap: "wrap" }}
+                    spacing={0.25}
+                    sx={{
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                    }}
                   >
-                    {task.status === "running" ? (
-                      <Button
-                        color='warning'
-                        disabled={Boolean(stoppingTaskIDs[task.id])}
-                        startIcon={
-                          stoppingTaskIDs[task.id] ? (
-                            <CircularProgress size={16} color='inherit' />
-                          ) : (
-                            <StopRoundedIcon />
-                          )
-                        }
-                        onClick={() => void stop(task)}
-                      >
-                        停止
-                      </Button>
-                    ) : (
-                      <Button
-                        variant='contained'
-                        startIcon={<PlayArrowRoundedIcon />}
-                        onClick={() => openStartConfirm(task)}
-                      >
-                        开始
-                      </Button>
-                    )}
                     <Button
-                      startIcon={<EditRoundedIcon />}
+                      size='small'
+                      sx={compactTextButtonSx}
                       disabled={task.status === "running"}
                       onClick={() => openEdit(task)}
                     >
                       编辑
                     </Button>
                     <Button
+                      size='small'
+                      sx={compactTextButtonSx}
                       component={Link}
                       href={`/admin/resumes?task_id=${encodeURIComponent(task.id)}`}
                     >
                       简历
                     </Button>
                     <Button
-                      variant={
-                        expandedLogTaskID === task.id ? "contained" : "text"
-                      }
+                      size='small'
+                      sx={compactTextButtonSx}
                       onClick={() => toggleLogs(task.id)}
                     >
                       {expandedLogTaskID === task.id ? "收起日志" : "日志"}
                     </Button>
                     <Button
                       color='error'
-                      startIcon={<DeleteOutlineRoundedIcon />}
+                      size='small'
+                      sx={compactTextButtonSx}
                       onClick={() => void remove(task)}
                     >
                       删除
                     </Button>
+                    {task.status === "running" ? (
+                      <Button
+                        color='warning'
+                        size='small'
+                        sx={compactTextButtonSx}
+                        disabled={Boolean(stoppingTaskIDs[task.id])}
+                        onClick={() => void stop(task)}
+                      >
+                        {stoppingTaskIDs[task.id] ? "停止中" : "停止"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant='contained'
+                        startIcon={<PlayArrowRoundedIcon />}
+                        sx={{ ml: 0.75, whiteSpace: "nowrap" }}
+                        onClick={() => openStartConfirm(task)}
+                      >
+                        开始
+                      </Button>
+                    )}
                   </Stack>
                 </Stack>
               </Stack>
@@ -864,6 +869,15 @@ function TaskLogPanel(props: {
   onClear: () => void;
 }) {
   const { logs, loading, onRefresh, onViewAll, onClear } = props;
+  const logListRef = useRef<HTMLDivElement | null>(null);
+  const orderedLogs = useMemo(() => sortLogsOldestFirst(logs), [logs]);
+
+  useEffect(() => {
+    const list = logListRef.current;
+    if (!list || orderedLogs.length === 0) return;
+    list.scrollTop = list.scrollHeight;
+  }, [orderedLogs]);
+
   return (
     <Box
       sx={{
@@ -908,6 +922,7 @@ function TaskLogPanel(props: {
         </Stack>
       </Stack>
       <Stack
+        ref={logListRef}
         spacing={0.75}
         sx={{
           p: 1,
@@ -915,14 +930,14 @@ function TaskLogPanel(props: {
           overflow: "auto",
         }}
       >
-        {logs.length ? (
-          logs.map((item, index) => (
+        {orderedLogs.length ? (
+          orderedLogs.map((item, index) => (
             <LogLine
               key={String(
                 item.id || `${item.created_at || item.time}-${index}`,
               )}
               item={item}
-              previous={index > 0 ? logs[index - 1] : null}
+              previous={index > 0 ? orderedLogs[index - 1] : null}
             />
           ))
         ) : (
@@ -939,6 +954,15 @@ function TaskLogPanel(props: {
         )}
       </Stack>
     </Box>
+  );
+}
+
+/** sortLogsOldestFirst 按时间从旧到新排列日志，让最新日志稳定显示在列表底部。 */
+function sortLogsOldestFirst(logs: any[]) {
+  return [...logs].sort(
+    (left, right) =>
+      getLogTimeMs(left.created_at || left.time) -
+      getLogTimeMs(right.created_at || right.time),
   );
 }
 
