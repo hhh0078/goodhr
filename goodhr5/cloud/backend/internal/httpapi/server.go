@@ -16,6 +16,7 @@ type updateAdminSystemConfigRequest struct {
 type Server struct {
 	auth                *AuthService
 	agent               *AgentService
+	userFlow            *UserFlowService
 	agentWS             *AgentWSHub
 	ai                  *AIConfigService
 	aiWallet            *AIWalletService
@@ -28,7 +29,7 @@ type Server struct {
 	candidates          *CandidateService
 	subscriptions       *SubscriptionService
 	payments            *PaymentService
-	onboarding          *OnboardingService
+	runtimeConfig       *RuntimeConfigService
 	invitations         *InvitationService
 	activationCodes     *ActivationCodeService
 	adminUsers          *AdminUserService
@@ -55,7 +56,6 @@ func NewServer() (*Server, error) {
 	}
 	mailer, exposeDebugCode := config.Mailer()
 	tenantStore := config.TenantStore(db)
-	onboardingStore := config.OnboardingStore(db)
 	systemConfigStore := config.SystemConfigStore(db)
 	subscriptionStore := config.SubscriptionStore(db)
 	adminUserStore := config.AdminUserStore(db, subscriptionStore)
@@ -72,13 +72,14 @@ func NewServer() (*Server, error) {
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
+	userFlowStore := config.UserFlowStore(db)
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
-	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, onboardingStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins)
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins)
 	aiWalletService.auth = auth
 	agentWS := NewAgentWSHub(auth)
 	userPreferencesStore := config.UserPreferencesStore(db)
@@ -92,19 +93,20 @@ func NewServer() (*Server, error) {
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
+		userFlow:            NewUserFlowService(auth, userFlowStore),
 		agentWS:             agentWS,
 		ai:                  NewAIConfigService(auth, aiConfigStore),
 		aiWallet:            aiWalletService,
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
-		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore),
-		tasks:               NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore),
+		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore, userFlowStore),
+		tasks:               NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore, userFlowStore),
 		taskLogs:            taskLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
-		onboarding:          NewOnboardingService(auth, onboardingStore, systemConfigStore),
+		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
 		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore, aiWalletStore),
@@ -135,6 +137,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
 	mux.HandleFunc("/api/agents/ws", s.agentWS.ServeWS)
 	mux.HandleFunc("/api/agents/ws-status", s.agentWS.Status)
+	mux.HandleFunc("/api/user-flow", s.userFlow.Current)
 	// 注册 AI 配置接口，用于读取用户自定义和最终生效配置。
 	mux.HandleFunc("/api/config/user-ai", s.ai.User)
 	mux.HandleFunc("/api/config/effective-ai", s.ai.Effective)
@@ -152,8 +155,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/haoshoumi", s.payments.HaoshoumiNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
-	mux.HandleFunc("/api/onboarding/status", s.onboarding.Status)
-	mux.HandleFunc("/api/onboarding/complete", s.onboarding.Complete)
+	mux.HandleFunc("/api/runtime/config", s.runtimeConfig.Current)
 	mux.HandleFunc("/api/invitations/summary", s.invitations.Summary)
 	mux.HandleFunc("/api/team/stats", s.teamStats.Summary)
 	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)

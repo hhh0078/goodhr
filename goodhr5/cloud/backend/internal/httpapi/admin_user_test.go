@@ -36,8 +36,9 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 		Users []struct {
 			Email string `json:"email"`
 			Flow  struct {
-				CurrentStep string `json:"current_step"`
-				Completed   bool   `json:"completed"`
+				Stage     string `json:"stage"`
+				StageName string `json:"stage_name"`
+				State     string `json:"state"`
 			} `json:"flow"`
 		} `json:"users"`
 		Total    int `json:"total"`
@@ -57,7 +58,7 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	if listPayload.Total == 0 || listPayload.Page != 1 || listPayload.PageSize == 0 {
 		t.Fatalf("unexpected pagination payload: %+v", listPayload)
 	}
-	if listPayload.Users[0].Flow.CurrentStep == "" {
+	if listPayload.Users[0].Flow.Stage == "" || listPayload.Users[0].Flow.StageName == "" {
 		t.Fatalf("missing user flow: %+v", listPayload.Users[0])
 	}
 	if listPayload.Stats.TodayRegisteredCount == 0 {

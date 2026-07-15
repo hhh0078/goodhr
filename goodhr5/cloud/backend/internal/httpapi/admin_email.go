@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -35,9 +36,19 @@ type sendAdminEmailRequest struct {
 }
 
 type automaticEmailResult struct {
-	Job     string       `json:"job"`
-	Batches []EmailBatch `json:"batches"`
-	Skipped []string     `json:"skipped"`
+	Job     string         `json:"job"`
+	Batches []EmailBatch   `json:"batches"`
+	Skipped []string       `json:"skipped"`
+	Preview map[string]int `json:"preview,omitempty"`
+}
+
+// flowReminderRequest 表示一次外部定时流程提醒任务的筛选和安全参数。
+type flowReminderRequest struct {
+	Flows        []string `json:"flows"`
+	StalledHours int      `json:"stalled_hours"`
+	CreatedDay   string   `json:"created_day"`
+	Limit        int      `json:"limit"`
+	DryRun       bool     `json:"dry_run"`
 }
 
 // NewAdminEmailService 创建超管邮件服务。
@@ -200,12 +211,146 @@ func (s *AdminEmailService) PublicJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/public/email-jobs/"), "/")
+	if job == "flow-reminder" {
+		req, err := flowReminderRequestFromHTTP(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		result, err := s.sendFlowReminder(req, publicBaseURL(r))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
+		return
+	}
 	result, err := s.SendAutomaticJob(job, publicBaseURL(r))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
+}
+
+// flowReminderRequestFromHTTP 读取公共流程提醒任务的 GET 查询参数或 POST JSON。
+func flowReminderRequestFromHTTP(r *http.Request) (flowReminderRequest, error) {
+	req := flowReminderRequest{}
+	if r.Method == http.MethodPost && r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return req, errors.New("invalid json body")
+		}
+	}
+	query := r.URL.Query()
+	if raw := firstNonEmpty(query.Get("flows"), query.Get("flow")); raw != "" {
+		req.Flows = strings.FieldsFunc(raw, func(value rune) bool { return value == ',' || value == '，' || value == ';' || value == '；' })
+	}
+	if raw := strings.TrimSpace(query.Get("stalled_hours")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return req, errors.New("stalled_hours must be an integer")
+		}
+		req.StalledHours = value
+	}
+	if raw := strings.TrimSpace(query.Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return req, errors.New("limit must be an integer")
+		}
+		req.Limit = value
+	}
+	if raw := strings.TrimSpace(query.Get("created_day")); raw != "" {
+		req.CreatedDay = raw
+	}
+	if raw := strings.TrimSpace(query.Get("dry_run")); raw != "" {
+		req.DryRun = raw == "1" || strings.EqualFold(raw, "true")
+	}
+	return normalizeFlowReminderRequest(req)
+}
+
+// normalizeFlowReminderRequest 校验并补全流程提醒参数，避免一次误发过多邮件。
+func normalizeFlowReminderRequest(req flowReminderRequest) (flowReminderRequest, error) {
+	if req.StalledHours == 0 {
+		req.StalledHours = 24
+	}
+	if req.StalledHours < 1 || req.StalledHours > 24*365 {
+		return req, errors.New("stalled_hours must be between 1 and 8760")
+	}
+	if req.Limit == 0 {
+		req.Limit = 1000
+	}
+	if req.Limit < 1 || req.Limit > 5000 {
+		return req, errors.New("limit must be between 1 and 5000")
+	}
+	if req.CreatedDay != "" {
+		if _, err := time.Parse(time.DateOnly, req.CreatedDay); err != nil {
+			return req, errors.New("created_day must use YYYY-MM-DD")
+		}
+	}
+	seen := map[string]bool{}
+	flows := make([]string, 0, len(req.Flows))
+	for _, flow := range req.Flows {
+		flow = strings.TrimSpace(flow)
+		if flow == "" || seen[flow] {
+			continue
+		}
+		if userFlowStepIndex(flow) < 0 {
+			return req, fmt.Errorf("unsupported flow: %s", flow)
+		}
+		seen[flow] = true
+		flows = append(flows, flow)
+	}
+	req.Flows = flows
+	return req, nil
+}
+
+// sendFlowReminder 按当前流程节点分组发送不同教程邮件。
+func (s *AdminEmailService) sendFlowReminder(req flowReminderRequest, baseURL string) (automaticEmailResult, error) {
+	result := automaticEmailResult{Job: "flow-reminder", Preview: map[string]int{}}
+	users, err := s.store.FindTargetUsers(EmailTargetFilter{FlowSteps: req.Flows, CreatedDay: req.CreatedDay, FlowInactiveHours: req.StalledHours})
+	if err != nil {
+		return result, err
+	}
+	if !req.DryRun && len(users) > req.Limit {
+		return result, fmt.Errorf("matched %d users, exceeds limit %d; use dry_run first and raise limit explicitly", len(users), req.Limit)
+	}
+	grouped := map[string][]string{}
+	for _, user := range users {
+		key := flowKey(user.Flow)
+		if key != "completed" {
+			grouped[key] = append(grouped[key], user.Email)
+		}
+	}
+	cfg := s.recoveryConfig()
+	day := time.Now().Format(time.DateOnly)
+	for _, key := range userFlowStepOrder {
+		emails := grouped[key]
+		if len(emails) == 0 {
+			continue
+		}
+		result.Preview[key] = len(emails)
+		if req.DryRun {
+			continue
+		}
+		tpl, ok := cfg.Templates[key]
+		if !ok || strings.TrimSpace(tpl.Subject) == "" || strings.TrimSpace(tpl.HTML) == "" {
+			result.Skipped = append(result.Skipped, key+": template missing")
+			continue
+		}
+		sourceKey := "flow-reminder:" + day + ":" + key
+		if exists, _ := s.store.SourceKeyExists(sourceKey); exists {
+			result.Skipped = append(result.Skipped, sourceKey)
+			continue
+		}
+		batch, recipients, err := s.store.CreateBatch(tpl.Subject, fmt.Sprintf("流程提醒：%s：停留至少%d小时", key, req.StalledHours), sourceKey, "system", emails)
+		if err != nil {
+			result.Skipped = append(result.Skipped, err.Error())
+			continue
+		}
+		result.Batches = append(result.Batches, batch)
+		go s.sendBatch(batch, recipients, appendEmailFooter(tpl.HTML, cfg.Wechat, cfg.Website), baseURL)
+	}
+	return result, nil
 }
 
 // StartRecoveryScheduler 启动每日自动挽回邮件任务。
@@ -276,7 +421,7 @@ func (s *AdminEmailService) sendYesterdayIncomplete(baseURL string) automaticEma
 			result.Skipped = append(result.Skipped, sourceKey)
 			continue
 		}
-		html := appendEmailFooter(tpl.HTML, cfg.Wechat)
+		html := appendEmailFooter(tpl.HTML, cfg.Wechat, cfg.Website)
 		batch, recipients, err := s.store.CreateBatch(tpl.Subject, "自动挽回："+key+"："+day, sourceKey, "system", emails)
 		if err == nil {
 			result.Batches = append(result.Batches, batch)
@@ -325,7 +470,7 @@ func (s *AdminEmailService) sendInactiveDays(days int, baseURL string) automatic
 		return result
 	}
 	result.Batches = append(result.Batches, batch)
-	go s.sendBatch(batch, recipients, appendEmailFooter(tpl.HTML, cfg.Wechat), baseURL)
+	go s.sendBatch(batch, recipients, appendEmailFooter(tpl.HTML, cfg.Wechat, cfg.Website), baseURL)
 	return result
 }
 
@@ -463,6 +608,7 @@ type recoveryEmailConfig struct {
 	Enabled   bool                             `json:"enabled"`
 	Hour      int                              `json:"hour"`
 	Wechat    string                           `json:"wechat"`
+	Website   string                           `json:"website"`
 	Templates map[string]recoveryEmailTemplate `json:"templates"`
 }
 
@@ -475,35 +621,43 @@ type recoveryEmailTemplate struct {
 // 模板不包含已读追踪图，追踪图由 sendBatch 统一追加。
 func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 	subjects := map[string]string{
-		"local_agent":      "我小声提醒一下，本地程序还没连接",
-		"ai_config":        "AI 还没配置，我有点使不上劲",
-		"platform_account": "招聘平台账号还没加，我暂时没地方开工",
-		"position":         "岗位还没创建，我不知道该找谁",
-		"greet_success":    "差一点就能开始自动打招呼了",
-		"inactive_3_days":  "3 天没见你了，我先小声冒个泡",
-		"inactive_7_days":  "一周没见，GoodHR 还在原地等你",
-		"inactive_30_days": "一个月没见，我来弱弱问候一下",
+		"agent_detected":          "GoodHR 本地程序还没启动",
+		"runtime_ready":           "GoodHR 运行组件还差一步",
+		"position_created":        "GoodHR 岗位还没创建",
+		"task_created":            "GoodHR 招聘任务还没创建",
+		"platform_login_verified": "GoodHR 招聘平台还没确认登录",
+		"task_started":            "GoodHR 任务还没成功启动",
+		"first_resume_processed":  "GoodHR 还没处理到第一份简历",
+		"first_greet_success":     "GoodHR 还差第一次成功打招呼",
+		"inactive_3_days":         "3 天没见你了，我先小声冒个泡",
+		"inactive_7_days":         "一周没见，GoodHR 还在原地等你",
+		"inactive_30_days":        "一个月没见，我来弱弱问候一下",
 	}
 	return map[string]recoveryEmailTemplate{
-		"local_agent":      {Subject: subjects["local_agent"], HTML: automaticEmailTemplateHTML("local_agent")},
-		"ai_config":        {Subject: subjects["ai_config"], HTML: automaticEmailTemplateHTML("ai_config")},
-		"platform_account": {Subject: subjects["platform_account"], HTML: automaticEmailTemplateHTML("platform_account")},
-		"position":         {Subject: subjects["position"], HTML: automaticEmailTemplateHTML("position")},
-		"greet_success":    {Subject: subjects["greet_success"], HTML: automaticEmailTemplateHTML("greet_success")},
-		"inactive_3_days":  {Subject: subjects["inactive_3_days"], HTML: automaticEmailTemplateHTML("inactive_3_days")},
-		"inactive_7_days":  {Subject: subjects["inactive_7_days"], HTML: automaticEmailTemplateHTML("inactive_7_days")},
-		"inactive_30_days": {Subject: subjects["inactive_30_days"], HTML: automaticEmailTemplateHTML("inactive_30_days")},
+		"agent_detected":          {Subject: subjects["agent_detected"], HTML: automaticEmailTemplateHTML("agent_detected")},
+		"runtime_ready":           {Subject: subjects["runtime_ready"], HTML: automaticEmailTemplateHTML("runtime_ready")},
+		"position_created":        {Subject: subjects["position_created"], HTML: automaticEmailTemplateHTML("position_created")},
+		"task_created":            {Subject: subjects["task_created"], HTML: automaticEmailTemplateHTML("task_created")},
+		"platform_login_verified": {Subject: subjects["platform_login_verified"], HTML: automaticEmailTemplateHTML("platform_login_verified")},
+		"task_started":            {Subject: subjects["task_started"], HTML: automaticEmailTemplateHTML("task_started")},
+		"first_resume_processed":  {Subject: subjects["first_resume_processed"], HTML: automaticEmailTemplateHTML("first_resume_processed")},
+		"first_greet_success":     {Subject: subjects["first_greet_success"], HTML: automaticEmailTemplateHTML("first_greet_success")},
+		"inactive_3_days":         {Subject: subjects["inactive_3_days"], HTML: automaticEmailTemplateHTML("inactive_3_days")},
+		"inactive_7_days":         {Subject: subjects["inactive_7_days"], HTML: automaticEmailTemplateHTML("inactive_7_days")},
+		"inactive_30_days":        {Subject: subjects["inactive_30_days"], HTML: automaticEmailTemplateHTML("inactive_30_days")},
 	}
 }
 
 // appendEmailFooter 给自动邮件追加统一反馈文案。
 // html 为邮件正文，wechat 为作者微信号。
-func appendEmailFooter(html string, wechat string) string {
+func appendEmailFooter(html string, wechat string, website string) string {
 	footer := automaticEmailTemplateHTML("footer")
 	if strings.TrimSpace(footer) == "" {
-		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">如果是我哪里做得不够好，也可以直接回复这封邮件告诉我原因。你也可以加作者微信：{{wechat}}，我会认真看，不嘴硬。</p>`
+		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">作者微信：{{wechat}} · 官网：<a href="{{website}}">{{website}}</a></p>`
 	}
 	footer = strings.ReplaceAll(footer, "{{wechat}}", template.HTMLEscapeString(strings.TrimSpace(wechat)))
+	website = strings.TrimRight(strings.TrimSpace(website), "/")
+	footer = strings.ReplaceAll(footer, "{{website}}", template.HTMLEscapeString(website))
 	if strings.Contains(html, "{{footer}}") {
 		return strings.ReplaceAll(html, "{{footer}}", footer)
 	}
@@ -528,7 +682,7 @@ func automaticEmailTemplateHTML(name string) string {
 }
 
 func (s *AdminEmailService) recoveryConfig() recoveryEmailConfig {
-	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "a1224299352", Templates: defaultRecoveryEmailTemplates()}
+	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "17607080935", Website: "https://goodhr5.58it.cn", Templates: defaultRecoveryEmailTemplates()}
 	item, err := s.systemConfigs.Get("system.email_recovery")
 	if err != nil {
 		return cfg
@@ -541,6 +695,9 @@ func (s *AdminEmailService) recoveryConfig() recoveryEmailConfig {
 		}
 		if strings.TrimSpace(custom.Wechat) != "" {
 			cfg.Wechat = custom.Wechat
+		}
+		if strings.TrimSpace(custom.Website) != "" {
+			cfg.Website = custom.Website
 		}
 		for key, tpl := range custom.Templates {
 			cfg.Templates[key] = tpl

@@ -166,16 +166,15 @@ func (s *PostgresEmailCampaignStore) FindTargetUsers(filter EmailTargetFilter) (
 		args = append(args, filter.LastLoginExactDays)
 		where = append(where, "u.last_login_at::date = (CURRENT_DATE - $"+intString(len(args))+"::int)")
 	}
+	if filter.FlowInactiveHours > 0 {
+		args = append(args, filter.FlowInactiveHours)
+		where = append(where, "COALESCE(NULLIF(u.flow_state->>'last_activity_at', '')::timestamptz, u.created_at) <= now() - ($"+intString(len(args))+"::int * interval '1 hour')")
+	}
 	rows, err := s.db.Query(`
 		SELECT
 			u.email,
 			COALESCE(u.notification_profile, '{}'::jsonb),
-			EXISTS (SELECT 1 FROM local_agents la WHERE la.user_id = u.id AND la.bind_status = 'active'),
-			EXISTS (SELECT 1 FROM user_ai_configs ai WHERE ai.user_id = u.id AND ai.enabled = true AND COALESCE(ai.base_url, '') <> '' AND COALESCE(ai.model, '') <> '' AND COALESCE(ai.api_key_encrypted, '') <> ''),
-			EXISTS (SELECT 1 FROM platform_accounts pa WHERE pa.user_id = u.id),
-			EXISTS (SELECT 1 FROM positions p WHERE p.user_id = u.id),
-			EXISTS (SELECT 1 FROM task_runs tr WHERE tr.user_id = u.id AND (tr.greeted_count > 0 OR tr.daily_greeted_count > 0)),
-			EXISTS (SELECT 1 FROM payment_orders po WHERE po.user_id = u.id AND po.status = 'paid')
+			COALESCE(u.flow_state, '{}'::jsonb)
 		FROM users u
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY u.created_at DESC
@@ -189,13 +188,18 @@ func (s *PostgresEmailCampaignStore) FindTargetUsers(filter EmailTargetFilter) (
 	for rows.Next() {
 		var email string
 		var rawProfile []byte
-		var hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid bool
-		if err := rows.Scan(&email, &rawProfile, &hasAgent, &hasAI, &hasPlatformAccount, &hasPosition, &hasGreeted, &hasPaid); err != nil {
+		var rawFlow []byte
+		if err := rows.Scan(&email, &rawProfile, &rawFlow); err != nil {
 			return nil, err
 		}
-		flow := buildAdminUserFlow(hasAgent, hasAI, hasPlatformAccount, hasPosition, hasGreeted, hasPaid)
+		flow, err := parseUserFlowState(rawFlow)
+		if err != nil {
+			return nil, err
+		}
 		tags := profileTagsFromRaw(rawProfile)
-		if len(tagSet) == 0 && len(flowSet) == 0 || tagSetMatch(tagSet, tags) || flowSet[flowKey(flow)] {
+		tagMatches := len(tagSet) == 0 || tagSetMatch(tagSet, tags)
+		flowMatches := len(flowSet) == 0 || flowSet[flowKey(flow)]
+		if tagMatches && flowMatches {
 			result = append(result, EmailTargetUser{Email: email, Flow: flow, Tags: tags})
 		}
 	}
@@ -266,14 +270,7 @@ func tagSetMatch(set map[string]bool, tags []string) bool {
 	return false
 }
 
-func flowKey(flow AdminUserFlow) string {
-	if flow.Completed {
-		return "completed"
-	}
-	for _, step := range flow.Steps {
-		if !step.Done {
-			return step.Key
-		}
-	}
-	return "completed"
+// flowKey 返回用户当前流程阶段，空值时统一视为已完成。
+func flowKey(flow UserFlowState) string {
+	return defaultString(strings.TrimSpace(flow.Stage), "completed")
 }

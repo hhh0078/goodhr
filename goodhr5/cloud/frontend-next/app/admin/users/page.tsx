@@ -57,9 +57,11 @@ type AdminUserItem = {
   agent?: { machine_id?: string; agent_version?: string };
   notification_profile?: NotificationProfile;
   flow?: {
-    current_step?: string;
-    completed?: boolean;
-    steps?: { key: string; name: string; done: boolean }[];
+    stage?: string;
+    stage_name?: string;
+    state?: "pending" | "blocked" | "completed";
+    reason_code?: string;
+    message?: string;
   };
 };
 
@@ -428,7 +430,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
 }) {
   const memberLabel = item.subscription?.active ? "会员有效" : "已过期";
   const agentLabel = item.agent?.machine_id ? "已连接" : "未连接";
-  const flowLabel = item.flow?.current_step || "暂无";
+  const flowLabel = userFlowLabel(item.flow);
 
   return (
     <Box
@@ -514,7 +516,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
         <MobileInfoBlock
           title="流程卡点"
           lines={[flowLabel]}
-          strong={Boolean(item.flow?.completed)}
+          strong={item.flow?.state === "completed"}
         />
       </Box>
       <Box
@@ -667,18 +669,26 @@ function AgentInfo({ item }: { item: AdminUserItem }) {
 
 /** FlowInfo 展示用户当前流程卡点。 */
 function FlowInfo({ item }: { item: AdminUserItem }) {
-  const label = item.flow?.current_step || "暂无";
+  const label = userFlowLabel(item.flow);
   return (
     <Stack spacing={0.5}>
       <Typography sx={{ fontSize: 12, fontWeight: 720 }}>流程卡点</Typography>
       <Chip
         size="small"
-        color={item.flow?.completed ? "success" : "warning"}
+        color={item.flow?.state === "completed" ? "success" : item.flow?.state === "blocked" ? "error" : "warning"}
         label={label}
         sx={{ width: "fit-content", maxWidth: "100%" }}
       />
     </Stack>
   );
+}
+
+/** userFlowLabel 把流程快照转换成管理端可直接判断的短文案。 */
+function userFlowLabel(flow?: AdminUserItem["flow"]) {
+  if (!flow) return "暂无";
+  if (flow.state === "completed") return "核心流程已跑通";
+  if (flow.state === "blocked") return `卡在：${flow.stage_name || flow.stage || "未知步骤"}${flow.message ? ` · ${flow.message}` : ""}`;
+  return `下一步：${flow.stage_name || flow.stage || "启动本地程序"}`;
 }
 
 /** UserActions 展示用户管理操作按钮。 */

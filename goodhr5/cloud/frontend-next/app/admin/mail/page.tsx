@@ -24,10 +24,15 @@ const profileOptions = [
 ];
 
 const flowOptions = [
-  ["local_agent", "未连接本地程序"],
-  ["position", "未创建岗位"],
-  ["greet_success", "未打招呼成功"],
-  ["paid", "未支付"],
+  ["agent_detected", "下一步：启动本地程序"],
+  ["runtime_ready", "下一步：准备运行组件"],
+  ["position_created", "下一步：创建岗位"],
+  ["task_created", "下一步：创建任务"],
+  ["platform_login_verified", "下一步：登录招聘平台"],
+  ["task_started", "下一步：启动任务"],
+  ["first_resume_processed", "下一步：处理首份简历"],
+  ["first_greet_success", "下一步：首次打招呼"],
+  ["completed", "核心流程已跑通"],
 ];
 
 type EmailBatch = {

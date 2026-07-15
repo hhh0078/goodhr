@@ -29,16 +29,10 @@ import { useEffect, useMemo, useState, type ElementType } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
-import {
-  onboardingFinished,
-  readOnboardingProgress,
-  syncOnboardingProgress,
-  type OnboardingProgress,
-  type OnboardingStep,
-} from "@/lib/onboarding";
+import { type UserFlowState, type UserFlowStep } from "@/lib/user-flow";
 
 type GuideStep = {
-  key: OnboardingStep;
+  key: UserFlowStep;
   title: string;
   description: string;
   tips: string[];
@@ -49,7 +43,7 @@ type GuideStep = {
 
 const guideSteps: GuideStep[] = [
   {
-    key: "local_agent",
+    key: "agent_detected",
     title: "确认本地程序已启动",
     description: "浏览器控制、截图和 OCR 都依赖本地 GoodHR 程序。",
     tips: [
@@ -62,7 +56,16 @@ const guideSteps: GuideStep[] = [
     icon: DownloadRoundedIcon,
   },
   {
-    key: "position_template",
+    key: "runtime_ready",
+    title: "准备运行组件",
+    description: "确认 Node 和浏览器组件已经安装，可以稳定执行任务。",
+    tips: ["启动本地程序", "按提示安装缺少的组件", "组件可用后会自动完成"],
+    href: "/admin/agent-download",
+    action: "检查运行组件",
+    icon: DownloadRoundedIcon,
+  },
+  {
+    key: "position_created",
     title: "创建岗位管理",
     description: "岗位管理决定筛选条件、岗位要求和打招呼逻辑。",
     tips: ["进入岗位管理", "点击新建岗位", "填写岗位要求或关键词后保存"],
@@ -71,35 +74,40 @@ const guideSteps: GuideStep[] = [
     icon: WorkRoundedIcon,
   },
   {
-    key: "task_started",
-    title: "创建并运行任务",
-    description: "选择岗位创建任务，然后成功启动一次。",
-    tips: [
-      "进入任务列表",
-      "创建任务并选择岗位",
-      "点击开始，成功启动后自动完成",
-    ],
+    key: "task_created",
+    title: "创建招聘任务",
+    description: "选择岗位并保存一条招聘任务。",
+    tips: ["进入任务列表", "选择已经创建的岗位", "保存任务"],
     href: "/admin/tasks",
     action: "创建任务",
     icon: PlayCircleRoundedIcon,
   },
   {
-    key: "subscription_viewed",
-    title: "查看订阅页面",
-    description: "查看会员到期时间、可用套餐和自己的支付记录。",
-    tips: ["进入订阅会员", "查看当前会员状态", "需要续期时选择合适套餐"],
-    href: "/admin/subscription",
-    action: "查看订阅",
-    icon: CreditCardRoundedIcon,
+    key: "platform_login_verified",
+    title: "登录招聘平台",
+    description: "开始任务时确认招聘平台账号处于登录状态。",
+    tips: ["点击开始任务", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
+    href: "/admin/tasks", action: "检查平台登录", icon: PlayCircleRoundedIcon,
+  },
+  {
+    key: "task_started", title: "启动第一条任务", description: "让本地程序成功接手并开始执行任务。",
+    tips: ["确认启动条件", "点击开始", "看到运行中状态"], href: "/admin/tasks", action: "启动任务", icon: PlayCircleRoundedIcon,
+  },
+  {
+    key: "first_resume_processed", title: "处理首份简历", description: "成功读取并处理第一位候选人的简历。",
+    tips: ["保持任务运行", "等待匹配到候选人", "处理成功后自动完成"], href: "/admin/tasks", action: "查看任务", icon: ArticleRoundedIcon,
+  },
+  {
+    key: "first_greet_success", title: "首次打招呼成功", description: "向第一位合适候选人成功发出招呼。",
+    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"], href: "/admin/tasks", action: "查看进度", icon: TaskAltRoundedIcon,
   },
 ];
 
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { user, agentBase, subscription, onboarding, refreshAgent, notify } =
+  const { agentBase, subscription, refreshAgent, notify } =
     useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
-  const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
   const [runtime, setRuntime] = useState<any>({});
   const [aiConfig, setAIConfig] = useState<any>({});
@@ -111,9 +119,7 @@ export default function DashboardPage() {
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [savingModel, setSavingModel] = useState(false);
-  const [guideProgress, setGuideProgress] = useState<OnboardingProgress>(() =>
-    readOnboardingProgress(""),
-  );
+  const [guideProgress, setGuideProgress] = useState<UserFlowState>({ version: 2, stage: "agent_detected", stage_name: "启动本地程序", state: "pending", steps: {} });
   const [loading, setLoading] = useState(true);
 
   /** load 读取控制台概览和新手引导需要的云端数据。 */
@@ -122,23 +128,22 @@ export default function DashboardPage() {
     try {
       const results = await Promise.allSettled([
         cloudRequest("/api/tasks"),
-        cloudRequest("/api/positions"),
         cloudRequest("/api/candidates?page=1&page_size=1"),
         cloudRequest("/api/config/user-ai"),
         cloudRequest("/api/ai-wallet"),
+        cloudRequest("/api/user-flow"),
       ]);
       if (results[0].status === "fulfilled")
         setTasks(results[0].value.tasks || []);
       if (results[1].status === "fulfilled")
-        setPositions(results[1].value.positions || []);
-      if (results[2].status === "fulfilled")
-        setResumeCount(Number(results[2].value.total || 0));
-    if (results[3].status === "fulfilled") {
-      const config = results[3].value.config || {};
+        setResumeCount(Number(results[1].value.total || 0));
+    if (results[2].status === "fulfilled") {
+      const config = results[2].value.config || {};
       setAIConfig(config);
       setCurrentAIModel(config.model || "");
     }
-      if (results[4].status === "fulfilled") setWallet(results[4].value || {});
+      if (results[3].status === "fulfilled") setWallet(results[3].value || {});
+      if (results[4].status === "fulfilled") setGuideProgress(results[4].value.flow);
     } finally {
       setLoading(false);
     }
@@ -171,39 +176,6 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadRuntime();
   }, [agentBase]);
-
-  const taskWasStarted = useMemo(
-    () =>
-      tasks.some((item) => {
-        const status = String(item.status || "").toLowerCase();
-        return Boolean(
-          item.started_at ||
-          item.last_run_at ||
-          ["running", "done", "stopped", "failed"].includes(status),
-        );
-      }),
-    [tasks],
-  );
-
-  useEffect(() => {
-    const email = String(user?.email || "");
-    if (!email) return;
-    void syncOnboardingProgress(
-      email,
-      {
-        local_agent: Boolean(agentBase),
-        position_template: positions.length > 0,
-        task_started: taskWasStarted,
-      },
-      Boolean(onboarding.completed),
-    ).then(setGuideProgress);
-  }, [
-    agentBase,
-    onboarding.completed,
-    positions.length,
-    taskWasStarted,
-    user?.email,
-  ]);
 
   const summary = useMemo(
     () => ({
@@ -287,9 +259,9 @@ export default function DashboardPage() {
     }
   }
   const doneCount = guideSteps.filter(
-    (item) => guideProgress.steps[item.key],
+    (item) => guideProgress.steps[item.key]?.status === "completed",
   ).length;
-  const showGuide = !onboarding.completed && !onboardingFinished(guideProgress);
+  const showGuide = guideProgress.state !== "completed";
 
   return (
     <>
@@ -606,16 +578,16 @@ function submitPayment(payment: any) {
   form.remove();
 }
 
-/** OnboardingGuide 展示与旧版步骤一致的醒目新手引导。 */
+/** OnboardingGuide 展示云端真实业务事件计算的新手引导。 */
 function OnboardingGuide({
   progress,
   doneCount,
 }: {
-  progress: OnboardingProgress;
+  progress: UserFlowState;
   doneCount: number;
 }) {
   const activeKey =
-    guideSteps.find((item) => !progress.steps[item.key])?.key || "";
+    guideSteps.find((item) => progress.steps[item.key]?.status !== "completed")?.key || "";
   return (
     <Box
       component='section'
@@ -643,7 +615,7 @@ function OnboardingGuide({
               component='h2'
               sx={{ fontSize: { xs: 21, md: 24 }, fontWeight: 800 }}
             >
-              完成 4 步，开始第一条招聘任务
+              跑通第一条招聘任务
             </Typography>
           </Stack>
           <Typography sx={{ mt: 0.75, color: "#52665a" }}>
@@ -686,7 +658,7 @@ function OnboardingGuide({
             key={step.key}
             step={step}
             index={index + 1}
-            done={progress.steps[step.key]}
+            done={progress.steps[step.key]?.status === "completed"}
             active={activeKey === step.key}
           />
         ))}

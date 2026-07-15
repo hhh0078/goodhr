@@ -118,6 +118,14 @@ func (c Config) AgentStore(db *sql.DB) AgentStore {
 	return NewMemoryAgentStore()
 }
 
+// UserFlowStore 创建用户流程快照与事件存储。
+func (c Config) UserFlowStore(db *sql.DB) UserFlowStore {
+	if db != nil {
+		return NewPostgresUserFlowStore(db)
+	}
+	return NewMemoryUserFlowStore()
+}
+
 // AIConfigStore 创建 AI 配置存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) AIConfigStore(db *sql.DB) AIConfigStore {
 	if db != nil {
@@ -261,14 +269,6 @@ func (c Config) PaymentStore(db *sql.DB) PaymentStore {
 		return NewPostgresPaymentStore(db)
 	}
 	return NewMemoryPaymentStore()
-}
-
-// OnboardingStore 创建新手教学状态存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
-func (c Config) OnboardingStore(db *sql.DB) OnboardingStore {
-	if db != nil {
-		return NewPostgresOnboardingStore(db)
-	}
-	return NewMemoryOnboardingStore()
 }
 
 func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {

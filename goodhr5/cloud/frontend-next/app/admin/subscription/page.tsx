@@ -39,13 +39,12 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { markOnboardingStep } from "@/lib/onboarding";
 
 const aiRecordPageSize = 10;
 
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
-  const { user, notify, subscription, refreshSession } = useAdmin();
+  const { notify, subscription, refreshSession } = useAdmin();
   const [plans, setPlans] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [wallet, setWallet] = useState<any>({});
@@ -149,10 +148,6 @@ export default function SubscriptionPage() {
       setCode("");
       notify("激活成功，会员时间已到账。", "success");
       await refreshAll();
-      await markOnboardingStep(
-        String(user?.email || ""),
-        "subscription_viewed",
-      );
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "激活码没通过，我也有点尴尬。",
@@ -419,11 +414,13 @@ export default function SubscriptionPage() {
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fill, minmax(min(100%, 280px), 320px))",
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            sm: "repeat(2, minmax(0, 1fr))",
+            lg: "repeat(4, minmax(0, 1fr))",
+          },
           gap: 2,
           alignItems: "stretch",
-          justifyContent: { xs: "stretch", sm: "start" },
         }}
       >
         {plans.map((plan, index) => (
@@ -901,7 +898,7 @@ function ReasonText({ record }: { record: any }) {
   );
 }
 
-/** PlanCard 展示一个固定宽度的会员套餐卡片。 */
+/** PlanCard 展示一个随套餐网格宽度自适应的会员套餐卡片。 */
 function PlanCard({
   plan,
   featured,

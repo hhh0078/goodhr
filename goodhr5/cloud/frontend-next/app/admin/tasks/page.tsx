@@ -27,7 +27,7 @@ import {
   localRequest,
 } from "@/lib/admin-api";
 import PlatformLogo from "@/components/admin/PlatformLogo";
-import { markOnboardingStep } from "@/lib/onboarding";
+import { reportUserFlow } from "@/lib/user-flow";
 import {
   EmptyState,
   PageHeader,
@@ -57,7 +57,7 @@ const ALL_LOG_LIMIT = 5000;
 
 /** TasksPage 管理招聘任务完整生命周期。 */
 export default function TasksPage() {
-  const { agentBase, user, notify, confirm } = useAdmin();
+  const { agentBase, notify, confirm } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
@@ -261,7 +261,10 @@ export default function TasksPage() {
         await confirmPlatformLoggedInForTask(agentBase, auth, (message) =>
           setStartStatus(message),
         );
+		await reportUserFlow({ step: "platform_login_verified", source: "task_start", task_id: String(task.id || "") });
       } catch (loginError) {
+		const message = loginError instanceof Error ? loginError.message : "招聘平台还没登录，请先完成登录。";
+		await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "task_start", task_id: String(task.id || "") });
         setStartStatus(
           loginError instanceof Error
             ? loginError.message
@@ -274,7 +277,9 @@ export default function TasksPage() {
         position.common_config?.mode_default === "ai" ||
         position.common_config?.detail_mode === "ai";
       if (usesAI && !active) {
-        setStartStatus("当前任务使用会员 AI 功能，请订阅后再开始");
+		const message = "当前任务使用会员 AI 功能，请订阅后再开始";
+		setStartStatus(message);
+		await reportUserFlow({ step: "task_started", status: "blocked", reason_code: "subscription_expired", message, source: "task_start", task_id: String(task.id || "") });
         return;
       }
       if (!active)
@@ -293,14 +298,16 @@ export default function TasksPage() {
         },
       );
       setRunningTaskIDs((current) => ({ ...current, [task.id]: true }));
-      await markOnboardingStep(String(user?.email || ""), "task_started");
+      await reportUserFlow({ step: "task_started", source: "task_start", task_id: String(task.id || "") });
       notify("任务已开始", "success");
       setStartTask(null);
       setStartStatus("");
       await load();
     } catch (error) {
-      setStartStatus(error instanceof Error ? error.message : "任务启动失败");
-      notify(error instanceof Error ? error.message : "任务启动失败", "error");
+		const message = error instanceof Error ? error.message : "任务启动失败";
+		setStartStatus(message);
+		await reportUserFlow({ step: "task_started", status: "blocked", reason_code: taskStartReason(message), message, source: "task_start", task_id: String(task?.id || "") });
+      notify(message, "error");
     } finally {
       setStartLoading(false);
     }
@@ -832,6 +839,16 @@ export default function TasksPage() {
       </AdminDialog>
     </>
   );
+}
+
+/** taskStartReason 把前端启动错误归一为后台可筛选的失败原因。 */
+function taskStartReason(message: string) {
+  const value = message.toLowerCase();
+  if (value.includes("会员") || value.includes("订阅")) return "subscription_expired";
+  if (value.includes("ai") || value.includes("模型") || value.includes("key")) return "ai_config_invalid";
+  if (value.includes("登录") || value.includes("cookie")) return "platform_not_logged_in";
+  if (value.includes("组件") || value.includes("runtime") || value.includes("node")) return "runtime_missing";
+  return "task_start_failed";
 }
 
 /**

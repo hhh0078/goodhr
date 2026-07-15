@@ -113,6 +113,10 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 	s.saveLocalCandidateScoreEvents(task, profile.ID, engagement.ID, payload)
 	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now))
 	_ = s.store.IncrementTaskCounts(task.ID, 1, localCountIfStatus(payload, "greeted"), localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
+	s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	if localCandidateStatus(payload) == "greeted" {
+		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	}
 	s.writeCandidateIngestLog(task.ID, task.UserEmail, "info", "云端候选人入库成功："+candidateName+"，状态："+localCandidateStatus(payload))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
@@ -150,7 +154,8 @@ func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	if _, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
@@ -174,6 +179,7 @@ func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to update processed resumes")
 		return
 	}
+	s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
 		"count": req.Count,
@@ -197,7 +203,8 @@ func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	if _, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin); errors.Is(err, ErrNotFound) {
+	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
@@ -216,6 +223,12 @@ func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SyncTaskCounts(taskID, req.ScannedCount, req.GreetedCount, req.SkippedCount, req.FailedCount); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to sync task counts")
 		return
+	}
+	if req.ScannedCount > 0 {
+		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	}
+	if req.GreetedCount > 0 {
+		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", TaskID: task.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

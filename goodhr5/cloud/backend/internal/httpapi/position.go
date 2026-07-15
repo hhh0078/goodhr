@@ -44,6 +44,7 @@ type PositionService struct {
 	store         PositionStore
 	systemConfigs SystemConfigStore
 	aiConfigStore AIConfigStore
+	userFlow      UserFlowStore
 	httpClient    *http.Client
 }
 
@@ -68,12 +69,13 @@ type optimizeRequirementRequest struct {
 }
 
 // NewPositionService 创建岗位配置 API 服务，并注入认证服务和岗位存储。
-func NewPositionService(auth *AuthService, store PositionStore, systemConfigs SystemConfigStore, aiConfigStore AIConfigStore) *PositionService {
+func NewPositionService(auth *AuthService, store PositionStore, systemConfigs SystemConfigStore, aiConfigStore AIConfigStore, userFlow UserFlowStore) *PositionService {
 	return &PositionService{
 		auth:          auth,
 		store:         store,
 		systemConfigs: systemConfigs,
 		aiConfigStore: aiConfigStore,
+		userFlow:      userFlow,
 		httpClient:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -216,6 +218,9 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save position")
 		return
+	}
+	if s.userFlow != nil {
+		_, _ = s.userFlow.Record(session.Email, UserFlowUpdate{Step: userFlowPositionCreated, Status: "completed", Source: "cloud_backend"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,

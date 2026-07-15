@@ -1,3 +1,4 @@
+// 本文件负责用户注册、登录、身份校验和登录用户信息。
 package httpapi
 
 import (
@@ -22,7 +23,6 @@ type AuthService struct {
 	mailer          Mailer
 	exposeDebugCode bool
 	tenantStore     TenantStore
-	onboardingStore OnboardingStore
 	invitations     InvitationStore
 	subscriptions   SubscriptionStore
 	systemConfigs   SystemConfigStore
@@ -41,7 +41,8 @@ type loginRequest struct {
 	InviterID string `json:"inviter_id"`
 }
 
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, onboardingStore OnboardingStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string) *AuthService {
+// NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -55,7 +56,6 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		mailer:          mailer,
 		exposeDebugCode: exposeDebugCode,
 		tenantStore:     tenantStore,
-		onboardingStore: onboardingStore,
 		invitations:     invitations,
 		subscriptions:   subscriptions,
 		systemConfigs:   systemConfigs,
@@ -312,12 +312,6 @@ func subscriptionNoticeDays(expiresAt time.Time, now time.Time) int {
 
 // publicUser 返回前端可见的用户基础信息。
 func (s *AuthService) publicUser(email string) map[string]any {
-	onboarding := OnboardingState{}
-	if s.onboardingStore != nil {
-		if state, err := s.onboardingStore.Get(email); err == nil {
-			onboarding = state
-		}
-	}
 	inviteID := email
 	if s.invitations != nil {
 		if id, err := s.invitations.InviteID(email); err == nil && id != "" {
@@ -331,7 +325,6 @@ func (s *AuthService) publicUser(email string) map[string]any {
 		"role":           s.userRole(email),
 		"role_label":     s.userRoleLabel(email),
 		"is_super_admin": s.IsSuperAdmin(email),
-		"onboarding":     onboarding,
 	}
 }
 

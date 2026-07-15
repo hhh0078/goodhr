@@ -6,6 +6,7 @@ import { Box, Button, Chip, Dialog, DialogContent, LinearProgress, Stack, Typogr
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { buildRuntimeInstallPayload, formatRuntimeBytes, missingRequiredWinRuntimeURLs, requiredRuntimeComponents } from "@/lib/admin-runtime";
+import { reportUserFlow } from "@/lib/user-flow";
 
 type RequiredRuntimeInstallerProps = {
 	agentBase: string;
@@ -49,7 +50,7 @@ export default function RequiredRuntimeInstaller({ agentBase, onboardingConfig, 
 			let config = onboardingConfig;
 			let missing = missingRequiredWinRuntimeURLs(config);
 			if (missing.length) {
-				const fresh = await cloudRequest("/api/onboarding/status");
+				const fresh = await cloudRequest("/api/runtime/config");
 				config = fresh.config || {};
 				missing = missingRequiredWinRuntimeURLs(config);
 			}
@@ -58,9 +59,12 @@ export default function RequiredRuntimeInstaller({ agentBase, onboardingConfig, 
 			}
 			await localRequest(agentBase, "/api/v1/runtime/install", { method: "POST", body: buildRuntimeInstallPayload(config) });
 			await loadStatus();
+			await reportUserFlow({ step: "runtime_ready", source: "runtime_installer" });
 			notify("必要组件安装完成，可以继续搬砖了", "success");
 		} catch (installError) {
-			setError(installError instanceof Error ? installError.message : "必要组件安装失败");
+			const message = installError instanceof Error ? installError.message : "必要组件安装失败";
+			setError(message);
+			await reportUserFlow({ step: "runtime_ready", status: "blocked", reason_code: "runtime_install_failed", message, source: "runtime_installer" });
 		} finally {
 			setInstalling(false);
 		}

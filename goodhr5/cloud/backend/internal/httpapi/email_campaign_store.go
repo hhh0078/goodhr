@@ -45,11 +45,12 @@ type EmailTargetFilter struct {
 	CreatedDay          string
 	LastLoginBeforeDays int
 	LastLoginExactDays  int
+	FlowInactiveHours   int
 }
 
 type EmailTargetUser struct {
 	Email string
-	Flow  AdminUserFlow
+	Flow  UserFlowState
 	Tags  []string
 }
 

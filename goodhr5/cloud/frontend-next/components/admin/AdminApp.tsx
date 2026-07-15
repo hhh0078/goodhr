@@ -57,8 +57,11 @@ import {
   cloudRequest,
   detectLocalAgent,
   formatDate,
+  localRequest,
   openLocalPage,
 } from "@/lib/admin-api";
+import { requiredRuntimeComponents } from "@/lib/admin-runtime";
+import { reportUserFlow } from "@/lib/user-flow";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
@@ -70,7 +73,6 @@ type AdminContextValue = {
   subscription: any;
   appConfig: any;
   onboardingConfig: any;
-  onboarding: any;
   agentBase: string;
   refreshAgent: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -229,10 +231,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [aiWallet, setAIWallet] = useState<any>({});
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
-  const [onboarding, setOnboarding] = useState<any>({
-    completed: false,
-    steps: {},
-  });
   const [agentBase, setAgentBase] = useState("");
   const [agentDetected, setAgentDetected] = useState(false);
   const agentBaseRef = useRef("");
@@ -274,6 +272,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       }
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
+      void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
+      try {
+        const runtime = await localRequest(nextBase, "/api/v1/runtime/status");
+        const missing = requiredRuntimeComponents(runtime).filter((item) => !item.installed);
+        void reportUserFlow(missing.length ? {
+          step: "runtime_ready", status: "blocked", reason_code: "runtime_missing",
+          message: `缺少运行组件：${missing.map((item) => item.name).join("、")}`,
+          source: "frontend_agent_probe",
+        } : { step: "runtime_ready", source: "frontend_agent_probe" });
+      } catch {
+        void reportUserFlow({ step: "runtime_ready", status: "blocked", reason_code: "runtime_status_unavailable", message: "运行组件状态读取失败", source: "frontend_agent_probe" });
+      }
     } finally {
       setAgentDetected(true);
       agentChecking.current = false;
@@ -360,7 +370,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       cloudRequest("/api/auth/me"),
       cloudRequest("/api/subscription/status"),
       cloudRequest("/api/system/app-config", { auth: false }),
-      cloudRequest("/api/onboarding/status"),
+      cloudRequest("/api/runtime/config"),
       cloudRequest("/api/ai-wallet"),
     ]);
     const authResult = results[0];
@@ -383,9 +393,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     }
     if (results[3].status === "fulfilled") {
       setOnboardingConfig(results[3].value.config || {});
-      setOnboarding(
-        results[3].value.progress || results[3].value.onboarding || {},
-      );
     }
   }, []);
 
@@ -420,7 +427,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       subscription,
       appConfig,
       onboardingConfig,
-      onboarding,
       agentBase,
       refreshAgent,
       refreshSession,
@@ -432,7 +438,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       subscription,
       appConfig,
       onboardingConfig,
-      onboarding,
       agentBase,
       refreshAgent,
       refreshSession,

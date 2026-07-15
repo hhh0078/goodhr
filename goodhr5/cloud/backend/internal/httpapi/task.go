@@ -22,6 +22,7 @@ type TaskService struct {
 	subscriptions  SubscriptionStore
 	mailer         Mailer
 	dailyStats     SystemDailyStatsStore
+	userFlow       UserFlowStore
 }
 
 type createTaskRequest struct {
@@ -36,7 +37,7 @@ type createTaskRequest struct {
 }
 
 // NewTaskService 创建任务 API 服务，注入任务元数据和候选人入库所需依赖。
-func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer, dailyStats SystemDailyStatsStore) *TaskService {
+func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionStore, taskLogs TaskLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore) *TaskService {
 	return &TaskService{
 		auth:           auth,
 		store:          store,
@@ -48,6 +49,7 @@ func NewTaskService(auth *AuthService, store TaskStore, positionStore PositionSt
 		subscriptions:  subscriptions,
 		mailer:         mailer,
 		dailyStats:     dailyStats,
+		userFlow:       userFlow,
 	}
 }
 
@@ -96,6 +98,7 @@ func (s *TaskService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create task")
 		return
 	}
+	s.recordUserFlow(session.Email, UserFlowUpdate{Step: userFlowTaskCreated, Status: "completed", Source: "cloud_backend", TaskID: saved.ID})
 
 	tenantID, _ := s.getTenantInfo(session.Email)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -631,6 +634,9 @@ func (s *TaskService) SyncStatus(w http.ResponseWriter, r *http.Request) {
 			s.sendTaskStatusNotice(task, "stopped", "")
 		}
 	}
+	if status == "running" {
+		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowTaskStarted, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
 		"status": status,
@@ -749,6 +755,10 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 	if task.UserEmail == "" {
 		task.UserEmail = session.Email
 	}
+	s.recordUserFlow(task.UserEmail, UserFlowUpdate{
+		Step: userFlowTaskStarted, Status: "blocked", Source: "local_agent", TaskID: task.ID,
+		ReasonCode: userFlowFailureReason(errorMessage), Message: errorMessage,
+	})
 	if s.mailer == nil {
 		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
 		return
@@ -772,4 +782,31 @@ func (s *TaskService) FailNotice(w http.ResponseWriter, r *http.Request) {
 		"ok":     true,
 		"status": "notified",
 	})
+}
+
+// recordUserFlow 写入业务流程事件；记录失败不影响原业务请求。
+func (s *TaskService) recordUserFlow(email string, update UserFlowUpdate) {
+	if s.userFlow == nil || strings.TrimSpace(email) == "" {
+		return
+	}
+	if _, err := s.userFlow.Record(email, update); err != nil {
+		stdlog.Printf("[用户流程] 记录失败 user=%s step=%s err=%v", email, update.Step, err)
+	}
+}
+
+// userFlowFailureReason 把本地任务错误归一为可筛选的卡点原因。
+func userFlowFailureReason(message string) string {
+	value := strings.ToLower(strings.TrimSpace(message))
+	switch {
+	case strings.Contains(value, "会员"), strings.Contains(value, "subscription"), strings.Contains(value, "expired"):
+		return "subscription_expired"
+	case strings.Contains(value, "ai"), strings.Contains(value, "模型"), strings.Contains(value, "api key"):
+		return "ai_config_invalid"
+	case strings.Contains(value, "登录"), strings.Contains(value, "login"), strings.Contains(value, "cookie"):
+		return "platform_not_logged_in"
+	case strings.Contains(value, "组件"), strings.Contains(value, "runtime"), strings.Contains(value, "node"):
+		return "runtime_missing"
+	default:
+		return "task_start_failed"
+	}
 }
