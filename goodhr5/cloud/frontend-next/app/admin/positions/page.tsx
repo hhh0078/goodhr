@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
+import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
   EmptyState,
   PageHeader,
@@ -38,6 +39,8 @@ import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
+const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
+  "/assets/help/hliepin-shortcut-search-guide.png";
 const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
@@ -606,19 +609,24 @@ export default function PositionsPage() {
                     />
                   </Box>
                   {form.platform_id === "hliepin" ? (
-                    <TextField
-                      label='猎聘搜索关键词'
-                      value={form.hliepin_search_keyword}
-                      onChange={(event) =>
-                        setForm({
-                          ...form,
-                          hliepin_search_keyword: event.target.value,
-                        })
-                      }
-                      fullWidth
-                      placeholder='例如：AI 应用开发 Python'
-                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
-                    />
+                    <Stack spacing={1.25}>
+                      <TextField
+                        label='猎聘搜索关键词'
+                        value={form.hliepin_search_keyword}
+                        onChange={(event) =>
+                          setForm({
+                            ...form,
+                            hliepin_search_keyword: event.target.value,
+                          })
+                        }
+                        fullWidth
+                        placeholder='例如：AI 应用开发 Python'
+                        helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
+                      />
+                      <HLiepinShortcutSearchGuide
+                        visible={Boolean(form.hliepin_search_keyword.trim())}
+                      />
+                    </Stack>
                   ) : null}
                 </Stack>
               </Box>
@@ -681,19 +689,24 @@ export default function PositionsPage() {
                     helperText='建议写清学历、经验、技能、行业、城市、到岗状态和明确的淘汰条件；不要填写“有上进心”等无法从简历判断的内容。'
                   />
                   {form.platform_id === "hliepin" ? (
-                    <TextField
-                      label='猎聘搜索关键词'
-                      value={form.hliepin_search_keyword}
-                      onChange={(event) =>
-                        setForm({
-                          ...form,
-                          hliepin_search_keyword: event.target.value,
-                        })
-                      }
-                      fullWidth
-                      placeholder='点击右上角“AI 分析岗位”可自动生成，也可手动填写'
-                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
-                    />
+                    <Stack spacing={1.25}>
+                      <TextField
+                        label='猎聘搜索关键词'
+                        value={form.hliepin_search_keyword}
+                        onChange={(event) =>
+                          setForm({
+                            ...form,
+                            hliepin_search_keyword: event.target.value,
+                          })
+                        }
+                        fullWidth
+                        placeholder='点击右上角“AI 分析岗位”可自动生成，也可手动填写'
+                        helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
+                      />
+                      <HLiepinShortcutSearchGuide
+                        visible={Boolean(form.hliepin_search_keyword.trim())}
+                      />
+                    </Stack>
                   ) : null}
                   <Box
                     sx={{
@@ -1009,6 +1022,40 @@ function PlatformTipCard({
         </Typography>
       </Box>
     </Box>
+  );
+}
+
+/** HLiepinShortcutSearchGuide 在填写猎聘搜索关键词后展示快捷搜索配置提醒和可放大教程图。 */
+function HLiepinShortcutSearchGuide({ visible }: { visible: boolean }) {
+  return (
+    <Collapse in={visible} unmountOnExit>
+      <Box
+        sx={{
+          p: 1.5,
+          border: "1px solid",
+          borderColor: "warning.light",
+          borderRadius: "8px",
+          bgcolor: "#fffaf0",
+        }}
+      >
+        <Typography sx={{ fontSize: 14, fontWeight: 780 }}>
+          使用搜索关键词前，请先创建对应的快捷搜索
+        </Typography>
+        <Alert severity='warning' sx={{ mt: 1, mb: 1.5 }}>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.7 }}>
+            如果你要使用“猎聘搜索关键词”方式筛选，请先在猎聘搜索页面设置好筛选条件，点击“保存条件”，创建对应的“快捷搜索”；否则任务会因为找不到快捷搜索而停止。
+          </Typography>
+          <Typography sx={{ mt: 0.75, fontSize: 13, lineHeight: 1.7 }}>
+            快捷搜索名称必须与该岗位名称一致。特别注意：如果两个岗位名称的前几个字相同，猎聘截断名称后可能保存成相同的快捷搜索名称，从而导致匹配错误。请尽量确保每个岗位名称的前几个字不要重复。
+          </Typography>
+        </Alert>
+        <ClickableImagePreview
+          src={HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC}
+          alt='猎聘保存搜索条件并创建快捷搜索教程'
+          hint='点击图片放大查看猎聘快捷搜索创建步骤'
+        />
+      </Box>
+    </Collapse>
   );
 }
 
