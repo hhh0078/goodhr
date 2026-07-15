@@ -139,6 +139,9 @@ func TestListVisibleCandidatesFallsBackToTableRows(t *testing.T) {
 	if got := stringFromMap(candidates[0], "candidate_name"); got != "陈**" {
 		t.Fatalf("candidate_name = %q", got)
 	}
+	if got := stringFromMap(candidates[0], "id"); got == "" {
+		t.Fatal("猎聘候选人应在进入主流程前生成去重 ID")
+	}
 	if exec.findCalls != 2 {
 		t.Fatalf("find calls = %d, want 2", exec.findCalls)
 	}

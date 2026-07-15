@@ -47,7 +47,7 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 			continue
 		}
 		name := firstNonEmpty(stringFromMap(fields, "name"), hliepinCandidateName(rawText), fmt.Sprintf("候选人%d", intFromMap(found, "index")+1))
-		candidates = append(candidates, platformcore.Candidate{
+		candidate := platformcore.Candidate{
 			"name":           name,
 			"candidate_name": name,
 			"status":         "scanned",
@@ -58,7 +58,11 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 			"element_ref":    stringFromMap(found, "ref"),
 			"card_item":      item,
 			"fields":         fields,
-		})
+		}
+		if id := r.CandidateFingerprint(candidate); id != "" {
+			candidate["id"] = id
+		}
+		candidates = append(candidates, candidate)
 	}
 	exec.Log("info", fmt.Sprintf("候选人提取完成：count=%d elapsed=%s", len(candidates), formatElapsedMS(int(time.Since(startedAt).Milliseconds()))))
 	return candidates, nil
