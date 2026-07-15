@@ -11,6 +11,7 @@ import {
 } from "./browser-display.js";
 import { detailScrollWaits } from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
+import { shouldClickGreetFollowups } from "./greet-policy.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -1244,6 +1245,7 @@ async function scrollBossCandidates(payload) {
 async function greetBossCandidate(payload) {
   const currentPage = await ensurePage();
   const platformConfig = payload.platform_config || payload.config || {};
+  const platformID = String(payload.platform_id || platformConfig.id || "boss");
   const rules = bossRules(platformConfig);
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
   const cardInfo = await bossCardByIndex(
@@ -1259,18 +1261,22 @@ async function greetBossCandidate(payload) {
     1500,
   );
   if (!clicked) throw new Error("未找到可点击的打招呼按钮");
-  await clickFirstVisible(
-    currentPage,
-    selectorList(rules.continue_buttons),
-    800,
-  );
-  await clickFirstVisible(
-    currentPage,
-    selectorList(rules.confirm_buttons),
-    800,
-  );
+  const followupsEnabled = shouldClickGreetFollowups(platformID);
+  if (followupsEnabled) {
+    await clickFirstVisible(
+      currentPage,
+      selectorList(rules.continue_buttons),
+      800,
+    );
+    await clickFirstVisible(
+      currentPage,
+      selectorList(rules.confirm_buttons),
+      800,
+    );
+  }
   return {
     greeted: true,
+    followups_enabled: followupsEnabled,
     card_index: cardIndex,
     scroll_attempts: cardInfo.attempts,
   };

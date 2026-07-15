@@ -883,6 +883,17 @@ func TestDetailScrollingStopsImmediatelyAfterAnalysis(t *testing.T) {
 	}
 }
 
+// TestCandidateDetailScrollDelayStaysWithinOneSecond 验证详情滚动间隔始终位于零到一秒范围内。
+// t 为测试对象。
+func TestCandidateDetailScrollDelayStaysWithinOneSecond(t *testing.T) {
+	for index := 0; index < 1000; index++ {
+		delay := candidateDetailScrollDelay()
+		if delay < 0 || delay > time.Second {
+			t.Fatalf("详情滚动随机等待越界：%s", delay)
+		}
+	}
+}
+
 // TestRunnerBrowserClosedStopsTask 验证用户关闭浏览器后任务会结束。
 func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	speedUpPageEntryCheck(t)

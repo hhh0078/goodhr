@@ -8,6 +8,7 @@ import (
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,11 @@ type candidateDetailSession struct {
 	closeOnce sync.Once
 	closeErr  error
 	closeFn   func(context.Context) error
+}
+
+// candidateDetailScrollDelay 返回相邻两次候选人详情滚动之间的随机等待时长。
+func candidateDetailScrollDelay() time.Duration {
+	return time.Duration(rand.Int64N(int64(time.Second) + 1))
 }
 
 // Close 立即关闭当前候选人详情，重复调用只执行一次。
@@ -56,7 +62,7 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 				}
 				return
 			}
-			if err := sleepWithContext(scrollCtx, 320*time.Millisecond); err != nil {
+			if err := sleepWithContext(scrollCtx, candidateDetailScrollDelay()); err != nil {
 				return
 			}
 		}
