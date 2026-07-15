@@ -9,6 +9,7 @@ import {
   fixedBrowserViewport,
   normalizeBrowserDisplay,
 } from "./browser-display.js";
+import { detailScrollWaits } from "./detail-scroll.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -2141,15 +2142,8 @@ async function screenshotScrollableLocatorParts(
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
-  const captureWaitMs = Math.max(
-    120,
-    Number(payload.detail_capture_wait_ms || 1200),
-  );
-  const initialCaptureWaitMs = Math.min(600, captureWaitMs);
-  const scrollSettleMs = Math.max(
-    120,
-    Number(payload.detail_scroll_settle_ms || 1600),
-  );
+  const { captureWaitMs, initialCaptureWaitMs, scrollSettleMs } =
+    detailScrollWaits(payload);
   logWorker("详情截图开始：滚轮滚动容器", {
     filename,
     clientHeight,
