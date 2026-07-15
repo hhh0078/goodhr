@@ -46,6 +46,7 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 		return func() {}
 	}
 	scrollCtx, cancel := context.WithCancel(ctx)
+	started := make(chan struct{})
 	done := make(chan struct{})
 	r.taskLog(taskID, "info", "详情浏览：AI 分析期间开始同步滚动，候选人="+candidateLogName(candidate))
 	go func() {
@@ -53,10 +54,16 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 		distances := []int{260, 320, 240, -180}
 		for index := 0; ; index++ {
 			if err := scrollCtx.Err(); err != nil {
+				if index == 0 {
+					close(started)
+				}
 				return
 			}
+			if index == 0 {
+				close(started)
+			}
 			// 当前滚轮动作开始后允许其完整返回，避免 AI 先返回时关闭弹框截断滚动。
-			actionCtx, actionCancel := context.WithTimeout(context.WithoutCancel(scrollCtx), 5*time.Second)
+			actionCtx, actionCancel := context.WithTimeout(context.WithoutCancel(scrollCtx), 30*time.Second)
 			err := scroller.ScrollCandidateDetail(actionCtx, exec, platformConfig, platformcore.Candidate(candidate), distances[index%len(distances)])
 			actionCancel()
 			if err != nil {
@@ -70,6 +77,7 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 			}
 		}
 	}()
+	<-started
 	return func() {
 		cancel()
 		<-done

@@ -15,7 +15,8 @@ const (
 	hliepinSearchButtonSelector = ".search-auto-complete-box button.search-btn"
 	hliepinShortcutItemSelector = ".quick-search-box li.save .info"
 	hliepinPublishedJobSelector = ".quick-search-box li.job .job-name"
-	hliepinExpandJobsSelector   = ".quick-search-box .control"
+	hliepinExpandShortcuts      = ".quick-search-box:has(li.save) .control"
+	hliepinExpandJobsSelector   = ".quick-search-box:has(li.job) .control"
 )
 
 // PreparePositionSearch 根据关键词是否为空，在“关键词+快捷搜索”和“发布职位匹配”之间严格二选一。
@@ -51,6 +52,9 @@ func (r *Runtime) searchKeywordWithShortcut(ctx context.Context, exec platformco
 	if err := exec.Delay(ctx, "等待猎聘关键词搜索结果刷新", 0.6); err != nil {
 		return err
 	}
+	if err := r.expandSearchItemsIfPresent(ctx, exec, hliepinExpandShortcuts, "快捷搜索"); err != nil {
+		return err
+	}
 	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
 		"element":      map[string]any{"selector": hliepinShortcutItemSelector},
 		"visible_only": true, "max_items": 100,
@@ -77,18 +81,12 @@ func (r *Runtime) searchKeywordWithShortcut(ctx context.Context, exec platformco
 	if err := exec.Delay(ctx, "等待猎聘快捷搜索结果刷新", 1.2); err != nil {
 		return err
 	}
-	return nil
+	return r.ensureHiddenCandidateFilters(ctx, exec)
 }
 
 // selectPublishedPosition 展开正在发布的职位并按任务岗位名称选择对应职位。
 func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore.Executor, positionName string) error {
-	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-		"text": "展开更多职位", "exact": true,
-		"element": map[string]any{"selector": hliepinExpandJobsSelector}, "timeout": 3000,
-	}); err != nil {
-		return fmt.Errorf("未找到猎聘“展开更多职位”入口，无法按任务岗位“%s”匹配职位，任务已停止：%w", positionName, err)
-	}
-	if err := exec.Delay(ctx, "等待猎聘正在发布的职位展开", 0.4); err != nil {
+	if err := r.expandSearchItemsIfPresent(ctx, exec, hliepinExpandJobsSelector, "正在发布的职位"); err != nil {
 		return err
 	}
 	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
@@ -113,6 +111,43 @@ func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore
 	r.currentPosition = positionName
 	if err := exec.Delay(ctx, "等待猎聘职位候选人结果刷新", 1.2); err != nil {
 		return err
+	}
+	return r.ensureHiddenCandidateFilters(ctx, exec)
+}
+
+// expandSearchItemsIfPresent 在对应搜索分组显示展开入口时先点击展开；入口不存在表示列表无需展开。
+func (r *Runtime) expandSearchItemsIfPresent(ctx context.Context, exec platformcore.Executor, selector string, label string) error {
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element": map[string]any{"selector": selector}, "visible_only": true, "max_items": 1,
+	})
+	if err != nil {
+		return fmt.Errorf("检查猎聘%s展开入口失败：%w", label, err)
+	}
+	if len(mapList(workerData(result, "items"))) == 0 {
+		exec.Log("info", "猎聘候选人搜索："+label+"未显示展开入口，无需展开")
+		return nil
+	}
+	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		"element": map[string]any{"selector": selector}, "timeout": 3000,
+	}); err != nil {
+		return fmt.Errorf("展开猎聘%s失败：%w", label, err)
+	}
+	exec.Log("info", "猎聘候选人搜索："+label+"已展开")
+	return exec.Delay(ctx, "等待猎聘"+label+"展开", 0.3)
+}
+
+// ensureHiddenCandidateFilters 在完成岗位或快捷搜索选择后强制勾选三个隐藏候选人条件。
+func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platformcore.Executor) error {
+	for _, label := range []string{"隐藏已查看", "隐藏已沟通", "隐藏已获取联系方式"} {
+		if _, err := exec.Post(ctx, "/api/v1/page/scroll", map[string]any{"distance": -10000, "skip_mouse_move": true}); err != nil {
+			return fmt.Errorf("设置猎聘筛选“%s”前回到页面顶部失败：%w", label, err)
+		}
+		if _, err := exec.Post(ctx, "/api/v1/page/ensure-checked-by-text", map[string]any{
+			"text": label, "required": true, "timeout": 3500, "viewport_margin": 20,
+		}); err != nil {
+			return fmt.Errorf("勾选猎聘筛选“%s”失败：%w", label, err)
+		}
+		exec.Log("info", "猎聘候选人搜索：已勾选"+label)
 	}
 	return nil
 }

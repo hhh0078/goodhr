@@ -28,6 +28,8 @@ type searchExecutor struct {
 	findItems       map[string][]any
 	errors          map[string]error
 	clickTextErrors map[string]error
+	scrollActions   []string
+	scrollCalls     int
 }
 
 // Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
@@ -42,6 +44,14 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	}
 	if err := e.errors[path]; err != nil {
 		return nil, err
+	}
+	if path == "/api/v1/page/scroll-or-click-next" {
+		action := "end"
+		if e.scrollCalls < len(e.scrollActions) {
+			action = e.scrollActions[e.scrollCalls]
+		}
+		e.scrollCalls++
+		return map[string]any{"data": map[string]any{"action": action}}, nil
 	}
 	if path == "/api/v1/page/find-elements" {
 		element := mapFromAny(value["element"])
@@ -181,7 +191,7 @@ func TestPreparePositionSearchTypesKeywordThenSelectsShortcut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 4 || exec.paths[0] != "/api/v1/page/type" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/list-click-by-index" {
+	if len(exec.paths) != 11 || exec.paths[0] != "/api/v1/page/type" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/find-elements" || exec.paths[4] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
 	if got := stringFromMap(exec.payloads[0], "text"); got != "AI 应用开发 Python" {
@@ -191,8 +201,11 @@ func TestPreparePositionSearchTypesKeywordThenSelectsShortcut(t *testing.T) {
 	if got := stringFromMap(button, "selector"); got != ".search-auto-complete-box button.search-btn" {
 		t.Fatalf("search button selector = %q", got)
 	}
-	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
+	if got := intFromMap(exec.payloads[4], "index"); got != 1 {
 		t.Fatalf("shortcut index = %d, want longest match index 1", got)
+	}
+	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
+		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
 }
 
@@ -206,15 +219,86 @@ func TestPreparePositionSearchSelectsPublishedJobWhenKeywordEmpty(t *testing.T) 
 	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 3 || exec.paths[0] != "/api/v1/page/click-by-text" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
+	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
 		t.Fatalf("paths = %#v", exec.paths)
-	}
-	if got := stringFromMap(exec.payloads[0], "text"); got != "展开更多职位" {
-		t.Fatalf("expand text = %q", got)
 	}
 	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
 		t.Fatalf("position text = %q", got)
 	}
+	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
+		t.Fatalf("hidden filter clicks = %d, want 3", got)
+	}
+}
+
+// TestPreparePositionSearchExpandsShortcutWhenControlExists 验证快捷搜索存在展开入口时先展开再读取列表。
+// t 为测试对象。
+func TestPreparePositionSearchExpandsShortcutWhenControlExists(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinExpandShortcuts:      {map[string]any{"text": "展开更多条件"}},
+		hliepinShortcutItemSelector: {map[string]any{"text": "Java开发工程师初"}},
+	}}
+	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
+		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_search_keyword": "Java"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.paths) < 5 || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/click" || exec.paths[4] != "/api/v1/page/find-elements" {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+}
+
+// TestScrollCandidateDetailReachesBottomWithoutMouseMove 验证猎聘详情使用直接滚轮并等待到达页面底部。
+// t 为测试对象。
+func TestScrollCandidateDetailReachesBottomWithoutMouseMove(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{scrollActions: []string{"scroll", "scroll", "end"}}
+	err := runtime.ScrollCandidateDetail(context.Background(), exec, nil, map[string]any{"name": "张先生"}, 260)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.scrollCalls != 3 || countPath(exec.paths, "/api/v1/page/scroll-or-click-next") != 3 {
+		t.Fatalf("scroll calls = %d paths=%#v", exec.scrollCalls, exec.paths)
+	}
+	if got := intFromMap(exec.payloads[0], "distance"); got != 900 {
+		t.Fatalf("scroll distance = %d", got)
+	}
+}
+
+// TestGreetCandidateSelectsPositionAndPressesEscape 验证猎聘开聊选择岗位、立即开聊并固定按 Esc。
+// t 为测试对象。
+func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "Java开发工程师初级"
+	exec := &searchExecutor{}
+	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
+		"card_index": 2, "card_item": map[string]any{"selector": "tbody tr"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/click-by-text", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
+	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
+		t.Fatalf("position text = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[4], "key"); got != "Escape" {
+		t.Fatalf("key = %q", got)
+	}
+}
+
+// countPath 统计模拟执行器中指定 Worker 路由的调用次数。
+func countPath(paths []string, target string) int {
+	count := 0
+	for _, path := range paths {
+		if path == target {
+			count++
+		}
+	}
+	return count
 }
 
 // TestPreparePositionSearchStopsWhenShortcutMissing 验证找不到快捷搜索时返回明确停止错误。
