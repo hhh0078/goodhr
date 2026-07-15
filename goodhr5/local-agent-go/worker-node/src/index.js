@@ -44,7 +44,7 @@ const pageTokens = new WeakMap();
 const pagesByToken = new Map();
 let pageTokenSeq = 0;
 const downloadHandlerVersion = "2026-07-09-context-pages";
-const workerAPIVersion = "2026-07-16.1";
+const workerAPIVersion = "2026-07-16.2";
 
 /**
  * 写入 Worker 诊断日志。

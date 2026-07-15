@@ -23,7 +23,7 @@ import (
 )
 
 // requiredWorkerAPIVersion 是当前 Go 主程序唯一允许配套运行的 Node Worker API 版本。
-const requiredWorkerAPIVersion = "2026-07-16.1"
+const requiredWorkerAPIVersion = "2026-07-16.2"
 
 // WorkerStatus 表示 Node Browser Worker 运行状态。
 type WorkerStatus struct {
