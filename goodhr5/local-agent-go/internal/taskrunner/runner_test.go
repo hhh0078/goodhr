@@ -859,11 +859,11 @@ func TestRunnerMissingCandidateDetailStopsTask(t *testing.T) {
 	}
 }
 
-// TestDetailScrollingStopsImmediatelyAfterAnalysis 验证 AI 返回时会取消滚动并等待滚动协程退出。
+// TestDetailScrollingWaitsForCurrentActionAfterAnalysis 验证 AI 返回后会等待当前滚轮动作完成再退出。
 // t 为测试对象。
-func TestDetailScrollingStopsImmediatelyAfterAnalysis(t *testing.T) {
+func TestDetailScrollingWaitsForCurrentActionAfterAnalysis(t *testing.T) {
 	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
-	runtime := &detailScrollProbeRuntime{started: make(chan struct{}, 1)}
+	runtime := &detailScrollProbeRuntime{started: make(chan struct{}, 1), release: make(chan struct{})}
 	stop := runner.startCandidateDetailScrolling(
 		t.Context(),
 		"",
@@ -877,7 +877,22 @@ func TestDetailScrollingStopsImmediatelyAfterAnalysis(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("详情滚动未启动")
 	}
-	stop()
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("当前滚轮动作尚未完成时不应关闭详情")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(runtime.release)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("当前滚轮动作完成后滚动协程未及时退出")
+	}
 	if runtime.calls.Load() != 1 {
 		t.Fatalf("取消后仍触发额外滚动，calls=%d", runtime.calls.Load())
 	}
@@ -1066,6 +1081,7 @@ type detailCloseProbeRuntime struct {
 type detailScrollProbeRuntime struct {
 	detailCloseProbeRuntime
 	started chan struct{}
+	release chan struct{}
 	calls   atomic.Int32
 }
 
@@ -1077,8 +1093,12 @@ func (r *detailScrollProbeRuntime) ScrollCandidateDetail(ctx context.Context, ex
 	case r.started <- struct{}{}:
 	default:
 	}
-	<-ctx.Done()
-	return ctx.Err()
+	select {
+	case <-r.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // OpenEntryPage 模拟打开入口页。

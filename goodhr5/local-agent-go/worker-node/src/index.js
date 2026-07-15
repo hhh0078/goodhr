@@ -9,6 +9,7 @@ import {
   fixedBrowserViewport,
   normalizeBrowserDisplay,
 } from "./browser-display.js";
+import { aiOverlayMatchKey } from "./ai-overlay-policy.js";
 import { detailScrollWaits } from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
@@ -3021,16 +3022,17 @@ async function aiOverlay(payload) {
   const title = String(payload.title || "AI 正在思考").trim();
   const subtitle = String(payload.subtitle || payload.target || "").trim();
   const message = String(payload.message || "正在分析候选人，请稍候").trim();
+  const matchKey = aiOverlayMatchKey(title, subtitle);
   await currentPage.evaluate(
-    ({ title, subtitle, message }) => {
+    ({ title, subtitle, message, matchKey }) => {
       const randStr = (len) =>
         Math.random()
           .toString(36)
           .substring(2, 2 + len);
       const ctx = (window.__gohCtx = window.__gohCtx || {});
-      const mk = title + "|" + subtitle;
+      const mk = matchKey;
 
-      // 同标题+副标题的流式更新 → 复用当前卡片，只更新消息内容
+      // 同一候选人的流式更新和最终结果复用当前卡片，只更新展示内容。
       if (
         ctx.matchKey === mk &&
         ctx.card &&
@@ -3049,17 +3051,13 @@ async function aiOverlay(payload) {
         return; // 不复用旧卡片，不走删除流程
       }
 
-      // 新 AI 调用（不同标题）→ 旧卡片 5 秒淡出移除
+      // 切换候选人时立即移除旧卡片，避免旧姓名与当前详情同时显示。
       if (ctx.card && ctx.card.parentNode && !ctx.removing) {
         ctx.removing = true;
-        ctx.card.style.transition = "opacity 0.3s ease";
-        ctx.card.style.opacity = "0.3";
         var s = ctx.style;
         var c = ctx.card;
-        setTimeout(function () {
-          if (s && s.parentNode) s.remove();
-          if (c && c.parentNode) c.remove();
-        }, 5000);
+        if (s && s.parentNode) s.remove();
+        if (c && c.parentNode) c.remove();
       }
 
       const msgCls = randStr(6);
@@ -3168,7 +3166,7 @@ async function aiOverlay(payload) {
       ctx.style = style;
       ctx.removing = false;
     },
-    { title, subtitle, message },
+    { title, subtitle, message, matchKey },
   );
   return { visible: true, title, subtitle, message };
 }

@@ -42,8 +42,10 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，distance 为滚动距离。
 func (r *Runtime) ScrollCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, distance int) error {
 	_, err := exec.Post(ctx, "/api/v1/page/scroll", map[string]any{
-		"element":  map[string]any{"selector": ".new-resume-detail--inner, .resume-detail, .resume-item__content"},
-		"distance": distance,
+		"element":   map[string]any{"selector": ".new-resume-detail--inner, .resume-detail, .resume-item__content"},
+		"distance":  distance,
+		"min_steps": 2,
+		"max_steps": 4,
 	})
 	return err
 }

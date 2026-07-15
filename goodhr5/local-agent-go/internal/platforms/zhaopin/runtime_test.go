@@ -175,6 +175,9 @@ func TestScrollCandidateDetailTargetsResumeDialog(t *testing.T) {
 	if _, exists := exec.payload["wait_ms"]; exists {
 		t.Fatalf("智联单次滚动完成后不应由 Worker 追加等待：%+v", exec.payload)
 	}
+	if exec.payload["min_steps"] != 2 || exec.payload["max_steps"] != 4 {
+		t.Fatalf("智联详情滚动应使用快速拟人鼠标移动：%+v", exec.payload)
+	}
 	element := mapFromAny(exec.payload["element"])
 	if !strings.Contains(stringFromMap(element, "selector"), ".new-resume-detail--inner") {
 		t.Fatalf("详情滚动选择器错误：%+v", element)

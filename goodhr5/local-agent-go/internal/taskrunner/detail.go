@@ -55,7 +55,10 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 			if err := scrollCtx.Err(); err != nil {
 				return
 			}
-			err := scroller.ScrollCandidateDetail(scrollCtx, exec, platformConfig, platformcore.Candidate(candidate), distances[index%len(distances)])
+			// 当前滚轮动作开始后允许其完整返回，避免 AI 先返回时关闭弹框截断滚动。
+			actionCtx, actionCancel := context.WithTimeout(context.WithoutCancel(scrollCtx), 5*time.Second)
+			err := scroller.ScrollCandidateDetail(actionCtx, exec, platformConfig, platformcore.Candidate(candidate), distances[index%len(distances)])
+			actionCancel()
 			if err != nil {
 				if scrollCtx.Err() == nil {
 					r.taskLog(taskID, "warning", "详情浏览：同步滚动停止，候选人="+candidateLogName(candidate)+"，错误="+err.Error())
