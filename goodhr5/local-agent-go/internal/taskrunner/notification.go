@@ -6,13 +6,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"goodhr5/local-agent-go/internal/cloudapi"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"goodhr5/local-agent-go/internal/browser"
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"unicode/utf16"
 )
 
@@ -153,71 +155,9 @@ func lookPathAny(names ...string) (string, error) {
 	return "", fmt.Errorf("没有找到可用命令")
 }
 
-// taskBrowserViewport 返回任务启动浏览器时使用的窗口尺寸。
-// 尺寸与本地账号打开入口保持同一套保守范围，避免任务窗口过大。
+// taskBrowserViewport 返回任务和手动打开入口共用的固定视口尺寸。
 func taskBrowserViewport() (int, int) {
-	screenWidth, screenHeight := taskCurrentScreenSize()
-	if screenWidth <= 0 || screenHeight <= 0 {
-		return 1440, 810
-	}
-	return taskBrowserViewport16x9(screenWidth, screenHeight)
-}
-
-// taskBrowserViewport16x9 根据屏幕可用尺寸计算任务浏览器 16:9 窗口尺寸。
-// screenWidth 和 screenHeight 为屏幕工作区宽高。
-func taskBrowserViewport16x9(screenWidth, screenHeight int) (int, int) {
-	const (
-		minWidth  = 1280
-		minHeight = 720
-		maxWidth  = 1920
-		maxHeight = 1080
-		margin    = 120
-	)
-	availableWidth := screenWidth - margin
-	availableHeight := screenHeight - margin
-	if availableWidth <= 0 || availableHeight <= 0 {
-		return 1440, 810
-	}
-	width := clampInt(availableWidth, minWidth, maxWidth)
-	height := width * 9 / 16
-	if height > availableHeight {
-		height = clampInt(availableHeight, minHeight, maxHeight)
-		width = height * 16 / 9
-	}
-	return clampInt(width, minWidth, maxWidth), clampInt(height, minHeight, maxHeight)
-}
-
-// taskCurrentScreenSize 读取当前主屏幕工作区尺寸。
-// 读取失败时返回 0，由调用方使用默认尺寸。
-func taskCurrentScreenSize() (int, int) {
-	switch runtime.GOOS {
-	case "darwin":
-		if out, err := exec.Command("/bin/sh", "-c", `osascript -l JavaScript -e 'ObjC.import("AppKit"); const f=$.NSScreen.mainScreen.visibleFrame; console.log(Math.round(f.size.width)+","+Math.round(f.size.height));'`).Output(); err == nil {
-			return parseScreenSize(string(out))
-		}
-	case "windows":
-		powershell, err := lookPathAny("powershell.exe", "powershell", "pwsh.exe", "pwsh")
-		if err != nil {
-			return 0, 0
-		}
-		script := `Add-Type -AssemblyName System.Windows.Forms; $r=[System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea; Write-Output "$($r.Width),$($r.Height)"`
-		cmd := exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", script)
-		hideCommandWindow(cmd)
-		if out, err := cmd.Output(); err == nil {
-			return parseScreenSize(string(out))
-		}
-	}
-	return 0, 0
-}
-
-// parseScreenSize 解析屏幕尺寸输出。
-// value 格式为 宽,高，解析失败返回 0。
-func parseScreenSize(value string) (int, int) {
-	parts := strings.Split(strings.TrimSpace(value), ",")
-	if len(parts) < 2 {
-		return 0, 0
-	}
-	return parseLooseInt(parts[0]), parseLooseInt(parts[1])
+	return browser.FixedViewport()
 }
 
 // sendTaskFailNotification 通知云端任务失败，由云端按任务 ID 查用户并发邮件。

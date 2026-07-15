@@ -15,6 +15,10 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  fixedBrowserViewport,
+  normalizeBrowserDisplay,
+} from "./browser-display.js";
 
 /**
  * BrowserBaseActions 提供最基础的浏览器原子操作。
@@ -86,12 +90,20 @@ export class BrowserBaseActions {
       if (!userDataDir || userDataDir === this.currentUserDataDir) {
         this.registerContext(this.context);
         this.registerPage(this.page);
-        return {
-          running: true,
-          persistent: Boolean(this.currentUserDataDir),
-          user_data_dir: this.currentUserDataDir,
-          reused: true,
-        };
+        const display = await normalizeBrowserDisplay(this.page);
+        this.log("浏览器显示校准", { stage: "reuse", ...display });
+        if (display.matches_fixed) {
+          return {
+            running: true,
+            persistent: Boolean(this.currentUserDataDir),
+            user_data_dir: this.currentUserDataDir,
+            reused: true,
+            display,
+          };
+        }
+        this.log("已有浏览器校准失败，准备重启", {
+          errors: display.errors?.join("；") || "",
+        });
       }
       await this.stopBrowser();
     }
@@ -135,6 +147,15 @@ export class BrowserBaseActions {
       this.registerPage(this.page);
     }
 
+    const display = await normalizeBrowserDisplay(this.page);
+    this.log("浏览器显示校准", { stage: "launch", ...display });
+    if (!display.matches_fixed) {
+      await this.stopBrowser();
+      throw new Error(
+        `浏览器视口校准失败：期望 ${display.target_width}x${display.target_height}，实际 ${display.inner_width || 0}x${display.inner_height || 0}`,
+      );
+    }
+
     if (payload.url) {
       await this.openURL(payload.url, payload);
     }
@@ -143,6 +164,7 @@ export class BrowserBaseActions {
       persistent: Boolean(this.currentUserDataDir),
       user_data_dir: this.currentUserDataDir,
       downloads_path: this.currentDownloadsPath,
+      display,
       elapsed_ms: Date.now() - startedAt,
     };
   }
@@ -153,15 +175,18 @@ export class BrowserBaseActions {
    * @returns {Record<string, any>} 传给启动器的参数。
    */
   buildLaunchOptions(payload = {}) {
-    const width = positiveNumber(payload.viewport_width) || 1280;
-    const height = positiveNumber(payload.viewport_height) || 900;
+    const { width, height } = fixedBrowserViewport();
+    const args = (Array.isArray(payload.args) ? payload.args : []).filter(
+      (item) => !String(item).startsWith("--window-size="),
+    );
+    args.push(`--window-size=${width},${height}`);
     return {
       headless: Boolean(payload.headless),
       acceptDownloads: true,
       downloadsPath:
         stringValue(payload.downloads_path) || this.defaultDownloadsPath,
       viewport: { width, height },
-      args: Array.isArray(payload.args) ? payload.args : [],
+      args,
     };
   }
 

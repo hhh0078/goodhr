@@ -5,6 +5,10 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
+import {
+  fixedBrowserViewport,
+  normalizeBrowserDisplay,
+} from "./browser-display.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -224,18 +228,30 @@ async function startBrowser(payload) {
     if (!userDataDir || userDataDir === currentUserDataDir) {
       registerContext(context);
       registerPage(page);
-      logWorker("复用已有浏览器", { user_data_dir: currentUserDataDir });
-      return {
-        running: true,
-        persistent: Boolean(currentUserDataDir),
-        user_data_dir: currentUserDataDir,
-      };
+      try {
+        const display = await calibrateBrowserDisplay(page, "reuse");
+        logWorker("复用已有浏览器", { user_data_dir: currentUserDataDir });
+        return {
+          running: true,
+          persistent: Boolean(currentUserDataDir),
+          user_data_dir: currentUserDataDir,
+          reused: true,
+          display,
+        };
+      } catch (error) {
+        logWorker("已有浏览器校准失败，准备重启", {
+          error: error?.message || error,
+        });
+        await stopBrowser();
+      }
     }
-    logWorker("账号目录不同，准备关闭旧浏览器", {
-      old_user_data_dir: currentUserDataDir,
-      new_user_data_dir: userDataDir,
-    });
-    await stopBrowser();
+    if (browser || context) {
+      logWorker("账号目录不同，准备关闭旧浏览器", {
+        old_user_data_dir: currentUserDataDir,
+        new_user_data_dir: userDataDir,
+      });
+      await stopBrowser();
+    }
   }
   logWorker("准备加载 CloakBrowser Node SDK");
   const cloak = await import("cloakbrowser");
@@ -248,19 +264,15 @@ async function startBrowser(payload) {
     acceptDownloads: true,
     downloadsPath: payload.downloads_path || downloadDir(),
     windowsHide: true,
+    viewport: fixedBrowserViewport(),
     // 隐藏 Chromium 对 --no-sandbox 等启动参数的顶部提示条。
     args: ["--test-type"],
   };
   await fs.mkdir(options.downloadsPath, { recursive: true });
   if (payload.proxy) options.proxy = payload.proxy;
-  if (payload.viewport_width && payload.viewport_height) {
-    const viewport = {
-      width: Number(payload.viewport_width),
-      height: Number(payload.viewport_height),
-    };
-    options.viewport = viewport;
-    options.args.push(`--window-size=${viewport.width},${viewport.height}`);
-  }
+  options.args.push(
+    `--window-size=${options.viewport.width},${options.viewport.height}`,
+  );
   if (payload.timezone) options.timezone = String(payload.timezone);
   if (payload.locale) options.locale = String(payload.locale);
   if (payload.user_agent) options.userAgent = String(payload.user_agent);
@@ -281,6 +293,13 @@ async function startBrowser(payload) {
     registerContext(context);
     page = context.pages?.()[0] || (await context.newPage());
     registerPage(page);
+    let display;
+    try {
+      display = await calibrateBrowserDisplay(page, "persistent-launch");
+    } catch (error) {
+      await stopBrowser();
+      throw error;
+    }
     logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
     return {
       running: true,
@@ -288,24 +307,37 @@ async function startBrowser(payload) {
       user_data_dir: userDataDir,
       downloads_path: options.downloadsPath,
       viewport: options.viewport,
+      display,
     };
   }
   if (!launch) throw new Error("CloakBrowser Node SDK 缺少启动方法");
   logWorker("准备启动普通浏览器");
   browser = await launch(options);
   logWorker("普通浏览器启动完成", { elapsed_ms: Date.now() - startedAt });
-  context = (await browser.newContext?.({ acceptDownloads: true })) || null;
+  context =
+    (await browser.newContext?.({
+      acceptDownloads: true,
+      viewport: fixedBrowserViewport(),
+    })) || null;
   currentUserDataDir = "";
   currentDownloadsPath = options.downloadsPath;
   registerContext(context);
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
+  let display;
+  try {
+    display = await calibrateBrowserDisplay(page, "launch");
+  } catch (error) {
+    await stopBrowser();
+    throw error;
+  }
   logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
   return {
     running: true,
     persistent: false,
     downloads_path: options.downloadsPath,
     viewport: options.viewport,
+    display,
   };
 }
 
@@ -491,6 +523,18 @@ async function openPage(payload) {
     page_token: rememberPage(currentPage),
     previous_page_token: previousPageToken,
   };
+}
+
+/** calibrateBrowserDisplay 统一校准页面视口和缩放，校验失败时阻止继续自动化。 */
+async function calibrateBrowserDisplay(currentPage, stage) {
+  const display = await normalizeBrowserDisplay(currentPage);
+  logWorker("浏览器显示校准", { stage, ...display });
+  if (!display.matches_fixed) {
+    throw new Error(
+      `浏览器视口校准失败：期望 ${display.target_width}x${display.target_height}，实际 ${display.inner_width || 0}x${display.inner_height || 0}`,
+    );
+  }
+  return display;
 }
 
 /**
