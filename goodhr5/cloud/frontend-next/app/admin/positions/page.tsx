@@ -617,7 +617,7 @@ export default function PositionsPage() {
                       }
                       fullWidth
                       placeholder='例如：AI 应用开发 Python'
-                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
+                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
                     />
                   ) : null}
                 </Stack>
@@ -692,7 +692,7 @@ export default function PositionsPage() {
                       }
                       fullWidth
                       placeholder='点击右上角“AI 分析岗位”可自动生成，也可手动填写'
-                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
+                      helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
                     />
                   ) : null}
                   <Box

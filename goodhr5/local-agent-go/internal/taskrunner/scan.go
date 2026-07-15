@@ -97,11 +97,11 @@ scanLoop:
 			r.prepareEntryPage(ctx, task.ID, platformRuntime, exec, platformConfig)
 			if !positionSearchPrepared {
 				if preparer, ok := platformRuntime.(platformcore.PositionSearchPreparer); ok {
-					r.taskLog(task.ID, "info", "候选人搜索：正在应用岗位搜索关键词")
+					r.taskLog(task.ID, "info", "候选人搜索：正在应用岗位搜索条件")
 					if err := preparer.PreparePositionSearch(ctx, exec, platformConfig, task.PositionSnapshot); err != nil {
-						return nil, fmt.Errorf("应用岗位搜索关键词失败：%w", err)
+						return nil, fmt.Errorf("应用岗位搜索条件失败：%w", err)
 					}
-					r.taskLog(task.ID, "info", "候选人搜索：岗位搜索关键词已应用")
+					r.taskLog(task.ID, "info", "候选人搜索：岗位搜索条件已应用")
 					forcePositionSelection = !skipPositionSelection
 				}
 				positionSearchPrepared = true

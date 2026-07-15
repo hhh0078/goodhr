@@ -4,6 +4,7 @@ package hliepin
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -20,19 +21,39 @@ type routeExecutor struct {
 	findCalls int
 }
 
+// searchExecutor 模拟关键词、快捷搜索和发布职位页面操作。
 type searchExecutor struct {
-	paths    []string
-	payloads []map[string]any
+	paths           []string
+	payloads        []map[string]any
+	findItems       map[string][]any
+	errors          map[string]error
+	clickTextErrors map[string]error
 }
 
+// Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
 func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
 	e.paths = append(e.paths, path)
 	value, _ := payload.(map[string]any)
 	e.payloads = append(e.payloads, value)
+	if path == "/api/v1/page/click-by-text" {
+		if err := e.clickTextErrors[stringFromMap(value, "text")]; err != nil {
+			return nil, err
+		}
+	}
+	if err := e.errors[path]; err != nil {
+		return nil, err
+	}
+	if path == "/api/v1/page/find-elements" {
+		element := mapFromAny(value["element"])
+		return map[string]any{"data": map[string]any{"items": e.findItems[stringFromMap(element, "selector")]}}, nil
+	}
 	return map[string]any{"data": map[string]any{"ok": true}}, nil
 }
 
-func (e *searchExecutor) Log(string, string)                           {}
+// Log 忽略测试中的任务日志。
+func (e *searchExecutor) Log(string, string) {}
+
+// Delay 跳过测试中的真实等待。
 func (e *searchExecutor) Delay(context.Context, string, float64) error { return nil }
 
 func (e *routeExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
@@ -139,18 +160,25 @@ func TestPositionSelectionIsSkipped(t *testing.T) {
 	}
 }
 
-// TestPreparePositionSearchTypesKeywordThenClicksSearch 验证猎聘仍按岗位关键词搜索候选人。
+// TestPreparePositionSearchTypesKeywordThenSelectsShortcut 验证猎聘按关键词搜索后选择岗位名称包含的快捷搜索项。
 // t 为测试对象。
-func TestPreparePositionSearchTypesKeywordThenClicksSearch(t *testing.T) {
+func TestPreparePositionSearchTypesKeywordThenSelectsShortcut(t *testing.T) {
 	runtime := NewRuntime()
-	exec := &searchExecutor{}
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinShortcutItemSelector: {
+			map[string]any{"text": "java开发"},
+			map[string]any{"text": "java开发工程师初"},
+			map[string]any{"text": "AI应用开发工程师初"},
+		},
+	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
+		"name":          "Java开发工程师初级",
 		"common_config": map[string]any{"hliepin_search_keyword": "AI 应用开发 Python"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 2 || exec.paths[0] != "/api/v1/page/type" || exec.paths[1] != "/api/v1/page/click" {
+	if len(exec.paths) != 4 || exec.paths[0] != "/api/v1/page/type" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
 	if got := stringFromMap(exec.payloads[0], "text"); got != "AI 应用开发 Python" {
@@ -160,17 +188,54 @@ func TestPreparePositionSearchTypesKeywordThenClicksSearch(t *testing.T) {
 	if got := stringFromMap(button, "selector"); got != ".search-auto-complete-box button.search-btn" {
 		t.Fatalf("search button selector = %q", got)
 	}
+	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
+		t.Fatalf("shortcut index = %d, want longest match index 1", got)
+	}
 }
 
-// TestPreparePositionSearchSkipsEmptyKeyword 验证猎聘搜索关键词为空时不操作页面。
+// TestPreparePositionSearchSelectsPublishedJobWhenKeywordEmpty 验证猎聘关键词为空时展开并匹配正在发布的职位。
 // t 为测试对象。
-func TestPreparePositionSearchSkipsEmptyKeyword(t *testing.T) {
+func TestPreparePositionSearchSelectsPublishedJobWhenKeywordEmpty(t *testing.T) {
 	runtime := NewRuntime()
-	exec := &searchExecutor{}
-	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{}); err != nil {
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinPublishedJobSelector: {map[string]any{"text": "Java开发工程师初级"}},
+	}}
+	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 0 {
-		t.Fatalf("paths = %#v, want no browser operation", exec.paths)
+	if len(exec.paths) != 3 || exec.paths[0] != "/api/v1/page/click-by-text" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	if got := stringFromMap(exec.payloads[0], "text"); got != "展开更多职位" {
+		t.Fatalf("expand text = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
+		t.Fatalf("position text = %q", got)
+	}
+}
+
+// TestPreparePositionSearchStopsWhenShortcutMissing 验证找不到快捷搜索时返回明确停止错误。
+// t 为测试对象。
+func TestPreparePositionSearchStopsWhenShortcutMissing(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{findItems: map[string][]any{hliepinShortcutItemSelector: {}}}
+	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
+		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_search_keyword": "Java"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "未找到猎聘快捷搜索列表") || !strings.Contains(err.Error(), "任务已停止") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestPreparePositionSearchStopsWhenPublishedJobMissing 验证找不到对应发布职位时返回明确停止错误。
+// t 为测试对象。
+func TestPreparePositionSearchStopsWhenPublishedJobMissing(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinPublishedJobSelector: {map[string]any{"text": "PHP程序员"}},
+	}, clickTextErrors: map[string]error{"Java开发工程师初级": fmt.Errorf("未找到文字元素")}}
+	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"})
+	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到任务岗位") || !strings.Contains(err.Error(), "任务已停止") {
+		t.Fatalf("error = %v", err)
 	}
 }
