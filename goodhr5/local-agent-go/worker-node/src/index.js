@@ -1147,6 +1147,42 @@ async function scrollPageToBottomWithinDuration(currentPage, initialState, paylo
 }
 
 /**
+ * 定位分页下一页按钮，确认可用后滚动到按钮并点击。
+ * @param {any} currentPage - 当前浏览器页面。
+ * @param {Record<string, any>} payload - 分页参数。
+ * @param {Record<string, any>} state - 点击前的页面滚动状态。
+ * @returns {Promise<Record<string, any>>} 下一页点击结果。
+ */
+async function clickPaginationNext(currentPage, payload, state) {
+  const next = await firstLocator(currentPage, payload.next_element || payload.nextElement, true);
+  if (!next) return { action: "end", reason: "next-not-found", before: state };
+  const disabledClass = String(payload.disabled_class || payload.disabledClass || "").trim();
+  const disabled = await next.evaluate((element, className) => {
+    return Boolean(
+      element.disabled ||
+      element.getAttribute("aria-disabled") === "true" ||
+      (className && element.classList.contains(className)) ||
+      element.closest?.("[aria-disabled='true'],.ant-pagination-disabled")
+    );
+  }, disabledClass).catch(() => false);
+  if (disabled) return { action: "end", reason: "next-disabled", before: state };
+  const visibility = await wheelUntilElementVisible(currentPage, next, next, {
+    ...payload,
+    distance: Math.max(320, Number(payload.distance || 720)),
+    max_attempts: Math.max(6, Number(payload.scroll_attempts || 16)),
+    wait_ms: Math.max(120, Number(payload.scroll_wait_ms || 300)),
+    margin: Math.max(20, Number(payload.viewport_margin || 40)),
+    require_full: true,
+    debug_stage: "pagination-next",
+  });
+  if (!visibility.visible) throw new Error("分页下一页按钮无法滚动到可点击区域");
+  const move = await moveMouseToElement(currentPage, next, payload);
+  const click = await humanMouseClick(currentPage, payload);
+  await currentPage.waitForTimeout(Math.max(300, Number(payload.next_wait_ms || 1500)));
+  return { action: "next", reason: "next-clicked", clicked: true, mouse: move, click, before: state };
+}
+
+/**
  * 使用真实滚轮向下滚动，到达页底后点击下一页。
  * @param {Record<string, any>} payload - 滚动和分页参数。
  * @returns {Promise<Record<string, any>>} 翻页或滚动结果。
@@ -1158,6 +1194,9 @@ async function scrollOrClickNext(payload) {
     currentPage,
     Math.max(20, Number(payload.bottom_threshold || 160)),
   );
+  if (payload.click_next_directly === true) {
+    return clickPaginationNext(currentPage, payload, state);
+  }
   if (!state.at_bottom && Number(payload.scroll_to_bottom_duration_ms || 0) > 0) {
     const finalState = await scrollPageToBottomWithinDuration(currentPage, state, payload);
     return {
@@ -1174,22 +1213,7 @@ async function scrollOrClickNext(payload) {
     await currentPage.waitForTimeout(Math.max(120, Number(payload.scroll_wait_ms || 500)));
     return { action: "scroll", scrolled: true, distance, before: state };
   }
-  const next = await firstLocator(currentPage, payload.next_element || payload.nextElement, true);
-  if (!next) return { action: "end", reason: "next-not-found", before: state };
-  const disabledClass = String(payload.disabled_class || payload.disabledClass || "").trim();
-  const disabled = await next.evaluate((element, className) => {
-    return Boolean(
-      element.disabled ||
-      element.getAttribute("aria-disabled") === "true" ||
-      (className && element.classList.contains(className)) ||
-      element.closest?.("[aria-disabled='true'],.ant-pagination-disabled")
-    );
-  }, disabledClass).catch(() => false);
-  if (disabled) return { action: "end", reason: "next-disabled", before: state };
-  const move = await moveMouseToElement(currentPage, next, payload);
-  const click = await humanMouseClick(currentPage, payload);
-  await currentPage.waitForTimeout(Math.max(300, Number(payload.next_wait_ms || 1500)));
-  return { action: "next", clicked: true, mouse: move, click, before: state };
+  return clickPaginationNext(currentPage, payload, state);
 }
 
 /**

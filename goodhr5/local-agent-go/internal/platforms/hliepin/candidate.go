@@ -79,10 +79,11 @@ func (r *Runtime) ScrollCandidateList(ctx context.Context, exec platformcore.Exe
 	nextSelector := firstNonEmpty(stringFromMap(behavior, "nextPageBtn"), ".ant-pagination-next")
 	disabledClass := firstNonEmpty(stringFromMap(behavior, "nextPageDisabledClass"), "ant-pagination-disabled")
 	result, err := exec.Post(ctx, "/api/v1/page/scroll-or-click-next", map[string]any{
-		"distance":       distance,
-		"next_element":   map[string]any{"selector": nextSelector},
-		"disabled_class": disabledClass,
-		"next_wait_ms":   1800,
+		"distance":            distance,
+		"next_element":        map[string]any{"selector": nextSelector},
+		"disabled_class":      disabledClass,
+		"next_wait_ms":        1800,
+		"click_next_directly": true,
 	})
 	if err == nil {
 		data := workerDataMap(result)

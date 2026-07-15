@@ -204,6 +204,25 @@ func TestCandidateFingerprintFallbackIgnoresTransientText(t *testing.T) {
 	}
 }
 
+// TestScrollCandidateListClicksNextPageDirectly 验证猎聘处理完整页候选人后直接定位并点击下一页。
+// t 为测试对象。
+func TestScrollCandidateListClicksNextPageDirectly(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{}
+	if err := runtime.ScrollCandidateList(context.Background(), exec, nil, 735); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.payloads) != 1 || exec.paths[0] != "/api/v1/page/scroll-or-click-next" {
+		t.Fatalf("paths=%#v payloads=%#v", exec.paths, exec.payloads)
+	}
+	if direct, ok := exec.payloads[0]["click_next_directly"].(bool); !ok || !direct {
+		t.Fatalf("click_next_directly = %#v", exec.payloads[0]["click_next_directly"])
+	}
+	if got := intFromMap(exec.payloads[0], "distance"); got != 735 {
+		t.Fatalf("distance = %d", got)
+	}
+}
+
 // TestPositionSelectionIsSkipped 验证猎聘跳过岗位切换和三个隐藏筛选。
 // t 为测试对象。
 func TestPositionSelectionIsSkipped(t *testing.T) {
