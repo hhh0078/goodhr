@@ -20,10 +20,8 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go/internal/runtime"
+	"goodhr5/local-agent-go/internal/version"
 )
-
-// requiredWorkerAPIVersion 是当前 Go 主程序唯一允许配套运行的 Node Worker API 版本。
-const requiredWorkerAPIVersion = "2026-07-16.2"
 
 // WorkerStatus 表示 Node Browser Worker 运行状态。
 type WorkerStatus struct {
@@ -103,6 +101,7 @@ func (m *WorkerManager) Start(ctx context.Context) (WorkerStatus, error) {
 	hideCommandWindow(cmd)
 	cmd.Env = append(os.Environ(),
 		"GOODHR_WORKER_ADDR="+workerAddrFromBaseURL(m.baseURL),
+		"GOODHR_WORKER_VERSION="+version.Value,
 		"GOODHR_CLOAKBROWSER_PATH="+status.CloakBrowserPath,
 		"CLOAKBROWSER_BINARY_PATH="+status.CloakBrowserPath,
 		"GOODHR_WORKER_RUNTIME_DIR="+status.RuntimeDir,
@@ -485,7 +484,7 @@ func ensureWorkerPortAvailable(baseURL string) error {
 // workerHealthReusable 判断已有 Worker 是否兼容当前本地程序。
 // health 为 Worker 健康检查数据。
 func (m *WorkerManager) workerHealthReusable(health map[string]any) bool {
-	if strings.TrimSpace(workerStringFromAny(health["api_version"])) != requiredWorkerAPIVersion {
+	if strings.TrimSpace(workerStringFromAny(health["worker_version"])) != version.Value {
 		return false
 	}
 	if m.agentBaseURL == "" {
@@ -497,8 +496,8 @@ func (m *WorkerManager) workerHealthReusable(health map[string]any) bool {
 // workerCompatibilityError 返回 Worker 与当前 Go 主程序不兼容的明确错误。
 // health 为 Worker 健康检查数据，兼容时返回空。
 func (m *WorkerManager) workerCompatibilityError(health map[string]any) error {
-	actual := strings.TrimSpace(workerStringFromAny(health["api_version"]))
-	if actual == requiredWorkerAPIVersion {
+	actual := strings.TrimSpace(workerStringFromAny(health["worker_version"]))
+	if actual == version.Value {
 		return nil
 	}
 	if actual == "" {
@@ -508,7 +507,7 @@ func (m *WorkerManager) workerCompatibilityError(health map[string]any) error {
 	if m.runtime != nil {
 		entry = m.runtime.WorkerEntry()
 	}
-	return fmt.Errorf("Node Browser Worker 版本不匹配：主程序要求=%s，当前Worker=%s，入口=%s；请使用完整安装包重新安装，不能只替换exe", requiredWorkerAPIVersion, actual, entry)
+	return fmt.Errorf("Node Browser Worker 版本不匹配：本地程序=%s，当前Worker=%s，入口=%s；请使用完整安装包重新安装，不能只替换exe", version.Value, actual, entry)
 }
 
 // workerAddrFromBaseURL 从 Worker 基础地址提取监听地址。

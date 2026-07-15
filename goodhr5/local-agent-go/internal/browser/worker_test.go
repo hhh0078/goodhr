@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"goodhr5/local-agent-go/internal/version"
 )
 
 // TestSetAgentBaseURLUsesNextPort 验证 Worker 固定使用本地程序端口加一。
@@ -71,17 +73,17 @@ func TestDeadlineCallDoesNotRestartWorker(t *testing.T) {
 	}
 }
 
-// TestWorkerHealthReusableRequiresExactAPIVersion 验证主程序只接受完全匹配的 Worker API 版本。
+// TestWorkerHealthReusableRequiresExactAPIVersion 验证主程序只接受与自身完全匹配的 Worker 版本。
 // t 为测试对象。
 func TestWorkerHealthReusableRequiresExactAPIVersion(t *testing.T) {
 	manager := NewWorkerManager(nil)
-	if manager.workerHealthReusable(map[string]any{"api_version": "旧版本"}) {
+	if manager.workerHealthReusable(map[string]any{"worker_version": "旧版本"}) {
 		t.Fatal("旧 Worker API 版本不应被复用")
 	}
 	if manager.workerHealthReusable(map[string]any{}) {
 		t.Fatal("未提供 API 版本的 Worker 不应被复用")
 	}
-	if !manager.workerHealthReusable(map[string]any{"api_version": requiredWorkerAPIVersion}) {
+	if !manager.workerHealthReusable(map[string]any{"worker_version": version.Value}) {
 		t.Fatal("完全匹配的 Worker API 版本应允许复用")
 	}
 }

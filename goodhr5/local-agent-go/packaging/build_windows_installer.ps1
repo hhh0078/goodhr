@@ -139,8 +139,8 @@ $targetWorkerHash = (Get-FileHash -Algorithm SHA256 $targetWorkerEntry).Hash
 if ($sourceWorkerHash -ne $targetWorkerHash) {
   throw "Worker entry hash mismatch; refusing to package mixed versions."
 }
-if (-not (Select-String -LiteralPath $targetWorkerEntry -SimpleMatch 'const workerAPIVersion = "2026-07-16.2";' -Quiet)) {
-  throw "Worker API version marker is missing from installer input."
+if (-not (Select-String -LiteralPath $targetWorkerEntry -SimpleMatch 'const workerVersion = String(process.env.GOODHR_WORKER_VERSION || "").trim();' -Quiet)) {
+  throw "Worker automatic version marker is missing from installer input."
 }
 Write-Step "Worker source verified: SHA256=$sourceWorkerHash"
 # Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
