@@ -23,6 +23,7 @@ import {
 } from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
+import { terminateProfileBrowserProcesses } from "./profile-process.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -298,6 +299,24 @@ async function startBrowser(payload) {
       : "",
   });
   if (userDataDir && launchPersistent) {
+    logWorker("准备清理占用账号目录的残留浏览器进程", {
+      user_data_dir: userDataDir,
+    });
+    let terminatedPIDs = [];
+    try {
+      terminatedPIDs = await terminateProfileBrowserProcesses(userDataDir);
+    } catch (error) {
+      throw new Error(
+        `清理占用当前账号的旧浏览器进程失败：${error?.message || error}`,
+      );
+    }
+    if (terminatedPIDs.length > 0) {
+      logWorker("已清理占用账号目录的残留浏览器进程", {
+        user_data_dir: userDataDir,
+        pids: terminatedPIDs,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     logWorker("准备清理账号目录锁文件", { user_data_dir: userDataDir });
     await cleanupProfileLocks(userDataDir);
     logWorker("准备启动持久化浏览器", { user_data_dir: userDataDir });
