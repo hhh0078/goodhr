@@ -15,6 +15,7 @@ type testExecutor struct {
 	lastPath string
 	payload  map[string]any
 	response map[string]any
+	logs     []string
 }
 
 // positionCall 记录一次智联职位切换 Worker 调用。
@@ -130,7 +131,7 @@ func TestSelectPositionSearchesAndClicksFirstResult(t *testing.T) {
 func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &testExecutor{response: map[string]any{
-		"data": map[string]any{"detail_text": "候选人详情"},
+		"data": map[string]any{"detail_text": "张女士\n本科\n三年课程顾问经验"},
 	}}
 	result, err := runtime.FetchCandidateDetail(context.Background(), exec, cloudapi.PlatformConfig{"id": "zhaopin"}, platformcore.Candidate{
 		"card_index":     2,
@@ -162,8 +163,15 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	if exec.payload["task_id"] != "task-zhaopin" {
 		t.Fatalf("智联详情请求应携带任务 ID 以写入可见日志，payload = %+v", exec.payload)
 	}
-	if result.Text != "候选人详情" || result.Source != "dom" || len(result.Screenshot) != 0 {
+	if result.Text != "张女士\n本科\n三年课程顾问经验" || result.Source != "dom" || len(result.Screenshot) != 0 {
 		t.Fatalf("result = %+v", result)
+	}
+	joinedLogs := strings.Join(exec.logs, "\n")
+	if !strings.Contains(joinedLogs, "[临时数据核对][智联列表]") || !strings.Contains(joinedLogs, `"raw_text":"张女士 本科 三年课程顾问经验"`) {
+		t.Fatalf("智联列表完整数据未写入临时核对日志：%s", joinedLogs)
+	}
+	if !strings.Contains(joinedLogs, "[临时数据核对][智联详情]") || !strings.Contains(joinedLogs, `detail_text="张女士\n本科\n三年课程顾问经验"`) {
+		t.Fatalf("智联详情完整文本未写入临时核对日志：%s", joinedLogs)
 	}
 }
 
@@ -204,7 +212,9 @@ func TestFetchCandidateDetailRejectsScreenshotMode(t *testing.T) {
 
 // Log 模拟任务日志写入。
 // level 为日志级别，message 为日志内容。
-func (e *testExecutor) Log(string, string) {}
+func (e *testExecutor) Log(_ string, message string) {
+	e.logs = append(e.logs, message)
+}
 
 // Delay 模拟业务动作等待。
 // ctx 为运行上下文，message 为等待说明，seconds 为等待秒数。
