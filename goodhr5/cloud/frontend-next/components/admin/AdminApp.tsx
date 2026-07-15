@@ -62,6 +62,7 @@ import {
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
 import ChoiceCards from "./ChoiceCards";
+import ClickableImagePreview from "./ClickableImagePreview";
 import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
 
 type AdminContextValue = {
@@ -90,6 +91,8 @@ type MenuGroup = {
 const AdminContext = createContext<AdminContextValue | null>(null);
 const drawerWidth = 248;
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
+const LOCAL_AGENT_PERMISSION_IMAGE_SRC =
+  "/assets/help/local-agent-device-app-permission.png";
 const topStatusButtonSx = {
   minHeight: 38,
   height: 38,
@@ -766,9 +769,33 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           onClose={() => setLocalAgentInstallNoticeClosed(true)}
           onConfirm={() => router.push("/download")}
         >
-          <Typography color="text.secondary">
-            如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
-          </Typography>
+          <Stack spacing={2}>
+            <Typography color="text.secondary">
+              如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
+            </Typography>
+            <Box
+              sx={{
+                p: 1.5,
+                border: "1px solid",
+                borderColor: "warning.light",
+                borderRadius: "8px",
+                bgcolor: "#fffaf0",
+              }}
+            >
+              <Typography sx={{ fontWeight: 760 }}>
+                本地程序开着，还是连不上？
+              </Typography>
+              <Typography
+                sx={{ mt: 0.75, mb: 1.5, color: "text.secondary", fontSize: 13 }}
+              >
+                也可能是浏览器没有允许“设备上的应用”。点击地址栏左侧的网站设置按钮，打开“设备上的应用”开关后再试。
+              </Typography>
+              <ClickableImagePreview
+                src={LOCAL_AGENT_PERMISSION_IMAGE_SRC}
+                alt="Chrome 设备上的应用权限开关位置"
+              />
+            </Box>
+          </Stack>
         </AdminDialog>
         <RequiredRuntimeInstaller
           agentBase={agentBase}
