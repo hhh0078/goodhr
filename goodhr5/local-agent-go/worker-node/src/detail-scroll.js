@@ -23,3 +23,15 @@ export function detailScrollWaits(payload = {}) {
     initialCaptureWaitMs: Math.min(600, captureWaitMs),
   };
 }
+
+/** effectiveDetailWheelDistance 根据详情容器剩余空间选择能产生位移的滚轮方向。 */
+export function effectiveDetailWheelDistance(distance, state = {}) {
+  const value = Number(distance || 0);
+  if (value > 0 && !state.can_scroll_down && state.can_scroll_up) {
+    return -Math.abs(value);
+  }
+  if (value < 0 && !state.can_scroll_up && state.can_scroll_down) {
+    return Math.abs(value);
+  }
+  return value;
+}

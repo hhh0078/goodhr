@@ -133,8 +133,10 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 		"data": map[string]any{"detail_text": "候选人详情"},
 	}}
 	result, err := runtime.FetchCandidateDetail(context.Background(), exec, cloudapi.PlatformConfig{"id": "zhaopin"}, platformcore.Candidate{
-		"card_index":  2,
-		"element_ref": "candidate-2",
+		"card_index":     2,
+		"element_ref":    "candidate-2",
+		"candidate_name": "张女士",
+		"raw_text":       "张女士 本科 三年课程顾问经验",
 	}, platformcore.DetailRequest{TaskID: "task-zhaopin", Mode: "dom"})
 	if err != nil {
 		t.Fatal(err)
@@ -144,6 +146,9 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	}
 	if exec.payload["platform_id"] != "zhaopin" || exec.payload["screenshot"] != false {
 		t.Fatalf("payload = %+v", exec.payload)
+	}
+	if exec.payload["candidate_name"] != "张女士" || exec.payload["candidate_match_text"] != "张女士 本科 三年课程顾问经验" || exec.payload["require_candidate_match"] != true {
+		t.Fatalf("智联详情必须携带候选人身份匹配信息，payload = %+v", exec.payload)
 	}
 	if exec.payload["force_scroll"] != false || exec.payload["card_scroll_attempts"] != 3 || exec.payload["require_full"] != false {
 		t.Fatalf("智联详情不应持续强制滚动，payload = %+v", exec.payload)

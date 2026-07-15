@@ -10,7 +10,11 @@ import {
   normalizeBrowserDisplay,
 } from "./browser-display.js";
 import { aiOverlayMatchKey } from "./ai-overlay-policy.js";
-import { detailScrollWaits } from "./detail-scroll.js";
+import { bestCandidateTextMatch } from "./candidate-match.js";
+import {
+  detailScrollWaits,
+  effectiveDetailWheelDistance,
+} from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
 
@@ -702,7 +706,7 @@ async function pressKey(payload) {
  */
 async function scrollPage(payload) {
   const currentPage = await ensurePage();
-  const distance = randomDistance(payload);
+  let distance = randomDistance(payload);
   const locator = await firstLocator(
     currentPage,
     payload.element || payload,
@@ -710,8 +714,24 @@ async function scrollPage(payload) {
   );
   if (locator) {
     const move = await moveMouseToElement(currentPage, locator, payload);
+    const before = await wheelScrollStateAtPoint(currentPage, move);
+    distance = effectiveDetailWheelDistance(distance, before);
     await currentPage.mouse.wheel(0, distance);
-    return { scrolled: true, distance, mouse: move, target: "element" };
+    await currentPage.waitForTimeout(80);
+    let after = await wheelScrollStateAtPoint(currentPage, move);
+    if (after.scroll_top === before.scroll_top && (before.can_scroll_down || before.can_scroll_up)) {
+      await currentPage.mouse.wheel(0, distance);
+      await currentPage.waitForTimeout(80);
+      after = await wheelScrollStateAtPoint(currentPage, move);
+    }
+    return {
+      scrolled: after.scroll_top !== before.scroll_top,
+      distance,
+      mouse: move,
+      target: "element",
+      before,
+      after,
+    };
   }
   await currentPage.mouse.wheel(0, distance);
   return { scrolled: true, distance, target: "page" };
@@ -1479,6 +1499,7 @@ async function closeBossCandidateDetail(payload) {
  * @returns {Promise<{card:any, attempts:number}>} 候选人卡片和滚动次数。
  */
 async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
+  const requestedCardIndex = cardIndex;
   const requireFull = payload.require_full !== false || Boolean(payload.force_scroll);
   const viewportMargin = Number(payload.viewport_margin ?? payload.margin ?? 12);
   const viewOptions = {
@@ -1486,10 +1507,21 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     full: requireFull,
     vertical_only: true,
   };
-  const refLocator = locatorByRef(
+  let refLocator = locatorByRef(
     currentPage,
     payload.element_ref || payload.ref,
   );
+  if (
+    refLocator &&
+    payload.require_candidate_match &&
+    !(await candidateCardIdentityMatch([refLocator], payload))
+  ) {
+    logWorker("Boss候选人缓存引用身份已变化，改为重新匹配", {
+      candidate_name: payload.candidate_name || "",
+      card_index: requestedCardIndex,
+    });
+    refLocator = null;
+  }
   if (refLocator) {
     const view = await isElementInViewport(refLocator, viewOptions);
     await logBossCandidateScrollDebug("ref-initial-view", {
@@ -1510,6 +1542,18 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     throw new Error("云端平台配置缺少候选人卡片选择器");
   let cards = await allLocators(currentPage, rules.candidate_card, true, 0);
   let count = cards.length;
+  const identityMatch = await candidateCardIdentityMatch(cards, payload);
+  if (identityMatch) {
+    cardIndex = identityMatch.index;
+    logWorker("Boss候选人身份匹配完成", {
+      candidate_name: payload.candidate_name || "",
+      requested_card_index: requestedCardIndex,
+      matched_card_index: cardIndex,
+      score: identityMatch.score.toFixed(3),
+    });
+  } else if (payload.require_candidate_match) {
+    throw new Error(`候选人身份未匹配：${payload.candidate_name || "未知候选人"}`);
+  }
   const maxAttempts = Math.max(
     1,
     Math.min(24, Number(payload.card_scroll_attempts || 8)),
@@ -1637,6 +1681,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
     count = cards.length;
+    const refreshedIdentityMatch = await candidateCardIdentityMatch(cards, payload);
+    if (refreshedIdentityMatch) cardIndex = refreshedIdentityMatch.index;
     const nextCard = cards[cardIndex]?.locator || cards[cardIndex];
     const afterView = nextCard
       ? listContainer
@@ -1742,6 +1788,67 @@ async function candidateWheelAnchor(cards, cardIndex) {
     if (view.in_viewport) return locator;
   }
   return null;
+}
+
+/**
+ * candidateCardIdentityMatch 使用候选人姓名和原始卡片文本匹配当前页面卡片。
+ * @param {any[]} cards - 当前页面候选人卡片定位器。
+ * @param {Record<string, any>} payload - 候选人定位参数。
+ * @returns {Promise<{index:number,score:number}|null>} 匹配结果。
+ */
+async function candidateCardIdentityMatch(cards, payload) {
+  const candidateName = String(payload.candidate_name || "").trim();
+  const candidateText = String(payload.candidate_match_text || "").trim();
+  if (!candidateName && !candidateText) return null;
+  const actualTexts = await Promise.all(
+    cards.map(async (item) => {
+      const locator = item?.locator || item;
+      return String(await locator.innerText({ timeout: 500 }).catch(() => ""));
+    }),
+  );
+  return bestCandidateTextMatch(candidateName, candidateText, actualTexts);
+}
+
+/**
+ * wheelScrollStateAtPoint 读取鼠标位置下最近可滚动容器的状态，不直接推动页面滚动。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @param {{x:number,y:number}} point - 鼠标当前停留位置。
+ * @returns {Promise<Record<string, any>>} 当前滚动位置和可滚动方向。
+ */
+async function wheelScrollStateAtPoint(currentPage, point) {
+  return currentPage.evaluate(({ x, y }) => {
+    let node = document.elementFromPoint(x, y);
+    while (node instanceof HTMLElement) {
+      const scrollHeight = Math.round(node.scrollHeight || 0);
+      const clientHeight = Math.round(node.clientHeight || 0);
+      const style = window.getComputedStyle(node);
+      if (
+        scrollHeight > clientHeight + 8 &&
+        !["hidden", "clip"].includes(style.overflowY || "")
+      ) {
+        const scrollTop = Math.round(node.scrollTop || 0);
+        const maxTop = Math.max(0, scrollHeight - clientHeight);
+        return {
+          scroll_top: scrollTop,
+          max_top: maxTop,
+          can_scroll_up: scrollTop > 2,
+          can_scroll_down: scrollTop < maxTop - 2,
+          target: String(node.className || node.tagName || "").slice(0, 120),
+        };
+      }
+      node = node.parentElement;
+    }
+    const root = document.scrollingElement || document.documentElement;
+    const scrollTop = Math.round(root?.scrollTop || window.scrollY || 0);
+    const maxTop = Math.max(0, Math.round((root?.scrollHeight || 0) - (root?.clientHeight || 0)));
+    return {
+      scroll_top: scrollTop,
+      max_top: maxTop,
+      can_scroll_up: scrollTop > 2,
+      can_scroll_down: scrollTop < maxTop - 2,
+      target: "document",
+    };
+  }, { x: Number(point?.x || 0), y: Number(point?.y || 0) });
 }
 
 /**

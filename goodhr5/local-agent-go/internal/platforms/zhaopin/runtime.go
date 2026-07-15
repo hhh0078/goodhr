@@ -25,16 +25,26 @@ func (r *Runtime) ShouldSelectPositionDirectly() bool {
 // cfg 为平台配置，candidate 为候选人。
 func zhaopinCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) map[string]any {
 	return map[string]any{
-		"platform_id":          "zhaopin",
-		"platform_config":      cfg,
-		"card_index":           intFromMap(candidate, "card_index"),
-		"element_ref":          stringFromMap(candidate, "element_ref"),
-		"distance":             120,
-		"wait_ms":              260,
-		"card_scroll_attempts": 18,
-		"require_full":         true,
-		"viewport_margin":      0,
+		"platform_id":             "zhaopin",
+		"platform_config":         cfg,
+		"candidate_name":          candidateName(candidate),
+		"candidate_match_text":    candidateMatchText(candidate),
+		"require_candidate_match": true,
+		"card_index":              intFromMap(candidate, "card_index"),
+		"element_ref":             stringFromMap(candidate, "element_ref"),
+		"distance":                120,
+		"wait_ms":                 260,
+		"card_scroll_attempts":    18,
+		"require_full":            true,
+		"viewport_margin":         0,
 	}
+}
+
+// candidateMatchText 返回智联动态列表重新定位候选人时使用的卡片文本。
+// candidate 为任务最初提取的候选人数据。
+func candidateMatchText(candidate platformcore.Candidate) string {
+	fields := mapFromAny(candidate["fields"])
+	return firstNonEmpty(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text"), stringFromMap(fields, "basic_info"))
 }
 
 // candidateAge 读取智联招聘候选人年龄。
