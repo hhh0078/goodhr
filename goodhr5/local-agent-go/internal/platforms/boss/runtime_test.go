@@ -169,3 +169,24 @@ func TestCleanCandidateDetailText(t *testing.T) {
 		t.Fatalf("cleaned = %q", cleaned)
 	}
 }
+
+// TestFetchCandidateDetailUsesFasterScreenshotScroll 验证 Boss 详情长图使用缩短后的截图和滚动等待。
+func TestFetchCandidateDetailUsesFasterScreenshotScroll(t *testing.T) {
+	exec := &selectPositionSearchExecutor{}
+	_, err := NewRuntime().FetchCandidateDetail(context.Background(), exec, nil, platformcore.Candidate{
+		"candidate_name": "测试候选人",
+	}, platformcore.DetailRequest{Mode: "ai"})
+	if err != nil {
+		t.Fatalf("读取详情不应失败：%v", err)
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("详情读取应调用一次 Worker：%v", exec.calls)
+	}
+	payload := exec.calls[0].payload
+	if payload["detail_capture_wait_ms"] != detailScreenshotCaptureWaitMS {
+		t.Fatalf("详情截图前等待不对：%v", payload["detail_capture_wait_ms"])
+	}
+	if payload["detail_scroll_settle_ms"] != detailScreenshotScrollSettleMS {
+		t.Fatalf("详情滚动后等待不对：%v", payload["detail_scroll_settle_ms"])
+	}
+}

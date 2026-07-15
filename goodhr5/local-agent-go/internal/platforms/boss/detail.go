@@ -10,25 +10,34 @@ import (
 	"strings"
 )
 
+const (
+	// detailScreenshotCaptureWaitMS 是 Boss 详情每段截图前等待界面稳定的毫秒数。
+	detailScreenshotCaptureWaitMS = 250
+	// detailScreenshotScrollSettleMS 是 Boss 详情每次滚动后等待懒加载完成的毫秒数。
+	detailScreenshotScrollSettleMS = 450
+)
+
 // FetchCandidateDetail 读取 Boss 候选人详情。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，request 为详情请求。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-		"platform_config":      cfg,
-		"card_index":           intFromMap(candidate, "card_index"),
-		"element_ref":          stringFromMap(candidate, "element_ref"),
-		"screenshot":           request.Mode == "ocr" || request.Mode == "ai",
-		"force_scroll":         true,
-		"distance":             120,
-		"wait_ms":              600,
-		"detail_ready_timeout": 15000,
-		"card_scroll_attempts": 18,
-		"require_full":         true,
-		"viewport_margin":      80,
-		"dir":                  filepath.Join(request.ScreenshotsDir, request.TaskID),
-		"filename":             request.Filename,
+		"platform_config":         cfg,
+		"card_index":              intFromMap(candidate, "card_index"),
+		"element_ref":             stringFromMap(candidate, "element_ref"),
+		"screenshot":              request.Mode == "ocr" || request.Mode == "ai",
+		"force_scroll":            true,
+		"distance":                120,
+		"wait_ms":                 600,
+		"detail_capture_wait_ms":  detailScreenshotCaptureWaitMS,
+		"detail_scroll_settle_ms": detailScreenshotScrollSettleMS,
+		"detail_ready_timeout":    15000,
+		"card_scroll_attempts":    18,
+		"require_full":            true,
+		"viewport_margin":         80,
+		"dir":                     filepath.Join(request.ScreenshotsDir, request.TaskID),
+		"filename":                request.Filename,
 	})
 	if err != nil {
 		return platformcore.DetailResult{}, err

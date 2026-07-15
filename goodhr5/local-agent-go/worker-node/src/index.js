@@ -2141,6 +2141,15 @@ async function screenshotScrollableLocatorParts(
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
+  const captureWaitMs = Math.max(
+    120,
+    Number(payload.detail_capture_wait_ms || 1200),
+  );
+  const initialCaptureWaitMs = Math.min(600, captureWaitMs);
+  const scrollSettleMs = Math.max(
+    120,
+    Number(payload.detail_scroll_settle_ms || 1600),
+  );
   logWorker("详情截图开始：滚轮滚动容器", {
     filename,
     clientHeight,
@@ -2151,10 +2160,14 @@ async function screenshotScrollableLocatorParts(
     maxScrolls,
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
+    captureWaitMs,
+    scrollSettleMs,
   });
   for (let index = 0; index < maxScrolls; index += 1) {
     await moveMouseToBox(currentPage, box).catch(() => {});
-    await currentPage.waitForTimeout(index === 0 ? 600 : 1200);
+    await currentPage.waitForTimeout(
+      index === 0 ? initialCaptureWaitMs : captureWaitMs,
+    );
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
     const sizeInfo = (await locator.boundingBox().catch(() => null)) || box;
@@ -2192,7 +2205,7 @@ async function screenshotScrollableLocatorParts(
       maxed: beforeScroll.maxed,
     });
     await currentPage.mouse.wheel(0, scrollDelta);
-    await currentPage.waitForTimeout(1600);
+    await currentPage.waitForTimeout(scrollSettleMs);
     const afterScroll = await pageScrollState(currentPage);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     logWorker("详情截图滚轮：容器滚动后状态", {
