@@ -28,9 +28,11 @@ func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.E
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
 	keyword := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_search_keyword"))
 	if keyword == "" {
+		r.greetJobSelected = true
 		exec.Log("info", "猎聘候选人搜索：未填写搜索关键词，改用正在发布的职位匹配，任务岗位="+positionName)
 		return r.selectPublishedPosition(ctx, exec, positionName)
 	}
+	r.greetJobSelected = false
 	return r.searchKeywordWithShortcut(ctx, exec, positionName, keyword)
 }
 

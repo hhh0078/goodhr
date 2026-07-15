@@ -9,9 +9,10 @@ import (
 
 // Runtime 实现猎聘猎头端平台运行时能力。
 type Runtime struct {
-	platformID      string
-	platformName    string
-	currentPosition string
+	platformID       string
+	platformName     string
+	currentPosition  string
+	greetJobSelected bool
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时实例。

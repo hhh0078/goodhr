@@ -270,23 +270,63 @@ func TestScrollCandidateDetailReachesBottomWithoutMouseMove(t *testing.T) {
 // t 为测试对象。
 func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	runtime := NewRuntime()
-	runtime.currentPosition = "Java开发工程师初级"
-	exec := &searchExecutor{}
+	runtime.currentPosition = "Java开发工程师高级"
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinGreetJobOptionSelector: {
+			map[string]any{"fields": map[string]any{"position_name": "AI应用开发工程师初..."}},
+			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师高..."}},
+		},
+	}}
 	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
 		"card_index": 2, "card_item": map[string]any{"selector": "tbody tr"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/click-by-text", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
-		t.Fatalf("position text = %q", got)
+	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
+		t.Fatalf("position index = %d, want 1", got)
 	}
-	if got := stringFromMap(exec.payloads[4], "key"); got != "Escape" {
+	if got := stringFromMap(exec.payloads[5], "key"); got != "Escape" {
 		t.Fatalf("key = %q", got)
+	}
+}
+
+// TestGreetCandidateSkipsPositionForPublishedJobMode 验证岗位模式已选职位时直接立即开聊并按 Esc。
+// t 为测试对象。
+func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "PHP程序员"
+	runtime.greetJobSelected = true
+	exec := &searchExecutor{}
+	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
+		"card_index": 0, "card_item": map[string]any{"selector": "tbody tr"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
+	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	if got := stringFromMap(exec.payloads[1], "text"); got != "立即开聊" {
+		t.Fatalf("button text = %q", got)
+	}
+}
+
+// TestMatchingGreetJobItemPrefersExactMatch 验证完整职位名优先于省略号包含匹配。
+// t 为测试对象。
+func TestMatchingGreetJobItemPrefersExactMatch(t *testing.T) {
+	items := []map[string]any{
+		{"fields": map[string]any{"position_name": "PHP程序..."}},
+		{"fields": map[string]any{"position_name": "PHP程序员"}},
+	}
+	index, name := matchingGreetJobItem(items, "PHP程序员")
+	if index != 1 || name != "PHP程序员" {
+		t.Fatalf("match = %d %q", index, name)
 	}
 }
 
