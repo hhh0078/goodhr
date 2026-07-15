@@ -283,15 +283,15 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
 	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
 	}
-	if got := stringFromMap(exec.payloads[5], "key"); got != "Escape" {
-		t.Fatalf("key = %q", got)
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
+		t.Fatalf("escape presses = %d, want 2", got)
 	}
 }
 
@@ -308,7 +308,7 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}

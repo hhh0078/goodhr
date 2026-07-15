@@ -49,8 +49,16 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	if err := exec.Delay(ctx, "等待猎聘开聊后提示弹框", 1); err != nil {
 		return err
 	}
+	exec.Log("info", "猎聘打招呼：立即开聊后发送第 1 次 Esc")
 	if _, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape"}); err != nil {
-		return fmt.Errorf("猎聘立即开聊后按 Esc 失败：%w", err)
+		return fmt.Errorf("猎聘立即开聊后第 1 次按 Esc 失败：%w", err)
+	}
+	if err := exec.Delay(ctx, "等待猎聘后续提示弹框接收 Esc", 0.5); err != nil {
+		return err
+	}
+	exec.Log("info", "猎聘打招呼：立即开聊后发送第 2 次 Esc")
+	if _, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape"}); err != nil {
+		return fmt.Errorf("猎聘立即开聊后第 2 次按 Esc 失败：%w", err)
 	}
 	return nil
 }
