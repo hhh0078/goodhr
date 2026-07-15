@@ -1,6 +1,4 @@
 .DS_Store
-goodhr-sidebar-vue/node_modules/
-goodhr-sidebar-vue/extension/
 goodhr4/frontend/node_modules/
 goodhr4/site/node_modules/
 goodhr4/**/.next/
@@ -15,3 +13,5 @@ goodhr5/local-agent/vendor/downloads/
 goodhr5/local-agent/build/
 goodhr5/local-agent/dist/
 .trae/**
+**/.codex-run/**
+**/dist-installer/**
