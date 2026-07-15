@@ -153,41 +153,18 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, exe
 	return nil
 }
 
-// waitForSimulatedRest 等待模拟休息结束，并定期更新页面浮层和任务进度。
+// waitForSimulatedRest 等待模拟休息结束，并在开始时更新页面浮层和任务进度。
 // 浮层调用始终异步且忽略错误，页面展示异常不会影响任务主流程。
 func (r *Runner) waitForSimulatedRest(ctx context.Context, taskID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) error {
-	const updateInterval = 30 * time.Second
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	ticker := time.NewTicker(updateInterval)
-	defer ticker.Stop()
-
-	r.updateRestDisplay(taskID, exec, restIndex, duration, endsAt, false)
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-			return nil
-		case <-ticker.C:
-			remaining := time.Until(endsAt)
-			if remaining <= 0 {
-				return nil
-			}
-			r.updateRestDisplay(taskID, exec, restIndex, remaining, endsAt, true)
-		}
-	}
+	r.updateRestDisplay(taskID, exec, restIndex, duration, endsAt)
+	return sleepWithContext(ctx, duration)
 }
 
-// updateRestDisplay 更新模拟休息进度，并以非阻塞方式刷新浏览器页面浮层。
-func (r *Runner) updateRestDisplay(taskID string, exec platformExecutor, restIndex int, remaining time.Duration, endsAt time.Time, writeLog bool) {
-	remainingText := formatRestDuration(remaining)
-	message := fmt.Sprintf("模拟休息中，剩余约 %s，预计 %s 继续处理", remainingText, endsAt.Format("15:04:05"))
+// updateRestDisplay 更新模拟休息进度，并以非阻塞方式显示浏览器页面浮层。
+func (r *Runner) updateRestDisplay(taskID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) {
+	message := fmt.Sprintf("本次休息 %s，预计 %s 继续处理", formatRestDuration(duration), endsAt.Format("15:04:05"))
 	r.updateProgress(taskID, Progress{Stage: "resting", Message: message})
-	if writeLog {
-		r.taskLog(taskID, "info", "模拟休息："+message)
-	}
-	r.showRestOverlayAsync(exec, restIndex, message, remaining+time.Minute)
+	r.showRestOverlayAsync(exec, restIndex, message, duration+time.Minute)
 }
 
 // showRestOverlayAsync 异步显示模拟休息浮层，任何 Worker 或页面异常都不会阻塞任务。
