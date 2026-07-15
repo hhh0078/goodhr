@@ -33,6 +33,12 @@ Name: "chinesesimplified"; MessagesFile: ".\ChineseSimplified.isl"
 [Dirs]
 Name: "{app}\data"
 
+[InstallDelete]
+; 升级安装时彻底删除旧 Worker，防止旧文件与新主程序混用。
+Type: filesandordirs; Name: "{app}\worker-node"
+Type: filesandordirs; Name: "{app}\resources\worker-node"
+Type: filesandordirs; Name: "{app}\data\runtime\browser-worker"
+
 [Files]
 Source: "..\dist\installer-input\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversion

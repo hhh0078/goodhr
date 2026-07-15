@@ -129,6 +129,20 @@ if (Test-Path (Join-Path $RootDir "worker-node")) {
   Remove-Item -Recurse -Force (Join-Path $DistInputDir "worker-node") -ErrorAction SilentlyContinue
   Copy-Item -Recurse -Force (Join-Path $RootDir "worker-node") (Join-Path $DistInputDir "worker-node")
 }
+$sourceWorkerEntry = Join-Path $RootDir "worker-node\src\index.js"
+$targetWorkerEntry = Join-Path $DistInputDir "worker-node\src\index.js"
+if (!(Test-Path $sourceWorkerEntry) -or !(Test-Path $targetWorkerEntry)) {
+  throw "Worker entry was not copied into installer input."
+}
+$sourceWorkerHash = (Get-FileHash -Algorithm SHA256 $sourceWorkerEntry).Hash
+$targetWorkerHash = (Get-FileHash -Algorithm SHA256 $targetWorkerEntry).Hash
+if ($sourceWorkerHash -ne $targetWorkerHash) {
+  throw "Worker entry hash mismatch; refusing to package mixed versions."
+}
+if (-not (Select-String -LiteralPath $targetWorkerEntry -SimpleMatch 'const workerAPIVersion = "2026-07-16.1";' -Quiet)) {
+  throw "Worker API version marker is missing from installer input."
+}
+Write-Step "Worker source verified: SHA256=$sourceWorkerHash"
 # Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
 # New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
 # Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir

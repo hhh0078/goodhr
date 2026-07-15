@@ -43,6 +43,7 @@ const pageTokens = new WeakMap();
 const pagesByToken = new Map();
 let pageTokenSeq = 0;
 const downloadHandlerVersion = "2026-07-09-context-pages";
+const workerAPIVersion = "2026-07-16.1";
 
 /**
  * 写入 Worker 诊断日志。
@@ -434,6 +435,7 @@ async function workerHealth() {
   return {
     status: "ok",
     worker: "node",
+    api_version: workerAPIVersion,
     pid: process.pid,
     browser_running: browserRunning,
     persistent: Boolean(currentUserDataDir),

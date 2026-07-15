@@ -22,6 +22,9 @@ import (
 	"goodhr5/local-agent-go/internal/runtime"
 )
 
+// requiredWorkerAPIVersion 是当前 Go 主程序唯一允许配套运行的 Node Worker API 版本。
+const requiredWorkerAPIVersion = "2026-07-16.1"
+
 // WorkerStatus 表示 Node Browser Worker 运行状态。
 type WorkerStatus struct {
 	Running bool   `json:"running"`
@@ -482,10 +485,30 @@ func ensureWorkerPortAvailable(baseURL string) error {
 // workerHealthReusable 判断已有 Worker 是否兼容当前本地程序。
 // health 为 Worker 健康检查数据。
 func (m *WorkerManager) workerHealthReusable(health map[string]any) bool {
+	if strings.TrimSpace(workerStringFromAny(health["api_version"])) != requiredWorkerAPIVersion {
+		return false
+	}
 	if m.agentBaseURL == "" {
 		return true
 	}
 	return boolFromAny(health["agent_notify"])
+}
+
+// workerCompatibilityError 返回 Worker 与当前 Go 主程序不兼容的明确错误。
+// health 为 Worker 健康检查数据，兼容时返回空。
+func (m *WorkerManager) workerCompatibilityError(health map[string]any) error {
+	actual := strings.TrimSpace(workerStringFromAny(health["api_version"]))
+	if actual == requiredWorkerAPIVersion {
+		return nil
+	}
+	if actual == "" {
+		actual = "旧版本未提供版本号"
+	}
+	entry := ""
+	if m.runtime != nil {
+		entry = m.runtime.WorkerEntry()
+	}
+	return fmt.Errorf("Node Browser Worker 版本不匹配：主程序要求=%s，当前Worker=%s，入口=%s；请使用完整安装包重新安装，不能只替换exe", requiredWorkerAPIVersion, actual, entry)
 }
 
 // workerAddrFromBaseURL 从 Worker 基础地址提取监听地址。
@@ -539,6 +562,11 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 			return m.workerExitError(err)
 		default:
 		}
+		if health, ok := m.probeWorker(ctx); ok {
+			if err := m.workerCompatibilityError(health); err != nil {
+				return err
+			}
+		}
 		if baseURL, ok := m.findReadyWorkerLocked(ctx, &client); ok {
 			m.baseURL = baseURL
 			return nil
@@ -583,6 +611,13 @@ func (m *WorkerManager) findReadyWorkerLocked(ctx context.Context, client *http.
 		}
 	}
 	return "", false
+}
+
+// workerStringFromAny 将任意 Worker JSON 字段转换为字符串。
+// value 为任意 JSON 字段，非字符串返回空。
+func workerStringFromAny(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 // workerExitError 返回 Worker 启动期退出的可读错误。
