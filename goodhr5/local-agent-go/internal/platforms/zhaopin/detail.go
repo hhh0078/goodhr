@@ -3,23 +3,12 @@ package zhaopin
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"strings"
 	"time"
 )
-
-// temporaryCandidateDataJSON 将临时核对数据编码成单行 JSON，方便从任务日志查看全部字段。
-// value 为需要写入临时日志的候选人数据。
-func temporaryCandidateDataJSON(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%+v", value)
-	}
-	return string(data)
-}
 
 // FetchCandidateDetail 读取智联招聘新开详情页中的 DOM 文本。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，request 为详情请求。
@@ -28,16 +17,6 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		return platformcore.DetailResult{}, fmt.Errorf("智联招聘只支持 DOM 详情识别")
 	}
 	name := candidateName(candidate)
-	listData := map[string]any{
-		"name":           candidate["name"],
-		"candidate_name": candidate["candidate_name"],
-		"card_index":     candidate["card_index"],
-		"element_ref":    candidate["element_ref"],
-		"raw_text":       candidate["raw_text"],
-		"filter_text":    candidate["filter_text"],
-		"fields":         candidate["fields"],
-	}
-	exec.Log("info", "[临时数据核对][智联列表] "+temporaryCandidateDataJSON(listData))
 	exec.Log("info", fmt.Sprintf("调用智联详情 DOM 提取接口：name=%s card_index=%d", name, intFromMap(candidate, "card_index")))
 	payload := zhaopinCandidateVisiblePayload(cfg, candidate)
 	payload["task_id"] = request.TaskID
@@ -57,7 +36,6 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	if text == "" {
 		return platformcore.DetailResult{}, fmt.Errorf("智联招聘详情弹框未读取到 DOM 文本")
 	}
-	exec.Log("info", fmt.Sprintf("[临时数据核对][智联详情] candidate_name=%s text_runes=%d detail_text=%q", name, len([]rune(text)), text))
 	return platformcore.DetailResult{Text: text, Source: "dom"}, nil
 }
 
