@@ -18,7 +18,8 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 	if item == nil {
 		item = hliepinCandidateRowElement()
 	}
-	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{"element": item, "visible_only": true, "fields": cardFieldRequests(cfg), "max_items": maxItems})
+	fields := hliepinCandidateFieldRequests(cfg)
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{"element": item, "visible_only": true, "fields": fields, "max_items": maxItems})
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +27,7 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 	// 2026 版猎聘已取消旧 .no-hover-tr class，云端旧选择器无结果时回退到候选人表格行。
 	if len(rawItems) == 0 {
 		item = hliepinCandidateRowElement()
-		result, err = exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{"element": item, "visible_only": true, "max_items": maxItems})
+		result, err = exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{"element": item, "visible_only": true, "fields": fields, "max_items": maxItems})
 		if err != nil {
 			return nil, err
 		}
@@ -46,7 +47,8 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 		if !strings.Contains(rawText, "立即沟通") {
 			continue
 		}
-		name := firstNonEmpty(stringFromMap(fields, "name"), hliepinCandidateName(rawText), fmt.Sprintf("候选人%d", intFromMap(found, "index")+1))
+		name := firstNonEmpty(hliepinCandidateName(rawText), hliepinCandidateName(stringFromMap(fields, "name")), fmt.Sprintf("候选人%d", intFromMap(found, "index")+1))
+		platformCandidateID := strings.TrimSpace(stringFromMap(fields, "platform_candidate_id"))
 		candidate := platformcore.Candidate{
 			"name":           name,
 			"candidate_name": name,
@@ -58,6 +60,9 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 			"element_ref":    stringFromMap(found, "ref"),
 			"card_item":      item,
 			"fields":         fields,
+		}
+		if platformCandidateID != "" {
+			candidate["platform_candidate_id"] = platformCandidateID
 		}
 		if id := r.CandidateFingerprint(candidate); id != "" {
 			candidate["id"] = id
@@ -93,15 +98,53 @@ func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
 
 // CandidateFingerprint 返回猎聘猎头端候选人去重指纹。
 func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
+	if platformCandidateID := normalizeCandidateIDPart(stringFromMap(candidate, "platform_candidate_id")); platformCandidateID != "" {
+		return fmt.Sprintf("%s_%s", r.platformID, platformCandidateID)
+	}
 	fields := mapFromAny(candidate["fields"])
 	name := firstNonEmpty(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"), stringFromMap(fields, "name"))
 	age := candidateAge(candidate)
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(age) == "" {
 		return ""
 	}
-	raw := normalizeCandidateIDPart(firstNonEmpty(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text")))
+	raw := normalizeCandidateIDPart(hliepinStableCandidateText(firstNonEmpty(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text"))))
 	sum := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%s_%s_%s_%x", r.platformID, normalizeCandidateIDPart(name), normalizeCandidateIDPart(age), sum[:8])
+}
+
+// hliepinCandidateFieldRequests 在云端字段基础上补充猎聘稳定简历 ID 的读取规则。
+func hliepinCandidateFieldRequests(cfg cloudapi.PlatformConfig) []map[string]any {
+	fields := cardFieldRequests(cfg)
+	return append(fields, map[string]any{
+		"platform_candidate_id": map[string]any{"selector": "input[name='res_id_encode']", "attribute": "value"},
+	})
+}
+
+// hliepinStableCandidateText 移除活跃状态、已查看标记和操作按钮等会变化的列表文本。
+func hliepinStableCandidateText(value string) string {
+	lines := make([]string, 0)
+	for _, rawLine := range strings.Split(value, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || isHLiepinTransientCandidateLine(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// isHLiepinTransientCandidateLine 判断列表文本是否属于会随查看或沟通状态变化的标记。
+func isHLiepinTransientCandidateLine(value string) bool {
+	line := strings.TrimSpace(value)
+	if strings.HasSuffix(line, "活跃") && len([]rune(line)) <= 8 {
+		return true
+	}
+	switch line {
+	case "在线", "活跃状态", "隐藏", "阅", "已查看", "立即沟通", "继续沟通", "已沟通", "获取联系方式":
+		return true
+	default:
+		return false
+	}
 }
 
 // hliepinCandidateRowElement 返回新版猎聘候选人行的安全回退选择器。

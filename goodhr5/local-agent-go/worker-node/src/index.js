@@ -4727,7 +4727,7 @@ function parentSelectorList(element) {
 }
 
 /**
- * 在 locator 内读取元素文本。
+ * 在 locator 内读取元素文本或指定属性。
  * @param {any} scope - 页面或 locator。
  * @param {any} config - 元素配置。
  * @returns {Promise<string>} 文本。
@@ -4735,6 +4735,10 @@ function parentSelectorList(element) {
 async function locatorText(scope, config) {
   const locator = await firstLocator(scope, config, true);
   if (!locator) return "";
+  const attribute = String(config?.attribute || config?.attr || "").trim();
+  if (attribute) {
+    return String(await locator.getAttribute(attribute).catch(() => "")).trim();
+  }
   return (await locator.innerText({ timeout: 1000 }).catch(() => "")).trim();
 }
 

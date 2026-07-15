@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/platformcore"
 )
 
 // testExecutor 模拟平台运行时调用浏览器 Worker。
@@ -75,7 +76,7 @@ func (e *routeExecutor) Post(_ context.Context, path string, payload any) (map[s
 			return map[string]any{"data": map[string]any{"items": []any{}}}, nil
 		}
 		return map[string]any{"data": map[string]any{"items": []any{
-			map[string]any{"index": 0, "ref": "candidate-1", "text": "在线\n陈**\n28岁\n工作5年\n成都 Java\n立即沟通", "fields": map[string]any{}},
+			map[string]any{"index": 0, "ref": "candidate-1", "text": "在线\n陈**\n28岁\n工作5年\n成都 Java\n立即沟通", "fields": map[string]any{"platform_candidate_id": "resume-001"}},
 			map[string]any{"index": 1, "text": "1\n2\n3", "fields": map[string]any{}},
 		}}}, nil
 	case "/api/v1/page/click-by-text", "/api/v1/page/ensure-checked-by-text", "/api/v1/page/scroll":
@@ -152,8 +153,54 @@ func TestListVisibleCandidatesFallsBackToTableRows(t *testing.T) {
 	if got := stringFromMap(candidates[0], "id"); got == "" {
 		t.Fatal("猎聘候选人应在进入主流程前生成去重 ID")
 	}
+	if got := stringFromMap(candidates[0], "id"); got != "hliepin_resume-001" {
+		t.Fatalf("candidate id = %q", got)
+	}
 	if exec.findCalls != 2 {
 		t.Fatalf("find calls = %d, want 2", exec.findCalls)
+	}
+}
+
+// TestCandidateFingerprintUsesStableResumeID 验证查看标记和活跃状态变化后仍按猎聘简历 ID 去重。
+// t 为测试对象。
+func TestCandidateFingerprintUsesStableResumeID(t *testing.T) {
+	runtime := NewRuntime()
+	before := platformcore.Candidate{
+		"platform_candidate_id": "7c75e8fb7974Ffa811f22fff9",
+		"candidate_name":        "王**",
+		"raw_text":              "今天活跃\n王**\n34岁\n成都PHP\n立即沟通",
+	}
+	after := platformcore.Candidate{
+		"platform_candidate_id": "7c75e8fb7974Ffa811f22fff9",
+		"candidate_name":        "王**\n阅",
+		"raw_text":              "3天内活跃\n王**\n阅\n34岁\n成都PHP\n立即沟通",
+	}
+	if first, second := runtime.CandidateFingerprint(before), runtime.CandidateFingerprint(after); first != second {
+		t.Fatalf("fingerprint changed: %q != %q", first, second)
+	}
+}
+
+// TestHLiepinCandidateFieldRequestsReadsResumeIDAttribute 验证候选人提取会读取行内稳定简历 ID。
+// t 为测试对象。
+func TestHLiepinCandidateFieldRequestsReadsResumeIDAttribute(t *testing.T) {
+	fields := hliepinCandidateFieldRequests(nil)
+	if len(fields) == 0 {
+		t.Fatal("candidate fields should include platform candidate id")
+	}
+	config := mapFromAny(fields[len(fields)-1]["platform_candidate_id"])
+	if stringFromMap(config, "selector") != "input[name='res_id_encode']" || stringFromMap(config, "attribute") != "value" {
+		t.Fatalf("platform candidate id config = %#v", config)
+	}
+}
+
+// TestCandidateFingerprintFallbackIgnoresTransientText 验证旧页面没有简历 ID 时也会忽略瞬时状态文本。
+// t 为测试对象。
+func TestCandidateFingerprintFallbackIgnoresTransientText(t *testing.T) {
+	runtime := NewRuntime()
+	before := platformcore.Candidate{"candidate_name": "王**", "raw_text": "今天活跃\n王**\n34岁\n成都PHP\n立即沟通"}
+	after := platformcore.Candidate{"candidate_name": "王**", "raw_text": "3天内活跃\n王**\n阅\n34岁\n成都PHP\n立即沟通"}
+	if first, second := runtime.CandidateFingerprint(before), runtime.CandidateFingerprint(after); first != second {
+		t.Fatalf("fallback fingerprint changed: %q != %q", first, second)
 	}
 }
 
