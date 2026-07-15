@@ -12,6 +12,18 @@ export function normalizeCandidateMatchText(value) {
 }
 
 /**
+ * candidateCardLocator 兼容直接 Locator 与扫描结果包装对象，返回真正可操作的 Locator。
+ * @param {any} item - 直接 Locator 或带 locator 字段的扫描结果。
+ * @returns {any} 真正的候选人卡片 Locator。
+ */
+export function candidateCardLocator(item) {
+  if (item && typeof item.locator !== "function" && item.locator) {
+    return item.locator;
+  }
+  return item;
+}
+
+/**
  * candidateTextSimilarity 计算两段候选人卡片文本的双字符相似度。
  * @param {string} expected - 任务最初提取的候选人文本。
  * @param {string} actual - 页面当前候选人卡片文本。

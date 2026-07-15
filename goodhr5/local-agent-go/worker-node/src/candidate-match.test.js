@@ -3,7 +3,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bestCandidateTextMatch, candidateTextSimilarity } from "./candidate-match.js";
+import {
+  bestCandidateTextMatch,
+  candidateCardLocator,
+  candidateTextSimilarity,
+} from "./candidate-match.js";
+
+test("候选人定位器兼容缓存引用和扫描包装对象", () => {
+  const directLocator = { locator() {}, innerText() {} };
+  const wrappedLocator = { locator: directLocator, frameURL: "" };
+  assert.equal(candidateCardLocator(directLocator), directLocator);
+  assert.equal(candidateCardLocator(wrappedLocator), directLocator);
+});
 
 test("候选人列表插入其他卡片后仍按身份找到原候选人", () => {
   const actualTexts = [

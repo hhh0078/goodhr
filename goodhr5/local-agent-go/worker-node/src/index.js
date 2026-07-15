@@ -10,7 +10,10 @@ import {
   normalizeBrowserDisplay,
 } from "./browser-display.js";
 import { aiOverlayMatchKey } from "./ai-overlay-policy.js";
-import { bestCandidateTextMatch } from "./candidate-match.js";
+import {
+  bestCandidateTextMatch,
+  candidateCardLocator,
+} from "./candidate-match.js";
 import {
   detailScrollWaits,
   effectiveDetailWheelDistance,
@@ -1802,7 +1805,7 @@ async function candidateCardIdentityMatch(cards, payload) {
   if (!candidateName && !candidateText) return null;
   const actualTexts = await Promise.all(
     cards.map(async (item) => {
-      const locator = item?.locator || item;
+      const locator = candidateCardLocator(item);
       return String(await locator.innerText({ timeout: 500 }).catch(() => ""));
     }),
   );
