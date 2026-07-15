@@ -710,6 +710,17 @@ async function pressKey(payload) {
 async function scrollPage(payload) {
   const currentPage = await ensurePage();
   let distance = randomDistance(payload);
+  if (payload.skip_mouse_move === true) {
+    const startedAt = Date.now();
+    await currentPage.mouse.wheel(0, distance);
+    return {
+      scrolled: true,
+      distance,
+      target: "current-mouse",
+      skipped_mouse_move: true,
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
   const locator = await firstLocator(
     currentPage,
     payload.element || payload,

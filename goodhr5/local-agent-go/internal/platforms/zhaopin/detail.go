@@ -7,6 +7,7 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"strings"
+	"time"
 )
 
 // FetchCandidateDetail 读取智联招聘新开详情页中的 DOM 文本。
@@ -41,12 +42,15 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 // ScrollCandidateDetail 在最终 AI 分析期间滚动一次智联详情弹框。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，distance 为滚动距离。
 func (r *Runtime) ScrollCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, distance int) error {
-	_, err := exec.Post(ctx, "/api/v1/page/scroll", map[string]any{
-		"element":   map[string]any{"selector": ".new-resume-detail--inner, .resume-detail, .resume-item__content"},
-		"distance":  distance,
-		"min_steps": 2,
-		"max_steps": 4,
+	startedAt := time.Now()
+	result, err := exec.Post(ctx, "/api/v1/page/scroll", map[string]any{
+		"distance":        distance,
+		"skip_mouse_move": true,
 	})
+	if err == nil {
+		data := workerDataMap(result)
+		exec.Log("info", fmt.Sprintf("详情浏览：智联直接滚动完成，候选人=%s，距离=%d，耗时=%s", candidateName(candidate), intFromMap(data, "distance"), time.Since(startedAt).Round(time.Millisecond)))
+	}
 	return err
 }
 
