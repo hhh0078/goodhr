@@ -2126,8 +2126,7 @@ async function screenshotScrollableLocatorParts(
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
-  const { captureWaitMs, initialCaptureWaitMs, scrollSettleMs } =
-    detailScrollWaits(payload);
+  const { captureWaitMs, initialCaptureWaitMs } = detailScrollWaits(payload);
   logWorker("详情截图开始：滚轮滚动容器", {
     filename,
     clientHeight,
@@ -2139,7 +2138,6 @@ async function screenshotScrollableLocatorParts(
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
     captureWaitMs,
-    scrollSettleMs,
   });
   for (let index = 0; index < maxScrolls; index += 1) {
     await moveMouseToBox(currentPage, box).catch(() => {});
@@ -2183,7 +2181,6 @@ async function screenshotScrollableLocatorParts(
       maxed: beforeScroll.maxed,
     });
     await currentPage.mouse.wheel(0, scrollDelta);
-    await currentPage.waitForTimeout(scrollSettleMs);
     const afterScroll = await pageScrollState(currentPage);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     logWorker("详情截图滚轮：容器滚动后状态", {
@@ -2237,8 +2234,7 @@ async function screenshotLocatorParts(
   const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
   const mouseX = clipX + clipWidth / 2;
   const mouseY = clipY + clipHeight / 2;
-  const { captureWaitMs, initialCaptureWaitMs, scrollSettleMs } =
-    detailScrollWaits(payload);
+  const { captureWaitMs, initialCaptureWaitMs } = detailScrollWaits(payload);
   await moveMouseToBox(currentPage, clip).catch(() => {});
   await currentPage.waitForTimeout(initialCaptureWaitMs);
   const forceScroll = Boolean(
@@ -2288,7 +2284,6 @@ async function screenshotLocatorParts(
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
     captureWaitMs,
-    scrollSettleMs,
   });
   for (let index = 0; index < maxScrolls; index += 1) {
     await moveMouseToBox(currentPage, clip).catch(() => {});
@@ -2344,7 +2339,6 @@ async function screenshotLocatorParts(
     previousBuffer = currentBuffer;
     const beforeScroll = await pageScrollState(currentPage, scrollPoint);
     await currentPage.mouse.wheel(0, scrollDelta);
-    await currentPage.waitForTimeout(scrollSettleMs);
     const afterScroll = await pageScrollState(currentPage, scrollPoint);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     const hasExpectedMoreParts =

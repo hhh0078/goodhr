@@ -1,7 +1,6 @@
 /** 本文件负责统一所有招聘平台详情长图的滚动等待节奏。 */
 
 const defaultDetailCaptureWaitMs = 250;
-const defaultDetailScrollSettleMs = 450;
 const minimumDetailScrollWaitMs = 120;
 
 /** positiveWaitMilliseconds 将等待参数转换为带下限的有效毫秒数。 */
@@ -22,9 +21,5 @@ export function detailScrollWaits(payload = {}) {
   return {
     captureWaitMs,
     initialCaptureWaitMs: Math.min(600, captureWaitMs),
-    scrollSettleMs: positiveWaitMilliseconds(
-      payload.detail_scroll_settle_ms,
-      defaultDetailScrollSettleMs,
-    ),
   };
 }
