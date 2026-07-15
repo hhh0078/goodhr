@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
+	"math/rand/v2"
 	"strings"
 	"time"
 )
@@ -52,28 +53,23 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	return platformcore.DetailResult{Text: text, Source: "dom"}, nil
 }
 
-// ScrollCandidateDetail 不移动鼠标，使用连续滚轮把猎聘新详情页直接滚动到底。
+// ScrollCandidateDetail 不移动鼠标，使用连续滚轮在随机二到五秒内把猎聘新详情页滚动到底。
 func (r *Runtime) ScrollCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, distance int) error {
 	startedAt := time.Now()
-	scrollDistance := distance
-	if scrollDistance < 600 {
-		scrollDistance = 900
+	duration := 2000 + rand.IntN(3001)
+	result, err := exec.Post(ctx, "/api/v1/page/scroll-or-click-next", map[string]any{
+		"distance": 360, "bottom_threshold": 80, "scroll_to_bottom_duration_ms": duration,
+		"next_element": map[string]any{"selector": "[data-goodhr-detail-scroll-next='never']"},
+	})
+	if err != nil {
+		return err
 	}
-	for attempt := 1; attempt <= 60; attempt++ {
-		result, err := exec.Post(ctx, "/api/v1/page/scroll-or-click-next", map[string]any{
-			"distance": scrollDistance, "bottom_threshold": 80, "scroll_wait_ms": 120,
-			"next_element": map[string]any{"selector": "[data-goodhr-detail-scroll-next='never']"},
-		})
-		if err != nil {
-			return err
-		}
-		data := workerDataMap(result)
-		if stringFromMap(data, "action") == "end" {
-			exec.Log("info", fmt.Sprintf("详情浏览：猎聘详情页已滚动到底，候选人=%s，次数=%d，耗时=%s", candidateName(candidate), attempt, time.Since(startedAt).Round(time.Millisecond)))
-			return nil
-		}
+	data := workerDataMap(result)
+	if stringFromMap(data, "action") != "end" {
+		return fmt.Errorf("猎聘详情页滚动完成后仍未到达底部，候选人=%s", candidateName(candidate))
 	}
-	return fmt.Errorf("猎聘详情页连续滚动 60 次后仍未到达底部，候选人=%s", candidateName(candidate))
+	exec.Log("info", fmt.Sprintf("详情浏览：猎聘详情页已拟人滚动到底，候选人=%s，目标时长=%dms，耗时=%s", candidateName(candidate), duration, time.Since(startedAt).Round(time.Millisecond)))
+	return nil
 }
 
 // CloseCandidateDetail 关闭猎聘猎头端候选人详情页。

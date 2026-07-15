@@ -11,49 +11,32 @@ import (
 )
 
 const (
-	hliepinKeywordInputSelector = ".search-auto-complete-box .auto-input-wrap-v3 input"
-	hliepinSearchButtonSelector = ".search-auto-complete-box button.search-btn"
 	hliepinShortcutItemSelector = ".quick-search-box li.save .info"
 	hliepinPublishedJobSelector = ".quick-search-box li.job .job-name"
 	hliepinExpandShortcuts      = ".quick-search-box:has(li.save) .control"
 	hliepinExpandJobsSelector   = ".quick-search-box:has(li.job) .control"
 )
 
-// PreparePositionSearch 根据关键词是否为空，在“关键词+快捷搜索”和“发布职位匹配”之间严格二选一。
+// PreparePositionSearch 根据快捷搜索名是否为空，在“快捷搜索”和“发布职位匹配”之间严格二选一。
 func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error {
 	positionName := strings.TrimSpace(stringFromMap(positionSnapshot, "name"))
 	if positionName == "" {
 		return fmt.Errorf("猎聘任务岗位名称为空，无法匹配快捷搜索或正在发布的职位，任务已停止")
 	}
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
-	keyword := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_search_keyword"))
-	if keyword == "" {
+	shortcutName := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_shortcut_search_name"))
+	if shortcutName == "" {
 		r.greetJobSelected = true
-		exec.Log("info", "猎聘候选人搜索：未填写搜索关键词，改用正在发布的职位匹配，任务岗位="+positionName)
+		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，任务岗位="+positionName)
 		return r.selectPublishedPosition(ctx, exec, positionName)
 	}
 	r.greetJobSelected = false
-	return r.searchKeywordWithShortcut(ctx, exec, positionName, keyword)
+	return r.selectShortcutSearch(ctx, exec, positionName, shortcutName)
 }
 
-// searchKeywordWithShortcut 输入关键词并选择被任务岗位名称包含的快捷搜索项。
-func (r *Runtime) searchKeywordWithShortcut(ctx context.Context, exec platformcore.Executor, positionName string, keyword string) error {
-	exec.Log("info", "猎聘候选人搜索：使用关键词+快捷搜索，关键词="+keyword+"，任务岗位="+positionName)
-	if _, err := exec.Post(ctx, "/api/v1/page/type", map[string]any{
-		// 提示文字由 Ant Design 组件绘制，不是 input.placeholder；通过顶部搜索容器定位真正可编辑的输入框。
-		"element": map[string]any{"selector": hliepinKeywordInputSelector},
-		"text":    keyword, "timeout": 10000,
-	}); err != nil {
-		return fmt.Errorf("输入猎聘搜索关键词失败：%w", err)
-	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-		"element": map[string]any{"selector": hliepinSearchButtonSelector}, "timeout": 8000,
-	}); err != nil {
-		return fmt.Errorf("点击猎聘搜索按钮失败：%w", err)
-	}
-	if err := exec.Delay(ctx, "等待猎聘关键词搜索结果刷新", 0.6); err != nil {
-		return err
-	}
+// selectShortcutSearch 展开快捷搜索列表并按配置名称进行完整匹配。
+func (r *Runtime) selectShortcutSearch(ctx context.Context, exec platformcore.Executor, positionName string, shortcutName string) error {
+	exec.Log("info", "猎聘候选人搜索：准备选择快捷搜索，配置名称="+shortcutName)
 	if err := r.expandSearchItemsIfPresent(ctx, exec, hliepinExpandShortcuts, "快捷搜索"); err != nil {
 		return err
 	}
@@ -66,11 +49,11 @@ func (r *Runtime) searchKeywordWithShortcut(ctx context.Context, exec platformco
 	}
 	items := mapList(workerData(result, "items"))
 	if len(items) == 0 {
-		return fmt.Errorf("未找到猎聘快捷搜索列表，无法按任务岗位“%s”选择快捷搜索，任务已停止", positionName)
+		return fmt.Errorf("未找到猎聘快捷搜索列表，无法选择配置的快捷搜索“%s”，任务已停止", shortcutName)
 	}
-	matchIndex, matchName := matchingShortcutItem(items, positionName)
+	matchIndex, matchName := matchingShortcutItem(items, shortcutName)
 	if matchIndex < 0 {
-		return fmt.Errorf("猎聘快捷搜索中没有被任务岗位“%s”包含的项目，当前快捷搜索=%s，任务已停止", positionName, searchItemNames(items))
+		return fmt.Errorf("猎聘快捷搜索中没有与配置名称“%s”完全一致的项目，当前快捷搜索=%s，任务已停止", shortcutName, searchItemNames(items))
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
 		"element": map[string]any{"selector": hliepinShortcutItemSelector},
@@ -154,28 +137,16 @@ func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platfor
 	return nil
 }
 
-// matchingShortcutItem 返回被岗位名称包含的最长快捷搜索项，避免较短的同类项被优先误选。
-func matchingShortcutItem(items []map[string]any, positionName string) (int, string) {
-	target := normalizeSearchMatchText(positionName)
-	matchIndex := -1
-	matchName := ""
-	matchLength := 0
+// matchingShortcutItem 返回与配置快捷搜索名完整一致的页面项目。
+func matchingShortcutItem(items []map[string]any, shortcutName string) (int, string) {
+	target := strings.TrimSpace(shortcutName)
 	for index, item := range items {
 		name := strings.TrimSpace(stringFromMap(item, "text"))
-		normalized := normalizeSearchMatchText(name)
-		if normalized == "" || !strings.Contains(target, normalized) || len([]rune(normalized)) <= matchLength {
-			continue
+		if name == target {
+			return index, name
 		}
-		matchIndex = index
-		matchName = name
-		matchLength = len([]rune(normalized))
 	}
-	return matchIndex, matchName
-}
-
-// normalizeSearchMatchText 统一搜索项比较时的大小写并移除空白。
-func normalizeSearchMatchText(value string) string {
-	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))
+	return -1, ""
 }
 
 // searchItemNames 汇总页面搜索项名称，用于任务停止时输出可核查的错误信息。

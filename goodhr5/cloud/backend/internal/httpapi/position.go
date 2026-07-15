@@ -25,19 +25,6 @@ const defaultPositionRequirementOptimizePrompt = `你是一个招聘筛选规则
 用户输入：
 {{input}}`
 
-const defaultHLiepinSearchKeywordPrompt = `你是招聘搜索关键词助手。请根据岗位名称和岗位要求，生成用于猎聘猎头端搜索候选人的关键词。
-
-要求：
-1. 只输出一行搜索关键词，不要解释，不要输出标题、JSON、Markdown 或代码块。
-2. 优先保留岗位名称、岗位方向和最核心的技能，兼顾召回率，不要堆砌条件。
-3. 最多输出 3 个中文关键词；中文关键词之间用一个空格分隔。英文技术词之间用英文逗号分隔。
-4. 不要输出学历、年龄、工作年限、城市、薪资、福利、性格等无法作为核心搜索方向的条件。
-5. 不要重复同义词，不要使用引号、括号、句号、分号或中文逗号。
-
-岗位名称：{{name}}
-岗位要求：
-{{requirement}}`
-
 // PositionService 处理岗位配置的创建、查询和删除请求。
 type PositionService struct {
 	auth          *AuthService
@@ -63,9 +50,7 @@ type positionRequest struct {
 }
 
 type optimizeRequirementRequest struct {
-	Text       string `json:"text"`
-	Name       string `json:"name"`
-	PlatformID string `json:"platform_id"`
+	Text string `json:"text"`
 }
 
 // NewPositionService 创建岗位配置 API 服务，并注入认证服务和岗位存储。
@@ -159,36 +144,7 @@ func (s *PositionService) OptimizeRequirement(w http.ResponseWriter, r *http.Req
 		"ok":        true,
 		"optimized": optimized,
 	}
-	if normalizePositionPlatformID(req.PlatformID) == "hliepin" {
-		keywordPrompt := hliepinSearchKeywordPrompt(strings.TrimSpace(req.Name), input)
-		searchKeyword, keywordErr := s.callRequirementOptimizeAI(r, aiConfig, keywordPrompt)
-		if keywordErr != nil {
-			writeError(w, http.StatusBadGateway, "生成猎聘搜索关键词失败: "+keywordErr.Error())
-			return
-		}
-		searchKeyword = normalizeHLiepinSearchKeyword(searchKeyword)
-		if searchKeyword == "" {
-			writeError(w, http.StatusBadGateway, "AI 未返回有效的猎聘搜索关键词")
-			return
-		}
-		result["search_keyword"] = searchKeyword
-	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// hliepinSearchKeywordPrompt 生成猎聘候选人搜索关键词提示词。
-func hliepinSearchKeywordPrompt(name, requirement string) string {
-	prompt := strings.ReplaceAll(defaultHLiepinSearchKeywordPrompt, "{{name}}", name)
-	return strings.ReplaceAll(prompt, "{{requirement}}", requirement)
-}
-
-// normalizeHLiepinSearchKeyword 清理 AI 输出，确保可直接填入猎聘搜索框。
-func normalizeHLiepinSearchKeyword(value string) string {
-	value = cleanAITextOutput(value)
-	value = strings.TrimSpace(strings.TrimPrefix(value, "猎聘搜索关键词："))
-	value = strings.TrimSpace(strings.TrimPrefix(value, "搜索关键词："))
-	replacer := strings.NewReplacer("\r", " ", "\n", " ", "，", " ", "；", " ", ";", " ", "。", " ", "\"", "", "'", "")
-	return strings.Join(strings.Fields(replacer.Replace(value)), " ")
 }
 
 // Save 创建或更新一个岗位配置。

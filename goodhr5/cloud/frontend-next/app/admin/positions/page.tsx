@@ -158,7 +158,8 @@ export default function PositionsPage() {
             mode_default: form.mode_default,
             detail_mode: detailMode,
             output_structured_resume: form.output_structured_resume,
-            hliepin_search_keyword: form.hliepin_search_keyword.trim(),
+            hliepin_shortcut_search_name:
+              form.hliepin_shortcut_search_name.trim(),
           },
           ai_config: {
             position_requirement: form.position_requirement,
@@ -206,23 +207,14 @@ export default function PositionsPage() {
         method: "POST",
         body: {
           text: form.position_requirement,
-          name: form.name.trim(),
-          platform_id: form.platform_id,
         },
       });
       setForm((current) => ({
         ...current,
         position_requirement:
           data.optimized || data.text || current.position_requirement,
-        hliepin_search_keyword:
-          data.search_keyword || current.hliepin_search_keyword,
       }));
-      notify(
-        form.platform_id === "hliepin"
-          ? "岗位要求和猎聘搜索关键词已生成"
-          : "岗位要求已优化",
-        "success",
-      );
+      notify("岗位要求已优化", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "AI 优化失败", "error");
     } finally {
@@ -611,20 +603,22 @@ export default function PositionsPage() {
                   {form.platform_id === "hliepin" ? (
                     <Stack spacing={1.25}>
                       <TextField
-                        label='猎聘搜索关键词'
-                        value={form.hliepin_search_keyword}
+                        label='猎聘快捷搜索名'
+                        value={form.hliepin_shortcut_search_name}
                         onChange={(event) =>
                           setForm({
                             ...form,
-                            hliepin_search_keyword: event.target.value,
+                            hliepin_shortcut_search_name: event.target.value,
                           })
                         }
                         fullWidth
-                        placeholder='例如：AI 应用开发 Python'
-                        helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的关键词筛选。'
+                        placeholder='请填写猎聘搜索页已保存的快捷搜索名称'
+                        helperText='填写后，任务会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。'
                       />
                       <HLiepinShortcutSearchGuide
-                        visible={Boolean(form.hliepin_search_keyword.trim())}
+                        visible={Boolean(
+                          form.hliepin_shortcut_search_name.trim(),
+                        )}
                       />
                     </Stack>
                   ) : null}
@@ -665,11 +659,7 @@ export default function PositionsPage() {
                     disabled={optimizing || !form.position_requirement.trim()}
                     onClick={() => void optimizeRequirement()}
                   >
-                    {optimizing
-                      ? "分析中..."
-                      : form.platform_id === "hliepin"
-                        ? "AI 分析岗位"
-                        : "AI 优化岗位要求"}
+                    {optimizing ? "分析中..." : "AI 优化岗位要求"}
                   </Button>
                 </Stack>
                 <Stack spacing={2}>
@@ -691,20 +681,22 @@ export default function PositionsPage() {
                   {form.platform_id === "hliepin" ? (
                     <Stack spacing={1.25}>
                       <TextField
-                        label='猎聘搜索关键词'
-                        value={form.hliepin_search_keyword}
+                        label='猎聘快捷搜索名'
+                        value={form.hliepin_shortcut_search_name}
                         onChange={(event) =>
                           setForm({
                             ...form,
-                            hliepin_search_keyword: event.target.value,
+                            hliepin_shortcut_search_name: event.target.value,
                           })
                         }
                         fullWidth
-                        placeholder='点击右上角“AI 分析岗位”可自动生成，也可手动填写'
-                        helperText='仅用于猎聘猎头端开始任务时搜索候选人；如果不填，就用岗位匹配。中文关键词请用空格分隔，英文关键词请用英文逗号分隔。它不参与本地简历的 AI 判断。'
+                        placeholder='请填写猎聘搜索页已保存的快捷搜索名称'
+                        helperText='填写后，任务会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。它不参与本地简历的 AI 判断。'
                       />
                       <HLiepinShortcutSearchGuide
-                        visible={Boolean(form.hliepin_search_keyword.trim())}
+                        visible={Boolean(
+                          form.hliepin_shortcut_search_name.trim(),
+                        )}
                       />
                     </Stack>
                   ) : null}
@@ -1025,7 +1017,7 @@ function PlatformTipCard({
   );
 }
 
-/** HLiepinShortcutSearchGuide 在填写猎聘搜索关键词后展示快捷搜索配置提醒和可放大教程图。 */
+/** HLiepinShortcutSearchGuide 在填写猎聘快捷搜索名后展示配置提醒和可放大教程图。 */
 function HLiepinShortcutSearchGuide({ visible }: { visible: boolean }) {
   return (
     <Collapse in={visible} unmountOnExit>
@@ -1039,14 +1031,14 @@ function HLiepinShortcutSearchGuide({ visible }: { visible: boolean }) {
         }}
       >
         <Typography sx={{ fontSize: 14, fontWeight: 780 }}>
-          使用搜索关键词前，请先创建对应的快捷搜索
+          请先在猎聘创建并保存快捷搜索
         </Typography>
         <Alert severity='warning' sx={{ mt: 1, mb: 1.5 }}>
           <Typography sx={{ fontSize: 13, lineHeight: 1.7 }}>
-            如果你要使用“猎聘搜索关键词”方式筛选，请先在猎聘搜索页面设置好筛选条件，点击“保存条件”，创建对应的“快捷搜索”；否则任务会因为找不到快捷搜索而停止。
+            请先在猎聘搜索页面配置关键词和全部筛选条件，点击“保存条件”创建快捷搜索，再把保存后的名称完整填写到上方“猎聘快捷搜索名”。任务会直接使用该快捷搜索包含的全部条件，不会再次填写搜索关键词。
           </Typography>
           <Typography sx={{ mt: 0.75, fontSize: 13, lineHeight: 1.7 }}>
-            快捷搜索名称必须与该岗位名称一致。特别注意：如果两个岗位名称的前几个字相同，猎聘截断名称后可能保存成相同的快捷搜索名称，从而导致匹配错误。请尽量确保每个岗位名称的前几个字不要重复。
+            填写的名称必须与猎聘页面显示的快捷搜索名完全一致，否则任务会停止并说明未找到。不同岗位请使用容易区分且不重复的快捷搜索名，避免选错筛选条件。
           </Typography>
         </Alert>
         <ClickableImagePreview
@@ -1071,7 +1063,7 @@ function createEmptyForm() {
     exclude_keywords: "",
     is_and_mode: false,
     position_requirement: "",
-    hliepin_search_keyword: "",
+    hliepin_shortcut_search_name: "",
     open_detail_prompt: "",
     filter_prompt: "",
     review_prompt: "",
@@ -1112,7 +1104,8 @@ function formFromItem(
       exclude_keywords: (item.exclude_keywords || []).join(" "),
       is_and_mode: Boolean(item.is_and_mode),
       position_requirement: ai.position_requirement || "",
-      hliepin_search_keyword: common.hliepin_search_keyword || "",
+      hliepin_shortcut_search_name:
+        common.hliepin_shortcut_search_name || "",
       open_detail_prompt: normalizePrompt(ai.open_detail_prompt),
       filter_prompt: normalizePrompt(
         ai.greet_prompt || ai.filter_prompt || ai.click_prompt,

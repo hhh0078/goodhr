@@ -1083,6 +1083,70 @@ async function ensureCheckedByText(payload) {
 }
 
 /**
+ * 读取文档滚动位置并判断是否已经到达页面底部。
+ * @param {any} currentPage - 当前浏览器页面。
+ * @param {number} threshold - 距离底部多少像素视为到达底部。
+ * @returns {Promise<Record<string, any>>} 文档滚动状态。
+ */
+async function documentScrollState(currentPage, threshold) {
+  return currentPage.evaluate((bottomThreshold) => {
+    const root = document.scrollingElement || document.documentElement;
+    const top = Number(root?.scrollTop || window.scrollY || 0);
+    const viewport = Number(window.innerHeight || document.documentElement.clientHeight || 0);
+    const height = Number(root?.scrollHeight || document.documentElement.scrollHeight || 0);
+    return { top, viewport, height, at_bottom: top + viewport >= height - bottomThreshold };
+  }, threshold);
+}
+
+/**
+ * 在指定总时长内使用真实滚轮逐步滚动到页面底部。
+ * @param {any} currentPage - 当前浏览器页面。
+ * @param {Record<string, any>} initialState - 开始滚动前的页面状态。
+ * @param {Record<string, any>} payload - 滚动参数。
+ * @returns {Promise<Record<string, any>>} 滚动完成后的页面状态。
+ */
+async function scrollPageToBottomWithinDuration(currentPage, initialState, payload) {
+  const duration = Math.max(
+    2000,
+    Math.min(5000, Number(payload.scroll_to_bottom_duration_ms || 2000)),
+  );
+  const threshold = Math.max(20, Number(payload.bottom_threshold || 160));
+  const startedAt = Date.now();
+  const initialTop = Number(initialState.top || 0);
+  const initialBottom = Math.max(
+    initialTop,
+    Number(initialState.height || 0) - Number(initialState.viewport || 0),
+  );
+  const totalDistance = Math.max(0, initialBottom - initialTop);
+  let steps = 0;
+
+  while (Date.now() - startedAt < duration) {
+    const elapsed = Date.now() - startedAt;
+    const waitMS = Math.min(duration - elapsed, 180 + Math.floor(Math.random() * 141));
+    const progress = Math.min(1, (elapsed + waitMS) / duration);
+    const easedProgress = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    const state = await documentScrollState(currentPage, threshold);
+    const desiredTop = initialTop + totalDistance * easedProgress;
+    const wheelDistance = Math.max(0, Math.round(desiredTop - Number(state.top || 0)));
+    if (wheelDistance > 0) {
+      await currentPage.mouse.wheel(0, wheelDistance);
+      steps += 1;
+    }
+    await currentPage.waitForTimeout(waitMS);
+  }
+
+  let finalState = await documentScrollState(currentPage, threshold);
+  if (!finalState.at_bottom) {
+    await currentPage.mouse.wheel(0, Math.max(100, finalState.height - finalState.viewport - finalState.top));
+    await currentPage.waitForTimeout(120);
+    finalState = await documentScrollState(currentPage, threshold);
+  }
+  return { ...finalState, duration_ms: Date.now() - startedAt, steps };
+}
+
+/**
  * 使用真实滚轮向下滚动，到达页底后点击下一页。
  * @param {Record<string, any>} payload - 滚动和分页参数。
  * @returns {Promise<Record<string, any>>} 翻页或滚动结果。
@@ -1090,13 +1154,21 @@ async function ensureCheckedByText(payload) {
 async function scrollOrClickNext(payload) {
   const currentPage = await ensurePage();
   const distance = Math.max(100, Math.abs(Number(payload.distance || 720)));
-  const state = await currentPage.evaluate((threshold) => {
-    const root = document.scrollingElement || document.documentElement;
-    const top = Number(root?.scrollTop || window.scrollY || 0);
-    const viewport = Number(window.innerHeight || document.documentElement.clientHeight || 0);
-    const height = Number(root?.scrollHeight || document.documentElement.scrollHeight || 0);
-    return { top, viewport, height, at_bottom: top + viewport >= height - threshold };
-  }, Math.max(20, Number(payload.bottom_threshold || 160)));
+  const state = await documentScrollState(
+    currentPage,
+    Math.max(20, Number(payload.bottom_threshold || 160)),
+  );
+  if (!state.at_bottom && Number(payload.scroll_to_bottom_duration_ms || 0) > 0) {
+    const finalState = await scrollPageToBottomWithinDuration(currentPage, state, payload);
+    return {
+      action: finalState.at_bottom ? "end" : "scroll",
+      reason: finalState.at_bottom ? "human-scroll-bottom" : "human-scroll-incomplete",
+      scrolled: true,
+      distance: Math.max(0, finalState.top - state.top),
+      before: state,
+      after: finalState,
+    };
+  }
   if (!state.at_bottom) {
     await currentPage.mouse.wheel(0, distance);
     await currentPage.waitForTimeout(Math.max(120, Number(payload.scroll_wait_ms || 500)));

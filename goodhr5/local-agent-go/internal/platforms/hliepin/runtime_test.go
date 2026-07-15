@@ -173,9 +173,9 @@ func TestPositionSelectionIsSkipped(t *testing.T) {
 	}
 }
 
-// TestPreparePositionSearchTypesKeywordThenSelectsShortcut 验证猎聘按关键词搜索后选择岗位名称包含的快捷搜索项。
+// TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword 验证猎聘直接选择完整同名的快捷搜索且不再输入关键词。
 // t 为测试对象。
-func TestPreparePositionSearchTypesKeywordThenSelectsShortcut(t *testing.T) {
+func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinShortcutItemSelector: {
@@ -186,37 +186,34 @@ func TestPreparePositionSearchTypesKeywordThenSelectsShortcut(t *testing.T) {
 	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
 		"name":          "Java开发工程师初级",
-		"common_config": map[string]any{"hliepin_search_keyword": "AI 应用开发 Python"},
+		"common_config": map[string]any{"hliepin_shortcut_search_name": "java开发工程师初"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 11 || exec.paths[0] != "/api/v1/page/type" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/find-elements" || exec.paths[4] != "/api/v1/page/list-click-by-index" {
+	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[0], "text"); got != "AI 应用开发 Python" {
-		t.Fatalf("typed keyword = %q", got)
-	}
-	button := mapFromAny(exec.payloads[1]["element"])
-	if got := stringFromMap(button, "selector"); got != ".search-auto-complete-box button.search-btn" {
-		t.Fatalf("search button selector = %q", got)
-	}
-	if got := intFromMap(exec.payloads[4], "index"); got != 1 {
-		t.Fatalf("shortcut index = %d, want longest match index 1", got)
+	if got := intFromMap(exec.payloads[2], "index"); got != 1 {
+		t.Fatalf("shortcut index = %d, want exact match index 1", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
 }
 
-// TestPreparePositionSearchSelectsPublishedJobWhenKeywordEmpty 验证猎聘关键词为空时展开并匹配正在发布的职位。
+// TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty 验证未配置新快捷搜索名时忽略旧关键词字段并匹配正在发布的职位。
 // t 为测试对象。
-func TestPreparePositionSearchSelectsPublishedJobWhenKeywordEmpty(t *testing.T) {
+func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinPublishedJobSelector: {map[string]any{"text": "Java开发工程师初级"}},
 	}}
-	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"}); err != nil {
+	position := map[string]any{
+		"name":          "Java开发工程师初级",
+		"common_config": map[string]any{"hliepin_search_keyword": "Java Python"},
+	}
+	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, position); err != nil {
 		t.Fatal(err)
 	}
 	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
@@ -239,12 +236,12 @@ func TestPreparePositionSearchExpandsShortcutWhenControlExists(t *testing.T) {
 		hliepinShortcutItemSelector: {map[string]any{"text": "Java开发工程师初"}},
 	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
-		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_search_keyword": "Java"},
+		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_shortcut_search_name": "Java开发工程师初"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) < 5 || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/click" || exec.paths[4] != "/api/v1/page/find-elements" {
+	if len(exec.paths) < 4 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
 }
@@ -253,16 +250,32 @@ func TestPreparePositionSearchExpandsShortcutWhenControlExists(t *testing.T) {
 // t 为测试对象。
 func TestScrollCandidateDetailReachesBottomWithoutMouseMove(t *testing.T) {
 	runtime := NewRuntime()
-	exec := &searchExecutor{scrollActions: []string{"scroll", "scroll", "end"}}
+	exec := &searchExecutor{scrollActions: []string{"end"}}
 	err := runtime.ScrollCandidateDetail(context.Background(), exec, nil, map[string]any{"name": "张先生"}, 260)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exec.scrollCalls != 3 || countPath(exec.paths, "/api/v1/page/scroll-or-click-next") != 3 {
+	if exec.scrollCalls != 1 || countPath(exec.paths, "/api/v1/page/scroll-or-click-next") != 1 {
 		t.Fatalf("scroll calls = %d paths=%#v", exec.scrollCalls, exec.paths)
 	}
-	if got := intFromMap(exec.payloads[0], "distance"); got != 900 {
+	if got := intFromMap(exec.payloads[0], "distance"); got != 360 {
 		t.Fatalf("scroll distance = %d", got)
+	}
+	duration := intFromMap(exec.payloads[0], "scroll_to_bottom_duration_ms")
+	if duration < 2000 || duration > 5000 {
+		t.Fatalf("scroll duration = %d, want 2000..5000", duration)
+	}
+}
+
+// TestMatchingShortcutItemRequiresExactName 验证快捷搜索不会再用截断名称或包含关系误匹配。
+// t 为测试对象。
+func TestMatchingShortcutItemRequiresExactName(t *testing.T) {
+	items := []map[string]any{{"text": "Java开发"}, {"text": "Java开发工程师"}}
+	if index, _ := matchingShortcutItem(items, "Java开发工程师高级"); index != -1 {
+		t.Fatalf("partial shortcut should not match, index=%d", index)
+	}
+	if index, name := matchingShortcutItem(items, "Java开发工程师"); index != 1 || name != "Java开发工程师" {
+		t.Fatalf("exact shortcut match = %d %q", index, name)
 	}
 }
 
@@ -347,7 +360,7 @@ func TestPreparePositionSearchStopsWhenShortcutMissing(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{hliepinShortcutItemSelector: {}}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
-		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_search_keyword": "Java"},
+		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_shortcut_search_name": "Java开发工程师初级"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "未找到猎聘快捷搜索列表") || !strings.Contains(err.Error(), "任务已停止") {
 		t.Fatalf("error = %v", err)

@@ -95,6 +95,11 @@ func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor
 	return exec.Delay(ctx, "等待猎聘开聊职位选择生效", 0.2)
 }
 
+// normalizeSearchMatchText 统一开聊职位比较时的大小写并移除空白，兼容职位名称的截断显示。
+func normalizeSearchMatchText(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), ""))
+}
+
 // matchingGreetJobItem 优先完整匹配开聊职位，再去掉末尾省略号做双向包含匹配。
 func matchingGreetJobItem(items []map[string]any, positionName string) (int, string) {
 	target := normalizeSearchMatchText(positionName)
