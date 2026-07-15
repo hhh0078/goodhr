@@ -824,6 +824,41 @@ func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	}
 }
 
+// TestRunnerMissingCandidateDetailStopsTask 验证5秒内找不到详情容器时错误会向上返回并停止任务。
+func TestRunnerMissingCandidateDetailStopsTask(t *testing.T) {
+	db := openRunnerTestDB(t)
+	task, err := db.CreateTask(map[string]any{
+		"name":        "详情缺失任务",
+		"platform_id": "boss",
+		"mode":        "keyword",
+		"position_snapshot": map[string]any{
+			"name":          "详情缺失任务",
+			"common_config": map[string]any{"detail_mode": "dom"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("候选人详情没找到：5秒内未找到可见详情容器")}
+	_, _, err = runner.enrichCandidateWithDetail(
+		t.Context(),
+		task,
+		runtime,
+		platformExecutor{runner: runner, taskID: task.ID},
+		cloudapi.PlatformConfig{},
+		map[string]any{"candidate_name": "候选人A", "status": "scanned"},
+		nil,
+		StartOptions{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "任务已自动停止") {
+		t.Fatalf("详情容器缺失应停止任务：%v", err)
+	}
+	if runtime.closeCalls != 1 {
+		t.Fatalf("停止任务前应尝试关闭详情一次，closeCalls=%d", runtime.closeCalls)
+	}
+}
+
 // TestDetailScrollingStopsImmediatelyAfterAnalysis 验证 AI 返回时会取消滚动并等待滚动协程退出。
 // t 为测试对象。
 func TestDetailScrollingStopsImmediatelyAfterAnalysis(t *testing.T) {

@@ -169,3 +169,21 @@ func TestCleanCandidateDetailText(t *testing.T) {
 		t.Fatalf("cleaned = %q", cleaned)
 	}
 }
+
+// TestFetchCandidateDetailPollsSelectorWithoutFixedWait 验证 Boss 点击详情后直接轮询选择器且最多等待5秒。
+func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
+	exec := &selectPositionSearchExecutor{}
+	_, err := NewRuntime().FetchCandidateDetail(context.Background(), exec, nil, platformcore.Candidate{
+		"candidate_name": "测试候选人",
+	}, platformcore.DetailRequest{Mode: "dom"})
+	if err != nil {
+		t.Fatalf("读取详情不应失败：%v", err)
+	}
+	payload := exec.calls[0].payload
+	if payload["detail_ready_timeout"] != 5000 {
+		t.Fatalf("详情选择器最长等待应为5秒：%v", payload["detail_ready_timeout"])
+	}
+	if _, exists := payload["wait_ms"]; exists {
+		t.Fatalf("Boss 点击详情后不应再固定等待：%+v", payload)
+	}
+}

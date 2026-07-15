@@ -138,6 +138,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		if isBrowserClosedTaskError(err) {
 			return 0, nil, fmt.Errorf("浏览器未启动或已关闭，任务已自动结束：%w", err)
 		}
+		if isFatalCandidateDetailError(err) {
+			return 0, nil, fmt.Errorf("候选人详情没找到，任务已自动停止：%w", err)
+		}
 		return 0, nil, nil
 	}
 	_, closesAfterAI := platformRuntime.(platformcore.DetailAnalysisScroller)

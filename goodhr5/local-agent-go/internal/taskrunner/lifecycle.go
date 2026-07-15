@@ -339,6 +339,15 @@ func isBrowserClosedTaskError(err error) bool {
 	return false
 }
 
+// isFatalCandidateDetailError 判断错误是否表示候选人详情容器在规定时间内未出现。
+// err 为详情读取过程中返回的错误。
+func isFatalCandidateDetailError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "候选人详情没找到")
+}
+
 // ensurePowerProtection 确保运行任务期间系统不会自动睡眠。
 // taskID 为当前任务 ID，失败时返回错误但不阻断任务。
 func (r *Runner) ensurePowerProtection(taskID string) error {

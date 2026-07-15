@@ -22,8 +22,8 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	payload["force_scroll"] = false
 	payload["card_scroll_attempts"] = 3
 	payload["require_full"] = false
-	payload["wait_ms"] = 300
-	payload["detail_ready_timeout"] = 8000
+	delete(payload, "wait_ms")
+	payload["detail_ready_timeout"] = 5000
 	payload["viewport_margin"] = 24
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", payload)
 	if err != nil {

@@ -148,6 +148,12 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	if exec.payload["force_scroll"] != false || exec.payload["card_scroll_attempts"] != 3 || exec.payload["require_full"] != false {
 		t.Fatalf("智联详情不应持续强制滚动，payload = %+v", exec.payload)
 	}
+	if exec.payload["detail_ready_timeout"] != 5000 {
+		t.Fatalf("智联详情选择器最长等待应为5秒，payload = %+v", exec.payload)
+	}
+	if _, exists := exec.payload["wait_ms"]; exists {
+		t.Fatalf("智联点击详情后不应再固定等待，payload = %+v", exec.payload)
+	}
 	if result.Text != "候选人详情" || result.Source != "dom" || len(result.Screenshot) != 0 {
 		t.Fatalf("result = %+v", result)
 	}
