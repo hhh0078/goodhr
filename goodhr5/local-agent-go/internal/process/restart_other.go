@@ -8,3 +8,9 @@ package process
 func StopOtherInstances(imageName string, currentPID int) error {
 	return nil
 }
+
+// StopGoodHRPortOwner 在非 Windows 系统不处理固定端口旧进程。
+// host 和 port 为待检查的监听地址，currentPID 为当前进程 ID。
+func StopGoodHRPortOwner(host string, port int, currentPID int) error {
+	return nil
+}

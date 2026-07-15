@@ -55,7 +55,7 @@ Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Par
 Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）"; GroupDescription: "快捷方式："
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"" --restart"; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall
 
 [Code]
 // StopProcessByImageName 静默结束指定进程，避免升级安装时文件被旧程序占用。

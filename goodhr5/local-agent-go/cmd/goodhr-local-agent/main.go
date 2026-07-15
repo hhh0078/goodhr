@@ -28,10 +28,12 @@ func main() {
 	if *restart {
 		log.Printf("收到 restart 参数，准备关闭旧本地程序：pid=%d", os.Getpid())
 		if err := process.StopOtherInstances("goodhr-local-agent.exe", os.Getpid()); err != nil {
-			log.Printf("关闭旧本地程序失败，继续尝试启动：%v", err)
-		} else {
-			log.Printf("旧本地程序关闭流程完成")
+			log.Fatalf("按程序名关闭旧本地程序失败，已拒绝启动：%v", err)
 		}
+		if err := process.StopGoodHRPortOwner(*host, *port, os.Getpid()); err != nil {
+			log.Fatalf("清理本地程序端口失败，已拒绝启动：%v", err)
+		}
+		log.Printf("旧本地程序关闭流程完成，端口已释放")
 	}
 
 	cfg, err := config.NewWithDataDir(*host, *port, *dataDir)
