@@ -1318,25 +1318,53 @@ async function extractBossCandidateDetail(payload) {
     await humanMouseClick(currentPage, payload);
   }
   const detailSelectors = detailSelectorList(rules.detail_containers);
+  logWorker("候选人详情选择器开始查找", {
+    interval_ms: 100,
+    timeout_ms: 5000,
+    selectors: detailSelectors.join(","),
+  });
+  await notifyTaskLog(
+    payload,
+    "info",
+    "详情选择器：开始查找，每100毫秒一次，最多等待5秒",
+  );
   const detailReady = await waitForCandidateDetailReady(
     currentPage,
     detailSelectors,
     Number(payload.detail_ready_timeout || 5000),
   );
   if (!detailReady.ready) {
+    logWorker("候选人详情选择器查找失败", detailReady);
+    await notifyTaskLog(
+      payload,
+      "error",
+      `详情选择器：5秒内未找到，查询次数=${detailReady.attempts}`,
+    );
     throw new Error(`候选人详情没找到：5秒内${detailReady.reason}`);
   }
+  logWorker("候选人详情选择器已找到", detailReady);
+  await notifyTaskLog(
+    payload,
+    "info",
+    `详情选择器：已找到，耗时=${detailReady.elapsed_ms}ms，查询次数=${detailReady.attempts}，选择器=${detailReady.matched_selector || "未知"}`,
+  );
   const detailText = await firstDetailText(
     currentPage,
     detailSelectors,
   );
-  const screenshot = payload.screenshot
-    ? await screenshotDetailContainer(
-        currentPage,
-        detailSelectors,
-        payload,
-      )
-    : null;
+  let screenshot = null;
+  if (payload.screenshot) {
+    await notifyTaskLog(
+      payload,
+      "info",
+      "详情截图：已找到详情容器，开始生成详情长图",
+    );
+    screenshot = await screenshotDetailContainer(
+      currentPage,
+      detailSelectors,
+      payload,
+    );
+  }
   const debugInfo = JSON.stringify({
     selectors: detailSelectors,
     hadContainer: !!detailText,
@@ -2209,8 +2237,10 @@ async function screenshotLocatorParts(
   const clip = { x: clipX, y: clipY, width: clipWidth, height: clipHeight };
   const mouseX = clipX + clipWidth / 2;
   const mouseY = clipY + clipHeight / 2;
+  const { captureWaitMs, initialCaptureWaitMs, scrollSettleMs } =
+    detailScrollWaits(payload);
   await moveMouseToBox(currentPage, clip).catch(() => {});
-  await currentPage.waitForTimeout(1500);
+  await currentPage.waitForTimeout(initialCaptureWaitMs);
   const forceScroll = Boolean(
     payload.force_scroll || payload.scroll_full || payload.forceScroll,
   );
@@ -2257,9 +2287,14 @@ async function screenshotLocatorParts(
     pageClientHeight: scrollState.clientHeight,
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
+    captureWaitMs,
+    scrollSettleMs,
   });
   for (let index = 0; index < maxScrolls; index += 1) {
     await moveMouseToBox(currentPage, clip).catch(() => {});
+    if (index > 0) {
+      await currentPage.waitForTimeout(captureWaitMs);
+    }
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
     const beforeShot = await pageScrollState(currentPage, scrollPoint);
@@ -2309,7 +2344,7 @@ async function screenshotLocatorParts(
     previousBuffer = currentBuffer;
     const beforeScroll = await pageScrollState(currentPage, scrollPoint);
     await currentPage.mouse.wheel(0, scrollDelta);
-    await currentPage.waitForTimeout(2000);
+    await currentPage.waitForTimeout(scrollSettleMs);
     const afterScroll = await pageScrollState(currentPage, scrollPoint);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     const hasExpectedMoreParts =
@@ -4303,6 +4338,23 @@ function selectorList(value) {
     ];
   }
   return [];
+}
+
+/** notifyTaskLog 将关键浏览器阶段写入用户可见的本地任务日志。 */
+async function notifyTaskLog(payload, level, message) {
+  const taskID = String(payload?.task_id || "").trim();
+  if (!agentBaseURL || !taskID || !message) return;
+  try {
+    await postAgentJSON(
+      `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs`,
+      { level: level || "info", message: String(message) },
+    );
+  } catch (error) {
+    logWorker("写入任务详情日志失败", {
+      task_id: taskID,
+      error: error?.message || String(error),
+    });
+  }
 }
 
 /**

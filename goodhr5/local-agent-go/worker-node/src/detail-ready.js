@@ -33,6 +33,7 @@ export async function waitForDetailContainer(options = {}) {
         attempts,
         elapsed_ms: now() - startedAt,
         containers: containers.length,
+        matched_selector: String(containers[0]?.targetSelector || ""),
         reason: "ready",
       };
     }

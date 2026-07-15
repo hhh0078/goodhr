@@ -17,12 +17,13 @@ test("详情容器出现后立即继续", async () => {
     },
     findVisible: async () => {
       searches += 1;
-      return searches === 3 ? [{}] : [];
+      return searches === 3 ? [{ targetSelector: "#resume" }] : [];
     },
   });
   assert.equal(result.ready, true);
   assert.equal(result.attempts, 3);
   assert.equal(result.elapsed_ms, 200);
+  assert.equal(result.matched_selector, "#resume");
 });
 
 test("5秒内始终找不到详情容器时返回失败", async () => {

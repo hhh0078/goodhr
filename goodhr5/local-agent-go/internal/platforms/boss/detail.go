@@ -16,6 +16,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
+		"task_id":              request.TaskID,
 		"platform_config":      cfg,
 		"card_index":           intFromMap(candidate, "card_index"),
 		"element_ref":          stringFromMap(candidate, "element_ref"),

@@ -175,7 +175,7 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	exec := &selectPositionSearchExecutor{}
 	_, err := NewRuntime().FetchCandidateDetail(context.Background(), exec, nil, platformcore.Candidate{
 		"candidate_name": "测试候选人",
-	}, platformcore.DetailRequest{Mode: "dom"})
+	}, platformcore.DetailRequest{TaskID: "task-boss", Mode: "dom"})
 	if err != nil {
 		t.Fatalf("读取详情不应失败：%v", err)
 	}
@@ -185,5 +185,8 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	}
 	if _, exists := payload["wait_ms"]; exists {
 		t.Fatalf("Boss 点击详情后不应再固定等待：%+v", payload)
+	}
+	if payload["task_id"] != "task-boss" {
+		t.Fatalf("Boss 详情请求应携带任务 ID 以写入可见日志：%+v", payload)
 	}
 }

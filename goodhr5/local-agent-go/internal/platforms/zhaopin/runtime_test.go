@@ -135,7 +135,7 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	result, err := runtime.FetchCandidateDetail(context.Background(), exec, cloudapi.PlatformConfig{"id": "zhaopin"}, platformcore.Candidate{
 		"card_index":  2,
 		"element_ref": "candidate-2",
-	}, platformcore.DetailRequest{Mode: "dom"})
+	}, platformcore.DetailRequest{TaskID: "task-zhaopin", Mode: "dom"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +153,9 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	}
 	if _, exists := exec.payload["wait_ms"]; exists {
 		t.Fatalf("智联点击详情后不应再固定等待，payload = %+v", exec.payload)
+	}
+	if exec.payload["task_id"] != "task-zhaopin" {
+		t.Fatalf("智联详情请求应携带任务 ID 以写入可见日志，payload = %+v", exec.payload)
 	}
 	if result.Text != "候选人详情" || result.Source != "dom" || len(result.Screenshot) != 0 {
 		t.Fatalf("result = %+v", result)
