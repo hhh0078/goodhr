@@ -6,6 +6,7 @@ import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRound
 import { Alert, Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import { localRequest } from "@/lib/admin-api";
+import { isVersionLower, latestLocalAgentRelease } from "@/lib/task-start-guard";
 import AdminDialog from "./AdminDialog";
 
 const dismissedAnnouncementKey = "goodhr5_dismissed_announcements";
@@ -128,44 +129,6 @@ async function loadUpdateState(agentBase: string, setVersion: (value: string) =>
     if (progress.current_version) setVersion(String(progress.current_version));
     setProgress(progress);
   }
-}
-
-/** latestLocalAgentRelease 读取当前系统对应的最新版本地程序配置。 */
-function latestLocalAgentRelease(config: any) {
-  const item = Array.isArray(config?.local_agent) ? config.local_agent[0] || {} : {};
-  const isWindows = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows");
-  return {
-    version: String(item.version || "").trim(),
-    url: String(isWindows ? item.url_win || item.url_windows || item.url || "" : item.url_mac || item.url_macos || item.url || "").trim(),
-    note: String(item.note || item.changelog || item.description || item.release_note || "").trim(),
-  };
-}
-
-/** isVersionLower 判断当前版本是否低于目标版本。 */
-function isVersionLower(current: string, target: string) {
-  return compareVersion(target, current) > 0;
-}
-
-/** compareVersion 按点分数字比较版本号。 */
-function compareVersion(left: string, right: string) {
-  const leftParts = parseVersionParts(left);
-  const rightParts = parseVersionParts(right);
-  const maxLen = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < maxLen; index += 1) {
-    const leftValue = leftParts[index] || 0;
-    const rightValue = rightParts[index] || 0;
-    if (leftValue > rightValue) return 1;
-    if (leftValue < rightValue) return -1;
-  }
-  return 0;
-}
-
-/** parseVersionParts 将版本号拆成数字片段。 */
-function parseVersionParts(value: string) {
-  return String(value || "").trim().replace(/^v/i, "").split(".").map((part) => {
-    const match = part.trim().match(/^\d+/);
-    return match ? Number(match[0]) : 0;
-  });
 }
 
 /** readDismissedAnnouncements 读取旧版兼容的一次性公告已读记录。 */

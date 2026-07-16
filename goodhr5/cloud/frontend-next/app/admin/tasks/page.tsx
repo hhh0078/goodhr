@@ -38,6 +38,10 @@ import {
   openPlatformTaskBrowser,
   pickPlatformAuthConfig,
 } from "@/lib/platform-login";
+import {
+  evaluateTaskStartGuard,
+  latestLocalAgentRelease,
+} from "@/lib/task-start-guard";
 
 const emptyForm = {
   id: "",
@@ -59,7 +63,7 @@ const compactTextButtonSx = {
 
 /** TasksPage 管理招聘任务完整生命周期。 */
 export default function TasksPage() {
-  const { agentBase, notify, confirm } = useAdmin();
+  const { agentBase, notify, confirm, onboardingConfig } = useAdmin();
   const [tasks, setTasks] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>([]);
@@ -237,6 +241,55 @@ export default function TasksPage() {
     setStartTask(task);
   }
 
+  /** checkTaskStartGuard 检查 AI 余额和本地程序版本，未通过时弹框并阻止任务启动。 */
+  async function checkTaskStartGuard(taskID: string) {
+    setStartStatus("正在检查 AI 余额和本地程序版本...");
+    try {
+      let runtimeConfig = onboardingConfig;
+      if (!latestLocalAgentRelease(runtimeConfig).version) {
+        const runtimePayload = await cloudRequest("/api/runtime/config");
+        runtimeConfig = runtimePayload.config || runtimePayload || {};
+      }
+      const [walletPayload, health] = await Promise.all([
+        cloudRequest("/api/ai-wallet"),
+        localRequest(agentBase, "/health"),
+      ]);
+      const release = latestLocalAgentRelease(runtimeConfig);
+      const failure = evaluateTaskStartGuard(
+        walletPayload.wallet || walletPayload,
+        health.version || health.agent_version,
+        release.version,
+      );
+      if (!failure) return true;
+      setStartStatus(failure.message);
+      await reportUserFlow({
+        step: "task_started",
+        status: "blocked",
+        reason_code: failure.code,
+        message: failure.message,
+        source: "task_start_guard",
+        task_id: taskID,
+      }).catch(() => undefined);
+      await confirm(failure.title, failure.message);
+      return false;
+    } catch (error) {
+      const message = error instanceof Error
+        ? `启动条件检查失败：${error.message}。本次任务不会开始。`
+        : "启动条件检查失败，本次任务不会开始，请刷新页面后重试。";
+      setStartStatus(message);
+      await reportUserFlow({
+        step: "task_started",
+        status: "blocked",
+        reason_code: "task_start_guard_unavailable",
+        message,
+        source: "task_start_guard",
+        task_id: taskID,
+      }).catch(() => undefined);
+      await confirm("启动条件检查失败", message);
+      return false;
+    }
+  }
+
   /** confirmStartTask 在确认弹框内等待登录检测和本地任务启动完成。 */
   async function confirmStartTask() {
     const task = startTask;
@@ -244,6 +297,7 @@ export default function TasksPage() {
     setStartLoading(true);
     setStartStatus("正在检查任务启动条件...");
     try {
+      if (!(await checkTaskStartGuard(String(task.id || "")))) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const active = Boolean(subscriptionData.subscription?.active);
       const position =
@@ -792,13 +846,15 @@ export default function TasksPage() {
       >
         <Stack spacing={1.5}>
           <Typography>
-            确认开始“{startTask?.name || ""}”吗？我会先确认招聘平台是否已登录。
+            确认开始“{startTask?.name || ""}”吗？我会先检查 AI 余额、本地程序版本和招聘平台登录状态。
           </Typography>
           {startStatus ? (
             <Typography
               color={
                 startStatus.includes("没登录") ||
                 startStatus.includes("失败") ||
+                startStatus.includes("余额不足") ||
+                startStatus.includes("版本过低") ||
                 startStatus.includes("请订阅") ||
                 startStatus.includes("暂未开放")
                   ? "error"
