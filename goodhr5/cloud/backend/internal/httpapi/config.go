@@ -189,14 +189,6 @@ func (c Config) PositionStore(db *sql.DB) PositionStore {
 	return NewMemoryPositionStore()
 }
 
-// TaskStore 创建任务存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
-func (c Config) TaskStore(db *sql.DB) TaskStore {
-	if db != nil {
-		return NewPostgresTaskStore(db)
-	}
-	return NewMemoryTaskStore()
-}
-
 // SystemDailyStatsStore 创建系统按日统计存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) SystemDailyStatsStore(db *sql.DB) SystemDailyStatsStore {
 	if db != nil {
@@ -205,7 +197,7 @@ func (c Config) SystemDailyStatsStore(db *sql.DB) SystemDailyStatsStore {
 	return NewMemorySystemDailyStatsStore()
 }
 
-// TaskLogStore 创建任务日志存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+// PositionLogStore 创建岗位运行日志存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) CookieStore(db *sql.DB) CookieStore {
 	if db != nil {
 		return NewPostgresCookieStore(db)
@@ -271,15 +263,16 @@ func (c Config) PaymentStore(db *sql.DB) PaymentStore {
 	return NewMemoryPaymentStore()
 }
 
-func (c Config) TaskLogStore(db *sql.DB) TaskLogStore {
-	var persistent TaskLogStore
+// PositionLogStore 创建岗位日志存储，并在配置 Redis 时增加缓存层。
+func (c Config) PositionLogStore(db *sql.DB) PositionLogStore {
+	var persistent PositionLogStore
 	if db != nil {
-		persistent = NewPostgresTaskLogStore(db)
+		persistent = NewPostgresPositionLogStore(db)
 	} else {
-		persistent = NewMemoryTaskLogStore()
+		persistent = NewMemoryPositionLogStore()
 	}
 	if c.RedisAddr != "" {
-		return NewRedisTaskLogStore(c.RedisAddr, c.RedisPassword, c.RedisDB, persistent)
+		return NewRedisPositionLogStore(c.RedisAddr, c.RedisPassword, c.RedisDB, persistent)
 	}
 	return persistent
 }

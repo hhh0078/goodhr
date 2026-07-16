@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// CandidateService 处理简历库和任务候选人查询请求。
+// CandidateService 处理简历库和岗位候选人查询请求。
 type CandidateService struct {
 	auth        *AuthService
 	store       CandidateStore
@@ -27,7 +27,7 @@ func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore Te
 }
 
 // Collection 处理简历库候选人列表请求。
-// 支持通过 task_id 查询某个任务下的候选人，否则返回当前团队候选人。
+// 支持通过 position_id 查询某个岗位下的候选人，否则返回当前团队候选人。
 func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete {
 		s.ClearTeam(w, r)
@@ -51,8 +51,7 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := TaskCandidateQuery{
-		TaskID:     strings.TrimSpace(r.URL.Query().Get("task_id")),
+	query := PositionCandidateQuery{
 		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
 		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
 		Page:       parsePositiveInt(r.URL.Query().Get("page")),
@@ -62,14 +61,14 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	if !isAdmin {
 		query.UserEmail = session.Email
 	}
-	result, err := s.store.ListTaskCandidates(tenant.ID, query)
+	result, err := s.store.ListPositionCandidates(tenant.ID, query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
-		"candidates": publicTaskCandidates(result.Items),
+		"candidates": publicPositionCandidates(result.Items),
 		"total":      result.Total,
 		"page":       result.Page,
 		"page_size":  result.PageSize,
@@ -131,7 +130,7 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
-	item, err := s.store.GetTaskCandidate(tenant.ID, candidateID, engagementID, session.Email, isAdmin)
+	item, err := s.store.GetPositionCandidate(tenant.ID, candidateID, engagementID, session.Email, isAdmin)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "candidate not found")
 		return
@@ -142,7 +141,7 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"candidate": publicTaskCandidate(item),
+		"candidate": publicPositionCandidate(item),
 	})
 }
 
@@ -168,7 +167,7 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
-	if _, err := s.store.GetTaskCandidate(tenant.ID, candidateID, "", session.Email, isAdmin); err != nil {
+	if _, err := s.store.GetPositionCandidate(tenant.ID, candidateID, "", session.Email, isAdmin); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, "candidate not found")
 			return
@@ -240,22 +239,21 @@ func parsePositiveInt(value string) int {
 	return parsed
 }
 
-// publicTaskCandidates 将候选人记录列表转换为前端响应结构。
-func publicTaskCandidates(items []TaskCandidate) []map[string]any {
+// publicPositionCandidates 将候选人记录列表转换为前端响应结构。
+func publicPositionCandidates(items []PositionCandidate) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, publicTaskCandidate(item))
+		result = append(result, publicPositionCandidate(item))
 	}
 	return result
 }
 
-// publicTaskCandidate 将候选人记录转换为前端响应结构。
-func publicTaskCandidate(item TaskCandidate) map[string]any {
+// publicPositionCandidate 将候选人记录转换为前端响应结构。
+func publicPositionCandidate(item PositionCandidate) map[string]any {
 	return map[string]any{
 		"id":                       item.ID,
 		"engagement_id":            item.EngagementID,
 		"engagement_status":        item.EngagementStatus,
-		"task_id":                  item.TaskID,
 		"position_id":              item.PositionID,
 		"position_name":            item.PositionName,
 		"platform_account_id":      item.PlatformAccountID,

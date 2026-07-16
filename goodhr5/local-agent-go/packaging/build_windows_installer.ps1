@@ -1,6 +1,6 @@
 # Purpose: build GoodHR Go Local Agent and create the Windows installer.
 param(
-  [string]$Version = "5.1.9"
+  [string]$Version = "5.3.5"
 )
 
 $ErrorActionPreference = "Stop"

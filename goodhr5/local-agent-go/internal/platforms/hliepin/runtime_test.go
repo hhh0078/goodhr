@@ -61,7 +61,7 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	return map[string]any{"data": map[string]any{"ok": true}}, nil
 }
 
-// Log 忽略测试中的任务日志。
+// Log 忽略测试中的岗位运行日志。
 func (e *searchExecutor) Log(string, string) {}
 
 // Delay 跳过测试中的真实等待。
@@ -103,7 +103,7 @@ func (e *testExecutor) Post(_ context.Context, path string, _ any) (map[string]a
 	}, nil
 }
 
-// Log 模拟任务日志写入。
+// Log 模拟岗位运行日志写入。
 // level 为日志级别，message 为日志内容。
 func (e *testExecutor) Log(string, string) {}
 
@@ -111,12 +111,12 @@ func (e *testExecutor) Log(string, string) {}
 // ctx 为运行上下文，message 为等待说明，seconds 为等待秒数。
 func (e *testExecutor) Delay(context.Context, string, float64) error { return nil }
 
-// TestIsTaskEntryPageUsesPageList 验证入口页判断使用页面列表接口。
+// TestIsPositionEntryPageUsesPageList 验证入口页判断使用页面列表接口。
 // t 为测试对象。
-func TestIsTaskEntryPageUsesPageList(t *testing.T) {
+func TestIsPositionEntryPageUsesPageList(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &testExecutor{}
-	ok, err := runtime.IsTaskEntryPage(context.Background(), exec, cloudapi.PlatformConfig{
+	ok, err := runtime.IsPositionEntryPage(context.Background(), exec, cloudapi.PlatformConfig{
 		"auth": map[string]any{
 			"pages": []any{
 				map[string]any{"url": "https://h.liepin.com/search/getConditionItem", "entry": true},
@@ -428,7 +428,7 @@ func TestPreparePositionSearchStopsWhenShortcutMissing(t *testing.T) {
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
 		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_shortcut_search_name": "Java开发工程师初级"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "未找到猎聘快捷搜索列表") || !strings.Contains(err.Error(), "任务已停止") {
+	if err == nil || !strings.Contains(err.Error(), "未找到猎聘快捷搜索列表") || !strings.Contains(err.Error(), "岗位运行已停止") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -441,7 +441,7 @@ func TestPreparePositionSearchStopsWhenPublishedJobMissing(t *testing.T) {
 		hliepinPublishedJobSelector: {map[string]any{"text": "PHP程序员"}},
 	}, clickTextErrors: map[string]error{"Java开发工程师初级": fmt.Errorf("未找到文字元素")}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"})
-	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到任务岗位") || !strings.Contains(err.Error(), "任务已停止") {
+	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到岗位运行岗位") || !strings.Contains(err.Error(), "岗位运行已停止") {
 		t.Fatalf("error = %v", err)
 	}
 }

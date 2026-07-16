@@ -12,8 +12,8 @@ import (
 	"goodhr5/local-agent-go/internal/localdb"
 )
 
-// TestChatPaymentRequiredStopsTask 验证 AI 余额不足不会继续处理后续候选人。
-func TestChatPaymentRequiredStopsTask(t *testing.T) {
+// TestChatPaymentRequiredStopsPosition 验证 AI 余额不足不会继续处理后续候选人。
+func TestChatPaymentRequiredStopsPosition(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -24,8 +24,8 @@ func TestChatPaymentRequiredStopsTask(t *testing.T) {
 
 	client := New(localdb.AIConfig{BaseURL: server.URL, APIKey: "key-1", Model: "model-1", Timeout: 5})
 	_, err := client.Chat(t.Context(), map[string]any{"messages": []map[string]string{{"role": "user", "content": "测试"}}})
-	if err == nil || !IsTaskStoppingError(err) {
-		t.Fatalf("402 应停止任务，err=%v", err)
+	if err == nil || !IsPositionStoppingError(err) {
+		t.Fatalf("402 应停止岗位运行，err=%v", err)
 	}
 	var serviceErr *ServiceError
 	if !errors.As(err, &serviceErr) || serviceErr.StatusCode != http.StatusPaymentRequired {
@@ -36,7 +36,7 @@ func TestChatPaymentRequiredStopsTask(t *testing.T) {
 	}
 }
 
-// TestChatServerErrorRetriesThenStops 验证 AI 5xx 会重试两次，仍失败后停止任务。
+// TestChatServerErrorRetriesThenStops 验证 AI 5xx 会重试两次，仍失败后停止岗位运行。
 func TestChatServerErrorRetriesThenStops(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,16 +48,16 @@ func TestChatServerErrorRetriesThenStops(t *testing.T) {
 
 	client := New(localdb.AIConfig{BaseURL: server.URL, APIKey: "key-1", Model: "model-1", Timeout: 5})
 	_, err := client.Chat(t.Context(), map[string]any{"messages": []map[string]string{{"role": "user", "content": "测试"}}})
-	if err == nil || !IsTaskStoppingError(err) {
-		t.Fatalf("5xx 重试失败后应停止任务，err=%v", err)
+	if err == nil || !IsPositionStoppingError(err) {
+		t.Fatalf("5xx 重试失败后应停止岗位运行，err=%v", err)
 	}
 	if requests != 3 {
 		t.Fatalf("5xx 应总共请求3次，requests=%d", requests)
 	}
 }
 
-// TestChatCandidateContextErrorDoesNotStopTask 验证单份简历上下文过长只影响当前候选人。
-func TestChatCandidateContextErrorDoesNotStopTask(t *testing.T) {
+// TestChatCandidateContextErrorDoesNotStopPosition 验证单份简历上下文过长只影响当前候选人。
+func TestChatCandidateContextErrorDoesNotStopPosition(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"context length exceeded"}`))
@@ -66,7 +66,7 @@ func TestChatCandidateContextErrorDoesNotStopTask(t *testing.T) {
 
 	client := New(localdb.AIConfig{BaseURL: server.URL, APIKey: "key-1", Model: "model-1", Timeout: 5})
 	_, err := client.Chat(t.Context(), map[string]any{"messages": []map[string]string{{"role": "user", "content": "测试"}}})
-	if err == nil || IsTaskStoppingError(err) {
+	if err == nil || IsPositionStoppingError(err) {
 		t.Fatalf("上下文过长只应跳过当前候选人，err=%v", err)
 	}
 }

@@ -199,7 +199,7 @@ export default function AccountsPage() {
             onChange={(event) => setForm({ ...form, display_name: event.target.value })}
             fullWidth
             placeholder='例如：成都招聘账号'
-            helperText='用于在任务和控制台中区分不同招聘账号。'
+            helperText='用于在岗位运行和控制台中区分不同招聘账号。'
           />
           <Alert severity='info' variant='outlined' icon={<Box component='img' src={CHROMIUM_ICON_SRC} alt='浏览器图标' sx={{ width: 28, height: 28 }} />}>
             创建后，右下角会出现一个蓝色浏览器图标。请点击它打开浏览器，完成登录后保持浏览器打开，系统会连续确认 3 次登录状态。

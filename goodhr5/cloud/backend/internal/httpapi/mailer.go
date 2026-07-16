@@ -20,7 +20,7 @@ type Mailer interface {
 	SendLoginCode(email string, code string) error
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
 	SendAIBalanceNotice(email string, notice AIBalanceNotice) error
-	SendTaskStatus(email string, notice TaskStatusNotice) error
+	SendPositionStatus(email string, notice PositionStatusNotice) error
 	SendCustomHTML(email string, subject string, htmlBody string, plainText string) error
 }
 
@@ -40,9 +40,10 @@ type AIBalanceNotice struct {
 	BalanceUnits int64
 }
 
-// TaskStatusNotice 表示任务完成或失败邮件内容。
-type TaskStatusNotice struct {
-	TaskID          string
+// PositionStatusNotice 表示岗位运行完成或失败邮件内容。
+type PositionStatusNotice struct {
+	PositionID      string
+	PositionName    string
 	Status          string
 	StatusLabel     string
 	PlatformID      string
@@ -76,9 +77,9 @@ func (m DevMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) err
 	return nil
 }
 
-// SendTaskStatus 在开发模式下记录任务状态提醒。
-func (m DevMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
-	log.Printf("GoodHR dev task status for %s: task=%s status=%s error=%s", email, notice.TaskID, notice.StatusLabel, notice.ErrorMessage)
+// SendPositionStatus 在开发模式下记录岗位状态提醒。
+func (m DevMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
+	log.Printf("GoodHR dev position status for %s: position=%s status=%s error=%s", email, notice.PositionID, notice.StatusLabel, notice.ErrorMessage)
 	return nil
 }
 
@@ -169,11 +170,11 @@ func (m SMTPMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) er
 	}, lines)
 }
 
-// SendTaskStatus 发送任务完成或失败提醒邮件。
-func (m SMTPMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+// SendPositionStatus 发送岗位运行完成或失败提醒邮件。
+func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
 	statusLabel := strings.TrimSpace(notice.StatusLabel)
 	if statusLabel == "" {
-		statusLabel = "任务结束"
+		statusLabel = "岗位运行结束"
 	}
 	finishedAt := notice.FinishedAt
 	if finishedAt.IsZero() {
@@ -181,12 +182,13 @@ func (m SMTPMailer) SendTaskStatus(email string, notice TaskStatusNotice) error 
 	}
 	subject := "GoodHR " + statusLabel + "提醒"
 	lines := []string{
-		"你好，你的 GoodHR 任务状态已更新。",
-		"任务状态：" + statusLabel,
-		"任务 ID：" + notice.TaskID,
+		"你好，你的 GoodHR 岗位运行状态已更新。",
+		"岗位状态：" + statusLabel,
+		"岗位名称：" + notice.PositionName,
+		"岗位 ID：" + notice.PositionID,
 		"平台：" + notice.PlatformID,
 		"平台账号：" + notice.PlatformAccount,
-		"任务模式：" + notice.Mode,
+		"筛选模式：" + notice.Mode,
 		"打招呼上限：" + intString(notice.MatchLimit),
 		"扫描/打招呼/跳过/失败：" + intString(notice.ScannedCount) + "/" + intString(notice.GreetedCount) + "/" + intString(notice.SkippedCount) + "/" + intString(notice.FailedCount),
 		"完成时间：" + finishedAt.Format("2006-01-02 15:04:05"),
@@ -194,9 +196,10 @@ func (m SMTPMailer) SendTaskStatus(email string, notice TaskStatusNotice) error 
 	if strings.TrimSpace(notice.ErrorMessage) != "" {
 		lines = append(lines, "失败原因："+strings.TrimSpace(notice.ErrorMessage))
 	}
-	lines = append(lines, "你可以回到 GoodHR 控制台查看任务日志。")
-	return m.sendMessage(email, subject, "task_status.html", map[string]any{
-		"TaskID":          notice.TaskID,
+	lines = append(lines, "你可以回到 GoodHR 控制台查看岗位日志。")
+	return m.sendMessage(email, subject, "position_status.html", map[string]any{
+		"PositionID":      notice.PositionID,
+		"PositionName":    notice.PositionName,
 		"Status":          notice.Status,
 		"StatusLabel":     statusLabel,
 		"PlatformID":      notice.PlatformID,

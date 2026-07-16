@@ -20,7 +20,7 @@ POST /api/public/email-jobs/flow-reminder
 https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder
 ```
 
-GET 适合直接配置到宝塔计划任务、Linux Cron、Windows 计划任务或其他定时任务平台。
+GET 适合直接配置到宝塔计划岗位运行、Linux Cron、Windows 计划岗位运行或其他定时岗位运行平台。
 
 POST 适合参数比较多，或者由自己的程序调用。
 
@@ -54,11 +54,10 @@ Authorization: Bearer YOUR_EMAIL_JOB_TOKEN
 | `agent_detected` | 尚未检测到本地程序 | 下载、安装并启动 GoodHR 本地程序 | `/download` |
 | `runtime_ready` | 本地程序已连接，但运行组件未准备好 | 安装 Node、浏览器等必要组件 | `/admin/agent-download` |
 | `position_created` | 运行环境已就绪，但尚未创建岗位 | 创建岗位、填写要求和招呼语 | `/admin/positions` |
-| `task_created` | 已有岗位，但尚未创建招聘任务 | 选择岗位并创建任务 | `/admin/tasks` |
-| `platform_login_verified` | 已有任务，但招聘平台尚未确认登录 | 打开招聘平台并完成登录 | `/admin/tasks` |
-| `task_started` | 平台已经登录，但任务未成功启动 | 检查组件、会员、AI 配置和任务日志 | `/admin/tasks` |
-| `first_resume_processed` | 任务启动过，但尚未成功处理第一份简历 | 检查候选人列表、筛选条件和扫描日志 | `/admin/tasks` |
-| `first_greet_success` | 已处理简历，但尚未成功打出第一次招呼 | 检查筛选分数、阈值、平台额度和失败日志 | `/admin/tasks` |
+| `platform_login_verified` | 已有岗位运行，但招聘平台尚未确认登录 | 打开招聘平台并完成登录 | `/admin/positions` |
+| `position_started` | 平台已经登录，但岗位运行未成功启动 | 检查组件、会员、AI 配置和岗位运行日志 | `/admin/positions` |
+| `first_resume_processed` | 岗位运行启动过，但尚未成功处理第一份简历 | 检查候选人列表、筛选条件和扫描日志 | `/admin/positions` |
+| `first_greet_success` | 已处理简历，但尚未成功打出第一次招呼 | 检查筛选分数、阈值、平台额度和失败日志 | `/admin/positions` |
 
 已经完成全部流程的用户，其节点为 `completed`。该值不能传入 `flows`，系统也不会向这类用户发送流程教程邮件。
 
@@ -73,16 +72,16 @@ agent_detected,runtime_ready
 只提醒还没配置招聘业务的用户：
 
 ```text
-position_created,task_created
+position_created
 ```
 
-只提醒任务启动前卡住的用户：
+只提醒岗位运行启动前卡住的用户：
 
 ```text
-platform_login_verified,task_started
+platform_login_verified,position_started
 ```
 
-只提醒任务已经跑过、但还没有结果的用户：
+只提醒岗位运行已经跑过、但还没有结果的用户：
 
 ```text
 first_resume_processed,first_greet_success
@@ -162,11 +161,11 @@ curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
   "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?created_day=2026-07-15&stalled_hours=24&limit=500"
 ```
 
-### 5. 只预览启动任务前卡住的人数
+### 5. 只预览启动岗位运行前卡住的人数
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?flows=platform_login_verified,task_started&stalled_hours=6&limit=1000&dry_run=true"
+  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?flows=platform_login_verified,position_started&stalled_hours=6&limit=1000&dry_run=true"
 ```
 
 ## 七、POST 调用示例
@@ -219,7 +218,7 @@ Invoke-RestMethod -Method Get -Uri $url -Headers $headers
     "preview": {
       "agent_detected": 12,
       "runtime_ready": 5,
-      "task_started": 3
+      "position_started": 3
     }
   }
 }
@@ -276,9 +275,9 @@ flow-reminder:2026-07-15:agent_detected
 
 如果当天再次触发相同节点，接口会把它放进 `skipped`，不会重复发送。
 
-因此建议正式发送任务每天运行一次，例如每天上午 9 点运行。`dry_run` 不创建批次，不受这条规则影响。
+因此建议正式发送岗位运行每天运行一次，例如每天上午 9 点运行。`dry_run` 不创建批次，不受这条规则影响。
 
-## 十一、定时任务配置
+## 十一、定时岗位运行配置
 
 ### Linux Cron：每天上午 9 点发送
 
@@ -293,7 +292,7 @@ flow-reminder:2026-07-15:agent_detected
 0 9 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000" >> /var/log/goodhr-flow-reminder.log 2>&1
 ```
 
-Windows 可以将前面的 PowerShell 正式发送脚本保存为 `.ps1`，再通过“任务计划程序”每天执行一次。
+Windows 可以将前面的 PowerShell 正式发送脚本保存为 `.ps1`，再通过“岗位运行计划程序”每天执行一次。
 
 ## 十二、邮件模板位置
 
@@ -309,9 +308,8 @@ goodhr5/cloud/backend/templates/automatic_emails/
 agent_detected.html
 runtime_ready.html
 position_created.html
-task_created.html
 platform_login_verified.html
-task_started.html
+position_started.html
 first_resume_processed.html
 first_greet_success.html
 ```

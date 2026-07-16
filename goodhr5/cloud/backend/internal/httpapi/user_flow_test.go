@@ -1,4 +1,4 @@
-// 本文件验证用户首次跑通招聘任务的流程推导和卡点状态。
+// 本文件验证用户首次跑通招聘岗位运行的流程推导和卡点状态。
 package httpapi
 
 import (
@@ -26,11 +26,11 @@ func TestUserFlowTransitionTable(t *testing.T) {
 
 // TestUserFlowLaterCompletionInfersRequiredSteps 验证有确凿后续成功时自动补齐此前必经节点。
 func TestUserFlowLaterCompletionInfersRequiredSteps(t *testing.T) {
-	state, err := applyUserFlowUpdate(defaultUserFlowState(), UserFlowUpdate{Step: userFlowTaskStarted, Status: "completed"})
+	state, err := applyUserFlowUpdate(defaultUserFlowState(), UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range userFlowStepOrder[:6] {
+	for _, step := range userFlowStepOrder[:5] {
 		if state.Steps[step].Status != "completed" {
 			t.Fatalf("step %s was not inferred: %+v", step, state)
 		}
@@ -42,14 +42,14 @@ func TestUserFlowLaterCompletionInfersRequiredSteps(t *testing.T) {
 
 // TestUserFlowBlockedDoesNotInferEarlierSteps 验证失败事件只标记卡点，不伪造此前步骤成功。
 func TestUserFlowBlockedDoesNotInferEarlierSteps(t *testing.T) {
-	state, err := applyUserFlowUpdate(defaultUserFlowState(), UserFlowUpdate{Step: userFlowTaskStarted, Status: "blocked", ReasonCode: "runtime_missing", Message: "缺少组件"})
+	state, err := applyUserFlowUpdate(defaultUserFlowState(), UserFlowUpdate{Step: userFlowPositionStarted, Status: "blocked", ReasonCode: "runtime_missing", Message: "缺少组件"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.Stage != userFlowAgentDetected || state.State != "pending" {
 		t.Fatalf("blocked later step moved current stage: %+v", state)
 	}
-	if state.Steps[userFlowTaskStarted].Status != "blocked" {
+	if state.Steps[userFlowPositionStarted].Status != "blocked" {
 		t.Fatalf("blocked evidence missing: %+v", state)
 	}
 }

@@ -16,7 +16,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-		"task_id":              request.TaskID,
+		"position_id":          request.PositionID,
 		"platform_config":      cfg,
 		"card_index":           intFromMap(candidate, "card_index"),
 		"element_ref":          stringFromMap(candidate, "element_ref"),
@@ -27,7 +27,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"card_scroll_attempts": 18,
 		"require_full":         true,
 		"viewport_margin":      80,
-		"dir":                  filepath.Join(request.ScreenshotsDir, request.TaskID),
+		"dir":                  filepath.Join(request.ScreenshotsDir, request.PositionID),
 		"filename":             request.Filename,
 	})
 	if err != nil {
@@ -49,7 +49,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		} else {
 			exec.Log("info", fmt.Sprintf("详情截图无分段: name=%s width=%d height=%d scrollable=%v parts_count=%d", name, intFromMap(screenshot, "width"), intFromMap(screenshot, "height"), stringFromMap(screenshot, "scrollable_container") == "true", intFromMap(screenshot, "parts_count")))
 		}
-		screenshot = stitchDetailScreenshot(exec, request.TaskID, request.ScreenshotsDir, candidate, screenshot)
+		screenshot = stitchDetailScreenshot(exec, request.PositionID, request.ScreenshotsDir, candidate, screenshot)
 	} else {
 		exec.Log("warning", "详情截图返回为空")
 	}

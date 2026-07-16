@@ -325,7 +325,7 @@ func (s *AIConfigService) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 调用 AIConfigStore 保存用户配置，任务运行时会优先使用它。
+	// 调用 AIConfigStore 保存用户配置，岗位运行时会优先使用它。
 	config, err := s.store.SaveUserConfig(session.Email, configToSave)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save user ai config")

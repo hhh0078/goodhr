@@ -22,7 +22,7 @@ export default function LoginPage() {
           <Box>
             <Typography sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}>GOODHR 控制台</Typography>
             <Typography component="h1" sx={{ mt: 2, maxWidth: 620, color: "text.primary", fontSize: { xs: 42, sm: 54, md: 64 }, lineHeight: 1.12, fontWeight: 780 }}>
-              登录之后，继续你的招聘任务
+              登录之后，继续你的招聘岗位运行
             </Typography>
             <Typography sx={{ mt: 3, maxWidth: 590, color: "text.secondary", fontSize: 18, lineHeight: 1.8 }}>
               账号和岗位信息保存在云端，招聘平台登录状态、截图和浏览器数据只留在你的电脑里。

@@ -1,5 +1,5 @@
-// Package taskrunner 负责管理 Go 版本本地任务启动、停止和运行锁。
-package taskrunner
+// Package positionrunner 负责管理 Go 版本本地岗位运行启动、停止和运行锁。
+package positionrunner
 
 import (
 	"context"
@@ -55,18 +55,18 @@ var currentPositionCheckAttempts = 10
 // currentPositionCheckDelay 是每次读取当前岗位名称前的等待时间。
 var currentPositionCheckDelay = time.Second
 
-// BrowserWorker 表示任务运行器需要的浏览器 Worker 能力。
+// BrowserWorker 表示岗位运行运行器需要的浏览器 Worker 能力。
 type BrowserWorker interface {
 	Start(ctx context.Context) (browser.WorkerStatus, error)
 	Call(ctx context.Context, path string, payload any) (map[string]any, error)
 }
 
-// OCRRecognizer 表示任务运行器需要的 OCR 能力。
+// OCRRecognizer 表示岗位运行运行器需要的 OCR 能力。
 type OCRRecognizer interface {
 	Recognize(ctx context.Context, imagePath string) (ocr.Result, error)
 }
 
-// Runner 是本地任务运行器。
+// Runner 是本地岗位运行运行器。
 type Runner struct {
 	db             *localdb.DB
 	worker         BrowserWorker
@@ -83,7 +83,7 @@ type Runner struct {
 	sleepCancel    context.CancelFunc
 }
 
-// runState 保存单个运行任务的控制句柄。
+// runState 保存单个运行岗位运行的控制句柄。
 type runState struct {
 	cancel             context.CancelFunc
 	progress           Progress
@@ -99,7 +99,7 @@ type runState struct {
 	restSinceLast int
 }
 
-// Progress 表示任务运行进度。
+// Progress 表示岗位运行运行进度。
 type Progress struct {
 	Stage       string `json:"stage"`
 	Message     string `json:"message"`
@@ -108,9 +108,9 @@ type Progress struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
-// TaskRuntimeSnapshot 保存一次任务运行开始时从云端读取到的完整快照。
-type TaskRuntimeSnapshot struct {
-	Task           localdb.Task
+// PositionRuntimeSnapshot 保存一次岗位运行运行开始时从云端读取到的完整快照。
+type PositionRuntimeSnapshot struct {
+	Position       localdb.Position
 	Options        StartOptions
 	PlatformConfig cloudapi.PlatformConfig
 	Preferences    map[string]any
@@ -123,10 +123,10 @@ type candidateVisibleRuntime interface {
 	EnsureCandidateVisible(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error
 }
 
-// platformExecutor 适配平台 runtime 调用 Worker 和写任务日志。
+// platformExecutor 适配平台 runtime 调用 Worker 和写岗位运行日志。
 type platformExecutor struct {
-	runner *Runner
-	taskID string
+	runner     *Runner
+	positionID string
 }
 
 // Post 调用浏览器 Worker。
@@ -135,10 +135,10 @@ func (e platformExecutor) Post(ctx context.Context, path string, payload any) (m
 	return e.runner.worker.Call(ctx, path, payload)
 }
 
-// Log 写入任务日志。
+// Log 写入岗位运行日志。
 // level 为日志级别，message 为日志内容。
 func (e platformExecutor) Log(level string, message string) {
-	e.runner.taskLog(e.taskID, level, message)
+	e.runner.positionLog(e.positionID, level, message)
 }
 
 // Delay 按业务动作等待指定秒数。
@@ -147,11 +147,11 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 	if seconds <= 0 {
 		return nil
 	}
-	e.runner.taskLog(e.taskID, "info", fmt.Sprintf("%s等待 %.1f 秒", label, seconds))
+	e.runner.positionLog(e.positionID, "info", fmt.Sprintf("%s等待 %.1f 秒", label, seconds))
 	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
-// StartOptions 表示本地任务启动参数（含模拟人工操作的各类延时）。
+// StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
 	CloudAPIBase   string
 	Token          string
@@ -181,7 +181,7 @@ type StartOptions struct {
 	GreetBeforeDelayMax      float64
 	RestAfterCandidatesMin   int // 处理多少候选人后摸鱼休息
 	RestAfterCandidatesMax   int
-	RestTimesMin             int // 整个任务最多摸鱼休息几次
+	RestTimesMin             int // 整个岗位运行最多摸鱼休息几次
 	RestTimesMax             int
 	RestDurationMin          float64 // 每次摸鱼休息多少分钟
 	RestDurationMax          float64
@@ -190,7 +190,7 @@ type StartOptions struct {
 	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱
 }
 
-// New 创建本地任务运行器。
+// New 创建本地岗位运行运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
 func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string, audioDir string, cloudAPIBase string) *Runner {
 	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, running: map[string]*runState{}, userStopped: map[string]bool{}}
@@ -289,7 +289,7 @@ func minInt(a int, b int) int {
 }
 
 // scanRounds 返回旧版扫描进度总数。
-// options 为任务启动参数，保留该函数用于兼容前端旧进度字段。
+// options 为岗位运行启动参数，保留该函数用于兼容前端旧进度字段。
 func scanRounds(options StartOptions) int {
 	if options.ScanRounds <= 0 {
 		return defaultScanRounds
@@ -301,13 +301,13 @@ func scanRounds(options StartOptions) int {
 }
 
 // emptyLoadLimit 返回连续未加载到新候选人的停止阈值。
-// options 为任务启动参数，沿用 ScanRounds 字段作为空加载保护次数。
+// options 为岗位运行启动参数，沿用 ScanRounds 字段作为空加载保护次数。
 func emptyLoadLimit(options StartOptions) int {
 	return scanRounds(options)
 }
 
 // maxItemsPerLoad 返回每次最多提取候选人数，0 表示读取当前 DOM 中全部候选人。
-// options 为任务启动参数。
+// options 为岗位运行启动参数。
 func maxItemsPerLoad(options StartOptions) int {
 	if options.MaxItems <= 0 {
 		return defaultMaxItemsPerRound
@@ -316,13 +316,13 @@ func maxItemsPerLoad(options StartOptions) int {
 }
 
 // maxItemsPerRound 返回旧版每轮最多提取候选人数。
-// options 为任务启动参数，保留该函数用于兼容旧测试和旧调用。
+// options 为岗位运行启动参数，保留该函数用于兼容旧测试和旧调用。
 func maxItemsPerRound(options StartOptions) int {
 	return maxItemsPerLoad(options)
 }
 
 // scrollDistance 返回每轮滚动距离。
-// options 为任务启动参数。
+// options 为岗位运行启动参数。
 func scrollDistance(options StartOptions) int {
 	if options.ScrollDistance <= 0 {
 		return defaultScrollDistance
@@ -334,7 +334,7 @@ func scrollDistance(options StartOptions) int {
 }
 
 // detailOpenProbability 返回关键词详情阶段的打开概率。
-// options 为任务启动参数，未读取到个人配置时默认 100，避免旧任务突然不打开详情。
+// options 为岗位运行启动参数，未读取到个人配置时默认 100，避免旧岗位运行突然不打开详情。
 func detailOpenProbability(options StartOptions) int {
 	if !options.detailOpenProbabilitySet && options.DetailOpenProbability <= 0 {
 		return 100
@@ -349,7 +349,7 @@ func detailOpenProbability(options StartOptions) int {
 }
 
 // shouldOpenDetailByProbability 判断本次是否按个人概率打开详情。
-// options 为任务启动参数，返回 true 表示继续打开候选人详情。
+// options 为岗位运行启动参数，返回 true 表示继续打开候选人详情。
 func shouldOpenDetailByProbability(options StartOptions) bool {
 	probability := detailOpenProbability(options)
 	if probability >= 100 {
@@ -379,10 +379,10 @@ func randomIntRange(minValue int, maxValue int) int {
 	return minValue + rand.Intn(maxValue-minValue+1)
 }
 
-// delayRandomRange 随机等待指定范围秒数，写任务日志让前端可见。
-// ctx 为运行上下文，taskID 为任务 ID，label 为动作名称，minSeconds 和 maxSeconds 为秒数范围。
+// delayRandomRange 随机等待指定范围秒数，写岗位运行日志让前端可见。
+// ctx 为运行上下文，positionID 为岗位运行 ID，label 为动作名称，minSeconds 和 maxSeconds 为秒数范围。
 // r 为 Runner，传 nil 时不写日志。
-func (r *Runner) delayRandomRange(ctx context.Context, taskID string, label string, minSeconds float64, maxSeconds float64) error {
+func (r *Runner) delayRandomRange(ctx context.Context, positionID string, label string, minSeconds float64, maxSeconds float64) error {
 	if maxSeconds <= 0 {
 		return nil
 	}
@@ -390,14 +390,14 @@ func (r *Runner) delayRandomRange(ctx context.Context, taskID string, label stri
 	if seconds <= 0 {
 		return nil
 	}
-	if r != nil && taskID != "" {
-		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：%s，等待 %.1f 秒", label, seconds))
+	if r != nil && positionID != "" {
+		r.positionLog(positionID, "info", fmt.Sprintf("模拟人工操作：%s，等待 %.1f 秒", label, seconds))
 	}
 	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
 // randomScrollDistance 返回带随机抖动的滚动距离。
-// options 为任务启动参数，默认围绕 720 像素上下随机，避免每轮滚动完全一致。
+// options 为岗位运行启动参数，默认围绕 720 像素上下随机，避免每轮滚动完全一致。
 func randomScrollDistance(options StartOptions) int {
 	base := scrollDistance(options)
 	minDistance := maxInt(120, base-defaultScrollDistanceJitter)
@@ -409,7 +409,7 @@ func randomScrollDistance(options StartOptions) int {
 }
 
 // pageReadyDelay 返回提取候选人前等待页面稳定的时间。
-// options 为任务启动参数。
+// options 为岗位运行启动参数。
 func pageReadyDelay(options StartOptions) time.Duration {
 	if options.PageReadyDelay > 0 {
 		return time.Duration(options.PageReadyDelay) * time.Millisecond
@@ -417,22 +417,22 @@ func pageReadyDelay(options StartOptions) time.Duration {
 	return 2 * time.Second
 }
 
-// statusMessage 返回任务状态中文说明。
-// status 为任务状态。
+// statusMessage 返回岗位运行状态中文说明。
+// status 为岗位运行状态。
 func statusMessage(status string) string {
 	switch status {
 	case "pending":
-		return "任务等待开始"
+		return "岗位运行等待开始"
 	case "running":
-		return "任务正在运行"
+		return "岗位运行正在运行"
 	case "completed":
-		return "任务已完成"
+		return "岗位运行已完成"
 	case "failed":
-		return "任务运行失败"
+		return "岗位运行运行失败"
 	case "stopped":
-		return "任务已停止"
+		return "岗位运行已停止"
 	default:
-		return "任务状态未知"
+		return "岗位运行状态未知"
 	}
 }
 

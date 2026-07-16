@@ -1,7 +1,7 @@
 //go:build !windows
 
-// Package taskrunner 提供非 Windows 下任务运行辅助命令配置。
-package taskrunner
+// Package positionrunner 提供非 Windows 下岗位运行运行辅助命令配置。
+package positionrunner
 
 import "os/exec"
 

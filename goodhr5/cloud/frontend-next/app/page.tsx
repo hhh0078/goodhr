@@ -33,7 +33,7 @@ const benefits = [
   {
     icon: InsightsRoundedIcon,
     title: "结果清楚可追踪",
-    description: "每次分析都有分数和理由，任务处理数量随时可见。",
+    description: "每次分析都有分数和理由，岗位运行处理数量随时可见。",
   },
   {
     icon: VerifiedUserRoundedIcon,
@@ -51,9 +51,9 @@ const automationScenes = [
 
 const faqs = [
   { question: "GoodHR 是什么？", answer: "GoodHR 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，用于候选人筛选、AI 分析、自动打招呼、招聘消息回复和简历管理。" },
-  { question: "GoodHR 可以免费使用吗？", answer: "可以。关键词筛选、排除词筛选、基础招聘任务和自动打招呼等基础流程可以免费使用，AI 筛选和 AI 详情分析按会员方案使用。" },
+  { question: "GoodHR 可以免费使用吗？", answer: "可以。关键词筛选、排除词筛选、基础招聘岗位运行和自动打招呼等基础流程可以免费使用，AI 筛选和 AI 详情分析按会员方案使用。" },
   { question: "GoodHR 面向哪些招聘平台？", answer: `GoodHR 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。` },
-  { question: "招聘平台登录信息会上传吗？", answer: "不会。招聘平台 Cookie、浏览器资料、截图和 OCR 数据保存在用户本机，云端主要保存账号认证、岗位、任务和团队配置。" },
+  { question: "招聘平台登录信息会上传吗？", answer: "不会。招聘平台 Cookie、浏览器资料、截图和 OCR 数据保存在用户本机，云端主要保存账号认证、岗位、岗位运行和团队配置。" },
 ];
 
 /** HomePage 输出新版官网首页。 */
@@ -292,7 +292,7 @@ export default function HomePage() {
                 <Typography
                   sx={{ mt: 1.5, color: "text.secondary", fontSize: 17 }}
                 >
-                  关键词筛选和基础任务可以长期免费使用。
+                  关键词筛选和基础岗位运行可以长期免费使用。
                 </Typography>
               </Box>
               <Button

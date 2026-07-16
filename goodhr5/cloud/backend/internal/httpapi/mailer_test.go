@@ -35,10 +35,11 @@ func TestMailTemplatesRender(t *testing.T) {
 		t.Fatalf("balance template did not render expected content: %s", balanceHTML)
 	}
 
-	taskHTML := mailer.renderHTML("task_status.html", map[string]any{
-		"TaskID":          "task_1",
+	positionHTML := mailer.renderHTML("position_status.html", map[string]any{
+		"PositionID":      "position_1",
+		"PositionName":    "带货主播",
 		"Status":          "failed",
-		"StatusLabel":     "任务失败",
+		"StatusLabel":     "岗位运行失败",
 		"PlatformID":      "boss",
 		"PlatformAccount": "测试账号",
 		"Mode":            "keyword",
@@ -50,8 +51,8 @@ func TestMailTemplatesRender(t *testing.T) {
 		"FinishedAt":      time.Date(2026, 6, 2, 12, 0, 0, 0, time.Local).Format("2006-01-02 15:04:05"),
 		"ErrorMessage":    "本地程序断开",
 	})
-	if !strings.Contains(taskHTML, "任务失败") || !strings.Contains(taskHTML, "本地程序断开") {
-		t.Fatalf("task template did not render expected content: %s", taskHTML)
+	if !strings.Contains(positionHTML, "岗位") || !strings.Contains(positionHTML, "本地程序断开") {
+		t.Fatalf("position template did not render expected content: %s", positionHTML)
 	}
 }
 

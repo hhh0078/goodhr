@@ -1,5 +1,5 @@
-// Package taskrunner 文件作用：按职责承载本地任务运行流程的拆分实现。
-package taskrunner
+// Package positionrunner 文件作用：按职责承载本地岗位运行运行流程的拆分实现。
+package positionrunner
 
 import (
 	"bytes"
@@ -18,10 +18,10 @@ import (
 	"unicode/utf16"
 )
 
-// taskLog 写入本地任务日志。
-// taskID 为任务 ID，level 为日志等级，msg 为日志内容。
-func (r *Runner) taskLog(taskID string, level string, msg string) {
-	taskID = strings.TrimSpace(taskID)
+// positionLog 写入本地岗位运行日志。
+// positionID 为岗位运行 ID，level 为日志等级，msg 为日志内容。
+func (r *Runner) positionLog(positionID string, level string, msg string) {
+	positionID = strings.TrimSpace(positionID)
 	level = strings.TrimSpace(level)
 	msg = strings.TrimSpace(msg)
 	if level == "" {
@@ -30,58 +30,58 @@ func (r *Runner) taskLog(taskID string, level string, msg string) {
 	if msg == "" {
 		return
 	}
-	if r.db != nil && taskID != "" {
-		_, _ = r.db.AddTaskLog(taskID, level, msg)
+	if r.db != nil && positionID != "" {
+		_, _ = r.db.AddPositionLog(positionID, level, msg)
 	}
 }
 
 // playSound 播放提示音文件。
-// soundName 为文件名（如 success.wav），taskID 为任务 ID（用于日志）。
-func (r *Runner) playSound(soundName string, taskID string) {
+// soundName 为文件名（如 success.wav），positionID 为岗位运行 ID（用于日志）。
+func (r *Runner) playSound(soundName string, positionID string) {
 	filePath := filepath.Join(r.audioDir, soundName)
 	info, err := os.Stat(filePath)
 	if err != nil || info.Size() == 0 {
-		r.taskLog(taskID, "warning", "音频文件不存在或为空："+filePath)
+		r.positionLog(positionID, "warning", "音频文件不存在或为空："+filePath)
 		playCmd, cmdErr := fallbackSoundCommand()
 		if cmdErr != nil {
-			r.taskLog(taskID, "warning", "播放系统提示音失败："+cmdErr.Error())
+			r.positionLog(positionID, "warning", "播放系统提示音失败："+cmdErr.Error())
 			return
 		}
-		r.startSoundCommand(playCmd, taskID, "系统提示音")
+		r.startSoundCommand(playCmd, positionID, "系统提示音")
 		return
 	}
 	playCmd, err := soundPlayCommand(filePath)
 	if err != nil {
-		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
+		r.positionLog(positionID, "warning", "播放提示音失败："+err.Error())
 		return
 	}
-	r.startSoundCommand(playCmd, taskID, soundName)
+	r.startSoundCommand(playCmd, positionID, soundName)
 }
 
 // startSoundCommand 启动提示音命令并记录启动后失败日志。
-// cmd 为播放命令，taskID 为任务 ID，label 为提示音名称。
-func (r *Runner) startSoundCommand(cmd *exec.Cmd, taskID string, label string) {
+// cmd 为播放命令，positionID 为岗位运行 ID，label 为提示音名称。
+func (r *Runner) startSoundCommand(cmd *exec.Cmd, positionID string, label string) {
 	hideCommandWindow(cmd)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	if err := cmd.Start(); err != nil {
-		r.taskLog(taskID, "warning", "播放提示音失败："+err.Error())
+		r.positionLog(positionID, "warning", "播放提示音失败："+err.Error())
 		return
 	}
-	r.taskLog(taskID, "info", "提示音播放命令已启动："+label)
+	r.positionLog(positionID, "info", "提示音播放命令已启动："+label)
 	// 非阻塞——不等待播放结束，避免卡主流程
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			detail := strings.TrimSpace(output.String())
 			if detail != "" {
-				r.taskLog(taskID, "warning", "提示音播放进程异常："+err.Error()+"，输出："+detail)
+				r.positionLog(positionID, "warning", "提示音播放进程异常："+err.Error()+"，输出："+detail)
 				return
 			}
-			r.taskLog(taskID, "warning", "提示音播放进程异常："+err.Error())
+			r.positionLog(positionID, "warning", "提示音播放进程异常："+err.Error())
 			return
 		}
-		r.taskLog(taskID, "info", "提示音播放成功："+label)
+		r.positionLog(positionID, "info", "提示音播放成功："+label)
 	}()
 }
 
@@ -155,14 +155,14 @@ func lookPathAny(names ...string) (string, error) {
 	return "", fmt.Errorf("没有找到可用命令")
 }
 
-// taskBrowserViewport 返回任务和手动打开入口共用的固定视口尺寸。
-func taskBrowserViewport() (int, int) {
+// positionBrowserViewport 返回岗位运行和手动打开入口共用的固定视口尺寸。
+func positionBrowserViewport() (int, int) {
 	return browser.FixedViewport()
 }
 
-// sendTaskFailNotification 通知云端任务失败，由云端按任务 ID 查用户并发邮件。
-// ctx 为请求上下文，taskID 为任务 ID，errorMsg 为失败原因，options 为本次任务启动参数。
-func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, errorMsg string, options StartOptions) {
+// sendPositionFailNotification 通知云端岗位运行失败，由云端按岗位运行 ID 查用户并发邮件。
+// ctx 为请求上下文，positionID 为岗位运行 ID，errorMsg 为失败原因，options 为本次岗位运行启动参数。
+func (r *Runner) sendPositionFailNotification(ctx context.Context, positionID string, errorMsg string, options StartOptions) {
 	baseURL := strings.TrimSpace(options.CloudAPIBase)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
@@ -171,28 +171,28 @@ func (r *Runner) sendTaskFailNotification(ctx context.Context, taskID string, er
 		baseURL = "https://goodhr5.58it.cn"
 	}
 	client := cloudapi.New(baseURL)
-	if err := client.SendTaskFailNotice(ctx, options.Token, taskID, errorMsg); err != nil {
-		r.taskLog(taskID, "warning", "任务失败：邮件通知发送失败，错误="+err.Error())
+	if err := client.SendPositionFailNotice(ctx, options.Token, positionID, errorMsg); err != nil {
+		r.positionLog(positionID, "warning", "岗位运行失败：邮件通知发送失败，错误="+err.Error())
 		return
 	}
-	r.taskLog(taskID, "info", "任务失败：已发送邮件通知")
+	r.positionLog(positionID, "info", "岗位运行失败：已发送邮件通知")
 }
 
-// notifyCloudTaskStopped 通知云端任务已经停止。
-// taskID 为云端任务 ID，options 为本次启动参数。
-func (r *Runner) notifyCloudTaskStopped(taskID string, options StartOptions) {
-	r.syncCloudTaskStatus(taskID, "stopped", "任务停止", options)
+// notifyCloudPositionStopped 通知云端岗位运行已经停止。
+// positionID 为云端岗位运行 ID，options 为本次启动参数。
+func (r *Runner) notifyCloudPositionStopped(positionID string, options StartOptions) {
+	r.syncCloudPositionStatus(positionID, "stopped", "岗位运行停止", options)
 }
 
-// notifyCloudTaskCompleted 通知云端任务已经完成。
-// taskID 为云端任务 ID，options 为本次启动参数。
-func (r *Runner) notifyCloudTaskCompleted(taskID string, options StartOptions) {
-	r.syncCloudTaskStatus(taskID, "completed", "任务完成", options)
+// notifyCloudPositionCompleted 通知云端岗位运行已经完成。
+// positionID 为云端岗位运行 ID，options 为本次启动参数。
+func (r *Runner) notifyCloudPositionCompleted(positionID string, options StartOptions) {
+	r.syncCloudPositionStatus(positionID, "completed", "岗位运行完成", options)
 }
 
-// syncCloudTaskStatus 同步云端任务状态。
-// taskID 为云端任务 ID，status 为云端状态，label 为任务日志前缀。
-func (r *Runner) syncCloudTaskStatus(taskID string, status string, label string, options StartOptions) {
+// syncCloudPositionStatus 同步云端岗位运行状态。
+// positionID 为云端岗位运行 ID，status 为云端状态，label 为岗位运行日志前缀。
+func (r *Runner) syncCloudPositionStatus(positionID string, status string, label string, options StartOptions) {
 	token := strings.TrimSpace(options.Token)
 	if token == "" {
 		return
@@ -207,10 +207,10 @@ func (r *Runner) syncCloudTaskStatus(taskID string, status string, label string,
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	client := cloudapi.New(baseURL)
-	r.taskLog(taskID, "info", label+"：正在同步云端状态")
-	if err := client.SyncTaskStatus(ctx, token, taskID, status); err != nil {
-		r.taskLog(taskID, "warning", label+"：云端状态同步失败，错误="+err.Error())
+	r.positionLog(positionID, "info", label+"：正在同步云端状态")
+	if err := client.SyncPositionStatus(ctx, token, positionID, status); err != nil {
+		r.positionLog(positionID, "warning", label+"：云端状态同步失败，错误="+err.Error())
 		return
 	}
-	r.taskLog(taskID, "info", label+"：云端状态同步成功")
+	r.positionLog(positionID, "info", label+"：云端状态同步成功")
 }

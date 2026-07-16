@@ -28,7 +28,7 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	}
 	positionName := strings.TrimSpace(r.currentPosition)
 	if positionName == "" {
-		return fmt.Errorf("猎聘打招呼时任务岗位名称为空，无法选择开聊职位")
+		return fmt.Errorf("猎聘打招呼时岗位运行岗位名称为空，无法选择开聊职位")
 	}
 	if err := exec.Delay(ctx, "等待猎聘开聊职位弹框", 0.4); err != nil {
 		return err
@@ -63,7 +63,7 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	return nil
 }
 
-// selectGreetJob 在猎聘开聊弹框中读取职位名列表，并兼容完整名称和省略号截断名称选择任务岗位。
+// selectGreetJob 在猎聘开聊弹框中读取职位名列表，并兼容完整名称和省略号截断名称选择岗位运行岗位。
 func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor, positionName string) error {
 	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
 		"text": "请选择开聊的职位", "exact": true,
@@ -82,7 +82,7 @@ func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor
 	items := mapList(workerData(result, "items"))
 	matchIndex, matchName := matchingGreetJobItem(items, positionName)
 	if matchIndex < 0 {
-		return fmt.Errorf("猎聘开聊弹框中未找到任务岗位“%s”，当前职位=%s", positionName, greetJobItemNames(items))
+		return fmt.Errorf("猎聘开聊弹框中未找到岗位运行岗位“%s”，当前职位=%s", positionName, greetJobItemNames(items))
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
 		"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},

@@ -23,7 +23,7 @@ const metricFields = [
   ["detail_count", "获取详情"],
   ["skipped_count", "跳过"],
   ["failed_count", "失败"],
-  ["task_count", "任务数"],
+  ["position_count", "岗位运行数"],
 ];
 
 /** TeamStatsPage 展示团队招聘统计。 */

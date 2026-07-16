@@ -1,4 +1,4 @@
-// 本文件负责提供任务日志摘要的 PostgreSQL 存储实现。
+// 本文件负责提供岗位日志摘要的 PostgreSQL 存储实现。
 package httpapi
 
 import (
@@ -7,77 +7,77 @@ import (
 	"time"
 )
 
-// PostgresTaskLogStore 使用 PostgreSQL 持久化任务日志摘要。
-type PostgresTaskLogStore struct {
+// PostgresPositionLogStore 使用 PostgreSQL 持久化岗位日志摘要。
+type PostgresPositionLogStore struct {
 	db *sql.DB
 }
 
-// NewPostgresTaskLogStore 创建 PostgreSQL 任务日志存储。
-func NewPostgresTaskLogStore(db *sql.DB) *PostgresTaskLogStore {
-	return &PostgresTaskLogStore{db: db}
+// NewPostgresPositionLogStore 创建 PostgreSQL 岗位日志存储。
+func NewPostgresPositionLogStore(db *sql.DB) *PostgresPositionLogStore {
+	return &PostgresPositionLogStore{db: db}
 }
 
-// AddTaskLog 新增一条 PostgreSQL 任务日志摘要。
-func (s *PostgresTaskLogStore) AddTaskLog(log TaskLog) (TaskLog, error) {
+// AddPositionLog 新增一条 PostgreSQL 岗位日志摘要。
+func (s *PostgresPositionLogStore) AddPositionLog(log PositionLog) (PositionLog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	userID, err := ensureUserID(ctx, s.db, log.UserEmail)
 	if err != nil {
-		return TaskLog{}, err
+		return PositionLog{}, err
 	}
 
 	level := log.Level
 	if level == "" {
 		level = "info"
 	}
-	if err := s.trimTaskLogs(ctx, log.TaskID, log.UserEmail, 1); err != nil {
-		return TaskLog{}, err
+	if err := s.trimPositionLogs(ctx, log.PositionID, log.UserEmail, 1); err != nil {
+		return PositionLog{}, err
 	}
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
 
-	var saved TaskLog
+	var saved PositionLog
 	saved.UserEmail = log.UserEmail
 	err = s.db.QueryRowContext(
 		ctx,
 		`
-		INSERT INTO task_logs (task_id, user_id, level, message, created_at)
+		INSERT INTO position_logs (position_id, user_id, level, message, created_at)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, task_id, level, message, created_at
+		RETURNING id, position_id, level, message, created_at
 		`,
-		log.TaskID,
+		log.PositionID,
 		userID,
 		level,
 		log.Message,
 		createdAt,
 	).Scan(
 		&saved.ID,
-		&saved.TaskID,
+		&saved.PositionID,
 		&saved.Level,
 		&saved.Message,
 		&saved.CreatedAt,
 	)
 	if err != nil {
-		return TaskLog{}, err
+		return PositionLog{}, err
 	}
 	return saved, nil
 }
 
-// ListTaskLogs 列出 PostgreSQL 中当前用户某个任务的日志摘要。
-func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, isAdmin bool, logQuery TaskLogQuery) ([]TaskLog, bool, error) {
+// ListPositionLogs 列出 PostgreSQL 中当前用户某个岗位的日志摘要。
+func (s *PostgresPositionLogStore) ListPositionLogs(tenantID, userEmail, positionID string, isAdmin bool, logQuery PositionLogQuery) ([]PositionLog, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	query := `
-		SELECT tl.id, tl.task_id, tl.level, tl.message, tl.created_at
-		FROM task_logs tl
+		SELECT tl.id, tl.position_id, tl.level, tl.message, tl.created_at
+		FROM position_logs tl
 		INNER JOIN users u ON u.id = tl.user_id
-		WHERE u.email = $1 AND tl.task_id = $2
+		WHERE u.email = $1 AND tl.position_id = $2
 	`
-	args := []any{userEmail, taskID}
+	args := []any{userEmail, positionID}
 	if logQuery.Since != nil {
 		query += ` AND tl.created_at >= $` + intString(len(args)+1)
 		args = append(args, *logQuery.Since)
@@ -90,7 +90,7 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 		ORDER BY tl.created_at DESC
 		LIMIT $` + intString(len(args)+1) + `
 	`
-	limit := normalizeTaskLogLimit(logQuery.Limit)
+	limit := normalizePositionLogLimit(logQuery.Limit)
 	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -98,13 +98,13 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 	}
 	defer rows.Close()
 
-	items := make([]TaskLog, 0)
+	items := make([]PositionLog, 0)
 	for rows.Next() {
-		var item TaskLog
+		var item PositionLog
 		item.UserEmail = userEmail
 		if err := rows.Scan(
 			&item.ID,
-			&item.TaskID,
+			&item.PositionID,
 			&item.Level,
 			&item.Message,
 			&item.CreatedAt,
@@ -123,39 +123,39 @@ func (s *PostgresTaskLogStore) ListTaskLogs(tenantID, userEmail, taskID string, 
 	return items, hasMore, nil
 }
 
-// ClearTaskLogs 清空 PostgreSQL 中当前用户某个任务的日志摘要。
-func (s *PostgresTaskLogStore) ClearTaskLogs(tenantID, userEmail, taskID string, isAdmin bool) error {
+// ClearPositionLogs 清空 PostgreSQL 中当前用户某个岗位的日志摘要。
+func (s *PostgresPositionLogStore) ClearPositionLogs(tenantID, userEmail, positionID string, isAdmin bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	query := `
-		DELETE FROM task_logs tl
+		DELETE FROM position_logs tl
 		USING users u
 		WHERE tl.user_id = u.id
-		  AND tl.task_id = $1
+		  AND tl.position_id = $1
 		  AND u.email = $2
 	`
-	args := []any{taskID, userEmail}
+	args := []any{positionID, userEmail}
 	if isAdmin {
 		query = `
-			DELETE FROM task_logs
-			WHERE task_id = $1
+			DELETE FROM position_logs
+			WHERE position_id = $1
 		`
-		args = []any{taskID}
+		args = []any{positionID}
 	}
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
 }
 
-// SummarizeTaskCounts 汇总 PostgreSQL 中各任务的扫描/打招呼/跳过/失败数量。
-func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]TaskCountSummary, error) {
+// SummarizePositionCounts 汇总 PostgreSQL 中各岗位的扫描/打招呼/跳过/失败数量。
+func (s *PostgresPositionLogStore) SummarizePositionCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]PositionCountSummary, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	query := `
-		SELECT tl.task_id, tl.message
-		FROM task_logs tl
-		INNER JOIN task_runs tr ON tr.id = tl.task_id
+		SELECT tl.position_id, tl.message
+		FROM position_logs tl
+		INNER JOIN positions tr ON tr.id = tl.position_id
 		INNER JOIN users u ON u.id = tr.user_id
 		WHERE u.tenant_id = NULLIF($1, '')::uuid
 	`
@@ -175,29 +175,29 @@ func (s *PostgresTaskLogStore) SummarizeTaskCounts(tenantID, userEmail string, i
 	}
 	defer rows.Close()
 
-	result := map[string]TaskCountSummary{}
+	result := map[string]PositionCountSummary{}
 	for rows.Next() {
-		var taskID string
+		var positionID string
 		var message string
-		if err := rows.Scan(&taskID, &message); err != nil {
+		if err := rows.Scan(&positionID, &message); err != nil {
 			return nil, err
 		}
-		scanned, greeted, skipped, failed := classifyTaskLogMessage(message)
+		scanned, greeted, skipped, failed := classifyPositionLogMessage(message)
 		if scanned == 0 && greeted == 0 && skipped == 0 && failed == 0 {
 			continue
 		}
-		item := result[taskID]
+		item := result[positionID]
 		item.ScannedCount += scanned
 		item.GreetedCount += greeted
 		item.SkippedCount += skipped
 		item.FailedCount += failed
-		result[taskID] = item
+		result[positionID] = item
 	}
 	return result, rows.Err()
 }
 
-// trimTaskLogs 写入前检查当前任务日志数量，超过上限时删除最早日志。
-func (s *PostgresTaskLogStore) trimTaskLogs(ctx context.Context, taskID, userEmail string, incoming int) error {
+// trimPositionLogs 写入前检查当前岗位日志数量，超过上限时删除最早日志。
+func (s *PostgresPositionLogStore) trimPositionLogs(ctx context.Context, positionID, userEmail string, incoming int) error {
 	userID, err := ensureUserID(ctx, s.db, userEmail)
 	if err != nil {
 		return err
@@ -205,29 +205,29 @@ func (s *PostgresTaskLogStore) trimTaskLogs(ctx context.Context, taskID, userEma
 	var count int
 	if err := s.db.QueryRowContext(
 		ctx,
-		`SELECT COUNT(*) FROM task_logs WHERE task_id=$1 AND user_id=$2`,
-		taskID,
+		`SELECT COUNT(*) FROM position_logs WHERE position_id=$1 AND user_id=$2`,
+		positionID,
 		userID,
 	).Scan(&count); err != nil {
 		return err
 	}
-	removeCount := count + incoming - maxTaskLogsPerTask
+	removeCount := count + incoming - maxPositionLogsPerPosition
 	if removeCount <= 0 {
 		return nil
 	}
 	_, err = s.db.ExecContext(
 		ctx,
 		`
-		DELETE FROM task_logs
+		DELETE FROM position_logs
 		WHERE id IN (
 			SELECT id
-			FROM task_logs
-			WHERE task_id=$1 AND user_id=$2
+			FROM position_logs
+			WHERE position_id=$1 AND user_id=$2
 			ORDER BY created_at ASC
 			LIMIT $3
 		)
 		`,
-		taskID,
+		positionID,
 		userID,
 		removeCount,
 	)

@@ -58,7 +58,7 @@ func (s *CookieService) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "cookies": items})
 }
 
-// Create Cookie (创建记录，状态=capturing，后续由任务处理)
+// Create Cookie (创建记录，状态=capturing，后续由岗位运行处理)
 func (s *CookieService) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, 405, "method not allowed")
@@ -299,16 +299,16 @@ func (s *CookieService) Claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		TaskID string `json:"task_id"`
+		PositionID string `json:"position_id"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	req.TaskID = strings.TrimSpace(req.TaskID)
-	if req.TaskID == "" {
+	req.PositionID = strings.TrimSpace(req.PositionID)
+	if req.PositionID == "" {
 		if rec.Status == "expired" {
 			writeError(w, 409, "cookie expired")
 			return
 		}
-		if rec.Status == "in_use" && rec.UsedByTaskID.Valid && rec.UsedByTaskID.String != "" {
+		if rec.Status == "in_use" && rec.UsedByPositionID.Valid && rec.UsedByPositionID.String != "" {
 			writeError(w, 409, "cookie in use")
 			return
 		}
@@ -322,7 +322,7 @@ func (s *CookieService) Claim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "cookie in use")
 		return
 	}
-	s.store.UpdateStatus(tenantID, cookieID, "in_use", req.TaskID)
+	s.store.UpdateStatus(tenantID, cookieID, "in_use", req.PositionID)
 	writeJSON(w, 200, map[string]any{"ok": true, "encrypted_data": base64.StdEncoding.EncodeToString(rec.EncryptedData), "encrypted_keys": rec.EncryptedKeys})
 }
 func (s *CookieService) Release(w http.ResponseWriter, r *http.Request) {

@@ -1,10 +1,10 @@
-<!-- 本文件是 GoodHR 任务状态提醒邮件 HTML 模板，使用后台一致的浅色绿色视觉并适配移动端。 -->
+<!-- 本文件是 GoodHR 岗位运行状态提醒邮件 HTML 模板，使用后台一致的浅色绿色视觉并适配移动端。 -->
 <!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GoodHR 任务状态提醒</title>
+    <title>GoodHR 岗位运行状态提醒</title>
     <style>@media only screen and (max-width:620px){.wrap{padding:14px!important}.panel{width:100%!important}.content{padding:24px 18px!important}.title{font-size:24px!important}.label,.value{display:block!important;width:auto!important}.label{padding-bottom:4px!important}.value{padding-top:0!important}}</style>
   </head>
   <body bgcolor="#f4f7f5" style="margin:0;padding:0;background:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;color:#1f2a23;">
@@ -12,13 +12,13 @@
       <table class="panel" role="presentation" width="580" cellspacing="0" cellpadding="0" bgcolor="#ffffff" style="width:580px;max-width:100%;background:#fff;border:1px solid #dce7df;border-radius:14px;overflow:hidden;">
         <tr><td style="height:6px;background:#16724c;font-size:0;line-height:0;">&nbsp;</td></tr>
         <tr><td class="content" style="padding:32px 36px;">
-          <div style="font-size:13px;font-weight:700;color:#16724c;margin-bottom:10px;">GOODHR · 任务提醒</div>
+          <div style="font-size:13px;font-weight:700;color:#16724c;margin-bottom:10px;">GOODHR · 岗位提醒</div>
           <h1 class="title" style="margin:0 0 12px;font-size:28px;line-height:1.3;color:#1f2a23;">{{.StatusLabel}}</h1>
-          <p style="margin:0 0 22px;font-size:15px;line-height:1.8;color:#56645b;">打扰了，我努力长话短说：你的招聘任务状态已经更新。</p>
+          <p style="margin:0 0 22px;font-size:15px;line-height:1.8;color:#56645b;">打扰了，我努力长话短说：你的岗位运行状态已经更新。</p>
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f8faf8;border:1px solid #e2ebe5;font-size:14px;">
-            <tr><td class="label" style="width:120px;padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">任务 ID</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;word-break:break-all;">{{.TaskID}}</td></tr>
+            <tr><td class="label" style="width:120px;padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">岗位</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;word-break:break-all;">{{.PositionName}}（{{.PositionID}}）</td></tr>
             <tr><td class="label" style="padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">平台 / 账号</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.PlatformID}} / {{.PlatformAccount}}</td></tr>
-            <tr><td class="label" style="padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">任务模式</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.Mode}}</td></tr>
+            <tr><td class="label" style="padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">筛选模式</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.Mode}}</td></tr>
             <tr><td class="label" style="padding:12px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">处理统计</td><td class="value" style="padding:12px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">扫描 {{.ScannedCount}} · 打招呼 {{.GreetedCount}} · 跳过 {{.SkippedCount}} · 失败 {{.FailedCount}}</td></tr>
             <tr><td class="label" style="padding:12px 14px;color:#68746c;">结束时间</td><td class="value" style="padding:12px 14px;font-weight:700;">{{.FinishedAt}}</td></tr>
             {{if .ErrorMessage}}<tr><td class="label" style="padding:12px 14px;color:#a94b45;border-top:1px solid #ead7d4;">失败原因</td><td class="value" style="padding:12px 14px;color:#8f3f3a;font-weight:700;border-top:1px solid #ead7d4;">{{.ErrorMessage}}</td></tr>{{end}}

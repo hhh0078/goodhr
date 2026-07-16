@@ -1,4 +1,4 @@
-// 本文件负责测试任务启动时复用已有浏览器标签页的 URL 包含匹配规则。
+// 本文件负责测试岗位启动时复用已有浏览器标签页的 URL 包含匹配规则。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -6,7 +6,7 @@ import test from "node:test";
 import { pageURLContainsTarget } from "./navigation-target.js";
 
 /**
- * 测试带筛选参数的页面可以命中不带参数的任务目标地址。
+ * 测试带筛选参数的页面可以命中不带参数的岗位运行目标地址。
  */
 test("带筛选参数的页面可以复用", () => {
   assert.equal(

@@ -9,12 +9,11 @@ import (
 	"time"
 )
 
-// TaskCandidate 表示简历库候选人展示记录。
-type TaskCandidate struct {
+// PositionCandidate 表示简历库候选人展示记录。
+type PositionCandidate struct {
 	ID                  string
 	EngagementID        string
 	EngagementStatus    string
-	TaskID              string
 	PositionID          string
 	PositionName        string
 	PlatformAccountID   string
@@ -98,12 +97,11 @@ type CandidateProfileInput struct {
 	FirstSeenAt         *time.Time
 }
 
-// CandidateEngagement 表示一次岗位、账号和任务下的触达上下文。
+// CandidateEngagement 表示一次岗位和账号下的触达上下文。
 type CandidateEngagement struct {
 	ID                string
 	CandidateID       string
 	UserEmail         string
-	TaskID            string
 	PositionID        string
 	PlatformAccountID string
 	PlatformID        string
@@ -121,7 +119,6 @@ type CandidateEvent struct {
 	ID                string         `json:"id"`
 	EngagementID      string         `json:"engagement_id"`
 	CandidateID       string         `json:"candidate_id"`
-	TaskID            string         `json:"task_id"`
 	PositionID        string         `json:"position_id"`
 	PlatformAccountID string         `json:"platform_account_id"`
 	PlatformID        string         `json:"platform_id"`
@@ -148,19 +145,18 @@ type CandidateNote struct {
 
 // CandidateStore 定义候选人主体、触达上下文和事件流水能力。
 type CandidateStore interface {
-	SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error)
+	SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error)
 	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
-	ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error)
-	GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error)
+	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
+	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
 	DeleteTeamCandidates(tenantID string) (int, error)
 }
 
-// TaskCandidateQuery 表示候选人列表查询条件。
-type TaskCandidateQuery struct {
-	TaskID     string
+// PositionCandidateQuery 表示候选人列表查询条件。
+type PositionCandidateQuery struct {
 	PositionID string
 	Keyword    string
 	UserEmail  string
@@ -168,9 +164,9 @@ type TaskCandidateQuery struct {
 	PageSize   int
 }
 
-// TaskCandidateListResult 表示候选人分页查询结果。
-type TaskCandidateListResult struct {
-	Items    []TaskCandidate
+// PositionCandidateListResult 表示候选人分页查询结果。
+type PositionCandidateListResult struct {
+	Items    []PositionCandidate
 	Total    int
 	Page     int
 	PageSize int
@@ -179,7 +175,7 @@ type TaskCandidateListResult struct {
 // MemoryCandidateStore 提供开发期候选人内存存储。
 type MemoryCandidateStore struct {
 	mu          sync.Mutex
-	profiles    map[string]TaskCandidate
+	profiles    map[string]PositionCandidate
 	engagements map[string]CandidateEngagement
 	events      map[string][]CandidateEvent
 	now         func() time.Time
@@ -190,7 +186,7 @@ type MemoryCandidateStore struct {
 func NewMemoryCandidateStore() *MemoryCandidateStore {
 	seq := 0
 	return &MemoryCandidateStore{
-		profiles:    map[string]TaskCandidate{},
+		profiles:    map[string]PositionCandidate{},
 		engagements: map[string]CandidateEngagement{},
 		events:      map[string][]CandidateEvent{},
 		now:         time.Now,
@@ -203,13 +199,13 @@ func NewMemoryCandidateStore() *MemoryCandidateStore {
 
 // SaveCandidateProfile 新增或更新候选人主体。
 // item 为候选人简历字段，返回保存后的简历库记录。
-func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error) {
+func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
 	id := s.nextID("candidate")
-	profile := TaskCandidate{
+	profile := PositionCandidate{
 		ID:                  id,
 		UserEmail:           item.UserEmail,
 		PlatformID:          item.PlatformID,
@@ -252,7 +248,7 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 }
 
 // UpsertCandidateEngagement 新增或更新触达上下文。
-// item 为任务、岗位和账号上下文，返回保存后的触达记录。
+// item 为岗位、岗位和账号上下文，返回保存后的触达记录。
 func (s *MemoryCandidateStore) UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -328,14 +324,14 @@ func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID stri
 	return nil
 }
 
-// ListTaskCandidates 按条件分页列出内存候选人记录。
-// tenantID 为团队 ID，内存实现不区分团队；query 为任务、岗位和关键词筛选。
-func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error) {
+// ListPositionCandidates 按条件分页列出内存候选人记录。
+// tenantID 为团队 ID，内存实现不区分团队；query 为岗位、岗位和关键词筛选。
+func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
-	items := make([]TaskCandidate, 0)
+	items := make([]PositionCandidate, 0)
 	for _, item := range s.profiles {
 		if query.UserEmail != "" && item.UserEmail != query.UserEmail {
 			continue
@@ -348,7 +344,7 @@ func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCan
 	total := len(items)
 	start := (page - 1) * pageSize
 	if start >= total {
-		items = []TaskCandidate{}
+		items = []PositionCandidate{}
 	} else {
 		end := start + pageSize
 		if end > total {
@@ -356,21 +352,21 @@ func (s *MemoryCandidateStore) ListTaskCandidates(tenantID string, query TaskCan
 		}
 		items = items[start:end]
 	}
-	return TaskCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+	return PositionCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-// GetTaskCandidate 读取单个内存候选人记录。
+// GetPositionCandidate 读取单个内存候选人记录。
 // tenantID 为团队 ID，candidateID 为候选人 ID，userEmail 为空或管理员时不限制创建人。
-func (s *MemoryCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error) {
+func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	item, ok := s.profiles[candidateID]
 	if !ok {
-		return TaskCandidate{}, ErrNotFound
+		return PositionCandidate{}, ErrNotFound
 	}
 	if !isAdmin && userEmail != "" && item.UserEmail != userEmail {
-		return TaskCandidate{}, ErrNotFound
+		return PositionCandidate{}, ErrNotFound
 	}
 	events := s.events[candidateID]
 	if strings.TrimSpace(engagementID) != "" {
@@ -392,7 +388,7 @@ func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error
 	defer s.mu.Unlock()
 
 	deleted := len(s.profiles)
-	s.profiles = map[string]TaskCandidate{}
+	s.profiles = map[string]PositionCandidate{}
 	s.engagements = map[string]CandidateEngagement{}
 	s.events = map[string][]CandidateEvent{}
 	return deleted, nil
@@ -415,7 +411,7 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 
 // candidateContainsKeyword 判断候选人是否命中搜索关键词。
 // item 为候选人记录，keyword 为前端搜索词。
-func candidateContainsKeyword(item TaskCandidate, keyword string) bool {
+func candidateContainsKeyword(item PositionCandidate, keyword string) bool {
 	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
 	return strings.Contains(strings.ToLower(text), strings.ToLower(keyword))
 }

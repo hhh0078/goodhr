@@ -34,7 +34,7 @@ func (r *Runtime) CurrentPositionName(ctx context.Context, exec platformcore.Exe
 }
 
 // SelectPosition 保留统一平台接口；猎聘猎头端由主流程跳过岗位切换。
-// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，positionName 为任务岗位名称。
+// ctx 为运行上下文，exec 为执行器，cfg 为平台配置，positionName 为岗位运行岗位名称。
 func (r *Runtime) SelectPosition(context.Context, platformcore.Executor, cloudapi.PlatformConfig, string) error {
 	return nil
 }

@@ -19,7 +19,7 @@ export type PlatformAuthConfig = {
 const URL_CHECK_INTERVAL_MS = 3000;
 const URL_FIRST_CHECK_DELAY_MS = 5000;
 const LOGIN_SUCCESS_CONFIRM_TIMES = 3;
-const TASK_LOGIN_CHECK_TIMES = 3;
+const POSITION_LOGIN_CHECK_TIMES = 3;
 
 /** pickPlatformAuthConfig 从平台配置列表中取出指定平台登录规则。 */
 export function pickPlatformAuthConfig(configs: any[], platformID: string) {
@@ -116,8 +116,8 @@ export async function openPlatformLoginBrowser(
   await openLocalPage(agentBase, { ...browserPayload, url: targetURL });
 }
 
-/** openPlatformTaskBrowser 使用默认本地浏览器资料目录打开任务平台入口页。 */
-export async function openPlatformTaskBrowser(
+/** openPlatformPositionBrowser 使用默认本地浏览器资料目录打开岗位运行平台入口页。 */
+export async function openPlatformPositionBrowser(
   agentBase: string,
   platformID: string,
   auth: PlatformAuthConfig,
@@ -134,19 +134,19 @@ export async function openPlatformTaskBrowser(
   });
 }
 
-/** confirmPlatformLoggedInForTask 快速确认任务平台是否已登录。 */
-export async function confirmPlatformLoggedInForTask(
+/** confirmPlatformLoggedInForPosition 快速确认岗位运行平台是否已登录。 */
+export async function confirmPlatformLoggedInForPosition(
   agentBase: string,
   auth: PlatformAuthConfig,
   onStatus: (message: string) => void,
 ) {
   let loggedInHits = 0;
-  for (let index = 0; index < TASK_LOGIN_CHECK_TIMES; index += 1) {
+  for (let index = 0; index < POSITION_LOGIN_CHECK_TIMES; index += 1) {
     await delay(URL_CHECK_INTERVAL_MS);
     const url = await currentLocalPageURL(agentBase);
     if (isLoggedInURL(url, auth)) {
       loggedInHits += 1;
-      onStatus(`正在确认平台登录状态 ${loggedInHits}/${TASK_LOGIN_CHECK_TIMES}`);
+      onStatus(`正在确认平台登录状态 ${loggedInHits}/${POSITION_LOGIN_CHECK_TIMES}`);
       continue;
     }
     loggedInHits = 0;
@@ -156,8 +156,8 @@ export async function confirmPlatformLoggedInForTask(
         : `招聘平台还没确认登录：${shortURL(url)}`,
     );
   }
-  if (loggedInHits < TASK_LOGIN_CHECK_TIMES) {
-    throw new Error("招聘平台还没登录，请先打开浏览器完成登录，再回来开始任务。");
+  if (loggedInHits < POSITION_LOGIN_CHECK_TIMES) {
+    throw new Error("招聘平台还没登录，请先打开浏览器完成登录，再回来开始岗位运行。");
   }
 }
 

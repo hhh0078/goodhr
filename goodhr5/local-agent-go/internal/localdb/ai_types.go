@@ -1,7 +1,7 @@
-// Package localdb 定义本地任务运行需要的轻量数据结构。
+// Package localdb 定义本地岗位运行需要的轻量数据结构。
 package localdb
 
-// AIConfig 表示云端下发给本地任务运行器使用的 AI 接口配置。
+// AIConfig 表示云端下发给本地岗位运行器使用的 AI 接口配置。
 type AIConfig struct {
 	ID          string         `json:"id"`
 	Provider    string         `json:"provider"`

@@ -90,7 +90,7 @@ func TestCandidateFingerprintUsesZhaopinPrefix(t *testing.T) {
 // t 为测试对象。
 func TestShouldSelectPositionDirectly(t *testing.T) {
 	if !NewRuntime().ShouldSelectPositionDirectly() {
-		t.Fatal("智联招聘应直接切换任务岗位")
+		t.Fatal("智联招聘应直接切换岗位运行岗位")
 	}
 }
 
@@ -137,7 +137,7 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 		"element_ref":    "candidate-2",
 		"candidate_name": "张女士",
 		"raw_text":       "张女士 本科 三年课程顾问经验",
-	}, platformcore.DetailRequest{TaskID: "task-zhaopin", Mode: "dom"})
+	}, platformcore.DetailRequest{PositionID: "position-zhaopin", Mode: "dom"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,8 +159,8 @@ func TestFetchCandidateDetailUsesDOM(t *testing.T) {
 	if _, exists := exec.payload["wait_ms"]; exists {
 		t.Fatalf("智联点击详情后不应再固定等待，payload = %+v", exec.payload)
 	}
-	if exec.payload["task_id"] != "task-zhaopin" {
-		t.Fatalf("智联详情请求应携带任务 ID 以写入可见日志，payload = %+v", exec.payload)
+	if exec.payload["position_id"] != "position-zhaopin" {
+		t.Fatalf("智联详情请求应携带岗位运行 ID 以写入可见日志，payload = %+v", exec.payload)
 	}
 	if result.Text != "候选人详情" || result.Source != "dom" || len(result.Screenshot) != 0 {
 		t.Fatalf("result = %+v", result)
@@ -202,7 +202,7 @@ func TestFetchCandidateDetailRejectsScreenshotMode(t *testing.T) {
 	}
 }
 
-// Log 模拟任务日志写入。
+// Log 模拟岗位运行日志写入。
 // level 为日志级别，message 为日志内容。
 func (e *testExecutor) Log(string, string) {}
 
@@ -210,12 +210,12 @@ func (e *testExecutor) Log(string, string) {}
 // ctx 为运行上下文，message 为等待说明，seconds 为等待秒数。
 func (e *testExecutor) Delay(context.Context, string, float64) error { return nil }
 
-// TestIsTaskEntryPageUsesPageList 验证入口页判断使用页面列表接口。
+// TestIsPositionEntryPageUsesPageList 验证入口页判断使用页面列表接口。
 // t 为测试对象。
-func TestIsTaskEntryPageUsesPageList(t *testing.T) {
+func TestIsPositionEntryPageUsesPageList(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &testExecutor{}
-	ok, err := runtime.IsTaskEntryPage(context.Background(), exec, cloudapi.PlatformConfig{
+	ok, err := runtime.IsPositionEntryPage(context.Background(), exec, cloudapi.PlatformConfig{
 		"auth": map[string]any{
 			"pages": []any{
 				map[string]any{"url": "https://rd6.zhaopin.com/app/recommend", "entry": true},

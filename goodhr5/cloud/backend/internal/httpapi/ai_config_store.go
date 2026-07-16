@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// AIConfig 表示一套可用于任务筛选的 AI 配置。
+// AIConfig 表示一套可用于岗位筛选的 AI 配置。
 type AIConfig struct {
 	BaseURL        string
 	Model          string

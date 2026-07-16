@@ -1,4 +1,4 @@
-// 本文件负责判断现有浏览器标签页是否可以复用为任务目标页面，避免刷新用户提前设置的筛选条件。
+// 本文件负责判断现有浏览器标签页是否可以复用为岗位运行目标页面，避免刷新用户提前设置的筛选条件。
 
 /**
  * normalizeNavigationURL 规范化用于包含匹配的页面地址。
@@ -18,9 +18,9 @@ function normalizeNavigationURL(value) {
 }
 
 /**
- * pageURLContainsTarget 判断现有标签页地址是否包含任务目标地址。
+ * pageURLContainsTarget 判断现有标签页地址是否包含岗位运行目标地址。
  * @param {any} pageURL - 现有标签页的完整地址，可以包含查询参数。
- * @param {any} targetURL - 平台配置的任务目标地址。
+ * @param {any} targetURL - 平台配置的岗位运行目标地址。
  * @returns {boolean} 是否可以直接复用现有标签页。
  */
 export function pageURLContainsTarget(pageURL, targetURL) {

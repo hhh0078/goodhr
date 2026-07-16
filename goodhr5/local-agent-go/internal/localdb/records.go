@@ -13,27 +13,27 @@ import (
 
 // Download 表示本地下载记录。
 type Download struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	URL       string `json:"url"`
-	FilePath  string `json:"file_path"`
-	FileName  string `json:"file_name"`
-	MimeType  string `json:"mime_type"`
-	Size      int    `json:"size"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID         string `json:"id"`
+	PositionID string `json:"position_id"`
+	URL        string `json:"url"`
+	FilePath   string `json:"file_path"`
+	FileName   string `json:"file_name"`
+	MimeType   string `json:"mime_type"`
+	Size       int    `json:"size"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // Screenshot 表示本地截图记录。
 type Screenshot struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	FilePath  string `json:"file_path"`
-	Label     string `json:"label"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-	CreatedAt string `json:"created_at"`
+	ID         string `json:"id"`
+	PositionID string `json:"position_id"`
+	FilePath   string `json:"file_path"`
+	Label      string `json:"label"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // GetSettings 读取全部本地设置。
@@ -82,13 +82,13 @@ ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated
 }
 
 // ListDownloads 读取本地下载记录。
-// taskID 为空时返回全部记录。
-func (db *DB) ListDownloads(taskID string) ([]Download, error) {
+// positionID 为空时返回全部记录。
+func (db *DB) ListDownloads(positionID string) ([]Download, error) {
 	query := `SELECT * FROM local_downloads`
 	args := []any{}
-	if taskID != "" {
-		query += ` WHERE task_id=?`
-		args = append(args, taskID)
+	if positionID != "" {
+		query += ` WHERE position_id=?`
+		args = append(args, positionID)
 	}
 	query += ` ORDER BY created_at DESC`
 	rows, err := db.conn.Query(query, args...)
@@ -100,7 +100,7 @@ func (db *DB) ListDownloads(taskID string) ([]Download, error) {
 	for rows.Next() {
 		var item Download
 		err := rows.Scan(
-			&item.ID, &item.TaskID, &item.URL, &item.FilePath, &item.FileName,
+			&item.ID, &item.PositionID, &item.URL, &item.FilePath, &item.FileName,
 			&item.MimeType, &item.Size, &item.Status, &item.CreatedAt, &item.UpdatedAt,
 		)
 		if err != nil {
@@ -116,26 +116,26 @@ func (db *DB) ListDownloads(taskID string) ([]Download, error) {
 func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
 	now := nowISO()
 	item := Download{
-		ID:        stringOr(payload["id"], stableDownloadID(payload)),
-		TaskID:    stringOr(payload["task_id"], ""),
-		URL:       stringOr(payload["url"], ""),
-		FilePath:  stringOr(payload["file_path"], stringOr(payload["path"], "")),
-		FileName:  stringOr(payload["file_name"], stringOr(payload["filename"], "")),
-		MimeType:  stringOr(payload["mime_type"], ""),
-		Size:      intValue(payload["size"]),
-		Status:    stringOr(payload["status"], "saved"),
-		CreatedAt: stringOr(payload["created_at"], now),
-		UpdatedAt: now,
+		ID:         stringOr(payload["id"], stableDownloadID(payload)),
+		PositionID: stringOr(payload["position_id"], ""),
+		URL:        stringOr(payload["url"], ""),
+		FilePath:   stringOr(payload["file_path"], stringOr(payload["path"], "")),
+		FileName:   stringOr(payload["file_name"], stringOr(payload["filename"], "")),
+		MimeType:   stringOr(payload["mime_type"], ""),
+		Size:       intValue(payload["size"]),
+		Status:     stringOr(payload["status"], "saved"),
+		CreatedAt:  stringOr(payload["created_at"], now),
+		UpdatedAt:  now,
 	}
 	if item.FileName == "" && item.FilePath != "" {
 		item.FileName = filepath.Base(item.FilePath)
 	}
 	_, err := db.conn.Exec(`
 INSERT INTO local_downloads (
-    id, task_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at
+    id, position_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-    task_id=excluded.task_id,
+    position_id=excluded.position_id,
     url=excluded.url,
     file_path=excluded.file_path,
     file_name=excluded.file_name,
@@ -143,7 +143,7 @@ ON CONFLICT(id) DO UPDATE SET
     size=excluded.size,
     status=excluded.status,
     updated_at=excluded.updated_at`,
-		item.ID, item.TaskID, item.URL, item.FilePath, item.FileName,
+		item.ID, item.PositionID, item.URL, item.FilePath, item.FileName,
 		item.MimeType, item.Size, item.Status, item.CreatedAt, item.UpdatedAt,
 	)
 	if err != nil {
@@ -166,8 +166,8 @@ func stableDownloadID(payload map[string]any) string {
 }
 
 // ListScreenshots 兼容旧版本地截图记录读取，新版本不再保存截图记录。
-// taskID 为任务 ID，当前返回空列表。
-func (db *DB) ListScreenshots(taskID string) ([]Screenshot, error) {
+// positionID 为岗位运行 ID，当前返回空列表。
+func (db *DB) ListScreenshots(positionID string) ([]Screenshot, error) {
 	return []Screenshot{}, nil
 }
 
@@ -175,13 +175,13 @@ func (db *DB) ListScreenshots(taskID string) ([]Screenshot, error) {
 // payload 为截图记录参数，返回值供旧调用方继续读取路径。
 func (db *DB) SaveScreenshot(payload map[string]any) (Screenshot, error) {
 	item := Screenshot{
-		ID:        stringOr(payload["id"], uuid.NewString()),
-		TaskID:    stringOr(payload["task_id"], ""),
-		FilePath:  stringOr(payload["file_path"], stringOr(payload["path"], "")),
-		Label:     stringOr(payload["label"], ""),
-		Width:     intValue(payload["width"]),
-		Height:    intValue(payload["height"]),
-		CreatedAt: stringOr(payload["created_at"], nowISO()),
+		ID:         stringOr(payload["id"], uuid.NewString()),
+		PositionID: stringOr(payload["position_id"], ""),
+		FilePath:   stringOr(payload["file_path"], stringOr(payload["path"], "")),
+		Label:      stringOr(payload["label"], ""),
+		Width:      intValue(payload["width"]),
+		Height:     intValue(payload["height"]),
+		CreatedAt:  stringOr(payload["created_at"], nowISO()),
 	}
 	return item, nil
 }

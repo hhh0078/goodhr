@@ -93,8 +93,8 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"duration_days": 30,
 					"original_price": 70,
 					"discount_amount": 0,
-					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动"],
-					"description": "适合短期招聘任务使用，按月开通Plus会员。",
+					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动"],
+					"description": "适合短期招聘岗位运行使用，按月开通Plus会员。",
 					"created_at": "2026-05-26"
 				},
 				{
@@ -104,7 +104,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"duration_days": 90,
 					"original_price": 210,
 					"discount_amount": 30,
-					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动", "季度优惠"],
+					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动", "季度优惠"],
 					"description": "适合连续招聘使用，季度订阅原价210元，优惠30元。",
 					"created_at": "2026-05-26"
 				},
@@ -115,7 +115,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"duration_days": 365,
 					"original_price": 840,
 					"discount_amount": 240,
-					"features": ["Plus会员权益", "任务启动权限", "本地执行器联动", "年度优惠"],
+					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动", "年度优惠"],
 					"description": "适合长期招聘团队使用，年度订阅原价840元，优惠240元。",
 					"created_at": "2026-05-26"
 				}
@@ -174,20 +174,20 @@ func defaultSystemGuideConfig() string {
 	return `{
 		"version": "2026-05-27",
 		"title": "GoodHR 5 系统指南",
-		"summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、任务、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
+		"summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、岗位运行、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
 		"videos": [],
 		"cards": [
 			{
 				"id": "quick-start",
 				"title": "第一次使用",
-				"summary": "先启动本地程序，再创建平台账号、岗位模板和任务。",
-				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写千问 API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
+				"summary": "先启动本地程序，再创建平台账号、岗位模板和岗位运行。",
+				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写千问 API 地址、模型和 Key；5. 到岗位运行列表创建并开始岗位运行。"
 			},
 			{
 				"id": "local-agent",
 				"title": "本地程序",
 				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于岗位运行执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
 			},
 			{
 				"id": "platform-account",
@@ -196,10 +196,10 @@ func defaultSystemGuideConfig() string {
 				"content": "创建平台账号时，本地浏览器会打开招聘平台登录页。扫码登录后，系统导出 cookie 并加密保存。cookie 会按团队成员已连接过的本地程序公钥分别加密。新成员后加入时，旧 cookie 可能需要重新登录或更新。"
 			},
 			{
-				"id": "task-run",
-				"title": "任务运行",
-				"summary": "任务会按平台、账号、岗位模板和筛选模式执行。",
-				"content": "任务开始前会检查订阅是否有效，并锁定平台账号 cookie。运行中会扫描候选人、打开详情、AI 或关键词筛选、打招呼并记录日志。任务列表可查看扫描、打招呼、跳过和失败数量。"
+				"id": "position-run",
+				"title": "岗位运行运行",
+				"summary": "岗位运行会按平台、账号、岗位模板和筛选模式执行。",
+				"content": "岗位运行开始前会检查订阅是否有效，并锁定平台账号 cookie。运行中会扫描候选人、打开详情、AI 或关键词筛选、打招呼并记录日志。岗位运行列表可查看扫描、打招呼、跳过和失败数量。"
 			},
 			{
 				"id": "ai-config",
@@ -211,7 +211,7 @@ func defaultSystemGuideConfig() string {
 				"id": "errors",
 				"title": "常见异常",
 				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。岗位运行失败：展开岗位运行日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
 			}
 		],
 		"sections": [
@@ -221,7 +221,7 @@ func defaultSystemGuideConfig() string {
 				"items": [
 					"GoodHR 5 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
 					"系统分为云端前端、云端 Go 后端和本地 Python Agent。",
-					"云端保存用户、团队、系统配置、任务、日志摘要、订阅和支付记录。",
+					"云端保存用户、团队、系统配置、岗位运行、日志摘要、订阅和支付记录。",
 					"本地 Agent 负责浏览器启动、页面点击、文本提取、截图、OCR、声音提醒和 cookie 解密。"
 				]
 			},
@@ -233,7 +233,7 @@ func defaultSystemGuideConfig() string {
 					"进入平台账号，选择平台并扫码登录，登录成功后保存账号。",
 					"进入岗位模板，填写岗位名称、岗位要求、问候语、关键词、排除词和 AI 筛选提示。",
 					"进入个人配置，填写 AI API 地址、模型、API Key，以及点击详情前、关闭详情前、打招呼前和摸鱼休息参数。",
-					"进入任务列表，选择平台账号、岗位模板、筛选模式和本次打招呼上限，然后点击开始。"
+					"进入岗位运行列表，选择平台账号、岗位模板、筛选模式和本次打招呼上限，然后点击开始。"
 				]
 			},
 			{
@@ -276,14 +276,14 @@ func defaultSystemGuideConfig() string {
 				]
 			},
 			{
-				"id": "task",
-				"title": "任务参数说明",
+				"id": "position",
+				"title": "岗位运行参数说明",
 				"items": [
-					"平台决定任务进入哪个招聘站点，目前页面可选 Boss直聘、智联招聘、猎聘。",
+					"平台决定岗位运行进入哪个招聘站点，目前页面可选 Boss直聘、智联招聘、猎聘。",
 					"账号是已保存的平台账号 cookie。",
 					"岗位模板决定筛选条件和问候语。",
 					"筛选模式包括关键词筛选和 AI 筛选。",
-					"本次打招呼上限表示每次启动任务最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。"
+					"本次打招呼上限表示每次启动岗位运行最多打招呼的人数，默认 50 个；停止后下次启动会重新按这个数量计算。"
 				]
 			},
 			{
@@ -291,8 +291,8 @@ func defaultSystemGuideConfig() string {
 				"title": "订阅说明",
 				"items": [
 					"新用户注册默认赠送试用会员，赠送天数来自系统配置。",
-					"开始任务前后端会校验订阅是否有效。",
-					"订阅过期后，用户会被引导到订阅页面，续费后才能继续开始任务。",
+					"开始岗位运行前后端会校验订阅是否有效。",
+					"订阅过期后，用户会被引导到订阅页面，续费后才能继续开始岗位运行。",
 					"支付记录用户可查看自己的记录，超级管理员可查看全部记录。"
 				]
 			},
@@ -305,16 +305,16 @@ func defaultSystemGuideConfig() string {
 					"cookie 解密失败：确认本机已连接；旧 cookie 需要重新登录或更新。",
 					"平台账号过期：重新扫码登录并保存 cookie。",
 					"AI API 错误：检查 API 地址、模型名、API Key 和余额。",
-					"任务卡住或失败：打开任务日志，查看浏览器启动、页面选择器、OCR、AI 请求和打招呼动作的错误。"
+					"岗位运行卡住或失败：打开岗位运行日志，查看浏览器启动、页面选择器、OCR、AI 请求和打招呼动作的错误。"
 				]
 			},
 			{
 				"id": "logs",
 				"title": "日志和排查",
 				"items": [
-					"前端任务列表可以展开任务日志，查看云端编排摘要。",
+					"前端岗位运行列表可以展开岗位运行日志，查看云端编排摘要。",
 					"本地程序窗口会展示 Local Agent 日志，也会写入本地日志文件。",
-					"排查问题时优先看任务日志，再看本地程序日志。"
+					"排查问题时优先看岗位运行日志，再看本地程序日志。"
 				]
 			}
 		]

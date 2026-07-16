@@ -79,9 +79,9 @@ func (s *PostgresUserFlowStore) Record(email string, update UserFlowUpdate) (Use
 		return UserFlowState{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO user_flow_events (user_id, flow_version, event_key, status, reason_code, message, source, task_id, metadata, created_at)
+		INSERT INTO user_flow_events (user_id, flow_version, event_key, status, reason_code, message, source, position_id, metadata, created_at)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NULLIF($8, '')::uuid, $9::jsonb, $10)
-	`, userID, userFlowVersion, update.Step, defaultString(strings.TrimSpace(update.Status), "completed"), strings.TrimSpace(update.ReasonCode), limitUserFlowText(update.Message, 1000), strings.TrimSpace(update.Source), strings.TrimSpace(update.TaskID), string(metadataRaw), occurredAt); err != nil {
+	`, userID, userFlowVersion, update.Step, defaultString(strings.TrimSpace(update.Status), "completed"), strings.TrimSpace(update.ReasonCode), limitUserFlowText(update.Message, 1000), strings.TrimSpace(update.Source), strings.TrimSpace(update.PositionID), string(metadataRaw), occurredAt); err != nil {
 		return UserFlowState{}, err
 	}
 	if err := tx.Commit(); err != nil {

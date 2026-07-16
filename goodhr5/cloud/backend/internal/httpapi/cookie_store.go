@@ -15,7 +15,7 @@ type CookieRecord struct {
 	ID, TenantID, UserID, PlatformID, DisplayName, CookieType, Status, FileName string
 	EncryptedData                                                               []byte
 	EncryptedKeys                                                               map[string]string
-	UsedByTaskID                                                                sql.NullString
+	UsedByPositionID                                                            sql.NullString
 	SizeBytes                                                                   int64
 	CreatedAt, UpdatedAt                                                        time.Time
 }
@@ -25,7 +25,7 @@ type CookieStore interface {
 	Update(rec CookieRecord) (CookieRecord, error)
 	List(tenantID string) ([]CookieRecord, error)
 	GetByID(tenantID, cookieID string) (CookieRecord, error)
-	UpdateStatus(tenantID, cookieID, status, taskID string) error
+	UpdateStatus(tenantID, cookieID, status, positionID string) error
 	AddEncryptedKey(tenantID, cookieID, agentID, encKey string) error
 	Delete(tenantID, cookieID string) error
 }
@@ -102,7 +102,7 @@ func (s *MemoryCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, er
 	}
 	return r, nil
 }
-func (s *MemoryCookieStore) UpdateStatus(tenantID, cookieID, status, taskID string) error {
+func (s *MemoryCookieStore) UpdateStatus(tenantID, cookieID, status, positionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.items[cookieID]
@@ -110,10 +110,10 @@ func (s *MemoryCookieStore) UpdateStatus(tenantID, cookieID, status, taskID stri
 		return ErrCookieNotFound
 	}
 	r.Status = status
-	if taskID == "" {
-		r.UsedByTaskID = sql.NullString{}
+	if positionID == "" {
+		r.UsedByPositionID = sql.NullString{}
 	} else {
-		r.UsedByTaskID = sql.NullString{String: taskID, Valid: true}
+		r.UsedByPositionID = sql.NullString{String: positionID, Valid: true}
 	}
 	r.UpdatedAt = s.now()
 	s.items[cookieID] = r
@@ -202,13 +202,13 @@ func (s *PostgresCookieStore) Update(rec CookieRecord) (CookieRecord, error) {
 		    encrypted_data=$7, encrypted_keys=$8, status=$9, file_name=$10, size_bytes=$11, updated_at=NOW()
 		WHERE tenant_id=$1 AND id=$2
 		RETURNING id, tenant_id, COALESCE(user_id::text,''), platform_id, display_name, cookie_type, status,
-		          COALESCE(used_by_task_id::text,''), file_name, size_bytes, encrypted_data, encrypted_keys, created_at, updated_at
+		          COALESCE(used_by_position_id::text,''), file_name, size_bytes, encrypted_data, encrypted_keys, created_at, updated_at
 	`,
 		rec.TenantID, rec.ID, userID, rec.PlatformID, rec.DisplayName, rec.CookieType,
 		rec.EncryptedData, keysJSON, rec.Status, rec.FileName, rec.SizeBytes,
 	).Scan(
 		&updated.ID, &updated.TenantID, &updated.UserID, &updated.PlatformID, &updated.DisplayName, &updated.CookieType, &updated.Status,
-		&updated.UsedByTaskID, &updated.FileName, &updated.SizeBytes, &updated.EncryptedData, &keysJSON, &updated.CreatedAt, &updated.UpdatedAt,
+		&updated.UsedByPositionID, &updated.FileName, &updated.SizeBytes, &updated.EncryptedData, &keysJSON, &updated.CreatedAt, &updated.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CookieRecord{}, ErrCookieNotFound
@@ -225,7 +225,7 @@ func (s *PostgresCookieStore) Update(rec CookieRecord) (CookieRecord, error) {
 	return updated, nil
 }
 func (s *PostgresCookieStore) List(tenantID string) ([]CookieRecord, error) {
-	rows, err := s.db.Query(`SELECT id,tenant_id,COALESCE(user_id::text,''),platform_id,display_name,cookie_type,status,COALESCE(used_by_task_id::text,''),file_name,size_bytes,created_at,updated_at FROM cookie_data WHERE tenant_id=$1 ORDER BY created_at DESC`, tenantID)
+	rows, err := s.db.Query(`SELECT id,tenant_id,COALESCE(user_id::text,''),platform_id,display_name,cookie_type,status,COALESCE(used_by_position_id::text,''),file_name,size_bytes,created_at,updated_at FROM cookie_data WHERE tenant_id=$1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (s *PostgresCookieStore) List(tenantID string) ([]CookieRecord, error) {
 			r.UserID = uid.String
 		}
 		if tid.Valid {
-			r.UsedByTaskID = tid
+			r.UsedByPositionID = tid
 		}
 		result = append(result, r)
 	}
@@ -254,7 +254,7 @@ func (s *PostgresCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, 
 	var keysJSON []byte
 	err := s.db.QueryRow(`
 		SELECT id,tenant_id,COALESCE(user_id::text,''),platform_id,display_name,cookie_type,status,
-		       COALESCE(used_by_task_id::text,''),file_name,size_bytes,encrypted_data,encrypted_keys,created_at,updated_at
+		       COALESCE(used_by_position_id::text,''),file_name,size_bytes,encrypted_data,encrypted_keys,created_at,updated_at
 		FROM cookie_data
 		WHERE tenant_id=$1 AND id=$2
 	`, tenantID, cookieID).Scan(
@@ -271,7 +271,7 @@ func (s *PostgresCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, 
 		r.UserID = uid.String
 	}
 	if tid.Valid {
-		r.UsedByTaskID = tid
+		r.UsedByPositionID = tid
 	}
 	if err := json.Unmarshal(keysJSON, &r.EncryptedKeys); err != nil {
 		return CookieRecord{}, err
@@ -281,8 +281,8 @@ func (s *PostgresCookieStore) GetByID(tenantID, cookieID string) (CookieRecord, 
 	}
 	return r, nil
 }
-func (s *PostgresCookieStore) UpdateStatus(tenantID, cookieID, status, taskID string) error {
-	result, err := s.db.Exec(`UPDATE cookie_data SET status=$1,used_by_task_id=NULLIF($2,'')::uuid,updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, status, taskID, tenantID, cookieID)
+func (s *PostgresCookieStore) UpdateStatus(tenantID, cookieID, status, positionID string) error {
+	result, err := s.db.Exec(`UPDATE cookie_data SET status=$1,used_by_position_id=NULLIF($2,'')::uuid,updated_at=NOW() WHERE tenant_id=$3 AND id=$4`, status, positionID, tenantID, cookieID)
 	if err != nil {
 		return err
 	}

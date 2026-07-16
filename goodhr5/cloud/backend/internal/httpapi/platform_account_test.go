@@ -37,7 +37,7 @@ func TestPlatformAccountLifecycle(t *testing.T) {
 		t.Fatalf("unexpected create account payload: %+v", createPayload.Account)
 	}
 
-	// 调用列表接口，并按平台过滤，供任务创建页面选择平台账号。
+	// 调用列表接口，并按平台过滤，供岗位运行创建页面选择平台账号。
 	listReq := httptest.NewRequest(http.MethodGet, "/api/platform-accounts?platform_id=boss", nil)
 	listReq.Header.Set("Authorization", "Bearer "+token)
 	listResp := httptest.NewRecorder()

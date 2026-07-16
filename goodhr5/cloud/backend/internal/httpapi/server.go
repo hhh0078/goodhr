@@ -24,8 +24,8 @@ type Server struct {
 	notificationProfile *NotificationProfileService
 	platformAccounts    *PlatformAccountService
 	positions           *PositionService
-	tasks               *TaskService
-	taskLogs            *TaskLogService
+	positionExecution   *PositionExecutionService
+	positionLogs        *PositionLogService
 	candidates          *CandidateService
 	subscriptions       *SubscriptionService
 	payments            *PaymentService
@@ -46,7 +46,7 @@ type Server struct {
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
 func NewServer() (*Server, error) {
 	config := LoadConfigFromEnv()
-	// 调用 PostgreSQL 初始化逻辑，供任务和平台账号映射在启用数据库时复用同一连接。
+	// 调用 PostgreSQL 初始化逻辑，供岗位运行和平台账号映射在启用数据库时复用同一连接。
 	db, err := config.PostgresDB()
 	if err != nil {
 		return nil, err
@@ -68,7 +68,6 @@ func NewServer() (*Server, error) {
 	if config.RedisAddr != "" {
 		log.Print("Redis 连接检查成功")
 	}
-	taskStore := config.TaskStore(db)
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
@@ -86,7 +85,7 @@ func NewServer() (*Server, error) {
 	notificationProfileStore := config.NotificationProfileStore(db)
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
-	taskLogs := NewTaskLogService(auth, taskStore, config.TaskLogStore(db), tenantStore)
+	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewHaoshoumiProvider(config))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
@@ -101,8 +100,8 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		tasks:               NewTaskService(auth, taskStore, positionStore, *taskLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore, userFlowStore),
-		taskLogs:            taskLogs,
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore, userFlowStore),
+		positionLogs:        positionLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
@@ -111,7 +110,7 @@ func NewServer() (*Server, error) {
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
 		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore, aiWalletStore),
 		adminEmails:         adminEmails,
-		publicStats:         NewPublicStatsService(adminUserStore, taskStore, agentStore, dailyStatsStore),
+		publicStats:         NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
 		teamStats:           NewTeamStatsService(auth, db, tenantStore),
 		dailyStats:          dailyStatsStore,
 		help:                NewHelpService(auth, systemConfigStore, aiConfigStore),
@@ -179,13 +178,9 @@ func (s *Server) Routes() http.Handler {
 	// 注册岗位配置接口，用于复用岗位关键词和问候语模板。
 	mux.HandleFunc("/api/positions", s.positions.Collection)
 	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
-	mux.HandleFunc("/api/positions/", s.positions.Delete)
-	// 注册任务接口，用于创建任务和展示任务统计摘要。
-	mux.HandleFunc("/api/tasks", s.tasks.Collection)
-	// 注册任务日志接口，用于展开任务卡片时查看运行摘要。
-	mux.HandleFunc("/api/fail-notice", s.tasks.FailNotice)
-	mux.HandleFunc("/api/tasks/", s.taskOrLog)
-	// 注册简历库接口，用于查看当前团队或指定任务下的候选人。
+	mux.HandleFunc("/api/positions/", s.positionRoute)
+	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
+	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
 	mux.HandleFunc("/api/candidates/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/notes") {
@@ -194,7 +189,7 @@ func (s *Server) Routes() http.Handler {
 		}
 		s.candidates.Detail(w, r)
 	})
-	// 注册平台配置接口，用于读取平台选择器和行为配置供任务执行使用。
+	// 注册平台配置接口，用于读取平台选择器和行为配置供岗位运行执行使用。
 	mux.HandleFunc("/api/platforms/config/", s.ListPlatformConfigs)
 	mux.HandleFunc("/api/system/app-config", s.GetAppConfig)
 	mux.HandleFunc("/api/system/local-agent-updates", s.GetLocalAgentUpdates)
@@ -213,45 +208,33 @@ func (s *Server) Routes() http.Handler {
 	return cors(mux)
 }
 
-// taskOrLog 根据路径分发任务详情和任务日志请求。
-func (s *Server) taskOrLog(w http.ResponseWriter, r *http.Request) {
+// positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
+func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/logs") {
-		// 调用任务日志服务处理日志读写，供前端展开任务卡片。
-		s.taskLogs.Collection(w, r)
-		return
-	}
-	if strings.HasSuffix(r.URL.Path, "/run") {
-		// 调用任务服务异步执行任务。
-		s.tasks.Run(w, r)
-		return
-	}
-	if strings.HasSuffix(r.URL.Path, "/stop") {
-		// 调用任务服务停止正在运行的任务。
-		s.tasks.Stop(w, r)
+		s.positionLogs.Collection(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/status") {
-		// 接收本地程序同步的任务最终状态。
-		s.tasks.SyncStatus(w, r)
+		s.positionExecution.SyncStatus(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/stop") {
+		s.positionExecution.Stop(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/candidates") {
-		// 接收本地程序回传的候选人 JSON，并写入云端简历库。
-		s.tasks.SaveLocalCandidate(w, r)
+		s.positionExecution.SaveLocalCandidate(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/processed-resumes") {
-		// 接收本地程序上报的已处理简历数量，供官网公开统计展示。
-		s.tasks.AddProcessedResumes(w, r)
+		s.positionExecution.AddProcessedResumes(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/counts") {
-		// 接收本地程序上报的任务累计统计，供任务列表展示。
-		s.tasks.SyncTaskCounts(w, r)
+		s.positionExecution.SyncPositionCounts(w, r)
 		return
 	}
-	// 调用任务服务处理任务详情读取。
-	s.tasks.Detail(w, r)
+	s.positions.Detail(w, r)
 }
 
 // health 返回云端 API 的健康状态。
@@ -388,7 +371,7 @@ func (s *Server) ListPlatformConfigs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用 system_configs 存储读取平台配置，用于云端前端和任务执行。
+	// 调用 system_configs 存储读取平台配置，用于云端前端和岗位运行执行。
 	configs, err := s.systemConfigs.List("platform.")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load platform configs")

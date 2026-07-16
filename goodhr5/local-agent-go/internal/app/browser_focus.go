@@ -12,7 +12,7 @@ import (
 )
 
 // focusCloakBrowserWindow 尝试把 CloakBrowser 窗口拉到系统前台。
-// 这是尽力而为的桌面行为，失败时只记录日志，不影响浏览器任务继续执行。
+// 这是尽力而为的桌面行为，失败时只记录日志，不影响岗位运行继续执行。
 func focusCloakBrowserWindow() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

@@ -1,4 +1,4 @@
-# GoodHR 5 任务进度表
+# GoodHR 5 岗位运行进度表
 
 更新时间：2026-05-18
 
@@ -18,7 +18,7 @@
 | 工程 | 开发规范文档 | DONE | 模块化、文件头注释、方法中文注释、调用点说明 |
 | 云端后端 | Go API 骨架 | DONE | 提供 `/health` 起步接口 |
 | 云端后端 | 邮箱验证码登录 | DONE | 4 位验证码、校验、临时 token、SMTP 发信接口 |
-| 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、任务、日志 |
+| 云端后端 | PostgreSQL schema | DONE | 初始 SQL 迁移包含用户、Agent、平台账号、岗位、AI 配置、岗位运行、日志 |
 | 云端后端 | 岗位配置 API | DONE | `GET/POST/DELETE /api/positions`，支持关键词和默认问候语配置 |
 | 云端后端 | PostgreSQL 岗位配置存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PositionStore 切换到 PostgreSQL |
 | 云端后端 | Redis 会话与验证码 | DONE | 配置 `GOODHR_REDIS_ADDR` 后使用 Redis；未配置时使用内存存储 |
@@ -26,23 +26,23 @@
 | 云端后端 | PostgreSQL 机器绑定存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AgentStore 切换到 PostgreSQL |
 | 云端后端 | 系统/用户 AI 配置 | DONE | 系统默认、用户自定义、最终生效配置 API；当前使用内存 store |
 | 云端后端 | PostgreSQL AI 配置存储 | DONE | 配置 `GOODHR_PG_DSN` 后，AIConfigStore 切换到 PostgreSQL |
-| 云端后端 | 云端任务 API | DONE | `POST /api/tasks`、`GET /api/tasks`、`GET /api/tasks/{id}`，未配置 PostgreSQL 时使用内存 store |
-| 云端后端 | PostgreSQL 平台账号与任务存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 TaskStore 切换到 PostgreSQL |
-| 云端后端 | PostgreSQL 任务日志存储 | DONE | 配置 `GOODHR_PG_DSN` 后，TaskLogStore 切换到 PostgreSQL |
+| 云端后端 | 云端岗位运行 API | DONE | `POST /api/positions`、`GET /api/positions`、`GET /api/positions/{id}`，未配置 PostgreSQL 时使用内存 store |
+| 云端后端 | PostgreSQL 平台账号与岗位运行存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PlatformAccountStore 和 PositionStore 切换到 PostgreSQL |
+| 云端后端 | PostgreSQL 岗位运行日志存储 | DONE | 配置 `GOODHR_PG_DSN` 后，PositionLogStore 切换到 PostgreSQL |
 | 云端后端 | system_configs 迁移 | DONE | 0002 创建表，0003 插入 Boss + 智联平台选择器配置 |
 | 云端后端 | 系统配置存储 | DONE | SystemConfigStore 接口 + 内存 + PostgreSQL 双实现 |
 | 云端后端 | 平台配置解析器 | DONE | PlatformConfig 结构体、ParsePlatformConfig、字段定位请求生成 |
 | 云端后端 | 平台配置 API | DONE | `GET /api/platforms/config/` 返回已启用的平台选择器配置 |
-| 云端后端 | 任务编排器 | DONE | TaskExecutor 编排主流程：启动浏览器→打开页面→滚动→提取→处理候选人→打招呼 |
+| 云端后端 | 岗位运行编排器 | DONE | PositionExecutor 编排主流程：启动浏览器→打开页面→滚动→提取→处理候选人→打招呼 |
 | 云端后端 | 关键词筛选模块 | DONE | KeywordFilter：支持与/或模式、排除词、概率通过 |
-| 云端后端 | 任务执行路由 | DONE | `POST /api/tasks/{id}/run` 异步执行，注入系统配置/岗位/日志 |
+| 云端后端 | 岗位运行执行路由 | DONE | `POST /api/positions/{id}/run` 异步执行，注入系统配置/岗位/日志 |
 | 云端前端 | Vue 工程骨架 | DONE | 起步页面和 Local Agent 探测逻辑 |
 | 云端前端 | 邮箱验证码登录页 | DONE | 接入 `send-code/login/me`，登录成功后探测本地 Agent |
 | 云端前端 | 本地程序下载/启动提示 | DONE | 未检测到本地 Agent 时展示下载占位、启动步骤、重新检测 |
 | 云端前端 | 岗位模板管理 | DONE | 接入岗位模板创建、列表、编辑回填、删除 |
-| 云端前端 | 任务创建页面 | DONE | 任务创建已接入云端任务 API，并支持选择岗位模板 |
-| 云端前端 | 任务列表与日志展开 | DONE | 任务卡片支持展开/收起日志，日志来自云端任务日志 API |
-| 云端前端 | 本地候选人 JSON 管理 | DONE | 任务卡片支持读取、展示、删除本地候选人 JSON |
+| 云端前端 | 岗位运行创建页面 | DONE | 岗位运行创建已接入云端岗位运行 API，并支持选择岗位模板 |
+| 云端前端 | 岗位运行列表与日志展开 | DONE | 岗位运行卡片支持展开/收起日志，日志来自云端岗位运行日志 API |
+| 云端前端 | 本地候选人 JSON 管理 | DONE | 岗位运行卡片支持读取、展示、删除本地候选人 JSON |
 | 本地 Agent | Python Agent 骨架 | DONE | 提供 `/health` 起步接口 |
 | 本地 Agent | 端口 55271-55279 自动监听 | DONE | 遇到占用自动尝试下一个端口，`/health` 返回实际端口 |
 | 本地 Agent | 本地 machine_id | DONE | 写入 `agent_data/machine.json`，`/health` 返回机器码 |
@@ -63,10 +63,10 @@
 | 本地 Agent | RapidOCR 能力接入 | DONE | 使用 RapidOCR + ONNXRuntime，懒加载、线程池异步、灰度与对比度预处理 |
 | 本地 Agent | OCR API 注册 | DONE | GET /api/v1/ocr/status、POST /api/v1/ocr/recognize（Base64 输入）|
 | 本地 Agent | 批量候选人提取 | DONE | 先 find-elements 查询当前可见卡片，再 extract-fields 逐卡提取字段 |
-| 本地 Agent | 任务 JSON 存储 | DONE | `POST /api/v1/tasks/init` 创建本地任务目录和 candidates.json |
+| 本地 Agent | 岗位运行 JSON 存储 | DONE | `POST /api/v1/local/positions/init` 创建本地岗位运行目录和 candidates.json |
 | 本地 Agent | 截图/OCR 本地文件管理 | DONE | 截图列表/读取/删除和 OCR 文本写入接口已完成 |
-| 协议 | 云端任务协议 | DOING | 云端任务元信息 API 已完成，Local Agent 执行协议待接入 |
-| 协议 | Local Agent API 草案落地 | DOING | health/session/profile/browser/page/task（browser/page 路由待第二轮注册） |
+| 协议 | 云端岗位运行协议 | DOING | 云端岗位运行元信息 API 已完成，Local Agent 执行协议待接入 |
+| 协议 | Local Agent API 草案落地 | DOING | health/session/profile/browser/page/position（browser/page 路由待第二轮注册） |
 | 协议 | 云端登录后初始化/绑定本地 Agent | DONE | 前端探测成功后绑定云端 `/api/agents/bind` 和本地 `bind-cloud-user` |
 | 安全 | CORS/PNA | TODO | 允许正式云端域名访问 localhost |
 | 安全 | 本地 token | TODO | 初始化后所有本地 API 携带 token |
@@ -75,13 +75,13 @@
 
 ## 本次完成
 
-- **TaskExecutor 完善**：接入关键词筛选 + 批量候选人提取。
+- **PositionExecutor 完善**：接入关键词筛选 + 批量候选人提取。
   - `extractCandidates` 改为先调 `page/find-elements` 拿卡片，再调 `page/extract-fields` 逐卡提取。
   - `processCandidates` 接入 `KeywordFilter`，按模式自动筛选并记录跳过/通过日志。
   - 新增 `candidateText` 和 `toStringSlice` 辅助函数。
 
-- **云端任务编排器（task_executor.go）**：连接本地 Agent 的执行编排核心。
-  - `TaskExecutor` 编排主流程：启动浏览器 → 打开页面 → 滚动 → 提取候选人 → 逐候选人筛选 → 打招呼。
+- **云端岗位运行编排器（position_executor.go）**：连接本地 Agent 的执行编排核心。
+  - `PositionExecutor` 编排主流程：启动浏览器 → 打开页面 → 滚动 → 提取候选人 → 逐候选人筛选 → 打招呼。
   - `post()` 方法封装 Local Agent HTTP 调用，统一错误处理和 JSON 解析。
   - 支持 context 取消和步骤级错误处理。
   - 预留 AI 模式和关键词模式筛选入口。
@@ -128,7 +128,7 @@
   - 记录 `platform/base.py` 正确归属拆分表。
 
 - **Local Agent 改造为 FastAPI**：从标准库 `http.server` 升级为 FastAPI + uvicorn。
-  - 所有现有路由（health、session、profiles、tasks、screenshots、ocr）保持不变。
+  - 所有现有路由（health、session、profiles、positions、screenshots、ocr）保持不变。
   - 新增全局异常处理器（FileNotFoundError → 404，ValueError → 400）。
   - 截图接口改用 `FileResponse` 返回图片。
   - 版本号升至 0.2.0。
@@ -156,21 +156,21 @@
   - `BaseParser` 抽象基类（候选人提取、打招呼、详情页操作、弹框截图拼接）。
   - 弹框滚动截图拼接算法（`_scroll_and_stitch`、`_merge_two`）。
 
-- 任务创建表单新增岗位模板内容预览。
+- 岗位运行创建表单新增岗位模板内容预览。
 - 选中岗位模板后，可直接看到关键词、排除词、岗位描述和默认问候语。
 
-- 候选人面板改为读取完整本地任务数据，而不是只读候选人数组。
+- 候选人面板改为读取完整本地岗位运行数据，而不是只读候选人数组。
 - 修正前端本地候选人读取字段，改为匹配 Local Agent 实际返回的 `data` 结构。
 - 候选人面板新增岗位模板快照展示，显示关键词、排除词和默认问候语。
 
-- 本地任务初始化支持同步岗位模板快照。
-- 前端创建任务后初始化本地任务时，会一并写入岗位名称、关键词、排除词和默认问候语。
-- Local Agent README 补充本地任务目录中的岗位模板快照说明。
+- 本地岗位运行初始化支持同步岗位模板快照。
+- 前端创建岗位运行后初始化本地岗位运行时，会一并写入岗位名称、关键词、排除词和默认问候语。
+- Local Agent README 补充本地岗位运行目录中的岗位模板快照说明。
 
-- 任务创建接口支持关联岗位模板 `position_id`。
-- 前端任务创建表单新增岗位模板选择。
-- 任务列表支持显示任务关联的岗位模板名称。
-- 云端后端 README 增加任务接口 `position_id` 说明。
+- 岗位运行创建接口支持关联岗位模板 `position_id`。
+- 前端岗位运行创建表单新增岗位模板选择。
+- 岗位运行列表支持显示岗位运行关联的岗位模板名称。
+- 云端后端 README 增加岗位运行接口 `position_id` 说明。
 
 - 前端新增岗位模板管理面板。
 - 接入云端岗位模板列表、保存、删除 API。
@@ -193,60 +193,60 @@
 - 机器绑定按用户和机器码 upsert，并返回最近活跃机器。
 - 云端后端 README 增加 AgentStore 的 PostgreSQL 说明。
 
-- 架构文档补充“任务运行态归属 Local Agent、网页只是控制台”的关键原则。
-- 云端后端新增 PostgreSQL TaskLogStore。
-- 配置 `GOODHR_PG_DSN` 后，任务日志摘要写入 PostgreSQL。
-- 云端后端 README 增加 TaskLogStore 的 PostgreSQL 说明。
+- 架构文档补充“岗位运行运行态归属 Local Agent、网页只是控制台”的关键原则。
+- 云端后端新增 PostgreSQL PositionLogStore。
+- 配置 `GOODHR_PG_DSN` 后，岗位运行日志摘要写入 PostgreSQL。
+- 云端后端 README 增加 PositionLogStore 的 PostgreSQL 说明。
 
 - 云端后端新增 `GOODHR_PG_DSN` 配置和 PostgreSQL 连接初始化。
 - 平台账号映射新增 PostgreSQL store，支持创建、列表、删除。
-- 任务新增 PostgreSQL store，支持创建、列表、详情读取。
-- 任务创建时会校验平台账号是否属于当前登录用户。
+- 岗位运行新增 PostgreSQL store，支持创建、列表、详情读取。
+- 岗位运行创建时会校验平台账号是否属于当前登录用户。
 - `NewServer` 改为返回错误，显式开启 PostgreSQL 时启动阶段就会校验连接。
 - 云端后端 README 增加 PostgreSQL 启用说明。
 
-- 前端新增 Local Agent API service，统一封装本地任务和候选人调用。
-- 任务卡片新增“查看候选人”面板，按任务读取本地 `candidates.json`。
-- 前端创建任务后会自动初始化对应的本地任务目录。
-- 旧任务首次展开候选人时也会自动初始化本地任务目录。
+- 前端新增 Local Agent API service，统一封装本地岗位运行和候选人调用。
+- 岗位运行卡片新增“查看候选人”面板，按岗位运行读取本地 `candidates.json`。
+- 前端创建岗位运行后会自动初始化对应的本地岗位运行目录。
+- 旧岗位运行首次展开候选人时也会自动初始化本地岗位运行目录。
 - 候选人卡片支持显示名称、摘要、详情文本，并支持删除本地候选人记录。
-- Local Agent 任务初始化改为幂等，重复调用不会覆盖已有候选人数据。
+- Local Agent 岗位运行初始化改为幂等，重复调用不会覆盖已有候选人数据。
 
 - Local Agent 新增截图文件列表、读取、删除接口。
 - Local Agent 新增 OCR 文本写入接口。
-- 截图读取和删除限制在当前任务 `screenshots/` 目录内。
-- OCR 原文写入当前任务 `ocr/` 目录。
+- 截图读取和删除限制在当前岗位运行 `screenshots/` 目录内。
+- OCR 原文写入当前岗位运行 `ocr/` 目录。
 
 ## 历史完成
 
-- Local Agent 新增本地任务目录和候选人 JSON 管理模块。
-- 新增任务初始化接口，每个任务创建独立目录。
+- Local Agent 新增本地岗位运行目录和候选人 JSON 管理模块。
+- 新增岗位运行初始化接口，每个岗位运行创建独立目录。
 - 新增候选人 JSON 读取、新增/更新、删除接口。
-- 任务目录预留 `screenshots/` 和 `ocr/`，候选人详情仍只保存在本地。
+- 岗位运行目录预留 `screenshots/` 和 `ocr/`，候选人详情仍只保存在本地。
 
-- 前端任务卡片新增展开/收起日志。
-- 展开任务时调用云端 `GET /api/tasks/{id}/logs`。
+- 前端岗位运行卡片新增展开/收起日志。
+- 展开岗位运行时调用云端 `GET /api/positions/{id}/logs`。
 - 无日志时显示空状态。
 
-- 云端后端新增任务日志模块。
-- 新增 `GET /api/tasks/{id}/logs` 读取任务日志摘要。
-- 新增 `POST /api/tasks/{id}/logs` 写入任务日志摘要。
+- 云端后端新增岗位运行日志模块。
+- 新增 `GET /api/positions/{id}/logs` 读取岗位运行日志摘要。
+- 新增 `POST /api/positions/{id}/logs` 写入岗位运行日志摘要。
 - 日志只保存运行摘要，不保存候选人完整详情。
 
-- 前端任务创建接入云端 `POST /api/tasks`。
-- 前端任务列表接入云端 `GET /api/tasks`。
-- 登录或恢复登录态后自动加载云端任务列表。
-- 创建任务后自动刷新云端任务列表。
+- 前端岗位运行创建接入云端 `POST /api/positions`。
+- 前端岗位运行列表接入云端 `GET /api/positions`。
+- 登录或恢复登录态后自动加载云端岗位运行列表。
+- 创建岗位运行后自动刷新云端岗位运行列表。
 
-- 云端后端新增任务模块。
-- 新增任务创建、任务列表、任务详情接口。
-- 任务只保存平台、账号、模式、匹配上限、状态和统计摘要。
-- 当前使用内存 `TaskStore`，后续替换为 PostgreSQL `task_runs` 表。
+- 云端后端新增岗位运行模块。
+- 新增岗位运行创建、岗位运行列表、岗位运行详情接口。
+- 岗位运行只保存平台、账号、模式、匹配上限、状态和统计摘要。
+- 当前使用内存 `PositionStore`，后续替换为 PostgreSQL `position_runs` 表。
 
-- 云端前端新增任务创建面板。
-- 任务表单支持选择平台、平台账号、筛选模式、匹配上限。
+- 云端前端新增岗位运行创建面板。
+- 岗位运行表单支持选择平台、平台账号、筛选模式、匹配上限。
 - 读取云端平台账号映射，用于同平台多账号选择。
-- 前端先创建任务草稿并展示扫描/打招呼/跳过/失败统计，后续接入云端任务 API。
+- 前端先创建岗位运行草稿并展示扫描/打招呼/跳过/失败统计，后续接入云端岗位运行 API。
 
 - Local Agent 新增 profile 元数据管理模块。
 - 新增本地 profile 列表、创建、删除接口。
@@ -276,7 +276,7 @@
 
 - 新增 PostgreSQL 初始迁移 `0001_initial_schema.sql`。
 - 新增回滚脚本 `0001_initial_schema.down.sql`。
-- 覆盖用户、Agent 机器绑定、平台账号映射、岗位、系统/用户 AI 配置、任务运行、任务日志。
+- 覆盖用户、Agent 机器绑定、平台账号映射、岗位、系统/用户 AI 配置、岗位运行运行、岗位运行日志。
 - 明确云端 schema 不保存候选人详情、截图、OCR 原文和招聘平台 cookie/profile。
 
 - 新增 `docs/development-standards.md`。
@@ -336,7 +336,7 @@
 ## 下一步建议
 
 1. 云端 Go 后端：插入各平台选择器配置数据（Boss/智联/猎聘）到 system_configs 表。
-2. 云端 Go 后端：任务执行路由（POST /api/tasks/{id}/run）接入 TaskExecutor。
+2. 云端 Go 后端：岗位运行执行路由（POST /api/positions/{id}/run）接入 PositionExecutor。
 3. 云端 Go 后端：AI 筛选模块实现（调用 AI API）。
-4. 云端 Vue 前端：任务运行监控面板，实时显示执行状态和日志。
+4. 云端 Vue 前端：岗位运行运行监控面板，实时显示执行状态和日志。
 5. 端到端联调：本地 Agent + 云端后端 + 前端完整流程测试。

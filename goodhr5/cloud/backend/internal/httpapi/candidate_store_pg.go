@@ -23,20 +23,20 @@ func NewPostgresCandidateStore(db *sql.DB) *PostgresCandidateStore {
 
 // SaveCandidateProfile 新增或更新候选人主体。
 // item 为候选人简历字段，返回保存后的候选人主体。
-func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (TaskCandidate, error) {
+func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	userID, err := ensureUserID(ctx, s.db, item.UserEmail)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	tenantID, err := userTenantID(ctx, s.db, userID)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	key := candidateIdentityKey(item)
-	var saved TaskCandidate
+	var saved PositionCandidate
 	err = s.db.QueryRowContext(
 		ctx,
 		`
@@ -155,13 +155,13 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		&saved.UpdatedAt,
 	)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	return saved, nil
 }
 
 // UpsertCandidateEngagement 新增或更新候选人触达上下文。
-// item 为候选人、任务、岗位和账号关系，返回保存后的触达记录。
+// item 为候选人、岗位和账号关系，返回保存后的触达记录。
 func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -174,16 +174,17 @@ func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagem
 	if err != nil {
 		return CandidateEngagement{}, err
 	}
-	var saved CandidateEngagement
-	err = s.db.QueryRowContext(
-		ctx,
-		`
+	conflictTarget := "(tenant_id, candidate_id, position_id, platform_account_id) WHERE platform_account_id IS NOT NULL"
+	if strings.TrimSpace(item.PlatformAccountID) == "" {
+		conflictTarget = "(tenant_id, candidate_id, position_id) WHERE platform_account_id IS NULL"
+	}
+	query := `
 		INSERT INTO candidate_engagements (
-			tenant_id, candidate_id, task_id, position_id, platform_account_id,
+			tenant_id, candidate_id, position_id, platform_account_id,
 			platform_id, status, first_seen_at, detail_fetched_at, greeted_at
 		)
-		VALUES ($1,$2,$3::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10)
-		ON CONFLICT (tenant_id, candidate_id, task_id, position_id, platform_account_id)
+		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9)
+		ON CONFLICT ` + conflictTarget + `
 		DO UPDATE SET
 			platform_id = EXCLUDED.platform_id,
 			status = EXCLUDED.status,
@@ -191,12 +192,15 @@ func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagem
 			detail_fetched_at = COALESCE(EXCLUDED.detail_fetched_at, candidate_engagements.detail_fetched_at),
 			greeted_at = COALESCE(EXCLUDED.greeted_at, candidate_engagements.greeted_at),
 			updated_at = now()
-		RETURNING id, candidate_id, COALESCE(task_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
+		RETURNING id, candidate_id, COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
 			platform_id, status, first_seen_at, detail_fetched_at, greeted_at, last_event_at, created_at, updated_at
-		`,
+	`
+	var saved CandidateEngagement
+	err = s.db.QueryRowContext(
+		ctx,
+		query,
 		tenantID,
 		item.CandidateID,
-		item.TaskID,
 		item.PositionID,
 		item.PlatformAccountID,
 		item.PlatformID,
@@ -207,7 +211,6 @@ func (s *PostgresCandidateStore) UpsertCandidateEngagement(item CandidateEngagem
 	).Scan(
 		&saved.ID,
 		&saved.CandidateID,
-		&saved.TaskID,
 		&saved.PositionID,
 		&saved.PlatformAccountID,
 		&saved.PlatformID,
@@ -241,18 +244,17 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		ctx,
 		`
 		INSERT INTO candidate_events (
-			tenant_id, candidate_id, engagement_id, task_id, position_id, platform_account_id,
+			tenant_id, candidate_id, engagement_id, position_id, platform_account_id,
 			platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata
 		)
-		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
-		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(task_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
+		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
 			platform_id, event_type, score, reason, input_text, output_text, message_text, model, token_usage, metadata, created_at
 		`,
 		tenantID,
 		item.CandidateID,
 		item.EngagementID,
-		item.TaskID,
 		item.PositionID,
 		item.PlatformAccountID,
 		item.PlatformID,
@@ -269,7 +271,6 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		&saved.ID,
 		&saved.CandidateID,
 		&saved.EngagementID,
-		&saved.TaskID,
 		&saved.PositionID,
 		&saved.PlatformAccountID,
 		&saved.PlatformID,
@@ -321,9 +322,9 @@ func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID st
 	return nil
 }
 
-// ListTaskCandidates 按团队和筛选条件分页读取候选人记录。
-// tenantID 为当前用户团队 ID，query 可传搜索词、任务 ID、岗位 ID 和分页条件。
-func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskCandidateQuery) (TaskCandidateListResult, error) {
+// ListPositionCandidates 按团队和筛选条件分页读取候选人记录。
+// tenantID 为当前用户团队 ID，query 可传搜索词、岗位 ID、岗位 ID 和分页条件。
+func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -332,7 +333,7 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 	countSQL := "SELECT COUNT(*) FROM candidate_profiles cp WHERE " + where
 	var total int
 	if err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
-		return TaskCandidateListResult{}, err
+		return PositionCandidateListResult{}, err
 	}
 	offset := (page - 1) * pageSize
 	listArgs := append(args, pageSize, offset)
@@ -345,19 +346,19 @@ func (s *PostgresCandidateStore) ListTaskCandidates(tenantID string, query TaskC
 		listArgs...,
 	)
 	if err != nil {
-		return TaskCandidateListResult{}, err
+		return PositionCandidateListResult{}, err
 	}
 	defer rows.Close()
 	items, err := scanCandidateRows(rows)
 	if err != nil {
-		return TaskCandidateListResult{}, err
+		return PositionCandidateListResult{}, err
 	}
-	return TaskCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+	return PositionCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-// GetTaskCandidate 按 ID 读取当前团队内的候选人详情。
+// GetPositionCandidate 按 ID 读取当前团队内的候选人详情。
 // tenantID 为当前用户团队 ID，candidateID 为候选人主体 ID，engagementID 为空时使用最近一次触达。
-func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (TaskCandidate, error) {
+func (s *PostgresCandidateStore) GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	args := []any{tenantID, candidateID}
@@ -374,19 +375,19 @@ func (s *PostgresCandidateStore) GetTaskCandidate(tenantID string, candidateID s
 	}
 	rows, err := s.db.QueryContext(ctx, candidateSelectSQL(whereClause, engagementScope), args...)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	defer rows.Close()
 	items, err := scanCandidateRows(rows)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	if len(items) == 0 {
-		return TaskCandidate{}, ErrNotFound
+		return PositionCandidate{}, ErrNotFound
 	}
 	events, err := s.listCandidateEvents(ctx, tenantID, candidateID, items[0].EngagementID)
 	if err != nil {
-		return TaskCandidate{}, err
+		return PositionCandidate{}, err
 	}
 	items[0].Events = events
 	return items[0], nil
@@ -443,7 +444,7 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-		SELECT id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(task_id::text,''), COALESCE(position_id::text,''),
+		SELECT id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(position_id::text,''),
 			COALESCE(platform_account_id::text,''), platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata, created_at
 		FROM candidate_events
@@ -464,7 +465,6 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 			&event.ID,
 			&event.CandidateID,
 			&event.EngagementID,
-			&event.TaskID,
 			&event.PositionID,
 			&event.PlatformAccountID,
 			&event.PlatformID,
@@ -494,7 +494,6 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		cp.id,
 		COALESCE(latest_engagement.id::text, ''),
 		COALESCE(latest_engagement.status, ''),
-		COALESCE(latest_engagement.task_id::text, ''),
 		COALESCE(latest_engagement.position_id::text, ''),
 		COALESCE(p.name, ''),
 		COALESCE(latest_engagement.platform_account_id::text, ''),
@@ -553,11 +552,10 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 
 // candidateEngagementScope 生成候选人触达上下文筛选条件。
 // query 为简历库筛选条件，返回用于 latest_engagement 的 SQL 片段。
-func candidateEngagementScope(query TaskCandidateQuery) string {
-	parts := make([]string, 0, 2)
+func candidateEngagementScope(query PositionCandidateQuery) string {
+	parts := make([]string, 0, 1)
 	nextArg := 2
-	if strings.TrimSpace(query.TaskID) != "" {
-		parts = append(parts, fmt.Sprintf("AND ce2.task_id::text = $%d", nextArg))
+	if query.UserEmail != "" {
 		nextArg++
 	}
 	if strings.TrimSpace(query.PositionID) != "" {
@@ -568,8 +566,8 @@ func candidateEngagementScope(query TaskCandidateQuery) string {
 
 // scanCandidateRows 解析候选人查询结果集。
 // rows 为数据库查询结果，返回简历库记录数组。
-func scanCandidateRows(rows *sql.Rows) ([]TaskCandidate, error) {
-	items := make([]TaskCandidate, 0)
+func scanCandidateRows(rows *sql.Rows) ([]PositionCandidate, error) {
+	items := make([]PositionCandidate, 0)
 	for rows.Next() {
 		item, err := scanCandidateRow(rows)
 		if err != nil {
@@ -587,13 +585,12 @@ type candidateScanner interface {
 
 // scanCandidateRow 从数据库行解析候选人结构。
 // scanner 为数据库扫描器，返回可直接给前端转换的候选人记录。
-func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
-	var item TaskCandidate
+func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
+	var item PositionCandidate
 	err := scanner.Scan(
 		&item.ID,
 		&item.EngagementID,
 		&item.EngagementStatus,
-		&item.TaskID,
 		&item.PositionID,
 		&item.PositionName,
 		&item.PlatformAccountID,
@@ -626,16 +623,12 @@ func scanCandidateRow(scanner candidateScanner) (TaskCandidate, error) {
 
 // buildCandidateWhere 组装候选人查询条件和参数。
 // tenantID 为当前团队 ID，query 为前端传入筛选条件。
-func buildCandidateWhere(tenantID string, query TaskCandidateQuery) (string, []any) {
+func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string, []any) {
 	clauses := []string{"cp.tenant_id = $1"}
 	args := []any{tenantID}
 	if query.UserEmail != "" {
 		args = append(args, query.UserEmail)
 		clauses = append(clauses, fmt.Sprintf("u.email = $%d", len(args)))
-	}
-	if query.TaskID != "" {
-		args = append(args, query.TaskID)
-		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.task_id::text = $%d)", len(args)))
 	}
 	if query.PositionID != "" {
 		args = append(args, query.PositionID)

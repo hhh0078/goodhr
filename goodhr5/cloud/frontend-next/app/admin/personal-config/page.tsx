@@ -200,7 +200,7 @@ export default function PersonalConfigPage() {
       <NotificationProfileDialog openSignal={profileOpenSignal} />
       <PageHeader
         title='个人配置'
-        description='设置 AI 接口和任务操作节奏，保存后会用于本地任务运行。'
+        description='设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行运行。'
         actions={
           <>
             <Button
@@ -395,7 +395,7 @@ export default function PersonalConfigPage() {
             {loading ? "处理中" : "保存配置"}
           </Button>
           <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            测试成功后再点右上角保存，任务运行时就会使用这套配置。
+            测试成功后再点右上角保存，岗位运行运行时就会使用这套配置。
           </Typography>
         </Stack>
       </SectionPanel>
@@ -411,7 +411,7 @@ export default function PersonalConfigPage() {
           <SectionTitle
             icon={<TimerOutlinedIcon />}
             title='操作节奏'
-            description='在范围内随机等待，让任务操作保持自然。'
+            description='在范围内随机等待，让岗位运行操作保持自然。'
           />
           <Stack spacing={2.25} sx={{ mt: 2.5 }}>
             <CompactNumber
@@ -462,7 +462,7 @@ export default function PersonalConfigPage() {
           <SectionTitle
             icon={<PsychologyAltRoundedIcon />}
             title='模拟休息'
-            description='任务会按配置间歇休息，避免长时间连续操作。'
+            description='岗位运行会按配置间歇休息，避免长时间连续操作。'
           />
           <Stack spacing={2.25} sx={{ mt: 2.5 }}>
             <NumberRange
@@ -475,7 +475,7 @@ export default function PersonalConfigPage() {
               onMax={(value) => setNumber("rest_after_candidates_max", value)}
             />
             <NumberRange
-              label='单次任务休息次数'
+              label='单次岗位运行休息次数'
               help='达到本次随机次数后不再休息。'
               unit='次'
               min={form.rest_times_min}
@@ -485,7 +485,7 @@ export default function PersonalConfigPage() {
             />
             <NumberRange
               label='每次休息时长'
-              help='每次休息会在此范围内随机，并写入任务日志。'
+              help='每次休息会在此范围内随机，并写入岗位运行日志。'
               unit='分钟'
               min={form.rest_duration_min}
               max={form.rest_duration_max}

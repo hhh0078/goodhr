@@ -47,6 +47,9 @@ type positionRequest struct {
 	CommonConfig    map[string]any `json:"common_config"`
 	AIConfig        map[string]any `json:"ai_config"`
 	KeywordConfig   map[string]any `json:"keyword_config"`
+	MatchLimit      int            `json:"match_limit"`
+	EnableSound     bool           `json:"enable_sound"`
+	EnableThinking  bool           `json:"enable_thinking"`
 }
 
 type optimizeRequirementRequest struct {
@@ -84,7 +87,7 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用岗位存储读取当前用户的岗位配置，供后续任务选择和复用。
+	// 调用岗位存储读取当前用户的岗位配置，供后续岗位运行选择和复用。
 	items, err := s.store.ListPositions("", session.Email, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
@@ -165,7 +168,7 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用岗位存储保存岗位配置，用于后续任务快速选择筛选条件。
+	// 调用岗位存储保存岗位配置，用于后续岗位运行快速选择筛选条件。
 	saved, err := s.store.SavePosition(position)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "position not found")
@@ -202,7 +205,7 @@ func (s *PositionService) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用岗位存储删除岗位配置，避免继续出现在任务配置候选项里。
+	// 调用岗位存储删除岗位配置，避免继续出现在岗位运行配置候选项里。
 	err := s.store.DeletePosition(session.Email, positionID)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "position not found")
@@ -216,6 +219,41 @@ func (s *PositionService) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true,
 	})
+}
+
+// Detail 读取、更新或删除单个岗位，供前端和本地程序共用同一岗位快照。
+func (s *PositionService) Detail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.Delete(w, r)
+		return
+	}
+	if r.Method == http.MethodPut {
+		s.Save(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	positionID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/positions/"))
+	if positionID == "" || strings.Contains(positionID, "/") {
+		writeError(w, http.StatusBadRequest, "position id is required")
+		return
+	}
+	position, err := s.store.PositionByID("", session.Email, positionID, false)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "position not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load position")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "position": publicPosition(position)})
 }
 
 // positionRequirementOptimizePrompt 生成岗位要求优化提示词。
@@ -306,11 +344,17 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 		CommonConfig:    cloneMap(r.CommonConfig),
 		AIConfig:        cloneMap(r.AIConfig),
 		KeywordConfig:   cloneMap(r.KeywordConfig),
+		MatchLimit:      r.MatchLimit,
+		EnableSound:     r.EnableSound,
+		EnableThinking:  r.EnableThinking,
 	}
 
 	if position.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return Position{}, false
+	}
+	if position.MatchLimit <= 0 {
+		position.MatchLimit = 50
 	}
 	applyPositionPlatformRules(&position)
 	return position, true
@@ -370,20 +414,52 @@ func publicPositions(items []Position) []map[string]any {
 // publicPosition 将岗位配置转换为前端响应结构。
 func publicPosition(item Position) map[string]any {
 	return map[string]any{
-		"id":               item.ID,
-		"platform_id":      normalizePositionPlatformID(item.PlatformID),
-		"name":             item.Name,
-		"keywords":         item.Keywords,
-		"exclude_keywords": item.ExcludeKeywords,
-		"description":      item.Description,
-		"greet_message":    item.GreetMessage,
-		"is_and_mode":      item.IsAndMode,
-		"common_config":    cloneMap(item.CommonConfig),
-		"ai_config":        cloneMap(item.AIConfig),
-		"keyword_config":   cloneMap(item.KeywordConfig),
-		"created_at":       item.CreatedAt,
-		"updated_at":       item.UpdatedAt,
+		"id":                  item.ID,
+		"platform_id":         normalizePositionPlatformID(item.PlatformID),
+		"name":                item.Name,
+		"keywords":            item.Keywords,
+		"exclude_keywords":    item.ExcludeKeywords,
+		"description":         item.Description,
+		"greet_message":       item.GreetMessage,
+		"is_and_mode":         item.IsAndMode,
+		"common_config":       cloneMap(item.CommonConfig),
+		"ai_config":           cloneMap(item.AIConfig),
+		"keyword_config":      cloneMap(item.KeywordConfig),
+		"match_limit":         item.MatchLimit,
+		"enable_sound":        item.EnableSound,
+		"enable_thinking":     item.EnableThinking,
+		"status":              item.Status,
+		"scanned_count":       item.ScannedCount,
+		"greeted_count":       item.GreetedCount,
+		"daily_greeted_count": item.DailyGreetedCount,
+		"daily_greeted_date":  item.DailyGreetedDate,
+		"today_greeted_count": positionTodayGreetedCount(item),
+		"skipped_count":       item.SkippedCount,
+		"failed_count":        item.FailedCount,
+		"started_at":          item.StartedAt,
+		"finished_at":         item.FinishedAt,
+		"created_at":          item.CreatedAt,
+		"updated_at":          item.UpdatedAt,
 	}
+}
+
+// positionTodayGreetedCount 返回岗位当天打招呼数量。
+// item 为岗位记录，日期不是今天时返回零。
+func positionTodayGreetedCount(item Position) int {
+	if item.DailyGreetedDate != time.Now().In(time.Local).Format(time.DateOnly) || item.DailyGreetedCount < 0 {
+		return 0
+	}
+	return item.DailyGreetedCount
+}
+
+// positionDefaultMode 返回岗位配置使用的默认筛选模式。
+// position 为岗位配置，返回 keyword 或 ai。
+func positionDefaultMode(position Position) string {
+	mode := strings.TrimSpace(fmt.Sprint(position.CommonConfig["mode_default"]))
+	if mode == "keyword" {
+		return "keyword"
+	}
+	return "ai"
 }
 
 // trimStringList 清理字符串数组里的空白项。

@@ -6,15 +6,15 @@ import "net/http"
 // PublicStatsService 处理官网公开统计接口。
 type PublicStatsService struct {
 	users      AdminUserStore
-	tasks      TaskStore
+	positions  PositionStore
 	agents     AgentStore
 	dailyStats SystemDailyStatsStore
 }
 
 // NewPublicStatsService 创建官网公开统计服务。
-// users 为用户统计存储，tasks 为任务统计存储，agents 为本地程序绑定存储，dailyStats 为系统按日统计存储。
-func NewPublicStatsService(users AdminUserStore, tasks TaskStore, agents AgentStore, dailyStats SystemDailyStatsStore) *PublicStatsService {
-	return &PublicStatsService{users: users, tasks: tasks, agents: agents, dailyStats: dailyStats}
+// users 为用户统计存储，positions 为岗位统计存储，agents 为本地程序绑定存储，dailyStats 为系统按日统计存储。
+func NewPublicStatsService(users AdminUserStore, positions PositionStore, agents AgentStore, dailyStats SystemDailyStatsStore) *PublicStatsService {
+	return &PublicStatsService{users: users, positions: positions, agents: agents, dailyStats: dailyStats}
 }
 
 // Today 返回官网首页需要展示的今日统计。
@@ -39,8 +39,8 @@ func (s *PublicStatsService) Today(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	todayGreeted := 0
-	if s.tasks != nil {
-		count, err := s.tasks.TodayGreetedTotal()
+	if s.positions != nil {
+		count, err := s.positions.TodayGreetedTotal()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to load public stats")
 			return

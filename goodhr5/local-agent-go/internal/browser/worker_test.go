@@ -51,14 +51,14 @@ func TestStatusReadsOnlyFixedWorker(t *testing.T) {
 	}
 }
 
-// TestCanceledCallDoesNotRestartWorker 验证任务停止导致的请求取消不会触发 Worker 重启。
+// TestCanceledCallDoesNotRestartWorker 验证岗位停止导致的请求取消不会触发 Worker 重启。
 func TestCanceledCallDoesNotRestartWorker(t *testing.T) {
 	err := normalizeCallError(fmt.Errorf("Post http://127.0.0.1:55272/api: %w", context.Canceled))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	if isRestartableCallError(err) {
-		t.Fatal("任务取消错误不应触发 Worker 重启")
+		t.Fatal("岗位运行取消错误不应触发 Worker 重启")
 	}
 }
 

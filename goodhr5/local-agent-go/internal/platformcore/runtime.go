@@ -1,4 +1,4 @@
-// Package platformcore 定义本地任务平台运行时的统一接口。
+// Package platformcore 定义本地岗位运行平台运行时的统一接口。
 package platformcore
 
 import (
@@ -11,7 +11,7 @@ import (
 type Executor interface {
 	// Post 调用浏览器 Worker 接口并返回响应。
 	Post(ctx context.Context, path string, payload any) (map[string]any, error)
-	// Log 写入任务日志。
+	// Log 写入岗位运行日志。
 	Log(level string, message string)
 	// Delay 按业务动作等待指定秒数。
 	Delay(ctx context.Context, label string, seconds float64) error
@@ -22,7 +22,7 @@ type Candidate map[string]any
 
 // DetailRequest 表示读取候选人详情的请求。
 type DetailRequest struct {
-	TaskID         string
+	PositionID     string
 	Mode           string
 	ScreenshotsDir string
 	Filename       string
@@ -41,8 +41,8 @@ type Runtime interface {
 	OpenEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, entryURL string) error
 	// PrepareEntryPage 处理平台入口页弹框或初始化动作。
 	PrepareEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) error
-	// IsTaskEntryPage 判断当前页面是否仍是任务入口页面。
-	IsTaskEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) (bool, error)
+	// IsPositionEntryPage 判断当前页面是否仍是岗位运行入口页面。
+	IsPositionEntryPage(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) (bool, error)
 	// CurrentPositionName 读取当前页面岗位名称。
 	CurrentPositionName(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig) (string, error)
 	// SelectPosition 切换当前页面岗位。
@@ -65,13 +65,13 @@ type Runtime interface {
 	CleanCandidateDetailText(text string) string
 }
 
-// PositionSearchPreparer 是平台可选实现的任务搜索准备能力。
+// PositionSearchPreparer 是平台可选实现的岗位运行搜索准备能力。
 // 主流程会在首次确认岗位前调用；只有需要先按岗位配置搜索候选人的平台才需要实现。
 type PositionSearchPreparer interface {
 	PreparePositionSearch(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error
 }
 
-// DirectPositionSelector 定义无需读取当前岗位、每次直接切换任务岗位的平台策略。
+// DirectPositionSelector 定义无需读取当前岗位、每次直接切换岗位运行岗位的平台策略。
 type DirectPositionSelector interface {
 	// ShouldSelectPositionDirectly 返回平台是否应跳过当前岗位读取和切换后复核。
 	ShouldSelectPositionDirectly() bool

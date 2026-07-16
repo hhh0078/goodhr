@@ -14,9 +14,9 @@ GOODHR_CLOUD_ADDR=127.0.0.1:8084 CGO_ENABLED=0 go run ./cmd/server
 
 ## PostgreSQL
 
-未配置 PostgreSQL 时，平台账号映射和任务仍使用内存存储，适合本地纯联调。
+未配置 PostgreSQL 时，平台账号映射和岗位运行仍使用内存存储，适合本地纯联调。
 
-配置 `GOODHR_PG_DSN` 后，平台账号映射和任务会写入 PostgreSQL：
+配置 `GOODHR_PG_DSN` 后，平台账号映射和岗位运行会写入 PostgreSQL：
 
 ```bash
 GOODHR_PG_DSN='postgres://postgres:postgres@127.0.0.1:5432/goodhr5?sslmode=disable' \
@@ -30,8 +30,8 @@ AgentStore
 AIConfigStore
 PlatformAccountStore
 PositionStore
-TaskStore
-TaskLogStore
+PositionStore
+PositionLogStore
 ```
 
 ## Redis
@@ -155,29 +155,29 @@ DELETE /api/positions/{id}
 
 岗位配置保存名称、关键词、排除关键词、岗位描述、默认问候语和 AND/OR 匹配方式。
 
-## 任务 API
+## 岗位运行 API
 
 当前已提供：
 
 ```http
-POST /api/tasks
-GET /api/tasks
-GET /api/tasks/{id}
+POST /api/positions
+GET /api/positions
+GET /api/positions/{id}
 ```
 
 所有接口都需要 `Authorization: Bearer <token>`。
 
-任务创建时支持传入 `position_id` 关联岗位模板。
+岗位运行创建时支持传入 `position_id` 关联岗位模板。
 
-第一版只保存任务元信息和统计摘要，不保存候选人详情。
+第一版只保存岗位运行元信息和统计摘要，不保存候选人详情。
 
-## 任务日志 API
+## 岗位运行日志 API
 
 当前已提供：
 
 ```http
-GET /api/tasks/{id}/logs
-POST /api/tasks/{id}/logs
+GET /api/positions/{id}/logs
+POST /api/positions/{id}/logs
 ```
 
 所有接口都需要 `Authorization: Bearer <token>`。

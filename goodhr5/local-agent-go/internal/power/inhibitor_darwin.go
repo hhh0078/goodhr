@@ -13,7 +13,7 @@ type caffeinateInhibitor struct {
 	once sync.Once
 }
 
-// PreventSleep 在 macOS 上启动 caffeinate，阻止任务运行时系统自动睡眠。
+// PreventSleep 在 macOS 上启动 caffeinate，阻止岗位运行时系统自动睡眠。
 // reason 为调用方说明，当前实现不传给系统，仅用于保持接口语义。
 func PreventSleep(reason string) (Inhibitor, error) {
 	cmd := exec.Command("caffeinate", "-dimsu")

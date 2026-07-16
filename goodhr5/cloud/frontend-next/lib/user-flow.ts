@@ -1,4 +1,4 @@
-/** 本文件统一读取和上报用户首次跑通招聘任务的流程状态。 */
+/** 本文件统一读取和上报用户首次跑通招聘岗位运行的流程状态。 */
 
 import { cloudRequest } from "./admin-api";
 
@@ -6,9 +6,8 @@ export type UserFlowStep =
   | "agent_detected"
   | "runtime_ready"
   | "position_created"
-  | "task_created"
   | "platform_login_verified"
-  | "task_started"
+  | "position_started"
   | "first_resume_processed"
   | "first_greet_success";
 
@@ -28,7 +27,7 @@ type UserFlowReport = {
   reason_code?: string;
   message?: string;
   source?: string;
-  task_id?: string;
+  position_id?: string;
   metadata?: Record<string, unknown>;
 };
 

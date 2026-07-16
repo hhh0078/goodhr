@@ -80,7 +80,7 @@ func shouldBootstrapExistingDatabase(db *sql.DB) (bool, error) {
 			SELECT 1
 			FROM information_schema.tables
 			WHERE table_schema = 'public'
-			  AND table_name IN ('system_configs', 'users', 'tasks')
+			  AND table_name IN ('system_configs', 'users', 'positions')
 		)
 	`).Scan(&exists)
 	if err != nil {
