@@ -130,6 +130,8 @@ func (s *AdminEmailService) Send(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "没有匹配到收件人")
 		return
 	}
+	cfg := s.recoveryConfig()
+	html = appendEmailFooter(html, cfg.Wechat, cfg.Website)
 	batch, recipients, err := s.store.CreateBatch(subject, summary, "", session.Email, emails)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed create email batch")
@@ -359,7 +361,7 @@ func (s *AdminEmailService) StartRecoveryScheduler() {
 		for {
 			next := nextRecoveryRun(time.Now(), s.recoveryHour())
 			time.Sleep(time.Until(next))
-			s.SendYesterdayRecovery()
+			s.SendScheduledRecovery()
 		}
 	}()
 }
@@ -382,21 +384,34 @@ func (s *AdminEmailService) SendAutomaticJob(job string, baseURL string) (automa
 	}
 }
 
-// SendYesterdayRecovery 给昨天注册且卡在流程节点的用户发送挽回邮件。
-func (s *AdminEmailService) SendYesterdayRecovery() {
-	if !s.recoveryConfig().Enabled {
+// SendScheduledRecovery 给注册满 1、3、7、30 天且仍未完成流程的用户发送定时提醒。
+func (s *AdminEmailService) SendScheduledRecovery() {
+	cfg := s.recoveryConfig()
+	if !cfg.Enabled {
 		return
 	}
-	_ = s.sendYesterdayIncomplete("")
+	for _, days := range []int{1, 3, 7, 30} {
+		_ = s.sendIncompleteMilestone(days, cfg.Website)
+	}
 }
 
 // sendYesterdayIncomplete 给昨天注册且流程未完成的用户发送提醒。
 // baseURL 用于已读追踪图片，返回创建的邮件批次。
 func (s *AdminEmailService) sendYesterdayIncomplete(baseURL string) automaticEmailResult {
+	return s.sendIncompleteMilestone(1, baseURL)
+}
+
+// sendIncompleteMilestone 给注册满指定天数且流程仍未完成的用户发送分阶段提醒。
+// days 为注册后的提醒天数，baseURL 用于已读追踪图片。
+func (s *AdminEmailService) sendIncompleteMilestone(days int, baseURL string) automaticEmailResult {
 	cfg := s.recoveryConfig()
-	day := time.Now().AddDate(0, 0, -1).Format(time.DateOnly)
+	if days != 1 && days != 3 && days != 7 && days != 30 {
+		return automaticEmailResult{Job: fmt.Sprintf("incomplete-day-%d", days), Skipped: []string{"unsupported milestone"}}
+	}
+	registeredAt := time.Now().AddDate(0, 0, -days)
+	day := registeredAt.Format(time.DateOnly)
 	users, err := s.store.FindTargetUsers(EmailTargetFilter{CreatedDay: day})
-	result := automaticEmailResult{Job: "yesterday-incomplete"}
+	result := automaticEmailResult{Job: fmt.Sprintf("incomplete-day-%d", days)}
 	if err != nil {
 		result.Skipped = append(result.Skipped, err.Error())
 		return result
@@ -415,14 +430,16 @@ func (s *AdminEmailService) sendYesterdayIncomplete(baseURL string) automaticEma
 			result.Skipped = append(result.Skipped, key)
 			continue
 		}
-		sourceKey := "recovery:" + day + ":" + key
+		sourceKey := incompleteMilestoneSourceKey(day, days, key)
 		exists, _ := s.store.SourceKeyExists(sourceKey)
 		if exists {
 			result.Skipped = append(result.Skipped, sourceKey)
 			continue
 		}
-		html := appendEmailFooter(tpl.HTML, cfg.Wechat, cfg.Website)
-		batch, recipients, err := s.store.CreateBatch(tpl.Subject, "自动挽回："+key+"："+day, sourceKey, "system", emails)
+		html := appendReminderScheduleNotice(tpl.HTML, registeredAt, days)
+		html = appendEmailFooter(html, cfg.Wechat, cfg.Website)
+		targetSummary := fmt.Sprintf("自动流程提醒：注册后第%d天：%s：%s", days, key, day)
+		batch, recipients, err := s.store.CreateBatch(tpl.Subject, targetSummary, sourceKey, "system", emails)
 		if err == nil {
 			result.Batches = append(result.Batches, batch)
 			go s.sendBatch(batch, recipients, html, baseURL)
@@ -431,6 +448,35 @@ func (s *AdminEmailService) sendYesterdayIncomplete(baseURL string) automaticEma
 		}
 	}
 	return result
+}
+
+// incompleteMilestoneSourceKey 返回分阶段流程提醒的幂等键。
+// registeredDay 为注册日期，days 为提醒天数，flow 为当前流程节点。
+func incompleteMilestoneSourceKey(registeredDay string, days int, flow string) string {
+	if days == 1 {
+		return "recovery:" + registeredDay + ":" + flow
+	}
+	return fmt.Sprintf("recovery:%s:day-%d:%s", registeredDay, days, flow)
+}
+
+// appendReminderScheduleNotice 在邮件正文中提前说明后续提醒日期和停止条件。
+// html 为流程教程正文，registeredAt 为注册日期，currentDays 为本次提醒天数。
+func appendReminderScheduleNotice(html string, registeredAt time.Time, currentDays int) string {
+	futureDates := make([]string, 0, 3)
+	for _, days := range []int{1, 3, 7, 30} {
+		if days > currentDays {
+			futureDates = append(futureDates, registeredAt.AddDate(0, 0, days).Format("2006年1月2日"))
+		}
+	}
+	message := "这是本轮流程提醒的最后一次；之后不会再按这组时间发送流程提醒。"
+	if len(futureDates) > 0 {
+		message = "为了让你提前了解提醒安排，也避免突然打扰：如果届时招聘流程仍未完成，我们还会在 " + strings.Join(futureDates, "、") + " 各发送一次进度提醒；流程完成后不会再发送这组提醒。"
+	}
+	notice := `<div style="margin:20px 0 0;padding:14px 16px;border-radius:10px;background:#f4f8f5;color:#536158;font-size:13px;line-height:1.75;"><strong style="color:#27352d;">后续提醒安排</strong><br>` + template.HTMLEscapeString(message) + `</div>`
+	if strings.Contains(html, "{{footer}}") {
+		return strings.Replace(html, "{{footer}}", notice+"{{footer}}", 1)
+	}
+	return strings.TrimSpace(html) + notice
 }
 
 // sendInactiveDays 给精确 N 天未登录的用户发送提醒。
@@ -475,9 +521,7 @@ func (s *AdminEmailService) sendInactiveDays(days int, baseURL string) automatic
 }
 
 func (s *AdminEmailService) sendBatch(batch EmailBatch, recipients []EmailRecipient, html string, baseURL string) {
-	if strings.TrimSpace(baseURL) == "" {
-		baseURL = strings.TrimRight(os.Getenv("GOODHR_PUBLIC_BASE_URL"), "/")
-	}
+	baseURL = s.automaticEmailBaseURL(baseURL)
 	for _, item := range recipients {
 		tracked := html + trackingPixel(baseURL, item.ID)
 		err := s.mailer.SendCustomHTML(item.Email, batch.Subject, tracked, "")
@@ -487,6 +531,18 @@ func (s *AdminEmailService) sendBatch(batch EmailBatch, recipients []EmailRecipi
 		}
 		_ = s.store.MarkRecipientSent(item.ID)
 	}
+}
+
+// automaticEmailBaseURL 返回邮件查看追踪图片使用的完整公网地址。
+// baseURL 优先使用当前请求地址，其次使用环境变量，最后使用邮件配置的网站地址。
+func (s *AdminEmailService) automaticEmailBaseURL(baseURL string) string {
+	if value := strings.TrimRight(strings.TrimSpace(baseURL), "/"); value != "" {
+		return value
+	}
+	if value := strings.TrimRight(strings.TrimSpace(os.Getenv("GOODHR_PUBLIC_BASE_URL")), "/"); value != "" {
+		return value
+	}
+	return strings.TrimRight(strings.TrimSpace(s.recoveryConfig().Website), "/")
 }
 
 func (s *AdminEmailService) resolveRecipients(req sendAdminEmailRequest) ([]string, string, error) {
@@ -653,7 +709,7 @@ func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 func appendEmailFooter(html string, wechat string, website string) string {
 	footer := automaticEmailTemplateHTML("footer")
 	if strings.TrimSpace(footer) == "" {
-		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">作者微信：{{wechat}} · 官网：<a href="{{website}}">{{website}}</a></p>`
+		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">联系电话：{{wechat}} · 微信号：{{wechat}} · 官网：<a href="{{website}}">{{website}}</a></p>`
 	}
 	footer = strings.ReplaceAll(footer, "{{wechat}}", template.HTMLEscapeString(strings.TrimSpace(wechat)))
 	website = strings.TrimRight(strings.TrimSpace(website), "/")
