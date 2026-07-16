@@ -50,12 +50,16 @@ func TestAuthCodeLogin(t *testing.T) {
 
 	var loginPayload struct {
 		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(loginResp.Body).Decode(&loginPayload); err != nil {
 		t.Fatal(err)
 	}
 	if loginPayload.AccessToken == "" {
 		t.Fatal("access token is empty")
+	}
+	if loginPayload.ExpiresIn != int((30 * 24 * time.Hour).Seconds()) {
+		t.Fatalf("session expires_in = %d, want 30 days", loginPayload.ExpiresIn)
 	}
 
 	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)

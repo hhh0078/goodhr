@@ -15,7 +15,7 @@ import (
 )
 
 const codeTTL = 5 * time.Minute
-const sessionTTL = 7 * 24 * time.Hour
+const sessionTTL = 30 * 24 * time.Hour
 const chinaTimezoneName = "Asia/Shanghai"
 
 type AuthService struct {
