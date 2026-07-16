@@ -23,6 +23,7 @@ import {
 } from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
+import { pageURLContainsTarget } from "./navigation-target.js";
 import { terminateProfileBrowserProcesses } from "./profile-process.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
@@ -536,6 +537,30 @@ async function openPage(payload) {
   }
   const previousPage = await ensurePage();
   const previousPageToken = rememberPage(previousPage);
+  const reusablePage = payload.new_page
+    ? null
+    : (context.pages?.() || []).find((item) =>
+        pageURLContainsTarget(item.url?.() || "", target),
+      );
+  if (reusablePage) {
+    page = reusablePage;
+    registerPage(reusablePage);
+    clearElementRefs();
+    await reusablePage.bringToFront().catch(() => {});
+    logWorker("命中已有平台标签页，保留当前筛选条件", {
+      target_url: target,
+      page_url: reusablePage.url?.() || "",
+      elapsed_ms: Date.now() - startedAt,
+    });
+    return {
+      url: reusablePage.url?.() || "",
+      new_page: false,
+      reused_page: true,
+      navigated: false,
+      page_token: rememberPage(reusablePage),
+      previous_page_token: previousPageToken,
+    };
+  }
   const currentPage = payload.new_page ? await context.newPage() : previousPage;
   if (payload.new_page) {
     page = currentPage;
@@ -555,6 +580,8 @@ async function openPage(payload) {
   return {
     url: currentPage.url(),
     new_page: Boolean(payload.new_page),
+    reused_page: false,
+    navigated: true,
     page_token: rememberPage(currentPage),
     previous_page_token: previousPageToken,
   };
