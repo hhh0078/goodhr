@@ -9,6 +9,7 @@ export const CLOUD_API_BASE = (
 export const LOCAL_AGENT_PORTS = [55271];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
+const LOCAL_AGENT_MACHINE_ID_KEY = "goodhr5_local_agent_machine_id";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -125,6 +126,43 @@ export async function detectLocalAgent(preferredBaseURL = "") {
     },
   );
   return state.detecting;
+}
+
+/** bindDetectedLocalAgent 把浏览器已探测到的本地程序版本和匿名机器码同步到云端。 */
+export async function bindDetectedLocalAgent(baseURL: string) {
+  const health = await localRequest(baseURL, "/health");
+  const localPort = Number(new URL(baseURL).port || 0);
+  const machineID = await buildLocalAgentMachineID(health);
+  return cloudRequest("/api/agents/bind", {
+    method: "POST",
+    body: {
+      machine_id: machineID,
+      agent_version: String(health?.version || health?.agent_version || ""),
+      local_port: localPort,
+    },
+  });
+}
+
+/** buildLocalAgentMachineID 根据本地数据目录生成不可逆机器码，缺少目录时使用浏览器持久化随机值。 */
+async function buildLocalAgentMachineID(health: any) {
+  const dataDir = String(health?.dataDir || health?.data_dir || "")
+    .trim()
+    .toLowerCase();
+  if (dataDir && globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`goodhr-local-agent:${dataDir}`),
+    );
+    const hash = Array.from(new Uint8Array(digest), (value) =>
+      value.toString(16).padStart(2, "0"),
+    ).join("");
+    return `sha256-${hash}`;
+  }
+  const saved = localStorage.getItem(LOCAL_AGENT_MACHINE_ID_KEY);
+  if (saved) return saved;
+  const generated = `browser-${globalThis.crypto.randomUUID()}`;
+  localStorage.setItem(LOCAL_AGENT_MACHINE_ID_KEY, generated);
+  return generated;
 }
 
 /** detectLocalAgentOnce 执行一次真实端口探测。 */

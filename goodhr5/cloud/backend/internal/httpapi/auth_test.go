@@ -88,6 +88,51 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestAuthMeRefreshesLastLogin 验证用户复用有效登录态进入后台时也会刷新最近登录时间。
+func TestAuthMeRefreshesLastLogin(t *testing.T) {
+	store := NewMemoryAuthStore()
+	activity := &recordingUserActivityStore{}
+	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil)
+	if err := store.SaveSession("active-token", Session{Email: "active@example.com", CreatedAt: time.Now()}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer active-token")
+	resp := httptest.NewRecorder()
+	auth.Me(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("me status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	if activity.email != "active@example.com" || activity.at.IsZero() {
+		t.Fatalf("recorded activity = %q at %v", activity.email, activity.at)
+	}
+}
+
+// recordingUserActivityStore 记录认证测试中的最近登录写入。
+type recordingUserActivityStore struct {
+	email string
+	at    time.Time
+}
+
+// RecordLogin 保存测试捕获到的用户和时间。
+func (s *recordingUserActivityStore) RecordLogin(email string, at time.Time) error {
+	s.email = email
+	s.at = at
+	return nil
+}
+
+// ShouldShowTrialWelcome 让本测试不展示试用欢迎弹框。
+func (s *recordingUserActivityStore) ShouldShowTrialWelcome(email string) (bool, error) {
+	return false, nil
+}
+
+// AckTrialWelcome 忽略本测试未涉及的欢迎弹框确认。
+func (s *recordingUserActivityStore) AckTrialWelcome(email string, at time.Time) error {
+	return nil
+}
+
 // TestAuthSessionsKeepSeparateUsers 验证多个用户同时登录时 token 不会串号。
 func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 	server := mustNewServer(t)

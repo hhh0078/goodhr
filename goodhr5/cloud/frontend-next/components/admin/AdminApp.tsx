@@ -54,6 +54,7 @@ import BrandMark from "@/components/BrandMark";
 import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
 import {
+  bindDetectedLocalAgent,
   cloudRequest,
   detectLocalAgent,
   formatDate,
@@ -272,6 +273,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       }
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
+      await bindDetectedLocalAgent(nextBase);
       void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
       try {
         const runtime = await localRequest(nextBase, "/api/v1/runtime/status");

@@ -209,6 +209,10 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	if err := s.userActivity.RecordLogin(session.Email, time.Now()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record login activity")
+		return
+	}
 
 	showTrialWelcome := false
 	if s.userActivity != nil {
