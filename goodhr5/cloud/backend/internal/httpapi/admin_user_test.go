@@ -9,6 +9,27 @@ import (
 	"testing"
 )
 
+// createPositionForTest 创建测试岗位并返回岗位 ID。
+func createPositionForTest(t *testing.T, routes http.Handler, token string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/positions", bytes.NewBufferString(`{"name":"带货主播","keywords":["直播"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("create position status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Position struct {
+			ID string `json:"id"`
+		} `json:"position"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload.Position.ID
+}
+
 // TestAdminAIBalanceAdjustmentSendsNotice 验证 AI 余额调整会写入流水并发送邮件。
 func TestAdminAIBalanceAdjustmentSendsNotice(t *testing.T) {
 	mailer := &recordingMailer{}
@@ -174,28 +195,9 @@ func TestPublicTodayStats(t *testing.T) {
 		t.Fatalf("bind code = %d, body = %s", bindResp.Code, bindResp.Body.String())
 	}
 
-	createReq := httptest.NewRequest(
-		http.MethodPost,
-		"/api/tasks",
-		bytes.NewBufferString(`{"platform_id":"boss","platform_account_id":"platform_account_1","position_id":"`+positionID+`","mode":"keyword","match_limit":20}`),
-	)
-	createReq.Header.Set("Authorization", "Bearer "+token)
-	createResp := httptest.NewRecorder()
-	routes.ServeHTTP(createResp, createReq)
-	if createResp.Code != http.StatusOK {
-		t.Fatalf("create task code = %d, body = %s", createResp.Code, createResp.Body.String())
-	}
-	var createPayload struct {
-		Task struct {
-			ID string `json:"id"`
-		} `json:"task"`
-	}
-	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
-		t.Fatal(err)
-	}
 	processedReq := httptest.NewRequest(
 		http.MethodPost,
-		"/api/tasks/"+createPayload.Task.ID+"/processed-resumes",
+		"/api/positions/"+positionID+"/processed-resumes",
 		bytes.NewBufferString(`{"count":12}`),
 	)
 	processedReq.Header.Set("Authorization", "Bearer "+token)

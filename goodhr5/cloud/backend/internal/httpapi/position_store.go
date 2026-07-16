@@ -8,20 +8,32 @@ import (
 
 // Position 表示一个用户可复用的岗位筛选配置。
 type Position struct {
-	ID              string
-	UserEmail       string
-	PlatformID      string
-	Name            string
-	Keywords        []string
-	ExcludeKeywords []string
-	Description     string
-	GreetMessage    string
-	IsAndMode       bool
-	CommonConfig    map[string]any
-	AIConfig        map[string]any
-	KeywordConfig   map[string]any
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                string
+	UserEmail         string
+	PlatformID        string
+	Name              string
+	Keywords          []string
+	ExcludeKeywords   []string
+	Description       string
+	GreetMessage      string
+	IsAndMode         bool
+	CommonConfig      map[string]any
+	AIConfig          map[string]any
+	KeywordConfig     map[string]any
+	MatchLimit        int
+	Status            string
+	ScannedCount      int
+	GreetedCount      int
+	DailyGreetedCount int
+	DailyGreetedDate  string
+	SkippedCount      int
+	FailedCount       int
+	EnableSound       bool
+	EnableThinking    bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	StartedAt         *time.Time
+	FinishedAt        *time.Time
 }
 
 // PositionStore 定义岗位配置的持久化能力。
@@ -30,6 +42,10 @@ type PositionStore interface {
 	SavePosition(position Position) (Position, error)
 	PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error)
 	DeletePosition(userEmail string, positionID string) error
+	UpdatePositionStatus(positionID, status string) error
+	IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
+	SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
+	TodayGreetedTotal() (int, error)
 }
 
 // MemoryPositionStore 提供开发期使用的内存岗位配置存储。
@@ -62,10 +78,115 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 	if position.ID == "" {
 		position.ID = s.nextID()
 		position.CreatedAt = now
+		position.Status = "created"
+		position.DailyGreetedDate = now.Format(time.DateOnly)
+	} else if existing, ok := s.positions[position.ID]; ok {
+		position.Status = existing.Status
+		position.ScannedCount = existing.ScannedCount
+		position.GreetedCount = existing.GreetedCount
+		position.DailyGreetedCount = existing.DailyGreetedCount
+		position.DailyGreetedDate = existing.DailyGreetedDate
+		position.SkippedCount = existing.SkippedCount
+		position.FailedCount = existing.FailedCount
+		position.StartedAt = existing.StartedAt
+		position.FinishedAt = existing.FinishedAt
+		position.CreatedAt = existing.CreatedAt
 	}
 	position.UpdatedAt = now
 	s.positions[position.ID] = position
 	return position, nil
+}
+
+// IncrementPositionCounts 累加内存岗位统计。
+// positionID 为岗位 ID，其余参数为本次新增数量。
+func (s *MemoryPositionStore) IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	position, ok := s.positions[positionID]
+	if !ok {
+		return ErrNotFound
+	}
+	position.ScannedCount += maxIntValue(0, scanned)
+	position.GreetedCount += maxIntValue(0, greeted)
+	position.SkippedCount += maxIntValue(0, skipped)
+	position.FailedCount += maxIntValue(0, failed)
+	today := s.now().Format(time.DateOnly)
+	if position.DailyGreetedDate != today {
+		position.DailyGreetedDate = today
+		position.DailyGreetedCount = 0
+	}
+	position.DailyGreetedCount += maxIntValue(0, greeted)
+	position.UpdatedAt = s.now()
+	s.positions[positionID] = position
+	return nil
+}
+
+// UpdatePositionStatus 更新岗位当前运行状态。
+// positionID 为岗位 ID，status 为新的运行状态。
+func (s *MemoryPositionStore) UpdatePositionStatus(positionID, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	position, ok := s.positions[positionID]
+	if !ok {
+		return ErrNotFound
+	}
+	now := s.now()
+	position.Status = status
+	position.UpdatedAt = now
+	if status == "running" {
+		position.StartedAt = &now
+		position.FinishedAt = nil
+	} else if status == "completed" || status == "stopped" || status == "failed" {
+		position.FinishedAt = &now
+	}
+	s.positions[positionID] = position
+	return nil
+}
+
+// SyncPositionCounts 按本地累计值同步岗位统计。
+// positionID 为岗位 ID，其余参数为累计扫描、打招呼、跳过和失败数量。
+func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	position, ok := s.positions[positionID]
+	if !ok {
+		return ErrNotFound
+	}
+	position.ScannedCount = maxIntValue(position.ScannedCount, scanned)
+	position.GreetedCount = maxIntValue(position.GreetedCount, greeted)
+	position.SkippedCount = maxIntValue(position.SkippedCount, skipped)
+	position.FailedCount = maxIntValue(position.FailedCount, failed)
+	today := s.now().Format(time.DateOnly)
+	if position.DailyGreetedDate != today {
+		position.DailyGreetedDate = today
+		position.DailyGreetedCount = 0
+	}
+	position.DailyGreetedCount = maxIntValue(position.DailyGreetedCount, greeted)
+	position.UpdatedAt = s.now()
+	s.positions[positionID] = position
+	return nil
+}
+
+// TodayGreetedTotal 汇总所有岗位今天的打招呼数量。
+func (s *MemoryPositionStore) TodayGreetedTotal() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	today := s.now().Format(time.DateOnly)
+	total := 0
+	for _, position := range s.positions {
+		if position.DailyGreetedDate == today {
+			total += position.DailyGreetedCount
+		}
+	}
+	return total, nil
+}
+
+// maxIntValue 返回两个整数中的较大值。
+func maxIntValue(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // PositionByID 读取当前用户的单个岗位配置。

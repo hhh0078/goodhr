@@ -16,7 +16,7 @@ func NewRuntime() *Runtime {
 	return &Runtime{}
 }
 
-// ShouldSelectPositionDirectly 表示智联招聘每次直接切换任务岗位，不读取页面当前岗位。
+// ShouldSelectPositionDirectly 表示智联招聘每次直接切换岗位运行岗位，不读取页面当前岗位。
 func (r *Runtime) ShouldSelectPositionDirectly() bool {
 	return true
 }
@@ -41,7 +41,7 @@ func zhaopinCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platf
 }
 
 // candidateMatchText 返回智联动态列表重新定位候选人时使用的卡片文本。
-// candidate 为任务最初提取的候选人数据。
+// candidate 为岗位运行最初提取的候选人数据。
 func candidateMatchText(candidate platformcore.Candidate) string {
 	fields := mapFromAny(candidate["fields"])
 	return firstNonEmpty(stringFromMap(candidate, "raw_text"), stringFromMap(candidate, "filter_text"), stringFromMap(fields, "basic_info"))

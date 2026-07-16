@@ -1,8 +1,8 @@
-/** 本文件负责浏览器端任务启动前的 AI 余额和本地程序版本强制校验。 */
+/** 本文件负责浏览器端岗位运行启动前的 AI 余额和本地程序版本强制校验。 */
 
-export const MINIMUM_TASK_BALANCE_YUAN = 0.1;
+export const MINIMUM_POSITION_BALANCE_YUAN = 0.1;
 
-export type TaskStartGuardFailure = {
+export type PositionStartGuardFailure = {
   code: string;
   title: string;
   message: string;
@@ -19,21 +19,21 @@ export function latestLocalAgentRelease(config: any) {
   };
 }
 
-/** evaluateTaskStartGuard 判断余额和本地程序版本是否允许开始任务。 */
-export function evaluateTaskStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown): TaskStartGuardFailure | null {
+/** evaluatePositionStartGuard 判断余额和本地程序版本是否允许开始岗位运行。 */
+export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown): PositionStartGuardFailure | null {
   const balance = walletBalanceYuan(wallet);
   if (balance == null) {
     return {
       code: "ai_balance_unavailable",
       title: "余额检查失败",
-      message: "暂时没有读到 AI 余额。为了避免任务中途停下，本次不会开始，请刷新页面后重试。",
+      message: "暂时没有读到 AI 余额。为了避免岗位运行中途停下，本次不会开始，请刷新页面后重试。",
     };
   }
-  if (balance < MINIMUM_TASK_BALANCE_YUAN) {
+  if (balance < MINIMUM_POSITION_BALANCE_YUAN) {
     return {
       code: "ai_balance_insufficient",
       title: "AI 余额不足",
-      message: `当前 AI 余额为 ￥${balance.toFixed(4)}，低于任务启动要求的 ￥${MINIMUM_TASK_BALANCE_YUAN.toFixed(2)}。请先充值，本次任务不会开始。`,
+      message: `当前 AI 余额为 ￥${balance.toFixed(4)}，低于岗位运行启动要求的 ￥${MINIMUM_POSITION_BALANCE_YUAN.toFixed(2)}。请先充值，本次岗位运行不会开始。`,
     };
   }
   const current = String(currentVersion || "").trim();
@@ -42,14 +42,14 @@ export function evaluateTaskStartGuard(wallet: any, currentVersion: unknown, req
     return {
       code: "agent_version_unavailable",
       title: "版本检查失败",
-      message: "暂时没有读到本地程序当前版本或后台要求版本。本次任务不会开始，请重新连接本地程序后重试。",
+      message: "暂时没有读到本地程序当前版本或后台要求版本。本次岗位运行不会开始，请重新连接本地程序后重试。",
     };
   }
   if (isVersionLower(current, required)) {
     return {
       code: "agent_version_outdated",
       title: "本地程序版本过低",
-      message: `当前版本为 ${current}，后台要求版本为 ${required}。请先完成更新，本次任务不会开始。`,
+      message: `当前版本为 ${current}，后台要求版本为 ${required}。请先完成更新，本次岗位运行不会开始。`,
     };
   }
   return null;

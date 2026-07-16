@@ -59,7 +59,7 @@ type ChatResult struct {
 	ElapsedMS int            `json:"elapsed_ms"`
 }
 
-// ServiceError 表示 AI 服务端或网络层返回的结构化错误，供任务运行器判断是否必须停止。
+// ServiceError 表示 AI 服务端或网络层返回的结构化错误，供岗位运行运行器判断是否必须停止。
 type ServiceError struct {
 	StatusCode int
 	Body       string
@@ -69,7 +69,7 @@ type ServiceError struct {
 	RetryAfter time.Duration
 }
 
-// Error 返回适合写入任务日志的 AI 服务错误文本。
+// Error 返回适合写入岗位运行日志的 AI 服务错误文本。
 func (e *ServiceError) Error() string {
 	if e == nil {
 		return "AI 服务请求失败"
@@ -91,8 +91,8 @@ func (e *ServiceError) Unwrap() error {
 	return e.Cause
 }
 
-// IsTaskStoppingError 判断 AI 错误是否在内部重试结束后仍必须停止整个任务。
-func IsTaskStoppingError(err error) bool {
+// IsPositionStoppingError 判断 AI 错误是否在内部重试结束后仍必须停止整个岗位运行。
+func IsPositionStoppingError(err error) bool {
 	var serviceErr *ServiceError
 	return errors.As(err, &serviceErr) && serviceErr.Fatal
 }
@@ -273,7 +273,7 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	if _, ok := body["model"]; !ok {
 		body["model"] = c.Config.Model
 	}
-	// 只有任务明确传 enable_thinking=false 时才发送给 AI
+	// 只有岗位运行明确传 enable_thinking=false 时才发送给 AI
 	// 默认不传（AI 自由决定），开启思考模式也不传
 	if v, ok := body["enable_thinking"]; ok {
 		if b, ok := v.(bool); ok && !b {

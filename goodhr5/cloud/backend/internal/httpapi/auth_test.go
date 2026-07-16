@@ -314,8 +314,8 @@ func (m *recordingMailer) SendAIBalanceNotice(email string, notice AIBalanceNoti
 	return nil
 }
 
-// SendTaskStatus 忽略任务状态邮件发送请求。
-func (m *recordingMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
+// SendPositionStatus 忽略岗位状态邮件发送请求。
+func (m *recordingMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
 	return nil
 }
 

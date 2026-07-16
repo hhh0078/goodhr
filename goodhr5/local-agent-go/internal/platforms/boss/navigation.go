@@ -77,7 +77,7 @@ func normalizePositionName(value string) string {
 }
 
 // positionSearchQuery 生成 Boss 岗位搜索框可识别的精简关键词。
-// value 为页面展示或任务配置中的完整岗位名称。
+// value 为页面展示或岗位运行配置中的完整岗位名称。
 func positionSearchQuery(value string) string {
 	original := strings.TrimSpace(value)
 	query := original

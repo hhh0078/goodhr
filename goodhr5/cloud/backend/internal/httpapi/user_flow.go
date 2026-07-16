@@ -1,4 +1,4 @@
-// 本文件负责维护用户首次跑通招聘任务的流程状态、事件和上报接口。
+// 本文件负责维护用户首次跑通招聘岗位运行的流程状态、事件和上报接口。
 package httpapi
 
 import (
@@ -10,15 +10,14 @@ import (
 	"time"
 )
 
-const userFlowVersion = 2
+const userFlowVersion = 3
 
 const (
 	userFlowAgentDetected        = "agent_detected"
 	userFlowRuntimeReady         = "runtime_ready"
 	userFlowPositionCreated      = "position_created"
-	userFlowTaskCreated          = "task_created"
 	userFlowPlatformLogin        = "platform_login_verified"
-	userFlowTaskStarted          = "task_started"
+	userFlowPositionStarted      = "position_started"
 	userFlowFirstResumeProcessed = "first_resume_processed"
 	userFlowFirstGreetSuccess    = "first_greet_success"
 )
@@ -27,9 +26,8 @@ var userFlowStepOrder = []string{
 	userFlowAgentDetected,
 	userFlowRuntimeReady,
 	userFlowPositionCreated,
-	userFlowTaskCreated,
 	userFlowPlatformLogin,
-	userFlowTaskStarted,
+	userFlowPositionStarted,
 	userFlowFirstResumeProcessed,
 	userFlowFirstGreetSuccess,
 }
@@ -38,9 +36,8 @@ var userFlowStepNames = map[string]string{
 	userFlowAgentDetected:        "启动本地程序",
 	userFlowRuntimeReady:         "安装运行组件",
 	userFlowPositionCreated:      "创建岗位",
-	userFlowTaskCreated:          "创建任务",
 	userFlowPlatformLogin:        "登录招聘平台",
-	userFlowTaskStarted:          "启动任务",
+	userFlowPositionStarted:      "启动岗位",
 	userFlowFirstResumeProcessed: "处理首份简历",
 	userFlowFirstGreetSuccess:    "首次打招呼成功",
 }
@@ -54,7 +51,7 @@ type UserFlowStepState struct {
 	Message         string     `json:"message,omitempty"`
 }
 
-// UserFlowState 表示用户首次跑通招聘任务的流程快照。
+// UserFlowState 表示用户首次跑通招聘岗位运行的流程快照。
 type UserFlowState struct {
 	Version        int                          `json:"version"`
 	Stage          string                       `json:"stage"`
@@ -74,7 +71,7 @@ type UserFlowUpdate struct {
 	ReasonCode string         `json:"reason_code,omitempty"`
 	Message    string         `json:"message,omitempty"`
 	Source     string         `json:"source,omitempty"`
-	TaskID     string         `json:"task_id,omitempty"`
+	PositionID string         `json:"position_id,omitempty"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	OccurredAt time.Time      `json:"-"`
 }

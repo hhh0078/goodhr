@@ -1,5 +1,5 @@
-// Package taskrunner 文件作用：按职责承载本地任务运行流程的拆分实现。
-package taskrunner
+// Package positionrunner 文件作用：按职责承载本地岗位运行运行流程的拆分实现。
+package positionrunner
 
 import (
 	"context"
@@ -39,8 +39,8 @@ func (s *candidateDetailSession) Close(ctx context.Context) error {
 }
 
 // startCandidateDetailScrolling 在最终 AI 分析期间后台滚动详情，并返回立即停止函数。
-// ctx 为候选人上下文，taskID 为任务 ID，platformRuntime 为平台运行时，exec 为执行器，platformConfig 为平台配置，candidate 为候选人。
-func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any) func() {
+// ctx 为候选人上下文，positionID 为岗位运行 ID，platformRuntime 为平台运行时，exec 为执行器，platformConfig 为平台配置，candidate 为候选人。
+func (r *Runner) startCandidateDetailScrolling(ctx context.Context, positionID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any) func() {
 	scroller, ok := platformRuntime.(platformcore.DetailAnalysisScroller)
 	if !ok {
 		return func() {}
@@ -48,7 +48,7 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 	scrollCtx, cancel := context.WithCancel(ctx)
 	started := make(chan struct{})
 	done := make(chan struct{})
-	r.taskLog(taskID, "info", "详情浏览：AI 分析期间开始同步滚动，候选人="+candidateLogName(candidate))
+	r.positionLog(positionID, "info", "详情浏览：AI 分析期间开始同步滚动，候选人="+candidateLogName(candidate))
 	go func() {
 		defer close(done)
 		distances := []int{260, 320, 240, -180}
@@ -68,7 +68,7 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 			actionCancel()
 			if err != nil {
 				if scrollCtx.Err() == nil {
-					r.taskLog(taskID, "warning", "详情浏览：同步滚动停止，候选人="+candidateLogName(candidate)+"，错误="+err.Error())
+					r.positionLog(positionID, "warning", "详情浏览：同步滚动停止，候选人="+candidateLogName(candidate)+"，错误="+err.Error())
 				}
 				return
 			}
@@ -81,22 +81,22 @@ func (r *Runner) startCandidateDetailScrolling(ctx context.Context, taskID strin
 	return func() {
 		cancel()
 		<-done
-		r.taskLog(taskID, "info", "详情浏览：AI 已返回，滚动已停止，候选人="+candidateLogName(candidate))
+		r.positionLog(positionID, "info", "详情浏览：AI 已返回，滚动已停止，候选人="+candidateLogName(candidate))
 	}
 }
 
 // enrichCandidatesWithDetail 为候选人补充详情文本。
-// ctx 为请求上下文，task 为任务记录，platformConfig 为云端平台配置，candidates 为候选人列表。
-func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, options StartOptions) (int, error) {
+// ctx 为请求上下文，position 为岗位运行记录，platformConfig 为云端平台配置，candidates 为候选人列表。
+func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidates []map[string]any, options StartOptions) (int, error) {
 	skipped := 0
-	mode := detailMode(task)
+	mode := detailMode(position)
 	if mode == "" {
 		return 0, nil
 	}
 	var aiClient *localai.Client
 	var err error
 	if mode == "ai" {
-		aiClient, err = r.pipelineAIClient(task, options)
+		aiClient, err = r.pipelineAIClient(position, options)
 		if err != nil {
 			return 0, err
 		}
@@ -105,13 +105,13 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 		if err := ctx.Err(); err != nil {
 			return skipped, err
 		}
-		itemSkipped, detailSession, err := r.enrichCandidateWithDetail(ctx, task, platformRuntime, exec, platformConfig, candidate, aiClient, options)
+		itemSkipped, detailSession, err := r.enrichCandidateWithDetail(ctx, position, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 		if err != nil {
 			return skipped, err
 		}
 		if detailSession != nil {
 			if closeErr := detailSession.Close(context.WithoutCancel(ctx)); closeErr != nil {
-				return skipped, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
+				return skipped, fmt.Errorf("候选人详情无法关闭，岗位运行已自动停止：%w", closeErr)
 			}
 		}
 		skipped += itemSkipped
@@ -121,25 +121,25 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 
 // enrichCandidateWithDetail 为单个候选人补充详情文本。
 // ctx 为请求上下文，candidate 为候选人，aiClient 为空时按需临时创建。
-func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client, options StartOptions) (int, *candidateDetailSession, error) {
-	mode := detailMode(task)
+func (r *Runner) enrichCandidateWithDetail(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, aiClient *localai.Client, options StartOptions) (int, *candidateDetailSession, error) {
+	mode := detailMode(position)
 	if mode == "" || !canContinueCandidate(stringFromMap(candidate, "status")) {
 		return 0, nil, nil
 	}
 	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateName, detailModeLabel(mode)))
+	r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateName, detailModeLabel(mode)))
 	// 打开详情前模拟人工点击延时
-	if err := r.delayRandomRange(ctx, task.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
-		r.taskLog(task.ID, "warning", "详情读取：打开详情前等待被中断，候选人="+candidateName)
+	if err := r.delayRandomRange(ctx, position.ID, "点击详情前", options.DetailOpenDelayMin, options.DetailOpenDelayMax); err != nil {
+		r.positionLog(position.ID, "warning", "详情读取：打开详情前等待被中断，候选人="+candidateName)
 	}
 	var detailResult platformcore.DetailResult
 	closeDetail := func(closeCtx context.Context) error {
 		return platformRuntime.CloseCandidateDetail(closeCtx, exec, platformConfig, platformcore.Candidate(candidate))
 	}
-	r.setPendingDetailClose(task.ID, closeDetail)
-	err := r.withOperationTimeout(ctx, task.ID, candidateName, "读取候选人详情", detailFetchTimeout, func(opCtx context.Context) error {
+	r.setPendingDetailClose(position.ID, closeDetail)
+	err := r.withOperationTimeout(ctx, position.ID, candidateName, "读取候选人详情", detailFetchTimeout, func(opCtx context.Context) error {
 		nextDetailResult, fetchErr := platformRuntime.FetchCandidateDetail(opCtx, exec, platformConfig, platformcore.Candidate(candidate), platformcore.DetailRequest{
-			TaskID:         task.ID,
+			PositionID:     position.ID,
 			Mode:           mode,
 			ScreenshotsDir: r.screenshotsDir,
 			Filename:       "detail-latest.png",
@@ -149,35 +149,35 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	})
 	if err != nil {
 		candidate["detail_error"] = err.Error()
-		r.taskLog(task.ID, "warning", fmt.Sprintf("详情读取：失败，候选人=%s，错误=%s", candidateName, err.Error()))
-		if closeErr := r.closeCandidateDetailNow(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", closeDetail); closeErr != nil {
-			r.taskLog(task.ID, "warning", "异常后关闭"+candidateName+"详情失败："+closeErr.Error())
-			return 0, nil, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
+		r.positionLog(position.ID, "warning", fmt.Sprintf("详情读取：失败，候选人=%s，错误=%s", candidateName, err.Error()))
+		if closeErr := r.closeCandidateDetailNow(context.WithoutCancel(ctx), position.ID, candidateName, "异常后关闭详情页", closeDetail); closeErr != nil {
+			r.positionLog(position.ID, "warning", "异常后关闭"+candidateName+"详情失败："+closeErr.Error())
+			return 0, nil, fmt.Errorf("候选人详情无法关闭，岗位运行已自动停止：%w", closeErr)
 		}
-		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
-		if isBrowserClosedTaskError(err) {
-			return 0, nil, fmt.Errorf("浏览器未启动或已关闭，任务已自动结束：%w", err)
+		// 浏览器未启动或已关闭的错误应该直接返回出去让整个岗位运行停止
+		if isBrowserClosedPositionError(err) {
+			return 0, nil, fmt.Errorf("浏览器未启动或已关闭，岗位运行已自动结束：%w", err)
 		}
 		if isFatalCandidateDetailError(err) {
-			return 0, nil, fmt.Errorf("候选人详情没找到，任务已自动停止：%w", err)
+			return 0, nil, fmt.Errorf("候选人详情没找到，岗位运行已自动停止：%w", err)
 		}
-		if r.isUserStopped(task.ID) {
+		if r.isUserStopped(position.ID) {
 			return 0, nil, nil
 		}
 		return 0, nil, &candidateOperationError{Operation: "读取候选人详情", Err: err}
 	}
 	_, closesAfterAI := platformRuntime.(platformcore.DetailAnalysisScroller)
 	detailSession := &candidateDetailSession{closeFn: func(closeCtx context.Context) error {
-		if !closesAfterAI && !r.isUserStopped(task.ID) {
-			_ = r.delayRandomRange(closeCtx, task.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
+		if !closesAfterAI && !r.isUserStopped(position.ID) {
+			_ = r.delayRandomRange(closeCtx, position.ID, "关闭详情前", options.DetailCloseDelayMin, options.DetailCloseDelayMax)
 		}
-		if err := r.closeCandidateDetailNow(closeCtx, task.ID, candidateName, "关闭详情页", closeDetail); err != nil {
-			r.taskLog(task.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
+		if err := r.closeCandidateDetailNow(closeCtx, position.ID, candidateName, "关闭详情页", closeDetail); err != nil {
+			r.positionLog(position.ID, "warning", "关闭"+candidateName+"详情失败："+err.Error())
 			return err
 		}
 		return nil
 	}}
-	r.taskLog(task.ID, "info", "详情读取：详情接口返回成功，候选人="+candidateName)
+	r.positionLog(position.ID, "info", "详情读取：详情接口返回成功，候选人="+candidateName)
 	detailText := ""
 	if mode == "dom" {
 		detailText = strings.TrimSpace(detailResult.Text)
@@ -185,10 +185,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 	}
 	if screenshot := detailResult.Screenshot; len(screenshot) > 0 {
 		r.attachDetailScreenshot(candidate, screenshot)
-		r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：详情截图已返回，候选人=%s，图片=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
+		r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：详情截图已返回，候选人=%s，图片=%s", candidateName, firstNonEmptyString(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))))
 		if mode == "ocr" {
-			if taskMode(task) == "keyword" {
-				r.showKeywordOCRLoadingOverlay(ctx, exec, task, candidate)
+			if positionMode(position) == "keyword" {
+				r.showKeywordOCRLoadingOverlay(ctx, exec, position, candidate)
 			} else {
 				overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
 				_, _ = exec.Post(overlayCtx, "/api/v1/page/ai-overlay", map[string]any{
@@ -200,39 +200,39 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				overlayCancel()
 			}
 			ocrText := ""
-			err := r.withOperationTimeout(ctx, task.ID, candidateName, "OCR识别详情截图", ocrRecognizeTimeout, func(ocrCtx context.Context) error {
+			err := r.withOperationTimeout(ctx, position.ID, candidateName, "OCR识别详情截图", ocrRecognizeTimeout, func(ocrCtx context.Context) error {
 				nextText, ocrErr := r.recognizeDetailScreenshot(ocrCtx, screenshot)
 				ocrText = nextText
 				return ocrErr
 			})
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
-				r.taskLog(task.ID, "warning", fmt.Sprintf("OCR识别：失败，候选人=%s，错误=%s", candidateName, err.Error()))
+				r.positionLog(position.ID, "warning", fmt.Sprintf("OCR识别：失败，候选人=%s，错误=%s", candidateName, err.Error()))
 				if isFatalOCRError(err) {
-					return 0, detailSession, fmt.Errorf("OCR运行组件不可用，任务已自动停止：%w", err)
+					return 0, detailSession, fmt.Errorf("OCR运行组件不可用，岗位运行已自动停止：%w", err)
 				}
 			} else {
 				detailText = platformRuntime.CleanCandidateDetailText(ocrText)
 				candidate["ocr_text"] = detailText
 				candidate["detail_source"] = "ocr"
-				r.taskLog(task.ID, "info", fmt.Sprintf("OCR识别：完成，候选人=%s，文本长度=%d", candidateName, len([]rune(detailText))))
+				r.positionLog(position.ID, "info", fmt.Sprintf("OCR识别：完成，候选人=%s，文本长度=%d", candidateName, len([]rune(detailText))))
 			}
 		}
 		if mode == "ai" {
-			r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：开始，候选人=%s，超时=%s", candidateName, aiDetailTimeout.Round(time.Second)))
+			r.positionLog(position.ID, "info", fmt.Sprintf("AI图片详情：开始，候选人=%s，超时=%s", candidateName, aiDetailTimeout.Round(time.Second)))
 			visibleClient, cleanup := r.aiClientForCall(ctx, exec, aiClient, "AI 正在分析详情", candidateName, "正在识别详情长图并判断是否打招呼")
 			var decision localai.Decision
-			err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI图片详情评分", aiDetailTimeout, func(aiCtx context.Context) error {
-				nextDecision, aiErr := r.scoreDetailScreenshotWithClient(aiCtx, task, candidate, screenshot, visibleClient)
+			err := r.withOperationTimeout(ctx, position.ID, candidateName, "AI图片详情评分", aiDetailTimeout, func(aiCtx context.Context) error {
+				nextDecision, aiErr := r.scoreDetailScreenshotWithClient(aiCtx, position, candidate, screenshot, visibleClient)
 				decision = nextDecision
 				return aiErr
 			})
 			cleanup()
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
-				r.taskLog(task.ID, "warning", fmt.Sprintf("AI图片详情：失败，候选人=%s，错误=%s", candidateName, err.Error()))
-				if localai.IsTaskStoppingError(err) {
-					return 0, detailSession, fmt.Errorf("AI图片详情分析持续不可用，任务已自动停止：%w", err)
+				r.positionLog(position.ID, "warning", fmt.Sprintf("AI图片详情：失败，候选人=%s，错误=%s", candidateName, err.Error()))
+				if localai.IsPositionStoppingError(err) {
+					return 0, detailSession, fmt.Errorf("AI图片详情分析持续不可用，岗位运行已自动停止：%w", err)
 				}
 			} else {
 				r.showAIReply(ctx, exec, "AI 详情分析完成", candidateName, formatVisionDecisionReply(decision))
@@ -249,17 +249,17 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 				if !decision.ShouldGreet {
 					candidate["status"] = "skipped"
 					candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-					r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
+					r.positionLog(position.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
 					return 1, detailSession, nil
 				}
 				candidate["status"] = "ai_passed"
-				r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是，文本长度=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
+				r.positionLog(position.ID, "info", fmt.Sprintf("AI图片详情：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是，文本长度=%d", candidateName, decision.Score, decision.Threshold, len([]rune(detailText))))
 			}
 		}
 	} else if mode == "ai" {
-		r.taskLog(task.ID, "warning", "AI图片详情：失败，候选人="+candidateName+"，错误=详情截图为空")
+		r.positionLog(position.ID, "warning", "AI图片详情：失败，候选人="+candidateName+"，错误=详情截图为空")
 	} else {
-		r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：当前详情模式=%s，不调用图片详情 AI，候选人=%s", detailModeLabel(mode), candidateName))
+		r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：当前详情模式=%s，不调用图片详情 AI，候选人=%s", detailModeLabel(mode), candidateName))
 	}
 	detailText = platformRuntime.CleanCandidateDetailText(detailText)
 	if detailText == "" {
@@ -268,29 +268,29 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		}
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "详情文本为空"
-		r.taskLog(task.ID, "warning", "详情读取：失败，候选人="+candidateName+"，错误=详情文本为空")
+		r.positionLog(position.ID, "warning", "详情读取：失败，候选人="+candidateName+"，错误=详情文本为空")
 		return 1, detailSession, nil
 	}
 	candidate["detail_text"] = detailText
 	candidate["raw_text"] = mergeText(stringFromMap(candidate, "raw_text"), detailText)
 	candidate["status"] = "detail_fetched"
-	r.taskLog(task.ID, "info", fmt.Sprintf("详情读取：完成，候选人=%s，来源=%s，文本长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
+	r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：完成，候选人=%s，来源=%s，文本长度=%d", candidateName, detailModeLabel(mode), len([]rune(detailText))))
 	return 0, detailSession, nil
 }
 
-// setPendingDetailClose 登记当前候选人详情的清理动作，供正常流程和任务收尾共同使用。
-func (r *Runner) setPendingDetailClose(taskID string, closeFn func(context.Context) error) {
+// setPendingDetailClose 登记当前候选人详情的清理动作，供正常流程和岗位运行收尾共同使用。
+func (r *Runner) setPendingDetailClose(positionID string, closeFn func(context.Context) error) {
 	r.mu.Lock()
-	if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+	if state := r.running[strings.TrimSpace(positionID)]; state != nil {
 		state.pendingDetailClose = closeFn
 	}
 	r.mu.Unlock()
 }
 
 // closeCandidateDetailNow 执行当前候选人详情清理，成功后清除待处理标记。
-func (r *Runner) closeCandidateDetailNow(ctx context.Context, taskID string, candidateName string, operation string, fallback func(context.Context) error) error {
+func (r *Runner) closeCandidateDetailNow(ctx context.Context, positionID string, candidateName string, operation string, fallback func(context.Context) error) error {
 	r.mu.Lock()
-	state := r.running[strings.TrimSpace(taskID)]
+	state := r.running[strings.TrimSpace(positionID)]
 	var closeFn func(context.Context) error
 	if state != nil {
 		closeFn = state.pendingDetailClose
@@ -302,10 +302,10 @@ func (r *Runner) closeCandidateDetailNow(ctx context.Context, taskID string, can
 	if closeFn == nil {
 		return nil
 	}
-	err := r.withOperationTimeout(ctx, taskID, candidateName, operation, detailCloseTimeout, closeFn)
+	err := r.withOperationTimeout(ctx, positionID, candidateName, operation, detailCloseTimeout, closeFn)
 	if err == nil {
 		r.mu.Lock()
-		if state := r.running[strings.TrimSpace(taskID)]; state != nil {
+		if state := r.running[strings.TrimSpace(positionID)]; state != nil {
 			state.pendingDetailClose = nil
 		}
 		r.mu.Unlock()
@@ -313,18 +313,18 @@ func (r *Runner) closeCandidateDetailNow(ctx context.Context, taskID string, can
 	return err
 }
 
-// closePendingCandidateDetail 在任务退出前补关仍可能打开的候选人详情。
-func (r *Runner) closePendingCandidateDetail(taskID string) {
+// closePendingCandidateDetail 在岗位运行退出前补关仍可能打开的候选人详情。
+func (r *Runner) closePendingCandidateDetail(positionID string) {
 	r.mu.Lock()
-	state := r.running[strings.TrimSpace(taskID)]
+	state := r.running[strings.TrimSpace(positionID)]
 	hasPending := state != nil && state.pendingDetailClose != nil
 	r.mu.Unlock()
 	if !hasPending {
 		return
 	}
-	r.taskLog(taskID, "info", "任务收尾：检测到候选人详情可能仍打开，执行最后关闭")
-	if err := r.closeCandidateDetailNow(context.Background(), taskID, "当前候选人", "任务收尾关闭详情页", nil); err != nil {
-		r.taskLog(taskID, "warning", "任务收尾：关闭候选人详情失败，错误="+err.Error())
+	r.positionLog(positionID, "info", "岗位运行收尾：检测到候选人详情可能仍打开，执行最后关闭")
+	if err := r.closeCandidateDetailNow(context.Background(), positionID, "当前候选人", "岗位运行收尾关闭详情页", nil); err != nil {
+		r.positionLog(positionID, "warning", "岗位运行收尾：关闭候选人详情失败，错误="+err.Error())
 	}
 }
 
@@ -374,17 +374,17 @@ func mergeText(base string, extra string) string {
 	return base + "\n" + extra
 }
 
-// shouldFetchDetail 判断任务是否需要读取候选人详情。
-// task 为任务记录。
-func shouldFetchDetail(task localdb.Task) bool {
-	return detailMode(task) != ""
+// shouldFetchDetail 判断岗位运行是否需要读取候选人详情。
+// position 为岗位运行记录。
+func shouldFetchDetail(position localdb.Position) bool {
+	return detailMode(position) != ""
 }
 
 // detailMode 返回详情读取模式。
-// task 为任务记录，支持 dom、ocr 和 ai。
-func detailMode(task localdb.Task) string {
-	commonConfig := mapValue(task.PositionSnapshot["common_config"])
-	keywordConfig := mapValue(task.PositionSnapshot["keyword_config"])
+// position 为岗位运行记录，支持 dom、ocr 和 ai。
+func detailMode(position localdb.Position) string {
+	commonConfig := mapValue(position.PositionSnapshot["common_config"])
+	keywordConfig := mapValue(position.PositionSnapshot["keyword_config"])
 	mode := strings.ToLower(firstNonEmptyString(
 		stringFromMap(commonConfig, "detail_mode"),
 		stringFromMap(keywordConfig, "detail_mode"),
@@ -392,7 +392,7 @@ func detailMode(task localdb.Task) string {
 	if mode == "ocr" || mode == "dom" || mode == "ai" {
 		return mode
 	}
-	if taskMode(task) == "ai" {
+	if positionMode(position) == "ai" {
 		return "dom"
 	}
 	return ""

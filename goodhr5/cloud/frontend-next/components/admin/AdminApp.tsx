@@ -21,7 +21,6 @@ import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
 import SensorsRoundedIcon from "@mui/icons-material/SensorsRounded";
-import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import {
   Alert,
@@ -113,7 +112,6 @@ const menuGroups: MenuGroup[] = [
     label: "招聘管理",
     items: [
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
-      ["/admin/tasks", "任务列表", TaskAltRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
     ],
   },

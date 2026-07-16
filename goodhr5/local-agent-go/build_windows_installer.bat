@@ -4,7 +4,7 @@ setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
 set "VERSION=%~1"
-if "%VERSION%"=="" set "VERSION=5.1.9"
+if "%VERSION%"=="" set "VERSION=5.3.5"
 
 echo [GoodHR] Start Windows installer build. Version: %VERSION%
 echo [GoodHR] Project dir: %ROOT_DIR%

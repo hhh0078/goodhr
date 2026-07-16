@@ -25,10 +25,10 @@ import (
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/ocr"
+	"goodhr5/local-agent-go/internal/positionrunner"
 	"goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
-	"goodhr5/local-agent-go/internal/taskrunner"
 	"goodhr5/local-agent-go/internal/version"
 )
 
@@ -39,7 +39,7 @@ type Server struct {
 	worker  *browser.WorkerManager
 	ocr     *ocr.Engine
 	db      *localdb.DB
-	runner  *taskrunner.Runner
+	runner  *positionrunner.Runner
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -58,7 +58,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		worker:  workerManager,
 		ocr:     ocrEngine,
 		db:      db,
-		runner:  taskrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase),
+		runner:  positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase),
 	}, nil
 }
 
@@ -130,9 +130,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/start", s.handleWorkerStart)
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
-	mux.HandleFunc("/api/v1/local/tasks/", s.handleLocalTaskItem)
-	mux.HandleFunc("/api/v1/tasks/init", s.handleLegacyTaskInit)
-	mux.HandleFunc("/api/v1/tasks/", s.handleLegacyLocalTaskItem)
+	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
 	mux.HandleFunc("/api/v1/local/ocr/status", s.handleLocalOCRStatus)
 	mux.HandleFunc("/api/v1/local/ocr/recognize", s.handleLocalOCRRecognize)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
@@ -321,64 +319,33 @@ func (s *Server) handleWorkerStatus(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, s.worker.Status())
 }
 
-// handleLocalTaskItem 处理单个本地任务相关接口。
+// handleLocalPositionItem 处理单个本地岗位运行相关接口。
 // w 为响应对象，r 为请求对象。
-func (s *Server) handleLocalTaskItem(w http.ResponseWriter, r *http.Request) {
-	taskID, action := localTaskPath(r.URL.Path)
-	if taskID == "" {
-		response.Error(w, http.StatusBadRequest, "任务 ID 不能为空")
+func (s *Server) handleLocalPositionItem(w http.ResponseWriter, r *http.Request) {
+	positionID, action := localPositionPath(r.URL.Path)
+	if positionID == "" {
+		response.Error(w, http.StatusBadRequest, "岗位运行 ID 不能为空")
 		return
 	}
 	switch action {
 	case "status":
-		s.handleLocalTaskStatus(w, r, taskID)
+		s.handleLocalPositionStatus(w, r, positionID)
 	case "logs":
-		s.handleLocalTaskLogs(w, r, taskID)
+		s.handleLocalPositionLogs(w, r, positionID)
 	case "run":
-		s.handleLocalTaskRun(w, r, taskID)
+		s.handleLocalPositionRun(w, r, positionID)
 	case "stop":
-		s.handleLocalTaskStop(w, r, taskID)
+		s.handleLocalPositionStop(w, r, positionID)
 	default:
 		response.Error(w, http.StatusNotFound, "接口不存在")
 	}
 }
 
-// handleLegacyLocalTaskItem 兼容前端旧的本地任务路径。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLegacyLocalTaskItem(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/")
-	parts := strings.Split(strings.Trim(rest, "/"), "/")
-	if len(parts) < 2 || parts[0] == "" {
-		response.Error(w, http.StatusNotFound, "接口不存在")
-		return
-	}
-	switch parts[1] {
-	case "start-ws", "stop-ws":
-		response.Error(w, http.StatusGone, "Go 本地程序不再使用云端 WebSocket，请使用本地任务运行接口")
-	case "screenshots":
-		if r.Method != http.MethodGet {
-			response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
-			return
-		}
-		response.Success(w, map[string]any{"screenshots": []any{}})
-	case "ocr":
-		response.Error(w, http.StatusNotImplemented, "Go 本地程序暂未接入 OCR，请先使用页面解析或图片 AI 详情接口")
-	default:
-		response.Error(w, http.StatusNotFound, "接口不存在")
-	}
-}
-
-// handleLegacyTaskInit 兼容旧版任务初始化接口。
-// w 为响应对象，r 为请求对象。
-func (s *Server) handleLegacyTaskInit(w http.ResponseWriter, r *http.Request) {
-	response.Error(w, http.StatusGone, "Go 本地程序不需要旧版任务初始化接口，请使用本地任务接口")
-}
-
-// handleLocalTaskStatus 处理任务状态更新。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskStatus(w http.ResponseWriter, r *http.Request, taskID string) {
+// handleLocalPositionStatus 处理岗位运行状态更新。
+// w 为响应对象，r 为请求对象，positionID 为岗位运行 ID。
+func (s *Server) handleLocalPositionStatus(w http.ResponseWriter, r *http.Request, positionID string) {
 	if r.Method == http.MethodGet {
-		result, err := s.runner.Status(taskID)
+		result, err := s.runner.Status(positionID)
 		if err != nil {
 			response.Error(w, http.StatusNotFound, err.Error())
 			return
@@ -395,20 +362,20 @@ func (s *Server) handleLocalTaskStatus(w http.ResponseWriter, r *http.Request, t
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	task, err := s.db.UpdateTaskStatus(taskID, stringValue(payload["status"]))
+	position, err := s.db.UpdatePositionStatus(positionID, stringValue(payload["status"]))
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.Success(w, map[string]any{"task": task})
+	response.Success(w, map[string]any{"position": position})
 }
 
-// handleLocalTaskLogs 处理任务日志读取和新增。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
+// handleLocalPositionLogs 处理岗位运行日志读取和新增。
+// w 为响应对象，r 为请求对象，positionID 为岗位运行 ID。
+func (s *Server) handleLocalPositionLogs(w http.ResponseWriter, r *http.Request, positionID string) {
 	switch r.Method {
 	case http.MethodGet:
-		logs, err := s.db.ListTaskLogs(taskID, intValue(r.URL.Query().Get("limit"), 100))
+		logs, err := s.db.ListPositionLogs(positionID, intValue(r.URL.Query().Get("limit"), 100))
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -420,14 +387,14 @@ func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, tas
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		item, err := s.db.AddTaskLog(taskID, stringValue(payload["level"]), stringValue(payload["message"]))
+		item, err := s.db.AddPositionLog(positionID, stringValue(payload["level"]), stringValue(payload["message"]))
 		if err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		response.Success(w, map[string]any{"log": item})
 	case http.MethodDelete:
-		if err := s.db.ClearTaskLogs(taskID); err != nil {
+		if err := s.db.ClearPositionLogs(positionID); err != nil {
 			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -437,9 +404,9 @@ func (s *Server) handleLocalTaskLogs(w http.ResponseWriter, r *http.Request, tas
 	}
 }
 
-// handleLocalTaskRun 启动本地任务运行器。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
+// handleLocalPositionRun 启动本地岗位运行运行器。
+// w 为响应对象，r 为请求对象，positionID 为岗位运行 ID。
+func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, positionID string) {
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
@@ -453,7 +420,7 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	if token == "" {
 		token = bearerToken(r)
 	}
-	result, err := s.runner.Start(r.Context(), taskID, taskrunner.StartOptions{
+	result, err := s.runner.Start(r.Context(), positionID, positionrunner.StartOptions{
 		CloudAPIBase:           s.cloudAPIBase(payload),
 		Token:                  token,
 		EnableGreet:            boolValueDefault(payload["enable_greet"], true),
@@ -482,9 +449,9 @@ func (s *Server) handleLocalTaskRun(w http.ResponseWriter, r *http.Request, task
 	response.Success(w, result)
 }
 
-// handleLocalTaskStop 停止本地任务运行器。
-// w 为响应对象，r 为请求对象，taskID 为任务 ID。
-func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, taskID string) {
+// handleLocalPositionStop 停止本地岗位运行运行器。
+// w 为响应对象，r 为请求对象，positionID 为岗位运行 ID。
+func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request, positionID string) {
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
@@ -494,7 +461,7 @@ func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, tas
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.runner.Stop(taskID)
+	result, err := s.runner.Stop(positionID)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -505,9 +472,9 @@ func (s *Server) handleLocalTaskStop(w http.ResponseWriter, r *http.Request, tas
 	}
 	if token != "" {
 		client := cloudapi.New(s.cloudAPIBase(payload))
-		if err := client.StopTask(r.Context(), token, taskID); err != nil {
+		if err := client.StopPosition(r.Context(), token, positionID); err != nil {
 			result["cloud_sync_error"] = err.Error()
-			log.Printf("[本地任务] 停止任务已完成，但同步云端失败 task=%s err=%v", taskID, err)
+			log.Printf("[本地岗位运行] 停止岗位运行已完成，但同步云端失败 position=%s err=%v", positionID, err)
 		}
 	}
 	response.Success(w, result)
@@ -591,7 +558,7 @@ func (s *Server) handleLocalRulesUpdate(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleLocalDownloads(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		downloads, err := s.db.ListDownloads(r.URL.Query().Get("task_id"))
+		downloads, err := s.db.ListDownloads(r.URL.Query().Get("position_id"))
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -687,8 +654,8 @@ func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 // handleBrowserStop 转发浏览器停止请求给 Node Worker。
 // w 为响应对象，r 为请求对象。
 func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
-	if stopped := s.runner.StopAll("浏览器已关闭，任务已自动结束"); stopped > 0 {
-		log.Printf("浏览器停止前已结束运行任务：count=%d", stopped)
+	if stopped := s.runner.StopAll("浏览器已关闭，岗位运行已自动结束"); stopped > 0 {
+		log.Printf("浏览器停止前已结束运行岗位运行：count=%d", stopped)
 	}
 	s.proxyWorkerPost(w, r, "/api/v1/browser/stop")
 }
@@ -1228,10 +1195,10 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimSpace(token)
 }
 
-// localTaskPath 解析本地任务子路径。
-// rawPath 为请求路径，返回任务 ID 和动作名称。
-func localTaskPath(rawPath string) (string, string) {
-	rest := strings.TrimPrefix(rawPath, "/api/v1/local/tasks/")
+// localPositionPath 解析本地岗位运行子路径。
+// rawPath 为请求路径，返回岗位运行 ID 和动作名称。
+func localPositionPath(rawPath string) (string, string) {
+	rest := strings.TrimPrefix(rawPath, "/api/v1/local/positions/")
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
 		return "", ""

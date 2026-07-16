@@ -15,13 +15,13 @@ import (
 )
 
 // stitchDetailScreenshot 将详情分段截图拼接成一张长图。
-// exec 为平台执行器，taskID 为任务 ID，screenshotsDir 为截图根目录，candidate 为候选人，screenshot 为 Worker 截图信息。
-func stitchDetailScreenshot(exec platformcore.Executor, taskID string, screenshotsDir string, candidate map[string]any, screenshot map[string]any) map[string]any {
+// exec 为平台执行器，positionID 为岗位运行 ID，screenshotsDir 为截图根目录，candidate 为候选人，screenshot 为 Worker 截图信息。
+func stitchDetailScreenshot(exec platformcore.Executor, positionID string, screenshotsDir string, candidate map[string]any, screenshot map[string]any) map[string]any {
 	parts := mapList(screenshot["screenshot_parts"])
 	if len(parts) == 0 {
 		return screenshot
 	}
-	outputDir := filepath.Join(screenshotsDir, taskID)
+	outputDir := filepath.Join(screenshotsDir, positionID)
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		exec.Log("warning", "创建详情长图目录失败："+err.Error())
 		return screenshot
@@ -92,7 +92,7 @@ func stitchDetailScreenshot(exec platformcore.Executor, taskID string, screensho
 	return result
 }
 
-// copySingleDetailPart 将单张分段截图复制为任务级固定截图文件。
+// copySingleDetailPart 将单张分段截图复制为岗位运行级固定截图文件。
 // exec 为平台执行器，part 为分段截图，outputPath 为固定输出路径，screenshot 为原始截图信息。
 func copySingleDetailPart(exec platformcore.Executor, part map[string]any, outputPath string, screenshot map[string]any) map[string]any {
 	source := firstNonEmpty(stringFromMap(part, "file_path"), stringFromMap(part, "path"))

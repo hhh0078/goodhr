@@ -14,7 +14,7 @@ type addProcessedResumesRequest struct {
 	Count int `json:"count"`
 }
 
-type syncTaskCountsRequest struct {
+type syncPositionCountsRequest struct {
 	ScannedCount int `json:"scanned_count"`
 	GreetedCount int `json:"greeted_count"`
 	SkippedCount int `json:"skipped_count"`
@@ -22,8 +22,8 @@ type syncTaskCountsRequest struct {
 }
 
 // SaveLocalCandidate 保存本地程序回传的候选人结果。
-// w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/candidates。
-func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request) {
+// w 为响应对象，r 为请求对象；路径格式为 /api/positions/{positionID}/candidates。
+func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -36,19 +36,19 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "candidate store is not ready")
 		return
 	}
-	taskID := localCandidateTaskID(r.URL.Path)
-	if taskID == "" {
-		writeError(w, http.StatusBadRequest, "task id is required")
+	positionID := localCandidatePositionID(r.URL.Path)
+	if positionID == "" {
+		writeError(w, http.StatusBadRequest, "position id is required")
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, "position not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load task")
+		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
 	var payload map[string]any
@@ -57,11 +57,11 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	candidateName := localCandidateDisplayName(payload)
-	s.writeCandidateIngestLog(task.ID, task.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
+	s.writeCandidateIngestLog(position.ID, position.UserEmail, "info", "云端收到候选人入库请求："+candidateName)
 	now := time.Now().UTC()
 	profile, err := s.candidateStore.SaveCandidateProfile(CandidateProfileInput{
-		UserEmail:           task.UserEmail,
-		PlatformID:          firstNonEmpty(localCandidateString(payload, "platform_id"), task.PlatformID),
+		UserEmail:           position.UserEmail,
+		PlatformID:          firstNonEmpty(localCandidateString(payload, "platform_id"), position.PlatformID),
 		PlatformCandidateID: localCandidateString(payload, "id"),
 		CandidateName:       firstNonEmpty(localCandidateString(payload, "candidate_name"), localCandidateString(payload, "name")),
 		BirthYM:             localCandidateString(payload, "birth_ym"),
@@ -91,51 +91,50 @@ func (s *TaskService) SaveLocalCandidate(w http.ResponseWriter, r *http.Request)
 		FirstSeenAt:         &now,
 	})
 	if err != nil {
-		s.writeCandidateIngestLog(task.ID, task.UserEmail, "warning", "云端候选人主体保存失败："+candidateName+"，原因："+err.Error())
+		s.writeCandidateIngestLog(position.ID, position.UserEmail, "warning", "云端候选人主体保存失败："+candidateName+"，原因："+err.Error())
 		writeError(w, http.StatusInternalServerError, "failed to save candidate")
 		return
 	}
 	engagement, err := s.candidateStore.UpsertCandidateEngagement(CandidateEngagement{
 		CandidateID:       profile.ID,
-		UserEmail:         task.UserEmail,
-		TaskID:            task.ID,
-		PositionID:        task.PositionID,
-		PlatformAccountID: task.PlatformAccountID,
-		PlatformID:        task.PlatformID,
+		UserEmail:         position.UserEmail,
+		PositionID:        position.ID,
+		PlatformAccountID: "",
+		PlatformID:        position.PlatformID,
 		Status:            localCandidateStatus(payload),
 		FirstSeenAt:       &now,
 	})
 	if err != nil {
-		s.writeCandidateIngestLog(task.ID, task.UserEmail, "warning", "云端候选人任务关联保存失败："+candidateName+"，原因："+err.Error())
+		s.writeCandidateIngestLog(position.ID, position.UserEmail, "warning", "云端候选人岗位关联保存失败："+candidateName+"，原因："+err.Error())
 		writeError(w, http.StatusInternalServerError, "failed to save candidate engagement")
 		return
 	}
-	s.saveLocalCandidateScoreEvents(task, profile.ID, engagement.ID, payload)
+	s.saveLocalCandidateScoreEvents(position, profile.ID, engagement.ID, payload)
 	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now))
-	_ = s.store.IncrementTaskCounts(task.ID, 1, localCountIfStatus(payload, "greeted"), localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
-	s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	_ = s.store.IncrementPositionCounts(position.ID, 1, localCountIfStatus(payload, "greeted"), localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
+	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	if localCandidateStatus(payload) == "greeted" {
-		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", TaskID: task.ID})
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
-	s.writeCandidateIngestLog(task.ID, task.UserEmail, "info", "云端候选人入库成功："+candidateName+"，状态："+localCandidateStatus(payload))
+	s.writeCandidateIngestLog(position.ID, position.UserEmail, "info", "云端候选人入库成功："+candidateName+"，状态："+localCandidateStatus(payload))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
-		"candidate":  publicTaskCandidate(profile),
+		"candidate":  publicPositionCandidate(profile),
 		"engagement": engagement.ID,
 	})
 }
 
 // writeCandidateIngestLog 写入云端候选人入库链路日志。
-// taskID 为任务 ID，userEmail 为任务所属用户，level 为日志级别，message 为日志内容。
-func (s *TaskService) writeCandidateIngestLog(taskID string, userEmail string, level string, message string) {
-	if err := s.taskLogs.WriteLog(taskID, userEmail, level, message); err != nil {
-		stdlog.Printf("[云端候选人入库] 写任务日志失败 task=%s user=%s level=%s err=%v message=%s", taskID, userEmail, level, err, message)
+// positionID 为岗位 ID，userEmail 为岗位所属用户，level 为日志级别，message 为日志内容。
+func (s *PositionExecutionService) writeCandidateIngestLog(positionID string, userEmail string, level string, message string) {
+	if err := s.positionLogs.WriteLog(positionID, userEmail, level, message); err != nil {
+		stdlog.Printf("[云端候选人入库] 写岗位日志失败 position=%s user=%s level=%s err=%v message=%s", positionID, userEmail, level, err, message)
 	}
 }
 
 // AddProcessedResumes 累加本地程序本次去重后新增的已处理简历数量。
-// w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/processed-resumes。
-func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request) {
+// w 为响应对象，r 为请求对象；路径格式为 /api/positions/{positionID}/processed-resumes。
+func (s *PositionExecutionService) AddProcessedResumes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -148,18 +147,18 @@ func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "daily stats store is not ready")
 		return
 	}
-	taskID := taskSubresourceID(r.URL.Path, "processed-resumes")
-	if taskID == "" {
-		writeError(w, http.StatusBadRequest, "task id is required")
+	positionID := positionSubresourceID(r.URL.Path, "processed-resumes")
+	if positionID == "" {
+		writeError(w, http.StatusBadRequest, "position id is required")
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, "position not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load task")
+		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
 	var req addProcessedResumesRequest
@@ -179,16 +178,16 @@ func (s *TaskService) AddProcessedResumes(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to update processed resumes")
 		return
 	}
-	s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
+	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
 		"count": req.Count,
 	})
 }
 
-// SyncTaskCounts 接收本地程序同步的任务累计统计。
-// w 为响应对象，r 为请求对象；路径格式为 /api/tasks/{taskID}/counts。
-func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
+// SyncPositionCounts 接收本地程序同步的岗位累计统计。
+// w 为响应对象，r 为请求对象；路径格式为 /api/positions/{positionID}/counts。
+func (s *PositionExecutionService) SyncPositionCounts(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -197,21 +196,21 @@ func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	taskID := taskSubresourceID(r.URL.Path, "counts")
-	if taskID == "" {
-		writeError(w, http.StatusBadRequest, "task id required")
+	positionID := positionSubresourceID(r.URL.Path, "counts")
+	if positionID == "" {
+		writeError(w, http.StatusBadRequest, "position id required")
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	task, err := s.store.TaskByID(tenantID, session.Email, taskID, isAdmin)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
 	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, "position not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load task")
+		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
-	var req syncTaskCountsRequest
+	var req syncPositionCountsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
@@ -220,22 +219,22 @@ func (s *TaskService) SyncTaskCounts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "counts must greater or equal 0")
 		return
 	}
-	if err := s.store.SyncTaskCounts(taskID, req.ScannedCount, req.GreetedCount, req.SkippedCount, req.FailedCount); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to sync task counts")
+	if err := s.store.SyncPositionCounts(positionID, req.ScannedCount, req.GreetedCount, req.SkippedCount, req.FailedCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to sync position counts")
 		return
 	}
 	if req.ScannedCount > 0 {
-		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", TaskID: task.ID})
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
 	if req.GreetedCount > 0 {
-		s.recordUserFlow(task.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", TaskID: task.ID})
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // saveLocalCandidateScoreEvents 保存本地程序产生的 AI 评分事件。
-// task 为云端任务，candidateID 和 engagementID 为候选人关系 ID，payload 为本地候选人 JSON。
-func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID string, engagementID string, payload map[string]any) {
+// position 为云端岗位，candidateID 和 engagementID 为候选人关系 ID，payload 为本地候选人 JSON。
+func (s *PositionExecutionService) saveLocalCandidateScoreEvents(position Position, candidateID string, engagementID string, payload map[string]any) {
 	events := []struct {
 		Type      string
 		ScoreKey  string
@@ -253,10 +252,9 @@ func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID st
 		_, _ = s.candidateStore.SaveCandidateEvent(CandidateEvent{
 			CandidateID:       candidateID,
 			EngagementID:      engagementID,
-			TaskID:            task.ID,
-			PositionID:        task.PositionID,
-			PlatformAccountID: task.PlatformAccountID,
-			PlatformID:        task.PlatformID,
+			PositionID:        position.ID,
+			PlatformAccountID: "",
+			PlatformID:        position.PlatformID,
 			EventType:         item.Type,
 			Score:             float64Ptr(score),
 			Reason:            reason,
@@ -267,16 +265,16 @@ func (s *TaskService) saveLocalCandidateScoreEvents(task TaskRun, candidateID st
 	}
 }
 
-// localCandidateTaskID 从任务候选人路径中提取任务 ID。
+// localCandidatePositionID 从岗位候选人路径中提取岗位 ID。
 // path 为请求路径。
-func localCandidateTaskID(path string) string {
-	return taskSubresourceID(path, "candidates")
+func localCandidatePositionID(path string) string {
+	return positionSubresourceID(path, "candidates")
 }
 
-// taskSubresourceID 从任务子资源路径中提取任务 ID。
+// positionSubresourceID 从岗位子资源路径中提取岗位 ID。
 // path 为请求路径，resource 为子资源名称。
-func taskSubresourceID(path string, resource string) string {
-	text := strings.Trim(strings.TrimPrefix(path, "/api/tasks/"), "/")
+func positionSubresourceID(path string, resource string) string {
+	text := strings.Trim(strings.TrimPrefix(path, "/api/positions/"), "/")
 	parts := strings.Split(text, "/")
 	if len(parts) >= 2 && parts[1] == resource {
 		return strings.TrimSpace(parts[0])

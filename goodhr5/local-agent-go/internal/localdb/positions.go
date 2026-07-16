@@ -1,4 +1,4 @@
-// Package localdb 负责管理本地任务、日志和候选人数据。
+// Package localdb 负责管理本地岗位运行、日志和候选人数据。
 package localdb
 
 import (
@@ -12,13 +12,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// Task 表示本地任务记录。
-type Task struct {
+// Position 表示本地岗位运行记录。
+type Position struct {
 	ID                string         `json:"id"`
 	Name              string         `json:"name"`
 	PlatformID        string         `json:"platform_id"`
 	PlatformAccountID string         `json:"platform_account_id"`
-	PositionID        string         `json:"position_id"`
 	Mode              string         `json:"mode"`
 	MatchLimit        int            `json:"match_limit"`
 	Status            string         `json:"status"`
@@ -33,34 +32,32 @@ type Task struct {
 	UpdatedAt         string         `json:"updated_at"`
 }
 
-// Log 表示本地任务日志。
+// Log 表示本地岗位运行日志。
 type Log struct {
-	ID        int64  `json:"id"`
-	TaskID    string `json:"task_id"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
-	CreatedAt string `json:"created_at"`
+	ID         int64  `json:"id"`
+	PositionID string `json:"position_id"`
+	Level      string `json:"level"`
+	Message    string `json:"message"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // CandidateFilter 表示本地候选人筛选条件。
 type CandidateFilter struct {
-	TaskID     string
 	PositionID string
 	Keyword    string
 	Page       int
 	PageSize   int
 }
 
-// CreateTask 创建本地任务。
-// payload 为任务参数，返回新建任务。
-func (db *DB) CreateTask(payload map[string]any) (Task, error) {
+// CreatePosition 创建本地岗位运行。
+// payload 为岗位运行参数，返回新建岗位运行。
+func (db *DB) CreatePosition(payload map[string]any) (Position, error) {
 	now := nowISO()
-	task := Task{
+	position := Position{
 		ID:                stringOr(payload["id"], uuid.NewString()),
 		Name:              stringOr(payload["name"], ""),
 		PlatformID:        stringOr(payload["platform_id"], "boss"),
 		PlatformAccountID: stringOr(payload["platform_account_id"], ""),
-		PositionID:        stringOr(payload["position_id"], ""),
 		Mode:              stringOr(payload["mode"], "ai"),
 		MatchLimit:        maxInt(0, intValue(payload["match_limit"])),
 		Status:            "pending",
@@ -70,90 +67,88 @@ func (db *DB) CreateTask(payload map[string]any) (Task, error) {
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	positionJSON, err := json.Marshal(task.PositionSnapshot)
+	positionJSON, err := json.Marshal(position.PositionSnapshot)
 	if err != nil {
-		return Task{}, fmt.Errorf("岗位快照格式不正确：%w", err)
+		return Position{}, fmt.Errorf("岗位快照格式不正确：%w", err)
 	}
 	_, err = db.conn.Exec(`
-INSERT INTO local_tasks (
-    id, name, platform_id, platform_account_id, position_id, mode, match_limit,
+INSERT INTO local_positions (
+    id, name, platform_id, platform_account_id, mode, match_limit,
     status, enable_sound, enable_thinking, position_snapshot, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		task.ID, task.Name, task.PlatformID, task.PlatformAccountID, task.PositionID, task.Mode,
-		task.MatchLimit, task.Status, boolInt(task.EnableSound), boolInt(task.EnableThinking), string(positionJSON), task.CreatedAt, task.UpdatedAt,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		position.ID, position.Name, position.PlatformID, position.PlatformAccountID, position.Mode,
+		position.MatchLimit, position.Status, boolInt(position.EnableSound), boolInt(position.EnableThinking), string(positionJSON), position.CreatedAt, position.UpdatedAt,
 	)
 	if err != nil {
-		return Task{}, fmt.Errorf("创建本地任务失败：%w", err)
+		return Position{}, fmt.Errorf("创建本地岗位运行失败：%w", err)
 	}
-	return task, nil
+	return position, nil
 }
 
-// UpsertTaskSnapshot 保存云端任务在本地运行所需的轻量快照。
-// payload 为云端任务字段，返回本地任务记录；已有任务只更新基础字段，不清空运行日志。
-func (db *DB) UpsertTaskSnapshot(payload map[string]any) (Task, error) {
-	taskID := strings.TrimSpace(stringOr(payload["id"], ""))
-	if taskID == "" {
-		return Task{}, fmt.Errorf("任务 ID 不能为空")
+// UpsertPositionSnapshot 保存云端岗位运行在本地运行所需的轻量快照。
+// payload 为云端岗位运行字段，返回本地岗位运行记录；已有岗位运行只更新基础字段，不清空运行日志。
+func (db *DB) UpsertPositionSnapshot(payload map[string]any) (Position, error) {
+	positionID := strings.TrimSpace(stringOr(payload["id"], ""))
+	if positionID == "" {
+		return Position{}, fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	if existing, err := db.GetTask(taskID); err == nil {
+	if existing, err := db.GetPosition(positionID); err == nil {
 		updated := map[string]any{
 			"name":                stringOr(payload["name"], existing.Name),
 			"platform_id":         stringOr(payload["platform_id"], existing.PlatformID),
 			"platform_account_id": stringOr(payload["platform_account_id"], existing.PlatformAccountID),
-			"position_id":         stringOr(payload["position_id"], existing.PositionID),
 			"mode":                stringOr(payload["mode"], existing.Mode),
 			"match_limit":         intValueOr(payload["match_limit"], existing.MatchLimit),
 			"enable_sound":        boolValueOr(payload["enable_sound"], existing.EnableSound),
 			"enable_thinking":     boolValueOr(payload["enable_thinking"], existing.EnableThinking),
 			"position_snapshot":   mapValueOr(payload["position_snapshot"], existing.PositionSnapshot),
 		}
-		return db.UpdateTask(taskID, updated)
+		return db.UpdatePosition(positionID, updated)
 	}
-	return db.CreateTask(payload)
+	return db.CreatePosition(payload)
 }
 
-// ListTasks 读取本地任务列表。
+// ListPositions 读取本地岗位运行列表。
 // 返回值按创建时间倒序排列。
-func (db *DB) ListTasks() ([]Task, error) {
-	rows, err := db.conn.Query(`SELECT id, name, platform_id, platform_account_id, position_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_tasks ORDER BY created_at DESC`)
+func (db *DB) ListPositions() ([]Position, error) {
+	rows, err := db.conn.Query(`SELECT id, name, platform_id, platform_account_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_positions ORDER BY created_at DESC`)
 	if err != nil {
-		return nil, fmt.Errorf("读取本地任务失败：%w", err)
+		return nil, fmt.Errorf("读取本地岗位运行失败：%w", err)
 	}
 	defer rows.Close()
-	tasks := []Task{}
+	positions := []Position{}
 	for rows.Next() {
-		task, err := scanTask(rows)
+		position, err := scanPosition(rows)
 		if err != nil {
 			return nil, err
 		}
-		tasks = append(tasks, task)
+		positions = append(positions, position)
 	}
-	return tasks, rows.Err()
+	return positions, rows.Err()
 }
 
-// GetTask 读取单个本地任务。
-// taskID 为任务 ID。
-func (db *DB) GetTask(taskID string) (Task, error) {
-	row := db.conn.QueryRow(`SELECT id, name, platform_id, platform_account_id, position_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_tasks WHERE id=?`, taskID)
-	task, err := scanTask(row)
+// GetPosition 读取单个本地岗位运行。
+// positionID 为岗位运行 ID。
+func (db *DB) GetPosition(positionID string) (Position, error) {
+	row := db.conn.QueryRow(`SELECT id, name, platform_id, platform_account_id, mode, match_limit, status, scanned_count, greeted_count, skipped_count, failed_count, enable_sound, enable_thinking, position_snapshot, created_at, updated_at FROM local_positions WHERE id=?`, positionID)
+	position, err := scanPosition(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Task{}, fmt.Errorf("本地任务不存在")
+		return Position{}, fmt.Errorf("本地岗位运行不存在")
 	}
-	return task, err
+	return position, err
 }
 
-// UpdateTask 更新本地任务基础信息。
-// taskID 为任务 ID，payload 为更新参数。
-func (db *DB) UpdateTask(taskID string, payload map[string]any) (Task, error) {
-	existing, err := db.GetTask(taskID)
+// UpdatePosition 更新本地岗位运行基础信息。
+// positionID 为岗位运行 ID，payload 为更新参数。
+func (db *DB) UpdatePosition(positionID string, payload map[string]any) (Position, error) {
+	existing, err := db.GetPosition(positionID)
 	if err != nil {
-		return Task{}, err
+		return Position{}, err
 	}
 	updated := existing
 	updated.Name = stringOr(payload["name"], existing.Name)
 	updated.PlatformID = stringOr(payload["platform_id"], existing.PlatformID)
 	updated.PlatformAccountID = stringOr(payload["platform_account_id"], existing.PlatformAccountID)
-	updated.PositionID = stringOr(payload["position_id"], existing.PositionID)
 	updated.Mode = stringOr(payload["mode"], existing.Mode)
 	if _, ok := payload["match_limit"]; ok {
 		updated.MatchLimit = maxInt(0, intValue(payload["match_limit"]))
@@ -170,78 +165,78 @@ func (db *DB) UpdateTask(taskID string, payload map[string]any) (Task, error) {
 	updated.UpdatedAt = nowISO()
 	positionJSON, err := json.Marshal(updated.PositionSnapshot)
 	if err != nil {
-		return Task{}, fmt.Errorf("岗位快照格式不正确：%w", err)
+		return Position{}, fmt.Errorf("岗位快照格式不正确：%w", err)
 	}
 	_, err = db.conn.Exec(`
-UPDATE local_tasks
-SET name=?, platform_id=?, platform_account_id=?, position_id=?, mode=?,
+UPDATE local_positions
+SET name=?, platform_id=?, platform_account_id=?, mode=?,
     match_limit=?, enable_sound=?, enable_thinking=?, position_snapshot=?, updated_at=?
 WHERE id=?`,
-		updated.Name, updated.PlatformID, updated.PlatformAccountID, updated.PositionID,
-		updated.Mode, updated.MatchLimit, boolInt(updated.EnableSound), boolInt(updated.EnableThinking), string(positionJSON),
-		updated.UpdatedAt, taskID,
+		updated.Name, updated.PlatformID, updated.PlatformAccountID, updated.Mode,
+		updated.MatchLimit, boolInt(updated.EnableSound), boolInt(updated.EnableThinking), string(positionJSON),
+		updated.UpdatedAt, positionID,
 	)
 	if err != nil {
-		return Task{}, fmt.Errorf("更新本地任务失败：%w", err)
+		return Position{}, fmt.Errorf("更新本地岗位运行失败：%w", err)
 	}
-	return db.GetTask(taskID)
+	return db.GetPosition(positionID)
 }
 
-// UpdateTaskStatus 更新任务状态。
-// taskID 为任务 ID，status 为新状态。
-func (db *DB) UpdateTaskStatus(taskID string, status string) (Task, error) {
+// UpdatePositionStatus 更新岗位运行状态。
+// positionID 为岗位运行 ID，status 为新状态。
+func (db *DB) UpdatePositionStatus(positionID string, status string) (Position, error) {
 	if status == "" {
-		return Task{}, fmt.Errorf("任务状态不能为空")
+		return Position{}, fmt.Errorf("岗位运行状态不能为空")
 	}
-	result, err := db.conn.Exec(`UPDATE local_tasks SET status=?, updated_at=? WHERE id=?`, status, nowISO(), taskID)
+	result, err := db.conn.Exec(`UPDATE local_positions SET status=?, updated_at=? WHERE id=?`, status, nowISO(), positionID)
 	if err != nil {
-		return Task{}, fmt.Errorf("更新任务状态失败：%w", err)
+		return Position{}, fmt.Errorf("更新岗位运行状态失败：%w", err)
 	}
 	if count, _ := result.RowsAffected(); count <= 0 {
-		return Task{}, fmt.Errorf("本地任务不存在")
+		return Position{}, fmt.Errorf("本地岗位运行不存在")
 	}
-	return db.GetTask(taskID)
+	return db.GetPosition(positionID)
 }
 
-// IncrementTaskCounts 累加任务统计数量。
-// taskID 为任务 ID，scanned/greeted/skipped/failed 为增量。
-func (db *DB) IncrementTaskCounts(taskID string, scanned int, greeted int, skipped int, failed int) (Task, error) {
+// IncrementPositionCounts 累加岗位运行统计数量。
+// positionID 为岗位运行 ID，scanned/greeted/skipped/failed 为增量。
+func (db *DB) IncrementPositionCounts(positionID string, scanned int, greeted int, skipped int, failed int) (Position, error) {
 	result, err := db.conn.Exec(`
-UPDATE local_tasks
+UPDATE local_positions
 SET scanned_count=scanned_count+?,
     greeted_count=greeted_count+?,
     skipped_count=skipped_count+?,
     failed_count=failed_count+?,
     updated_at=?
 WHERE id=?`,
-		maxInt(0, scanned), maxInt(0, greeted), maxInt(0, skipped), maxInt(0, failed), nowISO(), taskID,
+		maxInt(0, scanned), maxInt(0, greeted), maxInt(0, skipped), maxInt(0, failed), nowISO(), positionID,
 	)
 	if err != nil {
-		return Task{}, fmt.Errorf("更新任务统计失败：%w", err)
+		return Position{}, fmt.Errorf("更新岗位运行统计失败：%w", err)
 	}
 	if count, _ := result.RowsAffected(); count <= 0 {
-		return Task{}, fmt.Errorf("本地任务不存在")
+		return Position{}, fmt.Errorf("本地岗位运行不存在")
 	}
-	return db.GetTask(taskID)
+	return db.GetPosition(positionID)
 }
 
-// DeleteTask 删除本地任务及关联数据。
-// taskID 为任务 ID。
-func (db *DB) DeleteTask(taskID string) error {
-	result, err := db.conn.Exec(`DELETE FROM local_tasks WHERE id=?`, taskID)
+// DeletePosition 删除本地岗位运行及关联数据。
+// positionID 为岗位运行 ID。
+func (db *DB) DeletePosition(positionID string) error {
+	result, err := db.conn.Exec(`DELETE FROM local_positions WHERE id=?`, positionID)
 	if err != nil {
-		return fmt.Errorf("删除本地任务失败：%w", err)
+		return fmt.Errorf("删除本地岗位运行失败：%w", err)
 	}
 	if count, _ := result.RowsAffected(); count <= 0 {
-		return fmt.Errorf("本地任务不存在")
+		return fmt.Errorf("本地岗位运行不存在")
 	}
 	return nil
 }
 
-// AddTaskLog 写入本地任务日志。
-// taskID 为任务 ID，level 为日志级别，message 为日志内容。
-func (db *DB) AddTaskLog(taskID string, level string, message string) (Log, error) {
-	if _, err := db.GetTask(taskID); err != nil {
+// AddPositionLog 写入本地岗位运行日志。
+// positionID 为岗位运行 ID，level 为日志级别，message 为日志内容。
+func (db *DB) AddPositionLog(positionID string, level string, message string) (Log, error) {
+	if _, err := db.GetPosition(positionID); err != nil {
 		return Log{}, err
 	}
 	if level == "" {
@@ -249,57 +244,57 @@ func (db *DB) AddTaskLog(taskID string, level string, message string) (Log, erro
 	}
 	now := nowISO()
 	result, err := db.conn.Exec(
-		`INSERT INTO local_task_logs(task_id, level, message, created_at) VALUES(?, ?, ?, ?)`,
-		taskID, level, message, now,
+		`INSERT INTO local_position_logs(position_id, level, message, created_at) VALUES(?, ?, ?, ?)`,
+		positionID, level, message, now,
 	)
 	if err != nil {
-		return Log{}, fmt.Errorf("写入任务日志失败：%w", err)
+		return Log{}, fmt.Errorf("写入岗位运行日志失败：%w", err)
 	}
 	id, _ := result.LastInsertId()
-	_ = db.TrimTaskLogs(taskID, 1000)
-	return Log{ID: id, TaskID: taskID, Level: level, Message: message, CreatedAt: now}, nil
+	_ = db.TrimPositionLogs(positionID, 1000)
+	return Log{ID: id, PositionID: positionID, Level: level, Message: message, CreatedAt: now}, nil
 }
 
-// TrimTaskLogs 只保留指定任务最近 limit 条日志。
-// taskID 为任务 ID，limit 为保留数量；清理失败时返回错误。
-func (db *DB) TrimTaskLogs(taskID string, limit int) error {
+// TrimPositionLogs 只保留指定岗位运行最近 limit 条日志。
+// positionID 为岗位运行 ID，limit 为保留数量；清理失败时返回错误。
+func (db *DB) TrimPositionLogs(positionID string, limit int) error {
 	if limit <= 0 {
 		limit = 1000
 	}
 	_, err := db.conn.Exec(
-		`DELETE FROM local_task_logs
-		 WHERE task_id=?
+		`DELETE FROM local_position_logs
+		 WHERE position_id=?
 		   AND id NOT IN (
-		     SELECT id FROM local_task_logs WHERE task_id=? ORDER BY id DESC LIMIT ?
+		     SELECT id FROM local_position_logs WHERE position_id=? ORDER BY id DESC LIMIT ?
 		   )`,
-		taskID,
-		taskID,
+		positionID,
+		positionID,
 		limit,
 	)
 	if err != nil {
-		return fmt.Errorf("清理旧任务日志失败：%w", err)
+		return fmt.Errorf("清理旧岗位运行日志失败：%w", err)
 	}
 	return nil
 }
 
-// ListTaskLogs 读取本地任务日志。
-// taskID 为任务 ID，limit 为最大返回数量。
-func (db *DB) ListTaskLogs(taskID string, limit int) ([]Log, error) {
+// ListPositionLogs 读取本地岗位运行日志。
+// positionID 为岗位运行 ID，limit 为最大返回数量。
+func (db *DB) ListPositionLogs(positionID string, limit int) ([]Log, error) {
 	if limit <= 0 || limit > 5000 {
 		limit = 100
 	}
 	rows, err := db.conn.Query(
-		`SELECT id, task_id, level, message, created_at FROM local_task_logs WHERE task_id=? ORDER BY id DESC LIMIT ?`,
-		taskID, limit,
+		`SELECT id, position_id, level, message, created_at FROM local_position_logs WHERE position_id=? ORDER BY id DESC LIMIT ?`,
+		positionID, limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("读取任务日志失败：%w", err)
+		return nil, fmt.Errorf("读取岗位运行日志失败：%w", err)
 	}
 	defer rows.Close()
 	logs := []Log{}
 	for rows.Next() {
 		var item Log
-		if err := rows.Scan(&item.ID, &item.TaskID, &item.Level, &item.Message, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.PositionID, &item.Level, &item.Message, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		logs = append([]Log{item}, logs...)
@@ -307,39 +302,39 @@ func (db *DB) ListTaskLogs(taskID string, limit int) ([]Log, error) {
 	return logs, rows.Err()
 }
 
-// ClearTaskLogs 清空本地任务日志。
-// taskID 为任务 ID。
-func (db *DB) ClearTaskLogs(taskID string) error {
-	if _, err := db.GetTask(taskID); err != nil {
+// ClearPositionLogs 清空本地岗位运行日志。
+// positionID 为岗位运行 ID。
+func (db *DB) ClearPositionLogs(positionID string) error {
+	if _, err := db.GetPosition(positionID); err != nil {
 		return err
 	}
-	if _, err := db.conn.Exec(`DELETE FROM local_task_logs WHERE task_id=?`, taskID); err != nil {
-		return fmt.Errorf("清空任务日志失败：%w", err)
+	if _, err := db.conn.Exec(`DELETE FROM local_position_logs WHERE position_id=?`, positionID); err != nil {
+		return fmt.Errorf("清空岗位运行日志失败：%w", err)
 	}
 	return nil
 }
 
 // SaveCandidate 保存/更新本地候选人（全部结构化字段）。
-// taskID 为任务 ID，candidate 为候选人数据。
-func (db *DB) SaveCandidate(taskID string, candidate map[string]any) (result map[string]any, resultErr error) {
+// positionID 为岗位运行 ID，candidate 为候选人数据。
+func (db *DB) SaveCandidate(positionID string, candidate map[string]any) (result map[string]any, resultErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			resultErr = fmt.Errorf("保存候选人时发生内部错误：%v", r)
 			result = nil
 		}
 	}()
-	if _, err := db.GetTask(taskID); err != nil {
+	if _, err := db.GetPosition(positionID); err != nil {
 		return nil, err
 	}
 	now := nowISO()
 	candidateID := stringOr(candidate["id"], uuid.NewString())
 	candidate["id"] = candidateID
-	candidate["task_id"] = taskID
+	candidate["position_id"] = positionID
 	candidateName := stringOr(candidate["candidate_name"], stringOr(candidate["name"], ""))
 	status := stringOr(candidate["status"], "")
 	_, err := db.conn.Exec(`
 INSERT INTO local_candidates(
-    id, task_id, candidate_name, status,
+    id, position_id, candidate_name, status,
     birth_ym, phone, email, work_region, work_years,
     expected_salary_min, expected_salary_max,
     personal_description, work_status, expected_position, online_status, education_level,
@@ -359,7 +354,7 @@ INSERT INTO local_candidates(
     ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?,
     ?, ?)
-ON CONFLICT(task_id, id) DO UPDATE SET
+ON CONFLICT(position_id, id) DO UPDATE SET
     candidate_name=excluded.candidate_name,
     status=excluded.status,
     birth_ym=excluded.birth_ym,
@@ -397,7 +392,7 @@ ON CONFLICT(task_id, id) DO UPDATE SET
     greeted_at=excluded.greeted_at,
     candidate_name=excluded.candidate_name,
     updated_at=excluded.updated_at`,
-		candidateID, taskID, candidateName, status,
+		candidateID, positionID, candidateName, status,
 		strVal(candidate, "birth_ym"), strVal(candidate, "phone"), strVal(candidate, "email"),
 		strVal(candidate, "work_region"), strVal(candidate, "work_years"),
 		intOrNil(candidate, "expected_salary_min"), intOrNil(candidate, "expected_salary_max"),
@@ -423,9 +418,9 @@ ON CONFLICT(task_id, id) DO UPDATE SET
 }
 
 // ListCandidates 读取本地候选人列表（结构化字段）。
-// taskID 为任务 ID，返回候选人列表。
-func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
-	rows, err := db.conn.Query(`SELECT candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE task_id=? ORDER BY updated_at DESC`, taskID)
+// positionID 为岗位运行 ID，返回候选人列表。
+func (db *DB) ListCandidates(positionID string) ([]map[string]any, error) {
+	rows, err := db.conn.Query(`SELECT candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE position_id=? ORDER BY updated_at DESC`, positionID)
 	if err != nil {
 		return nil, fmt.Errorf("读取候选人失败：%w", err)
 	}
@@ -458,7 +453,7 @@ func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
 			resumeURL, resumeText,
 			aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
 			ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
-		item["task_id"] = taskID
+		item["position_id"] = positionID
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -467,7 +462,7 @@ func (db *DB) ListCandidates(taskID string) ([]map[string]any, error) {
 // ListCandidatesFiltered 按条件读取本地候选人分页列表（结构化字段）。
 // filter 为筛选条件，返回候选人列表、总数和错误信息。
 func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, int, error) {
-	rows, err := db.conn.Query(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates ORDER BY updated_at DESC`)
+	rows, err := db.conn.Query(`SELECT position_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, 0, fmt.Errorf("读取候选人失败：%w", err)
 	}
@@ -483,8 +478,8 @@ func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, 
 		var aiDetailReason, aiGreetReason, aiReviewReason string
 		var aiDetailScore, aiGreetScore, aiReviewScore *float64
 		var ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string
-		var rowTaskID string
-		err := rows.Scan(&rowTaskID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
+		var rowPositionID string
+		err := rows.Scan(&rowPositionID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
 			&salMin, &salMax, &personalDesc, &workStatus, &expectedPos, &onlineStatus, &eduLevel,
 			&basicInfo, &rawText, &filterText,
 			&workExps, &edus, &certs, &honors, &projExps, &comms,
@@ -501,7 +496,7 @@ func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, 
 			resumeURL, resumeText,
 			aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
 			ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
-		item["task_id"] = rowTaskID
+		item["position_id"] = rowPositionID
 		if matchCandidateFilter(item, filter) {
 			all = append(all, item)
 		}
@@ -533,18 +528,18 @@ func (db *DB) ListCandidatesFiltered(filter CandidateFilter) ([]map[string]any, 
 }
 
 // GetCandidate 读取本地候选人详情（结构化字段）。
-// candidateID 为候选人 ID，taskID 为空时会在全部任务中查找。
-func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, error) {
+// candidateID 为候选人 ID，positionID 为空时会在全部岗位运行中查找。
+func (db *DB) GetCandidate(candidateID string, positionID string) (map[string]any, error) {
 	if strings.TrimSpace(candidateID) == "" {
 		return nil, fmt.Errorf("候选人 ID 不能为空")
 	}
 	var row *sql.Row
-	if strings.TrimSpace(taskID) != "" {
-		row = db.conn.QueryRow(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
+	if strings.TrimSpace(positionID) != "" {
+		row = db.conn.QueryRow(`SELECT position_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE position_id=? AND id=?`, positionID, candidateID)
 	} else {
-		row = db.conn.QueryRow(`SELECT task_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE id=? ORDER BY updated_at DESC LIMIT 1`, candidateID)
+		row = db.conn.QueryRow(`SELECT position_id, candidate_name, status, birth_ym, phone, email, work_region, work_years, expected_salary_min, expected_salary_max, personal_description, work_status, expected_position, online_status, education_level, basic_info, raw_text, filter_text, work_experiences, educations, certificates, honors, project_experiences, colleague_communications, resume_attachment_url, resume_attachment_extracted_text, ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, ai_review_reason, ai_review_score, ext, first_seen_at, detail_fetched_at, greeted_at, created_at, updated_at FROM local_candidates WHERE id=? ORDER BY updated_at DESC LIMIT 1`, candidateID)
 	}
-	var rowTaskID, cName, cStatus, birthYM, phone, email, workRegion, workYears string
+	var rowPositionID, cName, cStatus, birthYM, phone, email, workRegion, workYears string
 	var salMin, salMax *int
 	var personalDesc, workStatus, expectedPos, onlineStatus, eduLevel string
 	var basicInfo, rawText, filterText string
@@ -553,7 +548,7 @@ func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, e
 	var aiDetailReason, aiGreetReason, aiReviewReason string
 	var aiDetailScore, aiGreetScore, aiReviewScore *float64
 	var ext, firstSeen, detailFetched, greeted, createdAt, updatedAt string
-	err := row.Scan(&rowTaskID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
+	err := row.Scan(&rowPositionID, &cName, &cStatus, &birthYM, &phone, &email, &workRegion, &workYears,
 		&salMin, &salMax, &personalDesc, &workStatus, &expectedPos, &onlineStatus, &eduLevel,
 		&basicInfo, &rawText, &filterText,
 		&workExps, &edus, &certs, &honors, &projExps, &comms,
@@ -573,7 +568,7 @@ func (db *DB) GetCandidate(candidateID string, taskID string) (map[string]any, e
 		resumeURL, resumeText,
 		aiDetailReason, aiDetailScore, aiGreetReason, aiGreetScore, aiReviewReason, aiReviewScore,
 		ext, firstSeen, detailFetched, greeted, createdAt, updatedAt)
-	item["task_id"] = rowTaskID
+	item["position_id"] = rowPositionID
 	return item, nil
 }
 
@@ -588,10 +583,10 @@ func (db *DB) ClearCandidates() (int64, error) {
 	return deleted, nil
 }
 
-// DeleteCandidate 删除本地任务候选人。
-// taskID 为任务 ID，candidateID 为候选人 ID。
-func (db *DB) DeleteCandidate(taskID string, candidateID string) error {
-	result, err := db.conn.Exec(`DELETE FROM local_candidates WHERE task_id=? AND id=?`, taskID, candidateID)
+// DeleteCandidate 删除本地岗位运行候选人。
+// positionID 为岗位运行 ID，candidateID 为候选人 ID。
+func (db *DB) DeleteCandidate(positionID string, candidateID string) error {
+	result, err := db.conn.Exec(`DELETE FROM local_candidates WHERE position_id=? AND id=?`, positionID, candidateID)
 	if err != nil {
 		return fmt.Errorf("删除候选人失败：%w", err)
 	}
@@ -604,9 +599,6 @@ func (db *DB) DeleteCandidate(taskID string, candidateID string) error {
 // matchCandidateFilter 判断候选人是否满足筛选条件。
 // item 为候选人数据，filter 为筛选条件。
 func matchCandidateFilter(item map[string]any, filter CandidateFilter) bool {
-	if filter.TaskID != "" && stringOr(item["task_id"], "") != filter.TaskID {
-		return false
-	}
 	if filter.PositionID != "" && stringOr(item["position_id"], "") != filter.PositionID {
 		return false
 	}
@@ -618,26 +610,26 @@ func matchCandidateFilter(item map[string]any, filter CandidateFilter) bool {
 	return strings.Contains(strings.ToLower(string(raw)), keyword)
 }
 
-// scanTask 从数据库行扫描任务。
+// scanPosition 从数据库行扫描岗位运行。
 // scanner 为 QueryRow 或 Rows。
-func scanTask(scanner interface{ Scan(dest ...any) error }) (Task, error) {
-	var task Task
+func scanPosition(scanner interface{ Scan(dest ...any) error }) (Position, error) {
+	var position Position
 	var enableSound int
 	var positionJSON string
 	var enableThinking int
 	err := scanner.Scan(
-		&task.ID, &task.Name, &task.PlatformID, &task.PlatformAccountID, &task.PositionID, &task.Mode,
-		&task.MatchLimit, &task.Status, &task.ScannedCount, &task.GreetedCount, &task.SkippedCount,
-		&task.FailedCount, &enableSound, &enableThinking, &positionJSON, &task.CreatedAt, &task.UpdatedAt,
+		&position.ID, &position.Name, &position.PlatformID, &position.PlatformAccountID, &position.Mode,
+		&position.MatchLimit, &position.Status, &position.ScannedCount, &position.GreetedCount, &position.SkippedCount,
+		&position.FailedCount, &enableSound, &enableThinking, &positionJSON, &position.CreatedAt, &position.UpdatedAt,
 	)
 	if err != nil {
-		return Task{}, err
+		return Position{}, err
 	}
-	task.EnableSound = enableSound == 1
-	task.EnableThinking = enableThinking == 1
-	task.PositionSnapshot = map[string]any{}
-	_ = json.Unmarshal([]byte(positionJSON), &task.PositionSnapshot)
-	return task, nil
+	position.EnableSound = enableSound == 1
+	position.EnableThinking = enableThinking == 1
+	position.PositionSnapshot = map[string]any{}
+	_ = json.Unmarshal([]byte(positionJSON), &position.PositionSnapshot)
+	return position, nil
 }
 
 // nowISO 返回当前 UTC 时间字符串。

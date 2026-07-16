@@ -205,7 +205,7 @@ func killProcessTree(pid int) error {
 		return nil
 	}
 	if goruntime.GOOS == "windows" {
-		cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+		cmd := exec.Command("positionkill", "/PID", strconv.Itoa(pid), "/T", "/F")
 		hideCommandWindow(cmd)
 		return cmd.Run()
 	}

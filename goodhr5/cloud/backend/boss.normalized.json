@@ -49,7 +49,7 @@
       {
         "id": "recommend_candidates",
         "title": "推荐牛人",
-        "description": "任务入口页面，进入后开始确认岗位和读取推荐候选人。",
+        "description": "岗位运行入口页面，进入后开始确认岗位和读取推荐候选人。",
         "url": "https://www.zhipin.com/web/chat/recommend",
         "match": "prefix",
         "entry": true,
@@ -117,7 +117,7 @@
     }
   ],
   "job_switch": {
-    "description": "Boss 岗位切换区域。Go runtime 会先读取当前岗位，若与任务岗位不一致，则点击岗位下拉并从列表中选择目标岗位。",
+    "description": "Boss 岗位切换区域。Go runtime 会先读取当前岗位，若与岗位运行岗位不一致，则点击岗位下拉并从列表中选择目标岗位。",
     "current_job": {
       "id": "current_job",
       "title": "当前岗位",
@@ -157,7 +157,7 @@
     "job_item_text": {
       "id": "job_item_text",
       "title": "岗位名称文本",
-      "description": "从岗位项中读取岗位名称，用于和任务岗位名称匹配。",
+      "description": "从岗位项中读取岗位名称，用于和岗位运行岗位名称匹配。",
       "parent_selectors": [],
       "target_selectors": [".label"],
       "legacy_path": "position.itemText"

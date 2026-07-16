@@ -1,5 +1,5 @@
-// Package taskrunner 负责测试 Go 本地任务运行器。
-package taskrunner
+// Package positionrunner 负责测试 Go 本地岗位运行运行器。
+package positionrunner
 
 import (
 	"context"
@@ -50,19 +50,19 @@ func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
 	}
 }
 
-// TestTaskProfileNameUsesGlobalDefault 验证开始任务始终复用统一浏览器目录。
-func TestTaskProfileNameUsesGlobalDefault(t *testing.T) {
-	if got := taskProfileName(localdb.Task{PlatformID: "boss"}); got != "default" {
+// TestPositionProfileNameUsesGlobalDefault 验证开始岗位运行始终复用统一浏览器目录。
+func TestPositionProfileNameUsesGlobalDefault(t *testing.T) {
+	if got := positionProfileName(localdb.Position{PlatformID: "boss"}); got != "default" {
 		t.Fatalf("profile = %q, want default", got)
 	}
-	if got := taskProfileName(localdb.Task{PlatformAccountID: "account-1"}); got != "default" {
+	if got := positionProfileName(localdb.Position{PlatformAccountID: "account-1"}); got != "default" {
 		t.Fatalf("profile = %q, want default", got)
 	}
 }
 
 // TestCloneCandidateForCloudIncludesAIResult 验证同步云端前会组装 ai.detail 和 ai.greet。
 func TestCloneCandidateForCloudIncludesAIResult(t *testing.T) {
-	payload := cloneCandidateForCloud(localdb.Task{ID: "task-1", PlatformID: "boss", PositionID: "pos-1"}, map[string]any{
+	payload := cloneCandidateForCloud(localdb.Position{ID: "position-1", PlatformID: "boss"}, map[string]any{
 		"candidate_name":   "徐英",
 		"ai_detail_score":  72.0,
 		"ai_detail_reason": "第一次真实原因",
@@ -80,7 +80,7 @@ func TestCloneCandidateForCloudIncludesAIResult(t *testing.T) {
 	}
 }
 
-// TestRunnerStartStop 验证任务启动会校验会员、读取平台配置、扫描候选人并更新状态。
+// TestRunnerStartStop 验证岗位运行启动会校验会员、读取平台配置、扫描候选人并更新状态。
 func TestRunnerStartStop(t *testing.T) {
 	speedUpPageEntryCheck(t)
 	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +95,7 @@ func TestRunnerStartStop(t *testing.T) {
 		})
 	}))
 	defer aiServer.Close()
-	var task localdb.Task
+	var position localdb.Position
 	savedCandidates := []map[string]any{}
 	var processedResumeCount int64
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +122,7 @@ func TestRunnerStartStop(t *testing.T) {
 		case "/api/config/effective-ai":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{"base_url": aiServer.URL, "api_key": "test-key", "model": "test-model", "temperature": 0.2}})
 		default:
-			if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/candidates") {
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") && strings.HasSuffix(r.URL.Path, "/candidates") {
 				var candidate map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&candidate); err != nil {
 					t.Fatalf("decode candidate: %v", err)
@@ -131,7 +131,7 @@ func TestRunnerStartStop(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 				return
 			}
-			if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/processed-resumes") {
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") && strings.HasSuffix(r.URL.Path, "/processed-resumes") {
 				var payload struct {
 					Count int `json:"count"`
 				}
@@ -142,13 +142,13 @@ func TestRunnerStartStop(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 				return
 			}
-			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
-				requestedID := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
-				taskName := "本地任务"
-				if requestedID != task.ID {
-					taskName = "本地任务2"
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
+				requestedID := strings.TrimPrefix(r.URL.Path, "/api/positions/")
+				positionName := "本地岗位运行"
+				if requestedID != position.ID {
+					positionName = "本地岗位运行2"
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": requestedID, "name": taskName, "platform_id": "boss", "mode": "ai", "match_limit": 1, "enable_sound": requestedID != task.ID, "position": map[string]any{"name": taskName}}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "position": map[string]any{"id": requestedID, "name": positionName, "platform_id": "boss", "mode": "ai", "match_limit": 1, "enable_sound": requestedID != position.ID, "position": map[string]any{"name": positionName}}})
 				return
 			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -157,24 +157,24 @@ func TestRunnerStartStop(t *testing.T) {
 	defer cloud.Close()
 
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地任务"}})
+	position, err := db.CreatePosition(map[string]any{"name": "本地岗位运行", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地岗位运行"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker := &fakeWorker{}
 	runner := newTestRunner(t, db, worker)
-	result, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1})
+	result, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result["running"] != true {
 		t.Fatalf("result = %+v", result)
 	}
-	updated := waitForTaskStatus(t, db, task.ID, "completed")
+	updated := waitForPositionStatus(t, db, position.ID, "completed")
 	if updated.ScannedCount != 1 {
 		t.Fatalf("scanned count = %d", updated.ScannedCount)
 	}
-	status, err := runner.Status(task.ID)
+	status, err := runner.Status(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,14 +193,14 @@ func TestRunnerStartStop(t *testing.T) {
 	if savedCandidates[0]["status"] != "ai_passed" || savedCandidates[0]["ai_greet_score"] == nil {
 		t.Fatalf("candidate ai fields = %+v", savedCandidates[0])
 	}
-	stopResult, err := runner.Stop(task.ID)
+	stopResult, err := runner.Stop(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stopResult["running"] != false || runner.IsRunning(task.ID) {
+	if stopResult["running"] != false || runner.IsRunning(position.ID) {
 		t.Fatalf("stopResult = %+v", stopResult)
 	}
-	stopped, err := db.GetTask(task.ID)
+	stopped, err := db.GetPosition(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,44 +209,44 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	for _, call := range worker.calls {
 		if call == "/api/v1/browser/stop" {
-			t.Fatal("停止任务不应该关闭浏览器")
+			t.Fatal("停止岗位运行不应该关闭浏览器")
 		}
 	}
 
-	task2, err := db.CreateTask(map[string]any{"name": "本地任务2", "platform_id": "boss", "match_limit": 1, "position_snapshot": map[string]any{"name": "本地任务2"}})
+	position2, err := db.CreatePosition(map[string]any{"name": "本地岗位运行2", "platform_id": "boss", "match_limit": 1, "position_snapshot": map[string]any{"name": "本地岗位运行2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Start(t.Context(), task2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true, PageReadyDelay: 1}); err != nil {
+	if _, err := runner.Start(t.Context(), position2.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", EnableGreet: true, PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
 	}
-	waitForTaskStatus(t, db, task2.ID, "completed")
+	waitForPositionStatus(t, db, position2.ID, "completed")
 	if len(savedCandidates) < 2 || savedCandidates[len(savedCandidates)-1]["status"] != "greeted" {
-		t.Fatalf("savedCandidates after task2 = %+v", savedCandidates)
+		t.Fatalf("savedCandidates after position2 = %+v", savedCandidates)
 	}
-	assertTaskLogContains(t, db, task2.ID, "音频文件不存在或为空")
+	assertPositionLogContains(t, db, position2.ID, "音频文件不存在或为空")
 }
 
-// TestCancelRunningTasksAfterSleep 验证检测到休眠恢复后会取消任务并写入日志。
-func TestCancelRunningTasksAfterSleep(t *testing.T) {
+// TestCancelRunningPositionsAfterSleep 验证检测到休眠恢复后会取消岗位运行并写入日志。
+func TestCancelRunningPositionsAfterSleep(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "休眠测试任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "休眠测试任务"}})
+	position, err := db.CreatePosition(map[string]any{"name": "休眠测试岗位运行", "platform_id": "boss", "position_snapshot": map[string]any{"name": "休眠测试岗位运行"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner := newTestRunner(t, db, &fakeWorker{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if !runner.setRunning(task.ID, cancel, StartOptions{}) {
+	if !runner.setRunning(position.ID, cancel, StartOptions{}) {
 		t.Fatal("setRunning failed")
 	}
-	runner.cancelRunningTasksAfterSleep(3 * time.Minute)
+	runner.cancelRunningPositionsAfterSleep(3 * time.Minute)
 	select {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
-		t.Fatal("任务没有被休眠检测取消")
+		t.Fatal("岗位运行没有被休眠检测取消")
 	}
-	logs, err := db.ListTaskLogs(task.ID, 20)
+	logs, err := db.ListPositionLogs(position.ID, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,15 +257,15 @@ func TestCancelRunningTasksAfterSleep(t *testing.T) {
 	if !strings.Contains(joined, "电脑休眠检测") || !strings.Contains(joined, "心跳中断=3m0s") {
 		t.Fatalf("logs = %s", joined)
 	}
-	runner.clear(task.ID)
+	runner.clear(position.ID)
 }
 
-// TestRunnerStatusPendingWhenTaskMissing 验证未启动的云端任务查询本地状态时不会报错。
-func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
+// TestRunnerStatusPendingWhenPositionMissing 验证未启动的云端岗位运行查询本地状态时不会报错。
+func TestRunnerStatusPendingWhenPositionMissing(t *testing.T) {
 	db := openRunnerTestDB(t)
 	runner := newTestRunner(t, db, &fakeWorker{})
 
-	status, err := runner.Status("cloud-task-1")
+	status, err := runner.Status("cloud-position-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestRunnerStatusPendingWhenTaskMissing(t *testing.T) {
 	if !ok {
 		t.Fatalf("progress = %+v", status["progress"])
 	}
-	if progress.Stage != "pending" || progress.Message != "本地任务尚未启动" {
+	if progress.Stage != "pending" || progress.Message != "本地岗位运行尚未启动" {
 		t.Fatalf("progress = %+v", progress)
 	}
 }
@@ -310,7 +310,7 @@ func TestFreshCandidatesDedupesByPlatformID(t *testing.T) {
 
 // TestMaybeRestAfterCandidate 验证候选人处理后会按模拟休息配置进入休息路径。
 func TestMaybeRestAfterCandidate(t *testing.T) {
-	runner := &Runner{running: map[string]*runState{"task-rest": &runState{progress: Progress{Stage: "running"}}}}
+	runner := &Runner{running: map[string]*runState{"position-rest": &runState{progress: Progress{Stage: "running"}}}}
 	options := StartOptions{
 		RestAfterCandidatesMin: 1,
 		RestAfterCandidatesMax: 1,
@@ -319,14 +319,14 @@ func TestMaybeRestAfterCandidate(t *testing.T) {
 		RestDurationMin:        1,
 		RestDurationMax:        1,
 	}
-	runner.initRestState("task-rest", options)
+	runner.initRestState("position-rest", options)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := runner.maybeRestAfterCandidate(ctx, "task-rest", platformExecutor{}, options); !errors.Is(err, context.Canceled) {
+	if err := runner.maybeRestAfterCandidate(ctx, "position-rest", platformExecutor{}, options); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
-	if runner.running["task-rest"].restUsed != 1 {
-		t.Fatalf("restUsed = %d", runner.running["task-rest"].restUsed)
+	if runner.running["position-rest"].restUsed != 1 {
+		t.Fatalf("restUsed = %d", runner.running["position-rest"].restUsed)
 	}
 }
 
@@ -373,25 +373,25 @@ func TestPlatformEntryURL(t *testing.T) {
 // TestRunnerStartRequiresToken 验证空 token 会在启动前被拦截。
 func TestRunnerStartRequiresToken(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "本地任务", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地任务"}})
+	position, err := db.CreatePosition(map[string]any{"name": "本地岗位运行", "platform_id": "boss", "position_snapshot": map[string]any{"name": "本地岗位运行"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner := newTestRunner(t, db, &fakeWorker{})
-	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: "https://goodhr5.58it.cn"}); err == nil || err.Error() != "请先登录后再校验会员" {
+	if _, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: "https://goodhr5.58it.cn"}); err == nil || err.Error() != "请先登录后再校验会员" {
 		t.Fatalf("err = %v", err)
 	}
-	updated, err := db.GetTask(task.ID)
+	updated, err := db.GetPosition(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Status == "running" {
-		t.Fatalf("空 token 不应启动任务，当前状态=%s", updated.Status)
+		t.Fatalf("空 token 不应启动岗位运行，当前状态=%s", updated.Status)
 	}
 }
 
-// TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask 验证会员过期时仍允许非 AI 任务启动。
-func TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask(t *testing.T) {
+// TestBuildPositionRuntimeSnapshotAllowsFreeKeywordPosition 验证会员过期时仍允许非 AI 岗位运行启动。
+func TestBuildPositionRuntimeSnapshotAllowsFreeKeywordPosition(t *testing.T) {
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/me":
@@ -414,23 +414,23 @@ func TestBuildTaskRuntimeSnapshotAllowsFreeKeywordTask(t *testing.T) {
 	defer cloud.Close()
 
 	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
-	task := localdb.Task{
-		ID:               "task-free-keyword",
+	position := localdb.Position{
+		ID:               "position-free-keyword",
 		PlatformID:       "boss",
 		Mode:             "keyword",
 		PositionSnapshot: map[string]any{"common_config": map[string]any{"detail_mode": "ocr"}},
 	}
-	snapshot, err := runner.buildTaskRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), task, StartOptions{Token: "token-1"}, 1)
+	snapshot, err := runner.buildPositionRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), position, StartOptions{Token: "token-1"}, 1)
 	if err != nil {
-		t.Fatalf("keyword task should be allowed when subscription expired: %v", err)
+		t.Fatalf("keyword position should be allowed when subscription expired: %v", err)
 	}
-	if snapshot.Task.ID != task.ID || len(snapshot.PlatformConfig) == 0 {
+	if snapshot.Position.ID != position.ID || len(snapshot.PlatformConfig) == 0 {
 		t.Fatalf("unexpected snapshot = %+v", snapshot)
 	}
 }
 
-// TestBuildTaskRuntimeSnapshotBlocksExpiredAIFeature 验证会员过期时会拦截 AI 功能任务。
-func TestBuildTaskRuntimeSnapshotBlocksExpiredAIFeature(t *testing.T) {
+// TestBuildPositionRuntimeSnapshotBlocksExpiredAIFeature 验证会员过期时会拦截 AI 功能岗位运行。
+func TestBuildPositionRuntimeSnapshotBlocksExpiredAIFeature(t *testing.T) {
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/subscription/status" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -440,19 +440,19 @@ func TestBuildTaskRuntimeSnapshotBlocksExpiredAIFeature(t *testing.T) {
 	defer cloud.Close()
 
 	runner := newTestRunner(t, openRunnerTestDB(t), &fakeWorker{})
-	task := localdb.Task{
-		ID:               "task-ai",
+	position := localdb.Position{
+		ID:               "position-ai",
 		PlatformID:       "boss",
 		Mode:             "ai",
 		PositionSnapshot: map[string]any{"common_config": map[string]any{"detail_mode": "ocr"}},
 	}
-	_, err := runner.buildTaskRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), task, StartOptions{Token: "token-1"}, 1)
-	if err == nil || !strings.Contains(err.Error(), "当前任务使用了 AI 筛选或 AI 详情识别") {
+	_, err := runner.buildPositionRuntimeSnapshot(t.Context(), cloudapi.New(cloud.URL), position, StartOptions{Token: "token-1"}, 1)
+	if err == nil || !strings.Contains(err.Error(), "当前岗位运行使用了 AI 筛选或 AI 详情识别") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-// TestValidateAIConfig 验证 AI 配置会在任务启动阶段提前校验。
+// TestValidateAIConfig 验证 AI 配置会在岗位运行启动阶段提前校验。
 func TestValidateAIConfig(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -498,10 +498,10 @@ func TestValidateAIConfig(t *testing.T) {
 // TestRunnerMissingEntryURLDoesNotStartBrowser 验证缺少入口页时不会启动浏览器。
 func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task := localdb.Task{ID: "task-1", PlatformID: "boss"}
+	position := localdb.Position{ID: "position-1", PlatformID: "boss"}
 	worker := &fakeWorker{}
 	runner := newTestRunner(t, db, worker)
-	if _, err := runner.scanOnce(t.Context(), task, cloudapi.PlatformConfig{"auth": map[string]any{"pages": []any{}}}, StartOptions{}); err == nil || err.Error() != "云端平台配置缺少入口页面地址" {
+	if _, err := runner.scanOnce(t.Context(), position, cloudapi.PlatformConfig{"auth": map[string]any{"pages": []any{}}}, StartOptions{}); err == nil || err.Error() != "云端平台配置缺少入口页面地址" {
 		t.Fatalf("err = %v", err)
 	}
 	if len(worker.calls) != 0 {
@@ -509,12 +509,12 @@ func TestRunnerMissingEntryURLDoesNotStartBrowser(t *testing.T) {
 	}
 }
 
-// TestEnsureTaskPageReadyRetries 验证页面刚打开时会等待多次检查。
-func TestEnsureTaskPageReadyRetries(t *testing.T) {
+// TestEnsurePositionPageReadyRetries 验证页面刚打开时会等待多次检查。
+func TestEnsurePositionPageReadyRetries(t *testing.T) {
 	speedUpPageEntryCheck(t)
 
 	db := openRunnerTestDB(t)
-	task := localdb.Task{ID: "task-1", PlatformID: "boss", PositionSnapshot: map[string]any{"name": "本地任务"}}
+	position := localdb.Position{ID: "position-1", PlatformID: "boss", PositionSnapshot: map[string]any{"name": "本地岗位运行"}}
 	worker := &fakeWorker{pageListEmptyBefore: 5}
 	runner := newTestRunner(t, db, worker)
 	platformConfig := cloudapi.PlatformConfig{
@@ -529,8 +529,8 @@ func TestEnsureTaskPageReadyRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec := platformExecutor{runner: runner, taskID: task.ID}
-	if err := runner.ensureTaskPageReady(t.Context(), task, platformRuntime, exec, platformConfig); err != nil {
+	exec := platformExecutor{runner: runner, positionID: position.ID}
+	if err := runner.ensurePositionPageReady(t.Context(), position, platformRuntime, exec, platformConfig); err != nil {
 		t.Fatal(err)
 	}
 	if worker.pageListCalls != 6 {
@@ -563,7 +563,7 @@ func TestPageReadyDelayUsesShortDefault(t *testing.T) {
 
 // TestApplyKeywordFilter 验证关键词和排除词过滤。
 func TestApplyKeywordFilter(t *testing.T) {
-	task := localdb.Task{
+	position := localdb.Position{
 		PositionSnapshot: map[string]any{
 			"keywords":         []any{"本科", "销售"},
 			"exclude_keywords": []any{"外包"},
@@ -576,7 +576,7 @@ func TestApplyKeywordFilter(t *testing.T) {
 		{"id": "3", "raw_text": "本科 客服"},
 	}
 	logs := []string{}
-	filtered, skipped := applyKeywordFilter(task, candidates, func(message string) {
+	filtered, skipped := applyKeywordFilter(position, candidates, func(message string) {
 		logs = append(logs, message)
 	})
 	if skipped != 2 || len(filtered) != 1 || filtered[0]["id"] != "1" {
@@ -593,7 +593,7 @@ func TestApplyKeywordFilter(t *testing.T) {
 
 // TestPrepareCandidatesForFirstStageWithDetail 验证有详情阶段时列表阶段不做关键词终判。
 func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
-	task := localdb.Task{
+	position := localdb.Position{
 		Mode: "keyword",
 		PositionSnapshot: map[string]any{
 			"keywords":      []any{"本科"},
@@ -601,7 +601,7 @@ func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
 		},
 	}
 	candidates := []map[string]any{{"id": "1", "raw_text": "候选人基础信息较少"}}
-	filtered, skipped := prepareCandidatesForFirstStage(task, candidates)
+	filtered, skipped := prepareCandidatesForFirstStage(position, candidates)
 	if skipped != 0 || len(filtered) != 1 || filtered[0]["status"] != "passed" {
 		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
 	}
@@ -609,7 +609,7 @@ func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
 
 // TestApplyKeywordGreetDecision 验证详情文本出来后再做关键词最终判断。
 func TestApplyKeywordGreetDecision(t *testing.T) {
-	task := localdb.Task{
+	position := localdb.Position{
 		Mode: "keyword",
 		PositionSnapshot: map[string]any{
 			"keywords":         []any{"本科", "销售"},
@@ -619,7 +619,7 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 	}
 	logs := []string{}
 	passed := map[string]any{"name": "张三", "detail_text": "本科，五年销售经验"}
-	if skipped := applyKeywordGreetDecisionWithLog(task, passed, func(message string) {
+	if skipped := applyKeywordGreetDecisionWithLog(position, passed, func(message string) {
 		logs = append(logs, message)
 	}); skipped != 0 || passed["status"] != "passed" {
 		t.Fatalf("passed = %+v, skipped = %d", passed, skipped)
@@ -628,7 +628,7 @@ func TestApplyKeywordGreetDecision(t *testing.T) {
 		t.Fatalf("logs = %s", joinedLogs)
 	}
 	rejected := map[string]any{"detail_text": "本科，外包项目经验"}
-	if skipped := applyKeywordGreetDecision(task, rejected); skipped != 1 || rejected["status"] != "skipped" {
+	if skipped := applyKeywordGreetDecision(position, rejected); skipped != 1 || rejected["status"] != "skipped" {
 		t.Fatalf("rejected = %+v, skipped = %d", rejected, skipped)
 	}
 }
@@ -648,7 +648,7 @@ func TestStringListFromMapSplitsKeywordText(t *testing.T) {
 	}
 }
 
-// TestRunOptionBounds 验证任务运行参数默认值和上限。
+// TestRunOptionBounds 验证岗位运行运行参数默认值和上限。
 func TestRunOptionBounds(t *testing.T) {
 	if scanRounds(StartOptions{}) != defaultScanRounds {
 		t.Fatal("scanRounds 默认值不正确")
@@ -686,10 +686,10 @@ func TestRunOptionBounds(t *testing.T) {
 	}
 }
 
-// TestRunnerStopWaitsForCurrentStep 验证停止任务不会取消当前 Worker 调用。
+// TestRunnerStopWaitsForCurrentStep 验证停止岗位运行不会取消当前 Worker 调用。
 func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	speedUpPageEntryCheck(t)
-	var task localdb.Task
+	var position localdb.Position
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/me":
@@ -709,8 +709,8 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 		case "/api/config/user-preferences":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
 		default:
-			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": task.ID, "name": "可停止任务", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "可停止任务"}}})
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "position": map[string]any{"id": position.ID, "name": "可停止岗位运行", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "可停止岗位运行"}}})
 				return
 			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -719,13 +719,13 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	defer cloud.Close()
 
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "可停止任务", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "可停止任务"}})
+	position, err := db.CreatePosition(map[string]any{"name": "可停止岗位运行", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "可停止岗位运行"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker := &blockingWorker{extractStarted: make(chan struct{}), allowFinish: make(chan struct{}), released: make(chan struct{})}
 	runner := newTestRunner(t, db, worker)
-	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
+	if _, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -733,7 +733,7 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("等待 Worker 提取开始超时")
 	}
-	status, err := runner.Status(task.ID)
+	status, err := runner.Status(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,13 +742,13 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	}
 	stopDone := make(chan error, 1)
 	go func() {
-		_, err := runner.Stop(task.ID)
+		_, err := runner.Stop(position.ID)
 		stopDone <- err
 	}()
 	stopMarked := false
 	deadline := time.After(2 * time.Second)
 	for !stopMarked {
-		status, err = runner.Status(task.ID)
+		status, err = runner.Status(position.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -764,12 +764,12 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	}
 	select {
 	case err := <-stopDone:
-		t.Fatalf("停止任务不应该在当前 Worker 完成前返回：%v", err)
+		t.Fatalf("停止岗位运行不应该在当前 Worker 完成前返回：%v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 	select {
 	case <-worker.released:
-		t.Fatal("停止任务不应该立刻取消当前 Worker 调用")
+		t.Fatal("停止岗位运行不应该立刻取消当前 Worker 调用")
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(worker.allowFinish)
@@ -786,18 +786,18 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("当前步骤结束后 Worker 未释放")
 	}
-	waitForTaskStatus(t, db, task.ID, "stopped")
+	waitForPositionStatus(t, db, position.ID, "stopped")
 }
 
 // TestRunnerUserStopClosesCandidateDetail 验证用户主动停止后仍会执行详情关闭动作。
 func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{
-		"name":        "停止详情任务",
+	position, err := db.CreatePosition(map[string]any{
+		"name":        "停止详情岗位运行",
 		"platform_id": "boss",
 		"mode":        "keyword",
 		"position_snapshot": map[string]any{
-			"name":          "停止详情任务",
+			"name":          "停止详情岗位运行",
 			"common_config": map[string]any{"detail_mode": "dom"},
 		},
 	})
@@ -807,17 +807,17 @@ func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	runner := newTestRunner(t, db, &fakeWorker{})
 	_, stopCancel := context.WithCancel(t.Context())
 	defer stopCancel()
-	if !runner.setRunning(task.ID, stopCancel, StartOptions{}) {
+	if !runner.setRunning(position.ID, stopCancel, StartOptions{}) {
 		t.Fatal("创建测试运行状态失败")
 	}
-	defer runner.clear(task.ID)
-	runner.markUserStoppedAndCancel(task.ID)
+	defer runner.clear(position.ID)
+	runner.markUserStoppedAndCancel(position.ID)
 	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("详情读取已取消")}
 	_, _, err = runner.enrichCandidateWithDetail(
 		t.Context(),
-		task,
+		position,
 		runtime,
-		platformExecutor{runner: runner, taskID: task.ID},
+		platformExecutor{runner: runner, positionID: position.ID},
 		cloudapi.PlatformConfig{},
 		map[string]any{"candidate_name": "候选人A", "status": "scanned"},
 		nil,
@@ -831,15 +831,15 @@ func TestRunnerUserStopClosesCandidateDetail(t *testing.T) {
 	}
 }
 
-// TestRunnerMissingCandidateDetailStopsTask 验证5秒内找不到详情容器时错误会向上返回并停止任务。
-func TestRunnerMissingCandidateDetailStopsTask(t *testing.T) {
+// TestRunnerMissingCandidateDetailStopsPosition 验证5秒内找不到详情容器时错误会向上返回并停止岗位运行。
+func TestRunnerMissingCandidateDetailStopsPosition(t *testing.T) {
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{
-		"name":        "详情缺失任务",
+	position, err := db.CreatePosition(map[string]any{
+		"name":        "详情缺失岗位运行",
 		"platform_id": "boss",
 		"mode":        "keyword",
 		"position_snapshot": map[string]any{
-			"name":          "详情缺失任务",
+			"name":          "详情缺失岗位运行",
 			"common_config": map[string]any{"detail_mode": "dom"},
 		},
 	})
@@ -850,19 +850,19 @@ func TestRunnerMissingCandidateDetailStopsTask(t *testing.T) {
 	runtime := &detailCloseProbeRuntime{fetchErr: errors.New("候选人详情没找到：5秒内未找到可见详情容器")}
 	_, _, err = runner.enrichCandidateWithDetail(
 		t.Context(),
-		task,
+		position,
 		runtime,
-		platformExecutor{runner: runner, taskID: task.ID},
+		platformExecutor{runner: runner, positionID: position.ID},
 		cloudapi.PlatformConfig{},
 		map[string]any{"candidate_name": "候选人A", "status": "scanned"},
 		nil,
 		StartOptions{},
 	)
-	if err == nil || !strings.Contains(err.Error(), "任务已自动停止") {
-		t.Fatalf("详情容器缺失应停止任务：%v", err)
+	if err == nil || !strings.Contains(err.Error(), "岗位运行已自动停止") {
+		t.Fatalf("详情容器缺失应停止岗位运行：%v", err)
 	}
 	if runtime.closeCalls != 1 {
-		t.Fatalf("停止任务前应尝试关闭详情一次，closeCalls=%d", runtime.closeCalls)
+		t.Fatalf("停止岗位运行前应尝试关闭详情一次，closeCalls=%d", runtime.closeCalls)
 	}
 }
 
@@ -916,10 +916,10 @@ func TestCandidateDetailScrollDelayStaysWithinOneSecond(t *testing.T) {
 	}
 }
 
-// TestRunnerBrowserClosedStopsTask 验证用户关闭浏览器后任务会结束。
-func TestRunnerBrowserClosedStopsTask(t *testing.T) {
+// TestRunnerBrowserClosedStopsPosition 验证用户关闭浏览器后岗位运行会结束。
+func TestRunnerBrowserClosedStopsPosition(t *testing.T) {
 	speedUpPageEntryCheck(t)
-	var task localdb.Task
+	var position localdb.Position
 	var failNoticeCalled atomic.Bool
 	var failNoticeMessage atomic.Value
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -946,8 +946,8 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 			failNoticeMessage.Store(strings.TrimSpace(payload["error_message"].(string)))
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		default:
-			if strings.HasPrefix(r.URL.Path, "/api/tasks/") {
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "task": map[string]any{"id": task.ID, "name": "浏览器关闭任务", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "本地任务"}}})
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "position": map[string]any{"id": position.ID, "name": "本地岗位", "platform_id": "boss", "common_config": map[string]any{"mode_default": "keyword"}}})
 				return
 			}
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -956,16 +956,16 @@ func TestRunnerBrowserClosedStopsTask(t *testing.T) {
 	defer cloud.Close()
 
 	db := openRunnerTestDB(t)
-	task, err := db.CreateTask(map[string]any{"name": "浏览器关闭任务", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "本地任务"}})
+	position, err := db.CreatePosition(map[string]any{"name": "浏览器关闭岗位运行", "platform_id": "boss", "mode": "keyword", "position_snapshot": map[string]any{"name": "本地岗位运行"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := &fakeWorker{extractErr: errors.New("浏览器已关闭，请重新启动浏览器")}
+	worker := &fakeWorker{currentPosition: "本地岗位", extractErr: errors.New("浏览器已关闭，请重新启动浏览器")}
 	runner := newTestRunner(t, db, worker)
-	if _, err := runner.Start(t.Context(), task.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
+	if _, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: cloud.URL, Token: "token-1", PageReadyDelay: 1}); err != nil {
 		t.Fatal(err)
 	}
-	waitForTaskStatus(t, db, task.ID, "stopped")
+	waitForPositionStatus(t, db, position.ID, "stopped")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && !failNoticeCalled.Load() {
 		time.Sleep(20 * time.Millisecond)
@@ -1021,22 +1021,22 @@ func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[st
 	if path == "/api/v1/page/extract-text" {
 		position := strings.TrimSpace(w.currentPosition)
 		if position == "" {
-			position = "本地任务"
+			position = "本地岗位运行"
 		}
 		return map[string]any{"data": map[string]any{"text": position, "texts": []any{position}}}, nil
 	}
 	if path == "/api/v1/page/find-elements" {
 		return map[string]any{"data": map[string]any{"items": []any{
-			map[string]any{"index": 0, "text": "本地任务", "fields": map[string]any{"position_name": "本地任务"}},
-			map[string]any{"index": 1, "text": "本地任务2", "fields": map[string]any{"position_name": "本地任务2"}},
+			map[string]any{"index": 0, "text": "本地岗位运行", "fields": map[string]any{"position_name": "本地岗位运行"}},
+			map[string]any{"index": 1, "text": "本地岗位运行2", "fields": map[string]any{"position_name": "本地岗位运行2"}},
 		}}}, nil
 	}
 	if path == "/api/v1/page/list-click-by-index" {
 		index := intFromMap(mapValue(payload), "index")
 		if index == 1 {
-			w.currentPosition = "本地任务2"
+			w.currentPosition = "本地岗位运行2"
 		} else {
-			w.currentPosition = "本地任务"
+			w.currentPosition = "本地岗位运行"
 		}
 		return map[string]any{"data": map[string]any{"clicked": true}}, nil
 	}
@@ -1118,14 +1118,14 @@ func (r *detailCloseProbeRuntime) PrepareEntryPage(ctx context.Context, exec pla
 	return nil
 }
 
-// IsTaskEntryPage 模拟入口页检测。
-func (r *detailCloseProbeRuntime) IsTaskEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
+// IsPositionEntryPage 模拟入口页检测。
+func (r *detailCloseProbeRuntime) IsPositionEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
 	return true, nil
 }
 
 // CurrentPositionName 模拟读取当前岗位。
 func (r *detailCloseProbeRuntime) CurrentPositionName(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (string, error) {
-	return "停止详情任务", nil
+	return "停止详情岗位运行", nil
 }
 
 // SelectPosition 模拟切换岗位。
@@ -1192,7 +1192,7 @@ func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (ma
 		}}}}, nil
 	}
 	if path == "/api/v1/page/extract-text" {
-		return map[string]any{"data": map[string]any{"text": "可停止任务", "texts": []any{"可停止任务"}}}, nil
+		return map[string]any{"data": map[string]any{"text": "可停止岗位运行", "texts": []any{"可停止岗位运行"}}}, nil
 	}
 	if path == "/api/v1/boss/candidates/extract" {
 		close(w.extractStarted)
@@ -1214,34 +1214,34 @@ func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (ma
 	return map[string]any{"data": map[string]any{}}, nil
 }
 
-// waitForTaskStatus 等待任务进入指定状态。
-// t 为测试对象，db 为本地数据库，taskID 为任务 ID，status 为目标状态。
-func waitForTaskStatus(t *testing.T, db *localdb.DB, taskID string, status string) localdb.Task {
+// waitForPositionStatus 等待岗位运行进入指定状态。
+// t 为测试对象，db 为本地数据库，positionID 为岗位运行 ID，status 为目标状态。
+func waitForPositionStatus(t *testing.T, db *localdb.DB, positionID string, status string) localdb.Position {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		task, err := db.GetTask(taskID)
+		position, err := db.GetPosition(positionID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if task.Status == status {
-			return task
+		if position.Status == status {
+			return position
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	task, err := db.GetTask(taskID)
+	position, err := db.GetPosition(positionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Fatalf("等待任务状态超时，当前状态=%s，目标状态=%s", task.Status, status)
-	return task
+	t.Fatalf("等待岗位运行状态超时，当前状态=%s，目标状态=%s", position.Status, status)
+	return position
 }
 
-// assertTaskLogContains 断言任务日志包含指定文本。
-// t 为测试对象，db 为本地数据库，taskID 为任务 ID，text 为期望文本。
-func assertTaskLogContains(t *testing.T, db *localdb.DB, taskID string, text string) {
+// assertPositionLogContains 断言岗位运行日志包含指定文本。
+// t 为测试对象，db 为本地数据库，positionID 为岗位运行 ID，text 为期望文本。
+func assertPositionLogContains(t *testing.T, db *localdb.DB, positionID string, text string) {
 	t.Helper()
-	logs, err := db.ListTaskLogs(taskID, 200)
+	logs, err := db.ListPositionLogs(positionID, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1250,7 +1250,7 @@ func assertTaskLogContains(t *testing.T, db *localdb.DB, taskID string, text str
 			return
 		}
 	}
-	t.Fatalf("任务日志未包含 %q，logs=%+v", text, logs)
+	t.Fatalf("岗位运行日志未包含 %q，logs=%+v", text, logs)
 }
 
 // speedUpPageEntryCheck 加快测试中的页面入口等待。
@@ -1273,7 +1273,7 @@ func speedUpPageEntryCheck(t *testing.T) {
 	})
 }
 
-// openRunnerTestDB 创建任务运行器测试数据库。
+// openRunnerTestDB 创建岗位运行运行器测试数据库。
 // t 为测试对象。
 func openRunnerTestDB(t *testing.T) *localdb.DB {
 	t.Helper()
@@ -1285,7 +1285,7 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 	return db
 }
 
-// newTestRunner 创建带临时目录的任务运行器。
+// newTestRunner 创建带临时目录的岗位运行运行器。
 // t 为测试对象，db 为测试数据库，worker 为模拟 Worker。
 func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()

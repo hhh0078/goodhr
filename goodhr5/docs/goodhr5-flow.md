@@ -9,9 +9,9 @@
 2. [登录后初始化](#2-登录后初始化)
 3. [平台账号管理（Profile/Cookie）](#3-平台账号管理)
 4. [岗位模板管理](#4-岗位模板管理)
-5. [任务创建](#5-任务创建)
-6. [任务执行（核心链路）](#6-任务执行)
-7. [任务列表与日志](#7-任务列表与日志)
+5. [岗位运行创建](#5-岗位运行创建)
+6. [岗位运行执行（核心链路）](#6-岗位运行执行)
+7. [岗位运行列表与日志](#7-岗位运行列表与日志)
 8. [候选人查看与管理](#8-候选人查看与管理)
 9. [边界场景分析](#9-边界场景)
 
@@ -128,7 +128,7 @@ onMounted → auth.loadCurrentUser():
                user = data.user
                ├─ agent.detect(user, token)    ← 重新探测本地 Agent
                ├─ positions.load()             ← 重新加载岗位模板
-               └─ tasks.load()                 ← 重新加载任务列表
+               └─ positions.load()                 ← 重新加载岗位运行列表
 ```
 
 ### 2.3 探测本地 Agent
@@ -144,7 +144,7 @@ agent.detect():
   │         { ok, name: "GoodHR 5 Local Agent",
   │           version, port, machine_id, local_db }
   │         ├─ status="已连接 (端口 {port})"
-  │         ├─ baseUrl="http://127.0.0.1:{port}"   ← 保存供后续任务执行使用
+  │         ├─ baseUrl="http://127.0.0.1:{port}"   ← 保存供后续岗位运行执行使用
   │         ├─ 不绑定云端账号
   │         ├─ 不连接云端 WebSocket
   │         ├─ 不向 Local Agent 传登录 token
@@ -165,9 +165,9 @@ positions.load():
   GET /api/positions → Go PositionStore.ListPositions(email)
   返回 { ok, positions: [...] }   ← 数组中每个对象含 keywords/exclude_keywords/...
 
-tasks.load():
-  GET /api/tasks → Go TaskStore.ListTasks(email)
-  返回 { ok, tasks: [...] }      ← 每个任务含 platform_id/mode/status/statistics
+positions.load():
+  GET /api/positions → Go PositionStore.ListPositions(email)
+  返回 { ok, positions: [...] }      ← 每个岗位运行含 platform_id/mode/status/statistics
 ```
 
 ---
@@ -197,10 +197,10 @@ Local Agent 创建 profile 记录（管理 cookie 对应的 Chrome profile 目�
   { platform_id: "boss", display_name: "我的Boss账号", local_profile_id: "<profile-uuid>" }
   → 写入 platform_accounts 表
       ↓
-任务创建时前端读取账号列表
+岗位运行创建时前端读取账号列表
   GET /api/platform-accounts → 返回 [{id, display_name, platform_id, local_profile_id}]
       ↓
-任务执行时使用 local_profile_id 找到对应的 Chrome profile 目录
+岗位运行执行时使用 local_profile_id 找到对应的 Chrome profile 目录
   BrowserManager.start(user_data_dir: local_profile_id)
   → CloakBrowser 使用该 profile 目录，自动加载已保存的 cookie
 ```
@@ -210,8 +210,8 @@ Local Agent 创建 profile 记录（管理 cookie 对应的 Chrome profile 目�
 **⚠️ 前端没有 profile 管理 UI**：
 - Local Agent 有 `profiles` API（list/create/delete）
 - Go 云端有 `platform-accounts` API（list/create/delete）
-- 但前端 `TaskCreator.vue` 的账号下拉来自云端 API，而云端数据没有创建入口
-- **结果：账号下拉永远为空，任务创建按钮永远灰色**
+- 但前端 `PositionCreator.vue` 的账号下拉来自云端 API，而云端数据没有创建入口
+- **结果：账号下拉永远为空，岗位运行创建按钮永远灰色**
 
 ### 3.3 所需的完整流程（待实现）
 
@@ -230,7 +230,7 @@ Local Agent 创建 profile 记录（管理 cookie 对应的 Chrome profile 目�
 - CloakBrowser 使用持久化 profile 目录，cookie 自动保存
 - Profile 目录对应 Chrome 的 `user_data_dir`
 - 如果 cookie 过期，打开平台页面时停留在登录页
-- **当前未检测**：任务执行不检查是否已登录，直接提取候选人会返回空
+- **当前未检测**：岗位运行执行不检查是否已登录，直接提取候选人会返回空
 - goodhrpy 中有 `check_login_status()` 和 `wait_for_login()` 功能，但未迁移
 
 ---
@@ -283,7 +283,7 @@ Position {
 
 ---
 
-## 5. 任务创建
+## 5. 岗位运行创建
 
 ### 5.1 表单字段
 
@@ -298,29 +298,29 @@ Position {
 ### 5.2 创建流程
 
 ```
-点击 [ 创建任务 ]
-  ├─ useTasks.create()
+点击 [ 创建岗位运行 ]
+  ├─ usePositions.create()
   │   ├─ 校验 platformAccountId 非空
-  │   └─ POST /api/tasks
+  │   └─ POST /api/positions
   │      Body: { platform_id, platform_account_id, position_id, mode, match_limit }
-  │      └─► Go task.Create():
-  │          ├─ toTask() 校验:
+  │      └─► Go position.Create():
+  │          ├─ toPosition() 校验:
   │          │   platform_id 非空 / platform_account_id 非空 / mode 默认 "keyword"
   │          │   match_limit >= 0
   │          ├─ PlatformAccountBelongsToUser() 校验账号归属
   │          │   └─ 不匹配 → 400 "platform account not found"
-  │          └─ TaskStore.CreateTask()
-  │              └─ 返回 task:
+  │          └─ PositionStore.CreatePosition()
+  │              └─ 返回 position:
   │                 { id, platform_id, mode, match_limit,
   │                   status: "created",
   │                   scanned_count:0, greeted_count:0,
   │                   skipped_count:0, failed_count:0,
-  │                   local_task_id: "" }
+  │                   local_position_id: "" }
   │
-  └─► 前端: 刷新任务列表，清除表单 positionId
+  └─► 前端: 刷新岗位运行列表，清除表单 positionId
 ```
 
-**返回的 task 对象**：
+**返回的 position 对象**：
 ```json
 {
   "id": "uuid",
@@ -334,41 +334,41 @@ Position {
   "status": "created",
   "scanned_count": 0, "greeted_count": 0,
   "skipped_count": 0, "failed_count": 0,
-  "local_task_id": "",
+  "local_position_id": "",
   "created_at": "2026-05-19T..."
 }
 ```
 
 ---
 
-## 6. 任务执行
+## 6. 岗位运行执行
 
 ### 6.1 触发
 
 ```
-任务列表中点击 [ 运行 ]
-  ├─ useTasks.execute(taskId)
-  │   └─ POST /api/tasks/{taskId}/run
+岗位运行列表中点击 [ 运行 ]
+  ├─ usePositions.execute(positionId)
+  │   └─ POST /api/positions/{positionId}/run
   │      Body: { agent_base_url: "http://127.0.0.1:55271" }
-  │      └─► Go task.Run():
+  │      └─► Go position.Run():
   │          ├─ SessionFromRequest() → 校验登录
-  │          ├─ TaskByID(email, taskId) → 校验归属
+  │          ├─ PositionByID(email, positionId) → 校验归属
   │          ├─ agent_base_url 非空 → 400
-  │          ├─ go executeTask(task, agentBaseURL) ← goroutine 异步!
+  │          ├─ go executePosition(position, agentBaseURL) ← goroutine 异步!
   │          └─ 立即返回 { ok, status: "running" }
   │
-  └─► 前端: 刷新任务列表
+  └─► 前端: 刷新岗位运行列表
 ```
 
-### 6.2 executeTask 内部详细流程
+### 6.2 executePosition 内部详细流程
 
 ```
-goroutine: executeTask(task, agentBaseURL)
+goroutine: executePosition(position, agentBaseURL)
 │
-├─ 写日志: "任务 {id} 开始执行"
+├─ 写日志: "岗位运行 {id} 开始执行"
 │
 ├─ 读取平台配置
-│   systemConfigs.Get("platform." + task.PlatformID)
+│   systemConfigs.Get("platform." + position.PlatformID)
 │   └─► PostgreSQL/system_configs WHERE config_key='platform.boss'
 │       返回 JSON:
 │       { id, name, domain, pages:[{url,title}],
@@ -380,14 +380,14 @@ goroutine: executeTask(task, agentBaseURL)
 │       │
 │       └─ ParsePlatformConfig(json) → PlatformConfig 结构体
 │
-├─ 读取岗位信息（如果 task.PositionID 非空）
-│   positionStore.PositionByID(email, task.PositionID)
+├─ 读取岗位信息（如果 position.PositionID 非空）
+│   positionStore.PositionByID(email, position.PositionID)
 │   └─► PostgreSQL/positions JOIN users
 │       返回 Position{Name, Keywords, ExcludeKeywords, Description, GreetMessage, ...}
 │   → 构建 position map: { name, keywords, exclude }
 │
-├─ 创建 TaskExecutor 实例
-│   NewTaskExecutor(task, platformCfg, position, agentBaseURL, logFunc)
+├─ 创建 PositionExecutor 实例
+│   NewPositionExecutor(position, platformCfg, position, agentBaseURL, logFunc)
 │   ├─ 判断 mode:
 │   │   ├─ ai: filter=nil（由 callAI 处理）
 │   │   └─ keyword: NewKeywordFilter(keywords, exclude, isAndMode, 7)
@@ -398,7 +398,7 @@ goroutine: executeTask(task, agentBaseURL)
     ├─── 步骤 1/5: 启动浏览器 ─────────────────────────────
     │   POST {agentBaseURL}/api/v1/browser/start
     │   Body: { persistent:true,
-    │           user_data_dir: task.PlatformAccountID,
+    │           user_data_dir: position.PlatformAccountID,
     │           headless:false,
     │           humanize:true }
     │   │
@@ -533,38 +533,38 @@ goroutine: executeTask(task, agentBaseURL)
               └─ 失败 → 不阻塞，继续下一个候选人
 ```
 
-### 6.3 任务结束
+### 6.3 岗位运行结束
 
 ```
 Run() 返回:
-  ├─ err != nil → WriteLog("任务执行失败: {err}")
-  └─ err == nil → WriteLog("任务执行完成")
+  ├─ err != nil → WriteLog("岗位运行执行失败: {err}")
+  └─ err == nil → WriteLog("岗位运行执行完成")
 
 defer e.stopBrowser() → 关闭浏览器进程
 ```
 
 ---
 
-## 7. 任务列表与日志
+## 7. 岗位运行列表与日志
 
-### 7.1 加载任务列表
+### 7.1 加载岗位运行列表
 
 ```
 前端 onMounted / 登录后 / 手动刷新:
-  GET /api/tasks → Go task.List()
-  └─► 返回 tasks 数组
+  GET /api/positions → Go position.List()
+  └─► 返回 positions 数组
 ```
 
 ### 7.2 展开日志
 
 ```
-前端 TaskList.vue → 点击 [ 展开日志 ]
-  ├─ useTasks.toggleLogs(taskId)
+前端 PositionList.vue → 点击 [ 展开日志 ]
+  ├─ usePositions.toggleLogs(positionId)
   │   ├─ 如果已展开 → 收起
-  │   └─ GET /api/tasks/{taskId}/logs
-  │       └─► Go TaskLogService.List()
+  │   └─ GET /api/positions/{positionId}/logs
+  │       └─► Go PositionLogService.List()
   │           ├─ SessionFromRequest() 校验
-  │           └─ TaskLogStore.ListTaskLogs(taskId)
+  │           └─ PositionLogStore.ListPositionLogs(positionId)
   │               返回 [{id, level, message, created_at}, ...]
   │
   └─► 前端渲染日志列表
@@ -573,7 +573,7 @@ defer e.stopBrowser() → 关闭浏览器进程
        └─ level="warn" → 黄色文本
 ```
 
-**日志来源**：executeTask 中每步操作调用 `WriteLog(taskID, level, message)`，写入 TaskLogStore（内存或 PostgreSQL）。
+**日志来源**：executePosition 中每步操作调用 `WriteLog(positionID, level, message)`，写入 PositionLogStore（内存或 PostgreSQL）。
 
 ---
 
@@ -582,23 +582,23 @@ defer e.stopBrowser() → 关闭浏览器进程
 ### 8.1 查看候选人
 
 ```
-前端 TaskList.vue → 点击 [ 查看候选人 ]
-  ├─ useTasks.toggleCandidates(task)
-  │   ├─ 构造 localId = task.local_task_id || task.id
-  │   ├─ loadCandidates(task, localId):
+前端 PositionList.vue → 点击 [ 查看候选人 ]
+  ├─ usePositions.toggleCandidates(position)
+  │   ├─ 构造 localId = position.local_position_id || position.id
+  │   ├─ loadCandidates(position, localId):
   │   │   ├─ 构造 agent = { port: 从 agentBaseUrl 解析 }
-  │   │   ├─ POST /api/v1/tasks/init
-  │   │   │   Body: { task_id, cloud_user_id, platform_id,
+  │   │   ├─ POST /api/v1/local/positions/init
+  │   │   │   Body: { position_id, cloud_user_id, platform_id,
   │   │   │           platform_account_id, position_snapshot }
-  │   │   │   └─► Local Agent: 创建 agent_data/tasks/{task_id}/ 目录
+  │   │   │   └─► Local Agent: 创建 agent_data/positions/{position_id}/ 目录
   │   │   │       ├─ 目录已存在 → 幂等，不覆盖
   │   │   │       └─ 目录不存在 → 创建目录 + candidates.json + screenshots/ + ocr/
   │   │   │
-  │   │   └─ GET /api/v1/tasks/{taskId}/candidates
+  │   │   └─ GET /api/v1/local/positions/{positionId}/candidates
   │   │       └─► Local Agent: 读取 candidates.json
   │   │           返回 { ok, data: { items: [{id, name, raw_text, ...}], position_snapshot: {...} } }
   │   │
-  │   └─ 存储候选人和岗位快照到 taskCandidates[localId]
+  │   └─ 存储候选人和岗位快照到 positionCandidates[localId]
   │
   └─► 前端渲染候选人卡片列表 + 岗位模板快照
 ```
@@ -607,8 +607,8 @@ defer e.stopBrowser() → 关闭浏览器进程
 
 ```
 点击候选人卡片的 [ 删除 ]
-  ├─ useTasks.removeCandidate(task, candidate)
-  │   └─ DELETE /api/v1/tasks/{taskId}/candidates/{candidateId}
+  ├─ usePositions.removeCandidate(position, candidate)
+  │   └─ DELETE /api/v1/local/positions/{positionId}/candidates/{candidateId}
   │       └─► Local Agent: 从 candidates.json 中移除该候选人
   │
   └─► 前端立即从本地列表中移除（乐观更新）
@@ -617,7 +617,7 @@ defer e.stopBrowser() → 关闭浏览器进程
 **边界**：
 - 查看候选人需要 Local Agent 在线（agentBaseUrl 非空）
 - Local Agent 离线时 → candidateError 显示错误信息
-- position_snapshot 是任务创建时从岗位模板同步过来的快照，不因模板被修改而变化
+- position_snapshot 是岗位运行创建时从岗位模板同步过来的快照，不因模板被修改而变化
 - 候选人的详情文本（detail_text）来自 OCR 识别结果，只有执行过截图+OCR 的候选人才有
 
 ---
@@ -632,8 +632,8 @@ defer e.stopBrowser() → 关闭浏览器进程
   │   ├─ 有 token + 有效 → 恢复登录态 → 重新检测 Agent → 加载数据
   │   └─ 无 token → 登录页
   │
-  └─ 正在执行的任务不受影响（Go goroutine 独立运行）
-     任务执行结束后日志继续写入，用户重新展开可看到完整日志
+  └─ 正在执行的岗位运行不受影响（Go goroutine 独立运行）
+     岗位运行执行结束后日志继续写入，用户重新展开可看到完整日志
 ```
 
 ### 9.2 登录过期
@@ -649,32 +649,32 @@ defer e.stopBrowser() → 关闭浏览器进程
 ### 9.3 Local Agent 掉线
 
 ```
-任务执行中 Local Agent 进程崩溃:
+岗位运行执行中 Local Agent 进程崩溃:
   ├─ executor.post() → "请求 Local Agent 失败: connection refused"
   ├─ callAI/post 返回 error
   ├─ Run() 返回 error
-  └─ WriteLog("任务执行失败: ...")
+  └─ WriteLog("岗位运行执行失败: ...")
 
 前端视角:
   ├─ AgentPanel 状态变为 "未检测到本地程序"
-  ├─ 已展开的日志会保留（已写入 TaskLogStore）
-  └─ 任务列表中的 status 不会更新（因为 executeTask 未更新它）
+  ├─ 已展开的日志会保留（已写入 PositionLogStore）
+  └─ 岗位运行列表中的 status 不会更新（因为 executePosition 未更新它）
 ```
 
-### 9.4 多个任务同时运行
+### 9.4 多个岗位运行同时运行
 
 ```
-用户创建任务 A（boss）→ 点击运行 → goroutine 1: executeTask(A)
-用户创建任务 B（zhaopin）→ 点击运行 → goroutine 2: executeTask(B)
+用户创建岗位运行 A（boss）→ 点击运行 → goroutine 1: executePosition(A)
+用户创建岗位运行 B（zhaopin）→ 点击运行 → goroutine 2: executePosition(B)
 │
-├─ 两个 goroutine 共享同一个 TaskLogStore → 日志按 task.id 隔离
+├─ 两个 goroutine 共享同一个 PositionLogStore → 日志按 position.id 隔离
 ├─ 每个 goroutine 调用不同的页面（不同平台）→ 不同标签页
 ├─ 但共用同一个 BrowserManager → 共享浏览器实例
-│   ├─ 任务 A 先 start → 浏览器启动
-│   ├─ 任务 B 再 start → BrowserManager.is_running=true
+│   ├─ 岗位运行 A 先 start → 浏览器启动
+│   ├─ 岗位运行 B 再 start → BrowserManager.is_running=true
 │   │   └─ 返回 { status: "already_running" } → 不重新启动
-│   └─ 两个任务各自创建 new_page → 不同的 Page 实例
-└─ 可能冲突: 两个任务同时操作不同页面，互不影响
+│   └─ 两个岗位运行各自创建 new_page → 不同的 Page 实例
+└─ 可能冲突: 两个岗位运行同时操作不同页面，互不影响
 ```
 
 ### 9.5 平台网站改版/选择器失效
@@ -684,9 +684,9 @@ defer e.stopBrowser() → 关闭浏览器进程
   ├─ extractCandidates() → JS 中 querySelectorAll 返回空
   │   └─ 返回 { candidates: [] }
   ├─ processCandidates() → for 循环不执行
-  └─ 任务"成功完成"（没有跳过错误，因为没有候选人可处理）
+  └─ 岗位运行"成功完成"（没有跳过错误，因为没有候选人可处理）
 
-  ⚠️ 这是静默失败——任务显示成功但没有提取任何人
+  ⚠️ 这是静默失败——岗位运行显示成功但没有提取任何人
   ⚠️ 需要检查: 候选人数量为 0 时应记录 warning 日志
 ```
 
@@ -702,5 +702,5 @@ Go 后端 ↔ Local Agent 通信:
 
 Go 后端 ↔ AI API 通信:
   └─ AI API 不可达 → callAI 返回 error → 跳过当前候选人
-      不会中断整个任务，继续处理下一个
+      不会中断整个岗位运行，继续处理下一个
 ```

@@ -1,5 +1,5 @@
-// Package taskrunner 文件作用：统一定义候选人级错误和必须停止任务的错误处理策略。
-package taskrunner
+// Package positionrunner 文件作用：统一定义候选人级错误和必须停止岗位运行的错误处理策略。
+package positionrunner
 
 import (
 	"errors"
@@ -84,23 +84,23 @@ func normalizeOperationError(err error) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// stopAfterCandidateOperationError 判断候选人错误是否达到停止整个任务的条件。
+// stopAfterCandidateOperationError 判断候选人错误是否达到停止整个岗位运行的条件。
 func stopAfterCandidateOperationError(tracker *consecutiveOperationErrorTracker, err error) error {
-	if shouldStopTaskImmediately(err) {
+	if shouldStopPositionImmediately(err) {
 		return err
 	}
 	if tracker == nil {
 		return nil
 	}
 	if count := tracker.Record(err); count >= 3 {
-		return fmt.Errorf("同一平台环节连续%d个候选人出现相同错误，任务已自动停止：%w", count, err)
+		return fmt.Errorf("同一平台环节连续%d个候选人出现相同错误，岗位运行已自动停止：%w", count, err)
 	}
 	return nil
 }
 
-// shouldStopTaskImmediately 判断错误是否属于继续运行会持续失败的任务级错误。
-func shouldStopTaskImmediately(err error) bool {
-	return err != nil && (localai.IsTaskStoppingError(err) || isBrowserClosedTaskError(err))
+// shouldStopPositionImmediately 判断错误是否属于继续运行会持续失败的岗位运行级错误。
+func shouldStopPositionImmediately(err error) bool {
+	return err != nil && (localai.IsPositionStoppingError(err) || isBrowserClosedPositionError(err))
 }
 
 // isFatalOCRError 判断 OCR 错误是否表示组件未安装、配置损坏或进程已经不可用。

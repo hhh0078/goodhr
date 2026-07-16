@@ -19,7 +19,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用智联详情 DOM 提取接口：name=%s card_index=%d", name, intFromMap(candidate, "card_index")))
 	payload := zhaopinCandidateVisiblePayload(cfg, candidate)
-	payload["task_id"] = request.TaskID
+	payload["position_id"] = request.PositionID
 	payload["screenshot"] = false
 	payload["force_scroll"] = false
 	payload["card_scroll_attempts"] = 3

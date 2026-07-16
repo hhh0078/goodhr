@@ -6,7 +6,9 @@ import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
+import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import {
   Alert,
   Box,
@@ -14,7 +16,9 @@ import {
   Collapse,
   CircularProgress,
   Divider,
+  FormControlLabel,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -34,8 +38,11 @@ import PlatformLogo, {
   platformIconSrc,
   platformLabel,
 } from "@/components/admin/PlatformLogo";
-import { cloudRequest } from "@/lib/admin-api";
+import { CLOUD_API_BASE, cloudRequest, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
+import { reportUserFlow } from "@/lib/user-flow";
+import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
+import { evaluatePositionStartGuard, latestLocalAgentRelease } from "@/lib/position-start-guard";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
@@ -48,12 +55,15 @@ type PositionForm = ReturnType<typeof createEmptyForm>;
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
-  const { subscription, notify, confirm } = useAdmin();
+  const { subscription, notify, confirm, agentBase, onboardingConfig } = useAdmin();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [busyPositionID, setBusyPositionID] = useState("");
+  const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
+  const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
     [],
@@ -173,6 +183,9 @@ export default function PositionsPage() {
             greet_score_threshold: Number(form.greet_score_threshold || 70),
           },
           keyword_config: {},
+          match_limit: Number(form.match_limit || 50),
+          enable_sound: form.enable_sound,
+          enable_thinking: form.enable_thinking,
         },
       });
       notify(form.id ? "岗位模板已更新" : "岗位模板已创建", "success");
@@ -194,6 +207,79 @@ export default function PositionsPage() {
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "删除失败", "error");
+    }
+  }
+
+  /** startPosition 完成平台登录确认后启动本地岗位运行。 */
+  async function startPosition(item: any) {
+    if (!agentBase) return notify("请先启动本地程序", "warning");
+    setBusyPositionID(item.id);
+    try {
+      const [walletPayload, health] = await Promise.all([
+        cloudRequest("/api/ai-wallet"),
+        localRequest(agentBase, "/health"),
+      ]);
+      const release = latestLocalAgentRelease(onboardingConfig);
+      const guardFailure = evaluatePositionStartGuard(
+        walletPayload.wallet || walletPayload,
+        health.version || health.agent_version,
+        release.version,
+      );
+      if (guardFailure) {
+        await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
+        await confirm(guardFailure.title, guardFailure.message);
+        return;
+      }
+      const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
+      await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+      await confirmPlatformLoggedInForPosition(agentBase, auth, () => undefined);
+      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
+        method: "POST",
+        body: { cloud_api_base: CLOUD_API_BASE, token: getToken(), enable_greet: true },
+      });
+      await reportUserFlow({ step: "position_started", source: "position_start", position_id: item.id });
+      notify("岗位已经开始跑了，我会老实记日志", "success");
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "岗位启动失败";
+      await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_failed", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+      notify(message, "error");
+    } finally {
+      setBusyPositionID("");
+    }
+  }
+
+  /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
+  async function stopPosition(item: any) {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    setBusyPositionID(item.id);
+    try {
+      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
+        method: "POST",
+        body: { cloud_api_base: CLOUD_API_BASE, token: getToken() },
+      });
+      notify("岗位已停下，浏览器先给你留着", "success");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "停止岗位失败", "error");
+    } finally {
+      setBusyPositionID("");
+    }
+  }
+
+  /** togglePositionLogs 展开或收起岗位累计日志，不主动清空历史日志。 */
+  async function togglePositionLogs(item: any) {
+    if (expandedLogPositionID === item.id) {
+      setExpandedLogPositionID("");
+      return;
+    }
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    setExpandedLogPositionID(item.id);
+    try {
+      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=100`);
+      setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "日志读取失败", "error");
     }
   }
 
@@ -336,6 +422,17 @@ export default function PositionsPage() {
                   </Box>
                   <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
                     <Button
+                      startIcon={<PlayArrowRoundedIcon />}
+                      disabled={busyPositionID === item.id || item.status === "running"}
+                      onClick={() => void startPosition(item)}
+                    >开始</Button>
+                    <Button
+                      startIcon={<StopRoundedIcon />}
+                      disabled={busyPositionID === item.id || item.status !== "running"}
+                      onClick={() => void stopPosition(item)}
+                    >停止</Button>
+                    <Button onClick={() => void togglePositionLogs(item)}>日志</Button>
+                    <Button
                       startIcon={<EditRoundedIcon />}
                       onClick={() => void openEdit(item)}
                     >
@@ -351,6 +448,18 @@ export default function PositionsPage() {
                   </Stack>
                 </Stack>
               </Stack>
+              <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
+                累计扫描 {item.scanned_count || 0} · 打招呼 {item.greeted_count || 0} · 跳过 {item.skipped_count || 0} · 失败 {item.failed_count || 0}
+              </Typography>
+              <Collapse in={expandedLogPositionID === item.id}>
+                <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "action.hover", borderRadius: 1, maxHeight: 280, overflow: "auto" }}>
+                  {(logs[item.id] || []).length ? (logs[item.id] || []).map((log: any) => (
+                    <Typography key={log.id || `${log.created_at}-${log.message}`} component='div' sx={{ fontFamily: "monospace", fontSize: 12, py: 0.25 }}>
+                      {log.created_at || ""} {log.message || ""}
+                    </Typography>
+                  )) : <Typography sx={{ color: "text.secondary", fontSize: 13 }}>这里暂时空空的，开始运行后我再认真记账。</Typography>}
+                </Box>
+              </Collapse>
             </Box>
           ))}
         </Stack>
@@ -396,6 +505,24 @@ export default function PositionsPage() {
                 },
               }}
             />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2 }}>
+              <TextField
+                label='每次打招呼上限'
+                type='number'
+                value={form.match_limit}
+                onChange={(event) => setForm({ ...form, match_limit: Number(event.target.value || 0) })}
+                slotProps={{ htmlInput: { min: 1 } }}
+                sx={{ width: { sm: 220 } }}
+              />
+              <FormControlLabel
+                control={<Switch checked={form.enable_sound} onChange={(event) => setForm({ ...form, enable_sound: event.target.checked })} />}
+                label='完成后提示音'
+              />
+              <FormControlLabel
+                control={<Switch checked={form.enable_thinking} onChange={(event) => setForm({ ...form, enable_thinking: event.target.checked })} />}
+                label='思考模式'
+              />
+            </Stack>
           </Box>
           <ChoiceCards
             label='招聘平台'
@@ -469,7 +596,7 @@ export default function PositionsPage() {
               <PlatformTipCard
                 iconSrc={CHROMIUM_ICON_SRC}
                 title='浏览器图标'
-                text='创建任务后点右下角蓝色浏览器图标，完成对应平台登录。'
+                text='创建岗位运行后点右下角蓝色浏览器图标，完成对应平台登录。'
               />
               {form.platform_id === "boss" ? (
                 <PlatformTipCard
@@ -613,7 +740,7 @@ export default function PositionsPage() {
                         }
                         fullWidth
                         placeholder='请填写猎聘搜索页已保存的快捷搜索名称'
-                        helperText='填写后，任务会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。'
+                        helperText='填写后，岗位运行会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。'
                       />
                       <HLiepinShortcutSearchGuide
                         visible={Boolean(
@@ -691,7 +818,7 @@ export default function PositionsPage() {
                         }
                         fullWidth
                         placeholder='请填写猎聘搜索页已保存的快捷搜索名称'
-                        helperText='填写后，任务会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。它不参与本地简历的 AI 判断。'
+                        helperText='填写后，岗位运行会直接选择猎聘页面中完全同名的快捷搜索，不再输入搜索关键词；如果不填，则使用正在发布的岗位进行匹配。它不参与本地简历的 AI 判断。'
                       />
                       <HLiepinShortcutSearchGuide
                         visible={Boolean(
@@ -1035,10 +1162,10 @@ function HLiepinShortcutSearchGuide({ visible }: { visible: boolean }) {
         </Typography>
         <Alert severity='warning' sx={{ mt: 1, mb: 1.5 }}>
           <Typography sx={{ fontSize: 13, lineHeight: 1.7 }}>
-            请先在猎聘搜索页面配置关键词和全部筛选条件，点击“保存条件”创建快捷搜索，再把保存后的名称完整填写到上方“猎聘快捷搜索名”。任务会直接使用该快捷搜索包含的全部条件，不会再次填写搜索关键词。
+            请先在猎聘搜索页面配置关键词和全部筛选条件，点击“保存条件”创建快捷搜索，再把保存后的名称完整填写到上方“猎聘快捷搜索名”。岗位运行会直接使用该快捷搜索包含的全部条件，不会再次填写搜索关键词。
           </Typography>
           <Typography sx={{ mt: 0.75, fontSize: 13, lineHeight: 1.7 }}>
-            填写的名称必须与猎聘页面显示的快捷搜索名完全一致，否则任务会停止并说明未找到。不同岗位请使用容易区分且不重复的快捷搜索名，避免选错筛选条件。
+            填写的名称必须与猎聘页面显示的快捷搜索名完全一致，否则岗位运行会停止并说明未找到。不同岗位请使用容易区分且不重复的快捷搜索名，避免选错筛选条件。
           </Typography>
         </Alert>
         <ClickableImagePreview
@@ -1072,6 +1199,9 @@ function createEmptyForm() {
     output_structured_resume: false,
     greet_message: "",
     description: "",
+    match_limit: 50,
+    enable_sound: false,
+    enable_thinking: false,
   };
 }
 
@@ -1115,6 +1245,9 @@ function formFromItem(
       greet_score_threshold: Number(ai.greet_score_threshold ?? 70),
       greet_message: item.greet_message || "",
       description: item.description || "",
+      match_limit: Number(item.match_limit ?? 50),
+      enable_sound: Boolean(item.enable_sound),
+      enable_thinking: Boolean(item.enable_thinking),
     },
     defaults,
   );

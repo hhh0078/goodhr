@@ -156,30 +156,30 @@ func (c *Client) ValidateSession(ctx context.Context, token string) error {
 	return nil
 }
 
-// FetchTask 读取云端任务详情。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
-func (c *Client) FetchTask(ctx context.Context, token string, taskID string) (map[string]any, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return nil, fmt.Errorf("任务 ID 不能为空")
+// FetchPosition 读取云端岗位运行详情。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID。
+func (c *Client) FetchPosition(ctx context.Context, token string, positionID string) (map[string]any, error) {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return nil, fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	payload, status, err := c.getAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID))
+	payload, status, err := c.getAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID))
 	if err != nil {
-		return nil, fmt.Errorf("读取云端任务失败：%w", err)
+		return nil, fmt.Errorf("读取云端岗位运行失败：%w", err)
 	}
 	if status >= 400 {
-		return nil, fmt.Errorf("%s", cloudMessage(payload, "读取云端任务失败"))
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "读取云端岗位运行失败"))
 	}
-	task, ok := payload["task"].(map[string]any)
+	position, ok := payload["position"].(map[string]any)
 	if !ok {
 		if data, ok := payload["data"].(map[string]any); ok {
-			task, ok = data["task"].(map[string]any)
+			position, ok = data["position"].(map[string]any)
 		}
 	}
 	if !ok {
-		return nil, fmt.Errorf("云端任务返回格式错误")
+		return nil, fmt.Errorf("云端岗位运行返回格式错误")
 	}
-	return task, nil
+	return position, nil
 }
 
 // FetchEffectiveAIConfig 读取云端当前用户最终生效的 AI 配置。
@@ -226,14 +226,14 @@ func (c *Client) FetchUserPreferences(ctx context.Context, token string) (map[st
 	return config, nil
 }
 
-// SaveTaskCandidate 将本地候选人结果保存到云端简历库。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，candidate 为候选人 JSON。
-func (c *Client) SaveTaskCandidate(ctx context.Context, token string, taskID string, candidate map[string]any) error {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return fmt.Errorf("任务 ID 不能为空")
+// SavePositionCandidate 将本地候选人结果保存到云端简历库。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，candidate 为候选人 JSON。
+func (c *Client) SavePositionCandidate(ctx context.Context, token string, positionID string, candidate map[string]any) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/candidates", candidate)
+	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/candidates", candidate)
 	if err != nil {
 		return fmt.Errorf("保存候选人到云端失败：%w", err)
 	}
@@ -243,17 +243,17 @@ func (c *Client) SaveTaskCandidate(ctx context.Context, token string, taskID str
 	return nil
 }
 
-// AddProcessedResumes 上报本地任务本次去重后新增的已处理简历数量。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，count 为新增数量。
-func (c *Client) AddProcessedResumes(ctx context.Context, token string, taskID string, count int) error {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return fmt.Errorf("任务 ID 不能为空")
+// AddProcessedResumes 上报本地岗位运行本次去重后新增的已处理简历数量。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，count 为新增数量。
+func (c *Client) AddProcessedResumes(ctx context.Context, token string, positionID string, count int) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
 	if count <= 0 {
 		return nil
 	}
-	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/processed-resumes", map[string]any{
+	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/processed-resumes", map[string]any{
 		"count": count,
 	})
 	if err != nil {
@@ -265,57 +265,57 @@ func (c *Client) AddProcessedResumes(ctx context.Context, token string, taskID s
 	return nil
 }
 
-// SyncTaskCounts 将本地任务累计统计同步到云端任务记录。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，counts 为统计字段。
-func (c *Client) SyncTaskCounts(ctx context.Context, token string, taskID string, counts map[string]any) error {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return fmt.Errorf("任务 ID 不能为空")
+// SyncPositionCounts 将本地岗位运行累计统计同步到云端岗位运行记录。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，counts 为统计字段。
+func (c *Client) SyncPositionCounts(ctx context.Context, token string, positionID string, counts map[string]any) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/counts", counts)
+	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/counts", counts)
 	if err != nil {
-		return fmt.Errorf("同步任务统计失败：%w", err)
+		return fmt.Errorf("同步岗位运行统计失败：%w", err)
 	}
 	if status >= 400 {
-		return fmt.Errorf("%s", cloudMessage(payload, "同步任务统计失败"))
+		return fmt.Errorf("%s", cloudMessage(payload, "同步岗位运行统计失败"))
 	}
 	return nil
 }
 
-// StopTask 通知云端任务已经停止。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID。
-func (c *Client) StopTask(ctx context.Context, token string, taskID string) error {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return fmt.Errorf("任务 ID 不能为空")
+// StopPosition 通知云端岗位运行已经停止。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID。
+func (c *Client) StopPosition(ctx context.Context, token string, positionID string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	payload, status, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/stop", map[string]any{})
+	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/stop", map[string]any{})
 	if err != nil {
-		return fmt.Errorf("通知云端停止任务失败：%w", err)
+		return fmt.Errorf("通知云端停止岗位运行失败：%w", err)
 	}
 	if status >= 400 {
-		return fmt.Errorf("%s", cloudMessage(payload, "通知云端停止任务失败"))
+		return fmt.Errorf("%s", cloudMessage(payload, "通知云端停止岗位运行失败"))
 	}
 	return nil
 }
 
-// SyncTaskStatus 通知云端任务当前状态。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，status 为 completed、stopped 或 running。
-func (c *Client) SyncTaskStatus(ctx context.Context, token string, taskID string, status string) error {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return fmt.Errorf("任务 ID 不能为空")
+// SyncPositionStatus 通知云端岗位运行当前状态。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，status 为 completed、stopped 或 running。
+func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionID string, status string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
 	status = strings.TrimSpace(status)
 	if status == "" {
-		return fmt.Errorf("任务状态不能为空")
+		return fmt.Errorf("岗位运行状态不能为空")
 	}
-	payload, code, err := c.postAuthed(ctx, token, "/api/tasks/"+url.PathEscape(taskID)+"/status", map[string]any{"status": status})
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", map[string]any{"status": status})
 	if err != nil {
-		return fmt.Errorf("同步云端任务状态失败：%w", err)
+		return fmt.Errorf("同步云端岗位运行状态失败：%w", err)
 	}
 	if code >= 400 {
-		return fmt.Errorf("%s", cloudMessage(payload, "同步云端任务状态失败"))
+		return fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
 	}
 	return nil
 }
@@ -476,9 +476,9 @@ func translateKnownMessage(text string) string {
 	}
 }
 
-// SendTaskFailNotice 通知云端任务失败，由云端按登录用户发送邮件。
-// ctx 为请求上下文，token 为登录令牌，taskID 为云端任务 ID，errorMsg 为失败原因。
-func (c *Client) SendTaskFailNotice(ctx context.Context, token string, taskID string, errorMsg string) error {
+// SendPositionFailNotice 通知云端岗位运行失败，由云端按登录用户发送邮件。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，errorMsg 为失败原因。
+func (c *Client) SendPositionFailNotice(ctx context.Context, token string, positionID string, errorMsg string) error {
 	baseURL, err := c.safeBaseURL()
 	if err != nil {
 		log.Printf("[失败邮件] 获取云端地址失败：%v", err)
@@ -490,7 +490,7 @@ func (c *Client) SendTaskFailNotice(ctx context.Context, token string, taskID st
 	}
 	apiURL := strings.TrimSuffix(baseURL, "/") + "/api/fail-notice"
 	body := map[string]any{
-		"task_id":       taskID,
+		"position_id":   positionID,
 		"error_message": errorMsg,
 	}
 	payload, err := json.Marshal(body)

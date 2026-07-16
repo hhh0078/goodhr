@@ -52,9 +52,9 @@ func (r *Runtime) PrepareEntryPage(ctx context.Context, exec platformcore.Execut
 	return exec.Delay(ctx, "等待 Boss 弹框关闭", 0.3)
 }
 
-// IsTaskEntryPage 判断当前页面是否仍是 Boss 任务入口页面。
+// IsPositionEntryPage 判断当前页面是否仍是 Boss 岗位运行入口页面。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置。
-func (r *Runtime) IsTaskEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
+func (r *Runtime) IsPositionEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
 	entry := platformEntryPage(cfg)
 	if strings.TrimSpace(stringFromMap(entry, "url")) == "" {
 		return false, fmt.Errorf("云端平台配置缺少入口页面地址")

@@ -33,7 +33,7 @@ func (r *Runtime) CurrentPositionName(ctx context.Context, exec platformcore.Exe
 func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionName string) error {
 	query := positionSearchQuery(positionName)
 	if query == "" {
-		return fmt.Errorf("任务岗位名称为空")
+		return fmt.Errorf("岗位运行岗位名称为空")
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
 		"element": map[string]any{"selector": "a[zp-stat-id=\"talent_more_jobs\"]"},

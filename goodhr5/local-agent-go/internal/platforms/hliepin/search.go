@@ -21,13 +21,13 @@ const (
 func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error {
 	positionName := strings.TrimSpace(stringFromMap(positionSnapshot, "name"))
 	if positionName == "" {
-		return fmt.Errorf("猎聘任务岗位名称为空，无法匹配快捷搜索或正在发布的职位，任务已停止")
+		return fmt.Errorf("猎聘岗位运行岗位名称为空，无法匹配快捷搜索或正在发布的职位，岗位运行已停止")
 	}
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
 	shortcutName := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_shortcut_search_name"))
 	if shortcutName == "" {
 		r.greetJobSelected = true
-		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，任务岗位="+positionName)
+		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，岗位运行岗位="+positionName)
 		return r.selectPublishedPosition(ctx, exec, positionName)
 	}
 	r.greetJobSelected = false
@@ -45,21 +45,21 @@ func (r *Runtime) selectShortcutSearch(ctx context.Context, exec platformcore.Ex
 		"visible_only": true, "max_items": 100,
 	})
 	if err != nil {
-		return fmt.Errorf("查找猎聘快捷搜索失败，任务已停止：%w", err)
+		return fmt.Errorf("查找猎聘快捷搜索失败，岗位运行已停止：%w", err)
 	}
 	items := mapList(workerData(result, "items"))
 	if len(items) == 0 {
-		return fmt.Errorf("未找到猎聘快捷搜索列表，无法选择配置的快捷搜索“%s”，任务已停止", shortcutName)
+		return fmt.Errorf("未找到猎聘快捷搜索列表，无法选择配置的快捷搜索“%s”，岗位运行已停止", shortcutName)
 	}
 	matchIndex, matchName := matchingShortcutItem(items, shortcutName)
 	if matchIndex < 0 {
-		return fmt.Errorf("猎聘快捷搜索中没有与配置名称“%s”完全一致的项目，当前快捷搜索=%s，任务已停止", shortcutName, searchItemNames(items))
+		return fmt.Errorf("猎聘快捷搜索中没有与配置名称“%s”完全一致的项目，当前快捷搜索=%s，岗位运行已停止", shortcutName, searchItemNames(items))
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
 		"element": map[string]any{"selector": hliepinShortcutItemSelector},
 		"index":   matchIndex, "timeout": 8000,
 	}); err != nil {
-		return fmt.Errorf("点击猎聘快捷搜索“%s”失败，任务已停止：%w", matchName, err)
+		return fmt.Errorf("点击猎聘快捷搜索“%s”失败，岗位运行已停止：%w", matchName, err)
 	}
 	exec.Log("info", "猎聘候选人搜索：快捷搜索已选择="+matchName)
 	r.currentPosition = positionName
@@ -69,7 +69,7 @@ func (r *Runtime) selectShortcutSearch(ctx context.Context, exec platformcore.Ex
 	return r.ensureHiddenCandidateFilters(ctx, exec)
 }
 
-// selectPublishedPosition 展开正在发布的职位并按任务岗位名称选择对应职位。
+// selectPublishedPosition 展开正在发布的职位并按岗位运行岗位名称选择对应职位。
 func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore.Executor, positionName string) error {
 	if err := r.expandSearchItemsIfPresent(ctx, exec, hliepinExpandJobsSelector, "正在发布的职位"); err != nil {
 		return err
@@ -79,18 +79,18 @@ func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore
 		"visible_only": true, "max_items": 200,
 	})
 	if err != nil {
-		return fmt.Errorf("读取猎聘正在发布的职位失败，任务已停止：%w", err)
+		return fmt.Errorf("读取猎聘正在发布的职位失败，岗位运行已停止：%w", err)
 	}
 	items := mapList(workerData(result, "items"))
 	if len(items) == 0 {
-		return fmt.Errorf("展开后未找到猎聘正在发布的职位，任务岗位=%s，任务已停止", positionName)
+		return fmt.Errorf("展开后未找到猎聘正在发布的职位，岗位运行岗位=%s，岗位运行已停止", positionName)
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
 		"text": positionName, "exact": true,
 		"element":         map[string]any{"selector": hliepinPublishedJobSelector},
 		"resolve_tooltip": true, "tooltip_wait_ms": 300, "timeout": 8000,
 	}); err != nil {
-		return fmt.Errorf("猎聘正在发布的职位中未找到任务岗位“%s”，当前职位=%s，任务已停止：%w", positionName, searchItemNames(items), err)
+		return fmt.Errorf("猎聘正在发布的职位中未找到岗位运行岗位“%s”，当前职位=%s，岗位运行已停止：%w", positionName, searchItemNames(items), err)
 	}
 	exec.Log("info", "猎聘候选人搜索：正在发布的职位已选择="+positionName)
 	r.currentPosition = positionName
@@ -149,7 +149,7 @@ func matchingShortcutItem(items []map[string]any, shortcutName string) (int, str
 	return -1, ""
 }
 
-// searchItemNames 汇总页面搜索项名称，用于任务停止时输出可核查的错误信息。
+// searchItemNames 汇总页面搜索项名称，用于岗位运行停止时输出可核查的错误信息。
 func searchItemNames(items []map[string]any) string {
 	names := make([]string, 0, len(items))
 	for _, item := range items {

@@ -62,9 +62,8 @@ func TestFlowHelpEmailTemplates(t *testing.T) {
 		"agent_detected",
 		"runtime_ready",
 		"position_created",
-		"task_created",
 		"platform_login_verified",
-		"task_started",
+		"position_started",
 		"first_resume_processed",
 		"first_greet_success",
 	} {

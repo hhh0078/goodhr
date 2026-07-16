@@ -94,7 +94,7 @@ var CompositeOperationCatalog = []OperationSpec{
 var PlatformOperationCatalog = []OperationSpec{
 	{Name: "OpenEntryPage", Kind: OperationPlatform, Description: "打开平台入口页面", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：入口地址和登录态判断属于平台。"},
 	{Name: "PrepareEntryPage", Kind: OperationPlatform, Description: "处理平台弹窗、身份切换、页面准备", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：这些是平台规则。"},
-	{Name: "IsTaskEntryPage", Kind: OperationPlatform, Description: "判断是否仍在任务入口页", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：判断规则因平台不同。"},
+	{Name: "IsPositionEntryPage", Kind: OperationPlatform, Description: "判断是否仍在岗位运行入口页", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：判断规则因平台不同。"},
 	{Name: "CurrentPositionName", Kind: OperationPlatform, Description: "读取当前岗位名称", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：岗位 DOM 和文案属于平台。"},
 	{Name: "ExtractCandidates", Kind: OperationPlatform, Description: "提取候选人列表", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：候选人字段规则属于平台。"},
 	{Name: "ScrollCandidateList", Kind: OperationPlatform, Description: "滚动候选人列表", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：列表容器和加载方式属于平台。"},
@@ -232,7 +232,7 @@ type goPage struct {
 	client               *cdpClient
 }
 
-// 确保实验性 Go 控制器持续满足任务运行器依赖的 Worker 接口形态。
+// 确保实验性 Go 控制器持续满足岗位运行运行器依赖的 Worker 接口形态。
 var _ interface {
 	Start(context.Context) (WorkerStatus, error)
 	Call(context.Context, string, any) (map[string]any, error)

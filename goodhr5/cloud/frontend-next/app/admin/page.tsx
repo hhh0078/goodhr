@@ -7,7 +7,6 @@ import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import {
   Box,
@@ -58,7 +57,7 @@ const guideSteps: GuideStep[] = [
   {
     key: "runtime_ready",
     title: "准备运行组件",
-    description: "确认 Node 和浏览器组件已经安装，可以稳定执行任务。",
+    description: "确认 Node 和浏览器组件已经安装，可以稳定执行岗位运行。",
     tips: ["启动本地程序", "按提示安装缺少的组件", "组件可用后会自动完成"],
     href: "/admin/agent-download",
     action: "检查运行组件",
@@ -74,32 +73,23 @@ const guideSteps: GuideStep[] = [
     icon: WorkRoundedIcon,
   },
   {
-    key: "task_created",
-    title: "创建招聘任务",
-    description: "选择岗位并保存一条招聘任务。",
-    tips: ["进入任务列表", "选择已经创建的岗位", "保存任务"],
-    href: "/admin/tasks",
-    action: "创建任务",
-    icon: PlayCircleRoundedIcon,
-  },
-  {
     key: "platform_login_verified",
     title: "登录招聘平台",
-    description: "开始任务时确认招聘平台账号处于登录状态。",
-    tips: ["点击开始任务", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
-    href: "/admin/tasks", action: "检查平台登录", icon: PlayCircleRoundedIcon,
+    description: "开始岗位运行时确认招聘平台账号处于登录状态。",
+    tips: ["点击开始岗位运行", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
+    href: "/admin/positions", action: "检查平台登录", icon: PlayCircleRoundedIcon,
   },
   {
-    key: "task_started", title: "启动第一条任务", description: "让本地程序成功接手并开始执行任务。",
-    tips: ["确认启动条件", "点击开始", "看到运行中状态"], href: "/admin/tasks", action: "启动任务", icon: PlayCircleRoundedIcon,
+    key: "position_started", title: "启动第一条岗位运行", description: "让本地程序成功接手并开始执行岗位运行。",
+    tips: ["确认启动条件", "点击开始", "看到运行中状态"], href: "/admin/positions", action: "启动岗位运行", icon: PlayCircleRoundedIcon,
   },
   {
     key: "first_resume_processed", title: "处理首份简历", description: "成功读取并处理第一位候选人的简历。",
-    tips: ["保持任务运行", "等待匹配到候选人", "处理成功后自动完成"], href: "/admin/tasks", action: "查看任务", icon: ArticleRoundedIcon,
+    tips: ["保持岗位运行运行", "等待匹配到候选人", "处理成功后自动完成"], href: "/admin/positions", action: "查看岗位运行", icon: ArticleRoundedIcon,
   },
   {
     key: "first_greet_success", title: "首次打招呼成功", description: "向第一位合适候选人成功发出招呼。",
-    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"], href: "/admin/tasks", action: "查看进度", icon: TaskAltRoundedIcon,
+    tips: ["保持平台登录", "等待筛选完成", "成功打招呼后流程跑通"], href: "/admin/positions", action: "查看进度", icon: WorkRoundedIcon,
   },
 ];
 
@@ -107,7 +97,7 @@ const guideSteps: GuideStep[] = [
 export default function DashboardPage() {
   const { agentBase, subscription, refreshAgent, notify } =
     useAdmin();
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
   const [runtime, setRuntime] = useState<any>({});
   const [aiConfig, setAIConfig] = useState<any>({});
@@ -127,14 +117,14 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const results = await Promise.allSettled([
-        cloudRequest("/api/tasks"),
+        cloudRequest("/api/positions"),
         cloudRequest("/api/candidates?page=1&page_size=1"),
         cloudRequest("/api/config/user-ai"),
         cloudRequest("/api/ai-wallet"),
         cloudRequest("/api/user-flow"),
       ]);
       if (results[0].status === "fulfilled")
-        setTasks(results[0].value.tasks || []);
+        setPositions(results[0].value.positions || []);
       if (results[1].status === "fulfilled")
         setResumeCount(Number(results[1].value.total || 0));
     if (results[2].status === "fulfilled") {
@@ -179,22 +169,22 @@ export default function DashboardPage() {
 
   const summary = useMemo(
     () => ({
-      today: tasks.reduce(
+      today: positions.reduce(
         (sum, item) => sum + Number(item.today_greeted_count || 0),
         0,
       ),
-      total: tasks.reduce(
+      total: positions.reduce(
         (sum, item) => sum + Number(item.greeted_count || 0),
         0,
       ),
-      running: tasks.filter((item) => item.status === "running").length,
+      running: positions.filter((item) => item.status === "running").length,
     }),
-    [tasks],
+    [positions],
   );
   const metrics = [
-    ["今日打招呼", summary.today, TaskAltRoundedIcon],
+    ["今日打招呼", summary.today, WorkRoundedIcon],
     ["累计打招呼", summary.total, PlayCircleRoundedIcon],
-    ["运行中任务", summary.running, WorkRoundedIcon],
+    ["运行中岗位运行", summary.running, WorkRoundedIcon],
     ["简历数量", resumeCount, ArticleRoundedIcon],
   ] as const;
   /** rechargeAI 创建内置 AI 余额充值订单。 */
@@ -615,7 +605,7 @@ function OnboardingGuide({
               component='h2'
               sx={{ fontSize: { xs: 21, md: 24 }, fontWeight: 800 }}
             >
-              跑通第一条招聘任务
+              跑通第一条招聘岗位运行
             </Typography>
           </Stack>
           <Typography sx={{ mt: 0.75, color: "#52665a" }}>

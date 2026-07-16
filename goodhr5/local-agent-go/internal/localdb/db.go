@@ -71,13 +71,12 @@ CREATE TABLE IF NOT EXISTS local_meta (
     value TEXT NOT NULL DEFAULT ''
 );
 
--- local_tasks 保存用户本机创建的任务。
-CREATE TABLE IF NOT EXISTS local_tasks (
+-- local_positions 保存用户本机创建的岗位运行。
+CREATE TABLE IF NOT EXISTS local_positions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
     platform_id TEXT NOT NULL DEFAULT '',
     platform_account_id TEXT NOT NULL DEFAULT '',
-    position_id TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT 'ai',
     match_limit INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -91,20 +90,20 @@ CREATE TABLE IF NOT EXISTS local_tasks (
     updated_at TEXT NOT NULL
 );
 
--- local_task_logs 保存本地任务运行日志。
-CREATE TABLE IF NOT EXISTS local_task_logs (
+-- local_position_logs 保存本地岗位运行运行日志。
+CREATE TABLE IF NOT EXISTS local_position_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id TEXT NOT NULL,
+    position_id TEXT NOT NULL,
     level TEXT NOT NULL DEFAULT 'info',
     message TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
-    FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
+    FOREIGN KEY(position_id) REFERENCES local_positions(id) ON DELETE CASCADE
 );
 
--- local_candidates 保存打招呼后的候选人结构化信息，结构与云端 task_candidates 对齐。
+-- local_candidates 保存打招呼后的候选人结构化信息，结构与云端 position_candidates 对齐。
 CREATE TABLE IF NOT EXISTS local_candidates (
     id TEXT NOT NULL,
-    task_id TEXT NOT NULL,
+    position_id TEXT NOT NULL,
     candidate_name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '',
     birth_ym TEXT NOT NULL DEFAULT '',
@@ -142,8 +141,8 @@ CREATE TABLE IF NOT EXISTS local_candidates (
     greeted_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY(task_id, id),
-    FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
+    PRIMARY KEY(position_id, id),
+    FOREIGN KEY(position_id) REFERENCES local_positions(id) ON DELETE CASCADE
 );
 
 -- local_settings 保存本机通用设置。
@@ -160,8 +159,8 @@ CREATE TABLE IF NOT EXISTS local_settings (
 CREATE TABLE IF NOT EXISTS local_downloads (
     -- 下载记录唯一 ID。
     id TEXT PRIMARY KEY,
-    -- 关联任务 ID。
-    task_id TEXT NOT NULL DEFAULT '',
+    -- 关联岗位运行 ID。
+    position_id TEXT NOT NULL DEFAULT '',
     -- 原始下载地址。
     url TEXT NOT NULL DEFAULT '',
     -- 本机文件路径。
@@ -185,10 +184,10 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if _, err := db.conn.Exec(script); err != nil {
 		return fmt.Errorf("初始化本地数据库失败：%w", err)
 	}
-	// 新版本不再保存本地截图记录，只保留任务级最新截图文件。
+	// 新版本不再保存本地截图记录，只保留岗位运行级最新截图文件。
 	_, _ = db.conn.Exec(`DROP TABLE IF EXISTS local_screenshots`)
 	// 后向兼容迁移：低版本数据库在首次 migrate 后仍缺少 enable_thinking 字段。
-	_, _ = db.conn.Exec(`ALTER TABLE local_tasks ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
+	_, _ = db.conn.Exec(`ALTER TABLE local_positions ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
 	// 后向兼容迁移：重建 local_candidates 表以支持结构化字段。
 	db.migrateLocalCandidates()
 	return nil
@@ -217,7 +216,7 @@ func (db *DB) migrateLocalCandidates() error {
 	_, err = tx.Exec(`
 CREATE TABLE local_candidates (
     id TEXT NOT NULL,
-    task_id TEXT NOT NULL,
+    position_id TEXT NOT NULL,
     candidate_name TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '',
     birth_ym TEXT NOT NULL DEFAULT '',
@@ -255,16 +254,16 @@ CREATE TABLE local_candidates (
     greeted_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    PRIMARY KEY(task_id, id),
-    FOREIGN KEY(task_id) REFERENCES local_tasks(id) ON DELETE CASCADE
+    PRIMARY KEY(position_id, id),
+    FOREIGN KEY(position_id) REFERENCES local_positions(id) ON DELETE CASCADE
 )`)
 	if err != nil {
 		return fmt.Errorf("创建新表失败：%w", err)
 	}
 	// 从旧表迁移数据（payload 中的字段映射到新表）
 	if _, err := tx.Exec(`
-INSERT INTO local_candidates(id, task_id, candidate_name, status, created_at, updated_at)
-SELECT id, task_id, candidate_name, status, created_at, updated_at FROM local_candidates_old
+INSERT INTO local_candidates(id, position_id, candidate_name, status, created_at, updated_at)
+SELECT id, position_id, candidate_name, status, created_at, updated_at FROM local_candidates_old
 `); err != nil {
 		return fmt.Errorf("迁移旧数据失败：%w", err)
 	}

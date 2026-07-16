@@ -25,7 +25,7 @@ export function candidateCardLocator(item) {
 
 /**
  * candidateTextSimilarity 计算两段候选人卡片文本的双字符相似度。
- * @param {string} expected - 任务最初提取的候选人文本。
+ * @param {string} expected - 岗位运行最初提取的候选人文本。
  * @param {string} actual - 页面当前候选人卡片文本。
  * @returns {number} 零到一之间的相似度。
  */
@@ -44,9 +44,9 @@ export function candidateTextSimilarity(expected, actual) {
 }
 
 /**
- * bestCandidateTextMatch 从当前页面卡片文本中找出最符合任务候选人的一项。
- * @param {string} expectedName - 任务候选人姓名。
- * @param {string} expectedText - 任务最初提取的候选人卡片文本。
+ * bestCandidateTextMatch 从当前页面卡片文本中找出最符合岗位运行候选人的一项。
+ * @param {string} expectedName - 岗位运行候选人姓名。
+ * @param {string} expectedText - 岗位运行最初提取的候选人卡片文本。
  * @param {string[]} actualTexts - 页面当前全部候选人卡片文本。
  * @returns {{index:number,score:number}|null} 最佳匹配序号和分数。
  */

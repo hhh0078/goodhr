@@ -1511,7 +1511,7 @@ async function extractBossCandidateDetail(payload) {
     timeout_ms: 5000,
     selectors: detailSelectors.join(","),
   });
-  await notifyTaskLog(
+  await notifyPositionLog(
     payload,
     "info",
     "详情选择器：开始查找，每100毫秒一次，最多等待5秒",
@@ -1523,7 +1523,7 @@ async function extractBossCandidateDetail(payload) {
   );
   if (!detailReady.ready) {
     logWorker("候选人详情选择器查找失败", detailReady);
-    await notifyTaskLog(
+    await notifyPositionLog(
       payload,
       "error",
       `详情选择器：5秒内未找到，查询次数=${detailReady.attempts}`,
@@ -1531,7 +1531,7 @@ async function extractBossCandidateDetail(payload) {
     throw new Error(`候选人详情没找到：5秒内${detailReady.reason}`);
   }
   logWorker("候选人详情选择器已找到", detailReady);
-  await notifyTaskLog(
+  await notifyPositionLog(
     payload,
     "info",
     `详情选择器：已找到，耗时=${detailReady.elapsed_ms}ms，查询次数=${detailReady.attempts}，选择器=${detailReady.matched_selector || "未知"}`,
@@ -1542,7 +1542,7 @@ async function extractBossCandidateDetail(payload) {
   );
   let screenshot = null;
   if (payload.screenshot) {
-    await notifyTaskLog(
+    await notifyPositionLog(
       payload,
       "info",
       "详情截图：已找到详情容器，开始生成详情长图",
@@ -2790,7 +2790,7 @@ function scrollStateDistance(before, after) {
 }
 
 /**
- * 清理同一任务下上一次详情截图及分段图，确保只保留最新一份。
+ * 清理同一岗位运行下上一次详情截图及分段图，确保只保留最新一份。
  * @param {string} directory - 截图目录。
  * @param {string} filename - 主截图文件名。
  * @returns {Promise<void>} 无返回值。
@@ -4612,18 +4612,18 @@ function selectorList(value) {
   return [];
 }
 
-/** notifyTaskLog 将关键浏览器阶段写入用户可见的本地任务日志。 */
-async function notifyTaskLog(payload, level, message) {
-  const taskID = String(payload?.task_id || "").trim();
-  if (!agentBaseURL || !taskID || !message) return;
+/** notifyPositionLog 将关键浏览器阶段写入用户可见的本地岗位运行日志。 */
+async function notifyPositionLog(payload, level, message) {
+  const positionID = String(payload?.position_id || "").trim();
+  if (!agentBaseURL || !positionID || !message) return;
   try {
     await postAgentJSON(
-      `/api/v1/local/tasks/${encodeURIComponent(taskID)}/logs`,
+      `/api/v1/local/positions/${encodeURIComponent(positionID)}/logs`,
       { level: level || "info", message: String(message) },
     );
   } catch (error) {
-    logWorker("写入任务详情日志失败", {
-      task_id: taskID,
+    logWorker("写入岗位运行详情日志失败", {
+      position_id: positionID,
       error: error?.message || String(error),
     });
   }

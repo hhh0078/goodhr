@@ -19,7 +19,7 @@ import { absoluteURL, createPageMetadata } from "@/lib/seo";
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR价格与免费版 - 招聘自动化和AI筛选套餐",
   description:
-    "GoodHR 关键词筛选、基础招聘任务和自动打招呼可免费使用；AI筛选简历、AI详情分析和招聘消息智能回复可按需订阅。",
+    "GoodHR 关键词筛选、基础招聘岗位运行和自动打招呼可免费使用；AI筛选简历、AI详情分析和招聘消息智能回复可按需订阅。",
   path: "/pricing",
   keywords: [
     "免费招聘自动化工具",
@@ -32,7 +32,7 @@ export const metadata: Metadata = createPageMetadata({
 const comparisons = [
   ["关键词筛选", true, true],
   ["平台账号与本地程序", true, true],
-  ["基础任务和打招呼", true, true],
+  ["基础岗位运行和打招呼", true, true],
   ["AI 候选人筛选", false, true],
   ["AI 详情分析", false, true],
   ["自动聊天和邀约", false, true],
@@ -213,7 +213,7 @@ function freePlan(): PublicPlanData {
     originalPrice: 0,
     discountAmount: 0,
     description: "适合先用关键词规则跑通招聘流程。",
-    features: ["关键词筛选", "基础任务", "平台账号管理", "自动打招呼"],
+    features: ["关键词筛选", "基础岗位运行", "平台账号管理", "自动打招呼"],
   };
 }
 

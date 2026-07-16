@@ -40,10 +40,8 @@ export default function ResumesPage() {
   const { notify, confirm } = useAdmin();
   const [items, setItems] = useState<any[]>([]);
   const [keyword, setKeyword] = useState("");
-  const [tasks, setTasks] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
-  const [selectedTask, setSelectedTask] = useState(params.get("task_id") || "");
-  const [selectedPosition, setSelectedPosition] = useState("");
+  const [selectedPosition, setSelectedPosition] = useState(params.get("position_id") || "");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -53,7 +51,7 @@ export default function ResumesPage() {
   const [notes, setNotes] = useState<NormalizedNote[]>([]);
   const [noteContent, setNoteContent] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
-  const taskID = params.get("task_id") || "";
+  const positionID = params.get("position_id") || "";
   const candidates = useMemo(() => items.map(normalizeCandidate), [items]);
 
   /** load 读取简历分页列表。 */
@@ -64,7 +62,6 @@ export default function ResumesPage() {
         page: String(nextPage),
         page_size: String(pageSize),
       });
-      if (selectedTask || taskID) query.set("task_id", selectedTask || taskID);
       if (selectedPosition) query.set("position_id", selectedPosition);
       if (keyword.trim()) query.set("q", keyword.trim());
       const data = await cloudRequest(`/api/candidates?${query}`);
@@ -78,13 +75,11 @@ export default function ResumesPage() {
     }
   }
 
-  /** loadFilters 读取任务和岗位筛选项。 */
+  /** loadFilters 读取岗位运行和岗位筛选项。 */
   async function loadFilters() {
-    const [taskData, positionData] = await Promise.allSettled([
-      cloudRequest("/api/tasks"),
+    const [positionData] = await Promise.allSettled([
       cloudRequest("/api/positions"),
     ]);
-    if (taskData.status === "fulfilled") setTasks(taskData.value.tasks || []);
     if (positionData.status === "fulfilled")
       setPositions(positionData.value.positions || []);
   }
@@ -94,12 +89,11 @@ export default function ResumesPage() {
   }, []);
   useEffect(() => {
     void load(1);
-  }, [selectedTask, selectedPosition, pageSize]);
+  }, [selectedPosition, pageSize]);
 
   /** resetFilters 清空简历筛选条件。 */
   function resetFilters() {
     setKeyword("");
-    setSelectedTask(taskID);
     setSelectedPosition("");
     void load(1);
   }
@@ -172,8 +166,8 @@ export default function ResumesPage() {
       <PageHeader
         title='简历库'
         description={
-          selectedTask
-            ? "当前显示指定任务产生的简历。"
+          selectedPosition
+            ? "当前显示指定岗位运行产生的简历。"
             : "目前已经默认不生成简历、降低AI消耗，如果需要生成简历，请在岗位设置->高级设置 中开启。"
         }
         actions={
@@ -215,20 +209,6 @@ export default function ResumesPage() {
             },
           }}
         />
-        <TextField
-          select
-          size='small'
-          label='任务'
-          value={selectedTask}
-          onChange={(event) => setSelectedTask(event.target.value)}
-        >
-          <MenuItem value=''>全部任务</MenuItem>
-          {tasks.map((item) => (
-            <MenuItem key={item.id} value={item.id}>
-              {item.name}
-            </MenuItem>
-          ))}
-        </TextField>
         <TextField
           select
           size='small'

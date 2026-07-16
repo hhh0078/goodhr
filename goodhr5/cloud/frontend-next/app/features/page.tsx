@@ -21,7 +21,7 @@ const features = [
   { icon: AutoAwesomeRoundedIcon, title: "候选人详情分析", text: "支持 AI、OCR 和页面结构三种详情读取方式，并按岗位模板继续判断。" },
   { icon: ManageAccountsRoundedIcon, title: "平台账号管理", text: "招聘平台登录状态和浏览器资料保留在本地，云端仅保存账号名称与业务信息。" },
   { icon: SmartToyRoundedIcon, title: "本地自动执行", text: "页面滚动、截图、OCR、提示音和浏览器操作由本地程序完成。" },
-  { icon: QueryStatsRoundedIcon, title: "任务记录与统计", text: "任务状态、打招呼数量和关键日志清楚可见，出现问题更容易定位。" },
+  { icon: QueryStatsRoundedIcon, title: "岗位运行记录与统计", text: "岗位运行状态、打招呼数量和关键日志清楚可见，出现问题更容易定位。" },
   { icon: ChatRoundedIcon, title: "自动回复与候选人跟进", text: "根据岗位目标继续沟通，支持招聘消息自动回复、AI 自动回复、意向确认和面试邀约场景。" },
   { icon: DownloadRoundedIcon, title: "简历下载与人才库", text: "整理招聘平台候选人详情、评分和沟通结果，便于管理 BOSS、猎聘、智联等平台简历。" },
 ];

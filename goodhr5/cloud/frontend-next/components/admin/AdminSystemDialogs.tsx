@@ -6,7 +6,7 @@ import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRound
 import { Alert, Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import { localRequest } from "@/lib/admin-api";
-import { isVersionLower, latestLocalAgentRelease } from "@/lib/task-start-guard";
+import { isVersionLower, latestLocalAgentRelease } from "@/lib/position-start-guard";
 import AdminDialog from "./AdminDialog";
 
 const dismissedAnnouncementKey = "goodhr5_dismissed_announcements";

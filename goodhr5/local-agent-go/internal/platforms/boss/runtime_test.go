@@ -152,7 +152,7 @@ func (e *selectPositionSearchExecutor) Post(ctx context.Context, path string, pa
 	return map[string]any{"data": map[string]any{}}, nil
 }
 
-// Log 接收测试中的任务日志。
+// Log 接收测试中的岗位运行日志。
 func (e *selectPositionSearchExecutor) Log(level string, message string) {}
 
 // Delay 模拟业务等待。
@@ -175,7 +175,7 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	exec := &selectPositionSearchExecutor{}
 	_, err := NewRuntime().FetchCandidateDetail(context.Background(), exec, nil, platformcore.Candidate{
 		"candidate_name": "测试候选人",
-	}, platformcore.DetailRequest{TaskID: "task-boss", Mode: "dom"})
+	}, platformcore.DetailRequest{PositionID: "position-boss", Mode: "dom"})
 	if err != nil {
 		t.Fatalf("读取详情不应失败：%v", err)
 	}
@@ -186,7 +186,7 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	if _, exists := payload["wait_ms"]; exists {
 		t.Fatalf("Boss 点击详情后不应再固定等待：%+v", payload)
 	}
-	if payload["task_id"] != "task-boss" {
-		t.Fatalf("Boss 详情请求应携带任务 ID 以写入可见日志：%+v", payload)
+	if payload["position_id"] != "position-boss" {
+		t.Fatalf("Boss 详情请求应携带岗位运行 ID 以写入可见日志：%+v", payload)
 	}
 }

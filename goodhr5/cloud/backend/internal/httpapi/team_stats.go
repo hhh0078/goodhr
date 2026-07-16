@@ -65,7 +65,7 @@ func (s *TeamStatsService) Summary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// loadMemberStats 按员工聚合团队任务和简历摘要。
+// loadMemberStats 按员工聚合团队岗位运行和简历摘要。
 // tenantID 为团队 ID，start/end 为左闭右开的统计时间范围。
 func (s *TeamStatsService) loadMemberStats(tenantID string, start time.Time, end time.Time) ([]map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -73,25 +73,25 @@ func (s *TeamStatsService) loadMemberStats(tenantID string, start time.Time, end
 	rows, err := s.db.QueryContext(ctx, `
 SELECT
 	u.email,
-	COALESCE(task_stats.task_count, 0)::int,
-	COALESCE(task_stats.scanned_count, 0)::int,
-	COALESCE(task_stats.skipped_count, 0)::int,
-	COALESCE(task_stats.failed_count, 0)::int,
+	COALESCE(position_stats.position_count, 0)::int,
+	COALESCE(position_stats.scanned_count, 0)::int,
+	COALESCE(position_stats.skipped_count, 0)::int,
+	COALESCE(position_stats.failed_count, 0)::int,
 	COALESCE(candidate_stats.resume_count, 0)::int,
 	COALESCE(candidate_stats.detail_count, 0)::int,
 	COALESCE(candidate_stats.greeted_count, 0)::int
 FROM users u
 LEFT JOIN (
 	SELECT
-		tr.user_id,
-		COUNT(*) AS task_count,
-		SUM(tr.scanned_count) AS scanned_count,
-		SUM(tr.skipped_count) AS skipped_count,
-		SUM(tr.failed_count) AS failed_count
-	FROM task_runs tr
-	WHERE tr.created_at >= $2 AND tr.created_at < $3
-	GROUP BY tr.user_id
-) task_stats ON task_stats.user_id = u.id
+		p.user_id,
+		COUNT(*) AS position_count,
+		SUM(p.scanned_count) AS scanned_count,
+		SUM(p.skipped_count) AS skipped_count,
+		SUM(p.failed_count) AS failed_count
+	FROM positions p
+	WHERE p.created_at >= $2 AND p.created_at < $3
+	GROUP BY p.user_id
+) position_stats ON position_stats.user_id = u.id
 LEFT JOIN (
 	SELECT
 		cp.created_by_user_id AS user_id,
@@ -113,20 +113,20 @@ ORDER BY candidate_stats.greeted_count DESC NULLS LAST, candidate_stats.resume_c
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var email string
-		var taskCount, scannedCount, skippedCount, failedCount int
+		var positionCount, scannedCount, skippedCount, failedCount int
 		var resumeCount, detailCount, greetedCount int
-		if err := rows.Scan(&email, &taskCount, &scannedCount, &skippedCount, &failedCount, &resumeCount, &detailCount, &greetedCount); err != nil {
+		if err := rows.Scan(&email, &positionCount, &scannedCount, &skippedCount, &failedCount, &resumeCount, &detailCount, &greetedCount); err != nil {
 			return nil, err
 		}
 		items = append(items, map[string]any{
-			"email":         email,
-			"task_count":    taskCount,
-			"scanned_count": scannedCount,
-			"resume_count":  resumeCount,
-			"detail_count":  detailCount,
-			"greeted_count": greetedCount,
-			"skipped_count": skippedCount,
-			"failed_count":  failedCount,
+			"email":          email,
+			"position_count": positionCount,
+			"scanned_count":  scannedCount,
+			"resume_count":   resumeCount,
+			"detail_count":   detailCount,
+			"greeted_count":  greetedCount,
+			"skipped_count":  skippedCount,
+			"failed_count":   failedCount,
 		})
 	}
 	return items, rows.Err()
@@ -169,13 +169,13 @@ func parseTeamStatsDate(value string, loc *time.Location) (time.Time, bool) {
 // items 为 loadMemberStats 返回的员工列表。
 func teamStatsTotals(items []map[string]any) map[string]int {
 	totals := map[string]int{
-		"task_count":    0,
-		"scanned_count": 0,
-		"resume_count":  0,
-		"detail_count":  0,
-		"greeted_count": 0,
-		"skipped_count": 0,
-		"failed_count":  0,
+		"position_count": 0,
+		"scanned_count":  0,
+		"resume_count":   0,
+		"detail_count":   0,
+		"greeted_count":  0,
+		"skipped_count":  0,
+		"failed_count":   0,
 	}
 	for _, item := range items {
 		for key := range totals {

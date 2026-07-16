@@ -19,16 +19,16 @@ import (
 const agentWSReplyTimeout = 90 * time.Second
 
 // AgentWSMessage 定义云端和 Local Agent 之间的统一消息协议。
-// 任务相关消息必须填写 TaskID，ReplyTo 用于标记回复的是哪条消息。
+// 岗位运行相关消息必须填写 PositionID，ReplyTo 用于标记回复的是哪条消息。
 type AgentWSMessage struct {
-	MessageID string         `json:"message_id"`
-	ReplyTo   string         `json:"reply_to,omitempty"`
-	Type      string         `json:"type"`
-	TaskID    string         `json:"task_id,omitempty"`
-	Attempt   int            `json:"attempt,omitempty"`
-	OK        bool           `json:"ok"`
-	Error     string         `json:"error,omitempty"`
-	Payload   map[string]any `json:"payload,omitempty"`
+	MessageID  string         `json:"message_id"`
+	ReplyTo    string         `json:"reply_to,omitempty"`
+	Type       string         `json:"type"`
+	PositionID string         `json:"position_id,omitempty"`
+	Attempt    int            `json:"attempt,omitempty"`
+	OK         bool           `json:"ok"`
+	Error      string         `json:"error,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
 }
 
 // AgentWSHub 保存每个云端用户当前在线的唯一 Local Agent 连接。
@@ -124,18 +124,18 @@ func (h *AgentWSHub) SendCommand(userEmail string, msg AgentWSMessage, retries i
 	if msg.MessageID == "" {
 		msg.MessageID = newWSMessageID()
 	}
-	// log.Printf("[云端WS] 准备发送命令 user=%s type=%s task=%s message_id=%s retries=%d 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, retries, wsPayloadSummary(msg.Payload))
+	// log.Printf("[云端WS] 准备发送命令 user=%s type=%s position=%s message_id=%s retries=%d 摘要=%s", userEmail, msg.Type, msg.PositionID, msg.MessageID, retries, wsPayloadSummary(msg.Payload))
 	for attempt := 1; attempt <= retries; attempt++ {
 		msg.Attempt = attempt
 		reply, err := client.sendAndWait(msg, agentWSReplyTimeout)
 		if err == nil {
-			log.Printf("[云端WS] 收到命令回复 user=%s type=%s task=%s message_id=%s attempt=%d ok=%v error=%s 摘要=%s", userEmail, msg.Type, msg.TaskID, msg.MessageID, attempt, reply.OK, reply.Error, wsPayloadSummary(reply.Payload))
+			log.Printf("[云端WS] 收到命令回复 user=%s type=%s position=%s message_id=%s attempt=%d ok=%v error=%s 摘要=%s", userEmail, msg.Type, msg.PositionID, msg.MessageID, attempt, reply.OK, reply.Error, wsPayloadSummary(reply.Payload))
 			if !reply.OK {
 				return reply, fmt.Errorf("local agent returned error: %s", reply.Error)
 			}
 			return reply, nil
 		}
-		log.Printf("[云端WS] 命令重试 user=%s type=%s task=%s attempt=%d err=%v", userEmail, msg.Type, msg.TaskID, attempt, err)
+		log.Printf("[云端WS] 命令重试 user=%s type=%s position=%s attempt=%d err=%v", userEmail, msg.Type, msg.PositionID, attempt, err)
 	}
 	return AgentWSMessage{}, fmt.Errorf("local agent websocket command timeout: %s", msg.Type)
 }
@@ -199,18 +199,18 @@ func (c *AgentWSClient) readLoop() {
 			log.Printf("[云端WS] 读取连接关闭 user=%s err=%v", c.userEmail, err)
 			return
 		}
-		log.Printf("[云端WS] 收到消息 user=%s type=%s task=%s message_id=%s reply_to=%s ok=%v error=%s 摘要=%s", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, wsPayloadSummary(msg.Payload))
+		log.Printf("[云端WS] 收到消息 user=%s type=%s position=%s message_id=%s reply_to=%s ok=%v error=%s 摘要=%s", c.userEmail, msg.Type, msg.PositionID, msg.MessageID, msg.ReplyTo, msg.OK, msg.Error, wsPayloadSummary(msg.Payload))
 		if msg.ReplyTo != "" {
 			c.resolvePending(msg)
 			continue
 		}
 		if msg.MessageID != "" {
 			c.queue(AgentWSMessage{
-				MessageID: newWSMessageID(),
-				ReplyTo:   msg.MessageID,
-				Type:      msg.Type + ".ack",
-				TaskID:    msg.TaskID,
-				OK:        true,
+				MessageID:  newWSMessageID(),
+				ReplyTo:    msg.MessageID,
+				Type:       msg.Type + ".ack",
+				PositionID: msg.PositionID,
+				OK:         true,
 			})
 		}
 	}
@@ -220,7 +220,7 @@ func (c *AgentWSClient) readLoop() {
 // 连接写入失败时会关闭连接并清理在线状态。
 func (c *AgentWSClient) writeLoop() {
 	for msg := range c.send {
-		log.Printf("[云端WS] 发送消息 user=%s type=%s task=%s message_id=%s reply_to=%s attempt=%d 摘要=%s", c.userEmail, msg.Type, msg.TaskID, msg.MessageID, msg.ReplyTo, msg.Attempt, wsPayloadSummary(msg.Payload))
+		log.Printf("[云端WS] 发送消息 user=%s type=%s position=%s message_id=%s reply_to=%s attempt=%d 摘要=%s", c.userEmail, msg.Type, msg.PositionID, msg.MessageID, msg.ReplyTo, msg.Attempt, wsPayloadSummary(msg.Payload))
 		if err := c.conn.WriteJSON(msg); err != nil {
 			log.Printf("[云端WS] 写入消息失败 user=%s err=%v", c.userEmail, err)
 			c.close()

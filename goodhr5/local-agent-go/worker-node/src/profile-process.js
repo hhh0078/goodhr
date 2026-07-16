@@ -30,7 +30,7 @@ $pids = @(
 foreach ($processId in $pids) {
   $previousPreference = $ErrorActionPreference
   $ErrorActionPreference = 'SilentlyContinue'
-  & taskkill.exe /PID $processId /T /F 2>$null | Out-Null
+  & positionkill.exe /PID $processId /T /F 2>$null | Out-Null
   $ErrorActionPreference = $previousPreference
 }
 Start-Sleep -Milliseconds 300

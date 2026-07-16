@@ -1,5 +1,5 @@
-// Package taskrunner 文件作用：按职责承载本地任务运行流程的拆分实现。
-package taskrunner
+// Package positionrunner 文件作用：按职责承载本地岗位运行运行流程的拆分实现。
+package positionrunner
 
 import (
 	"context"
@@ -79,9 +79,9 @@ func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title s
 }
 
 // showKeywordMatchOverlay 在浏览器浮层中展示 OCR 关键词匹配结果。
-// ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
-func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
-	state := buildKeywordMatchState(task, candidate)
+// ctx 为请求上下文，exec 为 Worker 执行器，position 为岗位运行记录，candidate 为候选人。
+func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecutor, position localdb.Position, candidate map[string]any) {
+	state := buildKeywordMatchState(position, candidate)
 	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
 	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
@@ -97,9 +97,9 @@ func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecu
 }
 
 // showKeywordOCRLoadingOverlay 在浏览器浮层中展示 OCR 识别等待状态。
-// ctx 为请求上下文，exec 为 Worker 执行器，task 为任务记录，candidate 为候选人。
-func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platformExecutor, task localdb.Task, candidate map[string]any) {
-	state := buildKeywordMatchState(task, candidate)
+// ctx 为请求上下文，exec 为 Worker 执行器，position 为岗位运行记录，candidate 为候选人。
+func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platformExecutor, position localdb.Position, candidate map[string]any) {
+	state := buildKeywordMatchState(position, candidate)
 	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
 	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
@@ -170,7 +170,7 @@ func aiThinkingSteps(seed string) []string {
 		base,
 		"正在读取岗位要求和硬性条件",
 		"正在对比候选人经历、学历和技能",
-		"正在判断是否达到当前任务阈值",
+		"正在判断是否达到当前岗位运行阈值",
 		"正在整理评分原因和下一步动作",
 	}
 }
@@ -214,8 +214,8 @@ func formatGreetCandidateReply(candidate map[string]any) string {
 }
 
 // scoreDetailScreenshotWithClient 使用详情长图一次性完成识别和打招呼评分。
-// ctx 为请求上下文，task 为任务记录，candidate 为候选人，screenshot 为拼接后的截图信息，client 为 AI 客户端。
-func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task localdb.Task, candidate map[string]any, screenshot map[string]any, client *localai.Client) (localai.Decision, error) {
+// ctx 为请求上下文，position 为岗位运行记录，candidate 为候选人，screenshot 为拼接后的截图信息，client 为 AI 客户端。
+func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, position localdb.Position, candidate map[string]any, screenshot map[string]any, client *localai.Client) (localai.Decision, error) {
 	if client == nil {
 		return localai.Decision{}, fmt.Errorf("AI 客户端未配置")
 	}
@@ -236,13 +236,13 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 		}
 	})
 	go func() {
-		decision, err := streamingClient.ScoreVisionForGreet(ctx, task.PositionSnapshot, candidate, imageBytes)
+		decision, err := streamingClient.ScoreVisionForGreet(ctx, position.PositionSnapshot, candidate, imageBytes)
 		finalCh <- pendingAIDecisionResult{Decision: decision, Err: err}
 	}()
 	select {
 	case decision := <-earlyCh:
 		candidate[pendingAIVisionDecisionKey] = (<-chan pendingAIDecisionResult)(finalCh)
-		r.taskLog(task.ID, "info", fmt.Sprintf("AI图片详情：流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.positionLog(position.ID, "info", fmt.Sprintf("AI图片详情：流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		return decision, nil
 	case final := <-finalCh:
 		return final.Decision, final.Err
@@ -253,7 +253,7 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, task local
 
 // scoreCandidateForDetail 使用本地 AI 给单个候选人计算看详情评分。
 // ctx 为请求上下文，candidate 为候选人，client 为空时会返回配置错误。
-func (r *Runner) scoreCandidateForDetail(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
+func (r *Runner) scoreCandidateForDetail(ctx context.Context, position localdb.Position, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
 	status := stringFromMap(candidate, "status")
 	if !canContinueCandidate(status) {
 		return localai.Decision{Score: 0, Reason: "候选人状态不可继续", ShouldOpenDetail: false}, nil
@@ -261,26 +261,26 @@ func (r *Runner) scoreCandidateForDetail(ctx context.Context, task localdb.Task,
 	if client == nil {
 		return localai.Decision{}, fmt.Errorf("AI 客户端未配置")
 	}
-	decision, err := client.ScoreForDetail(ctx, task.PositionSnapshot, candidate)
+	decision, err := client.ScoreForDetail(ctx, position.PositionSnapshot, candidate)
 	if err != nil {
-		r.taskLog(task.ID, "warning", "看详情评分失败："+err.Error())
+		r.positionLog(position.ID, "warning", "看详情评分失败："+err.Error())
 		return localai.Decision{}, err
 	}
 	return decision, nil
 }
 
 // finalizeCandidateGreetDecision 执行第二次详情分析后的最终打招呼判断。
-// ctx 为请求上下文，task 为任务记录，exec 为浏览器执行器，candidate 为候选人，client 为 AI 客户端。
-func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task localdb.Task, exec platformExecutor, candidate map[string]any, client *localai.Client) (int, error) {
+// ctx 为请求上下文，position 为岗位运行记录，exec 为浏览器执行器，candidate 为候选人，client 为 AI 客户端。
+func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, position localdb.Position, exec platformExecutor, candidate map[string]any, client *localai.Client) (int, error) {
 	if !canContinueCandidate(stringFromMap(candidate, "status")) {
 		return 0, nil
 	}
-	if taskMode(task) == "keyword" {
-		r.showKeywordMatchOverlay(ctx, exec, task, candidate)
-		return r.applyKeywordGreetDecision(task, candidate), nil
+	if positionMode(position) == "keyword" {
+		r.showKeywordMatchOverlay(ctx, exec, position, candidate)
+		return r.applyKeywordGreetDecision(position, candidate), nil
 	}
 	visibleClient, cleanup := r.aiClientForCall(ctx, exec, client, "AI 正在评分", candidateLogName(candidate), "正在根据候选人详情判断是否适合打招呼")
-	itemSkipped, err := r.scoreCandidate(ctx, task, candidate, visibleClient)
+	itemSkipped, err := r.scoreCandidate(ctx, position, candidate, visibleClient)
 	cleanup()
 	if err == nil {
 		r.showAIReply(ctx, exec, "AI 评分完成", candidateLogName(candidate), formatGreetCandidateReply(candidate))
@@ -289,24 +289,24 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, task locald
 }
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
-// task 为任务记录，candidate 为已补充详情的候选人，返回本次是否跳过。
-func (r *Runner) applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int {
-	return applyKeywordGreetDecisionWithLog(task, candidate, func(message string) {
-		r.taskLog(task.ID, "info", message)
+// position 为岗位运行记录，candidate 为已补充详情的候选人，返回本次是否跳过。
+func (r *Runner) applyKeywordGreetDecision(position localdb.Position, candidate map[string]any) int {
+	return applyKeywordGreetDecisionWithLog(position, candidate, func(message string) {
+		r.positionLog(position.ID, "info", message)
 	})
 }
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
-// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
-func applyKeywordGreetDecision(task localdb.Task, candidate map[string]any) int {
-	return applyKeywordGreetDecisionWithLog(task, candidate, nil)
+// position 为岗位运行记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
+func applyKeywordGreetDecision(position localdb.Position, candidate map[string]any) int {
+	return applyKeywordGreetDecisionWithLog(position, candidate, nil)
 }
 
 // buildKeywordMatchState 汇总候选人文本并计算关键词命中情况。
-// task 为任务记录，candidate 为候选人。
-func buildKeywordMatchState(task localdb.Task, candidate map[string]any) keywordMatchState {
-	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
-	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
+// position 为岗位运行记录，candidate 为候选人。
+func buildKeywordMatchState(position localdb.Position, candidate map[string]any) keywordMatchState {
+	keywords := stringListFromMap(position.PositionSnapshot, "keywords")
+	excludes := stringListFromMap(position.PositionSnapshot, "exclude_keywords")
 	text := strings.TrimSpace(strings.Join([]string{
 		stringFromMap(candidate, "detail_text"),
 		stringFromMap(candidate, "raw_text"),
@@ -320,14 +320,14 @@ func buildKeywordMatchState(task localdb.Task, candidate map[string]any) keyword
 		Matched:  matchedWords(lowerText, keywords),
 		Excluded: matchedWords(lowerText, excludes),
 		Text:     text,
-		AndMode:  boolFromMap(task.PositionSnapshot, "is_and_mode"),
+		AndMode:  boolFromMap(position.PositionSnapshot, "is_and_mode"),
 	}
 }
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
-// task 为任务记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
-func applyKeywordGreetDecisionWithLog(task localdb.Task, candidate map[string]any, logf func(string)) int {
-	state := buildKeywordMatchState(task, candidate)
+// position 为岗位运行记录，candidate 为已补充详情的候选人，logf 为空时不写日志。
+func applyKeywordGreetDecisionWithLog(position localdb.Position, candidate map[string]any, logf func(string)) int {
+	state := buildKeywordMatchState(position, candidate)
 	if len(state.Excluded) > 0 {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = "命中排除词：" + strings.Join(state.Excluded, "、")
@@ -348,7 +348,7 @@ func applyKeywordGreetDecisionWithLog(task localdb.Task, candidate map[string]an
 
 // scoreCandidate 使用本地 AI 给单个候选人评分。
 // ctx 为请求上下文，candidate 为候选人，client 为空时会返回配置错误。
-func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (int, error) {
+func (r *Runner) scoreCandidate(ctx context.Context, position localdb.Position, candidate map[string]any, client *localai.Client) (int, error) {
 	status := stringFromMap(candidate, "status")
 	if !canContinueCandidate(status) {
 		return 0, nil
@@ -357,15 +357,15 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 		return 0, fmt.Errorf("AI 客户端未配置")
 	}
 	candidateName := candidateLogName(candidate)
-	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分开始，候选人=%s，超时=%s", candidateName, aiScoreTimeout.Round(time.Second)))
+	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分开始，候选人=%s，超时=%s", candidateName, aiScoreTimeout.Round(time.Second)))
 	var decision localai.Decision
-	err := r.withOperationTimeout(ctx, task.ID, candidateName, "AI最终打招呼评分", aiScoreTimeout, func(scoreCtx context.Context) error {
-		nextDecision, scoreErr := r.scoreCandidateForGreetWithEarlyReturn(scoreCtx, task, candidate, client)
+	err := r.withOperationTimeout(ctx, position.ID, candidateName, "AI最终打招呼评分", aiScoreTimeout, func(scoreCtx context.Context) error {
+		nextDecision, scoreErr := r.scoreCandidateForGreetWithEarlyReturn(scoreCtx, position, candidate, client)
 		decision = nextDecision
 		return scoreErr
 	})
 	if err != nil {
-		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼判断：AI评分失败，候选人=%s，错误=%s", candidateName, err.Error()))
+		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼判断：AI评分失败，候选人=%s，错误=%s", candidateName, err.Error()))
 		return 0, err
 	}
 	candidate["ai_greet_score"] = decision.Score
@@ -376,17 +376,17 @@ func (r *Runner) scoreCandidate(ctx context.Context, task localdb.Task, candidat
 	if !decision.ShouldGreet {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
+		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
 		return 1, nil
 	}
 	candidate["status"] = "ai_passed"
-	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是", candidateName, decision.Score, decision.Threshold))
+	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是", candidateName, decision.Score, decision.Threshold))
 	return 0, nil
 }
 
 // scoreCandidateForGreetWithEarlyReturn 流式评分时提前返回已完整解析到的 score/reason。
-// ctx 为请求上下文，task 为任务记录，candidate 为候选人，client 为 AI 客户端。
-func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task localdb.Task, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
+// ctx 为请求上下文，position 为岗位运行记录，candidate 为候选人，client 为 AI 客户端。
+func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, position localdb.Position, candidate map[string]any, client *localai.Client) (localai.Decision, error) {
 	type result struct {
 		decision localai.Decision
 		err      error
@@ -400,15 +400,15 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task
 		}
 	})
 	go func() {
-		decision, err := streamingClient.ScoreForGreet(ctx, task.PositionSnapshot, candidate)
+		decision, err := streamingClient.ScoreForGreet(ctx, position.PositionSnapshot, candidate)
 		resultCh <- result{decision: decision, err: err}
 	}()
 	select {
 	case decision := <-earlyCh:
-		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼判断：AI流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		go func() {
 			if final := <-resultCh; final.err != nil {
-				r.taskLog(task.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
+				r.positionLog(position.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
 			}
 		}()
 		return decision, nil
@@ -419,12 +419,12 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, task
 	}
 }
 
-// applyKeywordFilter 按任务岗位快照过滤候选人。
-// task 为任务记录，candidates 为候选人列表，logf 为空时不写日志。
-func applyKeywordFilter(task localdb.Task, candidates []map[string]any, logf func(string)) ([]map[string]any, int) {
-	keywords := stringListFromMap(task.PositionSnapshot, "keywords")
-	excludes := stringListFromMap(task.PositionSnapshot, "exclude_keywords")
-	isAndMode := boolFromMap(task.PositionSnapshot, "is_and_mode")
+// applyKeywordFilter 按岗位运行岗位快照过滤候选人。
+// position 为岗位运行记录，candidates 为候选人列表，logf 为空时不写日志。
+func applyKeywordFilter(position localdb.Position, candidates []map[string]any, logf func(string)) ([]map[string]any, int) {
+	keywords := stringListFromMap(position.PositionSnapshot, "keywords")
+	excludes := stringListFromMap(position.PositionSnapshot, "exclude_keywords")
+	isAndMode := boolFromMap(position.PositionSnapshot, "is_and_mode")
 	if len(keywords) == 0 && len(excludes) == 0 {
 		return candidates, 0
 	}
@@ -473,10 +473,10 @@ func keywordListLabel(words []string) string {
 	return strings.Join(words, "、")
 }
 
-// taskMode 返回任务运行模式。
-// task 为任务记录。
-func taskMode(task localdb.Task) string {
-	mode := strings.ToLower(strings.TrimSpace(task.Mode))
+// positionMode 返回岗位运行运行模式。
+// position 为岗位运行记录。
+func positionMode(position localdb.Position) string {
+	mode := strings.ToLower(strings.TrimSpace(position.Mode))
 	if mode == "" {
 		return "ai"
 	}

@@ -1,5 +1,5 @@
-// Package taskrunner 文件作用：按职责承载本地任务运行流程的拆分实现。
-package taskrunner
+// Package positionrunner 文件作用：按职责承载本地岗位运行运行流程的拆分实现。
+package positionrunner
 
 import (
 	"context"
@@ -13,49 +13,49 @@ import (
 )
 
 // consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
-// greetedSoFar 为任务已打招呼数量。
-func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
+// greetedSoFar 为岗位运行已打招呼数量。
+func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
 	status := stringFromMap(candidate, "status")
 	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
-		r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
+		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
 		return 0, 0, 0, nil
 	}
-	if task.MatchLimit > 0 && greetedSoFar >= task.MatchLimit {
+	if position.MatchLimit > 0 && greetedSoFar >= position.MatchLimit {
 		candidate["status"] = "skipped"
-		candidate["skip_reason"] = "已达到任务打招呼上限"
+		candidate["skip_reason"] = "已达到岗位运行打招呼上限"
 		return 0, 0, 1, nil
 	}
 	// 打招呼前模拟人工点击延时
-	if err := waitBeforeGreet(ctx, r, task.ID, options); err != nil {
+	if err := waitBeforeGreet(ctx, r, position.ID, options); err != nil {
 		return 0, 0, 0, err
 	}
-	r.taskLog(task.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
-	if err := r.tryGreet(ctx, task.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
+	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
+	if err := r.tryGreet(ctx, position.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
-		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
+		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: err}
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-	r.taskLog(task.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
-	if task.EnableSound {
-		r.playSound("success.wav", task.ID)
+	r.positionLog(position.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
+	if position.EnableSound {
+		r.playSound("success.wav", position.ID)
 	}
 	return 1, 0, 0, nil
 }
 
 // tryGreet 带重试地执行单个候选人打招呼。
 // ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
-func (r *Runner) tryGreet(ctx context.Context, taskID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
+func (r *Runner) tryGreet(ctx context.Context, positionID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
 	retries := maxInt(0, options.GreetRetries)
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		r.taskLog(taskID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
-		err := r.withOperationTimeout(ctx, taskID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
+		r.positionLog(positionID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
+		err := r.withOperationTimeout(ctx, positionID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
 			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))
 		})
 		if err == nil {
@@ -72,9 +72,9 @@ func (r *Runner) tryGreet(ctx context.Context, taskID string, platformRuntime pl
 }
 
 // waitBeforeGreet 在打招呼前随机等待。
-// ctx 为请求上下文，options 为任务启动参数。
-// r 为 Runner 实例，用于写任务日志。
-func waitBeforeGreet(ctx context.Context, r *Runner, taskID string, options StartOptions) error {
+// ctx 为请求上下文，options 为岗位运行启动参数。
+// r 为 Runner 实例，用于写岗位运行日志。
+func waitBeforeGreet(ctx context.Context, r *Runner, positionID string, options StartOptions) error {
 	minDelay := options.GreetBeforeDelayMin
 	maxDelay := options.GreetBeforeDelayMax
 	if minDelay <= 0 && maxDelay <= 0 {
@@ -87,22 +87,22 @@ func waitBeforeGreet(ctx context.Context, r *Runner, taskID string, options Star
 	if maxDelay > minDelay {
 		delay += rand.Float64() * (maxDelay - minDelay)
 	}
-	if r != nil && taskID != "" {
-		r.taskLog(taskID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
+	if r != nil && positionID != "" {
+		r.positionLog(positionID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
 	}
 	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
 }
 
-// initRestState 初始化本次任务的模拟休息计划。
-// taskID 为任务 ID，options 为任务启动参数。
-func (r *Runner) initRestState(taskID string, options StartOptions) {
+// initRestState 初始化本次岗位运行的模拟休息计划。
+// positionID 为岗位运行 ID，options 为岗位运行启动参数。
+func (r *Runner) initRestState(positionID string, options StartOptions) {
 	maxTimes := randomIntRange(options.RestTimesMin, options.RestTimesMax)
 	nextAfter := randomIntRange(options.RestAfterCandidatesMin, options.RestAfterCandidatesMax)
 	if maxTimes <= 0 || nextAfter <= 0 || options.RestDurationMax <= 0 {
 		return
 	}
 	r.mu.Lock()
-	state := r.running[taskID]
+	state := r.running[positionID]
 	if state != nil {
 		state.restMaxTimes = maxTimes
 		state.restUsed = 0
@@ -110,14 +110,14 @@ func (r *Runner) initRestState(taskID string, options StartOptions) {
 		state.restSinceLast = 0
 	}
 	r.mu.Unlock()
-	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息已启用：最多休息 %d 次，首次约处理 %d 人后休息", maxTimes, nextAfter))
+	r.positionLog(positionID, "info", fmt.Sprintf("模拟休息已启用：最多休息 %d 次，首次约处理 %d 人后休息", maxTimes, nextAfter))
 }
 
 // maybeRestAfterCandidate 在候选人处理后按计划模拟休息。
-// ctx 为任务上下文，taskID 为任务 ID，options 为任务启动参数。
-func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, exec platformExecutor, options StartOptions) error {
+// ctx 为岗位运行上下文，positionID 为岗位运行 ID，options 为岗位运行启动参数。
+func (r *Runner) maybeRestAfterCandidate(ctx context.Context, positionID string, exec platformExecutor, options StartOptions) error {
 	r.mu.Lock()
-	state := r.running[taskID]
+	state := r.running[positionID]
 	if state == nil || state.restMaxTimes <= 0 || state.restUsed >= state.restMaxTimes || state.restNextAfter <= 0 {
 		r.mu.Unlock()
 		return nil
@@ -144,30 +144,30 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, taskID string, exe
 	}
 	duration := time.Duration(durationMinutes * float64(time.Minute))
 	endsAt := time.Now().Add(duration)
-	r.taskLog(taskID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
-	if err := r.waitForSimulatedRest(ctx, taskID, exec, restIndex, duration, endsAt); err != nil {
+	r.positionLog(positionID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
+	if err := r.waitForSimulatedRest(ctx, positionID, exec, restIndex, duration, endsAt); err != nil {
 		return err
 	}
-	r.updateProgress(taskID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
-	r.taskLog(taskID, "info", "模拟休息：结束，继续处理候选人")
+	r.updateProgress(positionID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
+	r.positionLog(positionID, "info", "模拟休息：结束，继续处理候选人")
 	return nil
 }
 
-// waitForSimulatedRest 等待模拟休息结束，并在开始时更新页面浮层和任务进度。
-// 浮层调用始终异步且忽略错误，页面展示异常不会影响任务主流程。
-func (r *Runner) waitForSimulatedRest(ctx context.Context, taskID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) error {
-	r.updateRestDisplay(taskID, exec, restIndex, duration, endsAt)
+// waitForSimulatedRest 等待模拟休息结束，并在开始时更新页面浮层和岗位运行进度。
+// 浮层调用始终异步且忽略错误，页面展示异常不会影响岗位运行主流程。
+func (r *Runner) waitForSimulatedRest(ctx context.Context, positionID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) error {
+	r.updateRestDisplay(positionID, exec, restIndex, duration, endsAt)
 	return sleepWithContext(ctx, duration)
 }
 
 // updateRestDisplay 更新模拟休息进度，并以非阻塞方式显示浏览器页面浮层。
-func (r *Runner) updateRestDisplay(taskID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) {
+func (r *Runner) updateRestDisplay(positionID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) {
 	message := fmt.Sprintf("本次休息 %s，预计 %s 继续处理", formatRestDuration(duration), endsAt.Format("15:04:05"))
-	r.updateProgress(taskID, Progress{Stage: "resting", Message: message})
+	r.updateProgress(positionID, Progress{Stage: "resting", Message: message})
 	r.showRestOverlayAsync(exec, restIndex, message, duration+time.Minute)
 }
 
-// showRestOverlayAsync 异步显示模拟休息浮层，任何 Worker 或页面异常都不会阻塞任务。
+// showRestOverlayAsync 异步显示模拟休息浮层，任何 Worker 或页面异常都不会阻塞岗位运行。
 func (r *Runner) showRestOverlayAsync(exec platformExecutor, restIndex int, message string, maxAge time.Duration) {
 	if exec.runner == nil || exec.runner.worker == nil {
 		return
@@ -234,21 +234,21 @@ func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
 }
 
 // prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
-// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
-func (r *Runner) prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
-	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
-		return applyKeywordFilter(task, candidates, func(message string) {
-			r.taskLog(task.ID, "info", message)
+// position 为岗位运行记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func (r *Runner) prepareCandidatesForFirstStage(position localdb.Position, candidates []map[string]any) ([]map[string]any, int) {
+	if positionMode(position) == "keyword" && !shouldFetchDetail(position) {
+		return applyKeywordFilter(position, candidates, func(message string) {
+			r.positionLog(position.ID, "info", message)
 		})
 	}
-	return prepareCandidatesForFirstStage(task, candidates)
+	return prepareCandidatesForFirstStage(position, candidates)
 }
 
 // prepareCandidatesForFirstStage 处理第一次基础分析前的候选人队列。
-// task 为任务记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
-func prepareCandidatesForFirstStage(task localdb.Task, candidates []map[string]any) ([]map[string]any, int) {
-	if taskMode(task) == "keyword" && !shouldFetchDetail(task) {
-		return applyKeywordFilter(task, candidates, nil)
+// position 为岗位运行记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
+func prepareCandidatesForFirstStage(position localdb.Position, candidates []map[string]any) ([]map[string]any, int) {
+	if positionMode(position) == "keyword" && !shouldFetchDetail(position) {
+		return applyKeywordFilter(position, candidates, nil)
 	}
 	for _, candidate := range candidates {
 		if strings.TrimSpace(stringFromMap(candidate, "status")) == "" {
