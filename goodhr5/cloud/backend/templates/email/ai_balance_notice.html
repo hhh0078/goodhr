@@ -1,0 +1,28 @@
+<!-- 本文件是 GoodHR AI 余额变动提醒邮件 HTML 模板，使用后台一致的浅色绿色视觉并适配移动端。 -->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoodHR AI 余额变动提醒</title>
+    <style>@media only screen and (max-width:620px){.wrap{padding:14px!important}.panel{width:100%!important}.content{padding:24px 18px!important}.title{font-size:24px!important}.label,.value{display:block!important;width:auto!important}.label{padding-bottom:4px!important}.value{padding-top:0!important}}</style>
+  </head>
+  <body bgcolor="#f4f7f5" style="margin:0;padding:0;background:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;color:#1f2a23;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#f4f7f5" style="background:#f4f7f5;padding:28px 0;"><tr><td class="wrap" align="center" style="padding:0 16px;">
+      <table class="panel" role="presentation" width="580" cellspacing="0" cellpadding="0" bgcolor="#ffffff" style="width:580px;max-width:100%;background:#fff;border:1px solid #dce7df;border-radius:14px;overflow:hidden;">
+        <tr><td style="height:6px;background:#16724c;font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr><td class="content" style="padding:32px 36px;">
+          <div style="font-size:13px;font-weight:700;color:#16724c;margin-bottom:10px;">GOODHR · 账户提醒</div>
+          <h1 class="title" style="margin:0 0 12px;font-size:28px;line-height:1.3;color:#1f2a23;">AI 余额已更新</h1>
+          <p style="margin:0 0 22px;font-size:15px;line-height:1.8;color:#56645b;">我来认真报个账，你的 AI 余额刚刚有了变化。</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f8faf8;border:1px solid #e2ebe5;font-size:14px;">
+            <tr><td class="label" style="width:120px;padding:14px;color:#68746c;border-bottom:1px solid #e2ebe5;">变动原因</td><td class="value" style="padding:14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.Reason}}</td></tr>
+            <tr><td class="label" style="padding:14px;color:#68746c;border-bottom:1px solid #e2ebe5;">变动金额</td><td class="value" style="padding:14px;color:#16724c;font-size:18px;font-weight:800;border-bottom:1px solid #e2ebe5;">￥{{.ChangeText}}</td></tr>
+            <tr><td class="label" style="padding:14px;color:#68746c;">当前余额</td><td class="value" style="padding:14px;font-size:18px;font-weight:800;">￥{{.BalanceText}}</td></tr>
+          </table>
+          <p style="margin:20px 0 0;font-size:13px;line-height:1.8;color:#7b8780;">这是一封自动提醒邮件，不需要回复。如果金额和预期不一样，可以回到 GoodHR 联系我们核对。</p>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </body>
+</html>

@@ -281,6 +281,10 @@ type recordingMailer struct {
 		email  string
 		notice SubscriptionRewardNotice
 	}
+	balanceNotices []struct {
+		email  string
+		notice AIBalanceNotice
+	}
 }
 
 // SendLoginCode 记录验证码邮件发送请求。
@@ -297,6 +301,15 @@ func (m *recordingMailer) SendSubscriptionReward(email string, notice Subscripti
 	m.rewards = append(m.rewards, struct {
 		email  string
 		notice SubscriptionRewardNotice
+	}{email: email, notice: notice})
+	return nil
+}
+
+// SendAIBalanceNotice 记录 AI 余额变动邮件发送请求。
+func (m *recordingMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) error {
+	m.balanceNotices = append(m.balanceNotices, struct {
+		email  string
+		notice AIBalanceNotice
 	}{email: email, notice: notice})
 	return nil
 }

@@ -11,7 +11,7 @@ import (
 func TestMailTemplatesRender(t *testing.T) {
 	mailer := SMTPMailer{}
 	loginHTML := mailer.renderHTML("login_code.html", map[string]any{"Code": "1234"})
-	if !strings.Contains(loginHTML, "1234") || !strings.Contains(loginHTML, "GoodHR 登录终端") {
+	if !strings.Contains(loginHTML, "1234") || !strings.Contains(loginHTML, "验证码来啦") {
 		t.Fatalf("login template did not render expected content: %s", loginHTML)
 	}
 
@@ -24,6 +24,15 @@ func TestMailTemplatesRender(t *testing.T) {
 	})
 	if !strings.Contains(rewardHTML, "新用户注册赠送会员") || !strings.Contains(rewardHTML, "3 天") {
 		t.Fatalf("reward template did not render expected content: %s", rewardHTML)
+	}
+
+	balanceHTML := mailer.renderHTML("ai_balance_notice.html", map[string]any{
+		"Reason":      "活动赠送",
+		"ChangeText":  "+10.00",
+		"BalanceText": "20.00",
+	})
+	if !strings.Contains(balanceHTML, "活动赠送") || !strings.Contains(balanceHTML, "20.00") {
+		t.Fatalf("balance template did not render expected content: %s", balanceHTML)
 	}
 
 	taskHTML := mailer.renderHTML("task_status.html", map[string]any{
