@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -56,6 +57,44 @@ type ChatResult struct {
 	Content   string         `json:"content"`
 	Usage     map[string]any `json:"usage"`
 	ElapsedMS int            `json:"elapsed_ms"`
+}
+
+// ServiceError 表示 AI 服务端或网络层返回的结构化错误，供任务运行器判断是否必须停止。
+type ServiceError struct {
+	StatusCode int
+	Body       string
+	Cause      error
+	Retryable  bool
+	Fatal      bool
+	RetryAfter time.Duration
+}
+
+// Error 返回适合写入任务日志的 AI 服务错误文本。
+func (e *ServiceError) Error() string {
+	if e == nil {
+		return "AI 服务请求失败"
+	}
+	if e.StatusCode > 0 {
+		return fmt.Sprintf("AI 服务请求失败，状态码 %d，响应 %s", e.StatusCode, strings.TrimSpace(e.Body))
+	}
+	if e.Cause != nil {
+		return "AI 服务请求失败：" + e.Cause.Error()
+	}
+	return "AI 服务请求失败"
+}
+
+// Unwrap 返回 AI 服务错误的底层原因。
+func (e *ServiceError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+// IsTaskStoppingError 判断 AI 错误是否在内部重试结束后仍必须停止整个任务。
+func IsTaskStoppingError(err error) bool {
+	var serviceErr *ServiceError
+	return errors.As(err, &serviceErr) && serviceErr.Fatal
 }
 
 // New 创建本地 AI 客户端。
@@ -261,32 +300,55 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("AI 请求参数编码失败：%w", err)
 	}
-	// log.Printf("[AI流式调试] 请求体：%s", string(raw))
+	start := time.Now()
+	client := c.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		result, requestErr := c.doChatRequest(ctx, client, apiURL, raw, start)
+		if requestErr == nil {
+			return result, nil
+		}
+		lastErr = requestErr
+		var serviceErr *ServiceError
+		if !errors.As(requestErr, &serviceErr) || !serviceErr.Retryable || attempt == 3 {
+			return ChatResult{}, requestErr
+		}
+		if err := sleepAIRequestRetry(ctx, serviceErr, attempt); err != nil {
+			return ChatResult{}, err
+		}
+	}
+	return ChatResult{}, lastErr
+}
+
+// doChatRequest 执行一次 AI HTTP 请求并解析响应。
+func (c *Client) doChatRequest(ctx context.Context, client *http.Client, apiURL string, raw []byte, start time.Time) (ChatResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(raw))
 	if err != nil {
 		return ChatResult{}, fmt.Errorf("创建 AI 请求失败：%w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Config.APIKey)
 	req.Header.Set("Content-Type", "application/json")
-	start := time.Now()
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return ChatResult{}, fmt.Errorf("AI 服务请求失败：%w", err)
+		if ctx.Err() != nil {
+			return ChatResult{}, ctx.Err()
+		}
+		return ChatResult{}, &ServiceError{Cause: err, Retryable: true, Fatal: true}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		return ChatResult{}, fmt.Errorf("AI 服务请求失败，状态码 %d，响应 %s", resp.StatusCode, preview(bodyBytes))
+		bodyText := preview(bodyBytes)
+		return ChatResult{}, newHTTPServiceError(resp.StatusCode, bodyText, resp.Header.Get("Retry-After"))
 	}
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 		// log.Printf("[AI流式调试] 检测到 SSE 流式响应，progress=%v", c.Progress != nil)
 		content, usage, err := readChatStream(resp.Body, c.Progress, c.EarlyDecision, false)
 		if err != nil {
-			return ChatResult{}, err
+			return ChatResult{}, &ServiceError{Cause: fmt.Errorf("AI 流式响应中断：%w", err), Retryable: true, Fatal: true}
 		}
 		// log.Printf("[AI流式调试] 流式读取完成 content_len=%d", len(content))
 		return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
@@ -302,13 +364,67 @@ func (c *Client) Chat(ctx context.Context, payload map[string]any) (ChatResult, 
 				return ChatResult{Content: content, Usage: usage, ElapsedMS: int(time.Since(start).Milliseconds())}, nil
 			}
 		}
-		return ChatResult{}, fmt.Errorf("AI 服务返回格式不是 JSON，Content-Type=%s", resp.Header.Get("Content-Type"))
+		return ChatResult{}, &ServiceError{Cause: fmt.Errorf("AI 服务返回格式不是 JSON，Content-Type=%s", resp.Header.Get("Content-Type")), Fatal: true}
 	}
 	return ChatResult{
 		Content:   extractChatContent(resultPayload),
 		Usage:     mapValue(resultPayload["usage"]),
 		ElapsedMS: int(time.Since(start).Milliseconds()),
 	}, nil
+}
+
+// newHTTPServiceError 根据 HTTP 状态码和响应内容生成 AI 服务错误策略。
+func newHTTPServiceError(statusCode int, body string, retryAfter string) *ServiceError {
+	lowerBody := strings.ToLower(strings.TrimSpace(body))
+	retryable := statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
+	fatal := retryable || statusCode == http.StatusUnauthorized || statusCode == http.StatusPaymentRequired || statusCode == http.StatusForbidden || statusCode == http.StatusNotFound
+	if statusCode == http.StatusBadRequest || statusCode == http.StatusUnprocessableEntity {
+		fatal = containsAnyText(lowerBody, "quota", "balance", "余额", "额度", "api key", "apikey", "unauthorized", "model", "模型", "not found", "不存在")
+	}
+	return &ServiceError{StatusCode: statusCode, Body: body, Retryable: retryable, Fatal: fatal, RetryAfter: parseRetryAfter(retryAfter)}
+}
+
+// sleepAIRequestRetry 在 AI 临时错误重试前等待短暂退避时间。
+func sleepAIRequestRetry(ctx context.Context, serviceErr *ServiceError, attempt int) error {
+	delay := time.Duration(attempt) * 500 * time.Millisecond
+	if serviceErr != nil && serviceErr.RetryAfter > delay {
+		delay = serviceErr.RetryAfter
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// parseRetryAfter 解析 AI 服务返回的 Retry-After 秒数或 HTTP 时间。
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if retryAt, err := http.ParseTime(value); err == nil {
+		if delay := time.Until(retryAt); delay > 0 {
+			return delay
+		}
+	}
+	return 0
+}
+
+// containsAnyText 判断文本是否包含任一指定关键词。
+func containsAnyText(text string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
 }
 
 // chat 调用 OpenAI 兼容聊天接口。

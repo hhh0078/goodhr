@@ -34,7 +34,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, task localdb.Task
 		candidate["status"] = "failed"
 		candidate["error"] = err.Error()
 		r.taskLog(task.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
-		return 0, 1, 0, nil
+		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: err}
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)

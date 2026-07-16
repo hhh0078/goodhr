@@ -110,7 +110,9 @@ func (r *Runner) enrichCandidatesWithDetail(ctx context.Context, task localdb.Ta
 			return skipped, err
 		}
 		if detailSession != nil {
-			_ = detailSession.Close(context.WithoutCancel(ctx))
+			if closeErr := detailSession.Close(context.WithoutCancel(ctx)); closeErr != nil {
+				return skipped, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
+			}
 		}
 		skipped += itemSkipped
 	}
@@ -150,6 +152,7 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		r.taskLog(task.ID, "warning", fmt.Sprintf("详情读取：失败，候选人=%s，错误=%s", candidateName, err.Error()))
 		if closeErr := r.closeCandidateDetailNow(context.WithoutCancel(ctx), task.ID, candidateName, "异常后关闭详情页", closeDetail); closeErr != nil {
 			r.taskLog(task.ID, "warning", "异常后关闭"+candidateName+"详情失败："+closeErr.Error())
+			return 0, nil, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
 		}
 		// 浏览器未启动或已关闭的错误应该直接返回出去让整个任务停止
 		if isBrowserClosedTaskError(err) {
@@ -158,7 +161,10 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 		if isFatalCandidateDetailError(err) {
 			return 0, nil, fmt.Errorf("候选人详情没找到，任务已自动停止：%w", err)
 		}
-		return 0, nil, nil
+		if r.isUserStopped(task.ID) {
+			return 0, nil, nil
+		}
+		return 0, nil, &candidateOperationError{Operation: "读取候选人详情", Err: err}
 	}
 	_, closesAfterAI := platformRuntime.(platformcore.DetailAnalysisScroller)
 	detailSession := &candidateDetailSession{closeFn: func(closeCtx context.Context) error {
@@ -202,6 +208,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			if err != nil {
 				candidate["ocr_error"] = err.Error()
 				r.taskLog(task.ID, "warning", fmt.Sprintf("OCR识别：失败，候选人=%s，错误=%s", candidateName, err.Error()))
+				if isFatalOCRError(err) {
+					return 0, detailSession, fmt.Errorf("OCR运行组件不可用，任务已自动停止：%w", err)
+				}
 			} else {
 				detailText = platformRuntime.CleanCandidateDetailText(ocrText)
 				candidate["ocr_text"] = detailText
@@ -222,6 +231,9 @@ func (r *Runner) enrichCandidateWithDetail(ctx context.Context, task localdb.Tas
 			if err != nil {
 				candidate["ai_vision_error"] = err.Error()
 				r.taskLog(task.ID, "warning", fmt.Sprintf("AI图片详情：失败，候选人=%s，错误=%s", candidateName, err.Error()))
+				if localai.IsTaskStoppingError(err) {
+					return 0, detailSession, fmt.Errorf("AI图片详情分析持续不可用，任务已自动停止：%w", err)
+				}
 			} else {
 				r.showAIReply(ctx, exec, "AI 详情分析完成", candidateName, formatVisionDecisionReply(decision))
 				detailText = platformRuntime.CleanCandidateDetailText(decision.DetailText)

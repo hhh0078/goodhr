@@ -74,6 +74,7 @@ func (r *Runner) scanOnce(ctx context.Context, task localdb.Task, platformConfig
 	totalFailed := 0
 	processedCount := 0
 	emptyLoads := 0
+	operationErrors := &consecutiveOperationErrorTracker{}
 	positionSearchPrepared := false
 	emptyLimit := emptyLoadLimit(options)
 	maxItems := maxItemsPerLoad(options)
@@ -193,13 +194,15 @@ scanLoop:
 			}
 			precheckCh := make(chan candidatePipelineResult, len(filtered))
 			aiJobs := make(chan candidatePipelineResult, len(filtered))
+			pipelineCtx, pipelineCancel := context.WithCancel(ctx)
+			defer pipelineCancel()
 			needsAI := taskMode(task) == "ai"
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
 				r.taskLog(task.ID, "info", fmt.Sprintf("AI 预判断：开始并发分析，数量=%d，并发数=%d", len(filtered), workerCount))
-				r.startCandidateDetailWorkers(ctx, task, exec, aiClient, aiJobs, precheckCh, workerCount)
+				r.startCandidateDetailWorkers(pipelineCtx, task, exec, aiClient, aiJobs, precheckCh, workerCount)
 			}
-			go r.feedCandidatePipeline(ctx, task, filtered, needsAI, aiJobs, precheckCh)
+			go r.feedCandidatePipeline(pipelineCtx, task, filtered, needsAI, aiJobs, precheckCh)
 
 			pending := map[int]candidatePipelineResult{}
 			nextIndex := 0
@@ -230,7 +233,7 @@ scanLoop:
 				nextIndex++
 				if item.Err != nil {
 					r.taskLog(task.ID, "error", fmt.Sprintf("候选人处理：失败，序号=%d，错误=%v", item.Index+1, item.Err))
-					if errors.Is(item.Err, context.Canceled) || isBrowserClosedTaskError(item.Err) {
+					if errors.Is(item.Err, context.Canceled) || shouldStopTaskImmediately(item.Err) {
 						return nil, item.Err
 					}
 					item.Candidate["status"] = "failed"
@@ -267,8 +270,15 @@ scanLoop:
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
 						if err != nil {
-							candidateCancel()
-							return nil, err
+							if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
+								candidateCancel()
+								return nil, stopErr
+							}
+							candidate["status"] = "failed"
+							candidate["error"] = err.Error()
+							batchResult.Failed++
+						} else {
+							operationErrors.Reset("读取候选人详情")
 						}
 					}
 				}
@@ -286,15 +296,25 @@ scanLoop:
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
 						if err != nil {
-							candidateCancel()
-							return nil, err
+							if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
+								candidateCancel()
+								return nil, stopErr
+							}
+							candidate["status"] = "failed"
+							candidate["error"] = err.Error()
+							batchResult.Failed++
+						} else {
+							operationErrors.Reset("读取候选人详情")
 						}
 					}
 				}
 
 				// 7. 第二次详情分析：详情 AI 已经一次性评分时跳过；否则按任务模式做最终判断。
 				if _, supportsDetailScrolling := platformRuntime.(platformcore.DetailAnalysisScroller); detailSession != nil && !supportsDetailScrolling {
-					_ = detailSession.Close(context.WithoutCancel(candidateCtx))
+					if closeErr := detailSession.Close(context.WithoutCancel(candidateCtx)); closeErr != nil {
+						candidateCancel()
+						return nil, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
+					}
 					detailSession = nil
 				}
 				shouldFinalizeWithAI := canContinueCandidate(stringFromMap(candidate, "status")) && !boolFromMap(candidate, "ai_greet_scored")
@@ -306,6 +326,10 @@ scanLoop:
 					itemSkipped, err := r.finalizeCandidateGreetDecision(candidateCtx, task, exec, candidate, aiClient)
 					batchResult.Skipped += itemSkipped
 					if err != nil {
+						if shouldStopTaskImmediately(err) {
+							candidateCancel()
+							return nil, fmt.Errorf("AI最终评分持续不可用，任务已自动停止：%w", err)
+						}
 						candidate["status"] = "failed"
 						candidate["error"] = err.Error()
 						batchResult.Failed++
@@ -314,7 +338,10 @@ scanLoop:
 				}
 				stopDetailScrolling()
 				if detailSession != nil {
-					_ = detailSession.Close(context.WithoutCancel(candidateCtx))
+					if closeErr := detailSession.Close(context.WithoutCancel(candidateCtx)); closeErr != nil {
+						candidateCancel()
+						return nil, fmt.Errorf("候选人详情无法关闭，任务已自动停止：%w", closeErr)
+					}
 					detailSession = nil
 				}
 
@@ -322,13 +349,16 @@ scanLoop:
 				if options.EnableGreet {
 					greeted, failed, itemSkipped, err := r.consumeCandidateForGreet(candidateCtx, task, platformRuntime, exec, platformConfig, candidate, totalGreeted+batchResult.Greeted, options)
 					if err != nil {
-						candidateCancel()
-						return nil, err
+						if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
+							candidateCancel()
+							return nil, stopErr
+						}
 					}
 					batchResult.Greeted += greeted
 					batchResult.Failed += failed
 					batchResult.Skipped += itemSkipped
 					if greeted > 0 {
+						operationErrors.Reset("执行打招呼")
 						r.incrementRunGreeted(task.ID, greeted)
 					}
 				}
@@ -355,6 +385,7 @@ scanLoop:
 					break
 				}
 			}
+			pipelineCancel()
 
 			totalSaved += batchResult.Saved
 			totalSkipped += batchResult.Skipped
