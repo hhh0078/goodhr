@@ -55,6 +55,29 @@ func TestAutomaticEmailTemplateHTML(t *testing.T) {
 	}
 }
 
+// TestFlowHelpEmailTemplates 验证八个流程帮助邮件使用清晰标题、解决步骤和统一视频教程。
+func TestFlowHelpEmailTemplates(t *testing.T) {
+	templates := defaultRecoveryEmailTemplates()
+	for _, key := range []string{
+		"agent_detected",
+		"runtime_ready",
+		"position_created",
+		"task_created",
+		"platform_login_verified",
+		"task_started",
+		"first_resume_processed",
+		"first_greet_success",
+	} {
+		item := templates[key]
+		if !strings.HasPrefix(item.Subject, "需要帮助吗？") {
+			t.Fatalf("%s 的标题不清晰：%s", key, item.Subject)
+		}
+		if !strings.Contains(item.HTML, "你可以这样处理") || !strings.Contains(item.HTML, "https://goodhr5.58it.cn/videos") || !strings.Contains(item.HTML, "{{footer}}") {
+			t.Fatalf("%s 缺少解决步骤、视频教程或统一页脚：%s", key, item.HTML)
+		}
+	}
+}
+
 // TestAppendEmailFooter 验证统一反馈文案会插入模板占位符。
 func TestAppendEmailFooter(t *testing.T) {
 	html := appendEmailFooter("<html><body>{{footer}}</body></html>", "17607080935", "https://goodhr5.58it.cn")

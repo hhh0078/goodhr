@@ -677,14 +677,14 @@ type recoveryEmailTemplate struct {
 // 模板不包含已读追踪图，追踪图由 sendBatch 统一追加。
 func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 	subjects := map[string]string{
-		"agent_detected":          "GoodHR 本地程序还没启动",
-		"runtime_ready":           "GoodHR 运行组件还差一步",
-		"position_created":        "GoodHR 岗位还没创建",
-		"task_created":            "GoodHR 招聘任务还没创建",
-		"platform_login_verified": "GoodHR 招聘平台还没确认登录",
-		"task_started":            "GoodHR 任务还没成功启动",
-		"first_resume_processed":  "GoodHR 还没处理到第一份简历",
-		"first_greet_success":     "GoodHR 还差第一次成功打招呼",
+		"agent_detected":          "需要帮助吗？GoodHR 本地程序还未启动",
+		"runtime_ready":           "需要帮助吗？运行组件还未安装完成",
+		"position_created":        "需要帮助吗？招聘岗位还未创建",
+		"task_created":            "需要帮助吗？招聘任务还未创建",
+		"platform_login_verified": "需要帮助吗？招聘平台还未登录",
+		"task_started":            "需要帮助吗？招聘任务还未成功启动",
+		"first_resume_processed":  "需要帮助吗？还未成功处理第一份简历",
+		"first_greet_success":     "需要帮助吗？还未成功向候选人打招呼",
 		"inactive_3_days":         "3 天没见你了，我先小声冒个泡",
 		"inactive_7_days":         "一周没见，GoodHR 还在原地等你",
 		"inactive_30_days":        "一个月没见，我来弱弱问候一下",
