@@ -24,6 +24,11 @@ func (m *taskNoticeMailer) SendSubscriptionReward(email string, notice Subscript
 	return nil
 }
 
+// SendAIBalanceNotice 忽略 AI 余额变动邮件发送请求。
+func (m *taskNoticeMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) error {
+	return nil
+}
+
 // SendTaskStatus 记录任务状态邮件内容，方便测试断言。
 func (m *taskNoticeMailer) SendTaskStatus(email string, notice TaskStatusNotice) error {
 	m.emails = append(m.emails, email)

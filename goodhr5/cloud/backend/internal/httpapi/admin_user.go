@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -68,6 +70,39 @@ type adjustUserAIBalanceRequest struct {
 	AmountCents int    `json:"amount_cents"`
 	AmountYuan  string `json:"amount_yuan"`
 	Reason      string `json:"reason"`
+}
+
+// batchAdjustUsersRequest 表示一次批量调整会员天数和 AI 余额的请求。
+type batchAdjustUsersRequest struct {
+	Target      string   `json:"target"`
+	Emails      []string `json:"emails"`
+	Days        int      `json:"days"`
+	AmountCents int      `json:"amount_cents"`
+	AmountYuan  string   `json:"amount_yuan"`
+	Reason      string   `json:"reason"`
+}
+
+// batchAdjustUserResult 表示一个用户的批量调整结果。
+type batchAdjustUserResult struct {
+	Email           string   `json:"email"`
+	DaysAdjusted    bool     `json:"days_adjusted"`
+	BalanceAdjusted bool     `json:"balance_adjusted"`
+	Errors          []string `json:"errors"`
+}
+
+// adjustmentNoticeError 表示数据调整成功但通知邮件发送失败。
+type adjustmentNoticeError struct {
+	err error
+}
+
+// Error 返回通知邮件发送失败原因。
+func (e adjustmentNoticeError) Error() string {
+	return e.err.Error()
+}
+
+// Unwrap 返回底层邮件错误，方便统一判断错误类型。
+func (e adjustmentNoticeError) Unwrap() error {
+	return e.err
 }
 
 type unbindUserAgentRequest struct {
@@ -172,17 +207,8 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 		reason = "超级管理员调整会员天数"
 	}
 
-	subscription, err := s.subscriptions.AdjustSubscriptionDays(email, defaultMemberType, req.Days)
+	subscription, err := s.adjustSubscriptionForUser(email, req.Days, reason)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to adjust subscription")
-		return
-	}
-	if err := sendSubscriptionRewardNotice(s.mailer, email, SubscriptionRewardNotice{
-		Reason:     reason,
-		Days:       req.Days,
-		MemberType: subscription.MemberType,
-		ExpiresAt:  subscription.ExpiresAt,
-	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send subscription notice")
 		return
 	}
@@ -275,17 +301,201 @@ func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Reques
 	if reason == "" {
 		reason = "超级管理员调整AI余额"
 	}
-	balance, err := s.aiWallet.AdjustBalance(AIWalletRecord{
-		UserEmail:   email,
-		ChangeUnits: centsToAIUnits(amountCents),
-		Category:    "admin_adjust",
-		Reason:      reason,
-	})
+	balance, err := s.adjustAIBalanceForUser(email, amountCents, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed adjust ai balance")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "balance_units": balance, "balance_cents": aiUnitsToCents(balance), "balance": aiUnitsToYuanString(balance)})
+}
+
+// BatchAdjust 批量调整指定用户或全部用户的会员天数和 AI 余额。
+func (s *AdminUserService) BatchAdjust(w http.ResponseWriter, r *http.Request) {
+	if !s.requireSuperAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req batchAdjustUsersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	amountCents, err := batchAdjustmentAmountCents(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "余额金额不太对，我没敢动。")
+		return
+	}
+	if req.Days == 0 && amountCents == 0 {
+		writeError(w, http.StatusBadRequest, "天数和余额至少填一个，我才能开工。")
+		return
+	}
+	emails, err := s.batchAdjustmentEmails(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(emails) == 0 {
+		writeError(w, http.StatusBadRequest, "没有找到要调整的用户")
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "超级管理员批量调整"
+	}
+	results := make([]batchAdjustUserResult, 0, len(emails))
+	successCount := 0
+	for _, email := range emails {
+		result := batchAdjustUserResult{Email: email, Errors: []string{}}
+		if req.Days != 0 {
+			if _, err := s.adjustSubscriptionForUser(email, req.Days, reason); err != nil {
+				var noticeErr adjustmentNoticeError
+				if errors.As(err, &noticeErr) {
+					result.DaysAdjusted = true
+					result.Errors = append(result.Errors, "会员天数已调整，但通知邮件发送失败")
+				} else {
+					result.Errors = append(result.Errors, "会员天数调整失败："+err.Error())
+				}
+			} else {
+				result.DaysAdjusted = true
+			}
+		}
+		if amountCents != 0 {
+			if _, err := s.adjustAIBalanceForUser(email, amountCents, reason); err != nil {
+				var noticeErr adjustmentNoticeError
+				if errors.As(err, &noticeErr) {
+					result.BalanceAdjusted = true
+					result.Errors = append(result.Errors, "AI 余额已调整，但通知邮件发送失败")
+				} else {
+					result.Errors = append(result.Errors, "AI 余额调整失败："+err.Error())
+				}
+			} else {
+				result.BalanceAdjusted = true
+			}
+		}
+		if len(result.Errors) == 0 {
+			successCount++
+		}
+		results = append(results, result)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"total_count":   len(results),
+		"success_count": successCount,
+		"failed_count":  len(results) - successCount,
+		"results":       results,
+	})
+}
+
+// requireSuperAdmin 校验请求是否来自超级管理员。
+func (s *AdminUserService) requireSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return false
+	}
+	if !s.auth.IsSuperAdmin(session.Email) {
+		writeError(w, http.StatusForbidden, "super admin access required")
+		return false
+	}
+	return true
+}
+
+// adjustSubscriptionForUser 调整单个用户会员天数并发送通知邮件。
+func (s *AdminUserService) adjustSubscriptionForUser(email string, days int, reason string) (Subscription, error) {
+	subscription, err := s.subscriptions.AdjustSubscriptionDays(email, defaultMemberType, days)
+	if err != nil {
+		return Subscription{}, err
+	}
+	if err := sendSubscriptionRewardNotice(s.mailer, email, SubscriptionRewardNotice{
+		Reason:     reason,
+		Days:       days,
+		MemberType: subscription.MemberType,
+		ExpiresAt:  subscription.ExpiresAt,
+	}); err != nil {
+		return Subscription{}, adjustmentNoticeError{err: err}
+	}
+	return subscription, nil
+}
+
+// adjustAIBalanceForUser 调整单个用户 AI 余额、写入流水并发送通知邮件。
+func (s *AdminUserService) adjustAIBalanceForUser(email string, amountCents int, reason string) (int64, error) {
+	if s.aiWallet == nil {
+		return 0, fmt.Errorf("ai wallet is not ready")
+	}
+	changeUnits := centsToAIUnits(amountCents)
+	balance, err := s.aiWallet.AdjustBalance(AIWalletRecord{
+		UserEmail:   email,
+		ChangeUnits: changeUnits,
+		Category:    "admin_adjust",
+		Reason:      reason,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := sendAIBalanceNotice(s.mailer, email, AIBalanceNotice{
+		Reason:       reason,
+		ChangeUnits:  changeUnits,
+		BalanceUnits: balance,
+	}); err != nil {
+		return 0, adjustmentNoticeError{err: err}
+	}
+	return balance, nil
+}
+
+// batchAdjustmentAmountCents 解析批量调整请求中的余额金额。
+func batchAdjustmentAmountCents(req batchAdjustUsersRequest) (int, error) {
+	if req.AmountCents != 0 {
+		return req.AmountCents, nil
+	}
+	if strings.TrimSpace(req.AmountYuan) == "" {
+		return 0, nil
+	}
+	return yuanTextToCents(req.AmountYuan)
+}
+
+// batchAdjustmentEmails 解析批量调整目标，all 会读取系统内全部用户。
+func (s *AdminUserService) batchAdjustmentEmails(req batchAdjustUsersRequest) ([]string, error) {
+	all := strings.EqualFold(strings.TrimSpace(req.Target), "all")
+	seen := map[string]bool{}
+	for _, raw := range req.Emails {
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == '，' || r == '\n' || r == ';' || r == '；' || r == ' '
+		}) {
+			if strings.EqualFold(strings.TrimSpace(part), "all") {
+				all = true
+				continue
+			}
+			if email, ok := normalizeEmail(part); ok {
+				seen[email] = true
+			}
+		}
+	}
+	if all {
+		seen = map[string]bool{}
+		for page := 1; ; page++ {
+			result, err := s.users.ListUsers(AdminUserListQuery{Page: page, PageSize: 100})
+			if err != nil {
+				return nil, err
+			}
+			for _, user := range result.Users {
+				if email, ok := normalizeEmail(user.Email); ok {
+					seen[email] = true
+				}
+			}
+			if page*result.PageSize >= result.Total || len(result.Users) == 0 {
+				break
+			}
+		}
+	}
+	emails := make([]string, 0, len(seen))
+	for email := range seen {
+		emails = append(emails, email)
+	}
+	sort.Strings(emails)
+	return emails, nil
 }
 
 // publicAdminUser 转换用户信息为前端响应。

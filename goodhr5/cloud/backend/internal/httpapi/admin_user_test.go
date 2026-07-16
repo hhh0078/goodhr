@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+// TestAdminAIBalanceAdjustmentSendsNotice 验证 AI 余额调整会写入流水并发送邮件。
+func TestAdminAIBalanceAdjustmentSendsNotice(t *testing.T) {
+	mailer := &recordingMailer{}
+	service := &AdminUserService{aiWallet: NewMemoryAIWalletStore(), mailer: mailer}
+	balance, err := service.adjustAIBalanceForUser("balance-notice@example.com", 1250, "活动赠送")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != centsToAIUnits(1250) {
+		t.Fatalf("balance = %d", balance)
+	}
+	if len(mailer.balanceNotices) != 1 {
+		t.Fatalf("balance notices = %d", len(mailer.balanceNotices))
+	}
+	notice := mailer.balanceNotices[0]
+	if notice.email != "balance-notice@example.com" || notice.notice.Reason != "活动赠送" || notice.notice.BalanceUnits != balance {
+		t.Fatalf("unexpected balance notice: %+v", notice)
+	}
+}
+
 // TestAdminUserManagementAdjustsSubscription 验证超管可以查看用户并调整会员天数。
 func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	server := mustNewServer(t)
@@ -112,6 +132,26 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	routes.ServeHTTP(zeroResp, zeroReq)
 	if zeroResp.Code != http.StatusBadRequest {
 		t.Fatalf("zero adjust code = %d, body = %s", zeroResp.Code, zeroResp.Body.String())
+	}
+
+	loginForTest(t, routes, "batch-user@example.com")
+	batchReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/batch-adjust", bytes.NewBufferString(`{"target":"emails","emails":["managed-user@example.com","batch-user@example.com"],"days":2,"amount_yuan":"1.25","reason":"批量测试"}`))
+	batchReq.Header.Set("Authorization", "Bearer "+adminToken)
+	batchResp := httptest.NewRecorder()
+	routes.ServeHTTP(batchResp, batchReq)
+	if batchResp.Code != http.StatusOK {
+		t.Fatalf("batch adjust code = %d, body = %s", batchResp.Code, batchResp.Body.String())
+	}
+	var batchPayload struct {
+		TotalCount   int `json:"total_count"`
+		SuccessCount int `json:"success_count"`
+		FailedCount  int `json:"failed_count"`
+	}
+	if err := json.NewDecoder(batchResp.Body).Decode(&batchPayload); err != nil {
+		t.Fatal(err)
+	}
+	if batchPayload.TotalCount != 2 || batchPayload.SuccessCount != 2 || batchPayload.FailedCount != 0 {
+		t.Fatalf("unexpected batch payload: %+v", batchPayload)
 	}
 }
 

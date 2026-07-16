@@ -163,6 +163,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
 	mux.HandleFunc("/api/admin/users/adjust-ai-balance", s.adminUsers.AdjustAIBalance)
+	mux.HandleFunc("/api/admin/users/batch-adjust", s.adminUsers.BatchAdjust)
 	mux.HandleFunc("/api/admin/emails", s.adminEmails.Collection)
 	mux.HandleFunc("/api/admin/emails/upload-image", s.adminEmails.UploadImage)
 	mux.HandleFunc("/api/admin/emails/", s.adminEmails.Detail)

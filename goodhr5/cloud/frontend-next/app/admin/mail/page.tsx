@@ -1,8 +1,10 @@
-/** 本文件负责超级管理员富文本邮件群发、图片上传、发送进度和查看记录。 */
+/** 本文件负责超级管理员批量发邮件、调整用户会员天数与 AI 余额，并展示执行结果。 */
 "use client";
 
+import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
-import { Box, Button, Chip, LinearProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import { Alert, Box, Button, Chip, LinearProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { IDomEditor, IEditorConfig, IToolbarConfig } from "@wangeditor/editor";
 import "@wangeditor/editor/dist/css/style.css";
 import { Editor, Toolbar } from "@wangeditor/editor-for-react";
@@ -52,9 +54,17 @@ type EmailRecipient = {
   opened: boolean;
 };
 
+type BatchAdjustResult = {
+  email: string;
+  days_adjusted: boolean;
+  balance_adjusted: boolean;
+  errors: string[];
+};
+
 /** AdminMailPage 展示超管邮件群发工作台。 */
 export default function AdminMailPage() {
-  const { user, notify } = useAdmin();
+  const { user, notify, confirm } = useAdmin();
+  const [operation, setOperation] = useState<"mail" | "adjust">("mail");
   const [subject, setSubject] = useState("");
   const [mailHtml, setMailHtml] = useState("");
   const [mode, setMode] = useState("filter");
@@ -67,6 +77,12 @@ export default function AdminMailPage() {
   const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustEmails, setAdjustEmails] = useState("");
+  const [adjustDays, setAdjustDays] = useState("");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustResults, setAdjustResults] = useState<BatchAdjustResult[]>([]);
   const [editor, setEditor] = useState<IDomEditor | null>(null);
   const progress = activeBatch?.total_count ? Math.round(((activeBatch.sent_count + activeBatch.failed_count) / activeBatch.total_count) * 100) : 0;
 
@@ -150,10 +166,52 @@ export default function AdminMailPage() {
     }
   }
 
+  /** adjustBatch 批量调整指定用户或全部用户的会员天数和 AI 余额。 */
+  async function adjustBatch() {
+    const days = Number(adjustDays || 0);
+    const amount = Number(adjustAmount || 0);
+    if (!Number.isInteger(days)) return notify("天数要填整数，我先没敢动", "warning");
+    if (!Number.isFinite(amount)) return notify("余额金额不太对，我先没敢动", "warning");
+    if (days === 0 && amount === 0) return notify("天数和余额至少填一个，我才能开工", "warning");
+    const emailItems = adjustEmails.split(/[\n,，;；\s]+/).map((item) => item.trim()).filter(Boolean);
+    if (!emailItems.length) return notify("请填写用户邮箱，输入 all 可以调整全部用户", "warning");
+    const isAll = emailItems.some((item) => item.toLowerCase() === "all");
+    const targetText = isAll ? "系统内全部用户" : `${emailItems.length} 个指定用户`;
+    const changeText = [days ? `会员天数 ${days > 0 ? "+" : ""}${days}` : "", amount ? `AI 余额 ${amount > 0 ? "+" : ""}${amount} 元` : ""].filter(Boolean).join("，");
+    const ok = await confirm("公主请确认批量调整", `将为${targetText}调整：${changeText}。每位用户都会收到通知邮件，确认继续吗？`);
+    if (!ok) return;
+    setAdjusting(true);
+    setAdjustResults([]);
+    try {
+      const data = await cloudRequest("/api/admin/users/batch-adjust", {
+        method: "POST",
+        body: {
+          target: isAll ? "all" : "emails",
+          emails: emailItems,
+          days,
+          amount_yuan: adjustAmount.trim(),
+          reason: adjustReason.trim(),
+        },
+      });
+      setAdjustResults(data.results || []);
+      const failed = Number(data.failed_count || 0);
+      notify(failed ? `调整完成：成功 ${data.success_count || 0}，失败 ${failed}` : `调整完成，${data.success_count || 0} 位用户已处理`, failed ? "warning" : "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "批量调整失败", "error");
+    } finally {
+      setAdjusting(false);
+    }
+  }
+
   if (user?.role !== "super_admin") return <SectionPanel><EmptyState text="只有超级管理员可以访问此页面" /></SectionPanel>;
 
   return <>
-    <PageHeader title="邮件群发" description="给用户发送富文本邮件，图片会保存到服务器，不塞 base64。" actions={<RefreshButton loading={loading} onClick={() => void load()} />} />
+    <PageHeader title="邮件与批量调整" description="发邮件，或批量调整会员天数和 AI 余额。该通知的我都会认真通知。" actions={operation === "mail" ? <RefreshButton loading={loading} onClick={() => void load()} /> : undefined} />
+    <ToggleButtonGroup exclusive value={operation} onChange={(_, value) => value && setOperation(value)} sx={{ mb: 2, "& .MuiToggleButton-root": { px: 2.5, py: 1, borderColor: "divider", fontWeight: 760 } }}>
+      <ToggleButton value="mail"><MailOutlineRoundedIcon sx={{ mr: 0.8, fontSize: 19 }} />发邮件</ToggleButton>
+      <ToggleButton value="adjust"><TuneRoundedIcon sx={{ mr: 0.8, fontSize: 19 }} />调整天数、余额</ToggleButton>
+    </ToggleButtonGroup>
+    {operation === "mail" ?
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 380px" }, gap: 2 }}>
       <SectionPanel>
         <Stack spacing={2}>
@@ -213,7 +271,43 @@ export default function AdminMailPage() {
           </Stack> : <EmptyState text="暂无邮件批次" />}
         </SectionPanel>
       </Stack>
-    </Box>
+    </Box> :
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 380px" }, gap: 2 }}>
+      <SectionPanel>
+        <Stack spacing={2}>
+          <Alert severity="info">会逐个复用用户管理里的调整方法，所以余额流水、到期时间和通知邮件都会正常执行。</Alert>
+          <TextField
+            label="调整对象"
+            value={adjustEmails}
+            onChange={(event) => setAdjustEmails(event.target.value)}
+            multiline
+            minRows={4}
+            placeholder={"user@example.com\nother@example.com\n或输入 all"}
+            helperText="一行一个邮箱，也支持逗号分隔；输入 all 代表全部用户。"
+            fullWidth
+          />
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
+            <TextField label="调整会员天数" type="number" value={adjustDays} onChange={(event) => setAdjustDays(event.target.value)} helperText="正数增加，负数扣减，不调整可留空。" slotProps={{ htmlInput: { step: 1 } }} fullWidth />
+            <TextField label="调整 AI 余额（元）" type="number" value={adjustAmount} onChange={(event) => setAdjustAmount(event.target.value)} helperText="正数增加，负数扣减，不调整可留空。" slotProps={{ htmlInput: { step: "0.01" } }} fullWidth />
+          </Box>
+          <TextField label="备注" value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} multiline minRows={2} placeholder="例如：活动赠送、服务补偿" helperText="备注会写进流水和通知邮件，方便以后对账。" fullWidth />
+          <Button variant="contained" size="large" startIcon={<TuneRoundedIcon />} disabled={adjusting} onClick={() => void adjustBatch()}>{adjusting ? "正在逐个处理，请稍等" : "开始批量调整"}</Button>
+        </Stack>
+      </SectionPanel>
+      <SectionPanel>
+        <Typography component="h2" sx={{ fontSize: 18, fontWeight: 780 }}>调整结果</Typography>
+        {adjustResults.length ? <Stack sx={{ mt: 1.5, maxHeight: 520, overflow: "auto" }}>
+          {adjustResults.map((item) => <Box key={item.email} sx={{ py: 1.2, borderBottom: "1px solid", borderColor: "divider" }}>
+            <Typography sx={{ fontSize: 13, fontWeight: 720, wordBreak: "break-all" }}>{item.email}</Typography>
+            <Stack direction="row" spacing={0.75} sx={{ mt: 0.7, flexWrap: "wrap", rowGap: 0.75 }}>
+              {item.days_adjusted ? <Chip size="small" color="success" label="天数已调整" /> : null}
+              {item.balance_adjusted ? <Chip size="small" color="success" label="余额已调整" /> : null}
+              {item.errors?.map((error) => <Chip key={error} size="small" color="error" label={error} sx={{ height: "auto", "& .MuiChip-label": { py: 0.5, whiteSpace: "normal" } }} />)}
+            </Stack>
+          </Box>)}
+        </Stack> : <EmptyState text="调整后，这里会认真汇报每位用户的结果" />}
+      </SectionPanel>
+    </Box>}
   </>;
 }
 

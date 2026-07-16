@@ -19,6 +19,7 @@ import (
 type Mailer interface {
 	SendLoginCode(email string, code string) error
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
+	SendAIBalanceNotice(email string, notice AIBalanceNotice) error
 	SendTaskStatus(email string, notice TaskStatusNotice) error
 	SendCustomHTML(email string, subject string, htmlBody string, plainText string) error
 }
@@ -30,6 +31,13 @@ type SubscriptionRewardNotice struct {
 	MemberType   string
 	ExpiresAt    time.Time
 	RelatedEmail string
+}
+
+// AIBalanceNotice 表示 AI 余额变动提醒邮件内容。
+type AIBalanceNotice struct {
+	Reason       string
+	ChangeUnits  int64
+	BalanceUnits int64
 }
 
 // TaskStatusNotice 表示任务完成或失败邮件内容。
@@ -59,6 +67,12 @@ func (m DevMailer) SendLoginCode(email string, code string) error {
 // SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
 	log.Printf("GoodHR dev subscription changed for %s: reason=%s days=%d expires=%s related=%s", email, notice.Reason, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
+	return nil
+}
+
+// SendAIBalanceNotice 在开发模式下记录 AI 余额变动提醒。
+func (m DevMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) error {
+	log.Printf("GoodHR dev AI balance changed for %s: reason=%s change=%s balance=%s", email, notice.Reason, aiUnitsToYuanString(notice.ChangeUnits), aiUnitsToYuanString(notice.BalanceUnits))
 	return nil
 }
 
@@ -119,6 +133,39 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 		"MemberType":   memberType,
 		"ExpiresAt":    notice.ExpiresAt.Format("2006-01-02 15:04:05"),
 		"RelatedEmail": strings.TrimSpace(notice.RelatedEmail),
+	}, lines)
+}
+
+// sendAIBalanceNotice 发送 AI 余额变动提醒，未配置邮件服务时安全跳过。
+func sendAIBalanceNotice(mailer Mailer, email string, notice AIBalanceNotice) error {
+	if mailer == nil || notice.ChangeUnits == 0 {
+		return nil
+	}
+	return mailer.SendAIBalanceNotice(email, notice)
+}
+
+// SendAIBalanceNotice 发送 AI 余额变动提醒邮件。
+func (m SMTPMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) error {
+	reason := strings.TrimSpace(notice.Reason)
+	if reason == "" {
+		reason = "AI 余额调整"
+	}
+	changeText := aiUnitsToYuanString(notice.ChangeUnits)
+	if notice.ChangeUnits > 0 {
+		changeText = "+" + changeText
+	}
+	balanceText := aiUnitsToYuanString(notice.BalanceUnits)
+	lines := []string{
+		"你好，你的 GoodHR AI 余额有变动。",
+		"变动原因：" + reason,
+		"变动金额：￥" + changeText,
+		"当前余额：￥" + balanceText,
+		"这是一封自动提醒邮件，不需要回复。",
+	}
+	return m.sendMessage(email, "GoodHR AI 余额变动提醒", "ai_balance_notice.html", map[string]any{
+		"Reason":      reason,
+		"ChangeText":  changeText,
+		"BalanceText": balanceText,
 	}, lines)
 }
 
