@@ -35,6 +35,14 @@ type DetailResult struct {
 	Source     string
 }
 
+// CandidateInfoRequest 表示打招呼成功后需要向候选人索要的信息和追加消息。
+type CandidateInfoRequest struct {
+	RequestPhone  bool
+	RequestWechat bool
+	RequestResume bool
+	GreetMessage  string
+}
+
 // Runtime 定义主流程调用的平台能力。
 type Runtime interface {
 	// OpenEntryPage 打开平台入口页面。
@@ -63,6 +71,18 @@ type Runtime interface {
 	CandidateFingerprint(candidate Candidate) string
 	// CleanCandidateDetailText 清理平台详情文本中的非简历内容。
 	CleanCandidateDetailText(text string) string
+}
+
+// BasicFilterApplier 是平台可选实现的基础筛选能力。
+type BasicFilterApplier interface {
+	// ApplyBasicFilters 在岗位处理完成后应用平台基础筛选条件。
+	ApplyBasicFilters(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error
+}
+
+// CandidateInfoRequester 是平台可选实现的打招呼后索要信息能力。
+type CandidateInfoRequester interface {
+	// RequestCandidateInfo 在打招呼成功后索要候选人信息并发送追加消息。
+	RequestCandidateInfo(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate, request CandidateInfoRequest) error
 }
 
 // PositionSearchPreparer 是平台可选实现的岗位运行搜索准备能力。

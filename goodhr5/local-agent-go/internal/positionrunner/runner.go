@@ -34,6 +34,7 @@ const ocrRecognizeTimeout = 60 * time.Second
 const aiDetailTimeout = 120 * time.Second
 const aiScoreTimeout = 60 * time.Second
 const greetActionTimeout = 30 * time.Second
+const candidateInfoActionTimeout = 45 * time.Second
 const cloudCandidateSyncTimeout = 30 * time.Second
 const cloudStatsSyncTimeout = 15 * time.Second
 const detailCloseTimeout = 10 * time.Second

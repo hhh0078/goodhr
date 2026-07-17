@@ -76,6 +76,7 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	emptyLoads := 0
 	operationErrors := &consecutiveOperationErrorTracker{}
 	positionSearchPrepared := false
+	basicFiltersApplied := false
 	emptyLimit := emptyLoadLimit(options)
 	maxItems := maxItemsPerLoad(options)
 scanLoop:
@@ -143,6 +144,16 @@ scanLoop:
 						r.positionLog(position.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
 					}
 				}
+			}
+			if !basicFiltersApplied {
+				r.positionLog(position.ID, "info", "基础筛选：正在调用平台基础筛选接口")
+				if applier, ok := platformRuntime.(platformcore.BasicFilterApplier); ok {
+					if err := applier.ApplyBasicFilters(ctx, exec, platformConfig, position.PositionSnapshot); err != nil {
+						return nil, fmt.Errorf("应用平台基础筛选失败：%w", err)
+					}
+				}
+				basicFiltersApplied = true
+				r.positionLog(position.ID, "info", "基础筛选：平台基础筛选处理完成")
 			}
 			delay := pageReadyDelay(options)
 			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))

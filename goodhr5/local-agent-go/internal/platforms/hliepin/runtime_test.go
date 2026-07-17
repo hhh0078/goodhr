@@ -396,6 +396,66 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	}
 }
 
+// TestRequestCandidateInfoUsesVerifiedChatSelectors 验证猎聘按勾选项索要信息、发送问候语并依次关闭两个弹层。
+func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{}
+	err := runtime.RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
+		"card_index": 0,
+		"card_item":  map[string]any{"selector": "tbody tr"},
+	}, platformcore.CandidateInfoRequest{
+		RequestPhone: true, RequestWechat: true, RequestResume: true, GreetMessage: "你好，想和你沟通这个岗位。",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/api/v1/page/list-click-by-index",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+		"/api/v1/page/type",
+		"/api/v1/page/press-key",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+	}
+	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	selectors := []string{
+		hliepinRequestPhoneSelector,
+		hliepinRequestWechatSelector,
+		hliepinRequestResumeSelector,
+		hliepinChatInputSelector,
+		hliepinChatCloseSelector,
+		hliepinCandidateListClose,
+	}
+	payloadIndexes := []int{1, 2, 3, 4, 6, 7}
+	for index, payloadIndex := range payloadIndexes {
+		if got := stringFromMap(mapFromAny(exec.payloads[payloadIndex]["element"]), "selector"); got != selectors[index] {
+			t.Fatalf("selector[%d] = %q, want %q", index, got, selectors[index])
+		}
+	}
+	if got := stringFromMap(exec.payloads[4], "text"); got != "你好，想和你沟通这个岗位。" {
+		t.Fatalf("message = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[5], "key"); got != "Enter" {
+		t.Fatalf("send key = %q", got)
+	}
+}
+
+// TestRequestCandidateInfoSkipsEmptyRequest 验证岗位未勾选且无问候语时猎聘不打开沟通弹层。
+func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{}
+	if err := runtime.RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{}, platformcore.CandidateInfoRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.paths) != 0 {
+		t.Fatalf("empty request paths = %#v", exec.paths)
+	}
+}
+
 // TestMatchingGreetJobItemPrefersExactMatch 验证完整职位名优先于省略号包含匹配。
 // t 为测试对象。
 func TestMatchingGreetJobItemPrefersExactMatch(t *testing.T) {

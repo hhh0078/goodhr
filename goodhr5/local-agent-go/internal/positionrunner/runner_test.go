@@ -60,6 +60,54 @@ func TestPositionProfileNameUsesGlobalDefault(t *testing.T) {
 	}
 }
 
+// TestCandidateInfoRequestFromPositionReadsCommonConfig 验证本地主流程从岗位快照读取三个索要选项和首次打招呼语。
+func TestCandidateInfoRequestFromPositionReadsCommonConfig(t *testing.T) {
+	request := candidateInfoRequestFromPosition(localdb.Position{PositionSnapshot: map[string]any{
+		"common_config": map[string]any{
+			"request_phone": true, "request_wechat": true, "request_resume": true,
+		},
+		"greet_message": "  你好，想和你沟通岗位。  ",
+	}})
+	if !request.RequestPhone || !request.RequestWechat || !request.RequestResume {
+		t.Fatalf("request switches = %+v", request)
+	}
+	if request.GreetMessage != "你好，想和你沟通岗位。" {
+		t.Fatalf("greet message = %q", request.GreetMessage)
+	}
+	if !candidateInfoRequestConfigured(request) {
+		t.Fatal("candidate info request should be configured")
+	}
+}
+
+// candidateInfoErrorRuntime 模拟打招呼成功但索要信息失败的平台。
+type candidateInfoErrorRuntime struct {
+	detailCloseProbeRuntime
+}
+
+// RequestCandidateInfo 返回索要信息错误，用于验证主流程不会把候选人改成失败。
+func (r *candidateInfoErrorRuntime) RequestCandidateInfo(context.Context, platformcore.Executor, cloudapi.PlatformConfig, platformcore.Candidate, platformcore.CandidateInfoRequest) error {
+	return errors.New("索要信息测试失败")
+}
+
+// TestCandidateInfoFailureKeepsGreetSuccess 验证索要信息失败只记录警告，候选人仍算打招呼成功。
+func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
+	runner := newTestRunner(t, nil, &fakeWorker{})
+	runtime := &candidateInfoErrorRuntime{}
+	position := localdb.Position{ID: "position-1", PositionSnapshot: map[string]any{
+		"common_config": map[string]any{"request_phone": true},
+	}}
+	candidate := map[string]any{"candidate_name": "张三", "status": "passed"}
+	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
+		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if greeted != 1 || failed != 0 || skipped != 0 || stringFromMap(candidate, "status") != "greeted" {
+		t.Fatalf("result greeted=%d failed=%d skipped=%d candidate=%+v", greeted, failed, skipped, candidate)
+	}
+}
+
 // TestCloneCandidateForCloudIncludesAIResult 验证同步云端前会组装 ai.detail 和 ai.greet。
 func TestCloneCandidateForCloudIncludesAIResult(t *testing.T) {
 	payload := cloneCandidateForCloud(localdb.Position{ID: "position-1", PlatformID: "boss"}, map[string]any{

@@ -96,11 +96,13 @@ var PlatformOperationCatalog = []OperationSpec{
 	{Name: "PrepareEntryPage", Kind: OperationPlatform, Description: "处理平台弹窗、身份切换、页面准备", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：这些是平台规则。"},
 	{Name: "IsPositionEntryPage", Kind: OperationPlatform, Description: "判断是否仍在岗位运行入口页", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：判断规则因平台不同。"},
 	{Name: "CurrentPositionName", Kind: OperationPlatform, Description: "读取当前岗位名称", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：岗位 DOM 和文案属于平台。"},
+	{Name: "ApplyBasicFilters", Kind: OperationPlatform, Description: "岗位处理后应用基础筛选", Place: "internal/platforms/{platform}/followup.go", Note: "不建议放这里：筛选项和页面结构属于平台。"},
 	{Name: "ExtractCandidates", Kind: OperationPlatform, Description: "提取候选人列表", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：候选人字段规则属于平台。"},
 	{Name: "ScrollCandidateList", Kind: OperationPlatform, Description: "滚动候选人列表", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：列表容器和加载方式属于平台。"},
 	{Name: "OpenCandidateDetail", Kind: OperationPlatform, Description: "打开候选人详情", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：打开方式属于平台。"},
 	{Name: "ExtractCandidateDetail", Kind: OperationPlatform, Description: "提取候选人详情", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：简历字段和截图区域属于平台。"},
 	{Name: "GreetCandidate", Kind: OperationPlatform, Description: "给候选人打招呼", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：按钮、弹窗、发送规则属于平台。"},
+	{Name: "RequestCandidateInfo", Kind: OperationPlatform, Description: "打招呼后索要候选人信息", Place: "internal/platforms/{platform}/followup.go", Note: "不建议放这里：聊天弹层和索要按钮属于平台。"},
 	{Name: "CloseCandidateDetail", Kind: OperationPlatform, Description: "关闭候选人详情", Place: "internal/platforms/{platform}/runtime.go", Note: "不建议放这里：关闭方式属于平台。"},
 }
 
