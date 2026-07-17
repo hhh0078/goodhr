@@ -13,6 +13,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Collapse,
   CircularProgress,
   Divider,
@@ -189,6 +190,9 @@ export default function PositionsPage() {
             output_structured_resume: form.output_structured_resume,
             hliepin_shortcut_search_name:
               form.hliepin_shortcut_search_name.trim(),
+            request_phone: form.request_phone,
+            request_wechat: form.request_wechat,
+            request_resume: form.request_resume,
           },
           ai_config: {
             position_requirement: form.position_requirement,
@@ -1200,8 +1204,58 @@ export default function PositionsPage() {
                 gap: 2,
               }}
             >
+              <Box sx={{ gridColumn: "1 / -1" }}>
+                <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 760 }}>
+                  打招呼后自动索要
+                </Typography>
+                <Stack
+                  direction='row'
+                  spacing={1.5}
+                  sx={{ flexWrap: "wrap", columnGap: 1.5 }}
+                >
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size='small'
+                        checked={form.request_phone}
+                        onChange={(event) =>
+                          setForm({ ...form, request_phone: event.target.checked })
+                        }
+                      />
+                    }
+                    label='索要电话'
+                  />
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size='small'
+                        checked={form.request_wechat}
+                        onChange={(event) =>
+                          setForm({ ...form, request_wechat: event.target.checked })
+                        }
+                      />
+                    }
+                    label='索要微信'
+                  />
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size='small'
+                        checked={form.request_resume}
+                        onChange={(event) =>
+                          setForm({ ...form, request_resume: event.target.checked })
+                        }
+                      />
+                    }
+                    label='索要简历'
+                  />
+                </Stack>
+                <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
+                  打招呼成功后按勾选项执行；当前猎聘猎头端已实现，其他平台暂不操作。
+                </Typography>
+              </Box>
               <TextField
-                label='问候语，暂时不填'
+                label='首次打招呼语（可选）'
                 value={form.greet_message}
                 onChange={(event) =>
                   setForm({ ...form, greet_message: event.target.value })
@@ -1400,6 +1454,9 @@ function createEmptyForm() {
     detail_score_threshold: 60,
     greet_score_threshold: 70,
     output_structured_resume: false,
+    request_phone: false,
+    request_wechat: false,
+    request_resume: false,
     greet_message: "",
     description: "",
     match_limit: 50,
@@ -1433,6 +1490,9 @@ function formFromItem(
         common.detail_mode || "ocr",
       ),
       output_structured_resume: Boolean(common.output_structured_resume),
+      request_phone: Boolean(common.request_phone),
+      request_wechat: Boolean(common.request_wechat),
+      request_resume: Boolean(common.request_resume),
       keywords: (item.keywords || []).join(" "),
       exclude_keywords: (item.exclude_keywords || []).join(" "),
       is_and_mode: Boolean(item.is_and_mode),

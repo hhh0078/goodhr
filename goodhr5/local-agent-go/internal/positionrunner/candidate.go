@@ -36,6 +36,21 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: err}
 	}
+	request := candidateInfoRequestFromPosition(position)
+	if candidateInfoRequestConfigured(request) {
+		r.positionLog(position.ID, "info", "索要信息：打招呼成功，准备调用平台索要信息接口")
+	}
+	var requestErr error
+	if requester, ok := platformRuntime.(platformcore.CandidateInfoRequester); ok {
+		requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
+			return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
+		})
+	}
+	if requestErr != nil {
+		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，错误=%s", candidateLogName(candidate), requestErr.Error()))
+	} else if candidateInfoRequestConfigured(request) {
+		r.positionLog(position.ID, "info", "索要信息：平台处理完成，候选人="+candidateLogName(candidate))
+	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 	r.positionLog(position.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
@@ -43,6 +58,23 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		r.playSound("success.wav", position.ID)
 	}
 	return 1, 0, 0, nil
+}
+
+// candidateInfoRequestFromPosition 从云端岗位快照读取索要信息勾选项和首次打招呼语。
+func candidateInfoRequestFromPosition(position localdb.Position) platformcore.CandidateInfoRequest {
+	snapshot := position.PositionSnapshot
+	commonConfig := mapFromAny(snapshot["common_config"])
+	return platformcore.CandidateInfoRequest{
+		RequestPhone:  boolFromMap(commonConfig, "request_phone"),
+		RequestWechat: boolFromMap(commonConfig, "request_wechat"),
+		RequestResume: boolFromMap(commonConfig, "request_resume"),
+		GreetMessage:  strings.TrimSpace(stringFromMap(snapshot, "greet_message")),
+	}
+}
+
+// candidateInfoRequestConfigured 判断岗位是否配置了任一索要动作或追加问候语。
+func candidateInfoRequestConfigured(request platformcore.CandidateInfoRequest) bool {
+	return request.RequestPhone || request.RequestWechat || request.RequestResume || strings.TrimSpace(request.GreetMessage) != ""
 }
 
 // tryGreet 带重试地执行单个候选人打招呼。
