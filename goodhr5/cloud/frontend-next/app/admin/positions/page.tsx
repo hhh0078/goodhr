@@ -700,7 +700,7 @@ export default function PositionsPage() {
                 },
               }}
             />
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2 }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2, alignItems: { sm: "flex-start" } }}>
               <TextField
                 label='每次打招呼上限'
                 type='number'
@@ -709,13 +709,17 @@ export default function PositionsPage() {
                 slotProps={{ htmlInput: { min: 1 } }}
                 sx={{ width: { sm: 220 } }}
               />
-              <FormControlLabel
-                control={<Switch checked={form.enable_sound} onChange={(event) => setForm({ ...form, enable_sound: event.target.checked })} />}
-                label='完成后提示音'
+              <PositionSwitchOption
+                checked={form.enable_sound}
+                label='打招呼成功提示音'
+                description='开启后，每次成功打招呼会播放提示音，不用一直盯着页面。'
+                onChange={(checked) => setForm({ ...form, enable_sound: checked })}
               />
-              <FormControlLabel
-                control={<Switch checked={form.enable_thinking} onChange={(event) => setForm({ ...form, enable_thinking: event.target.checked })} />}
+              <PositionSwitchOption
+                checked={form.enable_thinking}
                 label='思考模式'
+                description='开启后 AI 会进行更深入的分析，判断通常更准确；但处理时间更久，AI 消耗也更高。'
+                onChange={(checked) => setForm({ ...form, enable_thinking: checked })}
               />
             </Stack>
           </Box>
@@ -1515,6 +1519,28 @@ function splitKeywords(value: string) {
 /** detailModeLabel 返回详情模式中文名称。 */
 function detailModeLabel(value: string) {
   return value === "dom" ? "DOM识别" : value === "ai" ? "AI识别" : "OCR识别";
+}
+
+/** PositionSwitchOption 展示岗位布尔开关及面向普通用户的通俗说明。 */
+function PositionSwitchOption(props: {
+  checked: boolean;
+  label: string;
+  description: string;
+  onChange: (checked: boolean) => void;
+}) {
+  const { checked, label, description, onChange } = props;
+  return (
+    <Stack spacing={0.25} sx={{ width: { sm: 310 }, maxWidth: "100%" }}>
+      <FormControlLabel
+        sx={{ m: 0 }}
+        control={<Switch checked={checked} onChange={(event) => onChange(event.target.checked)} />}
+        label={label}
+      />
+      <Typography sx={{ pl: 6.25, color: "text.secondary", fontSize: 12.5, lineHeight: 1.55 }}>
+        {description}
+      </Typography>
+    </Stack>
+  );
 }
 
 /** positionStartReason 将岗位启动错误归一为后台可筛选的失败原因。 */
