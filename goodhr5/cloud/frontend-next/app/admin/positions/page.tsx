@@ -23,7 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
@@ -49,6 +49,9 @@ const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
 const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
   "/assets/help/hliepin-shortcut-search-guide.png";
 const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
+const LOG_REFRESH_MS = 3000;
+const LOG_LIMIT = 100;
+const ALL_LOG_LIMIT = 5000;
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
 
@@ -64,6 +67,13 @@ export default function PositionsPage() {
   const [busyPositionID, setBusyPositionID] = useState("");
   const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
   const [logs, setLogs] = useState<Record<string, any[]>>({});
+  const [logLoadingPositionID, setLogLoadingPositionID] = useState("");
+  const [allLogs, setAllLogs] = useState<any[]>([]);
+  const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
+  const [allLogLoading, setAllLogLoading] = useState(false);
+  const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
+  const [startLoading, setStartLoading] = useState(false);
+  const [startStatus, setStartStatus] = useState("");
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
     [],
@@ -99,6 +109,15 @@ export default function PositionsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
+    if (!expandedPosition || expandedPosition.status !== "running") return undefined;
+    const timer = window.setInterval(() => {
+      void loadPositionLogs(expandedPosition, { silent: true });
+    }, LOG_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [agentBase, expandedLogPositionID, items]);
 
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
@@ -210,16 +229,29 @@ export default function PositionsPage() {
     }
   }
 
-  /** startPosition 完成平台登录确认后启动本地岗位运行。 */
-  async function startPosition(item: any) {
+  /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
+  function openStartPosition(item: any) {
     if (!agentBase) return notify("请先启动本地程序", "warning");
-    setBusyPositionID(item.id);
+    setExpandedLogPositionID(item.id);
+    void loadPositionLogs(item);
+    setStartStatus("");
+    setStartPositionItem(item);
+  }
+
+  /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
+  async function checkPositionStartGuard(item: any) {
+    setStartStatus("正在检查 AI 余额和本地程序版本...");
     try {
+      let runtimeConfig = onboardingConfig;
+      if (!latestLocalAgentRelease(runtimeConfig).version) {
+        const runtimePayload = await cloudRequest("/api/runtime/config");
+        runtimeConfig = runtimePayload.config || runtimePayload || {};
+      }
       const [walletPayload, health] = await Promise.all([
         cloudRequest("/api/ai-wallet"),
         localRequest(agentBase, "/health"),
       ]);
-      const release = latestLocalAgentRelease(onboardingConfig);
+      const release = latestLocalAgentRelease(runtimeConfig);
       const guardFailure = evaluatePositionStartGuard(
         walletPayload.wallet || walletPayload,
         health.version || health.agent_version,
@@ -227,31 +259,84 @@ export default function PositionsPage() {
       );
       if (guardFailure) {
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
-        await confirm(guardFailure.title, guardFailure.message);
+        setStartStatus(guardFailure.message);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      const message = error instanceof Error
+        ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你刷新后再试一次。`
+        : "启动条件检查没跑完，这次我先不乱启动，你刷新后再试一次。";
+      setStartStatus(message);
+      await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_guard_unavailable", message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
+      return false;
+    }
+  }
+
+  /** confirmStartPosition 在确认弹框中完成启动检查、登录确认和岗位启动。 */
+  async function confirmStartPosition() {
+    const item = startPositionItem;
+    if (!item || !agentBase) return;
+    setStartLoading(true);
+    setBusyPositionID(item.id);
+    setStartStatus("正在检查岗位启动条件...");
+    try {
+      if (!(await checkPositionStartGuard(item))) return;
+      const subscriptionData = await cloudRequest("/api/subscription/status");
+      const active = Boolean(subscriptionData.subscription?.active);
+      if (!isPlatformOpen(platformConfigs, item.platform_id)) {
+        setStartStatus("这个招聘平台暂时还没开放，我先不乱跑，请联系作者看看。");
         return;
       }
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
+      setStartStatus("正在打开招聘平台，我先看看账号有没有登录。");
       await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
-      await confirmPlatformLoggedInForPosition(agentBase, auth, () => undefined);
+      try {
+        await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
+          setStartStatus(message),
+        );
+        await reportUserFlow({ step: "platform_login_verified", source: "position_start", position_id: item.id });
+      } catch (loginError) {
+        const message = loginError instanceof Error
+          ? loginError.message
+          : "招聘平台还没登录，请先在浏览器里完成登录。";
+        setStartStatus(message);
+        await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+        return;
+      }
+      const usesAI = item.common_config?.mode_default === "ai" || item.common_config?.detail_mode === "ai";
+      if (usesAI && !active) {
+        const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
+        setStartStatus(message);
+        await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+        return;
+      }
+      if (!active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
+      setStartStatus("登录确认好了，正在启动岗位...");
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
         method: "POST",
         body: { cloud_api_base: CLOUD_API_BASE, token: getToken(), enable_greet: true },
       });
       await reportUserFlow({ step: "position_started", source: "position_start", position_id: item.id });
       notify("岗位已经开始跑了，我会老实记日志", "success");
-      await load();
+      setStartPositionItem(null);
+      setStartStatus("");
+      await Promise.all([load(), loadPositionLogs(item)]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "岗位启动失败";
-      await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_failed", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+      setStartStatus(message);
+      await reportUserFlow({ step: "position_started", status: "blocked", reason_code: positionStartReason(message), message, source: "position_start", position_id: item.id }).catch(() => undefined);
       notify(message, "error");
     } finally {
       setBusyPositionID("");
+      setStartLoading(false);
     }
   }
 
   /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
   async function stopPosition(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
+    setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
@@ -275,11 +360,65 @@ export default function PositionsPage() {
     }
     if (!agentBase) return notify("本地程序还没连上", "warning");
     setExpandedLogPositionID(item.id);
+    await loadPositionLogs(item);
+  }
+
+  /** loadPositionLogs 读取指定岗位最近的本地日志并更新卡片。 */
+  async function loadPositionLogs(item: any, options: { silent?: boolean } = {}) {
+    if (!agentBase) return;
+    if (!options.silent) setLogLoadingPositionID(item.id);
     try {
-      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=100`);
+      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${LOG_LIMIT}`);
       setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
     } catch (error) {
-      notify(error instanceof Error ? error.message : "日志读取失败", "error");
+      if (!options.silent) notify(error instanceof Error ? error.message : "日志读取失败", "error");
+    } finally {
+      if (!options.silent) setLogLoadingPositionID("");
+    }
+  }
+
+  /** clearPositionLogs 二次确认后清空指定岗位保存在本地程序中的日志。 */
+  async function clearPositionLogs(item: any) {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    const approved = await confirm(
+      "清空岗位日志",
+      "公主请确认要清空这个岗位的全部本地日志吗？清空后我也找不回来了。",
+    );
+    if (!approved) return;
+    try {
+      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs`, {
+        method: "DELETE",
+      });
+      setLogs((current) => ({ ...current, [item.id]: [] }));
+      if (allLogPosition?.id === item.id) setAllLogs([]);
+      notify("岗位日志已经清空，我把小本本翻到新的一页了。", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "日志没清空成功，我们再试一次。", "error");
+    }
+  }
+
+  /** loadAllPositionLogs 读取指定岗位保留的全部本地日志并打开弹框。 */
+  async function loadAllPositionLogs(item: any) {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    setAllLogPosition(item);
+    setAllLogLoading(true);
+    try {
+      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${ALL_LOG_LIMIT}`);
+      setAllLogs(data.logs || []);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "全部日志读取失败", "error");
+    } finally {
+      setAllLogLoading(false);
+    }
+  }
+
+  /** copyAllPositionLogs 复制当前弹框中的完整岗位日志。 */
+  async function copyAllPositionLogs() {
+    try {
+      await navigator.clipboard.writeText(buildPositionLogText(allLogs));
+      notify("全部日志已复制", "success");
+    } catch {
+      notify("复制失败，请手动选择日志内容", "warning");
     }
   }
 
@@ -421,17 +560,30 @@ export default function PositionsPage() {
                     </Typography>
                   </Box>
                   <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
-                    <Button
-                      startIcon={<PlayArrowRoundedIcon />}
-                      disabled={busyPositionID === item.id || item.status === "running"}
-                      onClick={() => void startPosition(item)}
-                    >开始</Button>
-                    <Button
-                      startIcon={<StopRoundedIcon />}
-                      disabled={busyPositionID === item.id || item.status !== "running"}
-                      onClick={() => void stopPosition(item)}
-                    >停止</Button>
-                    <Button onClick={() => void togglePositionLogs(item)}>日志</Button>
+                    {item.status === "running" ? (
+                      <Button
+                        color='error'
+                        variant='contained'
+                        startIcon={<StopRoundedIcon />}
+                        disabled={busyPositionID === item.id}
+                        onClick={() => void stopPosition(item)}
+                      >
+                        停止
+                      </Button>
+                    ) : (
+                      <Button
+                        color='success'
+                        variant='contained'
+                        startIcon={<PlayArrowRoundedIcon />}
+                        disabled={busyPositionID === item.id}
+                        onClick={() => openStartPosition(item)}
+                      >
+                        开始
+                      </Button>
+                    )}
+                    <Button onClick={() => void togglePositionLogs(item)}>
+                      {expandedLogPositionID === item.id ? "收起日志" : "日志"}
+                    </Button>
                     <Button
                       startIcon={<EditRoundedIcon />}
                       onClick={() => void openEdit(item)}
@@ -452,13 +604,13 @@ export default function PositionsPage() {
                 累计扫描 {item.scanned_count || 0} · 打招呼 {item.greeted_count || 0} · 跳过 {item.skipped_count || 0} · 失败 {item.failed_count || 0}
               </Typography>
               <Collapse in={expandedLogPositionID === item.id}>
-                <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "action.hover", borderRadius: 1, maxHeight: 280, overflow: "auto" }}>
-                  {(logs[item.id] || []).length ? (logs[item.id] || []).map((log: any) => (
-                    <Typography key={log.id || `${log.created_at}-${log.message}`} component='div' sx={{ fontFamily: "monospace", fontSize: 12, py: 0.25 }}>
-                      {log.created_at || ""} {log.message || ""}
-                    </Typography>
-                  )) : <Typography sx={{ color: "text.secondary", fontSize: 13 }}>这里暂时空空的，开始运行后我再认真记账。</Typography>}
-                </Box>
+                <PositionLogPanel
+                  logs={logs[item.id] || []}
+                  loading={logLoadingPositionID === item.id}
+                  onRefresh={() => void loadPositionLogs(item)}
+                  onViewAll={() => void loadAllPositionLogs(item)}
+                  onClear={() => void clearPositionLogs(item)}
+                />
               </Collapse>
             </Box>
           ))}
@@ -468,6 +620,48 @@ export default function PositionsPage() {
           <EmptyState text='暂无岗位模板' />
         </SectionPanel>
       )}
+      <AdminDialog
+        open={Boolean(startPositionItem)}
+        title='开始招聘岗位'
+        confirmText='确认开始'
+        loading={startLoading}
+        onClose={() => {
+          if (startLoading) return;
+          setStartPositionItem(null);
+          setStartStatus("");
+        }}
+        onConfirm={() => void confirmStartPosition()}
+      >
+        <Stack spacing={1.5}>
+          <Typography>
+            确认开始“{startPositionItem?.name || ""}”吗？我会先检查 AI 余额、本地程序版本和招聘平台登录状态。
+          </Typography>
+          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+            检查通过后我才会正式开工；如果账号没登录，弹框会留在这里告诉你下一步。
+          </Typography>
+          {startStatus ? (
+            <Typography color={isPositionStartErrorStatus(startStatus) ? "error" : "text.secondary"}>
+              {startStatus}
+            </Typography>
+          ) : null}
+        </Stack>
+      </AdminDialog>
+      <AdminDialog
+        open={Boolean(allLogPosition)}
+        title='查看全部岗位日志'
+        description={`读取当前岗位已保留的全部日志，单次最多 ${ALL_LOG_LIMIT} 条，可复制后发给作者排查。`}
+        confirmText='复制全部'
+        cancelText='关闭'
+        loading={allLogLoading}
+        maxWidth='lg'
+        onClose={() => {
+          setAllLogPosition(null);
+          setAllLogs([]);
+        }}
+        onConfirm={() => void copyAllPositionLogs()}
+      >
+        <PositionLogList logs={allLogs} maxHeight='60vh' />
+      </AdminDialog>
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
@@ -1320,4 +1514,197 @@ function splitKeywords(value: string) {
 /** detailModeLabel 返回详情模式中文名称。 */
 function detailModeLabel(value: string) {
   return value === "dom" ? "DOM识别" : value === "ai" ? "AI识别" : "OCR识别";
+}
+
+/** positionStartReason 将岗位启动错误归一为后台可筛选的失败原因。 */
+function positionStartReason(message: string) {
+  const value = String(message || "").toLowerCase();
+  if (value.includes("会员") || value.includes("订阅")) return "subscription_expired";
+  if (value.includes("ai") || value.includes("模型") || value.includes("余额") || value.includes("key")) return "ai_config_invalid";
+  if (value.includes("登录") || value.includes("cookie")) return "platform_not_logged_in";
+  if (value.includes("组件") || value.includes("runtime") || value.includes("node")) return "runtime_missing";
+  if (value.includes("版本")) return "agent_version_outdated";
+  return "position_start_failed";
+}
+
+/** isPositionStartErrorStatus 判断启动弹框状态是否需要使用错误色提醒。 */
+function isPositionStartErrorStatus(message: string) {
+  return ["没登录", "失败", "没跑完", "余额不足", "版本过低", "订阅", "没开放", "缺少", "超时"]
+    .some((keyword) => String(message || "").includes(keyword));
+}
+
+/** PositionLogPanel 渲染岗位最近日志和日志操作入口。 */
+function PositionLogPanel(props: {
+  logs: any[];
+  loading: boolean;
+  onRefresh: () => void;
+  onViewAll: () => void;
+  onClear: () => void;
+}) {
+  const { logs, loading, onRefresh, onViewAll, onClear } = props;
+  return (
+    <Box
+      sx={{
+        mt: 1.5,
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: "8px",
+        bgcolor: "#f7faf8",
+        overflow: "hidden",
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{
+          px: 1.5,
+          py: 1,
+          alignItems: { sm: "center" },
+          justifyContent: "space-between",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Stack direction='row' spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
+            本地岗位日志（最近 {LOG_LIMIT} 条）
+          </Typography>
+          <Button size='small' onClick={onViewAll}>查看全部日志</Button>
+        </Stack>
+        <Stack direction='row' spacing={0.5}>
+          <Button size='small' onClick={onRefresh} disabled={loading}>
+            {loading ? "刷新中" : "刷新"}
+          </Button>
+          <Button color='error' size='small' onClick={onClear}>
+            清空
+          </Button>
+        </Stack>
+      </Stack>
+      <PositionLogList logs={logs} maxHeight={420} />
+    </Box>
+  );
+}
+
+/** PositionLogList 按时间从旧到新展示日志，并在用户位于底部时跟随最新日志。 */
+function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
+  const { logs, maxHeight } = props;
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+  const orderedLogs = sortPositionLogsOldestFirst(logs);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (list) list.scrollTop = list.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [logs]);
+
+  return (
+    <Stack
+      ref={listRef}
+      spacing={0}
+      onScroll={(event) => {
+        const list = event.currentTarget;
+        stickToBottomRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 32;
+      }}
+      sx={{ p: 1, maxHeight, overflow: "auto" }}
+    >
+      {orderedLogs.length ? orderedLogs.map((item, index) => (
+        <PositionLogLine
+          key={String(item.id || `${item.created_at || item.time}-${index}`)}
+          item={item}
+          previous={index > 0 ? orderedLogs[index - 1] : null}
+        />
+      )) : (
+        <Typography sx={{ py: 4, color: "text.secondary", fontSize: 13, textAlign: "center" }}>
+          这里暂时空空的，开始运行后我再认真记账。
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
+/** PositionLogLine 渲染单条带中文等级和耗时的岗位日志。 */
+function PositionLogLine(props: { item: any; previous: any | null }) {
+  const { item, previous } = props;
+  const appearance = positionLogAppearance(item.level);
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", md: "190px 82px 72px minmax(0, 1fr)" },
+        gap: 1,
+        py: 0.75,
+        borderBottom: "1px solid",
+        borderColor: appearance.error ? "#f0b4b4" : "divider",
+        color: appearance.color,
+      }}
+    >
+      <Typography sx={{ color: appearance.color, fontSize: 12 }}>
+        {formatPositionLogTime(item.created_at || item.time)}
+      </Typography>
+      <Typography sx={{ color: appearance.color, fontSize: 12 }}>
+        {positionLogDelta(item, previous)}
+      </Typography>
+      <Typography sx={{ color: appearance.color, fontSize: 12, fontWeight: appearance.weight }}>
+        {appearance.label}
+      </Typography>
+      <Typography sx={{ color: appearance.color, fontSize: 13, fontWeight: appearance.weight, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {positionLogMessage(item)}
+      </Typography>
+    </Box>
+  );
+}
+
+/** sortPositionLogsOldestFirst 按时间从旧到新排列，让最新日志位于底部。 */
+function sortPositionLogsOldestFirst(logs: any[]) {
+  return [...logs].sort((left, right) => positionLogTimeMs(left.created_at || left.time) - positionLogTimeMs(right.created_at || right.time));
+}
+
+/** positionLogMessage 提取兼容新旧结构的日志正文。 */
+function positionLogMessage(item: any) {
+  return String(item?.message || item?.msg || item?.detail || "");
+}
+
+/** positionLogTimeMs 将日志时间转换成用于排序的毫秒时间戳。 */
+function positionLogTimeMs(value: unknown) {
+  const time = new Date(String(value || "")).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+/** formatPositionLogTime 将日志时间格式化到毫秒。 */
+function formatPositionLogTime(value: unknown) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "--";
+  const pad = (input: number, size = 2) => String(input).padStart(size, "0");
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+/** positionLogDelta 返回当前日志与上一条日志的时间间隔。 */
+function positionLogDelta(item: any, previous: any | null) {
+  if (!previous) return "+0ms";
+  const currentMs = positionLogTimeMs(item.created_at || item.time);
+  const previousMs = positionLogTimeMs(previous.created_at || previous.time);
+  if (!currentMs || !previousMs) return "+--ms";
+  return `+${Math.max(0, currentMs - previousMs)}ms`;
+}
+
+/** buildPositionLogText 构建可复制的完整岗位日志文本。 */
+function buildPositionLogText(logs: any[]) {
+  const orderedLogs = sortPositionLogsOldestFirst(logs);
+  return orderedLogs.map((item, index) => {
+    const previous = index > 0 ? orderedLogs[index - 1] : null;
+    return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level).label} ${positionLogMessage(item)}`;
+  }).join("\n");
+}
+
+/** positionLogAppearance 返回岗位日志等级对应的中文分类和文字样式。 */
+function positionLogAppearance(value: unknown) {
+  const level = String(value || "info").trim().toLowerCase();
+  if (level === "error") return { label: "错误", color: "error.main", weight: 760, error: true };
+  if (level === "warning" || level === "warn") return { label: "警告", color: "warning.dark", weight: 600, error: false };
+  if (level === "debug") return { label: "调试", color: "text.secondary", weight: 400, error: false };
+  return { label: "信息", color: "text.primary", weight: 400, error: false };
 }
