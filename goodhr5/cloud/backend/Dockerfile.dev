@@ -1,0 +1,13 @@
+# 本文件只用于本地开发，安装 Air 后监听 Go、模板和迁移文件变化并自动重启后端。
+FROM golang:1.24-alpine
+
+ENV GOPROXY=https://goproxy.cn,direct
+WORKDIR /app
+
+RUN go install github.com/air-verse/air@v1.62.0
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+EXPOSE 8084
+CMD ["air", "-c", ".air.local.toml"]
