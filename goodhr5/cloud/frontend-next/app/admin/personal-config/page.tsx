@@ -4,7 +4,6 @@
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
@@ -17,6 +16,8 @@ import {
   Button,
   InputAdornment,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
@@ -64,6 +65,7 @@ export default function PersonalConfigPage() {
   const [keySet, setKeySet] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileOpenSignal, setProfileOpenSignal] = useState(0);
+  const [activeTab, setActiveTab] = useState("builtin");
 
   /** load 读取个人 AI 配置和操作偏好。 */
   async function load() {
@@ -200,7 +202,7 @@ export default function PersonalConfigPage() {
       <NotificationProfileDialog openSignal={profileOpenSignal} />
       <PageHeader
         title='个人配置'
-        description='设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行运行。'
+        description='设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行。'
         actions={
           <>
             <Button
@@ -209,14 +211,6 @@ export default function PersonalConfigPage() {
               onClick={() => setProfileOpenSignal((value) => value + 1)}
             >
               通知偏好
-            </Button>
-            <Button
-              variant='outlined'
-              startIcon={<ScienceRoundedIcon />}
-              disabled={loading}
-              onClick={() => void testAI()}
-            >
-              测试 AI
             </Button>
             <Button
               variant='contained'
@@ -229,6 +223,61 @@ export default function PersonalConfigPage() {
           </>
         }
       />
+
+      <SectionPanel sx={{ mb: 2, py: 0.5 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_event, value) => setActiveTab(String(value))}
+          aria-label='个人配置分类'
+          variant='scrollable'
+          scrollButtons='auto'
+          sx={{ minHeight: 48 }}
+        >
+          <Tab value='builtin' label='内置AI' />
+          <Tab value='custom' label='自定义AI' />
+          <Tab value='timing' label='随机时间' />
+        </Tabs>
+      </SectionPanel>
+
+      {activeTab === "builtin" ? (
+        <SectionPanel
+          sx={{
+            mb: 2,
+            borderColor: "#9fbca9",
+            bgcolor: "#f8fbf8",
+          }}
+        >
+          <SectionTitle
+            icon={<AutoAwesomeRoundedIcon />}
+            title='内置 AI'
+            description='不想研究接口也没关系，使用系统准备好的 AI 配置就能开始。'
+          />
+          <Alert severity='info' sx={{ mt: 2, mb: 2 }}>
+            内置 AI 会消耗账户中的 AI 余额，省去申请模型、填写地址和保存 Key 的步骤。
+          </Alert>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            sx={{ alignItems: { sm: "center" } }}
+          >
+            <Button
+              variant='contained'
+              startIcon={<AutoAwesomeRoundedIcon />}
+              disabled={loading}
+              onClick={() => void useBuiltinAI()}
+              sx={{ width: { xs: "100%", sm: "auto" } }}
+            >
+              使用内置 AI
+            </Button>
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+              {keySet ? "当前已有可用的 AI 配置。" : "当前还没有可用的 AI 配置，请先点击使用内置 AI。"}
+            </Typography>
+          </Stack>
+        </SectionPanel>
+      ) : null}
+
+      {activeTab === "custom" ? (
+        <>
 
       <Box
         sx={{
@@ -264,65 +313,16 @@ export default function PersonalConfigPage() {
           boxShadow: "0 16px 44px rgba(38, 88, 57, .08)",
         }}
       >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={2}
-          sx={{
-            justifyContent: "space-between",
-            alignItems: { md: "flex-start" },
-            mb: 2,
-          }}
-        >
-          <SectionTitle
-            icon={<ApiRoundedIcon />}
-            title='AI 配置'
-            description='这是 AI 筛选和详情识别的核心配置，建议先测试成功再保存。'
-          />
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            sx={{ alignItems: { xs: "stretch", sm: "center" } }}
-          >
-            <Button
-              variant='contained'
-              startIcon={<AutoAwesomeRoundedIcon />}
-              disabled={loading}
-              onClick={() => void useBuiltinAI()}
-              sx={{
-                borderRadius: "999px",
-                px: 2.2,
-                bgcolor: "#1f7048",
-                "&:hover": { bgcolor: "#185c3a" },
-              }}
-            >
-              使用内置 AI
-            </Button>
-            <Stack
-              direction='row'
-              spacing={1}
-              sx={{
-                alignItems: "center",
-                px: 1.35,
-                py: 0.8,
-                borderRadius: "999px",
-                border: "1px solid",
-                borderColor: keySet ? "#a9c8b2" : "#e5cda3",
-                bgcolor: keySet ? "#edf6ef" : "#fff8ea",
-                color: keySet ? "#1d6844" : "#8a5a10",
-                fontSize: 13,
-                fontWeight: 760,
-                width: "fit-content",
-              }}
-            >
-              <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />
-              {keySet ? "已保存 AI Key" : "还未保存 AI Key"}
-            </Stack>
-          </Stack>
-        </Stack>
+        <SectionTitle
+          icon={<ApiRoundedIcon />}
+          title='自定义 AI'
+          description='填写自己的 AI 接口，建议先测试成功，再点击页面右上角保存。'
+        />
         <Alert
           severity='info'
           icon={<ApiRoundedIcon />}
           sx={{
+            mt: 2,
             mb: 2,
             border: "1px solid #cbded4",
             bgcolor: "#f3f8f5",
@@ -386,20 +386,16 @@ export default function PersonalConfigPage() {
             先测试 AI
           </Button>
 
-          <Button
-            variant='contained'
-            startIcon={<SaveRoundedIcon />}
-            disabled={loading}
-            onClick={() => void save()}
-          >
-            {loading ? "处理中" : "保存配置"}
-          </Button>
           <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            测试成功后再点右上角保存，岗位运行运行时就会使用这套配置。
+            {keySet ? "当前已有保存过的 AI Key。" : "当前还没有保存 AI Key。"}测试成功后，请点击页面右上角保存配置。
           </Typography>
         </Stack>
       </SectionPanel>
 
+        </>
+      ) : null}
+
+      {activeTab === "timing" ? (
       <Box
         sx={{
           display: "grid",
@@ -495,6 +491,7 @@ export default function PersonalConfigPage() {
           </Stack>
         </SectionPanel>
       </Box>
+      ) : null}
     </>
   );
 }
