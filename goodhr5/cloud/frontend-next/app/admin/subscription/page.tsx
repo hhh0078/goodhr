@@ -4,7 +4,6 @@
 import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
 import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
-import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import WorkspacePremiumRoundedIcon from "@mui/icons-material/WorkspacePremiumRounded";
 import {
@@ -33,7 +32,6 @@ import { useEffect, useMemo, useState } from "react";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
   EmptyState,
-  FormActionRow,
   PageHeader,
   RefreshButton,
   SectionPanel,
@@ -270,11 +268,12 @@ export default function SubscriptionPage() {
 
       <Box
         sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
+          display: "flex",
+          flexWrap: "wrap",
           gap: 2,
           mb: 3,
-          alignItems: "start",
+          alignItems: "stretch",
+          "& > *": { minWidth: 0 },
         }}
       >
         <InfoCard
@@ -283,6 +282,10 @@ export default function SubscriptionPage() {
           value={subscription.member_type || "免费版"}
           tone={subscription.active ? "dark" : "plain"}
           compact
+          sx={{
+            flex: { xs: "1 1 100%", md: "0 0 auto" },
+            width: { xs: "100%", md: "auto" },
+          }}
         >
           <Stack
             spacing={1}
@@ -315,6 +318,11 @@ export default function SubscriptionPage() {
           title='AI 余额'
           value={`￥${wallet.balance || "0.0000"}`}
           compact
+          sx={{
+            flex: { xs: "1 1 100%", md: "0 0 auto" },
+            width: { xs: "100%", md: "auto" },
+            minWidth: { md: 470 },
+          }}
         >
           <Stack
             spacing={1}
@@ -351,54 +359,35 @@ export default function SubscriptionPage() {
           </Stack>
         </InfoCard>
 
-        <SectionPanel sx={{ bgcolor: "#fbfdfc" }}>
-          <Stack spacing={1.4}>
-            <Stack
-              direction='row'
-              spacing={1.25}
-              sx={{ alignItems: "center", minWidth: 0 }}
-            >
-              <Box
-                sx={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: "8px",
-                  display: "grid",
-                  placeItems: "center",
-                  flexShrink: 0,
-                  bgcolor: "#e9f2ec",
-                  color: "#1e6545",
-                }}
-              >
-                <CreditCardRoundedIcon />
-              </Box>
-              <Typography noWrap sx={{ color: "text.secondary" }}>
-                会员激活码
-              </Typography>
-            </Stack>
-            <FormActionRow
-              field={
-                <TextField
-                  size='small'
-                  label='会员激活码'
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                  fullWidth
-                  sx={{ minWidth: 0 }}
-                />
-              }
-              action={
-                <Button
-                  variant='contained'
-                  disabled={!code.trim()}
-                  onClick={() => void redeem()}
-                  sx={{ minWidth: 76 }}
-                >
-                  激活
-                </Button>
-              }
-              maxWidth='100%'
+        <SectionPanel
+          sx={{
+            display: "flex",
+            flex: "1 1 260px",
+            alignItems: "center",
+            bgcolor: "#fbfdfc",
+          }}
+        >
+          <Stack
+            direction='row'
+            spacing={1.25}
+            sx={{ alignItems: "center", minWidth: 0, width: "100%" }}
+          >
+            <TextField
+              size='small'
+              label='会员激活码'
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              fullWidth
+              sx={{ minWidth: 0, flex: "1 1 auto" }}
             />
+            <Button
+              variant='contained'
+              disabled={!code.trim()}
+              onClick={() => void redeem()}
+              sx={{ minWidth: 76, flexShrink: 0 }}
+            >
+              激活
+            </Button>
           </Stack>
         </SectionPanel>
       </Box>
@@ -573,6 +562,7 @@ function InfoCard({
   value,
   tone = "plain",
   compact = false,
+  sx = {},
   children,
 }: {
   icon: React.ReactNode;
@@ -580,6 +570,7 @@ function InfoCard({
   value: string;
   tone?: "plain" | "dark";
   compact?: boolean;
+  sx?: Record<string, unknown>;
   children?: React.ReactNode;
 }) {
   const dark = tone === "dark";
@@ -589,6 +580,7 @@ function InfoCard({
         bgcolor: dark ? "#15271e" : "#fbfdfc",
         color: dark ? "#f8f1da" : "text.primary",
         borderColor: dark ? "#4d5a48" : "divider",
+        ...sx,
       }}
     >
       <Stack
