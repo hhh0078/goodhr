@@ -625,6 +625,7 @@ export default function PositionsPage() {
         title='开始招聘岗位'
         confirmText='确认开始'
         loading={startLoading}
+        loadingText='启动中'
         onClose={() => {
           if (startLoading) return;
           setStartPositionItem(null);
