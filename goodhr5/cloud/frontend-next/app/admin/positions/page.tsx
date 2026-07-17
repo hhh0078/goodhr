@@ -635,16 +635,20 @@ export default function PositionsPage() {
       >
         <Stack spacing={1.5}>
           <Typography>
-            确认开始“{startPositionItem?.name || ""}”吗？我会先检查 AI 余额、本地程序版本和招聘平台登录状态。
+            确认开始“{startPositionItem?.name || ""}”吗？
           </Typography>
-          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            检查通过后我才会正式开工；如果账号没登录，弹框会留在这里告诉你下一步。
-          </Typography>
-          {startStatus ? (
-            <Typography color={isPositionStartErrorStatus(startStatus) ? "error" : "text.secondary"}>
-              {startStatus}
+          <Alert severity='warning' variant='outlined'>
+            <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
+              如果需要筛选年龄等基础信息，请先点击上方“打开浏览器”，在招聘平台中设置好筛选条件后，再开始任务。此步骤非常重要。
             </Typography>
-          ) : null}
+          </Alert>
+          <Box sx={{ minHeight: 24 }}>
+            {startStatus ? (
+              <Typography color={isPositionStartErrorStatus(startStatus) ? "error" : "text.secondary"}>
+                {startStatus}
+              </Typography>
+            ) : null}
+          </Box>
         </Stack>
       </AdminDialog>
       <AdminDialog
