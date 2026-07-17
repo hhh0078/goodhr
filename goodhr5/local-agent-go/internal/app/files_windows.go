@@ -4,8 +4,10 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -45,7 +47,6 @@ const (
 
 var (
 	user32               = windows.NewLazySystemDLL("user32.dll")
-	gdi32                = windows.NewLazySystemDLL("gdi32.dll")
 	kernel32             = windows.NewLazySystemDLL("kernel32.dll")
 	procRegisterClassExW = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW  = user32.NewProc("CreateWindowExW")
@@ -61,7 +62,6 @@ var (
 	procShowWindow       = user32.NewProc("ShowWindow")
 	procTranslateMessage = user32.NewProc("TranslateMessage")
 	procUpdateWindow     = user32.NewProc("UpdateWindow")
-	procGetStockObject   = gdi32.NewProc("GetStockObject")
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 
 	registerToastClassOnce sync.Once
@@ -107,6 +107,11 @@ type windowsMsg struct {
 func showDownloadToastWindowsNative(filePath string) (string, error) {
 	windowsToastMu.Lock()
 	defer windowsToastMu.Unlock()
+
+	// Windows 窗口和消息队列都属于创建它们的系统线程，必须禁止 Go 在消息循环期间迁移协程。
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	if err := registerWindowsToastClass(); err != nil {
 		log.Printf("[下载提示] Windows 原生提示窗注册失败 err=%v", err)
 		return "", err
@@ -114,6 +119,9 @@ func showDownloadToastWindowsNative(filePath string) (string, error) {
 
 	state := &windowsToastState{action: "dismiss", done: make(chan string, 1)}
 	currentToast = state
+	defer func() {
+		currentToast = nil
+	}()
 	title := syscall.StringToUTF16Ptr("GoodHR")
 	className := syscall.StringToUTF16Ptr(windowsToastClassName)
 	screenW, _, _ := procGetSystemMetrics.Call(0)
@@ -153,8 +161,11 @@ func showDownloadToastWindowsNative(filePath string) (string, error) {
 
 	var msg windowsMsg
 	for {
-		ret, _, _ := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
-		if int32(ret) <= 0 {
+		ret, _, messageErr := procGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
+		if int32(ret) == -1 {
+			return "", fmt.Errorf("读取 Windows 提示窗消息失败：%w", messageErr)
+		}
+		if int32(ret) == 0 {
 			break
 		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
@@ -166,7 +177,6 @@ func showDownloadToastWindowsNative(filePath string) (string, error) {
 	case action = <-state.done:
 	default:
 	}
-	currentToast = nil
 	return action, nil
 }
 
@@ -179,12 +189,11 @@ func registerWindowsToastClass() error {
 			registerToastClassErr = callErr
 			return
 		}
-		background, _, _ := procGetStockObject.Call(windowsColorWindow)
 		class := windowsWndClassEx{
 			size:       uint32(unsafe.Sizeof(windowsWndClassEx{})),
 			wndProc:    windows.NewCallback(windowsToastWndProc),
 			instance:   windows.Handle(instance),
-			background: windows.Handle(background),
+			background: windows.Handle(windowsColorWindow + 1),
 			className:  className,
 		}
 		ret, _, callErr := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&class)))
