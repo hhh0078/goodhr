@@ -276,23 +276,27 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       setAgentVersion("");
       await bindDetectedLocalAgent(nextBase);
       void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
-      try {
-        const runtime = await localRequest(nextBase, "/api/v1/runtime/status");
+      const [runtimeResult, healthResult] = await Promise.allSettled([
+        localRequest(nextBase, "/api/v1/runtime/status"),
+        localRequest(nextBase, "/health"),
+      ]);
+      if (healthResult.status === "fulfilled") {
+        const health = healthResult.value;
         setAgentVersion(
           String(
-            runtime?.version ||
-              runtime?.agent_version ||
-              runtime?.runtime?.version ||
-              "",
+            health?.version || health?.agent_version || "",
           ),
         );
+      }
+      if (runtimeResult.status === "fulfilled") {
+        const runtime = runtimeResult.value;
         const missing = requiredRuntimeComponents(runtime).filter((item) => !item.installed);
         void reportUserFlow(missing.length ? {
           step: "runtime_ready", status: "blocked", reason_code: "runtime_missing",
           message: `缺少运行组件：${missing.map((item) => item.name).join("、")}`,
           source: "frontend_agent_probe",
         } : { step: "runtime_ready", source: "frontend_agent_probe" });
-      } catch {
+      } else {
         void reportUserFlow({ step: "runtime_ready", status: "blocked", reason_code: "runtime_status_unavailable", message: "运行组件状态读取失败", source: "frontend_agent_probe" });
       }
     } finally {
