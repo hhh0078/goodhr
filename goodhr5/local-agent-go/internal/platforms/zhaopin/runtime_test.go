@@ -29,6 +29,18 @@ type positionExecutor struct {
 	findCalls int
 }
 
+// followupCall 记录一次智联索要信息 Worker 调用。
+type followupCall struct {
+	path    string
+	payload map[string]any
+}
+
+// followupExecutor 模拟智联聊天框操作和可选手机号确认项。
+type followupExecutor struct {
+	calls        []followupCall
+	confirmItems []any
+}
+
 // Post 返回智联职位搜索结果，并记录第一条结果点击。
 // ctx 为运行上下文，path 为 Worker 路由，payload 为请求参数。
 func (e *positionExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
@@ -55,6 +67,22 @@ func (e *positionExecutor) Log(string, string) {}
 // Delay 模拟智联职位切换等待。
 // ctx 为运行上下文，label 为等待说明，seconds 为等待秒数。
 func (e *positionExecutor) Delay(context.Context, string, float64) error { return nil }
+
+// Post 记录智联索要信息调用，并为手机号确认查找返回预设元素。
+func (e *followupExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
+	data, _ := payload.(map[string]any)
+	e.calls = append(e.calls, followupCall{path: path, payload: data})
+	if path == "/api/v1/page/find-elements" {
+		return map[string]any{"data": map[string]any{"items": e.confirmItems}}, nil
+	}
+	return map[string]any{"data": map[string]any{}}, nil
+}
+
+// Log 模拟智联索要信息日志写入。
+func (e *followupExecutor) Log(string, string) {}
+
+// Delay 模拟智联聊天框和手机号选择层等待。
+func (e *followupExecutor) Delay(context.Context, string, float64) error { return nil }
 
 // Post 记录调用路径并返回页面列表。
 // ctx 为运行上下文，path 为 Worker 路由，payload 为请求参数。
@@ -91,6 +119,112 @@ func TestCandidateFingerprintUsesZhaopinPrefix(t *testing.T) {
 func TestShouldSelectPositionDirectly(t *testing.T) {
 	if !NewRuntime().ShouldSelectPositionDirectly() {
 		t.Fatal("智联招聘应直接切换岗位运行岗位")
+	}
+}
+
+// TestRequestCandidateInfoUsesScopedChatSelectors 验证智联索要信息使用聊天框父级范围和手机号第二项。
+func TestRequestCandidateInfoUsesScopedChatSelectors(t *testing.T) {
+	exec := &followupExecutor{confirmItems: []any{
+		map[string]any{"element_ref": "phone-confirm-ref"},
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, cloudapi.PlatformConfig{"id": "zhaopin"}, platformcore.Candidate{
+		"card_index":     2,
+		"element_ref":    "candidate-ref",
+		"candidate_name": "张女士",
+		"raw_text":       "张女士 26岁 本科",
+	}, platformcore.CandidateInfoRequest{
+		RequestPhone:  true,
+		RequestWechat: true,
+		RequestResume: true,
+		GreetMessage:  "您好，请补充联系方式",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := []string{
+		"/api/v1/boss/candidates/visible",
+		"/api/v1/boss/candidates/greet",
+		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+		"/api/v1/page/click-by-text",
+		"/api/v1/page/type",
+		"/api/v1/page/press-key",
+		"/api/v1/page/click",
+	}
+	if len(exec.calls) != len(wantPaths) {
+		t.Fatalf("calls = %+v", exec.calls)
+	}
+	for index, path := range wantPaths {
+		if exec.calls[index].path != path {
+			t.Fatalf("call %d path = %s", index, exec.calls[index].path)
+		}
+	}
+	if stringFromMap(mapFromAny(exec.calls[2].payload["element"]), "selector") != zhaopinPhoneButtonSelector {
+		t.Fatalf("phone payload = %+v", exec.calls[2].payload)
+	}
+	if stringFromMap(mapFromAny(exec.calls[3].payload["element"]), "selector") != zhaopinPhoneConfirmSelector {
+		t.Fatalf("phone confirm find payload = %+v", exec.calls[3].payload)
+	}
+	if exec.calls[4].payload["element_ref"] != "phone-confirm-ref" {
+		t.Fatalf("phone confirm click payload = %+v", exec.calls[4].payload)
+	}
+	if stringFromMap(mapFromAny(exec.calls[5].payload["element"]), "selector") != zhaopinWechatButtonSelector {
+		t.Fatalf("wechat payload = %+v", exec.calls[5].payload)
+	}
+	if exec.calls[6].payload["text"] != zhaopinResumeButtonText || exec.calls[6].payload["exact"] != true {
+		t.Fatalf("resume payload = %+v", exec.calls[6].payload)
+	}
+	if stringFromMap(mapFromAny(exec.calls[6].payload["element"]), "selector") != zhaopinResumeButtonScope {
+		t.Fatalf("resume scope = %+v", exec.calls[6].payload)
+	}
+	if stringFromMap(mapFromAny(exec.calls[7].payload["element"]), "selector") != zhaopinChatInputSelector || exec.calls[7].payload["text"] != "您好，请补充联系方式" {
+		t.Fatalf("message payload = %+v", exec.calls[7].payload)
+	}
+	if stringFromMap(mapFromAny(exec.calls[9].payload["element"]), "selector") != zhaopinChatCloseSelector {
+		t.Fatalf("close payload = %+v", exec.calls[9].payload)
+	}
+}
+
+// TestConfirmZhaopinPhoneRequestSkipsMissingOption 验证手机号第二项不存在时不报错且不尝试确认点击。
+func TestConfirmZhaopinPhoneRequestSkipsMissingOption(t *testing.T) {
+	exec := &followupExecutor{}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, cloudapi.PlatformConfig{"id": "zhaopin"}, platformcore.Candidate{
+		"card_index":     0,
+		"candidate_name": "李先生",
+	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := []string{
+		"/api/v1/boss/candidates/visible",
+		"/api/v1/boss/candidates/greet",
+		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
+		"/api/v1/page/click",
+	}
+	if len(exec.calls) != len(wantPaths) {
+		t.Fatalf("calls = %+v", exec.calls)
+	}
+	for index, path := range wantPaths {
+		if exec.calls[index].path != path {
+			t.Fatalf("call %d path = %s", index, exec.calls[index].path)
+		}
+	}
+	if stringFromMap(mapFromAny(exec.calls[4].payload["element"]), "selector") != zhaopinChatCloseSelector {
+		t.Fatalf("最后一次点击应直接关闭聊天框：%+v", exec.calls[4].payload)
+	}
+}
+
+// TestRequestCandidateInfoSkipsEmptyRequest 验证没有勾选项和消息时不打开智联聊天框。
+func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
+	exec := &followupExecutor{}
+	if err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, nil, platformcore.CandidateInfoRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.calls) != 0 {
+		t.Fatalf("calls = %+v", exec.calls)
 	}
 }
 
