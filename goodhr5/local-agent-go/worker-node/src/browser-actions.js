@@ -16,6 +16,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  browserDisplayAdjustmentMessage,
   fixedBrowserViewport,
   normalizeBrowserDisplay,
 } from "./browser-display.js";
@@ -101,9 +102,12 @@ export class BrowserBaseActions {
             display,
           };
         }
-        this.log("已有浏览器校准失败，准备重启", {
+        const errorMessage = browserDisplayAdjustmentMessage(display);
+        this.log("已有浏览器校准失败，停止本次任务并保留浏览器", {
+          error: errorMessage,
           errors: display.errors?.join("；") || "",
         });
+        throw new Error(errorMessage);
       }
       await this.stopBrowser();
     }
@@ -150,10 +154,7 @@ export class BrowserBaseActions {
     const display = await normalizeBrowserDisplay(this.page);
     this.log("浏览器显示校准", { stage: "launch", ...display });
     if (!display.matches_fixed) {
-      await this.stopBrowser();
-      throw new Error(
-        `浏览器视口校准失败：期望 ${display.target_width}x${display.target_height}，实际 ${display.inner_width || 0}x${display.inner_height || 0}`,
-      );
+      throw new Error(browserDisplayAdjustmentMessage(display));
     }
 
     if (payload.url) {

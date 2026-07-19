@@ -50,6 +50,7 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		"viewport_width":  viewportWidth,
 		"viewport_height": viewportHeight,
 	}); err != nil {
+		r.positionLog(position.ID, "error", "页面准备：浏览器启动或显示校准失败，任务停止，错误="+err.Error())
 		return nil, err
 	}
 	r.positionLog(position.ID, "info", "页面准备：浏览器启动完成，准备确认当前页面")

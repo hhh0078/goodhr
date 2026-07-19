@@ -7,6 +7,20 @@ export function fixedBrowserViewport() {
   return { ...FIXED_BROWSER_VIEWPORT };
 }
 
+/** browserDisplayAdjustmentMessage 生成浏览器显示不符合要求时可直接给用户处理的错误说明。 */
+export function browserDisplayAdjustmentMessage(display = {}) {
+  const targetWidth = Number(display.target_width || FIXED_BROWSER_VIEWPORT.width);
+  const targetHeight = Number(display.target_height || FIXED_BROWSER_VIEWPORT.height);
+  const innerWidth = Number(display.inner_width || 0);
+  const innerHeight = Number(display.inner_height || 0);
+  const widthScale = innerWidth > 0 ? targetWidth / innerWidth : 0;
+  const heightScale = innerHeight > 0 ? targetHeight / innerHeight : 0;
+  const scale = heightScale || widthScale;
+  const scaleText = scale > 0 ? `，推测当前页面缩放约 ${Math.round(scale * 100)}%` : "";
+  const shortcut = process.platform === "darwin" ? "Command+0" : "Ctrl+0";
+  return `浏览器显示比例不符合任务要求：期望视口 ${targetWidth}x${targetHeight}，实际 ${innerWidth}x${innerHeight}${scaleText}。任务已停止，浏览器会保持打开；请在浏览器中按 ${shortcut} 恢复到 100%，确认后重新开始任务。`;
+}
+
 /** readBrowserDisplayMetrics 读取当前页面的实际视口、窗口、DPR和可视区缩放信息。 */
 export async function readBrowserDisplayMetrics(currentPage) {
   if (!currentPage || typeof currentPage.evaluate !== "function") {
