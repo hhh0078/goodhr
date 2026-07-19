@@ -50,7 +50,12 @@ export async function humanTypeText(keyboard, text, options = {}) {
   const chunkMax = boundedInteger(options.chunk_max, 2, chunkMin, 10);
   const pauseMin = boundedInteger(options.delay_min_ms, 80, 0, 5000);
   const pauseMax = boundedInteger(options.delay_max_ms, 220, pauseMin, 5000);
-  const fixedTypingDelay = Number(options.typing_delay_ms);
+  const hasFixedTypingDelay = options.typing_delay_ms !== null
+    && options.typing_delay_ms !== undefined
+    && String(options.typing_delay_ms).trim() !== "";
+  const fixedTypingDelay = hasFixedTypingDelay
+    ? Number(options.typing_delay_ms)
+    : Number.NaN;
   const typingMin = Number.isFinite(fixedTypingDelay)
     ? boundedInteger(fixedTypingDelay, 25, 0, 5000)
     : 25;
