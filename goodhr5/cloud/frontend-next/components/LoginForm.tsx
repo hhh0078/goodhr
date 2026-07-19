@@ -169,7 +169,7 @@ export default function LoginForm() {
           }}
         />
         <Typography
-          sx={{ mt: "-8px !important", color: "text.secondary", fontSize: 12, lineHeight: 1.6 }}
+          sx={{ color: "text.secondary", fontSize: 12, lineHeight: 1.6 }}
         >
           同一账号仅支持一处登录；在此登录后，其他设备或浏览器中的该账号会自动退出。
         </Typography>

@@ -1,0 +1,53 @@
+# 本文件只用于本地开发：启动支持热更新的云端后端和 Next.js 前端，并复用已有 data-services 网络中的数据库服务。
+name: goodhr5-local
+
+services:
+  backend:
+    build:
+      context: ./cloud/backend
+      dockerfile: Dockerfile.dev
+    environment:
+      GOODHR_CLOUD_ADDR: ":8084"
+      GOODHR_PG_DSN: "postgres://goodhr5_dev:goodhr5_dev@postgres:5432/goodhr5_dev?sslmode=disable"
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./cloud/backend:/app
+      - backend_tmp:/app/tmp
+      - backend_go_cache:/go/pkg/mod
+      - backend_build_cache:/root/.cache/go-build
+    networks:
+      - default
+      - data-services
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./cloud/frontend-next
+      dockerfile: Dockerfile.dev
+    command: npm run dev -- --webpack --hostname 0.0.0.0 --port 3000
+    environment:
+      CLOUD_API_BASE: "http://backend:8084"
+      NEXT_PUBLIC_CLOUD_API_BASE: "http://localhost:8084"
+      NEXT_PUBLIC_SITE_URL: "http://localhost:5173"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "5173:3000"
+    volumes:
+      - ./cloud/frontend-next:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  data-services:
+    external: true
+
+volumes:
+  backend_tmp:
+  backend_go_cache:
+  backend_build_cache:
+  frontend_node_modules:
+  frontend_next_cache:
