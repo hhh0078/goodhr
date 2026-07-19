@@ -24,7 +24,7 @@ const (
 	defaultBuiltinAIBaseURL      = "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions"
 	defaultBuiltinAIModel        = "qwen3.7-plus"
 	defaultSignupBonusCents      = 70
-	defaultAIRechargeAmountCents = 500
+	defaultAIRechargeAmountCents = 1000
 	aiWalletUnitsPerYuan         = 10000
 	aiWalletUnitsPerCent         = 100
 	maxAICompatibleBodyBytes     = 8 << 20

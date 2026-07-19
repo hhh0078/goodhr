@@ -3,8 +3,33 @@ package httpapi
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+// TestAIWalletSummaryReturnsTenYuanDefaultRecharge 验证钱包摘要返回 10 元默认充值金额。
+func TestAIWalletSummaryReturnsTenYuanDefaultRecharge(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "wallet-default@example.com")
+	req := httptest.NewRequest(http.MethodGet, "/api/ai-wallet", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("summary status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		DefaultRechargeCents int `json:"default_recharge_cents"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.DefaultRechargeCents != 1000 {
+		t.Fatalf("default recharge cents = %d, want 1000", payload.DefaultRechargeCents)
+	}
+}
 
 // TestAIUsageCostUnitsUsesFourDecimalPrecision 验证 AI 扣费按 0.0001 元精度向上取整。
 func TestAIUsageCostUnitsUsesFourDecimalPrecision(t *testing.T) {

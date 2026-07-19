@@ -53,7 +53,7 @@ export default function SubscriptionPage() {
   const [aiPage, setAIPage] = useState(1);
   const [recordTab, setRecordTab] = useState<"payments" | "ai">("payments");
   const [code, setCode] = useState("");
-  const [rechargeAmount, setRechargeAmount] = useState("5");
+  const [rechargeAmount, setRechargeAmount] = useState("10");
   const [selectedModel, setSelectedModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAILoading] = useState(false);
@@ -189,7 +189,7 @@ export default function SubscriptionPage() {
     try {
       const data = await cloudRequest("/api/payment/ai-balance", {
         method: "POST",
-        body: { amount_yuan: rechargeAmount || "5" },
+        body: { amount_yuan: rechargeAmount || "10" },
       });
       submitPayment(data.payment);
       setRechargeDialogOpen(false);
