@@ -20,6 +20,8 @@ const (
 	hliepinChatInputSelector      = "textarea.ant-im-input.im-ui-textarea[placeholder='请输入文字，按Enter键发送']"
 	hliepinChatCloseSelector      = ".im-ui-basic-chat-header-modal-close"
 	hliepinCandidateListClose     = ".ant-im-drawer-close"
+	hliepinRequestConfirmDialog   = ".ant-im-modal.ant-im-modal-confirm"
+	hliepinRequestConfirmButton   = hliepinRequestConfirmDialog + " .ant-im-modal-confirm-btns .ant-im-btn-primary"
 )
 
 // ApplyBasicFilters 保留猎聘猎头端基础筛选入口，当前不改变用户在页面中设置的条件。
@@ -78,7 +80,7 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 		}); err != nil {
 			return fmt.Errorf("点击猎聘“索要%s”失败：%w", action.label, err)
 		}
-		if err := exec.Delay(ctx, "等待猎聘索要"+action.label+"操作生效", 0.25); err != nil {
+		if err := confirmCandidateInfoRequestIfPresent(ctx, exec, action.label); err != nil {
 			return err
 		}
 	}
@@ -94,6 +96,36 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 		if _, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Enter"}); err != nil {
 			return fmt.Errorf("发送猎聘首次打招呼语失败：%w", err)
 		}
+	}
+	return nil
+}
+
+// confirmCandidateInfoRequestIfPresent 检查猎聘索要确认弹框，存在则点击确定，不存在则直接继续。
+func confirmCandidateInfoRequestIfPresent(ctx context.Context, exec platformcore.Executor, label string) error {
+	if err := exec.Delay(ctx, "等待猎聘索要"+label+"确认弹框", 1); err != nil {
+		return err
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      map[string]any{"selector": hliepinRequestConfirmDialog},
+		"visible_only": true,
+		"max_items":    1,
+	})
+	if err != nil {
+		return fmt.Errorf("查找猎聘索要%s确认弹框失败：%w", label, err)
+	}
+	items := mapList(workerData(result, "items"))
+	if len(items) == 0 || !strings.Contains(stringFromMap(items[0], "text"), "索要") {
+		exec.Log("info", "猎聘索要信息：未出现索要"+label+"确认弹框，跳过确认")
+		return nil
+	}
+	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+		"element": map[string]any{"selector": hliepinRequestConfirmButton},
+		"timeout": 5000,
+	}); err != nil {
+		return fmt.Errorf("确认猎聘向候选人索要%s失败：%w", label, err)
+	}
+	if err := exec.Delay(ctx, "等待猎聘索要"+label+"确认完成", 0.2); err != nil {
+		return err
 	}
 	return nil
 }

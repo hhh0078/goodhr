@@ -417,8 +417,11 @@ func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	want := []string{
 		"/api/v1/page/list-click-by-index",
 		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
 		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
 		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
 		"/api/v1/page/type",
 		"/api/v1/page/press-key",
 		"/api/v1/page/click",
@@ -435,20 +438,54 @@ func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 		hliepinChatCloseSelector,
 		hliepinCandidateListClose,
 	}
-	payloadIndexes := []int{1, 2, 3, 4, 6, 7}
+	payloadIndexes := []int{1, 3, 5, 7, 9, 10}
 	for index, payloadIndex := range payloadIndexes {
 		if got := stringFromMap(mapFromAny(exec.payloads[payloadIndex]["element"]), "selector"); got != selectors[index] {
 			t.Fatalf("selector[%d] = %q, want %q", index, got, selectors[index])
 		}
 	}
-	if got := stringFromMap(exec.payloads[4], "text"); got != "你好，想和你沟通这个岗位。" {
+	if got := stringFromMap(exec.payloads[7], "text"); got != "你好，想和你沟通这个岗位。" {
 		t.Fatalf("message = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[5], "key"); got != "Enter" {
+	if got := stringFromMap(exec.payloads[8], "key"); got != "Enter" {
 		t.Fatalf("send key = %q", got)
 	}
 	if len(exec.delays) == 0 || exec.delays[0] != 1 {
 		t.Fatalf("continue dialog delay = %#v, want first delay 1 second", exec.delays)
+	}
+}
+
+// TestRequestCandidateInfoConfirmsOptionalDialog 验证猎聘索要确认弹框存在时会点击弹框内的确定按钮。
+func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinRequestConfirmDialog: {map[string]any{"text": "确定向对方索要手机号吗？"}},
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
+		"card_index": 0,
+		"card_item":  map[string]any{"selector": "tbody tr"},
+	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/api/v1/page/list-click-by-index",
+		"/api/v1/page/click",
+		"/api/v1/page/find-elements",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+		"/api/v1/page/click",
+	}
+	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	if got := stringFromMap(mapFromAny(exec.payloads[2]["element"]), "selector"); got != hliepinRequestConfirmDialog {
+		t.Fatalf("confirm dialog selector = %q", got)
+	}
+	if got := stringFromMap(mapFromAny(exec.payloads[3]["element"]), "selector"); got != hliepinRequestConfirmButton {
+		t.Fatalf("confirm button selector = %q", got)
+	}
+	if len(exec.delays) < 2 || exec.delays[1] != 1 {
+		t.Fatalf("confirm dialog delay = %#v, want second delay 1 second", exec.delays)
 	}
 }
 
