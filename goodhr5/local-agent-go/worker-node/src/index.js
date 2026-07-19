@@ -24,6 +24,7 @@ import {
 } from "./detail-scroll.js";
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
+import { humanTypeText } from "./human-type.js";
 import { pageURLContainsTarget } from "./navigation-target.js";
 import { terminateProfileBrowserProcesses } from "./profile-process.js";
 
@@ -716,9 +717,7 @@ async function typePage(payload) {
   await currentPage.keyboard.press("Control+A");
   await currentPage.keyboard.press("Backspace");
   if (text) {
-    await currentPage.keyboard.type(text, {
-      delay: Math.max(0, Number(payload.typing_delay_ms || 25)),
-    });
+    await humanTypeText(currentPage.keyboard, text, payload);
   }
   const value = await locator.inputValue({ timeout });
   if (value !== text) {
