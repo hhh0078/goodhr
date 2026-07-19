@@ -43,9 +43,8 @@ func StopGoodHRPortOwner(host string, port int, currentPID int) error {
 	if err := verifyGoodHRHealth(host, port); err != nil {
 		return fmt.Errorf("端口 %d 被非 GoodHR 程序或异常旧程序占用，已禁止自动结束 PID=%d：%w", port, pid, err)
 	}
-	cmd := hiddenCommand("positionkill", "/PID", strconv.Itoa(pid), "/T", "/F")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("结束占用端口 %d 的旧 GoodHR 程序 PID=%d 失败：%w：%s", port, pid, err, strings.TrimSpace(string(output)))
+	if err := TerminateTree(pid); err != nil {
+		return fmt.Errorf("结束占用端口 %d 的旧 GoodHR 程序 PID=%d 失败：%w", port, pid, err)
 	}
 	return waitPortReleased(port, 5*time.Second)
 }
@@ -135,9 +134,8 @@ func StopOtherInstances(imageName string, currentPID int) error {
 		return err
 	}
 	for _, pid := range pids {
-		cmd := hiddenCommand("positionkill", "/PID", strconv.Itoa(pid), "/T", "/F")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("关闭旧本地程序 PID=%d 失败：%w：%s", pid, err, string(output))
+		if err := TerminateTree(pid); err != nil {
+			return fmt.Errorf("关闭旧本地程序 PID=%d 失败：%w", pid, err)
 		}
 	}
 	return waitProcessesExit(imageName, pids, 5*time.Second)
@@ -146,7 +144,7 @@ func StopOtherInstances(imageName string, currentPID int) error {
 // findProcessPIDs 查找需要关闭的旧本地程序进程。
 // imageName 为进程镜像名，currentPID 为当前进程 ID。
 func findProcessPIDs(imageName string, currentPID int) ([]int, error) {
-	cmd := hiddenCommand("positionlist", "/FI", "IMAGENAME eq "+imageName, "/FO", "CSV", "/NH")
+	cmd := hiddenCommand("tasklist", "/FI", "IMAGENAME eq "+imageName, "/FO", "CSV", "/NH")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("查询旧本地程序失败：%w：%s", err, string(output))

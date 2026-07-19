@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	goodhrprocess "goodhr5/local-agent-go/internal/process"
 	"goodhr5/local-agent-go/internal/runtime"
 	"goodhr5/local-agent-go/internal/version"
 )
@@ -205,9 +206,7 @@ func killProcessTree(pid int) error {
 		return nil
 	}
 	if goruntime.GOOS == "windows" {
-		cmd := exec.Command("positionkill", "/PID", strconv.Itoa(pid), "/T", "/F")
-		hideCommandWindow(cmd)
-		return cmd.Run()
+		return goodhrprocess.TerminateTree(pid)
 	}
 	children := childPIDs(pid)
 	for _, child := range children {
@@ -437,14 +436,44 @@ func (m *WorkerManager) cleanupFixedWorkerLocked(ctx context.Context) error {
 			return fmt.Errorf("固定 Node Worker 端口已被占用，但没有读取到旧进程 PID：%s", m.baseURL)
 		}
 		log.Printf("[Node Worker] 固定端口发现旧 Worker，准备重启 base_url=%s pid=%d", m.baseURL, pid)
-		_ = killProcessTree(pid)
-		time.Sleep(300 * time.Millisecond)
+		killErr := killProcessTree(pid)
+		if killErr != nil {
+			log.Printf("[Node Worker] 多级清理旧 Worker 失败 base_url=%s pid=%d err=%v", m.baseURL, pid, killErr)
+		}
+		if err := waitWorkerPortAvailable(ctx, m.baseURL, 5*time.Second); err != nil {
+			if killErr != nil {
+				return fmt.Errorf("多级清理旧 Node Worker 失败：%v；%w", killErr, err)
+			}
+			return err
+		}
 	}
 	if err := ensureWorkerPortAvailable(m.baseURL); err != nil {
 		return err
 	}
 	m.attachedPID = 0
 	return nil
+}
+
+// waitWorkerPortAvailable 轮询确认 Worker 固定端口已经真正释放。
+// ctx 为调用上下文，baseURL 为 Worker 地址，timeout 为最长等待时间。
+func waitWorkerPortAvailable(ctx context.Context, baseURL string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		if err := ensureWorkerPortAvailable(baseURL); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等待 Node Worker 端口释放超时：%w", lastErr)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("等待 Node Worker 端口释放被取消：%w", ctx.Err())
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // fixedWorkerBaseURL 根据 Go 本地程序地址计算固定 Node Worker 地址。
