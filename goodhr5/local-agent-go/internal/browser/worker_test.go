@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go/internal/version"
 )
@@ -22,6 +24,25 @@ func TestSetAgentBaseURLUsesNextPort(t *testing.T) {
 	if manager.baseURL != "http://127.0.0.1:55272" {
 		t.Fatalf("baseURL = %s", manager.baseURL)
 	}
+}
+
+// TestWaitWorkerPortAvailableWaitsForRelease 验证端口仍被占用时会轮询，释放后才返回成功。
+func TestWaitWorkerPortAvailableWaitsForRelease(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	baseURL := "http://" + listener.Addr().String()
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_ = listener.Close()
+		close(released)
+	}()
+	if err := waitWorkerPortAvailable(context.Background(), baseURL, 2*time.Second); err != nil {
+		t.Fatalf("waitWorkerPortAvailable: %v", err)
+	}
+	<-released
 }
 
 // TestStatusReadsOnlyFixedWorker 验证状态只读取固定 Worker 地址。

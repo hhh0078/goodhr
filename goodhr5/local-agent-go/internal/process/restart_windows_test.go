@@ -4,6 +4,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,7 +12,35 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestRunWindowsTerminateAttemptsFallsBack 验证首选方案失败后会继续尝试下一种结束方式。
+func TestRunWindowsTerminateAttemptsFallsBack(t *testing.T) {
+	var ran []string
+	waitCalls := 0
+	attempts := []windowsTerminateAttempt{
+		{name: "first", run: func() error { ran = append(ran, "first"); return errors.New("first failed") }},
+		{name: "second", run: func() error { ran = append(ran, "second"); return nil }},
+		{name: "third", run: func() error { ran = append(ran, "third"); return nil }},
+	}
+	waitExit := func(pid int, timeout time.Duration) error {
+		waitCalls++
+		if pid != 123 || timeout != windowsTerminateWait {
+			t.Fatalf("unexpected wait args pid=%d timeout=%s", pid, timeout)
+		}
+		if waitCalls == 1 {
+			return errors.New("still running")
+		}
+		return nil
+	}
+	if err := runWindowsTerminateAttempts(123, attempts, waitExit); err != nil {
+		t.Fatalf("fallback should succeed: %v", err)
+	}
+	if strings.Join(ran, ",") != "first,second" {
+		t.Fatalf("attempt order = %v", ran)
+	}
+}
 
 // TestParseListeningPID 验证 IPv4 和 IPv6 监听记录都能正确识别。
 func TestParseListeningPID(t *testing.T) {
