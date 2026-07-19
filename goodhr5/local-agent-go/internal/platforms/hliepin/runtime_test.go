@@ -3,6 +3,7 @@ package hliepin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ type searchExecutor struct {
 	clickTextErrors map[string]error
 	scrollActions   []string
 	scrollCalls     int
+	delays          []float64
 }
 
 // Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
@@ -64,8 +66,11 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 // Log 忽略测试中的岗位运行日志。
 func (e *searchExecutor) Log(string, string) {}
 
-// Delay 跳过测试中的真实等待。
-func (e *searchExecutor) Delay(context.Context, string, float64) error { return nil }
+// Delay 记录猎聘页面操作等待时长并跳过真实等待。
+func (e *searchExecutor) Delay(_ context.Context, _ string, seconds float64) error {
+	e.delays = append(e.delays, seconds)
+	return nil
+}
 
 func (e *routeExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
 	e.paths = append(e.paths, path)
@@ -442,6 +447,9 @@ func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	if got := stringFromMap(exec.payloads[5], "key"); got != "Enter" {
 		t.Fatalf("send key = %q", got)
 	}
+	if len(exec.delays) == 0 || exec.delays[0] != 1 {
+		t.Fatalf("continue dialog delay = %#v, want first delay 1 second", exec.delays)
+	}
 }
 
 // TestRequestCandidateInfoSkipsEmptyRequest 验证岗位未勾选且无问候语时猎聘不打开沟通弹层。
@@ -453,6 +461,20 @@ func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
 	}
 	if len(exec.paths) != 0 {
 		t.Fatalf("empty request paths = %#v", exec.paths)
+	}
+}
+
+// TestRequestCandidateInfoFailsWhenRequestedButtonMissing 验证猎聘索要按钮不存在时整次索要失败并返回明确错误。
+func TestRequestCandidateInfoFailsWhenRequestedButtonMissing(t *testing.T) {
+	exec := &searchExecutor{errors: map[string]error{
+		"/api/v1/page/click": errors.New("点击选择器不能为空或未找到元素"),
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
+		"card_index": 0,
+		"card_item":  map[string]any{"selector": "tbody tr"},
+	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "索要手机") || !strings.Contains(err.Error(), "未找到元素") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

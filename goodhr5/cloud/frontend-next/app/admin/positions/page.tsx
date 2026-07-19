@@ -204,6 +204,11 @@ export default function PositionsPage() {
             review_prompt: normalizePrompt(form.review_prompt),
             detail_score_threshold: Number(form.detail_score_threshold || 60),
             greet_score_threshold: Number(form.greet_score_threshold || 70),
+            request_score_threshold: Number(
+              form.request_score_threshold ??
+                form.greet_score_threshold ??
+                70,
+            ),
           },
           keyword_config: {},
           match_limit: Number(form.match_limit || 50),
@@ -732,7 +737,7 @@ export default function PositionsPage() {
             </Stack>
           </Box>
           <ChoiceCards
-            label='招聘平台'
+            label={form.id ? "招聘平台（编辑岗位时不可更换）" : "招聘平台"}
             value={form.platform_id}
             columns={3}
             autoWidth
@@ -741,7 +746,8 @@ export default function PositionsPage() {
               {
                 value: "boss",
                 label: "Boss直聘",
-                disabled: !isPlatformOpen(platformConfigs, "boss"),
+                disabled:
+                  Boolean(form.id) || !isPlatformOpen(platformConfigs, "boss"),
                 description: isPlatformOpen(platformConfigs, "boss")
                   ? "支持 OCR 和 AI 详情识别。"
                   : "暂未开放",
@@ -750,7 +756,9 @@ export default function PositionsPage() {
               {
                 value: "zhaopin",
                 label: "智联招聘",
-                disabled: !isPlatformOpen(platformConfigs, "zhaopin"),
+                disabled:
+                  Boolean(form.id) ||
+                  !isPlatformOpen(platformConfigs, "zhaopin"),
                 description: isPlatformOpen(platformConfigs, "zhaopin")
                   ? "支持 DOM 详情识别。"
                   : "暂未开放",
@@ -759,7 +767,9 @@ export default function PositionsPage() {
               {
                 value: "hliepin",
                 label: "猎聘猎头端",
-                disabled: !isPlatformOpen(platformConfigs, "hliepin"),
+                disabled:
+                  Boolean(form.id) ||
+                  !isPlatformOpen(platformConfigs, "hliepin"),
                 description: isPlatformOpen(platformConfigs, "hliepin")
                   ? "支持 DOM 详情识别。"
                   : "暂未开放",
@@ -768,7 +778,9 @@ export default function PositionsPage() {
               {
                 value: "liepin",
                 label: "猎聘企业端",
-                disabled: !isPlatformOpen(platformConfigs, "liepin"),
+                disabled:
+                  Boolean(form.id) ||
+                  !isPlatformOpen(platformConfigs, "liepin"),
                 description: isPlatformOpen(platformConfigs, "liepin")
                   ? "支持 DOM 详情识别。"
                   : "暂未开放",
@@ -1162,12 +1174,18 @@ export default function PositionsPage() {
                           label='打招呼阈值分'
                           type='number'
                           value={form.greet_score_threshold}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const nextThreshold = Number(event.target.value);
                             setForm({
                               ...form,
-                              greet_score_threshold: Number(event.target.value),
-                            })
-                          }
+                              greet_score_threshold: nextThreshold,
+                              request_score_threshold:
+                                form.request_score_threshold ===
+                                form.greet_score_threshold
+                                  ? nextThreshold
+                                  : form.request_score_threshold,
+                            });
+                          }}
                           slotProps={{ htmlInput: { min: 0, max: 100 } }}
                           helperText='详情评分大于等于该值时执行打招呼。'
                         />
@@ -1251,8 +1269,23 @@ export default function PositionsPage() {
                   />
                 </Stack>
                 <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
-                  打招呼成功后按勾选项执行；当前猎聘猎头端已实现，其他平台暂不操作。
+                  当前智联招聘和猎聘猎头端已实现；只有最终 AI
+                  评分严格大于索要分数时，才会执行已勾选的索要项。
                 </Typography>
+                <TextField
+                  label='索要分数'
+                  type='number'
+                  value={form.request_score_threshold}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      request_score_threshold: Number(event.target.value),
+                    })
+                  }
+                  slotProps={{ htmlInput: { min: 0, max: 100 } }}
+                  helperText='候选人最终 AI 评分必须严格大于该值才执行索要；没有 AI 评分时不会索要。默认与打招呼阈值分相同。'
+                  sx={{ mt: 1.25, width: { xs: "100%", sm: 360 } }}
+                />
               </Box>
               <TextField
                 label='首次打招呼语（可选）'
@@ -1453,6 +1486,7 @@ function createEmptyForm() {
     review_prompt: "",
     detail_score_threshold: 60,
     greet_score_threshold: 70,
+    request_score_threshold: 70,
     output_structured_resume: false,
     request_phone: false,
     request_wechat: false,
@@ -1506,6 +1540,9 @@ function formFromItem(
       review_prompt: normalizePrompt(ai.review_prompt),
       detail_score_threshold: Number(ai.detail_score_threshold ?? 60),
       greet_score_threshold: Number(ai.greet_score_threshold ?? 70),
+      request_score_threshold: Number(
+        ai.request_score_threshold ?? ai.greet_score_threshold ?? 70,
+      ),
       greet_message: item.greet_message || "",
       description: item.description || "",
       match_limit: Number(item.match_limit ?? 50),

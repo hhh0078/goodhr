@@ -79,13 +79,56 @@ func TestCandidateInfoRequestFromPositionReadsCommonConfig(t *testing.T) {
 	}
 }
 
+// TestCandidateInfoScoreDecisionRequiresScoreAboveThreshold 验证索要信息仅在最终 AI 评分严格大于索要分数时执行。
+func TestCandidateInfoScoreDecisionRequiresScoreAboveThreshold(t *testing.T) {
+	position := localdb.Position{PositionSnapshot: map[string]any{
+		"ai_config": map[string]any{
+			"greet_score_threshold":   70.0,
+			"request_score_threshold": 80.0,
+		},
+	}}
+	tests := []struct {
+		name       string
+		candidate  map[string]any
+		wantAllow  bool
+		wantScore  float64
+		wantHasAIS bool
+	}{
+		{name: "没有AI评分", candidate: map[string]any{}, wantAllow: false, wantScore: 0, wantHasAIS: false},
+		{name: "等于索要分数", candidate: map[string]any{"ai_greet_score": 80.0}, wantAllow: false, wantScore: 80, wantHasAIS: true},
+		{name: "低于索要分数", candidate: map[string]any{"ai_greet_score": 79.9}, wantAllow: false, wantScore: 79.9, wantHasAIS: true},
+		{name: "高于索要分数", candidate: map[string]any{"ai_greet_score": 80.1}, wantAllow: true, wantScore: 80.1, wantHasAIS: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			allowed, score, threshold, hasScore := candidateInfoScoreDecision(position, test.candidate)
+			if allowed != test.wantAllow || score != test.wantScore || threshold != 80 || hasScore != test.wantHasAIS {
+				t.Fatalf("allowed=%v score=%v threshold=%v hasScore=%v", allowed, score, threshold, hasScore)
+			}
+		})
+	}
+}
+
+// TestCandidateInfoScoreDecisionFallsBackToGreetThreshold 验证旧岗位没有索要分数时默认使用打招呼阈值分。
+func TestCandidateInfoScoreDecisionFallsBackToGreetThreshold(t *testing.T) {
+	position := localdb.Position{PositionSnapshot: map[string]any{
+		"ai_config": map[string]any{"greet_score_threshold": 75.0},
+	}}
+	allowed, score, threshold, hasScore := candidateInfoScoreDecision(position, map[string]any{"ai_greet_score": 76.0})
+	if !allowed || score != 76 || threshold != 75 || !hasScore {
+		t.Fatalf("allowed=%v score=%v threshold=%v hasScore=%v", allowed, score, threshold, hasScore)
+	}
+}
+
 // candidateInfoErrorRuntime 模拟打招呼成功但索要信息失败的平台。
 type candidateInfoErrorRuntime struct {
 	detailCloseProbeRuntime
+	requestCalls int
 }
 
 // RequestCandidateInfo 返回索要信息错误，用于验证主流程不会把候选人改成失败。
 func (r *candidateInfoErrorRuntime) RequestCandidateInfo(context.Context, platformcore.Executor, cloudapi.PlatformConfig, platformcore.Candidate, platformcore.CandidateInfoRequest) error {
+	r.requestCalls++
 	return errors.New("索要信息测试失败")
 }
 
@@ -95,8 +138,9 @@ func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
 	runtime := &candidateInfoErrorRuntime{}
 	position := localdb.Position{ID: "position-1", PositionSnapshot: map[string]any{
 		"common_config": map[string]any{"request_phone": true},
+		"ai_config":     map[string]any{"request_score_threshold": 70.0},
 	}}
-	candidate := map[string]any{"candidate_name": "张三", "status": "passed"}
+	candidate := map[string]any{"candidate_name": "张三", "status": "passed", "ai_greet_score": 80.0}
 	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
 		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
 	)
@@ -105,6 +149,29 @@ func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
 	}
 	if greeted != 1 || failed != 0 || skipped != 0 || stringFromMap(candidate, "status") != "greeted" {
 		t.Fatalf("result greeted=%d failed=%d skipped=%d candidate=%+v", greeted, failed, skipped, candidate)
+	}
+	if runtime.requestCalls != 1 {
+		t.Fatalf("request calls = %d", runtime.requestCalls)
+	}
+}
+
+// TestCandidateInfoWithoutAIScoreSkipsRequester 验证候选人没有最终 AI 评分时不调用平台索要接口。
+func TestCandidateInfoWithoutAIScoreSkipsRequester(t *testing.T) {
+	runner := newTestRunner(t, nil, &fakeWorker{})
+	runtime := &candidateInfoErrorRuntime{}
+	position := localdb.Position{ID: "position-no-score", PositionSnapshot: map[string]any{
+		"common_config": map[string]any{"request_phone": true},
+		"ai_config":     map[string]any{"request_score_threshold": 70.0},
+	}}
+	candidate := map[string]any{"candidate_name": "李四", "status": "passed"}
+	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
+		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if greeted != 1 || failed != 0 || skipped != 0 || runtime.requestCalls != 0 {
+		t.Fatalf("greeted=%d failed=%d skipped=%d requestCalls=%d", greeted, failed, skipped, runtime.requestCalls)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
+	"math"
 	"math/rand"
 	"strings"
 	"time"
@@ -37,18 +38,29 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: err}
 	}
 	request := candidateInfoRequestFromPosition(position)
-	if candidateInfoRequestConfigured(request) {
-		r.positionLog(position.ID, "info", "索要信息：打招呼成功，准备调用平台索要信息接口")
+	requestConfigured := candidateInfoRequestConfigured(request)
+	requestAllowed, requestScore, requestThreshold, hasRequestScore := candidateInfoScoreDecision(position, candidate)
+	if requestConfigured && !hasRequestScore {
+		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，没有最终 AI 评分，索要分数=%.1f", candidateLogName(candidate), requestThreshold))
+	} else if requestConfigured && !requestAllowed {
+		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，要求评分严格大于索要分数", candidateLogName(candidate), requestScore, requestThreshold))
+	} else if requestConfigured {
+		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：评分通过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，准备调用平台索要信息接口", candidateLogName(candidate), requestScore, requestThreshold))
 	}
 	var requestErr error
-	if requester, ok := platformRuntime.(platformcore.CandidateInfoRequester); ok {
-		requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
-			return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
-		})
+	if requestConfigured && requestAllowed {
+		requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
+		if !ok {
+			r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+		} else {
+			requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
+				return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
+			})
+		}
 	}
 	if requestErr != nil {
 		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，错误=%s", candidateLogName(candidate), requestErr.Error()))
-	} else if candidateInfoRequestConfigured(request) {
+	} else if requestConfigured && requestAllowed {
 		r.positionLog(position.ID, "info", "索要信息：平台处理完成，候选人="+candidateLogName(candidate))
 	}
 	candidate["status"] = "greeted"
@@ -75,6 +87,22 @@ func candidateInfoRequestFromPosition(position localdb.Position) platformcore.Ca
 // candidateInfoRequestConfigured 判断岗位是否配置了任一索要动作或追加问候语。
 func candidateInfoRequestConfigured(request platformcore.CandidateInfoRequest) bool {
 	return request.RequestPhone || request.RequestWechat || request.RequestResume || strings.TrimSpace(request.GreetMessage) != ""
+}
+
+// candidateInfoScoreDecision 判断候选人最终 AI 评分是否严格大于岗位索要分数。
+func candidateInfoScoreDecision(position localdb.Position, candidate map[string]any) (allowed bool, score float64, threshold float64, hasScore bool) {
+	aiConfig := mapFromAny(position.PositionSnapshot["ai_config"])
+	greetThreshold := floatFromMapOr(aiConfig, "greet_score_threshold", 70)
+	threshold = floatFromMapOr(aiConfig, "request_score_threshold", greetThreshold)
+	value, exists := candidate["ai_greet_score"]
+	if !exists || value == nil {
+		return false, 0, threshold, false
+	}
+	score = float64Value(value, math.NaN())
+	if math.IsNaN(score) {
+		return false, 0, threshold, false
+	}
+	return score > threshold, score, threshold, true
 }
 
 // tryGreet 带重试地执行单个候选人打招呼。
