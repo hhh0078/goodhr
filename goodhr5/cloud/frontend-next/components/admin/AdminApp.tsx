@@ -231,6 +231,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
   const [agentBase, setAgentBase] = useState("");
+  const [agentVersion, setAgentVersion] = useState("");
   const [agentDetected, setAgentDetected] = useState(false);
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
@@ -267,14 +268,24 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       if (!nextBase) {
         agentBaseRef.current = "";
         setAgentBase("");
+        setAgentVersion("");
         return;
       }
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
+      setAgentVersion("");
       await bindDetectedLocalAgent(nextBase);
       void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
       try {
         const runtime = await localRequest(nextBase, "/api/v1/runtime/status");
+        setAgentVersion(
+          String(
+            runtime?.version ||
+              runtime?.agent_version ||
+              runtime?.runtime?.version ||
+              "",
+          ),
+        );
         const missing = requiredRuntimeComponents(runtime).filter((item) => !item.installed);
         void reportUserFlow(missing.length ? {
           step: "runtime_ready", status: "blocked", reason_code: "runtime_missing",
@@ -702,7 +713,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               }}
             >
               {agentBase
-                ? agentBase.replace("http://127.0.0.1:", "已连接 · 端口 ")
+                ? agentBase.replace(
+                    "http://127.0.0.1:",
+                    `${agentVersion || "--"} · 端口 `,
+                  )
                 : "本地程序未连接"}
             </Button>
             <Tooltip title="选择主题">
