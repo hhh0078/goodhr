@@ -55,7 +55,7 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 			}
 		}
 	}()
-	if err := exec.Delay(ctx, "等待猎聘继续沟通弹层", 0.8); err != nil {
+	if err := exec.Delay(ctx, "等待猎聘继续沟通弹层", 1); err != nil {
 		return err
 	}
 	actions := []struct {

@@ -3,6 +3,7 @@ package zhaopin
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -39,6 +40,8 @@ type followupCall struct {
 type followupExecutor struct {
 	calls        []followupCall
 	confirmItems []any
+	delays       []float64
+	selectorErrs map[string]error
 }
 
 // Post 返回智联职位搜索结果，并记录第一条结果点击。
@@ -72,6 +75,12 @@ func (e *positionExecutor) Delay(context.Context, string, float64) error { retur
 func (e *followupExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
 	data, _ := payload.(map[string]any)
 	e.calls = append(e.calls, followupCall{path: path, payload: data})
+	if path == "/api/v1/page/click" {
+		selector := stringFromMap(mapFromAny(data["element"]), "selector")
+		if err := e.selectorErrs[selector]; err != nil {
+			return nil, err
+		}
+	}
 	if path == "/api/v1/page/find-elements" {
 		return map[string]any{"data": map[string]any{"items": e.confirmItems}}, nil
 	}
@@ -81,8 +90,11 @@ func (e *followupExecutor) Post(_ context.Context, path string, payload any) (ma
 // Log 模拟智联索要信息日志写入。
 func (e *followupExecutor) Log(string, string) {}
 
-// Delay 模拟智联聊天框和手机号选择层等待。
-func (e *followupExecutor) Delay(context.Context, string, float64) error { return nil }
+// Delay 记录智联聊天框和手机号选择层等待时长。
+func (e *followupExecutor) Delay(_ context.Context, _ string, seconds float64) error {
+	e.delays = append(e.delays, seconds)
+	return nil
+}
 
 // Post 记录调用路径并返回页面列表。
 // ctx 为运行上下文，path 为 Worker 路由，payload 为请求参数。
@@ -185,6 +197,9 @@ func TestRequestCandidateInfoUsesScopedChatSelectors(t *testing.T) {
 	if stringFromMap(mapFromAny(exec.calls[9].payload["element"]), "selector") != zhaopinChatCloseSelector {
 		t.Fatalf("close payload = %+v", exec.calls[9].payload)
 	}
+	if len(exec.delays) == 0 || exec.delays[0] != 1 {
+		t.Fatalf("continue chat delay = %#v, want first delay 1 second", exec.delays)
+	}
 }
 
 // TestConfirmZhaopinPhoneRequestSkipsMissingOption 验证手机号第二项不存在时不报错且不尝试确认点击。
@@ -225,6 +240,19 @@ func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
 	}
 	if len(exec.calls) != 0 {
 		t.Fatalf("calls = %+v", exec.calls)
+	}
+}
+
+// TestRequestCandidateInfoFailsWhenRequestedButtonMissing 验证智联索要按钮不存在时整次索要失败并返回明确错误。
+func TestRequestCandidateInfoFailsWhenRequestedButtonMissing(t *testing.T) {
+	exec := &followupExecutor{selectorErrs: map[string]error{
+		zhaopinPhoneButtonSelector: errors.New("点击选择器不能为空或未找到元素"),
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
+		"card_index": 0,
+	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "要电话") || !strings.Contains(err.Error(), "未找到元素") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

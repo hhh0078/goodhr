@@ -52,7 +52,7 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 			}
 		}
 	}()
-	if err := exec.Delay(ctx, "等待智联继续沟通聊天框打开", 0.5); err != nil {
+	if err := exec.Delay(ctx, "等待智联继续沟通聊天框打开", 1); err != nil {
 		return err
 	}
 	if request.RequestPhone {
