@@ -63,3 +63,23 @@ test("空内容不会触发键盘输入", async () => {
   assert.equal(calls, 0);
   assert.deepEqual(result, { chars: 0, chunks: 0 });
 });
+
+test("空的固定速度参数仍使用默认随机字符延时", async () => {
+  const typed = [];
+  await humanTypeText(
+    {
+      // type 记录空兼容参数下采用的默认最小字符延时。
+      async type(text, options) {
+        typed.push({ text, delay: options.delay });
+      },
+    },
+    "你好",
+    {
+      chunk_min: 2,
+      chunk_max: 2,
+      typing_delay_ms: null,
+      random: () => 0,
+    },
+  );
+  assert.deepEqual(typed, [{ text: "你好", delay: 25 }]);
+});
