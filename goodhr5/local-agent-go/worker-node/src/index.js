@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import {
+  browserDisplayAdjustmentMessage,
   fixedBrowserViewport,
   normalizeBrowserDisplay,
 } from "./browser-display.js";
@@ -256,10 +257,10 @@ async function startBrowser(payload) {
           display,
         };
       } catch (error) {
-        logWorker("已有浏览器校准失败，准备重启", {
+        logWorker("已有浏览器校准失败，停止本次任务并保留浏览器", {
           error: error?.message || error,
         });
-        await stopBrowser();
+        throw error;
       }
     }
     if (browser || context) {
@@ -328,13 +329,7 @@ async function startBrowser(payload) {
     registerContext(context);
     page = context.pages?.()[0] || (await context.newPage());
     registerPage(page);
-    let display;
-    try {
-      display = await calibrateBrowserDisplay(page, "persistent-launch");
-    } catch (error) {
-      await stopBrowser();
-      throw error;
-    }
+    const display = await calibrateBrowserDisplay(page, "persistent-launch");
     logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
     return {
       running: true,
@@ -359,13 +354,7 @@ async function startBrowser(payload) {
   registerContext(context);
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
-  let display;
-  try {
-    display = await calibrateBrowserDisplay(page, "launch");
-  } catch (error) {
-    await stopBrowser();
-    throw error;
-  }
+  const display = await calibrateBrowserDisplay(page, "launch");
   logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
   return {
     running: true,
@@ -592,9 +581,7 @@ async function calibrateBrowserDisplay(currentPage, stage) {
   const display = await normalizeBrowserDisplay(currentPage);
   logWorker("浏览器显示校准", { stage, ...display });
   if (!display.matches_fixed) {
-    throw new Error(
-      `浏览器视口校准失败：期望 ${display.target_width}x${display.target_height}，实际 ${display.inner_width || 0}x${display.inner_height || 0}`,
-    );
+    throw new Error(browserDisplayAdjustmentMessage(display));
   }
   return display;
 }
