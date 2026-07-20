@@ -43,7 +43,7 @@ import { CLOUD_API_BASE, cloudRequest, getToken, localRequest } from "@/lib/admi
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
-import { evaluatePositionStartGuard, latestLocalAgentRelease } from "@/lib/position-start-guard";
+import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
 const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
@@ -249,22 +249,24 @@ export default function PositionsPage() {
 
   /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
   async function checkPositionStartGuard(item: any) {
-    setStartStatus("正在检查 AI 余额和本地程序版本...");
+    const usesAI = positionUsesAI(item);
+    setStartStatus(usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...");
     try {
       let runtimeConfig = onboardingConfig;
       if (!latestLocalAgentRelease(runtimeConfig).version) {
         const runtimePayload = await cloudRequest("/api/runtime/config");
         runtimeConfig = runtimePayload.config || runtimePayload || {};
       }
-      const [walletPayload, health] = await Promise.all([
-        cloudRequest("/api/ai-wallet"),
+      const [health, walletPayload] = await Promise.all([
         localRequest(agentBase, "/health"),
+        usesAI ? cloudRequest("/api/ai-wallet") : Promise.resolve(null),
       ]);
       const release = latestLocalAgentRelease(runtimeConfig);
       const guardFailure = evaluatePositionStartGuard(
-        walletPayload.wallet || walletPayload,
+        walletPayload?.wallet || walletPayload,
         health.version || health.agent_version,
         release.version,
+        usesAI,
       );
       if (guardFailure) {
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
@@ -313,7 +315,7 @@ export default function PositionsPage() {
         await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "position_start", position_id: item.id }).catch(() => undefined);
         return;
       }
-      const usesAI = item.common_config?.mode_default === "ai" || item.common_config?.detail_mode === "ai";
+      const usesAI = positionUsesAI(item);
       if (usesAI && !active) {
         const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
         setStartStatus(message);

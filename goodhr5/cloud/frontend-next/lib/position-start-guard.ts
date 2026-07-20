@@ -19,22 +19,24 @@ export function latestLocalAgentRelease(config: any) {
   };
 }
 
-/** evaluatePositionStartGuard 判断余额和本地程序版本是否允许开始岗位运行。 */
-export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown): PositionStartGuardFailure | null {
-  const balance = walletBalanceYuan(wallet);
-  if (balance == null) {
-    return {
-      code: "ai_balance_unavailable",
-      title: "余额检查失败",
-      message: "暂时没有读到 AI 余额。为了避免岗位运行中途停下，本次不会开始，请刷新页面后重试。",
-    };
-  }
-  if (balance < MINIMUM_POSITION_BALANCE_YUAN) {
-    return {
-      code: "ai_balance_insufficient",
-      title: "AI 余额不足",
-      message: `当前 AI 余额为 ￥${balance.toFixed(4)}，低于岗位运行启动要求的 ￥${MINIMUM_POSITION_BALANCE_YUAN.toFixed(2)}。请先充值，本次岗位运行不会开始。`,
-    };
+/** evaluatePositionStartGuard 按岗位是否使用 AI 判断余额和本地程序版本是否允许启动。 */
+export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown, usesAI = true): PositionStartGuardFailure | null {
+  if (usesAI) {
+    const balance = walletBalanceYuan(wallet);
+    if (balance == null) {
+      return {
+        code: "ai_balance_unavailable",
+        title: "余额检查失败",
+        message: "暂时没有读到 AI 余额。为了避免岗位运行中途停下，本次不会开始，请刷新页面后重试。",
+      };
+    }
+    if (balance < MINIMUM_POSITION_BALANCE_YUAN) {
+      return {
+        code: "ai_balance_insufficient",
+        title: "AI 余额不足",
+        message: `当前 AI 余额为 ￥${balance.toFixed(4)}，低于岗位运行启动要求的 ￥${MINIMUM_POSITION_BALANCE_YUAN.toFixed(2)}。请先充值，本次岗位运行不会开始。`,
+      };
+    }
   }
   const current = String(currentVersion || "").trim();
   const required = String(requiredVersion || "").trim();
@@ -53,6 +55,14 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
     };
   }
   return null;
+}
+
+/** positionUsesAI 判断岗位的基础筛选或详情筛选是否启用了 AI 模式。 */
+export function positionUsesAI(position: any) {
+  const commonConfig = position?.common_config || {};
+  const baseMode = String(commonConfig.mode_default || "").trim().toLowerCase();
+  const detailMode = String(commonConfig.detail_mode || "").trim().toLowerCase();
+  return baseMode === "ai" || detailMode === "ai";
 }
 
 /** walletBalanceYuan 将钱包接口的不同余额字段统一转换为元。 */
