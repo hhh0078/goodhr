@@ -40,6 +40,10 @@ import { useAdmin } from "@/components/admin/AdminApp";
 
 const aiRecordPageSize = 10;
 
+type PendingPayment =
+  | { type: "membership"; planID: string }
+  | { type: "ai_balance" };
+
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
   const { notify, subscription, refreshSession } = useAdmin();
@@ -62,6 +66,9 @@ export default function SubscriptionPage() {
   const [payingPlanID, setPayingPlanID] = useState("");
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(
+    null,
+  );
 
   const modelLabel = currentAIModel || wallet.default_model || "未配置";
   const aiPageCount = Math.max(1, Math.ceil(aiTotal / aiRecordPageSize));
@@ -178,6 +185,12 @@ export default function SubscriptionPage() {
     }
   }
 
+  /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
+  function requestPlanPayment(planID: string) {
+    if (!planID) return;
+    setPendingPayment({ type: "membership", planID });
+  }
+
   /** rechargeAI 创建 AI 余额充值订单。 */
   async function rechargeAI() {
     const amount = Number(rechargeAmount || 0);
@@ -205,6 +218,29 @@ export default function SubscriptionPage() {
     } finally {
       setRecharging(false);
     }
+  }
+
+  /** requestAIRecharge 校验充值金额并在创建 AI 余额订单前打开确认框。 */
+  function requestAIRecharge() {
+    const amount = Number(rechargeAmount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify("充值金额得大于 0，我先小声拦一下。", "warning");
+      return;
+    }
+    setRechargeDialogOpen(false);
+    setPendingPayment({ type: "ai_balance" });
+  }
+
+  /** confirmPendingPayment 在用户明确理解费用区别后执行原支付流程。 */
+  async function confirmPendingPayment() {
+    const payment = pendingPayment;
+    if (!payment) return;
+    if (payment.type === "membership") {
+      await pay(payment.planID);
+    } else {
+      await rechargeAI();
+    }
+    setPendingPayment(null);
   }
 
   /** openModelDialog 打开 AI 模型选择弹框。 */
@@ -418,33 +454,10 @@ export default function SubscriptionPage() {
             plan={plan}
             featured={index === 1 || Boolean(plan.recommended)}
             paying={payingPlanID === plan.id}
-            onPay={() => void pay(plan.id)}
+            onPay={() => requestPlanPayment(plan.id)}
           />
         ))}
       </Box>
-
-      <SectionPanel sx={{ mt: 3, bgcolor: "#f8faf8" }}>
-        <Typography component='h2' sx={{ fontSize: 18, fontWeight: 760 }}>
-          充值与退款说明
-        </Typography>
-        <Stack
-          component='ol'
-          spacing={0.8}
-          sx={{
-            mt: 1.5,
-            mb: 0,
-            pl: 2.5,
-            color: "text.secondary",
-            lineHeight: 1.7,
-          }}
-        >
-          <li>会员未到期时再次购买，新套餐天数会从当前到期时间继续增加。</li>
-          <li>AI 余额只用于内置 AI 调用，自己配置 Key 时不扣这里的钱。</li>
-          <li>
-            需要退款时，按套餐原价折算剩余天数，并扣除支付渠道产生的 5% 手续费。
-          </li>
-        </Stack>
-      </SectionPanel>
 
       <SectionPanel sx={{ mt: 2 }}>
         <Stack
@@ -545,13 +558,99 @@ export default function SubscriptionPage() {
           <Button
             variant='contained'
             disabled={recharging}
-            onClick={() => void rechargeAI()}
+            onClick={requestAIRecharge}
           >
             {recharging ? "下单中" : "去支付"}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PaymentUnderstandingDialog
+        open={pendingPayment !== null}
+        paymentType={pendingPayment?.type || "membership"}
+        loading={
+          pendingPayment?.type === "membership"
+            ? payingPlanID === pendingPayment.planID
+            : recharging
+        }
+        onClose={() => setPendingPayment(null)}
+        onConfirm={() => void confirmPendingPayment()}
+      />
     </>
+  );
+}
+
+/** PaymentUnderstandingDialog 在创建订单前说明会员费、AI 余额和现有退款政策。 */
+function PaymentUnderstandingDialog({
+  open,
+  paymentType,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  paymentType: PendingPayment["type"];
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onClose={loading ? undefined : onClose}
+      fullWidth
+      maxWidth='sm'
+    >
+      <DialogTitle>支付前请确认</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ color: "text.secondary", lineHeight: 1.75 }}>
+          {paymentType === "membership"
+            ? "你即将购买会员套餐。继续前，请确认已经理解下面的费用区别和退款政策。"
+            : "你即将充值 AI 余额。继续前，请确认已经理解下面的费用区别和退款政策。"}
+        </Typography>
+        <Stack spacing={1.25} sx={{ mt: 2 }}>
+          <Box
+            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f4f8f5" }}
+          >
+            <Typography sx={{ fontWeight: 800 }}>会员费</Typography>
+            <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
+              购买的是会员使用期限，用于解锁会员功能。会员未到期时再次购买，新套餐天数会从当前到期时间继续增加。
+            </Typography>
+          </Box>
+          <Box
+            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f7f7f4" }}
+          >
+            <Typography sx={{ fontWeight: 800 }}>AI 余额</Typography>
+            <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
+              仅用于 GoodHR 内置 AI 调用，并按实际使用扣减；自己配置 AI Key 时不扣这里的余额。会员费不包含 AI 余额，AI 余额也不能替代会员订阅。
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              p: 1.75,
+              borderRadius: 2,
+              bgcolor: "#fff8ed",
+              border: "1px solid #f0d8ac",
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, color: "#714700" }}>
+              现有退款政策
+            </Typography>
+            <Typography sx={{ mt: 0.5, color: "#714700", lineHeight: 1.7 }}>
+              需要退款时，按套餐原价折算剩余天数，并扣除支付渠道产生的 5% 手续费。
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button disabled={loading} onClick={onClose}>
+          我再想想
+        </Button>
+        <Button variant='contained' disabled={loading} onClick={onConfirm}>
+          {loading ? "正在创建订单" : "我已理解，继续支付"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
