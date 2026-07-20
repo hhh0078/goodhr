@@ -401,6 +401,51 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	}
 }
 
+// TestGreetCandidateFallsBackToChatWithoutPosition 验证开聊职位未匹配时会点击不选职位继续开聊。
+// t 为测试对象。
+func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "不存在的岗位"
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinGreetJobOptionSelector: {
+			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
+		},
+	}}
+	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
+		"card_index": 1, "card_item": map[string]any{"selector": "tbody tr"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	if got := stringFromMap(exec.payloads[3], "text"); got != "不选职位" {
+		t.Fatalf("fallback button text = %q", got)
+	}
+	if exact, _ := exec.payloads[3]["exact"].(bool); exact {
+		t.Fatal("fallback button should allow partial text match")
+	}
+}
+
+// TestGreetCandidateSupportsAlternateWithoutPositionText 验证页面使用“不选择职位”文案时仍能继续开聊。
+// t 为测试对象。
+func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "不存在的岗位"
+	exec := &searchExecutor{
+		findItems:       map[string][]any{hliepinGreetJobOptionSelector: {}},
+		clickTextErrors: map[string]error{"不选职位": errors.New("未找到该文案")},
+	}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stringFromMap(exec.payloads[4], "text"); got != "不选择职位" {
+		t.Fatalf("alternate fallback button text = %q", got)
+	}
+}
+
 // TestRequestCandidateInfoUsesVerifiedChatSelectors 验证猎聘按勾选项索要信息、发送问候语并依次关闭两个弹层。
 func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	runtime := NewRuntime()

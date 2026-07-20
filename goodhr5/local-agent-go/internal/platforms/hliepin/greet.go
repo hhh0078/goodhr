@@ -3,6 +3,7 @@ package hliepin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -36,8 +37,15 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	if r.greetJobSelected {
 		exec.Log("info", "猎聘打招呼：岗位模式已在搜索页选择职位，开聊弹框无需重复选择")
 	} else {
-		if err := r.selectGreetJob(ctx, exec, positionName); err != nil {
+		selected, err := r.selectGreetJob(ctx, exec, positionName)
+		if err != nil {
 			return err
+		}
+		if !selected {
+			if err := clickGreetWithoutJob(ctx, exec, positionName); err != nil {
+				return err
+			}
+			return r.finishGreetCandidate(ctx, exec)
 		}
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
@@ -46,6 +54,11 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	}); err != nil {
 		return fmt.Errorf("点击猎聘“立即开聊”失败：%w", err)
 	}
+	return r.finishGreetCandidate(ctx, exec)
+}
+
+// finishGreetCandidate 等待猎聘开聊完成，并发送两次 Esc 关闭后续提示弹框。
+func (r *Runtime) finishGreetCandidate(ctx context.Context, exec platformcore.Executor) error {
 	if err := exec.Delay(ctx, "等待猎聘开聊后提示弹框", 1); err != nil {
 		return err
 	}
@@ -63,13 +76,13 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	return nil
 }
 
-// selectGreetJob 在猎聘开聊弹框中读取职位名列表，并兼容完整名称和省略号截断名称选择岗位运行岗位。
-func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor, positionName string) error {
+// selectGreetJob 在猎聘开聊弹框中匹配并选择岗位，未匹配时返回 false 交给不选职位流程。
+func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor, positionName string) (bool, error) {
 	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
 		"text": "请选择开聊的职位", "exact": true,
 		"element": map[string]any{"selector": ".ant-modal .ant-select-selector"}, "timeout": 5000,
 	}); err != nil {
-		return fmt.Errorf("打开猎聘开聊职位下拉框失败：%w", err)
+		return false, fmt.Errorf("打开猎聘开聊职位下拉框失败：%w", err)
 	}
 	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
 		"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},
@@ -77,22 +90,43 @@ func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor
 		"visible_only": true, "max_items": 100,
 	})
 	if err != nil {
-		return fmt.Errorf("读取猎聘开聊职位列表失败：%w", err)
+		return false, fmt.Errorf("读取猎聘开聊职位列表失败：%w", err)
 	}
 	items := mapList(workerData(result, "items"))
 	matchIndex, matchName := matchingGreetJobItem(items, positionName)
 	if matchIndex < 0 {
-		return fmt.Errorf("猎聘开聊弹框中未找到岗位运行岗位“%s”，当前职位=%s", positionName, greetJobItemNames(items))
+		exec.Log("warning", fmt.Sprintf("猎聘打招呼：未找到开聊职位，准备不选职位直接开聊，岗位=%s，当前职位=%s", positionName, greetJobItemNames(items)))
+		return false, nil
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
 		"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},
 		"click_target": map[string]any{"selector": hliepinGreetJobClickSelector},
 		"index":        matchIndex, "timeout": 5000, "require_full": false,
 	}); err != nil {
-		return fmt.Errorf("选择猎聘开聊职位“%s”失败：%w", matchName, err)
+		return false, fmt.Errorf("选择猎聘开聊职位“%s”失败：%w", matchName, err)
 	}
 	exec.Log("info", "猎聘打招呼：开聊职位已选择="+matchName)
-	return exec.Delay(ctx, "等待猎聘开聊职位选择生效", 0.2)
+	if err := exec.Delay(ctx, "等待猎聘开聊职位选择生效", 0.2); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// clickGreetWithoutJob 在职位未匹配时兼容点击“不选职位”或“不选择职位”开聊按钮。
+func clickGreetWithoutJob(ctx context.Context, exec platformcore.Executor, positionName string) error {
+	var failures []error
+	for _, text := range []string{"不选职位", "不选择职位"} {
+		if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
+			"text": text, "exact": false,
+			"element": map[string]any{"selector": ".ant-modal button"}, "timeout": 3000,
+		}); err == nil {
+			exec.Log("info", "猎聘打招呼：未匹配岗位“"+positionName+"”，已点击不选职位直接开聊")
+			return nil
+		} else {
+			failures = append(failures, fmt.Errorf("匹配文字“%s”：%w", text, err))
+		}
+	}
+	return fmt.Errorf("猎聘未找到匹配职位，点击不选职位开聊失败：%w", errors.Join(failures...))
 }
 
 // normalizeSearchMatchText 统一开聊职位比较时的大小写并移除空白，兼容职位名称的截断显示。
