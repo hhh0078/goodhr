@@ -25,14 +25,18 @@ type routeExecutor struct {
 
 // searchExecutor 模拟关键词、快捷搜索和发布职位页面操作。
 type searchExecutor struct {
-	paths           []string
-	payloads        []map[string]any
-	findItems       map[string][]any
-	errors          map[string]error
-	clickTextErrors map[string]error
-	scrollActions   []string
-	scrollCalls     int
-	delays          []float64
+	paths             []string
+	payloads          []map[string]any
+	findItems         map[string][]any
+	findItemSequences map[string][][]any
+	findSequenceCalls map[string]int
+	errors            map[string]error
+	clickTextErrors   map[string]error
+	clickTextFailures map[string]int
+	greetModalOpen    bool
+	scrollActions     []string
+	scrollCalls       int
+	delays            []float64
 }
 
 // Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
@@ -41,9 +45,26 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	value, _ := payload.(map[string]any)
 	e.payloads = append(e.payloads, value)
 	if path == "/api/v1/page/click-by-text" {
+		text := stringFromMap(value, "text")
+		if e.clickTextFailures[text] > 0 {
+			e.clickTextFailures[text]--
+			return nil, errors.New("模拟猎聘开聊控件尚未渲染")
+		}
 		if err := e.clickTextErrors[stringFromMap(value, "text")]; err != nil {
 			return nil, err
 		}
+		if text == "立即开聊" || text == "不选职位" || text == "不选择职位" {
+			e.greetModalOpen = false
+		}
+	}
+	if path == "/api/v1/page/list-click-by-index" {
+		item := mapFromAny(value["item"])
+		if stringFromMap(item, "selector") == "tbody tr" {
+			e.greetModalOpen = true
+		}
+	}
+	if path == "/api/v1/page/press-key" && stringFromMap(value, "key") == "Escape" {
+		e.greetModalOpen = false
 	}
 	if err := e.errors[path]; err != nil {
 		return nil, err
@@ -58,7 +79,26 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	}
 	if path == "/api/v1/page/find-elements" {
 		element := mapFromAny(value["element"])
-		return map[string]any{"data": map[string]any{"items": e.findItems[stringFromMap(element, "selector")]}}, nil
+		selector := stringFromMap(element, "selector")
+		if selector == hliepinGreetModalSelector {
+			items := []any{}
+			if e.greetModalOpen {
+				items = []any{map[string]any{"text": "请选择职位开聊\n请选择开聊的职位"}}
+			}
+			return map[string]any{"data": map[string]any{"items": items}}, nil
+		}
+		if sequences := e.findItemSequences[selector]; len(sequences) > 0 {
+			if e.findSequenceCalls == nil {
+				e.findSequenceCalls = map[string]int{}
+			}
+			index := e.findSequenceCalls[selector]
+			e.findSequenceCalls[selector] = index + 1
+			if index >= len(sequences) {
+				index = len(sequences) - 1
+			}
+			return map[string]any{"data": map[string]any{"items": sequences[index]}}, nil
+		}
+		return map[string]any{"data": map[string]any{"items": e.findItems[selector]}}, nil
 	}
 	return map[string]any{"data": map[string]any{"ok": true}}, nil
 }
@@ -367,11 +407,11 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
+	if got := intFromMap(exec.payloads[5], "index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
@@ -392,11 +432,11 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[1], "text"); got != "立即开聊" {
+	if got := stringFromMap(exec.payloads[3], "text"); got != "立即开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -417,14 +457,14 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[3], "text"); got != "不选职位" {
+	if got := stringFromMap(exec.payloads[5], "text"); got != "不选职位" {
 		t.Fatalf("fallback button text = %q", got)
 	}
-	if exact, _ := exec.payloads[3]["exact"].(bool); exact {
+	if exact, _ := exec.payloads[5]["exact"].(bool); exact {
 		t.Fatal("fallback button should allow partial text match")
 	}
 }
@@ -441,8 +481,76 @@ func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
 	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 1}); err != nil {
 		t.Fatal(err)
 	}
-	if got := stringFromMap(exec.payloads[4], "text"); got != "不选择职位" {
-		t.Fatalf("alternate fallback button text = %q", got)
+	foundAlternate := false
+	for _, payload := range exec.payloads {
+		if stringFromMap(payload, "text") == "不选择职位" {
+			foundAlternate = true
+			break
+		}
+	}
+	if !foundAlternate {
+		t.Fatal("alternate fallback button was not clicked")
+	}
+}
+
+// TestGreetCandidateWaitsForDelayedJobOptions 验证猎聘职位下拉选项延迟出现时会轮询等待。
+// t 为测试对象。
+func TestGreetCandidateWaitsForDelayedJobOptions(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "Java开发工程师"
+	exec := &searchExecutor{findItemSequences: map[string][][]any{
+		hliepinGreetJobOptionSelector: {
+			{},
+			{map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
+		},
+	}}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0}); err != nil {
+		t.Fatal(err)
+	}
+	if got := exec.findSequenceCalls[hliepinGreetJobOptionSelector]; got != 2 {
+		t.Fatalf("job option queries = %d, want 2", got)
+	}
+	foundPollDelay := false
+	for _, delay := range exec.delays {
+		if delay == hliepinGreetPollDelaySeconds {
+			foundPollDelay = true
+			break
+		}
+	}
+	if !foundPollDelay {
+		t.Fatalf("delays = %#v, want job option poll delay", exec.delays)
+	}
+}
+
+// TestGreetCandidateCleansModalAndRetriesOnce 验证猎聘首次失败后关闭遗留弹框并重试一次。
+// t 为测试对象。
+func TestGreetCandidateCleansModalAndRetriesOnce(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "Java开发工程师"
+	exec := &searchExecutor{
+		findItems: map[string][]any{
+			hliepinGreetJobOptionSelector: {map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
+		},
+		clickTextFailures: map[string]int{"请选择开聊的职位": 1},
+	}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0}); err != nil {
+		t.Fatal(err)
+	}
+	candidateClicks := 0
+	for index, path := range exec.paths {
+		if path != "/api/v1/page/list-click-by-index" {
+			continue
+		}
+		item := mapFromAny(exec.payloads[index]["item"])
+		if stringFromMap(item, "selector") == "tbody tr" {
+			candidateClicks++
+		}
+	}
+	if candidateClicks != 2 {
+		t.Fatalf("candidate clicks = %d, want 2 attempts", candidateClicks)
+	}
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 3 {
+		t.Fatalf("escape presses = %d, want cleanup once plus success twice", got)
 	}
 }
 
