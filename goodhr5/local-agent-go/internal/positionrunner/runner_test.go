@@ -123,7 +123,14 @@ func TestCandidateInfoScoreDecisionFallsBackToGreetThreshold(t *testing.T) {
 // candidateInfoErrorRuntime 模拟打招呼成功但索要信息失败的平台。
 type candidateInfoErrorRuntime struct {
 	detailCloseProbeRuntime
-	requestCalls int
+	requestCalls     int
+	greetWillRequest bool
+}
+
+// GreetCandidate 记录主流程是否告知平台本候选人打招呼后会立即索要信息。
+func (r *candidateInfoErrorRuntime) GreetCandidate(_ context.Context, _ platformcore.Executor, _ cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
+	r.greetWillRequest = boolFromMap(candidate, "_candidate_info_after_greet")
+	return nil
 }
 
 // RequestCandidateInfo 返回索要信息错误，用于验证主流程不会把候选人改成失败。
@@ -153,6 +160,12 @@ func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
 	if runtime.requestCalls != 1 {
 		t.Fatalf("request calls = %d", runtime.requestCalls)
 	}
+	if !runtime.greetWillRequest {
+		t.Fatal("greet should know candidate info will run")
+	}
+	if _, exists := candidate["_candidate_info_after_greet"]; exists {
+		t.Fatal("temporary candidate info hint should be removed after greet")
+	}
 }
 
 // TestCandidateInfoWithoutAIScoreSkipsRequester 验证候选人没有最终 AI 评分时不调用平台索要接口。
@@ -172,6 +185,9 @@ func TestCandidateInfoWithoutAIScoreSkipsRequester(t *testing.T) {
 	}
 	if greeted != 1 || failed != 0 || skipped != 0 || runtime.requestCalls != 0 {
 		t.Fatalf("greeted=%d failed=%d skipped=%d requestCalls=%d", greeted, failed, skipped, runtime.requestCalls)
+	}
+	if runtime.greetWillRequest {
+		t.Fatal("greet should not preserve chat when candidate info is skipped")
 	}
 }
 

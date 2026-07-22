@@ -26,6 +26,7 @@ const (
 	hliepinPanelPollInterval      = 0.1
 	hliepinChatOpenPollCount      = 100
 	hliepinActionReadyPollCount   = 30
+	hliepinReusableChatPollCount  = 15
 	hliepinPanelQuietPollCount    = 5
 	hliepinPanelCleanupPollCount  = 30
 )
@@ -52,10 +53,7 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 	if err != nil {
 		return err
 	}
-	if err := clearStaleCandidateInfoPanels(ctx, exec, candidate); err != nil {
-		return err
-	}
-	interactionMayHaveStarted := false
+	interactionMayHaveStarted := true
 	defer func() {
 		if !interactionMayHaveStarted {
 			return
@@ -69,15 +67,25 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 			}
 		}
 	}()
-	interactionMayHaveStarted = true
-	if _, err := hliepinStableClick(ctx, exec, rowParent, hliepinContinueButtonSelector, map[string]any{
-		"action_name":   "候选人=" + candidateName(candidate) + "，继续沟通",
-		"expected_text": "继续沟通", "exact_text": true,
-	}); err != nil {
-		return fmt.Errorf("点击猎聘“继续沟通”失败：%w", err)
-	}
-	if err := waitForCandidateInfoChat(ctx, exec, candidate); err != nil {
+	reused, err := waitForReusableCandidateInfoChat(ctx, exec, candidate)
+	if err != nil {
 		return err
+	}
+	if reused {
+		exec.Log("info", "猎聘索要信息状态：候选人="+candidateName(candidate)+"，阶段=复用打招呼已打开的聊天框，不再点击继续沟通")
+	} else {
+		if err := clearStaleCandidateInfoPanels(ctx, exec, candidate); err != nil {
+			return err
+		}
+		if _, err := hliepinStableClick(ctx, exec, rowParent, hliepinContinueButtonSelector, map[string]any{
+			"action_name":   "候选人=" + candidateName(candidate) + "，继续沟通",
+			"expected_text": "继续沟通", "exact_text": true,
+		}); err != nil {
+			return fmt.Errorf("点击猎聘“继续沟通”失败：%w", err)
+		}
+		if err := waitForCandidateInfoChat(ctx, exec, candidate); err != nil {
+			return err
+		}
 	}
 	actions := []struct {
 		enabled  bool
@@ -119,6 +127,40 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 		}
 	}
 	return nil
+}
+
+// waitForReusableCandidateInfoChat 每100毫秒检查打招呼是否已自动打开当前候选人聊天框，存在则直接复用。
+func waitForReusableCandidateInfoChat(ctx context.Context, exec platformcore.Executor, candidate platformcore.Candidate) (bool, error) {
+	expectedName := candidateName(candidate)
+	startedAt := time.Now()
+	lastState := hliepinCandidateInfoPanelState{chatCount: -1, drawerCount: -1}
+	for attempt := 1; attempt <= hliepinReusableChatPollCount; attempt++ {
+		state, err := inspectCandidateInfoPanels(ctx, exec)
+		if err != nil {
+			return false, err
+		}
+		if state != lastState || attempt == 1 || attempt%5 == 0 {
+			exec.Log("info", fmt.Sprintf("猎聘索要信息状态：候选人=%s，阶段=判断是否复用聊天框，轮次=%d/%d，聊天框=%d，联系人列表=%d，聊天姓名=%s，耗时=%s", expectedName, attempt, hliepinReusableChatPollCount, state.chatCount, state.drawerCount, firstNonEmpty(state.candidateName, "无"), time.Since(startedAt).Round(time.Millisecond)))
+			lastState = state
+		}
+		if state.chatCount > 1 {
+			return false, fmt.Errorf("猎聘聊天框数量异常：候选人=%s，数量=%d", expectedName, state.chatCount)
+		}
+		if state.chatCount == 1 && state.candidateName != "" {
+			if hliepinCandidateNamesMatch(expectedName, state.candidateName) {
+				return true, nil
+			}
+			exec.Log("warning", fmt.Sprintf("猎聘索要信息状态：候选人=%s，已打开聊天姓名=%s，不复用并准备清理", expectedName, state.candidateName))
+			return false, nil
+		}
+		if attempt < hliepinReusableChatPollCount {
+			if err := exec.Delay(ctx, "等待猎聘打招呼自动打开聊天框", hliepinPanelPollInterval); err != nil {
+				return false, err
+			}
+		}
+	}
+	exec.Log("info", fmt.Sprintf("猎聘索要信息状态：候选人=%s，打招呼后未自动打开聊天框，准备点击继续沟通，等待=%s", expectedName, time.Since(startedAt).Round(time.Millisecond)))
+	return false, nil
 }
 
 // waitForCandidateInfoAction 每100毫秒等待猎聘聊天框底部索要按钮完成异步渲染，避免姓名先出现时过早判定按钮缺失。
@@ -274,7 +316,7 @@ func clearStaleCandidateInfoPanels(ctx context.Context, exec platformcore.Execut
 	if state.chatCount == 0 && state.drawerCount == 0 {
 		return nil
 	}
-	exec.Log("warning", fmt.Sprintf("猎聘索要信息状态：候选人=%s，发现上一候选人残留弹层，开始清理", candidateName(candidate)))
+	exec.Log("warning", fmt.Sprintf("猎聘索要信息状态：候选人=%s，发现需要清理的现有弹层，开始清理", candidateName(candidate)))
 	return closeCandidateInfoPanels(ctx, exec, candidate)
 }
 

@@ -531,6 +531,34 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	}
 }
 
+// TestGreetCandidatePreservesChatForCandidateInfo 验证本候选人随后需要索要信息时不发送 Esc 关闭自动打开的聊天框。
+func TestGreetCandidatePreservesChatForCandidateInfo(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "不存在的岗位"
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinGreetJobOptionSelector: {
+			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
+		},
+	}}
+	candidate := hliepinStableTestCandidate(1)
+	candidate["_candidate_info_after_greet"] = true
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 0 {
+		t.Fatalf("escape presses = %d, want 0 when candidate info follows", got)
+	}
+	fallbackClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinGreetWithoutJobTarget {
+			fallbackClicks++
+		}
+	}
+	if fallbackClicks != 1 {
+		t.Fatalf("fallback clicks = %d, want 1", fallbackClicks)
+	}
+}
+
 // TestGreetCandidateUsesScopedWithoutPositionButton 验证未匹配职位时只点击开聊弹框内唯一的不选择职位按钮。
 // t 为测试对象。
 func TestGreetCandidateUsesScopedWithoutPositionButton(t *testing.T) {
@@ -699,7 +727,7 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoWaitsForDelayedCurrentChat 验证猎聘聊天框延迟出现时只点击一次继续沟通，并等待当前候选人后再索要。
+// TestRequestCandidateInfoWaitsForDelayedCurrentChat 验证猎聘聊天框延迟出现时直接复用，不再点击继续沟通。
 func TestRequestCandidateInfoWaitsForDelayedCurrentChat(t *testing.T) {
 	exec := &searchExecutor{}
 	exec.findItemSequences = map[string][][]any{
@@ -727,7 +755,7 @@ func TestRequestCandidateInfoWaitsForDelayedCurrentChat(t *testing.T) {
 			phoneClicks++
 		}
 	}
-	if continueClicks != 1 || phoneClicks != 1 {
+	if continueClicks != 0 || phoneClicks != 1 {
 		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
 	}
 }
@@ -782,28 +810,42 @@ func TestRequestCandidateInfoStopsWhenActionButtonNeverAppears(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoRejectsMismatchedChat 验证聊天框姓名不是当前候选人时不会执行任何索要动作。
-func TestRequestCandidateInfoRejectsMismatchedChat(t *testing.T) {
+// TestRequestCandidateInfoReopensMismatchedChat 验证聊天框姓名不是当前候选人时先清理，再只打开一次当前候选人。
+func TestRequestCandidateInfoReopensMismatchedChat(t *testing.T) {
 	exec := &searchExecutor{}
 	exec.findItemSequences = map[string][][]any{
 		hliepinChatModalParent: [][]any{
-			[]any{},
 			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{map[string]any{"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"}}},
 			[]any{},
 		},
 	}
 	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
-	if err == nil || !strings.Contains(err.Error(), "聊天候选人不匹配") {
-		t.Fatalf("error = %v, want candidate mismatch", err)
+	if err != nil {
+		t.Fatal(err)
 	}
+	continueClicks := 0
 	phoneClicks := 0
 	for index, path := range exec.paths {
-		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		switch stringFromMap(exec.payloads[index], "target_selector") {
+		case hliepinCandidateButtonTarget:
+			continueClicks++
+		case hliepinRequestPhoneSelector:
 			phoneClicks++
 		}
 	}
-	if phoneClicks != 0 {
-		t.Fatalf("phone clicks = %d, want 0", phoneClicks)
+	if continueClicks != 1 || phoneClicks != 1 {
+		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
 	}
 }
 

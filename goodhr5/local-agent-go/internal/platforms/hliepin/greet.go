@@ -57,7 +57,7 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 			if err := clickGreetWithoutJob(ctx, exec, positionName); err != nil {
 				return err
 			}
-			return r.finishGreetCandidate(ctx, exec)
+			return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
 		}
 	}
 	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetSubmitTarget, map[string]any{
@@ -66,11 +66,15 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 	}); err != nil {
 		return fmt.Errorf("点击猎聘“立即开聊”失败：%w", err)
 	}
-	return r.finishGreetCandidate(ctx, exec)
+	return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
 }
 
-// finishGreetCandidate 等待猎聘开聊完成，并发送两次 Esc 关闭后续提示弹框。
-func (r *Runtime) finishGreetCandidate(ctx context.Context, exec platformcore.Executor) error {
+// finishGreetCandidate 在需要立即索要信息时保留猎聘自动打开的聊天框，否则沿用两次 Esc 完成页面收尾。
+func (r *Runtime) finishGreetCandidate(ctx context.Context, exec platformcore.Executor, preserveChat bool) error {
+	if preserveChat {
+		exec.Log("info", "猎聘打招呼：本候选人随后需要索要信息，保留可能自动打开的聊天框并交给索要流程判断")
+		return nil
+	}
 	if err := exec.Delay(ctx, "等待猎聘开聊后提示弹框", 1); err != nil {
 		return err
 	}

@@ -31,15 +31,18 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		return 0, 0, 0, err
 	}
 	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
-	if err := r.tryGreet(ctx, position.ID, platformRuntime, exec, platformConfig, candidate, options); err != nil {
-		candidate["status"] = "failed"
-		candidate["error"] = err.Error()
-		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
-		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: err}
-	}
 	request := candidateInfoRequestFromPosition(position)
 	requestConfigured := candidateInfoRequestConfigured(request)
 	requestAllowed, requestScore, requestThreshold, hasRequestScore := candidateInfoScoreDecision(position, candidate)
+	candidate["_candidate_info_after_greet"] = requestConfigured && requestAllowed
+	greetErr := r.tryGreet(ctx, position.ID, platformRuntime, exec, platformConfig, candidate, options)
+	delete(candidate, "_candidate_info_after_greet")
+	if greetErr != nil {
+		candidate["status"] = "failed"
+		candidate["error"] = greetErr.Error()
+		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), greetErr.Error()))
+		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: greetErr}
+	}
 	if requestConfigured && !hasRequestScore {
 		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，没有最终 AI 评分，索要分数=%.1f", candidateLogName(candidate), requestThreshold))
 	} else if requestConfigured && !requestAllowed {
