@@ -721,6 +721,7 @@ func TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	stableCalls := 0
+	actionIDs := map[string]bool{}
 	for index, path := range exec.paths {
 		if path != hliepinStableClickPath {
 			continue
@@ -732,6 +733,14 @@ func TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget(t *testing.T) {
 		if strings.TrimSpace(stringFromMap(exec.payloads[index], "target_selector")) == "" {
 			t.Fatalf("stable payload[%d] target selector is empty", index)
 		}
+		actionID := strings.TrimSpace(stringFromMap(exec.payloads[index], "action_id"))
+		if actionID == "" {
+			t.Fatalf("stable payload[%d] action id is empty", index)
+		}
+		if actionIDs[actionID] {
+			t.Fatalf("stable payload[%d] action id is duplicated: %s", index, actionID)
+		}
+		actionIDs[actionID] = true
 	}
 	if stableCalls == 0 {
 		t.Fatal("expected stable click calls")

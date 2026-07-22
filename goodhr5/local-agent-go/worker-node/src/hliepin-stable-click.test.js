@@ -69,12 +69,15 @@ test("确认按钮启用空白归一化后仍按完整文字精确匹配", async
 test("父级和目标唯一且位置稳定时只点击一次", async () => {
   const { page } = createStableClickPage({ x: 100, y: 120, width: 80, height: 32 });
   let clickCount = 0;
+  const logs = [];
   const stableClick = createHLiepinStableClickAction({
     ensurePage: async () => page,
     moveMouseToElement: async () => ({ x: 140, y: 136 }),
     humanMouseClick: async () => { clickCount += 1; return { clicked: true }; },
+    logWorker: (message, data) => logs.push({ message, data }),
   });
   const result = await stableClick({
+    action_id: "test-action-1",
     parent_selector: ".parent",
     target_selector: ".target",
     expected_text: "立即沟通",
@@ -83,6 +86,9 @@ test("父级和目标唯一且位置稳定时只点击一次", async () => {
   });
   assert.equal(result.click_count, 1);
   assert.equal(clickCount, 1);
+  assert.equal(result.action_id, "test-action-1");
+  assert.equal(logs.filter((item) => item.data.stage === "physical-click-after").length, 1);
+  assert.equal(logs.find((item) => item.data.stage === "physical-click-after")?.data.physical_click_count, 1);
 });
 
 test("鼠标移动后落点不在目标最新位置时取消点击", async () => {

@@ -32,6 +32,9 @@ export function createHLiepinStableClickAction(dependencies) {
   const ensurePage = dependencies?.ensurePage;
   const moveMouseToElement = dependencies?.moveMouseToElement;
   const humanMouseClick = dependencies?.humanMouseClick;
+  const logWorker = typeof dependencies?.logWorker === "function"
+    ? dependencies.logWorker
+    : () => {};
   if (!ensurePage || !moveMouseToElement || !humanMouseClick) {
     throw new Error("猎聘稳定点击依赖不完整");
   }
@@ -112,8 +115,18 @@ export function createHLiepinStableClickAction(dependencies) {
   /** stableClick 等待父子目标唯一且位置稳定，移动后再次复核并只点击一次。 */
   async function stableClick(payload) {
     const currentPage = await ensurePage();
+    const actionId = String(payload?.action_id || "未提供").trim();
+    const actionName = String(payload?.action_name || payload?.expected_text || payload?.target_selector || "未知动作").trim();
     const tolerance = Math.max(0, Number(payload?.position_tolerance || 2));
     const maxMoves = Math.max(1, Number(payload?.max_move_attempts || 3));
+    logWorker("猎聘稳定点击诊断", {
+      stage: "start",
+      action_id: actionId,
+      action: actionName,
+      parent: payload?.parent_selector,
+      target: payload?.target_selector,
+      max_moves: maxMoves,
+    });
     let resolved = await resolveUniqueTarget(currentPage, payload || {});
     let stableBox = await waitForStableBox(currentPage, resolved.target, payload || {});
     let move = null;
@@ -121,6 +134,16 @@ export function createHLiepinStableClickAction(dependencies) {
       move = await moveMouseToElement(currentPage, resolved.target, payload || {});
       resolved = await resolveUniqueTarget(currentPage, payload || {});
       const latestBox = await waitForStableBox(currentPage, resolved.target, payload || {});
+      logWorker("猎聘稳定点击诊断", {
+        stage: "mouse-moved",
+        action_id: actionId,
+        action: actionName,
+        move_attempt: attempt,
+        mouse_x: Math.round(Number(move?.x || 0)),
+        mouse_y: Math.round(Number(move?.y || 0)),
+        box_x: Math.round(Number(latestBox?.x || 0)),
+        box_y: Math.round(Number(latestBox?.y || 0)),
+      });
       if (
         boxesApproximatelyEqual(stableBox, latestBox, tolerance) &&
         pointInsideBox(move, latestBox, Math.min(4, tolerance + 1))
@@ -141,7 +164,22 @@ export function createHLiepinStableClickAction(dependencies) {
     ) {
       throw new Error("猎聘稳定点击前目标位置再次变化，已取消点击");
     }
+    logWorker("猎聘稳定点击诊断", {
+      stage: "physical-click-before",
+      action_id: actionId,
+      action: actionName,
+      physical_click_count: 0,
+      mouse_x: Math.round(Number(move?.x || 0)),
+      mouse_y: Math.round(Number(move?.y || 0)),
+    });
     const click = await humanMouseClick(currentPage, payload || {});
+    logWorker("猎聘稳定点击诊断", {
+      stage: "physical-click-after",
+      action_id: actionId,
+      action: actionName,
+      physical_click_count: 1,
+      hold_ms: click?.hold_ms,
+    });
     const waitForSelector = String(payload?.wait_for_selector || "").trim();
     if (waitForSelector) {
       const appeared = currentPage.locator(waitForSelector);
@@ -165,6 +203,7 @@ export function createHLiepinStableClickAction(dependencies) {
       stable_box: finalBox,
       mouse: move,
       click,
+      action_id: actionId,
     };
   }
 

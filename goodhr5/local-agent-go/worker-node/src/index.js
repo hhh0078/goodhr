@@ -4882,6 +4882,7 @@ const hliepinStableClick = createHLiepinStableClickAction({
   ensurePage,
   moveMouseToElement,
   humanMouseClick,
+  logWorker,
 });
 const routes = {
   "/api/v1/browser/start": startBrowser,
