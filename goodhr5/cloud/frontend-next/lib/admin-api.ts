@@ -139,9 +139,8 @@ export function captureLocalAgentPortFromURL(search?: string) {
     ),
   );
   if (!port) return 0;
-  const previousPort = cachedLocalAgentPort();
   localStorage.setItem(LOCAL_AGENT_PORT_CACHE_KEY, String(port));
-  if (previousPort !== port) clearLocalAgentDetectCache();
+  clearLocalAgentDetectCache();
   return port;
 }
 
