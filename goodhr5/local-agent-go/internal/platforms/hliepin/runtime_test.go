@@ -33,10 +33,21 @@ type searchExecutor struct {
 	errors            map[string]error
 	clickTextErrors   map[string]error
 	clickTextFailures map[string]int
+	stableFailures    map[string]int
 	greetModalOpen    bool
 	scrollActions     []string
 	scrollCalls       int
 	delays            []float64
+}
+
+// hliepinStableTestCandidate 创建带稳定简历 ID 的猎聘候选人测试数据。
+func hliepinStableTestCandidate(index int) platformcore.Candidate {
+	return platformcore.Candidate{
+		"card_index":            index,
+		"card_item":             map[string]any{"selector": "tbody tr"},
+		"platform_candidate_id": fmt.Sprintf("test-candidate-%d", index),
+		"candidate_name":        "王**",
+	}
 }
 
 // Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
@@ -44,6 +55,19 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	e.paths = append(e.paths, path)
 	value, _ := payload.(map[string]any)
 	e.payloads = append(e.payloads, value)
+	if path == hliepinStableClickPath {
+		target := stringFromMap(value, "target_selector")
+		if e.stableFailures[target] > 0 {
+			e.stableFailures[target]--
+			return nil, errors.New("模拟猎聘稳定目标尚未就绪")
+		}
+		if target == hliepinCandidateButtonTarget && stringFromMap(value, "expected_text") == "立即沟通" {
+			e.greetModalOpen = true
+		}
+		if target == hliepinGreetSubmitTarget || target == hliepinGreetWithoutJobTarget {
+			e.greetModalOpen = false
+		}
+	}
 	if path == "/api/v1/page/click-by-text" {
 		text := stringFromMap(value, "text")
 		if e.clickTextFailures[text] > 0 {
@@ -401,18 +425,31 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师高..."}},
 		},
 	}}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 2, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[5], "index"); got != 1 {
+	if got := intFromMap(exec.payloads[5], "target_index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
+	}
+	if got := stringFromMap(exec.payloads[5], "parent_selector"); got != hliepinGreetDropdownParent {
+		t.Fatalf("position parent = %q, want %q", got, hliepinGreetDropdownParent)
+	}
+	if got := stringFromMap(exec.payloads[5], "target_selector"); got != hliepinGreetJobOptionTarget {
+		t.Fatalf("position target = %q, want %q", got, hliepinGreetJobOptionTarget)
+	}
+	if got := stringFromMap(exec.payloads[5], "nested_selector"); got != hliepinGreetJobOptionNested {
+		t.Fatalf("position nested target = %q, want %q", got, hliepinGreetJobOptionNested)
+	}
+	if got := stringFromMap(exec.payloads[1], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
+		t.Fatalf("candidate parent = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[1], "target_selector"); got != hliepinCandidateButtonTarget {
+		t.Fatalf("candidate target = %q", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
 		t.Fatalf("escape presses = %d, want 2", got)
@@ -426,17 +463,15 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	runtime.currentPosition = "PHP程序员"
 	runtime.greetJobSelected = true
 	exec := &searchExecutor{}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 0, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[3], "text"); got != "立即开聊" {
+	if got := stringFromMap(exec.payloads[3], "expected_text"); got != "立即开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -451,45 +486,40 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
 		},
 	}}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 1, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[5], "text"); got != "不选职位" {
+	if got := stringFromMap(exec.payloads[5], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("fallback button text = %q", got)
 	}
-	if exact, _ := exec.payloads[5]["exact"].(bool); exact {
-		t.Fatal("fallback button should allow partial text match")
+	if exact, _ := exec.payloads[5]["exact_text"].(bool); !exact {
+		t.Fatal("fallback button should use exact text match")
 	}
 }
 
-// TestGreetCandidateSupportsAlternateWithoutPositionText 验证页面使用“不选择职位”文案时仍能继续开聊。
+// TestGreetCandidateUsesScopedWithoutPositionButton 验证未匹配职位时只点击开聊弹框内唯一的不选择职位按钮。
 // t 为测试对象。
-func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
+func TestGreetCandidateUsesScopedWithoutPositionButton(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "不存在的岗位"
-	exec := &searchExecutor{
-		findItems:       map[string][]any{hliepinGreetJobOptionSelector: {}},
-		clickTextErrors: map[string]error{"不选职位": errors.New("未找到该文案")},
-	}
-	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 1}); err != nil {
+	exec := &searchExecutor{findItems: map[string][]any{hliepinGreetJobOptionSelector: {}}}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(1)); err != nil {
 		t.Fatal(err)
 	}
-	foundAlternate := false
+	foundScopedFallback := false
 	for _, payload := range exec.payloads {
-		if stringFromMap(payload, "text") == "不选择职位" {
-			foundAlternate = true
+		if stringFromMap(payload, "parent_selector") == hliepinGreetModalParent && stringFromMap(payload, "target_selector") == hliepinGreetWithoutJobTarget {
+			foundScopedFallback = true
 			break
 		}
 	}
-	if !foundAlternate {
-		t.Fatal("alternate fallback button was not clicked")
+	if !foundScopedFallback {
+		t.Fatal("scoped fallback button was not clicked")
 	}
 }
 
@@ -504,7 +534,7 @@ func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
 			{map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
 		},
 	}}
-	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0}); err != nil {
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0)); err != nil {
 		t.Fatal(err)
 	}
 	if got := exec.findSequenceCalls[hliepinGreetJobOptionSelector]; got != 1 {
@@ -512,7 +542,7 @@ func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
 	}
 	foundFallback := false
 	for _, payload := range exec.payloads {
-		if stringFromMap(payload, "text") == "不选职位" {
+		if stringFromMap(payload, "target_selector") == hliepinGreetWithoutJobTarget {
 			foundFallback = true
 			break
 		}
@@ -531,19 +561,18 @@ func TestGreetCandidateDoesNotRetry(t *testing.T) {
 		findItems: map[string][]any{
 			hliepinGreetJobOptionSelector: {map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
 		},
-		clickTextFailures: map[string]int{"请选择开聊的职位": 1},
+		stableFailures: map[string]int{hliepinGreetJobSelectTarget: 1},
 	}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
 	if err == nil || !strings.Contains(err.Error(), "打开猎聘开聊职位下拉框失败") {
 		t.Fatalf("error = %v, want dropdown open failure", err)
 	}
 	candidateClicks := 0
 	for index, path := range exec.paths {
-		if path != "/api/v1/page/list-click-by-index" {
+		if path != hliepinStableClickPath {
 			continue
 		}
-		item := mapFromAny(exec.payloads[index]["item"])
-		if stringFromMap(item, "selector") == "tbody tr" {
+		if stringFromMap(exec.payloads[index], "target_selector") == hliepinCandidateButtonTarget && stringFromMap(exec.payloads[index], "expected_text") == "立即沟通" {
 			candidateClicks++
 		}
 	}
@@ -559,44 +588,43 @@ func TestGreetCandidateDoesNotRetry(t *testing.T) {
 func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{}
-	err := runtime.RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{
+	err := runtime.RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{
 		RequestPhone: true, RequestWechat: true, RequestResume: true, GreetMessage: "你好，想和你沟通这个岗位。",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"/api/v1/page/list-click-by-index",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
+		hliepinStableClickPath,
 		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
 		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
 		"/api/v1/page/find-elements",
 		"/api/v1/page/type",
 		"/api/v1/page/press-key",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
+		hliepinStableClickPath,
 	}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	selectors := []string{
+	stableSelectors := []string{
 		hliepinRequestPhoneSelector,
 		hliepinRequestWechatSelector,
 		hliepinRequestResumeSelector,
-		hliepinChatInputSelector,
 		hliepinChatCloseSelector,
 		hliepinCandidateListClose,
 	}
-	payloadIndexes := []int{1, 3, 5, 7, 9, 10}
+	payloadIndexes := []int{1, 3, 5, 9, 10}
 	for index, payloadIndex := range payloadIndexes {
-		if got := stringFromMap(mapFromAny(exec.payloads[payloadIndex]["element"]), "selector"); got != selectors[index] {
-			t.Fatalf("selector[%d] = %q, want %q", index, got, selectors[index])
+		if got := stringFromMap(exec.payloads[payloadIndex], "target_selector"); got != stableSelectors[index] {
+			t.Fatalf("selector[%d] = %q, want %q", index, got, stableSelectors[index])
 		}
+	}
+	if got := stringFromMap(mapFromAny(exec.payloads[7]["element"]), "selector"); got != hliepinChatInputSelector {
+		t.Fatalf("chat input selector = %q, want %q", got, hliepinChatInputSelector)
 	}
 	if got := stringFromMap(exec.payloads[7], "text"); got != "你好，想和你沟通这个岗位。" {
 		t.Fatalf("message = %q", got)
@@ -614,20 +642,17 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinRequestConfirmDialog: {map[string]any{"text": "确定向对方索要手机号吗？"}},
 	}}
-	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"/api/v1/page/list-click-by-index",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
+		hliepinStableClickPath,
 		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
+		hliepinStableClickPath,
+		hliepinStableClickPath,
+		hliepinStableClickPath,
 	}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
@@ -635,7 +660,10 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	if got := stringFromMap(mapFromAny(exec.payloads[2]["element"]), "selector"); got != hliepinRequestConfirmDialog {
 		t.Fatalf("confirm dialog selector = %q", got)
 	}
-	if got := stringFromMap(mapFromAny(exec.payloads[3]["element"]), "selector"); got != hliepinRequestConfirmButton {
+	if got := stringFromMap(exec.payloads[3], "parent_selector"); got != hliepinRequestConfirmDialog {
+		t.Fatalf("confirm parent selector = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[3], "target_selector"); got != hliepinRequestConfirmButton {
 		t.Fatalf("confirm button selector = %q", got)
 	}
 	if len(exec.delays) < 2 || exec.delays[1] != 1 {
@@ -657,15 +685,53 @@ func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
 
 // TestRequestCandidateInfoFailsWhenRequestedButtonMissing 验证猎聘索要按钮不存在时整次索要失败并返回明确错误。
 func TestRequestCandidateInfoFailsWhenRequestedButtonMissing(t *testing.T) {
-	exec := &searchExecutor{errors: map[string]error{
-		"/api/v1/page/click": errors.New("点击选择器不能为空或未找到元素"),
-	}}
-	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{RequestPhone: true})
-	if err == nil || !strings.Contains(err.Error(), "索要手机") || !strings.Contains(err.Error(), "未找到元素") {
+	exec := &searchExecutor{stableFailures: map[string]int{hliepinRequestPhoneSelector: 1}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "索要手机") || !strings.Contains(err.Error(), "稳定目标尚未就绪") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestHLiepinCandidateRowParentSelector 验证猎聘候选人父级只能由安全的稳定简历 ID 生成。
+// t 为测试对象。
+func TestHLiepinCandidateRowParentSelector(t *testing.T) {
+	selector, err := hliepinCandidateRowParentSelector(platformcore.Candidate{
+		"platform_candidate_id": "abc_123-XYZ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector != "tbody tr.r-abc_123-XYZ" {
+		t.Fatalf("selector = %q", selector)
+	}
+	if _, err := hliepinCandidateRowParentSelector(platformcore.Candidate{"platform_candidate_id": "bad id > button"}); err == nil {
+		t.Fatal("unsafe candidate id should be rejected")
+	}
+}
+
+// TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget 验证猎聘稳定点击调用均同时携带父级和目标选择器。
+// t 为测试对象。
+func TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{}
+	if err := runtime.RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true}); err != nil {
+		t.Fatal(err)
+	}
+	stableCalls := 0
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		stableCalls++
+		if strings.TrimSpace(stringFromMap(exec.payloads[index], "parent_selector")) == "" {
+			t.Fatalf("stable payload[%d] parent selector is empty", index)
+		}
+		if strings.TrimSpace(stringFromMap(exec.payloads[index], "target_selector")) == "" {
+			t.Fatalf("stable payload[%d] target selector is empty", index)
+		}
+	}
+	if stableCalls == 0 {
+		t.Fatal("expected stable click calls")
 	}
 }
 

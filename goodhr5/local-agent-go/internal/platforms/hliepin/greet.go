@@ -3,7 +3,6 @@ package hliepin
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -12,9 +11,8 @@ import (
 )
 
 const (
-	hliepinGreetJobOptionSelector = ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-	hliepinGreetJobClickSelector  = ".hpublic-job-select-option"
-	hliepinGreetModalSelector     = ".ant-modal"
+	hliepinGreetJobOptionSelector = hliepinGreetDropdownParent + " " + hliepinGreetJobOptionTarget
+	hliepinGreetModalSelector     = hliepinGreetModalParent
 	hliepinGreetPollAttempts      = 20
 	hliepinGreetPollDelaySeconds  = 0.25
 )
@@ -29,15 +27,17 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 
 // greetCandidateOnce 执行一次猎聘开聊流程，任一步骤失败后直接返回且不重新点击候选人。
 func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	item := candidateItemElement(candidate, cfg)
-	greetBtn := platformElement(cfg, "actions", "greetBtn")
-	if greetBtn == nil {
-		greetBtn = map[string]any{"selector": "button"}
-	} else {
-		greetBtn["selectors"] = []any{"button"}
-	}
-	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": greetBtn, "timeout": 10000}); err != nil {
+	rowParent, err := hliepinCandidateRowParentSelector(candidate)
+	if err != nil {
 		return err
+	}
+	if _, err := hliepinStableClick(ctx, exec, rowParent, hliepinCandidateButtonTarget, map[string]any{
+		"expected_text":     "立即沟通",
+		"exact_text":        true,
+		"wait_for_selector": hliepinGreetModalParent,
+		"wait_timeout":      5000,
+	}); err != nil {
+		return fmt.Errorf("点击猎聘候选人“立即沟通”失败：%w", err)
 	}
 	positionName := strings.TrimSpace(r.currentPosition)
 	if positionName == "" {
@@ -60,9 +60,9 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 			return r.finishGreetCandidate(ctx, exec)
 		}
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-		"text": "立即开聊", "exact": true,
-		"element": map[string]any{"selector": ".ant-modal button"}, "timeout": 5000,
+	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetSubmitTarget, map[string]any{
+		"expected_text": "立即开聊", "exact_text": true,
+		"wait_for_hidden_selector": hliepinGreetModalParent, "wait_timeout": 5000,
 	}); err != nil {
 		return fmt.Errorf("点击猎聘“立即开聊”失败：%w", err)
 	}
@@ -90,9 +90,9 @@ func (r *Runtime) finishGreetCandidate(ctx context.Context, exec platformcore.Ex
 
 // selectGreetJob 在猎聘开聊弹框中匹配并选择岗位，未匹配时返回 false 交给不选职位流程。
 func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor, positionName string) (bool, error) {
-	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-		"text": "请选择开聊的职位", "exact": true,
-		"element": map[string]any{"selector": ".ant-modal .ant-select-selector"}, "timeout": 5000,
+	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetJobSelectTarget, map[string]any{
+		"expected_text": "请选择开聊的职位", "exact_text": true,
+		"wait_for_selector": hliepinGreetDropdownParent, "wait_timeout": 5000,
 	}); err != nil {
 		return false, fmt.Errorf("打开猎聘开聊职位下拉框失败：%w", err)
 	}
@@ -110,10 +110,10 @@ func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor
 		exec.Log("warning", fmt.Sprintf("猎聘打招呼：未找到开聊职位，准备不选职位直接开聊，岗位=%s，当前职位=%s", positionName, greetJobItemNames(items)))
 		return false, nil
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-		"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},
-		"click_target": map[string]any{"selector": hliepinGreetJobClickSelector},
-		"index":        matchIndex, "timeout": 5000, "require_full": false,
+	if _, err := hliepinStableClick(ctx, exec, hliepinGreetDropdownParent, hliepinGreetJobOptionTarget, map[string]any{
+		"target_index": matchIndex, "nested_selector": hliepinGreetJobOptionNested,
+		"expected_text": matchName, "exact_text": false,
+		"wait_for_hidden_selector": hliepinGreetDropdownParent, "wait_timeout": 5000,
 	}); err != nil {
 		return false, fmt.Errorf("选择猎聘开聊职位“%s”失败：%w", matchName, err)
 	}
@@ -186,19 +186,14 @@ func hliepinGreetModalVisible(ctx context.Context, exec platformcore.Executor) (
 
 // clickGreetWithoutJob 在职位未匹配时兼容点击“不选职位”或“不选择职位”开聊按钮。
 func clickGreetWithoutJob(ctx context.Context, exec platformcore.Executor, positionName string) error {
-	var failures []error
-	for _, text := range []string{"不选职位", "不选择职位"} {
-		if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-			"text": text, "exact": false,
-			"element": map[string]any{"selector": ".ant-modal button"}, "timeout": 3000,
-		}); err == nil {
-			exec.Log("info", "猎聘打招呼：未匹配岗位“"+positionName+"”，已点击不选职位直接开聊")
-			return nil
-		} else {
-			failures = append(failures, fmt.Errorf("匹配文字“%s”：%w", text, err))
-		}
+	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetWithoutJobTarget, map[string]any{
+		"expected_text": "不选择职位开聊", "exact_text": true,
+		"wait_for_hidden_selector": hliepinGreetModalParent, "wait_timeout": 5000,
+	}); err != nil {
+		return fmt.Errorf("猎聘未找到匹配职位，点击不选择职位开聊失败：%w", err)
 	}
-	return fmt.Errorf("猎聘未找到匹配职位，点击不选职位开聊失败：%w", errors.Join(failures...))
+	exec.Log("info", "猎聘打招呼：未匹配岗位“"+positionName+"”，已点击不选职位直接开聊")
+	return nil
 }
 
 // normalizeSearchMatchText 统一开聊职位比较时的大小写并移除空白，兼容职位名称的截断显示。

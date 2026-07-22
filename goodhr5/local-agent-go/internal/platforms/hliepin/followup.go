@@ -13,15 +13,15 @@ import (
 )
 
 const (
-	hliepinContinueButtonSelector = ".ant-btn.ant-btn-default.ant-btn-lg.lp-ant-btn-light"
+	hliepinContinueButtonSelector = hliepinCandidateButtonTarget
 	hliepinRequestPhoneSelector   = ".im-ui-action-button.action-item.action-phone"
 	hliepinRequestWechatSelector  = ".im-ui-action-button.action-item.action-wechat"
 	hliepinRequestResumeSelector  = ".im-ui-action-button.action-item.action-resume"
-	hliepinChatInputSelector      = "textarea.ant-im-input.im-ui-textarea[placeholder='请输入文字，按Enter键发送']"
+	hliepinChatInputSelector      = hliepinChatModalParent + " textarea.ant-im-input.im-ui-textarea[placeholder='请输入文字，按Enter键发送']"
 	hliepinChatCloseSelector      = ".im-ui-basic-chat-header-modal-close"
 	hliepinCandidateListClose     = ".ant-im-drawer-close"
 	hliepinRequestConfirmDialog   = ".ant-im-modal.ant-im-modal-confirm"
-	hliepinRequestConfirmButton   = hliepinRequestConfirmDialog + " .ant-im-modal-confirm-btns .ant-im-btn-primary"
+	hliepinRequestConfirmButton   = ".ant-im-modal-confirm-btns .ant-im-btn-primary"
 )
 
 // ApplyBasicFilters 保留猎聘猎头端基础筛选入口，当前不改变用户在页面中设置的条件。
@@ -35,15 +35,13 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 	if !request.RequestPhone && !request.RequestWechat && !request.RequestResume && message == "" {
 		return nil
 	}
-	item := candidateItemElement(candidate, cfg)
-	if item == nil {
-		return fmt.Errorf("猎聘候选人卡片选择器为空，无法继续沟通")
+	rowParent, err := hliepinCandidateRowParentSelector(candidate)
+	if err != nil {
+		return err
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
-		"index":       intFromMap(candidate, "card_index"),
-		"item":        item,
-		"clickTarget": map[string]any{"selector": hliepinContinueButtonSelector},
-		"timeout":     10000,
+	if _, err := hliepinStableClick(ctx, exec, rowParent, hliepinContinueButtonSelector, map[string]any{
+		"expected_text": "继续沟通", "exact_text": true,
+		"wait_for_selector": hliepinChatModalParent, "wait_timeout": 5000,
 	}); err != nil {
 		return fmt.Errorf("点击猎聘“继续沟通”失败：%w", err)
 	}
@@ -74,9 +72,8 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 			continue
 		}
 		exec.Log("info", "猎聘索要信息：准备索要"+action.label)
-		if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-			"element": map[string]any{"selector": action.selector},
-			"timeout": 5000,
+		if _, err := hliepinStableClick(ctx, exec, hliepinChatModalParent, action.selector, map[string]any{
+			"expected_text": "索要" + action.label, "exact_text": true,
 		}); err != nil {
 			return fmt.Errorf("点击猎聘“索要%s”失败：%w", action.label, err)
 		}
@@ -118,9 +115,9 @@ func confirmCandidateInfoRequestIfPresent(ctx context.Context, exec platformcore
 		exec.Log("info", "猎聘索要信息：未出现索要"+label+"确认弹框，跳过确认")
 		return nil
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-		"element": map[string]any{"selector": hliepinRequestConfirmButton},
-		"timeout": 5000,
+	if _, err := hliepinStableClick(ctx, exec, hliepinRequestConfirmDialog, hliepinRequestConfirmButton, map[string]any{
+		"expected_text": "确定", "exact_text": true,
+		"wait_for_hidden_selector": hliepinRequestConfirmDialog, "wait_timeout": 5000,
 	}); err != nil {
 		return fmt.Errorf("确认猎聘向候选人索要%s失败：%w", label, err)
 	}
@@ -133,18 +130,16 @@ func confirmCandidateInfoRequestIfPresent(ctx context.Context, exec platformcore
 // closeCandidateInfoPanels 按聊天框、候选人列表的顺序关闭猎聘两个沟通弹层。
 func closeCandidateInfoPanels(ctx context.Context, exec platformcore.Executor) error {
 	var closeErrors []error
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-		"element": map[string]any{"selector": hliepinChatCloseSelector},
-		"timeout": 5000,
+	if _, err := hliepinStableClick(ctx, exec, hliepinChatModalParent, hliepinChatCloseSelector, map[string]any{
+		"wait_for_hidden_selector": hliepinChatModalParent, "wait_timeout": 5000,
 	}); err != nil {
 		closeErrors = append(closeErrors, fmt.Errorf("关闭猎聘聊天框失败：%w", err))
 	}
 	if err := exec.Delay(ctx, "等待猎聘聊天框关闭", 0.2); err != nil {
 		closeErrors = append(closeErrors, err)
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
-		"element": map[string]any{"selector": hliepinCandidateListClose},
-		"timeout": 5000,
+	if _, err := hliepinStableClick(ctx, exec, hliepinCandidateDrawerParent, hliepinCandidateListClose, map[string]any{
+		"wait_for_hidden_selector": hliepinCandidateDrawerParent, "wait_timeout": 5000,
 	}); err != nil {
 		closeErrors = append(closeErrors, fmt.Errorf("关闭猎聘候选人列表失败：%w", err))
 	}
