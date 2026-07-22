@@ -380,11 +380,11 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, position); err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
+	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
-		t.Fatalf("position text = %q", got)
+	if got := intFromMap(exec.payloads[2], "index"); got != 0 {
+		t.Fatalf("position index = %d, want 0", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
@@ -440,6 +440,33 @@ func TestMatchingShortcutItemRequiresExactName(t *testing.T) {
 	}
 	if index, name := matchingShortcutItem(items, "Java开发工程师"); index != 1 || name != "Java开发工程师" {
 		t.Fatalf("exact shortcut match = %d %q", index, name)
+	}
+}
+
+// TestMatchingPublishedJobItemPrefersExactName 验证完整职位名优先于列表中更靠前的截断职位名。
+func TestMatchingPublishedJobItemPrefersExactName(t *testing.T) {
+	items := []map[string]any{{"text": "AI应用开发…"}, {"text": "AI应用开发初级工程师"}}
+	index, name := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 1 || name != "AI应用开发初级工程师" {
+		t.Fatalf("match = %d %q, want exact item", index, name)
+	}
+}
+
+// TestMatchingPublishedJobItemUsesFirstSixCharacters 验证发布职位去掉中英文省略号后按前六个字匹配。
+func TestMatchingPublishedJobItemUsesFirstSixCharacters(t *testing.T) {
+	items := []map[string]any{{"text": "Java开发工..."}, {"text": "AI应用开发…"}}
+	index, name := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 1 || name != "AI应用开发…" {
+		t.Fatalf("match = %d %q, want truncated item", index, name)
+	}
+}
+
+// TestMatchingPublishedJobItemChoosesFirstDuplicatePrefix 验证多个截断职位前六字相同时选择列表中的第一个。
+func TestMatchingPublishedJobItemChoosesFirstDuplicatePrefix(t *testing.T) {
+	items := []map[string]any{{"text": "AI应用开发…"}, {"text": "AI应用开发..."}}
+	index, _ := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 0 {
+		t.Fatalf("match index = %d, want first duplicate", index)
 	}
 }
 
@@ -986,7 +1013,7 @@ func TestPreparePositionSearchStopsWhenPublishedJobMissing(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinPublishedJobSelector: {map[string]any{"text": "PHP程序员"}},
-	}, clickTextErrors: map[string]error{"Java开发工程师初级": fmt.Errorf("未找到文字元素")}}
+	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"})
 	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到岗位运行岗位") || !strings.Contains(err.Error(), "岗位运行已停止") {
 		t.Fatalf("error = %v", err)
