@@ -1,0 +1,9 @@
+# 本文件用于缩小前端 Docker 构建上下文，避免上传本机依赖、构建产物和临时文件。
+node_modules
+.next
+.turbo
+coverage
+*.log
+.DS_Store
+.git
+.gitignore
