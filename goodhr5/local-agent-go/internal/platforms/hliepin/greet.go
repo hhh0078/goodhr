@@ -46,9 +46,8 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 	if err := waitForHliepinGreetModal(ctx, exec); err != nil {
 		return err
 	}
-	if r.greetJobSelected {
-		exec.Log("info", "猎聘打招呼：岗位模式已在搜索页选择职位，开聊弹框无需重复选择")
-	} else {
+	if r.shouldSelectGreetJob {
+		exec.Log("info", "猎聘打招呼：发布职位匹配模式，开聊弹框需要选择岗位="+positionName)
 		selected, err := r.selectGreetJob(ctx, exec, positionName)
 		if err != nil {
 			return err
@@ -59,6 +58,12 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 			}
 			return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
 		}
+	} else {
+		exec.Log("info", "猎聘打招呼：快捷搜索模式，开聊弹框直接不选择职位")
+		if err := clickGreetWithoutJob(ctx, exec, positionName); err != nil {
+			return err
+		}
+		return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
 	}
 	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetSubmitTarget, map[string]any{
 		"expected_text": "立即开聊", "exact_text": true,
@@ -188,15 +193,15 @@ func hliepinGreetModalVisible(ctx context.Context, exec platformcore.Executor) (
 	return false, nil
 }
 
-// clickGreetWithoutJob 在职位未匹配时兼容点击“不选职位”或“不选择职位”开聊按钮。
+// clickGreetWithoutJob 在快捷搜索模式或弹框职位未匹配时点击“不选择职位开聊”按钮。
 func clickGreetWithoutJob(ctx context.Context, exec platformcore.Executor, positionName string) error {
 	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetWithoutJobTarget, map[string]any{
 		"expected_text": "不选择职位开聊", "exact_text": true,
 		"wait_for_hidden_selector": hliepinGreetModalParent, "wait_timeout": 5000,
 	}); err != nil {
-		return fmt.Errorf("猎聘未找到匹配职位，点击不选择职位开聊失败：%w", err)
+		return fmt.Errorf("点击猎聘“不选择职位开聊”失败：%w", err)
 	}
-	exec.Log("info", "猎聘打招呼：未匹配岗位“"+positionName+"”，已点击不选职位直接开聊")
+	exec.Log("info", "猎聘打招呼：岗位“"+positionName+"”本次不选择开聊职位，已点击不选择职位开聊")
 	return nil
 }
 

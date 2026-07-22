@@ -26,12 +26,21 @@ func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.E
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
 	shortcutName := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_shortcut_search_name"))
 	if shortcutName == "" {
-		r.greetJobSelected = true
+		r.shouldSelectGreetJob = false
 		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，岗位运行岗位="+positionName)
-		return r.selectPublishedPosition(ctx, exec, positionName)
+		if err := r.selectPublishedPosition(ctx, exec, positionName); err != nil {
+			return err
+		}
+		r.shouldSelectGreetJob = true
+		exec.Log("info", "猎聘候选人搜索：已匹配正在发布的职位，后续开聊弹框需要选择岗位")
+		return nil
 	}
-	r.greetJobSelected = false
-	return r.selectShortcutSearch(ctx, exec, positionName, shortcutName)
+	r.shouldSelectGreetJob = false
+	if err := r.selectShortcutSearch(ctx, exec, positionName, shortcutName); err != nil {
+		return err
+	}
+	exec.Log("info", "猎聘候选人搜索：已匹配快捷搜索，后续开聊弹框不选择岗位")
+	return nil
 }
 
 // selectShortcutSearch 展开快捷搜索列表并按配置名称进行完整匹配。

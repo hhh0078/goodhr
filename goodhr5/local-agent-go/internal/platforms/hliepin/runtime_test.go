@@ -341,6 +341,7 @@ func TestPositionSelectionIsSkipped(t *testing.T) {
 // t 为测试对象。
 func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testing.T) {
 	runtime := NewRuntime()
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinShortcutItemSelector: {
 			map[string]any{"text": "java开发"},
@@ -363,6 +364,9 @@ func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testin
 	}
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
+	}
+	if runtime.shouldSelectGreetJob {
+		t.Fatal("shortcut mode should not select a job in greet modal")
 	}
 }
 
@@ -388,6 +392,9 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
+	}
+	if !runtime.shouldSelectGreetJob {
+		t.Fatal("published job mode should select a job in greet modal")
 	}
 }
 
@@ -475,6 +482,7 @@ func TestMatchingPublishedJobItemChoosesFirstDuplicatePrefix(t *testing.T) {
 func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师高级"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinGreetJobOptionSelector: {
 			map[string]any{"fields": map[string]any{"position_name": "AI应用开发工程师初..."}},
@@ -512,12 +520,12 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	}
 }
 
-// TestGreetCandidateSkipsPositionForPublishedJobMode 验证岗位模式已选职位时直接立即开聊并按 Esc。
+// TestGreetCandidateUsesNoPositionForShortcutMode 验证快捷搜索模式直接点击不选择职位开聊。
 // t 为测试对象。
-func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
+func TestGreetCandidateUsesNoPositionForShortcutMode(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "PHP程序员"
-	runtime.greetJobSelected = true
+	runtime.shouldSelectGreetJob = false
 	exec := &searchExecutor{}
 	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
 	if err != nil {
@@ -527,7 +535,7 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[3], "expected_text"); got != "立即开聊" {
+	if got := stringFromMap(exec.payloads[3], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -537,6 +545,7 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "不存在的岗位"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinGreetJobOptionSelector: {
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
@@ -562,6 +571,7 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 func TestGreetCandidatePreservesChatForCandidateInfo(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "不存在的岗位"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinGreetJobOptionSelector: {
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
@@ -612,6 +622,7 @@ func TestGreetCandidateUsesScopedWithoutPositionButton(t *testing.T) {
 func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItemSequences: map[string][][]any{
 		hliepinGreetJobOptionSelector: {
 			{},
@@ -641,6 +652,7 @@ func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
 func TestGreetCandidateDoesNotRetry(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{
 		findItems: map[string][]any{
 			hliepinGreetJobOptionSelector: {map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
