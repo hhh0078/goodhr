@@ -54,6 +54,7 @@ import { useThemePreference } from "@/app/providers";
 import { TOKEN_KEY } from "@/lib/api";
 import {
   bindDetectedLocalAgent,
+  captureLocalAgentPortFromURL,
   cloudRequest,
   detectLocalAgent,
   formatDate,
@@ -413,6 +414,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    captureLocalAgentPortFromURL();
     const token = localStorage.getItem(TOKEN_KEY) || "";
     if (!token) {
       router.replace(`/login?next=${encodeURIComponent(initialPath.current)}`);
