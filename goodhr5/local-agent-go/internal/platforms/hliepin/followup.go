@@ -25,6 +25,7 @@ const (
 	hliepinChatCandidateName      = ".im-ui-basic-chat-header-name"
 	hliepinPanelPollInterval      = 0.1
 	hliepinChatOpenPollCount      = 100
+	hliepinActionReadyPollCount   = 30
 	hliepinPanelQuietPollCount    = 5
 	hliepinPanelCleanupPollCount  = 30
 )
@@ -92,6 +93,9 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 			continue
 		}
 		exec.Log("info", "猎聘索要信息：准备索要"+action.label)
+		if err := waitForCandidateInfoAction(ctx, exec, candidate, action.label, action.selector); err != nil {
+			return err
+		}
 		if _, err := hliepinStableClick(ctx, exec, hliepinChatModalParent, action.selector, map[string]any{
 			"expected_text": "索要" + action.label, "exact_text": true,
 		}); err != nil {
@@ -115,6 +119,39 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 		}
 	}
 	return nil
+}
+
+// waitForCandidateInfoAction 每100毫秒等待猎聘聊天框底部索要按钮完成异步渲染，避免姓名先出现时过早判定按钮缺失。
+func waitForCandidateInfoAction(ctx context.Context, exec platformcore.Executor, candidate platformcore.Candidate, label string, selector string) error {
+	startedAt := time.Now()
+	lastCount := -1
+	for attempt := 1; attempt <= hliepinActionReadyPollCount; attempt++ {
+		result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+			"element":      map[string]any{"selector": hliepinChatModalParent + " " + selector},
+			"visible_only": true, "max_items": 2,
+		})
+		if err != nil {
+			return fmt.Errorf("检查猎聘索要%s按钮失败：%w", label, err)
+		}
+		count := len(mapList(workerData(result, "items")))
+		if count != lastCount || attempt == 1 || attempt%5 == 0 {
+			exec.Log("info", fmt.Sprintf("猎聘索要信息状态：候选人=%s，阶段=等待索要%s按钮，轮次=%d/%d，按钮=%d，耗时=%s", candidateName(candidate), label, attempt, hliepinActionReadyPollCount, count, time.Since(startedAt).Round(time.Millisecond)))
+			lastCount = count
+		}
+		if count == 1 {
+			exec.Log("info", fmt.Sprintf("猎聘索要信息状态：候选人=%s，阶段=索要%s按钮就绪，轮次=%d，耗时=%s", candidateName(candidate), label, attempt, time.Since(startedAt).Round(time.Millisecond)))
+			return nil
+		}
+		if count > 1 {
+			return fmt.Errorf("猎聘索要%s按钮数量异常：%d", label, count)
+		}
+		if attempt < hliepinActionReadyPollCount {
+			if err := exec.Delay(ctx, "等待猎聘索要"+label+"按钮渲染", hliepinPanelPollInterval); err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("等待猎聘索要%s按钮超时：候选人=%s，等待=%s", label, candidateName(candidate), time.Since(startedAt).Round(time.Millisecond))
 }
 
 // confirmCandidateInfoRequestIfPresent 检查猎聘索要确认弹框，存在则点击确定，不存在则直接继续。

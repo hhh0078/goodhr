@@ -146,6 +146,11 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 		if selector == hliepinCandidateDrawerParent && e.candidateDrawerOpen {
 			return map[string]any{"data": map[string]any{"items": []any{map[string]any{"text": "我的沟通"}}}}, nil
 		}
+		for _, actionSelector := range []string{hliepinRequestPhoneSelector, hliepinRequestWechatSelector, hliepinRequestResumeSelector} {
+			if selector == hliepinChatModalParent+" "+actionSelector {
+				return map[string]any{"data": map[string]any{"items": []any{map[string]any{"text": "索要"}}}}, nil
+			}
+		}
 		return map[string]any{"data": map[string]any{"items": e.findItems[selector]}}, nil
 	}
 	return map[string]any{"data": map[string]any{"ok": true}}, nil
@@ -724,6 +729,56 @@ func TestRequestCandidateInfoWaitsForDelayedCurrentChat(t *testing.T) {
 	}
 	if continueClicks != 1 || phoneClicks != 1 {
 		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
+	}
+}
+
+// TestRequestCandidateInfoWaitsForDelayedActionButton 验证聊天姓名先出现、索要按钮稍后渲染时会按100毫秒轮询后再点击。
+func TestRequestCandidateInfoWaitsForDelayedActionButton(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent + " " + hliepinRequestPhoneSelector: [][]any{
+			[]any{},
+			[]any{map[string]any{"text": "索要手机"}},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+			phoneClicks++
+		}
+	}
+	if phoneClicks != 1 {
+		t.Fatalf("phone clicks = %d, want 1", phoneClicks)
+	}
+	foundPollingDelay := false
+	for _, delay := range exec.delays {
+		if delay == hliepinPanelPollInterval {
+			foundPollingDelay = true
+			break
+		}
+	}
+	if !foundPollingDelay {
+		t.Fatalf("delays = %#v, want 100ms polling", exec.delays)
+	}
+}
+
+// TestRequestCandidateInfoStopsWhenActionButtonNeverAppears 验证索要按钮始终未渲染时不执行错误坐标点击。
+func TestRequestCandidateInfoStopsWhenActionButtonNeverAppears(t *testing.T) {
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinChatModalParent + " " + hliepinRequestPhoneSelector: {},
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "索要手机按钮超时") {
+		t.Fatalf("error = %v, want action button timeout", err)
+	}
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+			t.Fatal("phone button should not be clicked before it appears")
+		}
 	}
 }
 
