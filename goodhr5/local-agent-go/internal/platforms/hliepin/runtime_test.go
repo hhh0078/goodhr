@@ -493,9 +493,9 @@ func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
 	}
 }
 
-// TestGreetCandidateWaitsForDelayedJobOptions 验证猎聘职位下拉选项延迟出现时会轮询等待。
+// TestGreetCandidateReadsJobOptionsOnce 验证猎聘职位下拉选项只查询一次，未找到时立即不选职位开聊。
 // t 为测试对象。
-func TestGreetCandidateWaitsForDelayedJobOptions(t *testing.T) {
+func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师"
 	exec := &searchExecutor{findItemSequences: map[string][][]any{
@@ -507,24 +507,24 @@ func TestGreetCandidateWaitsForDelayedJobOptions(t *testing.T) {
 	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0}); err != nil {
 		t.Fatal(err)
 	}
-	if got := exec.findSequenceCalls[hliepinGreetJobOptionSelector]; got != 2 {
-		t.Fatalf("job option queries = %d, want 2", got)
+	if got := exec.findSequenceCalls[hliepinGreetJobOptionSelector]; got != 1 {
+		t.Fatalf("job option queries = %d, want 1", got)
 	}
-	foundPollDelay := false
-	for _, delay := range exec.delays {
-		if delay == hliepinGreetPollDelaySeconds {
-			foundPollDelay = true
+	foundFallback := false
+	for _, payload := range exec.payloads {
+		if stringFromMap(payload, "text") == "不选职位" {
+			foundFallback = true
 			break
 		}
 	}
-	if !foundPollDelay {
-		t.Fatalf("delays = %#v, want job option poll delay", exec.delays)
+	if !foundFallback {
+		t.Fatal("empty first job query should immediately click without position")
 	}
 }
 
-// TestGreetCandidateCleansModalAndRetriesOnce 验证猎聘首次失败后关闭遗留弹框并重试一次。
+// TestGreetCandidateDoesNotRetry 验证猎聘开聊失败后直接返回，不重新点击候选人执行第二次。
 // t 为测试对象。
-func TestGreetCandidateCleansModalAndRetriesOnce(t *testing.T) {
+func TestGreetCandidateDoesNotRetry(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师"
 	exec := &searchExecutor{
@@ -533,8 +533,9 @@ func TestGreetCandidateCleansModalAndRetriesOnce(t *testing.T) {
 		},
 		clickTextFailures: map[string]int{"请选择开聊的职位": 1},
 	}
-	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0}); err != nil {
-		t.Fatal(err)
+	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 0})
+	if err == nil || !strings.Contains(err.Error(), "打开猎聘开聊职位下拉框失败") {
+		t.Fatalf("error = %v, want dropdown open failure", err)
 	}
 	candidateClicks := 0
 	for index, path := range exec.paths {
@@ -546,11 +547,11 @@ func TestGreetCandidateCleansModalAndRetriesOnce(t *testing.T) {
 			candidateClicks++
 		}
 	}
-	if candidateClicks != 2 {
-		t.Fatalf("candidate clicks = %d, want 2 attempts", candidateClicks)
+	if candidateClicks != 1 {
+		t.Fatalf("candidate clicks = %d, want 1 attempt", candidateClicks)
 	}
-	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 3 {
-		t.Fatalf("escape presses = %d, want cleanup once plus success twice", got)
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 0 {
+		t.Fatalf("escape presses = %d, want no retry cleanup", got)
 	}
 }
 

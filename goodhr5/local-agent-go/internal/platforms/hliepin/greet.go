@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -18,7 +17,6 @@ const (
 	hliepinGreetModalSelector     = ".ant-modal"
 	hliepinGreetPollAttempts      = 20
 	hliepinGreetPollDelaySeconds  = 0.25
-	hliepinGreetMaxAttempts       = 2
 )
 
 // GreetCandidate 执行猎聘猎头端候选人打招呼。
@@ -26,33 +24,10 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	if err := closeHliepinGreetModalIfPresent(ctx, exec); err != nil {
 		exec.Log("warning", "猎聘打招呼：开始前清理遗留开聊弹框失败，继续尝试当前候选人，错误="+err.Error())
 	}
-	var lastErr error
-	for attempt := 1; attempt <= hliepinGreetMaxAttempts; attempt++ {
-		if err := r.greetCandidateOnce(ctx, exec, cfg, candidate); err == nil {
-			return nil
-		} else {
-			lastErr = err
-			exec.Log("warning", fmt.Sprintf("猎聘打招呼：第%d次执行失败，准备清理开聊弹框，错误=%s", attempt, err.Error()))
-		}
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-		cleanupErr := closeHliepinGreetModalIfPresent(cleanupCtx, exec)
-		cancel()
-		if cleanupErr != nil {
-			exec.Log("warning", "猎聘打招呼：失败后清理开聊弹框未完成，错误="+cleanupErr.Error())
-		}
-		if err := ctx.Err(); err != nil {
-			return lastErr
-		}
-		if attempt < hliepinGreetMaxAttempts {
-			if err := exec.Delay(ctx, "等待猎聘开聊失败后重试", 0.5); err != nil {
-				return err
-			}
-		}
-	}
-	return fmt.Errorf("猎聘打招呼重试后仍失败：%w", lastErr)
+	return r.greetCandidateOnce(ctx, exec, cfg, candidate)
 }
 
-// greetCandidateOnce 执行一次猎聘开聊流程，失败后的弹框清理由外层统一负责。
+// greetCandidateOnce 执行一次猎聘开聊流程，任一步骤失败后直接返回且不重新点击候选人。
 func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	item := candidateItemElement(candidate, cfg)
 	greetBtn := platformElement(cfg, "actions", "greetBtn")
@@ -121,10 +96,15 @@ func (r *Runtime) selectGreetJob(ctx context.Context, exec platformcore.Executor
 	}); err != nil {
 		return false, fmt.Errorf("打开猎聘开聊职位下拉框失败：%w", err)
 	}
-	items, err := waitForHliepinGreetJobItems(ctx, exec)
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+		"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},
+		"fields":       []any{map[string]any{"position_name": map[string]any{"selector": ".hpublic-job-select-option strong"}}},
+		"visible_only": true, "max_items": 100,
+	})
 	if err != nil {
 		return false, fmt.Errorf("读取猎聘开聊职位列表失败：%w", err)
 	}
+	items := mapList(workerData(result, "items"))
 	matchIndex, matchName := matchingGreetJobItem(items, positionName)
 	if matchIndex < 0 {
 		exec.Log("warning", fmt.Sprintf("猎聘打招呼：未找到开聊职位，准备不选职位直接开聊，岗位=%s，当前职位=%s", positionName, greetJobItemNames(items)))
@@ -158,35 +138,6 @@ func waitForHliepinGreetModal(ctx context.Context, exec platformcore.Executor) e
 		}
 	}
 	return fmt.Errorf("等待猎聘开聊职位弹框超时")
-}
-
-// waitForHliepinGreetJobItems 轮询读取猎聘职位下拉选项，直到选项出现或达到等待上限。
-func waitForHliepinGreetJobItems(ctx context.Context, exec platformcore.Executor) ([]map[string]any, error) {
-	var lastErr error
-	for attempt := 0; attempt < hliepinGreetPollAttempts; attempt++ {
-		result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
-			"element":      map[string]any{"selector": hliepinGreetJobOptionSelector},
-			"fields":       []any{map[string]any{"position_name": map[string]any{"selector": ".hpublic-job-select-option strong"}}},
-			"visible_only": true, "max_items": 100,
-		})
-		if err == nil {
-			items := mapList(workerData(result, "items"))
-			if len(items) > 0 {
-				return items, nil
-			}
-		} else {
-			lastErr = err
-		}
-		if attempt+1 < hliepinGreetPollAttempts {
-			if delayErr := exec.Delay(ctx, "等待猎聘开聊职位选项渲染", hliepinGreetPollDelaySeconds); delayErr != nil {
-				return nil, delayErr
-			}
-		}
-	}
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, nil
 }
 
 // closeHliepinGreetModalIfPresent 仅检测并关闭猎聘开聊弹框，不影响页面上的其他弹层。
