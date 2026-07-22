@@ -25,19 +25,22 @@ type routeExecutor struct {
 
 // searchExecutor 模拟关键词、快捷搜索和发布职位页面操作。
 type searchExecutor struct {
-	paths             []string
-	payloads          []map[string]any
-	findItems         map[string][]any
-	findItemSequences map[string][][]any
-	findSequenceCalls map[string]int
-	errors            map[string]error
-	clickTextErrors   map[string]error
-	clickTextFailures map[string]int
-	stableFailures    map[string]int
-	greetModalOpen    bool
-	scrollActions     []string
-	scrollCalls       int
-	delays            []float64
+	paths                []string
+	payloads             []map[string]any
+	findItems            map[string][]any
+	findItemSequences    map[string][][]any
+	findSequenceCalls    map[string]int
+	errors               map[string]error
+	clickTextErrors      map[string]error
+	clickTextFailures    map[string]int
+	stableFailures       map[string]int
+	greetModalOpen       bool
+	chatModalOpen        bool
+	candidateDrawerOpen  bool
+	suppressContinueChat bool
+	scrollActions        []string
+	scrollCalls          int
+	delays               []float64
 }
 
 // hliepinStableTestCandidate 创建带稳定简历 ID 的猎聘候选人测试数据。
@@ -63,6 +66,16 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 		}
 		if target == hliepinCandidateButtonTarget && stringFromMap(value, "expected_text") == "立即沟通" {
 			e.greetModalOpen = true
+		}
+		if target == hliepinCandidateButtonTarget && stringFromMap(value, "expected_text") == "继续沟通" {
+			e.chatModalOpen = !e.suppressContinueChat
+			e.candidateDrawerOpen = true
+		}
+		if target == hliepinChatCloseSelector {
+			e.chatModalOpen = false
+		}
+		if target == hliepinCandidateListClose {
+			e.candidateDrawerOpen = false
 		}
 		if target == hliepinGreetSubmitTarget || target == hliepinGreetWithoutJobTarget {
 			e.greetModalOpen = false
@@ -121,6 +134,17 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 				index = len(sequences) - 1
 			}
 			return map[string]any{"data": map[string]any{"items": sequences[index]}}, nil
+		}
+		if items, configured := e.findItems[selector]; configured {
+			return map[string]any{"data": map[string]any{"items": items}}, nil
+		}
+		if selector == hliepinChatModalParent && e.chatModalOpen {
+			return map[string]any{"data": map[string]any{"items": []any{map[string]any{
+				"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"},
+			}}}}, nil
+		}
+		if selector == hliepinCandidateDrawerParent && e.candidateDrawerOpen {
+			return map[string]any{"data": map[string]any{"items": []any{map[string]any{"text": "我的沟通"}}}}, nil
 		}
 		return map[string]any{"data": map[string]any{"items": e.findItems[selector]}}, nil
 	}
@@ -594,46 +618,43 @@ func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		hliepinStableClickPath,
-		hliepinStableClickPath,
-		"/api/v1/page/find-elements",
-		hliepinStableClickPath,
-		"/api/v1/page/find-elements",
-		hliepinStableClickPath,
-		"/api/v1/page/find-elements",
-		"/api/v1/page/type",
-		"/api/v1/page/press-key",
-		hliepinStableClickPath,
-		hliepinStableClickPath,
-	}
-	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
-		t.Fatalf("paths = %#v", exec.paths)
-	}
-	stableSelectors := []string{
+	wantStableSelectors := []string{
+		hliepinCandidateButtonTarget,
 		hliepinRequestPhoneSelector,
 		hliepinRequestWechatSelector,
 		hliepinRequestResumeSelector,
 		hliepinChatCloseSelector,
 		hliepinCandidateListClose,
 	}
-	payloadIndexes := []int{1, 3, 5, 9, 10}
-	for index, payloadIndex := range payloadIndexes {
-		if got := stringFromMap(exec.payloads[payloadIndex], "target_selector"); got != stableSelectors[index] {
-			t.Fatalf("selector[%d] = %q, want %q", index, got, stableSelectors[index])
+	var stableSelectors []string
+	var typePayload map[string]any
+	var pressPayload map[string]any
+	for index, path := range exec.paths {
+		switch path {
+		case hliepinStableClickPath:
+			stableSelectors = append(stableSelectors, stringFromMap(exec.payloads[index], "target_selector"))
+		case "/api/v1/page/type":
+			typePayload = exec.payloads[index]
+		case "/api/v1/page/press-key":
+			pressPayload = exec.payloads[index]
 		}
 	}
-	if got := stringFromMap(mapFromAny(exec.payloads[7]["element"]), "selector"); got != hliepinChatInputSelector {
+	if fmt.Sprint(stableSelectors) != fmt.Sprint(wantStableSelectors) {
+		t.Fatalf("stable selectors = %#v, want %#v", stableSelectors, wantStableSelectors)
+	}
+	if got := stringFromMap(mapFromAny(typePayload["element"]), "selector"); got != hliepinChatInputSelector {
 		t.Fatalf("chat input selector = %q, want %q", got, hliepinChatInputSelector)
 	}
-	if got := stringFromMap(exec.payloads[7], "text"); got != "你好，想和你沟通这个岗位。" {
+	if got := stringFromMap(typePayload, "text"); got != "你好，想和你沟通这个岗位。" {
 		t.Fatalf("message = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[8], "key"); got != "Enter" {
+	if got := stringFromMap(pressPayload, "key"); got != "Enter" {
 		t.Fatalf("send key = %q", got)
 	}
-	if len(exec.delays) == 0 || exec.delays[0] != 1 {
-		t.Fatalf("continue dialog delay = %#v, want first delay 1 second", exec.delays)
+	for _, delay := range exec.delays {
+		if delay >= 1 {
+			t.Fatalf("fixed one-second delay should be removed, delays = %#v", exec.delays)
+		}
 	}
 }
 
@@ -646,31 +667,109 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		hliepinStableClickPath,
-		hliepinStableClickPath,
-		"/api/v1/page/find-elements",
-		hliepinStableClickPath,
-		hliepinStableClickPath,
-		hliepinStableClickPath,
+	confirmFindIndex := -1
+	confirmClickIndex := -1
+	for index, path := range exec.paths {
+		if path == "/api/v1/page/find-elements" && stringFromMap(mapFromAny(exec.payloads[index]["element"]), "selector") == hliepinRequestConfirmDialog {
+			confirmFindIndex = index
+		}
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestConfirmButton {
+			confirmClickIndex = index
+		}
 	}
-	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
-		t.Fatalf("paths = %#v", exec.paths)
+	if confirmFindIndex < 0 || confirmClickIndex < 0 {
+		t.Fatalf("confirm paths missing: %#v", exec.paths)
 	}
-	if got := stringFromMap(mapFromAny(exec.payloads[2]["element"]), "selector"); got != hliepinRequestConfirmDialog {
+	if got := stringFromMap(mapFromAny(exec.payloads[confirmFindIndex]["element"]), "selector"); got != hliepinRequestConfirmDialog {
 		t.Fatalf("confirm dialog selector = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[3], "parent_selector"); got != hliepinRequestConfirmDialog {
+	if got := stringFromMap(exec.payloads[confirmClickIndex], "parent_selector"); got != hliepinRequestConfirmDialog {
 		t.Fatalf("confirm parent selector = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[3], "target_selector"); got != hliepinRequestConfirmButton {
+	if got := stringFromMap(exec.payloads[confirmClickIndex], "target_selector"); got != hliepinRequestConfirmButton {
 		t.Fatalf("confirm button selector = %q", got)
 	}
-	if normalize, _ := exec.payloads[3]["normalize_text_whitespace"].(bool); !normalize {
+	if normalize, _ := exec.payloads[confirmClickIndex]["normalize_text_whitespace"].(bool); !normalize {
 		t.Fatal("confirm button should normalize text whitespace")
 	}
-	if len(exec.delays) < 2 || exec.delays[1] != 1 {
-		t.Fatalf("confirm dialog delay = %#v, want second delay 1 second", exec.delays)
+}
+
+// TestRequestCandidateInfoWaitsForDelayedCurrentChat 验证猎聘聊天框延迟出现时只点击一次继续沟通，并等待当前候选人后再索要。
+func TestRequestCandidateInfoWaitsForDelayedCurrentChat(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent: [][]any{
+			[]any{},
+			[]any{},
+			[]any{map[string]any{"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"}}},
+			[]any{},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	continueClicks := 0
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		switch stringFromMap(exec.payloads[index], "target_selector") {
+		case hliepinCandidateButtonTarget:
+			continueClicks++
+		case hliepinRequestPhoneSelector:
+			phoneClicks++
+		}
+	}
+	if continueClicks != 1 || phoneClicks != 1 {
+		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
+	}
+}
+
+// TestRequestCandidateInfoRejectsMismatchedChat 验证聊天框姓名不是当前候选人时不会执行任何索要动作。
+func TestRequestCandidateInfoRejectsMismatchedChat(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent: [][]any{
+			[]any{},
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "聊天候选人不匹配") {
+		t.Fatalf("error = %v, want candidate mismatch", err)
+	}
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+			phoneClicks++
+		}
+	}
+	if phoneClicks != 0 {
+		t.Fatalf("phone clicks = %d, want 0", phoneClicks)
+	}
+}
+
+// TestRequestCandidateInfoTimeoutCleansDrawer 验证聊天框未打开时只点击一次继续沟通，并在返回前关闭联系人抽屉。
+func TestRequestCandidateInfoTimeoutCleansDrawer(t *testing.T) {
+	exec := &searchExecutor{suppressContinueChat: true}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "聊天框超时") {
+		t.Fatalf("error = %v, want chat timeout", err)
+	}
+	continueClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinCandidateButtonTarget {
+			continueClicks++
+		}
+	}
+	if continueClicks != 1 {
+		t.Fatalf("continue clicks = %d, want 1", continueClicks)
+	}
+	if exec.candidateDrawerOpen {
+		t.Fatal("candidate drawer should be closed before returning")
 	}
 }
 

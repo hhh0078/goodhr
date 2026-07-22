@@ -21,6 +21,15 @@ export function pointInsideBox(point, box, margin = 2) {
   );
 }
 
+/** pointHitsTarget 验证鼠标落点最上层元素仍属于目标，防止猎聘抽屉或聊天框遮挡后误点其他候选人。 */
+export async function pointHitsTarget(target, point) {
+  if (!target || !point) return false;
+  return target.evaluate((element, location) => {
+    const hit = document.elementFromPoint(Number(location.x), Number(location.y));
+    return Boolean(hit && (hit === element || element.contains(hit)));
+  }, { x: Number(point.x), y: Number(point.y) }).catch(() => false);
+}
+
 /** normalizeComparableText 按配置整理目标文字，兼容猎聘按钮字间插入的展示空白。 */
 export function normalizeComparableText(value, ignoreWhitespace = false) {
   const normalized = String(value || "").trim();
@@ -163,6 +172,18 @@ export function createHLiepinStableClickAction(dependencies) {
       !pointInsideBox(move, finalBox, Math.min(4, tolerance + 1))
     ) {
       throw new Error("猎聘稳定点击前目标位置再次变化，已取消点击");
+    }
+    const topmostTarget = await pointHitsTarget(finalResolved.target, move);
+    logWorker("猎聘稳定点击诊断", {
+      stage: "hit-test",
+      action_id: actionId,
+      action: actionName,
+      point_hits_target: topmostTarget,
+      mouse_x: Math.round(Number(move?.x || 0)),
+      mouse_y: Math.round(Number(move?.y || 0)),
+    });
+    if (!topmostTarget) {
+      throw new Error("猎聘稳定点击目标被其他弹层遮挡，已取消物理点击");
     }
     logWorker("猎聘稳定点击诊断", {
       stage: "physical-click-before",

@@ -7,6 +7,7 @@ import {
   createHLiepinStableClickAction,
   normalizeComparableText,
   pointInsideBox,
+  pointHitsTarget,
 } from "./hliepin-stable-click.js";
 
 /** createStableClickPage 创建只包含一个父级和一个目标的页面测试替身。 */
@@ -19,6 +20,7 @@ function createStableClickPage(box, targetText = "立即沟通") {
     isVisible: async () => true,
     innerText: async () => targetText,
     boundingBox: async () => ({ ...box }),
+    evaluate: async () => true,
     waitFor: async () => {},
   };
   const parent = {
@@ -40,6 +42,11 @@ test("位置比较和落点判断使用允许误差", () => {
   assert.equal(boxesApproximatelyEqual({ x: 10, y: 20, width: 30, height: 40 }, { x: 11, y: 19, width: 31, height: 40 }, 2), true);
   assert.equal(pointInsideBox({ x: 25, y: 35 }, { x: 10, y: 20, width: 30, height: 40 }, 2), true);
   assert.equal(pointInsideBox({ x: 45, y: 35 }, { x: 10, y: 20, width: 30, height: 40 }, 2), false);
+});
+
+test("落点顶层元素不是目标时判定为被弹层遮挡", async () => {
+  const target = { evaluate: async () => false };
+  assert.equal(await pointHitsTarget(target, { x: 10, y: 20 }), false);
 });
 
 test("文字比较仅在显式开启时忽略猎聘按钮字间空白", () => {
