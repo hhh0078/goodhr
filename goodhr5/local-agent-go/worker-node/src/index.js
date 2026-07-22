@@ -27,6 +27,7 @@ import { shouldClickGreetFollowups } from "./greet-policy.js";
 import { humanTypeText } from "./human-type.js";
 import { pageURLContainsTarget } from "./navigation-target.js";
 import { terminateProfileBrowserProcesses } from "./profile-process.js";
+import { createHLiepinStableClickAction } from "./hliepin-stable-click.js";
 
 const addr = process.env.GOODHR_WORKER_ADDR || "127.0.0.1:9101";
 const [host, rawPort] = addr.split(":");
@@ -4876,6 +4877,13 @@ async function uniquePath(directory, filename) {
   return path.join(directory, `${Date.now()}-${filename}`);
 }
 
+// hliepinStableClick 将猎聘弹层稳定点击逻辑保留在平台文件，主 Worker 只装配路由。
+const hliepinStableClick = createHLiepinStableClickAction({
+  ensurePage,
+  moveMouseToElement,
+  humanMouseClick,
+  logWorker,
+});
 const routes = {
   "/api/v1/browser/start": startBrowser,
   "/api/v1/browser/stop": stopBrowser,
@@ -4904,6 +4912,7 @@ const routes = {
   "/api/v1/boss/candidates/greet": greetBossCandidate,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
+  "/api/v1/hliepin/stable-click": hliepinStableClick,
 };
 
 const server = http.createServer(async (req, res) => {

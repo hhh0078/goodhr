@@ -9,10 +9,10 @@ import (
 
 // Runtime 实现猎聘猎头端平台运行时能力。
 type Runtime struct {
-	platformID       string
-	platformName     string
-	currentPosition  string
-	greetJobSelected bool
+	platformID           string
+	platformName         string
+	currentPosition      string
+	shouldSelectGreetJob bool // shouldSelectGreetJob 标记开聊弹框是否必须展开并选择岗位。
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时实例。

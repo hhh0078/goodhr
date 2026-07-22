@@ -25,14 +25,32 @@ type routeExecutor struct {
 
 // searchExecutor 模拟关键词、快捷搜索和发布职位页面操作。
 type searchExecutor struct {
-	paths           []string
-	payloads        []map[string]any
-	findItems       map[string][]any
-	errors          map[string]error
-	clickTextErrors map[string]error
-	scrollActions   []string
-	scrollCalls     int
-	delays          []float64
+	paths                []string
+	payloads             []map[string]any
+	findItems            map[string][]any
+	findItemSequences    map[string][][]any
+	findSequenceCalls    map[string]int
+	errors               map[string]error
+	clickTextErrors      map[string]error
+	clickTextFailures    map[string]int
+	stableFailures       map[string]int
+	greetModalOpen       bool
+	chatModalOpen        bool
+	candidateDrawerOpen  bool
+	suppressContinueChat bool
+	scrollActions        []string
+	scrollCalls          int
+	delays               []float64
+}
+
+// hliepinStableTestCandidate 创建带稳定简历 ID 的猎聘候选人测试数据。
+func hliepinStableTestCandidate(index int) platformcore.Candidate {
+	return platformcore.Candidate{
+		"card_index":            index,
+		"card_item":             map[string]any{"selector": "tbody tr"},
+		"platform_candidate_id": fmt.Sprintf("test-candidate-%d", index),
+		"candidate_name":        "王**",
+	}
 }
 
 // Post 记录猎聘搜索流程调用，并按选择器返回模拟页面元素。
@@ -40,10 +58,50 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	e.paths = append(e.paths, path)
 	value, _ := payload.(map[string]any)
 	e.payloads = append(e.payloads, value)
+	if path == hliepinStableClickPath {
+		target := stringFromMap(value, "target_selector")
+		if e.stableFailures[target] > 0 {
+			e.stableFailures[target]--
+			return nil, errors.New("模拟猎聘稳定目标尚未就绪")
+		}
+		if target == hliepinCandidateButtonTarget && stringFromMap(value, "expected_text") == "立即沟通" {
+			e.greetModalOpen = true
+		}
+		if target == hliepinCandidateButtonTarget && stringFromMap(value, "expected_text") == "继续沟通" {
+			e.chatModalOpen = !e.suppressContinueChat
+			e.candidateDrawerOpen = true
+		}
+		if target == hliepinChatCloseSelector {
+			e.chatModalOpen = false
+		}
+		if target == hliepinCandidateListClose {
+			e.candidateDrawerOpen = false
+		}
+		if target == hliepinGreetSubmitTarget || target == hliepinGreetWithoutJobTarget {
+			e.greetModalOpen = false
+		}
+	}
 	if path == "/api/v1/page/click-by-text" {
+		text := stringFromMap(value, "text")
+		if e.clickTextFailures[text] > 0 {
+			e.clickTextFailures[text]--
+			return nil, errors.New("模拟猎聘开聊控件尚未渲染")
+		}
 		if err := e.clickTextErrors[stringFromMap(value, "text")]; err != nil {
 			return nil, err
 		}
+		if text == "立即开聊" || text == "不选职位" || text == "不选择职位" {
+			e.greetModalOpen = false
+		}
+	}
+	if path == "/api/v1/page/list-click-by-index" {
+		item := mapFromAny(value["item"])
+		if stringFromMap(item, "selector") == "tbody tr" {
+			e.greetModalOpen = true
+		}
+	}
+	if path == "/api/v1/page/press-key" && stringFromMap(value, "key") == "Escape" {
+		e.greetModalOpen = false
 	}
 	if err := e.errors[path]; err != nil {
 		return nil, err
@@ -58,7 +116,42 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 	}
 	if path == "/api/v1/page/find-elements" {
 		element := mapFromAny(value["element"])
-		return map[string]any{"data": map[string]any{"items": e.findItems[stringFromMap(element, "selector")]}}, nil
+		selector := stringFromMap(element, "selector")
+		if selector == hliepinGreetModalSelector {
+			items := []any{}
+			if e.greetModalOpen {
+				items = []any{map[string]any{"text": "请选择职位开聊\n请选择开聊的职位"}}
+			}
+			return map[string]any{"data": map[string]any{"items": items}}, nil
+		}
+		if sequences := e.findItemSequences[selector]; len(sequences) > 0 {
+			if e.findSequenceCalls == nil {
+				e.findSequenceCalls = map[string]int{}
+			}
+			index := e.findSequenceCalls[selector]
+			e.findSequenceCalls[selector] = index + 1
+			if index >= len(sequences) {
+				index = len(sequences) - 1
+			}
+			return map[string]any{"data": map[string]any{"items": sequences[index]}}, nil
+		}
+		if items, configured := e.findItems[selector]; configured {
+			return map[string]any{"data": map[string]any{"items": items}}, nil
+		}
+		if selector == hliepinChatModalParent && e.chatModalOpen {
+			return map[string]any{"data": map[string]any{"items": []any{map[string]any{
+				"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"},
+			}}}}, nil
+		}
+		if selector == hliepinCandidateDrawerParent && e.candidateDrawerOpen {
+			return map[string]any{"data": map[string]any{"items": []any{map[string]any{"text": "我的沟通"}}}}, nil
+		}
+		for _, actionSelector := range []string{hliepinRequestPhoneSelector, hliepinRequestWechatSelector, hliepinRequestResumeSelector} {
+			if selector == hliepinChatModalParent+" "+actionSelector {
+				return map[string]any{"data": map[string]any{"items": []any{map[string]any{"text": "索要"}}}}, nil
+			}
+		}
+		return map[string]any{"data": map[string]any{"items": e.findItems[selector]}}, nil
 	}
 	return map[string]any{"data": map[string]any{"ok": true}}, nil
 }
@@ -248,6 +341,7 @@ func TestPositionSelectionIsSkipped(t *testing.T) {
 // t 为测试对象。
 func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testing.T) {
 	runtime := NewRuntime()
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinShortcutItemSelector: {
 			map[string]any{"text": "java开发"},
@@ -271,6 +365,9 @@ func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testin
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
+	if runtime.shouldSelectGreetJob {
+		t.Fatal("shortcut mode should not select a job in greet modal")
+	}
 }
 
 // TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty 验证未配置新快捷搜索名时忽略旧关键词字段并匹配正在发布的职位。
@@ -287,14 +384,17 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, position); err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/click-by-text" {
+	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/list-click-by-index" {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[2], "text"); got != "Java开发工程师初级" {
-		t.Fatalf("position text = %q", got)
+	if got := intFromMap(exec.payloads[2], "index"); got != 0 {
+		t.Fatalf("position index = %d, want 0", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
+	}
+	if !runtime.shouldSelectGreetJob {
+		t.Fatal("published job mode should select a job in greet modal")
 	}
 }
 
@@ -350,53 +450,92 @@ func TestMatchingShortcutItemRequiresExactName(t *testing.T) {
 	}
 }
 
+// TestMatchingPublishedJobItemPrefersExactName 验证完整职位名优先于列表中更靠前的截断职位名。
+func TestMatchingPublishedJobItemPrefersExactName(t *testing.T) {
+	items := []map[string]any{{"text": "AI应用开发…"}, {"text": "AI应用开发初级工程师"}}
+	index, name := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 1 || name != "AI应用开发初级工程师" {
+		t.Fatalf("match = %d %q, want exact item", index, name)
+	}
+}
+
+// TestMatchingPublishedJobItemUsesFirstSixCharacters 验证发布职位去掉中英文省略号后按前六个字匹配。
+func TestMatchingPublishedJobItemUsesFirstSixCharacters(t *testing.T) {
+	items := []map[string]any{{"text": "Java开发工..."}, {"text": "AI应用开发…"}}
+	index, name := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 1 || name != "AI应用开发…" {
+		t.Fatalf("match = %d %q, want truncated item", index, name)
+	}
+}
+
+// TestMatchingPublishedJobItemChoosesFirstDuplicatePrefix 验证多个截断职位前六字相同时选择列表中的第一个。
+func TestMatchingPublishedJobItemChoosesFirstDuplicatePrefix(t *testing.T) {
+	items := []map[string]any{{"text": "AI应用开发…"}, {"text": "AI应用开发..."}}
+	index, _ := matchingPublishedJobItem(items, "AI应用开发初级工程师")
+	if index != 0 {
+		t.Fatalf("match index = %d, want first duplicate", index)
+	}
+}
+
 // TestGreetCandidateSelectsPositionAndPressesEscape 验证猎聘开聊选择岗位、立即开聊并固定按 Esc。
 // t 为测试对象。
 func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "Java开发工程师高级"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinGreetJobOptionSelector: {
 			map[string]any{"fields": map[string]any{"position_name": "AI应用开发工程师初..."}},
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师高..."}},
 		},
 	}}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 2, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(2))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[3], "index"); got != 1 {
+	if got := intFromMap(exec.payloads[5], "target_index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
+	}
+	if got := stringFromMap(exec.payloads[5], "parent_selector"); got != hliepinGreetDropdownParent {
+		t.Fatalf("position parent = %q, want %q", got, hliepinGreetDropdownParent)
+	}
+	if got := stringFromMap(exec.payloads[5], "target_selector"); got != hliepinGreetJobOptionTarget {
+		t.Fatalf("position target = %q, want %q", got, hliepinGreetJobOptionTarget)
+	}
+	if got := stringFromMap(exec.payloads[5], "nested_selector"); got != hliepinGreetJobOptionNested {
+		t.Fatalf("position nested target = %q, want %q", got, hliepinGreetJobOptionNested)
+	}
+	if got := stringFromMap(exec.payloads[1], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
+		t.Fatalf("candidate parent = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[1], "target_selector"); got != hliepinCandidateButtonTarget {
+		t.Fatalf("candidate target = %q", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
 		t.Fatalf("escape presses = %d, want 2", got)
 	}
 }
 
-// TestGreetCandidateSkipsPositionForPublishedJobMode 验证岗位模式已选职位时直接立即开聊并按 Esc。
+// TestGreetCandidateUsesNoPositionForShortcutMode 验证快捷搜索模式直接点击不选择职位开聊。
 // t 为测试对象。
-func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
+func TestGreetCandidateUsesNoPositionForShortcutMode(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "PHP程序员"
-	runtime.greetJobSelected = true
+	runtime.shouldSelectGreetJob = false
 	exec := &searchExecutor{}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 0, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[1], "text"); got != "立即开聊" {
+	if got := stringFromMap(exec.payloads[3], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -406,43 +545,138 @@ func TestGreetCandidateSkipsPositionForPublishedJobMode(t *testing.T) {
 func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "不存在的岗位"
+	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinGreetJobOptionSelector: {
 			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
 		},
 	}}
-	err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{
-		"card_index": 1, "card_item": map[string]any{"selector": "tbody tr"},
-	})
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/list-click-by-index", "/api/v1/page/click-by-text", "/api/v1/page/find-elements", "/api/v1/page/click-by-text", "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[3], "text"); got != "不选职位" {
+	if got := stringFromMap(exec.payloads[5], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("fallback button text = %q", got)
 	}
-	if exact, _ := exec.payloads[3]["exact"].(bool); exact {
-		t.Fatal("fallback button should allow partial text match")
+	if exact, _ := exec.payloads[5]["exact_text"].(bool); !exact {
+		t.Fatal("fallback button should use exact text match")
 	}
 }
 
-// TestGreetCandidateSupportsAlternateWithoutPositionText 验证页面使用“不选择职位”文案时仍能继续开聊。
-// t 为测试对象。
-func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
+// TestGreetCandidatePreservesChatForCandidateInfo 验证本候选人随后需要索要信息时不发送 Esc 关闭自动打开的聊天框。
+func TestGreetCandidatePreservesChatForCandidateInfo(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.currentPosition = "不存在的岗位"
-	exec := &searchExecutor{
-		findItems:       map[string][]any{hliepinGreetJobOptionSelector: {}},
-		clickTextErrors: map[string]error{"不选职位": errors.New("未找到该文案")},
-	}
-	if err := runtime.GreetCandidate(context.Background(), exec, nil, map[string]any{"card_index": 1}); err != nil {
+	runtime.shouldSelectGreetJob = true
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinGreetJobOptionSelector: {
+			map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}},
+		},
+	}}
+	candidate := hliepinStableTestCandidate(1)
+	candidate["_candidate_info_after_greet"] = true
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, candidate); err != nil {
 		t.Fatal(err)
 	}
-	if got := stringFromMap(exec.payloads[4], "text"); got != "不选择职位" {
-		t.Fatalf("alternate fallback button text = %q", got)
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 0 {
+		t.Fatalf("escape presses = %d, want 0 when candidate info follows", got)
+	}
+	fallbackClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinGreetWithoutJobTarget {
+			fallbackClicks++
+		}
+	}
+	if fallbackClicks != 1 {
+		t.Fatalf("fallback clicks = %d, want 1", fallbackClicks)
+	}
+}
+
+// TestGreetCandidateUsesScopedWithoutPositionButton 验证未匹配职位时只点击开聊弹框内唯一的不选择职位按钮。
+// t 为测试对象。
+func TestGreetCandidateUsesScopedWithoutPositionButton(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "不存在的岗位"
+	exec := &searchExecutor{findItems: map[string][]any{hliepinGreetJobOptionSelector: {}}}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(1)); err != nil {
+		t.Fatal(err)
+	}
+	foundScopedFallback := false
+	for _, payload := range exec.payloads {
+		if stringFromMap(payload, "parent_selector") == hliepinGreetModalParent && stringFromMap(payload, "target_selector") == hliepinGreetWithoutJobTarget {
+			foundScopedFallback = true
+			break
+		}
+	}
+	if !foundScopedFallback {
+		t.Fatal("scoped fallback button was not clicked")
+	}
+}
+
+// TestGreetCandidateReadsJobOptionsOnce 验证猎聘职位下拉选项只查询一次，未找到时立即不选职位开聊。
+// t 为测试对象。
+func TestGreetCandidateReadsJobOptionsOnce(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "Java开发工程师"
+	runtime.shouldSelectGreetJob = true
+	exec := &searchExecutor{findItemSequences: map[string][][]any{
+		hliepinGreetJobOptionSelector: {
+			{},
+			{map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
+		},
+	}}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0)); err != nil {
+		t.Fatal(err)
+	}
+	if got := exec.findSequenceCalls[hliepinGreetJobOptionSelector]; got != 1 {
+		t.Fatalf("job option queries = %d, want 1", got)
+	}
+	foundFallback := false
+	for _, payload := range exec.payloads {
+		if stringFromMap(payload, "target_selector") == hliepinGreetWithoutJobTarget {
+			foundFallback = true
+			break
+		}
+	}
+	if !foundFallback {
+		t.Fatal("empty first job query should immediately click without position")
+	}
+}
+
+// TestGreetCandidateDoesNotRetry 验证猎聘开聊失败后直接返回，不重新点击候选人执行第二次。
+// t 为测试对象。
+func TestGreetCandidateDoesNotRetry(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "Java开发工程师"
+	runtime.shouldSelectGreetJob = true
+	exec := &searchExecutor{
+		findItems: map[string][]any{
+			hliepinGreetJobOptionSelector: {map[string]any{"fields": map[string]any{"position_name": "Java开发工程师"}}},
+		},
+		stableFailures: map[string]int{hliepinGreetJobSelectTarget: 1},
+	}
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
+	if err == nil || !strings.Contains(err.Error(), "打开猎聘开聊职位下拉框失败") {
+		t.Fatalf("error = %v, want dropdown open failure", err)
+	}
+	candidateClicks := 0
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		if stringFromMap(exec.payloads[index], "target_selector") == hliepinCandidateButtonTarget && stringFromMap(exec.payloads[index], "expected_text") == "立即沟通" {
+			candidateClicks++
+		}
+	}
+	if candidateClicks != 1 {
+		t.Fatalf("candidate clicks = %d, want 1 attempt", candidateClicks)
+	}
+	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 0 {
+		t.Fatalf("escape presses = %d, want no retry cleanup", got)
 	}
 }
 
@@ -450,53 +684,49 @@ func TestGreetCandidateSupportsAlternateWithoutPositionText(t *testing.T) {
 func TestRequestCandidateInfoUsesVerifiedChatSelectors(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{}
-	err := runtime.RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{
+	err := runtime.RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{
 		RequestPhone: true, RequestWechat: true, RequestResume: true, GreetMessage: "你好，想和你沟通这个岗位。",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"/api/v1/page/list-click-by-index",
-		"/api/v1/page/click",
-		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
-		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
-		"/api/v1/page/find-elements",
-		"/api/v1/page/type",
-		"/api/v1/page/press-key",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
-	}
-	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
-		t.Fatalf("paths = %#v", exec.paths)
-	}
-	selectors := []string{
+	wantStableSelectors := []string{
+		hliepinCandidateButtonTarget,
 		hliepinRequestPhoneSelector,
 		hliepinRequestWechatSelector,
 		hliepinRequestResumeSelector,
-		hliepinChatInputSelector,
 		hliepinChatCloseSelector,
 		hliepinCandidateListClose,
 	}
-	payloadIndexes := []int{1, 3, 5, 7, 9, 10}
-	for index, payloadIndex := range payloadIndexes {
-		if got := stringFromMap(mapFromAny(exec.payloads[payloadIndex]["element"]), "selector"); got != selectors[index] {
-			t.Fatalf("selector[%d] = %q, want %q", index, got, selectors[index])
+	var stableSelectors []string
+	var typePayload map[string]any
+	var pressPayload map[string]any
+	for index, path := range exec.paths {
+		switch path {
+		case hliepinStableClickPath:
+			stableSelectors = append(stableSelectors, stringFromMap(exec.payloads[index], "target_selector"))
+		case "/api/v1/page/type":
+			typePayload = exec.payloads[index]
+		case "/api/v1/page/press-key":
+			pressPayload = exec.payloads[index]
 		}
 	}
-	if got := stringFromMap(exec.payloads[7], "text"); got != "你好，想和你沟通这个岗位。" {
+	if fmt.Sprint(stableSelectors) != fmt.Sprint(wantStableSelectors) {
+		t.Fatalf("stable selectors = %#v, want %#v", stableSelectors, wantStableSelectors)
+	}
+	if got := stringFromMap(mapFromAny(typePayload["element"]), "selector"); got != hliepinChatInputSelector {
+		t.Fatalf("chat input selector = %q, want %q", got, hliepinChatInputSelector)
+	}
+	if got := stringFromMap(typePayload, "text"); got != "你好，想和你沟通这个岗位。" {
 		t.Fatalf("message = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[8], "key"); got != "Enter" {
+	if got := stringFromMap(pressPayload, "key"); got != "Enter" {
 		t.Fatalf("send key = %q", got)
 	}
-	if len(exec.delays) == 0 || exec.delays[0] != 1 {
-		t.Fatalf("continue dialog delay = %#v, want first delay 1 second", exec.delays)
+	for _, delay := range exec.delays {
+		if delay >= 1 {
+			t.Fatalf("fixed one-second delay should be removed, delays = %#v", exec.delays)
+		}
 	}
 }
 
@@ -505,32 +735,177 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinRequestConfirmDialog: {map[string]any{"text": "确定向对方索要手机号吗？"}},
 	}}
-	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{RequestPhone: true})
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"/api/v1/page/list-click-by-index",
-		"/api/v1/page/click",
-		"/api/v1/page/find-elements",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
-		"/api/v1/page/click",
+	confirmFindIndex := -1
+	confirmClickIndex := -1
+	for index, path := range exec.paths {
+		if path == "/api/v1/page/find-elements" && stringFromMap(mapFromAny(exec.payloads[index]["element"]), "selector") == hliepinRequestConfirmDialog {
+			confirmFindIndex = index
+		}
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestConfirmButton {
+			confirmClickIndex = index
+		}
 	}
-	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
-		t.Fatalf("paths = %#v", exec.paths)
+	if confirmFindIndex < 0 || confirmClickIndex < 0 {
+		t.Fatalf("confirm paths missing: %#v", exec.paths)
 	}
-	if got := stringFromMap(mapFromAny(exec.payloads[2]["element"]), "selector"); got != hliepinRequestConfirmDialog {
+	if got := stringFromMap(mapFromAny(exec.payloads[confirmFindIndex]["element"]), "selector"); got != hliepinRequestConfirmDialog {
 		t.Fatalf("confirm dialog selector = %q", got)
 	}
-	if got := stringFromMap(mapFromAny(exec.payloads[3]["element"]), "selector"); got != hliepinRequestConfirmButton {
+	if got := stringFromMap(exec.payloads[confirmClickIndex], "parent_selector"); got != hliepinRequestConfirmDialog {
+		t.Fatalf("confirm parent selector = %q", got)
+	}
+	if got := stringFromMap(exec.payloads[confirmClickIndex], "target_selector"); got != hliepinRequestConfirmButton {
 		t.Fatalf("confirm button selector = %q", got)
 	}
-	if len(exec.delays) < 2 || exec.delays[1] != 1 {
-		t.Fatalf("confirm dialog delay = %#v, want second delay 1 second", exec.delays)
+	if normalize, _ := exec.payloads[confirmClickIndex]["normalize_text_whitespace"].(bool); !normalize {
+		t.Fatal("confirm button should normalize text whitespace")
+	}
+}
+
+// TestRequestCandidateInfoWaitsForDelayedCurrentChat 验证猎聘聊天框延迟出现时直接复用，不再点击继续沟通。
+func TestRequestCandidateInfoWaitsForDelayedCurrentChat(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent: [][]any{
+			[]any{},
+			[]any{},
+			[]any{map[string]any{"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"}}},
+			[]any{},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	continueClicks := 0
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		switch stringFromMap(exec.payloads[index], "target_selector") {
+		case hliepinCandidateButtonTarget:
+			continueClicks++
+		case hliepinRequestPhoneSelector:
+			phoneClicks++
+		}
+	}
+	if continueClicks != 0 || phoneClicks != 1 {
+		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
+	}
+}
+
+// TestRequestCandidateInfoWaitsForDelayedActionButton 验证聊天姓名先出现、索要按钮稍后渲染时会按100毫秒轮询后再点击。
+func TestRequestCandidateInfoWaitsForDelayedActionButton(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent + " " + hliepinRequestPhoneSelector: [][]any{
+			[]any{},
+			[]any{map[string]any{"text": "索要手机"}},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+			phoneClicks++
+		}
+	}
+	if phoneClicks != 1 {
+		t.Fatalf("phone clicks = %d, want 1", phoneClicks)
+	}
+	foundPollingDelay := false
+	for _, delay := range exec.delays {
+		if delay == hliepinPanelPollInterval {
+			foundPollingDelay = true
+			break
+		}
+	}
+	if !foundPollingDelay {
+		t.Fatalf("delays = %#v, want 100ms polling", exec.delays)
+	}
+}
+
+// TestRequestCandidateInfoStopsWhenActionButtonNeverAppears 验证索要按钮始终未渲染时不执行错误坐标点击。
+func TestRequestCandidateInfoStopsWhenActionButtonNeverAppears(t *testing.T) {
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinChatModalParent + " " + hliepinRequestPhoneSelector: {},
+	}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "索要手机按钮超时") {
+		t.Fatalf("error = %v, want action button timeout", err)
+	}
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinRequestPhoneSelector {
+			t.Fatal("phone button should not be clicked before it appears")
+		}
+	}
+}
+
+// TestRequestCandidateInfoReopensMismatchedChat 验证聊天框姓名不是当前候选人时先清理，再只打开一次当前候选人。
+func TestRequestCandidateInfoReopensMismatchedChat(t *testing.T) {
+	exec := &searchExecutor{}
+	exec.findItemSequences = map[string][][]any{
+		hliepinChatModalParent: [][]any{
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{map[string]any{"text": "华志强", "fields": map[string]any{"candidate_name": "华志强"}}},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{},
+			[]any{map[string]any{"text": "王先生", "fields": map[string]any{"candidate_name": "王先生"}}},
+			[]any{},
+		},
+	}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	continueClicks := 0
+	phoneClicks := 0
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		switch stringFromMap(exec.payloads[index], "target_selector") {
+		case hliepinCandidateButtonTarget:
+			continueClicks++
+		case hliepinRequestPhoneSelector:
+			phoneClicks++
+		}
+	}
+	if continueClicks != 1 || phoneClicks != 1 {
+		t.Fatalf("continue clicks = %d, phone clicks = %d", continueClicks, phoneClicks)
+	}
+}
+
+// TestRequestCandidateInfoTimeoutCleansDrawer 验证聊天框未打开时只点击一次继续沟通，并在返回前关闭联系人抽屉。
+func TestRequestCandidateInfoTimeoutCleansDrawer(t *testing.T) {
+	exec := &searchExecutor{suppressContinueChat: true}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "聊天框超时") {
+		t.Fatalf("error = %v, want chat timeout", err)
+	}
+	continueClicks := 0
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinCandidateButtonTarget {
+			continueClicks++
+		}
+	}
+	if continueClicks != 1 {
+		t.Fatalf("continue clicks = %d, want 1", continueClicks)
+	}
+	if exec.candidateDrawerOpen {
+		t.Fatal("candidate drawer should be closed before returning")
 	}
 }
 
@@ -548,15 +923,62 @@ func TestRequestCandidateInfoSkipsEmptyRequest(t *testing.T) {
 
 // TestRequestCandidateInfoFailsWhenRequestedButtonMissing 验证猎聘索要按钮不存在时整次索要失败并返回明确错误。
 func TestRequestCandidateInfoFailsWhenRequestedButtonMissing(t *testing.T) {
-	exec := &searchExecutor{errors: map[string]error{
-		"/api/v1/page/click": errors.New("点击选择器不能为空或未找到元素"),
-	}}
-	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, platformcore.Candidate{
-		"card_index": 0,
-		"card_item":  map[string]any{"selector": "tbody tr"},
-	}, platformcore.CandidateInfoRequest{RequestPhone: true})
-	if err == nil || !strings.Contains(err.Error(), "索要手机") || !strings.Contains(err.Error(), "未找到元素") {
+	exec := &searchExecutor{stableFailures: map[string]int{hliepinRequestPhoneSelector: 1}}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true})
+	if err == nil || !strings.Contains(err.Error(), "索要手机") || !strings.Contains(err.Error(), "稳定目标尚未就绪") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestHLiepinCandidateRowParentSelector 验证猎聘候选人父级只能由安全的稳定简历 ID 生成。
+// t 为测试对象。
+func TestHLiepinCandidateRowParentSelector(t *testing.T) {
+	selector, err := hliepinCandidateRowParentSelector(platformcore.Candidate{
+		"platform_candidate_id": "abc_123-XYZ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector != "tbody tr.r-abc_123-XYZ" {
+		t.Fatalf("selector = %q", selector)
+	}
+	if _, err := hliepinCandidateRowParentSelector(platformcore.Candidate{"platform_candidate_id": "bad id > button"}); err == nil {
+		t.Fatal("unsafe candidate id should be rejected")
+	}
+}
+
+// TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget 验证猎聘稳定点击调用均同时携带父级和目标选择器。
+// t 为测试对象。
+func TestHLiepinStableClickPayloadsAlwaysUseParentAndTarget(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{}
+	if err := runtime.RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestPhone: true}); err != nil {
+		t.Fatal(err)
+	}
+	stableCalls := 0
+	actionIDs := map[string]bool{}
+	for index, path := range exec.paths {
+		if path != hliepinStableClickPath {
+			continue
+		}
+		stableCalls++
+		if strings.TrimSpace(stringFromMap(exec.payloads[index], "parent_selector")) == "" {
+			t.Fatalf("stable payload[%d] parent selector is empty", index)
+		}
+		if strings.TrimSpace(stringFromMap(exec.payloads[index], "target_selector")) == "" {
+			t.Fatalf("stable payload[%d] target selector is empty", index)
+		}
+		actionID := strings.TrimSpace(stringFromMap(exec.payloads[index], "action_id"))
+		if actionID == "" {
+			t.Fatalf("stable payload[%d] action id is empty", index)
+		}
+		if actionIDs[actionID] {
+			t.Fatalf("stable payload[%d] action id is duplicated: %s", index, actionID)
+		}
+		actionIDs[actionID] = true
+	}
+	if stableCalls == 0 {
+		t.Fatal("expected stable click calls")
 	}
 }
 
@@ -603,7 +1025,7 @@ func TestPreparePositionSearchStopsWhenPublishedJobMissing(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinPublishedJobSelector: {map[string]any{"text": "PHP程序员"}},
-	}, clickTextErrors: map[string]error{"Java开发工程师初级": fmt.Errorf("未找到文字元素")}}
+	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"})
 	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到岗位运行岗位") || !strings.Contains(err.Error(), "岗位运行已停止") {
 		t.Fatalf("error = %v", err)

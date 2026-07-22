@@ -22,6 +22,7 @@ import {
   SESSION_EMAIL_KEY,
   TOKEN_KEY,
 } from "@/lib/api";
+import { captureLocalAgentPortFromURL } from "@/lib/admin-api";
 
 /** LoginForm 提供验证码发送、倒计时和登录状态保存。 */
 export default function LoginForm() {
@@ -33,6 +34,7 @@ export default function LoginForm() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    captureLocalAgentPortFromURL();
     const cachedEmail = (localStorage.getItem(SESSION_EMAIL_KEY) || "").trim().toLowerCase();
     if (cachedEmail) setEmail(cachedEmail);
     const token = localStorage.getItem(TOKEN_KEY) || "";

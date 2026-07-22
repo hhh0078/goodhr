@@ -26,12 +26,21 @@ func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.E
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
 	shortcutName := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_shortcut_search_name"))
 	if shortcutName == "" {
-		r.greetJobSelected = true
+		r.shouldSelectGreetJob = false
 		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，岗位运行岗位="+positionName)
-		return r.selectPublishedPosition(ctx, exec, positionName)
+		if err := r.selectPublishedPosition(ctx, exec, positionName); err != nil {
+			return err
+		}
+		r.shouldSelectGreetJob = true
+		exec.Log("info", "猎聘候选人搜索：已匹配正在发布的职位，后续开聊弹框需要选择岗位")
+		return nil
 	}
-	r.greetJobSelected = false
-	return r.selectShortcutSearch(ctx, exec, positionName, shortcutName)
+	r.shouldSelectGreetJob = false
+	if err := r.selectShortcutSearch(ctx, exec, positionName, shortcutName); err != nil {
+		return err
+	}
+	exec.Log("info", "猎聘候选人搜索：已匹配快捷搜索，后续开聊弹框不选择岗位")
+	return nil
 }
 
 // selectShortcutSearch 展开快捷搜索列表并按配置名称进行完整匹配。
@@ -85,14 +94,17 @@ func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore
 	if len(items) == 0 {
 		return fmt.Errorf("展开后未找到猎聘正在发布的职位，岗位运行岗位=%s，岗位运行已停止", positionName)
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click-by-text", map[string]any{
-		"text": positionName, "exact": true,
-		"element":         map[string]any{"selector": hliepinPublishedJobSelector},
-		"resolve_tooltip": true, "tooltip_wait_ms": 300, "timeout": 8000,
-	}); err != nil {
-		return fmt.Errorf("猎聘正在发布的职位中未找到岗位运行岗位“%s”，当前职位=%s，岗位运行已停止：%w", positionName, searchItemNames(items), err)
+	matchIndex, matchName := matchingPublishedJobItem(items, positionName)
+	if matchIndex < 0 {
+		return fmt.Errorf("猎聘正在发布的职位中未找到岗位运行岗位“%s”，当前职位=%s，岗位运行已停止", positionName, searchItemNames(items))
 	}
-	exec.Log("info", "猎聘候选人搜索：正在发布的职位已选择="+positionName)
+	if _, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
+		"element": map[string]any{"selector": hliepinPublishedJobSelector},
+		"index":   matchIndex, "timeout": 8000,
+	}); err != nil {
+		return fmt.Errorf("点击猎聘正在发布的职位“%s”失败，岗位运行已停止：%w", matchName, err)
+	}
+	exec.Log("info", fmt.Sprintf("猎聘候选人搜索：正在发布的职位已选择=%s，岗位运行岗位=%s，列表序号=%d", matchName, positionName, matchIndex))
 	r.currentPosition = positionName
 	if err := exec.Delay(ctx, "等待猎聘职位候选人结果刷新", 1.2); err != nil {
 		return err
@@ -147,6 +159,43 @@ func matchingShortcutItem(items []map[string]any, shortcutName string) (int, str
 		}
 	}
 	return -1, ""
+}
+
+// matchingPublishedJobItem 优先完整匹配发布职位；页面名称被省略号截断时，去掉省略号并按前六个字选择第一个匹配项。
+func matchingPublishedJobItem(items []map[string]any, positionName string) (int, string) {
+	target := normalizePublishedJobName(positionName)
+	for index, item := range items {
+		name := strings.TrimSpace(stringFromMap(item, "text"))
+		if normalized := normalizePublishedJobName(name); normalized != "" && normalized == target {
+			return index, name
+		}
+	}
+	targetPrefix := firstRunes(target, 6)
+	if len([]rune(targetPrefix)) < 6 {
+		return -1, ""
+	}
+	for index, item := range items {
+		name := strings.TrimSpace(stringFromMap(item, "text"))
+		normalized := normalizePublishedJobName(name)
+		if len([]rune(normalized)) >= 6 && firstRunes(normalized, 6) == targetPrefix {
+			return index, name
+		}
+	}
+	return -1, ""
+}
+
+// normalizePublishedJobName 统一发布职位比较文本，并移除页面截断产生的末尾英文句点或中文省略号。
+func normalizePublishedJobName(value string) string {
+	return strings.TrimRight(strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), "")), ".…")
+}
+
+// firstRunes 返回字符串前 limit 个字符，字符不足时返回原字符串。
+func firstRunes(value string, limit int) string {
+	runes := []rune(value)
+	if limit <= 0 || len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 // searchItemNames 汇总页面搜索项名称，用于岗位运行停止时输出可核查的错误信息。

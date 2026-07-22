@@ -32,6 +32,7 @@ func (s *Server) openConsoleAfterStart(port int) {
 		}
 		log.Printf("本地健康检查通过，准备解析控制台地址：fallback_url=%s", url)
 		url = s.resolveConsoleURL(url)
+		url = withLocalAgentPort(url, port)
 		log.Printf("准备调用系统默认浏览器打开控制台：target_url=%s", url)
 		if err := openDefaultBrowser(url); err != nil {
 			log.Printf("打开控制台失败，请手动访问 %s：%v", url, err)
@@ -53,7 +54,7 @@ func (s *Server) openExistingConsole(port int) bool {
 		log.Printf("端口被占用但未确认旧实例可用：port=%d err=%v", port, err)
 		return false
 	}
-	targetURL := s.resolveConsoleURL(fallbackURL)
+	targetURL := withLocalAgentPort(s.resolveConsoleURL(fallbackURL), port)
 	log.Printf("检测到旧实例可用，准备打开已有控制台：fallback_url=%s target_url=%s", fallbackURL, targetURL)
 	if err := openDefaultBrowser(targetURL); err != nil {
 		log.Printf("打开已运行控制台失败，请手动访问 %s：%v", targetURL, err)
@@ -104,6 +105,22 @@ func isConsoleURLAllowed(rawURL string) bool {
 		return false
 	}
 	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+}
+
+// withLocalAgentPort 在控制台地址中写入本地程序实际监听端口，并保留原有查询参数和锚点。
+// rawURL 为待打开的控制台地址，port 为当前本地程序实际监听端口。
+func withLocalAgentPort(rawURL string, port int) string {
+	if port < 1 || port > 65535 {
+		return rawURL
+	}
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return rawURL
+	}
+	query := parsed.Query()
+	query.Set("local_port", strconv.Itoa(port))
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // waitConsoleReady 等待本地服务可以响应健康检查。

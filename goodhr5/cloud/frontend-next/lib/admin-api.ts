@@ -10,6 +10,8 @@ export const LOCAL_AGENT_PORTS = [55271];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
 const LOCAL_AGENT_MACHINE_ID_KEY = "goodhr5_local_agent_machine_id";
+const LOCAL_AGENT_PORT_QUERY_KEY = "local_port";
+const LOCAL_AGENT_PORT_CACHE_KEY = "goodhr5_local_agent_port";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -128,6 +130,20 @@ export async function detectLocalAgent(preferredBaseURL = "") {
   return state.detecting;
 }
 
+/** captureLocalAgentPortFromURL 读取本地程序写入页面链接的端口，并持久化供登录页和后台共用。 */
+export function captureLocalAgentPortFromURL(search?: string) {
+  if (typeof window === "undefined") return 0;
+  const port = normalizeLocalAgentPort(
+    new URLSearchParams(search ?? window.location.search).get(
+      LOCAL_AGENT_PORT_QUERY_KEY,
+    ),
+  );
+  if (!port) return 0;
+  localStorage.setItem(LOCAL_AGENT_PORT_CACHE_KEY, String(port));
+  clearLocalAgentDetectCache();
+  return port;
+}
+
 /** bindDetectedLocalAgent 把浏览器已探测到的本地程序版本和匿名机器码同步到云端。 */
 export async function bindDetectedLocalAgent(baseURL: string) {
   const health = await localRequest(baseURL, "/health");
@@ -170,14 +186,16 @@ async function detectLocalAgentOnce(
   state: LocalAgentDetectState,
   preferredBaseURL = "",
 ) {
-  const preferredPort = Number(preferredBaseURL.match(/:(\d+)$/)?.[1] || 0);
-  const ports =
-    preferredPort && LOCAL_AGENT_PORTS.includes(preferredPort)
-      ? [
-          preferredPort,
-          ...LOCAL_AGENT_PORTS.filter((port) => port !== preferredPort),
-        ]
-      : LOCAL_AGENT_PORTS;
+  const preferredPort = normalizeLocalAgentPort(
+    preferredBaseURL.match(/:(\d+)$/)?.[1],
+  );
+  const ports = Array.from(
+    new Set(
+      [preferredPort, cachedLocalAgentPort(), ...LOCAL_AGENT_PORTS].filter(
+        (port): port is number => Boolean(port),
+      ),
+    ),
+  );
   for (const port of ports) {
     const baseURL = `http://127.0.0.1:${port}`;
     const controller = new AbortController();
@@ -209,9 +227,10 @@ function isLocalAgentDetectCacheValid(
   preferredBaseURL: string,
 ) {
   if (!state.cache.checkedAt) return false;
-  const cachedPort = Number(state.cache.baseURL.match(/:(\d+)$/)?.[1] || 0);
-  if (state.cache.baseURL && !LOCAL_AGENT_PORTS.includes(cachedPort))
-    return false;
+  const cachedPort = normalizeLocalAgentPort(
+    state.cache.baseURL.match(/:(\d+)$/)?.[1],
+  );
+  if (state.cache.baseURL && !cachedPort) return false;
   if (Date.now() - state.cache.checkedAt > LOCAL_AGENT_DETECT_CACHE_MS)
     return false;
   if (
@@ -221,6 +240,24 @@ function isLocalAgentDetectCacheValid(
   )
     return false;
   return true;
+}
+
+/** cachedLocalAgentPort 返回页面最近缓存的合法本地程序端口。 */
+function cachedLocalAgentPort() {
+  if (typeof window === "undefined") return 0;
+  const port = normalizeLocalAgentPort(
+    localStorage.getItem(LOCAL_AGENT_PORT_CACHE_KEY),
+  );
+  if (!port) localStorage.removeItem(LOCAL_AGENT_PORT_CACHE_KEY);
+  return port;
+}
+
+/** normalizeLocalAgentPort 把外部端口值限制为有效的 TCP 端口整数。 */
+function normalizeLocalAgentPort(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!/^\d+$/.test(raw)) return 0;
+  const port = Number(raw);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 0;
 }
 
 /** localAgentDetectState 返回浏览器全局共享的本地程序探测状态。 */

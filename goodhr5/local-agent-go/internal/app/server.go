@@ -160,6 +160,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/page/screenshot", s.handlePageScreenshot)
 	mux.HandleFunc("/api/v1/page/url", s.handlePageURL)
 	mux.HandleFunc("/api/v1/page/cookies", s.handlePageCookies)
+	mux.HandleFunc("/api/v1/hliepin/stable-click", s.handleHLiepinStableClick)
 	mux.HandleFunc("/api/v1/boss/candidates/scroll", s.handleBossCandidatesScroll)
 	mux.HandleFunc("/api/v1/boss/candidates/detail", s.handleBossCandidateDetail)
 	mux.HandleFunc("/api/v1/downloads", s.handleDownloads)
@@ -711,6 +712,11 @@ func (s *Server) handlePageListClickByIndex(w http.ResponseWriter, r *http.Reque
 // handlePageClickByText 转发按可见文字点击请求给浏览器 Worker。
 func (s *Server) handlePageClickByText(w http.ResponseWriter, r *http.Request) {
 	s.proxyWorkerPost(w, r, "/api/v1/page/click-by-text")
+}
+
+// handleHLiepinStableClick 仅转发猎聘父子唯一定位与位置稳定点击请求给 Node Worker。
+func (s *Server) handleHLiepinStableClick(w http.ResponseWriter, r *http.Request) {
+	s.proxyWorkerPost(w, r, "/api/v1/hliepin/stable-click")
 }
 
 // handlePageEnsureCheckedByText 转发按标签确保复选框选中请求。

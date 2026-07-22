@@ -258,10 +258,17 @@ func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map
 	if err == nil || !isRestartableCallError(err) {
 		return result, err
 	}
+	log.Printf("[Node Worker] POST 调用失败，准备重启并原样重发 path=%s error=%v", path, err)
 	if _, startErr := m.Restart(ctx); startErr != nil {
+		log.Printf("[Node Worker] POST 调用重启失败 path=%s error=%v", path, startErr)
 		return nil, startErr
 	}
-	return m.call(ctx, http.MethodPost, path, payload)
+	retryResult, retryErr := m.call(ctx, http.MethodPost, path, payload)
+	if retryResult != nil {
+		retryResult["_worker_call_retry_count"] = 1
+	}
+	log.Printf("[Node Worker] POST 原样重发结束 path=%s success=%t error=%v", path, retryErr == nil, retryErr)
+	return retryResult, retryErr
 }
 
 // CallGet 调用 Node Worker GET API。
