@@ -56,14 +56,14 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 			if err := clickGreetWithoutJob(ctx, exec, positionName); err != nil {
 				return err
 			}
-			return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
+			return r.finishGreetCandidate(ctx, exec, candidateInfoAfterGreetEnabled(candidate))
 		}
 	} else {
 		exec.Log("info", "猎聘打招呼：快捷搜索模式，开聊弹框直接不选择职位")
 		if err := clickGreetWithoutJob(ctx, exec, positionName); err != nil {
 			return err
 		}
-		return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
+		return r.finishGreetCandidate(ctx, exec, candidateInfoAfterGreetEnabled(candidate))
 	}
 	if _, err := hliepinStableClick(ctx, exec, hliepinGreetModalParent, hliepinGreetSubmitTarget, map[string]any{
 		"expected_text": "立即开聊", "exact_text": true,
@@ -71,7 +71,13 @@ func (r *Runtime) greetCandidateOnce(ctx context.Context, exec platformcore.Exec
 	}); err != nil {
 		return fmt.Errorf("点击猎聘“立即开聊”失败：%w", err)
 	}
-	return r.finishGreetCandidate(ctx, exec, boolFromMap(candidate, "_candidate_info_after_greet"))
+	return r.finishGreetCandidate(ctx, exec, candidateInfoAfterGreetEnabled(candidate))
+}
+
+// candidateInfoAfterGreetEnabled 读取主流程写入的临时标记，决定是否保留开聊后自动出现的聊天框。
+func candidateInfoAfterGreetEnabled(candidate platformcore.Candidate) bool {
+	enabled, _ := candidate["_candidate_info_after_greet"].(bool)
+	return enabled
 }
 
 // finishGreetCandidate 在需要立即索要信息时保留猎聘自动打开的聊天框，否则沿用两次 Esc 完成页面收尾。
