@@ -666,6 +666,9 @@ func TestRequestCandidateInfoConfirmsOptionalDialog(t *testing.T) {
 	if got := stringFromMap(exec.payloads[3], "target_selector"); got != hliepinRequestConfirmButton {
 		t.Fatalf("confirm button selector = %q", got)
 	}
+	if normalize, _ := exec.payloads[3]["normalize_text_whitespace"].(bool); !normalize {
+		t.Fatal("confirm button should normalize text whitespace")
+	}
 	if len(exec.delays) < 2 || exec.delays[1] != 1 {
 		t.Fatalf("confirm dialog delay = %#v, want second delay 1 second", exec.delays)
 	}

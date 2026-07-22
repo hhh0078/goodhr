@@ -116,7 +116,7 @@ func confirmCandidateInfoRequestIfPresent(ctx context.Context, exec platformcore
 		return nil
 	}
 	if _, err := hliepinStableClick(ctx, exec, hliepinRequestConfirmDialog, hliepinRequestConfirmButton, map[string]any{
-		"expected_text": "确定", "exact_text": true,
+		"expected_text": "确定", "exact_text": true, "normalize_text_whitespace": true,
 		"wait_for_hidden_selector": hliepinRequestConfirmDialog, "wait_timeout": 5000,
 	}); err != nil {
 		return fmt.Errorf("确认猎聘向候选人索要%s失败：%w", label, err)

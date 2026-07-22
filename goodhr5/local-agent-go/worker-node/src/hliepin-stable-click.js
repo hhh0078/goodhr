@@ -21,6 +21,12 @@ export function pointInsideBox(point, box, margin = 2) {
   );
 }
 
+/** normalizeComparableText 按配置整理目标文字，兼容猎聘按钮字间插入的展示空白。 */
+export function normalizeComparableText(value, ignoreWhitespace = false) {
+  const normalized = String(value || "").trim();
+  return ignoreWhitespace ? normalized.replace(/\s+/g, "") : normalized;
+}
+
 /** createHLiepinStableClickAction 创建猎聘专用的稳定单次点击页面动作。 */
 export function createHLiepinStableClickAction(dependencies) {
   const ensurePage = dependencies?.ensurePage;
@@ -63,14 +69,16 @@ export function createHLiepinStableClickAction(dependencies) {
     if (!(await target.isVisible().catch(() => false))) {
       throw new Error("猎聘稳定点击目标不可见");
     }
-    const expectedText = String(payload?.expected_text || "").trim();
+    const ignoreTextWhitespace = payload?.normalize_text_whitespace === true;
+    const expectedText = normalizeComparableText(payload?.expected_text, ignoreTextWhitespace);
     if (expectedText) {
-      const actualText = String(await target.innerText({ timeout: 800 }).catch(() => "")).trim();
+      const rawActualText = String(await target.innerText({ timeout: 800 }).catch(() => "")).trim();
+      const actualText = normalizeComparableText(rawActualText, ignoreTextWhitespace);
       const matches = payload?.exact_text === true
         ? actualText === expectedText
         : actualText.includes(expectedText);
       if (!matches) {
-        throw new Error(`猎聘稳定点击目标文字不匹配：${actualText}`);
+        throw new Error(`猎聘稳定点击目标文字不匹配：${rawActualText}`);
       }
     }
     return { target, parentCount, targetCount, targetIndex };
