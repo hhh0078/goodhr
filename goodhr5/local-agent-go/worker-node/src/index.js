@@ -865,12 +865,33 @@ async function findElements(payload) {
   const visibleOnly = payload.visible_only !== false;
   const rawMaxItems = Number(payload.max_items || 0);
   const maxItems = rawMaxItems > 0 ? rawMaxItems : 0;
-  const locators = await allLocators(
-    currentPage,
-    element,
-    visibleOnly,
-    maxItems,
-  );
+  const timeout = Math.max(0, Number(payload.timeout || 0));
+  const pollInterval = Math.max(50, Number(payload.poll_interval_ms || 100));
+  const requiredText = String(payload.required_text || "").trim();
+  const deadline = Date.now() + timeout;
+  let locators = [];
+  while (true) {
+    locators = await allLocators(
+      currentPage,
+      element,
+      visibleOnly,
+      maxItems,
+    );
+    let ready = locators.length > 0 && !requiredText;
+    if (locators.length > 0 && requiredText) {
+      const texts = await Promise.all(locators.map(async (item) => {
+        const locator = item.locator || item;
+        return String(
+          await locator.innerText({ timeout: pollInterval }).catch(() => ""),
+        );
+      }));
+      ready = texts.some((text) => text.includes(requiredText));
+    }
+    if (ready || timeout <= 0 || Date.now() >= deadline) break;
+    await currentPage.waitForTimeout(
+      Math.min(pollInterval, Math.max(1, deadline - Date.now())),
+    );
+  }
   const fields = Array.isArray(payload.fields) ? payload.fields : [];
   const items = [];
   const total =
@@ -1076,6 +1097,7 @@ async function ensureCheckedByText(payload) {
   const text = String(payload.text || "").trim();
   if (!text) throw new Error("复选框标签不能为空");
   const timeout = Math.max(300, Number(payload.timeout || 5000));
+  const pollInterval = Math.max(50, Number(payload.poll_interval_ms || 100));
   const deadline = Date.now() + timeout;
   let label = null;
   while (Date.now() <= deadline && !label) {
@@ -1090,7 +1112,7 @@ async function ensureCheckedByText(payload) {
         break;
       }
     }
-    if (!label) await currentPage.waitForTimeout(120);
+    if (!label) await currentPage.waitForTimeout(pollInterval);
   }
   if (!label) {
     if (payload.required === false) return { found: false, checked: false, text };
@@ -1131,7 +1153,7 @@ async function ensureCheckedByText(payload) {
         checked = await freshInput.isChecked().catch(() => false);
         break;
       }
-      if (!checked) await currentPage.waitForTimeout(120);
+      if (!checked) await currentPage.waitForTimeout(pollInterval);
     }
   }
   if (!checked) throw new Error(`复选框未成功选中：${text}`);

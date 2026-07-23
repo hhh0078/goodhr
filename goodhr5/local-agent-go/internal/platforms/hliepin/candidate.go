@@ -24,10 +24,15 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 		return nil, err
 	}
 	rawItems := mapList(workerData(result, "items"))
-	// 2026 版猎聘已取消旧 .no-hover-tr class，云端旧选择器无结果时回退到候选人表格行。
+	// 2026 版猎聘已取消旧 .no-hover-tr class；首次为空时回退到表格行，并等待筛选刷新后的候选人加载完成。
 	if len(rawItems) == 0 {
 		item = hliepinCandidateRowElement()
-		result, err = exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{"element": item, "visible_only": true, "fields": fields, "max_items": maxItems})
+		exec.Log("info", "猎聘候选人搜索：候选人列表首次为空，按100毫秒轮询等待，最多5秒")
+		result, err = exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+			"element": item, "visible_only": true, "fields": fields, "max_items": maxItems,
+			"timeout": hliepinReloadWaitTimeoutMS, "poll_interval_ms": hliepinReloadPollIntervalMS,
+			"required_text": "立即沟通",
+		})
 		if err != nil {
 			return nil, err
 		}
