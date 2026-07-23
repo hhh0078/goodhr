@@ -16,19 +16,20 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	name := candidateName(candidate)
 	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
-		"position_id":          request.PositionID,
-		"platform_config":      cfg,
-		"card_index":           intFromMap(candidate, "card_index"),
-		"element_ref":          stringFromMap(candidate, "element_ref"),
-		"screenshot":           request.Mode == "ocr" || request.Mode == "ai",
-		"force_scroll":         true,
-		"distance":             120,
-		"detail_ready_timeout": 5000,
-		"card_scroll_attempts": 18,
-		"require_full":         true,
-		"viewport_margin":      80,
-		"dir":                  filepath.Join(request.ScreenshotsDir, request.PositionID),
-		"filename":             request.Filename,
+		"position_id":               request.PositionID,
+		"platform_config":           cfg,
+		"card_index":                intFromMap(candidate, "card_index"),
+		"element_ref":               stringFromMap(candidate, "element_ref"),
+		"diagnostic_candidate_name": name,
+		"screenshot":                request.Mode == "ocr" || request.Mode == "ai",
+		"force_scroll":              true,
+		"distance":                  120,
+		"detail_ready_timeout":      5000,
+		"card_scroll_attempts":      18,
+		"require_full":              true,
+		"viewport_margin":           80,
+		"dir":                       filepath.Join(request.ScreenshotsDir, request.PositionID),
+		"filename":                  request.Filename,
 	})
 	if err != nil {
 		return platformcore.DetailResult{}, err

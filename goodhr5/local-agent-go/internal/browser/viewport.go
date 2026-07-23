@@ -3,9 +3,9 @@ package browser
 
 const (
 	// FixedViewportWidth 是自动化浏览器统一使用的 CSS 视口宽度。
-	FixedViewportWidth = 1280
+	FixedViewportWidth = 1440
 	// FixedViewportHeight 是自动化浏览器统一使用的 CSS 视口高度。
-	FixedViewportHeight = 720
+	FixedViewportHeight = 900
 )
 
 // FixedViewport 返回所有浏览器入口共用的固定内容视口尺寸。

@@ -3,10 +3,10 @@ package browser
 
 import "testing"
 
-// TestFixedViewport 验证自动化视口始终使用兼容桌面端的 1280x720。
+// TestFixedViewport 验证自动化视口始终使用更宽敞的 1440x900。
 func TestFixedViewport(t *testing.T) {
 	width, height := FixedViewport()
-	if width != 1280 || height != 720 {
-		t.Fatalf("固定视口应为 1280x720，实际为 %dx%d", width, height)
+	if width != 1440 || height != 900 {
+		t.Fatalf("固定视口应为 1440x900，实际为 %dx%d", width, height)
 	}
 }

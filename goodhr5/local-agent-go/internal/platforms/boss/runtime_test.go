@@ -38,6 +38,30 @@ func TestCandidateFingerprintRequiresAge(t *testing.T) {
 	}
 }
 
+// TestEnsureCandidateVisibleCarriesDiagnosticName 验证 Boss 滚动失败日志能够显示当前候选人姓名。
+func TestEnsureCandidateVisibleCarriesDiagnosticName(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &selectPositionSearchExecutor{}
+	candidate := platformcore.Candidate{
+		"candidate_name": "荣**",
+		"card_index":     2,
+		"element_ref":    "candidate-ref-3",
+	}
+	if err := runtime.EnsureCandidateVisible(context.Background(), exec, nil, candidate); err != nil {
+		t.Fatalf("候选人可见性调用不应失败：%v", err)
+	}
+	if len(exec.calls) != 1 {
+		t.Fatalf("候选人可见性调用次数不对：%d", len(exec.calls))
+	}
+	call := exec.calls[0]
+	if call.path != "/api/v1/boss/candidates/visible" {
+		t.Fatalf("候选人可见性调用路径不对：%s", call.path)
+	}
+	if call.payload["diagnostic_candidate_name"] != "荣**" {
+		t.Fatalf("滚动诊断应携带候选人姓名：%v", call.payload)
+	}
+}
+
 // TestPositionSearchQueryRemovesBossDisplaySuffix 验证岗位搜索词会去掉括号说明、城市和薪资。
 func TestPositionSearchQueryRemovesBossDisplaySuffix(t *testing.T) {
 	name := "门店前台销售（最低月薪5k+入职校长带教） _ 德阳 6-11K"
@@ -188,5 +212,8 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	}
 	if payload["position_id"] != "position-boss" {
 		t.Fatalf("Boss 详情请求应携带岗位运行 ID 以写入可见日志：%+v", payload)
+	}
+	if payload["diagnostic_candidate_name"] != "测试候选人" {
+		t.Fatalf("Boss 详情滚动诊断应携带候选人姓名：%+v", payload)
 	}
 }
