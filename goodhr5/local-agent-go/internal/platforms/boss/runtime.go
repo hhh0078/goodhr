@@ -20,14 +20,15 @@ func NewRuntime() *Runtime {
 // cfg 为平台配置，candidate 为候选人。
 func bossCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) map[string]any {
 	return map[string]any{
-		"platform_config":      cfg,
-		"card_index":           intFromMap(candidate, "card_index"),
-		"element_ref":          stringFromMap(candidate, "element_ref"),
-		"distance":             120,
-		"wait_ms":              260,
-		"card_scroll_attempts": 18,
-		"require_full":         true,
-		"viewport_margin":      0,
+		"platform_config":           cfg,
+		"card_index":                intFromMap(candidate, "card_index"),
+		"element_ref":               stringFromMap(candidate, "element_ref"),
+		"diagnostic_candidate_name": candidateName(candidate),
+		"distance":                  120,
+		"wait_ms":                   260,
+		"card_scroll_attempts":      18,
+		"require_full":              true,
+		"viewport_margin":           0,
 	}
 }
 

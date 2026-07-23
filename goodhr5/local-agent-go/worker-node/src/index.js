@@ -18,6 +18,7 @@ import {
   bestCandidateTextMatch,
   candidateCardLocator,
 } from "./candidate-match.js";
+import { buildBossCandidateScrollFailureDiagnostic } from "./boss-scroll-diagnostic.js";
 import {
   detailScrollWaits,
   effectiveDetailWheelDistance,
@@ -54,14 +55,27 @@ const workerVersion = String(process.env.GOODHR_WORKER_VERSION || "").trim();
  * 写入 Worker 诊断日志。
  * @param {string} message - 日志内容。
  * @param {Record<string, any>} data - 附加字段。
+ * @param {number} fieldLimit - 每个附加字段允许写入的最大字符数。
  * @returns {void} 无返回值。
  */
-function logWorker(message, data = {}) {
+function logWorker(message, data = {}, fieldLimit = 240) {
   const fields = Object.entries(data)
     .filter(
       ([, value]) => value !== undefined && value !== null && value !== "",
     )
-    .map(([key, value]) => `${key}=${String(value).slice(0, 240)}`);
+    .map(([key, value]) => {
+      let text = "";
+      if (typeof value === "object") {
+        try {
+          text = JSON.stringify(value);
+        } catch {
+          text = String(value);
+        }
+      } else {
+        text = String(value);
+      }
+      return `${key}=${text.slice(0, Math.max(80, Number(fieldLimit || 240)))}`;
+    });
   console.log(
     `[${new Date().toISOString()}] ${message}${fields.length ? ` ${fields.join(" ")}` : ""}`,
   );
@@ -74,7 +88,7 @@ function logWorker(message, data = {}) {
  * @returns {Promise<void>} 无返回值。
  */
 async function logBossCandidateScrollDebug(stage, data = {}) {
-  logWorker("Boss候选人滚动诊断", { stage, ...data });
+  logWorker("Boss候选人滚动诊断", { stage, ...data }, 1800);
 }
 
 /**
@@ -1568,6 +1582,7 @@ async function ensureBossCandidateVisible(payload) {
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
   await logBossCandidateScrollDebug("visible-start", {
     debug_stage: payload.debug_stage || "",
+    candidate_name: payload.diagnostic_candidate_name || "",
     card_index: cardIndex,
     has_ref: Boolean(payload.element_ref || payload.ref),
     viewport_margin: payload.viewport_margin,
@@ -1655,6 +1670,9 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     full: requireFull,
     vertical_only: true,
   };
+  const diagnosticAttempts = [];
+  let initialDiagnosticView = null;
+  let finalDiagnosticView = null;
   let refLocator = locatorByRef(
     currentPage,
     payload.element_ref || payload.ref,
@@ -1672,6 +1690,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   }
   if (refLocator) {
     const view = await isElementInViewport(refLocator, viewOptions);
+    initialDiagnosticView = view;
+    finalDiagnosticView = view;
     await logBossCandidateScrollDebug("ref-initial-view", {
       debug_stage: payload.debug_stage || "",
       card_index: cardIndex,
@@ -1714,6 +1734,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   const listContainer = listContainerInfo.usable ? listContainerInfo.locator : null;
   await logBossCandidateScrollDebug("locate-start", {
     debug_stage: payload.debug_stage || "",
+    candidate_name: payload.diagnostic_candidate_name || "",
     card_index: cardIndex,
     count,
     max_attempts: maxAttempts,
@@ -1747,6 +1768,17 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
           previous_wheel_locator: await candidateWheelAnchor(cards, cardIndex),
         },
       );
+      for (const trace of result.attempts || []) {
+        diagnosticAttempts.push({
+          ...trace,
+          outer_attempt: attempt,
+          phase: "element-ref",
+        });
+      }
+      if (!initialDiagnosticView && result.attempts?.[0]?.before_view) {
+        initialDiagnosticView = result.attempts[0].before_view;
+      }
+      finalDiagnosticView = result.final_view || finalDiagnosticView;
       logWorker("Boss候选人ref滚动检查", {
         card_index: cardIndex,
         attempt,
@@ -1778,12 +1810,31 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         count,
         distance,
       });
-      await scrollBossListByRules(
+      const scrollResult = await scrollBossListByRules(
         currentPage,
         rules,
         distance,
         await candidateWheelAnchor(cards, cardIndex),
       );
+      diagnosticAttempts.push({
+        outer_attempt: attempt,
+        phase: "index-out-of-range",
+        distance,
+        before_view: finalDiagnosticView,
+        after_view: finalDiagnosticView,
+        scroll_before: scrollResult.before,
+        scroll_after: scrollResult.after,
+        wheel_target: scrollResult.wheel_target,
+      });
+      await logBossCandidateScrollDebug("index-out-of-range-scroll-result", {
+        debug_stage: payload.debug_stage || "",
+        card_index: cardIndex,
+        attempt,
+        distance,
+        wheel_target: scrollResult.wheel_target,
+        scroll_before: scrollResult.before,
+        scroll_after: scrollResult.after,
+      });
       await currentPage.waitForTimeout(250);
       cards = await allLocators(currentPage, rules.candidate_card, true, 0);
       count = cards.length;
@@ -1793,6 +1844,8 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     const view = listContainer
       ? await isElementInContainerViewport(card, listContainer, viewOptions)
       : await isElementInViewport(card, viewOptions);
+    if (!initialDiagnosticView) initialDiagnosticView = view;
+    finalDiagnosticView = view;
     const wheelDistance = wheelDistanceForView(view, distance);
     await logBossCandidateScrollDebug("index-before-scroll", {
       debug_stage: payload.debug_stage || "",
@@ -1820,7 +1873,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     if (view.in_viewport) {
       return { card, attempts: attempt, view };
     }
-    await scrollBossListByRules(
+    const scrollResult = await scrollBossListByRules(
       currentPage,
       rules,
       wheelDistance,
@@ -1837,6 +1890,17 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         ? await isElementInContainerViewport(nextCard, listContainer, viewOptions)
         : await isElementInViewport(nextCard, viewOptions)
       : null;
+    finalDiagnosticView = afterView || finalDiagnosticView;
+    diagnosticAttempts.push({
+      outer_attempt: attempt,
+      phase: "card-index",
+      distance: wheelDistance,
+      before_view: view,
+      after_view: afterView,
+      scroll_before: scrollResult.before,
+      scroll_after: scrollResult.after,
+      wheel_target: scrollResult.wheel_target,
+    });
     await logBossCandidateScrollDebug("index-after-scroll", {
       debug_stage: payload.debug_stage || "",
       card_index: cardIndex,
@@ -1845,9 +1909,36 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       wheel_distance: wheelDistance,
       direction: wheelDirectionLabel(wheelDistance),
       view: viewDebugInfo(afterView),
+      wheel_target: scrollResult.wheel_target,
+      scroll_before: scrollResult.before,
+      scroll_after: scrollResult.after,
     });
   }
-  throw new Error("候选人卡片已不在当前页面");
+  const finalCard = cards[cardIndex]?.locator || cards[cardIndex];
+  if (finalCard) {
+    finalDiagnosticView = listContainer
+      ? await isElementInContainerViewport(finalCard, listContainer, viewOptions)
+      : await isElementInViewport(finalCard, viewOptions);
+  }
+  const diagnostic = buildBossCandidateScrollFailureDiagnostic({
+    candidate_name: payload.diagnostic_candidate_name || "",
+    requested_card_index: requestedCardIndex,
+    final_card_index: cardIndex,
+    card_count: count,
+    viewport: listContainerInfo.viewport,
+    container: {
+      usable: Boolean(listContainerInfo.usable),
+      selector: listContainerInfo.selector,
+      reason: listContainerInfo.reason,
+      box: listContainerInfo.box,
+    },
+    outer_attempts: maxAttempts,
+    initial_view: initialDiagnosticView,
+    final_view: finalDiagnosticView,
+    attempts: diagnosticAttempts,
+  });
+  await logBossCandidateScrollDebug("locate-failed-summary", diagnostic);
+  throw new Error(diagnostic.message);
 }
 
 /**
@@ -1856,16 +1947,31 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
  * @param {Record<string, any>} rules - Boss 平台规则。
  * @param {number} distance - 滚动距离。
  * @param {any|null} preferredWheelTarget - 优先使用的滚轮停靠点。
- * @returns {Promise<boolean>} 是否命中列表容器。
+ * @returns {Promise<Record<string, any>>} 滚轮目标、滚动前后状态和实际执行结果。
  */
 async function scrollBossListByRules(currentPage, rules, distance, preferredWheelTarget = null) {
   if (preferredWheelTarget) {
     try {
-      await moveMouseToElement(currentPage, preferredWheelTarget, { require_full: false });
+      const move = await moveMouseToElement(currentPage, preferredWheelTarget, {
+        require_full: false,
+      });
+      const before = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
       await currentPage.mouse.wheel(0, distance);
       await currentPage.waitForTimeout(450);
+      const after = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
       logWorker("Boss候选人滚动列表：使用上一个候选人卡片");
-      return true;
+      return {
+        executed: true,
+        wheel_target: "nearby-visible-card",
+        distance,
+        mouse: move,
+        before,
+        after,
+      };
     } catch (error) {
       logWorker("Boss候选人滚动列表：上一个候选人卡片不可用", {
         error: error?.message || error,
@@ -1892,24 +1998,57 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
         });
         continue;
       }
-      await moveMouseToElement(currentPage, locator);
+      const move = await moveMouseToElement(currentPage, locator);
+      const before = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
       await currentPage.mouse.wheel(0, distance);
       await currentPage.waitForTimeout(450);
-      return true;
+      const after = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
+      return {
+        executed: true,
+        wheel_target: "configured-container",
+        selector,
+        distance,
+        mouse: move,
+        before,
+        after,
+      };
     } catch {
       continue;
     }
   }
   const cardLocator = await firstLocator(currentPage, rules.candidate_card, true);
   if (cardLocator) {
-    await moveMouseToElement(currentPage, cardLocator);
+    const move = await moveMouseToElement(currentPage, cardLocator);
+    const before = await wheelScrollStateAtPoint(currentPage, move).catch(
+      (error) => ({ error: error?.message || String(error) }),
+    );
     await currentPage.mouse.wheel(0, distance);
     await currentPage.waitForTimeout(450);
-    return true;
+    const after = await wheelScrollStateAtPoint(currentPage, move).catch(
+      (error) => ({ error: error?.message || String(error) }),
+    );
+    return {
+      executed: true,
+      wheel_target: "first-candidate-card",
+      distance,
+      mouse: move,
+      before,
+      after,
+    };
   }
   await currentPage.mouse.wheel(0, distance);
   await currentPage.waitForTimeout(450);
-  return false;
+  return {
+    executed: true,
+    wheel_target: "current-mouse",
+    distance,
+    before: null,
+    after: null,
+  };
 }
 
 /**
@@ -4455,6 +4594,9 @@ async function wheelUntilElementVisible(
       options,
     );
     const wheelDistance = wheelDistanceForView(view, distance);
+    const scrollBefore = await wheelScrollStateAtPoint(currentPage, move).catch(
+      (error) => ({ error: error?.message || String(error) }),
+    );
     await logBossCandidateScrollDebug("wheel-before", {
       debug_stage: options.debug_stage || "",
       attempt,
@@ -4462,9 +4604,13 @@ async function wheelUntilElementVisible(
       direction: wheelDirectionLabel(wheelDistance),
       view: viewDebugInfo(view),
       mouse: move,
+      scroll_state: scrollBefore,
     });
     await currentPage.mouse.wheel(0, wheelDistance);
     await currentPage.waitForTimeout(waitMs);
+    const scrollAfter = await wheelScrollStateAtPoint(currentPage, move).catch(
+      (error) => ({ error: error?.message || String(error) }),
+    );
     const afterView = options.container_locator
       ? await isElementInContainerViewport(
         targetLocator,
@@ -4478,8 +4624,18 @@ async function wheelUntilElementVisible(
       wheel_distance: wheelDistance,
       direction: wheelDirectionLabel(wheelDistance),
       view: viewDebugInfo(afterView),
+      scroll_before: scrollBefore,
+      scroll_after: scrollAfter,
     });
-    attempts.push({ attempt, distance: wheelDistance, mouse: move, after_view: afterView });
+    attempts.push({
+      attempt,
+      distance: wheelDistance,
+      mouse: move,
+      before_view: view,
+      after_view: afterView,
+      scroll_before: scrollBefore,
+      scroll_after: scrollAfter,
+    });
   }
   const finalView = options.container_locator
     ? await isElementInContainerViewport(

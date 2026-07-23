@@ -1,6 +1,6 @@
 /** 本文件负责统一浏览器内容视口、恢复100%缩放并读取显示诊断信息。 */
 
-export const FIXED_BROWSER_VIEWPORT = Object.freeze({ width: 1280, height: 720 });
+export const FIXED_BROWSER_VIEWPORT = Object.freeze({ width: 1440, height: 900 });
 
 /** fixedBrowserViewport 返回可独立修改的固定视口参数。 */
 export function fixedBrowserViewport() {

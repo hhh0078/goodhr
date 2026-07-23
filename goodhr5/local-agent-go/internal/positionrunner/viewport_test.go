@@ -6,7 +6,7 @@ import "testing"
 // TestPositionBrowserViewport 验证岗位运行启动不再根据电脑分辨率改变视口。
 func TestPositionBrowserViewport(t *testing.T) {
 	width, height := positionBrowserViewport()
-	if width != 1280 || height != 720 {
-		t.Fatalf("岗位运行浏览器视口应为 1280x720，实际为 %dx%d", width, height)
+	if width != 1440 || height != 900 {
+		t.Fatalf("岗位运行浏览器视口应为 1440x900，实际为 %dx%d", width, height)
 	}
 }
