@@ -19,10 +19,32 @@ const (
 
 // GreetCandidate 执行猎聘猎头端候选人打招呼。
 func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
-	if err := closeHliepinGreetModalIfPresent(ctx, exec); err != nil {
-		exec.Log("warning", "猎聘打招呼：开始前清理遗留开聊弹框失败，继续尝试当前候选人，错误="+err.Error())
+	if err := prepareHliepinCandidateProcessing(ctx, exec, candidate); err != nil {
+		return fmt.Errorf("猎聘候选人处理前清理弹层失败：%w", err)
 	}
 	return r.greetCandidateOnce(ctx, exec, cfg, candidate)
+}
+
+// prepareHliepinCandidateProcessing 在点击当前候选人前关闭遗留的开聊弹框、聊天框和候选人列表抽屉。
+func prepareHliepinCandidateProcessing(ctx context.Context, exec platformcore.Executor, candidate platformcore.Candidate) error {
+	name := candidateName(candidate)
+	exec.Log("info", "猎聘候选人处理前检查：开始，候选人="+name)
+	if err := closeHliepinGreetModalIfPresent(ctx, exec); err != nil {
+		return fmt.Errorf("关闭遗留开聊弹框失败：%w", err)
+	}
+	state, err := inspectCandidateInfoPanels(ctx, exec)
+	if err != nil {
+		return fmt.Errorf("检查遗留聊天弹层失败：%w", err)
+	}
+	exec.Log("info", fmt.Sprintf("猎聘候选人处理前检查：候选人=%s，聊天框=%d，候选人列表=%d", name, state.chatCount, state.drawerCount))
+	if state.chatCount > 0 || state.drawerCount > 0 {
+		exec.Log("warning", fmt.Sprintf("猎聘候选人处理前检查：候选人=%s，发现遗留弹层，开始关闭", name))
+		if err := closeCandidateInfoPanels(ctx, exec, candidate); err != nil {
+			return fmt.Errorf("关闭遗留聊天弹层失败：%w", err)
+		}
+	}
+	exec.Log("info", "猎聘候选人处理前检查：完成，候选人="+name)
+	return nil
 }
 
 // greetCandidateOnce 执行一次猎聘开聊流程，任一步骤失败后直接返回且不重新点击候选人。
