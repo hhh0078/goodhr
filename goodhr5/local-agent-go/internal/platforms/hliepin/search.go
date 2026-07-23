@@ -15,6 +15,8 @@ const (
 	hliepinPublishedJobSelector = ".quick-search-box li.job .job-name"
 	hliepinExpandShortcuts      = ".quick-search-box:has(li.save) .control"
 	hliepinExpandJobsSelector   = ".quick-search-box:has(li.job) .control"
+	hliepinReloadWaitTimeoutMS  = 5000
+	hliepinReloadPollIntervalMS = 100
 )
 
 // PreparePositionSearch 根据快捷搜索名是否为空，在“快捷搜索”和“发布职位匹配”之间严格二选一。
@@ -140,7 +142,9 @@ func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platfor
 			return fmt.Errorf("设置猎聘筛选“%s”前回到页面顶部失败：%w", label, err)
 		}
 		if _, err := exec.Post(ctx, "/api/v1/page/ensure-checked-by-text", map[string]any{
-			"text": label, "required": true, "timeout": 3500, "viewport_margin": 20,
+			"text": label, "required": true,
+			"timeout": hliepinReloadWaitTimeoutMS, "verify_timeout": hliepinReloadWaitTimeoutMS,
+			"poll_interval_ms": hliepinReloadPollIntervalMS, "viewport_margin": 20,
 		}); err != nil {
 			return fmt.Errorf("勾选猎聘筛选“%s”失败：%w", label, err)
 		}

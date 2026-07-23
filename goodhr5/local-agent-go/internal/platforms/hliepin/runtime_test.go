@@ -20,6 +20,7 @@ type testExecutor struct {
 // routeExecutor 按路由返回测试数据并记录调用。
 type routeExecutor struct {
 	paths     []string
+	payloads  []map[string]any
 	findCalls int
 }
 
@@ -167,6 +168,8 @@ func (e *searchExecutor) Delay(_ context.Context, _ string, seconds float64) err
 
 func (e *routeExecutor) Post(_ context.Context, path string, payload any) (map[string]any, error) {
 	e.paths = append(e.paths, path)
+	value, _ := payload.(map[string]any)
+	e.payloads = append(e.payloads, value)
 	switch path {
 	case "/api/v1/page/find-elements":
 		e.findCalls++
@@ -244,6 +247,18 @@ func TestListVisibleCandidatesFallsBackToTableRows(t *testing.T) {
 	}
 	if len(candidates) != 1 {
 		t.Fatalf("candidates = %d, want 1", len(candidates))
+	}
+	if len(exec.payloads) < 2 {
+		t.Fatalf("find payloads = %d, want at least 2", len(exec.payloads))
+	}
+	if got := intFromMap(exec.payloads[1], "timeout"); got != hliepinReloadWaitTimeoutMS {
+		t.Fatalf("candidate wait timeout = %d, want %d", got, hliepinReloadWaitTimeoutMS)
+	}
+	if got := intFromMap(exec.payloads[1], "poll_interval_ms"); got != hliepinReloadPollIntervalMS {
+		t.Fatalf("candidate poll interval = %d, want %d", got, hliepinReloadPollIntervalMS)
+	}
+	if got := stringFromMap(exec.payloads[1], "required_text"); got != "立即沟通" {
+		t.Fatalf("candidate required text = %q", got)
 	}
 	if got := stringFromMap(candidates[0], "candidate_name"); got != "陈**" {
 		t.Fatalf("candidate_name = %q", got)
@@ -365,6 +380,7 @@ func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testin
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
+	assertHliepinFilterWaitPayloads(t, exec)
 	if runtime.shouldSelectGreetJob {
 		t.Fatal("shortcut mode should not select a job in greet modal")
 	}
@@ -393,8 +409,34 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
+	assertHliepinFilterWaitPayloads(t, exec)
 	if !runtime.shouldSelectGreetJob {
 		t.Fatal("published job mode should select a job in greet modal")
+	}
+}
+
+// assertHliepinFilterWaitPayloads 验证三个隐藏筛选都使用5秒上限和100毫秒轮询。
+func assertHliepinFilterWaitPayloads(t *testing.T, exec *searchExecutor) {
+	t.Helper()
+	checked := 0
+	for index, path := range exec.paths {
+		if path != "/api/v1/page/ensure-checked-by-text" {
+			continue
+		}
+		checked++
+		payload := exec.payloads[index]
+		if got := intFromMap(payload, "timeout"); got != hliepinReloadWaitTimeoutMS {
+			t.Fatalf("filter timeout = %d, want %d", got, hliepinReloadWaitTimeoutMS)
+		}
+		if got := intFromMap(payload, "verify_timeout"); got != hliepinReloadWaitTimeoutMS {
+			t.Fatalf("filter verify timeout = %d, want %d", got, hliepinReloadWaitTimeoutMS)
+		}
+		if got := intFromMap(payload, "poll_interval_ms"); got != hliepinReloadPollIntervalMS {
+			t.Fatalf("filter poll interval = %d, want %d", got, hliepinReloadPollIntervalMS)
+		}
+	}
+	if checked != 3 {
+		t.Fatalf("checked filter payloads = %d, want 3", checked)
 	}
 }
 
