@@ -267,6 +267,7 @@ func TestRunnerStartStop(t *testing.T) {
 	var position localdb.Position
 	savedCandidates := []map[string]any{}
 	var processedResumeCount int64
+	var completedStatusCount int64
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/auth/me":
@@ -309,6 +310,21 @@ func TestRunnerStartStop(t *testing.T) {
 				}
 				atomic.AddInt64(&processedResumeCount, int64(payload.Count))
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/positions/") && strings.HasSuffix(r.URL.Path, "/status") {
+				var payload struct {
+					Status string `json:"status"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode position status: %v", err)
+				}
+				response := map[string]any{"ok": true, "status": payload.Status, "notice_sent": false}
+				if payload.Status == "completed" {
+					atomic.AddInt64(&completedStatusCount, 1)
+					response["notice_sent"] = true
+				}
+				_ = json.NewEncoder(w).Encode(response)
 				return
 			}
 			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
@@ -393,7 +409,48 @@ func TestRunnerStartStop(t *testing.T) {
 	if len(savedCandidates) < 2 || savedCandidates[len(savedCandidates)-1]["status"] != "greeted" {
 		t.Fatalf("savedCandidates after position2 = %+v", savedCandidates)
 	}
+	if atomic.LoadInt64(&completedStatusCount) < 2 {
+		t.Fatalf("completed status sync count = %d, want at least 2", completedStatusCount)
+	}
+	assertPositionLogContains(t, db, position2.ID, "岗位运行完成：本次运行结束，扫描=1，打招呼=1，跳过=0，失败=0")
+	assertPositionLogContains(t, db, position2.ID, "完成邮件已发送")
 	assertPositionLogContains(t, db, position2.ID, "音频文件不存在或为空")
+}
+
+// TestSyncCloudPositionCompletedRetriesMailFailure 验证完成邮件同步失败后本地程序会自动重试。
+func TestSyncCloudPositionCompletedRetriesMailFailure(t *testing.T) {
+	var completedCalls int64
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt64(&completedCalls, 1)
+		if call < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "smtp unavailable"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"status":      "completed",
+			"notice_sent": true,
+		})
+	}))
+	defer cloud.Close()
+
+	db := openRunnerTestDB(t)
+	position, err := db.CreatePosition(map[string]any{"name": "完成邮件重试岗位", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	runner.notifyCloudPositionCompleted(position.ID, StartOptions{
+		CloudAPIBase: cloud.URL,
+		Token:        "token-1",
+	})
+
+	if calls := atomic.LoadInt64(&completedCalls); calls != 3 {
+		t.Fatalf("completed status calls = %d, want 3", calls)
+	}
+	assertPositionLogContains(t, db, position.ID, "第1次同步失败")
+	assertPositionLogContains(t, db, position.ID, "完成邮件已发送")
 }
 
 // TestCancelRunningPositionsAfterSleep 验证检测到休眠恢复后会取消岗位运行并写入日志。

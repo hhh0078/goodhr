@@ -195,6 +195,9 @@ func (r *Runner) notifyCloudPositionCompleted(positionID string, options StartOp
 func (r *Runner) syncCloudPositionStatus(positionID string, status string, label string, options StartOptions) {
 	token := strings.TrimSpace(options.Token)
 	if token == "" {
+		if status == "completed" {
+			r.positionLog(positionID, "warning", label+"：缺少登录令牌，完成邮件未发送")
+		}
 		return
 	}
 	baseURL := strings.TrimSpace(options.CloudAPIBase)
@@ -204,13 +207,35 @@ func (r *Runner) syncCloudPositionStatus(positionID string, status string, label
 	if baseURL == "" {
 		baseURL = "https://goodhr5.58it.cn"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
 	client := cloudapi.New(baseURL)
-	r.positionLog(positionID, "info", label+"：正在同步云端状态")
-	if err := client.SyncPositionStatus(ctx, token, positionID, status); err != nil {
-		r.positionLog(positionID, "warning", label+"：云端状态同步失败，错误="+err.Error())
-		return
+	attempts := 1
+	if status == "completed" {
+		attempts = 3
+		r.positionLog(positionID, "info", label+"：正在同步云端状态并发送完成邮件")
+	} else {
+		r.positionLog(positionID, "info", label+"：正在同步云端状态")
 	}
-	r.positionLog(positionID, "info", label+"：云端状态同步成功")
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		result, err := client.SyncPositionStatus(ctx, token, positionID, status)
+		cancel()
+		if err == nil && status == "completed" && !result.NoticeSent {
+			err = fmt.Errorf("云端未确认完成邮件已发送")
+		}
+		if err == nil {
+			if status == "completed" {
+				r.positionLog(positionID, "info", label+"：云端状态同步成功，完成邮件已发送")
+			} else {
+				r.positionLog(positionID, "info", label+"：云端状态同步成功")
+			}
+			return
+		}
+		lastErr = err
+		if attempt < attempts {
+			r.positionLog(positionID, "warning", fmt.Sprintf("%s：第%d次同步失败，1秒后重试，错误=%s", label, attempt, err.Error()))
+			time.Sleep(time.Second)
+		}
+	}
+	r.positionLog(positionID, "warning", fmt.Sprintf("%s：云端状态或完成邮件同步失败，已重试%d次，错误=%s", label, attempts, lastErr.Error()))
 }

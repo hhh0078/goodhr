@@ -59,7 +59,9 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 	if position.Status != "stopped" {
 		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-		s.sendPositionStatusNotice(position, "stopped", "")
+		if err := s.sendPositionStatusNotice(position, "stopped", ""); err != nil {
+			stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "stopped"})
 }
@@ -97,21 +99,40 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
-	if position.Status != status {
-		_ = s.store.UpdatePositionStatus(position.ID, status)
-		if status == "completed" {
+	noticeSent := false
+	statusChanged := position.Status != status
+	if status == "completed" {
+		if statusChanged {
+			if err := s.sendPositionStatusNotice(position, "completed", ""); err != nil {
+				writeError(w, http.StatusBadGateway, "failed to send position completion notice: "+err.Error())
+				return
+			}
+			noticeSent = true
+			if err := s.store.UpdatePositionStatus(position.ID, status); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to update position status")
+				return
+			}
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", "岗位运行已完成")
-			s.sendPositionStatusNotice(position, "completed", "")
+		} else {
+			// completed 状态只会在完成邮件发送成功后写入，因此重复同步可直接确认邮件已经发送。
+			noticeSent = true
+		}
+	} else if statusChanged {
+		if err := s.store.UpdatePositionStatus(position.ID, status); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update position status")
+			return
 		}
 		if status == "stopped" {
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-			s.sendPositionStatusNotice(position, "stopped", "")
+			if err := s.sendPositionStatusNotice(position, "stopped", ""); err != nil {
+				stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
+			}
 		}
 	}
 	if status == "running" {
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent})
 }
 
 // FailNotice 接收本地程序发送的岗位失败通知并发送邮件。
@@ -157,18 +178,20 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 		Step: userFlowPositionStarted, Status: "blocked", Source: "local_agent", PositionID: position.ID,
 		ReasonCode: userFlowFailureReason(errorMessage), Message: errorMessage,
 	})
-	if s.mailer == nil {
-		writeError(w, http.StatusServiceUnavailable, "mailer not configured")
+	if err := s.sendPositionStatusNotice(position, status, errorMessage); err != nil {
+		writeError(w, http.StatusBadGateway, "failed to send position status notice: "+err.Error())
 		return
 	}
-	s.sendPositionStatusNotice(position, status, errorMessage)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "notified"})
 }
 
 // sendPositionStatusNotice 发送岗位结束或失败邮件提醒。
-func (s *PositionExecutionService) sendPositionStatusNotice(position Position, status, errorMessage string) {
-	if s.mailer == nil || strings.TrimSpace(position.UserEmail) == "" {
-		return
+func (s *PositionExecutionService) sendPositionStatusNotice(position Position, status, errorMessage string) error {
+	if s.mailer == nil {
+		return errors.New("mailer not configured")
+	}
+	if strings.TrimSpace(position.UserEmail) == "" {
+		return errors.New("position user email is empty")
 	}
 	notice := PositionStatusNotice{
 		PositionID: position.ID, PositionName: position.Name, Status: status,
@@ -180,7 +203,9 @@ func (s *PositionExecutionService) sendPositionStatusNotice(position Position, s
 	}
 	if err := s.mailer.SendPositionStatus(position.UserEmail, notice); err != nil {
 		stdlog.Printf("[岗位邮件] 发送岗位状态提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
+		return err
 	}
+	return nil
 }
 
 // positionStatusNoticeLabel 返回岗位状态邮件使用的中文状态。
