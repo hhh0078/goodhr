@@ -64,7 +64,7 @@ func NewPositionService(auth *AuthService, store PositionStore, systemConfigs Sy
 		systemConfigs: systemConfigs,
 		aiConfigStore: aiConfigStore,
 		userFlow:      userFlow,
-		httpClient:    &http.Client{Timeout: 120 * time.Second},
+		httpClient:    &http.Client{Timeout: aiRequestTimeout},
 	}
 }
 

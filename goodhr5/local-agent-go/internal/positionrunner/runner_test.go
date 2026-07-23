@@ -22,6 +22,26 @@ import (
 	"goodhr5/local-agent-go/internal/platforms"
 )
 
+// TestAITimeoutsUnifiedAtThreeMinutes 验证岗位运行的 AI 操作和候选人总处理上限统一为 180 秒。
+func TestAITimeoutsUnifiedAtThreeMinutes(t *testing.T) {
+	timeouts := map[string]time.Duration{
+		"candidate_total": candidateTotalTimeout,
+		"precheck":        aiPrecheckTimeout,
+		"detail":          aiDetailTimeout,
+		"score":           aiScoreTimeout,
+		"vision_output":   pendingAIVisionOutputTimeout,
+	}
+	for name, timeout := range timeouts {
+		if timeout != 180*time.Second {
+			t.Fatalf("%s timeout = %s, want 3m0s", name, timeout)
+		}
+	}
+	config := aiConfigFromCloud(map[string]any{})
+	if config.Timeout != localai.DefaultRequestTimeoutSeconds {
+		t.Fatalf("cloud ai timeout = %d, want %d", config.Timeout, localai.DefaultRequestTimeoutSeconds)
+	}
+}
+
 // TestMergeVisionDecisionKeepsAIScoreFields 验证结构化简历不会覆盖两次真实 AI 分析结果。
 func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
 	candidate := map[string]any{

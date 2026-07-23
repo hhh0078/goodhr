@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	defaultGreetThreshold  = 70.0
-	defaultDetailThreshold = 60.0
-	defaultGreetPrompt     = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultDetailPrompt    = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultVisionSystem    = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。必须按下面示例返回，analysis 必须包含 score、reason，reason 控制在30字以内：${结构化简历}`
+	// DefaultRequestTimeoutSeconds 是 Local Agent 所有 AI HTTP 请求的默认超时秒数。
+	DefaultRequestTimeoutSeconds = 180
+	defaultGreetThreshold        = 70.0
+	defaultDetailThreshold       = 60.0
+	defaultGreetPrompt           = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultDetailPrompt          = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultVisionSystem          = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。必须按下面示例返回，analysis 必须包含 score、reason，reason 控制在30字以内：${结构化简历}`
 )
 
 // Client 是本地 AI 调用客户端。
@@ -102,7 +104,7 @@ func IsPositionStoppingError(err error) bool {
 func New(config localdb.AIConfig) *Client {
 	timeout := config.Timeout
 	if timeout <= 0 {
-		timeout = 120
+		timeout = DefaultRequestTimeoutSeconds
 	}
 	return &Client{
 		Config: config,
