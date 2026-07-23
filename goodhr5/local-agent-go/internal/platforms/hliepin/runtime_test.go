@@ -493,26 +493,26 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[5], "target_index"); got != 1 {
+	if got := intFromMap(exec.payloads[7], "target_index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
 	}
-	if got := stringFromMap(exec.payloads[5], "parent_selector"); got != hliepinGreetDropdownParent {
+	if got := stringFromMap(exec.payloads[7], "parent_selector"); got != hliepinGreetDropdownParent {
 		t.Fatalf("position parent = %q, want %q", got, hliepinGreetDropdownParent)
 	}
-	if got := stringFromMap(exec.payloads[5], "target_selector"); got != hliepinGreetJobOptionTarget {
+	if got := stringFromMap(exec.payloads[7], "target_selector"); got != hliepinGreetJobOptionTarget {
 		t.Fatalf("position target = %q, want %q", got, hliepinGreetJobOptionTarget)
 	}
-	if got := stringFromMap(exec.payloads[5], "nested_selector"); got != hliepinGreetJobOptionNested {
+	if got := stringFromMap(exec.payloads[7], "nested_selector"); got != hliepinGreetJobOptionNested {
 		t.Fatalf("position nested target = %q, want %q", got, hliepinGreetJobOptionNested)
 	}
-	if got := stringFromMap(exec.payloads[1], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
+	if got := stringFromMap(exec.payloads[3], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
 		t.Fatalf("candidate parent = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[1], "target_selector"); got != hliepinCandidateButtonTarget {
+	if got := stringFromMap(exec.payloads[3], "target_selector"); got != hliepinCandidateButtonTarget {
 		t.Fatalf("candidate target = %q", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
@@ -531,11 +531,11 @@ func TestGreetCandidateUsesNoPositionForShortcutMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[3], "expected_text"); got != "不选择职位开聊" {
+	if got := stringFromMap(exec.payloads[5], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -555,15 +555,59 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[5], "expected_text"); got != "不选择职位开聊" {
+	if got := stringFromMap(exec.payloads[7], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("fallback button text = %q", got)
 	}
-	if exact, _ := exec.payloads[5]["exact_text"].(bool); !exact {
+	if exact, _ := exec.payloads[7]["exact_text"].(bool); !exact {
 		t.Fatal("fallback button should use exact text match")
+	}
+}
+
+// TestGreetCandidateClearsStalePanelsBeforeImmediateChat 验证猎聘会先关闭遗留开聊弹框、聊天框和候选人列表，再点击当前候选人。
+func TestGreetCandidateClearsStalePanelsBeforeImmediateChat(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "PHP程序员"
+	runtime.shouldSelectGreetJob = false
+	exec := &searchExecutor{greetModalOpen: true, chatModalOpen: true, candidateDrawerOpen: true}
+	if err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0)); err != nil {
+		t.Fatal(err)
+	}
+	stableTargets := make([]string, 0)
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath {
+			stableTargets = append(stableTargets, stringFromMap(exec.payloads[index], "target_selector"))
+		}
+	}
+	wantPrefix := []string{hliepinChatCloseSelector, hliepinCandidateListClose, hliepinCandidateButtonTarget}
+	if len(stableTargets) < len(wantPrefix) || fmt.Sprint(stableTargets[:len(wantPrefix)]) != fmt.Sprint(wantPrefix) {
+		t.Fatalf("stable targets = %#v, want cleanup before candidate click %#v", stableTargets, wantPrefix)
+	}
+	if exec.chatModalOpen || exec.candidateDrawerOpen {
+		t.Fatalf("stale panels remain: chat=%v drawer=%v", exec.chatModalOpen, exec.candidateDrawerOpen)
+	}
+}
+
+// TestGreetCandidateStopsWhenStalePanelCannotClose 验证猎聘遗留弹层关闭失败时不会继续点击当前候选人。
+func TestGreetCandidateStopsWhenStalePanelCannotClose(t *testing.T) {
+	runtime := NewRuntime()
+	runtime.currentPosition = "PHP程序员"
+	runtime.shouldSelectGreetJob = false
+	exec := &searchExecutor{
+		chatModalOpen:  true,
+		stableFailures: map[string]int{hliepinChatCloseSelector: 1},
+	}
+	err := runtime.GreetCandidate(context.Background(), exec, nil, hliepinStableTestCandidate(0))
+	if err == nil || !strings.Contains(err.Error(), "处理前清理弹层失败") {
+		t.Fatalf("error = %v, want stale panel cleanup failure", err)
+	}
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinCandidateButtonTarget {
+			t.Fatal("candidate should not be clicked after stale panel cleanup failure")
+		}
 	}
 }
 
