@@ -230,6 +230,23 @@ type batchProcessResult struct {
 	Failed  int
 }
 
+// deltaFrom 计算当前统计相对已落库统计的非负增量。
+// persisted 为已落库统计，返回仍需落库的统计增量。
+func (result batchProcessResult) deltaFrom(persisted batchProcessResult) batchProcessResult {
+	return batchProcessResult{
+		Saved:   maxInt(0, result.Saved-persisted.Saved),
+		Skipped: maxInt(0, result.Skipped-persisted.Skipped),
+		Greeted: maxInt(0, result.Greeted-persisted.Greeted),
+		Failed:  maxInt(0, result.Failed-persisted.Failed),
+	}
+}
+
+// empty 判断统计结果是否没有任何需要保存的数量。
+// 返回 true 表示四项统计均为零。
+func (result batchProcessResult) empty() bool {
+	return result.Saved <= 0 && result.Skipped <= 0 && result.Greeted <= 0 && result.Failed <= 0
+}
+
 // pendingAIDecisionResult 表示后台等待完整 AI 输出的结果。
 type pendingAIDecisionResult struct {
 	Decision localai.Decision

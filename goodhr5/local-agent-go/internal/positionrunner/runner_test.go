@@ -50,6 +50,44 @@ func TestMergeVisionDecisionKeepsAIScoreFields(t *testing.T) {
 	}
 }
 
+// TestPersistPositionCountProgressWritesOnlyNewDelta 验证运行中反复保存统计时只累计新增部分，不会重复记账。
+func TestPersistPositionCountProgressWritesOnlyNewDelta(t *testing.T) {
+	db := openRunnerTestDB(t)
+	position, err := db.CreatePosition(map[string]any{"name": "实时统计岗位", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newTestRunner(t, db, &fakeWorker{})
+	persisted := batchProcessResult{}
+	current := batchProcessResult{Saved: 1, Greeted: 1, Skipped: 2}
+
+	persisted, err = runner.persistPositionCountProgress(t.Context(), position, current, persisted, StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 同一个统计快照再次保存，数据库累计值不应重复增加。
+	persisted, err = runner.persistPositionCountProgress(t.Context(), position, current, persisted, StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = batchProcessResult{Saved: 2, Greeted: 1, Skipped: 3, Failed: 1}
+	persisted, err = runner.persistPositionCountProgress(t.Context(), position, current, persisted, StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := db.GetPosition(position.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ScannedCount != 2 || updated.GreetedCount != 1 || updated.SkippedCount != 3 || updated.FailedCount != 1 {
+		t.Fatalf("position counts = %+v", updated)
+	}
+	if persisted != current {
+		t.Fatalf("persisted = %+v, current = %+v", persisted, current)
+	}
+}
+
 // TestPositionProfileNameUsesGlobalDefault 验证开始岗位运行始终复用统一浏览器目录。
 func TestPositionProfileNameUsesGlobalDefault(t *testing.T) {
 	if got := positionProfileName(localdb.Position{PlatformID: "boss"}); got != "default" {
