@@ -380,7 +380,7 @@ func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testin
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
-	assertHliepinFilterWaitPayloads(t, exec)
+	assertHliepinFilterWaitPayloads(t, exec, 3)
 	if runtime.shouldSelectGreetJob {
 		t.Fatal("shortcut mode should not select a job in greet modal")
 	}
@@ -409,14 +409,46 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
 		t.Fatalf("hidden filter clicks = %d, want 3", got)
 	}
-	assertHliepinFilterWaitPayloads(t, exec)
+	assertHliepinFilterWaitPayloads(t, exec, 3)
 	if !runtime.shouldSelectGreetJob {
 		t.Fatal("published job mode should select a job in greet modal")
 	}
 }
 
-// assertHliepinFilterWaitPayloads 验证三个隐藏筛选都使用5秒上限和100毫秒轮询。
-func assertHliepinFilterWaitPayloads(t *testing.T, exec *searchExecutor) {
+// TestPreparePositionSearchHonorsConfiguredHiddenFilters 验证猎聘只勾选岗位明确启用的隐藏条件。
+// t 为测试对象。
+func TestPreparePositionSearchHonorsConfiguredHiddenFilters(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinShortcutItemSelector: {map[string]any{"text": "后端工程师"}},
+	}}
+	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
+		"name": "后端工程师",
+		"common_config": map[string]any{
+			"hliepin_shortcut_search_name":  "后端工程师",
+			"hliepin_hide_viewed":           false,
+			"hliepin_hide_contacted":        true,
+			"hliepin_hide_contact_obtained": false,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 1 {
+		t.Fatalf("hidden filter clicks = %d, want 1", got)
+	}
+	for index, path := range exec.paths {
+		if path == "/api/v1/page/ensure-checked-by-text" {
+			if got := stringFromMap(exec.payloads[index], "text"); got != "隐藏已沟通" {
+				t.Fatalf("hidden filter = %q, want 隐藏已沟通", got)
+			}
+		}
+	}
+	assertHliepinFilterWaitPayloads(t, exec, 1)
+}
+
+// assertHliepinFilterWaitPayloads 验证启用的隐藏筛选都使用5秒上限和100毫秒轮询。
+func assertHliepinFilterWaitPayloads(t *testing.T, exec *searchExecutor, expectedCount int) {
 	t.Helper()
 	checked := 0
 	for index, path := range exec.paths {
@@ -435,8 +467,8 @@ func assertHliepinFilterWaitPayloads(t *testing.T, exec *searchExecutor) {
 			t.Fatalf("filter poll interval = %d, want %d", got, hliepinReloadPollIntervalMS)
 		}
 	}
-	if checked != 3 {
-		t.Fatalf("checked filter payloads = %d, want 3", checked)
+	if checked != expectedCount {
+		t.Fatalf("checked filter payloads = %d, want %d", checked, expectedCount)
 	}
 }
 

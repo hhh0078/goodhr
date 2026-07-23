@@ -75,6 +75,7 @@ export default function PositionsPage() {
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startStatus, setStartStatus] = useState("");
+  const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
     [],
@@ -190,6 +191,14 @@ export default function PositionsPage() {
             output_structured_resume: form.output_structured_resume,
             hliepin_shortcut_search_name:
               form.hliepin_shortcut_search_name.trim(),
+            ...(form.platform_id === "hliepin"
+              ? {
+                  hliepin_hide_viewed: form.hliepin_hide_viewed,
+                  hliepin_hide_contacted: form.hliepin_hide_contacted,
+                  hliepin_hide_contact_obtained:
+                    form.hliepin_hide_contact_obtained,
+                }
+              : {}),
             request_phone: form.request_phone,
             request_wechat: form.request_wechat,
             request_resume: form.request_resume,
@@ -244,6 +253,7 @@ export default function PositionsPage() {
     setExpandedLogPositionID(item.id);
     void loadPositionLogs(item);
     setStartStatus("");
+    setStartRequiresUpdate(false);
     setStartPositionItem(item);
   }
 
@@ -271,14 +281,17 @@ export default function PositionsPage() {
       if (guardFailure) {
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
         setStartStatus(guardFailure.message);
+        setStartRequiresUpdate(guardFailure.code === "agent_version_outdated");
         return false;
       }
+      setStartRequiresUpdate(false);
       return true;
     } catch (error) {
       const message = error instanceof Error
         ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你刷新后再试一次。`
         : "启动条件检查没跑完，这次我先不乱启动，你刷新后再试一次。";
       setStartStatus(message);
+      setStartRequiresUpdate(false);
       await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_guard_unavailable", message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
       return false;
     }
@@ -286,6 +299,10 @@ export default function PositionsPage() {
 
   /** confirmStartPosition 在确认弹框中完成启动检查、登录确认和岗位启动。 */
   async function confirmStartPosition() {
+    if (startRequiresUpdate) {
+      window.location.reload();
+      return;
+    }
     const item = startPositionItem;
     if (!item || !agentBase) return;
     setStartLoading(true);
@@ -634,13 +651,14 @@ export default function PositionsPage() {
       <AdminDialog
         open={Boolean(startPositionItem)}
         title='开始招聘岗位'
-        confirmText='确认开始'
+        confirmText={startRequiresUpdate ? "立即更新" : "确认开始"}
         loading={startLoading}
         loadingText='启动中'
         onClose={() => {
           if (startLoading) return;
           setStartPositionItem(null);
           setStartStatus("");
+          setStartRequiresUpdate(false);
         }}
         onConfirm={() => void confirmStartPosition()}
       >
@@ -950,6 +968,16 @@ export default function PositionsPage() {
                   </Box>
                   {form.platform_id === "hliepin" ? (
                     <Stack spacing={1.25}>
+                      <HLiepinHiddenCandidateFilters
+                        hideViewed={form.hliepin_hide_viewed}
+                        hideContacted={form.hliepin_hide_contacted}
+                        hideContactObtained={
+                          form.hliepin_hide_contact_obtained
+                        }
+                        onChange={(field, checked) =>
+                          setForm({ ...form, [field]: checked })
+                        }
+                      />
                       <TextField
                         label='猎聘快捷搜索名'
                         value={form.hliepin_shortcut_search_name}
@@ -1028,6 +1056,16 @@ export default function PositionsPage() {
                   />
                   {form.platform_id === "hliepin" ? (
                     <Stack spacing={1.25}>
+                      <HLiepinHiddenCandidateFilters
+                        hideViewed={form.hliepin_hide_viewed}
+                        hideContacted={form.hliepin_hide_contacted}
+                        hideContactObtained={
+                          form.hliepin_hide_contact_obtained
+                        }
+                        onChange={(field, checked) =>
+                          setForm({ ...form, [field]: checked })
+                        }
+                      />
                       <TextField
                         label='猎聘快捷搜索名'
                         value={form.hliepin_shortcut_search_name}
@@ -1436,6 +1474,90 @@ function PlatformTipCard({
   );
 }
 
+/** HLiepinHiddenCandidateFilters 配置猎聘搜索页需要自动勾选的候选人隐藏条件。 */
+function HLiepinHiddenCandidateFilters({
+  hideViewed,
+  hideContacted,
+  hideContactObtained,
+  onChange,
+}: {
+  hideViewed: boolean;
+  hideContacted: boolean;
+  hideContactObtained: boolean;
+  onChange: (
+    field:
+      | "hliepin_hide_viewed"
+      | "hliepin_hide_contacted"
+      | "hliepin_hide_contact_obtained",
+    checked: boolean,
+  ) => void;
+}) {
+  return (
+    <Box
+      sx={{
+        px: 1.5,
+        py: 1.25,
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: "8px",
+        bgcolor: "#fbfcfb",
+      }}
+    >
+      <Typography sx={{ fontSize: 14, fontWeight: 760 }}>
+        猎聘候选人隐藏条件
+      </Typography>
+      <Stack
+        direction='row'
+        spacing={1.5}
+        sx={{ mt: 0.25, flexWrap: "wrap", columnGap: 1.5 }}
+      >
+        <FormControlLabel
+          control={
+            <Checkbox
+              size='small'
+              checked={hideViewed}
+              onChange={(event) =>
+                onChange("hliepin_hide_viewed", event.target.checked)
+              }
+            />
+          }
+          label='隐藏已查看'
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              size='small'
+              checked={hideContacted}
+              onChange={(event) =>
+                onChange("hliepin_hide_contacted", event.target.checked)
+              }
+            />
+          }
+          label='隐藏已沟通'
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              size='small'
+              checked={hideContactObtained}
+              onChange={(event) =>
+                onChange(
+                  "hliepin_hide_contact_obtained",
+                  event.target.checked,
+                )
+              }
+            />
+          }
+          label='隐藏已获取联系方式'
+        />
+      </Stack>
+      <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
+        岗位运行时只会勾选这里启用的条件；旧岗位默认三项全部启用。
+      </Typography>
+    </Box>
+  );
+}
+
 /** HLiepinShortcutSearchGuide 在填写猎聘快捷搜索名后展示配置提醒和可放大教程图。 */
 function HLiepinShortcutSearchGuide({ visible }: { visible: boolean }) {
   return (
@@ -1483,6 +1605,9 @@ function createEmptyForm() {
     is_and_mode: false,
     position_requirement: "",
     hliepin_shortcut_search_name: "",
+    hliepin_hide_viewed: true,
+    hliepin_hide_contacted: true,
+    hliepin_hide_contact_obtained: true,
     open_detail_prompt: "",
     filter_prompt: "",
     review_prompt: "",
@@ -1535,6 +1660,10 @@ function formFromItem(
       position_requirement: ai.position_requirement || "",
       hliepin_shortcut_search_name:
         common.hliepin_shortcut_search_name || "",
+      hliepin_hide_viewed: common.hliepin_hide_viewed !== false,
+      hliepin_hide_contacted: common.hliepin_hide_contacted !== false,
+      hliepin_hide_contact_obtained:
+        common.hliepin_hide_contact_obtained !== false,
       open_detail_prompt: normalizePrompt(ai.open_detail_prompt),
       filter_prompt: normalizePrompt(
         ai.greet_prompt || ai.filter_prompt || ai.click_prompt,
