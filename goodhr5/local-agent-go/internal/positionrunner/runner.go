@@ -224,6 +224,7 @@ func safePathName(value string) string {
 
 // batchProcessResult 表示一批候选人的流水线处理结果。
 type batchProcessResult struct {
+	Scanned int
 	Saved   int
 	Skipped int
 	Greeted int
@@ -234,6 +235,7 @@ type batchProcessResult struct {
 // persisted 为已落库统计，返回仍需落库的统计增量。
 func (result batchProcessResult) deltaFrom(persisted batchProcessResult) batchProcessResult {
 	return batchProcessResult{
+		Scanned: maxInt(0, result.Scanned-persisted.Scanned),
 		Saved:   maxInt(0, result.Saved-persisted.Saved),
 		Skipped: maxInt(0, result.Skipped-persisted.Skipped),
 		Greeted: maxInt(0, result.Greeted-persisted.Greeted),
@@ -242,9 +244,9 @@ func (result batchProcessResult) deltaFrom(persisted batchProcessResult) batchPr
 }
 
 // empty 判断统计结果是否没有任何需要保存的数量。
-// 返回 true 表示四项统计均为零。
+// 返回 true 表示扫描、保存、跳过、打招呼和失败统计均为零。
 func (result batchProcessResult) empty() bool {
-	return result.Saved <= 0 && result.Skipped <= 0 && result.Greeted <= 0 && result.Failed <= 0
+	return result.Scanned <= 0 && result.Saved <= 0 && result.Skipped <= 0 && result.Greeted <= 0 && result.Failed <= 0
 }
 
 // pendingAIDecisionResult 表示后台等待完整 AI 输出的结果。
