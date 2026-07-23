@@ -92,7 +92,7 @@ func NewAIWalletService(auth *AuthService, wallet AIWalletStore, aiConfigs AICon
 		wallet:        wallet,
 		aiConfigs:     aiConfigs,
 		systemConfigs: systemConfigs,
-		httpClient:    &http.Client{Timeout: 90 * time.Second},
+		httpClient:    &http.Client{Timeout: aiRequestTimeout},
 	}
 }
 

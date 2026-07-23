@@ -355,7 +355,7 @@ func aiConfigFromCloud(config map[string]any) localdb.AIConfig {
 		APIKey:      stringFromMap(config, "api_key"),
 		Model:       stringFromMap(config, "model"),
 		Temperature: floatFromMapOr(config, "temperature", 0.2),
-		Timeout:     intFromMapOr(config, "timeout", 120),
+		Timeout:     intFromMapOr(config, "timeout", localai.DefaultRequestTimeoutSeconds),
 		Extra:       mapValue(config["extra"]),
 	}
 }

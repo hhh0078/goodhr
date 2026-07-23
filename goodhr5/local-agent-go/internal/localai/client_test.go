@@ -8,9 +8,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go/internal/localdb"
 )
+
+// TestNewUsesUnifiedDefaultTimeout 验证 Local Agent AI 客户端默认等待 180 秒。
+func TestNewUsesUnifiedDefaultTimeout(t *testing.T) {
+	client := New(localdb.AIConfig{})
+	if client.HTTPClient.Timeout != 180*time.Second {
+		t.Fatalf("default timeout = %s, want 3m0s", client.HTTPClient.Timeout)
+	}
+}
 
 // TestChatPaymentRequiredStopsPosition 验证 AI 余额不足不会继续处理后续候选人。
 func TestChatPaymentRequiredStopsPosition(t *testing.T) {

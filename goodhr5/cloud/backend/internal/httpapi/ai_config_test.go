@@ -9,9 +9,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+// TestAIRequestTimeoutUnified 验证云端所有 AI 入口统一等待 180 秒。
+func TestAIRequestTimeoutUnified(t *testing.T) {
+	if aiRequestTimeout != 180*time.Second {
+		t.Fatalf("ai request timeout = %s, want 3m0s", aiRequestTimeout)
+	}
+	services := map[string]*http.Client{
+		"config_test":       newAIConfigTestHTTPClient(),
+		"wallet_proxy":      NewAIWalletService(nil, nil, nil, nil).httpClient,
+		"position_optimize": NewPositionService(nil, nil, nil, nil, nil).httpClient,
+		"help_chat":         NewHelpService(nil, nil, nil).httpClient,
+	}
+	for name, client := range services {
+		if client.Timeout != aiRequestTimeout {
+			t.Fatalf("%s timeout = %s, want %s", name, client.Timeout, aiRequestTimeout)
+		}
+	}
+}
 
 // RoundTrip 执行测试自定义 HTTP 响应逻辑。
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

@@ -391,7 +391,7 @@ goroutine: executePosition(position, agentBaseURL)
 │   ├─ 判断 mode:
 │   │   ├─ ai: filter=nil（由 callAI 处理）
 │   │   └─ keyword: NewKeywordFilter(keywords, exclude, isAndMode, 7)
-│   └─ httpClient: Timeout=120s
+│   └─ httpClient: Timeout=180s
 │
 └─ executor.Run(ctx)
     │

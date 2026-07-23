@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const helpAssistantAdminEmail = "1224299352@qq.com"
@@ -58,7 +57,7 @@ func NewHelpService(auth *AuthService, systemConfig SystemConfigStore, aiConfigS
 		auth:          auth,
 		systemConfig:  systemConfig,
 		aiConfigStore: aiConfigStore,
-		httpClient:    &http.Client{Timeout: 180 * time.Second},
+		httpClient:    &http.Client{Timeout: aiRequestTimeout},
 	}
 }
 

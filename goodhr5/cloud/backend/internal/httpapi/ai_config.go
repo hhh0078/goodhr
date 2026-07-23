@@ -16,7 +16,8 @@ import (
 	"time"
 )
 
-const aiConfigTestTimeout = 30 * time.Second
+// aiRequestTimeout 是云端所有 AI HTTP 请求统一使用的最长等待时间。
+const aiRequestTimeout = 180 * time.Second
 
 // AIConfigService 处理用户 AI 配置读取和保存请求。
 type AIConfigService struct {
@@ -62,7 +63,7 @@ func (s *AIConfigService) Test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), aiConfigTestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), aiRequestTimeout)
 	defer cancel()
 	start := time.Now()
 	log.Printf("[AI配置测试] 开始 user=%s model=%s target=%s", session.Email, strings.TrimSpace(req.Model), safeAIURLForLog(normalizeAIChatCompletionsURL(req.BaseURL)))
@@ -172,7 +173,7 @@ func newAIConfigTestHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = dialPublicAIEndpoint
 	return &http.Client{
-		Timeout:   aiConfigTestTimeout,
+		Timeout:   aiRequestTimeout,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if err := validateAIConfigTestRequest(aiConfigRequest{BaseURL: req.URL.String(), Model: "redirect", APIKey: "redirect"}); err != nil {
