@@ -46,6 +46,29 @@ func (r *Runner) syncPositionCounts(ctx context.Context, position localdb.Positi
 	}
 }
 
+// persistPositionCountProgress 将本次扫描尚未落库的统计增量写入本地，并把最新累计值同步到云端。
+// ctx 为同步上下文，position 为本地岗位运行，current 为本次扫描当前统计，persisted 为已经落库的统计，options 为启动参数。
+func (r *Runner) persistPositionCountProgress(ctx context.Context, position localdb.Position, current batchProcessResult, persisted batchProcessResult, options StartOptions) (batchProcessResult, error) {
+	delta := current.deltaFrom(persisted)
+	if delta.empty() {
+		if current.empty() {
+			return persisted, nil
+		}
+		latestPosition, err := r.db.GetPosition(position.ID)
+		if err != nil {
+			return persisted, err
+		}
+		r.syncPositionCounts(ctx, latestPosition, options)
+		return persisted, nil
+	}
+	updatedPosition, err := r.db.IncrementPositionCounts(position.ID, delta.Saved, delta.Greeted, delta.Skipped, delta.Failed)
+	if err != nil {
+		return persisted, err
+	}
+	r.syncPositionCounts(ctx, updatedPosition, options)
+	return current, nil
+}
+
 // saveCandidateResult 将候选人结果同步到云端简历库。
 // ctx 为请求上下文，position 为岗位运行记录，candidate 为候选人结果，options 为启动参数。
 func (r *Runner) saveCandidateResult(ctx context.Context, position localdb.Position, candidate map[string]any, options StartOptions) {

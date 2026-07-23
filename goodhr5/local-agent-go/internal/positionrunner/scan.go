@@ -69,10 +69,23 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	}
 	seen := map[string]struct{}{}
 	queue := make([]map[string]any, 0)
-	totalSaved := 0
-	totalSkipped := 0
-	totalGreeted := 0
-	totalFailed := 0
+	totalResult := batchProcessResult{}
+	persistedResult := batchProcessResult{}
+	// flushPositionCounts 只保存尚未落库的增量；重复调用不会重复累计。
+	flushPositionCounts := func(syncCtx context.Context) {
+		nextPersisted, persistErr := r.persistPositionCountProgress(syncCtx, position, totalResult, persistedResult, options)
+		if persistErr != nil {
+			r.positionLog(position.ID, "warning", "统计保存：本地累计更新失败，稍后会重试，错误="+persistErr.Error())
+			return
+		}
+		persistedResult = nextPersisted
+	}
+	// 即使扫描被停止或异常返回，也再尝试保存一次已经完成的候选人统计。
+	defer func() {
+		flushCtx, flushCancel := context.WithTimeout(context.WithoutCancel(ctx), cloudStatsSyncTimeout)
+		defer flushCancel()
+		flushPositionCounts(flushCtx)
+	}()
 	processedCount := 0
 	emptyLoads := 0
 	operationErrors := &consecutiveOperationErrorTracker{}
@@ -189,7 +202,8 @@ scanLoop:
 		candidates := queue
 		queue = nil
 		filtered, skipped := r.prepareCandidatesForFirstStage(position, candidates)
-		totalSkipped += skipped
+		totalResult.Skipped += skipped
+		flushPositionCounts(ctx)
 		r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
 		if skipped > 0 {
 			r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：有 %d 个候选人已跳过", skipped))
@@ -222,7 +236,7 @@ scanLoop:
 				if r.isUserStopped(position.ID) {
 					break
 				}
-				if reachedRunGreetLimit(position, totalGreeted+batchResult.Greeted) {
+				if reachedRunGreetLimit(position, totalResult.Greeted) {
 					r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：达到本次打招呼上限，停止继续处理，上限=%d", position.MatchLimit))
 					break
 				}
@@ -251,6 +265,8 @@ scanLoop:
 					item.Candidate["status"] = "failed"
 					item.Candidate["error"] = item.Err.Error()
 					batchResult.Failed++
+					totalResult.Failed++
+					flushPositionCounts(ctx)
 					continue
 				}
 
@@ -261,6 +277,7 @@ scanLoop:
 				var detailSession *candidateDetailSession
 				r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：开始处理，本页序号=%d/%d，累计处理=%d，姓名=%s，状态=%s，超时=%s", item.Index+1, len(filtered), processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
+				totalResult.Skipped += item.Skipped
 				r.ensureCandidateVisibleBeforeDecision(candidateCtx, position.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate))
 
 				// 5. 如果预评分通过，再打开详情；详情模式由岗位运行配置决定：DOM、OCR 或 AI 图片。
@@ -275,12 +292,14 @@ scanLoop:
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
 						batchResult.Skipped++
+						totalResult.Skipped++
 						r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：跳过候选人，候选人=%s，分数=%.1f，阈值=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
 						r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否看详情=是", candidateLogName(candidate), decision.Score, decision.Threshold))
 						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
+						totalResult.Skipped += itemSkipped
 						if err != nil {
 							if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
 								candidateCancel()
@@ -289,6 +308,7 @@ scanLoop:
 							candidate["status"] = "failed"
 							candidate["error"] = err.Error()
 							batchResult.Failed++
+							totalResult.Failed++
 						} else {
 							operationErrors.Reset("读取候选人详情")
 						}
@@ -301,12 +321,14 @@ scanLoop:
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("未命中打开详情概率：%d%%", detailOpenProbability(options))
 						batchResult.Skipped++
+						totalResult.Skipped++
 						r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
 					} else {
 						r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateLogName(candidate), detailModeLabel(detailMode(position))))
 						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
+						totalResult.Skipped += itemSkipped
 						if err != nil {
 							if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
 								candidateCancel()
@@ -315,6 +337,7 @@ scanLoop:
 							candidate["status"] = "failed"
 							candidate["error"] = err.Error()
 							batchResult.Failed++
+							totalResult.Failed++
 						} else {
 							operationErrors.Reset("读取候选人详情")
 						}
@@ -337,6 +360,7 @@ scanLoop:
 				if shouldFinalizeWithAI {
 					itemSkipped, err := r.finalizeCandidateGreetDecision(candidateCtx, position, exec, candidate, aiClient)
 					batchResult.Skipped += itemSkipped
+					totalResult.Skipped += itemSkipped
 					if err != nil {
 						if shouldStopPositionImmediately(err) {
 							candidateCancel()
@@ -345,6 +369,7 @@ scanLoop:
 						candidate["status"] = "failed"
 						candidate["error"] = err.Error()
 						batchResult.Failed++
+						totalResult.Failed++
 						r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼判断：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 					}
 				}
@@ -359,7 +384,7 @@ scanLoop:
 
 				// 8. 评分通过后执行打招呼，然后保存候选人结果。
 				if options.EnableGreet {
-					greeted, failed, itemSkipped, err := r.consumeCandidateForGreet(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, totalGreeted+batchResult.Greeted, options)
+					greeted, failed, itemSkipped, err := r.consumeCandidateForGreet(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, totalResult.Greeted, options)
 					if err != nil {
 						if stopErr := stopAfterCandidateOperationError(operationErrors, err); stopErr != nil {
 							candidateCancel()
@@ -369,6 +394,9 @@ scanLoop:
 					batchResult.Greeted += greeted
 					batchResult.Failed += failed
 					batchResult.Skipped += itemSkipped
+					totalResult.Greeted += greeted
+					totalResult.Failed += failed
+					totalResult.Skipped += itemSkipped
 					if greeted > 0 {
 						operationErrors.Reset("执行打招呼")
 						r.incrementRunGreeted(position.ID, greeted)
@@ -381,13 +409,16 @@ scanLoop:
 					r.saveCandidateResult(ctx, position, candidate, options)
 					r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：候选人处理完成，姓名=%s，结果=%s", candidateLogName(candidate), status))
 					batchResult.Saved++
+					totalResult.Saved++
 				}
 				if errors.Is(candidateCtx.Err(), context.DeadlineExceeded) {
 					candidate["status"] = "failed"
 					candidate["error"] = fmt.Sprintf("候选人处理总超时：超过%s", candidateTotalTimeout.Round(time.Second))
 					batchResult.Failed++
+					totalResult.Failed++
 					r.positionLog(position.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
 				}
+				flushPositionCounts(ctx)
 				candidateCancel()
 				if err := r.maybeRestAfterCandidate(ctx, position.ID, exec, options); err != nil {
 					return nil, err
@@ -399,15 +430,11 @@ scanLoop:
 			}
 			pipelineCancel()
 
-			totalSaved += batchResult.Saved
-			totalSkipped += batchResult.Skipped
-			totalGreeted += batchResult.Greeted
-			totalFailed += batchResult.Failed
 			r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：队列完成，保存=%d，跳过=%d，打招呼=%d，失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
 			if r.isUserStopped(position.ID) {
 				break scanLoop
 			}
-			if reachedRunGreetLimit(position, totalGreeted) {
+			if reachedRunGreetLimit(position, totalResult.Greeted) {
 				break scanLoop
 			}
 		}
@@ -415,20 +442,16 @@ scanLoop:
 			return nil, err
 		}
 	}
-	if totalSaved > 0 || totalSkipped > 0 {
-		updatedPosition, err := r.db.IncrementPositionCounts(position.ID, totalSaved, totalGreeted, totalSkipped, totalFailed)
-		if err == nil {
-			r.syncPositionCounts(ctx, updatedPosition, options)
-		}
-		r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalSaved, totalSkipped, totalGreeted, totalFailed))
+	if !totalResult.empty() {
+		r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalResult.Saved, totalResult.Skipped, totalResult.Greeted, totalResult.Failed))
 	} else {
 		r.positionLog(position.ID, "warning", "候选人提取：当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
 	return map[string]any{
-		"candidates_count": totalSaved,
-		"skipped_count":    totalSkipped,
-		"greeted_count":    totalGreeted,
-		"failed_count":     totalFailed,
+		"candidates_count": totalResult.Saved,
+		"skipped_count":    totalResult.Skipped,
+		"greeted_count":    totalResult.Greeted,
+		"failed_count":     totalResult.Failed,
 		"processed_count":  processedCount,
 		"entry_url":        entryURL,
 	}, nil
