@@ -51,7 +51,7 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
     return {
       code: "agent_version_outdated",
       title: "本地程序版本过低",
-      message: `当前版本为 ${current}，后台要求版本为 ${required}。请先完成更新，本次岗位运行不会开始。`,
+      message: `当前版本为 ${current}，后台要求版本为 ${required}。请立即刷新浏览器或重启浏览器，刷新后会自动弹出更新提醒。本次岗位运行不会开始。`,
     };
   }
   return null;
