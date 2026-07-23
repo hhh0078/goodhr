@@ -18,7 +18,10 @@ import {
   bestCandidateTextMatch,
   candidateCardLocator,
 } from "./candidate-match.js";
-import { bossWheelAnchorSafety } from "./boss-scroll-anchor.js";
+import {
+  bossWheelAnchorMoveDecision,
+  bossWheelAnchorSafety,
+} from "./boss-scroll-anchor.js";
 import { buildBossCandidateScrollFailureDiagnostic } from "./boss-scroll-diagnostic.js";
 import {
   detailScrollWaits,
@@ -1835,6 +1838,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         }),
         {
           viewport_margin: viewportMargin,
+          vertical_only: true,
           debug_stage: payload.debug_stage || "",
           phase: "index-out-of-range",
           outer_attempt: attempt,
@@ -1911,6 +1915,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       }),
       {
         viewport_margin: viewportMargin,
+        vertical_only: true,
         debug_stage: payload.debug_stage || "",
         phase: "card-index",
         outer_attempt: attempt,
@@ -4630,21 +4635,25 @@ async function moveMouseToElement(currentPage, elementConfig, options = {}) {
   const view = await isElementInViewport(locator, {
     margin: options.viewport_margin || 0,
     full: options.require_full,
+    vertical_only: options.vertical_only || options.verticalOnly,
   });
   if (!view.visible) throw new Error("鼠标移动目标元素不可见");
   const requireInViewport = Boolean(
     options.require_in_viewport || options.requireInViewport,
   );
   if (requireInViewport && !view.in_viewport) {
-    const safety = bossWheelAnchorSafety(
+    const moveDecision = bossWheelAnchorMoveDecision(
       view,
       Number(options.viewport_margin || 0),
     );
-    throw new Error(
-      `鼠标移动目标未完整进入上下安全区域：原因=${safety.reason}，` +
-        `安全区域=${safety.safe_top}→${safety.safe_bottom}px，` +
-        `目标位置=${safety.card_top ?? "未知"}→${safety.card_bottom ?? "未知"}px`,
-    );
+    if (!moveDecision.allowed) {
+      const safety = moveDecision.safety;
+      throw new Error(
+        `鼠标移动目标未完整进入上下安全区域：原因=${safety.reason}，` +
+          `安全区域=${safety.safe_top}→${safety.safe_bottom}px，` +
+          `目标位置=${safety.card_top ?? "未知"}→${safety.card_bottom ?? "未知"}px`,
+      );
+    }
   }
   const box = await locator.boundingBox().catch(() => null);
   if (!box || box.width <= 0 || box.height <= 0) {

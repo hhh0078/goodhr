@@ -77,3 +77,18 @@ export function bossWheelAnchorSafety(view, requestedMargin = 0) {
     card_height: Math.round(height),
   };
 }
+
+/**
+ * bossWheelAnchorMoveDecision 判断滚轮锚点是否允许接收鼠标移动。
+ * 这里只执行上下安全边距检查，避免把候选人卡片的横向留白误判成危险区域。
+ * @param {Record<string, any>|null} view - 候选人卡片的可视状态。
+ * @param {number} requestedMargin - 页面顶部和底部需要保留的安全边距。
+ * @returns {{allowed:boolean,safety:Record<string, any>}} 移动许可和详细安全判断。
+ */
+export function bossWheelAnchorMoveDecision(view, requestedMargin = 0) {
+  const safety = bossWheelAnchorSafety(view, requestedMargin);
+  return {
+    allowed: safety.safe,
+    safety,
+  };
+}

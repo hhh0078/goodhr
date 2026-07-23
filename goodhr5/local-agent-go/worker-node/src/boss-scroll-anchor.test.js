@@ -3,7 +3,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bossWheelAnchorSafety } from "./boss-scroll-anchor.js";
+import {
+  bossWheelAnchorMoveDecision,
+  bossWheelAnchorSafety,
+} from "./boss-scroll-anchor.js";
 
 /**
  * anchorView 构造滚轮锚点安全判断所需的卡片和视口数据。
@@ -46,4 +49,21 @@ test("wheel anchor rejects card outside viewport when margin is zero", () => {
   assert.equal(result.safe, false);
   assert.equal(result.reason, "below-safe-area");
   assert.equal(result.safe_bottom, 900);
+});
+
+/** 验证横向未满足通用完整显示条件时，不会误伤纵向安全的滚轮锚点。 */
+test("wheel anchor move accepts vertically safe card from real worker log", () => {
+  const view = {
+    ...anchorView(474),
+    in_viewport: false,
+    fully_visible: false,
+    vertically_fully_visible: true,
+    horizontally_visible: true,
+    margin: 80,
+  };
+  const decision = bossWheelAnchorMoveDecision(view, 80);
+
+  assert.equal(decision.allowed, true);
+  assert.equal(decision.safety.reason, "safe");
+  assert.equal(decision.safety.card_bottom, 646);
 });
