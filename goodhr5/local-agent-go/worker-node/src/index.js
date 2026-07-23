@@ -18,6 +18,7 @@ import {
   bestCandidateTextMatch,
   candidateCardLocator,
 } from "./candidate-match.js";
+import { bossWheelAnchorSafety } from "./boss-scroll-anchor.js";
 import { buildBossCandidateScrollFailureDiagnostic } from "./boss-scroll-diagnostic.js";
 import {
   detailScrollWaits,
@@ -1756,16 +1757,27 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       const result = await wheelUntilElementVisible(
         currentPage,
         refLocator,
-        listContainer || rules.scroll_containers || rules.candidate_card,
+        listContainer || null,
         {
           ...payload,
           container_locator: listContainer || null,
           distance,
           max_attempts: 1,
           margin: viewportMargin,
+          viewport_margin: viewportMargin,
           require_full: requireFull,
           vertical_only: true,
-          previous_wheel_locator: await candidateWheelAnchor(cards, cardIndex),
+          require_safe_wheel_target: true,
+          phase: "element-ref",
+          outer_attempt: attempt,
+          candidate_name: payload.diagnostic_candidate_name || "",
+          previous_wheel_locator: await candidateWheelAnchor(cards, cardIndex, {
+            viewport_margin: viewportMargin,
+            debug_stage: payload.debug_stage || "",
+            phase: "element-ref",
+            outer_attempt: attempt,
+            candidate_name: payload.diagnostic_candidate_name || "",
+          }),
         },
       );
       for (const trace of result.attempts || []) {
@@ -1814,7 +1826,20 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         currentPage,
         rules,
         distance,
-        await candidateWheelAnchor(cards, cardIndex),
+        await candidateWheelAnchor(cards, cardIndex, {
+          viewport_margin: viewportMargin,
+          debug_stage: payload.debug_stage || "",
+          phase: "index-out-of-range",
+          outer_attempt: attempt,
+          candidate_name: payload.diagnostic_candidate_name || "",
+        }),
+        {
+          viewport_margin: viewportMargin,
+          debug_stage: payload.debug_stage || "",
+          phase: "index-out-of-range",
+          outer_attempt: attempt,
+          candidate_name: payload.diagnostic_candidate_name || "",
+        },
       );
       diagnosticAttempts.push({
         outer_attempt: attempt,
@@ -1877,7 +1902,20 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       currentPage,
       rules,
       wheelDistance,
-      await candidateWheelAnchor(cards, cardIndex),
+      await candidateWheelAnchor(cards, cardIndex, {
+        viewport_margin: viewportMargin,
+        debug_stage: payload.debug_stage || "",
+        phase: "card-index",
+        outer_attempt: attempt,
+        candidate_name: payload.diagnostic_candidate_name || "",
+      }),
+      {
+        viewport_margin: viewportMargin,
+        debug_stage: payload.debug_stage || "",
+        phase: "card-index",
+        outer_attempt: attempt,
+        candidate_name: payload.diagnostic_candidate_name || "",
+      },
     );
     await currentPage.waitForTimeout(250);
     cards = await allLocators(currentPage, rules.candidate_card, true, 0);
@@ -1947,13 +1985,32 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
  * @param {Record<string, any>} rules - Boss 平台规则。
  * @param {number} distance - 滚动距离。
  * @param {any|null} preferredWheelTarget - 优先使用的滚轮停靠点。
+ * @param {Record<string, any>} options - 安全边距和诊断上下文。
  * @returns {Promise<Record<string, any>>} 滚轮目标、滚动前后状态和实际执行结果。
  */
-async function scrollBossListByRules(currentPage, rules, distance, preferredWheelTarget = null) {
+async function scrollBossListByRules(
+  currentPage,
+  rules,
+  distance,
+  preferredWheelTarget = null,
+  options = {},
+) {
   if (preferredWheelTarget) {
     try {
       const move = await moveMouseToElement(currentPage, preferredWheelTarget, {
-        require_full: false,
+        ...options,
+        require_full: true,
+        require_in_viewport: true,
+      });
+      await logBossCandidateScrollDebug("wheel-anchor-move", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "nearby-visible-card",
+        viewport_margin: options.viewport_margin ?? 0,
+        anchor_view: viewDebugInfo(move.locator_visible),
+        mouse: move,
       });
       const before = await wheelScrollStateAtPoint(currentPage, move).catch(
         (error) => ({ error: error?.message || String(error) }),
@@ -1973,6 +2030,15 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
         after,
       };
     } catch (error) {
+      await logBossCandidateScrollDebug("wheel-anchor-move-rejected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "nearby-visible-card",
+        viewport_margin: options.viewport_margin ?? 0,
+        error: error?.message || String(error),
+      });
       logWorker("Boss候选人滚动列表：上一个候选人卡片不可用", {
         error: error?.message || error,
       });
@@ -1998,7 +2064,22 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
         });
         continue;
       }
-      const move = await moveMouseToElement(currentPage, locator);
+      const move = await moveMouseToElement(currentPage, locator, {
+        ...options,
+        require_full: true,
+        require_in_viewport: true,
+      });
+      await logBossCandidateScrollDebug("wheel-anchor-move", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "configured-container",
+        selector,
+        viewport_margin: options.viewport_margin ?? 0,
+        anchor_view: viewDebugInfo(move.locator_visible),
+        mouse: move,
+      });
       const before = await wheelScrollStateAtPoint(currentPage, move).catch(
         (error) => ({ error: error?.message || String(error) }),
       );
@@ -2016,39 +2097,59 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
         before,
         after,
       };
-    } catch {
+    } catch (error) {
+      await logBossCandidateScrollDebug("wheel-anchor-move-rejected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "configured-container",
+        selector,
+        viewport_margin: options.viewport_margin ?? 0,
+        error: error?.message || String(error),
+      });
       continue;
     }
   }
   const cardLocator = await firstLocator(currentPage, rules.candidate_card, true);
   if (cardLocator) {
-    const move = await moveMouseToElement(currentPage, cardLocator);
-    const before = await wheelScrollStateAtPoint(currentPage, move).catch(
-      (error) => ({ error: error?.message || String(error) }),
-    );
-    await currentPage.mouse.wheel(0, distance);
-    await currentPage.waitForTimeout(450);
-    const after = await wheelScrollStateAtPoint(currentPage, move).catch(
-      (error) => ({ error: error?.message || String(error) }),
-    );
-    return {
-      executed: true,
-      wheel_target: "first-candidate-card",
-      distance,
-      mouse: move,
-      before,
-      after,
-    };
+    try {
+      const move = await moveMouseToElement(currentPage, cardLocator, {
+        ...options,
+        require_full: true,
+        require_in_viewport: true,
+      });
+      const before = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
+      await currentPage.mouse.wheel(0, distance);
+      await currentPage.waitForTimeout(450);
+      const after = await wheelScrollStateAtPoint(currentPage, move).catch(
+        (error) => ({ error: error?.message || String(error) }),
+      );
+      return {
+        executed: true,
+        wheel_target: "first-candidate-card",
+        distance,
+        mouse: move,
+        before,
+        after,
+      };
+    } catch (error) {
+      await logBossCandidateScrollDebug("wheel-anchor-move-rejected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "first-candidate-card",
+        viewport_margin: options.viewport_margin ?? 0,
+        error: error?.message || String(error),
+      });
+    }
   }
-  await currentPage.mouse.wheel(0, distance);
-  await currentPage.waitForTimeout(450);
-  return {
-    executed: true,
-    wheel_target: "current-mouse",
-    distance,
-    before: null,
-    after: null,
-  };
+  throw new Error(
+    `未找到处于上下安全边距内的 Boss 候选人滚轮停靠点：安全边距=${Number(options.viewport_margin || 0)}px`,
+  );
 }
 
 /**
@@ -2056,11 +2157,19 @@ async function scrollBossListByRules(currentPage, rules, distance, preferredWhee
  * 从距离目标最近的卡片开始查找，避免把鼠标移动到已经滚出屏幕的 Locator。
  * @param {Array<any>} cards - 当前候选人卡片列表。
  * @param {number} cardIndex - 目标候选人序号。
- * @returns {Promise<any|null>} 附近可见候选人卡片定位器。
+ * @param {Record<string, any>} options - 安全边距、候选人和诊断阶段信息。
+ * @returns {Promise<any|null>} 完整处于安全区域内的附近候选人卡片定位器。
  */
-async function candidateWheelAnchor(cards, cardIndex) {
+async function candidateWheelAnchor(cards, cardIndex, options = {}) {
   if (!Array.isArray(cards) || cards.length <= 1) return null;
+  const rawViewportMargin = Number(
+    options.viewport_margin ?? options.margin ?? 0,
+  );
+  const viewportMargin = Number.isFinite(rawViewportMargin)
+    ? Math.max(0, rawViewportMargin)
+    : 0;
   const indices = [];
+  const rejected = [];
   for (let offset = 1; offset < cards.length; offset += 1) {
     const previousIndex = cardIndex - offset;
     const nextIndex = cardIndex + offset;
@@ -2071,9 +2180,48 @@ async function candidateWheelAnchor(cards, cardIndex) {
     const item = cards[index];
     const locator = item?.locator || item;
     if (!locator) continue;
-    const view = await isElementInViewport(locator, { margin: 8 });
-    if (view.in_viewport) return locator;
+    const view = await isElementInViewport(locator, {
+      margin: viewportMargin,
+      full: true,
+      vertical_only: true,
+    });
+    const safety = bossWheelAnchorSafety(view, viewportMargin);
+    if (safety.safe) {
+      await logBossCandidateScrollDebug("wheel-anchor-selected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        target_card_index: cardIndex,
+        anchor_card_index: index,
+        target_sequence: cardIndex + 1,
+        anchor_sequence: index + 1,
+        viewport_margin: viewportMargin,
+        anchor_view: viewDebugInfo(view),
+        anchor_safety: safety,
+        rejected_anchors: rejected.slice(0, 8),
+      });
+      return locator;
+    }
+    if (rejected.length < 8) {
+      rejected.push({
+        card_index: index,
+        sequence: index + 1,
+        view: viewDebugInfo(view),
+        safety,
+      });
+    }
   }
+  await logBossCandidateScrollDebug("wheel-anchor-unavailable", {
+    debug_stage: options.debug_stage || "",
+    phase: options.phase || "",
+    outer_attempt: options.outer_attempt,
+    candidate_name: options.candidate_name || "",
+    target_card_index: cardIndex,
+    target_sequence: cardIndex + 1,
+    viewport_margin: viewportMargin,
+    rejected_anchors: rejected,
+  });
   return null;
 }
 
@@ -4484,6 +4632,20 @@ async function moveMouseToElement(currentPage, elementConfig, options = {}) {
     full: options.require_full,
   });
   if (!view.visible) throw new Error("鼠标移动目标元素不可见");
+  const requireInViewport = Boolean(
+    options.require_in_viewport || options.requireInViewport,
+  );
+  if (requireInViewport && !view.in_viewport) {
+    const safety = bossWheelAnchorSafety(
+      view,
+      Number(options.viewport_margin || 0),
+    );
+    throw new Error(
+      `鼠标移动目标未完整进入上下安全区域：原因=${safety.reason}，` +
+        `安全区域=${safety.safe_top}→${safety.safe_bottom}px，` +
+        `目标位置=${safety.card_top ?? "未知"}→${safety.card_bottom ?? "未知"}px`,
+    );
+  }
   const box = await locator.boundingBox().catch(() => null);
   if (!box || box.width <= 0 || box.height <= 0) {
     throw new Error("鼠标移动目标元素没有有效位置");
@@ -4525,36 +4687,94 @@ async function humanMouseClick(currentPage, options = {}) {
 }
 
 /**
- * 安全移动到滚轮停靠目标，找不到配置容器时优先使用上一个候选人卡片滚动。
+ * 安全移动到滚轮停靠目标，优先使用完整处于安全区域内的候选人卡片。
  * @param {any} currentPage - Playwright 页面对象。
  * @param {any} wheelTarget - 配置的滚轮停靠目标。
  * @param {Record<string, any>} options - 滚动选项。
  * @returns {Promise<Record<string, any>>} 鼠标移动结果。
  */
 async function moveMouseToWheelTarget(currentPage, wheelTarget, options = {}) {
-  try {
-    const move = await moveMouseToElement(currentPage, wheelTarget, options);
-    return { ...move, wheel_target: "configured" };
-  } catch (error) {
-    logWorker("Boss候选人滚动目标不可用，准备使用上一个候选人兜底", {
-      target: "configured",
-      error: error?.message || error,
-    });
-  }
+  let previousCardError = "";
+  let configuredTargetError = "";
   if (options.previous_wheel_locator) {
     try {
       const move = await moveMouseToElement(
         currentPage,
         options.previous_wheel_locator,
-        { ...options, require_full: false },
+        {
+          ...options,
+          require_full: true,
+          require_in_viewport: true,
+        },
       );
-      logWorker("Boss候选人滚动目标改用上一个候选人卡片");
+      await logBossCandidateScrollDebug("wheel-anchor-move", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "previous-card",
+        viewport_margin: options.viewport_margin ?? 0,
+        anchor_view: viewDebugInfo(move.locator_visible),
+        mouse: move,
+      });
+      logWorker("Boss候选人滚动目标使用安全区域内的候选人卡片");
       return { ...move, wheel_target: "previous-card" };
     } catch (error) {
-      logWorker("Boss候选人上一个卡片兜底不可用，使用当前鼠标位置滚轮", {
-        error: error?.message || error,
+      previousCardError = error?.message || String(error);
+      await logBossCandidateScrollDebug("wheel-anchor-move-rejected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "previous-card",
+        viewport_margin: options.viewport_margin ?? 0,
+        error: previousCardError,
+      });
+      logWorker("Boss候选人安全卡片停靠点不可用，准备检查配置滚动区域", {
+        error: previousCardError,
       });
     }
+  }
+  if (wheelTarget) {
+    try {
+      const requireSafeTarget = Boolean(options.require_safe_wheel_target);
+      const move = await moveMouseToElement(currentPage, wheelTarget, {
+        ...options,
+        require_full: requireSafeTarget,
+        require_in_viewport: requireSafeTarget,
+      });
+      await logBossCandidateScrollDebug("wheel-anchor-move", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "configured",
+        viewport_margin: options.viewport_margin ?? 0,
+        anchor_view: viewDebugInfo(move.locator_visible),
+        mouse: move,
+      });
+      return { ...move, wheel_target: "configured" };
+    } catch (error) {
+      configuredTargetError = error?.message || String(error);
+      await logBossCandidateScrollDebug("wheel-anchor-move-rejected", {
+        debug_stage: options.debug_stage || "",
+        phase: options.phase || "",
+        outer_attempt: options.outer_attempt,
+        candidate_name: options.candidate_name || "",
+        source: "configured",
+        viewport_margin: options.viewport_margin ?? 0,
+        error: configuredTargetError,
+      });
+      logWorker("Boss候选人配置滚动区域不可用", {
+        error: configuredTargetError,
+      });
+    }
+  }
+  if (options.require_safe_wheel_target) {
+    throw new Error(
+      `未找到处于上下安全边距内的滚轮停靠点：安全边距=${Number(options.viewport_margin || 0)}px，` +
+        `候选人卡片=${previousCardError || "未找到"}，配置滚动区域=${configuredTargetError || "未找到"}`,
+    );
   }
   return { moved: false, wheel_target: "current-mouse" };
 }
