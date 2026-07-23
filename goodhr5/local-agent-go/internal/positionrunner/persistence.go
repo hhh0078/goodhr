@@ -61,7 +61,7 @@ func (r *Runner) persistPositionCountProgress(ctx context.Context, position loca
 		r.syncPositionCounts(ctx, latestPosition, options)
 		return persisted, nil
 	}
-	updatedPosition, err := r.db.IncrementPositionCounts(position.ID, delta.Saved, delta.Greeted, delta.Skipped, delta.Failed)
+	updatedPosition, err := r.db.IncrementPositionCounts(position.ID, delta.Scanned, delta.Greeted, delta.Skipped, delta.Failed)
 	if err != nil {
 		return persisted, err
 	}

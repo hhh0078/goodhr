@@ -195,6 +195,7 @@ scanLoop:
 				continue
 			}
 			emptyLoads = 0
+			totalResult.Scanned += len(candidates)
 			queue = append(queue, candidates...)
 			r.syncProcessedResumeCount(ctx, position, len(candidates), options)
 			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
@@ -443,7 +444,7 @@ scanLoop:
 		}
 	}
 	if !totalResult.empty() {
-		r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalResult.Saved, totalResult.Skipped, totalResult.Greeted, totalResult.Failed))
+		r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，扫描=%d，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalResult.Scanned, totalResult.Saved, totalResult.Skipped, totalResult.Greeted, totalResult.Failed))
 	} else {
 		r.positionLog(position.ID, "warning", "候选人提取：当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}

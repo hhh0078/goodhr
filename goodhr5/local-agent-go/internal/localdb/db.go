@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"goodhr5/local-agent-go/internal/config"
 
@@ -190,6 +191,43 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	_, _ = db.conn.Exec(`ALTER TABLE local_positions ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0`)
 	// 后向兼容迁移：重建 local_candidates 表以支持结构化字段。
 	db.migrateLocalCandidates()
+	// 后向兼容迁移：把旧版误用“已保存人数”的扫描统计校正为已知处理总数。
+	if err := db.migratePositionScannedCounts(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migratePositionScannedCounts 一次性补回旧版累计扫描中漏记的跳过和失败人数。
+// 迁移标记写入 local_meta，确保同一个本地数据库不会重复累加。
+func (db *DB) migratePositionScannedCounts() error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("开始修复累计扫描统计失败：%w", err)
+	}
+	defer tx.Rollback()
+
+	var migrated int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM local_meta WHERE key='position_scanned_count_semantics_v2'`).Scan(&migrated); err != nil {
+		return fmt.Errorf("读取累计扫描统计迁移标记失败：%w", err)
+	}
+	if migrated > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`
+UPDATE local_positions
+SET scanned_count=scanned_count+skipped_count+failed_count,
+    updated_at=?
+WHERE skipped_count>0 OR failed_count>0
+`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("修复累计扫描统计失败：%w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO local_meta(key, value) VALUES('position_scanned_count_semantics_v2', 'completed')`); err != nil {
+		return fmt.Errorf("保存累计扫描统计迁移标记失败：%w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交累计扫描统计迁移失败：%w", err)
+	}
 	return nil
 }
 

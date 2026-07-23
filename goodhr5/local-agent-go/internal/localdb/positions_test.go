@@ -90,6 +90,38 @@ func TestSettingsRecordsFlow(t *testing.T) {
 
 }
 
+// TestMigratePositionScannedCountsRepairsLegacyValueOnce 验证旧版扫描统计只补偿一次跳过和失败人数。
+func TestMigratePositionScannedCountsRepairsLegacyValueOnce(t *testing.T) {
+	db := openTestDB(t)
+	position, err := db.CreatePosition(map[string]any{"name": "旧版统计岗位", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.conn.Exec(`
+UPDATE local_positions
+SET scanned_count=53, greeted_count=53, skipped_count=9, failed_count=0
+WHERE id=?
+`, position.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.conn.Exec(`DELETE FROM local_meta WHERE key='position_scanned_count_semantics_v2'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.migratePositionScannedCounts(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.migratePositionScannedCounts(); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := db.GetPosition(position.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ScannedCount != 62 || updated.GreetedCount != 53 || updated.SkippedCount != 9 || updated.FailedCount != 0 {
+		t.Fatalf("position counts = %+v", updated)
+	}
+}
+
 // openTestDB 创建测试数据库。
 // t 为测试对象。
 func openTestDB(t *testing.T) *DB {

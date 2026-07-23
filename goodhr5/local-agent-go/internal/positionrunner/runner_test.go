@@ -59,7 +59,7 @@ func TestPersistPositionCountProgressWritesOnlyNewDelta(t *testing.T) {
 	}
 	runner := newTestRunner(t, db, &fakeWorker{})
 	persisted := batchProcessResult{}
-	current := batchProcessResult{Saved: 1, Greeted: 1, Skipped: 2}
+	current := batchProcessResult{Scanned: 3, Saved: 1, Greeted: 1, Skipped: 2}
 
 	persisted, err = runner.persistPositionCountProgress(t.Context(), position, current, persisted, StartOptions{})
 	if err != nil {
@@ -70,7 +70,7 @@ func TestPersistPositionCountProgressWritesOnlyNewDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current = batchProcessResult{Saved: 2, Greeted: 1, Skipped: 3, Failed: 1}
+	current = batchProcessResult{Scanned: 4, Saved: 2, Greeted: 1, Skipped: 3, Failed: 1}
 	persisted, err = runner.persistPositionCountProgress(t.Context(), position, current, persisted, StartOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestPersistPositionCountProgressWritesOnlyNewDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ScannedCount != 2 || updated.GreetedCount != 1 || updated.SkippedCount != 3 || updated.FailedCount != 1 {
+	if updated.ScannedCount != 4 || updated.GreetedCount != 1 || updated.SkippedCount != 3 || updated.FailedCount != 1 {
 		t.Fatalf("position counts = %+v", updated)
 	}
 	if persisted != current {
