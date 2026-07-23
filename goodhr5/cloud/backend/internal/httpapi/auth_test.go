@@ -285,6 +285,11 @@ type recordingMailer struct {
 		email  string
 		notice AIBalanceNotice
 	}
+	positionNotices []struct {
+		email  string
+		notice PositionStatusNotice
+	}
+	positionStatusErr error
 }
 
 // SendLoginCode 记录验证码邮件发送请求。
@@ -314,8 +319,15 @@ func (m *recordingMailer) SendAIBalanceNotice(email string, notice AIBalanceNoti
 	return nil
 }
 
-// SendPositionStatus 忽略岗位状态邮件发送请求。
+// SendPositionStatus 记录岗位状态邮件发送请求，并可模拟发送失败。
 func (m *recordingMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
+	if m.positionStatusErr != nil {
+		return m.positionStatusErr
+	}
+	m.positionNotices = append(m.positionNotices, struct {
+		email  string
+		notice PositionStatusNotice
+	}{email: email, notice: notice})
 	return nil
 }
 

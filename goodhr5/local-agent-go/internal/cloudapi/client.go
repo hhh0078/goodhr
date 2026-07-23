@@ -20,6 +20,13 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+// PositionStatusSyncResult 表示云端岗位状态同步结果。
+// Status 为云端确认的状态，NoticeSent 表示岗位完成邮件已经发送或此前已经确认发送。
+type PositionStatusSyncResult struct {
+	Status     string
+	NoticeSent bool
+}
+
 // AuthExpiredError 表示云端登录态已经失效。
 type AuthExpiredError struct {
 	Message string
@@ -299,25 +306,29 @@ func (c *Client) StopPosition(ctx context.Context, token string, positionID stri
 	return nil
 }
 
-// SyncPositionStatus 通知云端岗位运行当前状态。
+// SyncPositionStatus 通知云端岗位运行当前状态并返回邮件提醒结果。
 // ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，status 为 completed、stopped 或 running。
-func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionID string, status string) error {
+func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionID string, status string) (PositionStatusSyncResult, error) {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
-		return fmt.Errorf("岗位运行 ID 不能为空")
+		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行 ID 不能为空")
 	}
 	status = strings.TrimSpace(status)
 	if status == "" {
-		return fmt.Errorf("岗位运行状态不能为空")
+		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行状态不能为空")
 	}
 	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", map[string]any{"status": status})
 	if err != nil {
-		return fmt.Errorf("同步云端岗位运行状态失败：%w", err)
+		return PositionStatusSyncResult{}, fmt.Errorf("同步云端岗位运行状态失败：%w", err)
 	}
 	if code >= 400 {
-		return fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
+		return PositionStatusSyncResult{}, fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
 	}
-	return nil
+	noticeSent, _ := payload["notice_sent"].(bool)
+	return PositionStatusSyncResult{
+		Status:     stringFromMap(payload, "status"),
+		NoticeSent: noticeSent,
+	}, nil
 }
 
 // getAuthed 使用 Bearer Token 请求云端接口。

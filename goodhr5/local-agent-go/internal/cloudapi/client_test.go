@@ -76,3 +76,30 @@ func TestFetchPlatformConfigError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TestSyncPositionStatusReturnsNoticeResult 验证岗位完成同步会读取后台返回的邮件发送结果。
+func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/positions/position-1/status" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token-1" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"status":      "completed",
+			"notice_sent": true,
+		})
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	result, err := client.SyncPositionStatus(t.Context(), "token-1", "position-1", "completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "completed" || !result.NoticeSent {
+		t.Fatalf("result = %+v", result)
+	}
+}

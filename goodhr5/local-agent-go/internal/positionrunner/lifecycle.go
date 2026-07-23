@@ -69,7 +69,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running"); syncErr != nil {
+	if _, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running"); syncErr != nil {
 		r.positionLog(positionID, "warning", "岗位运行启动：云端运行状态同步失败，错误="+syncErr.Error())
 	}
 	syncCancel()
@@ -128,7 +128,13 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	}
 	r.updateProgress(positionID, Progress{Stage: "completed", Message: "岗位运行已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdatePositionStatus(positionID, "completed")
-	r.positionLog(positionID, "info", fmt.Sprintf("岗位运行完成：本次运行结束，扫描=%d，打招呼=%d，跳过=%d，失败=%d", intFromMap(scanResult, "saved"), intFromMap(scanResult, "greeted"), intFromMap(scanResult, "skipped"), intFromMap(scanResult, "failed")))
+	r.positionLog(positionID, "info", fmt.Sprintf(
+		"岗位运行完成：本次运行结束，扫描=%d，打招呼=%d，跳过=%d，失败=%d",
+		intFromMap(scanResult, "candidates_count"),
+		intFromMap(scanResult, "greeted_count"),
+		intFromMap(scanResult, "skipped_count"),
+		intFromMap(scanResult, "failed_count"),
+	))
 	r.notifyCloudPositionCompleted(positionID, options)
 }
 
