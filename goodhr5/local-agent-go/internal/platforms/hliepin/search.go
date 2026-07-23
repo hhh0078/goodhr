@@ -35,14 +35,14 @@ func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.E
 		}
 		r.shouldSelectGreetJob = true
 		exec.Log("info", "猎聘候选人搜索：已匹配正在发布的职位，后续开聊弹框需要选择岗位")
-		return nil
+		return r.ensureHiddenCandidateFilters(ctx, exec, commonConfig)
 	}
 	r.shouldSelectGreetJob = false
 	if err := r.selectShortcutSearch(ctx, exec, positionName, shortcutName); err != nil {
 		return err
 	}
 	exec.Log("info", "猎聘候选人搜索：已匹配快捷搜索，后续开聊弹框不选择岗位")
-	return nil
+	return r.ensureHiddenCandidateFilters(ctx, exec, commonConfig)
 }
 
 // selectShortcutSearch 展开快捷搜索列表并按配置名称进行完整匹配。
@@ -77,7 +77,7 @@ func (r *Runtime) selectShortcutSearch(ctx context.Context, exec platformcore.Ex
 	if err := exec.Delay(ctx, "等待猎聘快捷搜索结果刷新", 1.2); err != nil {
 		return err
 	}
-	return r.ensureHiddenCandidateFilters(ctx, exec)
+	return nil
 }
 
 // selectPublishedPosition 展开正在发布的职位并按岗位运行岗位名称选择对应职位。
@@ -111,7 +111,7 @@ func (r *Runtime) selectPublishedPosition(ctx context.Context, exec platformcore
 	if err := exec.Delay(ctx, "等待猎聘职位候选人结果刷新", 1.2); err != nil {
 		return err
 	}
-	return r.ensureHiddenCandidateFilters(ctx, exec)
+	return nil
 }
 
 // expandSearchItemsIfPresent 在对应搜索分组显示展开入口时先点击展开；入口不存在表示列表无需展开。
@@ -135,9 +135,9 @@ func (r *Runtime) expandSearchItemsIfPresent(ctx context.Context, exec platformc
 	return exec.Delay(ctx, "等待猎聘"+label+"展开", 0.3)
 }
 
-// ensureHiddenCandidateFilters 在完成岗位或快捷搜索选择后强制勾选三个隐藏候选人条件。
-func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platformcore.Executor) error {
-	for _, label := range []string{"隐藏已查看", "隐藏已沟通", "隐藏已获取联系方式"} {
+// ensureHiddenCandidateFilters 按岗位配置勾选猎聘候选人隐藏条件，旧岗位缺少配置时保持三项全选。
+func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platformcore.Executor, commonConfig map[string]any) error {
+	for _, label := range configuredHiddenCandidateFilters(commonConfig) {
 		if _, err := exec.Post(ctx, "/api/v1/page/scroll", map[string]any{"distance": -10000, "skip_mouse_move": true}); err != nil {
 			return fmt.Errorf("设置猎聘筛选“%s”前回到页面顶部失败：%w", label, err)
 		}
@@ -151,6 +151,27 @@ func (r *Runtime) ensureHiddenCandidateFilters(ctx context.Context, exec platfor
 		exec.Log("info", "猎聘候选人搜索：已勾选"+label)
 	}
 	return nil
+}
+
+// configuredHiddenCandidateFilters 返回岗位启用的猎聘候选人隐藏条件，字段缺失或类型异常时按启用处理。
+func configuredHiddenCandidateFilters(commonConfig map[string]any) []string {
+	options := []struct {
+		key   string
+		label string
+	}{
+		{key: "hliepin_hide_viewed", label: "隐藏已查看"},
+		{key: "hliepin_hide_contacted", label: "隐藏已沟通"},
+		{key: "hliepin_hide_contact_obtained", label: "隐藏已获取联系方式"},
+	}
+	labels := make([]string, 0, len(options))
+	for _, option := range options {
+		enabled, exists := commonConfig[option.key].(bool)
+		if exists && !enabled {
+			continue
+		}
+		labels = append(labels, option.label)
+	}
+	return labels
 }
 
 // matchingShortcutItem 返回与配置快捷搜索名完整一致的页面项目。
