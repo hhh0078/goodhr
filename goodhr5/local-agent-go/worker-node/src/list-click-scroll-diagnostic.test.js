@@ -18,15 +18,19 @@ function listClickView(y, options = {}) {
   const height = 155;
   const verticallyFullyVisible = y >= margin && y + height <= viewport.height - margin;
   const horizontalFull = x >= margin && x + width <= viewport.width - margin;
+  const horizontallyVisible = x + width > 0 && x < viewport.width;
+  const verticalOnly = Boolean(options.vertical_only);
   return {
     visible: true,
-    in_viewport: verticallyFullyVisible && horizontalFull,
+    in_viewport:
+      verticallyFullyVisible &&
+      (verticalOnly ? horizontallyVisible : horizontalFull),
     partially_visible: true,
     fully_visible: verticallyFullyVisible && horizontalFull,
     vertically_visible: y + height > margin && y < viewport.height - margin,
     vertically_fully_visible: verticallyFullyVisible,
-    horizontally_visible: x + width > 0 && x < viewport.width,
-    vertical_only: false,
+    horizontally_visible: horizontallyVisible,
+    vertical_only: verticalOnly,
     require_full: true,
     margin,
     box: { x, y, width, height },
@@ -62,6 +66,18 @@ test("listClickViewDecision identifies horizontal margin blocking", () => {
   assert.equal(decision.horizontal_ready, false);
   assert.deepEqual(decision.failed_dimensions, ["horizontal-margin"]);
   assert.equal(decision.horizontal_overflow.left, 12);
+});
+
+/** 验证猎聘仅判断纵向时，横向贴边但仍与视口重叠的目标能够直接通过。 */
+test("listClickViewDecision accepts edge-aligned target in vertical-only mode", () => {
+  const decision = listClickViewDecision(
+    listClickView(139, { vertical_only: true }),
+  );
+
+  assert.equal(decision.accepted, true);
+  assert.equal(decision.vertical_ready, true);
+  assert.equal(decision.horizontal_ready, true);
+  assert.deepEqual(decision.failed_dimensions, []);
 });
 
 /** 验证连续上下滚动能够统计准确的方向切换次数。 */
