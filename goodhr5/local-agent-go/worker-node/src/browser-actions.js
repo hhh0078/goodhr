@@ -20,6 +20,7 @@ import {
   fixedBrowserViewport,
   normalizeBrowserDisplay,
   readBrowserDisplayMetrics,
+  readBrowserViewportSize,
 } from "./browser-display.js";
 
 /**
@@ -743,7 +744,7 @@ export class BrowserAdvancedActions {
     }
     const pageForViewport =
       typeof locator.page === "function" ? locator.page() : await this.page();
-    const viewport = pageForViewport?.viewportSize?.() || { width: 1280, height: 900 };
+    const viewport = await readBrowserViewportSize(pageForViewport);
     const margin = Math.max(0, Number(options.margin || 0));
     const requireFull = Boolean(options.full || options.require_full);
     const left = box.x;

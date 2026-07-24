@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  bossAdaptiveWheelDistance,
+  bossCandidateVerticalGap,
+  bossScrollAttemptBudget,
   bossWheelAnchorMoveDecision,
   bossWheelAnchorSafety,
 } from "./boss-scroll-anchor.js";
@@ -66,4 +69,55 @@ test("wheel anchor move accepts vertically safe card from real worker log", () =
   assert.equal(decision.allowed, true);
   assert.equal(decision.safety.reason, "safe");
   assert.equal(decision.safety.card_bottom, 646);
+});
+
+/** 验证远在页面上方的候选人会使用更大的向上滚轮步长。 */
+test("adaptive wheel distance accelerates a far candidate above viewport", () => {
+  const view = {
+    ...anchorView(-4777),
+    margin: 80,
+  };
+
+  assert.equal(bossCandidateVerticalGap(view), -4857);
+  assert.equal(bossAdaptiveWheelDistance(view, 120), -600);
+});
+
+/** 验证接近安全区域时恢复基础步长，降低来回越界风险。 */
+test("adaptive wheel distance keeps base step near safe area", () => {
+  const view = {
+    ...anchorView(20),
+    margin: 80,
+  };
+
+  assert.equal(bossCandidateVerticalGap(view), -60);
+  assert.equal(bossAdaptiveWheelDistance(view, 120), -120);
+});
+
+/** 验证真实日志中距离页面上方 4777px 的第一张卡片能在预算内滚到安全区域。 */
+test("adaptive wheel distance converges for the real 4777px gap", () => {
+  let y = -4777;
+  let steps = 0;
+  while (steps < 18) {
+    const view = {
+      ...anchorView(y),
+      margin: 80,
+    };
+    if (bossCandidateVerticalGap(view) === 0) break;
+    const distance = bossAdaptiveWheelDistance(view, 120);
+    y -= distance;
+    steps += 1;
+  }
+
+  assert.equal(bossCandidateVerticalGap({ ...anchorView(y), margin: 80 }), 0);
+  assert.ok(steps < 18);
+});
+
+/** 验证超远目标会按初始距离扩大重试预算。 */
+test("scroll attempt budget expands for very distant candidate", () => {
+  const view = {
+    ...anchorView(-20000),
+    margin: 80,
+  };
+
+  assert.equal(bossScrollAttemptBudget(view, 18, 600), 38);
 });

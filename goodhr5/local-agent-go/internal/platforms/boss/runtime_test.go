@@ -60,6 +60,9 @@ func TestEnsureCandidateVisibleCarriesDiagnosticName(t *testing.T) {
 	if call.payload["diagnostic_candidate_name"] != "荣**" {
 		t.Fatalf("滚动诊断应携带候选人姓名：%v", call.payload)
 	}
+	if call.payload["card_scroll_max_distance"] != 600 {
+		t.Fatalf("远距离候选人应允许使用 600px 自适应滚轮步长：%v", call.payload)
+	}
 }
 
 // TestPositionSearchQueryRemovesBossDisplaySuffix 验证岗位搜索词会去掉括号说明、城市和薪资。

@@ -10,6 +10,7 @@ import {
   fixedBrowserViewport,
   normalizeBrowserDisplay,
   readBrowserDisplayMetrics,
+  readBrowserViewportSize,
 } from "./browser-display.js";
 import {
   aiOverlayMatchKey,
@@ -20,10 +21,15 @@ import {
   candidateCardLocator,
 } from "./candidate-match.js";
 import {
+  bossAdaptiveWheelDistance,
+  bossScrollAttemptBudget,
   bossWheelAnchorMoveDecision,
   bossWheelAnchorSafety,
 } from "./boss-scroll-anchor.js";
-import { buildBossCandidateScrollFailureDiagnostic } from "./boss-scroll-diagnostic.js";
+import {
+  buildBossCandidateScrollFailureDiagnostic,
+  scrollViewGap,
+} from "./boss-scroll-diagnostic.js";
 import {
   detailScrollWaits,
   effectiveDetailWheelDistance,
@@ -156,7 +162,7 @@ function compactViewportLog(view) {
  * @returns {Promise<Record<string, any>>} 容器判断结果。
  */
 async function bossListViewportContainer(currentPage, rules) {
-  const viewport = currentPage.viewportSize() || { width: 0, height: 0 };
+  const viewport = await readBrowserViewportSize(currentPage);
   const selectors = selectorList(rules.scroll_containers);
   const rejected = [];
   for (const selector of selectors) {
@@ -998,10 +1004,11 @@ async function listClickByIndex(payload) {
   };
   const initialView = await isElementInViewport(locator, scrollOptions);
   if (diagnosticPlatform === "hliepin") {
+    const viewport = await readBrowserViewportSize(currentPage);
     await logElementWheelScrollDebug("start", scrollOptions, {
       platform_name: payload.diagnostic_platform_name || "猎聘",
       page_url: currentPage.url(),
-      viewport: currentPage.viewportSize() || {},
+      viewport,
       locator_count: locators.length,
       item_selectors: selectorList(element),
       click_selectors: selectorList(clickTarget),
@@ -1024,6 +1031,7 @@ async function listClickByIndex(payload) {
   );
   if (!visibility.visible) {
     if (diagnosticPlatform === "hliepin") {
+      const viewport = await readBrowserViewportSize(currentPage);
       const diagnostic = buildListClickScrollFailureDiagnostic({
         action_id: diagnosticActionID,
         platform: diagnosticPlatform,
@@ -1034,7 +1042,10 @@ async function listClickByIndex(payload) {
         locator_count: locators.length,
         item_selector: selectorList(element).join("|"),
         click_selector: selectorList(clickTarget).join("|"),
-        viewport: currentPage.viewportSize() || initialView?.viewport || {},
+        viewport:
+          Number(viewport.width || 0) > 0
+            ? viewport
+            : initialView?.viewport || {},
         margin: scrollOptions.margin,
         require_full: scrollOptions.require_full,
         vertical_only: Boolean(scrollOptions.vertical_only),
@@ -1858,23 +1869,52 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
   } else if (payload.require_candidate_match) {
     throw new Error(`候选人身份未匹配：${payload.candidate_name || "未知候选人"}`);
   }
-  const maxAttempts = Math.max(
-    1,
-    Math.min(24, Number(payload.card_scroll_attempts || 8)),
+  const requestedAttempts = Number(payload.card_scroll_attempts || 8);
+  const configuredAttempts = Number.isFinite(requestedAttempts)
+    ? Math.max(1, Math.min(60, requestedAttempts))
+    : 8;
+  const requestedDistance = Number(
+    payload.card_scroll_distance || payload.distance || 120,
   );
-  const distance = Math.max(
-    120,
-    Number(payload.card_scroll_distance || payload.distance || 120),
+  const distance = Number.isFinite(requestedDistance)
+    ? Math.max(120, requestedDistance)
+    : 120;
+  const requestedMaximumDistance = Number(
+    payload.card_scroll_max_distance || 600,
   );
+  const maximumDistance = Number.isFinite(requestedMaximumDistance)
+    ? Math.max(distance, requestedMaximumDistance)
+    : Math.max(distance, 600);
   const listContainerInfo = await bossListViewportContainer(currentPage, rules);
   const listContainer = listContainerInfo.usable ? listContainerInfo.locator : null;
+  let budgetView = initialDiagnosticView;
+  if (!budgetView && cardIndex < count) {
+    const budgetCard = cards[cardIndex]?.locator || cards[cardIndex];
+    budgetView = listContainer
+      ? await isElementInContainerViewport(
+          budgetCard,
+          listContainer,
+          viewOptions,
+        )
+      : await isElementInViewport(budgetCard, viewOptions);
+    initialDiagnosticView = budgetView;
+    finalDiagnosticView = budgetView;
+  }
+  const maxAttempts = bossScrollAttemptBudget(
+    budgetView,
+    configuredAttempts,
+    maximumDistance,
+  );
   await logBossCandidateScrollDebug("locate-start", {
     debug_stage: payload.debug_stage || "",
     candidate_name: payload.diagnostic_candidate_name || "",
     card_index: cardIndex,
     count,
+    configured_attempts: configuredAttempts,
     max_attempts: maxAttempts,
     distance,
+    maximum_distance: maximumDistance,
+    initial_gap_px: scrollViewGap(budgetView),
     require_full: requireFull,
     viewport_margin: viewportMargin,
     has_list_container: Boolean(listContainer),
@@ -1885,10 +1925,21 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
     viewport: listContainerInfo.viewport
       ? `w=${listContainerInfo.viewport.width},h=${listContainerInfo.viewport.height}`
       : "",
+    viewport_source: listContainerInfo.viewport?.source || "",
+    device_pixel_ratio: listContainerInfo.viewport?.device_pixel_ratio || 0,
+    visual_viewport_scale:
+      listContainerInfo.viewport?.visual_viewport_scale || 0,
     rejected_containers: JSON.stringify(listContainerInfo.rejected || []).slice(0, 600),
   });
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (refLocator) {
+      const refDistance = Math.abs(
+        bossAdaptiveWheelDistance(
+          finalDiagnosticView || initialDiagnosticView,
+          distance,
+          maximumDistance,
+        ),
+      );
       const result = await wheelUntilElementVisible(
         currentPage,
         refLocator,
@@ -1896,7 +1947,7 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
         {
           ...payload,
           container_locator: listContainer || null,
-          distance,
+          distance: refDistance,
           max_attempts: 1,
           margin: viewportMargin,
           viewport_margin: viewportMargin,
@@ -2007,7 +2058,11 @@ async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
       : await isElementInViewport(card, viewOptions);
     if (!initialDiagnosticView) initialDiagnosticView = view;
     finalDiagnosticView = view;
-    const wheelDistance = wheelDistanceForView(view, distance);
+    const wheelDistance = bossAdaptiveWheelDistance(
+      view,
+      distance,
+      maximumDistance,
+    );
     await logBossCandidateScrollDebug("index-before-scroll", {
       debug_stage: payload.debug_stage || "",
       card_index: cardIndex,
@@ -2182,7 +2237,7 @@ async function scrollBossListByRules(
     }
   }
   const selectors = selectorList(rules.scroll_containers);
-  const viewport = currentPage.viewportSize() || { width: 0, height: 0 };
+  const viewport = await readBrowserViewportSize(currentPage);
   for (const selector of selectors) {
     try {
       const locator = currentPage.locator(selector).first();
@@ -2534,7 +2589,7 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
               JSON.stringify(scrollInfo) +
               frameInfo,
           );
-          const vp = currentPage.viewportSize?.() || {};
+          const vp = await readBrowserViewportSize(currentPage);
           const dbg = JSON.stringify({
             match: {
               selector,
@@ -2586,7 +2641,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
   await fs.mkdir(directory, { recursive: true });
   await cleanupScreenshotSeries(directory, filename);
   const box = await locator.boundingBox().catch(() => null);
-  const viewport = currentPage.viewportSize?.() || { width: 1280, height: 900 };
+  const viewport = await readBrowserViewportSize(currentPage);
   if (!box || box.width < 20 || box.height < 20) {
     console.log("[截图Debug] 详情容器太小或不存在", JSON.stringify(box));
     return screenshotPage({ ...payload, filename });
@@ -4080,8 +4135,7 @@ async function pageSize(targetPage, fullPage) {
       }))
       .catch(() => ({ width: 0, height: 0 }));
   }
-  const viewport = targetPage.viewportSize?.();
-  return viewport || { width: 0, height: 0 };
+  return readBrowserViewportSize(targetPage);
 }
 
 /**
@@ -4607,10 +4661,7 @@ async function isElementInViewport(locator, options = {}) {
   }
   const pageForViewport =
     typeof locator.page === "function" ? locator.page() : page;
-  const viewport = pageForViewport?.viewportSize?.() || {
-    width: 1280,
-    height: 900,
-  };
+  const viewport = await readBrowserViewportSize(pageForViewport);
   const margin = Math.max(0, Number(options.margin || 0));
   const requireFull = Boolean(options.full || options.require_full);
   const verticalOnly = Boolean(options.vertical_only || options.verticalOnly);
