@@ -6,6 +6,7 @@ import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
@@ -74,6 +75,7 @@ export default function PositionsPage() {
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
+  const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
   const [startStatus, setStartStatus] = useState("");
   const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
@@ -253,8 +255,32 @@ export default function PositionsPage() {
     setExpandedLogPositionID(item.id);
     void loadPositionLogs(item);
     setStartStatus("");
+    setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
     setStartPositionItem(item);
+  }
+
+  /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
+  async function openStartPlatformForFiltering() {
+    const item = startPositionItem;
+    if (!item || !agentBase || startOpeningPlatform) return;
+    if (!isPlatformOpen(platformConfigs, item.platform_id)) {
+      setStartStatus("这个招聘平台暂时还没开放，请联系作者确认。");
+      return;
+    }
+    setStartOpeningPlatform(true);
+    setStartStatus("正在打开当前岗位对应的招聘平台页面...");
+    try {
+      const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
+      await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+      setStartStatus("招聘平台已打开。请在平台页面筛选好基础条件，再回来点击“我已筛选好，立即开始”。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "打开招聘平台失败";
+      setStartStatus(message);
+      notify(message, "error");
+    } finally {
+      setStartOpeningPlatform(false);
+    }
   }
 
   /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
@@ -651,13 +677,14 @@ export default function PositionsPage() {
       <AdminDialog
         open={Boolean(startPositionItem)}
         title='开始招聘岗位'
-        confirmText={startRequiresUpdate ? "立即更新" : "确认开始"}
+        confirmText={startRequiresUpdate ? "立即更新" : "我已筛选好，立即开始"}
         loading={startLoading}
         loadingText='启动中'
         onClose={() => {
-          if (startLoading) return;
+          if (startLoading || startOpeningPlatform) return;
           setStartPositionItem(null);
           setStartStatus("");
+          setStartOpeningPlatform(false);
           setStartRequiresUpdate(false);
         }}
         onConfirm={() => void confirmStartPosition()}
@@ -668,9 +695,20 @@ export default function PositionsPage() {
           </Typography>
           <Alert severity='warning' variant='outlined'>
             <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
-              如果需要筛选年龄等基础信息，请先点击上方“打开浏览器”，在招聘平台中设置好筛选条件后，再开始任务。此步骤非常重要。
+              强烈建议您先点击下方“打开平台，并筛选条件”，在招聘平台中设置好年龄、学历、地区等基础筛选条件，再回来开始任务。基础筛选会直接影响候选人结果，此步骤非常重要。
             </Typography>
           </Alert>
+          <Button
+            fullWidth
+            variant='outlined'
+            size='large'
+            disabled={startLoading || startOpeningPlatform}
+            startIcon={startOpeningPlatform ? <CircularProgress color='inherit' size={18} /> : <LaunchRoundedIcon />}
+            onClick={() => void openStartPlatformForFiltering()}
+            sx={{ py: 1.15, fontWeight: 760 }}
+          >
+            {startOpeningPlatform ? "正在打开招聘平台" : "打开平台，并筛选条件"}
+          </Button>
           <Box sx={{ minHeight: 24 }}>
             {startStatus ? (
               <Typography color={isPositionStartErrorStatus(startStatus) ? "error" : "text.secondary"}>

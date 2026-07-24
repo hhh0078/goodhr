@@ -352,9 +352,9 @@ func TestPositionSelectionIsSkipped(t *testing.T) {
 	}
 }
 
-// TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword 验证猎聘直接选择完整同名的快捷搜索且不再输入关键词。
+// TestPreparePositionSearchKeepsManualShortcutFilters 验证配置过快捷搜索时也不会自动点击页面搜索项或隐藏条件。
 // t 为测试对象。
-func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testing.T) {
+func TestPreparePositionSearchKeepsManualShortcutFilters(t *testing.T) {
 	runtime := NewRuntime()
 	runtime.shouldSelectGreetJob = true
 	exec := &searchExecutor{findItems: map[string][]any{
@@ -371,24 +371,20 @@ func TestPreparePositionSearchSelectsExactShortcutWithoutTypingKeyword(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/list-click-by-index" {
-		t.Fatalf("paths = %#v", exec.paths)
+	if len(exec.paths) != 0 {
+		t.Fatalf("manual filtering should not call page APIs, paths=%#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[2], "index"); got != 1 {
-		t.Fatalf("shortcut index = %d, want exact match index 1", got)
+	if runtime.currentPosition != "Java开发工程师初级" {
+		t.Fatalf("current position = %q", runtime.currentPosition)
 	}
-	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
-		t.Fatalf("hidden filter clicks = %d, want 3", got)
-	}
-	assertHliepinFilterWaitPayloads(t, exec, 3)
 	if runtime.shouldSelectGreetJob {
-		t.Fatal("shortcut mode should not select a job in greet modal")
+		t.Fatal("configured shortcut mode should keep the existing greet-modal behavior")
 	}
 }
 
-// TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty 验证未配置新快捷搜索名时忽略旧关键词字段并匹配正在发布的职位。
+// TestPreparePositionSearchKeepsManualPublishedJobFilters 验证未配置快捷搜索时也不会自动选择发布职位或隐藏条件。
 // t 为测试对象。
-func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T) {
+func TestPreparePositionSearchKeepsManualPublishedJobFilters(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinPublishedJobSelector: {map[string]any{"text": "Java开发工程师初级"}},
@@ -400,28 +396,22 @@ func TestPreparePositionSearchSelectsPublishedJobWhenShortcutEmpty(t *testing.T)
 	if err := runtime.PreparePositionSearch(context.Background(), exec, nil, position); err != nil {
 		t.Fatal(err)
 	}
-	if len(exec.paths) != 9 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/find-elements" || exec.paths[2] != "/api/v1/page/list-click-by-index" {
-		t.Fatalf("paths = %#v", exec.paths)
+	if len(exec.paths) != 0 {
+		t.Fatalf("manual filtering should not call page APIs, paths=%#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[2], "index"); got != 0 {
-		t.Fatalf("position index = %d, want 0", got)
+	if runtime.currentPosition != "Java开发工程师初级" {
+		t.Fatalf("current position = %q", runtime.currentPosition)
 	}
-	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 3 {
-		t.Fatalf("hidden filter clicks = %d, want 3", got)
-	}
-	assertHliepinFilterWaitPayloads(t, exec, 3)
 	if !runtime.shouldSelectGreetJob {
-		t.Fatal("published job mode should select a job in greet modal")
+		t.Fatal("mode without a configured shortcut should still select the job in the greet modal")
 	}
 }
 
-// TestPreparePositionSearchHonorsConfiguredHiddenFilters 验证猎聘只勾选岗位明确启用的隐藏条件。
+// TestPreparePositionSearchDoesNotApplyConfiguredHiddenFilters 验证三个旧隐藏条件无论如何配置都不再自动勾选。
 // t 为测试对象。
-func TestPreparePositionSearchHonorsConfiguredHiddenFilters(t *testing.T) {
+func TestPreparePositionSearchDoesNotApplyConfiguredHiddenFilters(t *testing.T) {
 	runtime := NewRuntime()
-	exec := &searchExecutor{findItems: map[string][]any{
-		hliepinShortcutItemSelector: {map[string]any{"text": "后端工程师"}},
-	}}
+	exec := &searchExecutor{}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
 		"name": "后端工程师",
 		"common_config": map[string]any{
@@ -434,60 +424,8 @@ func TestPreparePositionSearchHonorsConfiguredHiddenFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := countPath(exec.paths, "/api/v1/page/ensure-checked-by-text"); got != 1 {
-		t.Fatalf("hidden filter clicks = %d, want 1", got)
-	}
-	for index, path := range exec.paths {
-		if path == "/api/v1/page/ensure-checked-by-text" {
-			if got := stringFromMap(exec.payloads[index], "text"); got != "隐藏已沟通" {
-				t.Fatalf("hidden filter = %q, want 隐藏已沟通", got)
-			}
-		}
-	}
-	assertHliepinFilterWaitPayloads(t, exec, 1)
-}
-
-// assertHliepinFilterWaitPayloads 验证启用的隐藏筛选都使用5秒上限和100毫秒轮询。
-func assertHliepinFilterWaitPayloads(t *testing.T, exec *searchExecutor, expectedCount int) {
-	t.Helper()
-	checked := 0
-	for index, path := range exec.paths {
-		if path != "/api/v1/page/ensure-checked-by-text" {
-			continue
-		}
-		checked++
-		payload := exec.payloads[index]
-		if got := intFromMap(payload, "timeout"); got != hliepinReloadWaitTimeoutMS {
-			t.Fatalf("filter timeout = %d, want %d", got, hliepinReloadWaitTimeoutMS)
-		}
-		if got := intFromMap(payload, "verify_timeout"); got != hliepinReloadWaitTimeoutMS {
-			t.Fatalf("filter verify timeout = %d, want %d", got, hliepinReloadWaitTimeoutMS)
-		}
-		if got := intFromMap(payload, "poll_interval_ms"); got != hliepinReloadPollIntervalMS {
-			t.Fatalf("filter poll interval = %d, want %d", got, hliepinReloadPollIntervalMS)
-		}
-	}
-	if checked != expectedCount {
-		t.Fatalf("checked filter payloads = %d, want %d", checked, expectedCount)
-	}
-}
-
-// TestPreparePositionSearchExpandsShortcutWhenControlExists 验证快捷搜索存在展开入口时先展开再读取列表。
-// t 为测试对象。
-func TestPreparePositionSearchExpandsShortcutWhenControlExists(t *testing.T) {
-	runtime := NewRuntime()
-	exec := &searchExecutor{findItems: map[string][]any{
-		hliepinExpandShortcuts:      {map[string]any{"text": "展开更多条件"}},
-		hliepinShortcutItemSelector: {map[string]any{"text": "Java开发工程师初"}},
-	}}
-	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
-		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_shortcut_search_name": "Java开发工程师初"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(exec.paths) < 4 || exec.paths[0] != "/api/v1/page/find-elements" || exec.paths[1] != "/api/v1/page/click" || exec.paths[2] != "/api/v1/page/find-elements" || exec.paths[3] != "/api/v1/page/list-click-by-index" {
-		t.Fatalf("paths = %#v", exec.paths)
+	if len(exec.paths) != 0 {
+		t.Fatalf("configured hidden filters should remain manual, paths=%#v", exec.paths)
 	}
 }
 
@@ -1124,28 +1062,34 @@ func countPath(paths []string, target string) int {
 	return count
 }
 
-// TestPreparePositionSearchStopsWhenShortcutMissing 验证找不到快捷搜索时返回明确停止错误。
+// TestPreparePositionSearchDoesNotInspectMissingShortcut 验证手动筛选模式不会因页面缺少配置过的快捷搜索而停止。
 // t 为测试对象。
-func TestPreparePositionSearchStopsWhenShortcutMissing(t *testing.T) {
+func TestPreparePositionSearchDoesNotInspectMissingShortcut(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{hliepinShortcutItemSelector: {}}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{
 		"name": "Java开发工程师初级", "common_config": map[string]any{"hliepin_shortcut_search_name": "Java开发工程师初级"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "未找到猎聘快捷搜索列表") || !strings.Contains(err.Error(), "岗位运行已停止") {
-		t.Fatalf("error = %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.paths) != 0 {
+		t.Fatalf("manual filtering should not inspect shortcuts, paths=%#v", exec.paths)
 	}
 }
 
-// TestPreparePositionSearchStopsWhenPublishedJobMissing 验证找不到对应发布职位时返回明确停止错误。
+// TestPreparePositionSearchDoesNotInspectMissingPublishedJob 验证手动筛选模式不会因页面没有对应发布职位而停止。
 // t 为测试对象。
-func TestPreparePositionSearchStopsWhenPublishedJobMissing(t *testing.T) {
+func TestPreparePositionSearchDoesNotInspectMissingPublishedJob(t *testing.T) {
 	runtime := NewRuntime()
 	exec := &searchExecutor{findItems: map[string][]any{
 		hliepinPublishedJobSelector: {map[string]any{"text": "PHP程序员"}},
 	}}
 	err := runtime.PreparePositionSearch(context.Background(), exec, nil, map[string]any{"name": "Java开发工程师初级"})
-	if err == nil || !strings.Contains(err.Error(), "正在发布的职位中未找到岗位运行岗位") || !strings.Contains(err.Error(), "岗位运行已停止") {
-		t.Fatalf("error = %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exec.paths) != 0 {
+		t.Fatalf("manual filtering should not inspect published jobs, paths=%#v", exec.paths)
 	}
 }
