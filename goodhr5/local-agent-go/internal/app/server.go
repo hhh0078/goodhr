@@ -1035,7 +1035,8 @@ func (s *Server) prepareBrowserPayload(path string, payload map[string]any) {
 	if stringValue(payload["downloads_path"]) == "" {
 		payload["downloads_path"] = s.browserDownloadDir()
 	}
-	s.prepareBrowserViewport(payload)
+	// 测试期间取消浏览器启动参数中的固定视口，允许浏览器使用自己的窗口大小。
+	// s.prepareBrowserViewport(payload)
 	rawProfile := stringValue(payload["user_data_dir"])
 	if rawProfile == "" {
 		rawProfile = stringValue(payload["profile_id"])

@@ -9,6 +9,7 @@ import {
   browserDisplayAdjustmentMessage,
   fixedBrowserViewport,
   normalizeBrowserDisplay,
+  readBrowserDisplayMetrics,
 } from "./browser-display.js";
 import {
   aiOverlayMatchKey,
@@ -302,15 +303,18 @@ async function startBrowser(payload) {
     acceptDownloads: true,
     downloadsPath: payload.downloads_path || downloadDir(),
     windowsHide: true,
-    viewport: fixedBrowserViewport(),
+    // 测试期间取消固定视口，让浏览器采用账号保存或系统默认的窗口大小。
+    // viewport: fixedBrowserViewport(),
+    viewport: null,
     // 隐藏 Chromium 对 --no-sandbox 等启动参数的顶部提示条。
     args: ["--test-type"],
   };
   await fs.mkdir(options.downloadsPath, { recursive: true });
   if (payload.proxy) options.proxy = payload.proxy;
-  options.args.push(
-    `--window-size=${options.viewport.width},${options.viewport.height}`,
-  );
+  // 测试期间不再向浏览器传固定窗口尺寸，方便用户手动调整。
+  // options.args.push(
+  //   `--window-size=${options.viewport.width},${options.viewport.height}`,
+  // );
   if (payload.timezone) options.timezone = String(payload.timezone);
   if (payload.locale) options.locale = String(payload.locale);
   if (payload.user_agent) options.userAgent = String(payload.user_agent);
@@ -367,7 +371,9 @@ async function startBrowser(payload) {
   context =
     (await browser.newContext?.({
       acceptDownloads: true,
-      viewport: fixedBrowserViewport(),
+      // 测试期间取消固定视口，使用真实浏览器窗口的当前大小。
+      // viewport: fixedBrowserViewport(),
+      viewport: null,
     })) || null;
   currentUserDataDir = "";
   currentDownloadsPath = options.downloadsPath;
@@ -596,13 +602,19 @@ async function openPage(payload) {
   };
 }
 
-/** calibrateBrowserDisplay 统一校准页面视口和缩放，校验失败时阻止继续自动化。 */
+/** calibrateBrowserDisplay 测试期间只读取当前显示参数，不再修改视口或缩放。 */
 async function calibrateBrowserDisplay(currentPage, stage) {
-  const display = await normalizeBrowserDisplay(currentPage);
-  logWorker("浏览器显示校准", { stage, ...display });
-  if (!display.matches_fixed) {
-    throw new Error(browserDisplayAdjustmentMessage(display));
-  }
+  // 测试期间取消启动时的 100% 缩放重置、固定视口设置和尺寸拦截。
+  // const display = await normalizeBrowserDisplay(currentPage);
+  // logWorker("浏览器显示校准", { stage, ...display });
+  // if (!display.matches_fixed) {
+  //   throw new Error(browserDisplayAdjustmentMessage(display));
+  // }
+  const display = await readBrowserDisplayMetrics(currentPage);
+  logWorker("浏览器显示读取（未限制窗口大小和缩放）", {
+    stage,
+    ...display,
+  });
   return display;
 }
 

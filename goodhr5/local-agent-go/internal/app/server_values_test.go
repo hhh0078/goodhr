@@ -3,8 +3,6 @@ package app
 
 import (
 	"testing"
-
-	"goodhr5/local-agent-go/internal/browser"
 )
 
 // TestBoolValueDefault 验证打招呼开关缺失时使用默认值，明确关闭时仍保持关闭。
@@ -23,11 +21,14 @@ func TestBoolValueDefault(t *testing.T) {
 	}
 }
 
-// TestPrepareBrowserViewport 验证所有浏览器入口都会覆盖为统一的固定视口。
-func TestPrepareBrowserViewport(t *testing.T) {
-	payload := map[string]any{"viewport_width": 1920, "viewport_height": 1080}
-	new(Server).prepareBrowserViewport(payload)
-	if payload["viewport_width"] != browser.FixedViewportWidth || payload["viewport_height"] != browser.FixedViewportHeight {
-		t.Fatalf("浏览器入口应统一使用 %dx%d，实际为 %vx%v", browser.FixedViewportWidth, browser.FixedViewportHeight, payload["viewport_width"], payload["viewport_height"])
+// TestPrepareBrowserPayloadDoesNotInjectViewport 验证浏览器入口不再补充固定窗口尺寸。
+func TestPrepareBrowserPayloadDoesNotInjectViewport(t *testing.T) {
+	payload := map[string]any{"downloads_path": "D:/goodhr-downloads"}
+	new(Server).prepareBrowserPayload("/api/v1/browser/start", payload)
+	if _, ok := payload["viewport_width"]; ok {
+		t.Fatalf("浏览器入口不应写入 viewport_width：%v", payload["viewport_width"])
+	}
+	if _, ok := payload["viewport_height"]; ok {
+		t.Fatalf("浏览器入口不应写入 viewport_height：%v", payload["viewport_height"])
 	}
 }

@@ -42,13 +42,14 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	profileName := positionProfileName(position)
 	userDataDir := filepath.Join(r.profilesDir, profileName)
 	r.positionLog(position.ID, "info", "页面准备：正在启动浏览器账号目录="+profileName)
-	viewportWidth, viewportHeight := positionBrowserViewport()
+	// 测试期间取消浏览器启动时的固定窗口尺寸参数。
+	// viewportWidth, viewportHeight := positionBrowserViewport()
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
-		"humanize":        true,
-		"user_data_dir":   userDataDir,
-		"downloads_path":  r.browserDownloadDir(),
-		"viewport_width":  viewportWidth,
-		"viewport_height": viewportHeight,
+		"humanize":       true,
+		"user_data_dir":  userDataDir,
+		"downloads_path": r.browserDownloadDir(),
+		// "viewport_width":  viewportWidth,
+		// "viewport_height": viewportHeight,
 	}); err != nil {
 		r.positionLog(position.ID, "error", "页面准备：浏览器启动或显示校准失败，任务停止，错误="+err.Error())
 		return nil, err

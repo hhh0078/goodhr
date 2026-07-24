@@ -19,6 +19,7 @@ import {
   browserDisplayAdjustmentMessage,
   fixedBrowserViewport,
   normalizeBrowserDisplay,
+  readBrowserDisplayMetrics,
 } from "./browser-display.js";
 
 /**
@@ -91,23 +92,29 @@ export class BrowserBaseActions {
       if (!userDataDir || userDataDir === this.currentUserDataDir) {
         this.registerContext(this.context);
         this.registerPage(this.page);
-        const display = await normalizeBrowserDisplay(this.page);
-        this.log("浏览器显示校准", { stage: "reuse", ...display });
-        if (display.matches_fixed) {
-          return {
-            running: true,
-            persistent: Boolean(this.currentUserDataDir),
-            user_data_dir: this.currentUserDataDir,
-            reused: true,
-            display,
-          };
-        }
-        const errorMessage = browserDisplayAdjustmentMessage(display);
-        this.log("已有浏览器校准失败，停止本次任务并保留浏览器", {
-          error: errorMessage,
-          errors: display.errors?.join("；") || "",
+        // 测试期间取消复用浏览器时的缩放重置、固定视口设置和尺寸拦截。
+        // const display = await normalizeBrowserDisplay(this.page);
+        // this.log("浏览器显示校准", { stage: "reuse", ...display });
+        // if (!display.matches_fixed) {
+        //   const errorMessage = browserDisplayAdjustmentMessage(display);
+        //   this.log("已有浏览器校准失败，停止本次任务并保留浏览器", {
+        //     error: errorMessage,
+        //     errors: display.errors?.join("；") || "",
+        //   });
+        //   throw new Error(errorMessage);
+        // }
+        const display = await readBrowserDisplayMetrics(this.page);
+        this.log("浏览器显示读取（未限制窗口大小和缩放）", {
+          stage: "reuse",
+          ...display,
         });
-        throw new Error(errorMessage);
+        return {
+          running: true,
+          persistent: Boolean(this.currentUserDataDir),
+          user_data_dir: this.currentUserDataDir,
+          reused: true,
+          display,
+        };
       }
       await this.stopBrowser();
     }
@@ -151,11 +158,17 @@ export class BrowserBaseActions {
       this.registerPage(this.page);
     }
 
-    const display = await normalizeBrowserDisplay(this.page);
-    this.log("浏览器显示校准", { stage: "launch", ...display });
-    if (!display.matches_fixed) {
-      throw new Error(browserDisplayAdjustmentMessage(display));
-    }
+    // 测试期间取消新浏览器启动后的缩放重置、固定视口设置和尺寸拦截。
+    // const display = await normalizeBrowserDisplay(this.page);
+    // this.log("浏览器显示校准", { stage: "launch", ...display });
+    // if (!display.matches_fixed) {
+    //   throw new Error(browserDisplayAdjustmentMessage(display));
+    // }
+    const display = await readBrowserDisplayMetrics(this.page);
+    this.log("浏览器显示读取（未限制窗口大小和缩放）", {
+      stage: "launch",
+      ...display,
+    });
 
     if (payload.url) {
       await this.openURL(payload.url, payload);
@@ -176,17 +189,19 @@ export class BrowserBaseActions {
    * @returns {Record<string, any>} 传给启动器的参数。
    */
   buildLaunchOptions(payload = {}) {
-    const { width, height } = fixedBrowserViewport();
+    // 测试期间保留旧固定尺寸代码但不执行，方便验证后恢复。
+    // const { width, height } = fixedBrowserViewport();
     const args = (Array.isArray(payload.args) ? payload.args : []).filter(
       (item) => !String(item).startsWith("--window-size="),
     );
-    args.push(`--window-size=${width},${height}`);
+    // args.push(`--window-size=${width},${height}`);
     return {
       headless: Boolean(payload.headless),
       acceptDownloads: true,
       downloadsPath:
         stringValue(payload.downloads_path) || this.defaultDownloadsPath,
-      viewport: { width, height },
+      // viewport: { width, height },
+      viewport: null,
       args,
     };
   }
