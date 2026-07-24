@@ -26,6 +26,8 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 	openResult, err := exec.Post(ctx, "/api/v1/page/list-click-by-index", map[string]any{
 		"index": intFromMap(candidate, "card_index"), "item": item, "clickTarget": clickTarget,
 		"timeout": 10000, "wait_for_new_page": true, "require_new_page": true,
+		"diagnostic_platform": "hliepin", "diagnostic_platform_name": "猎聘",
+		"diagnostic_action": "读取候选人详情", "diagnostic_candidate_name": candidateName(candidate),
 	})
 	if err != nil {
 		return platformcore.DetailResult{}, err

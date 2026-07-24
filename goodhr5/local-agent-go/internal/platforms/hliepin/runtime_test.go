@@ -42,6 +42,7 @@ type searchExecutor struct {
 	scrollActions        []string
 	scrollCalls          int
 	delays               []float64
+	extractText          string
 }
 
 // hliepinStableTestCandidate 创建带稳定简历 ID 的猎聘候选人测试数据。
@@ -114,6 +115,9 @@ func (e *searchExecutor) Post(_ context.Context, path string, payload any) (map[
 		}
 		e.scrollCalls++
 		return map[string]any{"data": map[string]any{"action": action}}, nil
+	}
+	if path == "/api/v1/page/extract-text" {
+		return map[string]any{"data": map[string]any{"text": e.extractText}}, nil
 	}
 	if path == "/api/v1/page/find-elements" {
 		element := mapFromAny(value["element"])
@@ -447,6 +451,44 @@ func TestScrollCandidateDetailReachesBottomWithoutMouseMove(t *testing.T) {
 	duration := intFromMap(exec.payloads[0], "scroll_to_bottom_duration_ms")
 	if duration < 2000 || duration > 5000 {
 		t.Fatalf("scroll duration = %d, want 2000..5000", duration)
+	}
+}
+
+// TestFetchCandidateDetailAddsHLiepinScrollDiagnostics 验证猎聘详情点击携带平台、操作和候选人诊断上下文。
+// t 为测试对象。
+func TestFetchCandidateDetailAddsHLiepinScrollDiagnostics(t *testing.T) {
+	runtime := NewRuntime()
+	exec := &searchExecutor{extractText: "候选人详情内容"}
+	candidate := hliepinStableTestCandidate(0)
+
+	result, err := runtime.FetchCandidateDetail(
+		context.Background(),
+		exec,
+		nil,
+		candidate,
+		platformcore.DetailRequest{Mode: "dom"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Text != "候选人详情内容" {
+		t.Fatalf("detail text = %q", result.Text)
+	}
+	if len(exec.paths) < 1 || exec.paths[0] != "/api/v1/page/list-click-by-index" {
+		t.Fatalf("paths = %#v", exec.paths)
+	}
+	payload := exec.payloads[0]
+	if got := stringFromMap(payload, "diagnostic_platform"); got != "hliepin" {
+		t.Fatalf("diagnostic platform = %q", got)
+	}
+	if got := stringFromMap(payload, "diagnostic_platform_name"); got != "猎聘" {
+		t.Fatalf("diagnostic platform name = %q", got)
+	}
+	if got := stringFromMap(payload, "diagnostic_action"); got != "读取候选人详情" {
+		t.Fatalf("diagnostic action = %q", got)
+	}
+	if got := stringFromMap(payload, "diagnostic_candidate_name"); got != "王**" {
+		t.Fatalf("diagnostic candidate name = %q", got)
 	}
 }
 
