@@ -58,9 +58,10 @@ func (c *GoController) StartBrowser(ctx context.Context, options BrowserStartOpt
 	if options.Headless {
 		args = append(args, "--headless=new")
 	}
-	if options.ViewportWidth > 0 && options.ViewportHeight > 0 {
-		args = append(args, fmt.Sprintf("--window-size=%d,%d", options.ViewportWidth, options.ViewportHeight))
-	}
+	// 测试期间取消 Go 浏览器入口的固定窗口尺寸参数。
+	// if options.ViewportWidth > 0 && options.ViewportHeight > 0 {
+	// 	args = append(args, fmt.Sprintf("--window-size=%d,%d", options.ViewportWidth, options.ViewportHeight))
+	// }
 	args = append(args, "about:blank")
 
 	cmd := exec.CommandContext(context.Background(), executable, args...)
