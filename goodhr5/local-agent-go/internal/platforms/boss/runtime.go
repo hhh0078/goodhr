@@ -27,6 +27,7 @@ func bossCandidateVisiblePayload(cfg cloudapi.PlatformConfig, candidate platform
 		"distance":                  120,
 		"wait_ms":                   260,
 		"card_scroll_attempts":      18,
+		"card_scroll_max_distance":  600,
 		"require_full":              true,
 		"viewport_margin":           0,
 	}

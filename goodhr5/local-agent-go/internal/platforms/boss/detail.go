@@ -26,6 +26,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"distance":                  120,
 		"detail_ready_timeout":      5000,
 		"card_scroll_attempts":      18,
+		"card_scroll_max_distance":  600,
 		"require_full":              true,
 		"viewport_margin":           80,
 		"dir":                       filepath.Join(request.ScreenshotsDir, request.PositionID),

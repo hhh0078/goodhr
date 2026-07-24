@@ -45,6 +45,50 @@ export async function readBrowserDisplayMetrics(currentPage) {
   }));
 }
 
+/**
+ * readBrowserViewportSize 读取当前页面真实可用的 CSS 视口。
+ * 未设置 Playwright 固定 viewport 时，改用 window.innerWidth/innerHeight，
+ * 避免 Windows 高 DPI 缩放下把正常窗口误记为 0x0。
+ * @param {any} currentPage - Playwright 页面对象。
+ * @returns {Promise<Record<string, any>>} 视口尺寸、来源和显示缩放诊断信息。
+ */
+export async function readBrowserViewportSize(currentPage) {
+  const configured =
+    currentPage && typeof currentPage.viewportSize === "function"
+      ? currentPage.viewportSize()
+      : null;
+  if (
+    Number(configured?.width || 0) > 0 &&
+    Number(configured?.height || 0) > 0
+  ) {
+    return {
+      width: Math.round(Number(configured.width)),
+      height: Math.round(Number(configured.height)),
+      source: "playwright-viewport",
+    };
+  }
+  const metrics = await readBrowserDisplayMetrics(currentPage).catch(() => ({}));
+  const innerWidth = Math.max(
+    0,
+    Math.round(Number(metrics.inner_width || 0)),
+  );
+  const innerHeight = Math.max(
+    0,
+    Math.round(Number(metrics.inner_height || 0)),
+  );
+  return {
+    width: innerWidth || 1280,
+    height: innerHeight || 900,
+    source: innerWidth > 0 && innerHeight > 0 ? "window-inner" : "fallback",
+    device_pixel_ratio: Number(metrics.device_pixel_ratio || 0),
+    visual_viewport_scale: Number(metrics.visual_viewport_scale || 0),
+    outer_width: Math.max(0, Math.round(Number(metrics.outer_width || 0))),
+    outer_height: Math.max(0, Math.round(Number(metrics.outer_height || 0))),
+    screen_width: Math.max(0, Math.round(Number(metrics.screen_width || 0))),
+    screen_height: Math.max(0, Math.round(Number(metrics.screen_height || 0))),
+  };
+}
+
 /** normalizeBrowserDisplay 将页面恢复到100%缩放和固定视口，并返回校验结果。 */
 export async function normalizeBrowserDisplay(currentPage) {
   const errors = [];

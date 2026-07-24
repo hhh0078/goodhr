@@ -17,7 +17,13 @@ function candidateView(y, height = 172) {
     fully_visible: false,
     margin: 0,
     box: { x: 206, y, width: 1030, height },
-    viewport: { width: 1440, height: 900 },
+    viewport: {
+      width: 1180,
+      height: 650,
+      source: "window-inner",
+      device_pixel_ratio: 2,
+      visual_viewport_scale: 1,
+    },
   };
 }
 
@@ -64,7 +70,13 @@ test("diagnostic identifies insufficient retry distance", () => {
     requested_card_index: 0,
     final_card_index: 0,
     card_count: 45,
-    viewport: { width: 1440, height: 900 },
+    viewport: {
+      width: 1180,
+      height: 650,
+      source: "window-inner",
+      device_pixel_ratio: 2,
+      visual_viewport_scale: 1,
+    },
     container: { usable: true, selector: ".recommend-list", reason: "ok" },
     outer_attempts: 18,
     attempts: [
@@ -76,6 +88,9 @@ test("diagnostic identifies insufficient retry distance", () => {
   assert.equal(diagnostic.diagnosis_code, "retry-distance-insufficient");
   assert.equal(diagnostic.actual_total_px, 240);
   assert.match(diagnostic.message, /DOM卡片数=45/);
+  assert.match(diagnostic.message, /视口=1180x650/);
+  assert.match(diagnostic.message, /视口来源=window-inner/);
+  assert.match(diagnostic.message, /DPR=2/);
   assert.match(diagnostic.message, /逐次坐标请查看 browser-worker\.log/);
 });
 

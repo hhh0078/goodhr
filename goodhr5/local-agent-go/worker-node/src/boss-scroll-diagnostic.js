@@ -177,6 +177,21 @@ export function buildBossCandidateScrollFailureDiagnostic(input = {}) {
 
   const viewportWidth = numberOrNull(input.viewport?.width) || 0;
   const viewportHeight = numberOrNull(input.viewport?.height) || 0;
+  const viewportSource = String(input.viewport?.source || "unknown");
+  const devicePixelRatio =
+    numberOrNull(input.viewport?.device_pixel_ratio) ||
+    numberOrNull(initialView?.viewport?.device_pixel_ratio) ||
+    0;
+  const visualViewportScale =
+    numberOrNull(input.viewport?.visual_viewport_scale) ||
+    numberOrNull(initialView?.viewport?.visual_viewport_scale) ||
+    0;
+  const displayText =
+    `，视口来源=${viewportSource}` +
+    (devicePixelRatio > 0 ? `，DPR=${devicePixelRatio}` : "") +
+    (visualViewportScale > 0
+      ? `，页面可视缩放=${visualViewportScale}`
+      : "");
   const candidateName = String(input.candidate_name || "未知候选人");
   const containerText = input.container?.usable
     ? `${input.container.selector || "已识别容器"}`
@@ -198,7 +213,7 @@ export function buildBossCandidateScrollFailureDiagnostic(input = {}) {
   const message =
     `候选人卡片滚动定位失败：候选人=${candidateName}，目标序号=${Number(input.requested_card_index || 0) + 1}` +
     `，最终序号=${Number(input.final_card_index || 0) + 1}，DOM卡片数=${Number(input.card_count || 0)}` +
-    `，视口=${viewportWidth}x${viewportHeight}，滚动容器=${containerText}` +
+    `，视口=${viewportWidth}x${viewportHeight}${displayText}，滚动容器=${containerText}` +
     `，尝试=${Number(input.outer_attempts || 0)}轮/${attempts.length}次滚轮` +
     `，指令累计=${Math.round(requestedTotal)}px，实际滚动=${actualDeltas.length > 0 ? `${Math.round(actualTotal)}px` : "无法读取"}` +
     `，无效滚动=${ineffectiveCount}次，方向切换=${directionChanges}次` +
@@ -213,6 +228,9 @@ export function buildBossCandidateScrollFailureDiagnostic(input = {}) {
     final_card_index: Number(input.final_card_index || 0),
     card_count: Number(input.card_count || 0),
     viewport: `${viewportWidth}x${viewportHeight}`,
+    viewport_source: viewportSource,
+    device_pixel_ratio: devicePixelRatio,
+    visual_viewport_scale: visualViewportScale,
     container: containerText,
     outer_attempts: Number(input.outer_attempts || 0),
     wheel_attempts: attempts.length,
