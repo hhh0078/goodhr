@@ -3,6 +3,7 @@ package boss
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -153,6 +154,7 @@ type selectPositionSearchCall struct {
 type selectPositionSearchExecutor struct {
 	calls []selectPositionSearchCall
 	items []any
+	logs  []string
 }
 
 // Post 记录 Boss 切换岗位时调用的 Worker 接口，并返回模拟搜索结果。
@@ -180,7 +182,9 @@ func (e *selectPositionSearchExecutor) Post(ctx context.Context, path string, pa
 }
 
 // Log 接收测试中的岗位运行日志。
-func (e *selectPositionSearchExecutor) Log(level string, message string) {}
+func (e *selectPositionSearchExecutor) Log(level string, message string) {
+	e.logs = append(e.logs, level+":"+message)
+}
 
 // Delay 模拟业务等待。
 func (e *selectPositionSearchExecutor) Delay(ctx context.Context, label string, seconds float64) error {
@@ -218,5 +222,12 @@ func TestFetchCandidateDetailPollsSelectorWithoutFixedWait(t *testing.T) {
 	}
 	if payload["diagnostic_candidate_name"] != "测试候选人" {
 		t.Fatalf("Boss 详情滚动诊断应携带候选人姓名：%+v", payload)
+	}
+	traceID, _ := payload["diagnostic_trace_id"].(string)
+	if strings.TrimSpace(traceID) == "" {
+		t.Fatalf("Boss 详情请求应携带非空追踪编号：%+v", payload)
+	}
+	if !strings.Contains(strings.Join(exec.logs, "\n"), traceID) {
+		t.Fatalf("Boss 详情岗位日志应包含追踪编号 %q：%+v", traceID, exec.logs)
 	}
 }
