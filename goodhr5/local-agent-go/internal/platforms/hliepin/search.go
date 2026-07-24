@@ -19,30 +19,38 @@ const (
 	hliepinReloadPollIntervalMS = 100
 )
 
-// PreparePositionSearch 根据快捷搜索名是否为空，在“快捷搜索”和“发布职位匹配”之间严格二选一。
+// PreparePositionSearch 保留岗位上下文，但不再自动改变猎聘页面上由用户手动设置的搜索和筛选条件。
 func (r *Runtime) PreparePositionSearch(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, positionSnapshot map[string]any) error {
 	positionName := strings.TrimSpace(stringFromMap(positionSnapshot, "name"))
 	if positionName == "" {
-		return fmt.Errorf("猎聘岗位运行岗位名称为空，无法匹配快捷搜索或正在发布的职位，岗位运行已停止")
+		return fmt.Errorf("猎聘岗位运行岗位名称为空，无法继续岗位运行")
 	}
 	commonConfig := mapFromAny(positionSnapshot["common_config"])
 	shortcutName := strings.TrimSpace(stringFromMap(commonConfig, "hliepin_shortcut_search_name"))
+	r.currentPosition = positionName
+
+	// 猎聘搜索页改为由用户在开始前手动选择，下列自动选择发布职位或快捷搜索的调用暂时停用。
+	// if shortcutName == "" {
+	// 	if err := r.selectPublishedPosition(ctx, exec, positionName); err != nil {
+	// 		return err
+	// 	}
+	// } else if err := r.selectShortcutSearch(ctx, exec, positionName, shortcutName); err != nil {
+	// 	return err
+	// }
+	//
+	// 三项“隐藏已查看、隐藏已沟通、隐藏已获取联系方式”也由用户手动筛选，不再自动勾选。
+	// if err := r.ensureHiddenCandidateFilters(ctx, exec, commonConfig); err != nil {
+	// 	return err
+	// }
+
 	if shortcutName == "" {
-		r.shouldSelectGreetJob = false
-		exec.Log("info", "猎聘候选人搜索：未填写快捷搜索名，改用正在发布的职位匹配，岗位运行岗位="+positionName)
-		if err := r.selectPublishedPosition(ctx, exec, positionName); err != nil {
-			return err
-		}
 		r.shouldSelectGreetJob = true
-		exec.Log("info", "猎聘候选人搜索：已匹配正在发布的职位，后续开聊弹框需要选择岗位")
-		return r.ensureHiddenCandidateFilters(ctx, exec, commonConfig)
+		exec.Log("info", "猎聘候选人搜索：已停用自动选择发布职位、快捷搜索和三项隐藏条件，将使用用户当前页面的手动筛选结果；后续开聊弹框仍需选择岗位="+positionName)
+		return nil
 	}
 	r.shouldSelectGreetJob = false
-	if err := r.selectShortcutSearch(ctx, exec, positionName, shortcutName); err != nil {
-		return err
-	}
-	exec.Log("info", "猎聘候选人搜索：已匹配快捷搜索，后续开聊弹框不选择岗位")
-	return r.ensureHiddenCandidateFilters(ctx, exec, commonConfig)
+	exec.Log("info", "猎聘候选人搜索：已停用自动选择发布职位、快捷搜索和三项隐藏条件，将使用用户当前页面的手动筛选结果；当前岗位保留快捷搜索配置="+shortcutName)
+	return nil
 }
 
 // selectShortcutSearch 展开快捷搜索列表并按配置名称进行完整匹配。
