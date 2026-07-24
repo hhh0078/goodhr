@@ -98,6 +98,105 @@ function logWorker(message, data = {}, fieldLimit = 240) {
   );
 }
 
+/** ensureDetailTraceID 为详情截图请求生成可跨岗位日志和 Worker 日志检索的追踪编号。 */
+function ensureDetailTraceID(payload = {}) {
+  const existing = String(payload.diagnostic_trace_id || "").trim();
+  if (existing) return existing;
+  const generated = `detail-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  payload.diagnostic_trace_id = generated;
+  return generated;
+}
+
+/** detailDiagnosticFields 为详情截图日志补充追踪编号、岗位和候选人上下文。 */
+function detailDiagnosticFields(payload = {}, fields = {}) {
+  return {
+    trace_id: ensureDetailTraceID(payload),
+    position_id: String(payload.position_id || "").trim(),
+    candidate_name: String(payload.diagnostic_candidate_name || "").trim(),
+    ...fields,
+  };
+}
+
+/** detailErrorFields 将异常名称、消息和完整调用栈整理为详情截图诊断字段。 */
+function detailErrorFields(error) {
+  return {
+    error_name: String(error?.name || "Error"),
+    error_message: String(error?.message || error || "未知错误"),
+    error_stack: String(error?.stack || ""),
+  };
+}
+
+/** detailRuntimeSnapshot 返回截图发生时 Node、系统内存和浏览器页面数量快照。 */
+function detailRuntimeSnapshot(currentPage) {
+  const memory = process.memoryUsage();
+  let browserPages = 0;
+  try {
+    browserPages = context?.pages?.().length || 0;
+  } catch {
+    browserPages = 0;
+  }
+  return {
+    node_rss_mb: Math.round(memory.rss / 1024 / 1024),
+    node_heap_used_mb: Math.round(memory.heapUsed / 1024 / 1024),
+    node_heap_total_mb: Math.round(memory.heapTotal / 1024 / 1024),
+    node_external_mb: Math.round(memory.external / 1024 / 1024),
+    node_array_buffers_mb: Math.round(
+      Number(memory.arrayBuffers || 0) / 1024 / 1024,
+    ),
+    system_free_mb: Math.round(os.freemem() / 1024 / 1024),
+    system_total_mb: Math.round(os.totalmem() / 1024 / 1024),
+    browser_pages: browserPages,
+    page_url: pageURL(currentPage),
+  };
+}
+
+/** logDetailDiagnostic 将详情截图阶段和完整诊断字段写入 browser-worker.log。 */
+function logDetailDiagnostic(payload, stage, fields = {}) {
+  logWorker(
+    `详情截图诊断：${stage}`,
+    detailDiagnosticFields(payload, fields),
+    12000,
+  );
+}
+
+/** compactDetailDiagnosticFields 将关键诊断字段压缩为适合岗位运行日志展示的文本。 */
+function compactDetailDiagnosticFields(fields = {}) {
+  return Object.entries(fields)
+    .filter(
+      ([key, value]) =>
+        key !== "error_stack" &&
+        value !== undefined &&
+        value !== null &&
+        value !== "",
+    )
+    .map(([key, value]) => {
+      let text = "";
+      try {
+        text = typeof value === "object" ? JSON.stringify(value) : String(value);
+      } catch {
+        text = String(value);
+      }
+      return `${key}=${text.slice(0, 240)}`;
+    })
+    .join("，")
+    .slice(0, 1800);
+}
+
+/** notifyDetailDiagnostic 将关键详情截图阶段异步写入岗位日志，避免诊断请求本身阻塞截图流程。 */
+function notifyDetailDiagnostic(
+  payload,
+  stage,
+  fields = {},
+  level = "info",
+) {
+  const suffix = compactDetailDiagnosticFields(fields);
+  void notifyPositionLog(
+    payload,
+    level,
+    `详情截图诊断[${ensureDetailTraceID(payload)}]：${stage}${suffix ? `，${suffix}` : ""}`,
+  );
+}
+
 /**
  * 写入 Boss 候选人滚动定位专用日志。
  * @param {string} stage - 当前阶段。
@@ -1618,11 +1717,30 @@ async function greetBossCandidate(payload) {
  * @returns {Promise<Record<string, any>>} 详情文本结果。
  */
 async function extractBossCandidateDetail(payload) {
+  const operationStartedAt = Date.now();
+  ensureDetailTraceID(payload);
+  logDetailDiagnostic(payload, "详情提取请求开始", {
+    card_index: Math.max(0, Number(payload.card_index || 0)),
+    has_ref: Boolean(payload.element_ref || payload.ref),
+    force_scroll: Boolean(payload.force_scroll),
+    screenshot_enabled: Boolean(payload.screenshot),
+  });
+  const ensurePageStartedAt = Date.now();
   const currentPage = await ensurePage();
+  logDetailDiagnostic(payload, "浏览器页面获取完成", {
+    elapsed_ms: Date.now() - ensurePageStartedAt,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  await notifyDetailDiagnostic(payload, "详情提取请求开始", {
+    card_index: Math.max(0, Number(payload.card_index || 0)),
+    force_scroll: Boolean(payload.force_scroll),
+    ...detailRuntimeSnapshot(currentPage),
+  });
   const platformConfig = payload.platform_config || payload.config || {};
   const rules = bossRules(platformConfig);
   const cardIndex = Math.max(0, Number(payload.card_index || 0));
-  logWorker("Boss候选人详情定位开始", {
+  const cardLocateStartedAt = Date.now();
+  logDetailDiagnostic(payload, "候选人卡片定位开始", {
     card_index: cardIndex,
     has_ref: Boolean(payload.element_ref || payload.ref),
     force_scroll: Boolean(payload.force_scroll),
@@ -1638,11 +1756,21 @@ async function extractBossCandidateDetail(payload) {
     },
   );
   const card = cardInfo.card;
-  logWorker("Boss候选人详情定位完成", {
+  logDetailDiagnostic(payload, "候选人卡片定位完成", {
+    elapsed_ms: Date.now() - cardLocateStartedAt,
     card_index: cardIndex,
     attempts: cardInfo.attempts,
     by_ref: Boolean(cardInfo.by_ref),
     final_view: compactViewportLog(cardInfo.view || cardInfo.scroll_result?.final_view),
+  });
+  await notifyDetailDiagnostic(payload, "候选人卡片定位完成", {
+    elapsed_ms: Date.now() - cardLocateStartedAt,
+    attempts: cardInfo.attempts,
+    by_ref: Boolean(cardInfo.by_ref),
+  });
+  const openDetailStartedAt = Date.now();
+  logDetailDiagnostic(payload, "详情打开点击开始", {
+    detail_button_selectors: selectorList(rules.detail_buttons),
   });
   const opened = await clickFirstVisible(
     card,
@@ -1653,60 +1781,140 @@ async function extractBossCandidateDetail(payload) {
     await moveMouseToElement(currentPage, card, payload);
     await humanMouseClick(currentPage, payload);
   }
+  logDetailDiagnostic(payload, "详情打开点击完成", {
+    elapsed_ms: Date.now() - openDetailStartedAt,
+    clicked_detail_button: Boolean(opened),
+    used_card_fallback: !opened,
+  });
+  await notifyDetailDiagnostic(payload, "详情打开点击完成", {
+    elapsed_ms: Date.now() - openDetailStartedAt,
+    clicked_detail_button: Boolean(opened),
+    used_card_fallback: !opened,
+  });
   const detailSelectors = detailSelectorList(rules.detail_containers);
-  logWorker("候选人详情选择器开始查找", {
+  const detailReadyStartedAt = Date.now();
+  logDetailDiagnostic(payload, "详情容器轮询开始", {
     interval_ms: 100,
     timeout_ms: 5000,
-    selectors: detailSelectors.join(","),
+    selectors: detailSelectors,
   });
-  await notifyPositionLog(
-    payload,
-    "info",
-    "详情选择器：开始查找，每100毫秒一次，最多等待5秒",
-  );
+  await notifyDetailDiagnostic(payload, "详情容器轮询开始", {
+    interval_ms: 100,
+    timeout_ms: 5000,
+    selectors: detailSelectors,
+  });
   const detailReady = await waitForCandidateDetailReady(
     currentPage,
     detailSelectors,
     Number(payload.detail_ready_timeout || 5000),
   );
   if (!detailReady.ready) {
-    logWorker("候选人详情选择器查找失败", detailReady);
-    await notifyPositionLog(
+    logDetailDiagnostic(payload, "详情容器轮询失败", {
+      elapsed_ms: Date.now() - detailReadyStartedAt,
+      ...detailReady,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    await notifyDetailDiagnostic(
       payload,
+      "详情容器轮询失败",
+      {
+        elapsed_ms: Date.now() - detailReadyStartedAt,
+        attempts: detailReady.attempts,
+        reason: detailReady.reason,
+      },
       "error",
-      `详情选择器：5秒内未找到，查询次数=${detailReady.attempts}`,
     );
     throw new Error(`候选人详情没找到：5秒内${detailReady.reason}`);
   }
-  logWorker("候选人详情选择器已找到", detailReady);
-  await notifyPositionLog(
-    payload,
-    "info",
-    `详情选择器：已找到，耗时=${detailReady.elapsed_ms}ms，查询次数=${detailReady.attempts}，选择器=${detailReady.matched_selector || "未知"}`,
-  );
+  logDetailDiagnostic(payload, "详情容器轮询完成", {
+    elapsed_ms: Date.now() - detailReadyStartedAt,
+    ...detailReady,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  await notifyDetailDiagnostic(payload, "详情容器轮询完成", {
+    elapsed_ms: Date.now() - detailReadyStartedAt,
+    attempts: detailReady.attempts,
+    matched_selector: detailReady.matched_selector || "未知",
+  });
+  const detailTextStartedAt = Date.now();
+  logDetailDiagnostic(payload, "详情文本读取开始", {
+    selectors: detailSelectors,
+  });
   const detailText = await firstDetailText(
     currentPage,
     detailSelectors,
   );
+  logDetailDiagnostic(payload, "详情文本读取完成", {
+    elapsed_ms: Date.now() - detailTextStartedAt,
+    text_length: detailText.length,
+  });
+  await notifyDetailDiagnostic(payload, "详情文本读取完成", {
+    elapsed_ms: Date.now() - detailTextStartedAt,
+    text_length: detailText.length,
+  });
   let screenshot = null;
   if (payload.screenshot) {
-    await notifyPositionLog(
-      payload,
-      "info",
-      "详情截图：已找到详情容器，开始生成详情长图",
-    );
-    screenshot = await screenshotDetailContainer(
-      currentPage,
-      detailSelectors,
-      payload,
-    );
+    const screenshotStartedAt = Date.now();
+    logDetailDiagnostic(payload, "详情长图总流程开始", {
+      selectors: detailSelectors,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    await notifyDetailDiagnostic(payload, "详情长图总流程开始", {
+      selectors: detailSelectors,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    try {
+      screenshot = await screenshotDetailContainer(
+        currentPage,
+        detailSelectors,
+        payload,
+      );
+      logDetailDiagnostic(payload, "详情长图总流程完成", {
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        file_path: screenshot?.file_path || screenshot?.path || "",
+        size: screenshot?.size,
+        width: screenshot?.width,
+        height: screenshot?.height,
+        parts_count: screenshot?.parts_count,
+        ...detailRuntimeSnapshot(currentPage),
+      });
+      await notifyDetailDiagnostic(payload, "详情长图总流程完成", {
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        size: screenshot?.size,
+        width: screenshot?.width,
+        height: screenshot?.height,
+        parts_count: screenshot?.parts_count,
+      });
+    } catch (error) {
+      const errorFields = {
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        ...detailErrorFields(error),
+        ...detailRuntimeSnapshot(currentPage),
+      };
+      logDetailDiagnostic(payload, "详情长图总流程失败", errorFields);
+      await notifyDetailDiagnostic(
+        payload,
+        "详情长图总流程失败",
+        errorFields,
+        "error",
+      );
+      throw error;
+    }
   }
   const debugInfo = JSON.stringify({
+    trace_id: ensureDetailTraceID(payload),
     selectors: detailSelectors,
     hadContainer: !!detailText,
     cardFound: !!card,
     opened,
     detailReady,
+  });
+  logDetailDiagnostic(payload, "详情提取请求完成", {
+    elapsed_ms: Date.now() - operationStartedAt,
+    screenshot_enabled: Boolean(payload.screenshot),
+    screenshot_returned: Boolean(screenshot),
+    text_length: detailText.length,
+    ...detailRuntimeSnapshot(currentPage),
   });
   return {
     detail_text: detailText,
@@ -2539,30 +2747,71 @@ async function waitForCandidateDetailReady(currentPage, selectors, timeoutMs) {
  * @returns {Promise<Record<string, any>|null>} 截图结果。
  */
 async function screenshotDetailContainer(currentPage, selectors, payload) {
+  const operationStartedAt = Date.now();
   const steps = [];
-  for (const selector of selectors) {
+  logDetailDiagnostic(payload, "详情截图容器选择开始", {
+    selector_count: selectors.length,
+    selectors,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  for (const [selectorIndex, selector] of selectors.entries()) {
+    const selectorStartedAt = Date.now();
     try {
-      // 使用 allLocators 统一查找（支持 iframe、多个匹配）
+      logDetailDiagnostic(payload, "详情截图选择器查询开始", {
+        selector_index: selectorIndex,
+        selector,
+      });
+      // 使用 allLocators 统一查找，确保 iframe 和多个匹配元素都进入诊断范围。
       const elementConfig =
         typeof selector === "string" ? selector : { selector };
       const locators = await allLocators(currentPage, elementConfig, false);
+      logDetailDiagnostic(payload, "详情截图选择器查询完成", {
+        selector_index: selectorIndex,
+        selector,
+        elapsed_ms: Date.now() - selectorStartedAt,
+        locator_count: locators.length,
+      });
       if (locators.length === 0) {
         steps.push("选择器[" + selector + "]未找到元素");
         continue;
       }
       steps.push("选择器[" + selector + "]找到" + locators.length + "个元素");
-      for (const locInfo of locators) {
+      for (const [locatorIndex, locInfo] of locators.entries()) {
         const loc = locInfo.locator;
         const frameInfo = locInfo.frameURL
           ? " (iframe:" + locInfo.frameURL.substring(0, 40) + ")"
           : "";
+        const locatorContext = {
+          selector_index: selectorIndex,
+          selector,
+          locator_index: locatorIndex,
+          frame_url: locInfo.frameURL || "",
+        };
         try {
-          const visible = await loc.isVisible().catch(() => false);
+          const visibleStartedAt = Date.now();
+          logDetailDiagnostic(payload, "详情截图元素可见性检测开始", {
+            ...locatorContext,
+          });
+          const visible = await loc.isVisible();
+          logDetailDiagnostic(payload, "详情截图元素可见性检测完成", {
+            ...locatorContext,
+            elapsed_ms: Date.now() - visibleStartedAt,
+            visible,
+          });
           if (!visible) {
             steps.push("  元素不可见" + frameInfo);
             continue;
           }
-          const box = await loc.boundingBox().catch(() => null);
+          const boxStartedAt = Date.now();
+          logDetailDiagnostic(payload, "详情截图元素边界读取开始", {
+            ...locatorContext,
+          });
+          const box = await loc.boundingBox();
+          logDetailDiagnostic(payload, "详情截图元素边界读取完成", {
+            ...locatorContext,
+            elapsed_ms: Date.now() - boxStartedAt,
+            box,
+          });
           if (!box || box.width < 20 || box.height < 20) {
             steps.push(
               "  元素太小" +
@@ -2581,7 +2830,20 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
             w: Math.round(box.width),
             h: Math.round(box.height),
           };
-          const scrollInfo = await detailScrollInfo(loc);
+          const scrollInfoStartedAt = Date.now();
+          logDetailDiagnostic(payload, "详情截图滚动信息读取开始", {
+            ...locatorContext,
+          });
+          const scrollInfo = await detailScrollInfo(
+            loc,
+            payload,
+            "详情截图候选元素",
+          );
+          logDetailDiagnostic(payload, "详情截图滚动信息读取完成", {
+            ...locatorContext,
+            elapsed_ms: Date.now() - scrollInfoStartedAt,
+            scroll_info: scrollInfo,
+          });
           steps.push(
             "  可见 框=" +
               JSON.stringify(boxInfo) +
@@ -2589,7 +2851,16 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
               JSON.stringify(scrollInfo) +
               frameInfo,
           );
+          const viewportStartedAt = Date.now();
+          logDetailDiagnostic(payload, "详情截图视口读取开始", {
+            ...locatorContext,
+          });
           const vp = await readBrowserViewportSize(currentPage);
+          logDetailDiagnostic(payload, "详情截图视口读取完成", {
+            ...locatorContext,
+            elapsed_ms: Date.now() - viewportStartedAt,
+            viewport: vp,
+          });
           const dbg = JSON.stringify({
             match: {
               selector,
@@ -2598,28 +2869,117 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
               viewport: { w: vp.width, h: vp.height },
             },
           });
+          const captureStartedAt = Date.now();
+          logDetailDiagnostic(payload, "详情元素分段截图调用开始", {
+            ...locatorContext,
+            box: boxInfo,
+            scroll_info: scrollInfo,
+            viewport: vp,
+            ...detailRuntimeSnapshot(currentPage),
+          });
+          await notifyDetailDiagnostic(payload, "详情元素截图开始", {
+            selector_index: selectorIndex,
+            locator_index: locatorIndex,
+            box: boxInfo,
+            scrollable: Boolean(scrollInfo.scrollable),
+          });
           const result = await screenshotLocatorWithParts(currentPage, loc, {
             ...payload,
             _detail_debug: dbg,
+          });
+          logDetailDiagnostic(payload, "详情元素分段截图调用完成", {
+            ...locatorContext,
+            elapsed_ms: Date.now() - captureStartedAt,
+            file_path: result?.file_path || result?.path || "",
+            size: result?.size,
+            parts_count: result?.parts_count,
+            ...detailRuntimeSnapshot(currentPage),
           });
           result._detail_debug = dbg;
           return result;
         } catch (e) {
           steps.push("  处理失败:" + e.message);
+          const errorFields = {
+            ...locatorContext,
+            elapsed_ms: Date.now() - selectorStartedAt,
+            ...detailErrorFields(e),
+            ...detailRuntimeSnapshot(currentPage),
+          };
+          logDetailDiagnostic(payload, "详情截图候选元素处理失败", errorFields);
+          await notifyDetailDiagnostic(
+            payload,
+            "详情截图候选元素处理失败，准备检查下一元素或降级",
+            errorFields,
+            "warning",
+          );
         }
       }
     } catch (e) {
       steps.push("选择器[" + selector + "]错误:" + e.message);
+      const errorFields = {
+        selector_index: selectorIndex,
+        selector,
+        elapsed_ms: Date.now() - selectorStartedAt,
+        ...detailErrorFields(e),
+        ...detailRuntimeSnapshot(currentPage),
+      };
+      logDetailDiagnostic(payload, "详情截图选择器处理失败", errorFields);
+      await notifyDetailDiagnostic(
+        payload,
+        "详情截图选择器处理失败，准备检查下一选择器或降级",
+        errorFields,
+        "warning",
+      );
     }
   }
   steps.push("fallback:全页截图");
-  const result = await screenshotPage({
-    ...payload,
-    full_page: true,
-    filename: payload.filename || "candidate-detail.png",
-  });
-  result._detail_debug = steps.join(" | ");
-  return result;
+  const fallbackStartedAt = Date.now();
+  const fallbackFields = {
+    elapsed_ms: Date.now() - operationStartedAt,
+    fallback_reason: steps.join(" | "),
+    ...detailRuntimeSnapshot(currentPage),
+  };
+  logDetailDiagnostic(payload, "详情元素截图全部失败，开始降级全页截图", fallbackFields);
+  await notifyDetailDiagnostic(
+    payload,
+    "详情元素截图未成功，开始降级全页截图",
+    fallbackFields,
+    "warning",
+  );
+  try {
+    const result = await screenshotPage({
+      ...payload,
+      full_page: true,
+      filename: payload.filename || "candidate-detail.png",
+    });
+    logDetailDiagnostic(payload, "降级全页截图完成", {
+      elapsed_ms: Date.now() - fallbackStartedAt,
+      total_elapsed_ms: Date.now() - operationStartedAt,
+      file_path: result?.file_path || result?.path || "",
+      size: result?.size,
+      width: result?.width,
+      height: result?.height,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    result._detail_debug = steps.join(" | ");
+    return result;
+  } catch (error) {
+    const errorFields = {
+      elapsed_ms: Date.now() - fallbackStartedAt,
+      total_elapsed_ms: Date.now() - operationStartedAt,
+      fallback_reason: steps.join(" | "),
+      ...detailErrorFields(error),
+      ...detailRuntimeSnapshot(currentPage),
+    };
+    logDetailDiagnostic(payload, "降级全页截图失败", errorFields);
+    await notifyDetailDiagnostic(
+      payload,
+      "降级全页截图失败",
+      errorFields,
+      "error",
+    );
+    throw error;
+  }
 }
 
 /**
@@ -2630,6 +2990,7 @@ async function screenshotDetailContainer(currentPage, selectors, payload) {
  * @returns {Promise<Record<string, any>>} 主截图和分段截图。
  */
 async function screenshotLocatorWithParts(currentPage, locator, payload) {
+  const operationStartedAt = Date.now();
   const filename = safeFilename(
     String(payload.filename || "candidate-detail.png"),
   );
@@ -2638,31 +2999,77 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
       payload.directory ||
       path.join(os.tmpdir(), "goodhr-screenshots"),
   );
+  const mkdirStartedAt = Date.now();
+  logDetailDiagnostic(payload, "截图目录准备开始", { directory, filename });
   await fs.mkdir(directory, { recursive: true });
-  await cleanupScreenshotSeries(directory, filename);
-  const box = await locator.boundingBox().catch(() => null);
+  logDetailDiagnostic(payload, "截图目录准备完成", {
+    directory,
+    filename,
+    elapsed_ms: Date.now() - mkdirStartedAt,
+  });
+  await cleanupScreenshotSeries(directory, filename, payload);
+  const boxStartedAt = Date.now();
+  logDetailDiagnostic(payload, "分段截图元素边界读取开始", { filename });
+  const box = await locator.boundingBox().catch((error) => {
+    logDetailDiagnostic(payload, "分段截图元素边界读取失败，按无有效边界降级", {
+      filename,
+      elapsed_ms: Date.now() - boxStartedAt,
+      ...detailErrorFields(error),
+    });
+    return null;
+  });
+  logDetailDiagnostic(payload, "分段截图元素边界读取完成", {
+    filename,
+    elapsed_ms: Date.now() - boxStartedAt,
+    box,
+  });
+  const viewportStartedAt = Date.now();
+  logDetailDiagnostic(payload, "分段截图视口读取开始", { filename });
   const viewport = await readBrowserViewportSize(currentPage);
+  logDetailDiagnostic(payload, "分段截图视口读取完成", {
+    filename,
+    elapsed_ms: Date.now() - viewportStartedAt,
+    viewport,
+  });
   if (!box || box.width < 20 || box.height < 20) {
-    console.log("[截图Debug] 详情容器太小或不存在", JSON.stringify(box));
+    logDetailDiagnostic(payload, "分段截图元素无效，降级普通页面截图", {
+      filename,
+      box,
+      elapsed_ms: Date.now() - operationStartedAt,
+      ...detailRuntimeSnapshot(currentPage),
+    });
     return screenshotPage({ ...payload, filename });
   }
-  console.log(
-    "[截图Debug] 详情容器 box:",
-    JSON.stringify({
+  logDetailDiagnostic(payload, "分段截图元素与视口确认", {
+    filename,
+    box: {
       x: box.x,
       y: box.y,
       width: box.width,
       height: box.height,
-    }),
-    "viewport:",
-    JSON.stringify(viewport),
-  );
+    },
+    viewport,
+  });
 
-  // 第一步：检查容器自身是否可滚动（内部 overflow）
-  const scrollInfo = await detailScrollInfo(locator);
-  console.log("[截图Debug] 容器滚动信息:", JSON.stringify(scrollInfo));
+  // 第一步：检查容器自身是否可滚动，以便记录并选择对应截图方式。
+  const scrollInfoStartedAt = Date.now();
+  logDetailDiagnostic(payload, "分段截图容器滚动信息读取开始", { filename });
+  const scrollInfo = await detailScrollInfo(
+    locator,
+    payload,
+    "分段截图容器",
+  );
+  logDetailDiagnostic(payload, "分段截图容器滚动信息读取完成", {
+    filename,
+    elapsed_ms: Date.now() - scrollInfoStartedAt,
+    scroll_info: scrollInfo,
+  });
   if (scrollInfo.scrollable) {
-    console.log("[截图Debug] 容器可内部滚动，使用 srollable 分段截图");
+    const scrollableStartedAt = Date.now();
+    logDetailDiagnostic(payload, "选择容器内部滚动分段截图", {
+      filename,
+      scroll_info: scrollInfo,
+    });
     const parts = await screenshotScrollableLocatorParts(
       currentPage,
       locator,
@@ -2671,6 +3078,11 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
       filename,
       payload,
     );
+    logDetailDiagnostic(payload, "容器内部滚动分段截图返回", {
+      filename,
+      elapsed_ms: Date.now() - scrollableStartedAt,
+      parts_count: parts.length,
+    });
     if (parts.length > 0) {
       const result = {
         ...parts[0],
@@ -2692,25 +3104,26 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
     }
   }
 
-  // 第二步：容器不可滚动，检查是否超出视口或被业务强制要求滚动截图（需整体滚动页面）
+  // 第二步：容器不可滚动时，检查是否需要滚动整个页面截图。
   const needsScroll = box.y < 0 || box.y + box.height > viewport.height;
   const forceScroll = Boolean(
     payload.force_scroll || payload.scroll_full || payload.forceScroll,
   );
-  console.log(
-    "[截图Debug] needsScroll:",
-    needsScroll,
-    "forceScroll:",
-    forceScroll,
-    "box.y:",
-    box.y,
-    "box.bottom:",
-    box.y + box.height,
-    "viewport.height:",
-    viewport.height,
-  );
+  logDetailDiagnostic(payload, "分段截图方式判断完成", {
+    filename,
+    needs_scroll: needsScroll,
+    force_scroll: forceScroll,
+    box_y: box.y,
+    box_bottom: box.y + box.height,
+    viewport_height: viewport.height,
+  });
   if (needsScroll || forceScroll) {
-    console.log("[截图Debug] 详情使用鼠标滚轮分段截图");
+    const pagePartsStartedAt = Date.now();
+    logDetailDiagnostic(payload, "选择页面滚轮分段截图", {
+      filename,
+      needs_scroll: needsScroll,
+      force_scroll: forceScroll,
+    });
     const parts = await screenshotLocatorParts(
       currentPage,
       box,
@@ -2719,6 +3132,11 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
       filename,
       payload,
     );
+    logDetailDiagnostic(payload, "页面滚轮分段截图返回", {
+      filename,
+      elapsed_ms: Date.now() - pagePartsStartedAt,
+      parts_count: parts.length,
+    });
     if (parts.length > 0) {
       const result = {
         ...parts[0],
@@ -2745,12 +3163,29 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
     }
   }
 
-  // 第三步：不需要滚动，单次截图
+  // 第三步：不需要滚动时执行单次元素截图，并记录 Playwright 调用的前后时间。
+  const singleStartedAt = Date.now();
+  logDetailDiagnostic(payload, "选择单次元素截图", {
+    filename,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  await notifyDetailDiagnostic(payload, "Playwright 单次元素截图调用开始", {
+    filename,
+  });
   const singleResult = await saveLocatorScreenshot(
     locator,
     directory,
     filename,
+    payload,
+    currentPage,
   );
+  logDetailDiagnostic(payload, "单次元素截图完成", {
+    filename,
+    elapsed_ms: Date.now() - singleStartedAt,
+    size: singleResult.size,
+    total_elapsed_ms: Date.now() - operationStartedAt,
+    ...detailRuntimeSnapshot(currentPage),
+  });
   singleResult._scroll_debug = JSON.stringify({
     single: true,
     scrollable: false,
@@ -2765,11 +3200,13 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
 /**
  * 读取详情容器滚动信息。
  * @param {any} locator - 详情容器定位器。
+ * @param {Record<string, any>|null} payload - 可选详情参数，用于记录读取异常。
+ * @param {string} stage - 调用阶段名称。
  * @returns {Promise<Record<string, any>>} 滚动信息。
  */
-async function detailScrollInfo(locator) {
-  return locator
-    .evaluate((el) => {
+async function detailScrollInfo(locator, payload = null, stage = "") {
+  try {
+    return await locator.evaluate((el) => {
       const style = window.getComputedStyle(el);
       const overflowY = style.overflowY || "";
       const scrollHeight = Math.ceil(el.scrollHeight || 0);
@@ -2784,13 +3221,21 @@ async function detailScrollInfo(locator) {
         clientHeight,
         overflowY,
       };
-    })
-    .catch(() => ({
+    });
+  } catch (error) {
+    if (payload) {
+      logDetailDiagnostic(payload, "详情容器滚动信息读取异常，按不可滚动继续", {
+        stage,
+        ...detailErrorFields(error),
+      });
+    }
+    return {
       scrollable: false,
       scrollTop: 0,
       scrollHeight: 0,
       clientHeight: 0,
-    }));
+    };
+  }
 }
 
 /**
@@ -2798,16 +3243,85 @@ async function detailScrollInfo(locator) {
  * @param {any} locator - 元素定位器。
  * @param {string} directory - 保存目录。
  * @param {string} filename - 文件名。
+ * @param {Record<string, any>} payload - 详情截图参数，用于关联诊断追踪编号。
+ * @param {any} currentPage - Playwright 页面对象，用于记录运行资源快照。
  * @returns {Promise<Record<string, any>>} 截图信息。
  */
-async function saveLocatorScreenshot(locator, directory, filename) {
+async function saveLocatorScreenshot(
+  locator,
+  directory,
+  filename,
+  payload,
+  currentPage,
+) {
+  const operationStartedAt = Date.now();
   const targetPath = path.join(directory, filename);
-  const sizeInfo = (await locator.boundingBox().catch(() => null)) || {
+  const boxStartedAt = Date.now();
+  logDetailDiagnostic(payload, "单次元素截图边界读取开始", {
+    filename,
+    target_path: targetPath,
+  });
+  const sizeInfo = (await locator.boundingBox().catch((error) => {
+    logDetailDiagnostic(payload, "单次元素截图边界读取失败，继续执行截图", {
+      filename,
+      elapsed_ms: Date.now() - boxStartedAt,
+      ...detailErrorFields(error),
+    });
+    return null;
+  })) || {
     width: 0,
     height: 0,
   };
-  await locator.screenshot({ path: targetPath, type: "png" });
+  logDetailDiagnostic(payload, "单次元素截图边界读取完成", {
+    filename,
+    elapsed_ms: Date.now() - boxStartedAt,
+    box: sizeInfo,
+  });
+  const screenshotStartedAt = Date.now();
+  logDetailDiagnostic(payload, "Playwright 元素截图调用前", {
+    filename,
+    target_path: targetPath,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  try {
+    await locator.screenshot({ path: targetPath, type: "png" });
+  } catch (error) {
+    const errorFields = {
+      filename,
+      target_path: targetPath,
+      elapsed_ms: Date.now() - screenshotStartedAt,
+      total_elapsed_ms: Date.now() - operationStartedAt,
+      ...detailErrorFields(error),
+      ...detailRuntimeSnapshot(currentPage),
+    };
+    logDetailDiagnostic(payload, "Playwright 元素截图调用失败", errorFields);
+    await notifyDetailDiagnostic(
+      payload,
+      "Playwright 元素截图调用失败",
+      errorFields,
+      "error",
+    );
+    throw error;
+  }
+  logDetailDiagnostic(payload, "Playwright 元素截图调用返回", {
+    filename,
+    target_path: targetPath,
+    elapsed_ms: Date.now() - screenshotStartedAt,
+    ...detailRuntimeSnapshot(currentPage),
+  });
+  const statStartedAt = Date.now();
+  logDetailDiagnostic(payload, "单次元素截图文件检查开始", {
+    filename,
+    target_path: targetPath,
+  });
   const stat = await fs.stat(targetPath);
+  logDetailDiagnostic(payload, "单次元素截图文件检查完成", {
+    filename,
+    target_path: targetPath,
+    elapsed_ms: Date.now() - statStartedAt,
+    size: stat.size,
+    total_elapsed_ms: Date.now() - operationStartedAt,
+  });
   return {
     path: targetPath,
     file_path: targetPath,
@@ -2835,12 +3349,63 @@ async function screenshotScrollableLocatorParts(
   filename,
   payload,
 ) {
-  const box = await locator.boundingBox().catch(() => null);
-  if (!box || box.width < 20 || box.height < 20) return [];
+  const operationStartedAt = Date.now();
+  const boxStartedAt = Date.now();
+  logDetailDiagnostic(payload, "容器滚动截图初始边界读取开始", { filename });
+  let box = null;
+  try {
+    box = await locator.boundingBox();
+  } catch (error) {
+    logDetailDiagnostic(payload, "容器滚动截图初始边界读取失败", {
+      filename,
+      elapsed_ms: Date.now() - boxStartedAt,
+      ...detailErrorFields(error),
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    return [];
+  }
+  logDetailDiagnostic(payload, "容器滚动截图初始边界读取完成", {
+    filename,
+    elapsed_ms: Date.now() - boxStartedAt,
+    box,
+  });
+  if (!box || box.width < 20 || box.height < 20) {
+    logDetailDiagnostic(payload, "容器滚动截图因元素边界无效而跳过", {
+      filename,
+      box,
+    });
+    return [];
+  }
   const mouseX = box.x + box.width / 2;
   const mouseY = box.y + Math.min(box.height / 2, 120);
-  await moveMouseToBox(currentPage, box).catch(() => {});
+  const initialMoveStartedAt = Date.now();
+  logDetailDiagnostic(payload, "容器滚动截图首次移动鼠标开始", {
+    filename,
+    box,
+  });
+  try {
+    await moveMouseToBox(currentPage, box);
+    logDetailDiagnostic(payload, "容器滚动截图首次移动鼠标完成", {
+      filename,
+      elapsed_ms: Date.now() - initialMoveStartedAt,
+    });
+  } catch (error) {
+    logDetailDiagnostic(payload, "容器滚动截图首次移动鼠标失败但继续", {
+      filename,
+      elapsed_ms: Date.now() - initialMoveStartedAt,
+      ...detailErrorFields(error),
+    });
+  }
+  const fixedWaitStartedAt = Date.now();
+  logDetailDiagnostic(payload, "容器滚动截图固定等待开始", {
+    filename,
+    wait_ms: 200,
+  });
   await currentPage.waitForTimeout(200);
+  logDetailDiagnostic(payload, "容器滚动截图固定等待完成", {
+    filename,
+    elapsed_ms: Date.now() - fixedWaitStartedAt,
+  });
   const clientHeight = Math.max(
     1,
     Number(scrollInfo.clientHeight || box.height || 1),
@@ -2868,7 +3433,7 @@ async function screenshotScrollableLocatorParts(
   const parts = [];
   let previousBuffer = null;
   const { captureWaitMs, initialCaptureWaitMs } = detailScrollWaits(payload);
-  logWorker("详情截图开始：滚轮滚动容器", {
+  logDetailDiagnostic(payload, "容器滚动分段截图计划完成", {
     filename,
     clientHeight,
     scrollHeight,
@@ -2879,30 +3444,178 @@ async function screenshotScrollableLocatorParts(
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
     captureWaitMs,
+    initialCaptureWaitMs,
+    ...detailRuntimeSnapshot(currentPage),
   });
   for (let index = 0; index < maxScrolls; index += 1) {
-    await moveMouseToBox(currentPage, box).catch(() => {});
-    await currentPage.waitForTimeout(
-      index === 0 ? initialCaptureWaitMs : captureWaitMs,
-    );
+    const part = index + 1;
+    const partStartedAt = Date.now();
+    const moveStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图移动鼠标开始", {
+      filename,
+      part,
+      max_parts: maxScrolls,
+      box,
+    });
+    try {
+      await moveMouseToBox(currentPage, box);
+      logDetailDiagnostic(payload, "容器分段截图移动鼠标完成", {
+        filename,
+        part,
+        elapsed_ms: Date.now() - moveStartedAt,
+      });
+    } catch (error) {
+      logDetailDiagnostic(payload, "容器分段截图移动鼠标失败但继续", {
+        filename,
+        part,
+        elapsed_ms: Date.now() - moveStartedAt,
+        ...detailErrorFields(error),
+      });
+    }
+    const waitMs = index === 0 ? initialCaptureWaitMs : captureWaitMs;
+    const waitStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图渲染等待开始", {
+      filename,
+      part,
+      wait_ms: waitMs,
+    });
+    await currentPage.waitForTimeout(waitMs);
+    logDetailDiagnostic(payload, "容器分段截图渲染等待完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - waitStartedAt,
+    });
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
-    const sizeInfo = (await locator.boundingBox().catch(() => null)) || box;
-    const currentBuffer = await locator.screenshot({ type: "png" });
-    if (
-      previousBuffer &&
-      screenshotsAreDuplicate(previousBuffer, currentBuffer)
-    ) {
-      logWorker("详情截图停止：检测到重复容器截图", {
+    const partBoxStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图边界复查开始", {
+      filename,
+      part,
+    });
+    const sizeInfo = (await locator.boundingBox().catch((error) => {
+      logDetailDiagnostic(payload, "容器分段截图边界复查失败，使用初始边界", {
         filename,
-        index: index + 1,
-        parts: parts.length,
+        part,
+        elapsed_ms: Date.now() - partBoxStartedAt,
+        ...detailErrorFields(error),
+      });
+      return null;
+    })) || box;
+    logDetailDiagnostic(payload, "容器分段截图边界复查完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - partBoxStartedAt,
+      box: sizeInfo,
+    });
+    const screenshotStartedAt = Date.now();
+    const beforeScreenshotFields = {
+      filename,
+      part,
+      max_parts: maxScrolls,
+      box: sizeInfo,
+      target_path: targetPath,
+      ...detailRuntimeSnapshot(currentPage),
+    };
+    logDetailDiagnostic(payload, "Playwright 容器截图调用前", beforeScreenshotFields);
+    await notifyDetailDiagnostic(payload, "Playwright 容器截图调用开始", {
+      filename,
+      part,
+      max_parts: maxScrolls,
+    });
+    let currentBuffer;
+    try {
+      currentBuffer = await locator.screenshot({ type: "png" });
+    } catch (error) {
+      const errorFields = {
+        ...beforeScreenshotFields,
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        total_elapsed_ms: Date.now() - operationStartedAt,
+        ...detailErrorFields(error),
+        ...detailRuntimeSnapshot(currentPage),
+      };
+      logDetailDiagnostic(payload, "Playwright 容器截图调用失败", errorFields);
+      await notifyDetailDiagnostic(
+        payload,
+        "Playwright 容器截图调用失败",
+        errorFields,
+        "error",
+      );
+      throw error;
+    }
+    logDetailDiagnostic(payload, "Playwright 容器截图调用返回", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - screenshotStartedAt,
+      buffer_bytes: currentBuffer.length,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    const duplicateStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器截图重复检测开始", {
+      filename,
+      part,
+      has_previous: Boolean(previousBuffer),
+      previous_bytes: previousBuffer?.length || 0,
+      current_bytes: currentBuffer.length,
+    });
+    const duplicate = Boolean(
+      previousBuffer &&
+        screenshotsAreDuplicate(previousBuffer, currentBuffer),
+    );
+    logDetailDiagnostic(payload, "容器截图重复检测完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - duplicateStartedAt,
+      duplicate,
+    });
+    if (duplicate) {
+      logDetailDiagnostic(payload, "容器滚动截图停止：检测到重复截图", {
+        filename,
+        part,
+        saved_parts: parts.length,
       });
       break;
     }
+    const writeStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图文件写入开始", {
+      filename,
+      part,
+      target_path: targetPath,
+      buffer_bytes: currentBuffer.length,
+    });
     await fs.writeFile(targetPath, currentBuffer);
+    logDetailDiagnostic(payload, "容器分段截图文件写入完成", {
+      filename,
+      part,
+      target_path: targetPath,
+      elapsed_ms: Date.now() - writeStartedAt,
+    });
+    const statStartedAt = Date.now();
     const stat = await fs.stat(targetPath);
+    logDetailDiagnostic(payload, "容器分段截图文件检查完成", {
+      filename,
+      part,
+      target_path: targetPath,
+      elapsed_ms: Date.now() - statStartedAt,
+      size: stat.size,
+    });
+    const beforeScrollStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图滚动前状态读取开始", {
+      filename,
+      part,
+    });
     const beforeScroll = await pageScrollState(currentPage);
+    const beforeContainer = await detailScrollInfo(
+      locator,
+      payload,
+      `容器分段截图第${part}段滚动前`,
+    );
+    logDetailDiagnostic(payload, "容器分段截图滚动前状态读取完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - beforeScrollStartedAt,
+      page_state: beforeScroll,
+      container_state: beforeContainer,
+    });
     parts.push({
       path: targetPath,
       file_path: targetPath,
@@ -2914,35 +3627,66 @@ async function screenshotScrollableLocatorParts(
       scroll_top: Math.round(Number(beforeScroll.top || 0)),
     });
     previousBuffer = currentBuffer;
-    logWorker("详情截图保存：容器分段", {
+    logDetailDiagnostic(payload, "容器分段截图保存完成", {
       filename,
-      part: index + 1,
+      part,
       size: stat.size,
-      scrollTop: beforeScroll.top,
-      maxed: beforeScroll.maxed,
+      part_elapsed_ms: Date.now() - partStartedAt,
+      page_scroll_top: beforeScroll.top,
+      page_maxed: beforeScroll.maxed,
+      container_scroll_top: beforeContainer.scrollTop,
+    });
+    const wheelStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图鼠标滚轮调用前", {
+      filename,
+      part,
+      scroll_delta: scrollDelta,
     });
     await currentPage.mouse.wheel(0, scrollDelta);
-    const afterScroll = await pageScrollState(currentPage);
-    const moved = scrollStateDistance(beforeScroll, afterScroll);
-    logWorker("详情截图滚轮：容器滚动后状态", {
+    logDetailDiagnostic(payload, "容器分段截图鼠标滚轮调用返回", {
       filename,
-      part: index + 1,
-      before: beforeScroll.top,
-      after: afterScroll.top,
+      part,
+      elapsed_ms: Date.now() - wheelStartedAt,
+    });
+    const afterScrollStartedAt = Date.now();
+    logDetailDiagnostic(payload, "容器分段截图滚动后状态读取开始", {
+      filename,
+      part,
+    });
+    const afterScroll = await pageScrollState(currentPage);
+    const afterContainer = await detailScrollInfo(
+      locator,
+      payload,
+      `容器分段截图第${part}段滚动后`,
+    );
+    const moved = scrollStateDistance(beforeScroll, afterScroll);
+    logDetailDiagnostic(payload, "容器分段截图滚动后状态读取完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - afterScrollStartedAt,
+      page_before: beforeScroll,
+      page_after: afterScroll,
+      container_before: beforeContainer,
+      container_after: afterContainer,
       moved,
       maxed: afterScroll.maxed,
     });
     if (afterScroll.maxed || moved < 3) {
-      logWorker("详情截图停止：容器滚动已到底或未移动", {
+      logDetailDiagnostic(payload, "容器滚动截图停止：已到底或未移动", {
         filename,
-        part: index + 1,
+        part,
         moved,
         maxed: afterScroll.maxed,
       });
       break;
     }
   }
-  logWorker("详情截图完成：滚轮滚动容器", { filename, parts: parts.length });
+  logDetailDiagnostic(payload, "容器滚动分段截图完成", {
+    filename,
+    parts_count: parts.length,
+    elapsed_ms: Date.now() - operationStartedAt,
+    ...detailRuntimeSnapshot(currentPage),
+  });
   return parts;
 }
 
@@ -2964,6 +3708,7 @@ async function screenshotLocatorParts(
   filename,
   payload,
 ) {
+  const operationStartedAt = Date.now();
   const clipX = Math.max(Math.round(box.x), 0);
   const clipY = Math.max(Math.round(box.y), 0);
   const clipWidth = Math.max(Math.round(box.width), 1);
@@ -2976,13 +3721,49 @@ async function screenshotLocatorParts(
   const mouseX = clipX + clipWidth / 2;
   const mouseY = clipY + clipHeight / 2;
   const { captureWaitMs, initialCaptureWaitMs } = detailScrollWaits(payload);
-  await moveMouseToBox(currentPage, clip).catch(() => {});
+  const initialMoveStartedAt = Date.now();
+  logDetailDiagnostic(payload, "页面滚动截图首次移动鼠标开始", {
+    filename,
+    clip,
+  });
+  try {
+    await moveMouseToBox(currentPage, clip);
+    logDetailDiagnostic(payload, "页面滚动截图首次移动鼠标完成", {
+      filename,
+      elapsed_ms: Date.now() - initialMoveStartedAt,
+    });
+  } catch (error) {
+    logDetailDiagnostic(payload, "页面滚动截图首次移动鼠标失败但继续", {
+      filename,
+      elapsed_ms: Date.now() - initialMoveStartedAt,
+      ...detailErrorFields(error),
+    });
+  }
+  const initialWaitStartedAt = Date.now();
+  logDetailDiagnostic(payload, "页面滚动截图首次渲染等待开始", {
+    filename,
+    wait_ms: initialCaptureWaitMs,
+  });
   await currentPage.waitForTimeout(initialCaptureWaitMs);
+  logDetailDiagnostic(payload, "页面滚动截图首次渲染等待完成", {
+    filename,
+    elapsed_ms: Date.now() - initialWaitStartedAt,
+  });
   const forceScroll = Boolean(
     payload.force_scroll || payload.scroll_full || payload.forceScroll,
   );
   const scrollPoint = { x: mouseX, y: mouseY };
+  const initialStateStartedAt = Date.now();
+  logDetailDiagnostic(payload, "页面滚动截图初始滚动状态读取开始", {
+    filename,
+    scroll_point: scrollPoint,
+  });
   const scrollState = await pageScrollState(currentPage, scrollPoint);
+  logDetailDiagnostic(payload, "页面滚动截图初始滚动状态读取完成", {
+    filename,
+    elapsed_ms: Date.now() - initialStateStartedAt,
+    scroll_state: scrollState,
+  });
   const scrollDelta = Math.max(Math.round(clipHeight * 0.72), 1);
   const overlap = Math.max(clipHeight - scrollDelta, 0);
   const configuredMax = Math.max(
@@ -3010,7 +3791,7 @@ async function screenshotLocatorParts(
   const parts = [];
   let previousBuffer = null;
   const debugRounds = [];
-  logWorker("详情截图开始：滚轮滚动页面", {
+  logDetailDiagnostic(payload, "页面滚轮分段截图计划完成", {
     filename,
     clipHeight,
     boxHeight: Math.round(box.height || 0),
@@ -3025,43 +3806,163 @@ async function screenshotLocatorParts(
     mouseX: Math.round(mouseX),
     mouseY: Math.round(mouseY),
     captureWaitMs,
+    initialCaptureWaitMs,
+    ...detailRuntimeSnapshot(currentPage),
   });
   for (let index = 0; index < maxScrolls; index += 1) {
-    await moveMouseToBox(currentPage, clip).catch(() => {});
+    const part = index + 1;
+    const partStartedAt = Date.now();
+    const moveStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图移动鼠标开始", {
+      filename,
+      part,
+      max_parts: maxScrolls,
+      clip,
+    });
+    try {
+      await moveMouseToBox(currentPage, clip);
+      logDetailDiagnostic(payload, "页面分段截图移动鼠标完成", {
+        filename,
+        part,
+        elapsed_ms: Date.now() - moveStartedAt,
+      });
+    } catch (error) {
+      logDetailDiagnostic(payload, "页面分段截图移动鼠标失败但继续", {
+        filename,
+        part,
+        elapsed_ms: Date.now() - moveStartedAt,
+        ...detailErrorFields(error),
+      });
+    }
     if (index > 0) {
+      const waitStartedAt = Date.now();
+      logDetailDiagnostic(payload, "页面分段截图渲染等待开始", {
+        filename,
+        part,
+        wait_ms: captureWaitMs,
+      });
       await currentPage.waitForTimeout(captureWaitMs);
+      logDetailDiagnostic(payload, "页面分段截图渲染等待完成", {
+        filename,
+        part,
+        elapsed_ms: Date.now() - waitStartedAt,
+      });
     }
     const partName = `${parsed.name || "candidate-detail"}-part-${index + 1}${parsed.ext || ".png"}`;
     const targetPath = path.join(directory, partName);
-    const beforeShot = await pageScrollState(currentPage, scrollPoint);
-    logWorker("详情截图准备保存：页面分段", {
+    const beforeShotStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图前滚动状态读取开始", {
       filename,
-      part: index + 1,
+      part,
+      scroll_point: scrollPoint,
+    });
+    const beforeShot = await pageScrollState(currentPage, scrollPoint);
+    logDetailDiagnostic(payload, "页面分段截图前滚动状态读取完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - beforeShotStartedAt,
       maxScrolls,
       beforeShot,
       clip,
     });
-    const currentBuffer = await currentPage.screenshot({ clip, type: "png" });
-    if (
+    const screenshotStartedAt = Date.now();
+    const beforeScreenshotFields = {
+      filename,
+      part,
+      max_parts: maxScrolls,
+      clip,
+      before_shot: beforeShot,
+      ...detailRuntimeSnapshot(currentPage),
+    };
+    logDetailDiagnostic(payload, "Playwright 页面截图调用前", beforeScreenshotFields);
+    await notifyDetailDiagnostic(payload, "Playwright 页面截图调用开始", {
+      filename,
+      part,
+      max_parts: maxScrolls,
+    });
+    let currentBuffer;
+    try {
+      currentBuffer = await currentPage.screenshot({ clip, type: "png" });
+    } catch (error) {
+      const errorFields = {
+        ...beforeScreenshotFields,
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        total_elapsed_ms: Date.now() - operationStartedAt,
+        ...detailErrorFields(error),
+        ...detailRuntimeSnapshot(currentPage),
+      };
+      logDetailDiagnostic(payload, "Playwright 页面截图调用失败", errorFields);
+      await notifyDetailDiagnostic(
+        payload,
+        "Playwright 页面截图调用失败",
+        errorFields,
+        "error",
+      );
+      throw error;
+    }
+    logDetailDiagnostic(payload, "Playwright 页面截图调用返回", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - screenshotStartedAt,
+      buffer_bytes: currentBuffer.length,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    const duplicateStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面截图重复检测开始", {
+      filename,
+      part,
+      has_previous: Boolean(previousBuffer),
+      previous_bytes: previousBuffer?.length || 0,
+      current_bytes: currentBuffer.length,
+    });
+    const duplicate = Boolean(
       previousBuffer &&
-      screenshotsAreDuplicate(previousBuffer, currentBuffer)
-    ) {
+        screenshotsAreDuplicate(previousBuffer, currentBuffer),
+    );
+    logDetailDiagnostic(payload, "页面截图重复检测完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - duplicateStartedAt,
+      duplicate,
+    });
+    if (duplicate) {
       debugRounds.push({
-        part: index + 1,
+        part,
         beforeShot,
         duplicate: true,
         stop_reason: "duplicate_before_save",
       });
-      logWorker("详情截图停止：检测到重复页面截图", {
+      logDetailDiagnostic(payload, "页面滚动截图停止：检测到重复截图", {
         filename,
-        index: index + 1,
-        parts: parts.length,
+        part,
+        saved_parts: parts.length,
         beforeShot,
       });
       break;
     }
+    const writeStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图文件写入开始", {
+      filename,
+      part,
+      target_path: targetPath,
+      buffer_bytes: currentBuffer.length,
+    });
     await fs.writeFile(targetPath, currentBuffer);
+    logDetailDiagnostic(payload, "页面分段截图文件写入完成", {
+      filename,
+      part,
+      target_path: targetPath,
+      elapsed_ms: Date.now() - writeStartedAt,
+    });
+    const statStartedAt = Date.now();
     const stat = await fs.stat(targetPath);
+    logDetailDiagnostic(payload, "页面分段截图文件检查完成", {
+      filename,
+      part,
+      target_path: targetPath,
+      elapsed_ms: Date.now() - statStartedAt,
+      size: stat.size,
+    });
     parts.push({
       path: targetPath,
       file_path: targetPath,
@@ -3071,22 +3972,51 @@ async function screenshotLocatorParts(
       overlap,
       index,
     });
-    logWorker("详情截图保存：页面分段", {
+    logDetailDiagnostic(payload, "页面分段截图保存完成", {
       filename,
-      part: index + 1,
+      part,
       size: stat.size,
       beforeShot,
+      part_elapsed_ms: Date.now() - partStartedAt,
     });
     previousBuffer = currentBuffer;
+    const beforeScrollStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图滚动前状态读取开始", {
+      filename,
+      part,
+    });
     const beforeScroll = await pageScrollState(currentPage, scrollPoint);
+    logDetailDiagnostic(payload, "页面分段截图滚动前状态读取完成", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - beforeScrollStartedAt,
+      before_scroll: beforeScroll,
+    });
+    const wheelStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图鼠标滚轮调用前", {
+      filename,
+      part,
+      scroll_delta: scrollDelta,
+    });
     await currentPage.mouse.wheel(0, scrollDelta);
+    logDetailDiagnostic(payload, "页面分段截图鼠标滚轮调用返回", {
+      filename,
+      part,
+      elapsed_ms: Date.now() - wheelStartedAt,
+    });
+    const afterScrollStartedAt = Date.now();
+    logDetailDiagnostic(payload, "页面分段截图滚动后状态读取开始", {
+      filename,
+      part,
+    });
     const afterScroll = await pageScrollState(currentPage, scrollPoint);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     const hasExpectedMoreParts =
       parts.length < Math.min(maxScrolls, Math.max(2, estimatedByBox));
-    logWorker("详情截图滚轮：页面滚动后状态", {
+    logDetailDiagnostic(payload, "页面分段截图滚动后状态读取完成", {
       filename,
-      part: index + 1,
+      part,
+      elapsed_ms: Date.now() - afterScrollStartedAt,
       before: beforeScroll.top,
       after: afterScroll.top,
       moved,
@@ -3096,7 +4026,7 @@ async function screenshotLocatorParts(
       targetAfter: afterScroll.target,
     });
     const round = {
-      part: index + 1,
+      part,
       saved: true,
       size: stat.size,
       beforeShot,
@@ -3110,9 +4040,9 @@ async function screenshotLocatorParts(
         ? "maxed_after_scroll"
         : "moved_lt_3";
       debugRounds.push(round);
-      logWorker("详情截图停止：页面滚动已到底或未移动", {
+      logDetailDiagnostic(payload, "页面滚动截图停止：已到底或未移动", {
         filename,
-        part: index + 1,
+        part,
         moved,
         maxed: afterScroll.maxed,
         beforeScroll,
@@ -3125,10 +4055,12 @@ async function screenshotLocatorParts(
       afterScroll.maxed || moved < 3 ? "continue_for_expected_parts" : "";
     debugRounds.push(round);
   }
-  logWorker("详情截图完成：滚轮滚动页面", {
+  logDetailDiagnostic(payload, "页面滚轮分段截图完成", {
     filename,
-    parts: parts.length,
+    parts_count: parts.length,
+    elapsed_ms: Date.now() - operationStartedAt,
     debugRounds,
+    ...detailRuntimeSnapshot(currentPage),
   });
   if (parts.length > 0) {
     parts[0]._debug_rounds = debugRounds;
@@ -3259,21 +4191,79 @@ function scrollStateDistance(before, after) {
  * 清理同一岗位运行下上一次详情截图及分段图，确保只保留最新一份。
  * @param {string} directory - 截图目录。
  * @param {string} filename - 主截图文件名。
+ * @param {Record<string, any>} payload - 详情截图参数，用于关联诊断追踪编号。
  * @returns {Promise<void>} 无返回值。
  */
-async function cleanupScreenshotSeries(directory, filename) {
+async function cleanupScreenshotSeries(directory, filename, payload = {}) {
+  const operationStartedAt = Date.now();
   const parsed = path.parse(filename);
   const base = parsed.name || "candidate-detail";
   const ext = parsed.ext || ".png";
-  await fs.rm(path.join(directory, filename), { force: true }).catch(() => {});
-  const files = await fs.readdir(directory).catch(() => []);
-  await Promise.all(
-    files
-      .filter((name) => name.startsWith(`${base}-part-`) && name.endsWith(ext))
-      .map((name) =>
-        fs.rm(path.join(directory, name), { force: true }).catch(() => {}),
-      ),
+  const mainPath = path.join(directory, filename);
+  logDetailDiagnostic(payload, "旧截图文件清理开始", {
+    directory,
+    filename,
+    main_path: mainPath,
+  });
+  const mainDeleteStartedAt = Date.now();
+  await fs.rm(path.join(directory, filename), { force: true }).catch((error) => {
+    logDetailDiagnostic(payload, "旧主截图文件清理失败但继续", {
+      directory,
+      filename,
+      elapsed_ms: Date.now() - mainDeleteStartedAt,
+      ...detailErrorFields(error),
+    });
+  });
+  logDetailDiagnostic(payload, "旧主截图文件清理完成", {
+    directory,
+    filename,
+    elapsed_ms: Date.now() - mainDeleteStartedAt,
+  });
+  const readStartedAt = Date.now();
+  logDetailDiagnostic(payload, "旧分段截图目录扫描开始", {
+    directory,
+    filename,
+  });
+  const files = await fs.readdir(directory).catch((error) => {
+    logDetailDiagnostic(payload, "旧分段截图目录扫描失败但继续", {
+      directory,
+      filename,
+      elapsed_ms: Date.now() - readStartedAt,
+      ...detailErrorFields(error),
+    });
+    return [];
+  });
+  const matchedFiles = files.filter(
+    (name) => name.startsWith(`${base}-part-`) && name.endsWith(ext),
   );
+  logDetailDiagnostic(payload, "旧分段截图目录扫描完成", {
+    directory,
+    filename,
+    elapsed_ms: Date.now() - readStartedAt,
+    scanned_count: files.length,
+    matched_count: matchedFiles.length,
+    matched_files: matchedFiles,
+  });
+  const partsDeleteStartedAt = Date.now();
+  await Promise.all(
+    matchedFiles.map((name) =>
+      fs.rm(path.join(directory, name), { force: true }).catch((error) => {
+        logDetailDiagnostic(payload, "旧分段截图文件清理失败但继续", {
+          directory,
+          filename,
+          part_name: name,
+          ...detailErrorFields(error),
+        });
+      }),
+    ),
+  );
+  logDetailDiagnostic(payload, "旧截图文件清理完成", {
+    directory,
+    filename,
+    parts_delete_elapsed_ms: Date.now() - partsDeleteStartedAt,
+    deleted_parts_count: matchedFiles.length,
+    elapsed_ms: Date.now() - operationStartedAt,
+  });
 }
 
 /**
@@ -3665,7 +4655,23 @@ async function findScrollableChild(locator) {
 }
 
 async function screenshotPage(payload) {
+  const operationStartedAt = Date.now();
+  const diagnosticEnabled = Boolean(
+    String(payload?.diagnostic_trace_id || "").trim(),
+  );
+  const ensurePageStartedAt = Date.now();
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "通用截图页面获取开始", {
+      full_page: Boolean(payload.full_page),
+    });
+  }
   const currentPage = await ensurePage();
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "通用截图页面获取完成", {
+      elapsed_ms: Date.now() - ensurePageStartedAt,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+  }
   const filename = safeFilename(
     String(payload.filename || "page-screenshot.png"),
   );
@@ -3674,13 +4680,46 @@ async function screenshotPage(payload) {
       payload.directory ||
       path.join(os.tmpdir(), "goodhr-screenshots"),
   );
+  const mkdirStartedAt = Date.now();
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "通用截图目录准备开始", {
+      directory,
+      filename,
+    });
+  }
   await fs.mkdir(directory, { recursive: true });
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "通用截图目录准备完成", {
+      directory,
+      filename,
+      elapsed_ms: Date.now() - mkdirStartedAt,
+    });
+  }
   const selector = firstSelector(payload);
   if (selector) {
+    const countStartedAt = Date.now();
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素数量查询开始", { selector });
+    }
     const locator = currentPage.locator(selector).first();
-    if ((await locator.count()) <= 0) throw new Error("截图元素不存在");
-    // 支持 force_scroll / scroll_full 触发分段滚动截图
+    const locatorCount = await locator.count();
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素数量查询完成", {
+        selector,
+        elapsed_ms: Date.now() - countStartedAt,
+        locator_count: locatorCount,
+      });
+    }
+    if (locatorCount <= 0) throw new Error("截图元素不存在");
+    // 支持 force_scroll / scroll_full 触发分段滚动截图，并保留原有选择逻辑。
     if (payload.force_scroll || payload.scroll_full) {
+      if (diagnosticEnabled) {
+        logDetailDiagnostic(payload, "通用截图选择强制分段截图", {
+          selector,
+          force_scroll: Boolean(payload.force_scroll),
+          scroll_full: Boolean(payload.scroll_full),
+        });
+      }
       const partsResult = await screenshotLocatorWithParts(
         currentPage,
         locator,
@@ -3688,9 +4727,30 @@ async function screenshotPage(payload) {
       );
       return partsResult;
     }
-    // 否则检查容器自身是否可滚动，是的话也用分段截图
-    const scrollInfo = await detailScrollInfo(locator);
+    // 否则检查容器自身是否可滚动，是的话也用分段截图。
+    const scrollInfoStartedAt = Date.now();
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素滚动信息读取开始", { selector });
+    }
+    const scrollInfo = await detailScrollInfo(
+      locator,
+      diagnosticEnabled ? payload : null,
+      "通用元素截图",
+    );
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素滚动信息读取完成", {
+        selector,
+        elapsed_ms: Date.now() - scrollInfoStartedAt,
+        scroll_info: scrollInfo,
+      });
+    }
     if (scrollInfo.scrollable) {
+      if (diagnosticEnabled) {
+        logDetailDiagnostic(payload, "通用截图选择容器分段截图", {
+          selector,
+          scroll_info: scrollInfo,
+        });
+      }
       const partsResult = await screenshotLocatorWithParts(
         currentPage,
         locator,
@@ -3698,31 +4758,164 @@ async function screenshotPage(payload) {
       );
       return partsResult;
     }
-    const sizeInfo = (await locator.boundingBox().catch(() => null)) || {
+    const boxStartedAt = Date.now();
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素边界读取开始", { selector });
+    }
+    const sizeInfo = (await locator.boundingBox().catch((error) => {
+      if (diagnosticEnabled) {
+        logDetailDiagnostic(payload, "通用截图元素边界读取失败，继续截图", {
+          selector,
+          elapsed_ms: Date.now() - boxStartedAt,
+          ...detailErrorFields(error),
+        });
+      }
+      return null;
+    })) || {
       width: 0,
       height: 0,
     };
-    await locator.screenshot({
-      path: path.join(directory, filename),
-      type: "png",
-    });
-    const stat = await fs.stat(path.join(directory, filename));
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用截图元素边界读取完成", {
+        selector,
+        elapsed_ms: Date.now() - boxStartedAt,
+        box: sizeInfo,
+      });
+    }
+    const targetPath = path.join(directory, filename);
+    const screenshotStartedAt = Date.now();
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "Playwright 通用元素截图调用前", {
+        selector,
+        target_path: targetPath,
+        ...detailRuntimeSnapshot(currentPage),
+      });
+      await notifyDetailDiagnostic(payload, "Playwright 通用元素截图调用开始", {
+        filename,
+      });
+    }
+    try {
+      await locator.screenshot({
+        path: targetPath,
+        type: "png",
+      });
+    } catch (error) {
+      if (diagnosticEnabled) {
+        const errorFields = {
+          selector,
+          target_path: targetPath,
+          elapsed_ms: Date.now() - screenshotStartedAt,
+          total_elapsed_ms: Date.now() - operationStartedAt,
+          ...detailErrorFields(error),
+          ...detailRuntimeSnapshot(currentPage),
+        };
+        logDetailDiagnostic(payload, "Playwright 通用元素截图调用失败", errorFields);
+        await notifyDetailDiagnostic(
+          payload,
+          "Playwright 通用元素截图调用失败",
+          errorFields,
+          "error",
+        );
+      }
+      throw error;
+    }
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "Playwright 通用元素截图调用返回", {
+        selector,
+        target_path: targetPath,
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        ...detailRuntimeSnapshot(currentPage),
+      });
+    }
+    const statStartedAt = Date.now();
+    const stat = await fs.stat(targetPath);
+    if (diagnosticEnabled) {
+      logDetailDiagnostic(payload, "通用元素截图文件检查完成", {
+        target_path: targetPath,
+        elapsed_ms: Date.now() - statStartedAt,
+        size: stat.size,
+        total_elapsed_ms: Date.now() - operationStartedAt,
+      });
+    }
     return {
-      path: path.join(directory, filename),
-      file_path: path.join(directory, filename),
+      path: targetPath,
+      file_path: targetPath,
       size: stat.size,
       width: Math.round(sizeInfo.width || 0),
       height: Math.round(sizeInfo.height || 0),
     };
   }
+  const sizeStartedAt = Date.now();
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "全页截图页面尺寸读取开始", {
+      full_page: Boolean(payload.full_page),
+    });
+  }
   const sizeInfo = await pageSize(currentPage, Boolean(payload.full_page));
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "全页截图页面尺寸读取完成", {
+      elapsed_ms: Date.now() - sizeStartedAt,
+      size_info: sizeInfo,
+    });
+  }
   const targetPath = path.join(directory, filename);
-  await currentPage.screenshot({
-    path: targetPath,
-    fullPage: Boolean(payload.full_page),
-    type: "png",
-  });
+  const screenshotStartedAt = Date.now();
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "Playwright 全页截图调用前", {
+      target_path: targetPath,
+      full_page: Boolean(payload.full_page),
+      size_info: sizeInfo,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+    await notifyDetailDiagnostic(payload, "Playwright 全页截图调用开始", {
+      filename,
+      full_page: Boolean(payload.full_page),
+    });
+  }
+  try {
+    await currentPage.screenshot({
+      path: targetPath,
+      fullPage: Boolean(payload.full_page),
+      type: "png",
+    });
+  } catch (error) {
+    if (diagnosticEnabled) {
+      const errorFields = {
+        target_path: targetPath,
+        full_page: Boolean(payload.full_page),
+        elapsed_ms: Date.now() - screenshotStartedAt,
+        total_elapsed_ms: Date.now() - operationStartedAt,
+        ...detailErrorFields(error),
+        ...detailRuntimeSnapshot(currentPage),
+      };
+      logDetailDiagnostic(payload, "Playwright 全页截图调用失败", errorFields);
+      await notifyDetailDiagnostic(
+        payload,
+        "Playwright 全页截图调用失败",
+        errorFields,
+        "error",
+      );
+    }
+    throw error;
+  }
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "Playwright 全页截图调用返回", {
+      target_path: targetPath,
+      full_page: Boolean(payload.full_page),
+      elapsed_ms: Date.now() - screenshotStartedAt,
+      ...detailRuntimeSnapshot(currentPage),
+    });
+  }
+  const statStartedAt = Date.now();
   const stat = await fs.stat(targetPath);
+  if (diagnosticEnabled) {
+    logDetailDiagnostic(payload, "全页截图文件检查完成", {
+      target_path: targetPath,
+      elapsed_ms: Date.now() - statStartedAt,
+      size: stat.size,
+      total_elapsed_ms: Date.now() - operationStartedAt,
+    });
+  }
   return {
     path: targetPath,
     file_path: targetPath,
@@ -5503,6 +6696,40 @@ const routes = {
 };
 
 const server = http.createServer(async (req, res) => {
+  const requestStartedAt = Date.now();
+  const requestPath = req.url || "";
+  const isBossDetailRequest =
+    requestPath === "/api/v1/boss/candidates/detail";
+  let requestPayload = {};
+  let clientDisconnected = false;
+  // 记录调用方在 Worker 操作完成前断开连接的情况，用于确认 Go 侧 60 秒超时后截图是否仍在后台执行。
+  res.on("close", () => {
+    if (res.writableEnded) return;
+    clientDisconnected = true;
+    const fields = {
+      path: requestPath,
+      elapsed_ms: Date.now() - requestStartedAt,
+      trace_id: String(requestPayload?.diagnostic_trace_id || "").trim(),
+      position_id: String(requestPayload?.position_id || "").trim(),
+      candidate_name: String(
+        requestPayload?.diagnostic_candidate_name || "",
+      ).trim(),
+    };
+    logWorker("Worker API 调用方提前断开连接，后台操作尚未结束", fields);
+    if (isBossDetailRequest && fields.trace_id) {
+      logDetailDiagnostic(
+        requestPayload,
+        "调用方连接已断开，但 Worker 详情处理仍在继续",
+        fields,
+      );
+      void notifyDetailDiagnostic(
+        requestPayload,
+        "调用方连接已断开，但 Worker 详情处理仍在继续",
+        fields,
+        "warning",
+      );
+    }
+  });
   if (req.method === "GET" && req.url === "/health") {
     success(res, await workerHealth());
     return;
@@ -5537,16 +6764,73 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   try {
-    const payload = await readJSON(req);
-    logWorker("收到 Worker API 请求", { path: req.url || "" });
-    const data = await handler(payload);
-    logWorker("Worker API 请求完成", { path: req.url || "" });
+    const readStartedAt = Date.now();
+    requestPayload = await readJSON(req);
+    if (isBossDetailRequest) {
+      ensureDetailTraceID(requestPayload);
+      logDetailDiagnostic(requestPayload, "Worker HTTP 请求体读取完成", {
+        path: requestPath,
+        elapsed_ms: Date.now() - readStartedAt,
+        request_elapsed_ms: Date.now() - requestStartedAt,
+        client_disconnected: clientDisconnected,
+      });
+    }
+    logWorker("收到 Worker API 请求", {
+      path: requestPath,
+      trace_id: String(requestPayload?.diagnostic_trace_id || "").trim(),
+      position_id: String(requestPayload?.position_id || "").trim(),
+      candidate_name: String(
+        requestPayload?.diagnostic_candidate_name || "",
+      ).trim(),
+    });
+    const handlerStartedAt = Date.now();
+    const data = await handler(requestPayload);
+    const completionFields = {
+      path: requestPath,
+      handler_elapsed_ms: Date.now() - handlerStartedAt,
+      request_elapsed_ms: Date.now() - requestStartedAt,
+      client_disconnected: clientDisconnected,
+      trace_id: String(requestPayload?.diagnostic_trace_id || "").trim(),
+    };
+    logWorker("Worker API 请求完成", completionFields);
+    if (isBossDetailRequest) {
+      logDetailDiagnostic(requestPayload, "Worker HTTP 处理完成", {
+        ...completionFields,
+        ...detailRuntimeSnapshot(page),
+      });
+      if (clientDisconnected) {
+        await notifyDetailDiagnostic(
+          requestPayload,
+          "调用方已超时断开后，Worker 才完成详情处理",
+          completionFields,
+          "warning",
+        );
+      }
+    }
     success(res, data);
   } catch (error) {
-    logWorker("Worker API 请求失败", {
-      path: req.url || "",
-      error: error?.message || error,
-    });
+    const errorFields = {
+      path: requestPath,
+      request_elapsed_ms: Date.now() - requestStartedAt,
+      client_disconnected: clientDisconnected,
+      trace_id: String(requestPayload?.diagnostic_trace_id || "").trim(),
+      ...detailErrorFields(error),
+    };
+    logWorker("Worker API 请求失败", errorFields, 1600);
+    if (isBossDetailRequest && errorFields.trace_id) {
+      logDetailDiagnostic(requestPayload, "Worker HTTP 处理失败", {
+        ...errorFields,
+        ...detailRuntimeSnapshot(page),
+      });
+      await notifyDetailDiagnostic(
+        requestPayload,
+        clientDisconnected
+          ? "调用方已超时断开后，Worker 详情处理失败"
+          : "Worker 详情处理失败",
+        errorFields,
+        "error",
+      );
+    }
     failure(res, 500, error?.message || "浏览器操作失败");
   }
 });

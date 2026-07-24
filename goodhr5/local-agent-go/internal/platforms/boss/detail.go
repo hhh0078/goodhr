@@ -8,13 +8,15 @@ import (
 	"goodhr5/local-agent-go/internal/platformcore"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FetchCandidateDetail 读取 Boss 候选人详情。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人，request 为详情请求。
 func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate, request platformcore.DetailRequest) (platformcore.DetailResult, error) {
 	name := candidateName(candidate)
-	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index")))
+	traceID := fmt.Sprintf("boss-detail-%d", time.Now().UnixNano())
+	exec.Log("info", fmt.Sprintf("调用详情提取接口：name=%s mode=%s card_index=%d trace=%s", name, detailModeLabel(request.Mode), intFromMap(candidate, "card_index"), traceID))
 	result, err := exec.Post(ctx, "/api/v1/boss/candidates/detail", map[string]any{
 		"position_id":               request.PositionID,
 		"platform_config":           cfg,
@@ -31,10 +33,13 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		"viewport_margin":           80,
 		"dir":                       filepath.Join(request.ScreenshotsDir, request.PositionID),
 		"filename":                  request.Filename,
+		"diagnostic_trace_id":       traceID,
 	})
 	if err != nil {
-		return platformcore.DetailResult{}, err
+		exec.Log("error", fmt.Sprintf("详情提取接口失败：name=%s trace=%s error=%v", name, traceID, err))
+		return platformcore.DetailResult{}, fmt.Errorf("Boss详情追踪编号=%s：%w", traceID, err)
 	}
+	exec.Log("info", fmt.Sprintf("详情提取接口返回：name=%s trace=%s", name, traceID))
 	data := workerDataMap(result)
 	detailText := strings.TrimSpace(firstNonEmpty(stringFromMap(data, "detail_text"), stringFromMap(data, "text")))
 	// 调试截图信息
@@ -51,7 +56,7 @@ func (r *Runtime) FetchCandidateDetail(ctx context.Context, exec platformcore.Ex
 		} else {
 			exec.Log("info", fmt.Sprintf("详情截图无分段: name=%s width=%d height=%d scrollable=%v parts_count=%d", name, intFromMap(screenshot, "width"), intFromMap(screenshot, "height"), stringFromMap(screenshot, "scrollable_container") == "true", intFromMap(screenshot, "parts_count")))
 		}
-		screenshot = stitchDetailScreenshot(exec, request.PositionID, request.ScreenshotsDir, candidate, screenshot)
+		screenshot = stitchDetailScreenshot(exec, request.PositionID, request.ScreenshotsDir, traceID, candidate, screenshot)
 	} else {
 		exec.Log("warning", "详情截图返回为空")
 	}
