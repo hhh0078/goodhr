@@ -490,6 +490,9 @@ func TestFetchCandidateDetailAddsHLiepinScrollDiagnostics(t *testing.T) {
 	if got := stringFromMap(payload, "diagnostic_candidate_name"); got != "王**" {
 		t.Fatalf("diagnostic candidate name = %q", got)
 	}
+	if verticalOnly, ok := payload["vertical_only"].(bool); !ok || !verticalOnly {
+		t.Fatalf("vertical only = %#v, want true", payload["vertical_only"])
+	}
 }
 
 // TestMatchingShortcutItemRequiresExactName 验证快捷搜索不会再用截断名称或包含关系误匹配。
