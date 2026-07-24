@@ -31,6 +31,12 @@ import {
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
 import { humanTypeText } from "./human-type.js";
+import {
+  buildListClickScrollFailureDiagnostic,
+  listClickViewDecision,
+  scrollPositionDelta as listClickScrollPositionDelta,
+  targetPositionDelta as listClickTargetPositionDelta,
+} from "./list-click-scroll-diagnostic.js";
 import { pageURLContainsTarget } from "./navigation-target.js";
 import { terminateProfileBrowserProcesses } from "./profile-process.js";
 import { createHLiepinStableClickAction } from "./hliepin-stable-click.js";
@@ -94,6 +100,33 @@ function logWorker(message, data = {}, fieldLimit = 240) {
  */
 async function logBossCandidateScrollDebug(stage, data = {}) {
   logWorker("Boss候选人滚动诊断", { stage, ...data }, 1800);
+}
+
+/**
+ * logElementWheelScrollDebug 为猎聘列表点击写入专用日志，其他旧调用继续沿用原有诊断名称。
+ * @param {string} stage - 当前滚动阶段。
+ * @param {Record<string, any>} options - 滚动选项和诊断上下文。
+ * @param {Record<string, any>} data - 当前阶段的诊断字段。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function logElementWheelScrollDebug(stage, options = {}, data = {}) {
+  const platform = String(options.diagnostic_platform || "").toLowerCase();
+  if (platform === "hliepin") {
+    logWorker(
+      "猎聘候选人列表点击滚动诊断",
+      {
+        stage,
+        action_id: options.diagnostic_action_id || "",
+        action: options.diagnostic_action || "",
+        candidate_name: options.diagnostic_candidate_name || "",
+        target_index: options.diagnostic_index,
+        ...data,
+      },
+      2000,
+    );
+    return;
+  }
+  await logBossCandidateScrollDebug(stage, data);
 }
 
 /**
@@ -950,21 +983,86 @@ async function listClickByIndex(payload) {
     ? await firstLocator(target, clickTarget, true)
     : null;
   const locator = nested || target;
+  const diagnosticPlatform = String(payload.diagnostic_platform || "").toLowerCase();
+  const diagnosticActionID = `list-click-${Date.now()}-${index}`;
+  const scrollOptions = {
+    ...payload,
+    distance: Math.max(240, Number(payload.scroll_distance || 560)),
+    max_attempts: Math.max(4, Number(payload.scroll_attempts || 12)),
+    wait_ms: Math.max(120, Number(payload.scroll_wait_ms || 350)),
+    margin: payload.viewport_margin ?? 12,
+    require_full: payload.require_full !== false,
+    debug_stage: "list-click-by-index",
+    diagnostic_action_id: diagnosticActionID,
+    diagnostic_index: index,
+  };
+  const initialView = await isElementInViewport(locator, scrollOptions);
+  if (diagnosticPlatform === "hliepin") {
+    await logElementWheelScrollDebug("start", scrollOptions, {
+      platform_name: payload.diagnostic_platform_name || "猎聘",
+      page_url: currentPage.url(),
+      viewport: currentPage.viewportSize() || {},
+      locator_count: locators.length,
+      item_selectors: selectorList(element),
+      click_selectors: selectorList(clickTarget),
+      nested_target_found: Boolean(nested),
+      distance: scrollOptions.distance,
+      max_attempts: scrollOptions.max_attempts,
+      wait_ms: scrollOptions.wait_ms,
+      margin: scrollOptions.margin,
+      require_full: scrollOptions.require_full,
+      vertical_only: Boolean(scrollOptions.vertical_only),
+      initial_view: viewDebugInfo(initialView),
+      initial_decision: listClickViewDecision(initialView),
+    });
+  }
   const visibility = await wheelUntilElementVisible(
     currentPage,
     locator,
     target,
-    {
-      ...payload,
-      distance: Math.max(240, Number(payload.scroll_distance || 560)),
-      max_attempts: Math.max(4, Number(payload.scroll_attempts || 12)),
-      wait_ms: Math.max(120, Number(payload.scroll_wait_ms || 350)),
-      margin: payload.viewport_margin ?? 12,
-      require_full: payload.require_full !== false,
-      debug_stage: "list-click-by-index",
-    },
+    scrollOptions,
   );
-  if (!visibility.visible) throw new Error("指定列表项无法滚动到可点击范围");
+  if (!visibility.visible) {
+    if (diagnosticPlatform === "hliepin") {
+      const diagnostic = buildListClickScrollFailureDiagnostic({
+        action_id: diagnosticActionID,
+        platform: diagnosticPlatform,
+        platform_name: payload.diagnostic_platform_name || "猎聘",
+        action: payload.diagnostic_action || "点击列表项",
+        candidate_name: payload.diagnostic_candidate_name || "",
+        index,
+        locator_count: locators.length,
+        item_selector: selectorList(element).join("|"),
+        click_selector: selectorList(clickTarget).join("|"),
+        viewport: currentPage.viewportSize() || initialView?.viewport || {},
+        margin: scrollOptions.margin,
+        require_full: scrollOptions.require_full,
+        vertical_only: Boolean(scrollOptions.vertical_only),
+        initial_view: initialView,
+        final_view: visibility.final_view,
+        attempts: visibility.attempts,
+      });
+      await logElementWheelScrollDebug("failed-summary", scrollOptions, {
+        diagnosis_code: diagnostic.diagnosis_code,
+        diagnosis: diagnostic.diagnosis,
+        direction_changes: diagnostic.direction_changes,
+        repeated_position_hits: diagnostic.repeated_position_hits,
+        y_trace: diagnostic.y_trace,
+        initial_decision: diagnostic.initial_decision,
+        final_decision: diagnostic.final_decision,
+        message: diagnostic.message,
+      });
+      throw new Error(diagnostic.message);
+    }
+    throw new Error("指定列表项无法滚动到可点击范围");
+  }
+  if (diagnosticPlatform === "hliepin") {
+    await logElementWheelScrollDebug("ready-to-click", scrollOptions, {
+      attempts: visibility.attempts.length,
+      final_view: viewDebugInfo(visibility.final_view),
+      final_decision: listClickViewDecision(visibility.final_view),
+    });
+  }
   const previousURL = currentPage.url();
   const previousPageToken = rememberPage(currentPage);
   const waitForNewPage = Boolean(
@@ -4550,6 +4648,7 @@ async function isElementInViewport(locator, options = {}) {
     vertically_fully_visible: verticallyFullyVisible,
     horizontally_visible: horizontallyVisible,
     vertical_only: verticalOnly,
+    require_full: requireFull,
     margin,
     box: {
       x: Math.round(box.x),
@@ -4634,6 +4733,8 @@ async function isElementInContainerViewport(
     vertically_visible: verticallyVisible,
     vertically_fully_visible: verticallyFullyVisible,
     horizontally_visible: horizontallyVisible,
+    vertical_only: verticalOnly,
+    require_full: requireFull,
     margin,
     box: {
       x: Math.round(box.x),
@@ -4860,12 +4961,13 @@ async function wheelUntilElementVisible(
     const scrollBefore = await wheelScrollStateAtPoint(currentPage, move).catch(
       (error) => ({ error: error?.message || String(error) }),
     );
-    await logBossCandidateScrollDebug("wheel-before", {
+    await logElementWheelScrollDebug("wheel-before", options, {
       debug_stage: options.debug_stage || "",
       attempt,
       wheel_distance: wheelDistance,
       direction: wheelDirectionLabel(wheelDistance),
       view: viewDebugInfo(view),
+      decision: listClickViewDecision(view),
       mouse: move,
       scroll_state: scrollBefore,
     });
@@ -4881,12 +4983,18 @@ async function wheelUntilElementVisible(
         options,
       )
       : await isElementInViewport(targetLocator, options);
-    await logBossCandidateScrollDebug("wheel-after", {
+    await logElementWheelScrollDebug("wheel-after", options, {
       debug_stage: options.debug_stage || "",
       attempt,
       wheel_distance: wheelDistance,
       direction: wheelDirectionLabel(wheelDistance),
       view: viewDebugInfo(afterView),
+      decision: listClickViewDecision(afterView),
+      target_delta_y: listClickTargetPositionDelta(view, afterView),
+      actual_scroll_delta: listClickScrollPositionDelta(
+        scrollBefore,
+        scrollAfter,
+      ),
       scroll_before: scrollBefore,
       scroll_after: scrollAfter,
     });
@@ -4898,6 +5006,7 @@ async function wheelUntilElementVisible(
       after_view: afterView,
       scroll_before: scrollBefore,
       scroll_after: scrollAfter,
+      wheel_target: move?.wheel_target || "",
     });
   }
   const finalView = options.container_locator
@@ -4969,9 +5078,17 @@ function viewDebugInfo(view) {
     vertically_visible: view.vertically_visible,
     vertically_fully_visible: view.vertically_fully_visible,
     horizontally_visible: view.horizontally_visible,
+    vertical_only: Boolean(view.vertical_only),
+    require_full: Boolean(view.require_full),
     margin: view.margin,
     box: compactBoxLog(box),
     container_box: compactBoxLog(containerBox),
+    viewport: view.viewport
+      ? {
+          width: view.viewport.width,
+          height: view.viewport.height,
+        }
+      : null,
   };
   if (box && containerBox) {
     const topDelta = Math.round(Number(box.y || 0) - Number(containerBox.y || 0));
