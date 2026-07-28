@@ -1,0 +1,366 @@
+// Package api 提供本地 HTTP 接口，只负责参数解析、响应和调用应用服务。
+package api
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"goodhr5/local-agent-go-new/internal/browser/client"
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
+	"goodhr5/local-agent-go-new/internal/flow/preflight"
+	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/runtime"
+	"goodhr5/local-agent-go-new/internal/system/files"
+)
+
+// Server 组装本地 HTTP 路由和应用服务。
+type Server struct {
+	address string
+	runner  *lifecycle.Runner
+	runtime *runtime.Manager
+	browser *client.Client
+	http    *http.Server
+}
+
+// NewServer 创建本地 HTTP 服务。
+func NewServer(address string, runner *lifecycle.Runner, runtimeManager *runtime.Manager, browser *client.Client) *Server {
+	server := &Server{address: address, runner: runner, runtime: runtimeManager, browser: browser}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", server.handleHealth)
+	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
+	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
+	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
+	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
+	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
+	mux.HandleFunc("GET /api/v1/browser/status", server.handleBrowserStatus)
+	mux.HandleFunc("POST /api/v1/browser/start", server.handleBrowserStart)
+	mux.HandleFunc("POST /api/v1/browser/stop", server.handleBrowserStop)
+	mux.HandleFunc("GET /api/v1/downloads", server.handleDownloads)
+	mux.HandleFunc("POST /api/v1/files/open", server.handleFileOpen)
+	mux.HandleFunc("POST /api/v1/files/reveal", server.handleFileReveal)
+	server.http = &http.Server{
+		Addr:              address,
+		Handler:           server.middleware(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       90 * time.Second,
+	}
+	return server
+}
+
+// ListenAndServe 启动本地 HTTP 服务。
+func (s *Server) ListenAndServe() error {
+	log.Printf("GoodHR 新本地程序已监听 http://%s", s.address)
+	err := s.http.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+// Shutdown 优雅关闭本地 HTTP 服务。
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.http.Shutdown(ctx)
+}
+
+// handleHealth 返回本地程序健康状态。
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeSuccess(w, http.StatusOK, struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}{Status: "ok", Version: "0.1.0"})
+}
+
+// handleTaskStart 解析强类型请求并启动统一任务流程。
+func (s *Server) handleTaskStart(w http.ResponseWriter, r *http.Request) {
+	var request shared.StartRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	result, err := s.runner.StartTask(r.Context(), request)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, struct {
+			OK        bool                 `json:"ok"`
+			Error     errorBody            `json:"error"`
+			Preflight []preflightStepAlias `json:"preflight"`
+		}{
+			OK:        false,
+			Error:     errorBody{Code: "TASK_START_FAILED", Message: err.Error()},
+			Preflight: convertPreflightSteps(result.Preflight),
+		})
+		return
+	}
+	writeSuccess(w, http.StatusAccepted, result)
+}
+
+// handleTaskStop 请求任务安全停止。
+func (s *Server) handleTaskStop(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil || strings.TrimSpace(request.TaskID) == "" {
+		if err == nil {
+			err = fmt.Errorf("task_id 不能为空")
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	task, err := s.runner.StopTask(r.Context(), request.TaskID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "TASK_NOT_FOUND", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, task)
+}
+
+// handleTaskStatus 返回指定任务状态。
+func (s *Server) handleTaskStatus(w http.ResponseWriter, r *http.Request) {
+	task, err := s.runner.TaskStatus(r.Context(), r.PathValue("task_id"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		writeError(w, status, "TASK_NOT_FOUND", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, task)
+}
+
+// handleRuntimeStatus 返回 Node、Worker 编译产物和 Worker 健康状态。
+func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
+	nodeErr := s.runtime.CheckNode()
+	buildErr := s.runtime.CheckWorkerBuild()
+	workerErr := s.browser.Health(r.Context())
+	var cloakStatus contract.WorkerRuntimeStatus
+	var cloakErr error
+	if workerErr == nil {
+		cloakStatus, cloakErr = s.browser.RuntimeStatus(r.Context())
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		NodeReady           bool   `json:"node_ready"`
+		WorkerBuilt         bool   `json:"worker_built"`
+		WorkerReady         bool   `json:"worker_ready"`
+		CloakBrowserReady   bool   `json:"cloakbrowser_ready"`
+		CloakBrowserVersion string `json:"cloakbrowser_version"`
+	}{
+		NodeReady: nodeErr == nil, WorkerBuilt: buildErr == nil, WorkerReady: workerErr == nil,
+		CloakBrowserReady:   cloakErr == nil && cloakStatus.Installed,
+		CloakBrowserVersion: cloakStatus.CloakBrowserVersion,
+	})
+}
+
+// handleRuntimeEnsure 检查运行组件并启动 Worker。
+func (s *Server) handleRuntimeEnsure(w http.ResponseWriter, r *http.Request) {
+	if err := s.runtime.EnsureWorker(r.Context()); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "RUNTIME_NOT_READY", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		Ready bool `json:"ready"`
+	}{Ready: true})
+}
+
+// handleBrowserStatus 返回 CloakBrowser 会话状态。
+func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
+	result, err := s.browser.BrowserStatus(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "BROWSER_STATUS_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, result)
+}
+
+// handleBrowserStart 使用强类型参数启动浏览器，主要供本地登录和诊断使用。
+func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
+	if s.runner.HasActive() {
+		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在使用浏览器，现在不能切换浏览器会话"))
+		return
+	}
+	if err := s.runtime.EnsureWorker(r.Context()); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "RUNTIME_NOT_READY", err)
+		return
+	}
+	var request contract.BrowserStartRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	result, err := s.browser.StartBrowser(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "BROWSER_START_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, result)
+}
+
+// handleBrowserStop 关闭 CloakBrowser 会话。
+func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
+	if s.runner.HasActive() {
+		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务还在运行，请先安全停止任务"))
+		return
+	}
+	result, err := s.browser.StopBrowser(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "BROWSER_STOP_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, result)
+}
+
+// handleDownloads 返回当前浏览器下载记录。
+func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
+	result, err := s.browser.Downloads(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DOWNLOAD_LIST_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, result)
+}
+
+// handleFileOpen 使用系统默认程序打开本地文件。
+func (s *Server) handleFileOpen(w http.ResponseWriter, r *http.Request) {
+	s.handleFileAction(w, r, files.Open)
+}
+
+// handleFileReveal 在 Finder 中显示本地文件。
+func (s *Server) handleFileReveal(w http.ResponseWriter, r *http.Request) {
+	s.handleFileAction(w, r, files.Reveal)
+}
+
+// handleFileAction 解析文件路径并调用指定系统能力。
+func (s *Server) handleFileAction(w http.ResponseWriter, r *http.Request, action func(context.Context, string) error) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if err := action(r.Context(), request.Path); err != nil {
+		writeError(w, http.StatusBadRequest, "FILE_ACTION_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		Success bool `json:"success"`
+	}{Success: true})
+}
+
+// middleware 添加本机接口安全响应头和受限跨域支持。
+func (s *Server) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "no-store")
+		origin := r.Header.Get("Origin")
+		if allowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Trace-ID")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allowedOrigin 只允许 GoodHR 和本机控制台跨域访问。
+func allowedOrigin(origin string) bool {
+	origin = strings.ToLower(strings.TrimSpace(origin))
+	return origin == "" ||
+		strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "http://localhost") ||
+		origin == "https://goodhr5.58it.cn"
+}
+
+// decodeJSON 解码单个强类型 JSON 对象并拒绝未知字段。
+func decodeJSON(w http.ResponseWriter, r *http.Request, result any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(result); err != nil {
+		return fmt.Errorf("请求内容不正确：%w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("请求只能包含一个 JSON 对象")
+	}
+	return nil
+}
+
+// writeSuccess 写入统一成功响应。
+func writeSuccess(w http.ResponseWriter, status int, data any) {
+	writeJSON(w, status, struct {
+		OK   bool `json:"ok"`
+		Data any  `json:"data"`
+	}{OK: true, Data: data})
+}
+
+// writeError 写入统一错误响应。
+func writeError(w http.ResponseWriter, status int, code string, err error) {
+	message := "我没处理成功，但问题不大，我们再来一次"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	writeJSON(w, status, struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{
+		OK: false,
+		Error: struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}{Code: code, Message: message},
+	})
+}
+
+// errorBody 表示本地接口统一错误内容。
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// preflightStepAlias 避免 API 响应层依赖未类型化数据。
+type preflightStepAlias struct {
+	Name       string `json:"name"`
+	Success    bool   `json:"success"`
+	Optional   bool   `json:"optional"`
+	Message    string `json:"message"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// convertPreflightSteps 把流程检查结果转换成本地 API 响应结构。
+func convertPreflightSteps(steps []preflight.StepResult) []preflightStepAlias {
+	result := make([]preflightStepAlias, 0, len(steps))
+	for _, step := range steps {
+		result = append(result, preflightStepAlias{
+			Name: step.Name, Success: step.Success, Optional: step.Optional,
+			Message: step.Message, DurationMS: step.DurationMS,
+		})
+	}
+	return result
+}
+
+// writeJSON 写入 JSON 并兜底处理编码失败。
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("写入本地接口响应失败：%v", err)
+	}
+}

@@ -1,0 +1,8 @@
+# 文件作用说明：排除新本地程序的依赖、编译产物、日志和本地敏感数据。
+
+worker/node_modules/
+worker/dist/
+bin/
+agent_data/
+*.log
+.DS_Store

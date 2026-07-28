@@ -1,0 +1,24 @@
+{
+  "_comment": "文件作用说明：定义新版 TypeScript Browser Worker 的依赖、编译和启动命令。",
+  "name": "goodhr-browser-worker-new",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "cloakbrowser": "0.3.32",
+    "playwright-core": "1.61.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.11",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
