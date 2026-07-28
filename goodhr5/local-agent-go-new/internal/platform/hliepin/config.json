@@ -1,0 +1,561 @@
+{
+  "_comment": "猎聘猎头端本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_property_comments": {
+    "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
+    "SelectorSpec.parents": "从外到内的父级层级数组。",
+    "SelectorSpec.target": "最终目标选择器组。",
+    "SelectorSpec.state": "目标必须满足 attached、visible 或 enabled。",
+    "SelectorSpec.timeout_ms": "查找超时毫秒数。",
+    "SelectorSpec.read_property": "列表字段读取 text 或 html。",
+    "SelectorSpec.read_attribute": "列表字段读取指定 HTML 属性。",
+    "SelectorSpec.description": "结构化日志使用的中文目标名。",
+    "SelectorGroup.selectors": "按顺序降级尝试的选择器数组。",
+    "SelectorGroup.index": "列表序号，从 0 开始。",
+    "SelectorGroup.text": "目标文字约束。",
+    "SelectorGroup.exact_text": "是否完整匹配文字。",
+    "SelectorGroup.attributes": "目标必须同时满足的属性和值。",
+    "SelectorCandidate.type": "css、role、text 或 test_id。",
+    "SelectorCandidate.value": "选择器或文字值。",
+    "ConfiguredAction.name": "初始化或筛选步骤名称。",
+    "ConfiguredAction.type": "click 或 input。",
+    "ConfiguredAction.selector_key": "selectors 中的逻辑键。",
+    "ConfiguredAction.value": "输入动作使用的文本。",
+    "ConfiguredAction.optional": "元素不存在时是否允许跳过。"
+  },
+  "id": "hliepin",
+  "_comment_id": "平台唯一编号。",
+  "name": "猎聘猎头端",
+  "_comment_name": "平台中文名称。",
+  "login_url": "https://passport.liepin.com",
+  "_comment_login_url": "平台登录页面地址。",
+  "entry_url": "https://h.liepin.com/search/getConditionItem",
+  "_comment_entry_url": "主动打招呼流程找人页面地址。",
+  "messages_url": "",
+  "_comment_messages_url": "旧配置没有独立消息页地址，接入自动回复前必须补齐。",
+  "scroll_distance": 620,
+  "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
+  "max_items": 100,
+  "_comment_max_items": "单次最多读取的候选人或会话数量。",
+  "behavior": {
+    "_comment": "猎聘猎头端页面行为开关。",
+    "supports_paging": true,
+    "_comment_supports_paging": "候选人列表支持下一页。",
+    "skip_position_selection": true,
+    "_comment_skip_position_selection": "沿用用户当前手动搜索结果，不自动切换岗位。",
+    "direct_position_selection": false,
+    "_comment_direct_position_selection": "猎聘猎头端已经跳过页面岗位处理，不需要直接切换。",
+    "select_first_position_result": false,
+    "_comment_select_first_position_result": "猎聘猎头端不执行页面岗位选择。",
+    "needs_detail": true,
+    "_comment_needs_detail": "候选人判断需要打开详情。"
+  },
+  "login_init_actions": [],
+  "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "greeting_init_actions": [],
+  "_comment_greeting_init_actions": "找人页面初始化动作，当前沿用用户手动准备的页面状态。",
+  "message_init_actions": [],
+  "_comment_message_init_actions": "消息页面初始化动作，当前旧版没有可确认的动作。",
+  "filter_actions": [],
+  "_comment_filter_actions": "不自动改变用户手动设置的搜索和隐藏条件。",
+  "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
+  "selectors": {
+    "candidate.list": {
+      "_comment": "候选人表格滚轮落点。",
+      "parents": [],
+      "target": {
+        "_comment": "表格滚动区域候选。",
+        "selectors": [
+          { "_comment": "Ant Design 表格内容。", "type": "css", "value": ".ant-table-body" },
+          { "_comment": "页面级降级滚轮区域。", "type": "css", "value": "body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端候选人列表"
+    },
+    "candidate.item": {
+      "_comment": "候选人表格行。",
+      "parents": [
+        {
+          "_comment": "候选人表格正文父级。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": "tbody" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人表格行目标。",
+        "selectors": [
+          { "_comment": "2026 版猎聘候选人行。", "type": "css", "value": "tr" },
+          { "_comment": "旧版无悬停行。", "type": "css", "value": ".no-hover-tr" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端候选人行"
+    },
+    "candidate.open_target": {
+      "_comment": "候选人行内详情链接。",
+      "parents": [],
+      "target": {
+        "_comment": "详情链接目标。",
+        "selectors": [
+          { "_comment": "2026 版详情链接。", "type": "css", "value": "a" },
+          { "_comment": "旧版简历卡片。", "type": "css", "value": ".tlog-common-resume-card" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端详情入口"
+    },
+    "candidate.detail": {
+      "_comment": "详情页正文。",
+      "parents": [],
+      "target": {
+        "_comment": "详情正文目标候选。",
+        "selectors": [
+          { "_comment": "2026 版新详情页正文。", "type": "css", "value": "body" },
+          { "_comment": "旧版详情区域。", "type": "css", "value": ".resume-detail" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端详情正文"
+    },
+    "candidate.detail_close": {
+      "_comment": "详情关闭按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "关闭按钮目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".closeBtn--" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端详情关闭按钮"
+    },
+    "candidate.greet": {
+      "_comment": "候选人行内打招呼按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "打招呼按钮目标候选。",
+        "text": "立即沟通",
+        "_comment_text": "只允许点击立即沟通，不能误点同一行的其他按钮。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "卡片右下操作按钮。", "type": "css", "value": ".card-bottom-right button.lp-ant-btn-light" },
+          { "_comment": "旧版亮色按钮。", "type": "css", "value": ".ant-btn.ant-btn-default.ant-btn-lg.lp-ant-btn-light" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端打招呼按钮"
+    },
+    "candidate.continue": {
+      "_comment": "候选人行内继续沟通按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配继续沟通按钮。",
+        "text": "继续沟通",
+        "_comment_text": "防止误点立即沟通或其他操作。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "卡片右下操作按钮。", "type": "css", "value": ".card-bottom-right button.lp-ant-btn-light" },
+          { "_comment": "旧版亮色按钮。", "type": "css", "value": ".ant-btn.ant-btn-default.ant-btn-lg.lp-ant-btn-light" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端继续沟通按钮"
+    },
+    "candidate.greet_modal": {
+      "_comment": "点击立即沟通后出现的职位开聊弹框。",
+      "parents": [],
+      "target": {
+        "_comment": "包含 jobId 字段的开聊弹框。",
+        "selectors": [
+          { "_comment": "猎聘开聊职位弹框。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId'])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端开聊弹框"
+    },
+    "candidate.greet_job_open": {
+      "_comment": "开聊弹框中的职位下拉入口。",
+      "parents": [
+        {
+          "_comment": "限定在当前开聊弹框内。",
+          "selectors": [
+            { "_comment": "猎聘开聊职位弹框。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId'])" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "职位选择框。",
+        "selectors": [
+          { "_comment": "jobId 表单项下拉框。", "type": "css", "value": ".ant-form-item:has([id='jobId']) .ant-select-selector" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端开聊职位下拉"
+    },
+    "candidate.greet_job_item": {
+      "_comment": "开聊职位下拉列表项。",
+      "parents": [
+        {
+          "_comment": "当前可见的职位下拉菜单。",
+          "selectors": [
+            { "_comment": "猎聘职位下拉菜单。", "type": "css", "value": ".ant-select-dropdown:not(.ant-select-dropdown-hidden):has(.hpublic-job-select-option)" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "可点击职位选项。",
+        "selectors": [
+          { "_comment": "Ant Design 职位选项。", "type": "css", "value": ".ant-select-item-option" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端开聊职位列表项"
+    },
+    "candidate.greet_without_job": {
+      "_comment": "不选择职位直接开聊按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前开聊弹框内。",
+          "selectors": [
+            { "_comment": "猎聘开聊职位弹框。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId'])" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "不选择职位开聊按钮。",
+        "text": "不选择职位开聊",
+        "_comment_text": "用于快捷搜索模式或职位未匹配时。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "猎聘直接开聊按钮。", "type": "css", "value": ".directly-open-chat-btn" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端不选择职位开聊"
+    },
+    "candidate.greet_submit": {
+      "_comment": "选择职位后的立即开聊按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前开聊弹框内。",
+          "selectors": [
+            { "_comment": "猎聘开聊职位弹框。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId'])" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "立即开聊确认按钮。",
+        "text": "立即开聊",
+        "_comment_text": "提交已选择的开聊职位。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "猎聘立即开聊按钮。", "type": "css", "value": ".xpath-job-and-msg-ok-btn-new" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端立即开聊"
+    },
+    "candidate.next_page": {
+      "_comment": "候选人列表下一页按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "下一页目标。",
+        "selectors": [
+          { "_comment": "Ant Design 下一页按钮。", "type": "css", "value": ".ant-pagination-next:not(.ant-pagination-disabled)" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端下一页"
+    },
+    "candidate.request_phone": {
+      "_comment": "聊天框索要电话按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "电话操作目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-action-button.action-item.action-phone" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端索要电话"
+    },
+    "candidate.request_wechat": {
+      "_comment": "聊天框索要微信按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "微信操作目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-action-button.action-item.action-wechat" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端索要微信"
+    },
+    "candidate.request_resume": {
+      "_comment": "聊天框索要简历按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "简历操作目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-action-button.action-item.action-resume" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端索要简历"
+    },
+    "candidate.request_phone_confirm": {
+      "_comment": "索要电话后的二次确认按钮。",
+      "parents": [
+        {
+          "_comment": "猎聘索要信息确认弹框。",
+          "selectors": [
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "确认索要电话按钮。",
+        "text": "确定",
+        "_comment_text": "存在二次确认时点击确定。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1000,
+      "description": "猎聘猎头端确认索要电话"
+    },
+    "candidate.request_wechat_confirm": {
+      "_comment": "索要微信后的二次确认按钮。",
+      "parents": [
+        {
+          "_comment": "猎聘索要信息确认弹框。",
+          "selectors": [
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "确认索要微信按钮。",
+        "text": "确定",
+        "_comment_text": "存在二次确认时点击确定。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1000,
+      "description": "猎聘猎头端确认索要微信"
+    },
+    "candidate.request_resume_confirm": {
+      "_comment": "索要简历后的二次确认按钮。",
+      "parents": [
+        {
+          "_comment": "猎聘索要信息确认弹框。",
+          "selectors": [
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "确认索要简历按钮。",
+        "text": "确定",
+        "_comment_text": "存在二次确认时点击确定。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1000,
+      "description": "猎聘猎头端确认索要简历"
+    },
+    "candidate.followup_input": {
+      "_comment": "聊天框追加消息输入框。",
+      "parents": [
+        {
+          "_comment": "猎聘聊天弹框父级。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-basic-chat-modal" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "消息输入目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": "textarea[placeholder='请输入文字，按Enter键发送']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端聊天输入框"
+    },
+    "candidate.chat_modal": {
+      "_comment": "当前可见聊天框。",
+      "parents": [],
+      "target": {
+        "_comment": "猎聘基础聊天弹框。",
+        "selectors": [
+          { "_comment": "猎聘 IM 聊天弹框。", "type": "css", "value": ".im-ui-basic-chat-modal" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端聊天框"
+    },
+    "candidate.chat_name": {
+      "_comment": "聊天框头部候选人姓名。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            { "_comment": "猎聘 IM 聊天弹框。", "type": "css", "value": ".im-ui-basic-chat-modal" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部姓名。",
+        "selectors": [
+          { "_comment": "猎聘聊天候选人姓名。", "type": "css", "value": ".im-ui-basic-chat-header-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端聊天候选人姓名"
+    },
+    "candidate.chat_close": {
+      "_comment": "聊天框关闭按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内。",
+          "selectors": [
+            { "_comment": "猎聘 IM 聊天弹框。", "type": "css", "value": ".im-ui-basic-chat-modal" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部关闭按钮。",
+        "selectors": [
+          { "_comment": "猎聘聊天框关闭按钮。", "type": "css", "value": ".im-ui-basic-chat-header-modal-close" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端关闭聊天框"
+    },
+    "candidate.contact_drawer": {
+      "_comment": "猎聘联系人列表抽屉。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人列表根节点。",
+        "selectors": [
+          { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端联系人列表"
+    },
+    "candidate.contact_drawer_close": {
+      "_comment": "联系人列表抽屉关闭按钮。",
+      "parents": [
+        {
+          "_comment": "限定在联系人列表内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "联系人抽屉关闭按钮。",
+        "selectors": [
+          { "_comment": "Ant Design IM 抽屉关闭按钮。", "type": "css", "value": ".ant-im-drawer-close" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端关闭联系人列表"
+    }
+  },
+  "_comment_candidate_fields": "相对候选人行读取的结构化字段。",
+  "candidate_fields": {
+    "platform_candidate_id": {
+      "_comment": "猎聘简历稳定编号，用于跨滚动和状态变化去重。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人行内隐藏的简历编号输入框。",
+        "selectors": [
+          { "_comment": "读取 res_id_encode 的 value 属性。", "type": "css", "value": "input[name='res_id_encode']" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "read_attribute": "value",
+      "_comment_read_attribute": "读取 value 属性，不读取不可见文本。",
+      "description": "猎聘猎头端稳定简历编号"
+    },
+    "name": {
+      "_comment": "候选人姓名字段。",
+      "parents": [],
+      "target": {
+        "_comment": "姓名目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".new-resume-personal-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人姓名"
+    },
+    "basic_info": {
+      "_comment": "候选人基本信息字段。",
+      "parents": [],
+      "target": {
+        "_comment": "基本信息目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".personal-detail-age" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人基本信息"
+    }
+  },
+  "conversation_fields": {},
+  "_comment_conversation_fields": "自动回复字段暂未从旧版获得。",
+  "pending_selectors": {
+    "_comment": "真实回归前仍需补齐的能力。",
+    "candidate.favorite": "收藏候选人按钮",
+    "candidate.reject": "不合适按钮",
+    "message.unread_item": "未读会话列表项",
+    "message.context": "会话上下文",
+    "message.input": "回复输入框",
+    "message.send": "回复发送按钮"
+  }
+}

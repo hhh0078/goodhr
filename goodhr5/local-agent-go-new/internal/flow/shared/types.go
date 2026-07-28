@@ -25,6 +25,7 @@ type PreparedTask struct {
 	Session      cloud.UserSession
 	Subscription cloud.Subscription
 	Position     cloud.PositionSnapshot
+	Preferences  cloud.UserPreferences
 	Platform     model.Config
 	ProfilePath  string
 }

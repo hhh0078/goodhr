@@ -3,12 +3,14 @@
 import type {
   BrowserStartRequest,
   CookieSetRequest,
+  DownloadConfigureRequest,
   ElementClickRequest,
   ElementFindAllRequest,
   ElementFindRequest,
   ElementInputRequest,
   ElementReadRequest,
   KeyboardPressRequest,
+  LongScreenshotRequest,
   OverlayCloseRequest,
   OverlayShowRequest,
   PageOpenRequest,
@@ -22,6 +24,7 @@ import { WorkerLogger } from "../../logging/logger.js";
 import { KeyboardPrimitive } from "../primitives/keyboard.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
+import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { ClickAction } from "./click.js";
 import { FindAction } from "./find.js";
@@ -39,6 +42,7 @@ export class ActionService {
   private readonly session = new BrowserSession(this.logger);
   private readonly locator = new LocatorPrimitive();
   private readonly mouse = new MousePrimitive();
+  private readonly read = new ReadPrimitive();
   private readonly keyboardPrimitive = new KeyboardPrimitive();
   private readonly findAction = new FindAction(
     this.session,
@@ -52,12 +56,14 @@ export class ActionService {
     this.moveAction,
     this.locator,
     this.mouse,
+    this.read,
     this.logger,
   );
   private readonly clickAction = new ClickAction(
     this.findAction,
     this.scrollAction,
     this.moveAction,
+    this.locator,
     this.mouse,
     this.logger,
   );
@@ -73,6 +79,9 @@ export class ActionService {
   private readonly screenshotAction = new ScreenshotAction(
     this.session,
     this.findAction,
+    this.moveAction,
+    this.mouse,
+    this.read,
     this.logger,
   );
   private readonly keyboardAction = new KeyboardAction(
@@ -179,6 +188,11 @@ export class ActionService {
     return this.screenshotAction.execute(request, context);
   }
 
+  /** screenshotLong 使用真实鼠标滚轮分段截取长元素。 */
+  screenshotLong(request: LongScreenshotRequest, context: ActionContext) {
+    return this.screenshotAction.long(request, context);
+  }
+
   /** listCookies 读取当前浏览器 Cookie。 */
   async listCookies(context: ActionContext) {
     const cookies = await this.session.cookies(context);
@@ -194,6 +208,16 @@ export class ActionService {
   /** listDownloads 返回浏览器会话中的下载记录。 */
   listDownloads() {
     return this.session.listDownloads();
+  }
+
+  /** configureDownloads 切换后续浏览器下载的保存目录。 */
+  configureDownloads(request: DownloadConfigureRequest, context: ActionContext) {
+    return this.session.configureDownloads(request.directory, context);
+  }
+
+  /** clearDownloads 清空内存中的下载记录，不删除本地文件。 */
+  clearDownloads() {
+    return this.session.clearDownloads();
   }
 
   /** showOverlay 显示或更新通用页面浮层。 */

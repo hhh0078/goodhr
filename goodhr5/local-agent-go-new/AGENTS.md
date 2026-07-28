@@ -52,7 +52,7 @@ local-agent-go-new/
 ├── internal/integration/        云端、AI、OCR 等外部能力
 ├── internal/profile/            浏览器账号和 Profile
 ├── internal/runtime/            Node、Worker、CloakBrowser、OCR 组件管理
-├── internal/updater/            本地程序和控制台更新
+├── internal/updater/            本地程序更新
 ├── internal/system/             文件、端口、进程、防睡眠等系统能力
 ├── worker/                      TypeScript Browser Worker
 ├── contracts/                   Go 与 Worker 的协议
@@ -191,6 +191,17 @@ internal/platform/{platform}/
 - 直接调用 TypeScript 原子能力。
 - 自己操作数据库或进行 AI 决策。
 - 把平台逻辑放进 Worker。
+
+每个平台必须实现同一组完整公共能力：
+
+- 打开登录页、打招呼页、消息页，并分别执行页面初始化。
+- 选择岗位、应用基础筛选。
+- 返回结构化候选人数组、定位候选人、滚动列表和翻页。
+- 打开、提取、清理和关闭候选人详情。
+- 打招呼、收藏、不合适和索要候选人信息。
+- 扫描未读会话、读取会话和发送回复。
+
+公共平台接口定义能力，平台目录实现动作顺序，云端平台配置提供 URL 和选择器。禁止为了省事把平台差异塞回主流程或 Worker。
 
 ## 7. TypeScript Worker 分层
 

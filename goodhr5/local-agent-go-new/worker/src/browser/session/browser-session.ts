@@ -1,26 +1,21 @@
 // 文件作用说明：管理 CloakBrowser、持久化 Profile、页面、Cookie、下载和浏览器生命周期。
 
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
 import {
   launch,
   launchPersistentContext,
-  type LaunchOptions,
+  type LaunchContextOptions,
 } from "cloakbrowser";
 import type {
   Browser,
   BrowserContext,
   Cookie,
-  Download,
   Page,
 } from "playwright-core";
 import type {
   BrowserStartRequest,
   BrowserStatusResult,
   DownloadListResult,
-  DownloadRecord,
   PageInfo,
   PageListResult,
   PageOpenRequest,
@@ -28,7 +23,11 @@ import type {
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
+import { DownloadManager } from "./download-manager.js";
 import { ElementRegistry } from "./element-registry.js";
+import { pageURLContainsTarget, safeURL } from "./navigation.js";
+
+export { pageURLContainsTarget } from "./navigation.js";
 
 /** BrowserSession 保存当前唯一浏览器会话和页面状态。 */
 export class BrowserSession {
@@ -36,14 +35,15 @@ export class BrowserSession {
   private context: BrowserContext | null = null;
   private currentPage: Page | null = null;
   private userDataDir = "";
-  private downloadsPath = path.join(os.homedir(), "Downloads");
   private readonly registeredPages = new WeakSet<Page>();
-  private readonly downloads: DownloadRecord[] = [];
+  private readonly downloadManager: DownloadManager;
 
   readonly elements = new ElementRegistry();
 
   /** 创建浏览器会话管理器。 */
-  constructor(private readonly logger: WorkerLogger) {}
+  constructor(private readonly logger: WorkerLogger) {
+    this.downloadManager = new DownloadManager(logger);
+  }
 
   /** start 启动或复用 CloakBrowser 会话。 */
   async start(
@@ -67,6 +67,9 @@ export class BrowserSession {
               { ...actionContext, action: "page.open" },
             );
           }
+          if (request.downloads_path) {
+            await this.downloadManager.prepare(request.downloads_path);
+          }
           const status = await this.status(true);
           this.logger.info(actionContext, step, "success", {
             reused: true,
@@ -78,9 +81,7 @@ export class BrowserSession {
         await this.dispose();
       }
 
-      this.downloadsPath =
-        request.downloads_path || path.join(os.homedir(), "Downloads");
-      await fs.mkdir(this.downloadsPath, { recursive: true });
+      await this.downloadManager.prepare(request.downloads_path);
       const options = this.launchOptions(request);
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
@@ -98,7 +99,14 @@ export class BrowserSession {
         this.browser = await launch(options);
         this.context = await this.browser.newContext({
           acceptDownloads: true,
-          viewport: null,
+          viewport:
+            request.viewport_width && request.viewport_height
+              ? {
+                  width: request.viewport_width,
+                  height: request.viewport_height,
+                }
+              : null,
+          ...(request.user_agent ? { userAgent: request.user_agent } : {}),
         });
       }
       this.registerContext(this.context);
@@ -166,7 +174,7 @@ export class BrowserSession {
       persistent: Boolean(this.userDataDir),
       reused,
       user_data_dir: this.userDataDir,
-      downloads_path: this.downloadsPath,
+      downloads_path: this.downloadManager.directory(),
       current_url: current,
     };
   }
@@ -189,6 +197,28 @@ export class BrowserSession {
         this.currentPage = page;
         this.registerPage(page);
       } else {
+        const context = this.requireContext(actionContext, step);
+        const reusable = context
+          .pages()
+          .find(
+            (item) =>
+              !item.isClosed() &&
+              pageURLContainsTarget(item.url(), request.url),
+          );
+        if (reusable) {
+          this.currentPage = reusable;
+          this.registerPage(reusable);
+          this.elements.clear();
+          await reusable.bringToFront();
+          const reusedResult = await this.pageInfo(reusable);
+          this.logger.info(actionContext, step, "success", {
+            page_id: reusedResult.page_id,
+            page_url: safeURL(reusedResult.url),
+            reused_page: true,
+            navigated: false,
+          });
+          return reusedResult;
+        }
         page = await this.requirePage(actionContext, step);
       }
       await page.goto(request.url, {
@@ -200,6 +230,8 @@ export class BrowserSession {
       this.logger.info(actionContext, step, "success", {
         page_id: result.page_id,
         page_url: safeURL(result.url),
+        reused_page: false,
+        navigated: true,
       });
       return result;
     } catch (error) {
@@ -316,15 +348,25 @@ export class BrowserSession {
 
   /** downloadDirectory 返回当前下载目录。 */
   downloadDirectory(): string {
-    return this.downloadsPath;
+    return this.downloadManager.directory();
   }
 
   /** listDownloads 返回当前会话已经保存的下载记录。 */
   listDownloads(): DownloadListResult {
-    return {
-      downloads: [...this.downloads],
-      count: this.downloads.length,
-    };
+    return this.downloadManager.list();
+  }
+
+  /** configureDownloads 切换后续下载保存目录，不删除已有文件和记录。 */
+  async configureDownloads(
+    directory: string,
+    actionContext: ActionContext,
+  ): Promise<JsonObject> {
+    return this.downloadManager.configure(directory, actionContext);
+  }
+
+  /** clearDownloads 清空内存下载记录，不删除用户已经下载的文件。 */
+  clearDownloads(): JsonObject {
+    return this.downloadManager.clear();
   }
 
   /** isRunning 判断浏览器会话是否仍可用。 */
@@ -339,13 +381,13 @@ export class BrowserSession {
   }
 
   /** launchOptions 生成 CloakBrowser 官方启动参数。 */
-  private launchOptions(request: BrowserStartRequest): LaunchOptions {
-    const options: LaunchOptions = {
+  private launchOptions(request: BrowserStartRequest): LaunchContextOptions {
+    const options: LaunchContextOptions = {
       headless: request.headless ?? false,
       humanize: request.humanize ?? true,
       args: request.args ?? [],
       launchOptions: {
-        downloadsPath: this.downloadsPath,
+        downloadsPath: this.downloadManager.directory(),
       },
     };
     if (request.locale) {
@@ -353,6 +395,15 @@ export class BrowserSession {
     }
     if (request.timezone) {
       options.timezone = request.timezone;
+    }
+    if (request.user_agent) {
+      options.userAgent = request.user_agent;
+    }
+    if (request.viewport_width && request.viewport_height) {
+      options.viewport = {
+        width: request.viewport_width,
+        height: request.viewport_height,
+      };
     }
     if (request.proxy) {
       options.proxy = request.proxy;
@@ -378,8 +429,11 @@ export class BrowserSession {
     });
   }
 
-  /** registerContext 注册新页面事件。 */
+  /** registerContext 为已有页面和后续新页面统一注册生命周期与下载监听。 */
   private registerContext(context: BrowserContext): void {
+    for (const page of context.pages()) {
+      this.registerPage(page);
+    }
     context.on("page", (page) => {
       this.currentPage = page;
       this.registerPage(page);
@@ -404,7 +458,7 @@ export class BrowserSession {
       }
     });
     page.on("download", (download) => {
-      void this.saveDownload(download);
+      this.downloadManager.capture(download, page);
     });
   }
 
@@ -428,7 +482,7 @@ export class BrowserSession {
     this.currentPage = null;
     this.userDataDir = "";
     this.elements.clear();
-    this.downloads.length = 0;
+    this.downloadManager.reset();
     if (context) {
       await context.close().catch(() => undefined);
     }
@@ -437,64 +491,4 @@ export class BrowserSession {
     }
   }
 
-  /** saveDownload 把浏览器下载保存到配置目录并记录结果。 */
-  private async saveDownload(download: Download): Promise<void> {
-    try {
-      await fs.mkdir(this.downloadsPath, { recursive: true });
-      const filename = safeFilename(download.suggestedFilename());
-      const filePath = await uniquePath(this.downloadsPath, filename);
-      await download.saveAs(filePath);
-      this.downloads.unshift({
-        id: randomUUID(),
-        filename: path.basename(filePath),
-        path: filePath,
-        url: download.url(),
-        created_at: new Date().toISOString(),
-      });
-      if (this.downloads.length > 500) {
-        this.downloads.length = 500;
-      }
-    } catch {
-      // 下载失败会由主动下载动作或页面日志处理，会话事件不能抛出未处理异常。
-    }
-  }
-}
-
-/** safeURL 清理 URL 查询参数，避免日志泄露 Token。 */
-function safeURL(rawURL: string): string {
-  try {
-    const parsed = new URL(rawURL);
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return rawURL.slice(0, 500);
-  }
-}
-
-/** safeFilename 清理浏览器建议文件名中的危险字符。 */
-function safeFilename(rawName: string): string {
-  const filename = path
-    .basename(rawName || "download")
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .trim();
-  return filename || "download";
-}
-
-/** uniquePath 为下载生成不覆盖已有文件的保存路径。 */
-async function uniquePath(directory: string, filename: string): Promise<string> {
-  const parsed = path.parse(filename);
-  for (let index = 0; index < 1_000; index += 1) {
-    const suffix = index === 0 ? "" : `-${index}`;
-    const candidate = path.join(
-      directory,
-      `${parsed.name || "download"}${suffix}${parsed.ext}`,
-    );
-    try {
-      await fs.access(candidate);
-    } catch {
-      return candidate;
-    }
-  }
-  return path.join(directory, `${Date.now()}-${filename}`);
 }

@@ -12,12 +12,14 @@ import {
 import {
   parseBrowserStartRequest,
   parseCookieSetRequest,
+  parseDownloadConfigureRequest,
   parseElementClickRequest,
   parseElementFindAllRequest,
   parseElementFindRequest,
   parseElementInputRequest,
   parseElementReadRequest,
   parseKeyboardPressRequest,
+  parseLongScreenshotRequest,
   parseOverlayCloseRequest,
   parseOverlayShowRequest,
   parsePageOpenRequest,
@@ -208,6 +210,19 @@ export class WorkerRouter {
             context,
           ),
       ),
+      this.post(
+        "/api/v1/element/screenshot-long",
+        "element.screenshot_long",
+        (body, context) =>
+          this.actions.screenshotLong(
+            parseLongScreenshotRequest(
+              body,
+              context.trace_id,
+              context.action,
+            ),
+            context,
+          ),
+      ),
       this.get("/api/v1/cookies", "cookies.list", (_body, context) =>
         this.actions.listCookies(context),
       ),
@@ -219,6 +234,15 @@ export class WorkerRouter {
       ),
       this.get("/api/v1/downloads", "downloads.list", () =>
         this.actions.listDownloads(),
+      ),
+      this.post("/api/v1/downloads/configure", "downloads.configure", (body, context) =>
+        this.actions.configureDownloads(
+          parseDownloadConfigureRequest(body, context.trace_id, context.action),
+          context,
+        ),
+      ),
+      this.post("/api/v1/downloads/clear", "downloads.clear", () =>
+        this.actions.clearDownloads(),
       ),
       this.post("/api/v1/overlay/show", "overlay.show", (body, context) =>
         this.actions.showOverlay(

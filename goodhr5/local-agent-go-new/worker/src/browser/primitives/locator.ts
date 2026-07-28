@@ -13,6 +13,7 @@ import type {
   SelectorSpec,
 } from "../../contracts/selector.js";
 import { WorkerError } from "../../errors/worker-error.js";
+import { safeURL } from "../session/navigation.js";
 import type {
   FrameScope,
   LocatorScope,
@@ -96,7 +97,46 @@ export class LocatorPrimitive {
       step: string;
     },
   ): Promise<ResolvedElement[]> {
-    const attempts: SelectorAttempt[] = [];
+    const deadline = Date.now() + (spec.timeout_ms ?? 5_000);
+    let lastAttempts: SelectorAttempt[] = [];
+    let lastError: unknown;
+    while (Date.now() <= deadline) {
+      const attempts: SelectorAttempt[] = [];
+      try {
+        return await this.resolveAllOnce(
+          page,
+          spec,
+          maxItems,
+          attempts,
+          context,
+        );
+      } catch (error) {
+        lastError = error;
+        lastAttempts = attempts;
+        if (
+          error instanceof WorkerError &&
+          error.code === "ELEMENT_AMBIGUOUS"
+        ) {
+          throw error;
+        }
+        await delay(100);
+      }
+    }
+    throw this.notFound(page, spec, lastAttempts, context, lastError);
+  }
+
+  /** resolveAllOnce 执行一次列表作用域解析、候选选择器匹配和状态过滤。 */
+  private async resolveAllOnce(
+    page: Page,
+    spec: SelectorSpec,
+    maxItems: number,
+    attempts: SelectorAttempt[],
+    context: {
+      trace_id: string;
+      action: string;
+      step: string;
+    },
+  ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
       const locator = this.candidateLocator(scope, candidate, spec.target);
@@ -479,16 +519,4 @@ export class LocatorPrimitive {
 /** delay 使用 Node 定时器等待，避免发送浏览器内等待指令。 */
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-/** safeURL 清除日志 URL 中的查询参数和锚点。 */
-function safeURL(rawURL: string): string {
-  try {
-    const parsed = new URL(rawURL);
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return rawURL.slice(0, 500);
-  }
 }

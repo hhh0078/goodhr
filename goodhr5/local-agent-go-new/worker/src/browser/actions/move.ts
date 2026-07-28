@@ -39,8 +39,24 @@ export class MoveAction {
       const paddingY = Math.min(box.height * 0.2, 12);
       const safeWidth = Math.max(1, box.width - paddingX * 2);
       const safeHeight = Math.max(1, box.height - paddingY * 2);
-      const x = box.x + paddingX + Math.random() * safeWidth;
-      const y = box.y + paddingY + Math.random() * safeHeight;
+      const minX = Math.max(1, box.x + paddingX);
+      const maxX = Math.min(
+        found.view.viewport.width - 1,
+        box.x + box.width - paddingX,
+      );
+      const minY = Math.max(1, box.y + paddingY);
+      const maxY = Math.min(
+        found.view.viewport.height - 1,
+        box.y + box.height - paddingY,
+      );
+      const x =
+        maxX > minX
+          ? minX + Math.random() * Math.min(safeWidth, maxX - minX)
+          : Math.max(1, Math.min(found.view.viewport.width - 1, box.x + box.width / 2));
+      const y =
+        maxY > minY
+          ? minY + Math.random() * Math.min(safeHeight, maxY - minY)
+          : Math.max(1, Math.min(found.view.viewport.height - 1, box.y + box.height / 2));
       const distance = Math.hypot(x, y);
       const steps = Math.max(6, Math.min(30, Math.round(distance / 45)));
       await this.mouse.move(found.page, x, y, steps);

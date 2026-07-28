@@ -18,6 +18,7 @@ async function main(): Promise<void> {
       port,
     })}\n`,
   );
+  /** shutdown 关闭 Worker HTTP 服务并设置正常退出状态。 */
   const shutdown = async (): Promise<void> => {
     await server.stop();
     process.exitCode = 0;

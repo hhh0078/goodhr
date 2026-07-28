@@ -3,6 +3,7 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -27,5 +28,15 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 	}
 	if l.store != nil && status == "start" {
 		_ = l.store.UpdateTaskStep(context.Background(), taskID, flow+"."+step)
+	}
+	if l.store != nil {
+		message := flow + "." + step + " " + status
+		if err != nil {
+			message = fmt.Sprintf("%s：%v", message, err)
+		}
+		_, _ = l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+			TaskID: taskID, Flow: flow, Step: step, Status: status,
+			Message: message, DurationMS: time.Since(startedAt).Milliseconds(),
+		})
 	}
 }

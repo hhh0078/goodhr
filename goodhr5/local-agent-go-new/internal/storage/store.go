@@ -136,6 +136,9 @@ func (s *Store) SaveTask(ctx context.Context, task TaskRun) error {
 	if err != nil {
 		return fmt.Errorf("保存任务状态失败：%w", err)
 	}
+	if err := s.attachTaskLogs(ctx, task.TaskID, task.PositionID); err != nil {
+		return fmt.Errorf("补充任务日志岗位编号失败：%w", err)
+	}
 	return nil
 }
 
@@ -174,6 +177,39 @@ func (s *Store) TaskExists(ctx context.Context, taskID string) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_runs WHERE task_id = ?`, taskID).Scan(&count)
 	return count > 0, err
+}
+
+// LatestTaskForPosition 返回指定岗位最近一次本地任务状态。
+func (s *Store) LatestTaskForPosition(ctx context.Context, positionID string) (TaskRun, error) {
+	var task TaskRun
+	var startedAt, updatedAt, finishedAt string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT task_id, position_id, platform_id, task_type, status, current_step,
+		       summary, error_code, error_message, started_at, updated_at, finished_at
+		FROM task_runs
+		WHERE position_id = ?
+		ORDER BY started_at DESC
+		LIMIT 1`, strings.TrimSpace(positionID)).Scan(
+		&task.TaskID,
+		&task.PositionID,
+		&task.PlatformID,
+		&task.TaskType,
+		&task.Status,
+		&task.CurrentStep,
+		&task.Summary,
+		&task.ErrorCode,
+		&task.ErrorMessage,
+		&startedAt,
+		&updatedAt,
+		&finishedAt,
+	)
+	if err != nil {
+		return TaskRun{}, err
+	}
+	task.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	task.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	return task, nil
 }
 
 // UpdateTaskStep 更新运行中任务的当前步骤。

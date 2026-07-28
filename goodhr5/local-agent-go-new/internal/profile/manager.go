@@ -34,6 +34,33 @@ func (m *Manager) Path(profileID string) (string, error) {
 	return path, nil
 }
 
+// Resolve 把 Profile 编号或根目录内的绝对路径解析成安全目录。
+func (m *Manager) Resolve(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "default"
+	}
+	if !filepath.IsAbs(value) {
+		return m.Path(value)
+	}
+	root, err := filepath.Abs(m.root)
+	if err != nil {
+		return "", fmt.Errorf("读取 Profile 根目录失败：%w", err)
+	}
+	cleaned, err := filepath.Abs(value)
+	if err != nil {
+		return "", fmt.Errorf("读取 Profile 路径失败：%w", err)
+	}
+	relative, err := filepath.Rel(root, cleaned)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("Profile 路径必须位于 GoodHR 账号目录内")
+	}
+	if err = os.MkdirAll(cleaned, 0o755); err != nil {
+		return "", fmt.Errorf("创建 Profile 目录失败：%w", err)
+	}
+	return cleaned, nil
+}
+
 // Acquire 为任务占用 Profile，防止同账号并发操作。
 func (m *Manager) Acquire(profileID string, taskID string) error {
 	id := safeID(profileID)

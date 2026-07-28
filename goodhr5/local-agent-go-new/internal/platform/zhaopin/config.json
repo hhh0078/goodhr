@@ -1,0 +1,366 @@
+{
+  "_comment": "智联招聘本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_property_comments": {
+    "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
+    "SelectorSpec.parents": "从外到内的父级层级数组。",
+    "SelectorSpec.target": "最终目标选择器组。",
+    "SelectorSpec.state": "目标必须满足 attached、visible 或 enabled。",
+    "SelectorSpec.timeout_ms": "查找超时毫秒数。",
+    "SelectorSpec.read_property": "列表字段读取 text 或 html。",
+    "SelectorSpec.read_attribute": "列表字段读取指定 HTML 属性。",
+    "SelectorSpec.description": "结构化日志使用的中文目标名。",
+    "SelectorGroup.selectors": "按顺序降级尝试的选择器数组。",
+    "SelectorGroup.index": "列表序号，从 0 开始。",
+    "SelectorGroup.text": "目标文字约束。",
+    "SelectorGroup.exact_text": "是否完整匹配文字。",
+    "SelectorGroup.attributes": "目标必须同时满足的属性和值。",
+    "SelectorCandidate.type": "css、role、text 或 test_id。",
+    "SelectorCandidate.value": "选择器或文字值。",
+    "ConfiguredAction.name": "初始化或筛选步骤名称。",
+    "ConfiguredAction.type": "click 或 input。",
+    "ConfiguredAction.selector_key": "selectors 中的逻辑键。",
+    "ConfiguredAction.value": "输入动作使用的文本。",
+    "ConfiguredAction.optional": "元素不存在时是否允许跳过。"
+  },
+  "id": "zhaopin",
+  "_comment_id": "平台唯一编号。",
+  "name": "智联招聘",
+  "_comment_name": "平台中文名称。",
+  "login_url": "https://passport.zhaopin.com",
+  "_comment_login_url": "平台登录页面地址。",
+  "entry_url": "https://rd6.zhaopin.com/app/recommend",
+  "_comment_entry_url": "主动打招呼流程入口页面地址。",
+  "messages_url": "",
+  "_comment_messages_url": "旧配置没有独立消息页地址，接入自动回复前必须补齐。",
+  "scroll_distance": 620,
+  "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
+  "max_items": 100,
+  "_comment_max_items": "单次最多读取的候选人或会话数量。",
+  "behavior": {
+    "_comment": "智联页面行为开关。",
+    "supports_paging": false,
+    "_comment_supports_paging": "智联推荐页当前按滚动加载。",
+    "skip_position_selection": false,
+    "_comment_skip_position_selection": "开始任务时需要通过职位弹层选择岗位。",
+    "direct_position_selection": true,
+    "_comment_direct_position_selection": "智联每次直接通过职位弹层选择岗位，不读取不稳定的当前岗位文字。",
+    "select_first_position_result": true,
+    "_comment_select_first_position_result": "智联搜索岗位后沿用旧版规则点击第一条结果。",
+    "needs_detail": true,
+    "_comment_needs_detail": "候选人判断需要打开详情。"
+  },
+  "login_init_actions": [],
+  "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "greeting_init_actions": [],
+  "_comment_greeting_init_actions": "主动打招呼页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "message_init_actions": [],
+  "_comment_message_init_actions": "消息页面初始化动作，当前旧版没有可确认的动作。",
+  "filter_actions": [],
+  "_comment_filter_actions": "旧版智联没有自动基础筛选动作。",
+  "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
+  "selectors": {
+    "position.open": {
+      "_comment": "智联更多职位入口。",
+      "parents": [],
+      "target": {
+        "_comment": "职位弹层入口目标。",
+        "selectors": [
+          { "_comment": "按智联统计属性定位。", "type": "css", "value": "a[zp-stat-id='talent_more_jobs']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联职位选择入口"
+    },
+    "position.input": {
+      "_comment": "智联职位搜索输入框。",
+      "parents": [],
+      "target": {
+        "_comment": "职位搜索目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".job-side-selector__filter input" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联职位搜索输入框"
+    },
+    "position.item": {
+      "_comment": "智联职位搜索结果项。",
+      "parents": [],
+      "target": {
+        "_comment": "职位列表项目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".job-side-selector__item" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联职位列表项"
+    },
+    "position.panel": {
+      "_comment": "智联职位选择弹层，用于确认选中岗位后弹层已经关闭。",
+      "parents": [],
+      "target": {
+        "_comment": "职位选择弹层目标。",
+        "selectors": [
+          {
+            "_comment": "CSS 候选选择器。",
+            "type": "css",
+            "value": ".job-side-selector"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "智联职位选择弹层"
+    },
+    "candidate.list": {
+      "_comment": "智联候选人滚轮落点。",
+      "parents": [],
+      "target": {
+        "_comment": "推荐候选人列表容器。",
+        "selectors": [
+          { "_comment": "优先使用分组容器。", "type": "css", "value": "[role='group']" },
+          { "_comment": "页面级降级滚轮区域。", "type": "css", "value": "body" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联候选人列表"
+    },
+    "candidate.item": {
+      "_comment": "智联候选人卡片。",
+      "parents": [
+        {
+          "_comment": "推荐列表父级。",
+          "selectors": [
+            { "_comment": "分组容器。", "type": "css", "value": "[role='group']" },
+            { "_comment": "页面级降级父级。", "type": "css", "value": "body" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人卡片目标。",
+        "selectors": [
+          { "_comment": "智联推荐简历卡片。", "type": "css", "value": ".recommend-item__inner.recommend-resume-item__inner" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联候选人卡片"
+    },
+    "candidate.open_target": {
+      "_comment": "卡片内打开详情目标。",
+      "parents": [],
+      "target": {
+        "_comment": "详情入口候选。",
+        "selectors": [
+          { "_comment": "新版详情内层。", "type": "css", "value": ".new-resume-detail--inner" },
+          { "_comment": "推荐卡片本身。", "type": "css", "value": ".recommend-item__inner.recommend-resume-item__inner" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联候选人详情入口"
+    },
+    "candidate.detail": {
+      "_comment": "智联详情正文。",
+      "parents": [],
+      "target": {
+        "_comment": "详情正文候选。",
+        "selectors": [
+          { "_comment": "新版详情根节点。", "type": "css", "value": ".new-resume-detail--inner" },
+          { "_comment": "通用详情根节点。", "type": "css", "value": ".resume-detail" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联候选人详情正文"
+    },
+    "candidate.greet": {
+      "_comment": "智联候选人打招呼按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "打招呼按钮目标。",
+        "selectors": [
+          { "_comment": "普通打招呼按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16" },
+          { "_comment": "继续沟通按钮。", "type": "css", "value": ".resume-btn-small" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联打招呼按钮"
+    },
+    "candidate.continue": {
+      "_comment": "智联候选人卡片内继续沟通按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配继续沟通按钮。",
+        "text": "继续沟通",
+        "_comment_text": "防止误点卡片内其他按钮。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整一致。",
+        "selectors": [
+          { "_comment": "智联继续沟通按钮。", "type": "css", "value": ".resume-btn-small" },
+          { "_comment": "小屏操作按钮降级选择器。", "type": "css", "value": ".small-screen-btn.is-mr-16" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联继续沟通按钮"
+    },
+    "candidate.request_phone": {
+      "_comment": "智联聊天框索要电话按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "索要电话目标。",
+        "selectors": [
+          { "_comment": "按统计属性稳定定位。", "type": "css", "value": "#im-session-detail-footer [zp-stat-id='im_ask_for_the_phone']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联索要电话按钮"
+    },
+    "candidate.request_phone_confirm": {
+      "_comment": "索要电话方式弹层中的向对方索要入口。",
+      "parents": [],
+      "target": {
+        "_comment": "电话索要二次确认目标。",
+        "selectors": [
+          { "_comment": "智联手机号索要确认项。", "type": "css", "value": ".km-popover.im-ask-for-contact__popper a[zp-stat-id='render_time_track']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1000,
+      "description": "智联确认索要电话"
+    },
+    "candidate.request_wechat": {
+      "_comment": "智联聊天框索要微信按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "索要微信目标。",
+        "selectors": [
+          { "_comment": "按统计属性稳定定位。", "type": "css", "value": "#im-session-detail-footer [zp-stat-id='im_ask_for_wx_open']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联索要微信按钮"
+    },
+    "candidate.request_resume": {
+      "_comment": "智联聊天框索要附件简历按钮。",
+      "parents": [
+        {
+          "_comment": "聊天框底部操作区。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": "#im-session-detail-footer .session-new-action--left" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "按文字定位索要简历入口。",
+        "selectors": [
+          { "_comment": "文字候选选择器。", "type": "text", "value": "要附件简历" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联索要附件简历按钮"
+    },
+    "candidate.followup_input": {
+      "_comment": "智联聊天框追加消息输入框。",
+      "parents": [],
+      "target": {
+        "_comment": "聊天输入目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": "#im-session-detail-footer textarea[placeholder='从这里开启对话...']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联聊天输入框"
+    },
+    "candidate.chat_modal": {
+      "_comment": "智联继续沟通聊天框的稳定区域。",
+      "parents": [],
+      "target": {
+        "_comment": "聊天框底部区域。",
+        "selectors": [
+          { "_comment": "智联会话详情底部。", "type": "css", "value": "#im-session-detail-footer" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联继续沟通聊天框"
+    },
+    "candidate.chat_close": {
+      "_comment": "智联继续沟通聊天框关闭按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "聊天框右上关闭按钮。",
+        "selectors": [
+          { "_comment": "智联会话关闭按钮。", "type": "css", "value": ".im-widget-session__close" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联关闭聊天框"
+    }
+  },
+  "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
+  "candidate_fields": {
+    "name": {
+      "_comment": "候选人姓名字段。",
+      "parents": [],
+      "target": {
+        "_comment": "姓名目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".talent-basic-info__name--inner" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联候选人姓名"
+    },
+    "basic_info": {
+      "_comment": "候选人基本信息字段。",
+      "parents": [],
+      "target": {
+        "_comment": "基本信息目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".talent-basic-info__basic" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "智联候选人基本信息"
+    },
+    "education": {
+      "_comment": "候选人教育和经历字段。",
+      "parents": [],
+      "target": {
+        "_comment": "经历目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".resume-item__content.resume-card-exp" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "智联候选人教育经历"
+    }
+  },
+  "conversation_fields": {},
+  "_comment_conversation_fields": "自动回复字段暂未从旧版获得，接入前补 name、id、last_message。",
+  "pending_selectors": {
+    "_comment": "真实回归前仍需补齐的能力。",
+    "candidate.detail_close": "详情关闭按钮，缺失时统一按 Escape",
+    "candidate.favorite": "收藏候选人按钮",
+    "candidate.reject": "不合适按钮",
+    "message.unread_item": "未读会话列表项",
+    "message.context": "会话上下文",
+    "message.input": "回复输入框",
+    "message.send": "回复发送按钮"
+  }
+}

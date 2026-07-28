@@ -12,6 +12,7 @@ import (
 
 // legacyLocator 表示旧平台配置中的父级和目标 CSS 数组。
 type legacyLocator struct {
+	Selector      string     `json:"selector"`
 	ParentClasses [][]string `json:"parent_classes"`
 	TargetClasses [][]string `json:"target_classes"`
 }
@@ -19,8 +20,10 @@ type legacyLocator struct {
 // legacyPlatformConfig 表示当前云端仍在使用的平台配置结构。
 type legacyPlatformConfig struct {
 	ID   string `json:"id"`
+	Name string `json:"name"`
 	Auth struct {
-		EntryURL string `json:"entry_url"`
+		EntryURL         string   `json:"entry_url"`
+		LoginURLPrefixes []string `json:"login_url_prefixes"`
 	} `json:"auth"`
 	Card struct {
 		Item   legacyLocator     `json:"item"`
@@ -31,6 +34,9 @@ type legacyPlatformConfig struct {
 		GreetButton    legacyLocator `json:"greetBtn"`
 		ContinueButton legacyLocator `json:"continueBtn"`
 		ConfirmButton  legacyLocator `json:"confirmBtn"`
+		PhoneButton    legacyLocator `json:"phoneBtn"`
+		WechatButton   legacyLocator `json:"wechatBtn"`
+		ResumeButton   legacyLocator `json:"resumeBtn"`
 	} `json:"actions"`
 	Detail struct {
 		OpenTarget  legacyLocator `json:"openTarget"`
@@ -39,8 +45,18 @@ type legacyPlatformConfig struct {
 	} `json:"detail"`
 	Position struct {
 		SwitchButton legacyLocator `json:"switchBtn"`
+		Current      legacyLocator `json:"current"`
+		List         legacyLocator `json:"list"`
+		SearchInput  legacyLocator `json:"searchInput"`
 		Item         legacyLocator `json:"item"`
+		ItemText     legacyLocator `json:"itemText"`
+		ClickTarget  legacyLocator `json:"clickTarget"`
 	} `json:"position"`
+	Behavior struct {
+		SupportsPaging bool   `json:"supportsPaging"`
+		NeedsDetail    bool   `json:"needsDetailPage"`
+		NextPageButton string `json:"nextPageBtn"`
+	} `json:"behavior"`
 }
 
 // decodePlatformConfig 解析新版配置，缺少新版字段时自动转换旧结构。
@@ -71,22 +87,46 @@ func decodePlatformConfig(raw json.RawMessage, platformID string) (model.Config,
 func convertLegacyPlatformConfig(legacy legacyPlatformConfig, platformID string) (model.Config, error) {
 	cfg := model.Config{
 		ID:              firstNonEmpty(legacy.ID, strings.ToLower(strings.TrimSpace(platformID))),
+		Name:            strings.TrimSpace(legacy.Name),
+		LoginURL:        firstString(legacy.Auth.LoginURLPrefixes),
 		EntryURL:        strings.TrimSpace(legacy.Auth.EntryURL),
 		Selectors:       make(map[string]contract.SelectorSpec),
 		CandidateFields: make(map[string]contract.SelectorSpec),
-		ScrollDistance:  620,
-		MaxItems:        100,
+		Behavior: model.Behavior{
+			SupportsPaging: legacy.Behavior.SupportsPaging,
+			NeedsDetail:    legacy.Behavior.NeedsDetail,
+		},
+		ScrollDistance: 620,
+		MaxItems:       100,
 	}
 	addLegacySelector(cfg.Selectors, "candidate.item", legacy.Card.Item)
 	addLegacySelector(cfg.Selectors, "candidate.list", legacy.Card.Scroll)
 	addLegacySelector(cfg.Selectors, "candidate.open_target", legacy.Detail.OpenTarget)
 	addLegacySelector(cfg.Selectors, "candidate.detail", legacy.Detail.Content)
 	addLegacySelector(cfg.Selectors, "candidate.detail_close", legacy.Detail.CloseButton)
-	addLegacySelector(cfg.Selectors, "candidate.greet_send", legacy.Actions.GreetButton)
+	addLegacySelector(cfg.Selectors, "candidate.greet", legacy.Actions.GreetButton)
 	addLegacySelector(cfg.Selectors, "candidate.greet_continue", legacy.Actions.ContinueButton)
 	addLegacySelector(cfg.Selectors, "candidate.greet_confirm", legacy.Actions.ConfirmButton)
+	addLegacySelector(cfg.Selectors, "candidate.request_phone", legacy.Actions.PhoneButton)
+	addLegacySelector(cfg.Selectors, "candidate.request_wechat", legacy.Actions.WechatButton)
+	addLegacySelector(cfg.Selectors, "candidate.request_resume", legacy.Actions.ResumeButton)
 	addLegacySelector(cfg.Selectors, "position.open", legacy.Position.SwitchButton)
+	addLegacySelector(cfg.Selectors, "position.current", legacy.Position.Current)
+	addLegacySelector(cfg.Selectors, "position.list", legacy.Position.List)
+	addLegacySelector(cfg.Selectors, "position.input", legacy.Position.SearchInput)
 	addLegacySelector(cfg.Selectors, "position.item", legacy.Position.Item)
+	addLegacySelector(cfg.Selectors, "position.item_text", legacy.Position.ItemText)
+	addLegacySelector(cfg.Selectors, "position.click_target", legacy.Position.ClickTarget)
+	if strings.EqualFold(cfg.ID, "hliepin") {
+		cfg.Behavior.SkipPositionSelection = true
+	}
+	if strings.EqualFold(cfg.ID, "zhaopin") {
+		cfg.Behavior.DirectPositionSelection = true
+		cfg.Behavior.SelectFirstPositionResult = true
+	}
+	if selector := strings.TrimSpace(legacy.Behavior.NextPageButton); selector != "" {
+		cfg.Selectors["candidate.next_page"] = cssSelector("candidate.next_page", selector)
+	}
 	if err := convertLegacyFields(legacy.Card.Fields, cfg.CandidateFields); err != nil {
 		return model.Config{}, err
 	}
@@ -136,6 +176,9 @@ func legacySelector(description string, locator legacyLocator) (contract.Selecto
 		}
 	}
 	targets := make([]contract.SelectorCandidate, 0)
+	if value := strings.TrimSpace(locator.Selector); value != "" {
+		targets = append(targets, contract.SelectorCandidate{Type: "css", Value: value})
+	}
 	for _, group := range locator.TargetClasses {
 		targets = append(targets, cssCandidates(group)...)
 	}
@@ -149,6 +192,16 @@ func legacySelector(description string, locator legacyLocator) (contract.Selecto
 		TimeoutMS:   5000,
 		Description: description,
 	}, true
+}
+
+// cssSelector 把单个 CSS 转换成新版选择器。
+func cssSelector(description string, value string) contract.SelectorSpec {
+	return contract.SelectorSpec{
+		Target: contract.SelectorGroup{Selectors: []contract.SelectorCandidate{
+			{Type: "css", Value: strings.TrimSpace(value)},
+		}},
+		State: "visible", TimeoutMS: 5000, Description: description,
+	}
 }
 
 // cssCandidates 清理旧 CSS 字符串并转换成候选选择器。
@@ -198,6 +251,16 @@ func normalizePlatformConfig(cfg model.Config, platformID string) model.Config {
 
 // firstNonEmpty 返回第一个非空字符串。
 func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+// firstString 返回字符串数组中的第一个非空值。
+func firstString(values []string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)

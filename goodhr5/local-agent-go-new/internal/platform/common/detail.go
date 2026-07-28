@@ -1,0 +1,99 @@
+// Package common 文件作用：提供所有招聘平台复用的候选人详情打开、提取、浏览和关闭能力。
+package common
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+// OpenCandidateDetail 点击候选人卡片内的详情入口。
+func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	selector, err := CandidateScopedSelector(cfg, "candidate.open_target", candidate.Index)
+	if err != nil {
+		return err
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 48})
+	return err
+}
+
+// ExtractCandidateDetail 读取当前已经打开的候选人详情文本。
+func ExtractCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) (model.CandidateDetail, error) {
+	selector, err := RequiredSelector(cfg, "candidate.detail")
+	if err != nil {
+		return model.CandidateDetail{}, err
+	}
+	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
+	if err != nil {
+		return model.CandidateDetail{}, err
+	}
+	text := strings.TrimSpace(result.Value)
+	if text == "" {
+		return model.CandidateDetail{}, fmt.Errorf("候选人详情内容为空")
+	}
+	return model.CandidateDetail{Text: text}, nil
+}
+
+// BrowseCandidateDetail 使用真实鼠标滚轮浏览当前详情区域。
+func BrowseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, distance int, attempts int) error {
+	anchor, ok := cfg.Selectors["candidate.detail_scroll"]
+	if !ok {
+		var err error
+		anchor, err = RequiredSelector(cfg, "candidate.detail")
+		if err != nil {
+			return err
+		}
+	}
+	_, err := browser.Scroll(ctx, contract.ScrollRequest{
+		WheelAnchor: &anchor,
+		Distance:    positiveOr(distance, 320),
+		MaxAttempts: positiveOr(attempts, 1),
+		WaitMS:      300,
+	})
+	return err
+}
+
+// CloseCandidateDetail 关闭详情后检查正文是否消失，必要时再按一次 Escape。
+func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	if _, ok := cfg.Selectors["candidate.detail_close"]; ok {
+		if err := ClickRequired(ctx, browser, cfg, "candidate.detail_close"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
+			return err
+		}
+	}
+	visible, err := detailVisible(ctx, browser, cfg)
+	if err != nil || !visible {
+		return err
+	}
+	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
+		return err
+	}
+	visible, err = detailVisible(ctx, browser, cfg)
+	if err != nil {
+		return err
+	}
+	if visible {
+		return fmt.Errorf("平台 %s 的候选人详情仍未关闭", cfg.ID)
+	}
+	return nil
+}
+
+// detailVisible 使用短轮询判断候选人详情正文是否仍然可见。
+func detailVisible(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
+	selector, err := RequiredSelector(cfg, "candidate.detail")
+	if err != nil {
+		return false, err
+	}
+	selector.TimeoutMS = 800
+	_, err = browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1})
+	if IsElementMissing(err) {
+		return false, nil
+	}
+	return err == nil, err
+}

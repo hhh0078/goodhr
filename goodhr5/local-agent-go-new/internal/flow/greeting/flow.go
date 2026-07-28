@@ -15,7 +15,10 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/notification"
 )
+
+const candidateTimeout = 180 * time.Second
 
 // Flow 组装主动打招呼流程依赖。
 type Flow struct {
@@ -24,30 +27,45 @@ type Flow struct {
 	OCR            *ocr.Client
 	Store          *storage.Store
 	Cloud          *cloud.Client
+	Notifier       *notification.Notifier
 	Logger         shared.Logger
 	ScreenshotsDir string
 	DownloadsDir   string
 }
 
 type flowStep struct {
-	name string
-	run  func(context.Context) error
+	name     string
+	optional bool
+	run      func(context.Context) error
 }
 
 // Run 按平铺步骤启动浏览器、准备平台、处理候选人并同步摘要。
 func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
 	stats := shared.Stats{}
+	position := model.Position{
+		ID: prepared.Position.ID, Name: prepared.Position.Name, Keyword: prepared.Position.Keyword,
+		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
+		RequestResume:             prepared.Position.RequestResume,
+		HLiepinShortcutSearchName: prepared.Position.CommonConfig.HLiepinShortcutSearchName,
+	}
 	steps := []flowStep{
 		{name: "start_browser", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
-		{name: "prepare_platform", run: func(ctx context.Context) error {
-			return runtime.PrepareGreeting(ctx, f.Browser, prepared.Platform, model.Position{
-				ID: prepared.Position.ID, Name: prepared.Position.Name, Keyword: prepared.Position.Keyword,
-			})
+		{name: "open_greeting_page", run: func(ctx context.Context) error {
+			return runtime.OpenGreetingPage(ctx, f.Browser, prepared.Platform)
+		}},
+		{name: "initialize_greeting_page", run: func(ctx context.Context) error {
+			return runtime.InitializeGreetingPage(ctx, f.Browser, prepared.Platform)
+		}},
+		{name: "select_position", run: func(ctx context.Context) error {
+			return runtime.SelectPosition(ctx, f.Browser, prepared.Platform, position)
+		}},
+		{name: "apply_basic_filters", run: func(ctx context.Context) error {
+			return runtime.ApplyBasicFilters(ctx, f.Browser, prepared.Platform, position)
 		}},
 		{name: "scan_decide_and_greet", run: func(ctx context.Context) error {
 			return f.processBatches(ctx, prepared, runtime, &stats)
 		}},
-		{name: "sync_summary", run: func(ctx context.Context) error {
+		{name: "sync_summary", optional: true, run: func(ctx context.Context) error {
 			return f.syncSummary(ctx, prepared, stats, "completed", "", "")
 		}},
 	}
@@ -55,8 +73,11 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, step.name, "start", startedAt, nil)
 		if err := step.run(ctx); err != nil {
+			if step.optional {
+				f.log(prepared.Request.TaskID, step.name, "warning", startedAt, err)
+				continue
+			}
 			f.log(prepared.Request.TaskID, step.name, "failed", startedAt, err)
-			_ = f.syncSummary(context.WithoutCancel(ctx), prepared, stats, "failed", "FLOW_STEP_FAILED", err.Error())
 			return stats, fmt.Errorf("%s 失败：%w", step.name, err)
 		}
 		f.log(prepared.Request.TaskID, step.name, "success", startedAt, nil)
@@ -85,11 +106,24 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 	if maxBatches <= 0 {
 		maxBatches = 1
 	}
+	lastError := ""
+	consecutiveErrors := 0
+	seen := make(map[string]struct{})
+	rest := newRestSchedule(prepared.Preferences)
 	for batch := 0; batch < maxBatches; batch++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		candidates, err := runtime.ScanCandidates(ctx, f.Browser, prepared.Platform)
+		if err := shared.EnsureCloudSession(ctx, f.Cloud, prepared.Request.Token, prepared.Request.TaskID, "greeting", f.Logger); err != nil {
+			return err
+		}
+		if err := waitRandomSeconds(
+			ctx, f.Logger, prepared.Request.TaskID, "list_view",
+			prepared.Preferences.ListViewDelayMin, prepared.Preferences.ListViewDelayMax,
+		); err != nil {
+			return err
+		}
+		candidates, err := runtime.FindCandidates(ctx, f.Browser, prepared.Platform)
 		if err != nil {
 			return err
 		}
@@ -100,13 +134,55 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			f.processCandidate(ctx, prepared, runtime, candidate, stats)
+			if candidate.Fingerprint != "" {
+				if _, exists := seen[candidate.Fingerprint]; exists {
+					stats.Skipped++
+					continue
+				}
+				seen[candidate.Fingerprint] = struct{}{}
+			}
+			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
+			candidateErr := f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
+			cancelCandidate()
+			if restErr := rest.afterCandidate(ctx, f.Browser, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
+				return restErr
+			}
+			if candidateErr != nil {
+				if shouldStopImmediately(candidateErr) {
+					return candidateErr
+				}
+				normalized := normalizeCandidateError(candidateErr)
+				if normalized == lastError {
+					consecutiveErrors++
+				} else {
+					lastError = normalized
+					consecutiveErrors = 1
+				}
+				if consecutiveErrors >= 3 {
+					return fmt.Errorf("连续 3 个候选人在同一环节失败，任务先停一下：%w", candidateErr)
+				}
+				continue
+			}
+			lastError = ""
+			consecutiveErrors = 0
 			if prepared.Position.MatchLimit > 0 && stats.Succeeded >= prepared.Position.MatchLimit {
 				return nil
 			}
 		}
 		if batch+1 < maxBatches {
-			if err := runtime.ScrollCandidates(ctx, f.Browser, prepared.Platform); err != nil {
+			paged, err := runtime.NextCandidatePage(ctx, f.Browser, prepared.Platform)
+			if err != nil {
+				return err
+			}
+			if !paged {
+				if err := runtime.ScrollCandidates(ctx, f.Browser, prepared.Platform); err != nil {
+					return err
+				}
+			}
+			if err := waitRandomSeconds(
+				ctx, f.Logger, prepared.Request.TaskID, "after_scroll",
+				float64(prepared.Preferences.ScrollDelayMin), float64(prepared.Preferences.ScrollDelayMax),
+			); err != nil {
 				return err
 			}
 		}
@@ -115,86 +191,201 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 }
 
 // processCandidate 平铺执行基础过滤、详情、OCR、AI、打招呼、关闭详情和保存结果。
-func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) {
+func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) error {
 	stats.Processed++
+	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
 	if !matchesKeyword(candidate, prepared.Position) {
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", "基础关键词不匹配")
-		return
+		return nil
 	}
-	detail, err := runtime.ReadCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
-	if err != nil {
+	needsDetail := needsCandidateDetail(prepared)
+	if needsDetail && !shouldOpenDetail(prepared) {
+		stats.Skipped++
+		f.saveCandidate(ctx, prepared, candidate, "detail_probability", "skipped", "本次未命中个人配置的详情打开概率")
+		return nil
+	}
+	if err := runtime.ScrollToCandidate(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 		stats.Failed++
-		f.saveCandidate(ctx, prepared, candidate, "detail", "failed", err.Error())
-		return
+		f.saveCandidate(ctx, prepared, candidate, "scroll_to_candidate", "failed", err.Error())
+		return fmt.Errorf("scroll_to_candidate：%w", err)
 	}
-	detailClosed := false
+	detail := model.CandidateDetail{}
+	detailOpened := false
 	defer func() {
-		if !detailClosed {
-			_ = runtime.CloseCandidateDetail(context.WithoutCancel(ctx), f.Browser, prepared.Platform)
+		if detailOpened {
+			_ = runtime.CloseCandidateDetail(context.WithoutCancel(ctx), f.Browser, prepared.Platform, candidate)
 		}
 	}()
-	if prepared.Position.RequiresOCR {
-		detail, err = f.readDetailWithOCR(ctx, prepared, candidate, detail)
-		if err != nil {
+	if needsDetail {
+		if err := waitRandomSeconds(
+			ctx, f.Logger, prepared.Request.TaskID, "before_detail_open",
+			prepared.Preferences.DetailOpenDelayMin, prepared.Preferences.DetailOpenDelayMax,
+		); err != nil {
+			return err
+		}
+		if err := runtime.OpenCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 			stats.Failed++
-			f.saveCandidate(ctx, prepared, candidate, "ocr", "failed", err.Error())
-			return
+			f.saveCandidate(ctx, prepared, candidate, "open_detail", "failed", err.Error())
+			return fmt.Errorf("open_detail：%w", err)
+		}
+		detailOpened = true
+		var err error
+		detail, err = runtime.ExtractCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
+		if err != nil {
+			if detailMode != "ai" {
+				stats.Failed++
+				f.saveCandidate(ctx, prepared, candidate, "detail", "failed", err.Error())
+				return fmt.Errorf("detail：%w", err)
+			}
+			f.log(prepared.Request.TaskID, "read_detail_text", "warning", time.Now(), err)
+		}
+		if prepared.Position.RequiresOCR {
+			detail, err = f.readDetailWithOCR(ctx, prepared, candidate, detail)
+			if err != nil {
+				if ocr.IsNoText(err) {
+					stats.Skipped++
+					f.saveCandidate(ctx, prepared, candidate, "ocr", "skipped", err.Error())
+					return nil
+				}
+				stats.Failed++
+				f.saveCandidate(ctx, prepared, candidate, "ocr", "failed", err.Error())
+				return fmt.Errorf("ocr：%w", err)
+			}
+		}
+		if err := waitRandomSeconds(
+			ctx, f.Logger, prepared.Request.TaskID, "detail_view",
+			prepared.Preferences.DetailViewDelayMin, prepared.Preferences.DetailViewDelayMax,
+		); err != nil {
+			return err
+		}
+		detail.Text = runtime.CleanCandidateDetailText(detail.Text)
+		if strings.TrimSpace(detail.Text) == "" && detailMode != "ai" {
+			stats.Skipped++
+			f.saveCandidate(ctx, prepared, candidate, "detail", "skipped", "候选人详情为空")
+			return nil
 		}
 	}
 	accepted := true
+	score := 0.0
+	hasScore := false
 	reason := "基础规则通过"
 	if prepared.Position.RequiresAI {
-		decision, decisionErr := f.AI.EvaluateCandidate(ctx, prepared.Position.AI, prepared.Position, candidate, detail)
+		if detailBrowser, ok := runtime.(model.DetailBrowser); ok && detailOpened {
+			startedAt := time.Now()
+			if err := detailBrowser.BrowseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+				f.log(prepared.Request.TaskID, "browse_candidate_detail", "warning", startedAt, err)
+			} else {
+				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
+			}
+		}
+		overlayShown := false
+		if prepared.Position.EnableThinking {
+			overlayShown = shared.ShowThinkingOverlay(
+				ctx, f.Browser, prepared.Request.TaskID, "greeting",
+				"AI 正在分析候选人", candidate.Name, "正在对照岗位要求和候选人详情",
+				f.Logger,
+			)
+		}
+		var decision ai.Decision
+		var decisionErr error
+		if detailMode == "ai" {
+			images, imageErr := f.readDetailImages(ctx, prepared, candidate)
+			if imageErr != nil {
+				decisionErr = imageErr
+			} else {
+				decision, decisionErr = f.AI.EvaluateCandidateVision(
+					ctx, prepared.Position.AI, prepared.Position, candidate, detail, images,
+				)
+			}
+		} else {
+			decision, decisionErr = f.AI.EvaluateCandidate(
+				ctx, prepared.Position.AI, prepared.Position, candidate, detail,
+			)
+		}
+		if overlayShown {
+			shared.CloseThinkingOverlay(ctx, f.Browser, prepared.Request.TaskID, "greeting", f.Logger)
+		}
 		if decisionErr != nil {
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "ai_decision", "failed", decisionErr.Error())
-			return
+			return fmt.Errorf("ai_decision：%w", decisionErr)
 		}
 		accepted = decision.Accepted
+		score = decision.Score
+		hasScore = true
 		reason = decision.Reason
+	}
+	if detailOpened {
+		if err := waitRandomSeconds(
+			ctx, f.Logger, prepared.Request.TaskID, "before_detail_close",
+			prepared.Preferences.DetailCloseDelayMin, prepared.Preferences.DetailCloseDelayMax,
+		); err != nil {
+			return err
+		}
+		if err := runtime.CloseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			stats.Failed++
+			f.saveCandidate(ctx, prepared, candidate, "close_detail", "failed", err.Error())
+			return fmt.Errorf("close_detail：%w", err)
+		}
+		detailOpened = false
 	}
 	if !accepted {
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "decision", "skipped", reason)
-		return
+		return nil
 	}
-	if err := runtime.CloseCandidateDetail(ctx, f.Browser, prepared.Platform); err != nil {
-		stats.Failed++
-		f.saveCandidate(ctx, prepared, candidate, "close_detail", "failed", err.Error())
-		return
+	if err := waitRandomSeconds(
+		ctx, f.Logger, prepared.Request.TaskID, "before_greet",
+		prepared.Preferences.GreetBeforeDelayMin, prepared.Preferences.GreetBeforeDelayMax,
+	); err != nil {
+		return err
 	}
-	detailClosed = true
-	if err := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, prepared.Position.GreetMessage); err != nil {
+	infoRequest := model.CandidateInfoRequest{
+		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
+		RequestResume: prepared.Position.RequestResume, Message: prepared.Position.GreetMessage,
+	}
+	requestInfo := false
+	if candidateInfoRequestConfigured(infoRequest) {
+		threshold := requestScoreThreshold(prepared.Position)
+		switch {
+		case !hasScore:
+			f.log(
+				prepared.Request.TaskID, "request_candidate_info", "skipped", time.Now(),
+				fmt.Errorf("没有最终 AI 评分，索要阈值为 %.1f", threshold),
+			)
+		case score <= threshold:
+			f.log(
+				prepared.Request.TaskID, "request_candidate_info", "skipped", time.Now(),
+				fmt.Errorf("最终 AI 评分 %.1f 没有严格大于索要阈值 %.1f", score, threshold),
+			)
+		default:
+			requestInfo = candidateInfoAllowed(hasScore, score, threshold)
+		}
+	}
+	if err := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, model.GreetRequest{
+		Message:              prepared.Position.GreetMessage,
+		KeepConversationOpen: requestInfo,
+	}); err != nil {
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", err.Error())
-		return
+		return fmt.Errorf("greet：%w", err)
+	}
+	if prepared.Position.EnableSound && f.Notifier != nil {
+		soundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		if err := f.Notifier.PlaySuccess(soundCtx); err != nil {
+			f.log(prepared.Request.TaskID, "play_success_sound", "warning", time.Now(), err)
+		}
+		cancel()
+	}
+	if requestInfo {
+		if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
+			f.log(prepared.Request.TaskID, "request_candidate_info", "warning", time.Now(), err)
+		}
 	}
 	stats.Succeeded++
 	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
-}
-
-// readDetailWithOCR 截取当前详情页并在本地识别文字。
-func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, detail model.CandidateDetail) (model.CandidateDetail, error) {
-	filename := fmt.Sprintf("%s-%s.png", prepared.Request.TaskID, candidate.Fingerprint)
-	var target *contract.SelectorSpec
-	if selector, ok := prepared.Platform.Selectors["candidate.detail"]; ok {
-		target = &selector
-	}
-	screenshot, err := f.Browser.Screenshot(ctx, contract.ScreenshotRequest{
-		Directory: f.ScreenshotsDir,
-		Filename:  filename,
-		Target:    target,
-	})
-	if err != nil {
-		return detail, err
-	}
-	result, err := f.OCR.Recognize(ctx, screenshot.Path)
-	if err != nil {
-		return detail, err
-	}
-	detail.Text = strings.TrimSpace(detail.Text + "\n" + result.Text)
-	return detail, nil
+	return nil
 }
 
 // saveCandidate 保存不含候选人详情的动作摘要。
@@ -210,11 +401,15 @@ func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, 
 
 // syncSummary 同步不含敏感内容的任务统计。
 func (f *Flow) syncSummary(ctx context.Context, prepared shared.PreparedTask, stats shared.Stats, status string, errorCode string, errorMessage string) error {
-	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, cloud.TaskSummary{
+	summary := cloud.TaskSummary{
 		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
 		Status: status, Processed: stats.Processed, Succeeded: stats.Succeeded,
 		Failed: stats.Failed, ErrorCode: errorCode, ErrorMessage: errorMessage,
-	})
+	}
+	if status == "completed" {
+		return f.Cloud.SyncCompletedSummary(ctx, prepared.Request.Token, summary)
+	}
+	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, summary)
 }
 
 // matchesKeyword 执行不区分大小写的基础关键词过滤。

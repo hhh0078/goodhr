@@ -4,12 +4,14 @@ import type { Cookie } from "playwright-core";
 import type {
   BrowserStartRequest,
   CookieSetRequest,
+  DownloadConfigureRequest,
   ElementClickRequest,
   ElementFindAllRequest,
   ElementFindRequest,
   ElementInputRequest,
   ElementReadRequest,
   KeyboardPressRequest,
+  LongScreenshotRequest,
   OverlayCloseRequest,
   OverlayShowRequest,
   PageOpenRequest,
@@ -43,8 +45,25 @@ export function parseBrowserStartRequest(
   assignString(request, "url", optionalString(record, "url"));
   assignString(request, "locale", optionalString(record, "locale"));
   assignString(request, "timezone", optionalString(record, "timezone"));
+  assignString(request, "user_agent", optionalString(record, "user_agent"));
   assignBoolean(request, "headless", optionalBoolean(record, "headless"));
   assignBoolean(request, "humanize", optionalBoolean(record, "humanize"));
+  assignNumber(
+    request,
+    "viewport_width",
+    optionalNumber(record, "viewport_width", { min: 320, max: 7680 }),
+  );
+  assignNumber(
+    request,
+    "viewport_height",
+    optionalNumber(record, "viewport_height", { min: 240, max: 4320 }),
+  );
+  if (
+    (request.viewport_width === undefined) !==
+    (request.viewport_height === undefined)
+  ) {
+    throw invalidRequest(traceId, action, "viewport_width 和 viewport_height 必须一起提供");
+  }
   const args = stringArray(record.args);
   if (args.length > 0) {
     request.args = args;
@@ -196,6 +215,16 @@ export function parseElementClickRequest(
     "viewport_margin",
     optionalNumber(record, "viewport_margin", { min: 0, max: 500 }),
   );
+  assignBoolean(
+    request,
+    "wait_for_new_page",
+    optionalBoolean(record, "wait_for_new_page"),
+  );
+  assignNumber(
+    request,
+    "new_page_timeout_ms",
+    optionalNumber(record, "new_page_timeout_ms", { min: 100, max: 60_000 }),
+  );
   if (record.verify !== undefined) {
     request.verify = parseClickVerification(
       record.verify,
@@ -325,6 +354,49 @@ export function parseScreenshotRequest(
   return request;
 }
 
+/**
+ * parseLongScreenshotRequest 校验真实滚轮长截图请求。
+ * @param value - 未校验的 HTTP 请求体。
+ * @param traceId - 当前请求追踪编号。
+ * @param action - 当前封装能力名称。
+ * @returns 强类型长截图请求。
+ */
+export function parseLongScreenshotRequest(
+  value: unknown,
+  traceId: string,
+  action: string,
+): LongScreenshotRequest {
+  const record = asRecord(value, traceId, action);
+  const request: LongScreenshotRequest = {
+    target: parseSelectorSpec(record.target, traceId, action),
+    directory: requiredString(record, "directory", traceId, action),
+    filename: requiredString(record, "filename", traceId, action),
+  };
+  if (record.wheel_anchor !== undefined) {
+    request.wheel_anchor = parseSelectorSpec(
+      record.wheel_anchor,
+      traceId,
+      action,
+    );
+  }
+  assignNumber(
+    request,
+    "distance",
+    optionalNumber(record, "distance", { min: 100, max: 5000 }),
+  );
+  assignNumber(
+    request,
+    "max_parts",
+    optionalNumber(record, "max_parts", { min: 1, max: 50 }),
+  );
+  assignNumber(
+    request,
+    "wait_ms",
+    optionalNumber(record, "wait_ms", { min: 50, max: 30_000 }),
+  );
+  return request;
+}
+
 /** parseCookieSetRequest 校验 Cookie 导入请求。 */
 export function parseCookieSetRequest(
   value: unknown,
@@ -339,6 +411,24 @@ export function parseCookieSetRequest(
     cookies: record.cookies.map((item, index) =>
       parseCookie(item, traceId, action, index),
     ),
+  };
+}
+
+/**
+ * parseDownloadConfigureRequest 校验下载目录配置请求。
+ * @param value - 未校验的 HTTP 请求体。
+ * @param traceID - 当前请求追踪编号。
+ * @param action - 当前封装能力名称。
+ * @returns 强类型下载目录配置。
+ */
+export function parseDownloadConfigureRequest(
+  value: unknown,
+  traceID: string,
+  action: string,
+): DownloadConfigureRequest {
+  const record = asRecord(value, traceID, action);
+  return {
+    directory: requiredString(record, "directory", traceID, action),
   };
 }
 

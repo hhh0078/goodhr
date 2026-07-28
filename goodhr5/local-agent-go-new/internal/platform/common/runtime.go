@@ -1,116 +1,71 @@
-// Package common 实现由云端 URL 和统一选择器配置驱动的跨平台页面操作。
+// Package common 提供所有招聘平台复用的配置驱动页面基础能力，不决定具体平台流程。
 package common
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// Runtime 实现平台共用的配置驱动页面动作。
-type Runtime struct {
-	platformID string
+// OpenPage 打开平台配置中的页面地址。
+func OpenPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string) error {
+	_, err := openPage(ctx, browser, platformID, rawURL, label)
+	return err
 }
 
-// New 创建指定平台编号的通用运行时。
-func New(platformID string) *Runtime {
-	return &Runtime{platformID: platformID}
-}
-
-// PrepareGreeting 打开入口页并按配置准备岗位和筛选。
-func (r *Runtime) PrepareGreeting(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
-	if strings.TrimSpace(cfg.EntryURL) == "" {
-		return fmt.Errorf("平台 %s 没有配置入口地址", r.platformID)
-	}
-	if _, err := browser.OpenPage(ctx, contract.PageOpenRequest{URL: cfg.EntryURL, WaitUntil: "domcontentloaded", TimeoutMS: 30000}); err != nil {
+// OpenVerifiedPage 打开平台页面并确认最终地址没有跳转到登录页等其他页面。
+func OpenVerifiedPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string) error {
+	page, err := openPage(ctx, browser, platformID, rawURL, label)
+	if err != nil {
 		return err
 	}
-	steps := []struct {
-		name     string
-		required bool
-		run      func() error
-	}{
-		{name: "关闭入口提示", run: func() error { return clickOptional(ctx, browser, cfg, "entry.dismiss") }},
-		{name: "打开岗位选择", required: true, run: func() error { return clickOptional(ctx, browser, cfg, "position.open") }},
-		{name: "选择岗位", required: true, run: func() error { return selectPosition(ctx, browser, cfg, position.Name) }},
-		{name: "应用筛选", required: true, run: func() error { return clickOptional(ctx, browser, cfg, "filter.apply") }},
-	}
-	for _, step := range steps {
-		if err := step.run(); err != nil && step.required {
-			return fmt.Errorf("%s失败：%w", step.name, err)
-		}
+	if !PageURLMatches(page.URL, rawURL) {
+		return fmt.Errorf("平台 %s 没有停在%s，可能需要重新登录：%s", platformID, label, page.URL)
 	}
 	return nil
 }
 
-// ScanCandidates 读取当前可见候选人和配置字段。
-func (r *Runtime) ScanCandidates(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Candidate, error) {
-	selector, err := requiredSelector(cfg, "candidate.item")
-	if err != nil {
-		return nil, err
+// openPage 校验地址并调用 Worker 打开或复用页面。
+func openPage(ctx context.Context, browser model.Browser, platformID string, rawURL string, label string) (contract.PageInfo, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return contract.PageInfo{}, fmt.Errorf("平台 %s 没有配置%s地址", platformID, label)
 	}
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector,
-		MaxItems: positiveOr(cfg.MaxItems, 100),
-		Fields:   cfg.CandidateFields,
+	page, err := browser.OpenPage(ctx, contract.PageOpenRequest{
+		URL: rawURL, WaitUntil: "domcontentloaded", TimeoutMS: 30000,
 	})
-	if err != nil {
-		return nil, err
-	}
-	candidates := make([]model.Candidate, 0, len(items))
-	for _, item := range items {
-		name := firstNonEmpty(item.Fields["name"], item.Text)
-		fingerprint := firstNonEmpty(item.Fields["id"], hashText(r.platformID+"|"+name+"|"+item.Text))
-		candidates = append(candidates, model.Candidate{
-			Index:       item.Index,
-			Fingerprint: fingerprint,
-			Name:        name,
-			Summary:     item.Text,
-			Fields:      item.Fields,
-		})
-	}
-	return candidates, nil
+	return page, err
 }
 
-// ReadCandidateDetail 打开候选人并读取详情文本。
-func (r *Runtime) ReadCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) (model.CandidateDetail, error) {
-	item, err := candidateScopedSelector(cfg, "candidate.open_target", candidate.Index)
-	if err != nil {
-		return model.CandidateDetail{}, err
+// PageURLMatches 判断最终页面地址是否包含配置页面地址。
+func PageURLMatches(pageURL string, targetURL string) bool {
+	page, pageErr := url.Parse(strings.TrimSpace(pageURL))
+	target, targetErr := url.Parse(strings.TrimSpace(targetURL))
+	if pageErr != nil || targetErr != nil || page.Scheme == "" || target.Scheme == "" {
+		return false
 	}
-	if _, err := browser.Click(ctx, contract.ElementClickRequest{Selector: item}); err != nil {
-		fallback, fallbackErr := indexedSelector(cfg, "candidate.item", candidate.Index)
-		if fallbackErr != nil {
-			return model.CandidateDetail{}, err
-		}
-		if _, fallbackErr = browser.Click(ctx, contract.ElementClickRequest{Selector: fallback}); fallbackErr != nil {
-			return model.CandidateDetail{}, fallbackErr
-		}
+	pagePath := strings.TrimRight(page.EscapedPath(), "/")
+	targetPath := strings.TrimRight(target.EscapedPath(), "/")
+	pathMatches := pagePath == targetPath ||
+		(targetPath != "" && strings.HasPrefix(pagePath, targetPath+"/"))
+	if !strings.EqualFold(page.Scheme, target.Scheme) ||
+		!strings.EqualFold(page.Host, target.Host) ||
+		!pathMatches {
+		return false
 	}
-	detail, err := requiredSelector(cfg, "candidate.detail")
-	if err != nil {
-		return model.CandidateDetail{}, err
-	}
-	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: detail, Property: "text"})
-	if err != nil {
-		return model.CandidateDetail{}, err
-	}
-	return model.CandidateDetail{Text: result.Value}, nil
+	return target.RawQuery == "" || strings.Contains(page.RawQuery, target.RawQuery)
 }
 
-// GreetCandidate 点击候选人打招呼入口并按配置发送可选自定义文案。
-func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, message string) error {
-	if strings.TrimSpace(message) != "" {
-		if err := inputOptional(ctx, browser, cfg, "candidate.greet_input", message); err != nil {
-			return err
-		}
-	}
-	selector, err := candidateScopedSelector(cfg, "candidate.greet_send", candidate.Index)
+// ClickRequired 使用 Worker 完整点击能力点击必需选择器。
+func ClickRequired(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
+	selector, err := RequiredSelector(cfg, key)
 	if err != nil {
 		return err
 	}
@@ -118,92 +73,250 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 	return err
 }
 
-// CloseCandidateDetail 关闭当前候选人详情，可选选择器未配置时不执行。
-func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return clickOptional(ctx, browser, cfg, "candidate.detail_close")
+// ClickOptional 点击可选选择器，未配置或页面不存在时安全跳过。
+func ClickOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
+	selector, ok := cfg.Selectors[key]
+	if !ok || len(selector.Target.Selectors) == 0 {
+		return nil
+	}
+	_, err := browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
+	if IsElementMissing(err) {
+		return nil
+	}
+	return err
 }
 
-// ScrollCandidates 使用真实鼠标滚轮继续加载候选人。
-func (r *Runtime) ScrollCandidates(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	var target *contract.SelectorSpec
-	if selector, ok := cfg.Selectors["candidate.list"]; ok {
-		target = &selector
+// InputRequired 使用 Worker 完整输入能力写入必需输入框。
+func InputRequired(ctx context.Context, browser model.Browser, cfg model.Config, key string, value string) error {
+	selector, err := RequiredSelector(cfg, key)
+	if err != nil {
+		return err
 	}
-	_, err := browser.Scroll(ctx, contract.ScrollRequest{
-		Target:      target,
-		Distance:    positiveOr(cfg.ScrollDistance, 620),
-		MaxAttempts: 1,
-		WaitMS:      350,
+	clear := true
+	verify := true
+	_, err = browser.Input(ctx, contract.ElementInputRequest{
+		Selector: selector, Text: value, Clear: &clear, Verify: &verify,
 	})
 	return err
 }
 
-// PrepareAutoReply 打开平台消息页并关闭可选提示。
-func (r *Runtime) PrepareAutoReply(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	if strings.TrimSpace(cfg.MessagesURL) == "" {
-		return fmt.Errorf("平台 %s 没有配置消息页地址", r.platformID)
+// InputOptional 向可选输入框写入非空内容。
+func InputOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
 	}
-	if _, err := browser.OpenPage(ctx, contract.PageOpenRequest{URL: cfg.MessagesURL, WaitUntil: "domcontentloaded", TimeoutMS: 30000}); err != nil {
-		return err
+	if _, ok := cfg.Selectors[key]; !ok {
+		return nil
 	}
-	return clickOptional(ctx, browser, cfg, "message.dismiss")
+	return InputRequired(ctx, browser, cfg, key, value)
 }
 
-// ScanUnreadConversations 读取未读会话列表和配置字段。
-func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
-	selector, err := requiredSelector(cfg, "message.unread_item")
+// ApplyConfiguredActions 按配置顺序执行平台筛选动作。
+func ApplyConfiguredActions(ctx context.Context, browser model.Browser, cfg model.Config, actions []model.ConfiguredAction) error {
+	for _, action := range actions {
+		var err error
+		switch strings.ToLower(strings.TrimSpace(action.Type)) {
+		case "click":
+			if action.Optional {
+				err = ClickOptional(ctx, browser, cfg, action.SelectorKey)
+			} else {
+				err = ClickRequired(ctx, browser, cfg, action.SelectorKey)
+			}
+		case "input":
+			if action.Optional && strings.TrimSpace(action.Value) == "" {
+				continue
+			}
+			err = InputRequired(ctx, browser, cfg, action.SelectorKey, action.Value)
+		default:
+			err = fmt.Errorf("平台 %s 的配置动作 %s 类型不支持：%s", cfg.ID, action.Name, action.Type)
+		}
+		if err != nil {
+			return fmt.Errorf("%s失败：%w", firstNonEmpty(action.Name, action.SelectorKey), err)
+		}
+	}
+	return nil
+}
+
+// FindCandidates 读取当前候选人列表并整理成统一结构。
+func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, platformID string) ([]model.Candidate, error) {
+	selector, err := RequiredSelector(cfg, "candidate.item")
 	if err != nil {
 		return nil, err
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector,
-		MaxItems: positiveOr(cfg.MaxItems, 100),
-		Fields:   cfg.ConversationFields,
+		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: cfg.CandidateFields,
 	})
 	if err != nil {
 		return nil, err
 	}
-	conversations := make([]model.Conversation, 0, len(items))
+	result := make([]model.Candidate, 0, len(items))
 	for _, item := range items {
 		name := firstNonEmpty(item.Fields["name"], item.Text)
-		key := firstNonEmpty(item.Fields["id"], hashText(r.platformID+"|"+name+"|"+item.Text))
-		conversations = append(conversations, model.Conversation{
-			Index: item.Index, Key: key, Name: name, Summary: item.Text, Fields: item.Fields,
+		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
+		result = append(result, model.Candidate{
+			Index: item.Index, Fingerprint: fingerprint, Name: name,
+			Summary: item.Text, Fields: item.Fields,
 		})
 	}
-	return conversations, nil
+	return result, nil
 }
 
-// ReadConversation 打开未读会话并读取上下文。
-func (r *Runtime) ReadConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation) (string, error) {
-	item, err := indexedSelector(cfg, "message.unread_item", conversation.Index)
-	if err != nil {
-		return "", err
+// CandidateFingerprint 按旧版规则使用平台、姓名和年龄生成稳定去重编号。
+func CandidateFingerprint(platformID string, name string, fields map[string]string, summary string) string {
+	age := firstNonEmpty(fields["age"], fields["candidate_age"], extractAge(summary))
+	normalizedName := strings.Join(strings.Fields(strings.TrimSpace(name)), "")
+	normalizedAge := strings.Join(strings.Fields(strings.TrimSpace(age)), "")
+	if normalizedName == "" || normalizedAge == "" {
+		return ""
 	}
-	if _, err := browser.Click(ctx, contract.ElementClickRequest{Selector: item}); err != nil {
-		return "", err
-	}
-	contextSelector, err := requiredSelector(cfg, "message.context")
-	if err != nil {
-		return "", err
-	}
-	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: contextSelector, Property: "text"})
-	return result.Value, err
+	return strings.ToLower(strings.TrimSpace(platformID)) + "_" + normalizedName + "_" + normalizedAge
 }
 
-// ReplyConversation 输入回复并点击发送。
-func (r *Runtime) ReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, reply string) error {
-	if strings.TrimSpace(reply) == "" {
-		return fmt.Errorf("回复内容不能为空")
+// ReadOptional 读取可选选择器文本，未配置或元素不存在时返回 found=false。
+func ReadOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string) (value string, found bool, err error) {
+	selector, ok := cfg.Selectors[key]
+	if !ok || len(selector.Target.Selectors) == 0 {
+		return "", false, nil
 	}
-	if err := inputRequired(ctx, browser, cfg, "message.input", reply); err != nil {
+	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
+	if IsElementMissing(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return strings.TrimSpace(result.Value), true, nil
+}
+
+// SelectorExists 判断可选选择器当前是否存在且符合配置状态。
+func SelectorExists(ctx context.Context, browser model.Browser, cfg model.Config, key string) (bool, error) {
+	selector, ok := cfg.Selectors[key]
+	if !ok || len(selector.Target.Selectors) == 0 {
+		return false, nil
+	}
+	_, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1})
+	if IsElementMissing(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// ScrollToCandidate 使用真实鼠标滚轮把指定候选人滚动到可操作区域。
+func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	selector, err := IndexedSelector(cfg, "candidate.item", candidate.Index)
+	if err != nil {
 		return err
 	}
-	return clickRequired(ctx, browser, cfg, "message.send")
+	requireFull := true
+	_, err = browser.Scroll(ctx, contract.ScrollRequest{
+		Target: &selector, Distance: 180, MaxAttempts: 18,
+		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 48,
+	})
+	return err
 }
 
-// requiredSelector 返回平台必需选择器。
-func requiredSelector(cfg model.Config, key string) (contract.SelectorSpec, error) {
+// GreetCandidate 滚动到候选人后，按平台配置完成打招呼和可选自定义文案。
+func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) error {
+	selector, err := CandidateScopedSelector(cfg, "candidate.greet", candidate.Index)
+	if err != nil {
+		return err
+	}
+	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 48}); err != nil {
+		return err
+	}
+	if err = ClickOptional(ctx, browser, cfg, "candidate.greet_continue"); err != nil {
+		return err
+	}
+	if err = ClickOptional(ctx, browser, cfg, "candidate.greet_confirm"); err != nil {
+		return err
+	}
+	if err = InputOptional(ctx, browser, cfg, "candidate.greet_input", request.Message); err != nil {
+		return err
+	}
+	if _, hasSend := cfg.Selectors["candidate.greet_send"]; hasSend {
+		return ClickRequired(ctx, browser, cfg, "candidate.greet_send")
+	}
+	return nil
+}
+
+// RequestCandidateInfo 按配置索要电话、微信、简历并发送可选追加消息。
+func RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, request model.CandidateInfoRequest) error {
+	steps := []struct {
+		enabled bool
+		key     string
+	}{
+		{request.RequestPhone, "candidate.request_phone"},
+		{request.RequestWechat, "candidate.request_wechat"},
+		{request.RequestResume, "candidate.request_resume"},
+	}
+	for _, step := range steps {
+		if step.enabled {
+			if err := ClickRequired(ctx, browser, cfg, step.key); err != nil {
+				return err
+			}
+			if err := ClickOptional(ctx, browser, cfg, step.key+"_confirm"); err != nil {
+				return err
+			}
+		}
+	}
+	if strings.TrimSpace(request.Message) != "" {
+		if _, hasInput := cfg.Selectors["candidate.followup_input"]; !hasInput {
+			return nil
+		}
+		if err := InputRequired(ctx, browser, cfg, "candidate.followup_input", request.Message); err != nil {
+			return err
+		}
+		if _, ok := cfg.Selectors["candidate.followup_send"]; ok {
+			return ClickRequired(ctx, browser, cfg, "candidate.followup_send")
+		}
+		_, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Enter", DelayMS: 80})
+		return err
+	}
+	return nil
+}
+
+// CandidateAction 点击指定候选人卡片内的平台动作。
+func CandidateAction(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, actionKey string) error {
+	selector, err := CandidateScopedSelector(cfg, actionKey, candidate.Index)
+	if err != nil {
+		return err
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 48})
+	return err
+}
+
+// NextCandidatePage 点击下一页；平台不支持或未配置时返回 false。
+func NextCandidatePage(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
+	if !cfg.Behavior.SupportsPaging {
+		return false, nil
+	}
+	if _, ok := cfg.Selectors["candidate.next_page"]; !ok {
+		return false, nil
+	}
+	if err := ClickRequired(ctx, browser, cfg, "candidate.next_page"); err != nil {
+		if IsElementMissing(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// ScrollCandidates 使用真实鼠标滚轮加载更多候选人。
+func ScrollCandidates(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	var anchor *contract.SelectorSpec
+	if selector, ok := cfg.Selectors["candidate.list"]; ok {
+		anchor = &selector
+	}
+	_, err := browser.Scroll(ctx, contract.ScrollRequest{
+		WheelAnchor: anchor, Distance: positiveOr(cfg.ScrollDistance, 620),
+		MaxAttempts: 1, WaitMS: 350,
+	})
+	return err
+}
+
+// RequiredSelector 返回平台必需选择器。
+func RequiredSelector(cfg model.Config, key string) (contract.SelectorSpec, error) {
 	selector, ok := cfg.Selectors[key]
 	if !ok || len(selector.Target.Selectors) == 0 {
 		return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少选择器 %s", cfg.ID, key)
@@ -211,9 +324,9 @@ func requiredSelector(cfg model.Config, key string) (contract.SelectorSpec, erro
 	return selector, nil
 }
 
-// indexedSelector 复制选择器并设置从 0 开始的列表序号。
-func indexedSelector(cfg model.Config, key string, index int) (contract.SelectorSpec, error) {
-	selector, err := requiredSelector(cfg, key)
+// IndexedSelector 复制选择器并设置从 0 开始的列表序号。
+func IndexedSelector(cfg model.Config, key string, index int) (contract.SelectorSpec, error) {
+	selector, err := RequiredSelector(cfg, key)
 	if err != nil {
 		return contract.SelectorSpec{}, err
 	}
@@ -222,15 +335,20 @@ func indexedSelector(cfg model.Config, key string, index int) (contract.Selector
 	return selector, nil
 }
 
-// candidateScopedSelector 把卡片序号作为父级，并在卡片内部定位具体动作。
-func candidateScopedSelector(cfg model.Config, actionKey string, index int) (contract.SelectorSpec, error) {
-	card, err := requiredSelector(cfg, "candidate.item")
+// CandidateScopedSelector 把候选人卡片作为父级后定位卡片内动作。
+func CandidateScopedSelector(cfg model.Config, actionKey string, index int) (contract.SelectorSpec, error) {
+	return CandidateScopedSelectorWithParent(cfg, "candidate.item", actionKey, index)
+}
+
+// CandidateScopedSelectorWithParent 把指定列表项作为父级后定位项目内动作。
+func CandidateScopedSelectorWithParent(cfg model.Config, parentKey string, actionKey string, index int) (contract.SelectorSpec, error) {
+	card, err := RequiredSelector(cfg, parentKey)
 	if err != nil {
 		return contract.SelectorSpec{}, err
 	}
 	action, ok := cfg.Selectors[actionKey]
 	if !ok {
-		return indexedSelector(cfg, "candidate.item", index)
+		return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少选择器 %s", cfg.ID, actionKey)
 	}
 	indexValue := max(index, 0)
 	card.Target.Index = &indexValue
@@ -244,64 +362,32 @@ func candidateScopedSelector(cfg model.Config, actionKey string, index int) (con
 	return action, nil
 }
 
-// selectPosition 按输入框或岗位文本选择云端岗位名称。
-func selectPosition(ctx context.Context, browser model.Browser, cfg model.Config, positionName string) error {
-	if _, ok := cfg.Selectors["position.input"]; ok {
-		if err := inputRequired(ctx, browser, cfg, "position.input", positionName); err != nil {
-			return err
+// IsElementMissing 判断 Worker 错误是否只是可选元素不存在。
+func IsElementMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	var workerErr *contract.WorkerError
+	return errors.As(err, &workerErr) && workerErr.Body.Code == "ELEMENT_NOT_FOUND"
+}
+
+// HashText 返回用于本地去重的短哈希。
+func HashText(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:16])
+}
+
+// extractAge 从候选人卡片文本提取年龄。
+func extractAge(value string) string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r < '0' || r > '9'
+	})
+	for _, field := range fields {
+		if len(field) == 2 {
+			return field
 		}
 	}
-	selector, ok := cfg.Selectors["position.item"]
-	if !ok {
-		return nil
-	}
-	selector.Target.Text = positionName
-	selector.Target.ExactText = boolPointer(false)
-	_, err := browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
-	return err
-}
-
-// clickRequired 调用 Worker 完整点击能力。
-func clickRequired(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
-	selector, err := requiredSelector(cfg, key)
-	if err != nil {
-		return err
-	}
-	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
-	return err
-}
-
-// clickOptional 点击存在于云端配置中的可选元素。
-func clickOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
-	selector, ok := cfg.Selectors[key]
-	if !ok {
-		return nil
-	}
-	_, err := browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
-	return err
-}
-
-// inputRequired 调用 Worker 完整输入能力。
-func inputRequired(ctx context.Context, browser model.Browser, cfg model.Config, key string, value string) error {
-	selector, err := requiredSelector(cfg, key)
-	if err != nil {
-		return err
-	}
-	clear := true
-	verify := true
-	_, err = browser.Input(ctx, contract.ElementInputRequest{Selector: selector, Text: value, Clear: &clear, Verify: &verify})
-	return err
-}
-
-// inputOptional 向存在于云端配置中的可选元素输入内容。
-func inputOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string, value string) error {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	if _, ok := cfg.Selectors[key]; !ok {
-		return nil
-	}
-	return inputRequired(ctx, browser, cfg, key, value)
+	return ""
 }
 
 // positiveOr 返回正整数配置或默认值。
@@ -320,15 +406,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// hashText 返回用于本地去重的短哈希。
-func hashText(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:16])
-}
-
-// boolPointer 返回布尔值指针供可选协议字段使用。
-func boolPointer(value bool) *bool {
-	return &value
 }

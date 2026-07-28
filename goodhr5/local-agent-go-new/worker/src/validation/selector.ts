@@ -69,6 +69,15 @@ export function parseSelectorSpec(
   if (timeout !== undefined) {
     result.timeout_ms = timeout;
   }
+  if (record.read_property === "text" || record.read_property === "html") {
+    result.read_property = record.read_property;
+  }
+  if (
+    typeof record.read_attribute === "string" &&
+    record.read_attribute.trim() !== ""
+  ) {
+    result.read_attribute = record.read_attribute.trim();
+  }
   return result;
 }
 

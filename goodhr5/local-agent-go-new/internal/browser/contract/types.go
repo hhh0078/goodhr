@@ -19,12 +19,14 @@ type SelectorGroup struct {
 
 // SelectorSpec 表示 iframe、父级和目标组成的统一定位方案。
 type SelectorSpec struct {
-	Frames      []SelectorGroup `json:"frames,omitempty"`
-	Parents     []SelectorGroup `json:"parents,omitempty"`
-	Target      SelectorGroup   `json:"target"`
-	State       string          `json:"state,omitempty"`
-	TimeoutMS   int             `json:"timeout_ms,omitempty"`
-	Description string          `json:"description"`
+	Frames        []SelectorGroup `json:"frames,omitempty"`
+	Parents       []SelectorGroup `json:"parents,omitempty"`
+	Target        SelectorGroup   `json:"target"`
+	State         string          `json:"state,omitempty"`
+	TimeoutMS     int             `json:"timeout_ms,omitempty"`
+	ReadProperty  string          `json:"read_property,omitempty"`
+	ReadAttribute string          `json:"read_attribute,omitempty"`
+	Description   string          `json:"description"`
 }
 
 // ElementBox 表示元素在视口内的位置。
@@ -81,15 +83,18 @@ type ProxyConfig struct {
 
 // BrowserStartRequest 表示 CloakBrowser 启动参数。
 type BrowserStartRequest struct {
-	UserDataDir   string       `json:"user_data_dir,omitempty"`
-	DownloadsPath string       `json:"downloads_path,omitempty"`
-	Headless      *bool        `json:"headless,omitempty"`
-	Humanize      *bool        `json:"humanize,omitempty"`
-	URL           string       `json:"url,omitempty"`
-	Locale        string       `json:"locale,omitempty"`
-	Timezone      string       `json:"timezone,omitempty"`
-	Proxy         *ProxyConfig `json:"proxy,omitempty"`
-	Args          []string     `json:"args,omitempty"`
+	UserDataDir    string       `json:"user_data_dir,omitempty"`
+	DownloadsPath  string       `json:"downloads_path,omitempty"`
+	Headless       *bool        `json:"headless,omitempty"`
+	Humanize       *bool        `json:"humanize,omitempty"`
+	URL            string       `json:"url,omitempty"`
+	Locale         string       `json:"locale,omitempty"`
+	Timezone       string       `json:"timezone,omitempty"`
+	UserAgent      string       `json:"user_agent,omitempty"`
+	ViewportWidth  int          `json:"viewport_width,omitempty"`
+	ViewportHeight int          `json:"viewport_height,omitempty"`
+	Proxy          *ProxyConfig `json:"proxy,omitempty"`
+	Args           []string     `json:"args,omitempty"`
 }
 
 // BrowserStatus 表示 Browser Worker 会话状态。
@@ -181,19 +186,23 @@ type ClickVerification struct {
 
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
-	Selector       SelectorSpec       `json:"selector"`
-	Button         string             `json:"button,omitempty"`
-	ClickCount     int                `json:"click_count,omitempty"`
-	ViewportMargin int                `json:"viewport_margin,omitempty"`
-	Verify         *ClickVerification `json:"verify,omitempty"`
+	Selector         SelectorSpec       `json:"selector"`
+	Button           string             `json:"button,omitempty"`
+	ClickCount       int                `json:"click_count,omitempty"`
+	ViewportMargin   int                `json:"viewport_margin,omitempty"`
+	WaitForNewPage   bool               `json:"wait_for_new_page,omitempty"`
+	NewPageTimeoutMS int                `json:"new_page_timeout_ms,omitempty"`
+	Verify           *ClickVerification `json:"verify,omitempty"`
 }
 
 // ClickResult 表示完整封装点击结果。
 type ClickResult struct {
-	Clicked    bool   `json:"clicked"`
-	ElementRef string `json:"element_ref"`
-	HoldMS     int    `json:"hold_ms"`
-	Verified   bool   `json:"verified"`
+	Clicked       bool   `json:"clicked"`
+	ElementRef    string `json:"element_ref"`
+	HoldMS        int    `json:"hold_ms"`
+	Verified      bool   `json:"verified"`
+	NewPageOpened bool   `json:"new_page_opened"`
+	NewPageURL    string `json:"new_page_url"`
 }
 
 // ElementInputRequest 表示完整封装输入请求。
@@ -259,6 +268,33 @@ type ScreenshotResult struct {
 	Size     int64  `json:"size"`
 }
 
+// LongScreenshotRequest 表示使用真实鼠标滚轮分段截取长元素的请求。
+type LongScreenshotRequest struct {
+	Target      SelectorSpec  `json:"target"`
+	WheelAnchor *SelectorSpec `json:"wheel_anchor,omitempty"`
+	Directory   string        `json:"directory"`
+	Filename    string        `json:"filename"`
+	Distance    int           `json:"distance,omitempty"`
+	MaxParts    int           `json:"max_parts,omitempty"`
+	WaitMS      int           `json:"wait_ms,omitempty"`
+}
+
+// ScreenshotPart 表示长截图中的一个本地 PNG 分段。
+type ScreenshotPart struct {
+	Path           string `json:"path"`
+	Filename       string `json:"filename"`
+	Size           int64  `json:"size"`
+	Index          int    `json:"index"`
+	ScrollPosition int    `json:"scroll_position"`
+}
+
+// LongScreenshotResult 表示真实滚轮长截图的全部分段。
+type LongScreenshotResult struct {
+	Parts    []ScreenshotPart `json:"parts"`
+	Count    int              `json:"count"`
+	Complete bool             `json:"complete"`
+}
+
 // Cookie 表示 Go 与 Worker 共享的浏览器 Cookie。
 type Cookie struct {
 	Name     string  `json:"name"`
@@ -284,17 +320,31 @@ type CookieSetRequest struct {
 
 // DownloadRecord 表示一条浏览器下载记录。
 type DownloadRecord struct {
-	ID        string `json:"id"`
-	Filename  string `json:"filename"`
-	Path      string `json:"path"`
-	URL       string `json:"url"`
-	CreatedAt string `json:"created_at"`
+	ID                string `json:"id"`
+	Filename          string `json:"filename"`
+	FileName          string `json:"file_name"`
+	FilePath          string `json:"file_path"`
+	Path              string `json:"path"`
+	SuggestedFilename string `json:"suggested_filename"`
+	URL               string `json:"url"`
+	PageURL           string `json:"page_url"`
+	Size              int64  `json:"size"`
+	Status            string `json:"status"`
+	Error             string `json:"error"`
+	CreatedAt         string `json:"created_at"`
 }
 
 // DownloadListResult 表示浏览器下载记录列表。
 type DownloadListResult struct {
 	Downloads []DownloadRecord `json:"downloads"`
 	Count     int              `json:"count"`
+	Pending   int              `json:"pending"`
+	Directory string           `json:"directory"`
+}
+
+// DownloadConfigureRequest 表示切换后续下载保存目录请求。
+type DownloadConfigureRequest struct {
+	Directory string `json:"directory"`
 }
 
 // OverlayShowRequest 表示通用页面浮层内容。

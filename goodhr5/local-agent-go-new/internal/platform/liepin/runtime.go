@@ -1,9 +1,15 @@
-// Package liepin 组装猎聘企业端平台适配，页面细节全部由云端强类型选择器配置驱动。
+// Package liepin 实现猎聘企业端平台的页面、候选人和消息能力。
 package liepin
 
-import "goodhr5/local-agent-go-new/internal/platform/common"
+// Runtime 是猎聘企业端平台运行时。
+type Runtime struct{}
 
 // NewRuntime 创建猎聘企业端平台运行时。
-func NewRuntime() *common.Runtime {
-	return common.New("liepin")
+func NewRuntime() *Runtime {
+	return &Runtime{}
+}
+
+// PlatformID 返回猎聘企业端平台编号。
+func (r *Runtime) PlatformID() string {
+	return "liepin"
 }

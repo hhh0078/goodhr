@@ -19,15 +19,32 @@ type HealthChecker interface {
 
 // Manager 管理当前唯一 Worker 子进程。
 type Manager struct {
-	mu        sync.Mutex
-	nodePath  string
-	entryPath string
-	port      int
-	logPath   string
-	health    HealthChecker
-	command   *exec.Cmd
-	logFile   *os.File
-	done      chan struct{}
+	mu          sync.Mutex
+	nodePath    string
+	entryPath   string
+	port        int
+	logPath     string
+	health      HealthChecker
+	environment []string
+	command     *exec.Cmd
+	logFile     *os.File
+	done        chan struct{}
+}
+
+// SetEnvironment 设置 Worker 子进程需要的额外环境变量。
+func (m *Manager) SetEnvironment(values ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.environment = append([]string(nil), values...)
+}
+
+// SetExecutable 更新后续启动 Worker 使用的 Node.js 可执行文件。
+func (m *Manager) SetExecutable(nodePath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if nodePath != "" {
+		m.nodePath = nodePath
+	}
 }
 
 // New 创建 Worker 进程管理器。
@@ -62,6 +79,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
+	command.Env = append(command.Env, m.environment...)
 	command.Stdout = io.MultiWriter(os.Stdout, file)
 	command.Stderr = io.MultiWriter(os.Stderr, file)
 	if err := command.Start(); err != nil {

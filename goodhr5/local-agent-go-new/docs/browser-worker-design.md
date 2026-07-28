@@ -83,6 +83,8 @@ interface SelectorCandidate {
 6. 验证文本、属性和状态。
 7. 生成本次操作使用的 `element_ref`。
 
+单元素和列表查找都必须在 `timeout_ms` 内轮询。列表最终超时时只返回最后一轮完整尝试记录，避免诊断被重复轮询日志淹没。
+
 ### 序号规则
 
 - 所有 `index` 从 0 开始。
@@ -148,6 +150,7 @@ interface SelectorCandidate {
 - 把鼠标移动到安全的滚动区域。
 - 分段滚动，允许随机距离和停顿。
 - 滚动后读取状态并验证变化。
+- 提供 `wheel_anchor` 时，验证鼠标落点元素或其最近可滚动父级的 `scrollTop`、`scrollHeight` 和视口尺寸；不能只看页面 `window.scrollY`。
 
 禁止：
 
@@ -255,10 +258,12 @@ timeout_ms=5000
 
 - `page.screenshot`
 - `element.screenshot`
+- `element.screenshot_long`
 - `cookie.list`
 - `cookie.set`
 - `download.configure`
 - `download.list`
+- `download.clear`
 - `overlay.show`
 - `overlay.close`
 
@@ -269,3 +274,5 @@ timeout_ms=5000
 3. 是否夹带平台业务。
 
 平台专用能力不得加入 Worker。
+
+长截图仍属于通用浏览器能力：它只接收 `SelectorSpec`，通过鼠标移动和真实滚轮分段截图，不知道候选人或招聘平台名称。Go 负责决定何时调用以及如何把分段交给 OCR。

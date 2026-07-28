@@ -182,6 +182,15 @@ export class FindAction {
           require_unique: false,
         },
       );
+      if (spec.read_attribute) {
+        return this.readPrimitive.attribute(
+          resolved.locator,
+          spec.read_attribute,
+        );
+      }
+      if (spec.read_property === "html") {
+        return this.readPrimitive.html(resolved.locator);
+      }
       return this.readPrimitive.text(resolved.locator);
     } catch {
       return "";

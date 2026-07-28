@@ -21,6 +21,9 @@ export interface BrowserStartRequest {
   url?: string;
   locale?: string;
   timezone?: string;
+  user_agent?: string;
+  viewport_width?: number;
+  viewport_height?: number;
   proxy?: string | ProxyConfig;
   args?: string[];
 }
@@ -95,6 +98,8 @@ export interface ElementClickRequest {
   button?: "left" | "right" | "middle";
   click_count?: number;
   viewport_margin?: number;
+  wait_for_new_page?: boolean;
+  new_page_timeout_ms?: number;
   verify?: ClickVerification;
 }
 
@@ -148,6 +153,33 @@ export interface ScreenshotResult extends JsonObject {
   size: number;
 }
 
+/** LongScreenshotRequest 表示使用真实鼠标滚轮分段截取长元素的参数。 */
+export interface LongScreenshotRequest {
+  target: SelectorSpec;
+  wheel_anchor?: SelectorSpec;
+  directory: string;
+  filename: string;
+  distance?: number;
+  max_parts?: number;
+  wait_ms?: number;
+}
+
+/** ScreenshotPart 表示长截图中的一个本地 PNG 分段。 */
+export interface ScreenshotPart extends JsonObject {
+  path: string;
+  filename: string;
+  size: number;
+  index: number;
+  scroll_position: number;
+}
+
+/** LongScreenshotResult 表示长元素分段截图结果。 */
+export interface LongScreenshotResult extends JsonObject {
+  parts: ScreenshotPart[];
+  count: number;
+  complete: boolean;
+}
+
 /** CookieListResult 表示当前浏览器 Cookie。 */
 export interface CookieListResult {
   cookies: Cookie[];
@@ -163,8 +195,15 @@ export interface CookieSetRequest {
 export interface DownloadRecord extends JsonObject {
   id: string;
   filename: string;
+  file_name: string;
+  file_path: string;
   path: string;
+  suggested_filename: string;
   url: string;
+  page_url: string;
+  size: number;
+  status: "pending" | "saved" | "failed";
+  error: string;
   created_at: string;
 }
 
@@ -172,6 +211,13 @@ export interface DownloadRecord extends JsonObject {
 export interface DownloadListResult extends JsonObject {
   downloads: DownloadRecord[];
   count: number;
+  pending: number;
+  directory: string;
+}
+
+/** DownloadConfigureRequest 表示切换后续下载保存目录的参数。 */
+export interface DownloadConfigureRequest {
+  directory: string;
 }
 
 /** OverlayShowRequest 表示通用页面提示浮层内容。 */

@@ -29,8 +29,9 @@ type Flow struct {
 }
 
 type flowStep struct {
-	name string
-	run  func(context.Context) error
+	name     string
+	optional bool
+	run      func(context.Context) error
 }
 
 // Run 按平铺步骤启动浏览器、准备消息页、处理未读会话并同步摘要。
@@ -38,13 +39,16 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 	stats := shared.Stats{}
 	steps := []flowStep{
 		{name: "start_browser", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
-		{name: "prepare_message_page", run: func(ctx context.Context) error {
-			return runtime.PrepareAutoReply(ctx, f.Browser, prepared.Platform)
+		{name: "open_message_page", run: func(ctx context.Context) error {
+			return runtime.OpenMessagesPage(ctx, f.Browser, prepared.Platform)
+		}},
+		{name: "initialize_message_page", run: func(ctx context.Context) error {
+			return runtime.InitializeMessagesPage(ctx, f.Browser, prepared.Platform)
 		}},
 		{name: "scan_generate_and_reply", run: func(ctx context.Context) error {
 			return f.processConversations(ctx, prepared, runtime, &stats)
 		}},
-		{name: "sync_summary", run: func(ctx context.Context) error {
+		{name: "sync_summary", optional: true, run: func(ctx context.Context) error {
 			return f.syncSummary(ctx, prepared, stats, "completed", "", "")
 		}},
 	}
@@ -52,8 +56,11 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, step.name, "start", startedAt, nil)
 		if err := step.run(ctx); err != nil {
+			if step.optional {
+				f.log(prepared.Request.TaskID, step.name, "warning", startedAt, err)
+				continue
+			}
 			f.log(prepared.Request.TaskID, step.name, "failed", startedAt, err)
-			_ = f.syncSummary(context.WithoutCancel(ctx), prepared, stats, "failed", "FLOW_STEP_FAILED", err.Error())
 			return stats, fmt.Errorf("%s 失败：%w", step.name, err)
 		}
 		f.log(prepared.Request.TaskID, step.name, "success", startedAt, nil)
@@ -79,6 +86,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 		maxRounds = 1
 	}
 	for round := 0; round < maxRounds; round++ {
+		if err := shared.EnsureCloudSession(ctx, f.Cloud, prepared.Request.Token, prepared.Request.TaskID, "auto_reply", f.Logger); err != nil {
+			return err
+		}
 		conversations, err := runtime.ScanUnreadConversations(ctx, f.Browser, prepared.Platform)
 		if err != nil {
 			return err
@@ -90,7 +100,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			f.processConversation(ctx, prepared, runtime, conversation, stats)
+			if err := f.processConversation(ctx, prepared, runtime, conversation, stats); err != nil {
+				return err
+			}
 		}
 		if round+1 < maxRounds {
 			wait := prepared.Position.AutoReplyWait
@@ -110,45 +122,60 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 }
 
 // processConversation 平铺执行读取上下文、AI 生成、安全检查、发送和去重保存。
-func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, conversation model.Conversation, stats *shared.Stats) {
+func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, conversation model.Conversation, stats *shared.Stats) error {
 	stats.Processed++
 	history, err := runtime.ReadConversation(ctx, f.Browser, prepared.Platform, conversation)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
-		return
+		return nil
+	}
+	overlayShown := false
+	if prepared.Position.EnableThinking {
+		overlayShown = shared.ShowThinkingOverlay(
+			ctx, f.Browser, prepared.Request.TaskID, "auto_reply",
+			"AI 正在整理回复", conversation.Name, "正在读取会话并生成一条简短回复",
+			f.Logger,
+		)
 	}
 	reply, err := f.AI.GenerateReply(ctx, prepared.Position.AI, prepared.Position, conversation, history)
+	if overlayShown {
+		shared.CloseThinkingOverlay(ctx, f.Browser, prepared.Request.TaskID, "auto_reply", f.Logger)
+	}
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "generate_reply", "failed", time.Now(), err)
-		return
+		if ai.IsPositionStoppingError(err) {
+			return fmt.Errorf("AI 回复服务持续不可用，任务先停一下：%w", err)
+		}
+		return nil
 	}
 	reply = strings.TrimSpace(reply)
 	if reply == "" || len([]rune(reply)) > 1000 {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "reply_safety_check", "failed", time.Now(), fmt.Errorf("AI 回复为空或超过 1000 字"))
-		return
+		return nil
 	}
 	replyHash := hashReply(reply)
 	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.Key, replyHash)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "reply_duplicate_check", "failed", time.Now(), err)
-		return
+		return nil
 	}
 	if exists {
 		stats.Skipped++
-		return
+		return nil
 	}
 	if err := runtime.ReplyConversation(ctx, f.Browser, prepared.Platform, conversation, reply); err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "send_reply", "failed", time.Now(), err)
 		f.saveConversation(ctx, prepared, conversation, replyHash, "failed")
-		return
+		return nil
 	}
 	stats.Succeeded++
 	f.saveConversation(ctx, prepared, conversation, replyHash, "success")
+	return nil
 }
 
 // saveConversation 保存不含会话正文和回复正文的去重摘要。
@@ -163,11 +190,15 @@ func (f *Flow) saveConversation(ctx context.Context, prepared shared.PreparedTas
 
 // syncSummary 同步不含敏感内容的任务统计。
 func (f *Flow) syncSummary(ctx context.Context, prepared shared.PreparedTask, stats shared.Stats, status string, errorCode string, errorMessage string) error {
-	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, cloud.TaskSummary{
+	summary := cloud.TaskSummary{
 		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
 		Status: status, Processed: stats.Processed, Succeeded: stats.Succeeded,
 		Failed: stats.Failed, ErrorCode: errorCode, ErrorMessage: errorMessage,
-	})
+	}
+	if status == "completed" {
+		return f.Cloud.SyncCompletedSummary(ctx, prepared.Request.Token, summary)
+	}
+	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, summary)
 }
 
 // hashReply 返回回复正文的本地去重哈希。

@@ -10,45 +10,98 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/client"
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/config"
+	downloadflow "goodhr5/local-agent-go-new/internal/flow/download"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/ocr"
+	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/runtime"
-	"goodhr5/local-agent-go-new/internal/system/files"
+	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/updater"
+	"goodhr5/local-agent-go-new/internal/version"
 )
 
 // Server 组装本地 HTTP 路由和应用服务。
 type Server struct {
-	address string
-	runner  *lifecycle.Runner
-	runtime *runtime.Manager
-	browser *client.Client
-	http    *http.Server
+	cfg             config.Config
+	runner          *lifecycle.Runner
+	runtime         *runtime.Manager
+	browser         *client.Client
+	downloads       *downloadflow.Monitor
+	store           *storage.Store
+	profiles        *profile.Manager
+	ocr             *ocr.Client
+	updater         *updater.Manager
+	http            *http.Server
+	downloadRootsMu sync.RWMutex
+	downloadRoots   map[string]struct{}
+}
+
+// Dependencies 保存本地 HTTP 接口调用的应用服务。
+type Dependencies struct {
+	Runner    *lifecycle.Runner
+	Runtime   *runtime.Manager
+	Browser   *client.Client
+	Downloads *downloadflow.Monitor
+	Store     *storage.Store
+	Profiles  *profile.Manager
+	OCR       *ocr.Client
+	Updater   *updater.Manager
 }
 
 // NewServer 创建本地 HTTP 服务。
-func NewServer(address string, runner *lifecycle.Runner, runtimeManager *runtime.Manager, browser *client.Client) *Server {
-	server := &Server{address: address, runner: runner, runtime: runtimeManager, browser: browser}
+func NewServer(cfg config.Config, dependencies Dependencies) *Server {
+	server := &Server{
+		cfg: cfg, runner: dependencies.Runner, runtime: dependencies.Runtime,
+		browser: dependencies.Browser, downloads: dependencies.Downloads,
+		store: dependencies.Store, profiles: dependencies.Profiles,
+		ocr: dependencies.OCR, updater: dependencies.Updater,
+		downloadRoots: map[string]struct{}{filepath.Clean(cfg.DownloadsDir): {}},
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.handleHealth)
+	mux.HandleFunc("GET /api/v1/diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
+	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
+	mux.HandleFunc("POST /api/v1/runtime/install", server.handleRuntimeInstall)
+	mux.HandleFunc("POST /api/v1/worker/start", server.handleWorkerStart)
+	mux.HandleFunc("POST /api/v1/worker/stop", server.handleWorkerStop)
+	mux.HandleFunc("GET /api/v1/worker/status", server.handleWorkerStatus)
 	mux.HandleFunc("GET /api/v1/browser/status", server.handleBrowserStatus)
 	mux.HandleFunc("POST /api/v1/browser/start", server.handleBrowserStart)
 	mux.HandleFunc("POST /api/v1/browser/stop", server.handleBrowserStop)
+	mux.HandleFunc("POST /api/v1/page/open", server.handlePageOpen)
+	mux.HandleFunc("GET /api/v1/page/url", server.handlePageURL)
+	mux.HandleFunc("GET /api/v1/local/ocr/status", server.handleOCRStatus)
+	mux.HandleFunc("POST /api/v1/local/ocr/recognize", server.handleOCRRecognize)
+	mux.HandleFunc("GET /api/v1/local/rules/status", server.handleRulesStatus)
+	mux.HandleFunc("POST /api/v1/local/rules/update", server.handleRulesUpdate)
+	mux.HandleFunc("GET /api/v1/local/screenshots", server.handleScreenshots)
+	mux.HandleFunc("POST /api/v1/local/screenshots", server.handleScreenshots)
+	mux.HandleFunc("GET /api/v1/app-update/status", server.handleAppUpdateStatus)
+	mux.HandleFunc("POST /api/v1/app-update/start", server.handleAppUpdateStart)
 	mux.HandleFunc("GET /api/v1/downloads", server.handleDownloads)
+	mux.HandleFunc("GET /api/v1/downloads/history", server.handleDownloadHistory)
+	mux.HandleFunc("GET /api/v1/local/downloads", server.handleDownloadHistory)
+	mux.HandleFunc("POST /api/v1/downloads/configure", server.handleDownloadsConfigure)
+	mux.HandleFunc("POST /api/v1/downloads/clear", server.handleDownloadsClear)
 	mux.HandleFunc("POST /api/v1/files/open", server.handleFileOpen)
 	mux.HandleFunc("POST /api/v1/files/reveal", server.handleFileReveal)
 	server.http = &http.Server{
-		Addr:              address,
+		Addr:              cfg.Address(),
 		Handler:           server.middleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -60,7 +113,7 @@ func NewServer(address string, runner *lifecycle.Runner, runtimeManager *runtime
 
 // ListenAndServe 启动本地 HTTP 服务。
 func (s *Server) ListenAndServe() error {
-	log.Printf("GoodHR 新本地程序已监听 http://%s", s.address)
+	log.Printf("GoodHR 新本地程序已监听 http://%s", s.cfg.Address())
 	err := s.http.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -76,9 +129,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // handleHealth 返回本地程序健康状态。
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeSuccess(w, http.StatusOK, struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
-	}{Status: "ok", Version: "0.1.0"})
+		Status         string `json:"status"`
+		Version        string `json:"version"`
+		AgentVersion   string `json:"agent_version"`
+		Port           int    `json:"port"`
+		DataDir        string `json:"dataDir"`
+		DataDirAlias   string `json:"data_dir"`
+		LogsDir        string `json:"logsDir"`
+		ProfilesDir    string `json:"profilesDir"`
+		DownloadsDir   string `json:"downloadsDir"`
+		ScreenshotsDir string `json:"screenshotsDir"`
+		DatabasePath   string `json:"dbPath"`
+	}{
+		Status: "ok", Version: version.Value, AgentVersion: version.Value,
+		Port: s.cfg.Port, DataDir: s.cfg.DataDir, DataDirAlias: s.cfg.DataDir,
+		LogsDir: s.cfg.LogsDir, ProfilesDir: s.cfg.ProfilesDir,
+		DownloadsDir: s.cfg.DownloadsDir, ScreenshotsDir: s.cfg.ScreenshotsDir,
+		DatabasePath: s.cfg.DatabasePath,
+	})
 }
 
 // handleTaskStart 解析强类型请求并启动统一任务流程。
@@ -140,25 +208,50 @@ func (s *Server) handleTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleRuntimeStatus 返回 Node、Worker 编译产物和 Worker 健康状态。
 func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
-	nodeErr := s.runtime.CheckNode()
-	buildErr := s.runtime.CheckWorkerBuild()
+	status := s.runtime.Status()
+	status.Version = version.Value
+	status.AgentVersion = version.Value
+	status.DataDir = s.cfg.DataDir
+	status.NodeReady = status.NodeInstalled
+	status.WorkerBuilt = status.NodeWorkerInstalled
 	workerErr := s.browser.Health(r.Context())
 	var cloakStatus contract.WorkerRuntimeStatus
 	var cloakErr error
 	if workerErr == nil {
 		cloakStatus, cloakErr = s.browser.RuntimeStatus(r.Context())
 	}
-	writeSuccess(w, http.StatusOK, struct {
-		NodeReady           bool   `json:"node_ready"`
-		WorkerBuilt         bool   `json:"worker_built"`
-		WorkerReady         bool   `json:"worker_ready"`
-		CloakBrowserReady   bool   `json:"cloakbrowser_ready"`
-		CloakBrowserVersion string `json:"cloakbrowser_version"`
-	}{
-		NodeReady: nodeErr == nil, WorkerBuilt: buildErr == nil, WorkerReady: workerErr == nil,
-		CloakBrowserReady:   cloakErr == nil && cloakStatus.Installed,
-		CloakBrowserVersion: cloakStatus.CloakBrowserVersion,
-	})
+	status.WorkerReady = workerErr == nil
+	if cloakErr == nil && cloakStatus.Installed {
+		status.CloakBrowserReady = true
+		status.CloakBrowserInstalled = true
+		status.CloakBrowserVersion = cloakStatus.CloakBrowserVersion
+		if strings.TrimSpace(cloakStatus.BinaryPath) != "" {
+			status.CloakBrowserPath = cloakStatus.BinaryPath
+		}
+	}
+	writeSuccess(w, http.StatusOK, status)
+}
+
+// handleRuntimeInstall 根据云端清单异步安装当前系统所需运行组件。
+func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
+	if s.runner.HasActive() {
+		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在运行，组件更新先等这一轮结束"))
+		return
+	}
+	var request runtime.InstallRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	status, err := s.runtime.StartInstall(request.Manifest)
+	if err != nil {
+		writeError(w, http.StatusConflict, "RUNTIME_INSTALL_FAILED", err)
+		return
+	}
+	status.Version = version.Value
+	status.AgentVersion = version.Value
+	status.DataDir = s.cfg.DataDir
+	writeSuccess(w, http.StatusAccepted, status)
 }
 
 // handleRuntimeEnsure 检查运行组件并启动 Worker。
@@ -197,10 +290,21 @@ func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
+	if strings.TrimSpace(request.DownloadsPath) != "" {
+		normalized, normalizeErr := normalizeDownloadRoot(request.DownloadsPath)
+		if normalizeErr != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", normalizeErr)
+			return
+		}
+		request.DownloadsPath = normalized
+	}
 	result, err := s.browser.StartBrowser(r.Context(), request)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "BROWSER_START_FAILED", err)
 		return
+	}
+	if request.DownloadsPath != "" {
+		s.rememberDownloadRoot(request.DownloadsPath)
 	}
 	writeSuccess(w, http.StatusOK, result)
 }
@@ -219,44 +323,6 @@ func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, result)
 }
 
-// handleDownloads 返回当前浏览器下载记录。
-func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
-	result, err := s.browser.Downloads(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DOWNLOAD_LIST_FAILED", err)
-		return
-	}
-	writeSuccess(w, http.StatusOK, result)
-}
-
-// handleFileOpen 使用系统默认程序打开本地文件。
-func (s *Server) handleFileOpen(w http.ResponseWriter, r *http.Request) {
-	s.handleFileAction(w, r, files.Open)
-}
-
-// handleFileReveal 在 Finder 中显示本地文件。
-func (s *Server) handleFileReveal(w http.ResponseWriter, r *http.Request) {
-	s.handleFileAction(w, r, files.Reveal)
-}
-
-// handleFileAction 解析文件路径并调用指定系统能力。
-func (s *Server) handleFileAction(w http.ResponseWriter, r *http.Request, action func(context.Context, string) error) {
-	var request struct {
-		Path string `json:"path"`
-	}
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
-		return
-	}
-	if err := action(r.Context(), request.Path); err != nil {
-		writeError(w, http.StatusBadRequest, "FILE_ACTION_FAILED", err)
-		return
-	}
-	writeSuccess(w, http.StatusOK, struct {
-		Success bool `json:"success"`
-	}{Success: true})
-}
-
 // middleware 添加本机接口安全响应头和受限跨域支持。
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +332,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		if allowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Trace-ID")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

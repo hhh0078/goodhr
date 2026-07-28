@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,79 +20,6 @@ import (
 type Client struct {
 	baseURL string
 	http    *http.Client
-}
-
-// UserSession 表示云端登录状态。
-type UserSession struct {
-	UserID   string `json:"id"`
-	LoggedIn bool   `json:"logged_in"`
-}
-
-// Subscription 表示会员可用状态。
-type Subscription struct {
-	Active     bool   `json:"active"`
-	MemberType string `json:"member_type"`
-	ExpiresAt  string `json:"expires_at"`
-}
-
-// AIConfig 表示云端下发给本地 AI 客户端的配置。
-type AIConfig struct {
-	BaseURL           string  `json:"base_url"`
-	APIKey            string  `json:"api_key"`
-	Model             string  `json:"model"`
-	Temperature       float64 `json:"temperature"`
-	ScoreThreshold    float64 `json:"score_threshold"`
-	SystemPrompt      string  `json:"system_prompt"`
-	ReplySystemPrompt string  `json:"reply_system_prompt"`
-	PromptTemplate    string  `json:"prompt_template"`
-}
-
-// PositionCommonConfig 表示云端岗位公共运行配置。
-type PositionCommonConfig struct {
-	ModeDefault string `json:"mode_default"`
-	DetailMode  string `json:"detail_mode"`
-	ScanRounds  int    `json:"scan_rounds"`
-}
-
-// PositionAIOptions 表示岗位级 AI 阈值和提示词。
-type PositionAIOptions struct {
-	GreetScoreThreshold float64 `json:"greet_score_threshold"`
-	GreetPrompt         string  `json:"greet_prompt"`
-	ReplyPrompt         string  `json:"reply_prompt"`
-}
-
-// PositionSnapshot 表示任务启动时冻结的岗位配置。
-type PositionSnapshot struct {
-	ID              string               `json:"id"`
-	Name            string               `json:"name"`
-	PlatformID      string               `json:"platform_id"`
-	ProfileID       string               `json:"profile_id"`
-	Keyword         string               `json:"keyword"`
-	Keywords        []string             `json:"keywords"`
-	ExcludeKeywords []string             `json:"exclude_keywords"`
-	IsAndMode       bool                 `json:"is_and_mode"`
-	Description     string               `json:"description"`
-	GreetMessage    string               `json:"greet_message"`
-	MatchLimit      int                  `json:"match_limit"`
-	MaxBatches      int                  `json:"max_batches"`
-	RequiresAI      bool                 `json:"requires_ai"`
-	RequiresOCR     bool                 `json:"requires_ocr"`
-	AutoReplyWait   int                  `json:"auto_reply_wait_seconds"`
-	CommonConfig    PositionCommonConfig `json:"common_config"`
-	AIOptions       PositionAIOptions    `json:"ai_config"`
-	AI              AIConfig             `json:"ai"`
-}
-
-// TaskSummary 表示同步到云端的不含敏感数据任务摘要。
-type TaskSummary struct {
-	TaskID       string `json:"task_id"`
-	PositionID   string `json:"position_id"`
-	Status       string `json:"status"`
-	Processed    int    `json:"processed"`
-	Succeeded    int    `json:"succeeded"`
-	Failed       int    `json:"failed"`
-	ErrorCode    string `json:"error_code,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // New 创建 GoodHR 云端客户端。
@@ -119,9 +47,19 @@ func (c *Client) ValidateSession(ctx context.Context, token string) (UserSession
 	}
 	session.LoggedIn = session.UserID != ""
 	if !session.LoggedIn {
-		return UserSession{}, fmt.Errorf("登录状态已经失效，请重新登录")
+		return UserSession{}, &APIError{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "登录状态已经失效，请重新登录",
+		}
 	}
 	return session, nil
+}
+
+// IsAuthExpired 判断云端错误是否明确表示登录态失效。
+func IsAuthExpired(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) &&
+		(apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden)
 }
 
 // Subscription 读取当前会员状态。
@@ -189,6 +127,29 @@ func (c *Client) EffectiveAI(ctx context.Context, token string) (AIConfig, error
 	return result, nil
 }
 
+// Preferences 读取当前用户的拟人等待和休息配置。
+func (c *Client) Preferences(ctx context.Context, token string) (UserPreferences, error) {
+	var response struct {
+		Config *UserPreferences `json:"config"`
+		Data   struct {
+			Config *UserPreferences `json:"config"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/config/user-preferences", token, nil, &response); err != nil {
+		return UserPreferences{}, err
+	}
+	result := response.Config
+	if result == nil {
+		result = response.Data.Config
+	}
+	if result == nil {
+		defaults := DefaultUserPreferences()
+		result = &defaults
+	}
+	normalized := normalizeUserPreferences(*result)
+	return normalized, nil
+}
+
 // PlatformConfig 读取指定平台的强类型 URL 和选择器配置。
 func (c *Client) PlatformConfig(ctx context.Context, token string, platformID string) (model.Config, error) {
 	var direct struct {
@@ -212,14 +173,124 @@ func (c *Client) PlatformConfig(ctx context.Context, token string, platformID st
 
 // SyncSummary 把不含候选人详情的任务统计同步给云端。
 func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSummary) error {
-	if summary.Status == "failed" {
-		summary.Status = "stopped"
+	_, err := c.syncSummary(ctx, token, summary)
+	return err
+}
+
+// SyncCompletedSummary 最多尝试三次完成状态同步，并要求云端确认完成邮件已发送。
+func (c *Client) SyncCompletedSummary(ctx context.Context, token string, summary TaskSummary) error {
+	summary.Status = "completed"
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		result, err := c.syncSummary(ctx, token, summary)
+		if err == nil && result.NoticeSent {
+			return nil
+		}
+		if err == nil {
+			err = fmt.Errorf("云端未确认完成邮件已发送")
+		}
+		lastErr = err
+		if attempt < 3 {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
 	}
+	return fmt.Errorf("同步完成状态和邮件失败，已尝试 3 次：%w", lastErr)
+}
+
+// syncSummary 执行一次任务状态同步并返回云端通知结果。
+func (c *Client) syncSummary(ctx context.Context, token string, summary TaskSummary) (SummaryResult, error) {
 	path := "/api/positions/" + url.PathEscape(summary.PositionID) + "/status"
-	var response struct {
-		Success bool `json:"success"`
+	var response SummaryResult
+	err := c.do(ctx, http.MethodPost, path, token, summary, &response)
+	return response, err
+}
+
+// SendFailNotice 通知云端按岗位和当前用户发送失败邮件。
+func (c *Client) SendFailNotice(ctx context.Context, token string, positionID string, errorMessage string) error {
+	request := struct {
+		PositionID   string `json:"position_id"`
+		ErrorMessage string `json:"error_message"`
+	}{
+		PositionID:   strings.TrimSpace(positionID),
+		ErrorMessage: strings.TrimSpace(errorMessage),
 	}
-	return c.do(ctx, http.MethodPost, path, token, summary, &response)
+	if request.PositionID == "" {
+		return fmt.Errorf("岗位编号不能为空，失败邮件暂时没法发送")
+	}
+	var response struct {
+		Status string `json:"status"`
+	}
+	return c.do(ctx, http.MethodPost, "/api/fail-notice", token, request, &response)
+}
+
+// DefaultUserPreferences 返回与云端一致的个人运行默认值。
+func DefaultUserPreferences() UserPreferences {
+	return UserPreferences{
+		ClickFrequency: 80, DetailOpenProbability: 80,
+		ScrollDelayMin: 3, ScrollDelayMax: 8,
+		ListViewDelayMin: 1, ListViewDelayMax: 2,
+		DetailViewDelayMin: 1, DetailViewDelayMax: 2,
+		GreetDelayMin: 1, GreetDelayMax: 2,
+		DetailOpenDelayMin: 1, DetailOpenDelayMax: 2,
+		GreetBeforeDelayMin: 1, GreetBeforeDelayMax: 2,
+		RestAfterCandidatesMin: 40, RestAfterCandidatesMax: 70,
+		RestTimesMin: 2, RestTimesMax: 3,
+		RestDurationMin: 2, RestDurationMax: 7,
+	}
+}
+
+// normalizeUserPreferences 修正云端个人配置中的越界值和反向区间。
+func normalizeUserPreferences(value UserPreferences) UserPreferences {
+	value.DetailOpenProbability = clamp(value.DetailOpenProbability, 0, 100)
+	value.ScrollDelayMin, value.ScrollDelayMax = normalizeIntRange(value.ScrollDelayMin, value.ScrollDelayMax)
+	value.ListViewDelayMin, value.ListViewDelayMax = normalizeFloatRange(value.ListViewDelayMin, value.ListViewDelayMax)
+	value.DetailViewDelayMin, value.DetailViewDelayMax = normalizeFloatRange(value.DetailViewDelayMin, value.DetailViewDelayMax)
+	value.DetailOpenDelayMin, value.DetailOpenDelayMax = normalizeFloatRange(value.DetailOpenDelayMin, value.DetailOpenDelayMax)
+	value.DetailCloseDelayMin, value.DetailCloseDelayMax = normalizeFloatRange(value.DetailCloseDelayMin, value.DetailCloseDelayMax)
+	value.GreetBeforeDelayMin, value.GreetBeforeDelayMax = normalizeFloatRange(value.GreetBeforeDelayMin, value.GreetBeforeDelayMax)
+	value.RestAfterCandidatesMin, value.RestAfterCandidatesMax = normalizeIntRange(value.RestAfterCandidatesMin, value.RestAfterCandidatesMax)
+	value.RestTimesMin, value.RestTimesMax = normalizeIntRange(value.RestTimesMin, value.RestTimesMax)
+	value.RestDurationMin, value.RestDurationMax = normalizeFloatRange(value.RestDurationMin, value.RestDurationMax)
+	return value
+}
+
+// normalizeIntRange 把整数区间修正为非负且最大值不小于最小值。
+func normalizeIntRange(minimum int, maximum int) (int, int) {
+	if minimum < 0 {
+		minimum = 0
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	return minimum, maximum
+}
+
+// normalizeFloatRange 把浮点区间修正为非负且最大值不小于最小值。
+func normalizeFloatRange(minimum float64, maximum float64) (float64, float64) {
+	if minimum < 0 {
+		minimum = 0
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	return minimum, maximum
+}
+
+// clamp 把整数限制在指定闭区间内。
+func clamp(value int, minimum int, maximum int) int {
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 // normalizePosition 从现有云端岗位字段推导新主流程所需值。
@@ -240,6 +311,9 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	detailMode := strings.ToLower(strings.TrimSpace(position.CommonConfig.DetailMode))
 	position.RequiresOCR = position.RequiresOCR || detailMode == "ocr"
 	position.RequiresAI = position.RequiresAI || mode != "keyword" || detailMode == "ai" || detailMode == "ocr"
+	position.RequestPhone = position.RequestPhone || position.CommonConfig.RequestPhone
+	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
+	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume
 	return position
 }
 
@@ -310,6 +384,7 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		var failure struct {
 			Message string `json:"message"`
 			Error   string `json:"error"`
+			Msg     string `json:"msg"`
 		}
 		_ = json.Unmarshal(content, &failure)
 		message := strings.TrimSpace(failure.Message)
@@ -317,9 +392,15 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 			message = strings.TrimSpace(failure.Error)
 		}
 		if message == "" {
+			message = strings.TrimSpace(failure.Msg)
+		}
+		if message == "" {
 			message = response.Status
 		}
-		return fmt.Errorf("云端请求失败：%s", message)
+		if message == "session is invalid or expired" || message == "session invalid or expired" {
+			message = "登录状态已经失效，请重新登录"
+		}
+		return &APIError{StatusCode: response.StatusCode, Message: message}
 	}
 	if result != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, result); err != nil {

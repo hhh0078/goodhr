@@ -147,6 +147,11 @@ func (c *Client) Screenshot(ctx context.Context, request contract.ScreenshotRequ
 	return callValue[contract.ScreenshotResult](ctx, c, path, request)
 }
 
+// LongScreenshot 使用真实鼠标滚轮保存长元素分段截图。
+func (c *Client) LongScreenshot(ctx context.Context, request contract.LongScreenshotRequest) (contract.LongScreenshotResult, error) {
+	return callValue[contract.LongScreenshotResult](ctx, c, "/api/v1/element/screenshot-long", request)
+}
+
 // Cookies 读取浏览器 Cookie。
 func (c *Client) Cookies(ctx context.Context) (contract.CookieListResult, error) {
 	var result contract.CookieListResult
@@ -167,6 +172,22 @@ func (c *Client) Downloads(ctx context.Context) (contract.DownloadListResult, er
 	var result contract.DownloadListResult
 	err := call(ctx, c, http.MethodGet, "/api/v1/downloads", nil, &result)
 	return result, err
+}
+
+// ConfigureDownloads 切换后续浏览器下载的保存目录。
+func (c *Client) ConfigureDownloads(ctx context.Context, request contract.DownloadConfigureRequest) error {
+	var result struct {
+		Configured bool `json:"configured"`
+	}
+	return call(ctx, c, http.MethodPost, "/api/v1/downloads/configure", request, &result)
+}
+
+// ClearDownloads 清空 Worker 内存中的下载记录，不删除本地文件。
+func (c *Client) ClearDownloads(ctx context.Context) error {
+	var result struct {
+		Cleared int `json:"cleared"`
+	}
+	return call(ctx, c, http.MethodPost, "/api/v1/downloads/clear", struct{}{}, &result)
 }
 
 // ShowOverlay 显示通用页面提示浮层。

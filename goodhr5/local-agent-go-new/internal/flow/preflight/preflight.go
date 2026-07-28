@@ -20,6 +20,7 @@ type Cloud interface {
 	ValidateSession(context.Context, string) (cloud.UserSession, error)
 	Subscription(context.Context, string) (cloud.Subscription, error)
 	Position(context.Context, string, string) (cloud.PositionSnapshot, error)
+	Preferences(context.Context, string) (cloud.UserPreferences, error)
 	PlatformConfig(context.Context, string, string) (model.Config, error)
 	EffectiveAI(context.Context, string) (cloud.AIConfig, error)
 }
@@ -140,6 +141,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_cloud_session", run: c.checkCloudSession},
 		{name: "check_subscription", run: c.checkSubscription},
 		{name: "load_position_snapshot", run: c.loadPosition},
+		{name: "load_user_preferences", run: c.loadPreferences},
 		{name: "load_platform_config", run: c.loadPlatform},
 		{name: "check_profile", run: c.checkProfile},
 		{name: "check_task_conflict", run: c.checkTaskConflict},
@@ -208,6 +210,13 @@ func (c *Checker) loadPosition(ctx context.Context, prepared *shared.PreparedTas
 		prepared.Request.ProfileID = position.ProfileID
 	}
 	return nil
+}
+
+// loadPreferences 读取并冻结当前用户的拟人等待和休息配置。
+func (c *Checker) loadPreferences(ctx context.Context, prepared *shared.PreparedTask) error {
+	preferences, err := c.Cloud.Preferences(ctx, prepared.Request.Token)
+	prepared.Preferences = preferences
+	return err
 }
 
 // loadPlatform 读取平台配置并检查本地适配是否存在。

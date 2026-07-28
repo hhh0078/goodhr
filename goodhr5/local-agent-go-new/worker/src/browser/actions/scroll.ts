@@ -7,6 +7,7 @@ import { normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
+import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import type { FindAction, FoundElement } from "./find.js";
 import { MoveAction } from "./move.js";
@@ -29,6 +30,7 @@ export class ScrollAction {
     private readonly move: MoveAction,
     private readonly locator: LocatorPrimitive,
     private readonly mouse: MousePrimitive,
+    private readonly read: ReadPrimitive,
     private readonly logger: WorkerLogger,
   ) {}
 
@@ -64,7 +66,7 @@ export class ScrollAction {
       }
       const before = target
         ? target.resolved.view
-        : await this.readPageScrollState(page);
+        : await this.read.scrollState(page, anchor?.resolved.locator);
       const maxAttempts = Math.max(1, request.max_attempts ?? 1);
       let attempts = 0;
       let after: ElementView | JsonObject = before;
@@ -91,7 +93,7 @@ export class ScrollAction {
         await delay(Math.max(50, request.wait_ms ?? 250));
         after = target
           ? await this.refreshTarget(target.resolved)
-          : await this.readPageScrollState(page);
+          : await this.read.scrollState(page, anchor?.resolved.locator);
         this.logger.info(actionContext, "wheel", "success", {
           attempt: index + 1,
           distance,
@@ -241,17 +243,6 @@ export class ScrollAction {
     }));
   }
 
-  /** readPageScrollState 只读取页面滚动状态，用于验证真实滚轮是否生效。 */
-  private async readPageScrollState(
-    page: ResolvedElement["page"],
-  ): Promise<JsonObject> {
-    return page.evaluate(() => ({
-      scroll_x: window.scrollX,
-      scroll_y: window.scrollY,
-      scroll_height: document.documentElement.scrollHeight,
-      viewport_height: document.documentElement.clientHeight,
-    }));
-  }
 }
 
 /** delay 使用 Node 定时器等待，避免浏览器内固定等待命令。 */

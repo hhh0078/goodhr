@@ -1,9 +1,18 @@
-// Package hliepin 组装猎聘猎头端平台适配，页面细节全部由云端强类型选择器配置驱动。
+// Package hliepin 实现猎聘猎头端平台的页面、候选人和消息能力。
 package hliepin
 
-import "goodhr5/local-agent-go-new/internal/platform/common"
+// Runtime 是猎聘猎头端平台运行时，保存当前单任务的岗位和开聊方式。
+type Runtime struct {
+	positionName          string
+	selectJobWhenGreeting bool
+}
 
 // NewRuntime 创建猎聘猎头端平台运行时。
-func NewRuntime() *common.Runtime {
-	return common.New("hliepin")
+func NewRuntime() *Runtime {
+	return &Runtime{}
+}
+
+// PlatformID 返回猎聘猎头端平台编号。
+func (r *Runtime) PlatformID() string {
+	return "hliepin"
 }

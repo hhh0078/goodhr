@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,9 +14,11 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/greeting"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/notification"
 	"goodhr5/local-agent-go-new/internal/system/power"
 )
 
@@ -43,15 +46,18 @@ type Runner struct {
 	store    *storage.Store
 	profiles *profile.Manager
 	power    *power.Guard
+	cloud    *cloud.Client
+	notifier *notification.Notifier
 	logger   shared.Logger
 }
 
 // New 创建任务生命周期管理器。
-func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *auto_reply.Flow, store *storage.Store, profiles *profile.Manager, powerGuard *power.Guard, logger shared.Logger) *Runner {
+func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *auto_reply.Flow, store *storage.Store, profiles *profile.Manager, powerGuard *power.Guard, cloudClient *cloud.Client, notifier *notification.Notifier, logger shared.Logger) *Runner {
 	return &Runner{
 		active: make(map[string]*activeTask), checker: checker,
 		greeting: greetingFlow, reply: replyFlow, store: store,
-		profiles: profiles, power: powerGuard, logger: logger,
+		profiles: profiles, power: powerGuard, cloud: cloudClient,
+		notifier: notifier, logger: logger,
 	}
 }
 
@@ -59,6 +65,8 @@ func New(checker *preflight.Checker, greetingFlow *greeting.Flow, replyFlow *aut
 func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (StartResult, error) {
 	preflightResult, err := r.checker.RunPreflightChecks(ctx, request)
 	if err != nil {
+		r.savePreflightFailure(ctx, request, preflightResult.Prepared, err)
+		r.notifyStartFailure(preflightResult.Prepared, err)
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
 	prepared := preflightResult.Prepared
@@ -89,6 +97,28 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 	}
 	go r.run(runCtx, active)
 	return StartResult{Task: task, Preflight: preflightResult.Steps}, nil
+}
+
+// StopPosition 停止指定岗位当前正在运行的任务。
+func (r *Runner) StopPosition(ctx context.Context, positionID string) (storage.TaskRun, error) {
+	taskID := r.ActiveTaskIDForPosition(positionID)
+	if taskID == "" {
+		return r.store.LatestTaskForPosition(ctx, positionID)
+	}
+	return r.StopTask(ctx, taskID)
+}
+
+// ActiveTaskIDForPosition 返回指定岗位当前运行中的任务编号。
+func (r *Runner) ActiveTaskIDForPosition(positionID string) string {
+	positionID = strings.TrimSpace(positionID)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for taskID, active := range r.active {
+		if active != nil && active.state.PositionID == positionID {
+			return taskID
+		}
+	}
+	return ""
 }
 
 // StopTask 请求当前任务在安全点停止并等待流程收尾。
@@ -164,7 +194,7 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 func (r *Runner) finish(active *activeTask, runErr error) {
 	r.mu.Lock()
 	state := active.state
-	if active.stopped || errors.Is(runErr, context.Canceled) {
+	if active.stopped || errors.Is(runErr, context.Canceled) || cloud.IsAuthExpired(runErr) {
 		state.Status = "stopped"
 		state.Summary = "任务已按你的要求停下来了"
 	} else if runErr != nil {
@@ -182,9 +212,71 @@ func (r *Runner) finish(active *activeTask, runErr error) {
 	delete(r.active, state.TaskID)
 	r.mu.Unlock()
 	_ = r.store.SaveTask(context.Background(), state)
+	r.notifyFinished(active.prepared, state, runErr)
 	r.profiles.Release(active.prepared.Request.ProfileID, state.TaskID)
 	r.power.Stop()
 	close(active.done)
+}
+
+// notifyStartFailure 在岗位快照已经加载时播放失败音并发送启动失败邮件。
+func (r *Runner) notifyStartFailure(prepared shared.PreparedTask, startErr error) {
+	if strings.TrimSpace(prepared.Position.ID) == "" {
+		return
+	}
+	r.notifyFailure(prepared, startErr)
+}
+
+// notifyFinished 根据最终状态同步停止结果或发送失败通知。
+func (r *Runner) notifyFinished(prepared shared.PreparedTask, state storage.TaskRun, runErr error) {
+	switch state.Status {
+	case "failed":
+		r.notifyFailure(prepared, runErr)
+	case "stopped":
+		if r.cloud == nil || strings.TrimSpace(prepared.Position.ID) == "" {
+			return
+		}
+		notifyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if cloud.IsAuthExpired(runErr) {
+			r.notifyFailure(prepared, fmt.Errorf("账号已在其他地方登录，当前任务已停止：%w", runErr))
+			return
+		}
+		if err := r.cloud.SyncSummary(notifyCtx, prepared.Request.Token, cloud.TaskSummary{
+			TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID, Status: "stopped",
+		}); err != nil {
+			r.logNotification(prepared.Request.TaskID, "sync_stopped_status", err)
+		}
+	}
+}
+
+// notifyFailure 同步播放失败提示音并请求云端发送失败邮件。
+func (r *Runner) notifyFailure(prepared shared.PreparedTask, failure error) {
+	message := "任务执行失败"
+	if failure != nil {
+		message = failure.Error()
+	}
+	if prepared.Position.EnableSound && r.notifier != nil {
+		soundCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := r.notifier.PlayFailure(soundCtx); err != nil {
+			r.logNotification(prepared.Request.TaskID, "play_failure_sound", err)
+		}
+		cancel()
+	}
+	if r.cloud == nil || strings.TrimSpace(prepared.Request.Token) == "" || strings.TrimSpace(prepared.Position.ID) == "" {
+		return
+	}
+	noticeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.cloud.SendFailNotice(noticeCtx, prepared.Request.Token, prepared.Position.ID, message); err != nil {
+		r.logNotification(prepared.Request.TaskID, "send_failure_notice", err)
+	}
+}
+
+// logNotification 记录不影响任务最终状态的通知错误。
+func (r *Runner) logNotification(taskID string, step string, err error) {
+	if r.logger != nil {
+		r.logger.Step(taskID, "lifecycle", step, "warning", time.Now(), err)
+	}
 }
 
 // release 处理任务尚未启动时的锁和上下文清理。
@@ -195,4 +287,23 @@ func (r *Runner) release(active *activeTask) {
 	r.mu.Unlock()
 	r.profiles.Release(active.prepared.Request.ProfileID, active.state.TaskID)
 	close(active.done)
+}
+
+// savePreflightFailure 保存未进入主流程的启动失败状态，并关联已经产生的启动日志。
+func (r *Runner) savePreflightFailure(ctx context.Context, request shared.StartRequest, prepared shared.PreparedTask, failure error) {
+	if strings.TrimSpace(request.TaskID) == "" || strings.TrimSpace(request.PositionID) == "" {
+		return
+	}
+	if exists, err := r.store.TaskExists(ctx, request.TaskID); err != nil || exists {
+		return
+	}
+	platformID := prepared.Position.PlatformID
+	task := storage.TaskRun{
+		TaskID: request.TaskID, PositionID: request.PositionID, PlatformID: platformID,
+		TaskType: request.TaskType, Status: "failed", CurrentStep: "preflight",
+		Summary:   "启动检查没有通过，我把原因记下来了",
+		ErrorCode: "PREFLIGHT_FAILED", ErrorMessage: failure.Error(),
+		StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC(),
+	}
+	_ = r.store.SaveTask(context.WithoutCancel(ctx), task)
 }

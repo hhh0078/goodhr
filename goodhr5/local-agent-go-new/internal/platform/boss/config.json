@@ -1,0 +1,329 @@
+{
+  "_comment": "Boss 直聘本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_property_comments": {
+    "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
+    "SelectorSpec.parents": "从外到内的父级层级数组。",
+    "SelectorSpec.target": "最终目标选择器组。",
+    "SelectorSpec.state": "目标必须满足 attached、visible 或 enabled。",
+    "SelectorSpec.timeout_ms": "查找超时毫秒数。",
+    "SelectorSpec.read_property": "列表字段读取 text 或 html。",
+    "SelectorSpec.read_attribute": "列表字段读取指定 HTML 属性。",
+    "SelectorSpec.description": "结构化日志使用的中文目标名。",
+    "SelectorGroup.selectors": "按顺序降级尝试的选择器数组。",
+    "SelectorGroup.index": "列表序号，从 0 开始。",
+    "SelectorGroup.text": "目标文字约束。",
+    "SelectorGroup.exact_text": "是否完整匹配文字。",
+    "SelectorGroup.attributes": "目标必须同时满足的属性和值。",
+    "SelectorCandidate.type": "css、role、text 或 test_id。",
+    "SelectorCandidate.value": "选择器或文字值。",
+    "ConfiguredAction.name": "初始化或筛选步骤名称。",
+    "ConfiguredAction.type": "click 或 input。",
+    "ConfiguredAction.selector_key": "selectors 中的逻辑键。",
+    "ConfiguredAction.value": "输入动作使用的文本。",
+    "ConfiguredAction.optional": "元素不存在时是否允许跳过。"
+  },
+  "id": "boss",
+  "_comment_id": "平台唯一编号。",
+  "name": "Boss直聘",
+  "_comment_name": "平台中文名称。",
+  "login_url": "https://login.zhipin.com",
+  "_comment_login_url": "平台登录页面地址。",
+  "entry_url": "https://www.zhipin.com/web/chat/recommend",
+  "_comment_entry_url": "主动打招呼流程入口页面地址。",
+  "messages_url": "https://www.zhipin.com/web/chat",
+  "_comment_messages_url": "自动回复流程消息页面地址。",
+  "scroll_distance": 620,
+  "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
+  "max_items": 100,
+  "_comment_max_items": "单次最多读取的候选人或会话数量。",
+  "behavior": {
+    "_comment": "Boss 页面行为开关。",
+    "supports_paging": false,
+    "_comment_supports_paging": "Boss 推荐页当前按滚动加载，不点击下一页。",
+    "skip_position_selection": false,
+    "_comment_skip_position_selection": "开始任务时需要选择岗位。",
+    "direct_position_selection": false,
+    "_comment_direct_position_selection": "Boss 会先读取当前岗位，匹配时不重复切换。",
+    "select_first_position_result": false,
+    "_comment_select_first_position_result": "Boss 会按岗位名称匹配搜索结果，不固定点击第一项。",
+    "needs_detail": true,
+    "_comment_needs_detail": "候选人判断需要打开详情。"
+  },
+  "login_init_actions": [],
+  "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "greeting_init_actions": [
+    {
+      "_comment": "按顺序尝试关闭 Boss 入口确认弹框。",
+      "name": "关闭入口确认弹框",
+      "_comment_name": "日志中的初始化动作名称。",
+      "type": "click",
+      "_comment_type": "调用封装点击能力。",
+      "selector_key": "entry.dismiss",
+      "_comment_selector_key": "使用 selectors 中的逻辑键。",
+      "value": "",
+      "_comment_value": "点击动作不需要输入值。",
+      "optional": true,
+      "_comment_optional": "页面没有弹框时安全跳过。"
+    }
+  ],
+  "_comment_greeting_init_actions": "主动打招呼页面初始化动作，严格按数组顺序执行。",
+  "message_init_actions": [],
+  "_comment_message_init_actions": "消息页面初始化动作，当前旧版没有可确认的动作。",
+  "filter_actions": [],
+  "_comment_filter_actions": "基础筛选动作按数组顺序执行；当前旧版没有自动筛选动作。",
+  "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
+  "selectors": {
+    "entry.dismiss": {
+      "_comment": "入口页公告弹框确认按钮。",
+      "parents": [
+        {
+          "_comment": "弹框正文父级。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": ".boss-dialog__body" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "弹框确认按钮目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".confirm-btn" }
+        ]
+      },
+      "state": "visible",
+      "_comment_state": "必须可见。",
+      "timeout_ms": 1500,
+      "_comment_timeout_ms": "可选弹框短超时。",
+      "description": "Boss入口确认弹框",
+      "_comment_description": "日志中的中文目标名。"
+    },
+    "position.open": {
+      "_comment": "岗位下拉入口。",
+      "parents": [],
+      "target": {
+        "_comment": "岗位下拉按钮目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".job-selecter-wrap .ui-dropmenu-label" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss岗位下拉按钮"
+    },
+    "position.current": {
+      "_comment": "Boss 页面当前选中的岗位名称。",
+      "parents": [
+        {
+          "_comment": "岗位下拉组件父级。",
+          "selectors": [
+            { "_comment": "Boss 岗位选择组件。", "type": "css", "value": ".ui-dropmenu.ui-dropmenu-label-arrow.ui-dropmenu-drop-arrow.job-selecter-wrap" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "当前岗位文字。",
+        "selectors": [
+          { "_comment": "Boss 岗位下拉标签。", "type": "css", "value": ".ui-dropmenu-label" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss当前岗位"
+    },
+    "position.input": {
+      "_comment": "岗位搜索输入框。",
+      "parents": [],
+      "target": {
+        "_comment": "岗位搜索输入目标。",
+        "selectors": [
+          { "_comment": "优先使用稳定 class。", "type": "css", "value": ".ipt.chat-job-search" },
+          { "_comment": "按 placeholder 降级定位。", "type": "css", "value": "input[placeholder='请输入职位名称']" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss岗位搜索输入框"
+    },
+    "position.item": {
+      "_comment": "岗位列表项目。",
+      "parents": [
+        {
+          "_comment": "岗位列表父级。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": ".job-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "岗位名称项目目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".label" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss岗位列表项"
+    },
+    "candidate.list": {
+      "_comment": "候选人滚轮落点。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人列表容器。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".card-list" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人列表"
+    },
+    "candidate.item": {
+      "_comment": "候选人卡片列表项。",
+      "parents": [
+        {
+          "_comment": "候选人列表父级。",
+          "selectors": [
+            { "_comment": "CSS 候选选择器。", "type": "css", "value": ".card-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "卡片多套页面结构候选。",
+        "selectors": [
+          { "_comment": "新版候选人卡片。", "type": "css", "value": ".candidate-card-wrap" },
+          { "_comment": "旧版候选人卡片。", "type": "css", "value": ".geek-info-card" },
+          { "_comment": "通用卡片容器。", "type": "css", "value": ".card-container" },
+          { "_comment": "旧版卡片内层。", "type": "css", "value": ".card-inner.common-wrap" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人卡片"
+    },
+    "candidate.open_target": {
+      "_comment": "卡片内打开详情目标。",
+      "parents": [],
+      "target": {
+        "_comment": "详情点击目标候选。",
+        "selectors": [
+          { "_comment": "常用卡片内层。", "type": "css", "value": ".card-inner.common-wrap" },
+          { "_comment": "旧版卡片内层。", "type": "css", "value": ".card-inner.clear-fix" },
+          { "_comment": "新版卡片外层。", "type": "css", "value": ".candidate-card-wrap" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人详情入口"
+    },
+    "candidate.detail": {
+      "_comment": "候选人详情正文。",
+      "parents": [],
+      "target": {
+        "_comment": "稳定详情根节点。",
+        "selectors": [
+          { "_comment": "Boss 详情简历根节点。", "type": "css", "value": "#resume" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "Boss候选人详情正文"
+    },
+    "candidate.detail_close": {
+      "_comment": "详情关闭按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "两套详情关闭按钮。",
+        "selectors": [
+          { "_comment": "Boss 弹框关闭按钮。", "type": "css", "value": ".boss-popup__close" },
+          { "_comment": "自定义简历关闭按钮。", "type": "css", "value": ".resume-custom-close" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss候选人详情关闭按钮"
+    },
+    "candidate.greet": {
+      "_comment": "候选人卡片内打招呼按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "打招呼按钮候选。",
+        "selectors": [
+          { "_comment": "普通打招呼按钮。", "type": "css", "value": ".btn.btn-greet" },
+          { "_comment": "获取联系方式按钮。", "type": "css", "value": ".btn.btn-getcontact" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "Boss打招呼按钮"
+    },
+    "candidate.greet_continue": {
+      "_comment": "打招呼后的继续沟通按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "继续沟通按钮。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".btn.btn-continue.btn-outline" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "Boss继续沟通按钮"
+    }
+  },
+  "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
+  "candidate_fields": {
+    "name": {
+      "_comment": "候选人姓名字段。",
+      "parents": [],
+      "target": {
+        "_comment": "姓名目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss候选人姓名"
+    },
+    "basic_info": {
+      "_comment": "候选人基本信息字段。",
+      "parents": [],
+      "target": {
+        "_comment": "基本信息目标。",
+        "selectors": [
+          { "_comment": "CSS 候选选择器。", "type": "css", "value": ".job-card-left" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "Boss候选人基本信息"
+    },
+    "education": {
+      "_comment": "候选人学历经历字段。",
+      "parents": [],
+      "target": {
+        "_comment": "学历目标候选。",
+        "selectors": [
+          { "_comment": "新版学历区域。", "type": "css", "value": ".base-info.join-text-wrap" },
+          { "_comment": "旧版详细信息。", "type": "css", "value": ".geek-info-detail" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "Boss候选人学历"
+    }
+  },
+  "conversation_fields": {},
+  "_comment_conversation_fields": "自动回复字段暂未从旧版获得，接入消息流程前补 name、id、last_message。",
+  "pending_selectors": {
+    "_comment": "旧版没有稳定选择器、真实回归前必须补齐的能力。",
+    "candidate.favorite": "收藏候选人按钮",
+    "candidate.reject": "不合适按钮",
+    "candidate.request_phone": "索要电话按钮",
+    "candidate.request_wechat": "索要微信按钮",
+    "candidate.request_resume": "索要简历按钮",
+    "message.unread_item": "未读会话列表项",
+    "message.context": "会话上下文",
+    "message.input": "回复输入框",
+    "message.send": "回复发送按钮"
+  }
+}

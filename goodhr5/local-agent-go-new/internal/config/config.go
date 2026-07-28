@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"strconv"
@@ -38,6 +39,7 @@ type Config struct {
 	WorkerEntryPath string
 	NodePath        string
 	OCRExecutable   string
+	AutoOpenConsole bool
 }
 
 // Load 从启动参数和环境变量加载配置并创建必要目录。
@@ -70,6 +72,7 @@ func Load(host string, port int, dataDir string) (Config, error) {
 		WorkerEntryPath: defaultWorkerEntry(),
 		NodePath:        defaultNodePath(runtimeDir),
 		OCRExecutable:   envString("GOODHR_OCR_EXECUTABLE", filepath.Join(runtimeDir, "ocr", "RapidOCR-json")),
+		AutoOpenConsole: envBool("GOODHR_AUTO_OPEN_CONSOLE", true),
 	}
 	if err := cfg.EnsureDirectories(); err != nil {
 		return Config{}, err
@@ -116,7 +119,10 @@ func defaultNodePath(runtimeDir string) string {
 	if info, err := os.Stat(packaged); err == nil && !info.IsDir() {
 		return packaged
 	}
-	return "node"
+	if systemNode, err := exec.LookPath("node"); err == nil {
+		return systemNode
+	}
+	return packaged
 }
 
 // EnsureDirectories 创建程序运行所需目录。
@@ -189,4 +195,16 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+// envBool 读取常见真假环境变量，否则使用默认值。
+func envBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

@@ -8,6 +8,7 @@ import {
 } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { MousePrimitive } from "../primitives/mouse.js";
+import { LocatorPrimitive } from "../primitives/locator.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
@@ -18,6 +19,8 @@ export interface ClickResult extends JsonObject {
   element_ref: string;
   hold_ms: number;
   verified: boolean;
+  new_page_opened: boolean;
+  new_page_url: string;
 }
 
 /** ClickAction 实现所有平台共用的完整点击能力。 */
@@ -27,6 +30,7 @@ export class ClickAction {
     private readonly find: FindAction,
     private readonly scroll: ScrollAction,
     private readonly move: MoveAction,
+    private readonly locator: LocatorPrimitive,
     private readonly mouse: MousePrimitive,
     private readonly logger: WorkerLogger,
   ) {}
@@ -55,7 +59,15 @@ export class ClickAction {
         },
         actionContext,
       );
+      await this.waitForStablePosition(found, actionContext);
       await this.move.toElement(found.resolved, actionContext);
+      const newPagePromise = request.wait_for_new_page
+        ? found.resolved.page
+            .context()
+            .waitForEvent("page", {
+              timeout: request.new_page_timeout_ms ?? 10_000,
+            })
+        : null;
       const button = request.button ?? "left";
       const clickCount = Math.max(1, request.click_count ?? 1);
       let totalHold = 0;
@@ -68,6 +80,15 @@ export class ClickAction {
         if (index + 1 < clickCount) {
           await delay(randomInteger(80, 160));
         }
+      }
+      const newPage = newPagePromise ? await newPagePromise : null;
+      if (newPage) {
+        await newPage
+          .waitForLoadState("domcontentloaded", {
+            timeout: request.new_page_timeout_ms ?? 10_000,
+          })
+          .catch(() => undefined);
+        await newPage.bringToFront();
       }
       const verified = await this.verify(
         request,
@@ -82,11 +103,14 @@ export class ClickAction {
         element_ref: found.result.element_ref,
         hold_ms: totalHold,
         verified,
+        new_page_opened: Boolean(newPage),
+        new_page_url: newPage?.url() ?? "",
       };
       this.logger.info(actionContext, "click", "success", {
         target_description: request.selector.description,
         hold_ms: totalHold,
         verified,
+        new_page_opened: Boolean(newPage),
       });
       return result;
     } catch (error) {
@@ -107,6 +131,37 @@ export class ClickAction {
       );
       throw normalized;
     }
+  }
+
+  /** waitForStablePosition 连续读取元素位置，稳定后才允许执行一次原子点击。 */
+  private async waitForStablePosition(
+    found: Awaited<ReturnType<FindAction["one"]>>,
+    actionContext: ActionContext,
+  ): Promise<void> {
+    let previous = found.resolved.view.box;
+    for (let check = 1; check <= 3; check += 1) {
+      await delay(100);
+      const view = await this.locator.view(
+        found.resolved.page,
+        found.resolved.locator,
+      );
+      const current = view.box;
+      const stable =
+        Math.abs(current.x - previous.x) <= 2 &&
+        Math.abs(current.y - previous.y) <= 2 &&
+        Math.abs(current.width - previous.width) <= 2 &&
+        Math.abs(current.height - previous.height) <= 2;
+      this.logger.info(actionContext, "wait_stable", "progress", {
+        check,
+        stable,
+      });
+      found.resolved.view = view;
+      if (stable && check >= 2) {
+        return;
+      }
+      previous = current;
+    }
+    throw new Error("元素位置持续变化，已取消本次点击以避免点错");
   }
 
   /** verify 按请求验证点击后的 URL 或元素状态。 */

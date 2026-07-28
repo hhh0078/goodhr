@@ -29,6 +29,8 @@ export interface SelectorSpec {
   target: SelectorGroup;
   state?: SelectorState;
   timeout_ms?: number;
+  read_property?: "text" | "html";
+  read_attribute?: string;
   description: string;
 }
 
