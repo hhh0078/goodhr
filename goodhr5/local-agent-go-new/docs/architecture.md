@@ -1,0 +1,147 @@
+<!-- 文件作用说明：说明新本地程序的整体架构、组件职责、依赖方向和数据边界。 -->
+
+# 新本地程序架构
+
+## 1. 设计目标
+
+- 任何开发者或 AI 能快速判断代码应该放在哪里。
+- Go 负责任务和平台，TypeScript 负责浏览器。
+- 只有一套正式浏览器控制实现。
+- 公共能力改一次，所有平台共同生效。
+- 跨 Go 和 TypeScript 的数据全部强类型。
+- 日志能还原每次操作的步骤、耗时和失败原因。
+
+## 2. 组件关系
+
+```text
+本地控制台
+  -> Go HTTP API
+  -> Go Task Flow
+  -> Go Platform Adapter
+  -> Go Browser Client
+  -> TypeScript Worker HTTP Router
+  -> TypeScript Browser Actions
+  -> TypeScript Browser Primitives
+  -> CloakBrowser
+  -> 招聘平台
+```
+
+旁路能力：
+
+```text
+Go Task Flow -> SQLite
+Go Task Flow -> Cloud Client
+Go Task Flow -> Local AI
+Go Task Flow -> OCR
+Go Task Flow -> System Power Guard
+```
+
+## 3. Go 职责
+
+Go 负责：
+
+- 本地 HTTP 服务。
+- 启动前检查。
+- 任务状态和取消。
+- 主动打招呼主流程。
+- 自动回复主流程。
+- 平台能力选择和组合。
+- AI、关键词和规则判断。
+- OCR 调度。
+- SQLite 持久化。
+- 云端配置读取和统计同步。
+- Node Worker 进程管理。
+- 本地运行组件、更新、文件和系统能力。
+
+Go 不负责：
+
+- 直接调用 Playwright。
+- 直接连接 CDP。
+- 实现第二套点击、输入、滚动和截图。
+- 在公共主流程里硬编码平台页面结构。
+
+## 4. TypeScript Worker 职责
+
+Worker 负责：
+
+- 启动、复用和关闭 CloakBrowser。
+- 管理 Browser、Context、Page 和 Profile。
+- 查找和验证元素。
+- 模拟鼠标移动、点击、键盘输入和真实滚轮。
+- 截图、下载、Cookie 和标签页。
+- 通用提示浮层。
+- 统一错误和详细操作日志。
+
+Worker 不负责：
+
+- 判断当前平台是什么。
+- 识别 Boss、猎聘、智联专用流程。
+- 决定是否给候选人打招呼。
+- 调用 AI、OCR、SQLite 或云端。
+- 保存岗位业务状态。
+
+## 5. 浏览器能力分层
+
+```text
+HTTP Router
+  -> Action
+      -> FindAction
+      -> MoveAction
+      -> Primitive
+```
+
+- Router：解析和验证请求，只调用 Action。
+- Action：对 Go 暴露的完整封装能力。
+- Primitive：最小 Playwright/CloakBrowser 操作，只允许 Action 调用。
+
+Go 请求中不得出现 Primitive 名称或路由。
+
+## 6. 数据边界
+
+云端保存：
+
+- 用户、会员、平台账号映射。
+- 岗位配置。
+- 平台配置。
+- 运行状态摘要和累计统计。
+
+本地 SQLite 保存：
+
+- 本地任务运行状态。
+- 候选人详情。
+- 本地日志。
+- 截图和下载记录。
+- AI/OCR 处理结果。
+- 本地设置。
+
+浏览器 Profile 保存：
+
+- Cookie。
+- LocalStorage。
+- 平台登录状态。
+- 浏览器缓存。
+
+禁止把 Cookie、完整简历截图、OCR 原文和敏感页面内容上传到云端日志。
+
+## 7. 并发边界
+
+- 同一个 Profile 同一时间只允许一个会修改页面状态的任务。
+- 主动打招呼和自动回复不得同时控制同一个页面。
+- Worker 对页面操作串行执行，除非能力明确声明只读且经过验证。
+- AI 可以在不操作页面时有限并发。
+- 任务停止必须通过 Context 取消，并让当前原子操作尽快返回。
+
+## 8. 正式实现选择
+
+保留：
+
+- Go 主程序。
+- TypeScript Node Worker。
+- CloakBrowser 官方 Node SDK。
+
+不迁移：
+
+- 旧的 Go 直连 CDP 实验实现。
+- Node 中的平台专用路由。
+- 超大单文件 Worker。
+- 大量 `map[string]any` 和无校验 JSON。
