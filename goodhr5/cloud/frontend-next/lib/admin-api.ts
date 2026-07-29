@@ -6,7 +6,7 @@ import { TOKEN_KEY } from "./api";
 export const CLOUD_API_BASE = (
   process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn"
 ).replace(/\/$/, "");
-export const LOCAL_AGENT_PORTS = [55271];
+export const LOCAL_AGENT_PORTS = [43129];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
 const LOCAL_AGENT_MACHINE_ID_KEY = "goodhr5_local_agent_machine_id";

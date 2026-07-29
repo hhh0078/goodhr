@@ -63,6 +63,8 @@ Go 不负责：
 
 Go 对控制台只注册 `POST /api/v1/page/open` 作为浏览器打开入口。它负责解析 Profile、下载目录、代理和新增标签页参数，再通过强类型 Client 调用 Worker；`browser.start` 和 `page.open` 在 Worker 内仍按生命周期与页面动作分层。
 
+Go 本地服务默认监听 `127.0.0.1:43129`，并在打开云端控制台时通过 `local_port` 传入实际端口。云端控制台优先使用传入或缓存的实际端口，没有收到端口时默认探测 `43129`；Worker 的 `39881` 仅供 Go 内部调用。
+
 ## 4. TypeScript Worker 职责
 
 Worker 负责：

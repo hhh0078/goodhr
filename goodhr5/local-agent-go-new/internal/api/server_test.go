@@ -31,7 +31,7 @@ func TestMiddlewareAllowsDeletePreflight(t *testing.T) {
 // TestHealthContainsMachineIdentityPaths 验证健康接口保留控制台生成机器码需要的数据目录字段。
 func TestHealthContainsMachineIdentityPaths(t *testing.T) {
 	server := &Server{cfg: config.Config{
-		Port: 55271, DataDir: "/tmp/goodhr-data", LogsDir: "/tmp/goodhr-logs",
+		Port: 43129, DataDir: "/tmp/goodhr-data", LogsDir: "/tmp/goodhr-logs",
 		ProfilesDir: "/tmp/goodhr-profiles", DownloadsDir: "/tmp/goodhr-downloads",
 		ScreenshotsDir: "/tmp/goodhr-screenshots", DatabasePath: "/tmp/goodhr.db",
 	}}
@@ -53,7 +53,7 @@ func TestHealthContainsMachineIdentityPaths(t *testing.T) {
 
 // TestBrowserStartIsNotPublicRoute 验证对外只保留统一的页面打开接口。
 func TestBrowserStartIsNotPublicRoute(t *testing.T) {
-	server := NewServer(config.Config{Host: "127.0.0.1", Port: 55271}, Dependencies{})
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129}, Dependencies{})
 	response := httptest.NewRecorder()
 	server.http.Handler.ServeHTTP(
 		response,

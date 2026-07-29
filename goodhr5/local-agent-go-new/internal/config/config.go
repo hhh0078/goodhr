@@ -15,7 +15,7 @@ const (
 	// DefaultHost 是 Go 本地服务默认监听地址。
 	DefaultHost = "127.0.0.1"
 	// DefaultPort 是 Go 本地服务默认端口。
-	DefaultPort = 55271
+	DefaultPort = 43129
 	// DefaultWorkerPort 是 TypeScript Worker 默认端口。
 	DefaultWorkerPort = 39881
 	// DefaultCloudURL 是 GoodHR 云端默认地址。
