@@ -84,6 +84,7 @@ export default function PositionsPage() {
     positionName: string;
     message: string;
   } | null>(null);
+  const shownTaskFailureIDs = useRef<Set<string>>(new Set());
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
     [],
@@ -462,16 +463,20 @@ export default function PositionsPage() {
           return changed ? next : current;
         });
       }
-      if (taskStatus === "failed" && String(task?.error_message || "").trim()) {
-        setTaskFailure((current) =>
-          current?.taskID === task.task_id
-            ? current
-            : {
-                taskID: String(task.task_id || ""),
-                positionName: String(item.name || "当前岗位"),
-                message: String(task.error_message),
-              },
-        );
+      const taskID = String(task?.task_id || "").trim();
+      const errorMessage = String(task?.error_message || "").trim();
+      if (
+        taskStatus === "failed" &&
+        taskID &&
+        errorMessage &&
+        !shownTaskFailureIDs.current.has(taskID)
+      ) {
+        shownTaskFailureIDs.current.add(taskID);
+        setTaskFailure({
+          taskID,
+          positionName: String(item.name || "当前岗位"),
+          message: errorMessage,
+        });
       }
     } catch (error) {
       if (!options.silent) notify(error instanceof Error ? error.message : "日志读取失败", "error");

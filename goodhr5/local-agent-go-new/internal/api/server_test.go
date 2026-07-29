@@ -63,6 +63,22 @@ func TestPositionLogsIncludeLatestTaskStatus(t *testing.T) {
 	if payload.Data.Task == nil || payload.Data.Task.Status != "failed" || payload.Data.Task.ErrorMessage != "连续三次操作失败" {
 		t.Fatalf("unexpected task payload: %+v", payload.Data.Task)
 	}
+	clearRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/local/positions/position-1/logs", nil)
+	clearResponse := httptest.NewRecorder()
+	server.handleLocalPositionLogs(clearResponse, clearRequest, "position-1")
+	if clearResponse.Code != http.StatusOK {
+		t.Fatalf("clear logs status = %d, body = %s", clearResponse.Code, clearResponse.Body.String())
+	}
+	payload.Data.Task = nil
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/local/positions/position-1/logs", nil)
+	server.handleLocalPositionLogs(response, request, "position-1")
+	if err = json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.Task == nil || payload.Data.Task.Status != "failed" || payload.Data.Task.ErrorMessage != "" || payload.Data.Task.ErrorCode != "" {
+		t.Fatalf("清空日志后仍返回旧任务错误：%+v", payload.Data.Task)
+	}
 }
 
 // TestAllowedOriginRejectsLookalikeHosts 验证本机和 GoodHR 域名使用精确 URL 判断。

@@ -141,8 +141,24 @@ func (s *Store) ClearPositionLogs(ctx context.Context, positionID string) error 
 	if positionID == "" {
 		return fmt.Errorf("岗位编号不能为空")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM task_logs WHERE position_id = ?`, positionID); err != nil {
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("开始清空岗位日志失败：%w", err)
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `DELETE FROM task_logs WHERE position_id = ?`, positionID); err != nil {
 		return fmt.Errorf("清空岗位日志失败：%w", err)
+	}
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE task_runs
+		SET error_code = '', error_message = ''
+		WHERE position_id = ?`,
+		positionID,
+	); err != nil {
+		return fmt.Errorf("清空岗位历史错误失败：%w", err)
+	}
+	if err = transaction.Commit(); err != nil {
+		return fmt.Errorf("提交岗位日志清理失败：%w", err)
 	}
 	return nil
 }

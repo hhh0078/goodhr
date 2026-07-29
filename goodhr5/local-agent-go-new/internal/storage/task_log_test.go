@@ -23,7 +23,8 @@ func TestTaskLogsAttachToSavedTask(t *testing.T) {
 	}
 	if err = store.SaveTask(ctx, TaskRun{
 		TaskID: "task-1", PositionID: "position-1", PlatformID: "boss",
-		TaskType: "greeting", Status: "running",
+		TaskType: "greeting", Status: "failed", ErrorCode: "TASK_FLOW_FAILED",
+		ErrorMessage: "旧任务错误",
 	}); err != nil {
 		t.Fatalf("保存任务失败：%v", err)
 	}
@@ -37,6 +38,13 @@ func TestTaskLogsAttachToSavedTask(t *testing.T) {
 	logs, err = store.ListPositionLogs(ctx, "position-1", 100)
 	if err != nil || len(logs) != 0 {
 		t.Fatalf("清空后仍有岗位日志：logs=%+v err=%v", logs, err)
+	}
+	task, err := store.Task(ctx, "task-1")
+	if err != nil {
+		t.Fatalf("读取清理后的任务失败：%v", err)
+	}
+	if task.Status != "failed" || task.ErrorCode != "" || task.ErrorMessage != "" {
+		t.Fatalf("清空日志后任务状态或历史错误不符合预期：%+v", task)
 	}
 }
 

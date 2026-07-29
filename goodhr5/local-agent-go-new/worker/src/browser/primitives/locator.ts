@@ -22,6 +22,9 @@ import type {
 
 export type { ResolvedElement } from "./locator-types.js";
 
+const DEFAULT_SELECTOR_TIMEOUT_MS = 5_000;
+const SELECTOR_RETRY_DELAY_MS = 100;
+
 /** LocatorPrimitive 提供最小元素定位能力，不允许直接注册 HTTP 路由。 */
 export class LocatorPrimitive {
   /** resolve 按 iframe、父级和目标顺序解析一个元素。 */
@@ -35,55 +38,19 @@ export class LocatorPrimitive {
       require_unique: boolean;
     },
   ): Promise<ResolvedElement> {
-    const deadline = Date.now() + (spec.timeout_ms ?? 5_000);
-    const attempts: SelectorAttempt[] = [];
-    let lastError: unknown;
-    while (Date.now() <= deadline) {
-      try {
-        const result = await this.resolveOnce(
+    return this.resolveWithPolling(
+      page,
+      spec,
+      context,
+      (attempts) =>
+        this.resolveOnce(
           page,
           spec,
           attempts,
           context.require_unique,
           context,
-        );
-        return result;
-      } catch (error) {
-        lastError = error;
-        if (
-          error instanceof WorkerError &&
-          error.code === "ELEMENT_AMBIGUOUS"
-        ) {
-          throw error;
-        }
-        await delay(100);
-      }
-    }
-    if (lastError instanceof WorkerError) {
-      throw new WorkerError({
-        code: lastError.code,
-        message: lastError.message,
-        action: context.action,
-        step: context.step,
-        trace_id: context.trace_id,
-        retryable: lastError.retryable,
-        details: {
-          ...lastError.details,
-          description: spec.description,
-          attempts: attempts.map((item) => ({
-            level: item.level,
-            selector_type: item.selector_type,
-            selector_value: item.selector_value,
-            matches: item.matches,
-            selected_index: item.selected_index,
-          })),
-          timeout_ms: spec.timeout_ms ?? 5_000,
-          page_url: safeURL(page.url()),
-        },
-        cause: lastError,
-      });
-    }
-    throw this.notFound(page, spec, attempts, context, lastError);
+        ),
+    );
   }
 
   /** resolveAll 查找目标层级的全部匹配元素。 */
@@ -97,32 +64,19 @@ export class LocatorPrimitive {
       step: string;
     },
   ): Promise<ResolvedElement[]> {
-    const deadline = Date.now() + (spec.timeout_ms ?? 5_000);
-    let lastAttempts: SelectorAttempt[] = [];
-    let lastError: unknown;
-    while (Date.now() <= deadline) {
-      const attempts: SelectorAttempt[] = [];
-      try {
-        return await this.resolveAllOnce(
+    return this.resolveWithPolling(
+      page,
+      spec,
+      context,
+      (attempts) =>
+        this.resolveAllOnce(
           page,
           spec,
           maxItems,
           attempts,
           context,
-        );
-      } catch (error) {
-        lastError = error;
-        lastAttempts = attempts;
-        if (
-          error instanceof WorkerError &&
-          error.code === "ELEMENT_AMBIGUOUS"
-        ) {
-          throw error;
-        }
-        await delay(100);
-      }
-    }
-    throw this.notFound(page, spec, lastAttempts, context, lastError);
+        ),
+    );
   }
 
   /** resolveAllOnce 执行一次列表作用域解析、候选选择器匹配和状态过滤。 */
@@ -193,7 +147,34 @@ export class LocatorPrimitive {
       require_unique: boolean;
     },
   ): Promise<ResolvedElement> {
-    const attempts: SelectorAttempt[] = [];
+    return this.resolveWithPolling(
+      page,
+      spec,
+      context,
+      (attempts) =>
+        this.resolveRelativeOnce(
+          page,
+          root,
+          spec,
+          attempts,
+          context,
+        ),
+    );
+  }
+
+  /** resolveRelativeOnce 在已找到的父元素范围内执行一次子元素解析。 */
+  private async resolveRelativeOnce(
+    page: Page,
+    root: Locator,
+    spec: SelectorSpec,
+    attempts: SelectorAttempt[],
+    context: {
+      trace_id: string;
+      action: string;
+      step: string;
+      require_unique: boolean;
+    },
+  ): Promise<ResolvedElement> {
     let scope: LocatorScope = root;
     for (const [index, parent] of (spec.parents ?? []).entries()) {
       const selectedParent = await this.selectFromGroup(
@@ -236,6 +217,57 @@ export class LocatorPrimitive {
       attempts,
       view,
     };
+  }
+
+  /** resolveWithPolling 让全部选择器入口复用同一套超时、间隔和错误整理规则。 */
+  private async resolveWithPolling<T>(
+    page: Page,
+    spec: SelectorSpec,
+    context: { trace_id: string; action: string; step: string },
+    resolveOnce: (attempts: SelectorAttempt[]) => Promise<T>,
+  ): Promise<T> {
+    const timeoutMS = spec.timeout_ms ?? DEFAULT_SELECTOR_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMS;
+    let lastAttempts: SelectorAttempt[] = [];
+    let lastError: unknown;
+    while (Date.now() <= deadline) {
+      const attempts: SelectorAttempt[] = [];
+      try {
+        return await resolveOnce(attempts);
+      } catch (error) {
+        lastError = error;
+        lastAttempts = attempts;
+        if (
+          error instanceof WorkerError &&
+          error.code === "ELEMENT_AMBIGUOUS"
+        ) {
+          throw error;
+        }
+        await delay(SELECTOR_RETRY_DELAY_MS);
+      }
+    }
+    if (
+      lastError instanceof WorkerError &&
+      lastError.code !== "ELEMENT_NOT_FOUND"
+    ) {
+      throw new WorkerError({
+        code: lastError.code,
+        message: lastError.message,
+        action: context.action,
+        step: context.step,
+        trace_id: context.trace_id,
+        retryable: lastError.retryable,
+        details: {
+          ...lastError.details,
+          description: spec.description,
+          attempts: safeAttempts(lastAttempts),
+          timeout_ms: timeoutMS,
+          page_url: safeURL(page.url()),
+        },
+        cause: lastError,
+      });
+    }
+    throw this.notFound(page, spec, lastAttempts, context, lastError);
   }
 
   /** view 读取元素位置和可见状态。 */
@@ -502,18 +534,23 @@ export class LocatorPrimitive {
         description: spec.description,
         page_url: safeURL(page.url()),
         state: spec.state ?? "visible",
-        timeout_ms: spec.timeout_ms ?? 5_000,
-        attempts: attempts.map((item) => ({
-          level: item.level,
-          selector_type: item.selector_type,
-          selector_value: item.selector_value,
-          matches: item.matches,
-          selected_index: item.selected_index,
-        })),
+        timeout_ms: spec.timeout_ms ?? DEFAULT_SELECTOR_TIMEOUT_MS,
+        attempts: safeAttempts(attempts),
       },
       cause,
     });
   }
+}
+
+/** safeAttempts 把内部选择器尝试记录转换成可安全返回的 JSON 字段。 */
+function safeAttempts(attempts: SelectorAttempt[]) {
+  return attempts.map((item) => ({
+    level: item.level,
+    selector_type: item.selector_type,
+    selector_value: item.selector_value,
+    matches: item.matches,
+    selected_index: item.selected_index,
+  }));
 }
 
 /** delay 使用 Node 定时器等待，避免发送浏览器内等待指令。 */
