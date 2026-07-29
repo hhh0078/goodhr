@@ -22,6 +22,11 @@ type greetBrowser struct {
 	findRequests []contract.ElementFindAllRequest
 }
 
+type detailReadBrowser struct {
+	model.Browser
+	readCount int
+}
+
 // Click 模拟岗位入口元素找不到。
 func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
 	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
@@ -40,6 +45,15 @@ func (b *greetBrowser) FindAll(_ context.Context, request contract.ElementFindAl
 		return []contract.FindAllItem{{Index: 0, Text: "选择招呼语"}}, nil
 	}
 	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+}
+
+// Read 模拟候选人详情经过两次空内容后完成异步加载。
+func (b *detailReadBrowser) Read(context.Context, contract.ElementReadRequest) (contract.ReadResult, error) {
+	b.readCount++
+	if b.readCount < 3 {
+		return contract.ReadResult{}, nil
+	}
+	return contract.ReadResult{Value: "候选人详情已经加载"}, nil
 }
 
 // TestSelectPositionRequiresConfiguredOpenSelector 验证已配置的岗位入口找不到时会立即报错。
@@ -148,6 +162,29 @@ func TestGreetCandidateSkipsMissingGreetingDialog(t *testing.T) {
 	}
 	if actual := strings.Join(browser.clicked, ","); actual != "候选人打招呼按钮" {
 		t.Fatalf("弹框不存在时不应点击发送：%s", actual)
+	}
+}
+
+// TestExtractCandidateDetailWaitsForAsyncContent 验证详情正文异步加载时会定时重读。
+func TestExtractCandidateDetailWaitsForAsyncContent(t *testing.T) {
+	browser := &detailReadBrowser{}
+	cfg := model.Config{
+		ID: "test",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.detail": {
+				Target: contract.SelectorGroup{
+					Selectors: []contract.SelectorCandidate{{Type: "css", Value: "body"}},
+				},
+				Description: "候选人详情",
+			},
+		},
+	}
+	detail, err := ExtractCandidateDetail(context.Background(), browser, cfg)
+	if err != nil {
+		t.Fatalf("异步详情读取失败：%v", err)
+	}
+	if detail.Text != "候选人详情已经加载" || browser.readCount != 3 {
+		t.Fatalf("详情读取结果不正确：detail=%+v count=%d", detail, browser.readCount)
 	}
 }
 

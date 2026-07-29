@@ -70,8 +70,10 @@ export class ScrollAction {
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
-      if (anchor) {
+      if (anchor && this.intersectsViewport(anchor.resolved.view)) {
         await this.move.toElement(anchor.resolved, actionContext);
+      } else if (target && this.intersectsViewport(target.resolved.view)) {
+        await this.move.toElement(target.resolved, actionContext);
       } else {
         const viewport = await this.viewport.size(page);
         await this.move.toViewportCenter(
@@ -258,7 +260,19 @@ export class ScrollAction {
     ) {
       return;
     }
-    await this.move.toElement((anchor ?? found).resolved, actionContext);
+    if (anchor && this.intersectsViewport(anchor.resolved.view)) {
+      await this.move.toElement(anchor.resolved, actionContext);
+    } else if (this.intersectsViewport(found.resolved.view)) {
+      await this.move.toElement(found.resolved, actionContext);
+    } else {
+      const viewport = found.resolved.view.viewport;
+      await this.move.toViewportCenter(
+        found.resolved.page,
+        viewport.width,
+        viewport.height,
+        actionContext,
+      );
+    }
     const maxAttempts = Math.max(1, request.max_attempts ?? 8);
     let previousGap = this.verticalGap(found.resolved.view, visibleArea);
     let noProgressCount = 0;
@@ -388,15 +402,35 @@ export class ScrollAction {
     const margin = Math.max(0, rawMargin);
     const viewport = targetView.viewport;
     const container = containerView?.box;
-    const left = Math.max(margin, container ? container.x + margin : margin);
-    const top = Math.max(margin, container ? container.y + margin : margin);
+    const limitsWidth = Boolean(
+      container &&
+        container.width > 0 &&
+        container.width < viewport.width,
+    );
+    const limitsHeight = Boolean(
+      container &&
+        container.height > 0 &&
+        container.height < viewport.height,
+    );
+    const left = Math.max(
+      margin,
+      limitsWidth && container ? container.x + margin : margin,
+    );
+    const top = Math.max(
+      margin,
+      limitsHeight && container ? container.y + margin : margin,
+    );
     const right = Math.min(
       viewport.width - margin,
-      container ? container.x + container.width - margin : viewport.width - margin,
+      limitsWidth && container
+        ? container.x + container.width - margin
+        : viewport.width - margin,
     );
     const bottom = Math.min(
       viewport.height - margin,
-      container ? container.y + container.height - margin : viewport.height - margin,
+      limitsHeight && container
+        ? container.y + container.height - margin
+        : viewport.height - margin,
     );
     return {
       left,
@@ -406,6 +440,19 @@ export class ScrollAction {
       width: Math.max(0, right - left),
       height: Math.max(0, bottom - top),
     };
+  }
+
+  /** intersectsViewport 判断元素是否至少有一部分位于浏览器内容视口内。 */
+  private intersectsViewport(view: ElementView): boolean {
+    const right = view.box.x + view.box.width;
+    const bottom = view.box.y + view.box.height;
+    return (
+      view.visible &&
+      right > 0 &&
+      bottom > 0 &&
+      view.box.x < view.viewport.width &&
+      view.box.y < view.viewport.height
+    );
   }
 
   /** assertTargetCanFit 在窗口或容器过小时返回明确错误。 */

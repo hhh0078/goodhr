@@ -159,3 +159,39 @@ func TestRequestPositionStartReadsStructuredError(t *testing.T) {
 		t.Fatalf("unexpected api error: %+v", apiErr)
 	}
 }
+
+// TestSavePositionCandidateUsesStructuredEndpoint 验证结构化候选人会使用岗位简历库接口和强类型字段。
+func TestSavePositionCandidateUsesStructuredEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/positions/position-1/candidates" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var payload CandidateUpload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.CandidateName != "候选人甲" || payload.PlatformID != "hliepin" {
+			t.Fatalf("candidate payload = %+v", payload)
+		}
+		if payload.AIGreetScore == nil || *payload.AIGreetScore != 88 {
+			t.Fatalf("ai greet score = %+v", payload.AIGreetScore)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	score := 88.0
+	err := New(server.URL).SavePositionCandidate(context.Background(), "token", "position-1", CandidateUpload{
+		StructuredCandidate: StructuredCandidate{CandidateName: "候选人甲"},
+		PlatformID:          "hliepin",
+		Status:              "greeted",
+		AIGreetScore:        &score,
+	})
+	if err != nil {
+		t.Fatalf("同步结构化候选人失败：%v", err)
+	}
+}

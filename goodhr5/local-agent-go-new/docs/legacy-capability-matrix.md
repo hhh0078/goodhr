@@ -207,10 +207,10 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `internal/cloudapi/client.go` | 登录、会员、岗位、偏好、平台配置、统计、完成/失败通知 | `internal/integration/cloud/client.go`、`internal/platform/*/config.json` | 登录、会员、岗位、偏好和统计已强类型迁移；平台配置改为本地随程序发布；完整候选人详情上传云端按新数据边界明确取消 |
+| `internal/cloudapi/client.go` | 登录、会员、岗位、偏好、平台配置、统计、完成/失败通知 | `internal/integration/cloud/client.go`、`internal/platform/*/config.json` | 登录、会员、岗位、偏好和统计已强类型迁移；平台配置改为本地随程序发布；岗位开启结构化简历后异步同步云端简历库 |
 | `internal/cloudapi/client_test.go` | 云端接口和完成通知测试 | `internal/integration/cloud/client_test.go` | 已迁移关键强类型、登录失效和邮件确认测试 |
 | `internal/config/config.go` | 路径、端口、Worker、运行组件和控制台配置 | `internal/config/config.go` | 已迁移并以 macOS 用户配置目录为默认数据目录 |
-| `internal/localai/client.go` | 文本/图片评分、SSE、重试、回复和结构化简历 | `internal/integration/ai/client.go` | 已迁移评分、图片、SSE、重试和回复；完整结构化简历入库/上传按新数据边界取消 |
+| `internal/localai/client.go` | 文本/图片评分、SSE、重试、回复和结构化简历 | `internal/integration/ai/client.go` | 已迁移评分、图片、SSE、重试和回复；评分字段完整后提前返回，完整结构化简历后台异步入库 |
 | `internal/localai/client_test.go` | AI 解析、流式、重试和错误分类测试 | `internal/integration/ai/client_test.go` | 已迁移关键流式、重试和致命错误测试 |
 | `internal/localdb/ai_types.go` | 本地 AI 配置模型 | 云端强类型 AI 配置 | 明确不迁移本地重复配置 |
 | `internal/localdb/db.go` | 旧 SQLite 初始化和大表迁移 | `internal/storage/store.go`、`migrations/` | 已重建为最小本地摘要库 |

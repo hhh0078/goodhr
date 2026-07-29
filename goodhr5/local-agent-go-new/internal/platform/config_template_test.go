@@ -63,6 +63,22 @@ func TestLoadConfigUsesLocalZhaopinSelectors(t *testing.T) {
 	}
 }
 
+// TestLoadConfigUsesUniqueHLiepinCandidateRows 验证猎聘猎头端直接定位候选人行，不再依赖页面里多个 tbody。
+func TestLoadConfigUsesUniqueHLiepinCandidateRows(t *testing.T) {
+	cfg, err := LoadConfig("hliepin")
+	if err != nil {
+		t.Fatalf("读取猎聘猎头端本地配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.item"]
+	if len(selector.Parents) != 0 {
+		t.Fatalf("猎聘候选人行不应该依赖不唯一的 tbody 父级：%+v", selector.Parents)
+	}
+	if len(selector.Target.Selectors) == 0 ||
+		selector.Target.Selectors[0].Value != "tr[data-tlg-elem-id='h_pc_search_res_listcard']" {
+		t.Fatalf("猎聘候选人行选择器不正确：%+v", selector.Target.Selectors)
+	}
+}
+
 // TestValidateTaskConfig 验证自动回复缺少真实消息配置时会在启动前明确拦截。
 func TestValidateTaskConfig(t *testing.T) {
 	cfg, err := LoadConfig("zhaopin")
@@ -111,7 +127,7 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 			"candidate.greet_without_job", "candidate.greet_submit",
 			"candidate.continue", "candidate.chat_modal", "candidate.chat_name",
 			"candidate.chat_close", "candidate.contact_drawer",
-			"candidate.contact_drawer_close", "candidate.next_page",
+			"candidate.contact_drawer_close", "candidate.page_number",
 		},
 	}
 	for _, key := range required[platformID] {

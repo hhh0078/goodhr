@@ -51,6 +51,7 @@ type PositionCommonConfig struct {
 	ModeDefault               string `json:"mode_default"`
 	DetailMode                string `json:"detail_mode"`
 	ScanRounds                int    `json:"scan_rounds"`
+	OutputStructuredResume    bool   `json:"output_structured_resume"`
 	RequestPhone              bool   `json:"request_phone"`
 	RequestWechat             bool   `json:"request_wechat"`
 	RequestResume             bool   `json:"request_resume"`
@@ -123,6 +124,92 @@ type PositionSnapshot struct {
 	CommonConfig    PositionCommonConfig `json:"common_config"`
 	AIOptions       PositionAIOptions    `json:"ai_config"`
 	AI              AIConfig             `json:"ai"`
+}
+
+// CandidateWorkExperience 表示 AI 识别出的候选人工作经历。
+type CandidateWorkExperience struct {
+	CompanyName  string `json:"company_name"`
+	PositionName string `json:"position_name"`
+	Content      string `json:"content"`
+	StartYM      string `json:"start_ym"`
+	EndYM        string `json:"end_ym"`
+}
+
+// CandidateEducation 表示 AI 识别出的候选人教育经历。
+type CandidateEducation struct {
+	SchoolName     string `json:"school_name"`
+	MajorName      string `json:"major_name"`
+	EducationLevel string `json:"education_level"`
+	StartYM        string `json:"start_ym"`
+	EndYM          string `json:"end_ym"`
+}
+
+// CandidateCertificate 表示 AI 识别出的候选人证书。
+type CandidateCertificate struct {
+	CertificateName string `json:"certificate_name"`
+	IssuedBy        string `json:"issued_by"`
+	IssuedYM        string `json:"issued_ym"`
+}
+
+// CandidateHonor 表示 AI 识别出的候选人荣誉。
+type CandidateHonor struct {
+	HonorName   string `json:"honor_name"`
+	IssuedBy    string `json:"issued_by"`
+	IssuedYM    string `json:"issued_ym"`
+	Description string `json:"description"`
+}
+
+// CandidateProjectExperience 表示 AI 识别出的候选人项目经历。
+type CandidateProjectExperience struct {
+	ProjectName string `json:"project_name"`
+	RoleName    string `json:"role_name"`
+	Content     string `json:"content"`
+	StartYM     string `json:"start_ym"`
+	EndYM       string `json:"end_ym"`
+}
+
+// CandidateCommunication 表示 AI 识别出的候选人历史沟通摘要。
+type CandidateCommunication struct {
+	CommunicatorName string `json:"communicator_name"`
+	CommunicatedAt   string `json:"communicated_at"`
+	Content          string `json:"content"`
+}
+
+// StructuredCandidate 表示允许异步同步到云端简历库的结构化候选人字段。
+type StructuredCandidate struct {
+	CandidateName           string                       `json:"candidate_name,omitempty"`
+	BirthYM                 string                       `json:"birth_ym,omitempty"`
+	Phone                   string                       `json:"phone,omitempty"`
+	Email                   string                       `json:"email,omitempty"`
+	WorkRegion              string                       `json:"work_region,omitempty"`
+	WorkYears               string                       `json:"work_years,omitempty"`
+	ExpectedSalaryMin       *int                         `json:"expected_salary_min,omitempty"`
+	ExpectedSalaryMax       *int                         `json:"expected_salary_max,omitempty"`
+	EducationLevel          string                       `json:"education_level,omitempty"`
+	ExpectedPosition        string                       `json:"expected_position,omitempty"`
+	OnlineStatus            string                       `json:"online_status,omitempty"`
+	PersonalDescription     string                       `json:"personal_description,omitempty"`
+	WorkStatus              string                       `json:"work_status,omitempty"`
+	RawText                 string                       `json:"raw_text,omitempty"`
+	WorkExperiences         []CandidateWorkExperience    `json:"work_experiences,omitempty"`
+	Educations              []CandidateEducation         `json:"educations,omitempty"`
+	Certificates            []CandidateCertificate       `json:"certificates,omitempty"`
+	Honors                  []CandidateHonor             `json:"honors,omitempty"`
+	ProjectExperiences      []CandidateProjectExperience `json:"project_experiences,omitempty"`
+	ColleagueCommunications []CandidateCommunication     `json:"colleague_communications,omitempty"`
+}
+
+// CandidateUpload 表示本地程序异步写入云端简历库的候选人结果。
+type CandidateUpload struct {
+	StructuredCandidate
+	PlatformID          string   `json:"platform_id"`
+	PlatformCandidateID string   `json:"id,omitempty"`
+	BasicInfo           string   `json:"basic_info,omitempty"`
+	Status              string   `json:"status"`
+	AIDetailReason      string   `json:"ai_detail_reason,omitempty"`
+	AIDetailScore       *float64 `json:"ai_detail_score,omitempty"`
+	AIGreetReason       string   `json:"ai_greet_reason,omitempty"`
+	AIGreetScore        *float64 `json:"ai_greet_score,omitempty"`
 }
 
 // TaskSummary 表示同步到云端的不含敏感数据任务摘要。

@@ -159,7 +159,16 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 		}
 		previewCtx, cancelPreviews := context.WithCancel(ctx)
-		for item := range f.candidatePreviews(previewCtx, prepared, newCandidates) {
+		previews := f.candidatePreviews(previewCtx, prepared, newCandidates)
+		for {
+			item, previewOpen, previewErr := waitCandidatePreview(previewCtx, previews)
+			if previewErr != nil {
+				cancelPreviews()
+				return previewErr
+			}
+			if !previewOpen {
+				break
+			}
 			candidate := item.Candidate
 			if err := ctx.Err(); err != nil {
 				cancelPreviews()
@@ -327,6 +336,20 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	score := 0.0
 	hasScore := false
 	reason := "基础规则通过"
+	evaluation := ai.Evaluation{}
+	evaluationStatus := "failed"
+	var evaluationCancel context.CancelFunc
+	defer func() {
+		if evaluationCancel != nil {
+			f.finishCandidateEvaluationAsync(
+				prepared,
+				candidate,
+				evaluationStatus,
+				evaluation,
+				evaluationCancel,
+			)
+		}
+	}()
 	if prepared.Position.RequiresAI {
 		if detailBrowser, ok := runtime.(model.DetailBrowser); ok && detailOpened {
 			startedAt := time.Now()
@@ -340,26 +363,31 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		var decisionErr error
 		decisionStartedAt := time.Now()
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
+		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
+		evaluationCancel = cancelEvaluation
 		if detailMode == "ai" {
 			images, imageErr := f.readDetailImages(ctx, prepared, candidate)
 			if imageErr != nil {
 				decisionErr = imageErr
 			} else {
-				decision, decisionErr = f.AI.EvaluateCandidateVision(
-					ctx, prepared.Position.AI, prepared.Position, candidate, detail, images,
+				evaluation, decisionErr = f.AI.EvaluateCandidateVisionEarly(
+					evaluationCtx, prepared.Position.AI, prepared.Position, candidate, detail, images,
 				)
 			}
 		} else {
-			decision, decisionErr = f.AI.EvaluateCandidate(
-				ctx, prepared.Position.AI, prepared.Position, candidate, detail,
+			evaluation, decisionErr = f.AI.EvaluateCandidateEarly(
+				evaluationCtx, prepared.Position.AI, prepared.Position, candidate, detail,
 			)
 		}
 		if decisionErr != nil {
+			evaluationCancel()
+			evaluationCancel = nil
 			f.log(prepared.Request.TaskID, "ai_decision", "failed", decisionStartedAt, decisionErr)
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "ai_decision", "failed", decisionErr.Error())
 			return fmt.Errorf("判断候选人匹配度失败：%w", decisionErr)
 		}
+		decision = evaluation.Decision
 		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
 		score = decision.Score
@@ -381,6 +409,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		detailOpened = false
 	}
 	if !accepted {
+		evaluationStatus = "skipped"
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "decision", "skipped", reason)
 		return nil
@@ -417,6 +446,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		Message:              prepared.Position.GreetMessage,
 		KeepConversationOpen: requestInfo,
 	}); err != nil {
+		evaluationStatus = "failed"
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", err.Error())
 		return fmt.Errorf("打招呼失败：%w", err)
@@ -433,6 +463,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			f.log(prepared.Request.TaskID, "request_candidate_info", "warning", time.Now(), err)
 		}
 	}
+	evaluationStatus = "greeted"
 	stats.Succeeded++
 	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
 	return nil

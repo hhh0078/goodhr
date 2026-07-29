@@ -5,11 +5,12 @@ package hliepin
 type Runtime struct {
 	positionName          string
 	selectJobWhenGreeting bool
+	nextCandidatePage     int
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时。
 func NewRuntime() *Runtime {
-	return &Runtime{}
+	return &Runtime{nextCandidatePage: 2}
 }
 
 // PlatformID 返回猎聘猎头端平台编号。

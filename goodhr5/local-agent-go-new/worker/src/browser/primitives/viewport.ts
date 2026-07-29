@@ -5,7 +5,7 @@ import type { ViewportSize } from "../../contracts/selector.js";
 
 /** ViewportPrimitive 提供只供封装能力调用的视口尺寸读取。 */
 export class ViewportPrimitive {
-  /** size 优先读取 Playwright 视口配置，无固定视口时从当前页面截图读取 PNG 尺寸。 */
+  /** size 优先读取 Playwright 视口配置，无固定视口时把截图物理像素换算为 CSS 视口尺寸。 */
   async size(page: Page): Promise<ViewportSize> {
     const configured = page.viewportSize();
     if (configured && configured.width > 0 && configured.height > 0) {
@@ -23,6 +23,20 @@ export class ViewportPrimitive {
     if (width <= 0 || height <= 0) {
       throw new Error("浏览器视口尺寸不正确");
     }
-    return { width, height };
+    const rootBox = await page
+      .locator("html")
+      .boundingBox()
+      .catch(() => null);
+    if (!rootBox || rootBox.width <= 0) {
+      return { width, height };
+    }
+    const screenshotScale = width / rootBox.width;
+    if (!Number.isFinite(screenshotScale) || screenshotScale <= 0) {
+      return { width, height };
+    }
+    return {
+      width: rootBox.width,
+      height: height / screenshotScale,
+    };
   }
 }

@@ -204,6 +204,19 @@ func (c *Client) AddProcessedResumes(ctx context.Context, token string, position
 	return c.do(ctx, http.MethodPost, path, token, request, nil)
 }
 
+// SavePositionCandidate 把开启结构化简历后的完整候选人结果写入云端简历库。
+func (c *Client) SavePositionCandidate(ctx context.Context, token string, positionID string, candidate CandidateUpload) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	if strings.TrimSpace(candidate.CandidateName) == "" {
+		return fmt.Errorf("候选人姓名为空，暂时不能同步到云端简历库")
+	}
+	path := "/api/positions/" + url.PathEscape(positionID) + "/candidates"
+	return c.do(ctx, http.MethodPost, path, token, candidate, nil)
+}
+
 // SyncCompletedSummary 最多尝试三次完成状态同步，并要求云端确认完成邮件已发送。
 func (c *Client) SyncCompletedSummary(ctx context.Context, token string, summary TaskSummary) error {
 	summary.Status = "completed"

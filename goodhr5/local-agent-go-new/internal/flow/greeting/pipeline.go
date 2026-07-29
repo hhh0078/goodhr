@@ -12,6 +12,7 @@ import (
 )
 
 const candidatePreviewConcurrency = 5
+const candidatePreviewPollInterval = 150 * time.Millisecond
 
 // candidatePreviewResult 保存候选人基础信息预判断结果和原页面序号。
 type candidatePreviewResult struct {
@@ -112,6 +113,24 @@ func orderCandidatePreviews(
 			case <-ctx.Done():
 				return
 			}
+		}
+	}
+}
+
+// waitCandidatePreview 每 150 毫秒醒来检查一次，直到下一位候选人的预判断完成。
+func waitCandidatePreview(
+	ctx context.Context,
+	ordered <-chan candidatePreviewResult,
+) (candidatePreviewResult, bool, error) {
+	ticker := time.NewTicker(candidatePreviewPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return candidatePreviewResult{}, false, ctx.Err()
+		case item, ok := <-ordered:
+			return item, ok, nil
+		case <-ticker.C:
 		}
 	}
 }

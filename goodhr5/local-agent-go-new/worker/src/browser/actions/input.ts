@@ -52,7 +52,7 @@ export class InputAction {
         found,
         {
           distance: 160,
-          max_attempts: 8,
+          max_attempts: 24,
           require_full: true,
         },
         actionContext,

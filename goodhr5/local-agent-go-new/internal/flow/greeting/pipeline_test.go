@@ -4,6 +4,7 @@ package greeting
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // TestOrderCandidatePreviews 验证乱序完成的预判断结果会恢复为页面顺序。
@@ -26,4 +27,21 @@ func TestOrderCandidatePreviews(t *testing.T) {
 	if index != 3 {
 		t.Fatalf("预判断结果数量错误：得到 %d，期望 3", index)
 	}
+}
+
+// TestOrderCandidatePreviewsDoesNotWaitForWholeBatch 验证第一位完成后立即交给主流程，不等待后续候选人。
+func TestOrderCandidatePreviewsDoesNotWaitForWholeBatch(t *testing.T) {
+	results := make(chan candidatePreviewResult)
+	ordered := make(chan candidatePreviewResult)
+	go orderCandidatePreviews(context.Background(), results, ordered)
+	go func() {
+		results <- candidatePreviewResult{Index: 0}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	item, ok, err := waitCandidatePreview(ctx, ordered)
+	if err != nil || !ok || item.Index != 0 {
+		t.Fatalf("first preview = %+v, open=%v, err=%v", item, ok, err)
+	}
+	close(results)
 }

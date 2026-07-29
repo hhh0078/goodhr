@@ -26,9 +26,10 @@ type Client struct {
 
 // Decision 表示候选人是否适合打招呼。
 type Decision struct {
-	Accepted bool    `json:"accepted"`
-	Score    float64 `json:"score"`
-	Reason   string  `json:"reason"`
+	Accepted bool                       `json:"accepted"`
+	Score    float64                    `json:"score"`
+	Reason   string                     `json:"reason"`
+	Resume   *cloud.StructuredCandidate `json:"resume,omitempty"`
 }
 
 // ServiceError 表示 AI 网络或服务端错误及其重试策略。
@@ -93,16 +94,32 @@ func (c *Client) Ready(cfg cloud.AIConfig) error {
 
 // EvaluateCandidate 根据岗位和候选人详情生成强类型文本判断。
 func (c *Client) EvaluateCandidate(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, detail model.CandidateDetail) (Decision, error) {
+	return c.evaluateCandidate(ctx, cfg, position, candidate, detail, nil)
+}
+
+// evaluateCandidate 执行候选人文本评分，并在流式评分字段完整时触发可选提前回调。
+func (c *Client) evaluateCandidate(
+	ctx context.Context,
+	cfg cloud.AIConfig,
+	position cloud.PositionSnapshot,
+	candidate model.Candidate,
+	detail model.CandidateDetail,
+	earlyDecision func(Decision),
+) (Decision, error) {
 	system := candidateSystemPrompt(cfg, position)
 	user := candidateUserPrompt(position, candidate, detail)
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	})
+	}, candidateChatOptions(position, decisionThreshold(cfg, position), earlyDecision))
 	if err != nil {
 		return Decision{}, err
 	}
-	return parseDecision(content, decisionThreshold(cfg, position))
+	return parseDecisionWithStructured(
+		content,
+		decisionThreshold(cfg, position),
+		position.CommonConfig.OutputStructuredResume,
+	)
 }
 
 // EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
@@ -110,7 +127,7 @@ func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfi
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidatePreviewSystemPrompt(position)),
 		textChatMessage("user", candidatePreviewUserPrompt(position, candidate)),
-	})
+	}, candidateChatOptions(position, detailDecisionThreshold(position), nil))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -119,6 +136,19 @@ func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfi
 
 // EvaluateCandidateVision 根据候选人详情截图和文本生成强类型图片判断。
 func (c *Client) EvaluateCandidateVision(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, detail model.CandidateDetail, images [][]byte) (Decision, error) {
+	return c.evaluateCandidateVision(ctx, cfg, position, candidate, detail, images, nil)
+}
+
+// evaluateCandidateVision 执行候选人图片评分，并在评分字段完整时触发可选提前回调。
+func (c *Client) evaluateCandidateVision(
+	ctx context.Context,
+	cfg cloud.AIConfig,
+	position cloud.PositionSnapshot,
+	candidate model.Candidate,
+	detail model.CandidateDetail,
+	images [][]byte,
+	earlyDecision func(Decision),
+) (Decision, error) {
 	if len(images) == 0 {
 		return Decision{}, fmt.Errorf("AI 图片详情为空")
 	}
@@ -138,11 +168,15 @@ func (c *Client) EvaluateCandidateVision(ctx context.Context, cfg cloud.AIConfig
 	content, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", candidateSystemPrompt(cfg, position)),
 		{Role: "user", Content: messageContent{Parts: parts}},
-	})
+	}, candidateChatOptions(position, decisionThreshold(cfg, position), earlyDecision))
 	if err != nil {
 		return Decision{}, err
 	}
-	return parseDecision(content, decisionThreshold(cfg, position))
+	return parseDecisionWithStructured(
+		content,
+		decisionThreshold(cfg, position),
+		position.CommonConfig.OutputStructuredResume,
+	)
 }
 
 // GenerateReply 根据会话上下文生成一条简短回复。
@@ -158,7 +192,7 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 	reply, err := c.chat(ctx, cfg, []chatMessage{
 		textChatMessage("system", system),
 		textChatMessage("user", user),
-	})
+	}, candidateChatOptions(position, 0, nil))
 	if err != nil {
 		return "", err
 	}
@@ -169,13 +203,33 @@ func (c *Client) GenerateReply(ctx context.Context, cfg cloud.AIConfig, position
 	return reply, nil
 }
 
+// chatOptions 保存单次 AI 请求的思考模式和流式提前评分配置。
+type chatOptions struct {
+	EnableThinking bool
+	Threshold      float64
+	EarlyDecision  func(Decision)
+}
+
+// candidateChatOptions 根据岗位开关创建一次 AI 请求配置。
+func candidateChatOptions(position cloud.PositionSnapshot, threshold float64, earlyDecision func(Decision)) chatOptions {
+	return chatOptions{
+		EnableThinking: position.EnableThinking,
+		Threshold:      threshold,
+		EarlyDecision:  earlyDecision,
+	}
+}
+
 // chat 调用 OpenAI 兼容接口，临时错误最多尝试三次。
-func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMessage) (string, error) {
+func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMessage, options chatOptions) (string, error) {
 	if err := c.Ready(cfg); err != nil {
 		return "", err
 	}
 	requestBody := chatRequest{
 		Model: cfg.Model, Messages: messages, Temperature: cfg.Temperature, Stream: true,
+	}
+	if !options.EnableThinking {
+		disabled := false
+		requestBody.EnableThinking = &disabled
 	}
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
@@ -184,7 +238,7 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 	endpoint := chatCompletionsURL(cfg.BaseURL)
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded)
+		content, requestErr := c.doChatRequest(ctx, endpoint, cfg.APIKey, encoded, options)
 		if requestErr == nil {
 			return content, nil
 		}
@@ -201,7 +255,7 @@ func (c *Client) chat(ctx context.Context, cfg cloud.AIConfig, messages []chatMe
 }
 
 // doChatRequest 执行一次 AI 请求并兼容 JSON 和 SSE 响应。
-func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte) (string, error) {
+func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey string, payload []byte, options chatOptions) (string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("创建 AI 请求失败：%w", err)
@@ -223,14 +277,14 @@ func (c *Client) doChatRequest(ctx context.Context, endpoint string, apiKey stri
 	}
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/event-stream") {
-		return readChatStream(response.Body)
+		return readChatStream(response.Body, options.Threshold, options.EarlyDecision)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
 		return "", &ServiceError{Message: "读取 AI 响应失败：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(body)), "data:") {
-		return readChatStream(bytes.NewReader(body))
+		return readChatStream(bytes.NewReader(body), options.Threshold, options.EarlyDecision)
 	}
 	return readChatJSON(body)
 }
@@ -247,11 +301,12 @@ func readChatJSON(body []byte) (string, error) {
 	return response.Choices[0].Message.Content, nil
 }
 
-// readChatStream 逐行读取 OpenAI 兼容 SSE 内容。
-func readChatStream(reader io.Reader) (string, error) {
+// readChatStream 逐行读取 OpenAI 兼容 SSE 内容，并在评分字段完整时提前回调。
+func readChatStream(reader io.Reader, threshold float64, earlyDecision func(Decision)) (string, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var content strings.Builder
+	earlySent := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -265,7 +320,14 @@ func readChatStream(reader io.Reader) (string, error) {
 		if json.Unmarshal([]byte(data), &chunk) != nil || len(chunk.Choices) == 0 {
 			continue
 		}
-		content.WriteString(chunk.Choices[0].Delta.Content)
+		delta := chunk.Choices[0].Delta.Content
+		content.WriteString(delta)
+		if delta != "" && earlyDecision != nil && !earlySent {
+			if decision, ok := tryExtractStreamDecision(content.String(), threshold); ok {
+				earlySent = true
+				earlyDecision(decision)
+			}
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return "", &ServiceError{Message: "AI 流式响应中断：" + err.Error(), Retryable: true, Fatal: true, Cause: err}
@@ -335,7 +397,7 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 	if system == "" {
 		system = `你是招聘顾问。只返回 JSON：{"score":0到100数字,"reason":"30字以内原因"}，不要 Markdown。`
 	}
-	return system
+	return applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume)
 }
 
 // candidateUserPrompt 构造候选人评分动态内容。
@@ -384,34 +446,7 @@ func decisionThreshold(cfg cloud.AIConfig, position cloud.PositionSnapshot) floa
 
 // parseDecision 从模型文本提取、规范化评分和原因。
 func parseDecision(content string, threshold float64) (Decision, error) {
-	var parsed struct {
-		Score    *float64 `json:"score"`
-		Reason   string   `json:"reason"`
-		Analysis *struct {
-			Score  *float64 `json:"score"`
-			Reason string   `json:"reason"`
-		} `json:"analysis"`
-	}
-	if err := json.Unmarshal([]byte(extractJSONObject(content)), &parsed); err != nil {
-		return Decision{}, fmt.Errorf("AI 判断格式不正确：%w", err)
-	}
-	score := parsed.Score
-	reason := parsed.Reason
-	if parsed.Analysis != nil {
-		score = parsed.Analysis.Score
-		reason = parsed.Analysis.Reason
-	}
-	if score == nil {
-		return Decision{}, fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容")
-	}
-	normalizedScore := min(100, max(0, *score))
-	reason = truncateRunes(strings.TrimSpace(reason), 30)
-	if reason == "" {
-		reason = "AI 没有给出原因"
-	}
-	return Decision{
-		Accepted: normalizedScore >= threshold, Score: normalizedScore, Reason: reason,
-	}, nil
+	return parseDecisionWithStructured(content, threshold, false)
 }
 
 // chatCompletionsURL 规范化 OpenAI 兼容聊天接口地址。
@@ -495,10 +530,11 @@ type imageURL struct {
 
 // chatRequest 表示 OpenAI 兼容聊天请求。
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	Stream      bool          `json:"stream"`
+	Model          string        `json:"model"`
+	Messages       []chatMessage `json:"messages"`
+	Temperature    float64       `json:"temperature"`
+	Stream         bool          `json:"stream"`
+	EnableThinking *bool         `json:"enable_thinking,omitempty"`
 }
 
 // chatResponse 表示非流式聊天响应。

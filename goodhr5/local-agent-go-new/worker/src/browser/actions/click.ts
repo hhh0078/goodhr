@@ -53,7 +53,7 @@ export class ClickAction {
         found,
         {
           distance: 160,
-          max_attempts: 8,
+          max_attempts: 24,
           viewport_margin: request.viewport_margin ?? 0,
           require_full: true,
         },

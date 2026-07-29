@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // Manager 管理本机 Profile 目录和占用锁。
@@ -91,12 +90,6 @@ func singletonPID(target string) int {
 		return 0
 	}
 	return pid
-}
-
-// processAlive 安全判断单例锁中的进程是否仍存在；权限不足时按仍存活处理。
-func processAlive(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // Resolve 把 Profile 编号或根目录内的绝对路径解析成安全目录。

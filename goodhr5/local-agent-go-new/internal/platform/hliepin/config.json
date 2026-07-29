@@ -39,9 +39,9 @@
   "behavior": {
     "_comment": "猎聘猎头端页面行为开关。",
     "supports_paging": true,
-    "_comment_supports_paging": "候选人列表支持下一页。",
-    "candidate_list_mode": "next_page",
-    "_comment_candidate_list_mode": "候选人列表通过下一页按钮继续加载。",
+    "_comment_supports_paging": "候选人列表支持数字页码翻页。",
+    "candidate_list_mode": "number_page",
+    "_comment_candidate_list_mode": "候选人列表按 2、3、4、5 的顺序点击数字页码，不依赖下一页按钮。",
     "skip_position_selection": true,
     "_comment_skip_position_selection": "沿用用户当前手动搜索结果，不自动切换岗位。",
     "direct_position_selection": false,
@@ -61,6 +61,19 @@
   "_comment_filter_actions": "不自动改变用户手动设置的搜索和隐藏条件。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "position.shortcut_item": {
+      "_comment": "猎聘快捷搜索项目，运行时会附加岗位配置中的完整名称。",
+      "parents": [],
+      "target": {
+        "_comment": "快捷搜索名称目标。",
+        "selectors": [
+          { "_comment": "快捷搜索列表中的名称区域。", "type": "css", "value": ".quick-search-box li.save .info" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "猎聘快捷搜索"
+    },
     "candidate.list": {
       "_comment": "候选人表格滚轮落点。",
       "parents": [],
@@ -77,19 +90,12 @@
     },
     "candidate.item": {
       "_comment": "候选人表格行。",
-      "parents": [
-        {
-          "_comment": "候选人表格正文父级。",
-          "selectors": [
-            { "_comment": "CSS 候选选择器。", "type": "css", "value": "tbody" }
-          ]
-        }
-      ],
+      "parents": [],
       "target": {
         "_comment": "候选人表格行目标。",
         "selectors": [
-          { "_comment": "2026 版猎聘候选人行。", "type": "css", "value": "tr" },
-          { "_comment": "旧版无悬停行。", "type": "css", "value": ".no-hover-tr" }
+          { "_comment": "2026 版猎聘候选人数据行。", "type": "css", "value": "tr[data-tlg-elem-id='h_pc_search_res_listcard']" },
+          { "_comment": "旧版无悬停候选人行。", "type": "css", "value": "tr.no-hover-tr" }
         ]
       },
       "state": "visible",
@@ -274,18 +280,18 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端立即开聊"
     },
-    "candidate.next_page": {
-      "_comment": "候选人列表下一页按钮。",
+    "candidate.page_number": {
+      "_comment": "候选人列表数字页码，运行时会附加精确页码文字。",
       "parents": [],
       "target": {
-        "_comment": "下一页目标。",
+        "_comment": "Ant Design 数字页码目标。",
         "selectors": [
-          { "_comment": "Ant Design 下一页按钮。", "type": "css", "value": ".ant-pagination-next:not(.ant-pagination-disabled)" }
+          { "_comment": "当前可点击的 Ant Design 数字页码。", "type": "css", "value": ".ant-pagination-item:not(.ant-pagination-item-active)" }
         ]
       },
       "state": "enabled",
       "timeout_ms": 3000,
-      "description": "猎聘猎头端下一页"
+      "description": "猎聘猎头端数字页码"
     },
     "candidate.request_phone": {
       "_comment": "聊天框索要电话按钮。",
@@ -338,12 +344,9 @@
       ],
       "target": {
         "_comment": "确认索要电话按钮。",
-        "text": "确定",
-        "_comment_text": "存在二次确认时点击确定。",
-        "exact_text": true,
-        "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
-          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+          { "_comment": "确认弹框中的主按钮，父级已经限定为当前确认框。", "type": "css", "value": ".ant-im-btn-primary" },
+          { "_comment": "兼容旧版确认弹框按钮层级。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
         ]
       },
       "state": "enabled",
@@ -362,12 +365,9 @@
       ],
       "target": {
         "_comment": "确认索要微信按钮。",
-        "text": "确定",
-        "_comment_text": "存在二次确认时点击确定。",
-        "exact_text": true,
-        "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
-          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+          { "_comment": "确认弹框中的主按钮，父级已经限定为当前确认框。", "type": "css", "value": ".ant-im-btn-primary" },
+          { "_comment": "兼容旧版确认弹框按钮层级。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
         ]
       },
       "state": "enabled",
@@ -386,12 +386,9 @@
       ],
       "target": {
         "_comment": "确认索要简历按钮。",
-        "text": "确定",
-        "_comment_text": "存在二次确认时点击确定。",
-        "exact_text": true,
-        "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
-          { "_comment": "确认弹框主按钮。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
+          { "_comment": "确认弹框中的主按钮，父级已经限定为当前确认框。", "type": "css", "value": ".ant-im-btn-primary" },
+          { "_comment": "兼容旧版确认弹框按钮层级。", "type": "css", "value": ".ant-im-modal-confirm-btns .ant-im-btn-primary" }
         ]
       },
       "state": "enabled",
@@ -554,7 +551,7 @@
       "target": {
         "_comment": "旧版候选人学历信息目标。",
         "selectors": [
-          { "_comment": "旧版学历信息区域。", "type": "css", "value": ".J1lRR" }
+          { "_comment": "兼容 CSS Modules 前缀变化的学历信息区域。", "type": "css", "value": "[class$='J1lRR']" }
         ]
       },
       "state": "attached",
@@ -567,7 +564,7 @@
       "target": {
         "_comment": "旧版候选人学校信息目标。",
         "selectors": [
-          { "_comment": "旧版学校信息区域。", "type": "css", "value": ".J1lRR" }
+          { "_comment": "兼容 CSS Modules 前缀变化的学校信息区域。", "type": "css", "value": "[class$='J1lRR']" }
         ]
       },
       "state": "attached",
@@ -582,7 +579,7 @@
         "selectors": [
           { "_comment": "个人求职期望区域。", "type": "css", "value": ".new-resume-personal-expect" },
           { "_comment": "个人离线信息区域。", "type": "css", "value": ".new-resume-offline" },
-          { "_comment": "旧版通用简历信息区域。", "type": "css", "value": ".J1lRR" }
+          { "_comment": "兼容 CSS Modules 前缀变化的通用简历信息区域。", "type": "css", "value": "[class$='J1lRR']" }
         ]
       },
       "state": "attached",

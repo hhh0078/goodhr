@@ -5,9 +5,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+const (
+	detailReadAttempts = 20
+	detailReadInterval = 300 * time.Millisecond
 )
 
 // OpenCandidateDetail 点击候选人卡片内的详情入口。
@@ -26,15 +32,26 @@ func ExtractCandidateDetail(ctx context.Context, browser model.Browser, cfg mode
 	if err != nil {
 		return model.CandidateDetail{}, err
 	}
-	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
-	if err != nil {
-		return model.CandidateDetail{}, err
+	for attempt := 1; attempt <= detailReadAttempts; attempt++ {
+		result, readErr := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
+		if readErr != nil {
+			return model.CandidateDetail{}, readErr
+		}
+		if text := strings.TrimSpace(result.Value); text != "" {
+			return model.CandidateDetail{Text: text}, nil
+		}
+		if attempt == detailReadAttempts {
+			break
+		}
+		timer := time.NewTimer(detailReadInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return model.CandidateDetail{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	text := strings.TrimSpace(result.Value)
-	if text == "" {
-		return model.CandidateDetail{}, fmt.Errorf("候选人详情内容为空")
-	}
-	return model.CandidateDetail{Text: text}, nil
+	return model.CandidateDetail{}, fmt.Errorf("候选人详情内容为空，已每 300 毫秒检查 20 次")
 }
 
 // BrowseCandidateDetail 使用真实鼠标滚轮浏览当前详情区域。

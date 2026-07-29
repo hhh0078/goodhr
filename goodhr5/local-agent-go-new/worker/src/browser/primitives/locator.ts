@@ -487,7 +487,11 @@ export class LocatorPrimitive {
       default:
         locator = scope.locator(candidate.value);
         if (group.text) {
-          locator = locator.filter({ hasText: group.text });
+          locator = locator.filter({
+            hasText: group.exact_text
+              ? exactTextPattern(group.text)
+              : group.text,
+          });
         }
         break;
     }
@@ -555,6 +559,12 @@ export class LocatorPrimitive {
       cause,
     });
   }
+}
+
+/** exactTextPattern 创建允许首尾空白、但不允许额外正文的精确文本表达式。 */
+function exactTextPattern(value: string): RegExp {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*${escaped}\\s*$`, "u");
 }
 
 /** safeAttempts 把内部选择器尝试记录转换成可安全返回的 JSON 字段。 */

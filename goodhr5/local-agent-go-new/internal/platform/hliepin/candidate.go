@@ -23,6 +23,15 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 		if candidate.Fields == nil {
 			candidate.Fields = make(map[string]string)
 		}
+		if name := stableCandidateName(candidate.Name); name != "" {
+			candidate.Name = name
+			candidate.Fields["name"] = name
+			candidate.IdentityTexts = common.CandidateIdentityTexts(
+				name,
+				candidate.Fields,
+				candidate.Summary,
+			)
+		}
 		if strings.Contains(candidate.Summary, "立即沟通") {
 			candidate.Fields["greet_state"] = "immediate"
 		} else {
@@ -39,14 +48,42 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 	return result, nil
 }
 
+// stableCandidateName 从猎聘姓名区域中只保留第一条真实姓名，移除“阅”等动态标记。
+func stableCandidateName(value string) string {
+	for _, rawLine := range strings.Split(value, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || transientCandidateLine(line) || line == "名片简历" {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
 // ScrollToCandidate 通过真实滚轮定位指定猎聘猎头端候选人。
 func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
-// AdvanceCandidateList 通过公共下一页能力加载更多猎聘猎头端候选人。
+// AdvanceCandidateList 按 2、3、4、5 的顺序点击数字页码加载更多候选人。
 func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
-	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before)
+	pageNumber := r.nextCandidatePage
+	if pageNumber < 2 {
+		pageNumber = 2
+	}
+	advanced, err := common.AdvanceCandidateNumberPage(
+		ctx,
+		browser,
+		cfg,
+		r.PlatformID(),
+		"candidate.page_number",
+		pageNumber,
+		before,
+	)
+	if err == nil && advanced {
+		r.nextCandidatePage = pageNumber + 1
+	}
+	return advanced, err
 }
 
 // stableCandidateText 移除会随浏览和沟通变化的猎聘列表状态文字。
@@ -68,7 +105,7 @@ func transientCandidateLine(value string) bool {
 		return true
 	}
 	switch value {
-	case "在线", "活跃状态", "隐藏", "阅", "已查看", "立即沟通", "继续沟通", "已沟通", "获取联系方式":
+	case "在线", "活跃状态", "隐藏", "阅", "已查看", "名片简历", "立即沟通", "继续沟通", "已沟通", "获取联系方式":
 		return true
 	default:
 		return false

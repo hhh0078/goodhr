@@ -3,6 +3,8 @@ package common
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +39,50 @@ func AdvanceCandidateList(
 	default:
 		return false, nil
 	}
+}
+
+// AdvanceCandidateNumberPage 点击指定数字页码，并轮询确认候选人列表已经更新。
+func AdvanceCandidateNumberPage(
+	ctx context.Context,
+	browser model.Browser,
+	cfg model.Config,
+	platformID string,
+	selectorKey string,
+	pageNumber int,
+	before []model.Candidate,
+) (bool, error) {
+	selector, err := numberedPageSelector(cfg, selectorKey, pageNumber)
+	if err != nil {
+		return false, err
+	}
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+	})
+	if err != nil || len(items) == 0 {
+		return false, err
+	}
+	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector}); err != nil {
+		return false, err
+	}
+	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+}
+
+// numberedPageSelector 把通用分页选择器收紧为指定的精确数字页码。
+func numberedPageSelector(cfg model.Config, selectorKey string, pageNumber int) (contract.SelectorSpec, error) {
+	selector, err := RequiredSelector(cfg, selectorKey)
+	if err != nil {
+		return contract.SelectorSpec{}, err
+	}
+	if pageNumber < 2 {
+		pageNumber = 2
+	}
+	exact := true
+	selector.Target.Text = strconv.Itoa(pageNumber)
+	selector.Target.Texts = nil
+	selector.Target.ExactText = &exact
+	selector.Target.Index = nil
+	selector.Description = fmt.Sprintf("%s第 %d 页", firstNonEmpty(cfg.Name, cfg.ID), pageNumber)
+	return selector, nil
 }
 
 // advanceCandidatePage 点击下一页，并轮询确认候选人列表已经更新。
