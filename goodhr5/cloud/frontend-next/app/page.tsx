@@ -15,13 +15,27 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import StructuredData from "@/components/StructuredData";
 import WorkflowBand from "@/components/WorkflowBand";
-import { absoluteURL, createPageMetadata, GITHUB_REPOSITORY_URL, RECRUITMENT_PLATFORMS } from "@/lib/seo";
+import {
+  absoluteURL,
+  createPageMetadata,
+  GITHUB_REPOSITORY_URL,
+  RECRUITMENT_PLATFORMS,
+} from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "GoodHR AI招聘助手 - 自动筛选、自动打招呼与招聘消息回复",
-  description: "GoodHR 是完全开源的 AI 招聘助手，帮助 HR 和猎头在主流招聘平台完成自动筛选简历、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理。",
+  description:
+    "GoodHR 是完全开源的 AI 招聘助手，帮助 HR 和猎头在主流招聘平台完成自动筛选简历、AI筛选、自动打招呼、AI自动回复、候选人跟进和简历下载管理。",
   path: "/",
-  keywords: ["免费招聘软件", "免费自动打招呼", "猎头AI工具", "HR自动化招聘", "多招聘平台自动化", "开源招聘系统", "开源AI招聘助手"],
+  keywords: [
+    "免费招聘软件",
+    "免费自动打招呼",
+    "猎头AI工具",
+    "HR自动化招聘",
+    "多招聘平台自动化",
+    "开源招聘系统",
+    "开源AI招聘助手",
+  ],
 });
 
 const benefits = [
@@ -43,27 +57,90 @@ const benefits = [
 ];
 
 const automationScenes = [
-  { icon: PersonSearchRoundedIcon, title: "自动筛选与 AI 筛选", description: "按关键词、排除词和岗位要求处理候选人，也可以通过 AI 完成简历评分、详情分析和筛选理由说明。" },
-  { icon: SpeedRoundedIcon, title: "自动打招呼与 AI 打招呼", description: "根据岗位模板和筛选结果自动执行打招呼，减少 HR 与猎头逐个打开候选人、重复点击的时间。" },
-  { icon: MarkChatReadRoundedIcon, title: "招聘消息自动回复", description: "围绕岗位要求继续沟通，支持 AI 自动回复、候选人意向确认、关键信息收集和面试邀约场景。" },
-  { icon: SaveAltRoundedIcon, title: "简历下载与人才库整理", description: "整理候选人详情、评分与沟通结果，帮助管理 BOSS 简历下载、猎聘简历下载和跨平台候选人资料。" },
+  {
+    icon: PersonSearchRoundedIcon,
+    title: "自动筛选与 AI 筛选",
+    description:
+      "按关键词、排除词和岗位要求处理候选人，也可以通过 AI 完成简历评分、详情分析和筛选理由说明。",
+  },
+  {
+    icon: SpeedRoundedIcon,
+    title: "自动打招呼与 AI 打招呼",
+    description:
+      "根据岗位模板和筛选结果自动执行打招呼，减少 HR 与猎头逐个打开候选人、重复点击的时间。",
+  },
+  {
+    icon: MarkChatReadRoundedIcon,
+    title: "招聘消息自动回复",
+    description:
+      "围绕岗位要求继续沟通，支持 AI 自动回复、候选人意向确认、关键信息收集和面试邀约场景。",
+  },
+  {
+    icon: SaveAltRoundedIcon,
+    title: "简历下载与人才库整理",
+    description:
+      "整理候选人详情、评分与沟通结果，帮助管理 BOSS 简历下载、猎聘简历下载和跨平台候选人资料。",
+  },
 ];
 
 const faqs = [
-  { question: "GoodHR 是什么？", answer: "GoodHR 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，用于候选人筛选、AI 分析、自动打招呼、招聘消息回复和简历管理。" },
-  { question: "GoodHR 可以免费使用吗？", answer: "可以。关键词筛选、排除词筛选、基础招聘岗位运行和自动打招呼等基础流程可以免费使用，AI 筛选和 AI 详情分析按会员方案使用。" },
-  { question: "GoodHR 面向哪些招聘平台？", answer: `GoodHR 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。` },
-  { question: "招聘平台登录信息会上传吗？", answer: "不会。招聘平台 Cookie、浏览器资料、截图和 OCR 数据保存在用户本机，云端主要保存账号认证、岗位、岗位运行和团队配置。" },
+  {
+    question: "GoodHR 是什么？",
+    answer:
+      "GoodHR 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，用于候选人筛选、AI 分析、自动打招呼、招聘消息回复和简历管理。",
+  },
+  {
+    question: "GoodHR 可以免费使用吗？",
+    answer:
+      "可以。关键词筛选、排除词筛选、基础招聘岗位运行和自动打招呼等基础流程可以免费使用，AI 筛选和 AI 详情分析按会员方案使用。",
+  },
+  {
+    question: "GoodHR 面向哪些招聘平台？",
+    answer: `GoodHR 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。`,
+  },
+  {
+    question: "招聘平台登录信息会上传吗？",
+    answer:
+      "不会。招聘平台 Cookie、浏览器资料、截图和 OCR 数据保存在用户本机，云端主要保存账号认证、岗位、岗位运行和团队配置。",
+  },
 ];
 
 /** HomePage 输出新版官网首页。 */
 export default function HomePage() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      <StructuredData data={[
-        { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "GoodHR", applicationCategory: "BusinessApplication", operatingSystem: "Windows, macOS", url: absoluteURL("/"), downloadUrl: absoluteURL("/download"), codeRepository: GITHUB_REPOSITORY_URL, description: "完全开源的 HR 和猎头招聘平台自动化工具，支持自动筛选、AI筛选、自动打招呼、AI自动回复和简历管理。", offers: { "@type": "Offer", price: "0", priceCurrency: "CNY", description: "关键词筛选与基础招聘流程可免费使用" }, featureList: automationScenes.map((item) => item.title) },
-        { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faqs.map((item) => ({ "@type": "Question", name: item.question, acceptedAnswer: { "@type": "Answer", text: item.answer } })) },
-      ]} />
+      <StructuredData
+        data={[
+          {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "GoodHR",
+            applicationCategory: "BusinessApplication",
+            operatingSystem: "Windows, macOS",
+            url: absoluteURL("/"),
+            downloadUrl: absoluteURL("/download"),
+            codeRepository: GITHUB_REPOSITORY_URL,
+            description:
+              "完全开源的 HR 和猎头招聘平台自动化工具，支持自动筛选、AI筛选、自动打招呼、AI自动回复和简历管理。",
+            offers: {
+              "@type": "Offer",
+              price: "0",
+              priceCurrency: "CNY",
+              description: "关键词筛选与基础招聘流程可免费使用",
+            },
+            featureList: automationScenes.map((item) => item.title),
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: faqs.map((item) => ({
+              "@type": "Question",
+              name: item.question,
+              acceptedAnswer: { "@type": "Answer", text: item.answer },
+            })),
+          },
+        ]}
+      />
       <SiteHeader />
       <Box component='main'>
         <Box
@@ -120,8 +197,16 @@ export default function HomePage() {
                 自动读取候选人，结合岗位模板完成筛选、分析、打招呼和后续跟进。流程持续运转，判断始终清楚可见。
               </Typography>
 
-              <Typography sx={{ mt: 1.5, color: "primary.dark", fontSize: 15, fontWeight: 700 }}>
-                HR 和猎头的免费自动招聘助手，完全开源，代码公开。
+              <Typography
+                sx={{
+                  mt: 1.5,
+                  color: "primary.dark",
+                  fontSize: 15,
+                  fontWeight: 700,
+                }}
+              >
+                HR
+                和猎头的免费自动招聘助手，完全开源，代码公开。不是摸鱼神器，而是提效工具
               </Typography>
               <Stack
                 direction={{ xs: "column", sm: "row" }}
@@ -169,20 +254,131 @@ export default function HomePage() {
 
         <WorkflowBand />
 
-        <Box component='section' sx={{ py: { xs: 7, md: 10 }, bgcolor: "#f6f9f7", borderTop: "1px solid", borderBottom: "1px solid", borderColor: "divider" }}>
+        <Box
+          component='section'
+          sx={{
+            py: { xs: 7, md: 10 },
+            bgcolor: "#f6f9f7",
+            borderTop: "1px solid",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
           <Container maxWidth='lg'>
-            <Typography sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}>主流招聘平台持续适配</Typography>
-            <Typography component='h2' sx={{ mt: 1.5, maxWidth: 820, fontSize: { xs: 32, md: 46 }, lineHeight: 1.2 }}>一个 GoodHR，承接不同招聘平台的重复工作</Typography>
-            <Typography sx={{ mt: 2, maxWidth: 780, color: "text.secondary", lineHeight: 1.8 }}>围绕不同招聘平台的候选人列表、详情页、沟通和简历场景持续扩展，统一使用岗位模板、筛选规则和本地浏览器资料。</Typography>
-            <Box sx={{ mt: 4, display: "flex", flexWrap: "wrap", gap: 1 }}>{RECRUITMENT_PLATFORMS.map((platform) => <Typography key={platform} component='span' sx={{ px: 1.5, py: 1, border: "1px solid", borderColor: "divider", borderRadius: "6px", bgcolor: "#fff", fontWeight: 700 }}>{platform}</Typography>)}</Box>
+            <Typography
+              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
+            >
+              主流招聘平台持续适配
+            </Typography>
+            <Typography
+              component='h2'
+              sx={{
+                mt: 1.5,
+                maxWidth: 820,
+                fontSize: { xs: 32, md: 46 },
+                lineHeight: 1.2,
+              }}
+            >
+              一个 GoodHR，承接不同招聘平台的重复工作
+            </Typography>
+            <Typography
+              sx={{
+                mt: 2,
+                maxWidth: 780,
+                color: "text.secondary",
+                lineHeight: 1.8,
+              }}
+            >
+              围绕不同招聘平台的候选人列表、详情页、沟通和简历场景持续扩展，统一使用岗位模板、筛选规则和本地浏览器资料。
+            </Typography>
+            <Box sx={{ mt: 4, display: "flex", flexWrap: "wrap", gap: 1 }}>
+              {RECRUITMENT_PLATFORMS.map((platform) => (
+                <Typography
+                  key={platform}
+                  component='span'
+                  sx={{
+                    px: 1.5,
+                    py: 1,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: "6px",
+                    bgcolor: "#fff",
+                    fontWeight: 700,
+                  }}
+                >
+                  {platform}
+                </Typography>
+              ))}
+            </Box>
           </Container>
         </Box>
 
-        <Box component='section' sx={{ py: { xs: 8, md: 12 }, bgcolor: "#fff" }}>
+        <Box
+          component='section'
+          sx={{ py: { xs: 8, md: 12 }, bgcolor: "#fff" }}
+        >
           <Container maxWidth='lg'>
-            <Typography sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}>从寻找候选人到发起沟通</Typography>
-            <Typography component='h2' sx={{ mt: 1.5, maxWidth: 820, fontSize: { xs: 34, md: 48 }, lineHeight: 1.18 }}>招聘自动化，不只是批量点击</Typography>
-            <Box sx={{ mt: 6, display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, borderTop: "1px solid", borderColor: "divider" }}>{automationScenes.map((item, index) => { const Icon = item.icon; return <Box key={item.title} sx={{ py: 4, pr: { md: index % 2 === 0 ? 4 : 0 }, pl: { md: index % 2 === 1 ? 4 : 0 }, borderRight: { md: index % 2 === 0 ? "1px solid" : "none" }, borderBottom: "1px solid", borderColor: "divider" }}><Icon color='primary' /><Typography component='h3' sx={{ mt: 1.5, fontSize: 22, fontWeight: 760 }}>{item.title}</Typography><Typography sx={{ mt: 1.25, color: "text.secondary", lineHeight: 1.8 }}>{item.description}</Typography></Box>; })}</Box>
+            <Typography
+              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
+            >
+              从寻找候选人到发起沟通
+            </Typography>
+            <Typography
+              component='h2'
+              sx={{
+                mt: 1.5,
+                maxWidth: 820,
+                fontSize: { xs: 34, md: 48 },
+                lineHeight: 1.18,
+              }}
+            >
+              招聘自动化，不只是批量点击
+            </Typography>
+            <Box
+              sx={{
+                mt: 6,
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" },
+                borderTop: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              {automationScenes.map((item, index) => {
+                const Icon = item.icon;
+                return (
+                  <Box
+                    key={item.title}
+                    sx={{
+                      py: 4,
+                      pr: { md: index % 2 === 0 ? 4 : 0 },
+                      pl: { md: index % 2 === 1 ? 4 : 0 },
+                      borderRight: {
+                        md: index % 2 === 0 ? "1px solid" : "none",
+                      },
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Icon color='primary' />
+                    <Typography
+                      component='h3'
+                      sx={{ mt: 1.5, fontSize: 22, fontWeight: 760 }}
+                    >
+                      {item.title}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        mt: 1.25,
+                        color: "text.secondary",
+                        lineHeight: 1.8,
+                      }}
+                    >
+                      {item.description}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
           </Container>
         </Box>
 
@@ -256,11 +452,51 @@ export default function HomePage() {
           </Container>
         </Box>
 
-        <Box component='section' sx={{ py: { xs: 8, md: 10 }, bgcolor: "#fff" }}>
+        <Box
+          component='section'
+          sx={{ py: { xs: 8, md: 10 }, bgcolor: "#fff" }}
+        >
           <Container maxWidth='lg'>
-            <Typography sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}>常见问题</Typography>
-            <Typography component='h2' sx={{ mt: 1.5, fontSize: { xs: 32, md: 44 } }}>HR 和猎头最关心的问题</Typography>
-            <Box sx={{ mt: 4, borderTop: "1px solid", borderColor: "divider" }}>{faqs.map((item) => <Box key={item.question} component='article' sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(240px,.7fr) minmax(0,1.3fr)" }, gap: 2, py: 3, borderBottom: "1px solid", borderColor: "divider" }}><Typography component='h3' sx={{ fontSize: 18, fontWeight: 760 }}>{item.question}</Typography><Typography sx={{ color: "text.secondary", lineHeight: 1.8 }}>{item.answer}</Typography></Box>)}</Box>
+            <Typography
+              sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}
+            >
+              常见问题
+            </Typography>
+            <Typography
+              component='h2'
+              sx={{ mt: 1.5, fontSize: { xs: 32, md: 44 } }}
+            >
+              HR 和猎头最关心的问题
+            </Typography>
+            <Box sx={{ mt: 4, borderTop: "1px solid", borderColor: "divider" }}>
+              {faqs.map((item) => (
+                <Box
+                  key={item.question}
+                  component='article'
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      md: "minmax(240px,.7fr) minmax(0,1.3fr)",
+                    },
+                    gap: 2,
+                    py: 3,
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Typography
+                    component='h3'
+                    sx={{ fontSize: 18, fontWeight: 760 }}
+                  >
+                    {item.question}
+                  </Typography>
+                  <Typography sx={{ color: "text.secondary", lineHeight: 1.8 }}>
+                    {item.answer}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
           </Container>
         </Box>
 
