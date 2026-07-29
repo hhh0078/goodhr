@@ -1,5 +1,5 @@
 {
-  "_comment": "猎聘企业端本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_comment": "猎聘企业端本地运行配置；随 Go 程序一起发布，是页面地址、行为和选择器的唯一来源。",
   "_property_comments": {
     "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
     "SelectorSpec.parents": "从外到内的父级层级数组。",
@@ -59,6 +59,21 @@
   "_comment_filter_actions": "旧版猎聘企业端没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "position.current": {
+      "_comment": "猎聘企业端当前选中的岗位名称。",
+      "parents": [],
+      "target": {
+        "_comment": "当前岗位文字目标候选。",
+        "selectors": [
+          { "_comment": "Ant Design 当前选项。", "type": "css", "value": ".ant-select-selection-item" },
+          { "_comment": "岗位名称降级目标。", "type": "css", "value": ".position-name" },
+          { "_comment": "职位名称降级目标。", "type": "css", "value": ".job-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端当前岗位"
+    },
     "position.open": {
       "_comment": "岗位下拉入口。",
       "parents": [],
@@ -87,6 +102,20 @@
       "state": "visible",
       "timeout_ms": 5000,
       "description": "猎聘企业端岗位列表项"
+    },
+    "position.item_text": {
+      "_comment": "猎聘企业端岗位列表项中的岗位名称。",
+      "parents": [],
+      "target": {
+        "_comment": "岗位名称文字目标候选。",
+        "selectors": [
+          { "_comment": "Ant Design 选项内容。", "type": "css", "value": ".ant-select-item-option-content" },
+          { "_comment": "下拉菜单标题内容。", "type": "css", "value": ".ant-dropdown-menu-title-content" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘企业端岗位名称"
     },
     "candidate.list": {
       "_comment": "候选人列表滚轮落点。",
@@ -256,6 +285,35 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "猎聘企业端候选人学历"
+    },
+    "university": {
+      "_comment": "候选人学校字段。",
+      "parents": [],
+      "target": {
+        "_comment": "学校名称目标。",
+        "selectors": [
+          { "_comment": "旧版学校名称区域。", "type": "css", "value": ".resume-university" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端候选人学校"
+    },
+    "description": {
+      "_comment": "候选人描述字段。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人经历和期望目标候选。",
+        "selectors": [
+          { "_comment": "简历描述区域。", "type": "css", "value": ".resume-description" },
+          { "_comment": "个人技能区域。", "type": "css", "value": ".nest-resume-personal-skills" },
+          { "_comment": "个人期望区域。", "type": "css", "value": ".personal-expect-content" },
+          { "_comment": "个人所在地信息。", "type": "css", "value": ".personal-detail-location" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端候选人描述"
     }
   },
   "conversation_fields": {},

@@ -1,4 +1,4 @@
-// Package cloud 提供本地程序访问 GoodHR 云端登录、会员、岗位和平台配置的强类型客户端。
+// Package cloud 提供本地程序访问 GoodHR 云端登录、会员、岗位和统计能力的强类型客户端。
 package cloud
 
 import (
@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // Client 是 GoodHR 云端强类型客户端。
@@ -148,27 +146,6 @@ func (c *Client) Preferences(ctx context.Context, token string) (UserPreferences
 	}
 	normalized := normalizeUserPreferences(*result)
 	return normalized, nil
-}
-
-// PlatformConfig 读取指定平台的强类型 URL 和选择器配置。
-func (c *Client) PlatformConfig(ctx context.Context, token string, platformID string) (model.Config, error) {
-	var direct struct {
-		Config json.RawMessage `json:"config"`
-		Data   struct {
-			Config json.RawMessage `json:"config"`
-		} `json:"data"`
-	}
-	path := "/api/platforms/config/" + url.PathEscape(strings.ToLower(strings.TrimSpace(platformID)))
-	if err := c.do(ctx, http.MethodGet, path, token, nil, &direct); err == nil {
-		raw := direct.Config
-		if len(raw) == 0 {
-			raw = direct.Data.Config
-		}
-		if len(raw) > 0 {
-			return decodePlatformConfig(raw, platformID)
-		}
-	}
-	return c.platformConfigFromList(ctx, token, platformID)
 }
 
 // RequestPositionStart 同步请求云端完成启动检查并占用账号唯一运行名额。
@@ -374,37 +351,6 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
 	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume
 	return position
-}
-
-// platformConfigFromList 兼容云端 system_configs 列表格式并立即转成强类型。
-func (c *Client) platformConfigFromList(ctx context.Context, token string, platformID string) (model.Config, error) {
-	var response struct {
-		Configs []struct {
-			ConfigKey   string          `json:"config_key"`
-			ConfigValue json.RawMessage `json:"config_value"`
-		} `json:"configs"`
-		Data struct {
-			Configs []struct {
-				ConfigKey   string          `json:"config_key"`
-				ConfigValue json.RawMessage `json:"config_value"`
-			} `json:"configs"`
-		} `json:"data"`
-	}
-	if err := c.do(ctx, http.MethodGet, "/api/platforms/config/", token, nil, &response); err != nil {
-		return model.Config{}, err
-	}
-	entries := response.Configs
-	if len(entries) == 0 {
-		entries = response.Data.Configs
-	}
-	target := "platform." + strings.ToLower(strings.TrimSpace(platformID))
-	for _, entry := range entries {
-		if strings.ToLower(strings.TrimSpace(entry.ConfigKey)) != target {
-			continue
-		}
-		return decodePlatformConfig(entry.ConfigValue, platformID)
-	}
-	return model.Config{}, fmt.Errorf("云端没有找到平台配置 %s", platformID)
 }
 
 // do 发送云端请求并解析强类型响应。

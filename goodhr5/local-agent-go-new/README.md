@@ -44,7 +44,7 @@ StartTask
   -> 保存最终状态并同步云端摘要
 ```
 
-启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、平台配置、Profile、冲突、Node、Worker、CloakBrowser、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
+启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、本地平台配置、Profile、冲突、Node、Worker、CloakBrowser、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
 
 ## 本地接口
 
@@ -74,7 +74,7 @@ CloakBrowser 启动默认启用 `humanize`。同一个持久化 Profile 会获�
 
 Worker 会监听已有标签页和新标签页的下载事件。Go 每秒同步一次成功或失败终态，保存 SQLite 记录；首次成功时显示十秒下载提示，可直接打开文件或在 Finder 中定位。文件接口会检查真实路径并阻止软链接越过下载目录；切换目录只影响后续下载，清空记录不删除文件。Worker 不反向调用 Go 业务接口。
 
-四个平台都按 `entry.go`、`position.go`、`candidate.go`、`detail.go`、`greet.go`、`followup.go`、`reply.go` 和 `runtime.go` 分责。每个平台目录中的 `config.json` 是带中文属性说明的本地默认模板和能力核对表，随 Go 程序一起编译；运行时以云端平台配置为主，内置模板只补齐云端旧结构缺失的字段。模板中的 `pending_selectors` 表示旧版也没有可确认的配置，自动回复缺少真实页面地址或选择器时会在启动前明确拦截。
+四个平台都按 `entry.go`、`position.go`、`candidate.go`、`detail.go`、`greet.go`、`followup.go`、`reply.go` 和 `runtime.go` 分责。每个平台目录中的 `config.json` 是带中文属性说明的本地运行配置和能力核对表，通过 `go:embed` 随 Go 程序一起编译，也是平台 URL、行为和选择器的唯一来源；本地程序不会向云端读取或合并平台配置。配置中的 `pending_selectors` 表示旧版也没有可确认的配置，自动回复缺少真实页面地址或选择器时会在启动前明确拦截。
 
 本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，正式打包时才固定打开 `https://goodhr5.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
 如果固定端口上已经是一个健康的 GoodHR 本地程序，新进程只会复用该实例、打开现有控制台后退出；不会结束不明端口占用者。

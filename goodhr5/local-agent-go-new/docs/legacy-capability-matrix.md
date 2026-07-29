@@ -8,7 +8,7 @@
 - `公共替代`：旧版平台重复代码已由强类型公共能力替代。
 - `旧版空实现`：旧文件本身没有页面操作，新版只保留扩展入口。
 - `明确不迁移`：旧能力当前已停用或只服务非 macOS，已核实后不带入新版。
-- `待云端配置`：执行代码已存在，但旧版没有可确认的选择器或页面地址，不能伪造。
+- `待本地配置`：执行代码已存在，但旧版没有可确认的选择器或页面地址，不能伪造。
 - `待真实回归`：代码和配置模板已准备，本轮按要求没有启动真实账号验证。
 
 ## 平台公共层
@@ -29,7 +29,7 @@
 | `boss/detail.go` | 打开、读取、清理牛人分析器内容、关闭详情 | `boss/detail.go`、通用点击/读取 | 已迁移，DOM 和 OCR 合并后统一执行平台清理 |
 | `boss/screenshot.go` | 详情真实滚轮分段截图和 OCR 输入 | `element.screenshot-long`、`greeting.readDetailWithOCR` | 已迁移为平台无关分段 OCR，待真实回归 |
 | `boss/greet.go` | 卡片内打招呼 | `boss/greet.go`、通用候选人作用域点击 | 已迁移 |
-| `boss/followup.go` | 基础筛选、索要信息 | `boss/position.go`、`boss/followup.go` | 旧版空实现；新版支持配置驱动，选择器待云端配置 |
+| `boss/followup.go` | 基础筛选、索要信息 | `boss/position.go`、`boss/followup.go` | 旧版空实现；新版支持配置驱动，选择器待本地配置 |
 | `boss/helpers.go` | `map[string]any` 解析和 Worker 响应拆包 | 强类型协议和 `common/runtime.go` | 公共替代 |
 | `boss/runtime_test.go` | Boss 平台身份、入口和候选人规则回归 | `common/runtime_test.go`、`config_template_test.go` | 旧测试逐项核对，规则由公共测试覆盖 |
 
@@ -207,7 +207,7 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `internal/cloudapi/client.go` | 登录、会员、岗位、偏好、平台配置、统计、完成/失败通知 | `internal/integration/cloud/client.go`、`platform_config.go` | 已强类型迁移；完整候选人详情上传云端按新数据边界明确取消 |
+| `internal/cloudapi/client.go` | 登录、会员、岗位、偏好、平台配置、统计、完成/失败通知 | `internal/integration/cloud/client.go`、`internal/platform/*/config.json` | 登录、会员、岗位、偏好和统计已强类型迁移；平台配置改为本地随程序发布；完整候选人详情上传云端按新数据边界明确取消 |
 | `internal/cloudapi/client_test.go` | 云端接口和完成通知测试 | `internal/integration/cloud/client_test.go` | 已迁移关键强类型、登录失效和邮件确认测试 |
 | `internal/config/config.go` | 路径、端口、Worker、运行组件和控制台配置 | `internal/config/config.go` | 已迁移并以 macOS 用户配置目录为默认数据目录 |
 | `internal/localai/client.go` | 文本/图片评分、SSE、重试、回复和结构化简历 | `internal/integration/ai/client.go` | 已迁移评分、图片、SSE、重试和回复；完整结构化简历入库/上传按新数据边界取消 |
@@ -270,7 +270,7 @@
 ## 当前不能伪装完成的配置
 
 - 自动回复主流程和四个平台 `reply.go` 已实现，但旧版没有消息页地址、未读会话、上下文、输入框和发送按钮配置；除 Boss 消息页地址外均标记 `pending_selectors`。
-- 收藏和不合适接口已实现，旧版没有四个平台的稳定选择器；模板中明确标记待云端配置。
+- 收藏和不合适接口已实现，旧版没有四个平台的稳定选择器；本地配置中明确标记待补。
 - Boss、猎聘企业端旧版 `followup.go` 本身为空；新版保留配置驱动能力，不伪造按钮。
-- 本地四份 `config.json` 已准备并带中文属性说明，现作为 `go:embed` 内置兜底；云端配置优先，内置模板只补齐缺失字段，标记待配置的选择器不会被伪造。
+- 本地四份 `config.json` 已准备并带中文属性说明，通过 `go:embed` 随程序发布，是平台 URL、行为和选择器的唯一来源；标记待配置的选择器不会被伪造。
 - 所有标记“待真实回归”的能力，本轮均未启动真实招聘账号任务。

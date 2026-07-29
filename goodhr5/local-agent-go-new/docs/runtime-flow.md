@@ -56,7 +56,7 @@ checks = [
   LoadPositionSnapshot,
   CheckSubscriptionWhenRequired,
   LoadUserPreferences,
-  LoadPlatformConfig,
+  LoadLocalPlatformConfig,
   CheckProfile,
   CheckTaskConflict,
   CheckNodeRuntime,
@@ -78,7 +78,7 @@ checks = [
 - 可选检查失败记录 warning，并明确降级结果。
 - 返回完整的 `PreflightResult`，后续流程直接使用，不重复读取相同配置。
 - 免费关键词和 OCR 打招呼任务不检查 AI 或会员；自动回复和明确要求 AI 的岗位才检查会员。
-- 平台配置以云端为主，内置 `config.json` 只补缺失字段；自动回复缺少消息地址或有效目标选择器时立即拦截。
+- 平台 URL、行为和选择器只加载本地平台目录的 `config.json`，不请求云端平台配置；自动回复缺少消息地址或有效目标选择器时立即拦截。
 
 ## 4. 流程分发
 

@@ -29,7 +29,7 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 			return nil
 		}
 	}
-	if err := ClickOptional(ctx, browser, cfg, "position.open"); err != nil {
+	if err := ClickRequired(ctx, browser, cfg, "position.open"); err != nil {
 		return fmt.Errorf("打开岗位列表失败：%w", err)
 	}
 	if _, ok := cfg.Selectors["position.input"]; ok {

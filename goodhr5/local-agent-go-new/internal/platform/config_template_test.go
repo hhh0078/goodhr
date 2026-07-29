@@ -1,4 +1,4 @@
-// Package platform 文件作用：验证四个平台本地 JSON 模板可以解析成统一强类型配置。
+// Package platform 文件作用：验证四个平台本地 JSON 可以解析成统一强类型运行配置。
 package platform
 
 import (
@@ -36,41 +36,38 @@ func TestPlatformConfigTemplates(t *testing.T) {
 				t.Fatal("智联必须保留每次直接选择第一条岗位结果的旧版规则")
 			}
 			assertRequiredSelectors(t, platformID, cfg)
+			assertLegacyCandidateFields(t, platformID, cfg)
 			assertConfigComments(t, content)
 		})
 	}
 }
 
-// TestFillMissingConfig 验证云端旧配置优先，内置模板只补齐新版缺失能力。
-func TestFillMissingConfig(t *testing.T) {
-	defaults, err := DefaultConfig("zhaopin")
+// TestLoadConfigUsesLocalZhaopinSelectors 验证运行时直接加载旧版已经验证过的智联本地选择器。
+func TestLoadConfigUsesLocalZhaopinSelectors(t *testing.T) {
+	cfg, err := LoadConfig("zhaopin")
 	if err != nil {
-		t.Fatalf("读取智联内置配置失败：%v", err)
+		t.Fatalf("读取智联本地配置失败：%v", err)
 	}
-	custom := defaults.Selectors["candidate.item"]
-	custom.Description = "云端候选人选择器"
-	cfg := FillMissingConfig(model.Config{
-		ID: "zhaopin",
-		Selectors: map[string]contract.SelectorSpec{
-			"candidate.item": custom,
-		},
-	}, defaults)
-	if cfg.EntryURL != defaults.EntryURL {
-		t.Fatalf("入口地址没有从内置模板补齐：%s", cfg.EntryURL)
+	expected := map[string]string{
+		"position.open":      "a[zp-stat-id='talent_more_jobs']",
+		"position.input":     ".job-side-selector__filter input",
+		"position.item":      ".job-side-selector__item",
+		"position.item_text": ".job-side-selector__title",
+		"position.panel":     ".job-side-selector",
 	}
-	if cfg.Selectors["candidate.item"].Description != "云端候选人选择器" {
-		t.Fatal("云端已有选择器被内置模板覆盖")
-	}
-	if _, ok := cfg.Selectors["candidate.request_phone"]; !ok {
-		t.Fatal("智联索要手机号选择器没有从内置模板补齐")
+	for key, value := range expected {
+		selector, ok := cfg.Selectors[key]
+		if !ok || len(selector.Target.Selectors) == 0 || selector.Target.Selectors[0].Value != value {
+			t.Errorf("智联本地选择器不正确：key=%s selector=%+v", key, selector)
+		}
 	}
 }
 
 // TestValidateTaskConfig 验证自动回复缺少真实消息配置时会在启动前明确拦截。
 func TestValidateTaskConfig(t *testing.T) {
-	cfg, err := DefaultConfig("zhaopin")
+	cfg, err := LoadConfig("zhaopin")
 	if err != nil {
-		t.Fatalf("读取智联内置配置失败：%v", err)
+		t.Fatalf("读取智联本地配置失败：%v", err)
 	}
 	if err = ValidateTaskConfig(cfg, "greeting"); err != nil {
 		t.Fatalf("打招呼任务不应要求消息页配置：%v", err)
@@ -100,11 +97,12 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 			"candidate.item", "candidate.list", "candidate.open_target",
 			"candidate.detail", "candidate.greet", "candidate.continue",
 			"candidate.chat_modal", "candidate.chat_close", "position.open",
-			"position.input", "position.item", "position.panel",
+			"position.input", "position.item", "position.item_text", "position.panel",
 		},
 		"liepin": {
 			"candidate.item", "candidate.list", "candidate.open_target",
-			"candidate.detail", "candidate.greet", "position.open", "position.item",
+			"candidate.detail", "candidate.greet", "position.current",
+			"position.open", "position.item", "position.item_text",
 		},
 		"hliepin": {
 			"candidate.item", "candidate.list", "candidate.open_target",
@@ -120,6 +118,23 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 		selector, ok := cfg.Selectors[key]
 		if !ok || len(selector.Target.Selectors) == 0 {
 			t.Errorf("旧版已使用的能力缺少选择器模板：%s", key)
+		}
+	}
+}
+
+// assertLegacyCandidateFields 验证旧版已经读取的候选人字段都保留在本地配置中。
+func assertLegacyCandidateFields(t *testing.T, platformID string, cfg model.Config) {
+	t.Helper()
+	required := map[string][]string{
+		"boss":    {"name", "basic_info", "education", "university", "description"},
+		"zhaopin": {"name", "basic_info", "education", "description"},
+		"liepin":  {"name", "basic_info", "education", "university", "description"},
+		"hliepin": {"platform_candidate_id", "name", "basic_info", "education", "university", "description"},
+	}
+	for _, key := range required[platformID] {
+		selector, ok := cfg.CandidateFields[key]
+		if !ok || len(selector.Target.Selectors) == 0 {
+			t.Errorf("旧版已读取的候选人字段缺少本地选择器：%s", key)
 		}
 	}
 }

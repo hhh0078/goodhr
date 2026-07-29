@@ -1,5 +1,5 @@
 {
-  "_comment": "猎聘猎头端本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_comment": "猎聘猎头端本地运行配置；随 Go 程序一起发布，是页面地址、行为和选择器的唯一来源。",
   "_property_comments": {
     "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
     "SelectorSpec.parents": "从外到内的父级层级数组。",
@@ -545,6 +545,47 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "猎聘猎头端候选人基本信息"
+    },
+    "education": {
+      "_comment": "候选人学历字段。",
+      "parents": [],
+      "target": {
+        "_comment": "旧版候选人学历信息目标。",
+        "selectors": [
+          { "_comment": "旧版学历信息区域。", "type": "css", "value": ".J1lRR" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人学历"
+    },
+    "university": {
+      "_comment": "候选人学校字段。",
+      "parents": [],
+      "target": {
+        "_comment": "旧版候选人学校信息目标。",
+        "selectors": [
+          { "_comment": "旧版学校信息区域。", "type": "css", "value": ".J1lRR" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人学校"
+    },
+    "description": {
+      "_comment": "候选人描述字段。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人期望和离线信息目标候选。",
+        "selectors": [
+          { "_comment": "个人求职期望区域。", "type": "css", "value": ".new-resume-personal-expect" },
+          { "_comment": "个人离线信息区域。", "type": "css", "value": ".new-resume-offline" },
+          { "_comment": "旧版通用简历信息区域。", "type": "css", "value": ".J1lRR" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人描述"
     }
   },
   "conversation_fields": {},

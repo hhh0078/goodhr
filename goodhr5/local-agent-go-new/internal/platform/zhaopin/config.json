@@ -1,5 +1,5 @@
 {
-  "_comment": "智联招聘本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_comment": "智联招聘本地运行配置；随 Go 程序一起发布，是页面地址、行为和选择器的唯一来源。",
   "_property_comments": {
     "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
     "SelectorSpec.parents": "从外到内的父级层级数组。",
@@ -97,6 +97,19 @@
       "state": "visible",
       "timeout_ms": 5000,
       "description": "智联职位列表项"
+    },
+    "position.item_text": {
+      "_comment": "智联职位搜索结果中的岗位名称。",
+      "parents": [],
+      "target": {
+        "_comment": "职位名称文字目标。",
+        "selectors": [
+          { "_comment": "旧版实际使用的职位标题选择器。", "type": "css", "value": ".job-side-selector__title" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联职位名称"
     },
     "position.panel": {
       "_comment": "智联职位选择弹层，用于确认选中岗位后弹层已经关闭。",
@@ -349,6 +362,20 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "智联候选人教育经历"
+    },
+    "description": {
+      "_comment": "候选人卡片描述字段。",
+      "parents": [],
+      "target": {
+        "_comment": "卡片描述目标候选。",
+        "selectors": [
+          { "_comment": "简历卡片内容区域。", "type": "css", "value": ".resume-item__content" },
+          { "_comment": "候选人额外信息区域。", "type": "css", "value": ".talent-basic-info__extra--content" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "智联候选人描述"
     }
   },
   "conversation_fields": {},

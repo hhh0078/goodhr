@@ -19,7 +19,7 @@ type Browser interface {
 	ClosePage(context.Context) error
 }
 
-// Config 保存云端下发的平台 URL、选择器和行为参数。
+// Config 保存随本地程序发布的平台 URL、选择器和行为参数。
 type Config struct {
 	ID                  string                           `json:"id"`
 	Name                string                           `json:"name"`

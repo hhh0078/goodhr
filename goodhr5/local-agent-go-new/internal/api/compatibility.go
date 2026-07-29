@@ -374,14 +374,14 @@ func (s *Server) handleOCRRecognize(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, result)
 }
 
-// handleRulesStatus 返回云端平台配置模式的兼容状态。
+// handleRulesStatus 返回平台规则随本地程序发布的兼容状态。
 func (s *Server) handleRulesStatus(w http.ResponseWriter, _ *http.Request) {
 	writeSuccess(w, http.StatusOK, struct {
 		Status  string   `json:"status"`
 		Message string   `json:"message"`
 		Rules   []string `json:"rules"`
 	}{
-		Status: "cloud", Message: "平台规则由云端配置统一下发", Rules: []string{},
+		Status: "builtin", Message: "平台规则跟着本地程序走，不用单独下载", Rules: []string{},
 	})
 }
 
@@ -390,7 +390,7 @@ func (s *Server) handleRulesUpdate(w http.ResponseWriter, _ *http.Request) {
 	writeSuccess(w, http.StatusOK, struct {
 		Updated []string `json:"updated"`
 		Message string   `json:"message"`
-	}{Updated: []string{}, Message: "平台规则已经由云端统一管理，不需要单独更新"})
+	}{Updated: []string{}, Message: "平台规则跟着本地程序更新，这里不用单独操作"})
 }
 
 // handleScreenshots 兼容旧控制台截图记录接口，但不把候选人截图信息写入数据库。

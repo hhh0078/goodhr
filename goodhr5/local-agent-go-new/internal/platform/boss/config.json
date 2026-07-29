@@ -1,5 +1,5 @@
 {
-  "_comment": "Boss 直聘本地默认配置模板；当前仍以云端配置为准，本文件用于核对能力和选择器。",
+  "_comment": "Boss 直聘本地运行配置；随 Go 程序一起发布，是页面地址、行为和选择器的唯一来源。",
   "_property_comments": {
     "SelectorSpec.frames": "从外到内的 iframe 层级数组。",
     "SelectorSpec.parents": "从外到内的父级层级数组。",
@@ -192,6 +192,7 @@
           { "_comment": "新版候选人卡片。", "type": "css", "value": ".candidate-card-wrap" },
           { "_comment": "旧版候选人卡片。", "type": "css", "value": ".geek-info-card" },
           { "_comment": "通用卡片容器。", "type": "css", "value": ".card-container" },
+          { "_comment": "旧版 clear-fix 卡片内层。", "type": "css", "value": ".card-inner.clear-fix" },
           { "_comment": "旧版卡片内层。", "type": "css", "value": ".card-inner.common-wrap" }
         ]
       },
@@ -310,6 +311,32 @@
       "state": "attached",
       "timeout_ms": 1500,
       "description": "Boss候选人学历"
+    },
+    "university": {
+      "_comment": "候选人学校字段。",
+      "parents": [],
+      "target": {
+        "_comment": "学校内容目标。",
+        "selectors": [
+          { "_comment": "旧版学校内容区域。", "type": "css", "value": ".content.join-text-wrap" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "Boss候选人学校"
+    },
+    "description": {
+      "_comment": "候选人卡片描述字段。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人描述目标。",
+        "selectors": [
+          { "_comment": "旧版卡片通用内容区域。", "type": "css", "value": ".content" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "Boss候选人描述"
     }
   },
   "conversation_fields": {},

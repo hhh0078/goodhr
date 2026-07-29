@@ -1,75 +1,65 @@
 ---
 name: goodhr5-architecture
-description: GoodHR 5 项目架构规范。在 goodhr5 子目录下开发时自动生效，定义云端/本地职责边界、平台配置归属、Local Agent API 设计原则。
+description: GoodHR 5 项目架构规范。在 goodhr5 子目录开发云端 Go、Next.js 前端、本地 Go Agent 或 TypeScript Browser Worker 时使用，约束云端/本地职责、平台配置归属和浏览器自动化边界。
 ---
 
 # GoodHR 5 架构规范
 
-## 架构边界
+## 核心链路
 
-GoodHR 5 是三部分组成的系统，职责必须严格分离：
+保持唯一浏览器执行链路：
 
-| 组件 | 职责 | 禁止 |
-|------|------|------|
-| 云端 Go 后端 | 用户认证、配置管理、任务元信息、平台选择器配置、解析决策逻辑 | 不保存候选人详情、截图、OCR、cookie |
-| 云端 Vue 前端 | 用户操作界面、任务控制台 | 不直接操控浏览器 |
-| 本地 Python Agent | 浏览器控制、页面操作、截图、OCR、本地文件管理 | 不包含平台解析逻辑、不包含筛选决策 |
-
-**关键原则：云端是大脑，本地是手脚。**
-
-## Local Agent 设计原则
-
-- **纯执行器**：只提供原子化浏览器操作 API
-- **同步等待**：每一个执行操作都必须等待其返回结果，禁止 fire-and-forget
-- **参数化**：URL、选择器、操作参数均由云端下发，Local Agent 不硬编码任何平台信息
-
-### Local Agent API 风格
-
-```
-POST /api/v1/browser/start   — 启动浏览器
-POST /api/v1/browser/stop    — 关闭浏览器
-POST /api/v1/page/open       — 打开页面
-POST /api/v1/page/scroll     — 滚动
-POST /api/v1/page/extract    — 按选择器提取文本/属性
-POST /api/v1/page/click      — 点击
-POST /api/v1/page/screenshot — 截图
+```text
+云端 Next.js 控制台
+  -> 本地 Go Agent
+  -> Go 平台适配
+  -> Go Browser Client
+  -> TypeScript Browser Worker 封装能力
+  -> TypeScript 原子能力
+  -> CloakBrowser
 ```
 
-## 数据边界
+禁止增加 Go 直连 CDP、第二个 Worker 或前端直控浏览器。
 
-- **云端不保存**：候选人详情、截图、OCR 文本、招聘平台 cookie/profile
-- **本地只存在 agent_data/**：所有敏感数据仅限本地 `agent_data/` 目录
-- **云端保存**：用户信息、配置、机器绑定、任务元信息、日志摘要
+## 职责边界
+
+| 组件 | 负责 | 禁止 |
+|---|---|---|
+| 云端 Go 后端 | 登录、会员、余额、岗位、用户运行设置、状态和统计 | 操控浏览器；保存 Cookie、截图或完整候选人详情 |
+| 云端 Next.js 前端 | 用户界面、本地任务控制台 | 直接调用 CloakBrowser 或 Playwright |
+| 本地 Go Agent | 启动前检查、任务流程、平台适配、AI/OCR、本地状态 | 直接调用 Playwright；把平台差异塞进公共流程 |
+| TypeScript Worker | 与平台无关的查找、移动、点击、输入、滚轮、读取、截图和下载 | 包含平台名、业务流程、AI、数据库或云端调用 |
 
 ## 平台配置归属
 
-平台选择器配置存储在云端 PostgreSQL `system_configs` 表：
+- 平台 URL、页面行为和选择器只放在 `local-agent-go-new/internal/platform/{platform}/config.json`。
+- 使用 `go:embed` 随本地程序发布；任务启动时直接加载本地配置。
+- 本地程序不得从云端请求、合并或覆盖平台配置。
+- 所有选择器继续使用统一强类型 `SelectorSpec`。
+- Go 平台文件只引用选择器逻辑键，不在 Go、Worker、云端数据库迁移中重复写 CSS。
 
-- Key 格式：`platform.{平台ID}`
-- Value 为完整 JSON 配置
+## 本地任务与浏览器边界
 
-Local Agent 不硬编码任何平台选择器。
+- Go 负责编排，Worker 只执行具体浏览器动作。
+- Worker 原子能力不得暴露给 Go；Go 只能调用封装能力。
+- 点击必须依次执行查找、移动、原子点击；输入必须依次执行查找、移动、聚焦、原子输入。
+- 所有请求同步等待结果，禁止 fire-and-forget。
+- 公共流程不得根据平台名写例外；平台差异放入 `internal/platform/{platform}`。
 
-## platform/base.py 的正确归属
+## 页面零脚本注入
 
-| 内容 | 归属 |
-|------|------|
-| `PlatformConfig` 数据类 | 云端 Go 后端 |
-| `CandidateInfo` 数据类 | 云端 Go 后端 |
-| `BaseParser` 抽象类 | 云端 Go 后端 |
-| `screenshot_detail` 截图方法 | 本地 `app/screenshot.py` |
-| `_scroll_and_stitch` 滚动拼接 | 本地 `app/screenshot.py` |
-| `_merge_two` 图片合并 | 本地 `app/screenshot.py` |
-| `_images_are_same` 图片比较 | 本地 `app/screenshot.py` |
-| `_fallback_screenshot` 兜底截图 | 本地 `app/screenshot.py` |
-| `_compute_strip_diff` 像素差异 | 本地 `app/screenshot.py` |
-| `click_box_random_point` 随机点击 | 本地 `app/humanize.py` |
-| `navigate_to_recommend` 导航 | 参数化后留在本地 |
-| `wait_for_cards` 等待卡片 | 参数化后留在本地 |
+- 严禁 `evaluate`、`$eval`、`$$eval`、`addScriptTag`、`addInitScript` 和 `dispatchEvent`。
+- 页面读取和操作只能使用标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图。
+- 禁止通过 JavaScript 修改 DOM、滚动、焦点或页面状态。
 
-## 执行注意事项
+## 数据边界
 
-- 每个 JS 执行操作必须使用 `await` 等待返回
-- Local Agent API 使用 request-response 模式，不依赖 WebSocket
-- 任务执行中的真实状态归属 Local Agent
-- 操作失败时返回明确错误信息，供云端调度重试或跳过
+- 云端不保存招聘平台 Cookie、Profile、截图、OCR 正文或完整候选人详情。
+- 浏览器 Profile、截图、下载和敏感临时数据只保存在本地数据目录。
+- 云端只接收任务状态、累计统计和不含敏感详情的摘要。
+
+## 修改前检查
+
+- 先读取目标目录最近的 `AGENTS.md`；`local-agent-go-new/AGENTS.md` 是该目录的详细权威规范。
+- 先搜索是否已有相同接口、方法、选择器逻辑键和错误码。
+- 判断改动属于云端业务、本地公共流程、平台适配还是 Worker 动作，再放入对应目录。

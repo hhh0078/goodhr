@@ -12,7 +12,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform"
-	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // Cloud 定义启动前检查使用的云端能力。
@@ -21,7 +20,6 @@ type Cloud interface {
 	Subscription(context.Context, string) (cloud.Subscription, error)
 	Position(context.Context, string, string) (cloud.PositionSnapshot, error)
 	Preferences(context.Context, string) (cloud.UserPreferences, error)
-	PlatformConfig(context.Context, string, string) (model.Config, error)
 	EffectiveAI(context.Context, string) (cloud.AIConfig, error)
 }
 
@@ -142,7 +140,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "load_position_snapshot", run: c.loadPosition},
 		{name: "check_subscription", run: c.checkSubscription},
 		{name: "load_user_preferences", run: c.loadPreferences},
-		{name: "load_platform_config", run: c.loadPlatform},
+		{name: "load_local_platform_config", run: c.loadPlatform},
 		{name: "check_profile", run: c.checkProfile},
 		{name: "check_task_conflict", run: c.checkTaskConflict},
 		{name: "check_node_runtime", run: c.checkNode},
@@ -222,20 +220,15 @@ func (c *Checker) loadPreferences(ctx context.Context, prepared *shared.Prepared
 	return err
 }
 
-// loadPlatform 读取平台配置并检查本地适配是否存在。
-func (c *Checker) loadPlatform(ctx context.Context, prepared *shared.PreparedTask) error {
-	cfg, err := c.Cloud.PlatformConfig(ctx, prepared.Request.Token, prepared.Position.PlatformID)
-	if err != nil {
-		return err
-	}
+// loadPlatform 读取随程序发布的本地平台配置，并检查本地适配是否存在。
+func (c *Checker) loadPlatform(_ context.Context, prepared *shared.PreparedTask) error {
 	if _, err := platform.RuntimeFor(prepared.Position.PlatformID); err != nil {
 		return err
 	}
-	defaults, err := platform.DefaultConfig(prepared.Position.PlatformID)
+	cfg, err := platform.LoadConfig(prepared.Position.PlatformID)
 	if err != nil {
 		return err
 	}
-	cfg = platform.FillMissingConfig(cfg, defaults)
 	if err = platform.ValidateTaskConfig(cfg, prepared.Request.TaskType); err != nil {
 		return err
 	}

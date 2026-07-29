@@ -1,7 +1,45 @@
-// Package common 文件作用：验证公共岗位名称清理和搜索词规则不会随平台改动退化。
+// Package common 文件作用：验证公共岗位选择、名称清理和搜索词规则不会随平台改动退化。
 package common
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+type clickFailureBrowser struct {
+	model.Browser
+}
+
+// Click 模拟岗位入口元素找不到。
+func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
+}
+
+// TestSelectPositionRequiresConfiguredOpenSelector 验证已配置的岗位入口找不到时会立即报错。
+func TestSelectPositionRequiresConfiguredOpenSelector(t *testing.T) {
+	cfg := model.Config{
+		ID: "zhaopin",
+		Behavior: model.Behavior{
+			DirectPositionSelection: true,
+		},
+		Selectors: map[string]contract.SelectorSpec{
+			"position.open": {
+				Target: contract.SelectorGroup{Selectors: []contract.SelectorCandidate{
+					{Type: "css", Value: "a[zp-stat-id='talent_more_jobs']"},
+				}},
+			},
+		},
+	}
+	err := SelectPosition(context.Background(), clickFailureBrowser{}, cfg, model.Position{Name: "Java开发"})
+	if err == nil || !strings.Contains(err.Error(), "打开岗位列表失败") {
+		t.Fatalf("岗位入口失败没有立即返回：%v", err)
+	}
+}
 
 // TestPositionSearchQuery 验证岗位配置后缀和中英文括号备注会被清理。
 func TestPositionSearchQuery(t *testing.T) {
