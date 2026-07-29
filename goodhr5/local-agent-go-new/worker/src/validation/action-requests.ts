@@ -48,6 +48,22 @@ export function parseBrowserStartRequest(
   assignString(request, "user_agent", optionalString(record, "user_agent"));
   assignBoolean(request, "headless", optionalBoolean(record, "headless"));
   assignBoolean(request, "humanize", optionalBoolean(record, "humanize"));
+  assignBoolean(request, "geoip", optionalBoolean(record, "geoip"));
+  assignBoolean(request, "new_tab", optionalBoolean(record, "new_tab"));
+  assignNumber(
+    request,
+    "timeout_ms",
+    optionalNumber(record, "timeout_ms", { min: 100, max: 120_000 }),
+  );
+  const waitUntil = optionalString(record, "wait_until");
+  if (
+    waitUntil === "load" ||
+    waitUntil === "domcontentloaded" ||
+    waitUntil === "networkidle" ||
+    waitUntil === "commit"
+  ) {
+    request.wait_until = waitUntil;
+  }
   assignNumber(
     request,
     "viewport_width",

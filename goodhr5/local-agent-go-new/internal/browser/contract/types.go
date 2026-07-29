@@ -87,7 +87,11 @@ type BrowserStartRequest struct {
 	DownloadsPath  string       `json:"downloads_path,omitempty"`
 	Headless       *bool        `json:"headless,omitempty"`
 	Humanize       *bool        `json:"humanize,omitempty"`
+	GeoIP          *bool        `json:"geoip,omitempty"`
 	URL            string       `json:"url,omitempty"`
+	WaitUntil      string       `json:"wait_until,omitempty"`
+	TimeoutMS      int          `json:"timeout_ms,omitempty"`
+	NewTab         *bool        `json:"new_tab,omitempty"`
 	Locale         string       `json:"locale,omitempty"`
 	Timezone       string       `json:"timezone,omitempty"`
 	UserAgent      string       `json:"user_agent,omitempty"`

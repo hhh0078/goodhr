@@ -51,6 +51,31 @@ func TestHealthContainsMachineIdentityPaths(t *testing.T) {
 	}
 }
 
+// TestBrowserStartIsNotPublicRoute 验证对外只保留统一的页面打开接口。
+func TestBrowserStartIsNotPublicRoute(t *testing.T) {
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 55271}, Dependencies{})
+	response := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/v1/browser/start", strings.NewReader("{}")),
+	)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("POST /api/v1/browser/start status = %d", response.Code)
+	}
+}
+
+// TestRequestedNewTabSupportsLegacyField 验证新增标签页优先使用 new_tab 并兼容 new_page。
+func TestRequestedNewTabSupportsLegacyField(t *testing.T) {
+	legacyTrue := true
+	if result := requestedNewTab(pageOpenRequest{NewPage: &legacyTrue}); result == nil || !*result {
+		t.Fatal("new_page=true 应该继续创建新标签页")
+	}
+	newFalse := false
+	if result := requestedNewTab(pageOpenRequest{NewTab: &newFalse, NewPage: &legacyTrue}); result == nil || *result {
+		t.Fatal("new_tab 应该优先于旧版 new_page")
+	}
+}
+
 // TestSafeDownloadFilePath 验证文件打开接口不能越过配置的下载目录。
 func TestSafeDownloadFilePath(t *testing.T) {
 	downloadsDir := filepath.Join(t.TempDir(), "downloads")

@@ -1,5 +1,6 @@
 // 文件作用说明：统一组装 Worker 会话、原子能力和封装能力，并作为 HTTP 层唯一可调用的浏览器入口。
 
+import { existsSync } from "node:fs";
 import type {
   BrowserStartRequest,
   CookieSetRequest,
@@ -109,11 +110,13 @@ export class ActionService {
   /** runtimeStatus 返回 CloakBrowser 增强二进制安装状态。 */
   runtimeStatus() {
     const info = binaryInfo();
+    const configuredPath = process.env.CLOAKBROWSER_BINARY_PATH?.trim();
+    const binaryPath = configuredPath || info.binaryPath;
     return {
       cloakbrowser_version: info.version,
       platform: info.platform,
-      binary_path: info.binaryPath,
-      installed: info.installed,
+      binary_path: binaryPath,
+      installed: existsSync(binaryPath),
     };
   }
 

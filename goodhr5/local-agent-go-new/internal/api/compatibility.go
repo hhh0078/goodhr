@@ -28,7 +28,12 @@ type pageOpenRequest struct {
 	DownloadsPath     string          `json:"downloads_path"`
 	Headless          bool            `json:"headless"`
 	Humanize          *bool           `json:"humanize"`
+	GeoIP             *bool           `json:"geoip"`
 	Persistent        bool            `json:"persistent"`
+	WaitUntil         string          `json:"wait_until"`
+	TimeoutMS         int             `json:"timeout_ms"`
+	NewTab            *bool           `json:"new_tab"`
+	NewPage           *bool           `json:"new_page"`
 	Locale            string          `json:"locale"`
 	Timezone          string          `json:"timezone"`
 	UserAgent         string          `json:"user_agent"`
@@ -91,6 +96,18 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_PROXY", err)
 		return
 	}
+	geoIP := request.GeoIP
+	if geoIP == nil {
+		enabled := proxy != nil
+		geoIP = &enabled
+	}
+	locale := strings.TrimSpace(request.Locale)
+	timezone := strings.TrimSpace(request.Timezone)
+	if proxy == nil || !*geoIP {
+		locale = firstNonEmpty(locale, "zh-CN")
+		timezone = firstNonEmpty(timezone, "Asia/Shanghai")
+	}
+	newTab := requestedNewTab(request)
 	downloadsPath := firstNonEmpty(request.DownloadsPath, s.cfg.DownloadsDir)
 	downloadsPath, err = normalizeDownloadRoot(downloadsPath)
 	if err != nil {
@@ -99,9 +116,9 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.browser.StartBrowser(r.Context(), contract.BrowserStartRequest{
 		UserDataDir: profilePath, DownloadsPath: downloadsPath,
-		Headless: &request.Headless, Humanize: &humanize, URL: request.URL,
-		Locale:    firstNonEmpty(request.Locale, "zh-CN"),
-		Timezone:  firstNonEmpty(request.Timezone, "Asia/Shanghai"),
+		Headless: &request.Headless, Humanize: &humanize, GeoIP: geoIP,
+		URL: request.URL, WaitUntil: request.WaitUntil, TimeoutMS: request.TimeoutMS, NewTab: newTab,
+		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, ViewportWidth: request.ViewportWidth,
 		ViewportHeight: request.ViewportHeight, Proxy: proxy, Args: request.Args,
 	})
@@ -111,6 +128,14 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	s.rememberDownloadRoot(downloadsPath)
 	writeSuccess(w, http.StatusOK, result)
+}
+
+// requestedNewTab 优先读取新版字段，并兼容旧版 new_page 字段。
+func requestedNewTab(request pageOpenRequest) *bool {
+	if request.NewTab != nil {
+		return request.NewTab
+	}
+	return request.NewPage
 }
 
 // handlePageURL 返回当前 CloakBrowser 页面地址。

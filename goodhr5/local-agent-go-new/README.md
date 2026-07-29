@@ -56,7 +56,8 @@ StartTask
 - `POST /api/v1/runtime/install`：按云端清单异步安装 Node 22+、CloakBrowser 和可选 OCR，支持 SHA256、安全解压和失败回滚。
 - `GET /api/v1/diagnostics`：检查目录、端口、运行组件和 Profile 锁。
 - `GET|POST /api/v1/app-update/*`：读取程序更新进度并启动安装包更新。
-- `GET|POST /api/v1/browser/*`：本地登录和诊断使用的浏览器入口。
+- `POST /api/v1/page/open`：唯一浏览器打开入口，统一启动或复用 Profile、打开页面，并支持 `new_tab=true` 新增标签页和旧版 `new_page=true` 兼容字段。
+- `GET /api/v1/browser/status`、`POST /api/v1/browser/stop`：读取或关闭当前浏览器，不提供第二个启动入口。
 - `GET /api/v1/downloads`：查看 Worker 监听到的下载成功、失败和处理中记录。
 - `GET /api/v1/downloads/history`：查看 SQLite 中已结束的下载历史；旧版 `/api/v1/local/downloads` 路径继续可用。
 - `POST /api/v1/downloads/configure`：切换后续下载目录。
@@ -65,7 +66,9 @@ StartTask
 
 Worker 的完整协议见 `contracts/browser-api.md`。
 
-页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；登录页即使带有回跳参数也不会被误复用。真实滚轮会读取鼠标落点最近的滚动容器状态进行验证，不使用 JS 推动页面滚动。
+页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；传入 `new_tab=true` 时会始终新增并切换到一个标签页，登录页即使带有回跳参数也不会被误复用。真实滚轮会读取鼠标落点最近的滚动容器状态进行验证，不使用 JS 推动页面滚动。
+
+CloakBrowser 启动默认启用 `humanize`。同一个持久化 Profile 会获得稳定指纹种子；配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，调用方显式传入的时区、语言或指纹参数仍然优先。
 
 Worker 会监听已有标签页和新标签页的下载事件。Go 每秒同步一次成功或失败终态，保存 SQLite 记录；首次成功时显示十秒下载提示，可直接打开文件或在 Finder 中定位。文件接口会检查真实路径并阻止软链接越过下载目录；切换目录只影响后续下载，清空记录不删除文件。Worker 不反向调用 Go 业务接口。
 
@@ -86,7 +89,7 @@ AI 客户端支持普通 JSON 和 SSE 流式响应，遇到 429、5xx 或临时�
 ./bin/goodhr-local-agent
 ```
 
-`prepare-runtime.sh` 会通过当前锁定的 `cloakbrowser 0.3.32` 下载它自己的增强 Chromium。Go 不会改为普通 Chrome，也不会绕过 CloakBrowser。
+`prepare-runtime.sh` 会通过当前锁定的 `cloakbrowser 0.5.2` 下载它自己的增强 Chromium。Go 不会改为普通 Chrome，也不会绕过 CloakBrowser。CloakBrowser 官方的 `146.0.7680.177.5` 当前只提供 Linux x64 和 Windows x64，macOS 官方最新可用增强内核仍是 `145.0.7632.109.2`，不得跨平台混装。
 
 开发环境可以执行：
 

@@ -12,7 +12,8 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "cloakbrowser": "0.3.32",
+    "cloakbrowser": "0.5.2",
+    "mmdb-lib": "3.0.2",
     "playwright-core": "1.61.1"
   },
   "devDependencies": {

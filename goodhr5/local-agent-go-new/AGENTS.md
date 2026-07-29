@@ -26,6 +26,14 @@ Go 主流程
 
 禁止再增加 Go 直连 CDP、第二个 Node Worker或其他平行浏览器实现。
 
+Go 对控制台只暴露一个浏览器打开入口：
+
+```text
+POST /api/v1/page/open
+```
+
+该接口统一负责启动或复用浏览器、打开页面和按 `new_tab=true` 新增标签页。`/api/v1/browser/start` 只属于 Go 调用 Worker 的内部协议，不得重新注册为 Go 对外路由。
+
 ## 2. 开发前必须执行
 
 1. 先阅读本文件和本次涉及目录的文档。

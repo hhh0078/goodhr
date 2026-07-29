@@ -61,6 +61,8 @@ Go 不负责：
 - 实现第二套点击、输入、滚动和截图。
 - 在公共主流程里硬编码平台页面结构。
 
+Go 对控制台只注册 `POST /api/v1/page/open` 作为浏览器打开入口。它负责解析 Profile、下载目录、代理和新增标签页参数，再通过强类型 Client 调用 Worker；`browser.start` 和 `page.open` 在 Worker 内仍按生命周期与页面动作分层。
+
 ## 4. TypeScript Worker 职责
 
 Worker 负责：
@@ -133,6 +135,8 @@ Worker 内存保存最近 100 条当前会话下载状态。Go 下载同步流�
 - LocalStorage。
 - 平台登录状态。
 - 浏览器缓存。
+
+同一个持久化 Profile 使用稳定的 CloakBrowser 指纹种子。配置代理时默认启用 GeoIP；未配置代理时使用调用方设置或中国区默认时区和语言。
 
 禁止把 Cookie、完整简历截图、OCR 原文和敏感页面内容上传到云端日志。
 

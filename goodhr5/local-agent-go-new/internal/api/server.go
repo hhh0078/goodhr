@@ -81,7 +81,6 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("POST /api/v1/worker/stop", server.handleWorkerStop)
 	mux.HandleFunc("GET /api/v1/worker/status", server.handleWorkerStatus)
 	mux.HandleFunc("GET /api/v1/browser/status", server.handleBrowserStatus)
-	mux.HandleFunc("POST /api/v1/browser/start", server.handleBrowserStart)
 	mux.HandleFunc("POST /api/v1/browser/stop", server.handleBrowserStop)
 	mux.HandleFunc("POST /api/v1/page/open", server.handlePageOpen)
 	mux.HandleFunc("GET /api/v1/page/url", server.handlePageURL)
@@ -271,40 +270,6 @@ func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "BROWSER_STATUS_FAILED", err)
 		return
-	}
-	writeSuccess(w, http.StatusOK, result)
-}
-
-// handleBrowserStart 使用强类型参数启动浏览器，主要供本地登录和诊断使用。
-func (s *Server) handleBrowserStart(w http.ResponseWriter, r *http.Request) {
-	if s.runner.HasActive() {
-		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在使用浏览器，现在不能切换浏览器会话"))
-		return
-	}
-	if err := s.runtime.EnsureWorker(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "RUNTIME_NOT_READY", err)
-		return
-	}
-	var request contract.BrowserStartRequest
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
-		return
-	}
-	if strings.TrimSpace(request.DownloadsPath) != "" {
-		normalized, normalizeErr := normalizeDownloadRoot(request.DownloadsPath)
-		if normalizeErr != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", normalizeErr)
-			return
-		}
-		request.DownloadsPath = normalized
-	}
-	result, err := s.browser.StartBrowser(r.Context(), request)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "BROWSER_START_FAILED", err)
-		return
-	}
-	if request.DownloadsPath != "" {
-		s.rememberDownloadRoot(request.DownloadsPath)
 	}
 	writeSuccess(w, http.StatusOK, result)
 }

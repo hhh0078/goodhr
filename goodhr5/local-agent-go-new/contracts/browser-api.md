@@ -4,6 +4,8 @@
 
 Worker 只监听 `127.0.0.1`。请求和响应字段统一使用 `snake_case`，Go 只能通过强类型 Client 调用本清单中的封装能力。
 
+本清单是 Go 与 Worker 的内部协议，因此仍按职责保留 `browser.start` 和 `page.open`。控制台只允许调用 Go 的 `POST /api/v1/page/open`；Go 不再对外注册第二个浏览器启动路由。
+
 ## 统一响应
 
 成功：
@@ -67,7 +69,9 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 
 `GET /api/v1/downloads/history` 和兼容路径 `GET /api/v1/local/downloads` 属于 Go 本地接口，不属于 Worker 协议，用于读取 SQLite 下载终态历史。
 
-`page.open` 在 `new_tab` 不为 `true` 时，会先检查全部已有标签页。同协议、同域名且页面路径命中目标路径时直接切换并复用，不执行导航，因此不会清掉用户提前设置的网页筛选条件；登录页查询参数即使包含回跳地址也不会误命中。
+`browser.start` 可以携带 `url`、`wait_until`、`timeout_ms` 和 `new_tab`，供 Go 的统一对外接口在一次内部请求中启动或复用浏览器并打开页面。它还支持 `geoip`；未显式设置时，Worker 会在配置代理后自动启用。
+
+`page.open` 在 `new_tab` 不为 `true` 时，会先检查全部已有标签页。同协议、同域名且页面路径命中目标路径时直接切换并复用，不执行导航，因此不会清掉用户提前设置的网页筛选条件；`new_tab=true` 会始终新增并切换标签页，登录页查询参数即使包含回跳地址也不会误命中。
 
 ## SelectorSpec
 

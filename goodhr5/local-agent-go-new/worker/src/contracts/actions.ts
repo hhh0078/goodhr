@@ -18,7 +18,11 @@ export interface BrowserStartRequest {
   downloads_path?: string;
   headless?: boolean;
   humanize?: boolean;
+  geoip?: boolean;
   url?: string;
+  wait_until?: "load" | "domcontentloaded" | "networkidle" | "commit";
+  timeout_ms?: number;
+  new_tab?: boolean;
   locale?: string;
   timezone?: string;
   user_agent?: string;

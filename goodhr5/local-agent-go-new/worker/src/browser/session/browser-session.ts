@@ -25,6 +25,7 @@ import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js"
 import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
 import { ElementRegistry } from "./element-registry.js";
+import { withStableProfileFingerprint } from "./fingerprint.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
@@ -51,6 +52,16 @@ export class BrowserSession {
     actionContext: ActionContext,
   ): Promise<BrowserStatusResult> {
     const step = "start_browser";
+    const pageRequest: PageOpenRequest | null = request.url
+      ? {
+          url: request.url,
+          ...(request.wait_until ? { wait_until: request.wait_until } : {}),
+          ...(request.timeout_ms ? { timeout_ms: request.timeout_ms } : {}),
+          ...(request.new_tab !== undefined
+            ? { new_tab: request.new_tab }
+            : {}),
+        }
+      : null;
     this.logger.info(actionContext, step, "start", {
       persistent: Boolean(request.user_data_dir),
       headless: request.headless ?? false,
@@ -61,9 +72,9 @@ export class BrowserSession {
           !request.user_data_dir ||
           request.user_data_dir === this.userDataDir
         ) {
-          if (request.url) {
+          if (pageRequest) {
             await this.open(
-              { url: request.url },
+              pageRequest,
               { ...actionContext, action: "page.open" },
             );
           }
@@ -114,9 +125,9 @@ export class BrowserSession {
         this.context.pages().find((item) => !item.isClosed()) ??
         (await this.context.newPage());
       this.registerPage(this.currentPage);
-      if (request.url) {
+      if (pageRequest) {
         await this.open(
-          { url: request.url },
+          pageRequest,
           { ...actionContext, action: "page.open" },
         );
       }
@@ -385,7 +396,11 @@ export class BrowserSession {
     const options: LaunchContextOptions = {
       headless: request.headless ?? false,
       humanize: request.humanize ?? true,
-      args: request.args ?? [],
+      geoip: request.geoip ?? Boolean(request.proxy),
+      args: withStableProfileFingerprint(
+        request.args,
+        request.user_data_dir,
+      ),
       launchOptions: {
         downloadsPath: this.downloadManager.directory(),
       },
