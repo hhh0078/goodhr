@@ -171,6 +171,20 @@ func (c *Client) PlatformConfig(ctx context.Context, token string, platformID st
 	return c.platformConfigFromList(ctx, token, platformID)
 }
 
+// RequestPositionStart 同步请求云端完成启动检查并占用账号唯一运行名额。
+// token 为登录凭证，positionID 为岗位编号，taskType 为本地主流程类型。
+func (c *Client) RequestPositionStart(ctx context.Context, token string, positionID string, taskType string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	request := struct {
+		TaskType string `json:"task_type"`
+	}{TaskType: strings.TrimSpace(taskType)}
+	path := "/api/positions/" + url.PathEscape(positionID) + "/start"
+	return c.do(ctx, http.MethodPost, path, token, request, nil)
+}
+
 // SyncSummary 把不含候选人详情的任务统计同步给云端。
 func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSummary) error {
 	_, err := c.syncSummary(ctx, token, summary)
@@ -427,14 +441,28 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 	}
 	if response.StatusCode >= 400 {
 		var failure struct {
-			Message string `json:"message"`
-			Error   string `json:"error"`
-			Msg     string `json:"msg"`
+			Message string          `json:"message"`
+			Error   json.RawMessage `json:"error"`
+			Msg     string          `json:"msg"`
 		}
 		_ = json.Unmarshal(content, &failure)
 		message := strings.TrimSpace(failure.Message)
+		code := ""
 		if message == "" {
-			message = strings.TrimSpace(failure.Error)
+			var errorBody struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(failure.Error, &errorBody); err == nil {
+				code = strings.TrimSpace(errorBody.Code)
+				message = strings.TrimSpace(errorBody.Message)
+			}
+		}
+		if message == "" && len(failure.Error) > 0 {
+			var errorText string
+			if err := json.Unmarshal(failure.Error, &errorText); err == nil {
+				message = strings.TrimSpace(errorText)
+			}
 		}
 		if message == "" {
 			message = strings.TrimSpace(failure.Msg)
@@ -445,7 +473,7 @@ func (c *Client) do(ctx context.Context, method string, path string, token strin
 		if message == "session is invalid or expired" || message == "session invalid or expired" {
 			message = "登录状态已经失效，请重新登录"
 		}
-		return &APIError{StatusCode: response.StatusCode, Message: message}
+		return &APIError{StatusCode: response.StatusCode, Code: code, Message: message}
 	}
 	if result != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, result); err != nil {

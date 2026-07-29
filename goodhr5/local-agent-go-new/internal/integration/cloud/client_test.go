@@ -4,6 +4,7 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -109,6 +110,53 @@ func TestSyncRunningStatusDoesNotResetCounts(t *testing.T) {
 	}
 	if len(paths) != 1 || !strings.HasSuffix(paths[0], "/status") {
 		t.Fatalf("运行状态不应改写累计统计：%v", paths)
+	}
+}
+
+// TestRequestPositionStartWaitsForCloudPermission 验证本地程序使用专门接口同步等待云端启动许可。
+func TestRequestPositionStartWaitsForCloudPermission(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/positions/position-1/start" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var payload struct {
+			TaskType string `json:"task_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.TaskType != "greeting" {
+			t.Fatalf("task_type = %q", payload.TaskType)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"status":"running"}`))
+	}))
+	defer server.Close()
+
+	if err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting"); err != nil {
+		t.Fatalf("申请启动失败：%v", err)
+	}
+}
+
+// TestRequestPositionStartReadsStructuredError 验证云端拒绝启动时保留稳定错误码和中文信息。
+func TestRequestPositionStartReadsStructuredError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"ok":false,"error":{"code":"POSITION_TASK_CONFLICT","message":"已有岗位正在运行"}}`))
+	}))
+	defer server.Close()
+
+	err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want APIError", err)
+	}
+	if apiErr.Code != "POSITION_TASK_CONFLICT" || apiErr.Message != "已有岗位正在运行" {
+		t.Fatalf("unexpected api error: %+v", apiErr)
 	}
 }
 

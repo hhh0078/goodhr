@@ -100,15 +100,16 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		r.release(active)
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
-	if err := r.cloud.SyncSummary(ctx, prepared.Request.Token, cloud.TaskSummary{
-		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
-		TaskType: prepared.Request.TaskType, Status: "running",
-	}); err != nil {
+	if err := r.cloud.RequestPositionStart(ctx, prepared.Request.Token, prepared.Position.ID, prepared.Request.TaskType); err != nil {
 		task.Status = "failed"
-		task.CurrentStep = "sync_running_status"
-		task.ErrorCode = "CLOUD_STATUS_SYNC_FAILED"
+		task.CurrentStep = "request_cloud_start"
+		task.ErrorCode = "CLOUD_START_DENIED"
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) && strings.TrimSpace(apiErr.Code) != "" {
+			task.ErrorCode = apiErr.Code
+		}
 		task.ErrorMessage = err.Error()
-		task.Summary = "岗位状态没同步成功，本次任务没有启动"
+		task.Summary = "云端启动检查没有通过，本次任务没有启动"
 		task.FinishedAt = time.Now().UTC()
 		if saveErr := r.store.SaveTask(context.Background(), task); saveErr != nil {
 			r.logNotification(task.TaskID, "save_running_sync_failure", saveErr)

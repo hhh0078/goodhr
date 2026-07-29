@@ -82,6 +82,7 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 	if maxRounds <= 0 {
 		maxRounds = 1
 	}
+	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	for round := 0; round < maxRounds; round++ {
 		if err := shared.EnsureCloudSession(ctx, f.Cloud, prepared.Request.Token, prepared.Request.TaskID, "auto_reply", f.Logger); err != nil {
 			return err
@@ -98,8 +99,13 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 				return err
 			}
 			if err := f.processConversation(ctx, prepared, runtime, conversation, stats); err != nil {
-				return err
+				f.log(prepared.Request.TaskID, "conversation_operation", "failed", time.Now(), err)
+				if stopErr := errorPolicy.Record(err); stopErr != nil {
+					return stopErr
+				}
+				continue
 			}
+			errorPolicy.Reset()
 		}
 		if round+1 < maxRounds {
 			wait := prepared.Position.AutoReplyWait
@@ -125,7 +131,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
-		return nil
+		return fmt.Errorf("read_conversation：%w", err)
 	}
 	overlayShown := false
 	if prepared.Position.EnableThinking {
@@ -142,23 +148,21 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "generate_reply", "failed", time.Now(), err)
-		if ai.IsPositionStoppingError(err) {
-			return fmt.Errorf("AI 回复服务持续不可用，任务先停一下：%w", err)
-		}
-		return nil
+		return fmt.Errorf("generate_reply：%w", err)
 	}
 	reply = strings.TrimSpace(reply)
 	if reply == "" || len([]rune(reply)) > 1000 {
 		stats.Failed++
-		f.log(prepared.Request.TaskID, "reply_safety_check", "failed", time.Now(), fmt.Errorf("AI 回复为空或超过 1000 字"))
-		return nil
+		err := fmt.Errorf("AI 回复为空或超过 1000 字")
+		f.log(prepared.Request.TaskID, "reply_safety_check", "failed", time.Now(), err)
+		return fmt.Errorf("reply_safety_check：%w", err)
 	}
 	replyHash := hashReply(reply)
 	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.Key, replyHash)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "reply_duplicate_check", "failed", time.Now(), err)
-		return nil
+		return fmt.Errorf("reply_duplicate_check：%w", err)
 	}
 	if exists {
 		stats.Skipped++
@@ -168,7 +172,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "send_reply", "failed", time.Now(), err)
 		f.saveConversation(ctx, prepared, conversation, replyHash, "failed")
-		return nil
+		return fmt.Errorf("send_reply：%w", err)
 	}
 	stats.Succeeded++
 	f.saveConversation(ctx, prepared, conversation, replyHash, "success")

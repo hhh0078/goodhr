@@ -18,9 +18,10 @@ const (
 	DefaultPort = 43129
 	// DefaultWorkerPort 是 TypeScript Worker 默认端口。
 	DefaultWorkerPort = 39881
-	// DefaultCloudURL 是 GoodHR 云端默认地址。
-	DefaultCloudURL = "https://goodhr5.58it.cn"
 )
+
+// DefaultCloudURL 是开发环境默认云端地址，正式打包时通过 ldflags 固定为线上地址。
+var DefaultCloudURL = "http://127.0.0.1:8084"
 
 // Config 保存本地程序全部基础配置。
 type Config struct {

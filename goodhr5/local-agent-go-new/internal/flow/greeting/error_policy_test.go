@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
 )
 
@@ -27,11 +28,11 @@ func TestShouldStopImmediately(t *testing.T) {
 		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "PAGE_CLOSED"}},
 	}
 	for _, err := range cases {
-		if !shouldStopImmediately(err) {
+		if !shared.ShouldStopTaskImmediately(err) {
 			t.Fatalf("错误应立即停止任务：%v", err)
 		}
 	}
-	if shouldStopImmediately(errors.New("单个候选人选择器没找到")) {
+	if shared.ShouldStopTaskImmediately(errors.New("单个候选人选择器没找到")) {
 		t.Fatal("普通候选人错误应继续使用连续错误策略")
 	}
 }

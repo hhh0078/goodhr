@@ -40,7 +40,7 @@ import PlatformLogo, {
   platformIconSrc,
   platformLabel,
 } from "@/components/admin/PlatformLogo";
-import { CLOUD_API_BASE, cloudRequest, getToken, localRequest } from "@/lib/admin-api";
+import { cloudRequest, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
@@ -77,7 +77,13 @@ export default function PositionsPage() {
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
   const [startStatus, setStartStatus] = useState("");
+  const [startError, setStartError] = useState("");
   const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
+  const [taskFailure, setTaskFailure] = useState<{
+    taskID: string;
+    positionName: string;
+    message: string;
+  } | null>(null);
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
     [],
@@ -255,9 +261,20 @@ export default function PositionsPage() {
     setExpandedLogPositionID(item.id);
     void loadPositionLogs(item);
     setStartStatus("");
+    setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
     setStartPositionItem(item);
+  }
+
+  /** closeStartDialog 清理岗位启动弹框中的运行状态和错误信息。 */
+  function closeStartDialog() {
+    if (startLoading || startOpeningPlatform) return;
+    setStartPositionItem(null);
+    setStartStatus("");
+    setStartError("");
+    setStartOpeningPlatform(false);
+    setStartRequiresUpdate(false);
   }
 
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
@@ -277,7 +294,7 @@ export default function PositionsPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "打开招聘平台失败";
       setStartStatus(message);
-      notify(message, "error");
+      setStartError(message);
     } finally {
       setStartOpeningPlatform(false);
     }
@@ -308,6 +325,7 @@ export default function PositionsPage() {
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
         setStartStatus(guardFailure.message);
         setStartRequiresUpdate(guardFailure.code === "agent_version_outdated");
+        setStartError(guardFailure.code === "agent_version_outdated" ? "" : guardFailure.message);
         return false;
       }
       setStartRequiresUpdate(false);
@@ -317,6 +335,7 @@ export default function PositionsPage() {
         ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你刷新后再试一次。`
         : "启动条件检查没跑完，这次我先不乱启动，你刷新后再试一次。";
       setStartStatus(message);
+      setStartError(message);
       setStartRequiresUpdate(false);
       await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_guard_unavailable", message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
       return false;
@@ -334,12 +353,15 @@ export default function PositionsPage() {
     setStartLoading(true);
     setBusyPositionID(item.id);
     setStartStatus("正在检查岗位启动条件...");
+    setStartError("");
     try {
       if (!(await checkPositionStartGuard(item))) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const active = Boolean(subscriptionData.subscription?.active);
       if (!isPlatformOpen(platformConfigs, item.platform_id)) {
-        setStartStatus("这个招聘平台暂时还没开放，我先不乱跑，请联系作者看看。");
+        const message = "这个招聘平台暂时还没开放，我先不乱跑，请联系作者看看。";
+        setStartStatus(message);
+        setStartError(message);
         return;
       }
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
@@ -355,6 +377,7 @@ export default function PositionsPage() {
           ? loginError.message
           : "招聘平台还没登录，请先在浏览器里完成登录。";
         setStartStatus(message);
+        setStartError(message);
         await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "position_start", position_id: item.id }).catch(() => undefined);
         return;
       }
@@ -362,6 +385,7 @@ export default function PositionsPage() {
       if (usesAI && !active) {
         const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
         setStartStatus(message);
+        setStartError(message);
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
         return;
       }
@@ -369,18 +393,19 @@ export default function PositionsPage() {
       setStartStatus("登录确认好了，正在启动岗位...");
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
         method: "POST",
-        body: { cloud_api_base: CLOUD_API_BASE, token: getToken(), enable_greet: true },
+        body: { token: getToken(), enable_greet: true },
       });
       await reportUserFlow({ step: "position_started", source: "position_start", position_id: item.id });
       notify("岗位已经开始跑了，我会老实记日志", "success");
       setStartPositionItem(null);
       setStartStatus("");
+      setStartError("");
       await Promise.all([load(), loadPositionLogs(item)]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "岗位启动失败";
       setStartStatus(message);
+      setStartError(message);
       await reportUserFlow({ step: "position_started", status: "blocked", reason_code: positionStartReason(message), message, source: "position_start", position_id: item.id }).catch(() => undefined);
-      notify(message, "error");
     } finally {
       setBusyPositionID("");
       setStartLoading(false);
@@ -395,7 +420,7 @@ export default function PositionsPage() {
     try {
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
-        body: { cloud_api_base: CLOUD_API_BASE, token: getToken() },
+        body: { token: getToken() },
       });
       notify("岗位已停下，浏览器先给你留着", "success");
       await load();
@@ -424,6 +449,30 @@ export default function PositionsPage() {
     try {
       const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${LOG_LIMIT}`);
       setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
+      const task = data.task;
+      const taskStatus = String(task?.status || "").trim();
+      if (taskStatus) {
+        setItems((current) => {
+          let changed = false;
+          const next = current.map((position) => {
+            if (position.id !== item.id || position.status === taskStatus) return position;
+            changed = true;
+            return { ...position, status: taskStatus };
+          });
+          return changed ? next : current;
+        });
+      }
+      if (taskStatus === "failed" && String(task?.error_message || "").trim()) {
+        setTaskFailure((current) =>
+          current?.taskID === task.task_id
+            ? current
+            : {
+                taskID: String(task.task_id || ""),
+                positionName: String(item.name || "当前岗位"),
+                message: String(task.error_message),
+              },
+        );
+      }
     } catch (error) {
       if (!options.silent) notify(error instanceof Error ? error.message : "日志读取失败", "error");
     } finally {
@@ -676,20 +725,25 @@ export default function PositionsPage() {
       )}
       <AdminDialog
         open={Boolean(startPositionItem)}
-        title='开始招聘岗位'
-        confirmText={startRequiresUpdate ? "立即更新" : "我已筛选好，立即开始"}
+        title={startError ? "岗位还没启动成功" : "开始招聘岗位"}
+        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : "我已筛选好，立即开始"}
+        showCancel={!startError}
         loading={startLoading}
         loadingText='启动中'
-        onClose={() => {
-          if (startLoading || startOpeningPlatform) return;
-          setStartPositionItem(null);
-          setStartStatus("");
-          setStartOpeningPlatform(false);
-          setStartRequiresUpdate(false);
-        }}
-        onConfirm={() => void confirmStartPosition()}
+        onClose={closeStartDialog}
+        onConfirm={() => startError ? closeStartDialog() : void confirmStartPosition()}
       >
-        <Stack spacing={1.5}>
+        {startError ? (
+          <Alert severity='error' variant='outlined'>
+            <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
+              {startError}
+            </Typography>
+            <Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.7 }}>
+              岗位没有偷偷开跑。按上面的提示处理好后，再点一次开始就行。
+            </Typography>
+          </Alert>
+        ) : (
+          <Stack spacing={1.5}>
           <Typography>
             确认开始“{startPositionItem?.name || ""}”吗？
           </Typography>
@@ -716,7 +770,25 @@ export default function PositionsPage() {
               </Typography>
             ) : null}
           </Box>
-        </Stack>
+          </Stack>
+        )}
+      </AdminDialog>
+      <AdminDialog
+        open={Boolean(taskFailure)}
+        title='岗位已经停下来了'
+        confirmText='我知道了'
+        showCancel={false}
+        onClose={() => setTaskFailure(null)}
+        onConfirm={() => setTaskFailure(null)}
+      >
+        <Alert severity='error' variant='outlined'>
+          <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
+            “{taskFailure?.positionName || "当前岗位"}”运行时遇到了问题，已经安全停止。
+          </Typography>
+          <Typography sx={{ mt: 0.75, lineHeight: 1.7 }}>
+            {taskFailure?.message || "错误原因已经记到岗位日志里。"}
+          </Typography>
+        </Alert>
       </AdminDialog>
       <AdminDialog
         open={Boolean(allLogPosition)}

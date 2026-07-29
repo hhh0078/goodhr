@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+const minimumPositionAIBalanceUnits int64 = 1000
+
+type positionStartError struct {
+	status  int
+	code    string
+	message string
+}
+
 // PositionExecutionService 处理岗位运行状态、候选人同步和结束通知。
 type PositionExecutionService struct {
 	auth           *AuthService
@@ -19,6 +27,7 @@ type PositionExecutionService struct {
 	accounts       PlatformAccountStore
 	candidateStore CandidateStore
 	subscriptions  SubscriptionStore
+	aiWallet       AIWalletStore
 	mailer         Mailer
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
@@ -26,12 +35,51 @@ type PositionExecutionService struct {
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 所有运行状态直接归属于岗位，不再创建独立岗位运行记录。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
-		mailer: mailer, dailyStats: dailyStats, userFlow: userFlow,
+		aiWallet: aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow,
 	}
+}
+
+// Start 同步检查登录、岗位归属、会员、AI 余额和账号运行冲突，通过后才写入 running。
+// w 为响应对象，r 为本地程序发起的启动许可请求。
+func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writePositionStartError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "这个接口只支持 POST")
+		return
+	}
+	session, err := s.auth.SessionFromRequest(r)
+	if err != nil {
+		writePositionStartError(w, http.StatusUnauthorized, "SESSION_EXPIRED", "登录状态已经失效，请重新登录")
+		return
+	}
+	var payload struct {
+		TaskType string `json:"task_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writePositionStartError(w, http.StatusBadRequest, "INVALID_REQUEST", "启动参数没读明白，请重新试一次")
+		return
+	}
+	positionID := positionSubresourceID(r.URL.Path, "start")
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writePositionStartError(w, http.StatusNotFound, "POSITION_NOT_FOUND", "这个岗位没有找到，可能已经被删除了")
+		return
+	}
+	if err != nil {
+		writePositionStartError(w, http.StatusInternalServerError, "POSITION_LOAD_FAILED", "岗位信息暂时没读出来，请稍后再试")
+		return
+	}
+	if failure := s.claimPositionStart(session.Email, position, payload.TaskType); failure != nil {
+		writePositionStartError(w, failure.status, failure.code, failure.message)
+		return
+	}
+	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
+	_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", "岗位启动检查通过，已经开始运行")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "running"})
 }
 
 // Stop 接收本地程序的停止请求，并把岗位状态和原有停止通知同步到云端。
@@ -78,7 +126,8 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	}
 	positionID := positionSubresourceID(r.URL.Path, "status")
 	var payload struct {
-		Status string `json:"status"`
+		Status   string `json:"status"`
+		TaskType string `json:"task_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -97,6 +146,15 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position")
+		return
+	}
+	if status == "running" {
+		if failure := s.claimPositionStart(session.Email, position, payload.TaskType); failure != nil {
+			writePositionStartError(w, failure.status, failure.code, failure.message)
+			return
+		}
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": false})
 		return
 	}
 	noticeSent := false
@@ -129,10 +187,76 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
-	if status == "running" {
-		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent})
+}
+
+// claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。
+// email 为当前账号，position 为岗位快照，taskType 为本地主流程类型。
+func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
+	usesAI := positionUsesAI(position) || strings.EqualFold(strings.TrimSpace(taskType), "auto_reply")
+	if usesAI {
+		subscription, err := s.subscriptions.UserSubscription(email)
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员状态暂时没查清楚，这次我先不乱启动，请稍后再试"}
+		}
+		if !subscriptionActive(subscription) {
+			return &positionStartError{status: http.StatusForbidden, code: "SUBSCRIPTION_REQUIRED", message: "这个岗位用了 AI 功能，会员到期后暂时不能启动，请先续费"}
+		}
+		if s.aiWallet == nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+		}
+		balance, err := s.aiWallet.BalanceUnits(email)
+		if err != nil {
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+		}
+		if balance < minimumPositionAIBalanceUnits {
+			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+		}
+	}
+	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {
+		if errors.Is(err, ErrPositionAlreadyRunning) {
+			return &positionStartError{status: http.StatusConflict, code: "POSITION_TASK_CONFLICT", message: "这个账号已经有岗位在运行，请先停掉当前任务再开始新的"}
+		}
+		if errors.Is(err, ErrNotFound) {
+			return &positionStartError{status: http.StatusNotFound, code: "POSITION_NOT_FOUND", message: "这个岗位没有找到，可能已经被删除了"}
+		}
+		return &positionStartError{status: http.StatusInternalServerError, code: "POSITION_START_FAILED", message: "云端没能记下岗位状态，这次没有启动，请稍后再试"}
+	}
+	return nil
+}
+
+// positionUsesAI 判断岗位的基础筛选或详情筛选是否明确使用 AI。
+func positionUsesAI(position Position) bool {
+	mode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "mode_default")))
+	detailMode := strings.ToLower(strings.TrimSpace(positionConfigString(position.CommonConfig, "detail_mode")))
+	return mode != "keyword" || detailMode == "ai"
+}
+
+// positionConfigString 从岗位公共配置安全读取字符串字段。
+func positionConfigString(config map[string]any, key string) string {
+	if config == nil {
+		return ""
+	}
+	value, ok := config[key]
+	if !ok || value == nil {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+// writePositionStartError 返回带稳定错误码的岗位启动失败响应。
+func writePositionStartError(w http.ResponseWriter, status int, code string, message string) {
+	writeJSON(w, status, map[string]any{
+		"ok": false,
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
 }
 
 // FailNotice 接收本地程序发送的岗位失败通知并发送邮件。

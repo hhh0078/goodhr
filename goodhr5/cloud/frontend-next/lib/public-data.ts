@@ -34,7 +34,7 @@ export type GuideVideo = {
 
 /** getPublicStats 在服务端读取官网统计，失败时返回空数据且不影响页面。 */
 export async function getPublicStats(): Promise<PublicStatsData> {
-  const baseURL = (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+  const baseURL = cloudBaseURL();
   try {
     const response = await fetch(`${baseURL}/api/public/stats/today`, { next: { revalidate: 300 } });
     if (!response.ok) return emptyStats();
@@ -92,7 +92,10 @@ export async function getGuideVideos(): Promise<GuideVideo[]> {
 
 /** cloudBaseURL 返回服务端访问云端 API 的统一地址。 */
 function cloudBaseURL() {
-	return (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+	const fallback = process.env.NODE_ENV === "production"
+		? "https://goodhr5.58it.cn"
+		: "http://127.0.0.1:8084";
+	return (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
 }
 
 /** normalizePlan 将云端套餐字段转换为官网展示结构。 */

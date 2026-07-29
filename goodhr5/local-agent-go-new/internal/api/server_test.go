@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/config"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // TestMiddlewareAllowsDeletePreflight 验证岗位日志清空请求可以通过跨域预检。
@@ -25,6 +28,40 @@ func TestMiddlewareAllowsDeletePreflight(t *testing.T) {
 	}
 	if methods := response.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(methods, "DELETE") {
 		t.Fatalf("Access-Control-Allow-Methods = %q", methods)
+	}
+}
+
+// TestPositionLogsIncludeLatestTaskStatus 验证三秒日志轮询响应同时返回岗位最新任务状态。
+func TestPositionLogsIncludeLatestTaskStatus(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err = store.SaveTask(context.Background(), storage.TaskRun{
+		TaskID: "task-1", PositionID: "position-1", PlatformID: "zhaopin",
+		TaskType: "greeting", Status: "failed", ErrorMessage: "连续三次操作失败",
+		StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/local/positions/position-1/logs", nil)
+	response := httptest.NewRecorder()
+	server.handleLocalPositionLogs(response, request, "position-1")
+	if response.Code != http.StatusOK {
+		t.Fatalf("logs status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Task *storage.TaskRun `json:"task"`
+		} `json:"data"`
+	}
+	if err = json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.Task == nil || payload.Data.Task.Status != "failed" || payload.Data.Task.ErrorMessage != "连续三次操作失败" {
+		t.Fatalf("unexpected task payload: %+v", payload.Data.Task)
 	}
 }
 

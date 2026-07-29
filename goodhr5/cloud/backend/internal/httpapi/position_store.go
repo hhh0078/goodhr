@@ -2,9 +2,13 @@
 package httpapi
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrPositionAlreadyRunning 表示当前账号已经有岗位任务处于运行状态。
+var ErrPositionAlreadyRunning = errors.New("position already running")
 
 // Position 表示一个用户可复用的岗位筛选配置。
 type Position struct {
@@ -42,6 +46,7 @@ type PositionStore interface {
 	SavePosition(position Position) (Position, error)
 	PositionByID(tenantID, userEmail, positionID string, isAdmin bool) (Position, error)
 	DeletePosition(userEmail string, positionID string) error
+	ClaimPositionStart(userEmail, positionID string) error
 	UpdatePositionStatus(positionID, status string) error
 	IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
 	SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
@@ -117,6 +122,29 @@ func (s *MemoryPositionStore) IncrementPositionCounts(positionID string, scanned
 	}
 	position.DailyGreetedCount += maxIntValue(0, greeted)
 	position.UpdatedAt = s.now()
+	s.positions[positionID] = position
+	return nil
+}
+
+// ClaimPositionStart 在同一把内存锁内检查账号运行冲突并把目标岗位改为运行中。
+// userEmail 为岗位所属账号，positionID 为本次申请启动的岗位编号。
+func (s *MemoryPositionStore) ClaimPositionStart(userEmail, positionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	position, ok := s.positions[positionID]
+	if !ok || position.UserEmail != userEmail {
+		return ErrNotFound
+	}
+	for _, item := range s.positions {
+		if item.UserEmail == userEmail && item.Status == "running" {
+			return ErrPositionAlreadyRunning
+		}
+	}
+	now := s.now()
+	position.Status = "running"
+	position.StartedAt = &now
+	position.FinishedAt = nil
+	position.UpdatedAt = now
 	s.positions[positionID] = position
 	return nil
 }

@@ -69,7 +69,10 @@ export default function VideoGuideList({ videos }: { videos: GuideVideo[] }) {
 
 /** loadGuideVideos 在浏览器端兜底读取云端视频教程配置。 */
 async function loadGuideVideos() {
-  const baseURL = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+  const fallback = process.env.NODE_ENV === "production"
+    ? "https://goodhr5.58it.cn"
+    : "http://127.0.0.1:8084";
+  const baseURL = (process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
   try {
     const response = await fetch(`${baseURL}/api/help/guide`, { cache: "no-store" });
     if (!response.ok) return [];

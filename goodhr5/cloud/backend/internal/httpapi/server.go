@@ -100,7 +100,7 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, mailer, dailyStatsStore, userFlowStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore),
 		positionLogs:        positionLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -216,6 +216,10 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/status") {
 		s.positionExecution.SyncStatus(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/start") {
+		s.positionExecution.Start(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/stop") {

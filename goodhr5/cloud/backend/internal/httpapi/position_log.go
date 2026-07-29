@@ -158,9 +158,17 @@ func (s *PositionLogService) List(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"logs":     publicPositionLogs(logs),
+		"logs":     publicPositionLogs(reversePositionLogOrder(logs)),
 		"has_more": hasMore,
 	})
+}
+
+// reversePositionLogOrder 把存储层返回的最新优先顺序转换为前端阅读使用的从旧到新顺序。
+func reversePositionLogOrder(items []PositionLog) []PositionLog {
+	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+		items[left], items[right] = items[right], items[left]
+	}
+	return items
 }
 
 // Clear 清空某个岗位的日志摘要。

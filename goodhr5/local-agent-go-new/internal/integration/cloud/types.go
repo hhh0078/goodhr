@@ -22,6 +22,7 @@ type Subscription struct {
 // APIError 表示云端返回的稳定 HTTP 状态错误。
 type APIError struct {
 	StatusCode int
+	Code       string
 	Message    string
 }
 

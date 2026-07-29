@@ -328,6 +328,50 @@ func (s *PostgresPositionStore) UpdatePositionStatus(positionID, status string) 
 	return nil
 }
 
+// ClaimPositionStart 在账号级事务锁内检查运行冲突并把目标岗位原子更新为运行中。
+// userEmail 为岗位所属账号，positionID 为本次申请启动的岗位编号。
+func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, userEmail); err != nil {
+		return err
+	}
+	var runningID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT p.id
+		FROM positions p
+		INNER JOIN users u ON u.id = p.user_id
+		WHERE u.email=$1 AND p.status='running'
+		LIMIT 1`, userEmail).Scan(&runningID)
+	if err == nil {
+		return ErrPositionAlreadyRunning
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE positions p
+		SET status='running', started_at=now(), finished_at=NULL, updated_at=now()
+		FROM users u
+		WHERE p.id=$1 AND p.user_id=u.id AND u.email=$2`, positionID, userEmail)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
+
 // IncrementPositionCounts 累加 PostgreSQL 岗位统计。
 // positionID 为岗位 ID，其余参数为本次新增数量。
 func (s *PostgresPositionStore) IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {

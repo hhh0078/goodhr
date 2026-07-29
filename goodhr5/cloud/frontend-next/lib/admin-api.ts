@@ -3,8 +3,13 @@
 
 import { TOKEN_KEY } from "./api";
 
+const DEFAULT_CLOUD_API_BASE =
+  process.env.NODE_ENV === "production"
+    ? "https://goodhr5.58it.cn"
+    : "http://127.0.0.1:8084";
+
 export const CLOUD_API_BASE = (
-  process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn"
+  process.env.NEXT_PUBLIC_CLOUD_API_BASE || DEFAULT_CLOUD_API_BASE
 ).replace(/\/$/, "");
 export const LOCAL_AGENT_PORTS = [43129];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
@@ -342,9 +347,27 @@ async function parseResponse(
 				window.location.replace(`/login?next=${next}`);
 			}
 		}
-    throw new Error(String(data.msg || data.error || data.detail || fallback));
+    throw new Error(responseErrorMessage(data, fallback));
   }
   return data;
+}
+
+/** responseErrorMessage 从字符串或错误对象中读取用户可见信息，避免出现 object Object。 */
+function responseErrorMessage(data: unknown, fallback: string) {
+  if (!isRecord(data)) return fallback;
+  for (const key of ["message", "msg", "error", "detail"]) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (isRecord(value) && typeof value.message === "string" && value.message.trim()) {
+      return value.message.trim();
+    }
+  }
+  return fallback;
+}
+
+/** isRecord 判断未知接口值是否为可安全读取字段的普通对象。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** formatDate 将接口日期转换为当前电脑的本地时间。 */

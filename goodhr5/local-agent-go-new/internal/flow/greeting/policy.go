@@ -2,20 +2,12 @@
 package greeting
 
 import (
-	"context"
-	"errors"
-	"regexp"
 	"strings"
 
-	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
-	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
-	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
-
-var errorNumberPattern = regexp.MustCompile(`\d+`)
 
 // needsCandidateDetail 判断当前岗位和平台是否需要打开候选人详情。
 func needsCandidateDetail(prepared shared.PreparedTask) bool {
@@ -59,35 +51,4 @@ func requestScoreThreshold(position cloud.PositionSnapshot) float64 {
 // candidateInfoAllowed 判断最终 AI 分数是否存在且严格大于索要阈值。
 func candidateInfoAllowed(hasScore bool, score float64, threshold float64) bool {
 	return hasScore && score > threshold
-}
-
-// normalizeCandidateError 归一化错误中的数字和空白，用于识别连续同类失败。
-func normalizeCandidateError(err error) string {
-	if err == nil {
-		return ""
-	}
-	return strings.Join(strings.Fields(errorNumberPattern.ReplaceAllString(strings.ToLower(err.Error()), "#")), " ")
-}
-
-// shouldStopImmediately 判断任务取消、浏览器关闭和 OCR 组件故障等不可继续错误。
-func shouldStopImmediately(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) || ocr.IsUnavailable(err) {
-		return true
-	}
-	if ai.IsPositionStoppingError(err) {
-		return true
-	}
-	var workerErr *contract.WorkerError
-	if !errors.As(err, &workerErr) {
-		return false
-	}
-	switch workerErr.Body.Code {
-	case "BROWSER_NOT_RUNNING", "PAGE_CLOSED", "PAGE_NOT_AVAILABLE":
-		return true
-	default:
-		return false
-	}
 }

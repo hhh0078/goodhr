@@ -6,7 +6,10 @@ export const INVITE_CACHE_KEY = "goodhr5_invite_id";
 
 /** cloudAPIBase 返回浏览器应访问的云端 API 地址。 */
 export function cloudAPIBase() {
-  return (process.env.NEXT_PUBLIC_CLOUD_API_BASE || "https://goodhr5.58it.cn").replace(/\/$/, "");
+  const fallback = process.env.NODE_ENV === "production"
+    ? "https://goodhr5.58it.cn"
+    : "http://127.0.0.1:8084";
+  return (process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
 }
 
 /** legacyAdminURL 返回登录成功后暂时进入旧后台的地址。 */

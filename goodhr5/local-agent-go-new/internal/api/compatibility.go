@@ -45,11 +45,10 @@ type pageOpenRequest struct {
 
 // localPositionRunRequest 表示现有控制台启动岗位时提交的参数。
 type localPositionRunRequest struct {
-	Token        string `json:"token"`
-	CloudAPIBase string `json:"cloud_api_base"`
-	EnableGreet  *bool  `json:"enable_greet"`
-	Headless     bool   `json:"headless"`
-	TaskType     string `json:"task_type"`
+	Token       string `json:"token"`
+	EnableGreet *bool  `json:"enable_greet"`
+	Headless    bool   `json:"headless"`
+	TaskType    string `json:"task_type"`
 }
 
 // screenshotCompatibilityRequest 表示旧控制台提交的本地截图元数据。
@@ -212,8 +211,7 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	var request struct {
-		Token        string `json:"token"`
-		CloudAPIBase string `json:"cloud_api_base"`
+		Token string `json:"token"`
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
@@ -259,9 +257,18 @@ func (s *Server) handleLocalPositionLogs(w http.ResponseWriter, r *http.Request,
 			writeError(w, http.StatusInternalServerError, "LOG_LIST_FAILED", err)
 			return
 		}
+		var latestTask *storage.TaskRun
+		task, taskErr := s.store.LatestTaskForPosition(r.Context(), positionID)
+		if taskErr == nil {
+			latestTask = &task
+		} else if !errors.Is(taskErr, sql.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "TASK_STATUS_READ_FAILED", taskErr)
+			return
+		}
 		writeSuccess(w, http.StatusOK, struct {
 			Logs []storage.TaskLog `json:"logs"`
-		}{Logs: logs})
+			Task *storage.TaskRun  `json:"task"`
+		}{Logs: logs, Task: latestTask})
 	case http.MethodPost:
 		var request struct {
 			Level   string `json:"level"`

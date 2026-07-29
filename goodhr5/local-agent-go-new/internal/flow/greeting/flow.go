@@ -103,8 +103,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 	if maxBatches <= 0 {
 		maxBatches = 1
 	}
-	lastError := ""
-	consecutiveErrors := 0
+	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	seen := make(map[string]struct{})
 	rest := newRestSchedule(prepared.Preferences)
 	for batch := 0; batch < maxBatches; batch++ {
@@ -169,23 +168,13 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				return restErr
 			}
 			if candidateErr != nil {
-				if shouldStopImmediately(candidateErr) {
-					return candidateErr
-				}
-				normalized := normalizeCandidateError(candidateErr)
-				if normalized == lastError {
-					consecutiveErrors++
-				} else {
-					lastError = normalized
-					consecutiveErrors = 1
-				}
-				if consecutiveErrors >= 3 {
-					return fmt.Errorf("连续 3 个候选人在同一环节失败，任务先停一下：%w", candidateErr)
+				f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
+				if stopErr := errorPolicy.Record(candidateErr); stopErr != nil {
+					return stopErr
 				}
 				continue
 			}
-			lastError = ""
-			consecutiveErrors = 0
+			errorPolicy.Reset()
 			if prepared.Position.MatchLimit > 0 && stats.Succeeded >= prepared.Position.MatchLimit {
 				return nil
 			}
