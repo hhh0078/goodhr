@@ -198,10 +198,10 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `internal/browserprofile/defaults.go` | Profile 默认书签、必应搜索和 Chromium 保护校验 | `internal/profile/manager.go` | 只迁移 Profile 隔离、路径和锁；硬编码平台书签及修改浏览器受保护偏好明确不迁移 |
-| `internal/browserprofile/defaults_test.go` | 书签和搜索引擎文件测试 | `internal/profile/manager_test.go` | 只保留新架构需要的路径越界和隔离测试 |
-| `internal/browserprofile/command_other.go` | 非 Windows Profile 命令 | 无 | 随旧默认偏好写入一起取消 |
-| `internal/browserprofile/command_windows.go` | Windows 隐藏 Profile 初始化命令 | 无 | 随旧默认偏好写入一起取消 |
+| `internal/browserprofile/defaults.go` | Profile 默认书签、必应搜索和 Chromium 保护校验 | `internal/profile/bookmarks.go`、`manager.go` | 已迁移五个默认书签、用户书签保留和书签栏显示；默认搜索引擎、受保护偏好和 Web Data 修改明确不迁移 |
+| `internal/browserprofile/defaults_test.go` | 书签和搜索引擎文件测试 | `internal/profile/bookmarks_test.go`、`manager_test.go` | 已迁移书签顺序、保留和幂等测试；不保留已取消的搜索引擎测试 |
+| `internal/browserprofile/command_other.go` | 非 Windows Profile 命令 | 无 | 随旧搜索引擎保护校验一起取消 |
+| `internal/browserprofile/command_windows.go` | Windows 隐藏 Profile 初始化命令 | 无 | 随旧搜索引擎保护校验一起取消 |
 
 ## 旧云端、AI 与本地数据层逐文件核对
 

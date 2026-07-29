@@ -74,6 +74,8 @@ local-agent-go-new/
 
 详细放置规则见 `docs/directory-rules.md`。
 
+浏览器默认书签属于本地 Profile 初始化能力，只能放在 `internal/profile`。这些固定入口只用于方便用户手动打开招聘网站，不参与平台流程、选择器和自动化判断；Worker 不得读写 Chromium 的 `Bookmarks` 或 `Preferences` 文件。
+
 ## 4. 强制依赖方向
 
 允许：

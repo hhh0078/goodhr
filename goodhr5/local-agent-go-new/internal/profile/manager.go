@@ -27,9 +27,16 @@ func (m *Manager) Path(profileID string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("profile_id 不能为空")
 	}
-	path := filepath.Join(m.root, id)
+	return prepareProfilePath(filepath.Join(m.root, id))
+}
+
+// prepareProfilePath 创建 Profile 目录并补齐浏览器默认书签。
+func prepareProfilePath(path string) (string, error) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", fmt.Errorf("创建 Profile 目录失败：%w", err)
+	}
+	if err := ensureProfileBookmarks(path); err != nil {
+		return "", err
 	}
 	return path, nil
 }
@@ -55,10 +62,7 @@ func (m *Manager) Resolve(value string) (string, error) {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("Profile 路径必须位于 GoodHR 账号目录内")
 	}
-	if err = os.MkdirAll(cleaned, 0o755); err != nil {
-		return "", fmt.Errorf("创建 Profile 目录失败：%w", err)
-	}
-	return cleaned, nil
+	return prepareProfilePath(cleaned)
 }
 
 // Acquire 为任务占用 Profile，防止同账号并发操作。
