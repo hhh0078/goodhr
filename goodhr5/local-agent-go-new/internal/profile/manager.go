@@ -2,11 +2,14 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 // Manager 管理本机 Profile 目录和占用锁。
@@ -35,10 +38,65 @@ func prepareProfilePath(path string) (string, error) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", fmt.Errorf("创建 Profile 目录失败：%w", err)
 	}
+	if err := cleanupStaleSingletons(path); err != nil {
+		return "", err
+	}
 	if err := ensureProfileBookmarks(path); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// cleanupStaleSingletons 仅在锁中记录的 Chromium 进程已经退出时清理三个残留单例文件。
+func cleanupStaleSingletons(path string) error {
+	lockPath := filepath.Join(path, "SingletonLock")
+	info, err := os.Lstat(lockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("检查 Profile 单例锁失败：%w", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	target, err := os.Readlink(lockPath)
+	if err != nil {
+		return fmt.Errorf("读取 Profile 单例锁失败：%w", err)
+	}
+	pid := singletonPID(target)
+	if pid <= 0 || processAlive(pid) {
+		return nil
+	}
+	var cleanupErrors []error
+	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
+		if err = os.Remove(filepath.Join(path, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("清理 %s 失败：%w", name, err))
+		}
+	}
+	if err = errors.Join(cleanupErrors...); err != nil {
+		return fmt.Errorf("清理 Profile 残留单例文件失败：%w", err)
+	}
+	return nil
+}
+
+// singletonPID 从 Chromium 的 hostname-pid 单例锁目标中读取进程编号。
+func singletonPID(target string) int {
+	index := strings.LastIndex(strings.TrimSpace(target), "-")
+	if index < 0 || index+1 >= len(target) {
+		return 0
+	}
+	pid, err := strconv.Atoi(target[index+1:])
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+// processAlive 安全判断单例锁中的进程是否仍存在；权限不足时按仍存活处理。
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // Resolve 把 Profile 编号或根目录内的绝对路径解析成安全目录。

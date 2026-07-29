@@ -37,7 +37,7 @@ export class DownloadManager {
     return this.downloadsPath;
   }
 
-  /** list 返回当前会话最近下载记录和处理中数量。 */
+  /** list 返回 Worker 最近下载记录和处理中数量。 */
   list(): DownloadListResult {
     return {
       downloads: [...this.downloads],
@@ -76,9 +76,15 @@ export class DownloadManager {
     return { cleared, files_deleted: false };
   }
 
-  /** reset 在浏览器会话结束时清理下载状态。 */
+  /** waitForPending 等待已经监听到的下载全部进入成功或失败终态。 */
+  async waitForPending(): Promise<void> {
+    while (this.pendingDownloads.size > 0) {
+      await Promise.allSettled([...this.pendingDownloads]);
+    }
+  }
+
+  /** reset 在浏览器会话结束时清理已完成的异步任务引用，记录留给 Go 做最后同步。 */
   reset(): void {
-    this.downloads.length = 0;
     this.pendingDownloads.clear();
   }
 

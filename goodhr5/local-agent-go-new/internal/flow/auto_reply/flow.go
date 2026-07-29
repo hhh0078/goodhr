@@ -48,9 +48,6 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		{name: "scan_generate_and_reply", run: func(ctx context.Context) error {
 			return f.processConversations(ctx, prepared, runtime, &stats)
 		}},
-		{name: "sync_summary", optional: true, run: func(ctx context.Context) error {
-			return f.syncSummary(ctx, prepared, stats, "completed", "", "")
-		}},
 	}
 	for _, step := range steps {
 		startedAt := time.Now()
@@ -186,19 +183,6 @@ func (f *Flow) saveConversation(ctx context.Context, prepared shared.PreparedTas
 	}); err != nil {
 		f.log(prepared.Request.TaskID, "save_conversation", "warning", time.Now(), err)
 	}
-}
-
-// syncSummary 同步不含敏感内容的任务统计。
-func (f *Flow) syncSummary(ctx context.Context, prepared shared.PreparedTask, stats shared.Stats, status string, errorCode string, errorMessage string) error {
-	summary := cloud.TaskSummary{
-		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
-		Status: status, Processed: stats.Processed, Succeeded: stats.Succeeded,
-		Failed: stats.Failed, ErrorCode: errorCode, ErrorMessage: errorMessage,
-	}
-	if status == "completed" {
-		return f.Cloud.SyncCompletedSummary(ctx, prepared.Request.Token, summary)
-	}
-	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, summary)
 }
 
 // hashReply 返回回复正文的本地去重哈希。

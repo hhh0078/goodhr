@@ -77,7 +77,7 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
     if (!release.url) { setUpdateError("当前系统没有配置本地程序更新包下载地址"); return; }
     setUpdateError("");
     try {
-      const progress = await localRequest(agentBase, "/api/v1/app-update/start", { method: "POST", body: { url: release.url, target_version: release.version, release_note: release.note } });
+      const progress = await localRequest(agentBase, "/api/v1/app-update/start", { method: "POST", body: { url: release.url, target_version: release.version, release_note: release.note, sha256: release.sha256 } });
       setUpdateProgress(progress || {});
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : "启动本地程序更新失败");

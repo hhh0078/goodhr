@@ -492,18 +492,19 @@ export class BrowserSession {
   private async dispose(): Promise<void> {
     const context = this.context;
     const browser = this.browser;
+    await this.downloadManager.waitForPending();
     this.context = null;
     this.browser = null;
     this.currentPage = null;
     this.userDataDir = "";
     this.elements.clear();
-    this.downloadManager.reset();
     if (context) {
       await context.close().catch(() => undefined);
     }
     if (browser) {
       await browser.close().catch(() => undefined);
     }
+    this.downloadManager.reset();
   }
 
 }

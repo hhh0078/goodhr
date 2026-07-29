@@ -93,6 +93,9 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	if err := validateAssetURL(asset.URL); err != nil {
 		return fmt.Errorf("%s下载地址不正确：%w", label, err)
 	}
+	if err := validateSHA256(asset.SHA256); err != nil {
+		return fmt.Errorf("%s校验值不正确：%w", label, err)
+	}
 	downloadsDir := filepath.Join(m.runtimeDir, "downloads")
 	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
 		return fmt.Errorf("创建运行组件下载目录失败：%w", err)
@@ -105,6 +108,7 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	if err := m.downloadAsset(ctx, component, label, asset.URL, archivePath); err != nil {
 		return err
 	}
+	defer os.Remove(archivePath)
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "verify",
 		Message: "正在校验" + label, Percent: 65,
@@ -229,11 +233,11 @@ func platformKey() string {
 	}
 }
 
-// validateAssetURL 校验组件下载地址只使用 HTTP 或 HTTPS。
+// validateAssetURL 校验组件下载地址必须使用 HTTPS。
 func validateAssetURL(value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return fmt.Errorf("只支持 HTTP 或 HTTPS 地址")
+	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
+		return fmt.Errorf("只支持 HTTPS 地址")
 	}
 	return nil
 }
@@ -251,11 +255,11 @@ func archiveName(sourceURL string, fallback string) string {
 	return fallback + ".zip"
 }
 
-// verifySHA256 校验下载文件的 SHA256，未配置校验值时兼容跳过。
+// verifySHA256 强制校验下载文件的 SHA256。
 func verifySHA256(path string, expected string) error {
 	expected = strings.ToLower(strings.TrimSpace(expected))
-	if expected == "" {
-		return nil
+	if err := validateSHA256(expected); err != nil {
+		return err
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -269,6 +273,18 @@ func verifySHA256(path string, expected string) error {
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if actual != expected {
 		return fmt.Errorf("SHA256 不一致，期望 %s，实际 %s", expected, actual)
+	}
+	return nil
+}
+
+// validateSHA256 检查 SHA256 是否为完整的 64 位十六进制字符串。
+func validateSHA256(value string) error {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != sha256.Size*2 {
+		return fmt.Errorf("必须提供完整 SHA256")
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return fmt.Errorf("SHA256 必须是十六进制字符串")
 	}
 	return nil
 }

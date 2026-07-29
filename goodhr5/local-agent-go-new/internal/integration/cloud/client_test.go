@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -62,6 +63,52 @@ func TestSyncCompletedSummaryRetriesNotice(t *testing.T) {
 	}
 	if requests != 3 {
 		t.Fatalf("完成邮件应在第三次确认，实际请求 %d 次", requests)
+	}
+}
+
+// TestSyncCompletedSummaryUpdatesCountsBeforeStatus 验证完成邮件触发前岗位累计统计已经同步。
+func TestSyncCompletedSummaryUpdatesCountsBeforeStatus(t *testing.T) {
+	paths := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			_, _ = w.Write([]byte(`{"success":true,"notice_sent":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	err := New(server.URL).SyncCompletedSummary(context.Background(), "token", TaskSummary{
+		PositionID: "position-1", TaskType: "greeting", Processed: 3, Succeeded: 2,
+	})
+	if err != nil {
+		t.Fatalf("同步完成摘要失败：%v", err)
+	}
+	if len(paths) != 2 || !strings.HasSuffix(paths[0], "/counts") || !strings.HasSuffix(paths[1], "/status") {
+		t.Fatalf("完成同步顺序不正确：%v", paths)
+	}
+}
+
+// TestSyncRunningStatusDoesNotResetCounts 验证任务启动只同步 running，不会把岗位累计统计写成零。
+func TestSyncRunningStatusDoesNotResetCounts(t *testing.T) {
+	paths := make([]string, 0, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer server.Close()
+
+	err := New(server.URL).SyncSummary(context.Background(), "token", TaskSummary{
+		PositionID: "position-1", TaskType: "greeting", Status: "running",
+	})
+	if err != nil {
+		t.Fatalf("同步运行状态失败：%v", err)
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "/status") {
+		t.Fatalf("运行状态不应改写累计统计：%v", paths)
 	}
 }
 

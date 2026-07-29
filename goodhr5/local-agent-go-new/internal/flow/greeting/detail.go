@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -19,6 +21,7 @@ func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTa
 	if err != nil {
 		return detail, err
 	}
+	defer f.cleanupDetailScreenshots(prepared.Request.TaskID, parts)
 	ocrTexts := make([]string, 0, len(parts))
 	for _, part := range parts {
 		result, recognizeErr := f.OCR.Recognize(ctx, part.Path)
@@ -45,6 +48,7 @@ func (f *Flow) readDetailImages(ctx context.Context, prepared shared.PreparedTas
 	if err != nil {
 		return nil, err
 	}
+	defer f.cleanupDetailScreenshots(prepared.Request.TaskID, parts)
 	images := make([][]byte, 0, len(parts))
 	for _, part := range parts {
 		content, readErr := os.ReadFile(part.Path)
@@ -95,4 +99,28 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		Path: screenshot.Path, Filename: screenshot.Filename, Size: screenshot.Size,
 		Index: 0, ScrollPosition: 0,
 	}}, nil
+}
+
+// cleanupDetailScreenshots 删除本次 OCR 或 AI 已经读取完的候选人临时截图。
+func (f *Flow) cleanupDetailScreenshots(taskID string, parts []contract.ScreenshotPart) {
+	root, err := filepath.Abs(f.ScreenshotsDir)
+	if err != nil {
+		f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), err)
+		return
+	}
+	for _, part := range parts {
+		path, pathErr := filepath.Abs(strings.TrimSpace(part.Path))
+		if pathErr != nil {
+			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), pathErr)
+			continue
+		}
+		relative, pathErr := filepath.Rel(root, path)
+		if pathErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), fmt.Errorf("截图路径不在临时目录内：%s", part.Filename))
+			continue
+		}
+		if pathErr = os.Remove(path); pathErr != nil && !os.IsNotExist(pathErr) {
+			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), pathErr)
+		}
+	}
 }

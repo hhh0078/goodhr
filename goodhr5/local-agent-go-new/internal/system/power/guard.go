@@ -28,7 +28,7 @@ func (g *Guard) Start() error {
 	if g.command != nil && g.command.Process != nil {
 		return nil
 	}
-	command := exec.Command("caffeinate", "-dims")
+	command := exec.Command("caffeinate", "-dimsu")
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("启动防睡眠失败：%w", err)
 	}

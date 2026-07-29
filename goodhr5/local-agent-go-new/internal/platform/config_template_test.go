@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
@@ -37,6 +38,52 @@ func TestPlatformConfigTemplates(t *testing.T) {
 			assertRequiredSelectors(t, platformID, cfg)
 			assertConfigComments(t, content)
 		})
+	}
+}
+
+// TestFillMissingConfig 验证云端旧配置优先，内置模板只补齐新版缺失能力。
+func TestFillMissingConfig(t *testing.T) {
+	defaults, err := DefaultConfig("zhaopin")
+	if err != nil {
+		t.Fatalf("读取智联内置配置失败：%v", err)
+	}
+	custom := defaults.Selectors["candidate.item"]
+	custom.Description = "云端候选人选择器"
+	cfg := FillMissingConfig(model.Config{
+		ID: "zhaopin",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.item": custom,
+		},
+	}, defaults)
+	if cfg.EntryURL != defaults.EntryURL {
+		t.Fatalf("入口地址没有从内置模板补齐：%s", cfg.EntryURL)
+	}
+	if cfg.Selectors["candidate.item"].Description != "云端候选人选择器" {
+		t.Fatal("云端已有选择器被内置模板覆盖")
+	}
+	if _, ok := cfg.Selectors["candidate.request_phone"]; !ok {
+		t.Fatal("智联索要手机号选择器没有从内置模板补齐")
+	}
+}
+
+// TestValidateTaskConfig 验证自动回复缺少真实消息配置时会在启动前明确拦截。
+func TestValidateTaskConfig(t *testing.T) {
+	cfg, err := DefaultConfig("zhaopin")
+	if err != nil {
+		t.Fatalf("读取智联内置配置失败：%v", err)
+	}
+	if err = ValidateTaskConfig(cfg, "greeting"); err != nil {
+		t.Fatalf("打招呼任务不应要求消息页配置：%v", err)
+	}
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil {
+		t.Fatal("智联自动回复缺少消息页时应返回错误")
+	}
+	cfg.MessagesURL = "https://example.com/messages"
+	for _, key := range []string{"message.unread_item", "message.context", "message.input", "message.send"} {
+		cfg.Selectors[key] = contract.SelectorSpec{}
+	}
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil {
+		t.Fatal("自动回复选择器目标为空时应返回错误")
 	}
 }
 

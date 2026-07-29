@@ -108,6 +108,10 @@ type PositionSnapshot struct {
 	RequestResume   bool                 `json:"request_resume"`
 	MatchLimit      int                  `json:"match_limit"`
 	MaxBatches      int                  `json:"max_batches"`
+	ScannedCount    int                  `json:"scanned_count"`
+	GreetedCount    int                  `json:"greeted_count"`
+	SkippedCount    int                  `json:"skipped_count"`
+	FailedCount     int                  `json:"failed_count"`
 	EnableSound     bool                 `json:"enable_sound"`
 	EnableThinking  bool                 `json:"enable_thinking"`
 	RequiresAI      bool                 `json:"requires_ai"`
@@ -122,9 +126,11 @@ type PositionSnapshot struct {
 type TaskSummary struct {
 	TaskID       string `json:"task_id"`
 	PositionID   string `json:"position_id"`
+	TaskType     string `json:"task_type,omitempty"`
 	Status       string `json:"status"`
 	Processed    int    `json:"processed"`
 	Succeeded    int    `json:"succeeded"`
+	Skipped      int    `json:"skipped"`
 	Failed       int    `json:"failed"`
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`

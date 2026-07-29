@@ -5,11 +5,13 @@ set -euo pipefail
 
 script_dir=${0:A:h}
 project_dir=${script_dir:h}
+npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
+go_proxy=${GOPROXY:-https://goproxy.cn,direct}
 
 cd "${project_dir}/worker"
-npm ci
+npm ci --registry="${npm_registry}"
 npm run build
 
 cd "${project_dir}"
 mkdir -p bin
-go build -o bin/goodhr-local-agent ./cmd/goodhr-local-agent
+GOPROXY="${go_proxy}" go build -o bin/goodhr-local-agent ./cmd/goodhr-local-agent

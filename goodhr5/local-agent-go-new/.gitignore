@@ -3,6 +3,7 @@
 worker/node_modules/
 worker/dist/
 bin/
+release/
 agent_data/
 *.log
 .DS_Store

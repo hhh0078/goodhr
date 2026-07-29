@@ -17,6 +17,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/bootstrap"
 	"goodhr5/local-agent-go-new/internal/config"
 	"goodhr5/local-agent-go-new/internal/system/console"
+	"goodhr5/local-agent-go-new/internal/system/logfile"
 	"goodhr5/local-agent-go-new/internal/version"
 )
 
@@ -36,11 +37,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("读取本地配置失败：%v", err)
 	}
-	logFile, err := setupFileLogger(cfg.LogsDir)
-	if err != nil {
-		log.Fatalf("初始化本地日志失败：%v", err)
-	}
-	defer logFile.Close()
 	healthURL := fmt.Sprintf("http://%s/health", cfg.Address())
 	existingCtx, cancelExisting := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	existing := console.ExistingAgent(existingCtx, healthURL, cfg.Port)
@@ -57,6 +53,11 @@ func main() {
 		}
 		return
 	}
+	logFile, err := setupFileLogger(cfg.LogsDir)
+	if err != nil {
+		log.Fatalf("初始化本地日志失败：%v", err)
+	}
+	defer logFile.Close()
 	application, err := bootstrap.New(cfg)
 	if err != nil {
 		log.Fatalf("初始化本地程序失败：%v", err)
@@ -68,13 +69,10 @@ func main() {
 	}
 }
 
-// setupFileLogger 把主程序日志同时写到终端和本地日志文件。
-func setupFileLogger(logsDir string) (*os.File, error) {
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
-		return nil, err
-	}
+// setupFileLogger 把主程序日志同时写到终端和自动轮转的本地日志文件。
+func setupFileLogger(logsDir string) (io.Closer, error) {
 	path := filepath.Join(logsDir, "local-agent.log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := logfile.Open(path, 10<<20, 3)
 	if err != nil {
 		return nil, err
 	}

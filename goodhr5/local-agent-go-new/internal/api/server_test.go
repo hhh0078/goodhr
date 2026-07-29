@@ -28,6 +28,30 @@ func TestMiddlewareAllowsDeletePreflight(t *testing.T) {
 	}
 }
 
+// TestAllowedOriginRejectsLookalikeHosts 验证本机和 GoodHR 域名使用精确 URL 判断。
+func TestAllowedOriginRejectsLookalikeHosts(t *testing.T) {
+	for _, origin := range []string{
+		"http://localhost:3000",
+		"http://127.0.0.1:55271",
+		"https://goodhr5.58it.cn",
+	} {
+		if !allowedOrigin(origin) {
+			t.Fatalf("合法 Origin 被拒绝：%s", origin)
+		}
+	}
+	for _, origin := range []string{
+		"http://localhost.evil.com",
+		"http://127.0.0.1.evil.com",
+		"https://goodhr5.58it.cn.evil.com",
+		"https://goodhr5.58it.cn:443",
+		"http://goodhr5.58it.cn",
+	} {
+		if allowedOrigin(origin) {
+			t.Fatalf("伪造 Origin 被放行：%s", origin)
+		}
+	}
+}
+
 // TestHealthContainsMachineIdentityPaths 验证健康接口保留控制台生成机器码需要的数据目录字段。
 func TestHealthContainsMachineIdentityPaths(t *testing.T) {
 	server := &Server{cfg: config.Config{

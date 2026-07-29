@@ -65,9 +65,6 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		{name: "scan_decide_and_greet", run: func(ctx context.Context) error {
 			return f.processBatches(ctx, prepared, runtime, &stats)
 		}},
-		{name: "sync_summary", optional: true, run: func(ctx context.Context) error {
-			return f.syncSummary(ctx, prepared, stats, "completed", "", "")
-		}},
 	}
 	for _, step := range steps {
 		startedAt := time.Now()
@@ -130,16 +127,40 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		if len(candidates) == 0 {
 			return nil
 		}
+		newCandidates := make([]model.Candidate, 0, len(candidates))
 		for _, candidate := range candidates {
+			if strings.TrimSpace(candidate.Fingerprint) == "" {
+				stats.Processed++
+				stats.Skipped++
+				f.log(
+					prepared.Request.TaskID,
+					"candidate_fingerprint",
+					"warning",
+					time.Now(),
+					fmt.Errorf("候选人缺少稳定编号，本轮跳过，避免重复打招呼"),
+				)
+				continue
+			}
+			if _, exists := seen[candidate.Fingerprint]; exists {
+				stats.Skipped++
+				continue
+			}
+			seen[candidate.Fingerprint] = struct{}{}
+			newCandidates = append(newCandidates, candidate)
+		}
+		if len(newCandidates) > 0 {
+			if err := f.Cloud.AddProcessedResumes(
+				ctx,
+				prepared.Request.Token,
+				prepared.Position.ID,
+				len(newCandidates),
+			); err != nil {
+				f.log(prepared.Request.TaskID, "sync_processed_resumes", "warning", time.Now(), err)
+			}
+		}
+		for _, candidate := range newCandidates {
 			if err := ctx.Err(); err != nil {
 				return err
-			}
-			if candidate.Fingerprint != "" {
-				if _, exists := seen[candidate.Fingerprint]; exists {
-					stats.Skipped++
-					continue
-				}
-				seen[candidate.Fingerprint] = struct{}{}
 			}
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
 			candidateErr := f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
@@ -194,12 +215,13 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) error {
 	stats.Processed++
 	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
-	if !matchesKeyword(candidate, prepared.Position) {
+	needsDetail := needsCandidateDetail(prepared)
+	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail
+	if !deferKeywordDecision && !matchesKeyword(candidate, "", prepared.Position) {
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", "基础关键词不匹配")
 		return nil
 	}
-	needsDetail := needsCandidateDetail(prepared)
 	if needsDetail && !shouldOpenDetail(prepared) {
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "detail_probability", "skipped", "本次未命中个人配置的详情打开概率")
@@ -265,6 +287,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			f.saveCandidate(ctx, prepared, candidate, "detail", "skipped", "候选人详情为空")
 			return nil
 		}
+	}
+	if deferKeywordDecision && !matchesKeyword(candidate, detail.Text, prepared.Position) {
+		stats.Skipped++
+		f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", "候选人详情关键词不匹配")
+		return nil
 	}
 	accepted := true
 	score := 0.0
@@ -399,22 +426,9 @@ func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, 
 	}
 }
 
-// syncSummary 同步不含敏感内容的任务统计。
-func (f *Flow) syncSummary(ctx context.Context, prepared shared.PreparedTask, stats shared.Stats, status string, errorCode string, errorMessage string) error {
-	summary := cloud.TaskSummary{
-		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
-		Status: status, Processed: stats.Processed, Succeeded: stats.Succeeded,
-		Failed: stats.Failed, ErrorCode: errorCode, ErrorMessage: errorMessage,
-	}
-	if status == "completed" {
-		return f.Cloud.SyncCompletedSummary(ctx, prepared.Request.Token, summary)
-	}
-	return f.Cloud.SyncSummary(ctx, prepared.Request.Token, summary)
-}
-
-// matchesKeyword 执行不区分大小写的基础关键词过滤。
-func matchesKeyword(candidate model.Candidate, position cloud.PositionSnapshot) bool {
-	parts := []string{candidate.Name, candidate.Summary}
+// matchesKeyword 对候选人卡片和可选详情文本执行不区分大小写的关键词过滤。
+func matchesKeyword(candidate model.Candidate, detailText string, position cloud.PositionSnapshot) bool {
+	parts := []string{candidate.Name, candidate.Summary, detailText}
 	for _, value := range candidate.Fields {
 		parts = append(parts, value)
 	}
@@ -450,6 +464,11 @@ func matchesKeyword(candidate model.Candidate, position cloud.PositionSnapshot) 
 		return matched == valid
 	}
 	return matched > 0
+}
+
+// isKeywordMode 判断岗位是否使用免费关键词筛选模式。
+func isKeywordMode(position cloud.PositionSnapshot) bool {
+	return strings.EqualFold(strings.TrimSpace(position.CommonConfig.ModeDefault), "keyword")
 }
 
 // log 输出主动打招呼步骤日志。

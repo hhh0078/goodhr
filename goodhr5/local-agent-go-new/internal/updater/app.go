@@ -3,6 +3,8 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +24,7 @@ type Request struct {
 	URL           string `json:"url"`
 	TargetVersion string `json:"target_version"`
 	ReleaseNote   string `json:"release_note"`
+	SHA256        string `json:"sha256"`
 }
 
 // Progress 表示可供控制台轮询的本地程序更新进度。
@@ -75,7 +78,11 @@ func (m *Manager) Start(request Request) (Progress, error) {
 	request.URL = strings.TrimSpace(request.URL)
 	request.TargetVersion = strings.TrimSpace(request.TargetVersion)
 	request.ReleaseNote = strings.TrimSpace(request.ReleaseNote)
+	request.SHA256 = strings.ToLower(strings.TrimSpace(request.SHA256))
 	if err := validateDownloadURL(request.URL); err != nil {
+		return m.Progress(), err
+	}
+	if err := validateSHA256(request.SHA256); err != nil {
 		return m.Progress(), err
 	}
 	m.mu.Lock()
@@ -107,6 +114,10 @@ func (m *Manager) run(ctx context.Context, request Request) {
 	packagePath, err := m.download(ctx, request)
 	if err != nil {
 		m.fail(err)
+		return
+	}
+	if err = verifySHA256(packagePath, request.SHA256); err != nil {
+		m.fail(fmt.Errorf("更新包校验失败：%w", err))
 		return
 	}
 	installerPath, err := prepareInstaller(packagePath)
@@ -222,11 +233,41 @@ func (r *progressReader) Read(buffer []byte) (int, error) {
 	return count, err
 }
 
-// validateDownloadURL 只允许从 HTTP 或 HTTPS 地址下载更新包。
+// validateDownloadURL 只允许从 HTTPS 地址下载更新包。
 func validateDownloadURL(value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
 		return fmt.Errorf("本地程序更新包下载地址不正确")
+	}
+	return nil
+}
+
+// validateSHA256 检查更新包必须提供完整 SHA256。
+func validateSHA256(value string) error {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != sha256.Size*2 {
+		return fmt.Errorf("本地程序更新包缺少完整 SHA256")
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return fmt.Errorf("本地程序更新包 SHA256 格式不正确")
+	}
+	return nil
+}
+
+// verifySHA256 校验更新包内容与云端下发的摘要一致。
+func verifySHA256(path string, expected string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err = io.Copy(hash, file); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if actual != strings.ToLower(strings.TrimSpace(expected)) {
+		return fmt.Errorf("SHA256 不一致")
 	}
 	return nil
 }

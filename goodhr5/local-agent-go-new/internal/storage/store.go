@@ -14,6 +14,8 @@ import (
 	"goodhr5/local-agent-go-new/migrations"
 )
 
+const localDataRetention = 90 * 24 * time.Hour
+
 // Store 管理新本地程序 SQLite 连接。
 type Store struct {
 	db *sql.DB
@@ -64,6 +66,14 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	store := &Store{db: db}
 	if err := store.Migrate(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := store.RecoverInterruptedTasks(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := store.CleanupExpired(context.Background(), time.Now().UTC().Add(-localDataRetention)); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -224,8 +234,67 @@ func (s *Store) UpdateTaskStep(ctx context.Context, taskID string, step string) 
 	return err
 }
 
+// RecoverInterruptedTasks 把上次异常退出遗留的 running 任务统一收尾为失败。
+func (s *Store) RecoverInterruptedTasks(ctx context.Context) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE task_runs SET
+			status = 'failed',
+			current_step = 'finished',
+			summary = '上次运行被本地程序退出打断，已经自动收尾',
+			error_code = 'AGENT_RESTARTED',
+			error_message = '本地程序上次没有正常退出，请重新开始任务',
+			updated_at = ?,
+			finished_at = ?
+		WHERE status = 'running'`,
+		now,
+		now,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("恢复异常中断任务失败：%w", err)
+	}
+	return result.RowsAffected()
+}
+
+// CleanupExpired 删除保留期限以前的任务、候选人、会话、下载和步骤日志摘要。
+func (s *Store) CleanupExpired(ctx context.Context, cutoff time.Time) (int64, error) {
+	cutoffText := cutoff.UTC().Format(time.RFC3339Nano)
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("开始清理过期本地数据失败：%w", err)
+	}
+	defer transaction.Rollback()
+	queries := []string{
+		`DELETE FROM candidate_records WHERE created_at < ?`,
+		`DELETE FROM conversation_records WHERE created_at < ?`,
+		`DELETE FROM download_records WHERE created_at < ?`,
+		`DELETE FROM task_logs WHERE created_at < ?`,
+		`DELETE FROM task_runs WHERE status != 'running' AND updated_at < ?`,
+	}
+	var deleted int64
+	for _, query := range queries {
+		result, executeErr := transaction.ExecContext(ctx, query, cutoffText)
+		if executeErr != nil {
+			return 0, fmt.Errorf("清理过期本地数据失败：%w", executeErr)
+		}
+		count, countErr := result.RowsAffected()
+		if countErr != nil {
+			return 0, fmt.Errorf("统计过期本地数据失败：%w", countErr)
+		}
+		deleted += count
+	}
+	if err = transaction.Commit(); err != nil {
+		return 0, fmt.Errorf("提交过期本地数据清理失败：%w", err)
+	}
+	return deleted, nil
+}
+
 // SaveCandidate 保存候选人动作摘要并自动去重。
 func (s *Store) SaveCandidate(ctx context.Context, record CandidateRecord) error {
+	record.Fingerprint = strings.TrimSpace(record.Fingerprint)
+	if record.Fingerprint == "" {
+		return fmt.Errorf("候选人稳定编号不能为空")
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO candidate_records (
 			task_id, fingerprint, platform_id, display_name, action, result, reason, created_at

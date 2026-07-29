@@ -139,8 +139,8 @@ func (c *Checker) steps() []checkStep {
 		{name: "validate_request", run: validateRequest},
 		{name: "check_local_program", run: c.checkLocalProgram},
 		{name: "check_cloud_session", run: c.checkCloudSession},
-		{name: "check_subscription", run: c.checkSubscription},
 		{name: "load_position_snapshot", run: c.loadPosition},
+		{name: "check_subscription", run: c.checkSubscription},
 		{name: "load_user_preferences", run: c.loadPreferences},
 		{name: "load_platform_config", run: c.loadPlatform},
 		{name: "check_profile", run: c.checkProfile},
@@ -194,6 +194,9 @@ func (c *Checker) checkCloudSession(ctx context.Context, prepared *shared.Prepar
 
 // checkSubscription 检查会员状态。
 func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.PreparedTask) error {
+	if !prepared.Position.RequiresAI && prepared.Request.TaskType != "auto_reply" {
+		return nil
+	}
 	subscription, err := c.Cloud.Subscription(ctx, prepared.Request.Token)
 	prepared.Subscription = subscription
 	return err
@@ -226,6 +229,14 @@ func (c *Checker) loadPlatform(ctx context.Context, prepared *shared.PreparedTas
 		return err
 	}
 	if _, err := platform.RuntimeFor(prepared.Position.PlatformID); err != nil {
+		return err
+	}
+	defaults, err := platform.DefaultConfig(prepared.Position.PlatformID)
+	if err != nil {
+		return err
+	}
+	cfg = platform.FillMissingConfig(cfg, defaults)
+	if err = platform.ValidateTaskConfig(cfg, prepared.Request.TaskType); err != nil {
 		return err
 	}
 	prepared.Platform = cfg

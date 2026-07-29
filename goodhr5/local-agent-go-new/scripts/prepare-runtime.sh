@@ -5,8 +5,9 @@ set -euo pipefail
 
 script_dir=${0:A:h}
 project_dir=${script_dir:h}
+npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
 
 cd "${project_dir}/worker"
-npm ci
+npm ci --registry="${npm_registry}"
 npm exec -- cloakbrowser install
 npm run build

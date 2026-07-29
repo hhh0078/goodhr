@@ -3,10 +3,13 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 )
+
+const maxPositionTaskLogs = 1000
 
 // TaskLog 表示一条不含敏感页面正文的本地任务日志。
 type TaskLog struct {
@@ -44,7 +47,12 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 			item.TaskID,
 		).Scan(&item.PositionID)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskLog{}, fmt.Errorf("开始保存任务日志失败：%w", err)
+	}
+	defer transaction.Rollback()
+	result, err := transaction.ExecContext(ctx, `
 		INSERT INTO task_logs (
 			task_id, position_id, flow, step, status, level, message, duration_ms, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,6 +70,14 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 		return TaskLog{}, fmt.Errorf("保存任务日志失败：%w", err)
 	}
 	item.ID, _ = result.LastInsertId()
+	if item.PositionID != "" {
+		if err := trimPositionTaskLogs(ctx, transaction, item.PositionID); err != nil {
+			return TaskLog{}, err
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return TaskLog{}, fmt.Errorf("提交任务日志失败：%w", err)
+	}
 	return item, nil
 }
 
@@ -74,8 +90,8 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 	if limit <= 0 {
 		limit = 100
 	}
-	if limit > 5000 {
-		limit = 5000
+	if limit > maxPositionTaskLogs {
+		limit = maxPositionTaskLogs
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
@@ -133,13 +149,43 @@ func (s *Store) ClearPositionLogs(ctx context.Context, positionID string) error 
 
 // attachTaskLogs 把任务启动前产生的日志补充到对应岗位。
 func (s *Store) attachTaskLogs(ctx context.Context, taskID string, positionID string) error {
-	_, err := s.db.ExecContext(ctx, `
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `
 		UPDATE task_logs SET position_id = ?
 		WHERE task_id = ? AND position_id = ''`,
 		positionID,
 		taskID,
+	); err != nil {
+		return err
+	}
+	if err = trimPositionTaskLogs(ctx, transaction, positionID); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
+// trimPositionTaskLogs 删除岗位最早日志，只保留最近 1000 条。
+func trimPositionTaskLogs(ctx context.Context, transaction *sql.Tx, positionID string) error {
+	_, err := transaction.ExecContext(ctx, `
+		DELETE FROM task_logs
+		WHERE position_id = ? AND id NOT IN (
+			SELECT id FROM task_logs
+			WHERE position_id = ?
+			ORDER BY id DESC
+			LIMIT ?
+		)`,
+		positionID,
+		positionID,
+		maxPositionTaskLogs,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("裁剪岗位任务日志失败：%w", err)
+	}
+	return nil
 }
 
 // logLevel 把步骤状态转换为控制台日志级别。

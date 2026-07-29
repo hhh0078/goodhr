@@ -53,7 +53,7 @@ const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
 const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
 const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 100;
-const ALL_LOG_LIMIT = 5000;
+const ALL_LOG_LIMIT = 1000;
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
 

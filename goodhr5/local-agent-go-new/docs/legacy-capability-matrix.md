@@ -153,7 +153,7 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `internal/app/app_update.go` | 程序更新状态、下载、版本比较、安全解压和启动安装器 | `internal/updater/`、`internal/api/update.go` | 已迁移，增加 HTTP 地址校验和安全压缩包规则 |
+| `internal/app/app_update.go` | 程序更新状态、下载、版本比较、安全解压和启动安装器 | `internal/updater/`、`internal/api/update.go` | 已迁移，增加 HTTPS、完整 SHA256 和安全压缩包规则 |
 | `internal/app/app_update_test.go` | 版本比较和 zip 越界回归 | `internal/updater/app_test.go` | 已迁移 |
 | `internal/app/browser_focus.go` | 浏览器启动或打开页面后尝试把桌面窗口置前 | Worker `page.bringToFront()` | 公共替代；不再额外执行 AppleScript 或 PowerShell 抢占系统前台 |
 | `internal/app/command_other.go` | 非 Windows 子进程参数 | Go 标准 `exec.Cmd` | 公共替代 |
@@ -239,7 +239,7 @@
 | `internal/runtime/installer.go` | Node、CloakBrowser、OCR 下载、SHA256 和解压 | `internal/runtime/installer.go`、`archive.go` | 已迁移，增加失败回滚和安全链接检查 |
 | `internal/runtime/installer_test.go` | SHA256、路径和组件版本测试 | `internal/runtime/installer_test.go` | 已迁移并补充 Worker 依赖路径测试 |
 | `internal/runtime/manager.go` | 运行组件状态、Node/Worker/CloakBrowser/OCR 路径 | `internal/runtime/manager.go`、`types.go` | 已迁移；Worker 状态同时检查 CloakBrowser Node 依赖 |
-| `internal/version/version.go` | 程序版本 | `internal/version/version.go` | 已迁移，当前为 `5.3.5` |
+| `internal/version/version.go` | 程序版本 | `internal/version/version.go` | 已迁移，当前默认版本为 `6` |
 
 ## 旧入口、文档、脚本与打包文件逐文件核对
 
@@ -256,7 +256,7 @@
 | `scripts/build_go_binary.ps1` | Windows Go 构建 | 无 | 待 Windows 打包阶段 |
 | `scripts/build_go_binary.sh` | Go 构建 | `scripts/build.sh` | 已迁移当前 macOS 构建 |
 | `scripts/install_local_worker_dev.sh` | 开发安装旧 Worker 源码 | `scripts/run-dev.sh`、`npm run build` | 公共替代；新版直接运行同仓库编译产物 |
-| `scripts/package_node_runtime.sh` | Node Runtime 打包 | `scripts/prepare-runtime.sh` 和运行组件在线安装 | 当前 macOS 流程已替代；正式发布打包仍需发布流程 |
+| `scripts/package_node_runtime.sh` | Node Runtime 打包 | `scripts/prepare-runtime.sh`、运行组件在线安装和 `scripts/package-release.sh` | 已由当前 macOS 流程替代；正式包包含 Go、Worker 编译产物和 Worker 生产依赖 |
 | `scripts/package_worker.sh` | Worker 发布包 | `scripts/build.sh` | 已迁移为统一编译 |
 | `scripts/windows_smoke_test.ps1` | Windows 接口冒烟 | 无 | 待 Windows 打包阶段 |
 
@@ -272,5 +272,5 @@
 - 自动回复主流程和四个平台 `reply.go` 已实现，但旧版没有消息页地址、未读会话、上下文、输入框和发送按钮配置；除 Boss 消息页地址外均标记 `pending_selectors`。
 - 收藏和不合适接口已实现，旧版没有四个平台的稳定选择器；模板中明确标记待云端配置。
 - Boss、猎聘企业端旧版 `followup.go` 本身为空；新版保留配置驱动能力，不伪造按钮。
-- 本地四份 `config.json` 已准备并带中文属性说明，但按当前决定暂不接入运行；真实任务继续依赖云端配置补齐模板中标记的选择器。
+- 本地四份 `config.json` 已准备并带中文属性说明，现作为 `go:embed` 内置兜底；云端配置优先，内置模板只补齐缺失字段，标记待配置的选择器不会被伪造。
 - 所有标记“待真实回归”的能力，本轮均未启动真实招聘账号任务。

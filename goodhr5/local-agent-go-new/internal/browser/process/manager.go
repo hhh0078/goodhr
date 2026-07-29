@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/system/logfile"
 )
 
 // HealthChecker 定义 Worker 启动后的健康检查能力。
@@ -26,8 +28,10 @@ type Manager struct {
 	logPath     string
 	health      HealthChecker
 	environment []string
+	logSink     func([]byte)
 	command     *exec.Cmd
-	logFile     *os.File
+	logFile     io.Closer
+	lineWriter  *lineSinkWriter
 	done        chan struct{}
 }
 
@@ -36,6 +40,13 @@ func (m *Manager) SetEnvironment(values ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.environment = append([]string(nil), values...)
+}
+
+// SetLogSink 设置 Worker JSON 行日志的统一接收入口。
+func (m *Manager) SetLogSink(sink func([]byte)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logSink = sink
 }
 
 // SetExecutable 更新后续启动 Worker 使用的 Node.js 可执行文件。
@@ -73,14 +84,15 @@ func (m *Manager) Start(ctx context.Context) error {
 	if _, err := os.Stat(m.entryPath); err != nil {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
-	file, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := logfile.Open(m.logPath, 10<<20, 3)
 	if err != nil {
 		return fmt.Errorf("打开 Worker 日志失败：%w", err)
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
 	command.Env = append(command.Env, m.environment...)
-	command.Stdout = io.MultiWriter(os.Stdout, file)
+	lineWriter := &lineSinkWriter{sink: m.logSink}
+	command.Stdout = io.MultiWriter(os.Stdout, file, lineWriter)
 	command.Stderr = io.MultiWriter(os.Stderr, file)
 	if err := command.Start(); err != nil {
 		file.Close()
@@ -88,9 +100,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	m.command = command
 	m.logFile = file
+	m.lineWriter = lineWriter
 	done := make(chan struct{})
 	m.done = done
-	go m.wait(command, file, done)
+	go m.wait(command, file, lineWriter, done)
 	if err := m.waitHealthy(ctx); err != nil {
 		_ = command.Process.Kill()
 		return err
@@ -150,8 +163,11 @@ func (m *Manager) waitHealthy(ctx context.Context) error {
 }
 
 // wait 回收 Worker 进程并关闭对应日志。
-func (m *Manager) wait(command *exec.Cmd, file *os.File, done chan struct{}) {
+func (m *Manager) wait(command *exec.Cmd, file io.Closer, lineWriter *lineSinkWriter, done chan struct{}) {
 	_ = command.Wait()
+	if lineWriter != nil {
+		lineWriter.Flush()
+	}
 	_ = file.Close()
 	close(done)
 	m.mu.Lock()
@@ -159,6 +175,7 @@ func (m *Manager) wait(command *exec.Cmd, file *os.File, done chan struct{}) {
 	if m.command == command {
 		m.command = nil
 		m.logFile = nil
+		m.lineWriter = nil
 		m.done = nil
 	}
 }

@@ -23,6 +23,19 @@ func TestVerifySHA256(t *testing.T) {
 	if err := verifySHA256(path, "bad"); err == nil {
 		t.Fatal("verifySHA256() accepted wrong digest")
 	}
+	if err := verifySHA256(path, ""); err == nil {
+		t.Fatal("verifySHA256() accepted empty digest")
+	}
+}
+
+// TestValidateAssetURLRequiresHTTPS 验证运行组件不能通过明文 HTTP 下载。
+func TestValidateAssetURLRequiresHTTPS(t *testing.T) {
+	if err := validateAssetURL("https://oss.example.com/runtime.zip"); err != nil {
+		t.Fatalf("HTTPS 下载地址被拒绝：%v", err)
+	}
+	if err := validateAssetURL("http://oss.example.com/runtime.zip"); err == nil {
+		t.Fatal("HTTP 下载地址不应被接受")
+	}
 }
 
 // TestSafeJoinRejectsTraversal 验证组件压缩包不能越界写文件。

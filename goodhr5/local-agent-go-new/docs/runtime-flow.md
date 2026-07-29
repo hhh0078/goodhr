@@ -9,16 +9,17 @@ main
   1. 解析启动参数
   2. 加载本地配置
   3. 创建必要目录
-  4. 启用本地文件日志
-  5. 检查固定端口是否已有健康的 GoodHR 实例
-  6. 打开 SQLite 并执行迁移
-  7. 创建 Runtime Manager
-  8. 创建 Browser Worker Manager 和 Client
-  9. 创建 Cloud、AI、OCR Client
-  10. 创建 Task Flow
-  11. 注册本地 HTTP API
-  12. 启动下载同步、服务和云端控制台
-  13. 监听退出信号并按浏览器、Worker、OCR、SQLite 顺序优雅清理
+  4. 检查固定端口是否已有健康的 GoodHR 实例
+  5. 启用 10MB、3 份备份的本地文件日志
+  6. 清理过期临时截图、组件压缩包和更新包
+  7. 打开 SQLite、执行迁移、恢复异常中断任务并清理过期摘要
+  8. 创建 Runtime Manager
+  9. 创建 Browser Worker Manager 和 Client
+  10. 创建 Cloud、AI、OCR Client
+  11. 创建 Task Flow
+  12. 注册本地 HTTP API
+  13. 启动下载同步、服务和云端控制台
+  14. 监听退出信号并按任务、服务、浏览器、下载同步、Worker、OCR、SQLite 顺序优雅清理
 ```
 
 程序启动只保证本地服务可用，不应自动开始岗位任务。
@@ -33,10 +34,12 @@ main
 StartTask
   1. 解析强类型请求
   2. RunPreflightChecks
-  3. 创建任务上下文和运行锁
+  3. 获取任务和 Profile 运行锁
   4. 保存本地 running 状态
-  5. DispatchTaskFlow
-  6. 返回已开始
+  5. 同步云端 running 状态
+  6. 启用系统防睡眠
+  7. DispatchTaskFlow
+  8. 返回已开始
 ```
 
 后台流程必须持有可取消的 Context。
@@ -48,14 +51,16 @@ StartTask
 ```text
 checks = [
   ValidateRequest,
+  CheckLocalProgram,
   CheckCloudSession,
-  CheckSubscription,
   LoadPositionSnapshot,
+  CheckSubscriptionWhenRequired,
   LoadUserPreferences,
   LoadPlatformConfig,
   CheckProfile,
   CheckTaskConflict,
-  CheckRuntimeComponents,
+  CheckNodeRuntime,
+  CheckWorkerBuild,
   CheckWorker,
   CheckCloakBrowser,
   CheckLocalStorage,
@@ -72,6 +77,8 @@ checks = [
 - 必需检查失败立即停止。
 - 可选检查失败记录 warning，并明确降级结果。
 - 返回完整的 `PreflightResult`，后续流程直接使用，不重复读取相同配置。
+- 免费关键词和 OCR 打招呼任务不检查 AI 或会员；自动回复和明确要求 AI 的岗位才检查会员。
+- 平台配置以云端为主，内置 `config.json` 只补缺失字段；自动回复缺少消息地址或有效目标选择器时立即拦截。
 
 ## 4. 流程分发
 
@@ -103,7 +110,8 @@ GreetingFlow
   13. 按最终 AI 分数决定是否索要电话、微信或简历
   14. 保存候选人结果
   15. 按个人配置休息、翻页或真实滚动
-  16. 同步统计并完成、停止或失败收尾
+  16. 同步候选人发现数量、累计统计和最终状态
+  17. 完成、停止或失败统一收尾
 ```
 
 主流程只决定顺序。Boss、智联、猎聘页面差异由平台 Runtime 实现。
@@ -113,6 +121,8 @@ GreetingFlow
 需要 OCR 时，Go 调用通用长截图能力。Worker 只用真实鼠标滚轮生成分段，Go 逐段 OCR 并合并文本；任何详情读取或 OCR 失败都会执行详情补关。智联和猎聘猎头端在 AI 判断前还会调用平台详情浏览能力，用真实滚轮模拟查看，不使用 JS 滚动。
 
 每批候选人开始前重新检查云端登录态。401/403 会停止任务；临时网络错误只记录 warning，避免短暂断网误停。个人配置中的列表停留、详情前后等待、打招呼前等待、滚动等待和模拟休息都使用可取消定时器，休息浮层的显示和关闭均同步等待 Worker 返回。
+
+候选人没有稳定编号时直接跳过，避免同一个人被重复打招呼。关键词岗位需要详情时，先读取详情再做最终关键词判断；OCR 和多模态 AI 使用的临时截图在读取后立即删除。
 
 ## 6. 自动回复流程
 
@@ -188,6 +198,8 @@ StopTask
 - 单个候选人最多处理 180 秒；浏览器被关闭或 OCR 组件不可用时立即停止，单张图片没有识别到文字只跳过当前候选人。
 - 用户关闭浏览器与程序异常必须使用不同状态。
 - 失败收尾不能覆盖用户主动停止状态。
+- 未捕获 panic 也必须进入同一套失败收尾，释放 Profile、停止防睡眠并保存明确错误。
+- 任务每 30 秒检查一次时间断层；休眠恢复断层超过 2 分钟时按失败停止，避免继续操作过期页面。
 - 岗位开启提示音时，打招呼成功播放成功音，任务失败播放失败音。
 - 任务失败通过 `/api/fail-notice` 请求云端发送邮件；正常停止只同步 stopped，避免重复邮件。
 - 任务完成同步要求云端返回 `notice_sent=true`，否则最多重试三次；云端通知失败只记 warning，不把已经完成的本地任务改成失败。
@@ -217,11 +229,13 @@ StopTask
 
 切换下载目录时，Go 先校验绝对路径，再请求 Worker 配置；只有 Worker 返回成功后才登记为允许打开文件的目录。打开或 Finder 定位下载文件时，会解析软链接后的真实路径并再次检查目录边界。旧目录中的历史下载仍可打开，清空下载记录不会删除实际文件。
 
+程序退出时，Worker 先等待已经监听到的下载进入成功或失败终态；Go 关闭浏览器后再执行最后一次同步，然后才停止 Worker，避免退出瞬间漏掉下载结果。
+
 ## 12. 运行组件安装流程
 
 ```text
 控制台提交强类型 manifest
-  -> 校验当前系统资源和 HTTP(S) 地址
+  -> 校验当前系统资源、HTTPS 地址和完整 SHA256
   -> 按 Node、CloakBrowser、OCR 顺序处理
   -> 下载到临时文件并报告进度
   -> 校验 SHA256
@@ -238,9 +252,19 @@ Node 必须为 22 或更高。Worker 就绪检查同时验证编译入口和 `cl
 ```text
 控制台提交下载地址和目标版本
   -> 比较当前版本
+  -> 校验 HTTPS 地址和完整 SHA256
   -> 下载更新包并报告进度
+  -> 校验下载文件 SHA256
   -> 安全准备 pkg 或 zip 安装器
   -> 用 macOS 默认安装方式打开
 ```
 
 本地程序更新与 Node/CloakBrowser/OCR 运行组件更新分开，不能放进同一个管理器。
+
+## 14. 日志和本地数据保留
+
+- Go 和 Worker 的结构化步骤日志统一按任务编号写入岗位日志，每个岗位只保留最近 1000 条。
+- 主程序和 Worker 文件日志单个最多 10MB，各保留 3 份历史文件。
+- 本地任务、候选人、会话、下载和步骤摘要保留 90 天。
+- 临时截图和组件下载压缩包保留最多 24 小时，程序更新包保留最多 7 天。
+- 用户下载目录、浏览器 Profile、Cookie 和书签不参与自动清理。

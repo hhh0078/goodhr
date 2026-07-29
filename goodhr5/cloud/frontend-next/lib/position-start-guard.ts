@@ -15,6 +15,7 @@ export function latestLocalAgentRelease(config: any) {
   return {
     version: String(item.version || "").trim(),
     url: String(isWindows ? item.url_win || item.url_windows || item.url || "" : item.url_mac || item.url_macos || item.url || "").trim(),
+    sha256: String(item.sha256 || "").trim(),
     note: String(item.note || item.changelog || item.description || item.release_note || "").trim(),
   };
 }

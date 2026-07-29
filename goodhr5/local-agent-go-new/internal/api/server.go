@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -309,11 +310,21 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 // allowedOrigin 只允许 GoodHR 和本机控制台跨域访问。
 func allowedOrigin(origin string) bool {
-	origin = strings.ToLower(strings.TrimSpace(origin))
-	return origin == "" ||
-		strings.HasPrefix(origin, "http://127.0.0.1") ||
-		strings.HasPrefix(origin, "http://localhost") ||
-		origin == "https://goodhr5.58it.cn"
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		(parsed.Path != "" && parsed.Path != "/") {
+		return false
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	hostname := strings.ToLower(parsed.Hostname())
+	if scheme == "https" && parsed.Port() == "" && hostname == "goodhr5.58it.cn" {
+		return true
+	}
+	return scheme == "http" && (hostname == "127.0.0.1" || hostname == "localhost")
 }
 
 // decodeJSON 解码单个强类型 JSON 对象并拒绝未知字段。

@@ -177,6 +177,42 @@ func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSumm
 	return err
 }
 
+// SyncPositionCounts 把主动打招呼任务的累计统计同步到云端岗位。
+func (c *Client) SyncPositionCounts(ctx context.Context, token string, summary TaskSummary) error {
+	if strings.TrimSpace(summary.PositionID) == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	request := struct {
+		ScannedCount int `json:"scanned_count"`
+		GreetedCount int `json:"greeted_count"`
+		SkippedCount int `json:"skipped_count"`
+		FailedCount  int `json:"failed_count"`
+	}{
+		ScannedCount: max(summary.Processed, 0),
+		GreetedCount: max(summary.Succeeded, 0),
+		SkippedCount: max(summary.Skipped, 0),
+		FailedCount:  max(summary.Failed, 0),
+	}
+	path := "/api/positions/" + url.PathEscape(summary.PositionID) + "/counts"
+	return c.do(ctx, http.MethodPost, path, token, request, nil)
+}
+
+// AddProcessedResumes 累加本次任务新发现且具有稳定编号的候选人数量。
+func (c *Client) AddProcessedResumes(ctx context.Context, token string, positionID string, count int) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位编号不能为空")
+	}
+	if count <= 0 {
+		return nil
+	}
+	request := struct {
+		Count int `json:"count"`
+	}{Count: count}
+	path := "/api/positions/" + url.PathEscape(positionID) + "/processed-resumes"
+	return c.do(ctx, http.MethodPost, path, token, request, nil)
+}
+
 // SyncCompletedSummary 最多尝试三次完成状态同步，并要求云端确认完成邮件已发送。
 func (c *Client) SyncCompletedSummary(ctx context.Context, token string, summary TaskSummary) error {
 	summary.Status = "completed"
@@ -205,9 +241,18 @@ func (c *Client) SyncCompletedSummary(ctx context.Context, token string, summary
 
 // syncSummary 执行一次任务状态同步并返回云端通知结果。
 func (c *Client) syncSummary(ctx context.Context, token string, summary TaskSummary) (SummaryResult, error) {
+	if strings.EqualFold(strings.TrimSpace(summary.TaskType), "greeting") &&
+		!strings.EqualFold(strings.TrimSpace(summary.Status), "running") {
+		if err := c.SyncPositionCounts(ctx, token, summary); err != nil {
+			return SummaryResult{}, err
+		}
+	}
 	path := "/api/positions/" + url.PathEscape(summary.PositionID) + "/status"
+	request := struct {
+		Status string `json:"status"`
+	}{Status: summary.Status}
 	var response SummaryResult
-	err := c.do(ctx, http.MethodPost, path, token, summary, &response)
+	err := c.do(ctx, http.MethodPost, path, token, request, &response)
 	return response, err
 }
 
@@ -310,7 +355,7 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	mode := strings.ToLower(strings.TrimSpace(position.CommonConfig.ModeDefault))
 	detailMode := strings.ToLower(strings.TrimSpace(position.CommonConfig.DetailMode))
 	position.RequiresOCR = position.RequiresOCR || detailMode == "ocr"
-	position.RequiresAI = position.RequiresAI || mode != "keyword" || detailMode == "ai" || detailMode == "ocr"
+	position.RequiresAI = position.RequiresAI || mode != "keyword" || detailMode == "ai"
 	position.RequestPhone = position.RequestPhone || position.CommonConfig.RequestPhone
 	position.RequestWechat = position.RequestWechat || position.CommonConfig.RequestWechat
 	position.RequestResume = position.RequestResume || position.CommonConfig.RequestResume
