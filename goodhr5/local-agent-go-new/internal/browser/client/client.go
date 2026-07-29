@@ -190,16 +190,6 @@ func (c *Client) ClearDownloads(ctx context.Context) error {
 	return call(ctx, c, http.MethodPost, "/api/v1/downloads/clear", struct{}{}, &result)
 }
 
-// ShowOverlay 显示通用页面提示浮层。
-func (c *Client) ShowOverlay(ctx context.Context, request contract.OverlayShowRequest) (contract.OverlayResult, error) {
-	return callValue[contract.OverlayResult](ctx, c, "/api/v1/overlay/show", request)
-}
-
-// CloseOverlay 关闭通用页面提示浮层。
-func (c *Client) CloseOverlay(ctx context.Context, request contract.OverlayCloseRequest) (contract.OverlayResult, error) {
-	return callValue[contract.OverlayResult](ctx, c, "/api/v1/overlay/close", request)
-}
-
 // callValue 执行 POST 并返回指定强类型结果。
 func callValue[T any](ctx context.Context, client *Client, path string, request any) (T, error) {
 	var result T

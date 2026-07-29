@@ -1,3 +1,11 @@
+# 最高优先级：招聘页面零脚本注入
+
+- 严禁使用 `page.evaluate()`、`locator.evaluate()`、`evaluateHandle()`、`$eval()`、`$$eval()`、`addScriptTag()`、`addInitScript()` 或 `dispatchEvent()` 读取或控制招聘页面。
+- 严禁向招聘页面注入 JavaScript，或修改页面 DOM、样式、滚动位置、焦点和运行状态。
+- 页面读取与操作只能使用 CloakBrowser/Playwright 标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图能力。
+- 如果标准能力无法完成需求，必须停下来向邓云川确认，不能偷偷改用脚本注入。
+- 本规则优先于本文件内其他浏览器自动化说明，适用于 Go、TypeScript Worker 和全部平台流程。
+
 你的对话尽量简洁明了，避免使用复杂的词汇和术语。因为我是代码小白
 每次新建接口和方法时 都优先查找是否存在相似的接口或方法
 

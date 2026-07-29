@@ -18,6 +18,13 @@ func TestWithLocalPort(t *testing.T) {
 	if !strings.Contains(result, "from=agent") || !strings.Contains(result, "local_port=43129") {
 		t.Fatalf("withLocalPort() = %q", result)
 	}
+	developmentResult, err := withLocalPort("http://localhost:5173/admin/", 43129)
+	if err != nil {
+		t.Fatalf("development withLocalPort() error = %v", err)
+	}
+	if developmentResult != "http://localhost:5173/admin/?local_port=43129" {
+		t.Fatalf("development withLocalPort() = %q", developmentResult)
+	}
 }
 
 // TestExistingAgent 验证只有带完整 GoodHR 身份字段的健康响应才会复用旧实例。

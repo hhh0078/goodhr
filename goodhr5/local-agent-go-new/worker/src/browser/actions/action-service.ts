@@ -12,8 +12,6 @@ import type {
   ElementReadRequest,
   KeyboardPressRequest,
   LongScreenshotRequest,
-  OverlayCloseRequest,
-  OverlayShowRequest,
   PageOpenRequest,
   PageUseRequest,
   ScreenshotRequest,
@@ -25,14 +23,12 @@ import { WorkerLogger } from "../../logging/logger.js";
 import { KeyboardPrimitive } from "../primitives/keyboard.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
-import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { ClickAction } from "./click.js";
 import { FindAction } from "./find.js";
 import { InputAction } from "./input.js";
 import { KeyboardAction } from "./keyboard.js";
 import { MoveAction } from "./move.js";
-import { OverlayAction } from "./overlay.js";
 import { ReadAction } from "./read.js";
 import { ScreenshotAction } from "./screenshot.js";
 import { ScrollAction } from "./scroll.js";
@@ -43,7 +39,6 @@ export class ActionService {
   private readonly session = new BrowserSession(this.logger);
   private readonly locator = new LocatorPrimitive();
   private readonly mouse = new MousePrimitive();
-  private readonly read = new ReadPrimitive();
   private readonly keyboardPrimitive = new KeyboardPrimitive();
   private readonly findAction = new FindAction(
     this.session,
@@ -57,7 +52,6 @@ export class ActionService {
     this.moveAction,
     this.locator,
     this.mouse,
-    this.read,
     this.logger,
   );
   private readonly clickAction = new ClickAction(
@@ -82,7 +76,6 @@ export class ActionService {
     this.findAction,
     this.moveAction,
     this.mouse,
-    this.read,
     this.logger,
   );
   private readonly keyboardAction = new KeyboardAction(
@@ -90,7 +83,6 @@ export class ActionService {
     this.keyboardPrimitive,
     this.logger,
   );
-  private readonly overlayAction = new OverlayAction(this.session, this.logger);
 
   /** startBrowser 启动或复用 CloakBrowser 会话。 */
   startBrowser(request: BrowserStartRequest, context: ActionContext) {
@@ -223,13 +215,4 @@ export class ActionService {
     return this.session.clearDownloads();
   }
 
-  /** showOverlay 显示或更新通用页面浮层。 */
-  showOverlay(request: OverlayShowRequest, context: ActionContext) {
-    return this.overlayAction.show(request, context);
-  }
-
-  /** closeOverlay 关闭通用页面浮层。 */
-  closeOverlay(request: OverlayCloseRequest, context: ActionContext) {
-    return this.overlayAction.close(request, context);
-  }
 }

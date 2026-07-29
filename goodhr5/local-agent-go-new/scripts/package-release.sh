@@ -49,7 +49,7 @@ npm ci --omit=dev --registry="${npm_registry}"
 cd "${project_dir}"
 GOPROXY="${go_proxy}" go build \
   -trimpath \
-  -ldflags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr5.58it.cn" \
+  -ldflags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr5.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr5.58it.cn" \
   -o "${package_dir}/goodhr-local-agent" \
   ./cmd/goodhr-local-agent
 cp README.md "${package_dir}/README.md"

@@ -15,18 +15,9 @@ import { normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { ScreenshotPrimitive } from "../primitives/screenshot.js";
 import { MousePrimitive } from "../primitives/mouse.js";
-import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
-
-interface ScrollState {
-  position: number;
-  total: number;
-  viewport: number;
-  at_top: boolean;
-  at_bottom: boolean;
-}
 
 /** ScreenshotAction 实现页面和元素截图封装能力。 */
 export class ScreenshotAction {
@@ -38,7 +29,6 @@ export class ScreenshotAction {
     private readonly find: FindAction,
     private readonly move: MoveAction,
     private readonly mouse: MousePrimitive,
-    private readonly read: ReadPrimitive,
     private readonly logger: WorkerLogger,
   ) {}
 
@@ -123,24 +113,30 @@ export class ScreenshotAction {
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
       await this.move.toElement(anchor.resolved, actionContext);
-      let state = await this.readScrollState(
-        page,
-        anchor.resolved.locator,
-      );
       const distance = Math.max(
         100,
-        request.distance ?? Math.floor(Math.max(400, state.viewport * 0.75)),
+        request.distance ??
+          Math.floor(Math.max(400, target.resolved.view.viewport.height * 0.75)),
       );
-      for (let attempt = 0; attempt < maxParts && !state.at_top; attempt += 1) {
-        const before = state.position;
+      let reachedTop = false;
+      for (let attempt = 0; attempt < maxParts; attempt += 1) {
+        const beforeHash = imageHash(
+          await this.primitive.elementBuffer(target.resolved.locator),
+        );
         await this.mouse.wheel(page, 0, -distance);
         await delay(waitMS);
-        state = await this.readScrollState(page, anchor.resolved.locator);
-        if (state.at_top || state.position >= before) {
+        const afterHash = imageHash(
+          await this.primitive.elementBuffer(target.resolved.locator),
+        );
+        if (afterHash === beforeHash) {
+          reachedTop = true;
           break;
         }
       }
-      let previousHash = "";
+      if (!reachedTop) {
+        throw new Error(`真实滚轮尝试 ${maxParts} 次后仍未确认回到顶部`);
+      }
+      let complete = false;
       for (let index = 0; index < maxParts; index += 1) {
         const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
         const filePath = path.join(request.directory, filename);
@@ -149,38 +145,31 @@ export class ScreenshotAction {
           filePath,
         );
         const hash = await fileHash(filePath);
-        if (hash === previousHash) {
-          await fs.rm(filePath, { force: true });
-          break;
-        }
         parts.push({
           path: filePath,
           filename,
           size,
           index,
-          scroll_position: state.position,
+          scroll_position: index * distance,
         });
-        previousHash = hash;
         this.logger.info(actionContext, "capture_part", "success", {
           index: index + 1,
-          scroll_position: state.position,
-          at_bottom: state.at_bottom,
+          scroll_position: index * distance,
         });
-        if (state.at_bottom) {
-          break;
-        }
-        const before = state.position;
         await this.mouse.wheel(page, 0, distance);
         await delay(waitMS);
-        state = await this.readScrollState(page, anchor.resolved.locator);
-        if (state.position <= before) {
+        const afterHash = imageHash(
+          await this.primitive.elementBuffer(target.resolved.locator),
+        );
+        if (afterHash === hash) {
+          complete = true;
           break;
         }
       }
       const result: LongScreenshotResult = {
         parts,
         count: parts.length,
-        complete: state.at_bottom,
+        complete,
       };
       if (result.count === 0) {
         throw new Error("长截图没有生成任何分段");
@@ -207,22 +196,6 @@ export class ScreenshotAction {
       throw normalized;
     }
   }
-
-  /** readScrollState 只读取元素或页面滚动状态，不直接修改滚动位置。 */
-  private async readScrollState(
-    page: Awaited<ReturnType<BrowserSession["requirePage"]>>,
-    locator: Awaited<ReturnType<FindAction["one"]>>["resolved"]["locator"],
-  ): Promise<ScrollState> {
-    const raw = await this.read.scrollState(page, locator);
-    return {
-      position: raw.scroll_top,
-      total: raw.scroll_height,
-      viewport: raw.client_height,
-      at_top: raw.scroll_top <= 1,
-      at_bottom:
-        raw.scroll_top + raw.client_height >= raw.scroll_height - 2,
-    };
-  }
 }
 
 /** safePNGFilename 清理路径字符并确保使用 PNG 后缀。 */
@@ -240,6 +213,11 @@ async function fileHash(filePath: string): Promise<string> {
   return createHash("sha256")
     .update(await fs.readFile(filePath))
     .digest("hex");
+}
+
+/** imageHash 计算内存 PNG 内容哈希，用于判断真实滚轮是否仍能推动页面。 */
+function imageHash(image: Buffer): string {
+  return createHash("sha256").update(image).digest("hex");
 }
 
 /** delay 使用 Node 定时器等待页面滚动和截图状态稳定。 */

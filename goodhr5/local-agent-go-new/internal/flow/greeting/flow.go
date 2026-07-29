@@ -164,7 +164,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
 			candidateErr := f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
 			cancelCandidate()
-			if restErr := rest.afterCandidate(ctx, f.Browser, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
+			if restErr := rest.afterCandidate(ctx, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
 				return restErr
 			}
 			if candidateErr != nil {
@@ -295,14 +295,6 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
 			}
 		}
-		overlayShown := false
-		if prepared.Position.EnableThinking {
-			overlayShown = shared.ShowThinkingOverlay(
-				ctx, f.Browser, prepared.Request.TaskID, "greeting",
-				"AI 正在分析候选人", candidate.Name, "正在对照岗位要求和候选人详情",
-				f.Logger,
-			)
-		}
 		var decision ai.Decision
 		var decisionErr error
 		if detailMode == "ai" {
@@ -318,9 +310,6 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			decision, decisionErr = f.AI.EvaluateCandidate(
 				ctx, prepared.Position.AI, prepared.Position, candidate, detail,
 			)
-		}
-		if overlayShown {
-			shared.CloseThinkingOverlay(ctx, f.Browser, prepared.Request.TaskID, "greeting", f.Logger)
 		}
 		if decisionErr != nil {
 			stats.Failed++

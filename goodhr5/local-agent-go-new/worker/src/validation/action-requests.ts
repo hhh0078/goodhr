@@ -12,8 +12,6 @@ import type {
   ElementReadRequest,
   KeyboardPressRequest,
   LongScreenshotRequest,
-  OverlayCloseRequest,
-  OverlayShowRequest,
   PageOpenRequest,
   PageUseRequest,
   ScreenshotRequest,
@@ -445,47 +443,6 @@ export function parseDownloadConfigureRequest(
   const record = asRecord(value, traceID, action);
   return {
     directory: requiredString(record, "directory", traceID, action),
-  };
-}
-
-/** parseOverlayShowRequest 校验浮层显示请求。 */
-export function parseOverlayShowRequest(
-  value: unknown,
-  traceId: string,
-  action: string,
-): OverlayShowRequest {
-  const record = asRecord(value, traceId, action);
-  const request: OverlayShowRequest = {
-    overlay_id: requiredString(record, "overlay_id", traceId, action),
-    title: requiredString(record, "title", traceId, action),
-    message: requiredString(record, "message", traceId, action),
-  };
-  assignString(request, "subtitle", optionalString(record, "subtitle"));
-  if (
-    record.level === "info" ||
-    record.level === "success" ||
-    record.level === "warning" ||
-    record.level === "error"
-  ) {
-    request.level = record.level;
-  }
-  assignNumber(
-    request,
-    "max_age_ms",
-    optionalNumber(record, "max_age_ms", { min: 0, max: 600_000 }),
-  );
-  return request;
-}
-
-/** parseOverlayCloseRequest 校验关闭浮层请求。 */
-export function parseOverlayCloseRequest(
-  value: unknown,
-  traceId: string,
-  action: string,
-): OverlayCloseRequest {
-  const record = asRecord(value, traceId, action);
-  return {
-    overlay_id: requiredString(record, "overlay_id", traceId, action),
   };
 }
 

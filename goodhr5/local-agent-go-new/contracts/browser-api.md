@@ -64,8 +64,6 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 | GET | `/api/v1/downloads` | 下载记录 |
 | POST | `/api/v1/downloads/configure` | 切换后续下载保存目录 |
 | POST | `/api/v1/downloads/clear` | 清空内存下载记录，不删除文件 |
-| POST | `/api/v1/overlay/show` | 显示通用浮层 |
-| POST | `/api/v1/overlay/close` | 关闭通用浮层 |
 
 `GET /api/v1/downloads/history` 和兼容路径 `GET /api/v1/local/downloads` 属于 Go 本地接口，不属于 Worker 协议，用于读取 SQLite 下载终态历史。
 
@@ -111,8 +109,8 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 ## 真实滚轮验证
 
 - 所有滚动只通过鼠标移动和 `mouse.wheel` 执行。
-- 提供 `wheel_anchor` 时，Worker 只读查找它最近的可滚动父级，并比较滚动前后的状态。
-- 读取状态可以使用 `evaluate`，但禁止在页面里修改 `scrollTop`、调用 `scrollBy` 或 `scrollIntoView`。
+- 提供 `wheel_anchor` 时，Worker 只把它作为真实鼠标落点；滚动前后通过目标位置或当前视口截图摘要验证变化，不读取页面内部滚动属性。
+- 读取和操作页面都禁止注入或执行 JavaScript，只能使用标准 Locator、鼠标、键盘、真实滚轮和截图。
 
 ## 长截图
 

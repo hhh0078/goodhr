@@ -45,8 +45,7 @@ func main() {
 		log.Printf("GoodHR 本地程序已经在运行，本次只复用现有实例")
 		if cfg.AutoOpenConsole {
 			openCtx, cancelOpen := context.WithTimeout(context.Background(), 3*time.Second)
-			consoleURL := strings.TrimRight(cfg.CloudURL, "/") + "/admin/"
-			if err = console.OpenWhenReady(openCtx, healthURL, consoleURL, cfg.Port); err != nil {
+			if err = console.OpenWhenReady(openCtx, healthURL, cfg.ConsolePageURL(), cfg.Port); err != nil {
 				log.Printf("打开现有 GoodHR 控制台失败：%v", err)
 			}
 			cancelOpen()

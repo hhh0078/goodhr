@@ -3,12 +3,9 @@ package greeting
 
 import (
 	"context"
-	"fmt"
 	"math/rand/v2"
 	"time"
 
-	"goodhr5/local-agent-go-new/internal/browser/client"
-	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 )
@@ -67,8 +64,8 @@ func waitRandomSeconds(ctx context.Context, logger shared.Logger, taskID string,
 	}
 }
 
-// afterCandidate 在处理完候选人后按计划同步显示浮层并等待休息结束。
-func (schedule *restSchedule) afterCandidate(ctx context.Context, browser *client.Client, logger shared.Logger, taskID string, preferences cloud.UserPreferences) error {
+// afterCandidate 在处理完候选人后按计划等待休息结束，不修改招聘页面。
+func (schedule *restSchedule) afterCandidate(ctx context.Context, logger shared.Logger, taskID string, preferences cloud.UserPreferences) error {
 	if schedule == nil || schedule.maxTimes <= 0 || schedule.usedTimes >= schedule.maxTimes || schedule.nextAfter <= 0 {
 		return nil
 	}
@@ -84,24 +81,17 @@ func (schedule *restSchedule) afterCandidate(ctx context.Context, browser *clien
 	schedule.processedSince = 0
 	schedule.nextAfter = randomIntRange(preferences.RestAfterCandidatesMin, preferences.RestAfterCandidatesMax)
 	duration := time.Duration(durationMinutes * float64(time.Minute))
-	endsAt := time.Now().Add(duration)
-	overlayID := "goodhr-simulated-rest"
-	message := fmt.Sprintf("我先安静休息一会儿，预计 %s 继续干活", endsAt.Format("15:04:05"))
-	if _, err := browser.ShowOverlay(ctx, contract.OverlayShowRequest{
-		OverlayID: overlayID,
-		Title:     "模拟休息中",
-		Subtitle:  fmt.Sprintf("第 %d 次休息", schedule.usedTimes),
-		Message:   message,
-		Level:     "info",
-		MaxAgeMS:  int(duration.Milliseconds()) + 60_000,
-	}); err != nil && logger != nil {
-		logger.Step(taskID, "greeting", "show_rest_overlay", "warning", time.Now(), err)
+	startedAt := time.Now()
+	if logger != nil {
+		logger.Step(taskID, "greeting", "simulated_rest", "start", startedAt, nil)
 	}
 	waitErr := waitDuration(ctx, duration)
-	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	if _, err := browser.CloseOverlay(closeCtx, contract.OverlayCloseRequest{OverlayID: overlayID}); err != nil && logger != nil {
-		logger.Step(taskID, "greeting", "close_rest_overlay", "warning", time.Now(), err)
+	if logger != nil {
+		status := "success"
+		if waitErr != nil {
+			status = "failed"
+		}
+		logger.Step(taskID, "greeting", "simulated_rest", status, startedAt, waitErr)
 	}
 	return waitErr
 }

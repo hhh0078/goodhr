@@ -23,6 +23,9 @@ const (
 // DefaultCloudURL 是开发环境默认云端地址，正式打包时通过 ldflags 固定为线上地址。
 var DefaultCloudURL = "http://127.0.0.1:8084"
 
+// DefaultConsoleURL 是开发环境默认前端地址，正式打包时通过 ldflags 固定为线上地址。
+var DefaultConsoleURL = "http://localhost:5173"
+
 // Config 保存本地程序全部基础配置。
 type Config struct {
 	Host            string
@@ -30,6 +33,7 @@ type Config struct {
 	WorkerHost      string
 	WorkerPort      int
 	CloudURL        string
+	ConsoleURL      string
 	DataDir         string
 	ProfilesDir     string
 	DownloadsDir    string
@@ -63,6 +67,7 @@ func Load(host string, port int, dataDir string) (Config, error) {
 		WorkerHost:      DefaultHost,
 		WorkerPort:      workerPort,
 		CloudURL:        envString("GOODHR_CLOUD_API_BASE", DefaultCloudURL),
+		ConsoleURL:      envString("GOODHR_CONSOLE_URL", DefaultConsoleURL),
 		DataDir:         resolvedDataDir,
 		ProfilesDir:     filepath.Join(resolvedDataDir, "profiles"),
 		DownloadsDir:    defaultDownloadsDir(),
@@ -155,6 +160,11 @@ func (c Config) Address() string {
 // WorkerURL 返回 Browser Worker 基础地址。
 func (c Config) WorkerURL() string {
 	return fmt.Sprintf("http://%s:%d", c.WorkerHost, c.WorkerPort)
+}
+
+// ConsolePageURL 返回前端管理页面地址，供全部自动打开入口统一使用。
+func (c Config) ConsolePageURL() string {
+	return strings.TrimRight(c.ConsoleURL, "/") + "/admin/"
 }
 
 // resolveDataDir 返回用户配置目录中的 GoodHR 新本地程序目录。

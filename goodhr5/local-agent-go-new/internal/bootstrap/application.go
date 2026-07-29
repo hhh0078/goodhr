@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/api"
@@ -133,8 +132,7 @@ func (a *Application) Run(ctx context.Context) error {
 	if a.cfg.AutoOpenConsole {
 		go func() {
 			healthURL := fmt.Sprintf("http://%s/health", a.cfg.Address())
-			consoleURL := strings.TrimRight(a.cfg.CloudURL, "/") + "/admin/"
-			if err := console.OpenWhenReady(ctx, healthURL, consoleURL, a.cfg.Port); err != nil && ctx.Err() == nil {
+			if err := console.OpenWhenReady(ctx, healthURL, a.cfg.ConsolePageURL(), a.cfg.Port); err != nil && ctx.Err() == nil {
 				log.Printf("自动打开 GoodHR 控制台失败：%v", err)
 			}
 		}()

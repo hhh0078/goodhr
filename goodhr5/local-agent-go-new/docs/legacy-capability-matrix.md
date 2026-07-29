@@ -97,7 +97,7 @@
 | `positionrunner/scan.go` | 入口、岗位、扫描、滚动和云端状态检查 | `preflight`、`greeting.processBatches`、`auto_reply.processConversations` | 已迁移；每批和每轮都会检查登录，临时网络错误只告警 |
 | `positionrunner/candidate.go` | 去重、判断、打招呼、索要信息、拟人等待和休息 | `greeting.processCandidate`、`greeting/pacing.go` | 已迁移；索要信息要求最终 AI 分数严格大于岗位阈值 |
 | `positionrunner/detail.go` | 详情生命周期、OCR/AI、退出补关 | `greeting.processCandidate`、长截图 | 已迁移；详情失败也会统一补关 |
-| `positionrunner/decision.go` | 关键词、AI 决策和页面浮层 | `greeting.matchesKeyword`、`integration/ai`、`shared/runtime.go` | 已迁移；`enable_thinking` 控制同步通用浮层 |
+| `positionrunner/decision.go` | 关键词、AI 决策和页面浮层 | `greeting.matchesKeyword`、`integration/ai` | 关键词与 AI 决策已迁移；页面浮层因零脚本注入规则不再迁移 |
 | `positionrunner/error_policy.go` | 连续相同错误停止、浏览器关闭和 OCR 组件故障立即停止 | `greeting.processBatches`、`integration/ocr` 稳定错误码 | 已迁移；单图无文字只跳过当前候选人，连续 3 个其他同类错误停止任务 |
 | `positionrunner/persistence.go` | 本地候选人、统计和日志 | `storage`、`lifecycle/logger.go` | 已迁移为不保存敏感详情的摘要 |
 | `positionrunner/notification.go` | 声音、完成邮件重试和失败通知 | `internal/system/notification`、`integration/cloud.SyncCompletedSummary`、`SendFailNotice` | 已迁移为 macOS `afplay` 系统音；完成邮件未确认时最多重试三次，失败邮件使用强类型请求 |
@@ -111,7 +111,7 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `worker-node/src/index.js` | 会话、页面、元素、平台专用路由、截图、下载、Cookie、浮层 | `worker/src` 分层目录、`browser/session/download-manager.ts`、`flow/download`、`storage/download.go` | 已拆分；下载监听含处理中、成功、失败、后缀、重名和最近 100 条，Go 主动同步 SQLite 并显示打开提示 |
+| `worker-node/src/index.js` | 会话、页面、元素、平台专用路由、截图、下载、Cookie、浮层 | `worker/src` 分层目录、`browser/session/download-manager.ts`、`flow/download`、`storage/download.go` | 已拆分；页面浮层不迁移，下载监听含处理中、成功、失败、后缀、重名和最近 100 条 |
 | `browser-actions.js` | 浏览器基础与高级动作 | `primitives`、`actions` | 公共替代 |
 | `human-type.js` | 随机字符输入 | `InputAction`、`KeyboardPrimitive` | 已迁移 |
 | `hliepin-stable-click.js` | 猎聘稳定单击 | 通用 `ClickAction.waitForStablePosition` | 公共替代 |
@@ -125,16 +125,16 @@
 | `navigation-target.js` | URL 目标判断和已有标签页复用 | `browser/session/navigation.ts`、`BrowserSession.open` | 已迁移；命中现有页面时不导航，保留用户手动筛选 |
 | `browser-display.js` | 视口和缩放诊断 | `LocatorPrimitive.view` | 只迁移只读视口；旧固定视口校准调用已停用，明确不迁移 |
 | `profile-process.js` | 清理占用 Profile 的浏览器进程 | `profile`、Worker 会话复用 | 旧清理逻辑仅 Windows 生效，当前 macOS 阶段明确不迁移 |
-| `ai-overlay-policy.js` | 浮层重复和存活时间 | 通用 `OverlayAction` | 已迁移 |
+| `ai-overlay-policy.js` | 浮层重复和存活时间 | 不迁移 | 会修改招聘页面 DOM，与零脚本注入规则冲突 |
 | `test-screenshot.js` | 人工截图调试脚本 | 不进入生产代码 | 不迁移 |
 
 ## 旧 Worker 测试文件逐项核对
 
 | 旧测试文件 | 旧验证重点 | 新版覆盖 |
 |---|---|---|
-| `ai-overlay-policy.test.js` | 浮层存活时间和重复更新 | `OverlayAction` 运行时校验和 TypeScript 严格类型 |
+| `ai-overlay-policy.test.js` | 浮层存活时间和重复更新 | 不迁移；源码扫描测试禁止页面脚本注入 |
 | `boss-scroll-anchor.test.js` | 列表滚轮落点选择 | 通用 `wheel_anchor` 和四个平台配置模板 |
-| `boss-scroll-diagnostic.test.js` | 滚动前后诊断 | `ReadPrimitive.scrollState` 读取最近可滚动父级 |
+| `boss-scroll-diagnostic.test.js` | 滚动前后诊断 | 元素位置或当前视口截图变化 |
 | `browser-actions.test.js` | 基础动作参数和错误 | Worker 请求运行时校验、统一错误和 TypeScript 类型检查 |
 | `browser-display.test.js` | 固定视口校准 | 旧生产调用已停用，明确不迁移 |
 | `candidate-match.test.js` | 候选人文字匹配 | `common.FindCandidates`、候选人指纹和 Go 公共测试 |
@@ -164,7 +164,7 @@
 | `internal/app/files_notwindows.go` | 非 Windows 的提示兼容入口 | `internal/system/notification/download.go` | 已迁移为 macOS 十秒操作提示 |
 | `internal/app/files_test.go` | 下载目录越界保护 | `internal/api/server_test.go` | 已迁移 |
 | `internal/app/files_windows.go` | Windows 原生下载提示窗口 | 无 | 待 Windows 打包阶段 |
-| `internal/app/opener.go` | 等待服务、复用已有实例、解析控制台地址并附加本地端口 | `internal/system/console/opener.go` | 已迁移；确认健康身份后复用实例并直接打开云端控制台 |
+| `internal/app/opener.go` | 等待服务、复用已有实例、解析控制台地址并附加本地端口 | `internal/system/console/opener.go` | 已迁移；开发环境打开本地前端，正式打包固定线上前端 |
 | `internal/app/opener_other.go` | 非 Windows 默认浏览器打开 | `open` 系统命令 | 已迁移为当前 macOS 实现 |
 | `internal/app/opener_test.go` | 控制台 URL 参数回归 | `internal/system/console/opener_test.go` | 已迁移 |
 | `internal/app/opener_windows.go` | Windows 默认浏览器打开 | 无 | 待 Windows 打包阶段 |
@@ -185,7 +185,7 @@
 | `internal/browser/go_helpers.go` | Go 动态参数和 JS 字符串辅助 | 强类型 Go/TS 协议和运行时校验 | 公共替代 |
 | `internal/browser/go_input.go` | Go 点击、输入和按键 | Worker `ClickAction`、`InputAction`、`KeyboardPrimitive` | 公共替代 |
 | `internal/browser/go_screenshot.go` | Go 页面和元素截图 | Worker 通用截图与真实滚轮长截图 | 公共替代 |
-| `internal/browser/go_scroll.go` | Go 滚动和视口判断 | Worker `ScrollAction`、只读滚动状态 | 公共替代，禁止 JS 推动滚动 |
+| `internal/browser/go_scroll.go` | Go 滚动和视口判断 | Worker `ScrollAction`、元素位置和截图变化 | 公共替代，禁止页面脚本注入 |
 | `internal/browser/go_session.go` | Go 浏览器进程、页面和 Cookie 会话 | Worker `BrowserSession` | 公共替代 |
 | `internal/browser/viewport.go` | 固定视口配置 | 强类型浏览器启动参数 | 已迁移可选视口和 User-Agent；不再强制固定尺寸 |
 | `internal/browser/viewport_test.go` | 固定视口默认值测试 | `worker/test/browser-start-request.test.mjs` | 公共替代 |

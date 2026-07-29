@@ -1,5 +1,13 @@
 <!-- 文件作用说明：定义 local-agent-go-new 的最高优先级开发规范、目录边界、调用方向和交付检查清单。 -->
 
+# 最高优先级：招聘页面零脚本注入
+
+- 严禁使用 `page.evaluate()`、`locator.evaluate()`、`evaluateHandle()`、`$eval()`、`$$eval()`、`addScriptTag()`、`addInitScript()` 或 `dispatchEvent()` 读取或控制招聘页面。
+- 严禁向招聘页面注入 JavaScript，或修改页面 DOM、样式、滚动位置、焦点和运行状态。
+- 页面读取与操作只能使用 CloakBrowser/Playwright 标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图能力。
+- 如果标准能力无法完成需求，必须停下来向邓云川确认，不能偷偷改用脚本注入。
+- 本规则优先于本文件内其他说明，适用于 Go、TypeScript Worker 和全部平台流程。
+
 # GoodHR 新本地程序开发规范
 
 本文件是 `local-agent-go-new` 的唯一权威开发规范。任何 AI 或开发者修改本目录前，必须完整阅读并遵守本文件。
@@ -463,6 +471,7 @@ ELEMENT_NOT_FOUND
 - [ ] 所有异步边界是否统一捕获异常。
 - [ ] 选择器找不到时是否返回详细诊断。
 - [ ] 点击、输入、滚动是否记录详细步骤日志。
+- [ ] Worker 源码是否完全没有页面脚本注入。
 - [ ] 滚动是否只使用真实鼠标滚轮。
 - [ ] 新文件和新方法是否有中文注释。
 - [ ] 是否处理空值、超时、取消和页面关闭。

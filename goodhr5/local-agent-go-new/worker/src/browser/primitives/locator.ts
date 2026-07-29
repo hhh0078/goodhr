@@ -19,6 +19,7 @@ import type {
   LocatorScope,
   ResolvedElement,
 } from "./locator-types.js";
+import { ViewportPrimitive } from "./viewport.js";
 
 export type { ResolvedElement } from "./locator-types.js";
 
@@ -27,6 +28,8 @@ const SELECTOR_RETRY_DELAY_MS = 100;
 
 /** LocatorPrimitive 提供最小元素定位能力，不允许直接注册 HTTP 路由。 */
 export class LocatorPrimitive {
+  private readonly viewport = new ViewportPrimitive();
+
   /** resolve 按 iframe、父级和目标顺序解析一个元素。 */
   async resolve(
     page: Page,
@@ -273,11 +276,8 @@ export class LocatorPrimitive {
   /** view 读取元素位置和可见状态。 */
   async view(page: Page, locator: Locator): Promise<ElementView> {
     const box = await locator.boundingBox().catch(() => null);
-    const viewport = await page
-      .evaluate(() => ({
-        width: document.documentElement.clientWidth,
-        height: document.documentElement.clientHeight,
-      }))
+    const viewport = await this.viewport
+      .size(page)
       .catch(() => ({ width: 0, height: 0 }));
     const normalizedBox: ElementBox = box
       ? {

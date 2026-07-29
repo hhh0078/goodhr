@@ -20,8 +20,6 @@ import {
   parseElementReadRequest,
   parseKeyboardPressRequest,
   parseLongScreenshotRequest,
-  parseOverlayCloseRequest,
-  parseOverlayShowRequest,
   parsePageOpenRequest,
   parsePageUseRequest,
   parseScreenshotRequest,
@@ -243,18 +241,6 @@ export class WorkerRouter {
       ),
       this.post("/api/v1/downloads/clear", "downloads.clear", () =>
         this.actions.clearDownloads(),
-      ),
-      this.post("/api/v1/overlay/show", "overlay.show", (body, context) =>
-        this.actions.showOverlay(
-          parseOverlayShowRequest(body, context.trace_id, context.action),
-          context,
-        ),
-      ),
-      this.post("/api/v1/overlay/close", "overlay.close", (body, context) =>
-        this.actions.closeOverlay(
-          parseOverlayCloseRequest(body, context.trace_id, context.action),
-          context,
-        ),
       ),
     ];
   }

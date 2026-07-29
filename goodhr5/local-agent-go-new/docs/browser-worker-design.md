@@ -146,18 +146,18 @@ interface SelectorCandidate {
 滚动必须：
 
 - 使用鼠标移动和滚轮事件。
-- 在滚动前读取目标、容器和视口状态。
+- 在滚动前读取目标位置或保存当前视口截图摘要。
 - 把鼠标移动到安全的滚动区域。
 - 分段滚动，允许随机距离和停顿。
-- 滚动后读取状态并验证变化。
-- 提供 `wheel_anchor` 时，验证鼠标落点元素或其最近可滚动父级的 `scrollTop`、`scrollHeight` 和视口尺寸；不能只看页面 `window.scrollY`。
+- 滚动后比较目标位置或视口截图摘要，验证真实滚轮确实产生变化。
+- 提供 `wheel_anchor` 时，只用它确定真实鼠标落点，不读取页面内部滚动属性。
 
 禁止：
 
 - `window.scrollBy`
 - `element.scrollBy`
 - `scrollIntoView`
-- 通过 `evaluate` 修改 `scrollTop`
+- 任何 `evaluate`、`$eval`、脚本标签、初始化脚本或事件注入
 
 ## 8. 错误结构
 
@@ -264,8 +264,6 @@ timeout_ms=5000
 - `download.configure`
 - `download.list`
 - `download.clear`
-- `overlay.show`
-- `overlay.close`
 
 清单之外的能力必须先判断：
 

@@ -350,25 +350,3 @@ type DownloadListResult struct {
 type DownloadConfigureRequest struct {
 	Directory string `json:"directory"`
 }
-
-// OverlayShowRequest 表示通用页面浮层内容。
-type OverlayShowRequest struct {
-	OverlayID string `json:"overlay_id"`
-	Title     string `json:"title"`
-	Subtitle  string `json:"subtitle,omitempty"`
-	Message   string `json:"message"`
-	Level     string `json:"level,omitempty"`
-	MaxAgeMS  int    `json:"max_age_ms,omitempty"`
-}
-
-// OverlayCloseRequest 表示关闭通用页面浮层请求。
-type OverlayCloseRequest struct {
-	OverlayID string `json:"overlay_id"`
-}
-
-// OverlayResult 表示通用页面浮层操作结果。
-type OverlayResult struct {
-	Shown     bool   `json:"shown,omitempty"`
-	Closed    bool   `json:"closed,omitempty"`
-	OverlayID string `json:"overlay_id"`
-}

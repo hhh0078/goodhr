@@ -224,21 +224,6 @@ export interface DownloadConfigureRequest {
   directory: string;
 }
 
-/** OverlayShowRequest 表示通用页面提示浮层内容。 */
-export interface OverlayShowRequest {
-  overlay_id: string;
-  title: string;
-  subtitle?: string;
-  message: string;
-  level?: "info" | "success" | "warning" | "error";
-  max_age_ms?: number;
-}
-
-/** OverlayCloseRequest 表示关闭指定页面浮层。 */
-export interface OverlayCloseRequest {
-  overlay_id: string;
-}
-
 /** ElementActionResult 表示元素封装能力的通用结果。 */
 export interface ElementActionResult {
   success: boolean;

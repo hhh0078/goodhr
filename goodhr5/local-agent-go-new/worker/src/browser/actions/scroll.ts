@@ -1,5 +1,6 @@
 // 文件作用说明：实现封装好的真实滚轮滚动，平铺执行查找、移动、滚轮和结果验证。
 
+import { createHash } from "node:crypto";
 import type { ScrollRequest } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { ElementView } from "../../contracts/selector.js";
@@ -7,7 +8,8 @@ import { normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
-import { ReadPrimitive } from "../primitives/read.js";
+import { ScreenshotPrimitive } from "../primitives/screenshot.js";
+import { ViewportPrimitive } from "../primitives/viewport.js";
 import { BrowserSession } from "../session/browser-session.js";
 import type { FindAction, FoundElement } from "./find.js";
 import { MoveAction } from "./move.js";
@@ -23,6 +25,9 @@ export interface ScrollResult extends JsonObject {
 
 /** ScrollAction 实现通用页面或目标元素滚动能力。 */
 export class ScrollAction {
+  private readonly screenshot = new ScreenshotPrimitive();
+  private readonly viewport = new ViewportPrimitive();
+
   /** 创建真实滚轮封装能力。 */
   constructor(
     private readonly session: BrowserSession,
@@ -30,7 +35,6 @@ export class ScrollAction {
     private readonly move: MoveAction,
     private readonly locator: LocatorPrimitive,
     private readonly mouse: MousePrimitive,
-    private readonly read: ReadPrimitive,
     private readonly logger: WorkerLogger,
   ) {}
 
@@ -56,7 +60,7 @@ export class ScrollAction {
       if (anchor) {
         await this.move.toElement(anchor.resolved, actionContext);
       } else {
-        const viewport = await this.readViewport(page);
+        const viewport = await this.viewport.size(page);
         await this.move.toViewportCenter(
           page,
           viewport.width,
@@ -66,7 +70,7 @@ export class ScrollAction {
       }
       const before = target
         ? target.resolved.view
-        : await this.read.scrollState(page, anchor?.resolved.locator);
+        : await this.screenshotState(page);
       const maxAttempts = Math.max(1, request.max_attempts ?? 1);
       let attempts = 0;
       let after: ElementView | JsonObject = before;
@@ -93,7 +97,7 @@ export class ScrollAction {
         await delay(Math.max(50, request.wait_ms ?? 250));
         after = target
           ? await this.refreshTarget(target.resolved)
-          : await this.read.scrollState(page, anchor?.resolved.locator);
+          : await this.screenshotState(page);
         this.logger.info(actionContext, "wheel", "success", {
           attempt: index + 1,
           distance,
@@ -233,16 +237,15 @@ export class ScrollAction {
     );
   }
 
-  /** readViewport 读取页面视口尺寸，不推动页面滚动。 */
-  private async readViewport(
+  /** screenshotState 使用当前视口截图摘要判断真实滚轮前后是否有变化。 */
+  private async screenshotState(
     page: ResolvedElement["page"],
-  ): Promise<{ width: number; height: number }> {
-    return page.evaluate(() => ({
-      width: document.documentElement.clientWidth,
-      height: document.documentElement.clientHeight,
-    }));
+  ): Promise<JsonObject> {
+    const image = await this.screenshot.pageBuffer(page);
+    return {
+      screenshot_hash: createHash("sha256").update(image).digest("hex"),
+    };
   }
-
 }
 
 /** delay 使用 Node 定时器等待，避免浏览器内固定等待命令。 */

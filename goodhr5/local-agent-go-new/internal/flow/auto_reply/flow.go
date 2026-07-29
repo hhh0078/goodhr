@@ -133,18 +133,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
 		return fmt.Errorf("read_conversation：%w", err)
 	}
-	overlayShown := false
-	if prepared.Position.EnableThinking {
-		overlayShown = shared.ShowThinkingOverlay(
-			ctx, f.Browser, prepared.Request.TaskID, "auto_reply",
-			"AI 正在整理回复", conversation.Name, "正在读取会话并生成一条简短回复",
-			f.Logger,
-		)
-	}
 	reply, err := f.AI.GenerateReply(ctx, prepared.Position.AI, prepared.Position, conversation, history)
-	if overlayShown {
-		shared.CloseThinkingOverlay(ctx, f.Browser, prepared.Request.TaskID, "auto_reply", f.Logger)
-	}
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "generate_reply", "failed", time.Now(), err)

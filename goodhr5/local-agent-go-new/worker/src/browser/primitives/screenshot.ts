@@ -6,6 +6,16 @@ import type { Locator, Page } from "playwright-core";
 
 /** ScreenshotPrimitive 封装页面和元素截图最小操作。 */
 export class ScreenshotPrimitive {
+  /** pageBuffer 截取当前页面视口并返回内存中的 PNG，不写入本地文件。 */
+  async pageBuffer(page: Page): Promise<Buffer> {
+    return page.screenshot({ type: "png" });
+  }
+
+  /** elementBuffer 截取指定元素并返回内存中的 PNG，不写入本地文件。 */
+  async elementBuffer(locator: Locator): Promise<Buffer> {
+    return locator.screenshot({ type: "png" });
+  }
+
   /** page 保存页面截图并返回文件大小。 */
   async page(
     page: Page,
