@@ -23,6 +23,7 @@ type Monitor struct {
 	Store     *storage.Store
 	Notifier  *notification.Notifier
 	lastError string
+	connected bool
 }
 
 // Run 持续同步下载结果，直到上下文被取消。
@@ -46,6 +47,7 @@ func (m *Monitor) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	m.connected = true
 	for index := len(result.Downloads) - 1; index >= 0; index-- {
 		item := result.Downloads[index]
 		status := strings.ToLower(strings.TrimSpace(item.Status))
@@ -77,6 +79,12 @@ func (m *Monitor) syncQuietly(ctx context.Context) {
 		return
 	}
 	if err := m.Sync(ctx); err != nil {
+		if !m.connected {
+			if healthErr := m.Browser.Health(ctx); healthErr != nil {
+				return
+			}
+			m.connected = true
+		}
 		message := err.Error()
 		if ctx.Err() == nil && message != m.lastError {
 			log.Printf("[下载同步] 本轮没有同步成功，稍后再试 err=%v", err)

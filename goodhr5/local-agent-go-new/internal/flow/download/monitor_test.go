@@ -55,3 +55,45 @@ func TestSync(t *testing.T) {
 		t.Fatalf("只应保存两个终态记录，实际为 %d", len(records))
 	}
 }
+
+// TestSyncQuietlyBeforeWorkerStarts 验证 Worker 首次连接成功前的连接失败会安静等待。
+func TestSyncQuietlyBeforeWorkerStarts(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败：%v", err)
+	}
+	defer store.Close()
+
+	stoppedWorker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	stoppedWorkerURL := stoppedWorker.URL
+	stoppedWorker.Close()
+	monitor := &Monitor{Browser: client.New(stoppedWorkerURL), Store: store}
+	monitor.syncQuietly(context.Background())
+	if monitor.connected || monitor.lastError != "" {
+		t.Fatalf("Worker 启动前应该安静等待：connected=%t last_error=%q", monitor.connected, monitor.lastError)
+	}
+
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"downloads": []map[string]any{},
+				"count":     0,
+				"pending":   0,
+				"directory": "/tmp",
+			},
+			"trace_id": "download_ready_test",
+		})
+	}))
+	monitor.Browser = client.New(worker.URL)
+	monitor.syncQuietly(context.Background())
+	if !monitor.connected {
+		t.Fatal("Worker 首次连接成功后应该记录已连接状态")
+	}
+	worker.Close()
+	monitor.syncQuietly(context.Background())
+	if monitor.lastError == "" {
+		t.Fatal("Worker 曾经连接成功后意外断开应该保留错误提醒")
+	}
+}
