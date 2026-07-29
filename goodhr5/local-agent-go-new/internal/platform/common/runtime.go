@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -79,7 +80,11 @@ func ClickOptional(ctx context.Context, browser model.Browser, cfg model.Config,
 	if !ok || len(selector.Target.Selectors) == 0 {
 		return nil
 	}
-	_, err := browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
+	exists, err := SelectorExists(ctx, browser, cfg, key)
+	if err != nil || !exists {
+		return err
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
 	if IsElementMissing(err) {
 		return nil
 	}
@@ -232,10 +237,10 @@ func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Con
 	if anchor, ok := cfg.Selectors["candidate.list"]; ok {
 		wheelAnchor = &anchor
 	}
-	requireFull := true
+	requireFull := false
 	_, err = browser.Scroll(ctx, contract.ScrollRequest{
 		Target: &selector, WheelAnchor: wheelAnchor, Distance: 180, MaxAttempts: 18,
-		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 0,
+		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 48,
 	})
 	return err
 }
@@ -279,35 +284,152 @@ func RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.
 	steps := []struct {
 		enabled bool
 		key     string
+		label   string
 	}{
-		{request.RequestPhone, "candidate.request_phone"},
-		{request.RequestWechat, "candidate.request_wechat"},
-		{request.RequestResume, "candidate.request_resume"},
+		{request.RequestPhone, "candidate.request_phone", "索要手机号"},
+		{request.RequestWechat, "candidate.request_wechat", "索要微信"},
+		{request.RequestResume, "candidate.request_resume", "索要简历"},
 	}
+	var requestErrors []error
 	for _, step := range steps {
-		if step.enabled {
-			if err := ClickRequired(ctx, browser, cfg, step.key); err != nil {
-				return err
-			}
-			if err := ClickOptional(ctx, browser, cfg, step.key+"_confirm"); err != nil {
-				return err
-			}
+		if !step.enabled {
+			continue
+		}
+		if err := ClickRequired(ctx, browser, cfg, step.key); err != nil {
+			requestErrors = append(requestErrors, fmt.Errorf("%s失败：%w", step.label, err))
+			continue
+		}
+		if err := ClickOptional(ctx, browser, cfg, step.key+"_confirm"); err != nil {
+			requestErrors = append(requestErrors, fmt.Errorf("确认%s失败：%w", step.label, err))
 		}
 	}
 	if strings.TrimSpace(request.Message) != "" {
 		if _, hasInput := cfg.Selectors["candidate.followup_input"]; !hasInput {
-			return nil
+			return errors.Join(requestErrors...)
 		}
 		if err := InputRequired(ctx, browser, cfg, "candidate.followup_input", request.Message); err != nil {
-			return err
+			requestErrors = append(requestErrors, fmt.Errorf("输入追加消息失败：%w", err))
+		} else if _, ok := cfg.Selectors["candidate.followup_send"]; ok {
+			if err := ClickRequired(ctx, browser, cfg, "candidate.followup_send"); err != nil {
+				requestErrors = append(requestErrors, fmt.Errorf("发送追加消息失败：%w", err))
+			}
+		} else if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Enter", DelayMS: 80}); err != nil {
+			requestErrors = append(requestErrors, fmt.Errorf("发送追加消息失败：%w", err))
 		}
-		if _, ok := cfg.Selectors["candidate.followup_send"]; ok {
-			return ClickRequired(ctx, browser, cfg, "candidate.followup_send")
-		}
-		_, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Enter", DelayMS: 80})
+	}
+	return errors.Join(requestErrors...)
+}
+
+// RequestCandidateInfoInChat 复用或打开当前候选人的聊天框，完成索要后统一关闭。
+func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.CandidateInfoRequest) (resultErr error) {
+	if !request.RequestPhone && !request.RequestWechat && !request.RequestResume && strings.TrimSpace(request.Message) == "" {
+		return nil
+	}
+	opened, err := SelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+	if err != nil {
 		return err
 	}
+	if opened {
+		matches, matchErr := candidateChatMatches(ctx, browser, cfg, candidate)
+		if matchErr != nil {
+			return matchErr
+		}
+		if !matches {
+			if err = ClickOptional(ctx, browser, cfg, "candidate.chat_close"); err != nil {
+				return fmt.Errorf("关闭%s其他候选人的聊天框失败：%w", cfg.Name, err)
+			}
+			opened = false
+		}
+	}
+	if !opened {
+		continueSelector, selectorErr := CandidateActionSelector(cfg, "candidate.continue", candidate)
+		if selectorErr != nil {
+			return selectorErr
+		}
+		items, findErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
+			Selector: continueSelector, MaxItems: 1, ExpectedMissing: true,
+		})
+		if findErr != nil {
+			return findErr
+		}
+		if len(items) == 0 {
+			return fmt.Errorf("%s候选人的“继续沟通”按钮还没刷新出来，稍后会再试", cfg.Name)
+		}
+		if err = CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
+			return fmt.Errorf("打开%s候选人聊天框失败：%w", cfg.Name, err)
+		}
+		opened, err = SelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+		if err != nil {
+			return err
+		}
+		if !opened {
+			return fmt.Errorf("%s候选人聊天框没有打开", cfg.Name)
+		}
+		matches, matchErr := candidateChatMatches(ctx, browser, cfg, candidate)
+		if matchErr != nil {
+			return matchErr
+		}
+		if !matches {
+			return fmt.Errorf("%s聊天框已经打开，但候选人姓名和当前处理对象不一致", cfg.Name)
+		}
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
+		defer cancel()
+		if err := ClickOptional(cleanupCtx, browser, cfg, "candidate.chat_close"); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("关闭%s候选人聊天框失败：%w", cfg.Name, err)
+		}
+	}()
+	if err = RequestCandidateInfo(ctx, browser, cfg, request); err != nil {
+		return fmt.Errorf("%s索要候选人信息失败：%w", cfg.Name, err)
+	}
 	return nil
+}
+
+// candidateChatMatches 判断当前聊天框是否属于正在处理的候选人。
+func candidateChatMatches(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) (bool, error) {
+	expected := strings.TrimSpace(candidate.Name)
+	if expected == "" {
+		return true, nil
+	}
+	if _, configured := cfg.Selectors["candidate.chat_name"]; !configured {
+		return true, nil
+	}
+	normalize := func(value string) string {
+		value = strings.Join(strings.Fields(strings.TrimSpace(value)), "")
+		value = strings.TrimSuffix(value, "先生")
+		return strings.TrimSuffix(value, "女士")
+	}
+	expected = normalize(expected)
+	if expected == "" {
+		return false, nil
+	}
+	for attempt := 0; attempt < 10; attempt++ {
+		actual, found, err := ReadOptional(ctx, browser, cfg, "candidate.chat_name")
+		if err != nil {
+			return false, err
+		}
+		actual = normalize(actual)
+		if found && actual != "" {
+			if strings.Contains(expected, "*") || strings.Contains(actual, "*") {
+				if []rune(expected)[0] == []rune(actual)[0] {
+					return true, nil
+				}
+			} else if expected == actual || strings.Contains(expected, actual) || strings.Contains(actual, expected) {
+				return true, nil
+			}
+		}
+		if attempt+1 < 10 {
+			timer := time.NewTimer(300 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return false, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	return false, nil
 }
 
 // CandidateAction 点击指定候选人卡片内的平台动作。

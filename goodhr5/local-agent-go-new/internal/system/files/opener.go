@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 // Open 使用 macOS 默认程序打开文件。
@@ -13,7 +12,7 @@ func Open(ctx context.Context, path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("文件不存在：%w", err)
 	}
-	return exec.CommandContext(ctx, "open", path).Run()
+	return openPath(ctx, path)
 }
 
 // Reveal 在 Finder 中显示指定文件。
@@ -21,5 +20,5 @@ func Reveal(ctx context.Context, path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("文件不存在：%w", err)
 	}
-	return exec.CommandContext(ctx, "open", "-R", path).Run()
+	return revealPath(ctx, path)
 }

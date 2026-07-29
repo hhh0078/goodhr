@@ -16,6 +16,9 @@ func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg
 	r.positionName = strings.TrimSpace(position.Name)
 	shortcutName := strings.TrimSpace(position.HLiepinShortcutSearchName)
 	r.selectJobWhenGreeting = shortcutName == ""
+	if cfg.Behavior.SkipPositionSelection {
+		return nil
+	}
 	if shortcutName == "" {
 		return nil
 	}

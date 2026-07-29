@@ -72,7 +72,11 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		candidateKey = fmt.Sprintf("index-%d", candidate.Index)
 	}
 	filename := fmt.Sprintf("%s-%s.png", prepared.Request.TaskID, candidateKey)
-	if target, ok := prepared.Platform.Selectors["candidate.detail"]; ok {
+	target, ok := prepared.Platform.Selectors["candidate.detail_screenshot"]
+	if !ok {
+		target, ok = prepared.Platform.Selectors["candidate.detail"]
+	}
+	if ok {
 		var anchor *contract.SelectorSpec
 		if configuredAnchor, exists := prepared.Platform.Selectors["candidate.detail_scroll"]; exists {
 			anchor = &configuredAnchor
@@ -86,6 +90,17 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		}
 		if len(result.Parts) == 0 {
 			return nil, fmt.Errorf("候选人详情长截图没有生成分段")
+		}
+		if prepared.Platform.Behavior.StitchDetailScreenshots {
+			outputPath := filepath.Join(
+				f.ScreenshotsDir,
+				strings.TrimSuffix(filename, filepath.Ext(filename))+".stitched.png",
+			)
+			part, stitchErr := stitchScreenshotParts(result.Parts, outputPath)
+			if stitchErr != nil {
+				return nil, fmt.Errorf("拼接候选人详情长图失败：%w", stitchErr)
+			}
+			return []contract.ScreenshotPart{part}, nil
 		}
 		return result.Parts, nil
 	}

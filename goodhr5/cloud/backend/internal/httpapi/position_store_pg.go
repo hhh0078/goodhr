@@ -405,9 +405,12 @@ func (s *PostgresPositionStore) SyncPositionCounts(positionID string, scanned, g
 	defer cancel()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE positions
-		SET scanned_count=GREATEST(scanned_count,$2), greeted_count=GREATEST(greeted_count,$3),
+		SET daily_greeted_count=CASE
+		        WHEN daily_greeted_date=CURRENT_DATE THEN daily_greeted_count+GREATEST(0,$3-greeted_count)
+		        ELSE GREATEST(0,$3-greeted_count)
+		    END,
+		    scanned_count=GREATEST(scanned_count,$2), greeted_count=GREATEST(greeted_count,$3),
 		    skipped_count=GREATEST(skipped_count,$4), failed_count=GREATEST(failed_count,$5),
-		    daily_greeted_count=CASE WHEN daily_greeted_date=CURRENT_DATE THEN GREATEST(daily_greeted_count,$3) ELSE GREATEST(0,$3) END,
 		    daily_greeted_date=CURRENT_DATE, updated_at=now()
 		WHERE id=$1`, positionID, scanned, greeted, skipped, failed)
 	if err != nil {

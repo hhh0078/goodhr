@@ -106,7 +106,8 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 	required := map[string][]string{
 		"boss": {
 			"candidate.item", "candidate.list", "candidate.open_target",
-			"candidate.detail", "candidate.greet", "position.open",
+			"candidate.detail", "candidate.greet", "candidate.continue",
+			"candidate.chat_modal", "candidate.chat_close", "position.open",
 			"position.input", "position.item",
 		},
 		"zhaopin": {
@@ -117,7 +118,8 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 		},
 		"liepin": {
 			"candidate.item", "candidate.list", "candidate.open_target",
-			"candidate.detail", "candidate.greet", "position.current",
+			"candidate.detail", "candidate.greet", "candidate.continue",
+			"candidate.chat_modal", "candidate.chat_close", "position.current",
 			"position.open", "position.item", "position.item_text",
 		},
 		"hliepin": {
@@ -129,6 +131,16 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 			"candidate.chat_close", "candidate.contact_drawer",
 			"candidate.contact_drawer_close", "candidate.page_number",
 		},
+	}
+	for _, key := range []string{
+		"candidate.request_phone",
+		"candidate.request_wechat",
+		"candidate.request_resume",
+	} {
+		selector, ok := cfg.Selectors[key]
+		if !ok || len(selector.Target.Selectors) == 0 {
+			t.Errorf("平台索要候选人信息能力缺少选择器：%s", key)
+		}
 	}
 	for _, key := range required[platformID] {
 		selector, ok := cfg.Selectors[key]

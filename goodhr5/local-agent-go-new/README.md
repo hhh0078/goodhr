@@ -112,13 +112,21 @@ Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近
 
 下载同步在 Browser Worker 第一次启动前会安静等待，不会把正常的未启动状态打印成错误；Worker 曾经连接成功后如果意外断开，仍会记录提醒。
 
-生成正式 macOS 发布包时执行：
+macOS 正式包只在 Mac 上生成：
 
 ```bash
 ./scripts/package-release.sh 6
 ```
 
-发布包会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
+Windows x64 正式包在 Windows 上生成，不能和 macOS 包混用：
+
+```bat
+scripts\package-windows.bat 6
+```
+
+Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成 ZIP 和 Inno Setup 安装器。Windows 运行时会使用 `node.exe`、`chrome.exe`、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 `node`、Chromium.app、`afplay`、Finder 和 `caffeinate`。
+
+两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
 
 ## 核心原则
 

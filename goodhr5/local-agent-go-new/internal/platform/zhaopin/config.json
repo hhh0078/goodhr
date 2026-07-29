@@ -113,6 +113,23 @@
       "timeout_ms": 5000,
       "description": "智联职位名称"
     },
+    "position.click_target": {
+      "_comment": "智联职位结果中真正可点击的岗位标题，避免点击整行时被右侧查看图标或空白区域拦截。",
+      "parents": [],
+      "target": {
+        "_comment": "岗位标题点击目标。",
+        "selectors": [
+          {
+            "_comment": "智联岗位结果标题。",
+            "type": "css",
+            "value": ".job-side-selector__title"
+          }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联职位标题"
+    },
     "position.panel": {
       "_comment": "智联职位选择弹层，用于确认选中岗位后弹层已经关闭。",
       "parents": [],

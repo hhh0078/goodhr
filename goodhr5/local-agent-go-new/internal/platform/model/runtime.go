@@ -55,6 +55,7 @@ type Behavior struct {
 	DirectPositionSelection   bool   `json:"direct_position_selection"`
 	SelectFirstPositionResult bool   `json:"select_first_position_result"`
 	NeedsDetail               bool   `json:"needs_detail"`
+	StitchDetailScreenshots   bool   `json:"stitch_detail_screenshots"`
 }
 
 // Position 表示平台准备阶段所需的岗位信息。

@@ -11,7 +11,10 @@ import (
 
 // OpenCandidateDetail 打开指定猎聘企业端候选人详情。
 func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	return common.OpenCandidateDetail(ctx, browser, cfg, candidate)
+	if err := common.OpenCandidateDetail(ctx, browser, cfg, candidate); err != nil {
+		return err
+	}
+	return common.ClickOptional(ctx, browser, cfg, "candidate.detail_guide_confirm")
 }
 
 // ExtractCandidateDetail 提取当前猎聘企业端候选人详情文本。

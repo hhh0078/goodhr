@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +56,7 @@ func OpenWhenReady(ctx context.Context, healthURL string, consoleURL string, loc
 	if err != nil {
 		return err
 	}
-	if err = exec.CommandContext(ctx, "open", target).Start(); err != nil {
+	if err = openBrowserURL(ctx, target); err != nil {
 		return fmt.Errorf("打开 GoodHR 控制台失败：%w", err)
 	}
 	return nil

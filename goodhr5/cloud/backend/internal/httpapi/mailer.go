@@ -42,20 +42,13 @@ type AIBalanceNotice struct {
 
 // PositionStatusNotice 表示岗位运行完成或失败邮件内容。
 type PositionStatusNotice struct {
-	PositionID      string
-	PositionName    string
-	Status          string
-	StatusLabel     string
-	PlatformID      string
-	PlatformAccount string
-	Mode            string
-	MatchLimit      int
-	ScannedCount    int
-	GreetedCount    int
-	SkippedCount    int
-	FailedCount     int
-	FinishedAt      time.Time
-	ErrorMessage    string
+	PositionName      string
+	Status            string
+	StatusLabel       string
+	TodayGreetedCount int
+	RunGreetedCount   int
+	RunSkippedCount   int
+	ErrorMessage      string
 }
 
 type DevMailer struct{}
@@ -79,7 +72,7 @@ func (m DevMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) err
 
 // SendPositionStatus 在开发模式下记录岗位状态提醒。
 func (m DevMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
-	log.Printf("GoodHR dev position status for %s: position=%s status=%s error=%s", email, notice.PositionID, notice.StatusLabel, notice.ErrorMessage)
+	log.Printf("GoodHR dev position status for %s: position=%s status=%s error=%s", email, notice.PositionName, notice.StatusLabel, notice.ErrorMessage)
 	return nil
 }
 
@@ -176,42 +169,23 @@ func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice
 	if statusLabel == "" {
 		statusLabel = "岗位运行结束"
 	}
-	finishedAt := notice.FinishedAt
-	if finishedAt.IsZero() {
-		finishedAt = time.Now()
-	}
 	subject := "GoodHR " + statusLabel + "提醒"
 	lines := []string{
-		"你好，你的 GoodHR 岗位运行状态已更新。",
-		"岗位状态：" + statusLabel,
+		"我小声汇报一下，岗位这轮已经结束。",
 		"岗位名称：" + notice.PositionName,
-		"岗位 ID：" + notice.PositionID,
-		"平台：" + notice.PlatformID,
-		"平台账号：" + notice.PlatformAccount,
-		"筛选模式：" + notice.Mode,
-		"打招呼上限：" + intString(notice.MatchLimit),
-		"扫描/打招呼/跳过/失败：" + intString(notice.ScannedCount) + "/" + intString(notice.GreetedCount) + "/" + intString(notice.SkippedCount) + "/" + intString(notice.FailedCount),
-		"完成时间：" + finishedAt.Format("2006-01-02 15:04:05"),
+		"今日打招呼：" + intString(notice.TodayGreetedCount),
+		"本次打招呼：" + intString(notice.RunGreetedCount),
+		"本次跳过：" + intString(notice.RunSkippedCount),
 	}
 	if strings.TrimSpace(notice.ErrorMessage) != "" {
 		lines = append(lines, "失败原因："+strings.TrimSpace(notice.ErrorMessage))
 	}
 	lines = append(lines, "你可以回到 GoodHR 控制台查看岗位日志。")
 	return m.sendMessage(email, subject, "position_status.html", map[string]any{
-		"PositionID":      notice.PositionID,
-		"PositionName":    notice.PositionName,
-		"Status":          notice.Status,
-		"StatusLabel":     statusLabel,
-		"PlatformID":      notice.PlatformID,
-		"PlatformAccount": notice.PlatformAccount,
-		"Mode":            notice.Mode,
-		"MatchLimit":      notice.MatchLimit,
-		"ScannedCount":    notice.ScannedCount,
-		"GreetedCount":    notice.GreetedCount,
-		"SkippedCount":    notice.SkippedCount,
-		"FailedCount":     notice.FailedCount,
-		"FinishedAt":      finishedAt.Format("2006-01-02 15:04:05"),
-		"ErrorMessage":    strings.TrimSpace(notice.ErrorMessage),
+		"PositionName": notice.PositionName, "Status": notice.Status,
+		"StatusLabel": statusLabel, "TodayGreetedCount": notice.TodayGreetedCount,
+		"RunGreetedCount": notice.RunGreetedCount, "RunSkippedCount": notice.RunSkippedCount,
+		"ErrorMessage": strings.TrimSpace(notice.ErrorMessage),
 	}, lines)
 }
 

@@ -80,6 +80,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
+	configureProcess(command)
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
 	command.Env = append(command.Env, m.environment...)
 	lineWriter := &lineSinkWriter{sink: m.logSink}
@@ -109,7 +110,7 @@ func (m *Manager) Stop() error {
 	}
 	process := m.command.Process
 	done := m.done
-	_ = process.Signal(os.Interrupt)
+	_ = stopProcess(process)
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):

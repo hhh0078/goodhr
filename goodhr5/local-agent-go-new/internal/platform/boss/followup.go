@@ -8,7 +8,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// RequestCandidateInfo 按岗位要求向 Boss 候选人索要信息。
-func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate, request model.CandidateInfoRequest) error {
-	return common.RequestCandidateInfo(ctx, browser, cfg, request)
+// RequestCandidateInfo 复用或打开 Boss 当前候选人聊天框，并按岗位要求索要信息。
+func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.CandidateInfoRequest) error {
+	return common.RequestCandidateInfoInChat(ctx, browser, cfg, candidate, request)
 }

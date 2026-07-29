@@ -7,7 +7,6 @@ import (
 	stdlog "log"
 	"net/http"
 	"strings"
-	"time"
 )
 
 const minimumPositionAIBalanceUnits int64 = 1000
@@ -107,7 +106,7 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 	if position.Status != "stopped" {
 		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-		if err := s.sendPositionStatusNotice(position, "stopped", ""); err != nil {
+		if err := s.sendPositionStatusNotice(position, "stopped", "", 0, 0); err != nil {
 			stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 		}
 	}
@@ -126,8 +125,10 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	}
 	positionID := positionSubresourceID(r.URL.Path, "status")
 	var payload struct {
-		Status   string `json:"status"`
-		TaskType string `json:"task_type"`
+		Status          string `json:"status"`
+		TaskType        string `json:"task_type"`
+		RunGreetedCount int    `json:"run_greeted_count"`
+		RunSkippedCount int    `json:"run_skipped_count"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -161,7 +162,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	statusChanged := position.Status != status
 	if status == "completed" {
 		if statusChanged {
-			if err := s.sendPositionStatusNotice(position, "completed", ""); err != nil {
+			if err := s.sendPositionStatusNotice(position, "completed", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 				writeError(w, http.StatusBadGateway, "failed to send position completion notice: "+err.Error())
 				return
 			}
@@ -182,7 +183,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		}
 		if status == "stopped" {
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-			if err := s.sendPositionStatusNotice(position, "stopped", ""); err != nil {
+			if err := s.sendPositionStatusNotice(position, "stopped", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 				stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 			}
 		}
@@ -270,8 +271,10 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var payload struct {
-		PositionID   string `json:"position_id"`
-		ErrorMessage string `json:"error_message"`
+		PositionID      string `json:"position_id"`
+		ErrorMessage    string `json:"error_message"`
+		RunGreetedCount int    `json:"run_greeted_count"`
+		RunSkippedCount int    `json:"run_skipped_count"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -302,7 +305,7 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 		Step: userFlowPositionStarted, Status: "blocked", Source: "local_agent", PositionID: position.ID,
 		ReasonCode: userFlowFailureReason(errorMessage), Message: errorMessage,
 	})
-	if err := s.sendPositionStatusNotice(position, status, errorMessage); err != nil {
+	if err := s.sendPositionStatusNotice(position, status, errorMessage, payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 		writeError(w, http.StatusBadGateway, "failed to send position status notice: "+err.Error())
 		return
 	}
@@ -310,7 +313,7 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 }
 
 // sendPositionStatusNotice 发送岗位结束或失败邮件提醒。
-func (s *PositionExecutionService) sendPositionStatusNotice(position Position, status, errorMessage string) error {
+func (s *PositionExecutionService) sendPositionStatusNotice(position Position, status, errorMessage string, runGreetedCount int, runSkippedCount int) error {
 	if s.mailer == nil {
 		return errors.New("mailer not configured")
 	}
@@ -318,12 +321,10 @@ func (s *PositionExecutionService) sendPositionStatusNotice(position Position, s
 		return errors.New("position user email is empty")
 	}
 	notice := PositionStatusNotice{
-		PositionID: position.ID, PositionName: position.Name, Status: status,
-		StatusLabel: positionStatusNoticeLabel(status), PlatformID: position.PlatformID,
-		Mode: positionDefaultMode(position), MatchLimit: position.MatchLimit,
-		ScannedCount: position.ScannedCount, GreetedCount: position.GreetedCount,
-		SkippedCount: position.SkippedCount, FailedCount: position.FailedCount,
-		FinishedAt: time.Now(), ErrorMessage: strings.TrimSpace(errorMessage),
+		PositionName: position.Name, Status: status, StatusLabel: positionStatusNoticeLabel(status),
+		TodayGreetedCount: positionTodayGreetedCount(position),
+		RunGreetedCount:   max(runGreetedCount, 0), RunSkippedCount: max(runSkippedCount, 0),
+		ErrorMessage: strings.TrimSpace(errorMessage),
 	}
 	if err := s.mailer.SendPositionStatus(position.UserEmail, notice); err != nil {
 		stdlog.Printf("[岗位邮件] 发送岗位状态提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)

@@ -10,6 +10,18 @@ import (
 // Notifier 使用当前操作系统的原生播放器启动提示音。
 type Notifier struct{}
 
+// DownloadAction 表示下载提示窗返回的用户动作。
+type DownloadAction string
+
+const (
+	// DownloadDismiss 表示用户关闭提示或暂不处理。
+	DownloadDismiss DownloadAction = "dismiss"
+	// DownloadOpen 表示用户希望打开下载文件。
+	DownloadOpen DownloadAction = "open"
+	// DownloadReveal 表示用户希望在文件管理器中显示下载文件。
+	DownloadReveal DownloadAction = "reveal"
+)
+
 // PlaySuccess 播放一次成功提示音。
 func (Notifier) PlaySuccess(ctx context.Context) error {
 	return play(ctx, "success")

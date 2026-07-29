@@ -80,9 +80,8 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			return err
 		}
 	} else {
-		if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
-			return err
-		}
+		_, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
+		return err
 	}
 	visible, err := detailVisible(ctx, browser, cfg)
 	if err != nil || !visible {

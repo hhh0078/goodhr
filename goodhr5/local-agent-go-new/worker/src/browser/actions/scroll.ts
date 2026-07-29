@@ -97,6 +97,7 @@ export class ScrollAction {
         this.assertTargetCanFit(
           target.resolved.view,
           visibleArea,
+          request.require_full ?? false,
           actionContext,
         );
       }
@@ -151,6 +152,7 @@ export class ScrollAction {
           this.assertTargetCanFit(
             after as ElementView,
             visibleArea,
+            request.require_full ?? false,
             actionContext,
           );
           const nextGap = this.verticalGap(after as ElementView, visibleArea);
@@ -250,7 +252,12 @@ export class ScrollAction {
       anchor?.resolved.view,
       request.viewport_margin ?? 0,
     );
-    this.assertTargetCanFit(found.resolved.view, visibleArea, actionContext);
+    this.assertTargetCanFit(
+      found.resolved.view,
+      visibleArea,
+      request.require_full ?? false,
+      actionContext,
+    );
     if (
       this.viewAccepted(
         found.resolved.view,
@@ -296,6 +303,7 @@ export class ScrollAction {
       this.assertTargetCanFit(
         found.resolved.view,
         visibleArea,
+        request.require_full ?? false,
         actionContext,
       );
       const nextGap = this.verticalGap(found.resolved.view, visibleArea);
@@ -459,8 +467,12 @@ export class ScrollAction {
   private assertTargetCanFit(
     view: ElementView,
     area: VisibleArea,
+    requireFull: boolean,
     actionContext: ActionContext,
   ): void {
+    if (!requireFull) {
+      return;
+    }
     if (
       area.width <= 0 ||
       area.height <= 0 ||

@@ -310,7 +310,7 @@ func (r *Runner) notifyStartFailure(prepared shared.PreparedTask, startErr error
 	if strings.TrimSpace(prepared.Position.ID) == "" {
 		return
 	}
-	r.notifyFailure(prepared, startErr)
+	r.notifyFailure(prepared, startErr, 0, 0)
 }
 
 // notifyFinished 根据最终状态统一同步统计、状态和结束通知。
@@ -321,10 +321,11 @@ func (r *Runner) notifyFinished(prepared shared.PreparedTask, state storage.Task
 	summary := cloud.TaskSummary{
 		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
 		TaskType: prepared.Request.TaskType, Status: state.Status,
-		Processed: prepared.Position.ScannedCount + stats.Processed,
-		Succeeded: prepared.Position.GreetedCount + stats.Succeeded,
-		Skipped:   prepared.Position.SkippedCount + stats.Skipped,
-		Failed:    prepared.Position.FailedCount + stats.Failed,
+		Processed:       prepared.Position.ScannedCount + stats.Processed,
+		Succeeded:       prepared.Position.GreetedCount + stats.Succeeded,
+		Skipped:         prepared.Position.SkippedCount + stats.Skipped,
+		Failed:          prepared.Position.FailedCount + stats.Failed,
+		RunGreetedCount: stats.Succeeded, RunSkippedCount: stats.Skipped,
 		ErrorCode: state.ErrorCode, ErrorMessage: state.ErrorMessage,
 	}
 	notifyCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -341,10 +342,10 @@ func (r *Runner) notifyFinished(prepared shared.PreparedTask, state storage.Task
 			}
 		}
 		// /api/fail-notice 会在发送失败邮件前把云端岗位状态更新为 failed。
-		r.notifyFailure(prepared, runErr)
+		r.notifyFailure(prepared, runErr, stats.Succeeded, stats.Skipped)
 	case "stopped":
 		if cloud.IsAuthExpired(runErr) {
-			r.notifyFailure(prepared, fmt.Errorf("账号已在其他地方登录，当前任务已停止：%w", runErr))
+			r.notifyFailure(prepared, fmt.Errorf("账号已在其他地方登录，当前任务已停止：%w", runErr), stats.Succeeded, stats.Skipped)
 			return
 		}
 		if err := r.cloud.SyncSummary(notifyCtx, prepared.Request.Token, summary); err != nil {
@@ -354,7 +355,7 @@ func (r *Runner) notifyFinished(prepared shared.PreparedTask, state storage.Task
 }
 
 // notifyFailure 同步播放失败提示音并请求云端发送失败邮件。
-func (r *Runner) notifyFailure(prepared shared.PreparedTask, failure error) {
+func (r *Runner) notifyFailure(prepared shared.PreparedTask, failure error, runGreetedCount int, runSkippedCount int) {
 	message := "任务执行失败"
 	if failure != nil {
 		message = failure.Error()
@@ -371,7 +372,7 @@ func (r *Runner) notifyFailure(prepared shared.PreparedTask, failure error) {
 	}
 	noticeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := r.cloud.SendFailNotice(noticeCtx, prepared.Request.Token, prepared.Position.ID, message); err != nil {
+	if err := r.cloud.SendFailNotice(noticeCtx, prepared.Request.Token, prepared.Position.ID, message, runGreetedCount, runSkippedCount); err != nil {
 		r.logNotification(prepared.Request.TaskID, "send_failure_notice", err)
 	}
 }

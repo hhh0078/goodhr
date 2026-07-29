@@ -180,6 +180,7 @@ func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, gre
 	if !ok {
 		return ErrNotFound
 	}
+	greetedDelta := maxIntValue(0, greeted-position.GreetedCount)
 	position.ScannedCount = maxIntValue(position.ScannedCount, scanned)
 	position.GreetedCount = maxIntValue(position.GreetedCount, greeted)
 	position.SkippedCount = maxIntValue(position.SkippedCount, skipped)
@@ -189,7 +190,7 @@ func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, gre
 		position.DailyGreetedDate = today
 		position.DailyGreetedCount = 0
 	}
-	position.DailyGreetedCount = maxIntValue(position.DailyGreetedCount, greeted)
+	position.DailyGreetedCount += greetedDelta
 	position.UpdatedAt = s.now()
 	s.positions[positionID] = position
 	return nil

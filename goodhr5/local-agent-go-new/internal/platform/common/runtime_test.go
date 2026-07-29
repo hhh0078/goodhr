@@ -27,6 +27,27 @@ type detailReadBrowser struct {
 	readCount int
 }
 
+type candidateChatBrowser struct {
+	model.Browser
+	opened       bool
+	chatName     string
+	nextChatName string
+	clicked      []string
+	clickErrors  map[string]error
+	readNames    []string
+	readIndex    int
+}
+
+type candidateScrollBrowser struct {
+	model.Browser
+	request contract.ScrollRequest
+}
+
+type detailCloseBrowser struct {
+	model.Browser
+	pressCount int
+}
+
 // Click 模拟岗位入口元素找不到。
 func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
 	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
@@ -54,6 +75,61 @@ func (b *detailReadBrowser) Read(context.Context, contract.ElementReadRequest) (
 		return contract.ReadResult{}, nil
 	}
 	return contract.ReadResult{Value: "候选人详情已经加载"}, nil
+}
+
+// Click 记录聊天框流程点击顺序，并在点击继续沟通后模拟聊天框打开。
+func (b *candidateChatBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	description := request.Selector.Description
+	b.clicked = append(b.clicked, description)
+	if description == "继续沟通" {
+		b.opened = true
+		if b.nextChatName != "" {
+			b.chatName = b.nextChatName
+		}
+	}
+	if description == "关闭聊天框" {
+		b.opened = false
+	}
+	if err := b.clickErrors[description]; err != nil {
+		return contract.ClickResult{}, err
+	}
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// Read 模拟读取当前聊天框头部的候选人姓名。
+func (b *candidateChatBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if len(b.readNames) > 0 {
+		index := min(b.readIndex, len(b.readNames)-1)
+		b.chatName = b.readNames[index]
+		b.readIndex++
+	}
+	if request.Selector.Description == "聊天姓名" && b.opened && strings.TrimSpace(b.chatName) != "" {
+		return contract.ReadResult{Value: b.chatName}, nil
+	}
+	return contract.ReadResult{}, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+}
+
+// FindAll 模拟候选人聊天框是否已经打开。
+func (b *candidateChatBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if (request.Selector.Description == "聊天框" || request.Selector.Description == "关闭聊天框") && b.opened {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	if request.Selector.Description == "继续沟通" {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+}
+
+// Scroll 记录公共候选人滚动传给 Worker 的视口要求。
+func (b *candidateScrollBrowser) Scroll(_ context.Context, request contract.ScrollRequest) (contract.ScrollResult, error) {
+	b.request = request
+	return contract.ScrollResult{}, nil
+}
+
+// PressKey 记录关闭详情使用的 Escape 按键次数。
+func (b *detailCloseBrowser) PressKey(context.Context, contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	b.pressCount++
+	return contract.KeyboardPressResult{}, nil
 }
 
 // TestSelectPositionRequiresConfiguredOpenSelector 验证已配置的岗位入口找不到时会立即报错。
@@ -126,6 +202,28 @@ func TestCandidateFingerprint(t *testing.T) {
 	}
 }
 
+// TestScrollToCandidateAcceptsPartiallyVisibleCard 验证高卡片只需进入安全区域，不强求整张完整显示。
+func TestScrollToCandidateAcceptsPartiallyVisibleCard(t *testing.T) {
+	browser := &candidateScrollBrowser{}
+	cfg := model.Config{
+		ID: "test",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.item": selector("候选人卡片"),
+			"candidate.list": selector("候选人列表"),
+		},
+	}
+	err := ScrollToCandidate(context.Background(), browser, cfg, model.Candidate{Index: 0})
+	if err != nil {
+		t.Fatalf("公共候选人滚动失败：%v", err)
+	}
+	if browser.request.RequireFull == nil || *browser.request.RequireFull {
+		t.Fatalf("候选人卡片不应要求完整显示：%+v", browser.request)
+	}
+	if browser.request.ViewportMargin != 48 {
+		t.Fatalf("候选人滚动应保留 48 像素安全边距：%+v", browser.request)
+	}
+}
+
 // TestGreetCandidateSendsGreetingDialog 验证招呼语弹框出现后才会记录最终发送成功。
 func TestGreetCandidateSendsGreetingDialog(t *testing.T) {
 	browser := &greetBrowser{dialogOpened: true}
@@ -188,6 +286,116 @@ func TestExtractCandidateDetailWaitsForAsyncContent(t *testing.T) {
 	}
 }
 
+// TestCloseCandidateDetailSkipsDestroyedFrameCheck 验证 Escape 关闭详情后不再查询正在销毁的 iframe。
+func TestCloseCandidateDetailSkipsDestroyedFrameCheck(t *testing.T) {
+	browser := &detailCloseBrowser{}
+	cfg := model.Config{
+		ID: "boss",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.detail": selector("详情正文"),
+		},
+	}
+	if err := CloseCandidateDetail(context.Background(), browser, cfg); err != nil {
+		t.Fatalf("关闭详情失败：%v", err)
+	}
+	if browser.pressCount != 1 {
+		t.Fatalf("关闭详情应只按一次 Escape：press=%d", browser.pressCount)
+	}
+}
+
+// TestRequestCandidateInfoInChatReusesOpenedChat 验证已有聊天框时不会重复点击候选人继续沟通。
+func TestRequestCandidateInfoInChatReusesOpenedChat(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true}
+	err := RequestCandidateInfoInChat(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.Candidate{Index: 0},
+		model.CandidateInfoRequest{RequestPhone: true},
+	)
+	if err != nil {
+		t.Fatalf("复用聊天框索要手机号失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,关闭聊天框" {
+		t.Fatalf("已有聊天框时点击顺序不正确：%s", actual)
+	}
+}
+
+// TestRequestCandidateInfoInChatOpensMissingChat 验证聊天框不存在时只打开一次再执行索要。
+func TestRequestCandidateInfoInChatOpensMissingChat(t *testing.T) {
+	browser := &candidateChatBrowser{}
+	err := RequestCandidateInfoInChat(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.Candidate{Index: 0},
+		model.CandidateInfoRequest{RequestPhone: true},
+	)
+	if err != nil {
+		t.Fatalf("打开聊天框索要手机号失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通,索要手机号,关闭聊天框" {
+		t.Fatalf("聊天框打开流程顺序不正确：%s", actual)
+	}
+}
+
+// TestRequestCandidateInfoInChatReopensMismatchedChat 验证已有聊天框属于其他候选人时会先关闭再打开当前候选人。
+func TestRequestCandidateInfoInChatReopensMismatchedChat(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, chatName: "李四", nextChatName: "张三"}
+	err := RequestCandidateInfoInChat(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.Candidate{Index: 0, Name: "张三"},
+		model.CandidateInfoRequest{RequestPhone: true},
+	)
+	if err != nil {
+		t.Fatalf("切换到当前候选人聊天框失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "关闭聊天框,继续沟通,索要手机号,关闭聊天框" {
+		t.Fatalf("候选人聊天框切换顺序不正确：%s", actual)
+	}
+}
+
+// TestRequestCandidateInfoInChatWaitsForChatCandidateSwitch 验证聊天框切换中的旧姓名不会被误判为串台。
+func TestRequestCandidateInfoInChatWaitsForChatCandidateSwitch(t *testing.T) {
+	browser := &candidateChatBrowser{
+		opened: true, readNames: []string{"李四", "张三"},
+	}
+	err := RequestCandidateInfoInChat(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.Candidate{Index: 0, Name: "张三"},
+		model.CandidateInfoRequest{RequestPhone: true},
+	)
+	if err != nil {
+		t.Fatalf("等待聊天框切换候选人失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,关闭聊天框" {
+		t.Fatalf("聊天框姓名刷新后不应重新打开：%s", actual)
+	}
+}
+
+// TestRequestCandidateInfoContinuesAfterEarlierFailure 验证前一种索要失败时仍会继续尝试后两种。
+func TestRequestCandidateInfoContinuesAfterEarlierFailure(t *testing.T) {
+	browser := &candidateChatBrowser{
+		clickErrors: map[string]error{"索要手机号": errors.New("手机号按钮暂不可用")},
+	}
+	err := RequestCandidateInfo(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.CandidateInfoRequest{RequestPhone: true, RequestWechat: true, RequestResume: true},
+	)
+	if err == nil || !strings.Contains(err.Error(), "索要手机号失败") {
+		t.Fatalf("应返回汇总后的手机号索要错误：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,索要微信,索要简历" {
+		t.Fatalf("前一步失败后仍应继续尝试：%s", actual)
+	}
+}
+
 // greetTestConfig 返回公共打招呼弹框测试使用的最小平台配置。
 func greetTestConfig() model.Config {
 	selector := func(description string) contract.SelectorSpec {
@@ -206,5 +414,40 @@ func greetTestConfig() model.Config {
 			"candidate.greet_dialog": selector("招呼语弹框"),
 			"candidate.greet_send":   selector("招呼语发送按钮"),
 		},
+	}
+}
+
+// candidateChatTestConfig 返回聊天框复用测试所需的最小平台配置。
+func candidateChatTestConfig() model.Config {
+	selector := func(description string) contract.SelectorSpec {
+		return contract.SelectorSpec{
+			Target: contract.SelectorGroup{
+				Selectors: []contract.SelectorCandidate{{Type: "css", Value: "." + description}},
+			},
+			Description: description,
+		}
+	}
+	return model.Config{
+		ID: "test", Name: "测试平台",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.item":           selector("候选人卡片"),
+			"candidate.continue":       selector("继续沟通"),
+			"candidate.chat_modal":     selector("聊天框"),
+			"candidate.chat_name":      selector("聊天姓名"),
+			"candidate.chat_close":     selector("关闭聊天框"),
+			"candidate.request_phone":  selector("索要手机号"),
+			"candidate.request_wechat": selector("索要微信"),
+			"candidate.request_resume": selector("索要简历"),
+		},
+	}
+}
+
+// selector 返回公共平台测试使用的最小选择器。
+func selector(description string) contract.SelectorSpec {
+	return contract.SelectorSpec{
+		Target: contract.SelectorGroup{
+			Selectors: []contract.SelectorCandidate{{Type: "css", Value: "." + description}},
+		},
+		Description: description,
 	}
 }

@@ -36,22 +36,15 @@ func TestMailTemplatesRender(t *testing.T) {
 	}
 
 	positionHTML := mailer.renderHTML("position_status.html", map[string]any{
-		"PositionID":      "position_1",
-		"PositionName":    "带货主播",
-		"Status":          "failed",
-		"StatusLabel":     "岗位运行失败",
-		"PlatformID":      "boss",
-		"PlatformAccount": "测试账号",
-		"Mode":            "keyword",
-		"MatchLimit":      50,
-		"ScannedCount":    10,
-		"GreetedCount":    3,
-		"SkippedCount":    6,
-		"FailedCount":     1,
-		"FinishedAt":      time.Date(2026, 6, 2, 12, 0, 0, 0, time.Local).Format("2006-01-02 15:04:05"),
-		"ErrorMessage":    "本地程序断开",
+		"PositionName":      "带货主播",
+		"Status":            "failed",
+		"StatusLabel":       "岗位运行失败",
+		"TodayGreetedCount": 12,
+		"RunGreetedCount":   3,
+		"RunSkippedCount":   6,
+		"ErrorMessage":      "本地程序断开",
 	})
-	if !strings.Contains(positionHTML, "岗位") || !strings.Contains(positionHTML, "本地程序断开") {
+	if !strings.Contains(positionHTML, "今日打招呼") || !strings.Contains(positionHTML, "本次跳过") || !strings.Contains(positionHTML, "本地程序断开") {
 		t.Fatalf("position template did not render expected content: %s", positionHTML)
 	}
 }

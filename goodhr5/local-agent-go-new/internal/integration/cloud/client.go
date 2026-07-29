@@ -253,21 +253,28 @@ func (c *Client) syncSummary(ctx context.Context, token string, summary TaskSumm
 	}
 	path := "/api/positions/" + url.PathEscape(summary.PositionID) + "/status"
 	request := struct {
-		Status string `json:"status"`
-	}{Status: summary.Status}
+		Status          string `json:"status"`
+		RunGreetedCount int    `json:"run_greeted_count"`
+		RunSkippedCount int    `json:"run_skipped_count"`
+	}{
+		Status: summary.Status, RunGreetedCount: max(summary.RunGreetedCount, 0),
+		RunSkippedCount: max(summary.RunSkippedCount, 0),
+	}
 	var response SummaryResult
 	err := c.do(ctx, http.MethodPost, path, token, request, &response)
 	return response, err
 }
 
 // SendFailNotice 通知云端按岗位和当前用户发送失败邮件。
-func (c *Client) SendFailNotice(ctx context.Context, token string, positionID string, errorMessage string) error {
+func (c *Client) SendFailNotice(ctx context.Context, token string, positionID string, errorMessage string, runGreetedCount int, runSkippedCount int) error {
 	request := struct {
-		PositionID   string `json:"position_id"`
-		ErrorMessage string `json:"error_message"`
+		PositionID      string `json:"position_id"`
+		ErrorMessage    string `json:"error_message"`
+		RunGreetedCount int    `json:"run_greeted_count"`
+		RunSkippedCount int    `json:"run_skipped_count"`
 	}{
-		PositionID:   strings.TrimSpace(positionID),
-		ErrorMessage: strings.TrimSpace(errorMessage),
+		PositionID: strings.TrimSpace(positionID), ErrorMessage: strings.TrimSpace(errorMessage),
+		RunGreetedCount: max(runGreetedCount, 0), RunSkippedCount: max(runSkippedCount, 0),
 	}
 	if request.PositionID == "" {
 		return fmt.Errorf("岗位编号不能为空，失败邮件暂时没法发送")

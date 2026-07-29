@@ -1,3 +1,5 @@
+//go:build darwin
+
 // Package notification 文件作用：显示 macOS 下载完成提示，并返回用户选择的文件动作。
 package notification
 
@@ -29,18 +31,6 @@ on run argv
 		return "dismiss"
 	end try
 end run`
-
-// DownloadAction 表示下载提示窗返回的用户动作。
-type DownloadAction string
-
-const (
-	// DownloadDismiss 表示用户关闭提示或暂不处理。
-	DownloadDismiss DownloadAction = "dismiss"
-	// DownloadOpen 表示用户希望打开下载文件。
-	DownloadOpen DownloadAction = "open"
-	// DownloadReveal 表示用户希望在 Finder 中显示下载文件。
-	DownloadReveal DownloadAction = "reveal"
-)
 
 // NotifyDownload 显示下载完成提示，十秒未操作时自动关闭。
 func (Notifier) NotifyDownload(ctx context.Context, filePath string) (DownloadAction, error) {

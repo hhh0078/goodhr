@@ -404,7 +404,7 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 func candidateUserPrompt(position cloud.PositionSnapshot, candidate model.Candidate, detail model.CandidateDetail) string {
 	return fmt.Sprintf(
 		"岗位：%s\n岗位要求：%s\n关键词：%s\n候选人：%s\n摘要：%s\n详情：%s",
-		position.Name, position.Description, position.Keyword, candidate.Name, candidate.Summary, detail.Text,
+		position.Name, positionRequirement(position), position.Keyword, candidate.Name, candidate.Summary, detail.Text,
 	)
 }
 
@@ -420,8 +420,16 @@ func candidatePreviewSystemPrompt(position cloud.PositionSnapshot) string {
 func candidatePreviewUserPrompt(position cloud.PositionSnapshot, candidate model.Candidate) string {
 	return fmt.Sprintf(
 		"岗位：%s\n岗位要求：%s\n关键词：%s\n候选人：%s\n候选人基础信息：%s",
-		position.Name, position.Description, position.Keyword, candidate.Name, candidate.Summary,
+		position.Name, positionRequirement(position), position.Keyword, candidate.Name, candidate.Summary,
 	)
+}
+
+// positionRequirement 优先使用岗位 AI 配置中的筛选要求，并兼容旧岗位的描述字段。
+func positionRequirement(position cloud.PositionSnapshot) string {
+	if value := strings.TrimSpace(position.AIOptions.PositionRequirement); value != "" {
+		return value
+	}
+	return strings.TrimSpace(position.Description)
 }
 
 // detailDecisionThreshold 返回是否打开候选人详情的岗位级分数阈值。

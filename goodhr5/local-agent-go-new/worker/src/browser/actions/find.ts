@@ -126,30 +126,34 @@ export class FindAction {
           step,
         },
       );
-      const items: FindAllItem[] = [];
-      for (const [index, resolved] of resolvedItems.entries()) {
-        const values: JsonObject = {};
-        for (const [fieldName, fieldSpec] of Object.entries(fields)) {
-          values[fieldName] = await this.readRelativeField(
-            page,
-            resolved.locator,
-            fieldSpec,
-            actionContext,
-            fieldName,
+      const items = await Promise.all(
+        resolvedItems.map(async (resolved, index): Promise<FindAllItem> => {
+          const fieldEntries = await Promise.all(
+            Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
+              fieldName,
+              await this.readRelativeField(
+                page,
+                resolved.locator,
+                fieldSpec,
+                actionContext,
+                fieldName,
+              ),
+            ] as const),
           );
-        }
-        items.push({
-          index,
-          element_ref: this.session.elements.remember(
-            page,
-            resolved.locator,
-          ),
-          text: await this.readPrimitive
-            .text(resolved.locator)
-            .catch(() => ""),
-          fields: values,
-        });
-      }
+          const values: JsonObject = Object.fromEntries(fieldEntries);
+          return {
+            index,
+            element_ref: this.session.elements.remember(
+              page,
+              resolved.locator,
+            ),
+            text: await this.readPrimitive
+              .text(resolved.locator)
+              .catch(() => ""),
+            fields: values,
+          };
+        }),
+      );
       if (report) {
         this.logger.info(actionContext, step, "success", {
           count: items.length,
@@ -181,10 +185,14 @@ export class FindAction {
     fieldName: string,
   ): Promise<string> {
     try {
+      const fieldSpec: SelectorSpec = {
+        ...spec,
+        timeout_ms: Math.min(spec.timeout_ms ?? 300, 300),
+      };
       const resolved = await this.primitive.resolveRelative(
         page,
         root,
-        spec,
+        fieldSpec,
         {
           trace_id: actionContext.trace_id,
           action: actionContext.action,

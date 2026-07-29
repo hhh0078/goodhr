@@ -60,6 +60,7 @@ type PositionCommonConfig struct {
 
 // PositionAIOptions 表示岗位级 AI 阈值和提示词。
 type PositionAIOptions struct {
+	PositionRequirement   string  `json:"position_requirement"`
 	OpenDetailPrompt      string  `json:"open_detail_prompt"`
 	DetailScoreThreshold  float64 `json:"detail_score_threshold"`
 	GreetScoreThreshold   float64 `json:"greet_score_threshold"`
@@ -214,16 +215,18 @@ type CandidateUpload struct {
 
 // TaskSummary 表示同步到云端的不含敏感数据任务摘要。
 type TaskSummary struct {
-	TaskID       string `json:"task_id"`
-	PositionID   string `json:"position_id"`
-	TaskType     string `json:"task_type,omitempty"`
-	Status       string `json:"status"`
-	Processed    int    `json:"processed"`
-	Succeeded    int    `json:"succeeded"`
-	Skipped      int    `json:"skipped"`
-	Failed       int    `json:"failed"`
-	ErrorCode    string `json:"error_code,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	TaskID          string `json:"task_id"`
+	PositionID      string `json:"position_id"`
+	TaskType        string `json:"task_type,omitempty"`
+	Status          string `json:"status"`
+	Processed       int    `json:"processed"`
+	Succeeded       int    `json:"succeeded"`
+	Skipped         int    `json:"skipped"`
+	Failed          int    `json:"failed"`
+	RunGreetedCount int    `json:"run_greeted_count"`
+	RunSkippedCount int    `json:"run_skipped_count"`
+	ErrorCode       string `json:"error_code,omitempty"`
+	ErrorMessage    string `json:"error_message,omitempty"`
 }
 
 // SummaryResult 表示云端状态同步和完成邮件结果。

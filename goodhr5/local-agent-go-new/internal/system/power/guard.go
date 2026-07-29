@@ -1,3 +1,5 @@
+//go:build darwin
+
 // Package power 使用 macOS caffeinate 为运行中的招聘任务提供防睡眠保护。
 package power
 

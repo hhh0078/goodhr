@@ -106,3 +106,35 @@ func TestSelectPositionUsesExactShortcutName(t *testing.T) {
 		t.Fatalf("快捷搜索模式不应该在开聊弹框中再次选择岗位")
 	}
 }
+
+// TestSelectPositionKeepsManualSearch 验证配置要求沿用手动筛选时不会自动点击快捷搜索。
+func TestSelectPositionKeepsManualSearch(t *testing.T) {
+	browser := &shortcutClickBrowser{}
+	cfg := model.Config{
+		ID: "hliepin",
+		Behavior: model.Behavior{
+			SkipPositionSelection: true,
+		},
+	}
+	runtime := NewRuntime()
+
+	err := runtime.SelectPosition(
+		context.Background(),
+		browser,
+		cfg,
+		model.Position{
+			Name:                      "AI应用开发工程师",
+			HLiepinShortcutSearchName: "AI应用开发工程师初",
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("沿用手动筛选不应失败：%v", err)
+	}
+	if browser.request.Selector.Description != "" {
+		t.Fatalf("沿用手动筛选时不应点击快捷搜索：%+v", browser.request)
+	}
+	if runtime.selectJobWhenGreeting {
+		t.Fatalf("快捷搜索岗位在开聊弹框中不应再次选择岗位")
+	}
+}

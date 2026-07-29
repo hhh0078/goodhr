@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -60,6 +61,20 @@ func TestParseDecisionSupportsLegacyAnalysis(t *testing.T) {
 func TestParseDecisionRejectsMissingScore(t *testing.T) {
 	if _, err := parseDecision(`{"reason":"缺少评分"}`, 70); err == nil {
 		t.Fatal("缺少 score 时应该返回错误")
+	}
+}
+
+// TestCandidatePromptUsesPositionRequirement 验证 AI 筛选会优先读取岗位表单里的岗位要求。
+func TestCandidatePromptUsesPositionRequirement(t *testing.T) {
+	position := cloud.PositionSnapshot{
+		Description: "旧描述",
+		AIOptions: cloud.PositionAIOptions{
+			PositionRequirement: "本科及以上",
+		},
+	}
+	prompt := candidateUserPrompt(position, model.Candidate{Name: "候选人"}, model.CandidateDetail{})
+	if !strings.Contains(prompt, "岗位要求：本科及以上") || strings.Contains(prompt, "岗位要求：旧描述") {
+		t.Fatalf("岗位要求没有进入 AI 提示词：%s", prompt)
 	}
 }
 
