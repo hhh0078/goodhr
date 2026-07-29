@@ -8,13 +8,24 @@ services:
     volumes: ["./cloud/backend:/app", "/app/tmp"]
 
   frontend:
-    build: ./cloud/frontend
-    command: npm run dev -- --host 0.0.0.0
-    ports: ["5173:5173"]
+    build:
+      context: ./cloud/frontend-next
+      dockerfile: Dockerfile.dev
+    command: npm run dev -- --webpack --hostname 0.0.0.0 --port 3000
+    environment:
+      CLOUD_API_BASE: "http://backend:8084"
+      NEXT_PUBLIC_CLOUD_API_BASE: "http://localhost:8084"
+      NEXT_PUBLIC_SITE_URL: "http://localhost:5173"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "5173:3000"
     volumes:
-      [
-        "./cloud/frontend/src:/app/src",
-        "./cloud/frontend/index.html:/app/index.html",
-        "./cloud/frontend/vite.config.ts:/app/vite.config.ts",
-        "./cloud/frontend/tsconfig.json:/app/tsconfig.json",
-      ]
+      - ./cloud/frontend-next:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
+    depends_on:
+      - backend
+
+volumes:
+  frontend_node_modules:
+  frontend_next_cache:
