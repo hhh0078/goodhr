@@ -150,15 +150,34 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		return nil, err
 	}
 	result := make([]model.Candidate, 0, len(items))
+	identityOccurrences := make(map[string]int)
 	for _, item := range items {
 		name := firstNonEmpty(item.Fields["name"], item.Text)
 		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
+		identityTexts := CandidateIdentityTexts(name, item.Fields, item.Text)
+		identityKey := strings.Join(identityTexts, "\x00")
+		identityOccurrence := identityOccurrences[identityKey]
+		identityOccurrences[identityKey] = identityOccurrence + 1
 		result = append(result, model.Candidate{
 			Index: item.Index, Fingerprint: fingerprint, Name: name,
 			Summary: item.Text, Fields: item.Fields,
+			IdentityTexts: identityTexts, IdentityOccurrence: identityOccurrence,
 		})
 	}
 	return result, nil
+}
+
+// CandidateIdentityTexts 返回页面重新定位候选人时使用的姓名和年龄文本。
+func CandidateIdentityTexts(name string, fields map[string]string, summary string) []string {
+	result := make([]string, 0, 2)
+	if name = strings.TrimSpace(name); name != "" {
+		result = append(result, name)
+	}
+	age := firstNonEmpty(fields["age"], fields["candidate_age"], extractAge(summary))
+	if age = strings.TrimSpace(age); age != "" {
+		result = append(result, age)
+	}
+	return result
 }
 
 // CandidateFingerprint 按旧版规则使用平台、姓名和年龄生成稳定去重编号。
@@ -194,7 +213,9 @@ func SelectorExists(ctx context.Context, browser model.Browser, cfg model.Config
 	if !ok || len(selector.Target.Selectors) == 0 {
 		return false, nil
 	}
-	_, err := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1})
+	_, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+	})
 	if IsElementMissing(err) {
 		return false, nil
 	}
@@ -203,21 +224,25 @@ func SelectorExists(ctx context.Context, browser model.Browser, cfg model.Config
 
 // ScrollToCandidate 使用真实鼠标滚轮把指定候选人滚动到可操作区域。
 func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	selector, err := IndexedSelector(cfg, "candidate.item", candidate.Index)
+	selector, err := CandidateSelector(cfg, candidate)
 	if err != nil {
 		return err
 	}
+	var wheelAnchor *contract.SelectorSpec
+	if anchor, ok := cfg.Selectors["candidate.list"]; ok {
+		wheelAnchor = &anchor
+	}
 	requireFull := true
 	_, err = browser.Scroll(ctx, contract.ScrollRequest{
-		Target: &selector, Distance: 180, MaxAttempts: 18,
-		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 48,
+		Target: &selector, WheelAnchor: wheelAnchor, Distance: 180, MaxAttempts: 18,
+		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 0,
 	})
 	return err
 }
 
 // GreetCandidate 滚动到候选人后，按平台配置完成打招呼和可选自定义文案。
 func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) error {
-	selector, err := CandidateScopedSelector(cfg, "candidate.greet", candidate.Index)
+	selector, err := CandidateActionSelector(cfg, "candidate.greet", candidate)
 	if err != nil {
 		return err
 	}
@@ -232,6 +257,16 @@ func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config
 	}
 	if err = InputOptional(ctx, browser, cfg, "candidate.greet_input", request.Message); err != nil {
 		return err
+	}
+	if _, hasDialog := cfg.Selectors["candidate.greet_dialog"]; hasDialog {
+		dialogOpened, existsErr := SelectorExists(ctx, browser, cfg, "candidate.greet_dialog")
+		if existsErr != nil {
+			return existsErr
+		}
+		if !dialogOpened {
+			return nil
+		}
+		return ClickRequired(ctx, browser, cfg, "candidate.greet_send")
 	}
 	if _, hasSend := cfg.Selectors["candidate.greet_send"]; hasSend {
 		return ClickRequired(ctx, browser, cfg, "candidate.greet_send")
@@ -277,41 +312,11 @@ func RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.
 
 // CandidateAction 点击指定候选人卡片内的平台动作。
 func CandidateAction(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, actionKey string) error {
-	selector, err := CandidateScopedSelector(cfg, actionKey, candidate.Index)
+	selector, err := CandidateActionSelector(cfg, actionKey, candidate)
 	if err != nil {
 		return err
 	}
 	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 48})
-	return err
-}
-
-// NextCandidatePage 点击下一页；平台不支持或未配置时返回 false。
-func NextCandidatePage(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
-	if !cfg.Behavior.SupportsPaging {
-		return false, nil
-	}
-	if _, ok := cfg.Selectors["candidate.next_page"]; !ok {
-		return false, nil
-	}
-	if err := ClickRequired(ctx, browser, cfg, "candidate.next_page"); err != nil {
-		if IsElementMissing(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-// ScrollCandidates 使用真实鼠标滚轮加载更多候选人。
-func ScrollCandidates(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	var anchor *contract.SelectorSpec
-	if selector, ok := cfg.Selectors["candidate.list"]; ok {
-		anchor = &selector
-	}
-	_, err := browser.Scroll(ctx, contract.ScrollRequest{
-		WheelAnchor: anchor, Distance: positiveOr(cfg.ScrollDistance, 620),
-		MaxAttempts: 1, WaitMS: 350,
-	})
 	return err
 }
 
@@ -333,6 +338,50 @@ func IndexedSelector(cfg model.Config, key string, index int) (contract.Selector
 	indexValue := max(index, 0)
 	selector.Target.Index = &indexValue
 	return selector, nil
+}
+
+// CandidateSelector 使用候选人稳定文本重新定位卡片，缺少身份文本时才回退到原序号。
+func CandidateSelector(cfg model.Config, candidate model.Candidate) (contract.SelectorSpec, error) {
+	selector, err := RequiredSelector(cfg, "candidate.item")
+	if err != nil {
+		return contract.SelectorSpec{}, err
+	}
+	identityTexts := make([]string, 0, len(candidate.IdentityTexts))
+	for _, text := range candidate.IdentityTexts {
+		if text = strings.TrimSpace(text); text != "" {
+			identityTexts = append(identityTexts, text)
+		}
+	}
+	if len(identityTexts) == 0 {
+		index := max(candidate.Index, 0)
+		selector.Target.Index = &index
+		return selector, nil
+	}
+	selector.Target.Texts = append(selector.Target.Texts, identityTexts...)
+	occurrence := max(candidate.IdentityOccurrence, 0)
+	selector.Target.Index = &occurrence
+	selector.Description = firstNonEmpty(candidate.Name, selector.Description)
+	return selector, nil
+}
+
+// CandidateActionSelector 把稳定定位后的候选人卡片作为父级，再查找卡片内动作。
+func CandidateActionSelector(cfg model.Config, actionKey string, candidate model.Candidate) (contract.SelectorSpec, error) {
+	card, err := CandidateSelector(cfg, candidate)
+	if err != nil {
+		return contract.SelectorSpec{}, err
+	}
+	action, ok := cfg.Selectors[actionKey]
+	if !ok {
+		return contract.SelectorSpec{}, fmt.Errorf("平台 %s 缺少选择器 %s", cfg.ID, actionKey)
+	}
+	parents := make([]contract.SelectorGroup, 0, len(card.Parents)+1+len(action.Parents))
+	parents = append(parents, card.Parents...)
+	parents = append(parents, card.Target)
+	parents = append(parents, action.Parents...)
+	action.Parents = parents
+	action.Frames = append(card.Frames, action.Frames...)
+	action.Description = firstNonEmpty(action.Description, actionKey)
+	return action, nil
 }
 
 // CandidateScopedSelector 把候选人卡片作为父级后定位卡片内动作。

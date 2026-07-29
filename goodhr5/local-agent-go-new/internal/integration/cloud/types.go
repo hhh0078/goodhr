@@ -59,6 +59,8 @@ type PositionCommonConfig struct {
 
 // PositionAIOptions 表示岗位级 AI 阈值和提示词。
 type PositionAIOptions struct {
+	OpenDetailPrompt      string  `json:"open_detail_prompt"`
+	DetailScoreThreshold  float64 `json:"detail_score_threshold"`
 	GreetScoreThreshold   float64 `json:"greet_score_threshold"`
 	RequestScoreThreshold float64 `json:"request_score_threshold"`
 	GreetPrompt           string  `json:"greet_prompt"`

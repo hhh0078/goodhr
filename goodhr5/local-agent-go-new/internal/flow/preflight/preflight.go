@@ -95,6 +95,7 @@ type Checker struct {
 
 type checkStep struct {
 	name     string
+	label    string
 	optional bool
 	run      func(context.Context, *shared.PreparedTask) error
 }
@@ -120,7 +121,7 @@ func (c *Checker) RunPreflightChecks(ctx context.Context, request shared.StartRe
 			result.Steps = append(result.Steps, stepResult)
 			result.Prepared = prepared
 			if !step.optional {
-				return result, fmt.Errorf("启动前检查 %s 失败：%w", step.name, err)
+				return result, fmt.Errorf("启动前检查“%s”没通过：%w", step.label, err)
 			}
 			continue
 		}
@@ -134,23 +135,23 @@ func (c *Checker) RunPreflightChecks(ctx context.Context, request shared.StartRe
 // steps 返回固定顺序的启动前检查列表。
 func (c *Checker) steps() []checkStep {
 	return []checkStep{
-		{name: "validate_request", run: validateRequest},
-		{name: "check_local_program", run: c.checkLocalProgram},
-		{name: "check_cloud_session", run: c.checkCloudSession},
-		{name: "load_position_snapshot", run: c.loadPosition},
-		{name: "check_subscription", run: c.checkSubscription},
-		{name: "load_user_preferences", run: c.loadPreferences},
-		{name: "load_local_platform_config", run: c.loadPlatform},
-		{name: "check_profile", run: c.checkProfile},
-		{name: "check_task_conflict", run: c.checkTaskConflict},
-		{name: "check_node_runtime", run: c.checkNode},
-		{name: "check_worker_build", run: c.checkWorkerBuild},
-		{name: "check_worker", run: c.checkWorker},
-		{name: "check_cloakbrowser", run: c.checkCloakBrowser},
-		{name: "check_local_storage", run: c.checkStorage},
-		{name: "check_required_ai", run: c.checkAI},
-		{name: "check_required_ocr", run: c.checkOCR},
-		{name: "check_power_guard", optional: true, run: c.checkPower},
+		{name: "validate_request", label: "启动参数", run: validateRequest},
+		{name: "check_local_program", label: "本地程序", run: c.checkLocalProgram},
+		{name: "check_cloud_session", label: "登录状态", run: c.checkCloudSession},
+		{name: "load_position_snapshot", label: "岗位配置", run: c.loadPosition},
+		{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
+		{name: "load_user_preferences", label: "个人设置", run: c.loadPreferences},
+		{name: "load_local_platform_config", label: "平台配置", run: c.loadPlatform},
+		{name: "check_profile", label: "浏览器账号", run: c.checkProfile},
+		{name: "check_task_conflict", label: "任务冲突", run: c.checkTaskConflict},
+		{name: "check_node_runtime", label: "浏览器运行组件", run: c.checkNode},
+		{name: "check_worker_build", label: "浏览器操作程序", run: c.checkWorkerBuild},
+		{name: "check_worker", label: "浏览器操作程序启动", run: c.checkWorker},
+		{name: "check_cloakbrowser", label: "增强浏览器", run: c.checkCloakBrowser},
+		{name: "check_local_storage", label: "本地数据", run: c.checkStorage},
+		{name: "check_required_ai", label: "AI 配置", run: c.checkAI},
+		{name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
+		{name: "check_power_guard", label: "防休眠能力", optional: true, run: c.checkPower},
 	}
 }
 
@@ -158,13 +159,13 @@ func (c *Checker) steps() []checkStep {
 func validateRequest(_ context.Context, prepared *shared.PreparedTask) error {
 	request := prepared.Request
 	if strings.TrimSpace(request.TaskID) == "" {
-		return fmt.Errorf("task_id 不能为空")
+		return fmt.Errorf("任务编号不能为空")
 	}
 	if strings.TrimSpace(request.PositionID) == "" {
-		return fmt.Errorf("position_id 不能为空")
+		return fmt.Errorf("岗位编号不能为空")
 	}
 	if request.TaskType != "greeting" && request.TaskType != "auto_reply" {
-		return fmt.Errorf("task_type 只支持 greeting 或 auto_reply")
+		return fmt.Errorf("任务类型只支持打招呼或自动回复")
 	}
 	if strings.TrimSpace(request.Token) == "" {
 		return fmt.Errorf("登录令牌不能为空")

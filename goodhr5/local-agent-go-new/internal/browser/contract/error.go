@@ -3,7 +3,8 @@ package contract
 
 import (
 	"encoding/json"
-	"fmt"
+	"strconv"
+	"strings"
 )
 
 // WorkerErrorBody 表示 Worker 返回的稳定错误。
@@ -28,5 +29,47 @@ func (e *WorkerError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s：%s（action=%s step=%s trace=%s）", e.Body.Code, e.Body.Message, e.Body.Action, e.Body.Step, e.Body.TraceID)
+	message := strings.TrimSpace(e.Body.Message)
+	if message == "" {
+		message = "浏览器操作没有完成"
+	}
+	var details struct {
+		Description       string `json:"description"`
+		TargetDescription string `json:"target_description"`
+		PollAttempts      int    `json:"poll_attempts"`
+		TimeoutMS         int    `json:"timeout_ms"`
+	}
+	_ = json.Unmarshal(e.Body.Details, &details)
+	target := strings.TrimSpace(details.TargetDescription)
+	if target == "" {
+		target = strings.TrimSpace(details.Description)
+	}
+	parts := []string{message}
+	if target != "" && !strings.Contains(message, target) {
+		parts = append(parts, "目标："+target)
+	}
+	if details.PollAttempts > 0 {
+		parts = append(parts, "已尝试 "+pluralAttempts(details.PollAttempts))
+	}
+	parts = append(parts, workerErrorSuggestion(e.Body.Code))
+	return strings.Join(parts, "；")
+}
+
+// pluralAttempts 返回适合用户查看的选择器尝试次数。
+func pluralAttempts(attempts int) string {
+	return strconv.Itoa(max(attempts, 1)) + " 次"
+}
+
+// workerErrorSuggestion 根据稳定错误码返回下一步建议。
+func workerErrorSuggestion(code string) string {
+	switch strings.TrimSpace(code) {
+	case "VIEWPORT_TOO_SMALL", "MOUSE_TARGET_OUTSIDE_VIEWPORT":
+		return "请把浏览器窗口放大后再试"
+	case "ELEMENT_NOT_FOUND":
+		return "页面可能还没加载好，或平台页面结构有变化"
+	case "SCROLL_NO_PROGRESS":
+		return "列表可能已经到底，或当前区域不能继续滚动"
+	default:
+		return "我已经记下具体步骤，可以直接重试"
+	}
 }

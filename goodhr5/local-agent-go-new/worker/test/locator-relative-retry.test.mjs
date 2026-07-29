@@ -3,7 +3,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { FindAction } from "../dist/browser/actions/find.js";
 import { LocatorPrimitive } from "../dist/browser/primitives/locator.js";
+import { parseElementFindAllRequest } from "../dist/validation/action-requests.js";
 
 /** 验证相对选择器在元素延迟出现时会继续查找。 */
 test("相对选择器会轮询等待延迟出现的元素", async () => {
@@ -64,4 +66,57 @@ test("相对选择器会轮询等待延迟出现的元素", async () => {
   assert.equal(result.locator, locator);
   assert.equal(queryCount, 3);
   assert.ok(Date.now() - startedAt >= 180);
+});
+
+/** 验证预期元素不存在时保留强类型参数并关闭过程日志。 */
+test("预期元素不存在时不写错误过程日志", async () => {
+  const request = parseElementFindAllRequest(
+    {
+      selector: {
+        target: { selectors: [{ type: "css", value: ".closed-detail" }] },
+        description: "已经关闭的详情",
+      },
+      max_items: 1,
+      expected_missing: true,
+    },
+    "expected-missing",
+    "element.find_all",
+  );
+  assert.equal(request.expected_missing, true);
+
+  let logCount = 0;
+  const action = new FindAction(
+    {
+      async requirePage() {
+        return {};
+      },
+    },
+    {
+      async resolveAll() {
+        throw new Error("没有找到元素");
+      },
+    },
+    {
+      info() {
+        logCount += 1;
+      },
+      failure() {
+        logCount += 1;
+      },
+    },
+  );
+  await assert.rejects(
+    action.all(
+      request.selector,
+      request.max_items,
+      {},
+      {
+        trace_id: "expected-missing",
+        action: "element.find_all",
+        started_at: Date.now(),
+      },
+      false,
+    ),
+  );
+  assert.equal(logCount, 0);
 });

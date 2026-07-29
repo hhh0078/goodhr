@@ -23,8 +23,8 @@ import { ViewportPrimitive } from "./viewport.js";
 
 export type { ResolvedElement } from "./locator-types.js";
 
-const DEFAULT_SELECTOR_TIMEOUT_MS = 5_000;
-const SELECTOR_RETRY_DELAY_MS = 100;
+const DEFAULT_SELECTOR_TIMEOUT_MS = 6_000;
+const SELECTOR_RETRY_DELAY_MS = 300;
 
 /** LocatorPrimitive 提供最小元素定位能力，不允许直接注册 HTTP 路由。 */
 export class LocatorPrimitive {
@@ -233,7 +233,9 @@ export class LocatorPrimitive {
     const deadline = Date.now() + timeoutMS;
     let lastAttempts: SelectorAttempt[] = [];
     let lastError: unknown;
+    let pollAttempts = 0;
     while (Date.now() <= deadline) {
+      pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
       try {
         return await resolveOnce(attempts);
@@ -264,13 +266,21 @@ export class LocatorPrimitive {
           ...lastError.details,
           description: spec.description,
           attempts: safeAttempts(lastAttempts),
+          poll_attempts: pollAttempts,
           timeout_ms: timeoutMS,
           page_url: safeURL(page.url()),
         },
         cause: lastError,
       });
     }
-    throw this.notFound(page, spec, lastAttempts, context, lastError);
+    throw this.notFound(
+      page,
+      spec,
+      lastAttempts,
+      context,
+      lastError,
+      pollAttempts,
+    );
   }
 
   /** view 读取元素位置和可见状态。 */
@@ -481,6 +491,9 @@ export class LocatorPrimitive {
         }
         break;
     }
+    for (const text of group.texts ?? []) {
+      locator = locator.filter({ hasText: text });
+    }
     return locator;
   }
 
@@ -522,6 +535,7 @@ export class LocatorPrimitive {
     attempts: SelectorAttempt[],
     context: { trace_id: string; action: string; step: string },
     cause?: unknown,
+    pollAttempts?: number,
   ): WorkerError {
     return new WorkerError({
       code: "ELEMENT_NOT_FOUND",
@@ -535,6 +549,7 @@ export class LocatorPrimitive {
         page_url: safeURL(page.url()),
         state: spec.state ?? "visible",
         timeout_ms: spec.timeout_ms ?? DEFAULT_SELECTOR_TIMEOUT_MS,
+        poll_attempts: pollAttempts ?? 1,
         attempts: safeAttempts(attempts),
       },
       cause,

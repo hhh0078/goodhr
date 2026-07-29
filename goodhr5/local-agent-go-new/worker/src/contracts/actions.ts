@@ -87,6 +87,7 @@ export interface ElementFindAllRequest {
   selector: SelectorSpec;
   max_items?: number;
   fields?: Record<string, SelectorSpec>;
+  expected_missing?: boolean;
 }
 
 /** ElementReadRequest 表示读取元素文本、HTML 或属性的参数。 */

@@ -146,7 +146,7 @@ export class BrowserSession {
         trace_id: actionContext.trace_id,
         retryable: true,
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       await this.dispose();
       throw normalized;
     }
@@ -168,7 +168,7 @@ export class BrowserSession {
         trace_id: actionContext.trace_id,
         message: "浏览器关闭时有点磨蹭，我已经继续清理了",
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }
@@ -254,7 +254,7 @@ export class BrowserSession {
         message: "页面没打开成功，我已经把地址和原因记下来了",
         details: { target_url: safeURL(request.url) },
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }

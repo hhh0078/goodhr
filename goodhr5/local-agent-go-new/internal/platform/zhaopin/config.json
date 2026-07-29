@@ -40,6 +40,8 @@
     "_comment": "智联页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "智联推荐页当前按滚动加载。",
+    "candidate_list_mode": "infinite_scroll",
+    "_comment_candidate_list_mode": "候选人列表通过真实鼠标滚轮继续加载。",
     "skip_position_selection": false,
     "_comment_skip_position_selection": "开始任务时需要通过职位弹层选择岗位。",
     "direct_position_selection": true,
@@ -169,8 +171,7 @@
       "target": {
         "_comment": "详情入口候选。",
         "selectors": [
-          { "_comment": "新版详情内层。", "type": "css", "value": ".new-resume-detail--inner" },
-          { "_comment": "推荐卡片本身。", "type": "css", "value": ".recommend-item__inner.recommend-resume-item__inner" }
+          { "_comment": "点击卡片内姓名区域，避免随机点击整张卡片的空白位置。", "type": "css", "value": ".talent-basic-info__name--inner" }
         ]
       },
       "state": "visible",
@@ -204,6 +205,38 @@
       "state": "enabled",
       "timeout_ms": 5000,
       "description": "智联打招呼按钮"
+    },
+    "candidate.greet_dialog": {
+      "_comment": "智联首次打招呼时出现的招呼语选择弹框。",
+      "parents": [],
+      "target": {
+        "_comment": "按弹框标题确认是否还需要发送招呼语。",
+        "exact_text": true,
+        "_comment_exact_text": "弹框标题必须完整等于选择招呼语。",
+        "selectors": [
+          { "_comment": "智联招呼语弹框标题。", "type": "text", "value": "选择招呼语" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2000,
+      "description": "智联招呼语选择弹框"
+    },
+    "candidate.greet_send": {
+      "_comment": "智联招呼语弹框中的最终发送按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "按按钮角色和精确文字定位，避免误点弹框内其他按钮。",
+        "text": "发送",
+        "_comment_text": "最终发送按钮文字。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整等于发送。",
+        "selectors": [
+          { "_comment": "智联招呼语发送按钮。", "type": "role", "value": "button" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "智联招呼语发送按钮"
     },
     "candidate.continue": {
       "_comment": "智联候选人卡片内继续沟通按钮。",

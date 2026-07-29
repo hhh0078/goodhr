@@ -105,6 +105,18 @@ func (c *Client) EvaluateCandidate(ctx context.Context, cfg cloud.AIConfig, posi
 	return parseDecision(content, decisionThreshold(cfg, position))
 }
 
+// EvaluateCandidatePreview 只根据候选人基础信息判断是否值得打开详情。
+func (c *Client) EvaluateCandidatePreview(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate) (Decision, error) {
+	content, err := c.chat(ctx, cfg, []chatMessage{
+		textChatMessage("system", candidatePreviewSystemPrompt(position)),
+		textChatMessage("user", candidatePreviewUserPrompt(position, candidate)),
+	})
+	if err != nil {
+		return Decision{}, err
+	}
+	return parseDecision(content, detailDecisionThreshold(position))
+}
+
 // EvaluateCandidateVision 根据候选人详情截图和文本生成强类型图片判断。
 func (c *Client) EvaluateCandidateVision(ctx context.Context, cfg cloud.AIConfig, position cloud.PositionSnapshot, candidate model.Candidate, detail model.CandidateDetail, images [][]byte) (Decision, error) {
 	if len(images) == 0 {
@@ -334,6 +346,30 @@ func candidateUserPrompt(position cloud.PositionSnapshot, candidate model.Candid
 	)
 }
 
+// candidatePreviewSystemPrompt 返回岗位级候选人基础信息预判断提示词。
+func candidatePreviewSystemPrompt(position cloud.PositionSnapshot) string {
+	if prompt := strings.TrimSpace(position.AIOptions.OpenDetailPrompt); prompt != "" {
+		return prompt
+	}
+	return `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score":66,"reason":"可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+}
+
+// candidatePreviewUserPrompt 构造不含候选人详情的基础预判断内容。
+func candidatePreviewUserPrompt(position cloud.PositionSnapshot, candidate model.Candidate) string {
+	return fmt.Sprintf(
+		"岗位：%s\n岗位要求：%s\n关键词：%s\n候选人：%s\n候选人基础信息：%s",
+		position.Name, position.Description, position.Keyword, candidate.Name, candidate.Summary,
+	)
+}
+
+// detailDecisionThreshold 返回是否打开候选人详情的岗位级分数阈值。
+func detailDecisionThreshold(position cloud.PositionSnapshot) float64 {
+	if position.AIOptions.DetailScoreThreshold > 0 {
+		return position.AIOptions.DetailScoreThreshold
+	}
+	return 60
+}
+
 // decisionThreshold 返回岗位级优先的打招呼分数阈值。
 func decisionThreshold(cfg cloud.AIConfig, position cloud.PositionSnapshot) float64 {
 	threshold := position.AIOptions.GreetScoreThreshold
@@ -349,19 +385,32 @@ func decisionThreshold(cfg cloud.AIConfig, position cloud.PositionSnapshot) floa
 // parseDecision 从模型文本提取、规范化评分和原因。
 func parseDecision(content string, threshold float64) (Decision, error) {
 	var parsed struct {
-		Score  float64 `json:"score"`
-		Reason string  `json:"reason"`
+		Score    *float64 `json:"score"`
+		Reason   string   `json:"reason"`
+		Analysis *struct {
+			Score  *float64 `json:"score"`
+			Reason string   `json:"reason"`
+		} `json:"analysis"`
 	}
 	if err := json.Unmarshal([]byte(extractJSONObject(content)), &parsed); err != nil {
 		return Decision{}, fmt.Errorf("AI 判断格式不正确：%w", err)
 	}
-	parsed.Score = min(100, max(0, parsed.Score))
-	parsed.Reason = truncateRunes(strings.TrimSpace(parsed.Reason), 30)
-	if parsed.Reason == "" {
-		parsed.Reason = "AI 没有给出原因"
+	score := parsed.Score
+	reason := parsed.Reason
+	if parsed.Analysis != nil {
+		score = parsed.Analysis.Score
+		reason = parsed.Analysis.Reason
+	}
+	if score == nil {
+		return Decision{}, fmt.Errorf("AI 判断没有返回 score，当前岗位提示词格式可能需要兼容")
+	}
+	normalizedScore := min(100, max(0, *score))
+	reason = truncateRunes(strings.TrimSpace(reason), 30)
+	if reason == "" {
+		reason = "AI 没有给出原因"
 	}
 	return Decision{
-		Accepted: parsed.Score >= threshold, Score: parsed.Score, Reason: parsed.Reason,
+		Accepted: normalizedScore >= threshold, Score: normalizedScore, Reason: reason,
 	}, nil
 }
 

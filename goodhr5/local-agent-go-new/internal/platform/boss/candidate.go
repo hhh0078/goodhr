@@ -18,12 +18,7 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
-// NextCandidatePage 尝试进入 Boss 候选人下一页。
-func (r *Runtime) NextCandidatePage(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
-	return common.NextCandidatePage(ctx, browser, cfg)
-}
-
-// ScrollCandidates 通过真实滚轮加载更多 Boss 候选人。
-func (r *Runtime) ScrollCandidates(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return common.ScrollCandidates(ctx, browser, cfg)
+// AdvanceCandidateList 通过公共真实滚轮能力加载更多 Boss 候选人。
+func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
+	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before)
 }

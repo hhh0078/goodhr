@@ -150,6 +150,7 @@ export class ActionService {
       request.max_items ?? 100,
       request.fields ?? {},
       context,
+      !request.expected_missing,
     );
   }
 

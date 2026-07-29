@@ -49,11 +49,12 @@ type ConfiguredAction struct {
 
 // Behavior 表示平台翻页、详情和岗位选择行为。
 type Behavior struct {
-	SupportsPaging            bool `json:"supports_paging"`
-	SkipPositionSelection     bool `json:"skip_position_selection"`
-	DirectPositionSelection   bool `json:"direct_position_selection"`
-	SelectFirstPositionResult bool `json:"select_first_position_result"`
-	NeedsDetail               bool `json:"needs_detail"`
+	SupportsPaging            bool   `json:"supports_paging"`
+	CandidateListMode         string `json:"candidate_list_mode"`
+	SkipPositionSelection     bool   `json:"skip_position_selection"`
+	DirectPositionSelection   bool   `json:"direct_position_selection"`
+	SelectFirstPositionResult bool   `json:"select_first_position_result"`
+	NeedsDetail               bool   `json:"needs_detail"`
 }
 
 // Position 表示平台准备阶段所需的岗位信息。
@@ -69,11 +70,13 @@ type Position struct {
 
 // Candidate 表示从招聘平台页面读取的候选人摘要。
 type Candidate struct {
-	Index       int               `json:"index"`
-	Fingerprint string            `json:"fingerprint"`
-	Name        string            `json:"name"`
-	Summary     string            `json:"summary"`
-	Fields      map[string]string `json:"fields"`
+	Index              int               `json:"index"`
+	Fingerprint        string            `json:"fingerprint"`
+	Name               string            `json:"name"`
+	Summary            string            `json:"summary"`
+	Fields             map[string]string `json:"fields"`
+	IdentityTexts      []string          `json:"identity_texts"`
+	IdentityOccurrence int               `json:"identity_occurrence"`
 }
 
 // CandidateDetail 表示当前任务内短期使用的候选人详情。
@@ -128,8 +131,7 @@ type Runtime interface {
 	RequestCandidateInfo(context.Context, Browser, Config, Candidate, CandidateInfoRequest) error
 	FavoriteCandidate(context.Context, Browser, Config, Candidate) error
 	RejectCandidate(context.Context, Browser, Config, Candidate) error
-	NextCandidatePage(context.Context, Browser, Config) (bool, error)
-	ScrollCandidates(context.Context, Browser, Config) error
+	AdvanceCandidateList(context.Context, Browser, Config, []Candidate) (bool, error)
 	OpenMessagesPage(context.Context, Browser, Config) error
 	InitializeMessagesPage(context.Context, Browser, Config) error
 	ScanUnreadConversations(context.Context, Browser, Config) ([]Conversation, error)

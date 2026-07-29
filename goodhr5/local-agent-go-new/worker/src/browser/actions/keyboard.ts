@@ -48,7 +48,7 @@ export class KeyboardAction {
         retryable: true,
         message: `按键 ${request.key} 没执行成功`,
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }

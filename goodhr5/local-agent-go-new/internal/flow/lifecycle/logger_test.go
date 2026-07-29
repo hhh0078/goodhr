@@ -1,0 +1,31 @@
+// Package lifecycle 文件作用：验证用户可见任务日志统一使用中文且不会泄露 Worker 内部步骤。
+package lifecycle
+
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+// TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
+func TestTaskLogMessageUsesChinese(t *testing.T) {
+	message := taskLogMessage("select_position", "failed", errors.New("没有找到岗位"))
+	if message != "选择岗位：没处理成功，没有找到岗位" {
+		t.Fatalf("中文流程日志不正确：%s", message)
+	}
+}
+
+// TestWorkerLogMessageUsesChinese 验证 Worker 错误日志不展示英文 action 和稳定错误码。
+func TestWorkerLogMessageUsesChinese(t *testing.T) {
+	message := workerLogMessage(workerLogLine{
+		Action: "element.click", Status: "failed", Level: "error",
+		TargetDescription: "候选人详情", ErrorCode: "ELEMENT_NOT_FOUND",
+		ErrorMessage: "候选人详情暂时没找到", PollAttempts: 20,
+	})
+	if strings.Contains(message, "element.click") || strings.Contains(message, "ELEMENT_NOT_FOUND") {
+		t.Fatalf("用户日志仍包含内部英文：%s", message)
+	}
+	if !strings.Contains(message, "每 300 毫秒找了 20 次") {
+		t.Fatalf("错误日志缺少查找次数：%s", message)
+	}
+}

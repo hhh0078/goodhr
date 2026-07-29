@@ -56,7 +56,6 @@ func New(cfg config.Config) (*Application, error) {
 		cfg.NodePath,
 		cfg.WorkerEntryPath,
 		cfg.WorkerPort,
-		filepath.Join(cfg.LogsDir, "browser-worker.log"),
 		browserClient,
 	)
 	runtimeManager := runtimemanager.New(

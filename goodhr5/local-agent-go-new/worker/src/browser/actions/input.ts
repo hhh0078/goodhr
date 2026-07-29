@@ -108,17 +108,12 @@ export class InputAction {
           text_length: request.text.length,
         },
       });
-      this.logger.error(
-        actionContext,
-        normalized.step,
-        "failed",
-        normalized.details,
-      );
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }
 
-  /** typeHumanized 按字符输入，中文使用 insertText，字符间使用 Node 随机等待。 */
+  /** typeHumanized 按词语分段输入，并在词语之间增加真人式停顿。 */
   private async typeHumanized(
     page: Parameters<KeyboardPrimitive["press"]>[0],
     text: string,
@@ -127,15 +122,33 @@ export class InputAction {
   ): Promise<void> {
     const min = Math.max(0, Math.min(minimumDelay, maximumDelay));
     const max = Math.max(min, maximumDelay);
-    for (const character of text) {
-      if (/^[\x20-\x7E]$/.test(character)) {
-        await this.keyboard.typeCharacter(page, character);
-      } else {
-        await this.keyboard.insertText(page, character);
+    const segments = humanTextSegments(text);
+    for (const [segmentIndex, segment] of segments.entries()) {
+      for (const character of segment) {
+        if (/^[\x20-\x7E]$/.test(character)) {
+          await this.keyboard.typeCharacter(page, character);
+        } else {
+          await this.keyboard.insertText(page, character);
+        }
+        await delay(randomInteger(min, max));
       }
-      await delay(randomInteger(min, max));
+      if (segmentIndex + 1 < segments.length) {
+        await delay(randomInteger(180, 450));
+      }
     }
   }
+}
+
+/** humanTextSegments 使用 Node 原生分词器整理适合逐段输入的文本。 */
+export function humanTextSegments(text: string): string[] {
+  if (text === "") {
+    return [];
+  }
+  const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
+  const segments = [...segmenter.segment(text)]
+    .map((item) => item.segment)
+    .filter((item) => item !== "");
+  return segments.length > 0 ? segments : [...text];
 }
 
 /** delay 使用 Node 定时器模拟字符间等待。 */

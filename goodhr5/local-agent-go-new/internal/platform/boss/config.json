@@ -40,6 +40,8 @@
     "_comment": "Boss 页面行为开关。",
     "supports_paging": false,
     "_comment_supports_paging": "Boss 推荐页当前按滚动加载，不点击下一页。",
+    "candidate_list_mode": "infinite_scroll",
+    "_comment_candidate_list_mode": "候选人列表通过真实鼠标滚轮继续加载。",
     "skip_position_selection": false,
     "_comment_skip_position_selection": "开始任务时需要选择岗位。",
     "direct_position_selection": false,

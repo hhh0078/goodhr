@@ -13,6 +13,7 @@ type SelectorGroup struct {
 	Selectors  []SelectorCandidate `json:"selectors"`
 	Index      *int                `json:"index,omitempty"`
 	Text       string              `json:"text,omitempty"`
+	Texts      []string            `json:"texts,omitempty"`
 	ExactText  *bool               `json:"exact_text,omitempty"`
 	Attributes map[string]string   `json:"attributes,omitempty"`
 }
@@ -153,9 +154,10 @@ type ElementFindRequest struct {
 
 // ElementFindAllRequest 表示查找元素列表和字段请求。
 type ElementFindAllRequest struct {
-	Selector SelectorSpec            `json:"selector"`
-	MaxItems int                     `json:"max_items,omitempty"`
-	Fields   map[string]SelectorSpec `json:"fields,omitempty"`
+	Selector        SelectorSpec            `json:"selector"`
+	MaxItems        int                     `json:"max_items,omitempty"`
+	Fields          map[string]SelectorSpec `json:"fields,omitempty"`
+	ExpectedMissing bool                    `json:"expected_missing,omitempty"`
 }
 
 // FindAllItem 表示列表查找中的一个元素。

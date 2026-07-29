@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"goodhr5/local-agent-go-new/internal/system/logfile"
 )
 
 // HealthChecker 定义 Worker 启动后的健康检查能力。
@@ -25,12 +23,10 @@ type Manager struct {
 	nodePath    string
 	entryPath   string
 	port        int
-	logPath     string
 	health      HealthChecker
 	environment []string
 	logSink     func([]byte)
 	command     *exec.Cmd
-	logFile     io.Closer
 	lineWriter  *lineSinkWriter
 	done        chan struct{}
 }
@@ -59,12 +55,11 @@ func (m *Manager) SetExecutable(nodePath string) {
 }
 
 // New 创建 Worker 进程管理器。
-func New(nodePath string, entryPath string, port int, logPath string, health HealthChecker) *Manager {
+func New(nodePath string, entryPath string, port int, health HealthChecker) *Manager {
 	return &Manager{
 		nodePath:  nodePath,
 		entryPath: entryPath,
 		port:      port,
-		logPath:   logPath,
 		health:    health,
 	}
 }
@@ -84,26 +79,20 @@ func (m *Manager) Start(ctx context.Context) error {
 	if _, err := os.Stat(m.entryPath); err != nil {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
-	file, err := logfile.Open(m.logPath, 10<<20, 3)
-	if err != nil {
-		return fmt.Errorf("打开 Worker 日志失败：%w", err)
-	}
 	command := exec.Command(m.nodePath, m.entryPath)
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
 	command.Env = append(command.Env, m.environment...)
 	lineWriter := &lineSinkWriter{sink: m.logSink}
-	command.Stdout = io.MultiWriter(os.Stdout, file, lineWriter)
-	command.Stderr = io.MultiWriter(os.Stderr, file)
+	command.Stdout = io.MultiWriter(os.Stdout, lineWriter)
+	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
-		file.Close()
 		return fmt.Errorf("启动 Browser Worker 失败：%w", err)
 	}
 	m.command = command
-	m.logFile = file
 	m.lineWriter = lineWriter
 	done := make(chan struct{})
 	m.done = done
-	go m.wait(command, file, lineWriter, done)
+	go m.wait(command, lineWriter, done)
 	if err := m.waitHealthy(ctx); err != nil {
 		_ = command.Process.Kill()
 		return err
@@ -129,10 +118,6 @@ func (m *Manager) Stop() error {
 	}
 	m.command = nil
 	m.done = nil
-	if m.logFile != nil {
-		_ = m.logFile.Close()
-		m.logFile = nil
-	}
 	return nil
 }
 
@@ -162,19 +147,17 @@ func (m *Manager) waitHealthy(ctx context.Context) error {
 	}
 }
 
-// wait 回收 Worker 进程并关闭对应日志。
-func (m *Manager) wait(command *exec.Cmd, file io.Closer, lineWriter *lineSinkWriter, done chan struct{}) {
+// wait 回收 Worker 进程并刷新尚未换行的统一日志。
+func (m *Manager) wait(command *exec.Cmd, lineWriter *lineSinkWriter, done chan struct{}) {
 	_ = command.Wait()
 	if lineWriter != nil {
 		lineWriter.Flush()
 	}
-	_ = file.Close()
 	close(done)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.command == command {
 		m.command = nil
-		m.logFile = nil
 		m.lineWriter = nil
 		m.done = nil
 	}

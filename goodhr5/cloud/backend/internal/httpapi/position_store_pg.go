@@ -295,6 +295,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		return Position{}, err
 	}
 
+	item.UserEmail = userEmail
 	_ = decodeStringArray(rawKeywords, &item.Keywords)
 	_ = decodeStringArray(rawExclude, &item.ExcludeKeywords)
 	_ = decodeObject(rawCommonConfig, &item.CommonConfig)

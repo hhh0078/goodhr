@@ -134,6 +134,15 @@ function parseSelectorGroup(
   if (typeof record.text === "string" && record.text.trim() !== "") {
     group.text = record.text.trim();
   }
+  if (Array.isArray(record.texts)) {
+    const texts = record.texts
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item !== "");
+    if (texts.length > 0) {
+      group.texts = texts;
+    }
+  }
   if (typeof record.exact_text === "boolean") {
     group.exact_text = record.exact_text;
   }

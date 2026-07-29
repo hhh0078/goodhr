@@ -13,7 +13,7 @@ import (
 
 // OpenCandidateDetail 打开指定猎聘猎头端候选人详情。
 func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	selector, err := common.CandidateScopedSelector(cfg, "candidate.open_target", candidate.Index)
+	selector, err := common.CandidateActionSelector(cfg, "candidate.open_target", candidate)
 	if err != nil {
 		return err
 	}

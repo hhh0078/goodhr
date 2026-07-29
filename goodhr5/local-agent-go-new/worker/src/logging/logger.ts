@@ -1,7 +1,10 @@
 // 文件作用说明：提供 Browser Worker 统一结构化日志并过滤 Cookie、Token 和代理密码等敏感字段。
 
 import type { ActionContext, JsonObject, JsonValue } from "../contracts/common.js";
-import { safeJsonValue } from "../errors/worker-error.js";
+import {
+  safeJsonValue,
+  type WorkerError,
+} from "../errors/worker-error.js";
 
 const sensitiveKeyPattern =
   /cookie|authorization|token|password|proxy.*(user|pass)|secret/i;
@@ -35,6 +38,8 @@ function sanitizeValue(value: JsonValue): JsonValue {
 
 /** WorkerLogger 输出统一 JSON 行日志。 */
 export class WorkerLogger {
+  private readonly recentFailures = new Map<string, number>();
+
   /** info 输出普通操作日志。 */
   info(
     context: ActionContext,
@@ -63,6 +68,29 @@ export class WorkerLogger {
     fields: JsonObject = {},
   ): void {
     this.write("error", context, step, status, fields);
+  }
+
+  /** failure 输出已经规范化的浏览器错误和中文说明。 */
+  failure(context: ActionContext, error: WorkerError): void {
+    const key = `${context.trace_id}|${context.action}|${error.step}|${error.code}|${error.message}`;
+    const now = Date.now();
+    const previous = this.recentFailures.get(key) ?? 0;
+    if (now - previous < 500) {
+      return;
+    }
+    this.recentFailures.set(key, now);
+    if (this.recentFailures.size > 200) {
+      for (const [item, timestamp] of this.recentFailures) {
+        if (now - timestamp > 10_000) {
+          this.recentFailures.delete(item);
+        }
+      }
+    }
+    this.write("error", context, error.step, "failed", {
+      ...error.details,
+      error_code: error.code,
+      error_message: error.message,
+    });
   }
 
   /** fromUnknown 把未知日志字段转换为安全 JSON 对象。 */

@@ -35,6 +35,7 @@ type Flow struct {
 
 type flowStep struct {
 	name     string
+	label    string
 	optional bool
 	run      func(context.Context) error
 }
@@ -49,20 +50,20 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		HLiepinShortcutSearchName: prepared.Position.CommonConfig.HLiepinShortcutSearchName,
 	}
 	steps := []flowStep{
-		{name: "start_browser", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
-		{name: "open_greeting_page", run: func(ctx context.Context) error {
+		{name: "start_browser", label: "启动增强浏览器", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
+		{name: "open_greeting_page", label: "打开打招呼页面", run: func(ctx context.Context) error {
 			return runtime.OpenGreetingPage(ctx, f.Browser, prepared.Platform)
 		}},
-		{name: "initialize_greeting_page", run: func(ctx context.Context) error {
+		{name: "initialize_greeting_page", label: "整理打招呼页面", run: func(ctx context.Context) error {
 			return runtime.InitializeGreetingPage(ctx, f.Browser, prepared.Platform)
 		}},
-		{name: "select_position", run: func(ctx context.Context) error {
+		{name: "select_position", label: "选择岗位", run: func(ctx context.Context) error {
 			return runtime.SelectPosition(ctx, f.Browser, prepared.Platform, position)
 		}},
-		{name: "apply_basic_filters", run: func(ctx context.Context) error {
+		{name: "apply_basic_filters", label: "应用基础筛选", run: func(ctx context.Context) error {
 			return runtime.ApplyBasicFilters(ctx, f.Browser, prepared.Platform, position)
 		}},
-		{name: "scan_decide_and_greet", run: func(ctx context.Context) error {
+		{name: "scan_decide_and_greet", label: "处理候选人并打招呼", run: func(ctx context.Context) error {
 			return f.processBatches(ctx, prepared, runtime, &stats)
 		}},
 	}
@@ -75,7 +76,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 				continue
 			}
 			f.log(prepared.Request.TaskID, step.name, "failed", startedAt, err)
-			return stats, fmt.Errorf("%s 失败：%w", step.name, err)
+			return stats, fmt.Errorf("%s没处理成功：%w", step.label, err)
 		}
 		f.log(prepared.Request.TaskID, step.name, "success", startedAt, nil)
 	}
@@ -157,37 +158,77 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				f.log(prepared.Request.TaskID, "sync_processed_resumes", "warning", time.Now(), err)
 			}
 		}
-		for _, candidate := range newCandidates {
+		previewCtx, cancelPreviews := context.WithCancel(ctx)
+		for item := range f.candidatePreviews(previewCtx, prepared, newCandidates) {
+			candidate := item.Candidate
 			if err := ctx.Err(); err != nil {
+				cancelPreviews()
 				return err
 			}
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
-			candidateErr := f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
+			candidateErr := item.Err
+			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
+				stats.Processed++
+				stats.Skipped++
+				f.log(
+					prepared.Request.TaskID,
+					"detail_precheck",
+					"skipped",
+					time.Now(),
+					fmt.Errorf(
+						"候选人“%s”基础评分 %.1f，暂不打开详情：%s",
+						candidate.Name,
+						item.Decision.Score,
+						item.Decision.Reason,
+					),
+				)
+				f.saveCandidate(
+					candidateCtx,
+					prepared,
+					candidate,
+					"detail_precheck",
+					"skipped",
+					item.Decision.Reason,
+				)
+			} else if candidateErr == nil {
+				if item.Decision != nil {
+					f.log(
+						prepared.Request.TaskID,
+						"detail_precheck",
+						"success",
+						time.Now(),
+						nil,
+					)
+				}
+				candidateErr = f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
+			}
 			cancelCandidate()
 			if restErr := rest.afterCandidate(ctx, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
+				cancelPreviews()
 				return restErr
 			}
 			if candidateErr != nil {
 				f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
 				if stopErr := errorPolicy.Record(candidateErr); stopErr != nil {
+					cancelPreviews()
 					return stopErr
 				}
 				continue
 			}
 			errorPolicy.Reset()
 			if prepared.Position.MatchLimit > 0 && stats.Succeeded >= prepared.Position.MatchLimit {
+				cancelPreviews()
 				return nil
 			}
 		}
+		cancelPreviews()
 		if batch+1 < maxBatches {
-			paged, err := runtime.NextCandidatePage(ctx, f.Browser, prepared.Platform)
+			advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates)
 			if err != nil {
 				return err
 			}
-			if !paged {
-				if err := runtime.ScrollCandidates(ctx, f.Browser, prepared.Platform); err != nil {
-					return err
-				}
+			if !advanced {
+				return nil
 			}
 			if err := waitRandomSeconds(
 				ctx, f.Logger, prepared.Request.TaskID, "after_scroll",
@@ -219,7 +260,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	if err := runtime.ScrollToCandidate(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "scroll_to_candidate", "failed", err.Error())
-		return fmt.Errorf("scroll_to_candidate：%w", err)
+		return fmt.Errorf("滚动到当前候选人失败：%w", err)
 	}
 	detail := model.CandidateDetail{}
 	detailOpened := false
@@ -238,7 +279,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if err := runtime.OpenCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "open_detail", "failed", err.Error())
-			return fmt.Errorf("open_detail：%w", err)
+			return fmt.Errorf("打开候选人详情失败：%w", err)
 		}
 		detailOpened = true
 		var err error
@@ -247,7 +288,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			if detailMode != "ai" {
 				stats.Failed++
 				f.saveCandidate(ctx, prepared, candidate, "detail", "failed", err.Error())
-				return fmt.Errorf("detail：%w", err)
+				return fmt.Errorf("读取候选人详情失败：%w", err)
 			}
 			f.log(prepared.Request.TaskID, "read_detail_text", "warning", time.Now(), err)
 		}
@@ -261,7 +302,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				}
 				stats.Failed++
 				f.saveCandidate(ctx, prepared, candidate, "ocr", "failed", err.Error())
-				return fmt.Errorf("ocr：%w", err)
+				return fmt.Errorf("识别候选人详情失败：%w", err)
 			}
 		}
 		if err := waitRandomSeconds(
@@ -297,6 +338,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 		var decision ai.Decision
 		var decisionErr error
+		decisionStartedAt := time.Now()
+		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
 		if detailMode == "ai" {
 			images, imageErr := f.readDetailImages(ctx, prepared, candidate)
 			if imageErr != nil {
@@ -312,10 +355,12 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			)
 		}
 		if decisionErr != nil {
+			f.log(prepared.Request.TaskID, "ai_decision", "failed", decisionStartedAt, decisionErr)
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "ai_decision", "failed", decisionErr.Error())
-			return fmt.Errorf("ai_decision：%w", decisionErr)
+			return fmt.Errorf("判断候选人匹配度失败：%w", decisionErr)
 		}
+		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
 		score = decision.Score
 		hasScore = true
@@ -331,7 +376,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if err := runtime.CloseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "close_detail", "failed", err.Error())
-			return fmt.Errorf("close_detail：%w", err)
+			return fmt.Errorf("关闭候选人详情失败：%w", err)
 		}
 		detailOpened = false
 	}
@@ -374,7 +419,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	}); err != nil {
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", err.Error())
-		return fmt.Errorf("greet：%w", err)
+		return fmt.Errorf("打招呼失败：%w", err)
 	}
 	if prepared.Position.EnableSound && f.Notifier != nil {
 		soundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

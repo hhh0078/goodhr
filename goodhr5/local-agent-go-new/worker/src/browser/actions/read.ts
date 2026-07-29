@@ -75,7 +75,7 @@ export class ReadAction {
         retryable: true,
         message: `${request.selector.description} 暂时没读到`,
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }

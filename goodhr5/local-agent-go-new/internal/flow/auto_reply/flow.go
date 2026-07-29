@@ -30,6 +30,7 @@ type Flow struct {
 
 type flowStep struct {
 	name     string
+	label    string
 	optional bool
 	run      func(context.Context) error
 }
@@ -38,14 +39,14 @@ type flowStep struct {
 func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
 	stats := shared.Stats{}
 	steps := []flowStep{
-		{name: "start_browser", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
-		{name: "open_message_page", run: func(ctx context.Context) error {
+		{name: "start_browser", label: "启动增强浏览器", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
+		{name: "open_message_page", label: "打开消息页面", run: func(ctx context.Context) error {
 			return runtime.OpenMessagesPage(ctx, f.Browser, prepared.Platform)
 		}},
-		{name: "initialize_message_page", run: func(ctx context.Context) error {
+		{name: "initialize_message_page", label: "整理消息页面", run: func(ctx context.Context) error {
 			return runtime.InitializeMessagesPage(ctx, f.Browser, prepared.Platform)
 		}},
-		{name: "scan_generate_and_reply", run: func(ctx context.Context) error {
+		{name: "scan_generate_and_reply", label: "读取消息并自动回复", run: func(ctx context.Context) error {
 			return f.processConversations(ctx, prepared, runtime, &stats)
 		}},
 	}
@@ -58,7 +59,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 				continue
 			}
 			f.log(prepared.Request.TaskID, step.name, "failed", startedAt, err)
-			return stats, fmt.Errorf("%s 失败：%w", step.name, err)
+			return stats, fmt.Errorf("%s没处理成功：%w", step.label, err)
 		}
 		f.log(prepared.Request.TaskID, step.name, "success", startedAt, nil)
 	}
@@ -131,27 +132,27 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
-		return fmt.Errorf("read_conversation：%w", err)
+		return fmt.Errorf("读取候选人消息失败：%w", err)
 	}
 	reply, err := f.AI.GenerateReply(ctx, prepared.Position.AI, prepared.Position, conversation, history)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "generate_reply", "failed", time.Now(), err)
-		return fmt.Errorf("generate_reply：%w", err)
+		return fmt.Errorf("生成回复失败：%w", err)
 	}
 	reply = strings.TrimSpace(reply)
 	if reply == "" || len([]rune(reply)) > 1000 {
 		stats.Failed++
 		err := fmt.Errorf("AI 回复为空或超过 1000 字")
 		f.log(prepared.Request.TaskID, "reply_safety_check", "failed", time.Now(), err)
-		return fmt.Errorf("reply_safety_check：%w", err)
+		return fmt.Errorf("检查回复内容失败：%w", err)
 	}
 	replyHash := hashReply(reply)
 	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.Key, replyHash)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "reply_duplicate_check", "failed", time.Now(), err)
-		return fmt.Errorf("reply_duplicate_check：%w", err)
+		return fmt.Errorf("检查重复回复失败：%w", err)
 	}
 	if exists {
 		stats.Skipped++
@@ -161,7 +162,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "send_reply", "failed", time.Now(), err)
 		f.saveConversation(ctx, prepared, conversation, replyHash, "failed")
-		return fmt.Errorf("send_reply：%w", err)
+		return fmt.Errorf("发送回复失败：%w", err)
 	}
 	stats.Succeeded++
 	f.saveConversation(ctx, prepared, conversation, replyHash, "success")

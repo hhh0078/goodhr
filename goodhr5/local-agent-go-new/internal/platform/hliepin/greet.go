@@ -22,7 +22,7 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
 		return err
 	}
-	greetSelector, err := common.CandidateScopedSelector(cfg, "candidate.greet", candidate.Index)
+	greetSelector, err := common.CandidateActionSelector(cfg, "candidate.greet", candidate)
 	if err != nil {
 		return err
 	}

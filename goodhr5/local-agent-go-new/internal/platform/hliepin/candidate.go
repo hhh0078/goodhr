@@ -44,14 +44,9 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
-// NextCandidatePage 尝试进入猎聘猎头端候选人下一页。
-func (r *Runtime) NextCandidatePage(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
-	return common.NextCandidatePage(ctx, browser, cfg)
-}
-
-// ScrollCandidates 通过真实滚轮加载更多猎聘猎头端候选人。
-func (r *Runtime) ScrollCandidates(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return common.ScrollCandidates(ctx, browser, cfg)
+// AdvanceCandidateList 通过公共下一页能力加载更多猎聘猎头端候选人。
+func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
+	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before)
 }
 
 // stableCandidateText 移除会随浏览和沟通变化的猎聘列表状态文字。

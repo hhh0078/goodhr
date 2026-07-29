@@ -2,7 +2,10 @@
 
 import type { ActionContext } from "../../contracts/common.js";
 import type { ElementView } from "../../contracts/selector.js";
-import { normalizeWorkerError } from "../../errors/worker-error.js";
+import {
+  normalizeWorkerError,
+  WorkerError,
+} from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import type { ResolvedElement } from "../primitives/locator.js";
@@ -35,28 +38,48 @@ export class MoveAction {
       if (box.width <= 0 || box.height <= 0) {
         throw new Error("元素没有有效位置");
       }
-      const paddingX = Math.min(box.width * 0.2, 16);
-      const paddingY = Math.min(box.height * 0.2, 12);
-      const safeWidth = Math.max(1, box.width - paddingX * 2);
-      const safeHeight = Math.max(1, box.height - paddingY * 2);
-      const minX = Math.max(1, box.x + paddingX);
-      const maxX = Math.min(
-        found.view.viewport.width - 1,
-        box.x + box.width - paddingX,
-      );
-      const minY = Math.max(1, box.y + paddingY);
-      const maxY = Math.min(
-        found.view.viewport.height - 1,
-        box.y + box.height - paddingY,
-      );
-      const x =
-        maxX > minX
-          ? minX + Math.random() * Math.min(safeWidth, maxX - minX)
-          : Math.max(1, Math.min(found.view.viewport.width - 1, box.x + box.width / 2));
-      const y =
-        maxY > minY
-          ? minY + Math.random() * Math.min(safeHeight, maxY - minY)
-          : Math.max(1, Math.min(found.view.viewport.height - 1, box.y + box.height / 2));
+      const viewport = found.view.viewport;
+      const visibleLeft = Math.max(1, box.x);
+      const visibleTop = Math.max(1, box.y);
+      const visibleRight = Math.min(viewport.width - 1, box.x + box.width);
+      const visibleBottom = Math.min(viewport.height - 1, box.y + box.height);
+      if (
+        viewport.width <= 2 ||
+        viewport.height <= 2 ||
+        visibleRight <= visibleLeft ||
+        visibleBottom <= visibleTop
+      ) {
+        throw new WorkerError({
+          code: "MOUSE_TARGET_OUTSIDE_VIEWPORT",
+          message: "目标没有位于浏览器窗口内，鼠标没有安全落点",
+          action: actionContext.action,
+          step,
+          trace_id: actionContext.trace_id,
+          retryable: true,
+          details: {
+            box: {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+            },
+            viewport: {
+              width: viewport.width,
+              height: viewport.height,
+            },
+          },
+        });
+      }
+      const visibleWidth = visibleRight - visibleLeft;
+      const visibleHeight = visibleBottom - visibleTop;
+      const paddingX = Math.min(16, box.width * 0.2, visibleWidth * 0.25);
+      const paddingY = Math.min(12, box.height * 0.2, visibleHeight * 0.25);
+      const minX = visibleLeft + paddingX;
+      const maxX = visibleRight - paddingX;
+      const minY = visibleTop + paddingY;
+      const maxY = visibleBottom - paddingY;
+      const x = randomBetween(minX, maxX);
+      const y = randomBetween(minY, maxY);
       const distance = Math.hypot(x, y);
       const steps = Math.max(6, Math.min(30, Math.round(distance / 45)));
       await this.mouse.move(found.page, x, y, steps);
@@ -76,7 +99,7 @@ export class MoveAction {
         trace_id: actionContext.trace_id,
         retryable: true,
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }
@@ -97,4 +120,12 @@ export class MoveAction {
       y: Math.round(y),
     });
   }
+}
+
+/** randomBetween 返回两个边界之间的随机坐标，边界相同时直接返回该位置。 */
+function randomBetween(minimum: number, maximum: number): number {
+  if (maximum <= minimum) {
+    return minimum;
+  }
+  return minimum + Math.random() * (maximum - minimum);
 }

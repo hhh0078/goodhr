@@ -182,6 +182,11 @@ export function parseElementFindAllRequest(
   if (Object.keys(fields).length > 0) {
     request.fields = fields;
   }
+  assignBoolean(
+    request,
+    "expected_missing",
+    optionalBoolean(record, "expected_missing"),
+  );
   return request;
 }
 

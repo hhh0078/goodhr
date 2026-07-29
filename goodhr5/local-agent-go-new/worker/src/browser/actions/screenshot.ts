@@ -83,7 +83,7 @@ export class ScreenshotAction {
         retryable: true,
         details: { filename },
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }
@@ -192,7 +192,7 @@ export class ScreenshotAction {
         retryable: true,
         details: { captured_parts: parts.length },
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }

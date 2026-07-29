@@ -15,9 +15,31 @@ type clickFailureBrowser struct {
 	model.Browser
 }
 
+type greetBrowser struct {
+	model.Browser
+	dialogOpened bool
+	clicked      []string
+	findRequests []contract.ElementFindAllRequest
+}
+
 // Click 模拟岗位入口元素找不到。
 func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
 	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
+}
+
+// Click 记录公共打招呼能力实际点击的目标。
+func (b *greetBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicked = append(b.clicked, request.Selector.Description)
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// FindAll 模拟招呼语弹框存在或不存在。
+func (b *greetBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	b.findRequests = append(b.findRequests, request)
+	if b.dialogOpened {
+		return []contract.FindAllItem{{Index: 0, Text: "选择招呼语"}}, nil
+	}
+	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 }
 
 // TestSelectPositionRequiresConfiguredOpenSelector 验证已配置的岗位入口找不到时会立即报错。
@@ -87,5 +109,65 @@ func TestCandidateFingerprint(t *testing.T) {
 	}
 	if value := CandidateFingerprint("boss", "范召", nil, "范召 本科 5年"); value != "" {
 		t.Fatalf("缺少年龄时不应生成稳定编号：%q", value)
+	}
+}
+
+// TestGreetCandidateSendsGreetingDialog 验证招呼语弹框出现后才会记录最终发送成功。
+func TestGreetCandidateSendsGreetingDialog(t *testing.T) {
+	browser := &greetBrowser{dialogOpened: true}
+	err := GreetCandidate(
+		context.Background(),
+		browser,
+		greetTestConfig(),
+		model.Candidate{Index: 0},
+		model.GreetRequest{},
+	)
+	if err != nil {
+		t.Fatalf("打招呼不应失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "候选人打招呼按钮,招呼语发送按钮" {
+		t.Fatalf("点击顺序不正确：%s", actual)
+	}
+	if len(browser.findRequests) != 1 || !browser.findRequests[0].ExpectedMissing {
+		t.Fatalf("弹框检查必须允许元素不存在：%+v", browser.findRequests)
+	}
+}
+
+// TestGreetCandidateSkipsMissingGreetingDialog 验证用户关闭招呼语弹框后可以直接继续处理候选人。
+func TestGreetCandidateSkipsMissingGreetingDialog(t *testing.T) {
+	browser := &greetBrowser{}
+	err := GreetCandidate(
+		context.Background(),
+		browser,
+		greetTestConfig(),
+		model.Candidate{Index: 0},
+		model.GreetRequest{},
+	)
+	if err != nil {
+		t.Fatalf("弹框不存在时不应失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "候选人打招呼按钮" {
+		t.Fatalf("弹框不存在时不应点击发送：%s", actual)
+	}
+}
+
+// greetTestConfig 返回公共打招呼弹框测试使用的最小平台配置。
+func greetTestConfig() model.Config {
+	selector := func(description string) contract.SelectorSpec {
+		return contract.SelectorSpec{
+			Target: contract.SelectorGroup{
+				Selectors: []contract.SelectorCandidate{{Type: "css", Value: "." + description}},
+			},
+			Description: description,
+		}
+	}
+	return model.Config{
+		ID: "test",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.item":         selector("候选人卡片"),
+			"candidate.greet":        selector("候选人打招呼按钮"),
+			"candidate.greet_dialog": selector("招呼语弹框"),
+			"candidate.greet_send":   selector("招呼语发送按钮"),
+		},
 	}
 }

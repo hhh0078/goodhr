@@ -5,11 +5,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"goodhr5/local-agent-go-new/internal/bootstrap"
 	"goodhr5/local-agent-go-new/internal/config"
 	"goodhr5/local-agent-go-new/internal/system/console"
-	"goodhr5/local-agent-go-new/internal/system/logfile"
 	"goodhr5/local-agent-go-new/internal/version"
 )
 
@@ -52,11 +49,8 @@ func main() {
 		}
 		return
 	}
-	logFile, err := setupFileLogger(cfg.LogsDir)
-	if err != nil {
-		log.Fatalf("初始化本地日志失败：%v", err)
-	}
-	defer logFile.Close()
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.SetOutput(os.Stderr)
 	application, err := bootstrap.New(cfg)
 	if err != nil {
 		log.Fatalf("初始化本地程序失败：%v", err)
@@ -66,17 +60,4 @@ func main() {
 	if err := application.Run(ctx); err != nil {
 		log.Fatalf("本地程序运行失败：%v", err)
 	}
-}
-
-// setupFileLogger 把主程序日志同时写到终端和自动轮转的本地日志文件。
-func setupFileLogger(logsDir string) (io.Closer, error) {
-	path := filepath.Join(logsDir, "local-agent.log")
-	file, err := logfile.Open(path, 10<<20, 3)
-	if err != nil {
-		return nil, err
-	}
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.SetOutput(io.MultiWriter(os.Stderr, file))
-	log.Printf("本地程序日志已启用：%s", path)
-	return file, nil
 }

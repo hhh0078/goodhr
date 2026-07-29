@@ -123,12 +123,7 @@ export class ClickAction {
         retryable: true,
         details: { target_description: request.selector.description },
       });
-      this.logger.error(
-        actionContext,
-        normalized.step,
-        "failed",
-        normalized.details,
-      );
+      this.logger.failure(actionContext, normalized);
       throw normalized;
     }
   }
@@ -211,7 +206,7 @@ export class ClickAction {
       return false;
     }
     try {
-      await this.find.one(selector, actionContext, false);
+        await this.find.one(selector, actionContext, false, false);
       return true;
     } catch (error) {
       if (

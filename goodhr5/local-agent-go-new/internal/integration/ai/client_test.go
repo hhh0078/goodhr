@@ -43,6 +43,24 @@ func TestEvaluateCandidateRetriesAndReadsStream(t *testing.T) {
 	}
 }
 
+// TestParseDecisionSupportsLegacyAnalysis 验证旧岗位提示词的 analysis 嵌套评分仍能正确判断。
+func TestParseDecisionSupportsLegacyAnalysis(t *testing.T) {
+	decision, err := parseDecision(`{"analysis":{"score":86,"reason":"经验和岗位匹配"}}`, 70)
+	if err != nil {
+		t.Fatalf("parseDecision() error = %v", err)
+	}
+	if !decision.Accepted || decision.Score != 86 || decision.Reason != "经验和岗位匹配" {
+		t.Fatalf("decision = %+v", decision)
+	}
+}
+
+// TestParseDecisionRejectsMissingScore 验证缺少评分字段时明确报错而不是静默按零分跳过。
+func TestParseDecisionRejectsMissingScore(t *testing.T) {
+	if _, err := parseDecision(`{"reason":"缺少评分"}`, 70); err == nil {
+		t.Fatal("缺少 score 时应该返回错误")
+	}
+}
+
 // TestUnauthorizedIsPositionStoppingError 验证鉴权错误会停止岗位任务。
 func TestUnauthorizedIsPositionStoppingError(t *testing.T) {
 	err := newHTTPServiceError(http.StatusUnauthorized, "bad key", "")

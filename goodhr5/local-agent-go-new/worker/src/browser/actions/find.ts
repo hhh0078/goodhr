@@ -42,6 +42,7 @@ export class FindAction {
     spec: SelectorSpec,
     actionContext: ActionContext,
     requireUnique = false,
+    logFailure = true,
   ): Promise<FoundElement> {
     const step = "find";
     this.logger.info(actionContext, step, "start", {
@@ -90,7 +91,9 @@ export class FindAction {
         retryable: true,
         details: { target_description: spec.description },
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      if (logFailure) {
+        this.logger.failure(actionContext, normalized);
+      }
       throw normalized;
     }
   }
@@ -101,13 +104,16 @@ export class FindAction {
     maxItems: number,
     fields: Record<string, SelectorSpec>,
     actionContext: ActionContext,
+    report = true,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
-    this.logger.info(actionContext, step, "start", {
-      target_description: spec.description,
-      max_items: maxItems,
-      field_count: Object.keys(fields).length,
-    });
+    if (report) {
+      this.logger.info(actionContext, step, "start", {
+        target_description: spec.description,
+        max_items: maxItems,
+        field_count: Object.keys(fields).length,
+      });
+    }
     try {
       const page = await this.session.requirePage(actionContext, step);
       const resolvedItems = await this.primitive.resolveAll(
@@ -144,9 +150,11 @@ export class FindAction {
           fields: values,
         });
       }
-      this.logger.info(actionContext, step, "success", {
-        count: items.length,
-      });
+      if (report) {
+        this.logger.info(actionContext, step, "success", {
+          count: items.length,
+        });
+      }
       return items;
     } catch (error) {
       const normalized = normalizeWorkerError(error, {
@@ -157,7 +165,9 @@ export class FindAction {
         trace_id: actionContext.trace_id,
         retryable: true,
       });
-      this.logger.error(actionContext, step, "failed", normalized.details);
+      if (report) {
+        this.logger.failure(actionContext, normalized);
+      }
       throw normalized;
     }
   }

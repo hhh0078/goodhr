@@ -15,6 +15,7 @@ export interface SelectorGroup {
   selectors: SelectorCandidate[];
   index?: number;
   text?: string;
+  texts?: string[];
   exact_text?: boolean;
   attributes?: Record<string, string>;
 }

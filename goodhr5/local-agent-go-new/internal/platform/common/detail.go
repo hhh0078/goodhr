@@ -12,11 +12,11 @@ import (
 
 // OpenCandidateDetail 点击候选人卡片内的详情入口。
 func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	selector, err := CandidateScopedSelector(cfg, "candidate.open_target", candidate.Index)
+	selector, err := CandidateActionSelector(cfg, "candidate.open_target", candidate)
 	if err != nil {
 		return err
 	}
-	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 48})
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 16})
 	return err
 }
 
@@ -91,7 +91,9 @@ func detailVisible(ctx context.Context, browser model.Browser, cfg model.Config)
 		return false, err
 	}
 	selector.TimeoutMS = 800
-	_, err = browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1})
+	_, err = browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+	})
 	if IsElementMissing(err) {
 		return false, nil
 	}
