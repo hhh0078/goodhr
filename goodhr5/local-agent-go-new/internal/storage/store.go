@@ -30,6 +30,9 @@ type TaskRun struct {
 	Status       string    `json:"status"`
 	CurrentStep  string    `json:"current_step"`
 	Summary      string    `json:"summary"`
+	ScannedCount int       `json:"scanned_count"`
+	GreetedCount int       `json:"greeted_count"`
+	SkippedCount int       `json:"skipped_count"`
 	ErrorCode    string    `json:"error_code"`
 	ErrorMessage string    `json:"error_message"`
 	StartedAt    time.Time `json:"started_at"`
@@ -179,6 +182,9 @@ func (s *Store) Task(ctx context.Context, taskID string) (TaskRun, error) {
 	task.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
 	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
 	task.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	if err = s.fillTaskCandidateCounts(ctx, &task); err != nil {
+		return TaskRun{}, err
+	}
 	return task, nil
 }
 
@@ -219,7 +225,30 @@ func (s *Store) LatestTaskForPosition(ctx context.Context, positionID string) (T
 	task.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
 	task.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
 	task.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	if err = s.fillTaskCandidateCounts(ctx, &task); err != nil {
+		return TaskRun{}, err
+	}
 	return task, nil
+}
+
+// fillTaskCandidateCounts 从已有候选人摘要计算本次任务的扫描、打招呼和跳过数量。
+func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) error {
+	if task == nil || strings.TrimSpace(task.TaskID) == "" {
+		return nil
+	}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(DISTINCT fingerprint),
+			COUNT(DISTINCT CASE WHEN action = 'greet' AND result = 'success' THEN fingerprint END),
+			COUNT(DISTINCT CASE WHEN result = 'skipped' THEN fingerprint END)
+		FROM candidate_records
+		WHERE task_id = ?`,
+		task.TaskID,
+	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
+	if err != nil {
+		return fmt.Errorf("统计本次任务候选人数量失败：%w", err)
+	}
+	return nil
 }
 
 // UpdateTaskStep 更新运行中任务的当前步骤。

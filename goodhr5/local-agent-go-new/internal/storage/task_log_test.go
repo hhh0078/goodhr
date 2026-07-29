@@ -143,3 +143,37 @@ func TestTaskLogsKeepLatestThousand(t *testing.T) {
 		t.Fatalf("岗位日志没有保留最近 1000 条：count=%d first=%s last=%s", len(logs), logs[0].Message, logs[len(logs)-1].Message)
 	}
 }
+
+// TestLatestTaskIncludesCandidateCounts 验证最近任务会从现有候选人摘要返回本次统计。
+func TestLatestTaskIncludesCandidateCounts(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败：%v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err = store.SaveTask(ctx, TaskRun{
+		TaskID: "task-counts", PositionID: "position-counts", PlatformID: "zhaopin",
+		TaskType: "greeting", Status: "completed",
+	}); err != nil {
+		t.Fatalf("保存任务失败：%v", err)
+	}
+	records := []CandidateRecord{
+		{TaskID: "task-counts", Fingerprint: "candidate-1", PlatformID: "zhaopin", Action: "detail", Result: "success"},
+		{TaskID: "task-counts", Fingerprint: "candidate-1", PlatformID: "zhaopin", Action: "greet", Result: "success"},
+		{TaskID: "task-counts", Fingerprint: "candidate-2", PlatformID: "zhaopin", Action: "decision", Result: "skipped"},
+		{TaskID: "task-counts", Fingerprint: "candidate-3", PlatformID: "zhaopin", Action: "detail", Result: "failed"},
+	}
+	for _, record := range records {
+		if err = store.SaveCandidate(ctx, record); err != nil {
+			t.Fatalf("保存候选人摘要失败：%v", err)
+		}
+	}
+	task, err := store.LatestTaskForPosition(ctx, "position-counts")
+	if err != nil {
+		t.Fatalf("读取最近任务失败：%v", err)
+	}
+	if task.ScannedCount != 3 || task.GreetedCount != 1 || task.SkippedCount != 1 {
+		t.Fatalf("本次任务统计不正确：%+v", task)
+	}
+}

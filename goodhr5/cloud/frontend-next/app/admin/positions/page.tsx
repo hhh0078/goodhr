@@ -57,6 +57,12 @@ const ALL_LOG_LIMIT = 1000;
 
 type PositionForm = ReturnType<typeof createEmptyForm>;
 
+type PositionTaskStats = {
+  scanned_count: number;
+  greeted_count: number;
+  skipped_count: number;
+};
+
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
@@ -69,6 +75,9 @@ export default function PositionsPage() {
   const [busyPositionID, setBusyPositionID] = useState("");
   const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
   const [logs, setLogs] = useState<Record<string, any[]>>({});
+  const [latestTaskStats, setLatestTaskStats] = useState<
+    Record<string, PositionTaskStats>
+  >({});
   const [logLoadingPositionID, setLogLoadingPositionID] = useState("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
@@ -120,6 +129,11 @@ export default function PositionsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!agentBase || items.length === 0) return;
+    void loadLatestTaskStats(items);
+  }, [agentBase, items.map((item) => item.id).join(",")]);
 
   useEffect(() => {
     const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
@@ -451,6 +465,12 @@ export default function PositionsPage() {
       const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${LOG_LIMIT}`);
       setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
       const task = data.task;
+      if (task) {
+        setLatestTaskStats((current) => ({
+          ...current,
+          [item.id]: normalizePositionTaskStats(task),
+        }));
+      }
       const taskStatus = String(task?.status || "").trim();
       if (taskStatus) {
         setItems((current) => {
@@ -483,6 +503,26 @@ export default function PositionsPage() {
     } finally {
       if (!options.silent) setLogLoadingPositionID("");
     }
+  }
+
+  /** loadLatestTaskStats 读取各岗位最近一次本地任务统计。 */
+  async function loadLatestTaskStats(positionItems: any[]) {
+    if (!agentBase) return;
+    const next: Record<string, PositionTaskStats> = {};
+    await Promise.all(
+      positionItems.map(async (item) => {
+        try {
+          const task = await localRequest(
+            agentBase,
+            `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
+          );
+          next[item.id] = normalizePositionTaskStats(task);
+        } catch {
+          // 没有本地任务记录时保留零值，不能影响岗位列表加载。
+        }
+      }),
+    );
+    setLatestTaskStats(next);
   }
 
   /** clearPositionLogs 二次确认后清空指定岗位保存在本地程序中的日志。 */
@@ -709,7 +749,11 @@ export default function PositionsPage() {
                 </Stack>
               </Stack>
               <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
-                累计扫描 {item.scanned_count || 0} · 打招呼 {item.greeted_count || 0} · 跳过 {item.skipped_count || 0} · 失败 {item.failed_count || 0}
+                总计 {item.greeted_count || 0} · 今日{" "}
+                {item.today_greeted_count || 0} · 本次（扫描{" "}
+                {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
+                {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
+                {latestTaskStats[item.id]?.skipped_count || 0}）
               </Typography>
               <Collapse in={expandedLogPositionID === item.id}>
                 <PositionLogPanel
@@ -1866,6 +1910,15 @@ function splitKeywords(value: string) {
 /** detailModeLabel 返回详情模式中文名称。 */
 function detailModeLabel(value: string) {
   return value === "dom" ? "DOM识别" : value === "ai" ? "AI识别" : "OCR识别";
+}
+
+/** normalizePositionTaskStats 把本地最近任务统计转换成安全的非负整数。 */
+function normalizePositionTaskStats(task: any): PositionTaskStats {
+  return {
+    scanned_count: Math.max(0, Number(task?.scanned_count) || 0),
+    greeted_count: Math.max(0, Number(task?.greeted_count) || 0),
+    skipped_count: Math.max(0, Number(task?.skipped_count) || 0),
+  };
 }
 
 /** PositionSwitchOption 展示岗位布尔开关及面向普通用户的通俗说明。 */
