@@ -23,4 +23,9 @@ export class ReadPrimitive {
   async inputValue(locator: Locator): Promise<string> {
     return locator.inputValue();
   }
+
+  /** editableValue 兼容读取普通输入框和富文本编辑器的当前文字。 */
+  async editableValue(locator: Locator): Promise<string> {
+    return this.inputValue(locator).catch(() => this.text(locator));
+  }
 }

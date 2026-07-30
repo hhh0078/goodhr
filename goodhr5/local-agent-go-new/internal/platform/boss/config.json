@@ -389,6 +389,46 @@
       "timeout_ms": 3000,
       "description": "Boss关闭候选人聊天框"
     },
+    "candidate.followup_input": {
+      "_comment": "Boss 当前候选人聊天框内的追加消息输入框。",
+      "parents": [
+        {
+          "_comment": "限定在当前全局聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天编辑器可输入区域。",
+        "selectors": [
+          { "_comment": "Boss 当前聊天框唯一的可编辑输入区域。", "type": "css", "value": ".bosschat-chat-input.chat-global-message.boss-chat-editor-input[contenteditable='true']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "Boss聊天消息输入框"
+    },
+    "candidate.followup_send": {
+      "_comment": "Boss 当前候选人聊天框内的可用发送按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前全局聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "输入消息后才会变为可用的发送按钮。",
+        "selectors": [
+          { "_comment": "排除尚未输入内容时的禁用按钮。", "type": "css", "value": ".btn-send:not(.btn-disabled)" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 5000,
+      "description": "Boss发送聊天消息"
+    },
     "candidate.request_phone": {
       "_comment": "聊天框内可用的索要手机号按钮；候选人未回复时按钮会被禁用。",
       "parents": [

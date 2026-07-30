@@ -75,9 +75,7 @@ export class InputAction {
       );
       let verified = true;
       if (request.verify ?? true) {
-        const actual = await this.read
-          .inputValue(found.resolved.locator)
-          .catch(() => "");
+        const actual = await this.read.editableValue(found.resolved.locator);
         verified = actual === request.text;
         if (!verified) {
           throw new Error("输入后的内容没有通过验证");

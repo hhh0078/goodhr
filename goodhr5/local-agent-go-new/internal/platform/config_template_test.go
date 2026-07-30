@@ -76,6 +76,24 @@ func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
 	}
 }
 
+// TestLoadConfigIncludesBossConversationMessageSelectors 验证 Boss 首次招呼语复用当前聊天框的输入和发送控件。
+func TestLoadConfigIncludesBossConversationMessageSelectors(t *testing.T) {
+	cfg, err := LoadConfig("boss")
+	if err != nil {
+		t.Fatalf("读取 Boss 本地配置失败：%v", err)
+	}
+	input := cfg.Selectors["candidate.followup_input"]
+	send := cfg.Selectors["candidate.followup_send"]
+	if len(input.Target.Selectors) != 1 ||
+		input.Target.Selectors[0].Value != ".bosschat-chat-input.chat-global-message.boss-chat-editor-input[contenteditable='true']" {
+		t.Fatalf("Boss 聊天输入框选择器没有保持为当前可编辑区域：%+v", input.Target.Selectors)
+	}
+	if len(send.Target.Selectors) != 1 ||
+		send.Target.Selectors[0].Value != ".btn-send:not(.btn-disabled)" {
+		t.Fatalf("Boss 发送按钮选择器没有排除禁用状态：%+v", send.Target.Selectors)
+	}
+}
+
 // TestLoadConfigUsesUniqueHLiepinCandidateRows 验证猎聘猎头端直接定位候选人行，不再依赖页面里多个 tbody。
 func TestLoadConfigUsesUniqueHLiepinCandidateRows(t *testing.T) {
 	cfg, err := LoadConfig("hliepin")
