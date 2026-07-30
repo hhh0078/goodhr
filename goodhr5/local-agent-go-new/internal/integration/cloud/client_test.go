@@ -195,3 +195,21 @@ func TestSavePositionCandidateUsesStructuredEndpoint(t *testing.T) {
 		t.Fatalf("同步结构化候选人失败：%v", err)
 	}
 }
+
+// TestNormalizePositionKeepsGreetingBatchesUnlimitedByDefault 验证未配置扫描批数时不会偷偷限制为三批。
+func TestNormalizePositionKeepsGreetingBatchesUnlimitedByDefault(t *testing.T) {
+	position := normalizePosition(PositionSnapshot{})
+	if position.MaxBatches != 0 {
+		t.Fatalf("未配置扫描批数时应持续加载，实际批数上限为 %d", position.MaxBatches)
+	}
+}
+
+// TestNormalizePositionHonorsConfiguredScanRounds 验证明确配置的扫描轮数仍会生效。
+func TestNormalizePositionHonorsConfiguredScanRounds(t *testing.T) {
+	position := normalizePosition(PositionSnapshot{
+		CommonConfig: PositionCommonConfig{ScanRounds: 5},
+	})
+	if position.MaxBatches != 5 {
+		t.Fatalf("配置扫描轮数没有生效：%d", position.MaxBatches)
+	}
+}

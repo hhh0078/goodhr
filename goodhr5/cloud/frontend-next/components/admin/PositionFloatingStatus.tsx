@@ -4,7 +4,11 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
-export type PositionFloatingStatusValue = "running" | "stopped";
+export type PositionFloatingStatusValue =
+  | "running"
+  | "completed"
+  | "stopped"
+  | "failed";
 
 export type PositionAnalysisStatus = {
   kind: "ai" | "keyword";
@@ -40,6 +44,32 @@ type DocumentPictureInPictureAPI = {
     width?: number;
     height?: number;
   }) => Promise<Window>;
+};
+
+const STATUS_PRESENTATION: Record<
+  PositionFloatingStatusValue,
+  { background: string; label: string; step: string }
+> = {
+  running: {
+    background: "#2f7d54",
+    label: "运行中",
+    step: "正在准备下一步",
+  },
+  completed: {
+    background: "#3f6f5b",
+    label: "已完成",
+    step: "这轮候选人已经处理完成",
+  },
+  stopped: {
+    background: "#b34343",
+    label: "已停止",
+    step: "任务已按你的要求停止",
+  },
+  failed: {
+    background: "#8f2f2f",
+    label: "运行失败",
+    step: "这次没跑顺，请回岗位日志看看原因",
+  },
 };
 
 /**
@@ -151,8 +181,9 @@ export default function PositionFloatingStatus({
   if (!pipWindow || pipWindow.closed) return null;
 
   const isRunning = status === "running";
-  const background = isRunning ? "#2f7d54" : "#b34343";
-  const step = isRunning ? currentStep || "正在准备下一步" : "任务已停止";
+  const presentation = STATUS_PRESENTATION[status];
+  const background = presentation.background;
+  const step = isRunning ? currentStep || presentation.step : presentation.step;
   const acceptedLabel =
     analysis?.accepted === undefined
       ? ""
@@ -211,7 +242,7 @@ export default function PositionFloatingStatus({
               fontSize: 13,
             }}
           >
-            {isRunning ? "运行中" : "已停止"}
+            {presentation.label}
           </strong>
         </div>
 

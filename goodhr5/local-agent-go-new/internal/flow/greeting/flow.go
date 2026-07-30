@@ -120,13 +120,10 @@ func (f *Flow) extensionPaths() []string {
 // processBatches 按配置批次扫描、判断和处理候选人。
 func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, stats *shared.Stats) error {
 	maxBatches := prepared.Position.MaxBatches
-	if maxBatches <= 0 {
-		maxBatches = 1
-	}
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	seen := make(map[string]struct{})
 	rest := newRestSchedule(prepared.Preferences)
-	for batch := 0; batch < maxBatches; batch++ {
+	for batch := 0; ; batch++ {
 		if shared.GracefulStopRequested(ctx) {
 			return nil
 		}
@@ -147,6 +144,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			return err
 		}
 		if len(candidates) == 0 {
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "当前页面已经没有候选人，这轮任务完成了")
 			return nil
 		}
 		newCandidates := make([]model.Candidate, 0, len(candidates))
@@ -286,6 +284,11 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			if prepared.Position.MatchLimit > 0 && stats.Succeeded >= prepared.Position.MatchLimit {
 				cancelPreviews()
+				shared.ReportProgress(
+					f.Logger,
+					prepared.Request.TaskID,
+					fmt.Sprintf("本次已打招呼 %d 人，达到岗位上限，任务完成了", stats.Succeeded),
+				)
 				return nil
 			}
 		}
@@ -293,23 +296,39 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		if shared.GracefulStopRequested(ctx) {
 			return nil
 		}
-		if batch+1 < maxBatches {
-			advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates)
-			if err != nil {
-				return err
-			}
-			if !advanced {
-				return nil
-			}
-			if err := waitRandomSeconds(
-				ctx, f.Logger, prepared.Request.TaskID, "after_scroll",
-				float64(prepared.Preferences.ScrollDelayMin), float64(prepared.Preferences.ScrollDelayMax),
-			); err != nil {
-				return err
-			}
+		if candidateBatchLimitReached(maxBatches, batch+1) {
+			shared.ReportProgress(
+				f.Logger,
+				prepared.Request.TaskID,
+				fmt.Sprintf("已处理配置的 %d 批候选人，这轮任务完成了", maxBatches),
+			)
+			return nil
+		}
+		shared.ReportProgress(
+			f.Logger,
+			prepared.Request.TaskID,
+			fmt.Sprintf("第 %d 批处理完了，正在加载更多候选人", batch+1),
+		)
+		advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates)
+		if err != nil {
+			return err
+		}
+		if !advanced {
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "平台已经没有更多候选人，这轮任务完成了")
+			return nil
+		}
+		if err := waitRandomSeconds(
+			ctx, f.Logger, prepared.Request.TaskID, "after_scroll",
+			float64(prepared.Preferences.ScrollDelayMin), float64(prepared.Preferences.ScrollDelayMax),
+		); err != nil {
+			return err
 		}
 	}
-	return nil
+}
+
+// candidateBatchLimitReached 判断明确配置的候选人批数是否已经处理完，零值表示不限制批数。
+func candidateBatchLimitReached(maxBatches int, completedBatches int) bool {
+	return maxBatches > 0 && completedBatches >= maxBatches
 }
 
 // processCandidate 平铺执行基础过滤、详情、OCR、AI、打招呼、关闭详情和保存结果。

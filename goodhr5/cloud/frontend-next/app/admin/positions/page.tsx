@@ -60,6 +60,20 @@ const LOG_REFRESH_MS = 3000;
 const LOG_LIMIT = 100;
 const ALL_LOG_LIMIT = 1000;
 
+/** normalizeFloatingTaskStatus 把本地任务状态转换为置顶小窗支持的明确状态。 */
+function normalizeFloatingTaskStatus(value: unknown): PositionFloatingStatusValue {
+  const status = String(value || "").trim().toLowerCase();
+  if (
+    status === "running" ||
+    status === "completed" ||
+    status === "stopped" ||
+    status === "failed"
+  ) {
+    return status;
+  }
+  return "stopped";
+}
+
 type PositionForm = ReturnType<typeof createEmptyForm>;
 
 type PositionTaskStats = {
@@ -178,10 +192,7 @@ export default function PositionsPage() {
           `/api/v1/local/positions/${encodeURIComponent(positionID)}/status`,
         );
         if (disposed) return;
-        const status: PositionFloatingStatusValue =
-          String(task?.status || "").trim().toLowerCase() === "running"
-            ? "running"
-            : "stopped";
+        const status = normalizeFloatingTaskStatus(task?.status);
         setFloatingPositionTask((current) =>
           current && current.id === positionID
             ? {

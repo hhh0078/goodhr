@@ -45,3 +45,16 @@ func TestOrderCandidatePreviewsDoesNotWaitForWholeBatch(t *testing.T) {
 	}
 	close(results)
 }
+
+// TestCandidateBatchLimitReached 验证默认无限加载，同时保留明确配置的批数上限。
+func TestCandidateBatchLimitReached(t *testing.T) {
+	if candidateBatchLimitReached(0, 3) {
+		t.Fatal("未配置批数时不应在第三批自动结束")
+	}
+	if candidateBatchLimitReached(5, 4) {
+		t.Fatal("明确配置五批时不应提前结束")
+	}
+	if !candidateBatchLimitReached(5, 5) {
+		t.Fatal("明确配置五批时应在第五批完成后结束")
+	}
+}

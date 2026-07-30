@@ -360,9 +360,6 @@ func normalizePosition(position PositionSnapshot) PositionSnapshot {
 	if position.MaxBatches <= 0 {
 		position.MaxBatches = position.CommonConfig.ScanRounds
 	}
-	if position.MaxBatches <= 0 {
-		position.MaxBatches = 3
-	}
 	mode := strings.ToLower(strings.TrimSpace(position.CommonConfig.ModeDefault))
 	detailMode := strings.ToLower(strings.TrimSpace(position.CommonConfig.DetailMode))
 	position.RequiresOCR = position.RequiresOCR || detailMode == "ocr"
