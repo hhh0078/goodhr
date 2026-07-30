@@ -127,7 +127,7 @@ func normalizeGreetingJob(value string) string {
 
 // closeGreetModalIfPresent 只关闭遗留的猎聘开聊弹框。
 func closeGreetModalIfPresent(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	exists, err := common.SelectorExists(ctx, browser, cfg, "candidate.greet_modal")
+	exists, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
 	if err != nil || !exists {
 		return err
 	}
@@ -143,19 +143,14 @@ func closeCandidatePanels(ctx context.Context, browser model.Browser, cfg model.
 	steps := []struct {
 		panel string
 		close string
+		label string
 	}{
-		{panel: "candidate.chat_modal", close: "candidate.chat_close"},
-		{panel: "candidate.contact_drawer", close: "candidate.contact_drawer_close"},
+		{panel: "candidate.chat_modal", close: "candidate.chat_close", label: "猎聘候选人聊天框"},
+		{panel: "candidate.contact_drawer", close: "candidate.contact_drawer_close", label: "猎聘联系人列表"},
 	}
 	for _, step := range steps {
-		exists, err := common.SelectorExists(ctx, browser, cfg, step.panel)
-		if err != nil {
-			return err
-		}
-		if exists {
-			if err = common.ClickRequired(ctx, browser, cfg, step.close); err != nil {
-				return fmt.Errorf("关闭猎聘遗留弹层失败：%w", err)
-			}
+		if err := common.CloseOptionalPanel(ctx, browser, cfg, step.panel, step.close, step.label); err != nil {
+			return fmt.Errorf("关闭猎聘遗留弹层失败：%w", err)
 		}
 	}
 	return nil

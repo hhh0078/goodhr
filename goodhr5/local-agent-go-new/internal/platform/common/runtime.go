@@ -91,6 +91,23 @@ func ClickOptional(ctx context.Context, browser model.Browser, cfg model.Config,
 	return err
 }
 
+// ClickOptionalQuick 只短暂探测并点击即时可选弹层，避免弹层本就不存在时白等完整超时。
+func ClickOptionalQuick(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
+	selector, ok := cfg.Selectors[key]
+	if !ok || len(selector.Target.Selectors) == 0 {
+		return nil
+	}
+	exists, err := ProbeSelectorExists(ctx, browser, cfg, key)
+	if err != nil || !exists {
+		return err
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector})
+	if IsElementMissing(err) {
+		return nil
+	}
+	return err
+}
+
 // InputRequired 使用 Worker 完整输入能力写入必需输入框。
 func InputRequired(ctx context.Context, browser model.Browser, cfg model.Config, key string, value string) error {
 	selector, err := RequiredSelector(cfg, key)
@@ -214,9 +231,22 @@ func ReadOptional(ctx context.Context, browser model.Browser, cfg model.Config, 
 
 // SelectorExists 判断可选选择器当前是否存在且符合配置状态。
 func SelectorExists(ctx context.Context, browser model.Browser, cfg model.Config, key string) (bool, error) {
+	return selectorExists(ctx, browser, cfg, key, 0)
+}
+
+// ProbeSelectorExists 使用短超时探测可选元素，避免“本来就可能不存在”的页面状态白等数秒。
+func ProbeSelectorExists(ctx context.Context, browser model.Browser, cfg model.Config, key string) (bool, error) {
+	return selectorExists(ctx, browser, cfg, key, 600)
+}
+
+// selectorExists 使用指定超时判断选择器是否存在，timeoutMS 为零时保留平台配置。
+func selectorExists(ctx context.Context, browser model.Browser, cfg model.Config, key string, timeoutMS int) (bool, error) {
 	selector, ok := cfg.Selectors[key]
 	if !ok || len(selector.Target.Selectors) == 0 {
 		return false, nil
+	}
+	if timeoutMS > 0 && (selector.TimeoutMS <= 0 || selector.TimeoutMS > timeoutMS) {
+		selector.TimeoutMS = timeoutMS
 	}
 	_, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: 1, ExpectedMissing: true,
@@ -225,6 +255,56 @@ func SelectorExists(ctx context.Context, browser model.Browser, cfg model.Config
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// CloseOptionalPanel 点击关闭可选弹层并确认弹层消失，点击无效时再用 Escape 收尾。
+func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Config, panelKey string, closeKey string, label string) error {
+	opened, err := ProbeSelectorExists(ctx, browser, cfg, panelKey)
+	if err != nil || !opened {
+		return err
+	}
+	panel, err := RequiredSelector(cfg, panelKey)
+	if err != nil {
+		return err
+	}
+	closeSelector, err := RequiredSelector(cfg, closeKey)
+	if err != nil {
+		return err
+	}
+	panel.TimeoutMS = 200
+	_, clickErr := browser.Click(ctx, contract.ElementClickRequest{
+		Selector: closeSelector,
+		Verify: &contract.ClickVerification{
+			TargetHidden: &panel,
+			TimeoutMS:    1800,
+		},
+	})
+	if clickErr == nil {
+		return nil
+	}
+	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
+		return fmt.Errorf("%s没关好，点击关闭失败：%v；按 Escape 也失败：%w", label, clickErr, err)
+	}
+	opened, err = ProbeSelectorExists(ctx, browser, cfg, panelKey)
+	if err != nil {
+		return err
+	}
+	if opened {
+		return fmt.Errorf("%s仍然没有关闭：%w", label, clickErr)
+	}
+	return nil
+}
+
+// CloseCandidateChat 可靠关闭各平台共用的候选人聊天框。
+func CloseCandidateChat(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	return CloseOptionalPanel(
+		ctx,
+		browser,
+		cfg,
+		"candidate.chat_modal",
+		"candidate.chat_close",
+		cfg.Name+"候选人聊天框",
+	)
 }
 
 // ScrollToCandidate 使用真实鼠标滚轮把指定候选人滚动到可操作区域。
@@ -257,7 +337,7 @@ func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config
 	if err = ClickOptional(ctx, browser, cfg, "candidate.greet_continue"); err != nil {
 		return err
 	}
-	if err = ClickOptional(ctx, browser, cfg, "candidate.greet_confirm"); err != nil {
+	if err = ClickOptionalQuick(ctx, browser, cfg, "candidate.greet_confirm"); err != nil {
 		return err
 	}
 	if err = InputOptional(ctx, browser, cfg, "candidate.greet_input", request.Message); err != nil {
@@ -325,7 +405,7 @@ func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg 
 	if !request.RequestPhone && !request.RequestWechat && !request.RequestResume && strings.TrimSpace(request.Message) == "" {
 		return nil
 	}
-	opened, err := SelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+	opened, err := ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
 	if err != nil {
 		return err
 	}
@@ -335,7 +415,7 @@ func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg 
 			return matchErr
 		}
 		if !matches {
-			if err = ClickOptional(ctx, browser, cfg, "candidate.chat_close"); err != nil {
+			if err = CloseCandidateChat(ctx, browser, cfg); err != nil {
 				return fmt.Errorf("关闭%s其他候选人的聊天框失败：%w", cfg.Name, err)
 			}
 			opened = false
@@ -376,7 +456,7 @@ func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg 
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 		defer cancel()
-		if err := ClickOptional(cleanupCtx, browser, cfg, "candidate.chat_close"); err != nil && resultErr == nil {
+		if err := CloseCandidateChat(cleanupCtx, browser, cfg); err != nil && resultErr == nil {
 			resultErr = fmt.Errorf("关闭%s候选人聊天框失败：%w", cfg.Name, err)
 		}
 	}()

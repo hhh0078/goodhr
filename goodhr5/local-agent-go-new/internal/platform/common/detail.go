@@ -75,26 +75,45 @@ func BrowseCandidateDetail(ctx context.Context, browser model.Browser, cfg model
 
 // CloseCandidateDetail 关闭详情后检查正文是否消失，必要时再按一次 Escape。
 func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	if _, ok := cfg.Selectors["candidate.detail_close"]; ok {
-		if err := ClickRequired(ctx, browser, cfg, "candidate.detail_close"); err != nil {
-			return err
-		}
-	} else {
-		_, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
+	detail, err := RequiredSelector(cfg, "candidate.detail")
+	if err != nil {
 		return err
 	}
-	visible, err := detailVisible(ctx, browser, cfg)
-	if err != nil || !visible {
+	detail.TimeoutMS = 200
+	var clickErr error
+	if _, ok := cfg.Selectors["candidate.detail_close"]; ok {
+		closeSelector, selectorErr := RequiredSelector(cfg, "candidate.detail_close")
+		if selectorErr != nil {
+			return selectorErr
+		}
+		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{
+			Selector: closeSelector,
+			Verify: &contract.ClickVerification{
+				TargetHidden: &detail,
+				TimeoutMS:    2000,
+			},
+		})
+		if clickErr == nil {
+			return nil
+		}
+	} else {
+		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 		return err
 	}
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
+		if clickErr != nil {
+			return fmt.Errorf("关闭详情按钮没有生效：%v；按 Escape 也失败：%w", clickErr, err)
+		}
 		return err
 	}
-	visible, err = detailVisible(ctx, browser, cfg)
+	visible, err := detailVisible(ctx, browser, cfg)
 	if err != nil {
 		return err
 	}
 	if visible {
+		if clickErr != nil {
+			return fmt.Errorf("平台 %s 的候选人详情仍未关闭：%w", cfg.ID, clickErr)
+		}
 		return fmt.Errorf("平台 %s 的候选人详情仍未关闭", cfg.ID)
 	}
 	return nil

@@ -43,6 +43,18 @@ type Logger interface {
 	Step(taskID string, flow string, step string, status string, startedAt time.Time, err error)
 }
 
+// ProgressLogger 定义可向悬浮窗和用户日志写入实时中文进度的日志能力。
+type ProgressLogger interface {
+	Progress(taskID string, message string)
+}
+
+// ReportProgress 在当前日志器支持实时进度时更新任务状态，不影响普通日志器。
+func ReportProgress(logger Logger, taskID string, message string) {
+	if progress, ok := logger.(ProgressLogger); ok {
+		progress.Progress(taskID, message)
+	}
+}
+
 // StandardLogger 使用 Go 标准日志输出步骤状态。
 type StandardLogger struct{}
 

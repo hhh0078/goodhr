@@ -30,9 +30,7 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 		l.next.Step(taskID, flow, step, status, startedAt, err)
 	}
 	if l.store != nil && status == "start" {
-		if updateErr := l.store.UpdateTaskStep(context.Background(), taskID, userStepLabel(step)); updateErr != nil {
-			log.Printf("task_id=%s flow=lifecycle step=update_task_step status=warning error=%q", taskID, updateErr)
-		}
+		l.updateCurrentStep(taskID, userStepLabel(step))
 	}
 	if l.store != nil {
 		message := taskLogMessage(step, status, err)
@@ -42,6 +40,31 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 		}); saveErr != nil {
 			log.Printf("task_id=%s flow=lifecycle step=save_task_log status=warning error=%q", taskID, saveErr)
 		}
+	}
+}
+
+// Progress 把具体中文进度同时写入当前任务状态和用户可见日志。
+func (l *TaskLogger) Progress(taskID string, message string) {
+	message = strings.TrimSpace(message)
+	if l == nil || l.store == nil || message == "" {
+		return
+	}
+	l.updateCurrentStep(taskID, message)
+	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+		TaskID: taskID, Flow: "progress", Step: "progress", Status: "running",
+		Message: message,
+	}); err != nil {
+		log.Printf("task_id=%s flow=lifecycle step=save_progress status=warning error=%q", taskID, err)
+	}
+}
+
+// updateCurrentStep 更新悬浮窗读取的当前任务步骤。
+func (l *TaskLogger) updateCurrentStep(taskID string, message string) {
+	if l == nil || l.store == nil || strings.TrimSpace(message) == "" {
+		return
+	}
+	if err := l.store.UpdateTaskStep(context.Background(), taskID, message); err != nil {
+		log.Printf("task_id=%s flow=lifecycle step=update_task_step status=warning error=%q", taskID, err)
 	}
 }
 
@@ -91,6 +114,9 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 		return
 	}
 	message := workerLogMessage(item)
+	if strings.EqualFold(item.Status, "start") {
+		l.updateCurrentStep(item.TraceID, workerCurrentStep(item))
+	}
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 		TaskID: item.TraceID, Flow: "browser_worker", Step: item.Step,
 		Status: item.Status, Level: item.Level, Message: message,
@@ -98,6 +124,16 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	}); err != nil {
 		log.Printf("task_id=%s flow=browser_worker step=save_log status=warning error=%q", item.TraceID, err)
 	}
+}
+
+// workerCurrentStep 把 Worker 封装动作转换成悬浮窗使用的简短中文状态。
+func workerCurrentStep(item workerLogLine) string {
+	label := workerActionLabel(item.Action)
+	target := strings.TrimSpace(item.TargetDescription)
+	if target != "" && !strings.Contains(label, target) {
+		label += "“" + target + "”"
+	}
+	return "正在" + label
 }
 
 // taskLogMessage 把流程步骤和状态转换成短中文用户文案。
@@ -166,7 +202,7 @@ func userStepLabel(step string) string {
 		"read_detail_text":           "读取候选人详情",
 		"browse_candidate_detail":    "浏览候选人详情",
 		"close_detail":               "关闭候选人详情",
-		"ai_decision":                "判断候选人匹配度",
+		"ai_decision":                "AI 正在判断候选人匹配度",
 		"request_candidate_info":     "索要候选人资料",
 		"greet":                      "打招呼",
 		"save_candidate":             "保存处理结果",
@@ -190,12 +226,12 @@ func userStepLabel(step string) string {
 		"send_failure_notice":        "发送失败提醒",
 		"play_failure_sound":         "播放失败提示音",
 		"detail_precheck":            "判断是否值得查看详情",
-		"candidate_preview":          "批量判断候选人基础信息",
+		"candidate_preview":          "AI 正在批量判断候选人基础信息",
 		"detail_probability":         "判断本次是否查看详情",
 		"decision":                   "判断是否适合打招呼",
 		"filter":                     "筛选候选人",
 		"detail":                     "读取候选人详情",
-		"ocr":                        "识别候选人详情",
+		"ocr":                        "OCR 正在识别候选人详情",
 		"cleanup_detail_screenshots": "清理临时截图",
 		"play_success_sound":         "播放成功提示音",
 		"save_running_sync_failure":  "保存运行状态",

@@ -3,6 +3,7 @@ package greeting
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"time"
 
@@ -47,6 +48,11 @@ func waitRandomSeconds(ctx context.Context, logger shared.Logger, taskID string,
 	startedAt := time.Now()
 	if logger != nil {
 		logger.Step(taskID, "greeting", "wait_"+label, "start", startedAt, nil)
+		shared.ReportProgress(
+			logger,
+			taskID,
+			fmt.Sprintf("按个人设置，%s停留 %.1f 秒", waitLabel(label), seconds),
+		)
 	}
 	timer := time.NewTimer(time.Duration(seconds * float64(time.Second)))
 	defer timer.Stop()
@@ -84,6 +90,15 @@ func (schedule *restSchedule) afterCandidate(ctx context.Context, logger shared.
 	startedAt := time.Now()
 	if logger != nil {
 		logger.Step(taskID, "greeting", "simulated_rest", "start", startedAt, nil)
+		shared.ReportProgress(
+			logger,
+			taskID,
+			fmt.Sprintf(
+				"按个人设置模拟休息 %s，预计 %s 继续",
+				formatWaitDuration(duration),
+				time.Now().Add(duration).Format("15:04:05"),
+			),
+		)
 	}
 	waitErr := waitDuration(ctx, duration)
 	if logger != nil {
@@ -94,6 +109,36 @@ func (schedule *restSchedule) afterCandidate(ctx context.Context, logger shared.
 		logger.Step(taskID, "greeting", "simulated_rest", status, startedAt, waitErr)
 	}
 	return waitErr
+}
+
+// waitLabel 返回随机等待场景对应的用户可见中文说明。
+func waitLabel(label string) string {
+	labels := map[string]string{
+		"list_view":           "浏览候选人列表前",
+		"after_scroll":        "等待下一批候选人加载",
+		"before_detail_open":  "准备打开详情前",
+		"detail_view":         "浏览候选人详情",
+		"before_detail_close": "准备关闭详情前",
+		"before_greet":        "准备打招呼前",
+	}
+	if value := labels[label]; value != "" {
+		return value
+	}
+	return "继续下一步前"
+}
+
+// formatWaitDuration 把休息时长整理成分钟和秒的短中文。
+func formatWaitDuration(duration time.Duration) string {
+	duration = duration.Round(time.Second)
+	minutes := int(duration / time.Minute)
+	seconds := int((duration % time.Minute) / time.Second)
+	if minutes <= 0 {
+		return fmt.Sprintf("%d 秒", max(seconds, 1))
+	}
+	if seconds <= 0 {
+		return fmt.Sprintf("%d 分钟", minutes)
+	}
+	return fmt.Sprintf("%d 分 %d 秒", minutes, seconds)
 }
 
 // waitDuration 等待指定时长并响应任务取消。

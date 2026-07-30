@@ -72,6 +72,10 @@ type FloatingPositionTask = {
   name: string;
   status: PositionFloatingStatusValue;
   followTask: boolean;
+  currentStep: string;
+  scannedCount: number;
+  greetedCount: number;
+  skippedCount: number;
 };
 
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
@@ -178,7 +182,15 @@ export default function PositionsPage() {
             : "stopped";
         setFloatingPositionTask((current) =>
           current && current.id === positionID
-            ? { ...current, status, followTask: status === "running" }
+            ? {
+                ...current,
+                status,
+                followTask: status === "running",
+                currentStep: String(task?.current_step || "").trim(),
+                scannedCount: Math.max(0, Number(task?.scanned_count) || 0),
+                greetedCount: Math.max(0, Number(task?.greeted_count) || 0),
+                skippedCount: Math.max(0, Number(task?.skipped_count) || 0),
+              }
             : current,
         );
       } catch {
@@ -433,6 +445,10 @@ export default function PositionsPage() {
           name: String(item.name || "当前岗位"),
           status: "running",
           followTask: false,
+          currentStep: "正在检查岗位启动条件",
+          scannedCount: 0,
+          greetedCount: 0,
+          skippedCount: 0,
         });
       }
       if (!(await checkPositionStartGuard(item))) return;
@@ -727,6 +743,10 @@ export default function PositionsPage() {
         pipWindow={floatingStatusWindow}
         positionName={floatingPositionTask?.name || ""}
         status={floatingPositionTask?.status || "stopped"}
+        currentStep={floatingPositionTask?.currentStep || ""}
+        scannedCount={floatingPositionTask?.scannedCount || 0}
+        greetedCount={floatingPositionTask?.greetedCount || 0}
+        skippedCount={floatingPositionTask?.skippedCount || 0}
         onClosed={() => {
           setFloatingStatusWindow(null);
           setFloatingPositionTask(null);

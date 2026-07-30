@@ -22,6 +22,11 @@ func (r *Runtime) ExtractCandidateDetail(ctx context.Context, browser model.Brow
 	return common.ExtractCandidateDetail(ctx, browser, cfg)
 }
 
+// BrowseCandidateDetail 在 AI 判断前使用真实滚轮浏览猎聘企业端详情弹框。
+func (r *Runtime) BrowseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
+	return common.BrowseCandidateDetail(ctx, browser, cfg, 360, 6)
+}
+
 // CleanCandidateDetailText 清理猎聘企业端候选人详情两端空白。
 func (r *Runtime) CleanCandidateDetailText(text string) string {
 	return strings.TrimSpace(text)

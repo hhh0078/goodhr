@@ -119,7 +119,7 @@ export class LocatorPrimitive {
         if (!(await this.matchesAttributes(item, spec.target))) {
           continue;
         }
-        const view = await this.view(page, item);
+        const view = await this.readView(item, spec);
         if (!(await this.matchesState(item, spec, view))) {
           continue;
         }
@@ -198,7 +198,7 @@ export class LocatorPrimitive {
       context.require_unique,
       context,
     );
-    const view = await this.view(page, selected.locator);
+    const view = await this.readView(selected.locator, spec);
     if (!(await this.matchesState(selected.locator, spec, view))) {
       throw new WorkerError({
         code:
@@ -234,7 +234,7 @@ export class LocatorPrimitive {
     let lastAttempts: SelectorAttempt[] = [];
     let lastError: unknown;
     let pollAttempts = 0;
-    while (Date.now() <= deadline) {
+    while (true) {
       pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
       try {
@@ -248,7 +248,11 @@ export class LocatorPrimitive {
         ) {
           throw error;
         }
-        await delay(SELECTOR_RETRY_DELAY_MS);
+        const remainingMS = deadline - Date.now();
+        if (remainingMS <= 0) {
+          break;
+        }
+        await delay(Math.min(SELECTOR_RETRY_DELAY_MS, remainingMS));
       }
     }
     if (
@@ -285,10 +289,22 @@ export class LocatorPrimitive {
 
   /** view 读取元素位置和可见状态。 */
   async view(page: Page, locator: Locator): Promise<ElementView> {
-    const box = await locator.boundingBox().catch(() => null);
-    const viewport = await this.viewport
-      .size(page)
-      .catch(() => ({ width: 0, height: 0 }));
+    const visible = await locator.isVisible().catch(() => false);
+    if (!visible) {
+      return {
+        box: { x: 0, y: 0, width: 0, height: 0 },
+        viewport: { width: 0, height: 0 },
+        visible: false,
+        enabled: false,
+        in_viewport: false,
+        fully_in_viewport: false,
+      };
+    }
+    const [box, viewport, enabled] = await Promise.all([
+      locator.boundingBox().catch(() => null),
+      this.viewport.size(page).catch(() => ({ width: 0, height: 0 })),
+      locator.isEnabled().catch(() => false),
+    ]);
     const normalizedBox: ElementBox = box
       ? {
           x: box.x,
@@ -297,8 +313,6 @@ export class LocatorPrimitive {
           height: box.height,
         }
       : { x: 0, y: 0, width: 0, height: 0 };
-    const visible = await locator.isVisible().catch(() => false);
-    const enabled = await locator.isEnabled().catch(() => false);
     const right = normalizedBox.x + normalizedBox.width;
     const bottom = normalizedBox.y + normalizedBox.height;
     const inViewport =
@@ -320,6 +334,30 @@ export class LocatorPrimitive {
       enabled,
       in_viewport: inViewport,
       fully_in_viewport: fullyInViewport,
+    };
+  }
+
+  /** readView 为列表和相对字段只读取必要状态，不重复计算坐标和视口。 */
+  private async readView(
+    locator: Locator,
+    spec: SelectorSpec,
+  ): Promise<ElementView> {
+    const state = spec.state ?? "visible";
+    const visible =
+      state === "attached"
+        ? true
+        : await locator.isVisible().catch(() => false);
+    const enabled =
+      state === "enabled"
+        ? await locator.isEnabled().catch(() => false)
+        : visible;
+    return {
+      box: { x: 0, y: 0, width: 0, height: 0 },
+      viewport: { width: 0, height: 0 },
+      visible,
+      enabled,
+      in_viewport: false,
+      fully_in_viewport: false,
     };
   }
 

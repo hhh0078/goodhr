@@ -187,7 +187,7 @@ export class FindAction {
     try {
       const fieldSpec: SelectorSpec = {
         ...spec,
-        timeout_ms: Math.min(spec.timeout_ms ?? 300, 300),
+        timeout_ms: 0,
       };
       const resolved = await this.primitive.resolveRelative(
         page,

@@ -10,6 +10,10 @@ type PositionFloatingStatusProps = {
   pipWindow: Window | null;
   positionName: string;
   status: PositionFloatingStatusValue;
+  currentStep: string;
+  scannedCount: number;
+  greetedCount: number;
+  skippedCount: number;
   onClosed: () => void;
 };
 
@@ -40,8 +44,8 @@ export async function openPositionFloatingWindow() {
 
   try {
     const pipWindow = await pictureInPicture.requestWindow({
-      width: 320,
-      height: 180,
+      width: 360,
+      height: 230,
     });
     const viewport = pipWindow.document.createElement("meta");
     viewport.name = "viewport";
@@ -62,11 +66,15 @@ export async function openPositionFloatingWindow() {
   }
 }
 
-/** PositionFloatingStatus 渲染岗位名称以及运行中、已停止两种状态。 */
+/** PositionFloatingStatus 渲染全平台共用的岗位状态、当前步骤和本次统计。 */
 export default function PositionFloatingStatus({
   pipWindow,
   positionName,
   status,
+  currentStep,
+  scannedCount,
+  greetedCount,
+  skippedCount,
   onClosed,
 }: PositionFloatingStatusProps) {
   useEffect(() => {
@@ -84,6 +92,15 @@ export default function PositionFloatingStatus({
   if (!pipWindow || pipWindow.closed) return null;
 
   const isRunning = status === "running";
+  const background = isRunning ? "#2f7d54" : "#b34343";
+  const step = isRunning
+    ? currentStep || "正在准备下一步"
+    : "任务已停止";
+  const stats = [
+    { label: "扫描", value: scannedCount },
+    { label: "打招呼", value: greetedCount },
+    { label: "跳过", value: skippedCount },
+  ];
   return createPortal(
     <main
       style={{
@@ -91,9 +108,9 @@ export default function PositionFloatingStatus({
         display: "flex",
         width: "100vw",
         minHeight: "100vh",
-        padding: 12,
-        background: isRunning ? "#edf5f0" : "#f1f3f2",
-        color: "#20352a",
+        padding: 10,
+        background,
+        color: "#ffffff",
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
       }}
@@ -106,50 +123,92 @@ export default function PositionFloatingStatus({
           flex: 1,
           minWidth: 0,
           flexDirection: "column",
-          justifyContent: "space-between",
-          padding: "16px 18px",
+          gap: 10,
+          padding: "14px 16px",
           overflow: "hidden",
-          border: `1px solid ${isRunning ? "#bfd8c9" : "#d2d9d5"}`,
+          border: "1px solid rgba(255, 255, 255, 0.26)",
           borderRadius: 8,
-          background: "#ffffff",
-          boxShadow: "0 8px 24px rgba(34, 67, 49, 0.10)",
+          background,
+          boxShadow: "0 8px 24px rgba(30, 35, 32, 0.18)",
         }}
       >
         <div
           style={{
-            color: "#718078",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
             fontSize: 12,
-            fontWeight: 650,
-            letterSpacing: "0.04em",
           }}
         >
-          GoodHR · 任务状态
+          <span style={{ opacity: 0.78 }}>GoodHR · 任务状态</span>
+          <strong
+            style={{
+              padding: "4px 8px",
+              borderRadius: 6,
+              background: "rgba(255, 255, 255, 0.17)",
+              fontSize: 13,
+            }}
+          >
+            {isRunning ? "运行中" : "已停止"}
+          </strong>
         </div>
         <div
           title={positionName}
           style={{
             maxWidth: "100%",
             overflow: "hidden",
-            color: "#53635a",
-            fontSize: 14,
-            lineHeight: 1.5,
+            fontSize: 17,
+            fontWeight: 720,
+            lineHeight: 1.35,
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
         >
           {positionName || "当前岗位"}
         </div>
-        <strong
+        <div
+          title={step}
           style={{
-            color: isRunning ? "#2f7d54" : "#5d6962",
-            fontSize: 34,
-            fontWeight: 780,
-            lineHeight: 1,
-            letterSpacing: "-0.04em",
+            minHeight: 40,
+            padding: "8px 10px",
+            overflow: "hidden",
+            borderRadius: 6,
+            background: "rgba(255, 255, 255, 0.13)",
+            fontSize: 13,
+            lineHeight: 1.55,
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
-          {isRunning ? "运行中" : "已停止"}
-        </strong>
+          {step}
+        </div>
+        <div
+          aria-label="本次任务统计"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 8,
+          }}
+        >
+          {stats.map((item) => (
+            <div
+              key={item.label}
+              style={{
+                padding: "6px 8px",
+                borderRadius: 6,
+                background: "rgba(255, 255, 255, 0.11)",
+                textAlign: "center",
+              }}
+            >
+              <strong style={{ display: "block", fontSize: 18 }}>
+                {Math.max(0, item.value || 0)}
+              </strong>
+              <span style={{ fontSize: 11, opacity: 0.78 }}>
+                本次{item.label}
+              </span>
+            </div>
+          ))}
+        </div>
       </section>
     </main>,
     pipWindow.document.body,

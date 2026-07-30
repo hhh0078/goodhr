@@ -120,3 +120,124 @@ test("预期元素不存在时不写错误过程日志", async () => {
   );
   assert.equal(logCount, 0);
 });
+
+/** 验证列表读取只检查必要状态，不为每张卡片重复测量坐标和视口。 */
+test("列表读取跳过坐标和视口测量", async () => {
+  let boxReads = 0;
+  let viewportReads = 0;
+  let visibleReads = 0;
+  const locator = {
+    async count() {
+      return 2;
+    },
+    nth() {
+      return locator;
+    },
+    async getAttribute() {
+      return null;
+    },
+    async isVisible() {
+      visibleReads += 1;
+      return true;
+    },
+    async isEnabled() {
+      return true;
+    },
+    async boundingBox() {
+      boxReads += 1;
+      return { x: 10, y: 10, width: 100, height: 30 };
+    },
+  };
+  const page = {
+    locator() {
+      return locator;
+    },
+    viewportSize() {
+      viewportReads += 1;
+      return { width: 1280, height: 720 };
+    },
+    url() {
+      return "https://example.com/candidates";
+    },
+  };
+
+  const result = await new LocatorPrimitive().resolveAll(
+    page,
+    {
+      target: { selectors: [{ type: "css", value: ".candidate-card" }] },
+      state: "visible",
+      timeout_ms: 1_000,
+      description: "候选人卡片",
+    },
+    20,
+    {
+      trace_id: "list-fast-path",
+      action: "element.find_all",
+      step: "find_all",
+    },
+  );
+
+  assert.equal(result.length, 2);
+  assert.equal(visibleReads, 2);
+  assert.equal(boxReads, 0);
+  assert.equal(viewportReads, 0);
+});
+
+/** 验证正在消失的隐藏元素不会触发耗时的坐标和视口读取。 */
+test("隐藏元素跳过坐标和视口测量", async () => {
+  let boxReads = 0;
+  let viewportReads = 0;
+  const locator = {
+    async count() {
+      return 1;
+    },
+    nth() {
+      return locator;
+    },
+    async getAttribute() {
+      return null;
+    },
+    async isVisible() {
+      return false;
+    },
+    async isEnabled() {
+      return false;
+    },
+    async boundingBox() {
+      boxReads += 1;
+      return null;
+    },
+  };
+  const page = {
+    locator() {
+      return locator;
+    },
+    viewportSize() {
+      viewportReads += 1;
+      return { width: 1280, height: 720 };
+    },
+    url() {
+      return "https://example.com/candidates";
+    },
+  };
+
+  await assert.rejects(
+    new LocatorPrimitive().resolve(
+      page,
+      {
+        target: { selectors: [{ type: "css", value: ".closing-button" }] },
+        state: "enabled",
+        timeout_ms: 0,
+        description: "正在关闭的按钮",
+      },
+      {
+        trace_id: "hidden-fast-path",
+        action: "element.click",
+        step: "find",
+        require_unique: true,
+      },
+    ),
+  );
+  assert.equal(boxReads, 0);
+  assert.equal(viewportReads, 0);
+});

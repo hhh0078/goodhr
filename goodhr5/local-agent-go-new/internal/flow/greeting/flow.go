@@ -174,6 +174,15 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				cancelPreviews()
 				return err
 			}
+			candidateName := strings.TrimSpace(candidate.Name)
+			if candidateName == "" {
+				candidateName = fmt.Sprintf("第 %d 位候选人", candidate.Index+1)
+			}
+			shared.ReportProgress(
+				f.Logger,
+				prepared.Request.TaskID,
+				fmt.Sprintf("正在处理候选人“%s”", candidateName),
+			)
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
 			candidateErr := item.Err
 			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
@@ -302,8 +311,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			f.log(prepared.Request.TaskID, "read_detail_text", "warning", time.Now(), err)
 		}
 		if prepared.Position.RequiresOCR {
+			ocrStartedAt := time.Now()
+			f.log(prepared.Request.TaskID, "ocr", "start", ocrStartedAt, nil)
 			detail, err = f.readDetailWithOCR(ctx, prepared, candidate, detail)
 			if err != nil {
+				f.log(prepared.Request.TaskID, "ocr", "failed", ocrStartedAt, err)
 				if ocr.IsNoText(err) {
 					stats.Skipped++
 					f.saveCandidate(ctx, prepared, candidate, "ocr", "skipped", err.Error())
@@ -313,6 +325,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				f.saveCandidate(ctx, prepared, candidate, "ocr", "failed", err.Error())
 				return fmt.Errorf("识别候选人详情失败：%w", err)
 			}
+			f.log(prepared.Request.TaskID, "ocr", "success", ocrStartedAt, nil)
 		}
 		if err := waitRandomSeconds(
 			ctx, f.Logger, prepared.Request.TaskID, "detail_view",
