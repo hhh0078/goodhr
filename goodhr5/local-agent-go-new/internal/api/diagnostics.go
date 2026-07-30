@@ -1,7 +1,8 @@
-// Package api 文件作用：提供目录、端口、Profile 锁和运行组件的本地诊断结果。
+// Package api 文件作用：提供目录、端口、Profile 锁、运行组件诊断和扩展目录打开能力。
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/system/files"
 )
 
 // diagnosticResult 表示控制台可直接展示的完整诊断结果。
@@ -55,6 +58,27 @@ type diagnosticLock struct {
 	Profile string `json:"profile"`
 	Path    string `json:"path"`
 	Name    string `json:"name"`
+}
+
+// handleExtensionsDirectoryOpen 创建并使用系统文件管理器打开固定的扩展目录。
+func (s *Server) handleExtensionsDirectoryOpen(w http.ResponseWriter, r *http.Request) {
+	directory := strings.TrimSpace(s.cfg.ExtensionsDir)
+	if directory == "" {
+		writeError(w, http.StatusInternalServerError, "EXTENSIONS_DIRECTORY_MISSING", fmt.Errorf("扩展目录还没有准备好"))
+		return
+	}
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "EXTENSIONS_DIRECTORY_CREATE_FAILED", err)
+		return
+	}
+	if err := files.Open(r.Context(), directory); err != nil {
+		writeError(w, http.StatusInternalServerError, "EXTENSIONS_DIRECTORY_OPEN_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		Opened    bool   `json:"opened"`
+		Directory string `json:"directory"`
+	}{Opened: true, Directory: directory})
 }
 
 // handleDiagnostics 返回目录、端口、Profile 锁和运行组件诊断。

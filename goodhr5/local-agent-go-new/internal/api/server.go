@@ -78,6 +78,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
 	mux.HandleFunc("POST /api/v1/runtime/install", server.handleRuntimeInstall)
+	mux.HandleFunc("POST /api/v1/extensions/open-directory", server.handleExtensionsDirectoryOpen)
 	mux.HandleFunc("POST /api/v1/worker/start", server.handleWorkerStart)
 	mux.HandleFunc("POST /api/v1/worker/stop", server.handleWorkerStop)
 	mux.HandleFunc("GET /api/v1/worker/status", server.handleWorkerStatus)

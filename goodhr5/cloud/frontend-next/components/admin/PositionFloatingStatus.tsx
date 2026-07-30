@@ -90,6 +90,38 @@ function analysisTitle(analysis: PositionAnalysisStatus | null) {
   return "AI 判断结果";
 }
 
+/** AILoadingSpinner 使用原生 SVG 动画展示不依赖外部样式的 AI 加载状态。 */
+function AILoadingSpinner() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      width="22"
+      height="22"
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <circle
+        cx="10"
+        cy="10"
+        r="7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeDasharray="28 16"
+      >
+        <animateTransform
+          attributeName="transform"
+          type="rotate"
+          values="0 10 10;360 10 10"
+          dur="0.8s"
+          repeatCount="indefinite"
+        />
+      </circle>
+    </svg>
+  );
+}
+
 /** PositionFloatingStatus 渲染全平台共用的分析结果、状态和本次统计。 */
 export default function PositionFloatingStatus({
   pipWindow,
@@ -201,7 +233,19 @@ export default function PositionFloatingStatus({
               gap: 8,
             }}
           >
-            <strong style={{ fontSize: 15 }}>{analysisTitle(analysis)}</strong>
+            <strong
+              title={analysis?.candidate_name || ""}
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                fontSize: 18,
+                lineHeight: 1.35,
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {analysis?.candidate_name || "等待候选人"}
+            </strong>
             {acceptedLabel ? (
               <span
                 style={{
@@ -221,16 +265,18 @@ export default function PositionFloatingStatus({
           </div>
 
           <div
-            title={analysis?.candidate_name || ""}
             style={{
-              overflow: "hidden",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               fontSize: 12,
               opacity: 0.82,
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
             }}
           >
-            {analysis?.candidate_name || "还没轮到候选人，我先安静待命"}
+            <span>{analysisTitle(analysis)}</span>
+            {analysis?.phase === "loading" ? (
+              <span>· 我正在认真请求 AI</span>
+            ) : null}
           </div>
 
           {analysis?.kind === "ai" &&
@@ -250,8 +296,19 @@ export default function PositionFloatingStatus({
           ) : null}
 
           {analysis?.phase === "loading" ? (
-            <div style={{ fontSize: 18, fontWeight: 700 }}>
-              正在分析<span style={{ opacity: 0.65 }}> ···</span>
+            <div
+              role="status"
+              aria-label="AI 正在分析候选人"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                fontSize: 18,
+                fontWeight: 700,
+              }}
+            >
+              <AILoadingSpinner />
+              <span>正在分析候选人</span>
             </div>
           ) : null}
 

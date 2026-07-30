@@ -141,6 +141,24 @@ func TestBrowserStartIsNotPublicRoute(t *testing.T) {
 	}
 }
 
+// TestExtensionsDirectoryRouteRejectsMissingFixedPath 验证扩展目录接口已注册且不会接受前端自定义路径。
+func TestExtensionsDirectoryRouteRejectsMissingFixedPath(t *testing.T) {
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129}, Dependencies{})
+	response := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/extensions/open-directory",
+			strings.NewReader(`{"path":"/tmp/not-allowed"}`),
+		),
+	)
+	if response.Code != http.StatusInternalServerError ||
+		!strings.Contains(response.Body.String(), "EXTENSIONS_DIRECTORY_MISSING") {
+		t.Fatalf("扩展目录固定路径校验失效：status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 // TestRequestedNewTabSupportsLegacyField 验证新增标签页优先使用 new_tab 并兼容 new_page。
 func TestRequestedNewTabSupportsLegacyField(t *testing.T) {
 	legacyTrue := true

@@ -19,7 +19,6 @@ import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
 import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
 import SensorsRoundedIcon from "@mui/icons-material/SensorsRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import {
@@ -129,7 +128,6 @@ const menuGroups: MenuGroup[] = [
   {
     label: "本地与帮助",
     items: [
-      ["/admin/local-data", "本地数据", StorageRoundedIcon],
       ["/admin/agent-download", "组件信息", DownloadRoundedIcon],
       ["/admin/help", "常见问题", HelpRoundedIcon],
     ],
