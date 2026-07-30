@@ -105,7 +105,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 		Handler:           server.middleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      4 * time.Minute,
 		IdleTimeout:       90 * time.Second,
 	}
 	return server
@@ -129,21 +129,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // handleHealth 返回本地程序健康状态。
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeSuccess(w, http.StatusOK, struct {
-		Status         string `json:"status"`
-		Version        string `json:"version"`
-		AgentVersion   string `json:"agent_version"`
-		Port           int    `json:"port"`
-		DataDir        string `json:"dataDir"`
-		DataDirAlias   string `json:"data_dir"`
-		LogsDir        string `json:"logsDir"`
-		ProfilesDir    string `json:"profilesDir"`
-		DownloadsDir   string `json:"downloadsDir"`
-		ScreenshotsDir string `json:"screenshotsDir"`
-		DatabasePath   string `json:"dbPath"`
+		Status         string   `json:"status"`
+		Version        string   `json:"version"`
+		AgentVersion   string   `json:"agent_version"`
+		Port           int      `json:"port"`
+		DataDir        string   `json:"dataDir"`
+		DataDirAlias   string   `json:"data_dir"`
+		LogsDir        string   `json:"logsDir"`
+		ProfilesDir    string   `json:"profilesDir"`
+		ExtensionsDir  string   `json:"extensionsDir"`
+		ExtensionPaths []string `json:"extensionPaths"`
+		DownloadsDir   string   `json:"downloadsDir"`
+		ScreenshotsDir string   `json:"screenshotsDir"`
+		DatabasePath   string   `json:"dbPath"`
 	}{
 		Status: "ok", Version: version.Value, AgentVersion: version.Value,
 		Port: s.cfg.Port, DataDir: s.cfg.DataDir, DataDirAlias: s.cfg.DataDir,
 		LogsDir: s.cfg.LogsDir, ProfilesDir: s.cfg.ProfilesDir,
+		ExtensionsDir: s.cfg.ExtensionsDir, ExtensionPaths: s.cfg.ExtensionPaths(),
 		DownloadsDir: s.cfg.DownloadsDir, ScreenshotsDir: s.cfg.ScreenshotsDir,
 		DatabasePath: s.cfg.DatabasePath,
 	})
@@ -212,6 +215,7 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 	status.Version = version.Value
 	status.AgentVersion = version.Value
 	status.DataDir = s.cfg.DataDir
+	status.ExtensionsDir = s.cfg.ExtensionsDir
 	status.NodeReady = status.NodeInstalled
 	status.WorkerBuilt = status.NodeWorkerInstalled
 	workerErr := s.browser.Health(r.Context())

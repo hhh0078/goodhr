@@ -42,6 +42,7 @@ import PlatformLogo, {
 } from "@/components/admin/PlatformLogo";
 import PositionFloatingStatus, {
   openPositionFloatingWindow,
+  type PositionAnalysisStatus,
   type PositionFloatingStatusValue,
 } from "@/components/admin/PositionFloatingStatus";
 import { cloudRequest, getToken, localRequest } from "@/lib/admin-api";
@@ -73,6 +74,7 @@ type FloatingPositionTask = {
   status: PositionFloatingStatusValue;
   followTask: boolean;
   currentStep: string;
+  analysis: PositionAnalysisStatus | null;
   scannedCount: number;
   greetedCount: number;
   skippedCount: number;
@@ -187,6 +189,10 @@ export default function PositionsPage() {
                 status,
                 followTask: status === "running",
                 currentStep: String(task?.current_step || "").trim(),
+                analysis: nextFloatingAnalysis(
+                  current.analysis,
+                  normalizeFloatingAnalysis(task?.analysis),
+                ),
                 scannedCount: Math.max(0, Number(task?.scanned_count) || 0),
                 greetedCount: Math.max(0, Number(task?.greeted_count) || 0),
                 skippedCount: Math.max(0, Number(task?.skipped_count) || 0),
@@ -446,6 +452,7 @@ export default function PositionsPage() {
           status: "running",
           followTask: false,
           currentStep: "正在检查岗位启动条件",
+          analysis: null,
           scannedCount: 0,
           greetedCount: 0,
           skippedCount: 0,
@@ -530,6 +537,7 @@ export default function PositionsPage() {
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
         body: { token: getToken() },
+        timeoutMS: 220000,
       });
       setFloatingPositionTask((current) =>
         current && current.id === item.id
@@ -741,9 +749,9 @@ export default function PositionsPage() {
     <>
       <PositionFloatingStatus
         pipWindow={floatingStatusWindow}
-        positionName={floatingPositionTask?.name || ""}
         status={floatingPositionTask?.status || "stopped"}
         currentStep={floatingPositionTask?.currentStep || ""}
+        analysis={floatingPositionTask?.analysis || null}
         scannedCount={floatingPositionTask?.scannedCount || 0}
         greetedCount={floatingPositionTask?.greetedCount || 0}
         skippedCount={floatingPositionTask?.skippedCount || 0}
@@ -2031,6 +2039,75 @@ function normalizePositionTaskStats(task: any): PositionTaskStats {
     greeted_count: Math.max(0, Number(task?.greeted_count) || 0),
     skipped_count: Math.max(0, Number(task?.skipped_count) || 0),
   };
+}
+
+/** normalizeFloatingAnalysis 校验本地程序返回的 AI 或关键词结构化状态。 */
+function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const kind = record.kind === "ai" || record.kind === "keyword"
+    ? record.kind
+    : null;
+  const phase =
+    record.phase === "loading" ||
+    record.phase === "result" ||
+    record.phase === "error"
+      ? record.phase
+      : null;
+  if (!kind || !phase) return null;
+  const status: PositionAnalysisStatus = {
+    kind,
+    phase,
+    candidate_name: String(record.candidate_name || "").trim(),
+    reason: String(record.reason || "").trim(),
+    updated_at: String(record.updated_at || "").trim(),
+    keywords: floatingStringArray(record.keywords),
+    matched_keywords: floatingStringArray(record.matched_keywords),
+    exclude_keywords: floatingStringArray(record.exclude_keywords),
+    matched_excludes: floatingStringArray(record.matched_excludes),
+  };
+  if (typeof record.score === "number" && Number.isFinite(record.score)) {
+    status.score = record.score;
+  }
+  if (
+    typeof record.threshold === "number" &&
+    Number.isFinite(record.threshold)
+  ) {
+    status.threshold = record.threshold;
+  }
+  if (typeof record.accepted === "boolean") {
+    status.accepted = record.accepted;
+  }
+  return status;
+}
+
+/** floatingStringArray 清理悬浮窗状态中的字符串数组。 */
+function floatingStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** nextFloatingAnalysis 保证最终结果至少展示八秒，不被下一次加载状态马上顶掉。 */
+function nextFloatingAnalysis(
+  current: PositionAnalysisStatus | null,
+  incoming: PositionAnalysisStatus | null,
+) {
+  if (!incoming) return current;
+  if (current?.phase !== "result" || incoming.phase !== "loading") {
+    return incoming;
+  }
+  const currentTime = new Date(current.updated_at).getTime();
+  if (
+    current.updated_at !== incoming.updated_at &&
+    Number.isFinite(currentTime) &&
+    Date.now() - currentTime < 8000
+  ) {
+    return current;
+  }
+  return incoming;
 }
 
 /** PositionSwitchOption 展示岗位布尔开关及面向普通用户的通俗说明。 */

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"goodhr5/local-agent-go-new/internal/flow/shared"
 )
 
 // TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
@@ -27,5 +30,21 @@ func TestWorkerLogMessageUsesChinese(t *testing.T) {
 	}
 	if !strings.Contains(message, "每 300 毫秒找了 20 次") {
 		t.Fatalf("错误日志缺少查找次数：%s", message)
+	}
+}
+
+// TestTaskLoggerKeepsStructuredAnalysis 验证普通步骤日志不会覆盖悬浮窗结构化分析结果。
+func TestTaskLoggerKeepsStructuredAnalysis(t *testing.T) {
+	logger := NewTaskLogger(nil, nil)
+	score := 86.5
+	accepted := true
+	logger.ReportAnalysis("task-analysis", shared.AnalysisStatus{
+		Kind: "ai", Phase: "result", CandidateName: "张三",
+		Score: &score, Accepted: &accepted, Reason: "经历比较匹配",
+	})
+	logger.Step("task-analysis", "browser_worker", "click", "start", time.Now(), nil)
+	status := logger.AnalysisStatus("task-analysis")
+	if status == nil || status.Score == nil || *status.Score != score || status.Reason != "经历比较匹配" {
+		t.Fatalf("结构化分析结果被普通步骤覆盖：%+v", status)
 	}
 }

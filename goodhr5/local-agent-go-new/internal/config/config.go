@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,6 +37,7 @@ type Config struct {
 	ConsoleURL      string
 	DataDir         string
 	ProfilesDir     string
+	ExtensionsDir   string
 	DownloadsDir    string
 	ScreenshotsDir  string
 	LogsDir         string
@@ -70,6 +72,7 @@ func Load(host string, port int, dataDir string) (Config, error) {
 		ConsoleURL:      envString("GOODHR_CONSOLE_URL", DefaultConsoleURL),
 		DataDir:         resolvedDataDir,
 		ProfilesDir:     filepath.Join(resolvedDataDir, "profiles"),
+		ExtensionsDir:   filepath.Join(resolvedDataDir, "extensions"),
 		DownloadsDir:    defaultDownloadsDir(),
 		ScreenshotsDir:  filepath.Join(resolvedDataDir, "screenshots"),
 		LogsDir:         filepath.Join(resolvedDataDir, "logs"),
@@ -136,6 +139,7 @@ func (c Config) EnsureDirectories() error {
 	directories := []string{
 		c.DataDir,
 		c.ProfilesDir,
+		c.ExtensionsDir,
 		c.DownloadsDir,
 		c.ScreenshotsDir,
 		c.LogsDir,
@@ -150,6 +154,39 @@ func (c Config) EnsureDirectories() error {
 		}
 	}
 	return nil
+}
+
+// ExtensionPaths 返回扩展目录下可以交给 CloakBrowser 加载的一级子目录。
+// 无效扩展目录会被忽略，避免一个放错位置的文件阻断浏览器启动。
+func (c Config) ExtensionPaths() []string {
+	entries, err := os.ReadDir(c.ExtensionsDir)
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		path := filepath.Join(c.ExtensionsDir, entry.Name())
+		content, err := os.ReadFile(filepath.Join(path, "manifest.json"))
+		if err != nil {
+			continue
+		}
+		var manifest struct {
+			Name            string `json:"name"`
+			Version         string `json:"version"`
+			ManifestVersion int    `json:"manifest_version"`
+		}
+		if json.Unmarshal(content, &manifest) != nil ||
+			strings.TrimSpace(manifest.Name) == "" ||
+			strings.TrimSpace(manifest.Version) == "" ||
+			(manifest.ManifestVersion != 2 && manifest.ManifestVersion != 3) {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 // Address 返回 Go 本地服务监听地址。

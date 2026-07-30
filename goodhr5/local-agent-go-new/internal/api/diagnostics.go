@@ -69,7 +69,8 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		Paths: map[string]diagnosticPath{
 			"data": diagnosePath(s.cfg.DataDir), "runtime": diagnosePath(s.cfg.RuntimeDir),
 			"logs": diagnosePath(s.cfg.LogsDir), "profiles": diagnosePath(s.cfg.ProfilesDir),
-			"downloads": diagnosePath(s.cfg.DownloadsDir), "screenshots": diagnosePath(s.cfg.ScreenshotsDir),
+			"extensions": diagnosePath(s.cfg.ExtensionsDir),
+			"downloads":  diagnosePath(s.cfg.DownloadsDir), "screenshots": diagnosePath(s.cfg.ScreenshotsDir),
 		},
 		Ports:   diagnosePorts(s.cfg.Host, s.cfg.Port, s.cfg.Port+8),
 		Runtime: runtimeStatus, ProfileLocks: findProfileLocks(s.cfg.ProfilesDir),

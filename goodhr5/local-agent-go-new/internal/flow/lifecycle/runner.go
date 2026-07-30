@@ -35,11 +35,19 @@ type StartResult struct {
 	Preflight []preflight.StepResult `json:"preflight"`
 }
 
+// TaskSnapshot 表示任务持久化状态和当前内存分析结果。
+type TaskSnapshot struct {
+	storage.TaskRun
+	Analysis *shared.AnalysisStatus `json:"analysis,omitempty"`
+}
+
 type activeTask struct {
 	prepared  shared.PreparedTask
 	state     storage.TaskRun
 	cancel    context.CancelFunc
 	done      chan struct{}
+	stop      chan struct{}
+	stopOnce  sync.Once
 	stopped   bool
 	interrupt error
 }
@@ -93,7 +101,11 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		PlatformID: prepared.Position.PlatformID, TaskType: prepared.Request.TaskType,
 		Status: "running", CurrentStep: "dispatch_task_flow", StartedAt: time.Now().UTC(),
 	}
-	active := &activeTask{prepared: prepared, state: task, cancel: cancel, done: make(chan struct{})}
+	active := &activeTask{
+		prepared: prepared, state: task, cancel: cancel,
+		done: make(chan struct{}), stop: make(chan struct{}),
+	}
+	shared.ResetAnalysis(r.logger, task.TaskID)
 	r.active[task.TaskID] = active
 	r.mu.Unlock()
 	if err := r.store.SaveTask(ctx, task); err != nil {
@@ -156,9 +168,12 @@ func (r *Runner) StopTask(ctx context.Context, taskID string) (storage.TaskRun, 
 		return r.store.Task(ctx, taskID)
 	}
 	active.stopped = true
-	active.cancel()
+	active.stopOnce.Do(func() {
+		close(active.stop)
+	})
 	done := active.done
 	r.mu.Unlock()
+	shared.ReportProgress(r.logger, taskID, "收到停止请求，处理完当前候选人就停")
 	select {
 	case <-ctx.Done():
 		return storage.TaskRun{}, ctx.Err()
@@ -167,9 +182,30 @@ func (r *Runner) StopTask(ctx context.Context, taskID string) (storage.TaskRun, 
 	}
 }
 
-// TaskStatus 返回运行中内存状态或 SQLite 最终状态。
-func (r *Runner) TaskStatus(ctx context.Context, taskID string) (storage.TaskRun, error) {
-	return r.store.Task(ctx, taskID)
+// TaskStatus 返回 SQLite 任务状态和当前内存分析结果。
+func (r *Runner) TaskStatus(ctx context.Context, taskID string) (TaskSnapshot, error) {
+	task, err := r.store.Task(ctx, taskID)
+	if err != nil {
+		return TaskSnapshot{}, err
+	}
+	return r.TaskSnapshot(task), nil
+}
+
+// PositionStatus 返回指定岗位最近一次任务及当前内存分析结果。
+func (r *Runner) PositionStatus(ctx context.Context, positionID string) (TaskSnapshot, error) {
+	task, err := r.store.LatestTaskForPosition(ctx, positionID)
+	if err != nil {
+		return TaskSnapshot{}, err
+	}
+	return r.TaskSnapshot(task), nil
+}
+
+// TaskSnapshot 把任务持久化状态补充为悬浮窗可直接使用的快照。
+func (r *Runner) TaskSnapshot(task storage.TaskRun) TaskSnapshot {
+	return TaskSnapshot{
+		TaskRun:  task,
+		Analysis: shared.ReadAnalysis(r.logger, task.TaskID),
+	}
 }
 
 // HasActive 返回本地是否有任务正在使用唯一浏览器会话。
@@ -185,6 +221,9 @@ func (r *Runner) StopAll(ctx context.Context) {
 	tasks := make([]*activeTask, 0, len(r.active))
 	for _, active := range r.active {
 		active.stopped = true
+		active.stopOnce.Do(func() {
+			close(active.stop)
+		})
 		active.cancel()
 		tasks = append(tasks, active)
 	}
@@ -202,6 +241,7 @@ func (r *Runner) StopAll(ctx context.Context) {
 func (r *Runner) run(ctx context.Context, active *activeTask) {
 	prepared := active.prepared
 	ctx = client.WithTraceID(ctx, prepared.Request.TaskID)
+	ctx = shared.WithGracefulStop(ctx, active.stop)
 	stats := shared.Stats{}
 	runtime, err := platform.RuntimeFor(prepared.Position.PlatformID)
 	defer func() {

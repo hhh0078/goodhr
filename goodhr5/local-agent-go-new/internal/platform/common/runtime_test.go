@@ -30,6 +30,7 @@ type detailReadBrowser struct {
 type candidateChatBrowser struct {
 	model.Browser
 	opened        bool
+	drawerOpened  bool
 	chatName      string
 	nextChatName  string
 	clicked       []string
@@ -98,6 +99,9 @@ func (b *candidateChatBrowser) Click(_ context.Context, request contract.Element
 		b.closeVerified = request.Verify != nil && request.Verify.TargetHidden != nil
 		b.opened = false
 	}
+	if description == "关闭联系人列表" {
+		b.drawerOpened = false
+	}
 	if err := b.clickErrors[description]; err != nil {
 		return contract.ClickResult{}, err
 	}
@@ -108,6 +112,7 @@ func (b *candidateChatBrowser) Click(_ context.Context, request contract.Element
 func (b *candidateChatBrowser) PressKey(context.Context, contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
 	b.pressCount++
 	b.opened = false
+	b.drawerOpened = false
 	return contract.KeyboardPressResult{Pressed: true}, nil
 }
 
@@ -127,6 +132,9 @@ func (b *candidateChatBrowser) Read(_ context.Context, request contract.ElementR
 // FindAll 模拟候选人聊天框是否已经打开。
 func (b *candidateChatBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	if (request.Selector.Description == "聊天框" || request.Selector.Description == "关闭聊天框") && b.opened {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	if (request.Selector.Description == "联系人列表" || request.Selector.Description == "关闭联系人列表") && b.drawerOpened {
 		return []contract.FindAllItem{{Index: 0}}, nil
 	}
 	if request.Selector.Description == "继续沟通" {
@@ -409,6 +417,30 @@ func TestRequestCandidateInfoInChatOpensMissingChat(t *testing.T) {
 	}
 	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通,索要手机号,关闭聊天框" {
 		t.Fatalf("聊天框打开流程顺序不正确：%s", actual)
+	}
+}
+
+// TestRequestCandidateInfoInChatClosesContactDrawer 验证索要信息结束后会继续关闭联系人列表抽屉。
+func TestRequestCandidateInfoInChatClosesContactDrawer(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, drawerOpened: true}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
+	err := RequestCandidateInfoInChat(
+		context.Background(),
+		browser,
+		cfg,
+		model.Candidate{Index: 0},
+		model.CandidateInfoRequest{RequestPhone: true},
+	)
+	if err != nil {
+		t.Fatalf("索要信息后关闭联系人抽屉失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,关闭聊天框,关闭联系人列表" {
+		t.Fatalf("沟通弹层关闭顺序不正确：%s", actual)
+	}
+	if browser.drawerOpened {
+		t.Fatal("联系人抽屉仍处于打开状态")
 	}
 }
 

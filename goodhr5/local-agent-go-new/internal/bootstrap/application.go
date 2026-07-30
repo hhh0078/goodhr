@@ -73,17 +73,17 @@ func New(cfg config.Config) (*Application, error) {
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
 		Storage: store, Profiles: profiles, AI: aiClient, OCR: ocrClient,
 		Power:       powerGuard,
-		Directories: []string{cfg.DataDir, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.LogsDir},
+		Directories: []string{cfg.DataDir, cfg.ProfilesDir, cfg.ExtensionsDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.LogsDir},
 		Logger:      logger,
 	}
 	greetingFlow := &greeting.Flow{
 		Browser: browserClient, AI: aiClient, OCR: ocrClient, Store: store,
 		Cloud: cloudClient, Notifier: notifier, Logger: logger, ScreenshotsDir: cfg.ScreenshotsDir,
-		DownloadsDir: cfg.DownloadsDir,
+		DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	replyFlow := &auto_reply.Flow{
 		Browser: browserClient, AI: aiClient, Store: store, Cloud: cloudClient,
-		Logger: logger, DownloadsDir: cfg.DownloadsDir,
+		Logger: logger, DownloadsDir: cfg.DownloadsDir, ExtensionPaths: cfg.ExtensionPaths,
 	}
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}

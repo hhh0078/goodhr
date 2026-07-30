@@ -36,6 +36,7 @@ export class BrowserSession {
   private context: BrowserContext | null = null;
   private currentPage: Page | null = null;
   private userDataDir = "";
+  private extensionPaths: string[] = [];
   private readonly registeredPages = new WeakSet<Page>();
   private readonly downloadManager: DownloadManager;
 
@@ -69,8 +70,8 @@ export class BrowserSession {
     try {
       if (await this.isRunning()) {
         if (
-          !request.user_data_dir ||
-          request.user_data_dir === this.userDataDir
+          request.user_data_dir === this.userDataDir &&
+          samePaths(request.extension_paths, this.extensionPaths)
         ) {
           if (pageRequest) {
             await this.open(
@@ -94,6 +95,7 @@ export class BrowserSession {
 
       await this.downloadManager.prepare(request.downloads_path);
       const options = this.launchOptions(request);
+      this.extensionPaths = [...(request.extension_paths ?? [])];
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
         await fs.mkdir(this.userDataDir, { recursive: true });
@@ -186,6 +188,7 @@ export class BrowserSession {
       reused,
       user_data_dir: this.userDataDir,
       downloads_path: this.downloadManager.directory(),
+      extension_paths: [...this.extensionPaths],
       current_url: current,
     };
   }
@@ -397,6 +400,9 @@ export class BrowserSession {
       headless: request.headless ?? false,
       humanize: request.humanize ?? true,
       geoip: request.geoip ?? Boolean(request.proxy),
+      ...(request.extension_paths
+        ? { extensionPaths: request.extension_paths }
+        : {}),
       args: withStableProfileFingerprint(
         request.args,
         request.user_data_dir,
@@ -497,6 +503,7 @@ export class BrowserSession {
     this.browser = null;
     this.currentPage = null;
     this.userDataDir = "";
+    this.extensionPaths = [];
     this.elements.clear();
     if (context) {
       await context.close().catch(() => undefined);
@@ -507,4 +514,13 @@ export class BrowserSession {
     this.downloadManager.reset();
   }
 
+}
+
+/** samePaths 判断本次扩展列表是否与当前浏览器会话完全一致。 */
+function samePaths(left: string[] | undefined, right: string[]): boolean {
+  const current = left ?? [];
+  return (
+    current.length === right.length &&
+    current.every((value, index) => value === right[index])
+  );
 }

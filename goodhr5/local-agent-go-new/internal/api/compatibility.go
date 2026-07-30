@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
@@ -120,6 +121,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, ViewportWidth: request.ViewportWidth,
 		ViewportHeight: request.ViewportHeight, Proxy: proxy, Args: request.Args,
+		ExtensionPaths: s.cfg.ExtensionPaths(),
 	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "PAGE_OPEN_FAILED", err)
@@ -235,7 +237,7 @@ func (s *Server) handleLocalPositionStatus(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", fmt.Errorf("这个接口只支持 GET"))
 		return
 	}
-	task, err := s.store.LatestTaskForPosition(r.Context(), positionID)
+	task, err := s.runner.PositionStatus(r.Context(), positionID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, sql.ErrNoRows) {
@@ -257,17 +259,21 @@ func (s *Server) handleLocalPositionLogs(w http.ResponseWriter, r *http.Request,
 			writeError(w, http.StatusInternalServerError, "LOG_LIST_FAILED", err)
 			return
 		}
-		var latestTask *storage.TaskRun
+		var latestTask *lifecycle.TaskSnapshot
 		task, taskErr := s.store.LatestTaskForPosition(r.Context(), positionID)
 		if taskErr == nil {
-			latestTask = &task
+			snapshot := lifecycle.TaskSnapshot{TaskRun: task}
+			if s.runner != nil {
+				snapshot = s.runner.TaskSnapshot(task)
+			}
+			latestTask = &snapshot
 		} else if !errors.Is(taskErr, sql.ErrNoRows) {
 			writeError(w, http.StatusInternalServerError, "TASK_STATUS_READ_FAILED", taskErr)
 			return
 		}
 		writeSuccess(w, http.StatusOK, struct {
-			Logs []storage.TaskLog `json:"logs"`
-			Task *storage.TaskRun  `json:"task"`
+			Logs []storage.TaskLog       `json:"logs"`
+			Task *lifecycle.TaskSnapshot `json:"task"`
 		}{Logs: logs, Task: latestTask})
 	case http.MethodPost:
 		var request struct {

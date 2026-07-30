@@ -31,6 +31,7 @@ type Flow struct {
 	Logger         shared.Logger
 	ScreenshotsDir string
 	DownloadsDir   string
+	ExtensionPaths func() []string
 }
 
 type flowStep struct {
@@ -68,6 +69,9 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		}},
 	}
 	for _, step := range steps {
+		if shared.GracefulStopRequested(ctx) {
+			return stats, nil
+		}
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, step.name, "start", startedAt, nil)
 		if err := step.run(ctx); err != nil {
@@ -88,14 +92,23 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 	headless := prepared.Request.Headless
 	humanize := true
 	_, err := f.Browser.StartBrowser(ctx, contract.BrowserStartRequest{
-		UserDataDir:   prepared.ProfilePath,
-		DownloadsPath: f.DownloadsDir,
-		Headless:      &headless,
-		Humanize:      &humanize,
-		Locale:        "zh-CN",
-		Timezone:      "Asia/Shanghai",
+		UserDataDir:    prepared.ProfilePath,
+		DownloadsPath:  f.DownloadsDir,
+		Headless:       &headless,
+		Humanize:       &humanize,
+		Locale:         "zh-CN",
+		Timezone:       "Asia/Shanghai",
+		ExtensionPaths: f.extensionPaths(),
 	})
 	return err
+}
+
+// extensionPaths 返回本次启动浏览器时发现的有效扩展目录。
+func (f *Flow) extensionPaths() []string {
+	if f.ExtensionPaths == nil {
+		return nil
+	}
+	return f.ExtensionPaths()
 }
 
 // processBatches 按配置批次扫描、判断和处理候选人。
@@ -108,6 +121,9 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 	seen := make(map[string]struct{})
 	rest := newRestSchedule(prepared.Preferences)
 	for batch := 0; batch < maxBatches; batch++ {
+		if shared.GracefulStopRequested(ctx) {
+			return nil
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -161,10 +177,18 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		previewCtx, cancelPreviews := context.WithCancel(ctx)
 		previews := f.candidatePreviews(previewCtx, prepared, newCandidates)
 		for {
-			item, previewOpen, previewErr := waitCandidatePreview(previewCtx, previews)
+			item, previewOpen, previewErr := waitCandidatePreview(
+				previewCtx,
+				shared.GracefulStopSignal(ctx),
+				previews,
+			)
 			if previewErr != nil {
 				cancelPreviews()
 				return previewErr
+			}
+			if shared.GracefulStopRequested(ctx) {
+				cancelPreviews()
+				return nil
 			}
 			if !previewOpen {
 				break
@@ -177,6 +201,17 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			candidateName := strings.TrimSpace(candidate.Name)
 			if candidateName == "" {
 				candidateName = fmt.Sprintf("第 %d 位候选人", candidate.Index+1)
+			}
+			if item.Decision != nil {
+				reportAIResult(
+					f.Logger,
+					prepared.Request.TaskID,
+					candidate,
+					*item.Decision,
+					previewScoreThreshold(prepared.Position),
+				)
+			} else if item.Err != nil {
+				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
 			}
 			shared.ReportProgress(
 				f.Logger,
@@ -221,25 +256,35 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				candidateErr = f.processCandidate(candidateCtx, prepared, runtime, candidate, stats)
 			}
 			cancelCandidate()
-			if restErr := rest.afterCandidate(ctx, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
-				cancelPreviews()
-				return restErr
-			}
 			if candidateErr != nil {
 				f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
 				if stopErr := errorPolicy.Record(candidateErr); stopErr != nil {
 					cancelPreviews()
 					return stopErr
 				}
+			} else {
+				errorPolicy.Reset()
+			}
+			if shared.GracefulStopRequested(ctx) {
+				cancelPreviews()
+				return nil
+			}
+			if restErr := rest.afterCandidate(ctx, f.Logger, prepared.Request.TaskID, prepared.Preferences); restErr != nil {
+				cancelPreviews()
+				return restErr
+			}
+			if candidateErr != nil {
 				continue
 			}
-			errorPolicy.Reset()
 			if prepared.Position.MatchLimit > 0 && stats.Succeeded >= prepared.Position.MatchLimit {
 				cancelPreviews()
 				return nil
 			}
 		}
 		cancelPreviews()
+		if shared.GracefulStopRequested(ctx) {
+			return nil
+		}
 		if batch+1 < maxBatches {
 			advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates)
 			if err != nil {
@@ -265,10 +310,16 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
 	needsDetail := needsCandidateDetail(prepared)
 	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail
-	if !deferKeywordDecision && !matchesKeyword(candidate, "", prepared.Position) {
-		stats.Skipped++
-		f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", "基础关键词不匹配")
-		return nil
+	if !deferKeywordDecision {
+		keywordMatch := matchKeywords(candidate, "", prepared.Position)
+		if isKeywordMode(prepared.Position) {
+			reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+		}
+		if !keywordMatch.Accepted {
+			stats.Skipped++
+			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
+			return nil
+		}
 	}
 	if needsDetail && !shouldOpenDetail(prepared) {
 		stats.Skipped++
@@ -340,10 +391,14 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return nil
 		}
 	}
-	if deferKeywordDecision && !matchesKeyword(candidate, detail.Text, prepared.Position) {
-		stats.Skipped++
-		f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", "候选人详情关键词不匹配")
-		return nil
+	if deferKeywordDecision {
+		keywordMatch := matchKeywords(candidate, detail.Text, prepared.Position)
+		reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+		if !keywordMatch.Accepted {
+			stats.Skipped++
+			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
+			return nil
+		}
 	}
 	accepted := true
 	score := 0.0
@@ -375,6 +430,12 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		var decision ai.Decision
 		var decisionErr error
 		decisionStartedAt := time.Now()
+		reportAILoading(
+			f.Logger,
+			prepared.Request.TaskID,
+			candidateDisplayName(candidate),
+			"AI 正在读取详情并判断匹配度",
+		)
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
 		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
 		evaluationCancel = cancelEvaluation
@@ -393,6 +454,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			)
 		}
 		if decisionErr != nil {
+			reportAIError(f.Logger, prepared.Request.TaskID, candidate, decisionErr)
 			evaluationCancel()
 			evaluationCancel = nil
 			f.log(prepared.Request.TaskID, "ai_decision", "failed", decisionStartedAt, decisionErr)
@@ -401,6 +463,13 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return fmt.Errorf("判断候选人匹配度失败：%w", decisionErr)
 		}
 		decision = evaluation.Decision
+		reportAIResult(
+			f.Logger,
+			prepared.Request.TaskID,
+			candidate,
+			decision,
+			greetScoreThreshold(prepared.Position),
+		)
 		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
 		score = decision.Score
@@ -491,46 +560,6 @@ func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, 
 	}); err != nil {
 		f.log(prepared.Request.TaskID, "save_candidate", "warning", time.Now(), err)
 	}
-}
-
-// matchesKeyword 对候选人卡片和可选详情文本执行不区分大小写的关键词过滤。
-func matchesKeyword(candidate model.Candidate, detailText string, position cloud.PositionSnapshot) bool {
-	parts := []string{candidate.Name, candidate.Summary, detailText}
-	for _, value := range candidate.Fields {
-		parts = append(parts, value)
-	}
-	content := strings.ToLower(strings.Join(parts, "\n"))
-	for _, keyword := range position.ExcludeKeywords {
-		if keyword = strings.ToLower(strings.TrimSpace(keyword)); keyword != "" && strings.Contains(content, keyword) {
-			return false
-		}
-	}
-	keywords := position.Keywords
-	if len(keywords) == 0 && strings.TrimSpace(position.Keyword) != "" {
-		keywords = []string{position.Keyword}
-	}
-	if len(keywords) == 0 {
-		return true
-	}
-	matched := 0
-	valid := 0
-	for _, keyword := range keywords {
-		keyword = strings.ToLower(strings.TrimSpace(keyword))
-		if keyword == "" {
-			continue
-		}
-		valid++
-		if strings.Contains(content, keyword) {
-			matched++
-		}
-	}
-	if valid == 0 {
-		return true
-	}
-	if position.IsAndMode {
-		return matched == valid
-	}
-	return matched > 0
 }
 
 // isKeywordMode 判断岗位是否使用免费关键词筛选模式。

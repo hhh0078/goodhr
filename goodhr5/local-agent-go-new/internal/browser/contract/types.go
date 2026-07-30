@@ -100,16 +100,18 @@ type BrowserStartRequest struct {
 	ViewportHeight int          `json:"viewport_height,omitempty"`
 	Proxy          *ProxyConfig `json:"proxy,omitempty"`
 	Args           []string     `json:"args,omitempty"`
+	ExtensionPaths []string     `json:"extension_paths,omitempty"`
 }
 
 // BrowserStatus 表示 Browser Worker 会话状态。
 type BrowserStatus struct {
-	Running       bool   `json:"running"`
-	Persistent    bool   `json:"persistent"`
-	Reused        bool   `json:"reused"`
-	UserDataDir   string `json:"user_data_dir"`
-	DownloadsPath string `json:"downloads_path"`
-	CurrentURL    string `json:"current_url"`
+	Running        bool     `json:"running"`
+	Persistent     bool     `json:"persistent"`
+	Reused         bool     `json:"reused"`
+	UserDataDir    string   `json:"user_data_dir"`
+	DownloadsPath  string   `json:"downloads_path"`
+	ExtensionPaths []string `json:"extension_paths"`
+	CurrentURL     string   `json:"current_url"`
 }
 
 // WorkerRuntimeStatus 表示 CloakBrowser 增强二进制安装状态。

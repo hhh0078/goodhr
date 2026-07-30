@@ -307,6 +307,25 @@ func CloseCandidateChat(ctx context.Context, browser model.Browser, cfg model.Co
 	)
 }
 
+// CloseCandidatePanels 按配置依次关闭候选人聊天框和联系人抽屉。
+// 未配置联系人抽屉的平台只执行聊天框清理。
+func CloseCandidatePanels(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	steps := []struct {
+		panel string
+		close string
+		label string
+	}{
+		{panel: "candidate.chat_modal", close: "candidate.chat_close", label: cfg.Name + "候选人聊天框"},
+		{panel: "candidate.contact_drawer", close: "candidate.contact_drawer_close", label: cfg.Name + "联系人列表"},
+	}
+	for _, step := range steps {
+		if err := CloseOptionalPanel(ctx, browser, cfg, step.panel, step.close, step.label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ScrollToCandidate 使用真实鼠标滚轮把指定候选人滚动到可操作区域。
 func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	selector, err := CandidateSelector(cfg, candidate)
@@ -415,8 +434,8 @@ func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg 
 			return matchErr
 		}
 		if !matches {
-			if err = CloseCandidateChat(ctx, browser, cfg); err != nil {
-				return fmt.Errorf("关闭%s其他候选人的聊天框失败：%w", cfg.Name, err)
+			if err = CloseCandidatePanels(ctx, browser, cfg); err != nil {
+				return fmt.Errorf("关闭%s其他候选人的沟通弹层失败：%w", cfg.Name, err)
 			}
 			opened = false
 		}
@@ -456,8 +475,8 @@ func RequestCandidateInfoInChat(ctx context.Context, browser model.Browser, cfg 
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 		defer cancel()
-		if err := CloseCandidateChat(cleanupCtx, browser, cfg); err != nil && resultErr == nil {
-			resultErr = fmt.Errorf("关闭%s候选人聊天框失败：%w", cfg.Name, err)
+		if err := CloseCandidatePanels(cleanupCtx, browser, cfg); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("关闭%s候选人沟通弹层失败：%w", cfg.Name, err)
 		}
 	}()
 	if err = RequestCandidateInfo(ctx, browser, cfg, request); err != nil {

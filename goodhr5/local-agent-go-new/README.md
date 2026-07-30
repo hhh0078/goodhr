@@ -70,6 +70,8 @@ Worker 的完整协议见 `contracts/browser-api.md`。
 
 CloakBrowser 启动默认启用 `humanize`。同一个持久化 Profile 会获得稳定指纹种子；配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，调用方显式传入的时区、语言或指纹参数仍然优先。
 
+把解压后的 Chromium 扩展文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 CloakBrowser 官方 `extensionPaths` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
+
 每个 Profile 首次准备时会保留用户原有书签，并在书签栏前面补齐 GoodHR、BOSS直聘、猎聘猎头端、猎聘和智联招聘入口。书签栏会在所有页面显示；这只是手动导航入口，不参与平台自动化流程。
 
 Worker 会监听已有标签页和新标签页的下载事件。Go 每秒同步一次成功或失败终态，保存 SQLite 记录；首次成功时显示十秒下载提示，可直接打开文件或在 Finder 中定位。文件接口会检查真实路径并阻止软链接越过下载目录；切换目录只影响后续下载，清空记录不删除文件。Worker 不反向调用 Go 业务接口。

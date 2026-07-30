@@ -21,6 +21,7 @@ const LOCAL_AGENT_PORT_CACHE_KEY = "goodhr5_local_agent_port";
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
   auth?: boolean;
+  timeoutMS?: number;
 };
 
 type LocalAgentDetectState = {
@@ -79,9 +80,9 @@ export async function localRequest(
   path: string,
   options: RequestOptions = {},
 ) {
-  const { body, headers, ...rest } = options;
+  const { body, headers, timeoutMS = 45000, ...rest } = options;
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 45000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMS);
   try {
     const response = await fetch(`${baseURL.replace(/\/$/, "")}${path}`, {
       ...rest,

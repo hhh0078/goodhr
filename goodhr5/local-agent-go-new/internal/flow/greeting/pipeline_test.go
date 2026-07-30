@@ -39,7 +39,7 @@ func TestOrderCandidatePreviewsDoesNotWaitForWholeBatch(t *testing.T) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	item, ok, err := waitCandidatePreview(ctx, ordered)
+	item, ok, err := waitCandidatePreview(ctx, nil, ordered)
 	if err != nil || !ok || item.Index != 0 {
 		t.Fatalf("first preview = %+v, open=%v, err=%v", item, ok, err)
 	}

@@ -6,6 +6,7 @@ type Status struct {
 	Version               string                        `json:"version"`
 	AgentVersion          string                        `json:"agent_version"`
 	DataDir               string                        `json:"data_dir"`
+	ExtensionsDir         string                        `json:"extensions_dir"`
 	RuntimeDir            string                        `json:"runtime_dir"`
 	NodeReady             bool                          `json:"node_ready"`
 	NodeInstalled         bool                          `json:"node_installed"`

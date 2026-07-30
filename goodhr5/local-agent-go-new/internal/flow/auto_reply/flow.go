@@ -20,12 +20,13 @@ import (
 
 // Flow 组装自动回复主流程依赖。
 type Flow struct {
-	Browser      *client.Client
-	AI           *ai.Client
-	Store        *storage.Store
-	Cloud        *cloud.Client
-	Logger       shared.Logger
-	DownloadsDir string
+	Browser        *client.Client
+	AI             *ai.Client
+	Store          *storage.Store
+	Cloud          *cloud.Client
+	Logger         shared.Logger
+	DownloadsDir   string
+	ExtensionPaths func() []string
 }
 
 type flowStep struct {
@@ -51,6 +52,9 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		}},
 	}
 	for _, step := range steps {
+		if shared.GracefulStopRequested(ctx) {
+			return stats, nil
+		}
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, step.name, "start", startedAt, nil)
 		if err := step.run(ctx); err != nil {
@@ -73,8 +77,17 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 	_, err := f.Browser.StartBrowser(ctx, contract.BrowserStartRequest{
 		UserDataDir: prepared.ProfilePath, DownloadsPath: f.DownloadsDir,
 		Headless: &headless, Humanize: &humanize, Locale: "zh-CN", Timezone: "Asia/Shanghai",
+		ExtensionPaths: f.extensionPaths(),
 	})
 	return err
+}
+
+// extensionPaths 返回本次启动浏览器时发现的有效扩展目录。
+func (f *Flow) extensionPaths() []string {
+	if f.ExtensionPaths == nil {
+		return nil
+	}
+	return f.ExtensionPaths()
 }
 
 // processConversations 读取未读会话并逐条执行生成、安全检查、发送和保存。
@@ -85,6 +98,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 	}
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	for round := 0; round < maxRounds; round++ {
+		if shared.GracefulStopRequested(ctx) {
+			return nil
+		}
 		if err := shared.EnsureCloudSession(ctx, f.Cloud, prepared.Request.Token, prepared.Request.TaskID, "auto_reply", f.Logger); err != nil {
 			return err
 		}
@@ -96,6 +112,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 			return nil
 		}
 		for _, conversation := range conversations {
+			if shared.GracefulStopRequested(ctx) {
+				return nil
+			}
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -107,6 +126,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 				continue
 			}
 			errorPolicy.Reset()
+			if shared.GracefulStopRequested(ctx) {
+				return nil
+			}
 		}
 		if round+1 < maxRounds {
 			wait := prepared.Position.AutoReplyWait
@@ -118,6 +140,9 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 			case <-ctx.Done():
 				timer.Stop()
 				return ctx.Err()
+			case <-shared.GracefulStopSignal(ctx):
+				timer.Stop()
+				return nil
 			case <-timer.C:
 			}
 		}

@@ -30,6 +30,7 @@ export interface BrowserStartRequest {
   viewport_height?: number;
   proxy?: string | ProxyConfig;
   args?: string[];
+  extension_paths?: string[];
 }
 
 /** BrowserStatusResult 表示浏览器运行状态。 */
@@ -39,6 +40,7 @@ export interface BrowserStatusResult extends JsonObject {
   reused: boolean;
   user_data_dir: string;
   downloads_path: string;
+  extension_paths: string[];
   current_url: string;
 }
 

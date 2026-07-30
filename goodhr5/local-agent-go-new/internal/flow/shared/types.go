@@ -38,6 +38,22 @@ type Stats struct {
 	Skipped   int `json:"skipped"`
 }
 
+// AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
+type AnalysisStatus struct {
+	Kind            string   `json:"kind"`
+	Phase           string   `json:"phase"`
+	CandidateName   string   `json:"candidate_name"`
+	Score           *float64 `json:"score,omitempty"`
+	Threshold       *float64 `json:"threshold,omitempty"`
+	Accepted        *bool    `json:"accepted,omitempty"`
+	Reason          string   `json:"reason"`
+	Keywords        []string `json:"keywords,omitempty"`
+	MatchedKeywords []string `json:"matched_keywords,omitempty"`
+	ExcludeKeywords []string `json:"exclude_keywords,omitempty"`
+	MatchedExcludes []string `json:"matched_excludes,omitempty"`
+	UpdatedAt       string   `json:"updated_at"`
+}
+
 // Logger 定义流程步骤的统一结构化日志能力。
 type Logger interface {
 	Step(taskID string, flow string, step string, status string, startedAt time.Time, err error)
@@ -48,10 +64,39 @@ type ProgressLogger interface {
 	Progress(taskID string, message string)
 }
 
+// AnalysisLogger 定义悬浮窗结构化分析状态的内存读写能力。
+type AnalysisLogger interface {
+	ReportAnalysis(taskID string, status AnalysisStatus)
+	AnalysisStatus(taskID string) *AnalysisStatus
+	ResetAnalysis(taskID string)
+}
+
 // ReportProgress 在当前日志器支持实时进度时更新任务状态，不影响普通日志器。
 func ReportProgress(logger Logger, taskID string, message string) {
 	if progress, ok := logger.(ProgressLogger); ok {
 		progress.Progress(taskID, message)
+	}
+}
+
+// ReportAnalysis 在当前日志器支持时更新结构化分析状态。
+func ReportAnalysis(logger Logger, taskID string, status AnalysisStatus) {
+	if analysis, ok := logger.(AnalysisLogger); ok {
+		analysis.ReportAnalysis(taskID, status)
+	}
+}
+
+// ReadAnalysis 返回当前任务最近一次结构化分析状态。
+func ReadAnalysis(logger Logger, taskID string) *AnalysisStatus {
+	if analysis, ok := logger.(AnalysisLogger); ok {
+		return analysis.AnalysisStatus(taskID)
+	}
+	return nil
+}
+
+// ResetAnalysis 清空旧任务分析状态并准备接收当前任务结果。
+func ResetAnalysis(logger Logger, taskID string) {
+	if analysis, ok := logger.(AnalysisLogger); ok {
+		analysis.ResetAnalysis(taskID)
 	}
 }
 

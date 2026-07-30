@@ -38,6 +38,12 @@ func (f *Flow) candidatePreviews(
 	}
 
 	startedAt := time.Now()
+	reportAILoading(
+		f.Logger,
+		prepared.Request.TaskID,
+		"本页候选人",
+		"AI 正在根据候选人基础信息预分析",
+	)
 	f.log(prepared.Request.TaskID, "candidate_preview", "start", startedAt, nil)
 	jobs := make(chan candidatePreviewResult)
 	results := make(chan candidatePreviewResult, len(candidates))
@@ -120,6 +126,7 @@ func orderCandidatePreviews(
 // waitCandidatePreview 每 150 毫秒醒来检查一次，直到下一位候选人的预判断完成。
 func waitCandidatePreview(
 	ctx context.Context,
+	stop <-chan struct{},
 	ordered <-chan candidatePreviewResult,
 ) (candidatePreviewResult, bool, error) {
 	ticker := time.NewTicker(candidatePreviewPollInterval)
@@ -128,6 +135,8 @@ func waitCandidatePreview(
 		select {
 		case <-ctx.Done():
 			return candidatePreviewResult{}, false, ctx.Err()
+		case <-stop:
+			return candidatePreviewResult{}, false, nil
 		case item, ok := <-ordered:
 			return item, ok, nil
 		case <-ticker.C:

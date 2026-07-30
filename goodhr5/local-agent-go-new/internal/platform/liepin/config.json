@@ -468,6 +468,39 @@
       "state": "enabled",
       "timeout_ms": 3000,
       "description": "猎聘企业端关闭聊天框"
+    },
+    "candidate.contact_drawer": {
+      "_comment": "猎聘企业端右侧联系人列表抽屉。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人列表根节点。",
+        "selectors": [
+          { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人列表"
+    },
+    "candidate.contact_drawer_close": {
+      "_comment": "猎聘企业端联系人列表抽屉关闭按钮。",
+      "parents": [
+        {
+          "_comment": "限定在联系人列表内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "联系人抽屉关闭按钮。",
+        "selectors": [
+          { "_comment": "Ant Design IM 抽屉关闭按钮。", "type": "css", "value": ".ant-im-drawer-close" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘企业端关闭联系人列表"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",

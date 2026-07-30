@@ -82,6 +82,10 @@ export function parseBrowserStartRequest(
   if (args.length > 0) {
     request.args = args;
   }
+  const extensionPaths = stringArray(record.extension_paths);
+  if (extensionPaths.length > 0) {
+    request.extension_paths = extensionPaths;
+  }
   if (typeof record.proxy === "string" && record.proxy.trim()) {
     request.proxy = record.proxy.trim();
   } else if (

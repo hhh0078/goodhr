@@ -7,6 +7,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -15,8 +16,56 @@ import (
 
 // TaskLogger 同时输出日志并更新任务当前步骤。
 type TaskLogger struct {
-	store *storage.Store
-	next  shared.Logger
+	store          *storage.Store
+	next           shared.Logger
+	analysisMu     sync.RWMutex
+	analysisTaskID string
+	analysis       shared.AnalysisStatus
+}
+
+// ReportAnalysis 保存当前任务最近一次 AI 或关键词判断状态。
+func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus) {
+	if l == nil || strings.TrimSpace(taskID) == "" {
+		return
+	}
+	status.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	status.Keywords = append([]string(nil), status.Keywords...)
+	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
+	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
+	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
+	l.analysisMu.Lock()
+	l.analysisTaskID = taskID
+	l.analysis = status
+	l.analysisMu.Unlock()
+}
+
+// AnalysisStatus 返回指定任务最近一次结构化判断状态的副本。
+func (l *TaskLogger) AnalysisStatus(taskID string) *shared.AnalysisStatus {
+	if l == nil {
+		return nil
+	}
+	l.analysisMu.RLock()
+	defer l.analysisMu.RUnlock()
+	if l.analysisTaskID != taskID || strings.TrimSpace(l.analysis.Kind) == "" {
+		return nil
+	}
+	status := l.analysis
+	status.Keywords = append([]string(nil), status.Keywords...)
+	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
+	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
+	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
+	return &status
+}
+
+// ResetAnalysis 清空旧分析内容并把内存状态归属到当前任务。
+func (l *TaskLogger) ResetAnalysis(taskID string) {
+	if l == nil {
+		return
+	}
+	l.analysisMu.Lock()
+	l.analysisTaskID = taskID
+	l.analysis = shared.AnalysisStatus{}
+	l.analysisMu.Unlock()
 }
 
 // NewTaskLogger 创建任务步骤日志器。

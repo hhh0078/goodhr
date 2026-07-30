@@ -38,6 +38,49 @@ func TestInterruptAfterSleep(t *testing.T) {
 	}
 }
 
+// TestStopTaskWaitsWithoutCancelingCurrentWork 验证用户停止只发送安全信号，不取消当前候选人上下文。
+func TestStopTaskWaitsWithoutCancelingCurrentWork(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败：%v", err)
+	}
+	defer store.Close()
+	runCtx, cancel := context.WithCancel(context.Background())
+	task := storage.TaskRun{
+		TaskID: "task-stop", PositionID: "position-stop", Status: "running",
+		StartedAt: time.Now().UTC(),
+	}
+	if err = store.SaveTask(context.Background(), task); err != nil {
+		t.Fatalf("保存测试任务失败：%v", err)
+	}
+	active := &activeTask{
+		state: task, cancel: cancel, done: make(chan struct{}), stop: make(chan struct{}),
+	}
+	runner := &Runner{
+		active: map[string]*activeTask{"task-stop": active}, store: store,
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, stopErr := runner.StopTask(context.Background(), "task-stop")
+		result <- stopErr
+	}()
+	select {
+	case <-active.stop:
+	case <-time.After(time.Second):
+		t.Fatal("安全停止信号没有发出")
+	}
+	select {
+	case <-runCtx.Done():
+		t.Fatal("用户停止不应取消当前候选人上下文")
+	default:
+	}
+	close(active.done)
+	if err = <-result; err != nil {
+		t.Fatalf("StopTask() error = %v", err)
+	}
+	cancel()
+}
+
 // TestPanicFailureUsesNormalFinish 验证 panic 转换后的错误会保存为统一失败终态并释放任务。
 func TestPanicFailureUsesNormalFinish(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))

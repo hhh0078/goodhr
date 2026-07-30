@@ -16,6 +16,7 @@ test("保留合法启动、GeoIP 和新增标签页配置", () => {
       new_tab: true,
       wait_until: "domcontentloaded",
       timeout_ms: 45_000,
+      extension_paths: ["/tmp/goodhr-extension"],
     },
     "trace-test",
     "browser.start",
@@ -27,6 +28,7 @@ test("保留合法启动、GeoIP 和新增标签页配置", () => {
   assert.equal(request.new_tab, true);
   assert.equal(request.wait_until, "domcontentloaded");
   assert.equal(request.timeout_ms, 45_000);
+  assert.deepEqual(request.extension_paths, ["/tmp/goodhr-extension"]);
 });
 
 /** 验证不完整视口会被请求边界拒绝。 */
