@@ -48,3 +48,29 @@ func TestTaskLoggerKeepsStructuredAnalysis(t *testing.T) {
 		t.Fatalf("结构化分析结果被普通步骤覆盖：%+v", status)
 	}
 }
+
+// TestTaskLoggerHoldsTerminalResult 验证低分候选人的最终原因不会被下一位候选人马上覆盖。
+func TestTaskLoggerHoldsTerminalResult(t *testing.T) {
+	logger := NewTaskLogger(nil, nil)
+	score := 52.0
+	accepted := false
+	logger.ReportAnalysis("task-analysis", shared.AnalysisStatus{
+		Kind: "ai", Phase: "result", Stage: "final", Terminal: true,
+		CandidateName: "张三", Score: &score, Accepted: &accepted, Reason: "经验暂时不匹配",
+	})
+	logger.ReportAnalysis("task-analysis", shared.AnalysisStatus{
+		Kind: "ai", Phase: "loading", Stage: "preview", CandidateName: "李四",
+		Reason: "正在分析下一位候选人",
+	})
+	status := logger.AnalysisStatus("task-analysis")
+	if status == nil || status.CandidateName != "张三" || status.Reason != "经验暂时不匹配" {
+		t.Fatalf("最终判断被下一位候选人提前覆盖：%+v", status)
+	}
+	logger.analysisMu.Lock()
+	logger.analysisVisibleAt = time.Now().Add(-analysisResultHoldDuration)
+	logger.analysisMu.Unlock()
+	status = logger.AnalysisStatus("task-analysis")
+	if status == nil || status.CandidateName != "李四" {
+		t.Fatalf("保留时间结束后没有展示最新状态：%+v", status)
+	}
+}

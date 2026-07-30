@@ -14,7 +14,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 )
 
-// stitchScreenshotParts 按相邻截图的重叠区域拼接长图，成功后删除原始分段。
+// stitchScreenshotParts 按相邻截图的重叠区域拼接长图，并保留原始分段供当前任务核对。
 func stitchScreenshotParts(parts []contract.ScreenshotPart, outputPath string) (contract.ScreenshotPart, error) {
 	if len(parts) == 0 {
 		return contract.ScreenshotPart{}, fmt.Errorf("没有可拼接的详情截图")
@@ -37,9 +37,11 @@ func stitchScreenshotParts(parts []contract.ScreenshotPart, outputPath string) (
 	}
 	stitched := images[0]
 	for index := 1; index < len(images); index++ {
-		scrollDistance := parts[index].ScrollPosition - parts[index-1].ScrollPosition
-		expectedOverlap := max(images[index-1].Bounds().Dy()-scrollDistance, 0)
-		stitched = mergeScreenshotParts(stitched, images[index], expectedOverlap)
+		stitched = mergeScreenshotParts(
+			stitched,
+			images[index],
+			images[index-1].Bounds().Dy(),
+		)
 	}
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return contract.ScreenshotPart{}, fmt.Errorf("创建长图目录失败：%w", err)
@@ -59,30 +61,28 @@ func stitchScreenshotParts(parts []contract.ScreenshotPart, outputPath string) (
 	if err != nil {
 		return contract.ScreenshotPart{}, fmt.Errorf("检查详情长图失败：%w", err)
 	}
-	for _, part := range parts {
-		if filepath.Clean(part.Path) != filepath.Clean(outputPath) {
-			_ = os.Remove(part.Path)
-		}
-	}
 	return contract.ScreenshotPart{
 		Path: outputPath, Filename: filepath.Base(outputPath), Size: info.Size(),
 		Index: 0, ScrollPosition: 0,
 	}, nil
 }
 
-// mergeScreenshotParts 根据预期重叠高度附近的像素差，纵向合并两张详情截图。
-func mergeScreenshotParts(top *image.RGBA, bottom *image.RGBA, expectedOverlap int) *image.RGBA {
-	stripHeight := min(30, bottom.Bounds().Dy())
-	searchStart := max(top.Bounds().Dy()-expectedOverlap-80, 0)
-	searchEnd := min(top.Bounds().Dy()-stripHeight, top.Bounds().Dy()-expectedOverlap+80)
-	if searchEnd < searchStart {
-		searchStart = max(top.Bounds().Dy()-stripHeight, 0)
-		searchEnd = searchStart
-	}
+// mergeScreenshotParts 根据两张图片的实际像素重叠纵向合并，不依赖 CSS 滚轮距离。
+func mergeScreenshotParts(top *image.RGBA, bottom *image.RGBA, previousHeight int) *image.RGBA {
+	topHeight := top.Bounds().Dy()
+	bottomHeight := bottom.Bounds().Dy()
+	maxOverlap := min(max(previousHeight, 1), bottomHeight)
+	minOverlap := max(12, min(maxOverlap/12, 60))
+	searchStart := max(topHeight-maxOverlap, 0)
+	searchEnd := max(topHeight-minOverlap, searchStart)
+	expectedY := topHeight - maxOverlap/4
 	bestY := searchStart
 	bestDiff := math.MaxFloat64
 	for y := searchStart; y <= searchEnd; y++ {
-		if diff := screenshotStripDiff(top, bottom, y, stripHeight); diff < bestDiff {
+		overlap := min(topHeight-y, bottomHeight)
+		diff := screenshotOverlapDiff(top, bottom, y, overlap)
+		if diff < bestDiff-0.001 ||
+			(math.Abs(diff-bestDiff) <= 0.001 && absInt(y-expectedY) < absInt(bestY-expectedY)) {
 			bestDiff = diff
 			bestY = y
 		}
@@ -95,17 +95,18 @@ func mergeScreenshotParts(top *image.RGBA, bottom *image.RGBA, expectedOverlap i
 	return merged
 }
 
-// screenshotStripDiff 计算上图指定条带与下图顶部条带的平均 RGB 差异。
-func screenshotStripDiff(top *image.RGBA, bottom *image.RGBA, topY int, height int) float64 {
+// screenshotOverlapDiff 计算候选重叠区域内多行采样像素的平均 RGB 差异。
+func screenshotOverlapDiff(top *image.RGBA, bottom *image.RGBA, topY int, height int) float64 {
 	width := min(top.Bounds().Dx(), bottom.Bounds().Dx())
 	if width <= 0 || height <= 0 {
 		return math.MaxFloat64
 	}
-	step := max(width/120, 1)
+	stepX := max(width/120, 1)
+	stepY := max(height/80, 1)
 	total := 0.0
 	count := 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x += step {
+	for y := 0; y < height; y += stepY {
+		for x := 0; x < width; x += stepX {
 			topColor := top.RGBAAt(x, topY+y)
 			bottomColor := bottom.RGBAAt(x, y)
 			total += math.Abs(float64(topColor.R)-float64(bottomColor.R)) +
@@ -115,6 +116,14 @@ func screenshotStripDiff(top *image.RGBA, bottom *image.RGBA, topY int, height i
 		}
 	}
 	return total / float64(count)
+}
+
+// absInt 返回整数绝对值。
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 // imageToRGBA 把任意 PNG 解码结果转换为从零坐标开始的 RGBA 图片。

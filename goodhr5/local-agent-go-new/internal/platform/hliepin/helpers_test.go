@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
@@ -47,13 +48,13 @@ func TestStableCandidateName(t *testing.T) {
 
 // TestCandidateNamesMatch 验证完整姓名和脱敏姓名不会明显串台。
 func TestCandidateNamesMatch(t *testing.T) {
-	if !candidateNamesMatch("张三", "张三先生") {
+	if !common.CandidateNamesMatch("张三", "张三先生") {
 		t.Fatalf("完整姓名应该匹配")
 	}
-	if !candidateNamesMatch("张*三", "张三") {
+	if !common.CandidateNamesMatch("张*三", "张三") {
 		t.Fatalf("脱敏姓名首字相同应该匹配")
 	}
-	if candidateNamesMatch("张*三", "李四") {
+	if common.CandidateNamesMatch("张*三", "李四") {
 		t.Fatalf("不同姓氏不应该匹配")
 	}
 }

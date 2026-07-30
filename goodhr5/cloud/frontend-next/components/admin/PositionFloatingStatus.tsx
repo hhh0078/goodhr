@@ -9,6 +9,8 @@ export type PositionFloatingStatusValue = "running" | "stopped";
 export type PositionAnalysisStatus = {
   kind: "ai" | "keyword";
   phase: "loading" | "result" | "error";
+  stage?: "preview" | "final";
+  terminal: boolean;
   candidate_name: string;
   score?: number;
   threshold?: number;
@@ -87,6 +89,7 @@ function analysisTitle(analysis: PositionAnalysisStatus | null) {
   if (analysis.kind === "keyword") return "关键词匹配";
   if (analysis.phase === "loading") return "AI 请求中";
   if (analysis.phase === "error") return "AI 没跑顺";
+  if (analysis.stage === "preview") return "AI 基础预判";
   return "AI 判断结果";
 }
 

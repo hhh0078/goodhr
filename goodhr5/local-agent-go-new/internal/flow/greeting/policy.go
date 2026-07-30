@@ -32,9 +32,9 @@ func shouldOpenDetail(prepared shared.PreparedTask) bool {
 	return randomIntRange(0, 99) < probability
 }
 
-// candidateInfoRequestConfigured 判断岗位是否勾选了任一索要动作或追加消息。
+// candidateInfoRequestConfigured 判断岗位是否勾选了任一索要动作。
 func candidateInfoRequestConfigured(request model.CandidateInfoRequest) bool {
-	return request.RequestPhone || request.RequestWechat || request.RequestResume || strings.TrimSpace(request.Message) != ""
+	return request.RequestPhone || request.RequestWechat || request.RequestResume
 }
 
 // requestScoreThreshold 返回索要信息使用的严格大于阈值。

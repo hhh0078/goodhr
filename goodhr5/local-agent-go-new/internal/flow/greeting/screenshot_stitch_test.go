@@ -39,8 +39,37 @@ func TestStitchScreenshotPartsMergesOverlap(t *testing.T) {
 	if result.Bounds().Dy() != 170 {
 		t.Fatalf("拼接高度=%d，期望=170", result.Bounds().Dy())
 	}
-	if _, err = os.Stat(firstPath); !os.IsNotExist(err) {
-		t.Fatalf("拼接成功后原始分段没有删除：%v", err)
+	if _, err = os.Stat(firstPath); err != nil {
+		t.Fatalf("拼接成功后原始分段应该保留：%v", err)
+	}
+}
+
+// TestStitchScreenshotPartsHandlesPartialBottomScroll 验证到底部只滚动一小段时仍按真实重叠拼接。
+func TestStitchScreenshotPartsHandlesPartialBottomScroll(t *testing.T) {
+	directory := t.TempDir()
+	firstPath := filepath.Join(directory, "first.png")
+	secondPath := filepath.Join(directory, "second.png")
+	writeStitchTestImage(t, firstPath, 0)
+	writeStitchTestImage(t, secondPath, 25)
+	outputPath := filepath.Join(directory, "stitched.png")
+	part, err := stitchScreenshotParts([]contract.ScreenshotPart{
+		{Path: firstPath, Filename: "first.png", ScrollPosition: 0},
+		{Path: secondPath, Filename: "second.png", ScrollPosition: 520},
+	}, outputPath)
+	if err != nil {
+		t.Fatalf("拼接底部部分滚动截图失败：%v", err)
+	}
+	file, err := os.Open(part.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	result, err := png.Decode(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Bounds().Dy() != 125 {
+		t.Fatalf("底部部分滚动拼接高度=%d，期望=125", result.Bounds().Dy())
 	}
 }
 

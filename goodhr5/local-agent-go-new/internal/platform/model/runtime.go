@@ -85,18 +85,16 @@ type CandidateDetail struct {
 	Text string `json:"text"`
 }
 
-// CandidateInfoRequest 表示打招呼后需要执行的信息索要和追加文案。
+// CandidateInfoRequest 表示打招呼后需要执行的信息索要动作。
 type CandidateInfoRequest struct {
-	RequestPhone  bool   `json:"request_phone"`
-	RequestWechat bool   `json:"request_wechat"`
-	RequestResume bool   `json:"request_resume"`
-	Message       string `json:"message"`
+	RequestPhone  bool `json:"request_phone"`
+	RequestWechat bool `json:"request_wechat"`
+	RequestResume bool `json:"request_resume"`
 }
 
-// GreetRequest 表示打招呼文案和打招呼后是否保留沟通窗口。
+// GreetRequest 表示打招呼后是否保留沟通窗口。
 type GreetRequest struct {
-	Message              string `json:"message"`
-	KeepConversationOpen bool   `json:"keep_conversation_open"`
+	KeepConversationOpen bool `json:"keep_conversation_open"`
 }
 
 // DetailBrowser 定义部分平台在 AI 判断前需要执行的拟人详情浏览能力。
@@ -129,7 +127,10 @@ type Runtime interface {
 	CleanCandidateDetailText(string) string
 	CloseCandidateDetail(context.Context, Browser, Config, Candidate) error
 	GreetCandidate(context.Context, Browser, Config, Candidate, GreetRequest) error
+	EnsureCandidateConversation(context.Context, Browser, Config, Candidate) error
 	RequestCandidateInfo(context.Context, Browser, Config, Candidate, CandidateInfoRequest) error
+	SendCandidateMessage(context.Context, Browser, Config, Candidate, string) error
+	CloseCandidateConversation(context.Context, Browser, Config, Candidate) error
 	FavoriteCandidate(context.Context, Browser, Config, Candidate) error
 	RejectCandidate(context.Context, Browser, Config, Candidate) error
 	AdvanceCandidateList(context.Context, Browser, Config, []Candidate) (bool, error)

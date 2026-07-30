@@ -1,8 +1,8 @@
 // 文件作用说明：实现封装好的页面或元素截图能力，统一路径安全、查找、保存和错误日志。
 
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { inflateSync } from "node:zlib";
 import type {
   LongScreenshotRequest,
   LongScreenshotResult,
@@ -88,7 +88,7 @@ export class ScreenshotAction {
     }
   }
 
-  /** long 平铺执行查找、回到顶部、分段截图、真实滚轮和到底验证。 */
+  /** long 平铺执行查找、单次分段截图、真实滚轮和重复画面验证。 */
   async long(
     request: LongScreenshotRequest,
     actionContext: ActionContext,
@@ -118,53 +118,40 @@ export class ScreenshotAction {
         request.distance ??
           Math.floor(Math.max(400, target.resolved.view.viewport.height * 0.75)),
       );
-      let reachedTop = false;
-      for (let attempt = 0; attempt < maxParts; attempt += 1) {
-        const beforeHash = imageHash(
-          await this.primitive.elementBuffer(target.resolved.locator),
+      let complete = false;
+      let previousBuffer: Buffer | null = null;
+      let scrollPosition = 0;
+      for (let index = 0; index < maxParts; index += 1) {
+        const currentBuffer = await this.primitive.elementBuffer(
+          target.resolved.locator,
         );
-        await this.mouse.wheel(page, 0, -distance);
-        await delay(waitMS);
-        const afterHash = imageHash(
-          await this.primitive.elementBuffer(target.resolved.locator),
-        );
-        if (afterHash === beforeHash) {
-          reachedTop = true;
+        if (
+          previousBuffer &&
+          screenshotsAreDuplicate(previousBuffer, currentBuffer)
+        ) {
+          complete = true;
           break;
         }
-      }
-      if (!reachedTop) {
-        throw new Error(`真实滚轮尝试 ${maxParts} 次后仍未确认回到顶部`);
-      }
-      let complete = false;
-      for (let index = 0; index < maxParts; index += 1) {
         const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
         const filePath = path.join(request.directory, filename);
-        const size = await this.primitive.element(
-          target.resolved.locator,
-          filePath,
-        );
-        const hash = await fileHash(filePath);
+        await fs.mkdir(request.directory, { recursive: true });
+        await fs.writeFile(filePath, currentBuffer);
+        const size = (await fs.stat(filePath)).size;
         parts.push({
           path: filePath,
           filename,
           size,
           index,
-          scroll_position: index * distance,
+          scroll_position: scrollPosition,
         });
         this.logger.info(actionContext, "capture_part", "success", {
           index: index + 1,
-          scroll_position: index * distance,
+          scroll_position: scrollPosition,
         });
+        previousBuffer = currentBuffer;
         await this.mouse.wheel(page, 0, distance);
+        scrollPosition += distance;
         await delay(waitMS);
-        const afterHash = imageHash(
-          await this.primitive.elementBuffer(target.resolved.locator),
-        );
-        if (afterHash === hash) {
-          complete = true;
-          break;
-        }
       }
       const result: LongScreenshotResult = {
         parts,
@@ -208,19 +195,198 @@ function safePNGFilename(rawName: string): string {
   return name.toLowerCase().endsWith(".png") ? name : `${name}.png`;
 }
 
-/** fileHash 计算 PNG 内容哈希，用于停止重复分段。 */
-async function fileHash(filePath: string): Promise<string> {
-  return createHash("sha256")
-    .update(await fs.readFile(filePath))
-    .digest("hex");
-}
-
-/** imageHash 计算内存 PNG 内容哈希，用于判断真实滚轮是否仍能推动页面。 */
-function imageHash(image: Buffer): string {
-  return createHash("sha256").update(image).digest("hex");
-}
-
 /** delay 使用 Node 定时器等待页面滚动和截图状态稳定。 */
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+interface DecodedPNG {
+  width: number;
+  height: number;
+  data: Buffer;
+}
+
+/** screenshotsAreDuplicate 使用像素容差判断滚轮后的画面是否已经停止变化。 */
+export function screenshotsAreDuplicate(
+  previous: Buffer,
+  current: Buffer,
+): boolean {
+  const previousImage = decodePNG(previous);
+  const currentImage = decodePNG(current);
+  if (!previousImage || !currentImage) {
+    return compressedScreenshotsAreDuplicate(previous, current);
+  }
+  if (
+    previousImage.width !== currentImage.width ||
+    previousImage.height !== currentImage.height
+  ) {
+    return false;
+  }
+  const width = previousImage.width;
+  const height = previousImage.height;
+  const startX = Math.floor(width * 0.1);
+  const endX = Math.max(startX + 1, Math.floor(width * 0.9));
+  const startY = Math.floor(height * 0.05);
+  const endY = Math.max(startY + 1, Math.floor(height * 0.95));
+  const stepX = Math.max(1, Math.floor((endX - startX) / 90));
+  const stepY = Math.max(1, Math.floor((endY - startY) / 90));
+  let same = 0;
+  let total = 0;
+  for (let y = startY; y < endY; y += stepY) {
+    for (let x = startX; x < endX; x += stepX) {
+      const offset = (y * width + x) * 4;
+      const difference =
+        Math.abs(
+          previousImage.data.readUInt8(offset) -
+            currentImage.data.readUInt8(offset),
+        ) +
+        Math.abs(
+          previousImage.data.readUInt8(offset + 1) -
+            currentImage.data.readUInt8(offset + 1),
+        ) +
+        Math.abs(
+          previousImage.data.readUInt8(offset + 2) -
+            currentImage.data.readUInt8(offset + 2),
+        );
+      total += 1;
+      if (difference <= 24) {
+        same += 1;
+      }
+    }
+  }
+  return total > 0 && same / total >= 0.98;
+}
+
+/** compressedScreenshotsAreDuplicate 在 PNG 解码失败时使用压缩字节做保守兜底。 */
+function compressedScreenshotsAreDuplicate(
+  previous: Buffer,
+  current: Buffer,
+): boolean {
+  if (previous.length !== current.length) {
+    return false;
+  }
+  const startOffset = Math.floor(previous.length * 0.12);
+  const endOffset = Math.floor(previous.length * 0.88);
+  if (endOffset <= startOffset) {
+    return previous.equals(current);
+  }
+  const step = Math.max(1, Math.floor((endOffset - startOffset) / 4000));
+  let same = 0;
+  let total = 0;
+  for (let index = startOffset; index < endOffset; index += step) {
+    total += 1;
+    if (Math.abs(previous.readUInt8(index) - current.readUInt8(index)) <= 8) {
+      same += 1;
+    }
+  }
+  return total > 0 && same / total >= 0.985;
+}
+
+/** decodePNG 使用 Node 标准库把 Playwright PNG 解码为 RGBA 像素。 */
+function decodePNG(buffer: Buffer): DecodedPNG | null {
+  try {
+    if (
+      buffer.length < 33 ||
+      buffer.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
+    ) {
+      return null;
+    }
+    let offset = 8;
+    let width = 0;
+    let height = 0;
+    let colorType = 0;
+    const imageData: Buffer[] = [];
+    while (offset + 8 <= buffer.length) {
+      const length = buffer.readUInt32BE(offset);
+      const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + length;
+      if (dataEnd > buffer.length) {
+        return null;
+      }
+      if (type === "IHDR") {
+        width = buffer.readUInt32BE(dataStart);
+        height = buffer.readUInt32BE(dataStart + 4);
+        const bitDepth = buffer.readUInt8(dataStart + 8);
+        colorType = buffer.readUInt8(dataStart + 9);
+        const interlace = buffer.readUInt8(dataStart + 12);
+        if (bitDepth !== 8 || interlace !== 0 || ![2, 6].includes(colorType)) {
+          return null;
+        }
+      } else if (type === "IDAT") {
+        imageData.push(buffer.subarray(dataStart, dataEnd));
+      } else if (type === "IEND") {
+        break;
+      }
+      offset = dataEnd + 4;
+    }
+    if (width <= 0 || height <= 0 || imageData.length === 0) {
+      return null;
+    }
+    const channels = colorType === 6 ? 4 : 3;
+    const stride = width * channels;
+    const inflated = inflateSync(Buffer.concat(imageData));
+    const raw = Buffer.alloc(height * stride);
+    let inputOffset = 0;
+    for (let y = 0; y < height; y += 1) {
+      const filter = inflated.readUInt8(inputOffset);
+      inputOffset += 1;
+      const row = inflated.subarray(inputOffset, inputOffset + stride);
+      inputOffset += stride;
+      unfilterPNGRow(row, raw, y, stride, channels, filter);
+    }
+    const rgba = Buffer.alloc(width * height * 4);
+    for (let source = 0, target = 0; source < raw.length; source += channels, target += 4) {
+      rgba[target] = raw.readUInt8(source);
+      rgba[target + 1] = raw.readUInt8(source + 1);
+      rgba[target + 2] = raw.readUInt8(source + 2);
+      rgba[target + 3] = channels === 4 ? raw.readUInt8(source + 3) : 255;
+    }
+    return { width, height, data: rgba };
+  } catch {
+    return null;
+  }
+}
+
+/** unfilterPNGRow 还原 PNG 每一行使用的标准过滤器。 */
+function unfilterPNGRow(
+  row: Buffer,
+  output: Buffer,
+  y: number,
+  stride: number,
+  channels: number,
+  filter: number,
+): void {
+  const rowStart = y * stride;
+  const previousStart = rowStart - stride;
+  for (let x = 0; x < stride; x += 1) {
+    const left =
+      x >= channels ? output.readUInt8(rowStart + x - channels) : 0;
+    const up = y > 0 ? output.readUInt8(previousStart + x) : 0;
+    const upLeft =
+      y > 0 && x >= channels
+        ? output.readUInt8(previousStart + x - channels)
+        : 0;
+    let value = row.readUInt8(x);
+    if (filter === 1) value += left;
+    if (filter === 2) value += up;
+    if (filter === 3) value += Math.floor((left + up) / 2);
+    if (filter === 4) value += paethPredictor(left, up, upLeft);
+    output[rowStart + x] = value & 0xff;
+  }
+}
+
+/** paethPredictor 返回 PNG Paeth 过滤器使用的邻近像素预测值。 */
+function paethPredictor(left: number, up: number, upLeft: number): number {
+  const prediction = left + up - upLeft;
+  const leftDistance = Math.abs(prediction - left);
+  const upDistance = Math.abs(prediction - up);
+  const upLeftDistance = Math.abs(prediction - upLeft);
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) {
+    return left;
+  }
+  if (upDistance <= upLeftDistance) {
+    return up;
+  }
+  return upLeft;
 }

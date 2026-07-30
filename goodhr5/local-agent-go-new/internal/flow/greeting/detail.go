@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
@@ -21,7 +20,6 @@ func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTa
 	if err != nil {
 		return detail, err
 	}
-	defer f.cleanupDetailScreenshots(prepared.Request.TaskID, parts)
 	ocrTexts := make([]string, 0, len(parts))
 	for _, part := range parts {
 		result, recognizeErr := f.OCR.Recognize(ctx, part.Path)
@@ -48,7 +46,6 @@ func (f *Flow) readDetailImages(ctx context.Context, prepared shared.PreparedTas
 	if err != nil {
 		return nil, err
 	}
-	defer f.cleanupDetailScreenshots(prepared.Request.TaskID, parts)
 	images := make([][]byte, 0, len(parts))
 	for _, part := range parts {
 		content, readErr := os.ReadFile(part.Path)
@@ -67,11 +64,8 @@ func (f *Flow) readDetailImages(ctx context.Context, prepared shared.PreparedTas
 
 // captureDetailScreenshots 使用真实鼠标滚轮生成详情分段截图。
 func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate) ([]contract.ScreenshotPart, error) {
-	candidateKey := candidate.Fingerprint
-	if strings.TrimSpace(candidateKey) == "" {
-		candidateKey = fmt.Sprintf("index-%d", candidate.Index)
-	}
-	filename := fmt.Sprintf("%s-%s.png", prepared.Request.TaskID, candidateKey)
+	filename := f.nextCandidateScreenshotFilename()
+	directory := f.currentTaskScreenshotsDir()
 	target, ok := prepared.Platform.Selectors["candidate.detail_screenshot"]
 	if !ok {
 		target, ok = prepared.Platform.Selectors["candidate.detail"]
@@ -82,7 +76,7 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 			anchor = &configuredAnchor
 		}
 		result, err := f.Browser.LongScreenshot(ctx, contract.LongScreenshotRequest{
-			Target: target, WheelAnchor: anchor, Directory: f.ScreenshotsDir,
+			Target: target, WheelAnchor: anchor, Directory: directory,
 			Filename: filename, Distance: 520, MaxParts: 20, WaitMS: 300,
 		})
 		if err != nil {
@@ -93,7 +87,7 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		}
 		if prepared.Platform.Behavior.StitchDetailScreenshots {
 			outputPath := filepath.Join(
-				f.ScreenshotsDir,
+				directory,
 				strings.TrimSuffix(filename, filepath.Ext(filename))+".stitched.png",
 			)
 			part, stitchErr := stitchScreenshotParts(result.Parts, outputPath)
@@ -105,7 +99,7 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		return result.Parts, nil
 	}
 	screenshot, err := f.Browser.Screenshot(ctx, contract.ScreenshotRequest{
-		Directory: f.ScreenshotsDir, Filename: filename,
+		Directory: directory, Filename: filename,
 	})
 	if err != nil {
 		return nil, err
@@ -116,26 +110,38 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 	}}, nil
 }
 
-// cleanupDetailScreenshots 删除本次 OCR 或 AI 已经读取完的候选人临时截图。
-func (f *Flow) cleanupDetailScreenshots(taskID string, parts []contract.ScreenshotPart) {
+// prepareScreenshotWorkspace 清空上一任务截图并创建只保留当前任务的固定目录。
+func (f *Flow) prepareScreenshotWorkspace() error {
 	root, err := filepath.Abs(f.ScreenshotsDir)
 	if err != nil {
-		f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), err)
-		return
+		return fmt.Errorf("读取截图目录失败：%w", err)
 	}
-	for _, part := range parts {
-		path, pathErr := filepath.Abs(strings.TrimSpace(part.Path))
-		if pathErr != nil {
-			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), pathErr)
-			continue
-		}
-		relative, pathErr := filepath.Rel(root, path)
-		if pathErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), fmt.Errorf("截图路径不在临时目录内：%s", part.Filename))
-			continue
-		}
-		if pathErr = os.Remove(path); pathErr != nil && !os.IsNotExist(pathErr) {
-			f.log(taskID, "cleanup_detail_screenshots", "warning", time.Now(), pathErr)
-		}
+	current := filepath.Join(root, "current-task")
+	relative, err := filepath.Rel(root, current)
+	if err != nil || relative != "current-task" {
+		return fmt.Errorf("当前任务截图目录不安全，已经停止清理")
 	}
+	if err = os.RemoveAll(current); err != nil {
+		return fmt.Errorf("清理上一任务截图失败：%w", err)
+	}
+	if err = os.MkdirAll(current, 0o755); err != nil {
+		return fmt.Errorf("创建当前任务截图目录失败：%w", err)
+	}
+	f.screenshotMu.Lock()
+	f.screenshotSeq = 0
+	f.screenshotMu.Unlock()
+	return nil
+}
+
+// currentTaskScreenshotsDir 返回只保留当前任务图片的固定目录。
+func (f *Flow) currentTaskScreenshotsDir() string {
+	return filepath.Join(f.ScreenshotsDir, "current-task")
+}
+
+// nextCandidateScreenshotFilename 返回当前任务内按处理顺序递增的候选人截图文件名。
+func (f *Flow) nextCandidateScreenshotFilename() string {
+	f.screenshotMu.Lock()
+	defer f.screenshotMu.Unlock()
+	f.screenshotSeq++
+	return fmt.Sprintf("candidate-%03d.png", f.screenshotSeq)
 }

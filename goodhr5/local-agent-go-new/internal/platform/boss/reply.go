@@ -19,6 +19,6 @@ func (r *Runtime) ReadConversation(ctx context.Context, browser model.Browser, c
 }
 
 // ReplyConversation 向当前 Boss 会话发送回复。
-func (r *Runtime) ReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Conversation, reply string) error {
-	return common.ReplyConversation(ctx, browser, cfg, reply)
+func (r *Runtime) ReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, reply string) error {
+	return common.ReplyConversation(ctx, browser, cfg, conversation, reply)
 }

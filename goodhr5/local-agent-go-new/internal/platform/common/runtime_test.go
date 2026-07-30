@@ -29,16 +29,20 @@ type detailReadBrowser struct {
 
 type candidateChatBrowser struct {
 	model.Browser
-	opened        bool
-	drawerOpened  bool
-	chatName      string
-	nextChatName  string
-	clicked       []string
-	clickErrors   map[string]error
-	readNames     []string
-	readIndex     int
-	closeVerified bool
-	pressCount    int
+	opened          bool
+	drawerOpened    bool
+	chatName        string
+	nextChatName    string
+	contactItems    []string
+	continueMissing bool
+	clicked         []string
+	clickErrors     map[string]error
+	readNames       []string
+	readIndex       int
+	closeVerified   bool
+	pressCount      int
+	scrollCount     int
+	inputs          []string
 }
 
 type candidateScrollBrowser struct {
@@ -85,10 +89,22 @@ func (b *detailReadBrowser) Read(context.Context, contract.ElementReadRequest) (
 	return contract.ReadResult{Value: "候选人详情已经加载"}, nil
 }
 
-// Click 记录聊天框流程点击顺序，并在点击继续沟通后模拟聊天框打开。
+// Click 记录聊天框流程点击顺序，并模拟联系人列表与聊天框状态变化。
 func (b *candidateChatBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	description := request.Selector.Description
 	b.clicked = append(b.clicked, description)
+	if err := b.clickErrors[description]; err != nil {
+		return contract.ClickResult{}, err
+	}
+	if description == "打开联系人列表" {
+		b.drawerOpened = true
+	}
+	if description == "候选人会话项" {
+		b.opened = true
+		if b.nextChatName != "" {
+			b.chatName = b.nextChatName
+		}
+	}
 	if description == "继续沟通" {
 		b.opened = true
 		if b.nextChatName != "" {
@@ -102,18 +118,29 @@ func (b *candidateChatBrowser) Click(_ context.Context, request contract.Element
 	if description == "关闭联系人列表" {
 		b.drawerOpened = false
 	}
-	if err := b.clickErrors[description]; err != nil {
-		return contract.ClickResult{}, err
-	}
 	return contract.ClickResult{Clicked: true}, nil
 }
 
 // PressKey 模拟点击关闭失败后的 Escape 兜底。
-func (b *candidateChatBrowser) PressKey(context.Context, contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+func (b *candidateChatBrowser) PressKey(_ context.Context, request contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
 	b.pressCount++
+	if request.Key == "Enter" {
+		return contract.KeyboardPressResult{Pressed: true}, nil
+	}
 	b.opened = false
-	b.drawerOpened = false
 	return contract.KeyboardPressResult{Pressed: true}, nil
+}
+
+// Input 记录发送给当前候选人的消息内容。
+func (b *candidateChatBrowser) Input(_ context.Context, request contract.ElementInputRequest) (contract.InputResult, error) {
+	b.inputs = append(b.inputs, request.Text)
+	return contract.InputResult{Typed: true}, nil
+}
+
+// Scroll 记录联系人列表在点击目标候选人前执行的真实滚轮定位。
+func (b *candidateChatBrowser) Scroll(_ context.Context, _ contract.ScrollRequest) (contract.ScrollResult, error) {
+	b.scrollCount++
+	return contract.ScrollResult{}, nil
 }
 
 // Read 模拟读取当前聊天框头部的候选人姓名。
@@ -137,7 +164,14 @@ func (b *candidateChatBrowser) FindAll(_ context.Context, request contract.Eleme
 	if (request.Selector.Description == "联系人列表" || request.Selector.Description == "关闭联系人列表") && b.drawerOpened {
 		return []contract.FindAllItem{{Index: 0}}, nil
 	}
-	if request.Selector.Description == "继续沟通" {
+	if request.Selector.Description == "候选人会话项" && b.drawerOpened {
+		items := make([]contract.FindAllItem, 0, len(b.contactItems))
+		for index, text := range b.contactItems {
+			items = append(items, contract.FindAllItem{Index: index, Text: text})
+		}
+		return items, nil
+	}
+	if request.Selector.Description == "继续沟通" && !b.continueMissing {
 		return []contract.FindAllItem{{Index: 0}}, nil
 	}
 	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
@@ -381,16 +415,10 @@ func TestCloseCandidateDetailWaitsUntilHidden(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoInChatReusesOpenedChat 验证已有聊天框时不会重复点击候选人继续沟通。
-func TestRequestCandidateInfoInChatReusesOpenedChat(t *testing.T) {
-	browser := &candidateChatBrowser{opened: true}
-	err := RequestCandidateInfoInChat(
-		context.Background(),
-		browser,
-		candidateChatTestConfig(),
-		model.Candidate{Index: 0},
-		model.CandidateInfoRequest{RequestPhone: true},
-	)
+// TestEnsureCandidateConversationReusesOpenedChat 验证已有当前候选人聊天框时不会重复点击继续沟通。
+func TestEnsureCandidateConversationReusesOpenedChat(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, chatName: "张三"}
+	err := runCandidateChatActions(context.Background(), browser, model.Candidate{Index: 0, Name: "张三"})
 	if err != nil {
 		t.Fatalf("复用聊天框索要手机号失败：%v", err)
 	}
@@ -402,16 +430,10 @@ func TestRequestCandidateInfoInChatReusesOpenedChat(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoInChatOpensMissingChat 验证聊天框不存在时只打开一次再执行索要。
-func TestRequestCandidateInfoInChatOpensMissingChat(t *testing.T) {
-	browser := &candidateChatBrowser{}
-	err := RequestCandidateInfoInChat(
-		context.Background(),
-		browser,
-		candidateChatTestConfig(),
-		model.Candidate{Index: 0},
-		model.CandidateInfoRequest{RequestPhone: true},
-	)
+// TestEnsureCandidateConversationOpensMissingChat 验证聊天框不存在时只打开一次再执行索要。
+func TestEnsureCandidateConversationOpensMissingChat(t *testing.T) {
+	browser := &candidateChatBrowser{nextChatName: "张三"}
+	err := runCandidateChatActions(context.Background(), browser, model.Candidate{Index: 0, Name: "张三"})
 	if err != nil {
 		t.Fatalf("打开聊天框索要手机号失败：%v", err)
 	}
@@ -420,19 +442,88 @@ func TestRequestCandidateInfoInChatOpensMissingChat(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoInChatClosesContactDrawer 验证索要信息结束后会继续关闭联系人列表抽屉。
-func TestRequestCandidateInfoInChatClosesContactDrawer(t *testing.T) {
-	browser := &candidateChatBrowser{opened: true, drawerOpened: true}
+// TestEnsureCandidateConversationOpensContactDrawer 验证聊天框不存在时先从推荐页右侧联系人列表切换候选人。
+func TestEnsureCandidateConversationOpensContactDrawer(t *testing.T) {
+	browser := &candidateChatBrowser{
+		nextChatName:    "张三",
+		contactItems:    []string{"李四\n招商主管", "张三\n数学老师"},
+		continueMissing: true,
+	}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_trigger"] = selector("打开联系人列表")
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
+	cfg.Selectors["candidate.contact_item"] = selector("候选人会话项")
+	err := EnsureCandidateConversation(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"})
+	if err == nil {
+		err = RequestCandidateInfo(context.Background(), browser, cfg, model.CandidateInfoRequest{RequestPhone: true})
+	}
+	if err == nil {
+		err = CloseCandidateConversation(context.Background(), browser, cfg)
+	}
+	if err != nil {
+		t.Fatalf("从推荐页联系人列表打开候选人聊天框失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "打开联系人列表,候选人会话项,索要手机号,关闭聊天框,关闭联系人列表" {
+		t.Fatalf("推荐页联系人列表流程顺序不正确：%s", actual)
+	}
+	if browser.scrollCount != 1 {
+		t.Fatalf("点击联系人前应先在侧边栏滚动定位：scroll=%d", browser.scrollCount)
+	}
+}
+
+// TestEnsureCandidateConversationUsesCardBeforeDrawer 验证已有继续沟通入口时不打开推荐页联系人侧边栏。
+func TestEnsureCandidateConversationUsesCardBeforeDrawer(t *testing.T) {
+	browser := &candidateChatBrowser{
+		nextChatName: "张三",
+		contactItems: []string{"李四\n招商主管"},
+	}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_trigger"] = selector("打开联系人列表")
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
+	cfg.Selectors["candidate.contact_item"] = selector("候选人会话项")
+	if err := EnsureCandidateConversation(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"}); err != nil {
+		t.Fatalf("直接点击继续沟通失败：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通" {
+		t.Fatalf("已有继续沟通入口时不应打开联系人列表：%s", actual)
+	}
+}
+
+// TestEnsureCandidateConversationReportsMissingFirstContact 验证首次消息在联系人列表也没找到时不会误发给其他候选人。
+func TestEnsureCandidateConversationReportsMissingFirstContact(t *testing.T) {
+	browser := &candidateChatBrowser{
+		contactItems:    []string{"李四\n招商主管"},
+		continueMissing: true,
+	}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_trigger"] = selector("打开联系人列表")
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
+	cfg.Selectors["candidate.contact_item"] = selector("候选人会话项")
+	err := EnsureCandidateConversation(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"})
+	if err == nil || !strings.Contains(err.Error(), "右侧联系人列表里也没找到") {
+		t.Fatalf("首次消息缺少候选人时应明确停止：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "打开联系人列表" {
+		t.Fatalf("首次消息查找失败时不应误点其他候选人：%s", actual)
+	}
+}
+
+// TestCloseCandidateConversationClosesContactDrawer 验证全部聊天动作结束后会继续关闭联系人列表抽屉。
+func TestCloseCandidateConversationClosesContactDrawer(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, drawerOpened: true, chatName: "张三"}
 	cfg := candidateChatTestConfig()
 	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
 	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
-	err := RequestCandidateInfoInChat(
-		context.Background(),
-		browser,
-		cfg,
-		model.Candidate{Index: 0},
-		model.CandidateInfoRequest{RequestPhone: true},
-	)
+	err := EnsureCandidateConversation(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"})
+	if err == nil {
+		err = RequestCandidateInfo(context.Background(), browser, cfg, model.CandidateInfoRequest{RequestPhone: true})
+	}
+	if err == nil {
+		err = CloseCandidateConversation(context.Background(), browser, cfg)
+	}
 	if err != nil {
 		t.Fatalf("索要信息后关闭联系人抽屉失败：%v", err)
 	}
@@ -444,16 +535,34 @@ func TestRequestCandidateInfoInChatClosesContactDrawer(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoInChatReopensMismatchedChat 验证已有聊天框属于其他候选人时会先关闭再打开当前候选人。
-func TestRequestCandidateInfoInChatReopensMismatchedChat(t *testing.T) {
+// TestCloseCandidateConversationStillClosesDrawerAfterChatFailure 验证聊天框关闭失败时仍会继续关闭联系人列表。
+func TestCloseCandidateConversationStillClosesDrawerAfterChatFailure(t *testing.T) {
+	browser := &candidateChatBrowser{
+		opened:       true,
+		drawerOpened: true,
+		clickErrors: map[string]error{
+			"关闭聊天框": errors.New("聊天框关闭按钮暂时没反应"),
+		},
+	}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_drawer_close"] = selector("关闭联系人列表")
+	err := CloseCandidateConversation(context.Background(), browser, cfg)
+	if err != nil {
+		t.Fatalf("Escape 兜底成功后不应保留聊天框关闭错误：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "关闭聊天框,关闭联系人列表" {
+		t.Fatalf("聊天框失败后仍应关闭联系人列表：%s", actual)
+	}
+	if browser.drawerOpened {
+		t.Fatal("聊天框关闭失败后联系人列表仍处于打开状态")
+	}
+}
+
+// TestEnsureCandidateConversationReopensMismatchedChat 验证已有聊天框属于其他候选人时会先关闭再打开当前候选人。
+func TestEnsureCandidateConversationReopensMismatchedChat(t *testing.T) {
 	browser := &candidateChatBrowser{opened: true, chatName: "李四", nextChatName: "张三"}
-	err := RequestCandidateInfoInChat(
-		context.Background(),
-		browser,
-		candidateChatTestConfig(),
-		model.Candidate{Index: 0, Name: "张三"},
-		model.CandidateInfoRequest{RequestPhone: true},
-	)
+	err := runCandidateChatActions(context.Background(), browser, model.Candidate{Index: 0, Name: "张三"})
 	if err != nil {
 		t.Fatalf("切换到当前候选人聊天框失败：%v", err)
 	}
@@ -462,18 +571,12 @@ func TestRequestCandidateInfoInChatReopensMismatchedChat(t *testing.T) {
 	}
 }
 
-// TestRequestCandidateInfoInChatWaitsForChatCandidateSwitch 验证聊天框切换中的旧姓名不会被误判为串台。
-func TestRequestCandidateInfoInChatWaitsForChatCandidateSwitch(t *testing.T) {
+// TestEnsureCandidateConversationWaitsForChatCandidateSwitch 验证聊天框切换中的旧姓名不会被误判为串台。
+func TestEnsureCandidateConversationWaitsForChatCandidateSwitch(t *testing.T) {
 	browser := &candidateChatBrowser{
 		opened: true, readNames: []string{"李四", "张三"},
 	}
-	err := RequestCandidateInfoInChat(
-		context.Background(),
-		browser,
-		candidateChatTestConfig(),
-		model.Candidate{Index: 0, Name: "张三"},
-		model.CandidateInfoRequest{RequestPhone: true},
-	)
+	err := runCandidateChatActions(context.Background(), browser, model.Candidate{Index: 0, Name: "张三"})
 	if err != nil {
 		t.Fatalf("等待聊天框切换候选人失败：%v", err)
 	}
@@ -515,6 +618,38 @@ func TestRequestCandidateInfoContinuesAfterEarlierFailure(t *testing.T) {
 	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,索要微信,索要简历" {
 		t.Fatalf("前一步失败后仍应继续尝试：%s", actual)
 	}
+}
+
+// TestSendCandidateMessageUsesOpenedVerifiedChat 验证首次招呼语复用当前聊天框并通过统一输入能力发送。
+func TestSendCandidateMessageUsesOpenedVerifiedChat(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, chatName: "张三"}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.followup_input"] = selector("消息输入框")
+	err := SendCandidateMessage(
+		context.Background(),
+		browser,
+		cfg,
+		model.Candidate{Name: "张三"},
+		"你好 能发个简历吗",
+	)
+	if err != nil {
+		t.Fatalf("发送首次招呼语失败：%v", err)
+	}
+	if len(browser.inputs) != 1 || browser.inputs[0] != "你好 能发个简历吗" || browser.pressCount != 1 {
+		t.Fatalf("首次招呼语发送参数不正确：inputs=%v press=%d", browser.inputs, browser.pressCount)
+	}
+}
+
+// runCandidateChatActions 按主流程顺序执行确认对话框、索要手机号和统一关闭。
+func runCandidateChatActions(ctx context.Context, browser model.Browser, candidate model.Candidate) error {
+	cfg := candidateChatTestConfig()
+	if err := EnsureCandidateConversation(ctx, browser, cfg, candidate); err != nil {
+		return err
+	}
+	if err := RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestPhone: true}); err != nil {
+		return err
+	}
+	return CloseCandidateConversation(ctx, browser, cfg)
 }
 
 // greetTestConfig 返回公共打招呼弹框测试使用的最小平台配置。

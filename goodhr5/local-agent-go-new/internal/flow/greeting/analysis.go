@@ -79,28 +79,31 @@ func cleanKeywords(values []string) []string {
 func reportKeywordMatch(logger shared.Logger, taskID string, candidate model.Candidate, result keywordMatchResult) {
 	accepted := result.Accepted
 	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
-		Kind: "keyword", Phase: "result", CandidateName: candidateDisplayName(candidate),
-		Accepted: &accepted, Reason: result.Reason,
+		Kind: "keyword", Phase: "result", Stage: "final", Terminal: true,
+		CandidateName: candidateDisplayName(candidate),
+		Accepted:      &accepted, Reason: result.Reason,
 		Keywords: result.Keywords, MatchedKeywords: result.MatchedKeywords,
 		ExcludeKeywords: result.ExcludeKeywords, MatchedExcludes: result.MatchedExcludes,
 	})
 }
 
 // reportAILoading 把 AI 请求中的候选人和判断阶段发送给悬浮窗。
-func reportAILoading(logger shared.Logger, taskID string, candidateName string, reason string) {
+func reportAILoading(logger shared.Logger, taskID string, candidateName string, stage string, reason string) {
 	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
-		Kind: "ai", Phase: "loading", CandidateName: strings.TrimSpace(candidateName),
-		Reason: strings.TrimSpace(reason),
+		Kind: "ai", Phase: "loading", Stage: strings.TrimSpace(stage),
+		CandidateName: strings.TrimSpace(candidateName),
+		Reason:        strings.TrimSpace(reason),
 	})
 }
 
 // reportAIResult 把已经完整返回的分数、阈值和原因发送给悬浮窗。
-func reportAIResult(logger shared.Logger, taskID string, candidate model.Candidate, decision ai.Decision, threshold float64) {
+func reportAIResult(logger shared.Logger, taskID string, candidate model.Candidate, decision ai.Decision, threshold float64, stage string, terminal bool) {
 	score := decision.Score
 	accepted := decision.Accepted
 	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
-		Kind: "ai", Phase: "result", CandidateName: candidateDisplayName(candidate),
-		Score: &score, Threshold: &threshold, Accepted: &accepted, Reason: decision.Reason,
+		Kind: "ai", Phase: "result", Stage: strings.TrimSpace(stage), Terminal: terminal,
+		CandidateName: candidateDisplayName(candidate),
+		Score:         &score, Threshold: &threshold, Accepted: &accepted, Reason: decision.Reason,
 	})
 }
 
@@ -111,8 +114,9 @@ func reportAIError(logger shared.Logger, taskID string, candidate model.Candidat
 		reason = err.Error()
 	}
 	shared.ReportAnalysis(logger, taskID, shared.AnalysisStatus{
-		Kind: "ai", Phase: "error", CandidateName: candidateDisplayName(candidate),
-		Reason: reason,
+		Kind: "ai", Phase: "error", Stage: "final", Terminal: true,
+		CandidateName: candidateDisplayName(candidate),
+		Reason:        reason,
 	})
 }
 

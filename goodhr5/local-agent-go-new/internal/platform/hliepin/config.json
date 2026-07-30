@@ -468,6 +468,20 @@
       "timeout_ms": 3000,
       "description": "猎聘猎头端关闭聊天框"
     },
+    "candidate.contact_trigger": {
+      "_comment": "猎聘猎头端推荐页右下角的联系人列表入口；只打开当前推荐页侧边栏，不跳转沟通页面。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人列表入口目标。",
+        "selectors": [
+          { "_comment": "猎聘 IM 浮动入口统计属性。", "type": "css", "value": "[data-tlg-elem-id='b_pc_im_light_btn']" },
+          { "_comment": "猎聘 IM 浮动入口稳定类名。", "type": "css", "value": ".im-ui-basic-entry" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端打开联系人列表"
+    },
     "candidate.contact_drawer": {
       "_comment": "猎聘联系人列表抽屉。",
       "parents": [],
@@ -500,6 +514,26 @@
       "state": "enabled",
       "timeout_ms": 3000,
       "description": "猎聘猎头端关闭联系人列表"
+    },
+    "candidate.contact_item": {
+      "_comment": "猎聘猎头端联系人列表中的候选人会话项，用于复用已经打开的联系人侧边栏。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人联系人项目标。",
+        "selectors": [
+          { "_comment": "猎聘联系人列表稳定项目类名。", "type": "css", "value": ".im-ui-contact-list-item.im-ui-contact-item" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘猎头端候选人会话项"
     }
   },
   "_comment_candidate_fields": "相对候选人行读取的结构化字段。",

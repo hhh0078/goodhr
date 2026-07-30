@@ -2058,6 +2058,11 @@ function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | nul
   const status: PositionAnalysisStatus = {
     kind,
     phase,
+    stage:
+      record.stage === "preview" || record.stage === "final"
+        ? record.stage
+        : undefined,
+    terminal: Boolean(record.terminal),
     candidate_name: String(record.candidate_name || "").trim(),
     reason: String(record.reason || "").trim(),
     updated_at: String(record.updated_at || "").trim(),
@@ -2090,13 +2095,13 @@ function floatingStringArray(value: unknown) {
     .filter(Boolean);
 }
 
-/** nextFloatingAnalysis 保证最终结果至少展示八秒，不被下一次加载状态马上顶掉。 */
+/** nextFloatingAnalysis 保证候选人最终结果至少展示八秒，不被下一位任何状态马上顶掉。 */
 function nextFloatingAnalysis(
   current: PositionAnalysisStatus | null,
   incoming: PositionAnalysisStatus | null,
 ) {
   if (!incoming) return current;
-  if (current?.phase !== "result" || incoming.phase !== "loading") {
+  if (!current?.terminal || current.phase === "loading") {
     return incoming;
   }
   const currentTime = new Date(current.updated_at).getTime();

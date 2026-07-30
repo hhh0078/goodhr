@@ -153,7 +153,8 @@
       "target": {
         "_comment": "推荐候选人列表容器。",
         "selectors": [
-          { "_comment": "优先使用分组容器。", "type": "css", "value": "[role='group']" },
+          { "_comment": "只使用推荐人才区域内的分组容器，排除右侧联系人列表。", "type": "css", "value": ".recommend-list [role='group']" },
+          { "_comment": "推荐人才列表根容器降级。", "type": "css", "value": ".recommend-list" },
           { "_comment": "页面级降级滚轮区域。", "type": "css", "value": "body" }
         ]
       },
@@ -167,7 +168,8 @@
         {
           "_comment": "推荐列表父级。",
           "selectors": [
-            { "_comment": "分组容器。", "type": "css", "value": "[role='group']" },
+            { "_comment": "推荐人才区域内的分组容器，排除右侧联系人列表。", "type": "css", "value": ".recommend-list [role='group']" },
+            { "_comment": "推荐人才列表根容器降级。", "type": "css", "value": ".recommend-list" },
             { "_comment": "页面级降级父级。", "type": "css", "value": "body" }
           ]
         }
@@ -358,6 +360,27 @@
       "timeout_ms": 5000,
       "description": "智联继续沟通聊天框"
     },
+    "candidate.chat_name": {
+      "_comment": "智联当前聊天框头部的候选人姓名。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框候选人姓名目标。",
+        "selectors": [
+          { "_comment": "智联推荐页点击继续沟通后，聊天框头部的候选人姓名。", "type": "css", "value": ".im-candidate__item.im-candidate__name" },
+          { "_comment": "智联三栏消息页和推荐页聊天组件共用的姓名节点。", "type": "css", "value": ".im-three-list__panel--name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "智联聊天框候选人姓名"
+    },
     "candidate.chat_close": {
       "_comment": "智联继续沟通聊天框关闭按钮。",
       "parents": [],
@@ -370,6 +393,74 @@
       "state": "enabled",
       "timeout_ms": 3000,
       "description": "智联关闭聊天框"
+    },
+    "candidate.contact_trigger": {
+      "_comment": "智联推荐页右侧的聊天浮动入口；只打开当前推荐页联系人侧边栏，不跳转沟通页面。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人侧边栏入口目标。",
+        "selectors": [
+          { "_comment": "智联推荐页真实可点击联系人浮动入口，排除隐藏占位节点。", "type": "css", "value": ".im-widget-trigger.no-print.im-widget-trigger--new-pc" },
+          { "_comment": "兼容智联真实联系人浮动入口基础类名。", "type": "css", "value": ".im-widget-trigger.no-print" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联打开联系人列表"
+    },
+    "candidate.contact_drawer": {
+      "_comment": "智联推荐页右侧已经展开的联系人侧边栏。",
+      "parents": [],
+      "target": {
+        "_comment": "展开状态的联系人侧边栏目标。",
+        "selectors": [
+          { "_comment": "智联联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联联系人列表"
+    },
+    "candidate.contact_drawer_close": {
+      "_comment": "智联推荐页联系人侧边栏右上角关闭按钮。",
+      "parents": [
+        {
+          "_comment": "限定在展开状态的联系人侧边栏内。",
+          "selectors": [
+            { "_comment": "智联联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "联系人侧边栏关闭目标。",
+        "selectors": [
+          { "_comment": "智联联系人侧边栏切换按钮。", "type": "css", "value": ".im-page-widget__toggle" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联关闭联系人列表"
+    },
+    "candidate.contact_item": {
+      "_comment": "智联已打开联系人列表中的候选人会话项，用于复用已有聊天框。",
+      "parents": [
+        {
+          "_comment": "限定在展开状态的联系人侧边栏内。",
+          "selectors": [
+            { "_comment": "智联联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "当前可见的候选人会话标题；点击较窄的标题区域，避免整行横向超出小窗口。",
+        "selectors": [
+          { "_comment": "智联消息组件会话标题。", "type": "css", "value": ".im-session-item__title.im-session-item__title--subtitle" },
+          { "_comment": "智联消息组件候选人姓名降级目标。", "type": "css", "value": ".im-session-item__name-title" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联候选人会话项"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",

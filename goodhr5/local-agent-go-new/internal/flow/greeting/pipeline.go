@@ -42,6 +42,7 @@ func (f *Flow) candidatePreviews(
 		f.Logger,
 		prepared.Request.TaskID,
 		"本页候选人",
+		"preview",
 		"AI 正在根据候选人基础信息预分析",
 	)
 	f.log(prepared.Request.TaskID, "candidate_preview", "start", startedAt, nil)

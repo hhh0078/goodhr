@@ -42,6 +42,8 @@ type Stats struct {
 type AnalysisStatus struct {
 	Kind            string   `json:"kind"`
 	Phase           string   `json:"phase"`
+	Stage           string   `json:"stage,omitempty"`
+	Terminal        bool     `json:"terminal"`
 	CandidateName   string   `json:"candidate_name"`
 	Score           *float64 `json:"score,omitempty"`
 	Threshold       *float64 `json:"threshold,omitempty"`

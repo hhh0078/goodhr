@@ -113,13 +113,19 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 		"zhaopin": {
 			"candidate.item", "candidate.list", "candidate.open_target",
 			"candidate.detail", "candidate.greet", "candidate.continue",
-			"candidate.chat_modal", "candidate.chat_close", "position.open",
+			"candidate.chat_modal", "candidate.chat_name", "candidate.chat_close",
+			"candidate.followup_input", "candidate.contact_trigger",
+			"candidate.contact_drawer", "candidate.contact_drawer_close",
+			"candidate.contact_item", "position.open",
 			"position.input", "position.item", "position.item_text", "position.panel",
 		},
 		"liepin": {
 			"candidate.item", "candidate.list", "candidate.open_target",
 			"candidate.detail", "candidate.greet", "candidate.continue",
-			"candidate.chat_modal", "candidate.chat_close", "position.current",
+			"candidate.chat_modal", "candidate.chat_name", "candidate.chat_close",
+			"candidate.followup_input", "candidate.contact_trigger",
+			"candidate.contact_drawer", "candidate.contact_drawer_close",
+			"candidate.contact_item", "position.current",
 			"position.open", "position.item", "position.item_text",
 		},
 		"hliepin": {
@@ -128,8 +134,9 @@ func assertRequiredSelectors(t *testing.T, platformID string, cfg model.Config) 
 			"candidate.greet_job_open", "candidate.greet_job_item",
 			"candidate.greet_without_job", "candidate.greet_submit",
 			"candidate.continue", "candidate.chat_modal", "candidate.chat_name",
-			"candidate.chat_close", "candidate.contact_drawer",
-			"candidate.contact_drawer_close", "candidate.page_number",
+			"candidate.chat_close", "candidate.contact_trigger",
+			"candidate.contact_drawer", "candidate.contact_drawer_close",
+			"candidate.contact_item", "candidate.page_number",
 		},
 	}
 	for _, key := range []string{

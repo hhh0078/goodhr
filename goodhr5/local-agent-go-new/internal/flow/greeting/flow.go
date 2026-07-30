@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/client"
@@ -32,6 +33,8 @@ type Flow struct {
 	ScreenshotsDir string
 	DownloadsDir   string
 	ExtensionPaths func() []string
+	screenshotMu   sync.Mutex
+	screenshotSeq  int
 }
 
 type flowStep struct {
@@ -51,6 +54,9 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		HLiepinShortcutSearchName: prepared.Position.CommonConfig.HLiepinShortcutSearchName,
 	}
 	steps := []flowStep{
+		{name: "prepare_screenshot_workspace", label: "准备本次截图目录", run: func(context.Context) error {
+			return f.prepareScreenshotWorkspace()
+		}},
 		{name: "start_browser", label: "启动增强浏览器", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
 		{name: "open_greeting_page", label: "打开打招呼页面", run: func(ctx context.Context) error {
 			return runtime.OpenGreetingPage(ctx, f.Browser, prepared.Platform)
@@ -209,6 +215,8 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					candidate,
 					*item.Decision,
 					previewScoreThreshold(prepared.Position),
+					"preview",
+					!item.Decision.Accepted,
 				)
 			} else if item.Err != nil {
 				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
@@ -434,6 +442,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			f.Logger,
 			prepared.Request.TaskID,
 			candidateDisplayName(candidate),
+			"final",
 			"AI 正在读取详情并判断匹配度",
 		)
 		f.log(prepared.Request.TaskID, "ai_decision", "start", decisionStartedAt, nil)
@@ -469,6 +478,8 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			candidate,
 			decision,
 			greetScoreThreshold(prepared.Position),
+			"final",
+			true,
 		)
 		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
@@ -504,8 +515,9 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	}
 	infoRequest := model.CandidateInfoRequest{
 		RequestPhone: prepared.Position.RequestPhone, RequestWechat: prepared.Position.RequestWechat,
-		RequestResume: prepared.Position.RequestResume, Message: prepared.Position.GreetMessage,
+		RequestResume: prepared.Position.RequestResume,
 	}
+	greetMessage := strings.TrimSpace(prepared.Position.GreetMessage)
 	requestInfo := false
 	if candidateInfoRequestConfigured(infoRequest) {
 		threshold := requestScoreThreshold(prepared.Position)
@@ -525,8 +537,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 	}
 	if err := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, model.GreetRequest{
-		Message:              prepared.Position.GreetMessage,
-		KeepConversationOpen: requestInfo,
+		KeepConversationOpen: requestInfo || greetMessage != "",
 	}); err != nil {
 		evaluationStatus = "failed"
 		stats.Failed++
@@ -540,10 +551,39 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 		cancel()
 	}
-	if requestInfo {
-		if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
-			f.log(prepared.Request.TaskID, "request_candidate_info", "warning", time.Now(), err)
+	if requestInfo || greetMessage != "" {
+		conversationReady := true
+		startedAt := time.Now()
+		if err := runtime.EnsureCandidateConversation(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			conversationReady = false
+			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "warning", startedAt, err)
+		} else {
+			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "success", startedAt, nil)
 		}
+		if conversationReady && requestInfo {
+			startedAt = time.Now()
+			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
+				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
+			} else {
+				f.log(prepared.Request.TaskID, "request_candidate_info", "success", startedAt, nil)
+			}
+		}
+		if conversationReady && greetMessage != "" {
+			startedAt = time.Now()
+			if err := runtime.SendCandidateMessage(ctx, f.Browser, prepared.Platform, candidate, greetMessage); err != nil {
+				f.log(prepared.Request.TaskID, "send_candidate_message", "warning", startedAt, err)
+			} else {
+				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
+			}
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		startedAt = time.Now()
+		if err := runtime.CloseCandidateConversation(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
+			f.log(prepared.Request.TaskID, "close_candidate_conversation", "warning", startedAt, err)
+		} else {
+			f.log(prepared.Request.TaskID, "close_candidate_conversation", "success", startedAt, nil)
+		}
+		cleanupCancel()
 	}
 	evaluationStatus = "greeted"
 	stats.Succeeded++

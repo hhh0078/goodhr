@@ -14,13 +14,17 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+const analysisResultHoldDuration = 8 * time.Second
+
 // TaskLogger 同时输出日志并更新任务当前步骤。
 type TaskLogger struct {
-	store          *storage.Store
-	next           shared.Logger
-	analysisMu     sync.RWMutex
-	analysisTaskID string
-	analysis       shared.AnalysisStatus
+	store             *storage.Store
+	next              shared.Logger
+	analysisMu        sync.RWMutex
+	analysisTaskID    string
+	analysis          shared.AnalysisStatus
+	analysisVisibleAt time.Time
+	pendingAnalysis   shared.AnalysisStatus
 }
 
 // ReportAnalysis 保存当前任务最近一次 AI 或关键词判断状态。
@@ -34,8 +38,20 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
 	l.analysisMu.Lock()
+	now := time.Now()
+	if l.analysisTaskID == taskID &&
+		l.analysis.Terminal &&
+		!l.analysisVisibleAt.IsZero() &&
+		now.Sub(l.analysisVisibleAt) < analysisResultHoldDuration &&
+		analysisChangedCandidate(l.analysis, status) {
+		l.pendingAnalysis = status
+		l.analysisMu.Unlock()
+		return
+	}
 	l.analysisTaskID = taskID
 	l.analysis = status
+	l.analysisVisibleAt = now
+	l.pendingAnalysis = shared.AnalysisStatus{}
 	l.analysisMu.Unlock()
 }
 
@@ -44,10 +60,19 @@ func (l *TaskLogger) AnalysisStatus(taskID string) *shared.AnalysisStatus {
 	if l == nil {
 		return nil
 	}
-	l.analysisMu.RLock()
-	defer l.analysisMu.RUnlock()
+	l.analysisMu.Lock()
+	defer l.analysisMu.Unlock()
 	if l.analysisTaskID != taskID || strings.TrimSpace(l.analysis.Kind) == "" {
 		return nil
+	}
+	if strings.TrimSpace(l.pendingAnalysis.Kind) != "" &&
+		l.analysis.Terminal &&
+		!l.analysisVisibleAt.IsZero() &&
+		time.Since(l.analysisVisibleAt) >= analysisResultHoldDuration {
+		l.analysis = l.pendingAnalysis
+		l.analysis.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		l.analysisVisibleAt = time.Now()
+		l.pendingAnalysis = shared.AnalysisStatus{}
 	}
 	status := l.analysis
 	status.Keywords = append([]string(nil), status.Keywords...)
@@ -55,6 +80,13 @@ func (l *TaskLogger) AnalysisStatus(taskID string) *shared.AnalysisStatus {
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
 	return &status
+}
+
+// analysisChangedCandidate 判断新状态是否已经切换到另一位候选人。
+func analysisChangedCandidate(current shared.AnalysisStatus, incoming shared.AnalysisStatus) bool {
+	currentName := strings.TrimSpace(current.CandidateName)
+	incomingName := strings.TrimSpace(incoming.CandidateName)
+	return currentName != "" && incomingName != "" && currentName != incomingName
 }
 
 // ResetAnalysis 清空旧分析内容并把内存状态归属到当前任务。
@@ -65,6 +97,8 @@ func (l *TaskLogger) ResetAnalysis(taskID string) {
 	l.analysisMu.Lock()
 	l.analysisTaskID = taskID
 	l.analysis = shared.AnalysisStatus{}
+	l.analysisVisibleAt = time.Time{}
+	l.pendingAnalysis = shared.AnalysisStatus{}
 	l.analysisMu.Unlock()
 }
 
@@ -220,78 +254,82 @@ func userStepLabel(step string) string {
 		return "拟人等待"
 	}
 	labels := map[string]string{
-		"validate_request":           "检查启动参数",
-		"check_local_program":        "检查本地程序",
-		"check_cloud_session":        "检查登录状态",
-		"load_position_snapshot":     "读取岗位配置",
-		"check_subscription":         "检查会员状态",
-		"load_user_preferences":      "读取个人设置",
-		"load_local_platform_config": "读取平台配置",
-		"check_profile":              "检查浏览器账号",
-		"check_task_conflict":        "检查运行中的任务",
-		"check_node_runtime":         "检查浏览器运行组件",
-		"check_worker_build":         "检查浏览器操作程序",
-		"check_worker":               "启动浏览器操作程序",
-		"check_cloakbrowser":         "检查增强浏览器",
-		"check_local_storage":        "检查本地数据",
-		"check_required_ai":          "检查 AI 配置",
-		"check_required_ocr":         "检查文字识别组件",
-		"check_power_guard":          "检查防休眠能力",
-		"start_browser":              "启动增强浏览器",
-		"open_greeting_page":         "打开打招呼页面",
-		"initialize_greeting_page":   "整理打招呼页面",
-		"select_position":            "选择岗位",
-		"apply_basic_filters":        "应用基础筛选",
-		"scan_decide_and_greet":      "处理候选人并打招呼",
-		"candidate_fingerprint":      "确认候选人身份",
-		"sync_processed_resumes":     "同步候选人数量",
-		"candidate_operation":        "处理当前候选人",
-		"scroll_to_candidate":        "滚动到当前候选人",
-		"open_detail":                "打开候选人详情",
-		"read_detail_text":           "读取候选人详情",
-		"browse_candidate_detail":    "浏览候选人详情",
-		"close_detail":               "关闭候选人详情",
-		"ai_decision":                "AI 正在判断候选人匹配度",
-		"request_candidate_info":     "索要候选人资料",
-		"greet":                      "打招呼",
-		"save_candidate":             "保存处理结果",
-		"simulated_rest":             "拟人休息",
-		"open_message_page":          "打开消息页面",
-		"initialize_message_page":    "整理消息页面",
-		"scan_generate_and_reply":    "读取消息并自动回复",
-		"read_conversation":          "读取候选人消息",
-		"generate_reply":             "生成回复",
-		"reply_safety_check":         "检查回复内容",
-		"reply_duplicate_check":      "检查重复回复",
-		"send_reply":                 "发送回复",
-		"save_conversation":          "保存回复结果",
-		"request_cloud_start":        "向云端申请开始任务",
-		"start_power_guard":          "启动防休眠",
-		"dispatch_task_flow":         "运行岗位任务",
-		"detect_sleep_resume":        "检查电脑休眠恢复",
-		"sync_completed_status":      "同步完成状态",
-		"sync_failed_counts":         "同步失败统计",
-		"sync_stopped_status":        "同步停止状态",
-		"send_failure_notice":        "发送失败提醒",
-		"play_failure_sound":         "播放失败提示音",
-		"detail_precheck":            "判断是否值得查看详情",
-		"candidate_preview":          "AI 正在批量判断候选人基础信息",
-		"detail_probability":         "判断本次是否查看详情",
-		"decision":                   "判断是否适合打招呼",
-		"filter":                     "筛选候选人",
-		"detail":                     "读取候选人详情",
-		"ocr":                        "OCR 正在识别候选人详情",
-		"cleanup_detail_screenshots": "清理临时截图",
-		"play_success_sound":         "播放成功提示音",
-		"save_running_sync_failure":  "保存运行状态",
-		"save_final_task":            "保存任务结果",
-		"conversation_operation":     "处理当前会话",
-		"list_view":                  "浏览候选人列表",
-		"after_scroll":               "等待列表加载",
-		"before_detail_open":         "准备查看候选人详情",
-		"detail_view":                "浏览候选人详情",
-		"before_detail_close":        "准备关闭候选人详情",
-		"before_greet":               "准备打招呼",
+		"validate_request":              "检查启动参数",
+		"check_local_program":           "检查本地程序",
+		"check_cloud_session":           "检查登录状态",
+		"load_position_snapshot":        "读取岗位配置",
+		"check_subscription":            "检查会员状态",
+		"load_user_preferences":         "读取个人设置",
+		"load_local_platform_config":    "读取平台配置",
+		"check_profile":                 "检查浏览器账号",
+		"check_task_conflict":           "检查运行中的任务",
+		"check_node_runtime":            "检查浏览器运行组件",
+		"check_worker_build":            "检查浏览器操作程序",
+		"check_worker":                  "启动浏览器操作程序",
+		"check_cloakbrowser":            "检查增强浏览器",
+		"check_local_storage":           "检查本地数据",
+		"check_required_ai":             "检查 AI 配置",
+		"check_required_ocr":            "检查文字识别组件",
+		"check_power_guard":             "检查防休眠能力",
+		"start_browser":                 "启动增强浏览器",
+		"prepare_screenshot_workspace":  "准备本次截图目录",
+		"open_greeting_page":            "打开打招呼页面",
+		"initialize_greeting_page":      "整理打招呼页面",
+		"select_position":               "选择岗位",
+		"apply_basic_filters":           "应用基础筛选",
+		"scan_decide_and_greet":         "处理候选人并打招呼",
+		"candidate_fingerprint":         "确认候选人身份",
+		"sync_processed_resumes":        "同步候选人数量",
+		"candidate_operation":           "处理当前候选人",
+		"scroll_to_candidate":           "滚动到当前候选人",
+		"open_detail":                   "打开候选人详情",
+		"read_detail_text":              "读取候选人详情",
+		"browse_candidate_detail":       "浏览候选人详情",
+		"close_detail":                  "关闭候选人详情",
+		"ai_decision":                   "AI 正在判断候选人匹配度",
+		"request_candidate_info":        "索要候选人资料",
+		"ensure_candidate_conversation": "确认候选人对话框",
+		"send_candidate_message":        "发送首次打招呼语",
+		"close_candidate_conversation":  "关闭候选人对话框",
+		"greet":                         "打招呼",
+		"save_candidate":                "保存处理结果",
+		"simulated_rest":                "拟人休息",
+		"open_message_page":             "打开消息页面",
+		"initialize_message_page":       "整理消息页面",
+		"scan_generate_and_reply":       "读取消息并自动回复",
+		"read_conversation":             "读取候选人消息",
+		"generate_reply":                "生成回复",
+		"reply_safety_check":            "检查回复内容",
+		"reply_duplicate_check":         "检查重复回复",
+		"send_reply":                    "发送回复",
+		"save_conversation":             "保存回复结果",
+		"request_cloud_start":           "向云端申请开始任务",
+		"start_power_guard":             "启动防休眠",
+		"dispatch_task_flow":            "运行岗位任务",
+		"detect_sleep_resume":           "检查电脑休眠恢复",
+		"sync_completed_status":         "同步完成状态",
+		"sync_failed_counts":            "同步失败统计",
+		"sync_stopped_status":           "同步停止状态",
+		"send_failure_notice":           "发送失败提醒",
+		"play_failure_sound":            "播放失败提示音",
+		"detail_precheck":               "判断是否值得查看详情",
+		"candidate_preview":             "AI 正在批量判断候选人基础信息",
+		"detail_probability":            "判断本次是否查看详情",
+		"decision":                      "判断是否适合打招呼",
+		"filter":                        "筛选候选人",
+		"detail":                        "读取候选人详情",
+		"ocr":                           "OCR 正在识别候选人详情",
+		"cleanup_detail_screenshots":    "清理临时截图",
+		"play_success_sound":            "播放成功提示音",
+		"save_running_sync_failure":     "保存运行状态",
+		"save_final_task":               "保存任务结果",
+		"conversation_operation":        "处理当前会话",
+		"list_view":                     "浏览候选人列表",
+		"after_scroll":                  "等待列表加载",
+		"before_detail_open":            "准备查看候选人详情",
+		"detail_view":                   "浏览候选人详情",
+		"before_detail_close":           "准备关闭候选人详情",
+		"before_greet":                  "准备打招呼",
 	}
 	if label := labels[step]; label != "" {
 		return label
