@@ -9,9 +9,15 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+const (
+	panelCloseCheckAttempts = 10
+	panelCloseCheckInterval = 180 * time.Millisecond
 )
 
 // OpenPage 打开平台配置中的页面地址。
@@ -284,14 +290,38 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
 		return fmt.Errorf("%s没关好，点击关闭失败：%v；按 Escape 也失败：%w", label, clickErr, err)
 	}
-	opened, err = ProbeSelectorExists(ctx, browser, cfg, panelKey)
+	hidden, err := waitSelectorHidden(ctx, browser, cfg, panelKey)
 	if err != nil {
 		return err
 	}
-	if opened {
+	if !hidden {
 		return fmt.Errorf("%s仍然没有关闭：%w", label, clickErr)
 	}
 	return nil
+}
+
+// waitSelectorHidden 短暂轮询确认弹层已经隐藏，避免把关闭动画误判成关闭失败。
+func waitSelectorHidden(ctx context.Context, browser model.Browser, cfg model.Config, key string) (bool, error) {
+	for attempt := 1; attempt <= panelCloseCheckAttempts; attempt++ {
+		opened, err := ProbeSelectorExists(ctx, browser, cfg, key)
+		if err != nil {
+			return false, err
+		}
+		if !opened {
+			return true, nil
+		}
+		if attempt == panelCloseCheckAttempts {
+			break
+		}
+		timer := time.NewTimer(panelCloseCheckInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return false, nil
 }
 
 // CloseCandidateChat 可靠关闭各平台共用的候选人聊天框。

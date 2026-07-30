@@ -106,31 +106,15 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		}
 		return err
 	}
-	visible, err := detailVisible(ctx, browser, cfg)
+	hidden, err := waitSelectorHidden(ctx, browser, cfg, "candidate.detail")
 	if err != nil {
 		return err
 	}
-	if visible {
+	if !hidden {
 		if clickErr != nil {
 			return fmt.Errorf("平台 %s 的候选人详情仍未关闭：%w", cfg.ID, clickErr)
 		}
 		return fmt.Errorf("平台 %s 的候选人详情仍未关闭", cfg.ID)
 	}
 	return nil
-}
-
-// detailVisible 使用短轮询判断候选人详情正文是否仍然可见。
-func detailVisible(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
-	selector, err := RequiredSelector(cfg, "candidate.detail")
-	if err != nil {
-		return false, err
-	}
-	selector.TimeoutMS = 800
-	_, err = browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: 1, ExpectedMissing: true,
-	})
-	if IsElementMissing(err) {
-		return false, nil
-	}
-	return err == nil, err
 }
