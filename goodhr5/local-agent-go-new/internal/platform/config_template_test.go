@@ -63,6 +63,19 @@ func TestLoadConfigUsesLocalZhaopinSelectors(t *testing.T) {
 	}
 }
 
+// TestLoadConfigUsesSafeBossDetailTarget 验证 Boss 只点击基础信息摘要打开详情，避免随机命中候选人头像。
+func TestLoadConfigUsesSafeBossDetailTarget(t *testing.T) {
+	cfg, err := LoadConfig("boss")
+	if err != nil {
+		t.Fatalf("读取 Boss 本地配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.open_target"]
+	if len(selector.Target.Selectors) != 1 ||
+		selector.Target.Selectors[0].Value != ".base-info.join-text-wrap" {
+		t.Fatalf("Boss 详情入口必须保持为不包含头像的安全小区域：%+v", selector.Target.Selectors)
+	}
+}
+
 // TestLoadConfigUsesUniqueHLiepinCandidateRows 验证猎聘猎头端直接定位候选人行，不再依赖页面里多个 tbody。
 func TestLoadConfigUsesUniqueHLiepinCandidateRows(t *testing.T) {
 	cfg, err := LoadConfig("hliepin")

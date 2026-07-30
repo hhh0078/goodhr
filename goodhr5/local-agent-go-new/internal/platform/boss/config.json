@@ -242,17 +242,17 @@
       "description": "Boss候选人卡片"
     },
     "candidate.open_target": {
-      "_comment": "卡片内打开详情目标。",
+      "_comment": "卡片内打开详情的安全小区域；只点击年龄、经验和学历摘要，避开头像、按钮和其它会弹出浮层的区域。",
       "parents": [],
       "target": {
-        "_comment": "详情点击目标候选。",
+        "_comment": "每张候选人卡片固定存在的基础信息摘要。",
         "selectors": [
-          { "_comment": "推荐或最新标签候选人详情入口。", "type": "css", "value": ".card-inner.common-wrap, .card-inner.new-geek-wrap" }
+          { "_comment": "Boss 年龄、经验和学历摘要；实测点击会打开简历详情，且不会命中头像。", "type": "css", "value": ".base-info.join-text-wrap" }
         ]
       },
       "state": "visible",
       "timeout_ms": 5000,
-      "description": "Boss候选人详情入口"
+      "description": "Boss候选人基础信息详情入口"
     },
     "candidate.detail": {
       "_comment": "候选人详情正文。",
