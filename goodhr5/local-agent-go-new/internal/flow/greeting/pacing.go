@@ -141,7 +141,7 @@ func formatWaitDuration(duration time.Duration) string {
 	return fmt.Sprintf("%d 分 %d 秒", minutes, seconds)
 }
 
-// waitDuration 等待指定时长并响应任务取消。
+// waitDuration 等待指定时长，并响应任务取消或处理完当前候选人后的安全停止请求。
 func waitDuration(ctx context.Context, duration time.Duration) error {
 	if duration <= 0 {
 		return nil
@@ -151,6 +151,8 @@ func waitDuration(ctx context.Context, duration time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-shared.GracefulStopSignal(ctx):
+		return nil
 	case <-timer.C:
 		return nil
 	}

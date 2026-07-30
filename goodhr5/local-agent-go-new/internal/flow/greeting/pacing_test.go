@@ -2,7 +2,9 @@
 package greeting
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
@@ -59,5 +61,22 @@ func TestCandidateInfoAllowedRequiresStrictlyGreaterScore(t *testing.T) {
 	}
 	if candidateInfoAllowed(false, 100, 80) {
 		t.Fatal("没有最终 AI 分数时不应索要信息")
+	}
+}
+
+// TestWaitDurationStopsDuringSimulatedRest 验证拟人休息期间收到安全停止请求后会立即结束等待。
+func TestWaitDurationStopsDuringSimulatedRest(t *testing.T) {
+	stop := make(chan struct{})
+	ctx := shared.WithGracefulStop(context.Background(), stop)
+	time.AfterFunc(20*time.Millisecond, func() {
+		close(stop)
+	})
+
+	startedAt := time.Now()
+	if err := waitDuration(ctx, time.Minute); err != nil {
+		t.Fatalf("安全停止不应被当作休息失败：%v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("安全停止后休息没有及时结束，耗时 %s", elapsed)
 	}
 }

@@ -279,6 +279,10 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 				cancelPreviews()
 				return restErr
 			}
+			if shared.GracefulStopRequested(ctx) {
+				cancelPreviews()
+				return nil
+			}
 			if candidateErr != nil {
 				continue
 			}

@@ -161,8 +161,21 @@ func activateCandidateFromCard(ctx context.Context, browser model.Browser, cfg m
 	if err = CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
 		return false, fmt.Errorf("打开%s候选人聊天框失败：%w", cfg.Name, err)
 	}
-	if err = waitCandidateConversation(ctx, browser, cfg, candidate); err != nil {
+	if err = WaitCandidateConversation(ctx, browser, cfg, candidate); err == nil {
+		return true, nil
+	}
+	opened, probeErr := ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+	if probeErr != nil {
+		return false, probeErr
+	}
+	if opened {
 		return false, err
+	}
+	if retryErr := CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); retryErr != nil {
+		return false, fmt.Errorf("再次打开%s候选人聊天框失败：%w", cfg.Name, retryErr)
+	}
+	if retryErr := WaitCandidateConversation(ctx, browser, cfg, candidate); retryErr != nil {
+		return false, retryErr
 	}
 	return true, nil
 }
@@ -214,14 +227,14 @@ func activateCandidateFromContactList(ctx context.Context, browser model.Browser
 	}); err != nil {
 		return false, fmt.Errorf("从%s联系人列表切换候选人失败：%w", cfg.Name, err)
 	}
-	if err = waitCandidateConversation(ctx, browser, cfg, candidate); err != nil {
+	if err = WaitCandidateConversation(ctx, browser, cfg, candidate); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// waitCandidateConversation 每 300 毫秒确认聊天框已经出现且候选人姓名正确。
-func waitCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+// WaitCandidateConversation 每 300 毫秒确认聊天框已经出现且候选人姓名正确。
+func WaitCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
 	for attempt := 1; attempt <= candidateConversationPollAttempts; attempt++ {
 		opened, err := ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
 		if err != nil {

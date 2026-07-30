@@ -3,9 +3,8 @@ package hliepin
 
 // Runtime 是猎聘猎头端平台运行时，保存当前单任务的岗位和开聊方式。
 type Runtime struct {
-	positionName          string
-	selectJobWhenGreeting bool
-	nextCandidatePage     int
+	positionName      string
+	nextCandidatePage int
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时。

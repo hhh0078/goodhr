@@ -23,8 +23,11 @@ func (r *Runtime) OpenGreetingPage(ctx context.Context, browser model.Browser, c
 	return common.OpenVerifiedPage(ctx, browser, r.PlatformID(), cfg.EntryURL, "打招呼页")
 }
 
-// InitializeGreetingPage 关闭猎聘猎头端找人页可选弹框。
+// InitializeGreetingPage 关闭猎聘猎头端找人页遗留的开聊推广和其他可选弹框。
 func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
+		return err
+	}
 	if len(cfg.GreetingInitActions) > 0 {
 		return common.ApplyConfiguredActions(ctx, browser, cfg, cfg.GreetingInitActions)
 	}

@@ -61,7 +61,22 @@ func AdvanceCandidateNumberPage(
 	if err != nil || len(items) == 0 {
 		return false, err
 	}
-	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector}); err != nil {
+	scrollRequest := contract.ScrollRequest{
+		Target:         &selector,
+		Distance:       320,
+		MaxAttempts:    24,
+		WaitMS:         120,
+		ViewportMargin: 24,
+	}
+	if anchor, ok := cfg.Selectors["candidate.list"]; ok && len(anchor.Target.Selectors) > 0 {
+		scrollRequest.WheelAnchor = &anchor
+	}
+	if _, err = browser.Scroll(ctx, scrollRequest); err != nil {
+		return false, fmt.Errorf("滚动到%s失败：%w", selector.Description, err)
+	}
+	if _, err = browser.Click(ctx, contract.ElementClickRequest{
+		Selector: selector, ViewportMargin: 24,
+	}); err != nil {
 		return false, err
 	}
 	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)

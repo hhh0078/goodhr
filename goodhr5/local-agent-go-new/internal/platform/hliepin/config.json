@@ -42,8 +42,8 @@
     "_comment_supports_paging": "候选人列表支持数字页码翻页。",
     "candidate_list_mode": "number_page",
     "_comment_candidate_list_mode": "候选人列表按 2、3、4、5 的顺序点击数字页码，不依赖下一页按钮。",
-    "skip_position_selection": true,
-    "_comment_skip_position_selection": "沿用用户当前手动搜索结果，不自动切换岗位。",
+    "skip_position_selection": false,
+    "_comment_skip_position_selection": "任务开始后按岗位配置中的猎聘快捷搜索名称完整选择岗位，不改变用户手动设置的其他筛选条件。",
     "direct_position_selection": false,
     "_comment_direct_position_selection": "猎聘猎头端已经跳过页面岗位处理，不需要直接切换。",
     "select_first_position_result": false,
@@ -95,7 +95,8 @@
         "_comment": "候选人表格行目标。",
         "selectors": [
           { "_comment": "2026 版猎聘候选人数据行。", "type": "css", "value": "tr[data-tlg-elem-id='h_pc_search_res_listcard']" },
-          { "_comment": "旧版无悬停候选人行。", "type": "css", "value": "tr.no-hover-tr" }
+          { "_comment": "旧版无悬停候选人行。", "type": "css", "value": "tr.no-hover-tr" },
+          { "_comment": "兼容数字翻页后不再携带统计属性和旧类名的候选人表格行。", "type": "css", "value": "tbody tr" }
         ]
       },
       "state": "visible",
@@ -232,6 +233,32 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端开聊职位列表项"
     },
+    "candidate.greet_job_list": {
+      "_comment": "当前可见的开聊职位下拉列表，用作真实滚轮的安全区域和选择后的关闭验证。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配当前已经展开且包含职位选项的下拉菜单。",
+        "selectors": [
+          { "_comment": "猎聘当前可见的职位下拉菜单。", "type": "css", "value": ".ant-select-dropdown:not(.ant-select-dropdown-hidden):has(.hpublic-job-select-option)" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘猎头端开聊职位列表"
+    },
+    "candidate.greet_job_name": {
+      "_comment": "开聊职位选项中的职位标题，只读取标题以排除公司、经验、薪资和城市。",
+      "parents": [],
+      "target": {
+        "_comment": "相对于单个职位选项读取加粗的职位名称。",
+        "selectors": [
+          { "_comment": "猎聘职位选项标题。", "type": "css", "value": ".hpublic-job-select-option strong" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘猎头端开聊职位名称"
+    },
     "candidate.greet_without_job": {
       "_comment": "不选择职位直接开聊按钮。",
       "parents": [
@@ -245,7 +272,7 @@
       "target": {
         "_comment": "不选择职位开聊按钮。",
         "text": "不选择职位开聊",
-        "_comment_text": "用于快捷搜索模式或职位未匹配时。",
+        "_comment_text": "用于开聊弹框中没有匹配到后端岗位时。",
         "exact_text": true,
         "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
@@ -280,6 +307,49 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端立即开聊"
     },
+    "candidate.greet_promotion_modal": {
+      "_comment": "开聊成功后偶尔出现的相似候选人免费开聊推广弹框，仅猎聘猎头端使用。",
+      "parents": [],
+      "target": {
+        "_comment": "按推广文案限定弹框，避免误关职位开聊弹框和候选人聊天框。",
+        "text": "一键免费开聊相似候选人",
+        "_comment_text": "兼容“限时福利，一键免费开聊相似候选人”等完整文案。",
+        "exact_text": false,
+        "_comment_exact_text": "推广标题前后可能附加活动文案，因此使用包含匹配。",
+        "selectors": [
+          { "_comment": "猎聘页面当前使用的 Ant Design 弹框。", "type": "css", "value": ".ant-modal" },
+          { "_comment": "兼容带标准对话框角色的推广层。", "type": "css", "value": "[role='dialog']" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 800,
+      "description": "猎聘猎头端开聊后推广弹框"
+    },
+    "candidate.greet_promotion_close": {
+      "_comment": "相似候选人免费开聊推广弹框右上角关闭按钮；点击失败时由公共弹框能力使用 Escape 兜底。",
+      "parents": [
+        {
+          "_comment": "只在包含推广文案的弹框内查找关闭按钮。",
+          "text": "一键免费开聊相似候选人",
+          "exact_text": false,
+          "selectors": [
+            { "_comment": "猎聘页面当前使用的 Ant Design 弹框。", "type": "css", "value": ".ant-modal" },
+            { "_comment": "兼容带标准对话框角色的推广层。", "type": "css", "value": "[role='dialog']" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "优先尝试标准关闭按钮，页面改版找不到时会回退 Escape。",
+        "selectors": [
+          { "_comment": "Ant Design 标准弹框关闭按钮。", "type": "css", "value": ".ant-modal-close" },
+          { "_comment": "Ant Design 关闭图标容器。", "type": "css", "value": ".ant-modal-close-x" },
+          { "_comment": "兼容带无障碍关闭说明的按钮。", "type": "css", "value": "[aria-label='Close']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 600,
+      "description": "猎聘猎头端关闭开聊后推广弹框"
+    },
     "candidate.page_number": {
       "_comment": "候选人列表数字页码，运行时会附加精确页码文字。",
       "parents": [],
@@ -292,6 +362,19 @@
       "state": "enabled",
       "timeout_ms": 3000,
       "description": "猎聘猎头端数字页码"
+    },
+    "candidate.current_page": {
+      "_comment": "当前已经激活的候选人数字页码，用于复用旧窗口时从下一页继续。",
+      "parents": [],
+      "target": {
+        "_comment": "Ant Design 当前激活页码。",
+        "selectors": [
+          { "_comment": "猎聘当前激活的数字页码。", "type": "css", "value": ".ant-pagination-item-active" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘猎头端当前页码"
     },
     "candidate.request_phone": {
       "_comment": "聊天框索要电话按钮。",

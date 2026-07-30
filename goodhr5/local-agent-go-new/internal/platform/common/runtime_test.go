@@ -39,6 +39,8 @@ type candidateChatBrowser struct {
 	clickErrors     map[string]error
 	readNames       []string
 	readIndex       int
+	continueClicks  int
+	continueOpensAt int
 	closeVerified   bool
 	pressCount      int
 	scrollCount     int
@@ -106,9 +108,12 @@ func (b *candidateChatBrowser) Click(_ context.Context, request contract.Element
 		}
 	}
 	if description == "继续沟通" {
-		b.opened = true
-		if b.nextChatName != "" {
-			b.chatName = b.nextChatName
+		b.continueClicks++
+		if b.continueOpensAt <= 1 || b.continueClicks >= b.continueOpensAt {
+			b.opened = true
+			if b.nextChatName != "" {
+				b.chatName = b.nextChatName
+			}
 		}
 	}
 	if description == "关闭聊天框" {
@@ -488,6 +493,25 @@ func TestEnsureCandidateConversationUsesCardBeforeDrawer(t *testing.T) {
 	}
 	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通" {
 		t.Fatalf("已有继续沟通入口时不应打开联系人列表：%s", actual)
+	}
+}
+
+// TestEnsureCandidateConversationRetriesSwallowedCardClick 验证页面吞掉第一次继续沟通点击时会重新定位当前候选人再试一次。
+func TestEnsureCandidateConversationRetriesSwallowedCardClick(t *testing.T) {
+	browser := &candidateChatBrowser{
+		nextChatName:    "张三",
+		continueOpensAt: 2,
+	}
+	if err := EnsureCandidateConversation(
+		context.Background(),
+		browser,
+		candidateChatTestConfig(),
+		model.Candidate{Index: 0, Name: "张三"},
+	); err != nil {
+		t.Fatalf("第二次点击继续沟通后仍未打开聊天框：%v", err)
+	}
+	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通,继续沟通" {
+		t.Fatalf("第一次点击未生效时应只重试一次：%s", actual)
 	}
 }
 
