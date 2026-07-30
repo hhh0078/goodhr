@@ -40,6 +40,10 @@ import PlatformLogo, {
   platformIconSrc,
   platformLabel,
 } from "@/components/admin/PlatformLogo";
+import PositionFloatingStatus, {
+  openPositionFloatingWindow,
+  type PositionFloatingStatusValue,
+} from "@/components/admin/PositionFloatingStatus";
 import { cloudRequest, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
@@ -61,6 +65,13 @@ type PositionTaskStats = {
   scanned_count: number;
   greeted_count: number;
   skipped_count: number;
+};
+
+type FloatingPositionTask = {
+  id: string;
+  name: string;
+  status: PositionFloatingStatusValue;
+  followTask: boolean;
 };
 
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
@@ -88,6 +99,10 @@ export default function PositionsPage() {
   const [startStatus, setStartStatus] = useState("");
   const [startError, setStartError] = useState("");
   const [startRequiresUpdate, setStartRequiresUpdate] = useState(false);
+  const [floatingStatusWindow, setFloatingStatusWindow] =
+    useState<Window | null>(null);
+  const [floatingPositionTask, setFloatingPositionTask] =
+    useState<FloatingPositionTask | null>(null);
   const [taskFailure, setTaskFailure] = useState<{
     taskID: string;
     positionName: string;
@@ -143,6 +158,44 @@ export default function PositionsPage() {
     }, LOG_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [agentBase, expandedLogPositionID, items]);
+
+  useEffect(() => {
+    if (!agentBase || !floatingPositionTask?.followTask) return undefined;
+    const positionID = floatingPositionTask.id;
+    let disposed = false;
+
+    /** refreshFloatingPositionStatus 读取本地任务状态并同步到置顶小窗。 */
+    async function refreshFloatingPositionStatus() {
+      try {
+        const task = await localRequest(
+          agentBase,
+          `/api/v1/local/positions/${encodeURIComponent(positionID)}/status`,
+        );
+        if (disposed) return;
+        const status: PositionFloatingStatusValue =
+          String(task?.status || "").trim().toLowerCase() === "running"
+            ? "running"
+            : "stopped";
+        setFloatingPositionTask((current) =>
+          current && current.id === positionID
+            ? { ...current, status, followTask: status === "running" }
+            : current,
+        );
+      } catch {
+        // 短暂连接失败时保留上一次状态，避免把仍在运行的任务误报为已停止。
+      }
+    }
+
+    void refreshFloatingPositionStatus();
+    const timer = window.setInterval(
+      () => void refreshFloatingPositionStatus(),
+      LOG_REFRESH_MS,
+    );
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [agentBase, floatingPositionTask?.followTask, floatingPositionTask?.id]);
 
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
@@ -365,11 +418,23 @@ export default function PositionsPage() {
     }
     const item = startPositionItem;
     if (!item || !agentBase) return;
+    const floatingWindowPromise = openPositionFloatingWindow();
+    let started = false;
     setStartLoading(true);
     setBusyPositionID(item.id);
     setStartStatus("正在检查岗位启动条件...");
     setStartError("");
     try {
+      const pipWindow = await floatingWindowPromise;
+      if (pipWindow) {
+        setFloatingStatusWindow(pipWindow);
+        setFloatingPositionTask({
+          id: item.id,
+          name: String(item.name || "当前岗位"),
+          status: "running",
+          followTask: false,
+        });
+      }
       if (!(await checkPositionStartGuard(item))) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const active = Boolean(subscriptionData.subscription?.active);
@@ -410,6 +475,12 @@ export default function PositionsPage() {
         method: "POST",
         body: { token: getToken(), enable_greet: true },
       });
+      started = true;
+      setFloatingPositionTask((current) =>
+        current && current.id === item.id
+          ? { ...current, status: "running", followTask: true }
+          : current,
+      );
       await reportUserFlow({ step: "position_started", source: "position_start", position_id: item.id });
       notify("岗位已经开始跑了，我会老实记日志", "success");
       setStartPositionItem(null);
@@ -422,6 +493,13 @@ export default function PositionsPage() {
       setStartError(message);
       await reportUserFlow({ step: "position_started", status: "blocked", reason_code: positionStartReason(message), message, source: "position_start", position_id: item.id }).catch(() => undefined);
     } finally {
+      if (!started) {
+        setFloatingPositionTask((current) =>
+          current && current.id === item.id
+            ? { ...current, status: "stopped", followTask: false }
+            : current,
+        );
+      }
       setBusyPositionID("");
       setStartLoading(false);
     }
@@ -437,6 +515,11 @@ export default function PositionsPage() {
         method: "POST",
         body: { token: getToken() },
       });
+      setFloatingPositionTask((current) =>
+        current && current.id === item.id
+          ? { ...current, status: "stopped", followTask: false }
+          : current,
+      );
       notify("岗位已停下，浏览器先给你留着", "success");
       await load();
     } catch (error) {
@@ -640,6 +723,15 @@ export default function PositionsPage() {
 
   return (
     <>
+      <PositionFloatingStatus
+        pipWindow={floatingStatusWindow}
+        positionName={floatingPositionTask?.name || ""}
+        status={floatingPositionTask?.status || "stopped"}
+        onClosed={() => {
+          setFloatingStatusWindow(null);
+          setFloatingPositionTask(null);
+        }}
+      />
       <PageHeader
         title='岗位管理'
         description='岗位模板决定首次筛选、详情识别和最终打招呼判断。'
