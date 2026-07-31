@@ -67,14 +67,41 @@ func TestParseDecisionRejectsMissingScore(t *testing.T) {
 // TestCandidatePromptUsesPositionRequirement 验证 AI 筛选会优先读取岗位表单里的岗位要求。
 func TestCandidatePromptUsesPositionRequirement(t *testing.T) {
 	position := cloud.PositionSnapshot{
+		Name:        "AI应用开发工程师",
 		Description: "旧描述",
+		Keywords:    []string{"Java", "实习"},
 		AIOptions: cloud.PositionAIOptions{
 			PositionRequirement: "本科及以上",
 		},
 	}
 	prompt := candidateUserPrompt(position, model.Candidate{Name: "候选人"}, model.CandidateDetail{})
-	if !strings.Contains(prompt, "岗位要求：本科及以上") || strings.Contains(prompt, "岗位要求：旧描述") {
-		t.Fatalf("岗位要求没有进入 AI 提示词：%s", prompt)
+	previewPrompt := candidatePreviewUserPrompt(position, model.Candidate{Name: "候选人"})
+	for _, value := range []string{prompt, previewPrompt} {
+		if !strings.Contains(value, "岗位要求：\n本科及以上") {
+			t.Fatalf("岗位要求没有进入 AI 提示词：%s", value)
+		}
+		if strings.Contains(value, position.Name) || strings.Contains(value, "Java") || strings.Contains(value, "实习") || strings.Contains(value, position.Description) {
+			t.Fatalf("填写岗位要求后不应再混入岗位名称、关键词或旧描述：%s", value)
+		}
+	}
+}
+
+// TestCandidatePromptFallsBackToLegacyPositionFields 验证未填写岗位要求时仍兼容旧岗位字段。
+func TestCandidatePromptFallsBackToLegacyPositionFields(t *testing.T) {
+	position := cloud.PositionSnapshot{
+		Name:            "测试岗位",
+		Description:     "岗位描述",
+		Keywords:        []string{"关键词一", "关键词二"},
+		ExcludeKeywords: []string{"排除词"},
+	}
+	prompt := candidateUserPrompt(position, model.Candidate{Name: "候选人"}, model.CandidateDetail{})
+	for _, expected := range []string{"测试岗位", "岗位描述", "关键词：关键词一、关键词二", "排除词：排除词"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("旧岗位兼容字段没有进入 AI 提示词，缺少 %q：%s", expected, prompt)
+		}
+	}
+	if !strings.Contains(candidateSystemPrompt(cloud.AIConfig{}, position), "打招呼建议分") {
+		t.Fatal("新版默认评分提示词没有与旧版保持一致")
 	}
 }
 

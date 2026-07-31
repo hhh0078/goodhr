@@ -20,6 +20,11 @@ export interface MoveResult {
 
 /** MoveAction 实现对已找到元素的通用安全移动。 */
 export class MoveAction {
+  private readonly lastPositions = new WeakMap<
+    ResolvedElement["page"],
+    { x: number; y: number }
+  >();
+
   /** 创建鼠标移动封装能力。 */
   constructor(
     private readonly mouse: MousePrimitive,
@@ -80,9 +85,13 @@ export class MoveAction {
       const maxY = visibleBottom - paddingY;
       const x = randomBetween(minX, maxX);
       const y = randomBetween(minY, maxY);
-      const distance = Math.hypot(x, y);
-      const steps = Math.max(6, Math.min(30, Math.round(distance / 45)));
+      const previous = this.lastPositions.get(found.page);
+      const distance = previous
+        ? Math.hypot(x - previous.x, y - previous.y)
+        : Math.hypot(x, y);
+      const steps = Math.max(4, Math.min(12, Math.round(distance / 90)));
       await this.mouse.move(found.page, x, y, steps);
+      this.lastPositions.set(found.page, { x, y });
       const result = { x, y, steps, view: found.view };
       this.logger.info(actionContext, step, "success", {
         x: Math.round(x),
@@ -114,6 +123,7 @@ export class MoveAction {
     const x = Math.max(1, width / 2);
     const y = Math.max(1, height / 2);
     await this.mouse.move(page, x, y, 12);
+    this.lastPositions.set(page, { x, y });
     this.logger.info(actionContext, "move", "success", {
       source: "viewport_center",
       x: Math.round(x),

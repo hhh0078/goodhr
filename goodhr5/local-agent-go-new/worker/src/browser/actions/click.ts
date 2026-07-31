@@ -135,12 +135,11 @@ export class ClickAction {
   ): Promise<void> {
     let previous = found.resolved.view.box;
     for (let check = 1; check <= 3; check += 1) {
-      await delay(100);
-      const view = await this.locator.view(
-        found.resolved.page,
-        found.resolved.locator,
-      );
-      const current = view.box;
+      await delay(60);
+      const current = await this.locator.box(found.resolved.locator);
+      if (!current) {
+        throw new Error("元素在点击前消失了，已取消本次点击");
+      }
       const stable =
         Math.abs(current.x - previous.x) <= 2 &&
         Math.abs(current.y - previous.y) <= 2 &&
@@ -150,7 +149,7 @@ export class ClickAction {
         check,
         stable,
       });
-      found.resolved.view = view;
+      found.resolved.view.box = current;
       if (stable && check >= 2) {
         return;
       }
@@ -206,7 +205,12 @@ export class ClickAction {
       return false;
     }
     try {
-        await this.find.one(selector, actionContext, false, false);
+      await this.find.one(
+        { ...selector, timeout_ms: 0 },
+        actionContext,
+        false,
+        false,
+      );
       return true;
     } catch (error) {
       if (

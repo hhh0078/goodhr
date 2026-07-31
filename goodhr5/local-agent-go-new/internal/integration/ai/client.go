@@ -32,6 +32,11 @@ type Decision struct {
 	Resume   *cloud.StructuredCandidate `json:"resume,omitempty"`
 }
 
+const (
+	defaultGreetPrompt  = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultDetailPrompt = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+)
+
 // ServiceError 表示 AI 网络或服务端错误及其重试策略。
 type ServiceError struct {
 	StatusCode int
@@ -395,7 +400,7 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 		system = strings.TrimSpace(cfg.SystemPrompt)
 	}
 	if system == "" {
-		system = `你是招聘顾问。只返回 JSON：{"score":0到100数字,"reason":"30字以内原因"}，不要 Markdown。`
+		system = defaultGreetPrompt
 	}
 	return applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume)
 }
@@ -403,8 +408,8 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 // candidateUserPrompt 构造候选人评分动态内容。
 func candidateUserPrompt(position cloud.PositionSnapshot, candidate model.Candidate, detail model.CandidateDetail) string {
 	return fmt.Sprintf(
-		"岗位：%s\n岗位要求：%s\n关键词：%s\n候选人：%s\n摘要：%s\n详情：%s",
-		position.Name, positionRequirement(position), position.Keyword, candidate.Name, candidate.Summary, detail.Text,
+		"岗位要求：\n%s\n\n候选人信息：\n候选人：%s\n摘要：%s\n详情：%s",
+		positionRequirement(position), candidate.Name, candidate.Summary, detail.Text,
 	)
 }
 
@@ -413,23 +418,39 @@ func candidatePreviewSystemPrompt(position cloud.PositionSnapshot) string {
 	if prompt := strings.TrimSpace(position.AIOptions.OpenDetailPrompt); prompt != "" {
 		return prompt
 	}
-	return `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score":66,"reason":"可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	return defaultDetailPrompt
 }
 
 // candidatePreviewUserPrompt 构造不含候选人详情的基础预判断内容。
 func candidatePreviewUserPrompt(position cloud.PositionSnapshot, candidate model.Candidate) string {
 	return fmt.Sprintf(
-		"岗位：%s\n岗位要求：%s\n关键词：%s\n候选人：%s\n候选人基础信息：%s",
-		position.Name, positionRequirement(position), position.Keyword, candidate.Name, candidate.Summary,
+		"岗位要求：\n%s\n\n候选人信息：\n候选人：%s\n候选人基础信息：%s",
+		positionRequirement(position), candidate.Name, candidate.Summary,
 	)
 }
 
-// positionRequirement 优先使用岗位 AI 配置中的筛选要求，并兼容旧岗位的描述字段。
+// positionRequirement 优先只使用用户填写的岗位要求，未填写时再兼容旧岗位字段。
 func positionRequirement(position cloud.PositionSnapshot) string {
 	if value := strings.TrimSpace(position.AIOptions.PositionRequirement); value != "" {
 		return value
 	}
-	return strings.TrimSpace(position.Description)
+	parts := []string{
+		strings.TrimSpace(position.Name),
+		strings.TrimSpace(position.Description),
+	}
+	if len(position.Keywords) > 0 {
+		parts = append(parts, "关键词："+strings.Join(position.Keywords, "、"))
+	}
+	if len(position.ExcludeKeywords) > 0 {
+		parts = append(parts, "排除词："+strings.Join(position.ExcludeKeywords, "、"))
+	}
+	result := parts[:0]
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 // detailDecisionThreshold 返回是否打开候选人详情的岗位级分数阈值。

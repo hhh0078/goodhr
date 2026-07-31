@@ -337,6 +337,20 @@ export class LocatorPrimitive {
     };
   }
 
+  /** box 只读取元素最新边界，供点击前的轻量稳定检查使用。 */
+  async box(locator: Locator): Promise<ElementBox | null> {
+    const box = await locator.boundingBox().catch(() => null);
+    if (!box) {
+      return null;
+    }
+    return {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    };
+  }
+
   /** readView 为列表和相对字段只读取必要状态，不重复计算坐标和视口。 */
   private async readView(
     locator: Locator,

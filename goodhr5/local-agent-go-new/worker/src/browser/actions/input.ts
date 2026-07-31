@@ -11,6 +11,13 @@ import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
 
+const DEFAULT_CHARACTER_DELAY_MIN_MS = 15;
+const DEFAULT_CHARACTER_DELAY_MAX_MS = 45;
+const WORD_DELAY_MIN_MS = 50;
+const WORD_DELAY_MAX_MS = 120;
+const FOCUS_HOLD_MIN_MS = 40;
+const FOCUS_HOLD_MAX_MS = 90;
+
 /** InputResult 表示封装输入结果。 */
 export interface InputResult extends JsonObject {
   typed: boolean;
@@ -59,7 +66,7 @@ export class InputAction {
       );
       await this.move.toElement(found.resolved, actionContext);
       await this.mouse.down(found.resolved.page, "left");
-      await delay(randomInteger(60, 150));
+      await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));
       await this.mouse.up(found.resolved.page, "left");
       if (request.clear ?? true) {
         const selectAll =
@@ -70,8 +77,8 @@ export class InputAction {
       await this.typeHumanized(
         found.resolved.page,
         request.text,
-        request.min_delay_ms ?? 35,
-        request.max_delay_ms ?? 110,
+        request.min_delay_ms ?? DEFAULT_CHARACTER_DELAY_MIN_MS,
+        request.max_delay_ms ?? DEFAULT_CHARACTER_DELAY_MAX_MS,
       );
       let verified = true;
       if (request.verify ?? true) {
@@ -131,7 +138,7 @@ export class InputAction {
         await delay(randomInteger(min, max));
       }
       if (segmentIndex + 1 < segments.length) {
-        await delay(randomInteger(180, 450));
+        await delay(randomInteger(WORD_DELAY_MIN_MS, WORD_DELAY_MAX_MS));
       }
     }
   }
