@@ -54,6 +54,16 @@ login_code:{email}
 session:{token}
 ```
 
+## 万能验证码
+
+默认关闭。需要临时启用时，在环境变量中配置偏移分钟数：
+
+```bash
+GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES=3
+```
+
+配置后，后端会按中国时间“当前时间 + 偏移分钟数”的 `HHmm` 作为万能验证码。不配置、配置为 `0` 或负数时，万能验证码不可用。
+
 ## 163 SMTP
 
 未配置 SMTP 时，后端使用开发模式 mailer，并在 `send-code` 响应里返回 `debug_code`。

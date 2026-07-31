@@ -19,16 +19,17 @@ const sessionTTL = 30 * 24 * time.Hour
 const chinaTimezoneName = "Asia/Shanghai"
 
 type AuthService struct {
-	store           AuthStore
-	mailer          Mailer
-	exposeDebugCode bool
-	tenantStore     TenantStore
-	invitations     InvitationStore
-	subscriptions   SubscriptionStore
-	systemConfigs   SystemConfigStore
-	userActivity    UserActivityStore
-	aiWallet        *AIWalletService
-	superAdmins     map[string]struct{}
+	store                       AuthStore
+	mailer                      Mailer
+	exposeDebugCode             bool
+	tenantStore                 TenantStore
+	invitations                 InvitationStore
+	subscriptions               SubscriptionStore
+	systemConfigs               SystemConfigStore
+	userActivity                UserActivityStore
+	aiWallet                    *AIWalletService
+	superAdmins                 map[string]struct{}
+	universalLoginCodeOffsetMin int
 }
 
 type sendCodeRequest struct {
@@ -43,7 +44,7 @@ type loginRequest struct {
 }
 
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string) *AuthService {
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string, universalLoginCodeOffsetMin int) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -53,16 +54,17 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		superAdminMap[normalized] = struct{}{}
 	}
 	return &AuthService{
-		store:           store,
-		mailer:          mailer,
-		exposeDebugCode: exposeDebugCode,
-		tenantStore:     tenantStore,
-		invitations:     invitations,
-		subscriptions:   subscriptions,
-		systemConfigs:   systemConfigs,
-		userActivity:    userActivity,
-		aiWallet:        aiWallet,
-		superAdmins:     superAdminMap,
+		store:                       store,
+		mailer:                      mailer,
+		exposeDebugCode:             exposeDebugCode,
+		tenantStore:                 tenantStore,
+		invitations:                 invitations,
+		subscriptions:               subscriptions,
+		systemConfigs:               systemConfigs,
+		userActivity:                userActivity,
+		aiWallet:                    aiWallet,
+		superAdmins:                 superAdminMap,
+		universalLoginCodeOffsetMin: universalLoginCodeOffsetMin,
 	}
 }
 
@@ -302,16 +304,19 @@ func (s *AuthService) AckTrialWelcome(w http.ResponseWriter, r *http.Request) {
 // loginCodeMatched 判断登录验证码是否有效。
 // email 为登录邮箱，code 为用户输入验证码，now 为当前时间。
 func (s *AuthService) loginCodeMatched(email string, code string, now time.Time) (bool, error) {
-	if isUniversalLoginCode(code, now) {
+	if isUniversalLoginCode(code, now, s.universalLoginCodeOffsetMin) {
 		return true, nil
 	}
 	return s.store.ConsumeLoginCode(email, code)
 }
 
 // isUniversalLoginCode 判断是否命中动态万能验证码。
-// code 为用户输入验证码，now 为服务器当前时间；验证码固定按中国时间加 3 分钟后的 HHmm。
-func isUniversalLoginCode(code string, now time.Time) bool {
-	return code == now.In(chinaLocation()).Add(3*time.Minute).Format("1504")
+// code 为用户输入验证码，now 为服务器当前时间，offsetMinutes 为环境变量配置的偏移分钟数。
+func isUniversalLoginCode(code string, now time.Time, offsetMinutes int) bool {
+	if offsetMinutes <= 0 {
+		return false
+	}
+	return code == now.In(chinaLocation()).Add(time.Duration(offsetMinutes)*time.Minute).Format("1504")
 }
 
 // chinaLocation 返回中国时区，避免服务器部署时区不同导致万能验证码不一致。

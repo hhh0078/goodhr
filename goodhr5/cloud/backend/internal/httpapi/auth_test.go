@@ -92,7 +92,7 @@ func TestAuthCodeLogin(t *testing.T) {
 func TestAuthMeRefreshesLastLogin(t *testing.T) {
 	store := NewMemoryAuthStore()
 	activity := &recordingUserActivityStore{}
-	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil)
+	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil, 0)
 	if err := store.SaveSession("active-token", Session{Email: "active@example.com", CreatedAt: time.Now()}, time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -187,25 +187,30 @@ func TestAuthLoginKeepsPreviousSession(t *testing.T) {
 	}
 }
 
-// TestUniversalLoginCode 验证动态万能验证码按当前时间加 3 分钟计算。
+// TestUniversalLoginCode 验证动态万能验证码只在配置偏移分钟后生效。
 func TestUniversalLoginCode(t *testing.T) {
 	china := chinaLocation()
 	now := time.Date(2026, 6, 1, 18, 15, 0, 0, china)
-	if !isUniversalLoginCode("1818", now) {
-		t.Fatal("universal code 1818 should match 18:15 + 3 minutes")
+	if isUniversalLoginCode("1818", now, 0) {
+		t.Fatal("universal code should be disabled when offset is 0")
+	}
+	if isUniversalLoginCode("1818", now, -1) {
+		t.Fatal("universal code should be disabled when offset is negative")
+	}
+	if !isUniversalLoginCode("1818", now, 3) {
+		t.Fatal("universal code 1818 should match 18:15 + 3 minutes when configured")
 	}
 
 	carryNow := time.Date(2026, 6, 1, 18, 58, 0, 0, china)
-	if !isUniversalLoginCode("1901", carryNow) {
-		t.Fatal("universal code 1901 should match 18:58 + 3 minutes")
+	if !isUniversalLoginCode("1901", carryNow, 3) {
+		t.Fatal("universal code 1901 should match 18:58 + 3 minutes when configured")
 	}
 
 	utcNow := time.Date(2026, 6, 1, 10, 15, 0, 0, time.UTC)
-	if !isUniversalLoginCode("1818", utcNow) {
+	if !isUniversalLoginCode("1818", utcNow, 3) {
 		t.Fatal("universal code should use China timezone when server time is UTC")
 	}
-
-	if isUniversalLoginCode("1858", carryNow) {
+	if isUniversalLoginCode("1858", carryNow, 3) {
 		t.Fatal("original time should not match universal code")
 	}
 }
@@ -270,7 +275,7 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	routes.ServeHTTP(sendResp, sendReq)
 
 	wrongCode := "0000"
-	if isUniversalLoginCode(wrongCode, time.Now()) {
+	if isUniversalLoginCode(wrongCode, time.Now(), 3) {
 		wrongCode = "9999"
 	}
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","agreement_accepted":true}`))

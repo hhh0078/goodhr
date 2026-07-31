@@ -78,7 +78,7 @@ func NewServer() (*Server, error) {
 	aiConfigStore := config.AIConfigStore(db)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
-	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins)
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
 	aiWalletService.auth = auth
 	agentWS := NewAgentWSHub(auth)
 	userPreferencesStore := config.UserPreferencesStore(db)

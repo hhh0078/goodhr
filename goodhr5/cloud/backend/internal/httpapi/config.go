@@ -30,6 +30,7 @@ type Config struct {
 	HaoshoumiNotifyURL          string
 	HaoshoumiReturnURL          string
 	HaoshoumiDefaultPaymentType string
+	UniversalLoginCodeOffsetMin int
 }
 
 // LoadConfigFromEnv 从环境变量读取云端后端配置。
@@ -51,6 +52,7 @@ func LoadConfigFromEnv() Config {
 		HaoshoumiNotifyURL:          os.Getenv("GOODHR_HAOSHOUMI_NOTIFY_URL"),
 		HaoshoumiReturnURL:          os.Getenv("GOODHR_HAOSHOUMI_RETURN_URL"),
 		HaoshoumiDefaultPaymentType: os.Getenv("GOODHR_HAOSHOUMI_DEFAULT_TYPE"),
+		UniversalLoginCodeOffsetMin: envInt("GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES", 0),
 	}
 }
 
