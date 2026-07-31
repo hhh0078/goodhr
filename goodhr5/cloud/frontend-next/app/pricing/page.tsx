@@ -89,6 +89,8 @@ export default async function PricingPage() {
                     borderColor: plan.memberType === "max" ? "primary.main" : "divider",
                     boxShadow:
                       plan.memberType === "max" ? "0 18px 48px rgba(21,154,98,.12)" : "none",
+                    display: "flex",
+                    flexDirection: "column",
                   }}
                 >
                   <Typography
@@ -130,7 +132,7 @@ export default async function PricingPage() {
                   >
                     {plan.description}
                   </Typography>
-                  <Stack spacing={1.25} sx={{ mt: 3 }}>
+                  <Stack spacing={1.25} sx={{ mt: 3, flex: 1 }}>
                     {plan.features.map((feature) => (
                       <Stack
                         key={feature}
@@ -148,7 +150,7 @@ export default async function PricingPage() {
                     href='/login'
                     variant={plan.memberType === "max" ? "contained" : "outlined"}
                     fullWidth
-                    sx={{ mt: 3 }}
+                    sx={{ mt: 3, alignSelf: "stretch" }}
                   >
                     立即使用
                   </Button>

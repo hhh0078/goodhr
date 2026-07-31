@@ -66,7 +66,7 @@ func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Dur
 	if err := s.client.Set(ctx, sessionKey(token), body, ttl).Err(); err != nil {
 		return err
 	}
-	return s.client.Set(ctx, currentSessionKey(session.Email), token, ttl).Err()
+	return nil
 }
 
 func (s *RedisAuthStore) GetSession(token string) (Session, error) {
@@ -82,13 +82,6 @@ func (s *RedisAuthStore) GetSession(token string) (Session, error) {
 	var session Session
 	if err := json.Unmarshal(body, &session); err != nil {
 		return Session{}, err
-	}
-	currentToken, err := s.client.Get(ctx, currentSessionKey(session.Email)).Result()
-	if err != nil && err != redis.Nil {
-		return Session{}, err
-	}
-	if currentToken != "" && currentToken != token {
-		return Session{}, ErrNotFound
 	}
 	return session, nil
 }

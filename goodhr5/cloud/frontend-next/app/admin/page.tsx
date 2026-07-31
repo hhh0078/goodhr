@@ -95,7 +95,7 @@ const guideSteps: GuideStep[] = [
 
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { agentBase, subscription, refreshAgent, notify } =
+  const { agentBase, subscription, refreshAgent, notify, confirm } =
     useAdmin();
   const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
@@ -189,6 +189,11 @@ export default function DashboardPage() {
   ] as const;
   /** rechargeAI 创建内置 AI 余额充值订单。 */
   async function rechargeAI() {
+    const accepted = await confirm(
+      "支付前请确认",
+      "AI 余额仅用于 GoodHR 内置 AI 调用。需要开发票请联系作者处理，发票开出后该笔订单不支持退费。",
+    );
+    if (!accepted) return;
     setRecharging(true);
     try {
       const data = await cloudRequest("/api/payment/ai-balance", {

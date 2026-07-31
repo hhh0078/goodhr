@@ -39,7 +39,7 @@ func TestAuthCodeLogin(t *testing.T) {
 		t.Fatalf("debug code length = %d", len(sendPayload.DebugCode))
 	}
 
-	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `"}`)
+	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `","agreement_accepted":true}`)
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", loginBody)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
@@ -123,6 +123,16 @@ func (s *recordingUserActivityStore) RecordLogin(email string, at time.Time) err
 	return nil
 }
 
+// HasAcceptedAgreement 让测试账号默认需要本次请求显式同意协议。
+func (s *recordingUserActivityStore) HasAcceptedAgreement(email string) (bool, error) {
+	return false, nil
+}
+
+// AcceptAgreement 忽略本测试未涉及的协议确认落库。
+func (s *recordingUserActivityStore) AcceptAgreement(email string, at time.Time) error {
+	return nil
+}
+
 // ShouldShowTrialWelcome 让本测试不展示试用欢迎弹框。
 func (s *recordingUserActivityStore) ShouldShowTrialWelcome(email string) (bool, error) {
 	return false, nil
@@ -152,8 +162,8 @@ func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 	}
 }
 
-// TestAuthLoginKicksPreviousSession 验证同一账号后登录会让旧 token 失效。
-func TestAuthLoginKicksPreviousSession(t *testing.T) {
+// TestAuthLoginKeepsPreviousSession 验证同一账号多处登录不会互相踢下线。
+func TestAuthLoginKeepsPreviousSession(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 
@@ -164,8 +174,8 @@ func TestAuthLoginKicksPreviousSession(t *testing.T) {
 	oldReq.Header.Set("Authorization", "Bearer "+oldToken)
 	oldResp := httptest.NewRecorder()
 	routes.ServeHTTP(oldResp, oldReq)
-	if oldResp.Code != http.StatusUnauthorized {
-		t.Fatalf("old token status = %d, want %d", oldResp.Code, http.StatusUnauthorized)
+	if oldResp.Code != http.StatusOK {
+		t.Fatalf("old token status = %d, body = %s", oldResp.Code, oldResp.Body.String())
 	}
 
 	newReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
@@ -263,7 +273,7 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	if isUniversalLoginCode(wrongCode, time.Now()) {
 		wrongCode = "9999"
 	}
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","agreement_accepted":true}`))
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
 

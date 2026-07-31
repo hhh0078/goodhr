@@ -26,7 +26,6 @@ type MemoryAuthStore struct {
 	mu       sync.Mutex
 	codes    map[string]loginCode
 	sessions map[string]Session
-	current  map[string]string
 	now      func() time.Time
 }
 
@@ -39,7 +38,6 @@ func NewMemoryAuthStore() *MemoryAuthStore {
 	return &MemoryAuthStore{
 		codes:    make(map[string]loginCode),
 		sessions: make(map[string]Session),
-		current:  make(map[string]string),
 		now:      time.Now,
 	}
 }
@@ -81,7 +79,6 @@ func (s *MemoryAuthStore) SaveSession(token string, session Session, ttl time.Du
 
 	session.ExpiresAt = s.now().Add(ttl)
 	s.sessions[token] = session
-	s.current[session.Email] = token
 	return nil
 }
 
@@ -95,13 +92,6 @@ func (s *MemoryAuthStore) GetSession(token string) (Session, error) {
 	}
 	if s.now().After(session.ExpiresAt) {
 		delete(s.sessions, token)
-		if s.current[session.Email] == token {
-			delete(s.current, session.Email)
-		}
-		return Session{}, ErrNotFound
-	}
-	currentToken := s.current[session.Email]
-	if currentToken != "" && currentToken != token {
 		return Session{}, ErrNotFound
 	}
 	return session, nil

@@ -36,9 +36,10 @@ type sendCodeRequest struct {
 }
 
 type loginRequest struct {
-	Email     string `json:"email"`
-	Code      string `json:"code"`
-	InviterID string `json:"inviter_id"`
+	Email             string `json:"email"`
+	Code              string `json:"code"`
+	InviterID         string `json:"inviter_id"`
+	AgreementAccepted bool   `json:"agreement_accepted"`
 }
 
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
@@ -138,6 +139,17 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid code")
 		return
 	}
+	if s.userActivity != nil {
+		accepted, err := s.userActivity.HasAcceptedAgreement(email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed read agreement status")
+			return
+		}
+		if !accepted && !req.AgreementAccepted {
+			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			return
+		}
+	}
 
 	matched, err := s.loginCodeMatched(email, code, time.Now())
 	if err != nil {
@@ -166,6 +178,12 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 	if err := s.userActivity.RecordLogin(email, now); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to record login")
 		return
+	}
+	if req.AgreementAccepted && s.userActivity != nil {
+		if err := s.userActivity.AcceptAgreement(email, now); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to accept agreement")
+			return
+		}
 	}
 
 	if err := s.notifyInitialSubscription(email, now); err != nil {
@@ -232,6 +250,29 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 		},
 		"show_trial_welcome": showTrialWelcome,
 	})
+}
+
+// AgreementStatus 查询指定邮箱是否已经同意 GoodHR 使用协议。
+func (s *AuthService) AgreementStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	email, ok := normalizeEmail(r.URL.Query().Get("email"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	accepted := false
+	if s.userActivity != nil {
+		nextAccepted, err := s.userActivity.HasAcceptedAgreement(email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read agreement status")
+			return
+		}
+		accepted = nextAccepted
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "agreement_accepted": accepted})
 }
 
 // AckTrialWelcome 记录当前用户已确认试用会员到账弹框。

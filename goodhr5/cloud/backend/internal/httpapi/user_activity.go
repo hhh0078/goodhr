@@ -12,6 +12,10 @@ import (
 type UserActivityStore interface {
 	// RecordLogin 记录指定邮箱最近一次登录成功时间。
 	RecordLogin(email string, at time.Time) error
+	// HasAcceptedAgreement 判断用户是否已经同意使用协议。
+	HasAcceptedAgreement(email string) (bool, error)
+	// AcceptAgreement 记录用户同意使用协议的时间。
+	AcceptAgreement(email string, at time.Time) error
 	// ShouldShowTrialWelcome 判断是否需要展示新用户试用会员到账弹框。
 	ShouldShowTrialWelcome(email string) (bool, error)
 	// AckTrialWelcome 记录用户已确认试用会员到账弹框。
@@ -23,6 +27,16 @@ type NoopUserActivityStore struct{}
 
 // RecordLogin 在无数据库环境下不做任何写入。
 func (NoopUserActivityStore) RecordLogin(email string, at time.Time) error {
+	return nil
+}
+
+// HasAcceptedAgreement 在无数据库环境下默认认为用户未同意协议。
+func (NoopUserActivityStore) HasAcceptedAgreement(email string) (bool, error) {
+	return false, nil
+}
+
+// AcceptAgreement 在无数据库环境下不做任何写入。
+func (NoopUserActivityStore) AcceptAgreement(email string, at time.Time) error {
 	return nil
 }
 
@@ -40,15 +54,35 @@ func (NoopUserActivityStore) AckTrialWelcome(email string, at time.Time) error {
 type MemoryUserActivityStore struct {
 	mu              sync.Mutex
 	trialWelcomeAck map[string]time.Time
+	agreementAck    map[string]time.Time
 }
 
 // NewMemoryUserActivityStore 创建内存用户活跃存储。
 func NewMemoryUserActivityStore() *MemoryUserActivityStore {
-	return &MemoryUserActivityStore{trialWelcomeAck: make(map[string]time.Time)}
+	return &MemoryUserActivityStore{
+		trialWelcomeAck: make(map[string]time.Time),
+		agreementAck:    make(map[string]time.Time),
+	}
 }
 
 // RecordLogin 在内存环境下不需要记录登录时间。
 func (s *MemoryUserActivityStore) RecordLogin(email string, at time.Time) error {
+	return nil
+}
+
+// HasAcceptedAgreement 判断内存用户是否已经同意使用协议。
+func (s *MemoryUserActivityStore) HasAcceptedAgreement(email string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, accepted := s.agreementAck[email]
+	return accepted, nil
+}
+
+// AcceptAgreement 记录内存用户同意使用协议的时间。
+func (s *MemoryUserActivityStore) AcceptAgreement(email string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agreementAck[email] = at
 	return nil
 }
 
@@ -86,6 +120,29 @@ func (s *PostgresUserActivityStore) RecordLogin(email string, at time.Time) erro
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET last_login_at=$2 WHERE email=$1`, email, at)
+	return err
+}
+
+// HasAcceptedAgreement 判断 PostgreSQL 用户是否已经同意使用协议。
+func (s *PostgresUserActivityStore) HasAcceptedAgreement(email string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := ensureUserID(ctx, s.db, email); err != nil {
+		return false, err
+	}
+	var accepted bool
+	err := s.db.QueryRowContext(ctx, `SELECT agreement_accepted_at IS NOT NULL FROM users WHERE email=$1`, email).Scan(&accepted)
+	return accepted, err
+}
+
+// AcceptAgreement 记录 PostgreSQL 用户同意使用协议的时间。
+func (s *PostgresUserActivityStore) AcceptAgreement(email string, at time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := ensureUserID(ctx, s.db, email); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET agreement_accepted_at=COALESCE(agreement_accepted_at, $2) WHERE email=$1`, email, at)
 	return err
 }
 

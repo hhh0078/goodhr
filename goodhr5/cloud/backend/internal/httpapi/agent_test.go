@@ -118,7 +118,7 @@ func loginForTest(t *testing.T, routes http.Handler, email string) string {
 	loginReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/auth/login",
-		bytes.NewBufferString(`{"email":"`+email+`","code":"`+sendPayload.DebugCode+`"}`),
+		bytes.NewBufferString(`{"email":"`+email+`","code":"`+sendPayload.DebugCode+`","agreement_accepted":true}`),
 	)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)

@@ -696,6 +696,9 @@ function PaymentUnderstandingDialog({
             <Typography sx={{ mt: 0.5, color: "#714700", lineHeight: 1.7 }}>
               需要退款时，按套餐原价折算剩余天数，并扣除支付渠道产生的 5% 手续费。
             </Typography>
+            <Typography sx={{ mt: 0.75, color: "#714700", lineHeight: 1.7 }}>
+              需要开发票请联系作者处理。发票开出后，该笔订单不支持退费。
+            </Typography>
           </Box>
         </Stack>
       </DialogContent>
