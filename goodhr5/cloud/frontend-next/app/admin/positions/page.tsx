@@ -2221,37 +2221,21 @@ function PositionLogPanel(props: {
   );
 }
 
-/** PositionLogList 按时间从旧到新展示日志，并在用户位于底部时跟随最新日志。 */
+/** PositionLogList 按时间从新到旧展示日志，打开后优先看到最新记录。 */
 function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
   const { logs, maxHeight } = props;
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottomRef = useRef(true);
-  const orderedLogs = sortPositionLogsOldestFirst(logs);
-
-  useEffect(() => {
-    if (!stickToBottomRef.current) return undefined;
-    const frame = window.requestAnimationFrame(() => {
-      const list = listRef.current;
-      if (list) list.scrollTop = list.scrollHeight;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [logs]);
+  const orderedLogs = sortPositionLogsNewestFirst(logs);
 
   return (
     <Stack
-      ref={listRef}
       spacing={0}
-      onScroll={(event) => {
-        const list = event.currentTarget;
-        stickToBottomRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 32;
-      }}
       sx={{ p: 1, maxHeight, overflow: "auto" }}
     >
       {orderedLogs.length ? orderedLogs.map((item, index) => (
         <PositionLogLine
           key={String(item.id || `${item.created_at || item.time}-${index}`)}
           item={item}
-          previous={index > 0 ? orderedLogs[index - 1] : null}
+          previous={index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null}
         />
       )) : (
         <Typography sx={{ py: 4, color: "text.secondary", fontSize: 13, textAlign: "center" }}>
@@ -2294,9 +2278,9 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
   );
 }
 
-/** sortPositionLogsOldestFirst 按时间从旧到新排列，让最新日志位于底部。 */
-function sortPositionLogsOldestFirst(logs: any[]) {
-  return [...logs].sort((left, right) => positionLogTimeMs(left.created_at || left.time) - positionLogTimeMs(right.created_at || right.time));
+/** sortPositionLogsNewestFirst 按时间从新到旧排列，让最新日志位于顶部。 */
+function sortPositionLogsNewestFirst(logs: any[]) {
+  return [...logs].sort((left, right) => positionLogTimeMs(right.created_at || right.time) - positionLogTimeMs(left.created_at || left.time));
 }
 
 /** positionLogMessage 提取兼容新旧结构的日志正文。 */
@@ -2329,9 +2313,9 @@ function positionLogDelta(item: any, previous: any | null) {
 
 /** buildPositionLogText 构建可复制的完整岗位日志文本。 */
 function buildPositionLogText(logs: any[]) {
-  const orderedLogs = sortPositionLogsOldestFirst(logs);
+  const orderedLogs = sortPositionLogsNewestFirst(logs);
   return orderedLogs.map((item, index) => {
-    const previous = index > 0 ? orderedLogs[index - 1] : null;
+    const previous = index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
     return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level).label} ${positionLogMessage(item)}`;
   }).join("\n");
 }
