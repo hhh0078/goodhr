@@ -24,15 +24,21 @@ func TestSubscriptionStatusAndPlans(t *testing.T) {
 
 	var statusPayload struct {
 		Subscription struct {
-			MemberType string `json:"member_type"`
-			ExpiresAt  string `json:"expires_at"`
-			Active     bool   `json:"active"`
+			MemberType     string `json:"member_type"`
+			MemberName     string `json:"member_name"`
+			ExpiresAt      string `json:"expires_at"`
+			Active         bool   `json:"active"`
+			AllowAutoReply bool   `json:"allow_auto_reply"`
 		} `json:"subscription"`
 	}
 	if err := json.NewDecoder(statusResp.Body).Decode(&statusPayload); err != nil {
 		t.Fatal(err)
 	}
-	if statusPayload.Subscription.MemberType != defaultMemberType || !statusPayload.Subscription.Active || statusPayload.Subscription.ExpiresAt == "" {
+	if statusPayload.Subscription.MemberType != memberTypeMax ||
+		statusPayload.Subscription.MemberName != "Max 全能版" ||
+		!statusPayload.Subscription.Active ||
+		!statusPayload.Subscription.AllowAutoReply ||
+		statusPayload.Subscription.ExpiresAt == "" {
 		t.Fatalf("unexpected subscription payload: %+v", statusPayload.Subscription)
 	}
 
@@ -58,7 +64,7 @@ func TestSubscriptionStatusAndPlans(t *testing.T) {
 	if len(plansPayload.Plans) != 3 {
 		t.Fatalf("plans length = %d", len(plansPayload.Plans))
 	}
-	if plansPayload.Plans[0].ID != "monthly" || plansPayload.Plans[1].ID != "quarterly" || plansPayload.Plans[2].ID != "yearly" {
+	if plansPayload.Plans[0].ID != "free" || plansPayload.Plans[1].ID != "monthly" || plansPayload.Plans[2].ID != "yearly" {
 		t.Fatalf("unexpected plans: %+v", plansPayload.Plans)
 	}
 }

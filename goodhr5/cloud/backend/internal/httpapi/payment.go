@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -23,16 +24,11 @@ type createAIBalanceOrderRequest struct {
 	AmountYuan  string `json:"amount_yuan"`
 }
 
-type subscriptionPlan struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	MemberType     string   `json:"member_type"`
-	DurationDays   int      `json:"duration_days"`
-	OriginalPrice  float64  `json:"original_price"`
-	DiscountAmount float64  `json:"discount_amount"`
-	Features       []string `json:"features"`
-	Description    string   `json:"description"`
-	CreatedAt      string   `json:"created_at"`
+// subscriptionPaymentQuote 表示创建订阅订单前计算出的实付金额和升级抵扣。
+type subscriptionPaymentQuote struct {
+	AmountCents        int
+	UpgradeFromType    string
+	UpgradeCreditCents int
 }
 
 // PaymentService 处理会员订阅支付、回调和支付记录查询。
@@ -102,20 +98,32 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load subscription plan")
 		return
 	}
-	amountCents := priceToCents(plan.OriginalPrice) - priceToCents(plan.DiscountAmount)
-	if amountCents <= 0 {
-		writeError(w, http.StatusBadRequest, "subscription plan amount is invalid")
+	current, err := s.subscriptions.UserSubscription(session.Email)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，这次我先不乱下单")
 		return
 	}
-
-	provider, ok := s.providers[defaultPaymentProvider]
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "payment provider is not configured")
+	plans, err := loadSubscriptionPlans(s.systemConfigs)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请稍后再试")
+		return
+	}
+	quote, err := buildSubscriptionPaymentQuote(plans, current, plan, time.Now())
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if quote.AmountCents < 0 {
+		writeError(w, http.StatusBadRequest, "subscription plan amount is invalid")
 		return
 	}
 
 	orderNo := generatePaymentOrderNo()
 	expiredAt := time.Now().Add(30 * time.Minute)
+	paymentProvider := defaultPaymentProvider
+	if quote.AmountCents == 0 {
+		paymentProvider = "upgrade_credit"
+	}
 	order, err := s.orders.Create(PaymentOrder{
 		OrderNo:             orderNo,
 		UserEmail:           session.Email,
@@ -125,8 +133,10 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		DurationDays:        plan.DurationDays,
 		OriginalAmountCents: priceToCents(plan.OriginalPrice),
 		DiscountAmountCents: priceToCents(plan.DiscountAmount),
-		AmountCents:         amountCents,
-		PaymentProvider:     defaultPaymentProvider,
+		UpgradeFromType:     quote.UpgradeFromType,
+		UpgradeCreditCents:  quote.UpgradeCreditCents,
+		AmountCents:         quote.AmountCents,
+		PaymentProvider:     paymentProvider,
 		Status:              "pending",
 		ExpiredAt:           &expiredAt,
 	})
@@ -135,6 +145,31 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if quote.AmountCents == 0 {
+		paidOrder, changed, markErr := s.orders.MarkPaid(order.OrderNo, "upgrade-credit", "{}")
+		if markErr != nil {
+			writeError(w, http.StatusInternalServerError, "升级订单暂时没记好，请稍后再试")
+			return
+		}
+		if changed {
+			if applyErr := s.applyPaidSubscriptionOrder(paidOrder); applyErr != nil {
+				writeError(w, http.StatusInternalServerError, applyErr.Error())
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                true,
+			"payment_completed": true,
+			"order":             publicPaymentOrder(paidOrder),
+		})
+		return
+	}
+
+	provider, ok := s.providers[defaultPaymentProvider]
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "payment provider is not configured")
+		return
+	}
 	payResult, err := provider.CreateOrder(PaymentProviderOrderInput{
 		OrderNo:     order.OrderNo,
 		Title:       "GoodHR " + order.PlanName,
@@ -321,39 +356,58 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 		return fmt.Errorf("payment amount mismatch")
 	}
 	raw, _ := json.Marshal(result.Raw)
-	paidOrder, changed, err := s.orders.MarkPaid(order.OrderNo, result.TradeNo, string(raw))
+	paidOrder, _, err := s.orders.MarkPaid(order.OrderNo, result.TradeNo, string(raw))
 	if err != nil {
 		return err
 	}
+	if paidOrder.Status != "paid" {
+		return fmt.Errorf("payment order is not pending")
+	}
+	if paidOrder.OrderType == "ai_balance" {
+		if s.aiWallet == nil {
+			return fmt.Errorf("ai wallet not configured")
+		}
+		_, err = s.aiWallet.AdjustBalance(AIWalletRecord{
+			UserEmail:      paidOrder.UserEmail,
+			ChangeUnits:    centsToAIUnits(paidOrder.AmountCents),
+			Category:       "recharge",
+			Reason:         "AI余额充值成功",
+			RelatedOrderNo: paidOrder.OrderNo,
+		})
+		return err
+	}
+	return s.applyPaidSubscriptionOrder(paidOrder)
+}
+
+// applyPaidSubscriptionOrder 根据普通续费或 Plus 升级订单更新会员并发送提醒。
+func (s *PaymentService) applyPaidSubscriptionOrder(order PaymentOrder) error {
+	subscription, changed, err := s.subscriptions.ApplyGrant(SubscriptionGrant{
+		OrderNo:    order.OrderNo,
+		GrantType:  "buyer",
+		Email:      order.UserEmail,
+		MemberType: order.MemberType,
+		Days:       order.DurationDays,
+		ReplaceFromNow: normalizeMemberType(order.UpgradeFromType) == memberTypePlus &&
+			normalizeMemberType(order.MemberType) == memberTypeMax,
+	})
+	if err != nil {
+		return err
+	}
+	reason := "充值会员成功"
+	if order.UpgradeFromType != "" {
+		reason = "Plus 升级 Max 成功"
+	}
 	if changed {
-		if paidOrder.OrderType == "ai_balance" {
-			if s.aiWallet == nil {
-				return fmt.Errorf("ai wallet not configured")
-			}
-			_, err = s.aiWallet.AdjustBalance(AIWalletRecord{
-				UserEmail:      paidOrder.UserEmail,
-				ChangeUnits:    centsToAIUnits(paidOrder.AmountCents),
-				Category:       "recharge",
-				Reason:         "AI余额充值成功",
-				RelatedOrderNo: paidOrder.OrderNo,
-			})
-			return err
-		}
-		subscription, err := s.subscriptions.ExtendSubscription(paidOrder.UserEmail, paidOrder.MemberType, paidOrder.DurationDays)
-		if err != nil {
-			return err
-		}
-		if err := sendSubscriptionRewardNotice(s.mailer, paidOrder.UserEmail, SubscriptionRewardNotice{
-			Reason:     "充值会员成功",
-			Days:       paidOrder.DurationDays,
+		if noticeErr := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, order.UserEmail, SubscriptionRewardNotice{
+			Reason:     reason,
+			Days:       order.DurationDays,
 			MemberType: subscription.MemberType,
 			ExpiresAt:  subscription.ExpiresAt,
-		}); err != nil {
-			return err
+		}); noticeErr != nil {
+			log.Printf("[支付] 会员已到账，但通知邮件发送失败 order=%s user=%s err=%v", order.OrderNo, order.UserEmail, noticeErr)
 		}
-		err = s.applyInvitePaymentReward(paidOrder)
 	}
-	return err
+	return s.applyInvitePaymentReward(order)
 }
 
 // applyInvitePaymentReward 在被邀请用户支付成功后给邀请人发放奖励。
@@ -377,24 +431,47 @@ func (s *PaymentService) applyInvitePaymentReward(order PaymentOrder) error {
 		months = 1
 	}
 	rewardDays := config.PaidMonthRewardDays * months
-	subscription, err := s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, rewardDays)
+	subscription, changed, err := s.subscriptions.ApplyGrant(SubscriptionGrant{
+		OrderNo:    order.OrderNo,
+		GrantType:  "inviter",
+		Email:      inviterEmail,
+		MemberType: "",
+		Days:       rewardDays,
+	})
 	if err != nil {
 		return err
 	}
-	return sendSubscriptionRewardNotice(s.mailer, inviterEmail, SubscriptionRewardNotice{
+	if !changed {
+		return nil
+	}
+	if noticeErr := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, inviterEmail, SubscriptionRewardNotice{
 		Reason:       "邀请好友充值成功奖励",
 		Days:         rewardDays,
 		MemberType:   subscription.MemberType,
 		ExpiresAt:    subscription.ExpiresAt,
 		RelatedEmail: order.UserEmail,
-	})
+	}); noticeErr != nil {
+		log.Printf("[支付] 邀请奖励已到账，但通知邮件发送失败 order=%s user=%s err=%v", order.OrderNo, inviterEmail, noticeErr)
+	}
+	return nil
 }
 
 // sendSubscriptionRewardNotice 发送会员天数变动提醒邮件。
-func sendSubscriptionRewardNotice(mailer Mailer, email string, notice SubscriptionRewardNotice) error {
+func sendSubscriptionRewardNotice(mailer Mailer, systemConfigs SystemConfigStore, email string, notice SubscriptionRewardNotice) error {
 	if mailer == nil || notice.Days == 0 {
 		return nil
 	}
+	access, err := subscriptionAccess(systemConfigs, Subscription{
+		MemberType: notice.MemberType,
+		ExpiresAt:  notice.ExpiresAt,
+	}, time.Now())
+	if err != nil {
+		return err
+	}
+	notice.MemberName = access.MemberName
+	notice.RemainingDays = access.RemainingDays
+	notice.AllowAutoReply = access.AllowAutoReply
+	notice.Features = access.Features
 	return mailer.SendSubscriptionReward(email, notice)
 }
 
@@ -404,12 +481,8 @@ func (s *PaymentService) subscriptionPlanByID(planID string) (subscriptionPlan, 
 	if planID == "" {
 		return subscriptionPlan{}, ErrNotFound
 	}
-	cfg, err := s.systemConfigs.Get("system.subscription_plans")
+	plans, err := loadSubscriptionPlans(s.systemConfigs)
 	if err != nil {
-		return subscriptionPlan{}, err
-	}
-	var plans []subscriptionPlan
-	if err := json.Unmarshal([]byte(cfg.ConfigValue), &plans); err != nil {
 		return subscriptionPlan{}, err
 	}
 	for _, plan := range plans {
@@ -418,6 +491,44 @@ func (s *PaymentService) subscriptionPlanByID(planID string) (subscriptionPlan, 
 		}
 	}
 	return subscriptionPlan{}, ErrNotFound
+}
+
+// buildSubscriptionPaymentQuote 计算普通购买或 Plus 升级 Max 的实际支付金额。
+func buildSubscriptionPaymentQuote(plans []subscriptionPlan, current Subscription, target subscriptionPlan, now time.Time) (subscriptionPaymentQuote, error) {
+	targetAmount := priceToCents(target.OriginalPrice) - priceToCents(target.DiscountAmount)
+	if targetAmount < 0 {
+		return subscriptionPaymentQuote{}, fmt.Errorf("套餐价格配置不正确")
+	}
+	currentAccess := subscriptionAccessFromPlans(plans, current, now)
+	if currentAccess.Active &&
+		currentAccess.MemberType == memberTypeMax &&
+		normalizeMemberType(target.MemberType) == memberTypePlus {
+		return subscriptionPaymentQuote{}, fmt.Errorf("Max 全能版还在有效期内，暂时不能降为 Plus 基础版")
+	}
+	quote := subscriptionPaymentQuote{AmountCents: targetAmount}
+	if !currentAccess.Active ||
+		currentAccess.MemberType != memberTypePlus ||
+		normalizeMemberType(target.MemberType) != memberTypeMax {
+		return quote, nil
+	}
+	plusPlan, ok := subscriptionPlanByMemberType(plans, memberTypePlus)
+	if !ok {
+		return subscriptionPaymentQuote{}, fmt.Errorf("Plus 基础版套餐配置缺失")
+	}
+	plusAmount := priceToCents(plusPlan.OriginalPrice) - priceToCents(plusPlan.DiscountAmount)
+	if plusAmount <= 0 || plusPlan.DurationDays <= 0 {
+		return subscriptionPaymentQuote{}, fmt.Errorf("Plus 基础版价格配置不正确")
+	}
+	remainingSeconds := math.Max(0, current.ExpiresAt.Sub(now).Seconds())
+	periodSeconds := time.Duration(plusPlan.DurationDays) * 24 * time.Hour
+	credit := int(math.Floor(float64(plusAmount) * remainingSeconds / periodSeconds.Seconds()))
+	if credit > targetAmount {
+		credit = targetAmount
+	}
+	quote.UpgradeFromType = memberTypePlus
+	quote.UpgradeCreditCents = credit
+	quote.AmountCents = targetAmount - credit
+	return quote, nil
 }
 
 // publicPaymentOrders 转换支付记录列表为前端响应。
@@ -432,24 +543,26 @@ func publicPaymentOrders(orders []PaymentOrder) []map[string]any {
 // publicPaymentOrder 转换单条支付记录为前端响应。
 func publicPaymentOrder(order PaymentOrder) map[string]any {
 	return map[string]any{
-		"id":                    order.ID,
-		"order_no":              order.OrderNo,
-		"order_type":            defaultString(order.OrderType, "subscription"),
-		"user_email":            order.UserEmail,
-		"plan_id":               order.PlanID,
-		"plan_name":             order.PlanName,
-		"member_type":           order.MemberType,
-		"duration_days":         order.DurationDays,
-		"original_amount_cents": order.OriginalAmountCents,
-		"discount_amount_cents": order.DiscountAmountCents,
-		"amount_cents":          order.AmountCents,
-		"amount":                centsToYuanString(order.AmountCents),
-		"payment_provider":      order.PaymentProvider,
-		"trade_no":              order.TradeNo,
-		"status":                order.Status,
-		"paid_at":               order.PaidAt,
-		"expired_at":            order.ExpiredAt,
-		"created_at":            order.CreatedAt,
+		"id":                       order.ID,
+		"order_no":                 order.OrderNo,
+		"order_type":               defaultString(order.OrderType, "subscription"),
+		"user_email":               order.UserEmail,
+		"plan_id":                  order.PlanID,
+		"plan_name":                order.PlanName,
+		"member_type":              order.MemberType,
+		"duration_days":            order.DurationDays,
+		"original_amount_cents":    order.OriginalAmountCents,
+		"discount_amount_cents":    order.DiscountAmountCents,
+		"upgrade_from_member_type": order.UpgradeFromType,
+		"upgrade_credit_cents":     order.UpgradeCreditCents,
+		"amount_cents":             order.AmountCents,
+		"amount":                   centsToYuanString(order.AmountCents),
+		"payment_provider":         order.PaymentProvider,
+		"trade_no":                 order.TradeNo,
+		"status":                   order.Status,
+		"paid_at":                  order.PaidAt,
+		"expired_at":               order.ExpiredAt,
+		"created_at":               order.CreatedAt,
 	}
 }
 

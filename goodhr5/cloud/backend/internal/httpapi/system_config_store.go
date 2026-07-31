@@ -87,40 +87,43 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.subscription_plans",
 			ConfigValue: `[
 				{
+					"id": "free",
+					"name": "永久免费版",
+					"member_type": "free",
+					"duration_days": 0,
+					"original_price": 0,
+					"discount_amount": 0,
+					"allow_auto_reply": false,
+					"features": ["多平台账号管理", "关键词筛选", "基础自动打招呼", "每天最多打100个招呼"],
+					"description": "关键词筛选和基础自动打招呼可以永久免费使用。",
+					"created_at": "2026-07-31"
+				},
+				{
 					"id": "monthly",
-					"name": "按月订阅",
+					"name": "基础包月版",
 					"member_type": "plus",
 					"duration_days": 30,
 					"original_price": 70,
-					"discount_amount": 0,
-					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动"],
-					"description": "适合短期招聘岗位运行使用，按月开通Plus会员。",
-					"created_at": "2026-05-26"
-				},
-				{
-					"id": "quarterly",
-					"name": "按季度订阅",
-					"member_type": "plus",
-					"duration_days": 90,
-					"original_price": 210,
 					"discount_amount": 30,
-					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动", "季度优惠"],
-					"description": "适合连续招聘使用，季度订阅原价210元，优惠30元。",
-					"created_at": "2026-05-26"
+					"allow_auto_reply": false,
+					"features": ["多平台账号管理", "关键词筛选", "AI筛选与详情分析", "AI自动打招呼"],
+					"description": "适合日常招聘使用，包含 AI 筛选和自动打招呼，不包含自动回复。",
+					"created_at": "2026-07-31"
 				},
 				{
 					"id": "yearly",
-					"name": "按年订阅",
-					"member_type": "plus",
+					"name": "全能包年版",
+					"member_type": "max",
 					"duration_days": 365,
 					"original_price": 840,
-					"discount_amount": 240,
-					"features": ["Plus会员权益", "岗位运行启动权限", "本地执行器联动", "年度优惠"],
-					"description": "适合长期招聘团队使用，年度订阅原价840元，优惠240元。",
-					"created_at": "2026-05-26"
+					"discount_amount": 500,
+					"allow_auto_reply": true,
+					"features": ["多平台账号管理", "关键词筛选", "AI筛选与详情分析", "AI自动打招呼", "AI自动回复"],
+					"description": "完整开放现有会员能力，包含自动回复。",
+					"created_at": "2026-07-31"
 				}
 			]`,
-			Description: "订阅套餐配置，供前端订阅页面展示",
+			Description: "订阅套餐配置，member_type 决定会员类型，allow_auto_reply 决定是否允许自动回复",
 			Enabled:     true,
 		},
 		"system.onboarding_config": {
@@ -208,6 +211,12 @@ func defaultSystemGuideConfig() string {
 				"content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，默认使用千问的 https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions。模型是实际调用的模型名，默认 qwen3.7-plus。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
 			},
 			{
+				"id": "subscription",
+				"title": "会员版本",
+				"summary": "免费版可做基础招聘，Plus 开放 AI，Max 再开放自动回复。",
+				"content": "新用户注册赠送 3 天 Max 全能版。免费版可使用关键词筛选和基础自动打招呼；Plus 基础包月版 40 元/30 天，支持 AI 筛选和 AI 自动打招呼，不支持自动回复；Max 全能包年版 340 元/365 天，开放自动回复。有效 Plus 升级 Max 时，剩余时间会按 40 元/30 天精确抵扣，Max 从付款完成时间重新计算 365 天。有效 Max 暂时不能购买 Plus。"
+			},
+			{
 				"id": "errors",
 				"title": "常见异常",
 				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
@@ -290,9 +299,10 @@ func defaultSystemGuideConfig() string {
 				"id": "subscription",
 				"title": "订阅说明",
 				"items": [
-					"新用户注册默认赠送试用会员，赠送天数来自系统配置。",
-					"开始岗位运行前后端会校验订阅是否有效。",
-					"订阅过期后，用户会被引导到订阅页面，续费后才能继续开始岗位运行。",
+					"新用户注册赠送 3 天 Max 全能版，可以体验包括自动回复在内的全部现有功能。",
+					"免费版支持关键词筛选和基础自动打招呼；Plus 基础包月版支持 AI 筛选和 AI 自动打招呼；Max 全能包年版额外支持自动回复。",
+					"Plus 升级 Max 时按 Plus 剩余时间折算抵扣，Max 到期时间从付款完成时间重新计算 365 天。",
+					"开始 AI 岗位和自动回复前，前端、云端和本地程序都会按统一会员权限检查。",
 					"支付记录用户可查看自己的记录，超级管理员可查看全部记录。"
 				]
 			},

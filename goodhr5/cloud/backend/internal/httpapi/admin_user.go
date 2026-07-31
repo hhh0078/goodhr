@@ -60,9 +60,10 @@ type AdminUserStore interface {
 }
 
 type adjustUserSubscriptionRequest struct {
-	Email  string `json:"email"`
-	Days   int    `json:"days"`
-	Reason string `json:"reason"`
+	Email      string `json:"email"`
+	Days       int    `json:"days"`
+	MemberType string `json:"member_type"`
+	Reason     string `json:"reason"`
 }
 
 type adjustUserAIBalanceRequest struct {
@@ -114,14 +115,15 @@ type AdminUserService struct {
 	auth          *AuthService
 	users         AdminUserStore
 	subscriptions SubscriptionStore
+	systemConfigs SystemConfigStore
 	mailer        Mailer
 	agents        AgentStore
 	aiWallet      AIWalletStore
 }
 
 // NewAdminUserService 创建超级管理员用户管理服务。
-func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, mailer Mailer, agents AgentStore, aiWallet AIWalletStore) *AdminUserService {
-	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, mailer: mailer, agents: agents, aiWallet: aiWallet}
+func NewAdminUserService(auth *AuthService, users AdminUserStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, mailer Mailer, agents AgentStore, aiWallet AIWalletStore) *AdminUserService {
+	return &AdminUserService{auth: auth, users: users, subscriptions: subscriptions, systemConfigs: systemConfigs, mailer: mailer, agents: agents, aiWallet: aiWallet}
 }
 
 // Collection 根据请求方法分发用户列表读取和会员天数调整。
@@ -202,12 +204,17 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "days must not be zero")
 		return
 	}
+	memberType := normalizeMemberType(req.MemberType)
+	if memberType != "" && memberType != memberTypePlus && memberType != memberTypeMax {
+		writeError(w, http.StatusBadRequest, "会员类型只能选择 Plus 或 Max")
+		return
+	}
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = "超级管理员调整会员天数"
 	}
 
-	subscription, err := s.adjustSubscriptionForUser(email, req.Days, reason)
+	subscription, err := s.adjustSubscriptionForUser(email, req.Days, memberType, reason)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send subscription notice")
 		return
@@ -350,7 +357,7 @@ func (s *AdminUserService) BatchAdjust(w http.ResponseWriter, r *http.Request) {
 	for _, email := range emails {
 		result := batchAdjustUserResult{Email: email, Errors: []string{}}
 		if req.Days != 0 {
-			if _, err := s.adjustSubscriptionForUser(email, req.Days, reason); err != nil {
+			if _, err := s.adjustSubscriptionForUser(email, req.Days, "", reason); err != nil {
 				var noticeErr adjustmentNoticeError
 				if errors.As(err, &noticeErr) {
 					result.DaysAdjusted = true
@@ -404,12 +411,12 @@ func (s *AdminUserService) requireSuperAdmin(w http.ResponseWriter, r *http.Requ
 }
 
 // adjustSubscriptionForUser 调整单个用户会员天数并发送通知邮件。
-func (s *AdminUserService) adjustSubscriptionForUser(email string, days int, reason string) (Subscription, error) {
-	subscription, err := s.subscriptions.AdjustSubscriptionDays(email, defaultMemberType, days)
+func (s *AdminUserService) adjustSubscriptionForUser(email string, days int, memberType string, reason string) (Subscription, error) {
+	subscription, err := s.subscriptions.AdjustSubscriptionDays(email, memberType, days)
 	if err != nil {
 		return Subscription{}, err
 	}
-	if err := sendSubscriptionRewardNotice(s.mailer, email, SubscriptionRewardNotice{
+	if err := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, email, SubscriptionRewardNotice{
 		Reason:     reason,
 		Days:       days,
 		MemberType: subscription.MemberType,

@@ -61,6 +61,11 @@ import {
   openLocalPage,
 } from "@/lib/admin-api";
 import { requiredRuntimeComponents } from "@/lib/admin-runtime";
+import {
+  EMPTY_SUBSCRIPTION,
+  normalizeSubscription,
+  type SubscriptionStatus,
+} from "@/lib/subscription";
 import { reportUserFlow } from "@/lib/user-flow";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
@@ -70,7 +75,7 @@ import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
 
 type AdminContextValue = {
   user: any;
-  subscription: any;
+  subscription: SubscriptionStatus;
   appConfig: any;
   onboardingConfig: any;
   agentBase: string;
@@ -225,7 +230,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [themeOpen, setThemeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [subscription, setSubscription] = useState<any>({});
+  const [subscription, setSubscription] =
+    useState<SubscriptionStatus>(EMPTY_SUBSCRIPTION);
   const [aiWallet, setAIWallet] = useState<any>({});
   const [appConfig, setAppConfig] = useState<any>({});
   const [onboardingConfig, setOnboardingConfig] = useState<any>({});
@@ -398,7 +404,9 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         !localStorage.getItem(welcomeKey),
     );
     if (results[1].status === "fulfilled")
-      setSubscription(results[1].value.subscription || {});
+      setSubscription(
+        normalizeSubscription(results[1].value.subscription || {}),
+      );
     if (results[4].status === "fulfilled")
       setAIWallet(results[4].value.wallet || results[4].value || {});
     if (results[2].status === "fulfilled") {
@@ -703,7 +711,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               }}
             >
               {subscription.active
-                ? `${formatDate(subscription.expires_at)} · AI余额 ${formatAIBalance(aiWallet)}`
+                ? `${subscription.member_name} · 剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
                 : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
             </Button>
             <Button
@@ -773,16 +781,26 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         </Snackbar>
         <AdminDialog
           open={trialWelcomeOpen}
-          title="体验会员已到账"
+          title={`${subscription.member_name || "Max 全能体验版"}已到账`}
           confirmText="我知道了"
           showCancel={false}
           onClose={() => void ackTrialWelcome()}
           onConfirm={() => void ackTrialWelcome()}
         >
-          <Typography color="text.secondary">
-            赠送的 3
-            天体验会员已到账，请尽快体验。会员到期后，您可以选择续费，或者改用免费版。
-          </Typography>
+          <Stack spacing={1.25}>
+            <Typography color="text.secondary">
+              赠送的 {subscription.remaining_days || 3} 天{" "}
+              {subscription.member_name || "Max 全能版"}
+              已到账。支持：
+              {subscription.features.length
+                ? subscription.features.join("、")
+                : "AI 筛选、自动打招呼和自动回复"}
+              。
+            </Typography>
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+              到期时间：{formatDate(subscription.expires_at) || "--"}。到期后可以续费，也可以继续使用免费版。
+            </Typography>
+          </Stack>
         </AdminDialog>{" "}
         <AdminDialog
           open={localAgentInstallNoticeOpen}

@@ -198,7 +198,16 @@ func (c *Checker) checkSubscription(ctx context.Context, prepared *shared.Prepar
 	}
 	subscription, err := c.Cloud.Subscription(ctx, prepared.Request.Token)
 	prepared.Subscription = subscription
-	return err
+	if err != nil {
+		return err
+	}
+	if !subscription.Active || !subscription.AllowAI {
+		return fmt.Errorf("当前会员暂不可用，请先看看会员状态")
+	}
+	if prepared.Request.TaskType == "auto_reply" && !subscription.AllowAutoReply {
+		return fmt.Errorf("自动回复属于 Max 全能版，当前套餐暂时不能使用")
+	}
+	return nil
 }
 
 // loadPosition 读取并冻结岗位配置。

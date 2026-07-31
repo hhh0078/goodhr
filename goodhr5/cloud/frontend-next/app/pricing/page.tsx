@@ -30,15 +30,15 @@ export const metadata: Metadata = createPageMetadata({
 });
 
 const comparisons = [
-  ["关键词筛选", true, true],
-  ["平台账号与本地程序", true, true],
-  ["基础岗位运行和打招呼", true, true],
-  ["AI 候选人筛选", false, true],
-  ["AI 详情分析", false, true],
-  ["自动聊天和邀约", false, true],
+  ["关键词筛选", true, true, true],
+  ["平台账号与本地程序", true, true, true],
+  ["基础岗位运行和打招呼", true, true, true],
+  ["AI 候选人筛选", false, true, true],
+  ["AI 详情分析", false, true, true],
+  ["自动回复", false, false, true],
 ] as const;
 
-/** PricingPage 展示免费版和 Plus 订阅方案。 */
+/** PricingPage 展示免费版、Plus 基础版和 Max 全能版。 */
 export default async function PricingPage() {
   const remotePlans = await getPublicPlans();
   const plans = [...remotePlans];
@@ -62,9 +62,9 @@ export default async function PricingPage() {
         }}
       />
       <MarketingShell
-        eyebrow='永久免费 + AI 订阅'
-        title='关键词免费用，AI 能力按需升级'
-        description='免费版可以跑完整的基础招聘流程。需要 AI 判断、继续沟通和邀约面试时，再升级 Plus。'
+        eyebrow='永久免费 + Plus + Max'
+        title='基础招聘免费用，自动回复放进 Max'
+        description='Plus 基础包月版包含 AI 筛选和自动打招呼；Max 全能包年版再开放自动回复。'
       >
         <Box component='section' sx={{ pb: { xs: 8, md: 12 } }}>
           <Container maxWidth='lg'>
@@ -74,21 +74,21 @@ export default async function PricingPage() {
                 gridTemplateColumns: {
                   xs: "1fr",
                   md: "repeat(2, 1fr)",
-                  lg: "repeat(4, 1fr)",
+                  lg: "repeat(3, 1fr)",
                 },
                 gap: 2,
               }}
             >
-              {plans.map((plan, index) => (
+              {plans.map((plan) => (
                 <Paper
                   key={plan.id}
                   variant='outlined'
                   sx={{
                     p: 3,
                     borderRadius: "8px",
-                    borderColor: index === 1 ? "primary.main" : "divider",
+                    borderColor: plan.memberType === "max" ? "primary.main" : "divider",
                     boxShadow:
-                      index === 1 ? "0 18px 48px rgba(21,154,98,.12)" : "none",
+                      plan.memberType === "max" ? "0 18px 48px rgba(21,154,98,.12)" : "none",
                   }}
                 >
                   <Typography
@@ -146,7 +146,7 @@ export default async function PricingPage() {
                   <Button
                     component='a'
                     href='/login'
-                    variant={index === 1 ? "contained" : "outlined"}
+                    variant={plan.memberType === "max" ? "contained" : "outlined"}
                     fullWidth
                     sx={{ mt: 3 }}
                   >
@@ -165,12 +165,27 @@ export default async function PricingPage() {
               <Box
                 sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}
               >
-                {comparisons.map(([name, free, plus]) => (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0,1fr) 100px 100px 100px",
+                    py: 1.5,
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                    fontWeight: 760,
+                  }}
+                >
+                  <Typography>功能</Typography>
+                  <Typography sx={{ textAlign: "center" }}>免费</Typography>
+                  <Typography sx={{ textAlign: "center" }}>Plus</Typography>
+                  <Typography sx={{ textAlign: "center" }}>Max</Typography>
+                </Box>
+                {comparisons.map(([name, free, plus, max]) => (
                   <Box
                     key={name}
                     sx={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(0,1fr) 120px 120px",
+                      gridTemplateColumns: "minmax(0,1fr) 100px 100px 100px",
                       py: 2,
                       borderBottom: "1px solid",
                       borderColor: "divider",
@@ -187,6 +202,13 @@ export default async function PricingPage() {
                     </Stack>
                     <Stack sx={{ alignItems: "center" }}>
                       {plus ? (
+                        <CheckRoundedIcon color='primary' />
+                      ) : (
+                        <CloseRoundedIcon color='disabled' />
+                      )}
+                    </Stack>
+                    <Stack sx={{ alignItems: "center" }}>
+                      {max ? (
                         <CheckRoundedIcon color='primary' />
                       ) : (
                         <CloseRoundedIcon color='disabled' />
@@ -212,6 +234,7 @@ function freePlan(): PublicPlanData {
     durationDays: 0,
     originalPrice: 0,
     discountAmount: 0,
+    allowAutoReply: false,
     description: "适合先用关键词规则跑通招聘流程。",
     features: ["关键词筛选", "基础岗位运行", "平台账号管理", "自动打招呼"],
   };

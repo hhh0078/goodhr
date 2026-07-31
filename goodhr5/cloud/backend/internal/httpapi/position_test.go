@@ -73,6 +73,28 @@ func TestPositionLifecycle(t *testing.T) {
 	}
 }
 
+// TestPositionSaveRejectsAIForExpiredMember 验证岗位保存接口不会只依赖前端会员判断。
+func TestPositionSaveRejectsAIForExpiredMember(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "position-save-member@example.com"
+	token := loginForTest(t, routes, email)
+	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, -10); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/positions",
+		bytes.NewBufferString(`{"name":"AI岗位","common_config":{"mode_default":"ai"}}`),
+	)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("save status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+}
+
 // TestApplyPositionPlatformRules 验证不同平台会修正不支持的详情识别模式。
 func TestApplyPositionPlatformRules(t *testing.T) {
 	cases := []struct {

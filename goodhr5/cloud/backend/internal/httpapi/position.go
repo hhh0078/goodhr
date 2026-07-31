@@ -29,6 +29,7 @@ const defaultPositionRequirementOptimizePrompt = `你是一个招聘筛选规则
 type PositionService struct {
 	auth          *AuthService
 	store         PositionStore
+	subscriptions SubscriptionStore
 	systemConfigs SystemConfigStore
 	aiConfigStore AIConfigStore
 	userFlow      UserFlowStore
@@ -57,10 +58,11 @@ type optimizeRequirementRequest struct {
 }
 
 // NewPositionService 创建岗位配置 API 服务，并注入认证服务和岗位存储。
-func NewPositionService(auth *AuthService, store PositionStore, systemConfigs SystemConfigStore, aiConfigStore AIConfigStore, userFlow UserFlowStore) *PositionService {
+func NewPositionService(auth *AuthService, store PositionStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiConfigStore AIConfigStore, userFlow UserFlowStore) *PositionService {
 	return &PositionService{
 		auth:          auth,
 		store:         store,
+		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		aiConfigStore: aiConfigStore,
 		userFlow:      userFlow,
@@ -120,6 +122,9 @@ func (s *PositionService) OptimizeRequirement(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
+	if !s.requireAIMembership(w, session.Email) {
+		return
+	}
 	aiConfig, err := s.aiConfigStore.UserConfig(session.Email)
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusConflict, "请先在个人配置里填写并启用 AI 配置")
@@ -167,6 +172,9 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if positionUsesAI(position) && !s.requireAIMembership(w, session.Email) {
+		return
+	}
 
 	// 调用岗位存储保存岗位配置，用于后续岗位运行快速选择筛选条件。
 	saved, err := s.store.SavePosition(position)
@@ -185,6 +193,29 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"position": publicPosition(saved),
 	})
+}
+
+// requireAIMembership 统一检查用户是否可以使用岗位 AI 功能。
+func (s *PositionService) requireAIMembership(w http.ResponseWriter, email string) bool {
+	if s.subscriptions == nil {
+		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，请稍后再试")
+		return false
+	}
+	subscription, err := s.subscriptions.UserSubscription(email)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，请稍后再试")
+		return false
+	}
+	access, err := subscriptionAccess(s.systemConfigs, subscription, time.Now())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请稍后再试")
+		return false
+	}
+	if !access.AllowAI {
+		writeError(w, http.StatusForbidden, "AI 筛选和 AI 详情识别需要有效的 Plus 或 Max 会员")
+		return false
+	}
+	return true
 }
 
 // Delete 删除当前登录用户的岗位配置。

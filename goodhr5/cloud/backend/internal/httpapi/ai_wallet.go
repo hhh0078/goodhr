@@ -508,6 +508,13 @@ func (s *MemoryAIWalletStore) BalanceUnits(email string) (int64, error) {
 func (s *MemoryAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if record.Category == "recharge" && strings.TrimSpace(record.RelatedOrderNo) != "" {
+		for _, existing := range s.records {
+			if existing.Category == record.Category && existing.RelatedOrderNo == record.RelatedOrderNo {
+				return existing.BalanceAfterUnits, nil
+			}
+		}
+	}
 	record.CreatedAt = time.Now()
 	record.BalanceAfterUnits = s.balances[record.UserEmail] + record.ChangeUnits
 	s.balances[record.UserEmail] = record.BalanceAfterUnits
@@ -589,6 +596,20 @@ func (s *PostgresAIWalletStore) AdjustBalance(record AIWalletRecord) (int64, err
 	userID, err := ensureUserID(ctx, s.db, record.UserEmail)
 	if err != nil {
 		return 0, err
+	}
+	if record.Category == "recharge" && strings.TrimSpace(record.RelatedOrderNo) != "" {
+		var existingBalance int64
+		err = tx.QueryRowContext(ctx, `
+			SELECT balance_after_units
+			FROM ai_balance_records
+			WHERE category='recharge' AND related_order_no=$1
+		`, record.RelatedOrderNo).Scan(&existingBalance)
+		if err == nil {
+			return existingBalance, tx.Commit()
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
 	}
 	var balance int64
 	err = tx.QueryRowContext(ctx, `UPDATE users SET ai_balance_units=ai_balance_units+$2 WHERE id=$1 RETURNING ai_balance_units`, userID, record.ChangeUnits).Scan(&balance)

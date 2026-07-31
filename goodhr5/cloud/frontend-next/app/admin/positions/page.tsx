@@ -48,6 +48,7 @@ import PositionFloatingStatus, {
 import { cloudRequest, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
+import { canUseAI, normalizeSubscription } from "@/lib/subscription";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
@@ -138,6 +139,7 @@ export default function PositionsPage() {
     open_detail_prompt: "",
     review_prompt: "",
   });
+  const aiMembership = canUseAI(subscription);
 
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
@@ -235,10 +237,10 @@ export default function PositionsPage() {
     }
     const next = createEmptyForm();
     next.platform_id = openPlatformID;
-    next.mode_default = defaultCreateMode(subscription.active);
+    next.mode_default = defaultCreateMode(aiMembership);
     next.detail_mode = defaultCreateDetailMode(
       next.platform_id,
-      subscription.active,
+      aiMembership,
     );
     setForm(fillPrompts(next, defaults));
     setAdvancedOpen(false);
@@ -249,7 +251,7 @@ export default function PositionsPage() {
   async function openEdit(item: any) {
     const next = formFromItem(item, defaults);
     if (
-      !subscription.active &&
+      !aiMembership &&
       (next.mode_default === "ai" || next.detail_mode === "ai")
     ) {
       const go = await confirm(
@@ -271,9 +273,9 @@ export default function PositionsPage() {
     }
     const detailMode = form.id
       ? normalizeDetailMode(form.platform_id, form.detail_mode)
-      : defaultCreateDetailMode(form.platform_id, subscription.active);
+      : defaultCreateDetailMode(form.platform_id, aiMembership);
     if (
-      !subscription.active &&
+      !aiMembership &&
       (form.mode_default === "ai" || detailMode === "ai")
     )
       return requireMembership();
@@ -471,7 +473,9 @@ export default function PositionsPage() {
       }
       if (!(await checkPositionStartGuard(item))) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
-      const active = Boolean(subscriptionData.subscription?.active);
+      const currentSubscription = normalizeSubscription(
+        subscriptionData.subscription,
+      );
       if (!isPlatformOpen(platformConfigs, item.platform_id)) {
         const message = "这个招聘平台暂时还没开放，我先不乱跑，请联系作者看看。";
         setStartStatus(message);
@@ -496,14 +500,14 @@ export default function PositionsPage() {
         return;
       }
       const usesAI = positionUsesAI(item);
-      if (usesAI && !active) {
+      if (usesAI && !canUseAI(currentSubscription)) {
         const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
         setStartStatus(message);
         setStartError(message);
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
         return;
       }
-      if (!active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
+      if (!currentSubscription.active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
       setStartStatus("登录确认好了，正在启动岗位...");
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
         method: "POST",
@@ -715,7 +719,7 @@ export default function PositionsPage() {
 
   /** selectMode 选择筛选模式并执行会员提醒。 */
   async function selectMode(value: string) {
-    if (value === "ai" && !subscription.active) return requireMembership();
+    if (value === "ai" && !aiMembership) return requireMembership();
     setForm((current) => ({ ...current, mode_default: value }));
   }
 
@@ -728,7 +732,7 @@ export default function PositionsPage() {
         `${platformLabel(form.platform_id)}只能用 DOM 详情识别`,
         "warning",
       );
-    if (value === "ai" && !subscription.active) return requireMembership();
+    if (value === "ai" && !aiMembership) return requireMembership();
     setForm((current) => ({ ...current, detail_mode: value }));
   }
 
@@ -743,7 +747,7 @@ export default function PositionsPage() {
       platform_id: value,
       detail_mode: current.id
         ? normalizeDetailMode(value, current.detail_mode)
-        : defaultCreateDetailMode(value, subscription.active),
+        : defaultCreateDetailMode(value, aiMembership),
     }));
   }
 
@@ -1637,7 +1641,7 @@ export default function PositionsPage() {
               />
             </Box>
           </Box>
-          {!subscription.active &&
+          {!aiMembership &&
           (form.mode_default === "ai" ||
             (form.id && form.detail_mode === "ai")) ? (
             <Alert severity='warning'>

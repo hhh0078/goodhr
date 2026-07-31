@@ -29,6 +29,7 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
+import { membershipName } from "@/lib/subscription";
 
 type NotificationProfile = {
   completed?: boolean;
@@ -51,6 +52,7 @@ type AdminUserItem = {
   ai_balance_cents?: number;
   subscription?: {
     member_type?: string;
+    member_name?: string;
     expires_at?: string;
     active?: boolean;
   };
@@ -74,7 +76,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [form, setForm] = useState({ email: "", days: "7", reason: "" });
+  const [form, setForm] = useState({ email: "", days: "7", member_type: "max", reason: "" });
   const [balanceForm, setBalanceForm] = useState({ email: "", amount_yuan: "10", reason: "补充AI余额" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
@@ -117,6 +119,7 @@ export default function UsersPage() {
     setForm({
       email: item.email,
       days: String(days),
+      member_type: item.subscription?.member_type === "plus" ? "plus" : "max",
       reason: days > 0 ? "补偿会员天数" : "扣减会员天数",
     });
     setDialogOpen(true);
@@ -370,6 +373,19 @@ export default function UsersPage() {
             helperText="正数增加，负数减少，不能为 0。"
           />
           <TextField
+            select
+            label="会员类型"
+            value={form.member_type}
+            onChange={(event) =>
+              setForm({ ...form, member_type: event.target.value })
+            }
+            fullWidth
+            helperText="Plus 不含自动回复，Max 支持自动回复。"
+          >
+            <MenuItem value="plus">Plus 基础版</MenuItem>
+            <MenuItem value="max">Max 全能版</MenuItem>
+          </TextField>
+          <TextField
             label="调整原因"
             value={form.reason}
             onChange={(event) =>
@@ -491,7 +507,8 @@ unbind: (item: AdminUserItem) => Promise<void>;
           title="会员"
           lines={[
             memberLabel,
-            item.subscription?.member_type || "免费版",
+            item.subscription?.member_name ||
+              membershipName(item.subscription?.member_type),
             formatDate(item.subscription?.expires_at),
           ]}
           strong={item.subscription?.active}
@@ -614,7 +631,8 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
         sx={{ width: "fit-content" }}
       />
       <Typography sx={{ fontSize: 12 }}>
-        {item.subscription?.member_type || "免费版"}
+        {item.subscription?.member_name ||
+          membershipName(item.subscription?.member_type)}
       </Typography>
       <Typography sx={{ color: "text.secondary", fontSize: 11 }}>
         {formatDate(item.subscription?.expires_at)}

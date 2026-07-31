@@ -294,7 +294,7 @@ func (s *AuthService) notifyInitialSubscription(email string, now time.Time) err
 	if !created {
 		return nil
 	}
-	return sendSubscriptionRewardNotice(s.mailer, email, SubscriptionRewardNotice{
+	return sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, email, SubscriptionRewardNotice{
 		Reason:     "新用户注册赠送会员",
 		Days:       subscriptionNoticeDays(subscription.ExpiresAt, now),
 		MemberType: subscription.MemberType,
@@ -390,11 +390,11 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 	if config.RegisterRewardDays <= 0 || s.subscriptions == nil {
 		return nil
 	}
-	subscription, err := s.subscriptions.ExtendSubscription(inviterEmail, defaultMemberType, config.RegisterRewardDays)
+	subscription, err := s.subscriptions.ExtendSubscription(inviterEmail, "", config.RegisterRewardDays)
 	if err != nil {
 		return err
 	}
-	return sendSubscriptionRewardNotice(s.mailer, inviterEmail, SubscriptionRewardNotice{
+	return sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, inviterEmail, SubscriptionRewardNotice{
 		Reason:       "邀请好友注册成功奖励",
 		Days:         config.RegisterRewardDays,
 		MemberType:   subscription.MemberType,

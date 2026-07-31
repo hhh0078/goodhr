@@ -4,11 +4,13 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestPaymentOrderAndNotify 验证创建支付订单后，好收米回调会标记订单已支付。
@@ -20,7 +22,11 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "payment@example.com")
+	email := "payment@example.com"
+	token := loginForTest(t, routes, email)
+	if _, err := server.payments.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, -10); err != nil {
+		t.Fatal(err)
+	}
 
 	createReq := httptest.NewRequest(http.MethodPost, "/api/payment/orders", bytes.NewBufferString(`{"plan_id":"monthly"}`))
 	createReq.Header.Set("Authorization", "Bearer "+token)
@@ -39,7 +45,7 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
 		t.Fatal(err)
 	}
-	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "70.00" {
+	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "40.00" {
 		t.Fatalf("unexpected order payload: %+v", createPayload.Order)
 	}
 
@@ -48,7 +54,7 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 		"out_trade_no": createPayload.Order.OrderNo,
 		"trade_no":     "trade-test",
 		"trade_status": "TRADE_SUCCESS",
-		"money":        "70.00",
+		"money":        "40.00",
 		"param":        "test",
 	}
 	values["sign"] = NewHaoshoumiProvider(LoadConfigFromEnv()).sign(values)
@@ -64,6 +70,25 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	routes.ServeHTTP(notifyResp, notifyReq)
 	if notifyResp.Code != http.StatusOK {
 		t.Fatalf("notify status = %d, body = %s", notifyResp.Code, notifyResp.Body.String())
+	}
+	firstSubscription, err := server.payments.subscriptions.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retryReq := httptest.NewRequest(http.MethodPost, "/api/payment/notify/haoshoumi", strings.NewReader(form.Encode()))
+	retryReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	retryResp := httptest.NewRecorder()
+	routes.ServeHTTP(retryResp, retryReq)
+	if retryResp.Code != http.StatusOK {
+		t.Fatalf("retry notify status = %d, body = %s", retryResp.Code, retryResp.Body.String())
+	}
+	retriedSubscription, err := server.payments.subscriptions.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retriedSubscription.ExpiresAt.Equal(firstSubscription.ExpiresAt) {
+		t.Fatalf("重复支付回调不应再次增加会员时间: first=%s retry=%s", firstSubscription.ExpiresAt, retriedSubscription.ExpiresAt)
 	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/payment/orders", nil)
@@ -85,5 +110,130 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	}
 	if len(listPayload.Orders) != 1 || listPayload.Orders[0].Status != "paid" || listPayload.Orders[0].TradeNo != "trade-test" {
 		t.Fatalf("unexpected paid order payload: %+v", listPayload.Orders)
+	}
+}
+
+// TestApplyPaidSubscriptionOrderIgnoresMailFailure 验证邮件失败不会阻止会员到账或导致重试重复加时长。
+func TestApplyPaidSubscriptionOrderIgnoresMailFailure(t *testing.T) {
+	server := mustNewServer(t)
+	mailer := &recordingMailer{subscriptionRewardErr: errors.New("smtp unavailable")}
+	server.payments.mailer = mailer
+	order := PaymentOrder{
+		OrderNo:      "subscription-mail-failure",
+		UserEmail:    "subscription-mail-failure@example.com",
+		MemberType:   memberTypeMax,
+		DurationDays: 365,
+	}
+	if err := server.payments.applyPaidSubscriptionOrder(order); err != nil {
+		t.Fatalf("邮件失败不应阻止会员到账: %v", err)
+	}
+	first, err := server.payments.subscriptions.UserSubscription(order.UserEmail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.payments.applyPaidSubscriptionOrder(order); err != nil {
+		t.Fatalf("同一订单重试应成功: %v", err)
+	}
+	retried, err := server.payments.subscriptions.UserSubscription(order.UserEmail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retried.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("同一订单重试不应重复增加会员时间: first=%s retry=%s", first.ExpiresAt, retried.ExpiresAt)
+	}
+}
+
+// TestMemoryPaymentStoreDoesNotReopenClosedOrder 验证已关闭订单收到迟到回调时不会重新变成已支付。
+func TestMemoryPaymentStoreDoesNotReopenClosedOrder(t *testing.T) {
+	store := NewMemoryPaymentStore()
+	order, err := store.Create(PaymentOrder{
+		OrderNo: "closed-order",
+		Status:  "closed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, changed, err := store.MarkPaid(order.OrderNo, "late-trade", "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || updated.Status != "closed" {
+		t.Fatalf("已关闭订单不应重新标记为已支付: changed=%v status=%s", changed, updated.Status)
+	}
+}
+
+// TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade 验证 Plus 剩余时间会按包月价格抵扣 Max 实付金额。
+func TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade(t *testing.T) {
+	plans, err := loadSubscriptionPlans(NewMemorySystemConfigStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, ok := subscriptionPlanByMemberType(plans, memberTypeMax)
+	if !ok {
+		t.Fatal("Max 套餐不存在")
+	}
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	quote, err := buildSubscriptionPaymentQuote(plans, Subscription{
+		MemberType: memberTypePlus,
+		ExpiresAt:  now.Add(15 * 24 * time.Hour),
+	}, target, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote.UpgradeFromType != memberTypePlus || quote.UpgradeCreditCents != 2000 || quote.AmountCents != 32000 {
+		t.Fatalf("unexpected upgrade quote: %+v", quote)
+	}
+}
+
+// TestApplyPlusUpgradeReplacesExpiryFromNow 验证 Plus 升 Max 后从付款时间重新计算 365 天。
+func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	store := NewMemorySubscriptionStore()
+	store.now = func() time.Time { return now }
+	email := "upgrade-from-now@example.com"
+	store.items[email] = Subscription{
+		MemberType: memberTypePlus,
+		ExpiresAt:  now.Add(15 * 24 * time.Hour),
+	}
+	service := &PaymentService{
+		subscriptions: store,
+		systemConfigs: NewMemorySystemConfigStore(),
+	}
+	if err := service.applyPaidSubscriptionOrder(PaymentOrder{
+		OrderNo:         "plus-upgrade",
+		UserEmail:       email,
+		MemberType:      memberTypeMax,
+		DurationDays:    365,
+		UpgradeFromType: memberTypePlus,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := store.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := now.Add(365 * 24 * time.Hour)
+	if !subscription.ExpiresAt.Equal(want) || subscription.MemberType != memberTypeMax {
+		t.Fatalf("Plus 升 Max 到期时间不正确: got=%+v want=%s", subscription, want)
+	}
+}
+
+// TestBuildSubscriptionPaymentQuoteBlocksMaxDowngrade 验证有效 Max 会员不能购买 Plus 套餐。
+func TestBuildSubscriptionPaymentQuoteBlocksMaxDowngrade(t *testing.T) {
+	plans, err := loadSubscriptionPlans(NewMemorySystemConfigStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, ok := subscriptionPlanByMemberType(plans, memberTypePlus)
+	if !ok {
+		t.Fatal("Plus 套餐不存在")
+	}
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	_, err = buildSubscriptionPaymentQuote(plans, Subscription{
+		MemberType: memberTypeMax,
+		ExpiresAt:  now.Add(24 * time.Hour),
+	}, target, now)
+	if err == nil {
+		t.Fatal("有效 Max 会员购买 Plus 时应被拦截")
 	}
 }

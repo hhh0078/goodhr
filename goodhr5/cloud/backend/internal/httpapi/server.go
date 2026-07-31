@@ -99,16 +99,16 @@ func NewServer() (*Server, error) {
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
-		positions:           NewPositionService(auth, positionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore),
+		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore),
 		positionLogs:        positionLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
 		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
 		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
-		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, mailer),
-		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, mailer, agentStore, aiWalletStore),
+		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, systemConfigStore, mailer),
+		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
 		adminEmails:         adminEmails,
 		publicStats:         NewPublicStatsService(adminUserStore, positionStore, agentStore, dailyStatsStore),
 		teamStats:           NewTeamStatsService(auth, db, tenantStore),
@@ -513,6 +513,12 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	if !json.Valid([]byte(raw)) {
 		writeError(w, http.StatusBadRequest, "config_value must be valid json")
 		return
+	}
+	if configKey == "system.subscription_plans" {
+		if _, err := parseSubscriptionPlans(raw); err != nil {
+			writeError(w, http.StatusBadRequest, "会员套餐配置没保存："+err.Error())
+			return
+		}
 	}
 
 	existing.ConfigValue = raw

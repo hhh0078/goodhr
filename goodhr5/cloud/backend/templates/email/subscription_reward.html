@@ -18,8 +18,10 @@
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0;background:#f8faf8;border:1px solid #e2ebe5;border-radius:10px;overflow:hidden;font-size:14px;">
             <tr><td class="label" style="width:120px;padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">变动原因</td><td class="value" style="padding:13px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.Reason}}</td></tr>
             <tr><td class="label" style="padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">变动天数</td><td class="value" style="padding:13px 14px;color:#16724c;font-weight:800;border-bottom:1px solid #e2ebe5;">{{.DaysText}}</td></tr>
-            <tr><td class="label" style="padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">会员类型</td><td class="value" style="padding:13px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.MemberType}}</td></tr>
-            <tr><td class="label" style="padding:13px 14px;color:#68746c;">新的到期时间</td><td class="value" style="padding:13px 14px;font-weight:700;">{{.ExpiresAt}}</td></tr>
+            <tr><td class="label" style="padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">会员套餐</td><td class="value" style="padding:13px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.MemberName}}</td></tr>
+            <tr><td class="label" style="padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">新的到期时间</td><td class="value" style="padding:13px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{.ExpiresAt}}（剩余 {{.RemainingDays}} 天）</td></tr>
+            <tr><td class="label" style="padding:13px 14px;color:#68746c;border-bottom:1px solid #e2ebe5;">自动回复</td><td class="value" style="padding:13px 14px;font-weight:700;border-bottom:1px solid #e2ebe5;">{{if .AllowAutoReply}}支持{{else}}暂不支持{{end}}</td></tr>
+            <tr><td class="label" style="padding:13px 14px;color:#68746c;">支持功能</td><td class="value" style="padding:13px 14px;font-weight:700;">{{range $index, $feature := .Features}}{{if $index}}、{{end}}{{$feature}}{{end}}</td></tr>
             {{if .RelatedEmail}}<tr><td class="label" style="padding:13px 14px;color:#68746c;border-top:1px solid #e2ebe5;">关联用户</td><td class="value" style="padding:13px 14px;font-weight:700;border-top:1px solid #e2ebe5;">{{.RelatedEmail}}</td></tr>{{end}}
           </table>
           <p style="margin:20px 0 0;font-size:13px;line-height:1.8;color:#7b8780;">这是一封自动提醒邮件，不需要回复。有疑问时可以回到 GoodHR 联系我们。</p>

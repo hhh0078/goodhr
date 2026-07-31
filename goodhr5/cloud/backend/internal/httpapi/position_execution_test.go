@@ -104,6 +104,26 @@ func TestPositionStartRejectsExpiredSubscription(t *testing.T) {
 	}
 }
 
+// TestPositionStartRequiresMaxForAutoReply 验证 Plus 有效时仍不能启动自动回复。
+func TestPositionStartRequiresMaxForAutoReply(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "position-auto-reply@example.com"
+	token := loginForTest(t, routes, email)
+	positionID := createPositionWithConfigForTest(t, routes, token, "自动回复岗位", `{"mode_default":"keyword"}`)
+	if _, err := server.positionExecution.subscriptions.AdjustSubscriptionDays(email, memberTypePlus, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"auto_reply"}`)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+	if code := positionStartErrorCodeForTest(t, resp); code != "AUTO_REPLY_MAX_REQUIRED" {
+		t.Fatalf("error code = %s", code)
+	}
+}
+
 // TestPositionStartAllowsOnlyOneRunningPosition 验证同一账号的启动检查与 running 更新在一次申请中完成。
 func TestPositionStartAllowsOnlyOneRunningPosition(t *testing.T) {
 	server := mustNewServer(t)

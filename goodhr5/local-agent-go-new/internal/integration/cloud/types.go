@@ -14,9 +14,14 @@ type UserSession struct {
 
 // Subscription 表示会员可用状态。
 type Subscription struct {
-	Active     bool   `json:"active"`
-	MemberType string `json:"member_type"`
-	ExpiresAt  string `json:"expires_at"`
+	Active         bool     `json:"active"`
+	MemberType     string   `json:"member_type"`
+	MemberName     string   `json:"member_name"`
+	ExpiresAt      string   `json:"expires_at"`
+	RemainingDays  int      `json:"remaining_days"`
+	AllowAI        bool     `json:"allow_ai"`
+	AllowAutoReply bool     `json:"allow_auto_reply"`
+	Features       []string `json:"features"`
 }
 
 // APIError 表示云端返回的稳定 HTTP 状态错误。

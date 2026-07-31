@@ -342,7 +342,7 @@ export default function DashboardPage() {
                 sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}
               >
                 {agentBase
-                  ? `${agentBase} · ${runtime.version || runtime.agent_version || "版本未知"} · ${subscription.active ? `${subscription.member_type || "Plus"} 有效` : "免费版"}`
+                  ? `${agentBase} · ${runtime.version || runtime.agent_version || "版本未知"} · ${subscription.active ? `${subscription.member_name} 剩${subscription.remaining_days}天` : "免费版"}`
                   : "尚未检测到本地程序"}
               </Typography>
             </Box>

@@ -22,7 +22,7 @@ func TestAIRequestTimeoutUnified(t *testing.T) {
 	services := map[string]*http.Client{
 		"config_test":       newAIConfigTestHTTPClient(),
 		"wallet_proxy":      NewAIWalletService(nil, nil, nil, nil).httpClient,
-		"position_optimize": NewPositionService(nil, nil, nil, nil, nil).httpClient,
+		"position_optimize": NewPositionService(nil, nil, nil, nil, nil, nil).httpClient,
 		"help_chat":         NewHelpService(nil, nil, nil).httpClient,
 	}
 	for name, client := range services {

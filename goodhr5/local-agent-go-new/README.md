@@ -46,6 +46,8 @@ StartTask
 
 启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、本地平台配置、Profile、冲突、Node、Worker、CloakBrowser、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
 
+会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
+
 ## 本地接口
 
 - `POST /api/v1/tasks/start`：启动主动打招呼或自动回复。

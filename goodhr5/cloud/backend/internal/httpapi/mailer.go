@@ -26,11 +26,15 @@ type Mailer interface {
 
 // SubscriptionRewardNotice 表示会员天数变动提醒邮件内容。
 type SubscriptionRewardNotice struct {
-	Reason       string
-	Days         int
-	MemberType   string
-	ExpiresAt    time.Time
-	RelatedEmail string
+	Reason         string
+	Days           int
+	MemberType     string
+	MemberName     string
+	ExpiresAt      time.Time
+	RemainingDays  int
+	AllowAutoReply bool
+	Features       []string
+	RelatedEmail   string
 }
 
 // AIBalanceNotice 表示 AI 余额变动提醒邮件内容。
@@ -60,7 +64,7 @@ func (m DevMailer) SendLoginCode(email string, code string) error {
 
 // SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
-	log.Printf("GoodHR dev subscription changed for %s: reason=%s days=%d expires=%s related=%s", email, notice.Reason, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
+	log.Printf("GoodHR dev subscription changed for %s: reason=%s member=%s days=%d expires=%s related=%s", email, notice.Reason, notice.MemberName, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
 	return nil
 }
 
@@ -109,24 +113,43 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 	if memberType == "" {
 		memberType = defaultMemberType
 	}
+	memberName := strings.TrimSpace(notice.MemberName)
+	if memberName == "" {
+		memberName = memberTypeName(memberType)
+	}
+	featureText := strings.Join(notice.Features, "、")
+	if featureText == "" {
+		featureText = "当前套餐的基础招聘能力"
+	}
+	autoReplyText := "暂不支持"
+	if notice.AllowAutoReply {
+		autoReplyText = "支持"
+	}
 	daysText := fmt.Sprintf("%+d 天", notice.Days)
 	lines := []string{
 		"你好，你的 GoodHR 会员时间有变动。",
 		"变动原因：" + reason,
 		"变动天数：" + daysText,
-		"会员类型：" + memberType,
+		"会员套餐：" + memberName,
 		"新的到期时间：" + notice.ExpiresAt.Format("2006-01-02 15:04:05"),
+		"剩余时间：" + intString(notice.RemainingDays) + " 天",
+		"支持功能：" + featureText,
+		"自动回复：" + autoReplyText,
 	}
 	if strings.TrimSpace(notice.RelatedEmail) != "" {
 		lines = append(lines, "关联用户："+strings.TrimSpace(notice.RelatedEmail))
 	}
 	lines = append(lines, "感谢使用 GoodHR。")
 	return m.sendMessage(email, "GoodHR 会员时间变动提醒", "subscription_reward.html", map[string]any{
-		"Reason":       reason,
-		"DaysText":     daysText,
-		"MemberType":   memberType,
-		"ExpiresAt":    notice.ExpiresAt.Format("2006-01-02 15:04:05"),
-		"RelatedEmail": strings.TrimSpace(notice.RelatedEmail),
+		"Reason":         reason,
+		"DaysText":       daysText,
+		"MemberType":     memberType,
+		"MemberName":     memberName,
+		"ExpiresAt":      notice.ExpiresAt.Format("2006-01-02 15:04:05"),
+		"RemainingDays":  notice.RemainingDays,
+		"AllowAutoReply": notice.AllowAutoReply,
+		"Features":       notice.Features,
+		"RelatedEmail":   strings.TrimSpace(notice.RelatedEmail),
 	}, lines)
 }
 

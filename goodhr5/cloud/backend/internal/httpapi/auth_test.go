@@ -289,7 +289,8 @@ type recordingMailer struct {
 		email  string
 		notice PositionStatusNotice
 	}
-	positionStatusErr error
+	subscriptionRewardErr error
+	positionStatusErr     error
 }
 
 // SendLoginCode 记录验证码邮件发送请求。
@@ -303,6 +304,9 @@ func (m *recordingMailer) SendLoginCode(email string, code string) error {
 
 // SendSubscriptionReward 记录会员时间变动邮件发送请求。
 func (m *recordingMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
+	if m.subscriptionRewardErr != nil {
+		return m.subscriptionRewardErr
+	}
 	m.rewards = append(m.rewards, struct {
 		email  string
 		notice SubscriptionRewardNotice

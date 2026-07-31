@@ -75,9 +75,6 @@ func (c *Client) Subscription(ctx context.Context, token string) (Subscription, 
 	if result.MemberType == "" {
 		result = response.Data.Subscription
 	}
-	if !result.Active {
-		return Subscription{}, fmt.Errorf("当前会员暂不可用，请先看看会员状态")
-	}
 	return result, nil
 }
 

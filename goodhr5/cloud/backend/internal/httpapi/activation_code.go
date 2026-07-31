@@ -52,12 +52,13 @@ type ActivationCodeService struct {
 	auth          *AuthService
 	store         ActivationCodeStore
 	subscriptions SubscriptionStore
+	systemConfigs SystemConfigStore
 	mailer        Mailer
 }
 
 // NewActivationCodeService 创建激活码服务。
-func NewActivationCodeService(auth *AuthService, store ActivationCodeStore, subscriptions SubscriptionStore, mailer Mailer) *ActivationCodeService {
-	return &ActivationCodeService{auth: auth, store: store, subscriptions: subscriptions, mailer: mailer}
+func NewActivationCodeService(auth *AuthService, store ActivationCodeStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, mailer Mailer) *ActivationCodeService {
+	return &ActivationCodeService{auth: auth, store: store, subscriptions: subscriptions, systemConfigs: systemConfigs, mailer: mailer}
 }
 
 // AdminCollection 按请求方法处理超管激活码列表和生成请求。
@@ -154,7 +155,7 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to extend subscription")
 		return
 	}
-	if err := sendSubscriptionRewardNotice(s.mailer, session.Email, SubscriptionRewardNotice{
+	if err := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, session.Email, SubscriptionRewardNotice{
 		Reason:     "激活码兑换成功",
 		Days:       code.Days,
 		MemberType: subscription.MemberType,
@@ -163,7 +164,12 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to send reward email")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code": code, "subscription": publicSubscription(subscription)})
+	access, accessErr := subscriptionAccess(s.systemConfigs, subscription, time.Now())
+	if accessErr != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请刷新后再看")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code": code, "subscription": publicSubscriptionAccess(access)})
 }
 
 // generateActivationCode 生成便于复制输入的激活码。

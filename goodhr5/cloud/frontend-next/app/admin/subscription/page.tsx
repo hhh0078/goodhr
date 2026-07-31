@@ -37,6 +37,13 @@ import {
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import {
+  estimateSubscriptionQuote,
+  isPlanDowngradeBlocked,
+  normalizeSubscriptionPlans,
+  type SubscriptionPlan,
+  type SubscriptionUpgradeQuote,
+} from "@/lib/subscription";
 
 const aiRecordPageSize = 10;
 
@@ -47,7 +54,7 @@ type PendingPayment =
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
   const { notify, subscription, refreshSession } = useAdmin();
-  const [plans, setPlans] = useState<any[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [wallet, setWallet] = useState<any>({});
   const [aiConfig, setAIConfig] = useState<any>({});
@@ -72,6 +79,16 @@ export default function SubscriptionPage() {
 
   const modelLabel = currentAIModel || wallet.default_model || "未配置";
   const aiPageCount = Math.max(1, Math.ceil(aiTotal / aiRecordPageSize));
+  const pendingPlan = useMemo(
+    () =>
+      pendingPayment?.type === "membership"
+        ? plans.find((plan) => plan.id === pendingPayment.planID) || null
+        : null,
+    [pendingPayment, plans],
+  );
+  const pendingQuote = pendingPlan
+    ? estimateSubscriptionQuote(subscription, plans, pendingPlan)
+    : null;
 
   /** loadSummary 读取会员套餐、支付记录和 AI 余额摘要。 */
   async function loadSummary() {
@@ -85,7 +102,7 @@ export default function SubscriptionPage() {
           cloudRequest("/api/config/user-ai"),
         ],
       );
-      setPlans(Array.isArray(planData.plans) ? planData.plans : []);
+      setPlans(normalizeSubscriptionPlans(planData.plans));
       setOrders(Array.isArray(orderData.orders) ? orderData.orders : []);
       setWallet(walletData.wallet || walletData || {});
       const config = aiConfigData.config || {};
@@ -170,9 +187,14 @@ export default function SubscriptionPage() {
         method: "POST",
         body: { plan_id: planID },
       });
-      submitPayment(data.payment);
-      notify("支付页面已打开，付完我会回来认真记账。", "success");
+      if (data.payment_completed) {
+        notify("Plus 剩余时间已经抵完差价，Max 全能版已到账。", "success");
+      } else {
+        submitPayment(data.payment);
+        notify("支付页面已打开，付完我会回来认真记账。", "success");
+      }
       await loadSummary();
+      await refreshSession();
     } catch (error) {
       notify(
         error instanceof Error
@@ -188,6 +210,12 @@ export default function SubscriptionPage() {
   /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
   function requestPlanPayment(planID: string) {
     if (!planID) return;
+    const plan = plans.find((item) => item.id === planID);
+    if (!plan) return;
+    if (isPlanDowngradeBlocked(subscription, plan)) {
+      notify("Max 全能版还在有效期内，暂时不能降为 Plus 基础版。", "warning");
+      return;
+    }
     setPendingPayment({ type: "membership", planID });
   }
 
@@ -315,7 +343,7 @@ export default function SubscriptionPage() {
         <InfoCard
           icon={<WorkspacePremiumRoundedIcon />}
           title='当前会员'
-          value={subscription.member_type || "免费版"}
+          value={subscription.member_name || "免费版"}
           tone={subscription.active ? "dark" : "plain"}
           compact
           sx={{
@@ -332,7 +360,11 @@ export default function SubscriptionPage() {
           >
             <Chip
               size='small'
-              label={subscription.active ? "会员有效" : "未开通或已到期"}
+              label={
+                subscription.active
+                  ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
+                  : "未开通或已到期"
+              }
               color={subscription.active ? "success" : "default"}
             />
             <Typography
@@ -442,7 +474,7 @@ export default function SubscriptionPage() {
           gridTemplateColumns: {
             xs: "minmax(0, 1fr)",
             sm: "repeat(2, minmax(0, 1fr))",
-            lg: "repeat(4, minmax(0, 1fr))",
+            lg: "repeat(3, minmax(0, 1fr))",
           },
           gap: 2,
           alignItems: "stretch",
@@ -452,8 +484,10 @@ export default function SubscriptionPage() {
           <PlanCard
             key={plan.id || index}
             plan={plan}
-            featured={index === 1 || Boolean(plan.recommended)}
+            featured={plan.member_type === "max" || Boolean(plan.recommended)}
             paying={payingPlanID === plan.id}
+            downgradeBlocked={isPlanDowngradeBlocked(subscription, plan)}
+            quote={estimateSubscriptionQuote(subscription, plans, plan)}
             onPay={() => requestPlanPayment(plan.id)}
           />
         ))}
@@ -568,6 +602,8 @@ export default function SubscriptionPage() {
       <PaymentUnderstandingDialog
         open={pendingPayment !== null}
         paymentType={pendingPayment?.type || "membership"}
+        plan={pendingPlan}
+        quote={pendingQuote}
         loading={
           pendingPayment?.type === "membership"
             ? payingPlanID === pendingPayment.planID
@@ -584,12 +620,16 @@ export default function SubscriptionPage() {
 function PaymentUnderstandingDialog({
   open,
   paymentType,
+  plan,
+  quote,
   loading,
   onClose,
   onConfirm,
 }: {
   open: boolean;
   paymentType: PendingPayment["type"];
+  plan: SubscriptionPlan | null;
+  quote: SubscriptionUpgradeQuote | null;
   loading: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -609,6 +649,23 @@ function PaymentUnderstandingDialog({
             : "你即将充值 AI 余额。继续前，请确认已经理解下面的费用区别和退款政策。"}
         </Typography>
         <Stack spacing={1.25} sx={{ mt: 2 }}>
+          {paymentType === "membership" && plan && quote ? (
+            <Box
+              sx={{
+                p: 1.75,
+                borderRadius: 2,
+                bgcolor: "#eef6f0",
+                border: "1px solid #cfe4d6",
+              }}
+            >
+              <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
+              <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
+                {quote.upgrade
+                  ? `Plus 剩余时间抵扣 ￥${(quote.creditCents / 100).toFixed(2)}，预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。最终金额以后端下单时的剩余时间为准。`
+                  : `本次预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。`}
+              </Typography>
+            </Box>
+          ) : null}
           <Box
             sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f4f8f5" }}
           >
@@ -994,14 +1051,18 @@ function PlanCard({
   plan,
   featured,
   paying,
+  downgradeBlocked,
+  quote,
   onPay,
 }: {
-  plan: any;
+  plan: SubscriptionPlan;
   featured: boolean;
   paying: boolean;
+  downgradeBlocked: boolean;
+  quote: SubscriptionUpgradeQuote;
   onPay: () => void;
 }) {
-  const price = finalPrice(plan);
+  const price = quote.amountCents / 100;
   const originalPrice = Number(plan.original_price || 0);
   return (
     <Box
@@ -1068,6 +1129,11 @@ function PlanCard({
       >
         {plan.description || "解锁更多智能招聘功能。"}
       </Typography>
+      {quote.upgrade ? (
+        <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
+          已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}
+        </Typography>
+      ) : null}
       <Stack spacing={1.1} sx={{ mt: 2.25, flex: 1 }}>
         {(Array.isArray(plan.features) ? plan.features : []).map(
           (feature: string) => (
@@ -1095,7 +1161,7 @@ function PlanCard({
         <Button
           fullWidth
           variant={featured ? "contained" : "outlined"}
-          disabled={paying}
+          disabled={paying || downgradeBlocked}
           sx={{
             mt: 2.5,
             bgcolor: featured ? "#202a24" : undefined,
@@ -1104,7 +1170,13 @@ function PlanCard({
           }}
           onClick={onPay}
         >
-          {paying ? "正在创建订单" : "立即订阅"}
+          {paying
+            ? "正在创建订单"
+            : downgradeBlocked
+              ? "Max 有效期内不可降级"
+              : quote.upgrade
+                ? "补差价升级 Max"
+                : "立即订阅"}
         </Button>
       ) : (
         <Chip
@@ -1119,14 +1191,6 @@ function PlanCard({
         />
       )}
     </Box>
-  );
-}
-
-/** finalPrice 计算套餐折扣后的最终售价。 */
-function finalPrice(plan: any) {
-  return Math.max(
-    0,
-    Number(plan?.original_price || 0) - Number(plan?.discount_amount || 0),
   );
 }
 

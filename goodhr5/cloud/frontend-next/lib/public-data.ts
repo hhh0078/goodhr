@@ -12,6 +12,7 @@ export type PublicPlanData = {
   durationDays: number;
   originalPrice: number;
   discountAmount: number;
+  allowAutoReply: boolean;
 	description: string;
 	features: string[];
 };
@@ -103,10 +104,11 @@ function normalizePlan(value: Record<string, unknown>): PublicPlanData {
   return {
     id: String(value?.id || ""),
     name: String(value?.name || "订阅套餐"),
-    memberType: String(value?.member_type || "plus"),
+    memberType: String(value?.member_type || "free"),
     durationDays: Math.max(0, Number(value?.duration_days || 0)),
     originalPrice: Math.max(0, Number(value?.original_price || 0)),
     discountAmount: Math.max(0, Number(value?.discount_amount || 0)),
+    allowAutoReply: Boolean(value?.allow_auto_reply),
     description: String(value?.description || ""),
 		features: Array.isArray(value?.features) ? value.features.map((item) => String(item)).filter(Boolean) : [],
 	};

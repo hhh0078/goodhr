@@ -22,6 +22,8 @@ type PaymentOrder struct {
 	DurationDays        int        `json:"duration_days"`
 	OriginalAmountCents int        `json:"original_amount_cents"`
 	DiscountAmountCents int        `json:"discount_amount_cents"`
+	UpgradeFromType     string     `json:"upgrade_from_member_type"`
+	UpgradeCreditCents  int        `json:"upgrade_credit_cents"`
 	AmountCents         int        `json:"amount_cents"`
 	PaymentProvider     string     `json:"payment_provider"`
 	TradeNo             string     `json:"trade_no"`
@@ -119,6 +121,9 @@ func (s *MemoryPaymentStore) MarkPaid(orderNo string, tradeNo string, notifyData
 	if order.Status == "paid" {
 		return order, false, nil
 	}
+	if order.Status != "pending" {
+		return order, false, nil
+	}
 	now := time.Now()
 	order.Status = "paid"
 	order.TradeNo = tradeNo
@@ -148,10 +153,10 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 	err = s.db.QueryRow(`
 		INSERT INTO payment_orders (
 			order_no, order_type, user_id, user_email, plan_id, plan_name, member_type, duration_days,
-			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
-			status, expired_at, notify_data
+			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
+			amount_cents, payment_provider, status, expired_at, notify_data
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '{}'::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, '{}'::jsonb)
 		RETURNING id, created_at, updated_at
 	`,
 		order.OrderNo,
@@ -164,6 +169,8 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 		order.DurationDays,
 		order.OriginalAmountCents,
 		order.DiscountAmountCents,
+		order.UpgradeFromType,
+		order.UpgradeCreditCents,
 		order.AmountCents,
 		order.PaymentProvider,
 		order.Status,
@@ -179,7 +186,8 @@ func (s *PostgresPaymentStore) Create(order PaymentOrder) (PaymentOrder, error) 
 func (s *PostgresPaymentStore) ByOrderNo(orderNo string) (PaymentOrder, error) {
 	return scanPaymentOrder(s.db.QueryRow(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
-			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
+			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
+			amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		WHERE order_no=$1
@@ -190,7 +198,8 @@ func (s *PostgresPaymentStore) ByOrderNo(orderNo string) (PaymentOrder, error) {
 func (s *PostgresPaymentStore) ListByUser(email string) ([]PaymentOrder, error) {
 	rows, err := s.db.Query(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
-			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
+			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
+			amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		WHERE user_email=$1
@@ -207,7 +216,8 @@ func (s *PostgresPaymentStore) ListByUser(email string) ([]PaymentOrder, error) 
 func (s *PostgresPaymentStore) ListAll() ([]PaymentOrder, error) {
 	rows, err := s.db.Query(`
 		SELECT id, order_no, COALESCE(order_type, 'subscription'), user_email, plan_id, plan_name, member_type, duration_days,
-			original_amount_cents, discount_amount_cents, amount_cents, payment_provider,
+			original_amount_cents, discount_amount_cents, upgrade_from_member_type, upgrade_credit_cents,
+			amount_cents, payment_provider,
 			trade_no, status, paid_at, expired_at, notify_data::text, created_at, updated_at
 		FROM payment_orders
 		ORDER BY created_at DESC
@@ -260,6 +270,8 @@ func scanPaymentOrder(row interface{ Scan(dest ...any) error }) (PaymentOrder, e
 		&order.DurationDays,
 		&order.OriginalAmountCents,
 		&order.DiscountAmountCents,
+		&order.UpgradeFromType,
+		&order.UpgradeCreditCents,
 		&order.AmountCents,
 		&order.PaymentProvider,
 		&order.TradeNo,
