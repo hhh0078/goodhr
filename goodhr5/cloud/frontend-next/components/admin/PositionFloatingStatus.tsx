@@ -91,8 +91,8 @@ export async function openPositionFloatingWindow() {
 
   try {
     const pipWindow = await pictureInPicture.requestWindow({
-      width: 380,
-      height: 320,
+      width: 340,
+      height: 270,
     });
     const viewport = pipWindow.document.createElement("meta");
     viewport.name = "viewport";
@@ -111,16 +111,6 @@ export async function openPositionFloatingWindow() {
   } catch {
     return null;
   }
-}
-
-/** analysisTitle 返回分析阶段对应的短标题。 */
-function analysisTitle(analysis: PositionAnalysisStatus | null) {
-  if (!analysis) return "等待分析";
-  if (analysis.kind === "keyword") return "关键词匹配";
-  if (analysis.phase === "loading") return "AI 请求中";
-  if (analysis.phase === "error") return "AI 没跑顺";
-  if (analysis.stage === "preview") return "AI 基础预判";
-  return "AI 判断结果";
 }
 
 /** AILoadingSpinner 使用原生 SVG 动画展示不依赖外部样式的 AI 加载状态。 */
@@ -190,6 +180,9 @@ export default function PositionFloatingStatus({
       : analysis.accepted
         ? "通过"
         : "跳过";
+  const statusLabel = acceptedLabel
+    ? `${presentation.label} · ${acceptedLabel}`
+    : presentation.label;
   const matchedKeywords = analysis?.matched_keywords || [];
   const matchedExcludes = analysis?.matched_excludes || [];
   const keywords = analysis?.keywords || [];
@@ -201,7 +194,7 @@ export default function PositionFloatingStatus({
         display: "flex",
         width: "100vw",
         minHeight: "100vh",
-        padding: 9,
+        padding: 7,
         background,
         color: "#ffffff",
         fontFamily:
@@ -216,8 +209,8 @@ export default function PositionFloatingStatus({
           flex: 1,
           minWidth: 0,
           flexDirection: "column",
-          gap: 8,
-          padding: "11px 13px",
+          gap: 7,
+          padding: "9px 11px",
           overflow: "hidden",
           border: "1px solid rgba(255, 255, 255, 0.24)",
           borderRadius: 8,
@@ -236,13 +229,13 @@ export default function PositionFloatingStatus({
           <span style={{ opacity: 0.8 }}>GoodHR · 招聘小助手</span>
           <strong
             style={{
-              padding: "4px 8px",
+              padding: "3px 7px",
               borderRadius: 6,
               background: "rgba(255, 255, 255, 0.17)",
-              fontSize: 13,
+              fontSize: 12,
             }}
           >
-            {presentation.label}
+            {statusLabel}
           </strong>
         </div>
 
@@ -250,11 +243,10 @@ export default function PositionFloatingStatus({
           style={{
             display: "flex",
             minHeight: 0,
-            flex: 1,
             flexDirection: "column",
-            gap: 8,
-            padding: "10px 11px",
-            overflow: "hidden",
+            gap: 6,
+            padding: "9px 10px",
+            overflow: "auto",
             borderRadius: 7,
             background: "rgba(255, 255, 255, 0.14)",
           }}
@@ -280,36 +272,16 @@ export default function PositionFloatingStatus({
             >
               {analysis?.candidate_name || "等待候选人"}
             </strong>
-            {acceptedLabel ? (
+            {analysis?.phase === "loading" ? (
               <span
                 style={{
                   flexShrink: 0,
-                  padding: "3px 7px",
-                  borderRadius: 5,
-                  background: analysis?.accepted
-                    ? "rgba(218, 255, 232, 0.22)"
-                    : "rgba(255, 225, 225, 0.22)",
                   fontSize: 12,
-                  fontWeight: 700,
+                  opacity: 0.82,
                 }}
               >
-                {acceptedLabel}
+                我正在认真请求 AI
               </span>
-            ) : null}
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              opacity: 0.82,
-            }}
-          >
-            <span>{analysisTitle(analysis)}</span>
-            {analysis?.phase === "loading" ? (
-              <span>· 我正在认真请求 AI</span>
             ) : null}
           </div>
 
@@ -317,7 +289,7 @@ export default function PositionFloatingStatus({
           analysis.phase === "result" &&
           typeof analysis.score === "number" ? (
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <strong style={{ fontSize: 30, lineHeight: 1 }}>
+              <strong style={{ fontSize: 24, lineHeight: 1 }}>
                 {analysis.score.toFixed(1)}
               </strong>
               <span style={{ fontSize: 12, opacity: 0.82 }}>
@@ -337,7 +309,7 @@ export default function PositionFloatingStatus({
                 display: "flex",
                 alignItems: "center",
                 gap: 9,
-                fontSize: 18,
+                fontSize: 15,
                 fontWeight: 700,
               }}
             >
@@ -372,8 +344,9 @@ export default function PositionFloatingStatus({
             title={analysis?.reason || ""}
             style={{
               overflow: "auto",
+              maxHeight: 78,
               fontSize: 13,
-              lineHeight: 1.5,
+              lineHeight: 1.45,
               opacity: 0.96,
             }}
           >
@@ -388,7 +361,7 @@ export default function PositionFloatingStatus({
             justifyContent: "space-between",
             gap: 8,
             padding: "0 2px",
-            fontSize: 11,
+            fontSize: 12,
             opacity: 0.86,
           }}
         >
@@ -400,9 +373,10 @@ export default function PositionFloatingStatus({
           title={step}
           style={{
             overflow: "hidden",
-            fontSize: 10,
-            lineHeight: 1.3,
-            opacity: 0.72,
+            fontSize: 13,
+            fontWeight: 650,
+            lineHeight: 1.35,
+            opacity: 0.86,
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
