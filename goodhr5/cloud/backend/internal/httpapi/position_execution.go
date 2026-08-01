@@ -163,14 +163,18 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	}
 	noticeSent := false
 	statusChanged := position.Status != status
+	noticePosition := position
+	if statusChanged {
+		noticePosition = positionWithRunGreeted(position, payload.RunGreetedCount)
+	}
 	if status == "completed" {
 		if statusChanged {
-			if err := s.sendPositionStatusNotice(position, "completed", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
+			if err := s.sendPositionStatusNotice(noticePosition, "completed", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 				writeError(w, http.StatusBadGateway, "failed to send position completion notice: "+err.Error())
 				return
 			}
 			noticeSent = true
-			if err := s.store.UpdatePositionStatus(position.ID, status); err != nil {
+			if err := s.store.FinishPositionRun(position.ID, status, payload.RunGreetedCount); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to update position status")
 				return
 			}
@@ -180,16 +184,19 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 			noticeSent = true
 		}
 	} else if statusChanged {
-		if err := s.store.UpdatePositionStatus(position.ID, status); err != nil {
+		if err := s.store.FinishPositionRun(position.ID, status, payload.RunGreetedCount); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update position status")
 			return
 		}
 		if status == "stopped" {
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-			if err := s.sendPositionStatusNotice(position, "stopped", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
+			if err := s.sendPositionStatusNotice(noticePosition, "stopped", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 				stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 			}
 		}
+	}
+	if payload.RunGreetedCount > 0 {
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent})
 }
@@ -311,12 +318,22 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 	if strings.Contains(errorMessage, "账号已在其他地方登录") {
 		status = "stopped"
 	}
-	_ = s.store.UpdatePositionStatus(position.ID, status)
+	noticePosition := position
+	if position.Status != status {
+		noticePosition = positionWithRunGreeted(position, payload.RunGreetedCount)
+	}
+	if err := s.store.FinishPositionRun(position.ID, status, payload.RunGreetedCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update position status")
+		return
+	}
 	s.recordUserFlow(position.UserEmail, UserFlowUpdate{
 		Step: userFlowPositionStarted, Status: "blocked", Source: "local_agent", PositionID: position.ID,
 		ReasonCode: userFlowFailureReason(errorMessage), Message: errorMessage,
 	})
-	if err := s.sendPositionStatusNotice(position, status, errorMessage, payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
+	if payload.RunGreetedCount > 0 {
+		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
+	}
+	if err := s.sendPositionStatusNotice(noticePosition, status, errorMessage, payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
 		writeError(w, http.StatusBadGateway, "failed to send position status notice: "+err.Error())
 		return
 	}

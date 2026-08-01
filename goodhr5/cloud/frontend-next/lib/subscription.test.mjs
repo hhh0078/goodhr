@@ -1,11 +1,10 @@
-/** 本文件负责验证前端会员权限和 Plus 升级 Max 的预计抵扣金额。 */
+/** 本文件负责验证前端会员权限和套餐切换报价。 */
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canUseAutoReply,
   estimateSubscriptionQuote,
-  isPlanDowngradeBlocked,
   normalizeSubscription,
   normalizeSubscriptionPlans,
 } from "./subscription.ts";
@@ -67,12 +66,16 @@ test("自动回复只接受后端返回的明确权限", () => {
   );
 });
 
-test("有效 Max 不能购买 Plus", () => {
+test("有效 Max 可以原价切换 Plus", () => {
   const subscription = normalizeSubscription({
     active: true,
     member_type: "max",
     allow_ai: true,
     allow_auto_reply: true,
   });
-  assert.equal(isPlanDowngradeBlocked(subscription, plans[0]), true);
+  const quote = estimateSubscriptionQuote(subscription, plans, plans[0]);
+  assert.equal(quote.amountCents, 4000);
+  assert.equal(quote.creditCents, 0);
+  assert.equal(quote.replacement, true);
+  assert.equal(quote.sourceMemberType, "max");
 });

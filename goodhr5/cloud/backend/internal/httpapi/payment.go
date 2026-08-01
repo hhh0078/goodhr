@@ -24,7 +24,7 @@ type createAIBalanceOrderRequest struct {
 	AmountYuan  string `json:"amount_yuan"`
 }
 
-// subscriptionPaymentQuote 表示创建订阅订单前计算出的实付金额和升级抵扣。
+// subscriptionPaymentQuote 表示创建订阅订单前计算出的实付金额和套餐切换信息。
 type subscriptionPaymentQuote struct {
 	AmountCents        int
 	UpgradeFromType    string
@@ -379,23 +379,26 @@ func (s *PaymentService) HandleNotify(providerName string, values map[string]str
 	return s.applyPaidSubscriptionOrder(paidOrder)
 }
 
-// applyPaidSubscriptionOrder 根据普通续费或 Plus 升级订单更新会员并发送提醒。
+// applyPaidSubscriptionOrder 根据普通续费或套餐切换订单更新会员并发送提醒。
 func (s *PaymentService) applyPaidSubscriptionOrder(order PaymentOrder) error {
+	fromType := normalizeMemberType(order.UpgradeFromType)
+	targetType := normalizeMemberType(order.MemberType)
 	subscription, changed, err := s.subscriptions.ApplyGrant(SubscriptionGrant{
-		OrderNo:    order.OrderNo,
-		GrantType:  "buyer",
-		Email:      order.UserEmail,
-		MemberType: order.MemberType,
-		Days:       order.DurationDays,
-		ReplaceFromNow: normalizeMemberType(order.UpgradeFromType) == memberTypePlus &&
-			normalizeMemberType(order.MemberType) == memberTypeMax,
+		OrderNo:        order.OrderNo,
+		GrantType:      "buyer",
+		Email:          order.UserEmail,
+		MemberType:     order.MemberType,
+		Days:           order.DurationDays,
+		ReplaceFromNow: fromType != "" && fromType != targetType,
 	})
 	if err != nil {
 		return err
 	}
 	reason := "充值会员成功"
-	if order.UpgradeFromType != "" {
+	if fromType == memberTypePlus && targetType == memberTypeMax {
 		reason = "Plus 升级 Max 成功"
+	} else if fromType == memberTypeMax && targetType == memberTypePlus {
+		reason = "Max 转为 Plus 成功"
 	}
 	if changed {
 		if noticeErr := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, order.UserEmail, SubscriptionRewardNotice{
@@ -493,22 +496,22 @@ func (s *PaymentService) subscriptionPlanByID(planID string) (subscriptionPlan, 
 	return subscriptionPlan{}, ErrNotFound
 }
 
-// buildSubscriptionPaymentQuote 计算普通购买或 Plus 升级 Max 的实际支付金额。
+// buildSubscriptionPaymentQuote 计算普通购买或套餐切换的实际支付金额。
 func buildSubscriptionPaymentQuote(plans []subscriptionPlan, current Subscription, target subscriptionPlan, now time.Time) (subscriptionPaymentQuote, error) {
 	targetAmount := priceToCents(target.OriginalPrice) - priceToCents(target.DiscountAmount)
 	if targetAmount < 0 {
 		return subscriptionPaymentQuote{}, fmt.Errorf("套餐价格配置不正确")
 	}
 	currentAccess := subscriptionAccessFromPlans(plans, current, now)
-	if currentAccess.Active &&
-		currentAccess.MemberType == memberTypeMax &&
-		normalizeMemberType(target.MemberType) == memberTypePlus {
-		return subscriptionPaymentQuote{}, fmt.Errorf("Max 全能版还在有效期内，暂时不能降为 Plus 基础版")
-	}
 	quote := subscriptionPaymentQuote{AmountCents: targetAmount}
+	targetType := normalizeMemberType(target.MemberType)
+	if currentAccess.Active && currentAccess.MemberType == memberTypeMax && targetType == memberTypePlus {
+		quote.UpgradeFromType = memberTypeMax
+		return quote, nil
+	}
 	if !currentAccess.Active ||
 		currentAccess.MemberType != memberTypePlus ||
-		normalizeMemberType(target.MemberType) != memberTypeMax {
+		targetType != memberTypeMax {
 		return quote, nil
 	}
 	plusPlan, ok := subscriptionPlanByMemberType(plans, memberTypePlus)

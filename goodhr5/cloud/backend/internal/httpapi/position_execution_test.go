@@ -159,7 +159,7 @@ func TestSyncCompletedStatusSendsNoticeWithCurrentCounts(t *testing.T) {
 		routes,
 		token,
 		"/api/positions/"+positionID+"/counts",
-		`{"scanned_count":50,"greeted_count":50,"skipped_count":9,"failed_count":0}`,
+		`{"scanned_count":50,"skipped_count":9,"failed_count":0}`,
 	)
 	if countsResp.Code != http.StatusOK {
 		t.Fatalf("counts status = %d, body = %s", countsResp.Code, countsResp.Body.String())
@@ -188,7 +188,7 @@ func TestSyncCompletedStatusSendsNoticeWithCurrentCounts(t *testing.T) {
 		t.Fatalf("position notices = %d, want 1", len(mailer.positionNotices))
 	}
 	notice := mailer.positionNotices[0].notice
-	if notice.TodayGreetedCount != 50 || notice.RunGreetedCount != 12 || notice.RunSkippedCount != 3 {
+	if notice.TodayGreetedCount != 12 || notice.RunGreetedCount != 12 || notice.RunSkippedCount != 3 {
 		t.Fatalf("notice counts = %+v", notice)
 	}
 

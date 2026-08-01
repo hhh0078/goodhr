@@ -171,7 +171,7 @@ func (r *Runner) sendPositionFailNotification(ctx context.Context, positionID st
 		baseURL = "https://goodhr5.58it.cn"
 	}
 	client := cloudapi.New(baseURL)
-	if err := client.SendPositionFailNotice(ctx, options.Token, positionID, errorMsg); err != nil {
+	if err := client.SendPositionFailNotice(ctx, options.Token, positionID, errorMsg, r.currentRunGreeted(positionID)); err != nil {
 		r.positionLog(positionID, "warning", "岗位运行失败：邮件通知发送失败，错误="+err.Error())
 		return
 	}
@@ -216,9 +216,10 @@ func (r *Runner) syncCloudPositionStatus(positionID string, status string, label
 		r.positionLog(positionID, "info", label+"：正在同步云端状态")
 	}
 	var lastErr error
+	runGreetedCount := r.currentRunGreeted(positionID)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		result, err := client.SyncPositionStatus(ctx, token, positionID, status)
+		result, err := client.SyncPositionStatusWithCounts(ctx, token, positionID, status, runGreetedCount, 0)
 		cancel()
 		if err == nil && status == "completed" && !result.NoticeSent {
 			err = fmt.Errorf("云端未确认完成邮件已发送")

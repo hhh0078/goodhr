@@ -1,4 +1,4 @@
-/** 本文件负责前端统一解析会员状态、功能权限和 Plus 升级 Max 的预计抵扣金额。 */
+/** 本文件负责前端统一解析会员状态、功能权限和套餐切换报价。 */
 
 export type SubscriptionStatus = {
   active: boolean;
@@ -29,6 +29,8 @@ export type SubscriptionUpgradeQuote = {
   amountCents: number;
   creditCents: number;
   upgrade: boolean;
+  replacement: boolean;
+  sourceMemberType: string;
 };
 
 export const EMPTY_SUBSCRIPTION: SubscriptionStatus = {
@@ -108,7 +110,7 @@ export function membershipName(memberType: unknown) {
   }
 }
 
-/** estimateSubscriptionQuote 预计普通购买或 Plus 升级 Max 的实付与抵扣金额。 */
+/** estimateSubscriptionQuote 预计普通购买或套餐切换的实付与抵扣金额。 */
 export function estimateSubscriptionQuote(
   subscription: SubscriptionStatus,
   plans: SubscriptionPlan[],
@@ -116,15 +118,40 @@ export function estimateSubscriptionQuote(
 ): SubscriptionUpgradeQuote {
   const targetCents = planPriceCents(target);
   if (
+    subscription.active &&
+    subscription.member_type === "max" &&
+    target.member_type === "plus"
+  ) {
+    return {
+      amountCents: targetCents,
+      creditCents: 0,
+      upgrade: false,
+      replacement: true,
+      sourceMemberType: "max",
+    };
+  }
+  if (
     !subscription.active ||
     subscription.member_type !== "plus" ||
     target.member_type !== "max"
   ) {
-    return { amountCents: targetCents, creditCents: 0, upgrade: false };
+    return {
+      amountCents: targetCents,
+      creditCents: 0,
+      upgrade: false,
+      replacement: false,
+      sourceMemberType: "",
+    };
   }
   const plus = plans.find((plan) => plan.member_type === "plus");
   if (!plus || plus.duration_days <= 0) {
-    return { amountCents: targetCents, creditCents: 0, upgrade: true };
+    return {
+      amountCents: targetCents,
+      creditCents: 0,
+      upgrade: true,
+      replacement: true,
+      sourceMemberType: "plus",
+    };
   }
   const plusCents = planPriceCents(plus);
   const periodSeconds = plus.duration_days * 24 * 60 * 60;
@@ -141,19 +168,9 @@ export function estimateSubscriptionQuote(
     amountCents: targetCents - creditCents,
     creditCents,
     upgrade: true,
+    replacement: true,
+    sourceMemberType: "plus",
   };
-}
-
-/** isPlanDowngradeBlocked 判断有效 Max 是否正在尝试购买 Plus。 */
-export function isPlanDowngradeBlocked(
-  subscription: SubscriptionStatus,
-  plan: SubscriptionPlan,
-) {
-  return (
-    subscription.active &&
-    subscription.member_type === "max" &&
-    plan.member_type === "plus"
-  );
 }
 
 /** planPriceCents 返回套餐优惠后的分金额。 */

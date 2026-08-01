@@ -39,7 +39,6 @@ import {
 import { useAdmin } from "@/components/admin/AdminApp";
 import {
   estimateSubscriptionQuote,
-  isPlanDowngradeBlocked,
   normalizeSubscriptionPlans,
   type SubscriptionPlan,
   type SubscriptionUpgradeQuote,
@@ -212,10 +211,6 @@ export default function SubscriptionPage() {
     if (!planID) return;
     const plan = plans.find((item) => item.id === planID);
     if (!plan) return;
-    if (isPlanDowngradeBlocked(subscription, plan)) {
-      notify("Max 全能版还在有效期内，暂时不能降为 Plus 基础版。", "warning");
-      return;
-    }
     setPendingPayment({ type: "membership", planID });
   }
 
@@ -486,7 +481,6 @@ export default function SubscriptionPage() {
             plan={plan}
             featured={plan.member_type === "max" || Boolean(plan.recommended)}
             paying={payingPlanID === plan.id}
-            downgradeBlocked={isPlanDowngradeBlocked(subscription, plan)}
             quote={estimateSubscriptionQuote(subscription, plans, plan)}
             onPay={() => requestPlanPayment(plan.id)}
           />
@@ -660,7 +654,9 @@ function PaymentUnderstandingDialog({
             >
               <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
               <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
-                {quote.upgrade
+                {quote.sourceMemberType === "max"
+                  ? `支付成功后会立即切换为 Plus，原 Max 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
+                  : quote.upgrade
                   ? `Plus 剩余时间抵扣 ￥${(quote.creditCents / 100).toFixed(2)}，预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。最终金额以后端下单时的剩余时间为准。`
                   : `本次预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。`}
               </Typography>
@@ -671,7 +667,9 @@ function PaymentUnderstandingDialog({
           >
             <Typography sx={{ fontWeight: 800 }}>会员费</Typography>
             <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
-              购买的是会员使用期限，用于解锁会员功能。会员未到期时再次购买，新套餐天数会从当前到期时间继续增加。
+              {paymentType === "membership" && quote?.replacement
+                ? "本次属于套餐切换。支付成功后，新套餐从付款时间重新计算，原套餐剩余时间不顺延。"
+                : "购买的是会员使用期限，用于解锁会员功能。会员未到期时再次购买同一套餐，新天数会从当前到期时间继续增加。"}
             </Typography>
           </Box>
           <Box
@@ -1054,14 +1052,12 @@ function PlanCard({
   plan,
   featured,
   paying,
-  downgradeBlocked,
   quote,
   onPay,
 }: {
   plan: SubscriptionPlan;
   featured: boolean;
   paying: boolean;
-  downgradeBlocked: boolean;
   quote: SubscriptionUpgradeQuote;
   onPay: () => void;
 }) {
@@ -1137,6 +1133,11 @@ function PlanCard({
           已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}
         </Typography>
       ) : null}
+      {quote.sourceMemberType === "max" ? (
+        <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
+          立即切换 Plus，原 Max 剩余时间不折算
+        </Typography>
+      ) : null}
       <Stack spacing={1.1} sx={{ mt: 2.25, flex: 1 }}>
         {(Array.isArray(plan.features) ? plan.features : []).map(
           (feature: string) => (
@@ -1164,7 +1165,7 @@ function PlanCard({
         <Button
           fullWidth
           variant={featured ? "contained" : "outlined"}
-          disabled={paying || downgradeBlocked}
+          disabled={paying}
           sx={{
             mt: 2.5,
             bgcolor: featured ? "#202a24" : undefined,
@@ -1175,8 +1176,8 @@ function PlanCard({
         >
           {paying
             ? "正在创建订单"
-            : downgradeBlocked
-              ? "Max 有效期内不可降级"
+            : quote.sourceMemberType === "max"
+              ? "切换为 Plus"
               : quote.upgrade
                 ? "补差价升级 Max"
                 : "立即订阅"}

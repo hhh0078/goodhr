@@ -16,7 +16,6 @@ type addProcessedResumesRequest struct {
 
 type syncPositionCountsRequest struct {
 	ScannedCount int `json:"scanned_count"`
-	GreetedCount int `json:"greeted_count"`
 	SkippedCount int `json:"skipped_count"`
 	FailedCount  int `json:"failed_count"`
 }
@@ -111,7 +110,7 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 	}
 	s.saveLocalCandidateScoreEvents(position, profile.ID, engagement.ID, payload)
 	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now))
-	_ = s.store.IncrementPositionCounts(position.ID, 1, localCountIfStatus(payload, "greeted"), localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
+	_ = s.store.IncrementPositionCounts(position.ID, 1, localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
 	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	if localCandidateStatus(payload) == "greeted" {
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
@@ -215,19 +214,16 @@ func (s *PositionExecutionService) SyncPositionCounts(w http.ResponseWriter, r *
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	if req.ScannedCount < 0 || req.GreetedCount < 0 || req.SkippedCount < 0 || req.FailedCount < 0 {
+	if req.ScannedCount < 0 || req.SkippedCount < 0 || req.FailedCount < 0 {
 		writeError(w, http.StatusBadRequest, "counts must greater or equal 0")
 		return
 	}
-	if err := s.store.SyncPositionCounts(positionID, req.ScannedCount, req.GreetedCount, req.SkippedCount, req.FailedCount); err != nil {
+	if err := s.store.SyncPositionCounts(positionID, req.ScannedCount, req.SkippedCount, req.FailedCount); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to sync position counts")
 		return
 	}
 	if req.ScannedCount > 0 {
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
-	}
-	if req.GreetedCount > 0 {
-		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

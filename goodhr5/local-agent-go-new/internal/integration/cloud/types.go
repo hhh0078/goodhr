@@ -119,7 +119,6 @@ type PositionSnapshot struct {
 	MatchLimit      int                  `json:"match_limit"`
 	MaxBatches      int                  `json:"max_batches"`
 	ScannedCount    int                  `json:"scanned_count"`
-	GreetedCount    int                  `json:"greeted_count"`
 	SkippedCount    int                  `json:"skipped_count"`
 	FailedCount     int                  `json:"failed_count"`
 	EnableSound     bool                 `json:"enable_sound"`

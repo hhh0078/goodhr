@@ -362,7 +362,7 @@ func (r *Runner) notifyFinished(prepared shared.PreparedTask, state storage.Task
 		TaskID: prepared.Request.TaskID, PositionID: prepared.Position.ID,
 		TaskType: prepared.Request.TaskType, Status: state.Status,
 		Processed:       prepared.Position.ScannedCount + stats.Processed,
-		Succeeded:       prepared.Position.GreetedCount + stats.Succeeded,
+		Succeeded:       stats.Succeeded,
 		Skipped:         prepared.Position.SkippedCount + stats.Skipped,
 		Failed:          prepared.Position.FailedCount + stats.Failed,
 		RunGreetedCount: stats.Succeeded, RunSkippedCount: stats.Skipped,

@@ -884,8 +884,7 @@ export default function PositionsPage() {
                 </Stack>
               </Stack>
               <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
-                总计 {item.greeted_count || 0} · 今日{" "}
-                {item.today_greeted_count || 0} · 本次（扫描{" "}
+                今日 {item.today_greeted_count || 0} · 本次（扫描{" "}
                 {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
                 {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
                 {latestTaskStats[item.id]?.skipped_count || 0}）

@@ -218,8 +218,8 @@ func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
 	}
 }
 
-// TestBuildSubscriptionPaymentQuoteBlocksMaxDowngrade 验证有效 Max 会员不能购买 Plus 套餐。
-func TestBuildSubscriptionPaymentQuoteBlocksMaxDowngrade(t *testing.T) {
+// TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus 验证有效 Max 可以原价切换 Plus。
+func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
 	plans, err := loadSubscriptionPlans(NewMemorySystemConfigStore())
 	if err != nil {
 		t.Fatal(err)
@@ -229,11 +229,38 @@ func TestBuildSubscriptionPaymentQuoteBlocksMaxDowngrade(t *testing.T) {
 		t.Fatal("Plus 套餐不存在")
 	}
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
-	_, err = buildSubscriptionPaymentQuote(plans, Subscription{
+	quote, err := buildSubscriptionPaymentQuote(plans, Subscription{
 		MemberType: memberTypeMax,
 		ExpiresAt:  now.Add(24 * time.Hour),
 	}, target, now)
-	if err == nil {
-		t.Fatal("有效 Max 会员购买 Plus 时应被拦截")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote.UpgradeFromType != memberTypeMax || quote.UpgradeCreditCents != 0 || quote.AmountCents != 4000 {
+		t.Fatalf("Max 切换 Plus 报价不正确: %+v", quote)
+	}
+}
+
+// TestApplyMaxToPlusReplacesExpiryFromNow 验证 Max 切换 Plus 后从付款时间重新计算 30 天。
+func TestApplyMaxToPlusReplacesExpiryFromNow(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	store := NewMemorySubscriptionStore()
+	store.now = func() time.Time { return now }
+	email := "max-to-plus@example.com"
+	store.items[email] = Subscription{MemberType: memberTypeMax, ExpiresAt: now.Add(72 * time.Hour)}
+	service := &PaymentService{subscriptions: store, systemConfigs: NewMemorySystemConfigStore()}
+	if err := service.applyPaidSubscriptionOrder(PaymentOrder{
+		OrderNo: "max-to-plus", UserEmail: email, MemberType: memberTypePlus,
+		DurationDays: 30, UpgradeFromType: memberTypeMax,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := store.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := now.Add(30 * 24 * time.Hour)
+	if subscription.MemberType != memberTypePlus || !subscription.ExpiresAt.Equal(want) {
+		t.Fatalf("Max 切换 Plus 到期时间不正确: got=%+v want=%s", subscription, want)
 	}
 }

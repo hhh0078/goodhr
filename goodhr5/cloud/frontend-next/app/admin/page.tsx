@@ -173,17 +173,12 @@ export default function DashboardPage() {
         (sum, item) => sum + Number(item.today_greeted_count || 0),
         0,
       ),
-      total: positions.reduce(
-        (sum, item) => sum + Number(item.greeted_count || 0),
-        0,
-      ),
       running: positions.filter((item) => item.status === "running").length,
     }),
     [positions],
   );
   const metrics = [
     ["今日打招呼", summary.today, WorkRoundedIcon],
-    ["累计打招呼", summary.total, PlayCircleRoundedIcon],
     ["运行中岗位运行", summary.running, WorkRoundedIcon],
     ["简历数量", resumeCount, ArticleRoundedIcon],
   ] as const;
