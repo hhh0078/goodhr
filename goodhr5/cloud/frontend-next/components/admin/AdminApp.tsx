@@ -49,7 +49,8 @@ import {
   type ReactNode,
 } from "react";
 import BrandMark from "@/components/BrandMark";
-import { useThemePreference } from "@/app/providers";
+import { useMembershipTheme } from "@/app/providers";
+import { resolveMembershipTheme } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
 import {
   bindDetectedLocalAgent,
@@ -225,7 +226,7 @@ function formatAIBalance(wallet: any) {
 export default function AdminApp({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { preference, setPreference } = useThemePreference();
+  const { membershipTheme, setMembershipTheme } = useMembershipTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -403,10 +404,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       Boolean(authPayload.show_trial_welcome) &&
         !localStorage.getItem(welcomeKey),
     );
-    if (results[1].status === "fulfilled")
-      setSubscription(
-        normalizeSubscription(results[1].value.subscription || {}),
+    if (results[1].status === "fulfilled") {
+      const nextSubscription = normalizeSubscription(
+        results[1].value.subscription || {},
       );
+      setSubscription(nextSubscription);
+      setMembershipTheme(
+        resolveMembershipTheme(
+          nextSubscription.active,
+          nextSubscription.member_type,
+        ),
+      );
+    }
     if (results[4].status === "fulfilled")
       setAIWallet(results[4].value.wallet || results[4].value || {});
     if (results[2].status === "fulfilled") {
@@ -416,7 +425,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (results[3].status === "fulfilled") {
       setOnboardingConfig(results[3].value.config || {});
     }
-  }, []);
+  }, [setMembershipTheme]);
 
   useEffect(() => {
     let active = true;
@@ -475,6 +484,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   /** logout 清除登录状态并返回登录页。 */
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
+    setMembershipTheme("free");
     router.replace("/login");
   }
 
@@ -860,34 +870,33 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         </AdminDialog>
         <AdminDialog
           open={themeOpen}
-          title="选择后台主题"
-          description="选择后会立即生效，并保存在当前浏览器。"
-          confirmText="完成"
+          title="当前会员主题"
+          description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
+          confirmText="知道了"
           onClose={() => setThemeOpen(false)}
           onConfirm={() => setThemeOpen(false)}
         >
           <ChoiceCards
-            label="主题色"
-            value={preference}
+            label="会员主题"
+            value={membershipTheme}
             columns={3}
-            onChange={(value) =>
-              setPreference(value as "green" | "rose" | "amber")
-            }
+            readOnly
+            onChange={() => undefined}
             options={[
               {
-                value: "green",
-                label: "松绿色",
-                description: "安静、清晰，适合长时间工作。",
+                value: "free",
+                label: "免费版 · 松绿色",
+                description: "默认主题，安静清晰，久看也不累。",
               },
               {
-                value: "rose",
-                label: "莓果红",
-                description: "柔和暖色，重点更醒目。",
+                value: "plus",
+                label: "Plus · 深墨黑",
+                description: "克制稳重，用黑色标记重点内容。",
               },
               {
-                value: "amber",
-                label: "琥珀色",
-                description: "自然稳重，信息层级清楚。",
+                value: "max",
+                label: "Max · 黑金色",
+                description: "低调黑金，只在重点位置使用金色。",
               },
             ]}
           />
