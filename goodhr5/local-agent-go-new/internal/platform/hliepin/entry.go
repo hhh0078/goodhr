@@ -28,6 +28,9 @@ func (r *Runtime) InitializeGreetingPage(ctx context.Context, browser model.Brow
 	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
 		return err
 	}
+	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
+		return err
+	}
 	if len(cfg.GreetingInitActions) > 0 {
 		return common.ApplyConfiguredActions(ctx, browser, cfg, cfg.GreetingInitActions)
 	}

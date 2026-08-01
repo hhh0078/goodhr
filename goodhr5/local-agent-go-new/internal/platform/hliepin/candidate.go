@@ -70,6 +70,9 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 
 // AdvanceCandidateList 按 2、3、4、5 的顺序点击数字页码加载更多候选人。
 func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
+	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
+		return false, err
+	}
 	pageNumber := r.nextCandidatePage
 	if pageNumber < 2 {
 		pageNumber = 2

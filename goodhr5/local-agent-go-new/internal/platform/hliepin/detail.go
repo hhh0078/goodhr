@@ -17,20 +17,9 @@ func (r *Runtime) OpenCandidateDetail(ctx context.Context, browser model.Browser
 	if err != nil {
 		return fmt.Errorf("读取猎聘候选人列表页地址失败：%w", err)
 	}
-	currentURL := ""
-	currentCount := 0
-	for _, page := range pages.Pages {
-		if !page.Current {
-			continue
-		}
-		currentCount++
-		if currentCount > 1 {
-			return fmt.Errorf("当前同时存在多个猎聘活动标签页，暂时不能确定候选人列表页")
-		}
-		currentURL = strings.TrimSpace(page.URL)
-	}
-	if currentURL == "" {
-		return fmt.Errorf("暂时没有读到猎聘候选人列表页地址")
+	currentURL, err := currentPageURL(pages)
+	if err != nil {
+		return fmt.Errorf("暂时不能确定猎聘候选人列表页：%w", err)
 	}
 
 	selector, err := common.CandidateActionSelector(cfg, "candidate.open_target", candidate)
@@ -73,6 +62,31 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browse
 	if returnURL == "" {
 		return fmt.Errorf("没有记住原猎聘候选人列表页地址，暂时不能安全返回")
 	}
+	return closeCurrentPageToURL(ctx, browser, returnURL)
+}
+
+// currentPageURL 返回唯一活动标签页的完整地址。
+func currentPageURL(pages contract.PageListResult) (string, error) {
+	currentURL := ""
+	currentCount := 0
+	for _, page := range pages.Pages {
+		if !page.Current {
+			continue
+		}
+		currentCount++
+		currentURL = strings.TrimSpace(page.URL)
+	}
+	if currentCount == 0 || currentURL == "" {
+		return "", fmt.Errorf("暂时没有读到活动标签页地址")
+	}
+	if currentCount > 1 {
+		return "", fmt.Errorf("当前同时存在 %d 个活动标签页", currentCount)
+	}
+	return currentURL, nil
+}
+
+// closeCurrentPageToURL 关闭当前猎聘详情页，并按完整地址切回唯一的原标签页。
+func closeCurrentPageToURL(ctx context.Context, browser model.Browser, returnURL string) error {
 	if err := browser.ClosePage(ctx); err != nil {
 		return fmt.Errorf("关闭猎聘候选人详情页失败：%w", err)
 	}
@@ -96,4 +110,20 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, browser model.Browse
 		return fmt.Errorf("切回原猎聘候选人列表页失败：%w", err)
 	}
 	return nil
+}
+
+// closeUnexpectedResumeDetail 关闭索要简历时意外打开的详情页，并切回原候选人列表页。
+func closeUnexpectedResumeDetail(ctx context.Context, browser model.Browser, returnURL string) error {
+	pages, err := browser.ListPages(ctx)
+	if err != nil {
+		return fmt.Errorf("索要简历后读取猎聘标签页失败：%w", err)
+	}
+	currentURL, err := currentPageURL(pages)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(currentURL, "/resume/showresumedetail/") {
+		return nil
+	}
+	return closeCurrentPageToURL(ctx, browser, returnURL)
 }

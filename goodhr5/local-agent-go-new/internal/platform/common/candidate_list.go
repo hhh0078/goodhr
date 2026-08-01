@@ -74,8 +74,16 @@ func AdvanceCandidateNumberPage(
 	if _, err = browser.Scroll(ctx, scrollRequest); err != nil {
 		return false, fmt.Errorf("滚动到%s失败：%w", selector.Description, err)
 	}
+	var verification *contract.ClickVerification
+	if _, configured := cfg.Selectors["candidate.current_page"]; configured {
+		currentPage, selectorErr := numberedPageSelector(cfg, "candidate.current_page", pageNumber)
+		if selectorErr != nil {
+			return false, selectorErr
+		}
+		verification = &contract.ClickVerification{TargetVisible: &currentPage, TimeoutMS: 5000}
+	}
 	if _, err = browser.Click(ctx, contract.ElementClickRequest{
-		Selector: selector, ViewportMargin: 24,
+		Selector: selector, ViewportMargin: 24, Verify: verification,
 	}); err != nil {
 		return false, err
 	}
@@ -156,14 +164,22 @@ func waitForCandidateListChange(
 	before []model.Candidate,
 ) (bool, error) {
 	beforeSet := candidateFingerprintSet(before)
+	var lastMissingErr error
+	foundCandidates := false
 	for attempt := 0; attempt < candidateListPollAttempts; attempt++ {
 		candidates, err := FindCandidates(ctx, browser, cfg, platformID)
-		if err != nil {
+		if IsElementMissing(err) {
+			lastMissingErr = err
+		} else if err != nil {
 			return false, err
-		}
-		for fingerprint := range candidateFingerprintSet(candidates) {
-			if _, exists := beforeSet[fingerprint]; !exists {
-				return true, nil
+		} else {
+			if len(candidates) > 0 {
+				foundCandidates = true
+			}
+			for fingerprint := range candidateFingerprintSet(candidates) {
+				if _, exists := beforeSet[fingerprint]; !exists {
+					return true, nil
+				}
 			}
 		}
 		if attempt+1 < candidateListPollAttempts {
@@ -176,6 +192,9 @@ func waitForCandidateListChange(
 			}
 		}
 	}
+	if !foundCandidates && lastMissingErr != nil {
+		return false, lastMissingErr
+	}
 	return false, nil
 }
 
@@ -183,7 +202,10 @@ func waitForCandidateListChange(
 func candidateFingerprintSet(candidates []model.Candidate) map[string]struct{} {
 	result := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
-		fingerprint := strings.TrimSpace(candidate.Fingerprint)
+		fingerprint := strings.TrimSpace(candidate.Fields["platform_candidate_id"])
+		if fingerprint == "" {
+			fingerprint = strings.TrimSpace(candidate.Fingerprint)
+		}
 		if fingerprint == "" {
 			fingerprint = HashText(candidate.Name + "|" + candidate.Summary)
 		}
