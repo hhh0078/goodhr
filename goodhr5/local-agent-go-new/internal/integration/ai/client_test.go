@@ -105,6 +105,40 @@ func TestCandidatePromptFallsBackToLegacyPositionFields(t *testing.T) {
 	}
 }
 
+// TestCandidateSystemPromptUsesRequirementPriority 验证预判断和最终评分都遵守岗位要求优先规则。
+func TestCandidateSystemPromptUsesRequirementPriority(t *testing.T) {
+	position := cloud.PositionSnapshot{
+		AIOptions: cloud.PositionAIOptions{
+			GreetPrompt:      "岗位自定义打招呼规则",
+			OpenDetailPrompt: "岗位自定义详情规则",
+		},
+	}
+	for _, prompt := range []string{
+		candidateSystemPrompt(cloud.AIConfig{}, position),
+		candidatePreviewSystemPrompt(position),
+	} {
+		for _, expected := range []string{
+			"硬性条件权重最高",
+			"没有提及时标记为“待核验”",
+			"保留该项大部分分值",
+			"加分项只占低权重",
+			"不能凭空补充用户没有提出的筛选条件",
+		} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("候选人评分规则缺少 %q：%s", expected, prompt)
+			}
+		}
+	}
+	optimized := candidateSystemPrompt(cloud.AIConfig{}, cloud.PositionSnapshot{
+		AIOptions: cloud.PositionAIOptions{
+			GreetPrompt: "岗位要求中的硬性条件权重最高。没有提及时保留该项大部分分值。",
+		},
+	})
+	if strings.Contains(optimized, "最高优先级评分原则") {
+		t.Fatalf("新版完整规则不应再重复追加补充规则：%s", optimized)
+	}
+}
+
 // TestUnauthorizedIsPositionStoppingError 验证鉴权错误会停止岗位任务。
 func TestUnauthorizedIsPositionStoppingError(t *testing.T) {
 	err := newHTTPServiceError(http.StatusUnauthorized, "bad key", "")

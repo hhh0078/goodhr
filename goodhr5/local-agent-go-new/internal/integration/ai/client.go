@@ -37,7 +37,12 @@ const (
 	defaultDetailPrompt          = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
 	candidateRequirementBoundary = `
 
-补充边界：评分必须以用户明确填写的“岗位要求”为主要依据并占绝大多数权重。岗位要求没有写出的工作经验、工作年限、专业、年龄等通用维度只能低权重辅助参考，不能单独导致候选人低于通过阈值；候选人资料没有展示某项信息不等于不符合。“优先”“加分项”只能适度加分，缺失时不能作为淘汰原因。reason 应优先说明岗位要求中明确条件的匹配情况。`
+最高优先级评分原则：
+1. 岗位要求中的硬性条件权重最高，普通条件是主要权重；岗位要求标注的“优先、加分、最好”等加分项只占低权重；岗位要求没有写出的通用维度只占很低权重。
+2. 对岗位要求逐项判断：候选人信息明确符合时，该项按完全满足计分；没有提及时标记为“待核验”，按可能满足处理并保留该项大部分分值，不能按不符合扣分；只有候选人信息明确冲突时，才能判定该项不符合。
+3. 明确冲突的硬性条件必须显著降分；加分项符合时只能小幅加分，未提及或不符合都不能扣分。
+4. 可以低权重参考角色相关性、岗位方向、行业经验、到岗状态、稳定性和岗位连续性等其它信息，但这些信息不能压过用户明确填写的岗位要求，也不能凭空补充用户没有提出的筛选条件。
+5. reason 优先说明岗位要求中最关键条件的匹配、待核验或明确冲突情况。`
 )
 
 // ServiceError 表示 AI 网络或服务端错误及其重试策略。
@@ -405,7 +410,9 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 	if system == "" {
 		system = defaultGreetPrompt
 	}
-	return applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume) + candidateRequirementBoundary
+	return applyCandidateRequirementBoundary(
+		applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume),
+	)
 }
 
 // candidateUserPrompt 构造候选人评分动态内容。
@@ -422,7 +429,17 @@ func candidatePreviewSystemPrompt(position cloud.PositionSnapshot) string {
 	if system == "" {
 		system = defaultDetailPrompt
 	}
-	return system + candidateRequirementBoundary
+	return applyCandidateRequirementBoundary(system)
+}
+
+// applyCandidateRequirementBoundary 为旧提示词和自定义提示词补充岗位要求优先规则。
+// 已经包含新版完整规则时直接返回，避免重复内容干扰 AI 判断。
+func applyCandidateRequirementBoundary(prompt string) string {
+	if strings.Contains(prompt, "岗位要求中的硬性条件权重最高") &&
+		strings.Contains(prompt, "保留该项大部分分值") {
+		return prompt
+	}
+	return prompt + candidateRequirementBoundary
 }
 
 // candidatePreviewUserPrompt 构造不含候选人详情的基础预判断内容。

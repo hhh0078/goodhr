@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,6 +60,35 @@ func TestLoadConfigUsesLocalZhaopinSelectors(t *testing.T) {
 		selector, ok := cfg.Selectors[key]
 		if !ok || len(selector.Target.Selectors) == 0 || selector.Target.Selectors[0].Value != value {
 			t.Errorf("智联本地选择器不正确：key=%s selector=%+v", key, selector)
+		}
+	}
+}
+
+// TestLoadConfigUsesSafeZhaopinCandidateActions 验证智联详情入口与大、小屏打招呼按钮完全分离。
+func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
+	cfg, err := LoadConfig("zhaopin")
+	if err != nil {
+		t.Fatalf("读取智联本地配置失败：%v", err)
+	}
+	detail := cfg.Selectors["candidate.open_target"]
+	if len(detail.Target.Selectors) != 1 ||
+		detail.Target.Selectors[0].Value != ".talent-basic-info__name--inner" {
+		t.Fatalf("智联详情入口必须只点击候选人姓名区域：%+v", detail.Target.Selectors)
+	}
+	greet := cfg.Selectors["candidate.greet"]
+	if greet.Target.Text != "打招呼" || greet.Target.ExactText == nil || !*greet.Target.ExactText {
+		t.Fatalf("智联打招呼按钮必须使用精确文字排除打电话按钮：%+v", greet.Target)
+	}
+	values := make([]string, 0, len(greet.Target.Selectors))
+	for _, selector := range greet.Target.Selectors {
+		values = append(values, selector.Value)
+		if selector.Value == detail.Target.Selectors[0].Value {
+			t.Fatalf("智联详情入口不能混入打招呼按钮：%s", selector.Value)
+		}
+	}
+	for _, expected := range []string{".large-screen-btn", ".small-screen-btn.is-mr-16"} {
+		if !slices.Contains(values, expected) {
+			t.Fatalf("智联打招呼选择器缺少 %q：%v", expected, values)
 		}
 	}
 }
