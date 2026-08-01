@@ -92,7 +92,7 @@ export async function openPositionFloatingWindow() {
   try {
     const pipWindow = await pictureInPicture.requestWindow({
       width: 340,
-      height: 270,
+      height: 220,
     });
     const viewport = pipWindow.document.createElement("meta");
     viewport.name = "viewport";
