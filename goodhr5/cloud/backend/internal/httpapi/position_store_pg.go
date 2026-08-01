@@ -28,7 +28,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 		ctx,
 		`
 		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
-		       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count, p.greeted_count,
+		       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count,
 		       p.daily_greeted_count, p.daily_greeted_date::text, p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking,
 		       p.created_at, p.updated_at, p.started_at, p.finished_at
 		FROM positions p
@@ -67,7 +67,6 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			&item.MatchLimit,
 			&item.Status,
 			&item.ScannedCount,
-			&item.GreetedCount,
 			&item.DailyGreetedCount,
 			&item.DailyGreetedDate,
 			&item.SkippedCount,
@@ -142,7 +141,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			INSERT INTO positions (user_id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking)
 			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14)
 			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
-			          match_limit, status, scanned_count, greeted_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
+			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
 			          created_at, updated_at, started_at, finished_at
 			`,
 			userID,
@@ -182,7 +181,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 				updated_at = now()
 			WHERE id = $1 AND user_id = $2
 			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
-			          match_limit, status, scanned_count, greeted_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
+			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
 			          created_at, updated_at, started_at, finished_at
 			`,
 			position.ID,
@@ -223,7 +222,6 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		&saved.MatchLimit,
 		&saved.Status,
 		&saved.ScannedCount,
-		&saved.GreetedCount,
 		&saved.DailyGreetedCount,
 		&saved.DailyGreetedDate,
 		&saved.SkippedCount,
@@ -273,7 +271,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		`
 		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
 		       p.description, p.greet_message, p.is_and_mode, CAST(p.common_config AS text), CAST(p.ai_config AS text), CAST(p.keyword_config AS text),
-		       p.match_limit, p.status, p.scanned_count, p.greeted_count, p.daily_greeted_count, p.daily_greeted_date::text,
+		       p.match_limit, p.status, p.scanned_count, p.daily_greeted_count, p.daily_greeted_date::text,
 		       p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking, p.created_at, p.updated_at, p.started_at, p.finished_at
 		FROM positions p
 		JOIN users u ON p.user_id = u.id
@@ -284,7 +282,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		&item.ID, &item.PlatformID, &item.Name, &rawKeywords, &rawExclude,
 		&item.Description, &item.GreetMessage, &item.IsAndMode,
 		&rawCommonConfig, &rawAIConfig, &rawKeywordConfig,
-		&item.MatchLimit, &item.Status, &item.ScannedCount, &item.GreetedCount,
+		&item.MatchLimit, &item.Status, &item.ScannedCount,
 		&item.DailyGreetedCount, &item.DailyGreetedDate, &item.SkippedCount, &item.FailedCount,
 		&item.EnableSound, &item.EnableThinking, &item.CreatedAt, &item.UpdatedAt, &item.StartedAt, &item.FinishedAt,
 	)
@@ -373,18 +371,45 @@ func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string)
 	return tx.Commit()
 }
 
-// IncrementPositionCounts 累加 PostgreSQL 岗位统计。
-// positionID 为岗位 ID，其余参数为本次新增数量。
-func (s *PostgresPositionStore) IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+// FinishPositionRun 幂等保存 PostgreSQL 岗位结束状态并累加本次打招呼数量。
+// positionID 为岗位 ID，status 为结束状态，greeted 为本次打招呼数量。
+func (s *PostgresPositionStore) FinishPositionRun(positionID, status string, greeted int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE positions
-		SET scanned_count=scanned_count+GREATEST(0,$2), greeted_count=greeted_count+GREATEST(0,$3),
-		    skipped_count=skipped_count+GREATEST(0,$4), failed_count=failed_count+GREATEST(0,$5),
-		    daily_greeted_count=CASE WHEN daily_greeted_date=CURRENT_DATE THEN daily_greeted_count+GREATEST(0,$3) ELSE GREATEST(0,$3) END,
-		    daily_greeted_date=CURRENT_DATE, updated_at=now()
-		WHERE id=$1`, positionID, scanned, greeted, skipped, failed)
+		SET daily_greeted_count=CASE
+		        WHEN status=$2 THEN daily_greeted_count
+		        WHEN daily_greeted_date=CURRENT_DATE THEN daily_greeted_count+GREATEST(0,$3)
+		        ELSE GREATEST(0,$3)
+		    END,
+		    daily_greeted_date=CASE WHEN status=$2 THEN daily_greeted_date ELSE CURRENT_DATE END,
+		    status=$2, finished_at=now(), updated_at=now()
+		WHERE id=$1`, positionID, status, greeted)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// IncrementPositionCounts 累加 PostgreSQL 岗位统计。
+// positionID 为岗位 ID，其余参数为本次新增的扫描、跳过和失败数量。
+func (s *PostgresPositionStore) IncrementPositionCounts(positionID string, scanned, skipped, failed int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE positions
+		SET scanned_count=scanned_count+GREATEST(0,$2),
+		    skipped_count=skipped_count+GREATEST(0,$3), failed_count=failed_count+GREATEST(0,$4),
+		    updated_at=now()
+		WHERE id=$1`, positionID, scanned, skipped, failed)
 	if err != nil {
 		return err
 	}
@@ -399,20 +424,16 @@ func (s *PostgresPositionStore) IncrementPositionCounts(positionID string, scann
 }
 
 // SyncPositionCounts 按本地累计值同步 PostgreSQL 岗位统计。
-// positionID 为岗位 ID，其余参数为累计扫描、打招呼、跳过和失败数量。
-func (s *PostgresPositionStore) SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+// positionID 为岗位 ID，其余参数为累计扫描、跳过和失败数量。
+func (s *PostgresPositionStore) SyncPositionCounts(positionID string, scanned, skipped, failed int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE positions
-		SET daily_greeted_count=CASE
-		        WHEN daily_greeted_date=CURRENT_DATE THEN daily_greeted_count+GREATEST(0,$3-greeted_count)
-		        ELSE GREATEST(0,$3-greeted_count)
-		    END,
-		    scanned_count=GREATEST(scanned_count,$2), greeted_count=GREATEST(greeted_count,$3),
-		    skipped_count=GREATEST(skipped_count,$4), failed_count=GREATEST(failed_count,$5),
-		    daily_greeted_date=CURRENT_DATE, updated_at=now()
-		WHERE id=$1`, positionID, scanned, greeted, skipped, failed)
+		SET scanned_count=GREATEST(scanned_count,$2),
+		    skipped_count=GREATEST(skipped_count,$3), failed_count=GREATEST(failed_count,$4),
+		    updated_at=now()
+		WHERE id=$1`, positionID, scanned, skipped, failed)
 	if err != nil {
 		return err
 	}

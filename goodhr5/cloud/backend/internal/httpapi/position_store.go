@@ -27,7 +27,6 @@ type Position struct {
 	MatchLimit        int
 	Status            string
 	ScannedCount      int
-	GreetedCount      int
 	DailyGreetedCount int
 	DailyGreetedDate  string
 	SkippedCount      int
@@ -48,8 +47,9 @@ type PositionStore interface {
 	DeletePosition(userEmail string, positionID string) error
 	ClaimPositionStart(userEmail, positionID string) error
 	UpdatePositionStatus(positionID, status string) error
-	IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
-	SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error
+	FinishPositionRun(positionID, status string, greeted int) error
+	IncrementPositionCounts(positionID string, scanned, skipped, failed int) error
+	SyncPositionCounts(positionID string, scanned, skipped, failed int) error
 	TodayGreetedTotal() (int, error)
 }
 
@@ -88,7 +88,6 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 	} else if existing, ok := s.positions[position.ID]; ok {
 		position.Status = existing.Status
 		position.ScannedCount = existing.ScannedCount
-		position.GreetedCount = existing.GreetedCount
 		position.DailyGreetedCount = existing.DailyGreetedCount
 		position.DailyGreetedDate = existing.DailyGreetedDate
 		position.SkippedCount = existing.SkippedCount
@@ -103,8 +102,8 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 }
 
 // IncrementPositionCounts 累加内存岗位统计。
-// positionID 为岗位 ID，其余参数为本次新增数量。
-func (s *MemoryPositionStore) IncrementPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+// positionID 为岗位 ID，其余参数为本次新增的扫描、跳过和失败数量。
+func (s *MemoryPositionStore) IncrementPositionCounts(positionID string, scanned, skipped, failed int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	position, ok := s.positions[positionID]
@@ -112,15 +111,8 @@ func (s *MemoryPositionStore) IncrementPositionCounts(positionID string, scanned
 		return ErrNotFound
 	}
 	position.ScannedCount += maxIntValue(0, scanned)
-	position.GreetedCount += maxIntValue(0, greeted)
 	position.SkippedCount += maxIntValue(0, skipped)
 	position.FailedCount += maxIntValue(0, failed)
-	today := s.now().Format(time.DateOnly)
-	if position.DailyGreetedDate != today {
-		position.DailyGreetedDate = today
-		position.DailyGreetedCount = 0
-	}
-	position.DailyGreetedCount += maxIntValue(0, greeted)
 	position.UpdatedAt = s.now()
 	s.positions[positionID] = position
 	return nil
@@ -171,26 +163,44 @@ func (s *MemoryPositionStore) UpdatePositionStatus(positionID, status string) er
 	return nil
 }
 
-// SyncPositionCounts 按本地累计值同步岗位统计。
-// positionID 为岗位 ID，其余参数为累计扫描、打招呼、跳过和失败数量。
-func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, greeted, skipped, failed int) error {
+// FinishPositionRun 幂等保存岗位结束状态并累加本次打招呼数量。
+// positionID 为岗位 ID，status 为结束状态，greeted 为本次打招呼数量。
+func (s *MemoryPositionStore) FinishPositionRun(positionID, status string, greeted int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	position, ok := s.positions[positionID]
 	if !ok {
 		return ErrNotFound
 	}
-	greetedDelta := maxIntValue(0, greeted-position.GreetedCount)
-	position.ScannedCount = maxIntValue(position.ScannedCount, scanned)
-	position.GreetedCount = maxIntValue(position.GreetedCount, greeted)
-	position.SkippedCount = maxIntValue(position.SkippedCount, skipped)
-	position.FailedCount = maxIntValue(position.FailedCount, failed)
-	today := s.now().Format(time.DateOnly)
+	if position.Status == status {
+		return nil
+	}
+	now := s.now()
+	today := now.Format(time.DateOnly)
 	if position.DailyGreetedDate != today {
 		position.DailyGreetedDate = today
 		position.DailyGreetedCount = 0
 	}
-	position.DailyGreetedCount += greetedDelta
+	position.DailyGreetedCount += maxIntValue(0, greeted)
+	position.Status = status
+	position.FinishedAt = &now
+	position.UpdatedAt = now
+	s.positions[positionID] = position
+	return nil
+}
+
+// SyncPositionCounts 按本地累计值同步岗位统计。
+// positionID 为岗位 ID，其余参数为累计扫描、跳过和失败数量。
+func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, skipped, failed int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	position, ok := s.positions[positionID]
+	if !ok {
+		return ErrNotFound
+	}
+	position.ScannedCount = maxIntValue(position.ScannedCount, scanned)
+	position.SkippedCount = maxIntValue(position.SkippedCount, skipped)
+	position.FailedCount = maxIntValue(position.FailedCount, failed)
 	position.UpdatedAt = s.now()
 	s.positions[positionID] = position
 	return nil

@@ -461,7 +461,6 @@ func publicPosition(item Position) map[string]any {
 		"enable_thinking":     item.EnableThinking,
 		"status":              item.Status,
 		"scanned_count":       item.ScannedCount,
-		"greeted_count":       item.GreetedCount,
 		"daily_greeted_count": item.DailyGreetedCount,
 		"daily_greeted_date":  item.DailyGreetedDate,
 		"today_greeted_count": positionTodayGreetedCount(item),
@@ -472,6 +471,21 @@ func publicPosition(item Position) map[string]any {
 		"created_at":          item.CreatedAt,
 		"updated_at":          item.UpdatedAt,
 	}
+}
+
+// positionWithRunGreeted 计算一次岗位结束后用于通知展示的今日打招呼数量。
+// item 为岗位记录，greeted 为本次打招呼数量。
+func positionWithRunGreeted(item Position, greeted int) Position {
+	if greeted <= 0 {
+		return item
+	}
+	today := time.Now().In(time.Local).Format(time.DateOnly)
+	if item.DailyGreetedDate != today {
+		item.DailyGreetedDate = today
+		item.DailyGreetedCount = 0
+	}
+	item.DailyGreetedCount += greeted
+	return item
 }
 
 // positionTodayGreetedCount 返回岗位当天打招呼数量。

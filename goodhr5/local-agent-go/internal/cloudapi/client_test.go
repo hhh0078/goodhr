@@ -86,6 +86,15 @@ func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer token-1" {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
+		var request struct {
+			RunGreetedCount int `json:"run_greeted_count"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.RunGreetedCount != 3 {
+			t.Fatalf("run_greeted_count = %d", request.RunGreetedCount)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
 			"status":      "completed",
@@ -95,7 +104,7 @@ func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL)
-	result, err := client.SyncPositionStatus(t.Context(), "token-1", "position-1", "completed")
+	result, err := client.SyncPositionStatusWithCounts(t.Context(), "token-1", "position-1", "completed", 3, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

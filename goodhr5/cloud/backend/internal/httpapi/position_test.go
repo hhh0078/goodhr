@@ -140,29 +140,29 @@ func TestPositionRejectsMissingName(t *testing.T) {
 	}
 }
 
-// TestSyncPositionCountsUsesGreetedDeltaForToday 验证累计统计只把新增差值计入今日数量，重复同步不会重复累加。
-func TestSyncPositionCountsUsesGreetedDeltaForToday(t *testing.T) {
+// TestFinishPositionRunCountsTodayOnce 验证同一结束状态重复同步时不会重复累加今日打招呼数量。
+func TestFinishPositionRunCountsTodayOnce(t *testing.T) {
 	store := NewMemoryPositionStore()
 	now := time.Date(2026, 7, 30, 9, 0, 0, 0, time.Local)
 	store.now = func() time.Time { return now }
 	position, err := store.SavePosition(Position{
 		UserEmail: "daily@example.com", Name: "数学教师",
-		GreetedCount: 100, DailyGreetedCount: 5, DailyGreetedDate: now.Format(time.DateOnly),
+		DailyGreetedCount: 5, DailyGreetedDate: now.Format(time.DateOnly),
 	})
 	if err != nil {
 		t.Fatalf("保存岗位失败：%v", err)
 	}
-	if err = store.SyncPositionCounts(position.ID, 120, 103, 10, 0); err != nil {
-		t.Fatalf("同步岗位统计失败：%v", err)
+	if err = store.FinishPositionRun(position.ID, "completed", 3); err != nil {
+		t.Fatalf("保存岗位结束状态失败：%v", err)
 	}
-	if err = store.SyncPositionCounts(position.ID, 120, 103, 10, 0); err != nil {
-		t.Fatalf("重复同步岗位统计失败：%v", err)
+	if err = store.FinishPositionRun(position.ID, "completed", 3); err != nil {
+		t.Fatalf("重复保存岗位结束状态失败：%v", err)
 	}
 	actual, err := store.PositionByID("", position.UserEmail, position.ID, false)
 	if err != nil {
 		t.Fatalf("读取岗位失败：%v", err)
 	}
-	if actual.GreetedCount != 103 || actual.DailyGreetedCount != 8 {
-		t.Fatalf("岗位统计不正确：total=%d today=%d", actual.GreetedCount, actual.DailyGreetedCount)
+	if actual.DailyGreetedCount != 8 {
+		t.Fatalf("岗位今日统计不正确：today=%d", actual.DailyGreetedCount)
 	}
 }

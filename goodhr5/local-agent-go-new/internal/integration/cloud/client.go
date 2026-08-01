@@ -165,19 +165,17 @@ func (c *Client) SyncSummary(ctx context.Context, token string, summary TaskSumm
 	return err
 }
 
-// SyncPositionCounts 把主动打招呼任务的累计统计同步到云端岗位。
+// SyncPositionCounts 把主动打招呼任务的累计扫描、跳过和失败统计同步到云端岗位。
 func (c *Client) SyncPositionCounts(ctx context.Context, token string, summary TaskSummary) error {
 	if strings.TrimSpace(summary.PositionID) == "" {
 		return fmt.Errorf("岗位编号不能为空")
 	}
 	request := struct {
 		ScannedCount int `json:"scanned_count"`
-		GreetedCount int `json:"greeted_count"`
 		SkippedCount int `json:"skipped_count"`
 		FailedCount  int `json:"failed_count"`
 	}{
 		ScannedCount: max(summary.Processed, 0),
-		GreetedCount: max(summary.Succeeded, 0),
 		SkippedCount: max(summary.Skipped, 0),
 		FailedCount:  max(summary.Failed, 0),
 	}

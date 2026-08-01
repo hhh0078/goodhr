@@ -120,11 +120,10 @@ func TestPanicFailureUsesNormalFinish(t *testing.T) {
 	}
 }
 
-// TestNotifyFinishedSyncsCumulativeCounts 验证每次任务统计会叠加岗位已有累计值后再同步。
-func TestNotifyFinishedSyncsCumulativeCounts(t *testing.T) {
+// TestNotifyFinishedSyncsPositionCounts 验证任务结束时同步岗位累计统计和本次打招呼数。
+func TestNotifyFinishedSyncsPositionCounts(t *testing.T) {
 	var counts struct {
 		Scanned int `json:"scanned_count"`
-		Greeted int `json:"greeted_count"`
 		Skipped int `json:"skipped_count"`
 		Failed  int `json:"failed_count"`
 	}
@@ -145,7 +144,7 @@ func TestNotifyFinishedSyncsCumulativeCounts(t *testing.T) {
 	prepared := shared.PreparedTask{
 		Request: shared.StartRequest{TaskID: "task-counts", TaskType: "greeting", Token: "token"},
 		Position: cloud.PositionSnapshot{
-			ID: "position-1", ScannedCount: 100, GreetedCount: 20,
+			ID: "position-1", ScannedCount: 100,
 			SkippedCount: 70, FailedCount: 10,
 		},
 	}
@@ -155,7 +154,7 @@ func TestNotifyFinishedSyncsCumulativeCounts(t *testing.T) {
 	if decodeErr != nil {
 		t.Fatalf("解析累计统计失败：%v", decodeErr)
 	}
-	if counts.Scanned != 105 || counts.Greeted != 22 || counts.Skipped != 72 || counts.Failed != 11 {
+	if counts.Scanned != 105 || counts.Skipped != 72 || counts.Failed != 11 {
 		t.Fatalf("累计统计不正确：%+v", counts)
 	}
 	if len(paths) != 2 || !strings.HasSuffix(paths[0], "/counts") || !strings.HasSuffix(paths[1], "/status") {
