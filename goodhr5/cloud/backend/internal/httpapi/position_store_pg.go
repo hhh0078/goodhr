@@ -376,16 +376,17 @@ func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string)
 func (s *PostgresPositionStore) FinishPositionRun(positionID, status string, greeted int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	today := positionBusinessDate(time.Now())
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE positions
 		SET daily_greeted_count=CASE
 		        WHEN status=$2 THEN daily_greeted_count
-		        WHEN daily_greeted_date=CURRENT_DATE THEN daily_greeted_count+GREATEST(0,$3)
+		        WHEN daily_greeted_date=$4::date THEN daily_greeted_count+GREATEST(0,$3)
 		        ELSE GREATEST(0,$3)
 		    END,
-		    daily_greeted_date=CASE WHEN status=$2 THEN daily_greeted_date ELSE CURRENT_DATE END,
+		    daily_greeted_date=CASE WHEN status=$2 THEN daily_greeted_date ELSE $4::date END,
 		    status=$2, finished_at=now(), updated_at=now()
-		WHERE id=$1`, positionID, status, greeted)
+		WHERE id=$1`, positionID, status, greeted, today)
 	if err != nil {
 		return err
 	}
@@ -452,7 +453,7 @@ func (s *PostgresPositionStore) TodayGreetedTotal() (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var total int
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(daily_greeted_count),0)::int FROM positions WHERE daily_greeted_date=CURRENT_DATE`).Scan(&total)
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(daily_greeted_count),0)::int FROM positions WHERE daily_greeted_date=$1::date`, positionBusinessDate(time.Now())).Scan(&total)
 	return total, err
 }
 

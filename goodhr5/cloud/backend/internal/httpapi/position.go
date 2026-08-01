@@ -479,7 +479,7 @@ func positionWithRunGreeted(item Position, greeted int) Position {
 	if greeted <= 0 {
 		return item
 	}
-	today := time.Now().In(time.Local).Format(time.DateOnly)
+	today := positionBusinessDate(time.Now())
 	if item.DailyGreetedDate != today {
 		item.DailyGreetedDate = today
 		item.DailyGreetedCount = 0
@@ -491,7 +491,7 @@ func positionWithRunGreeted(item Position, greeted int) Position {
 // positionTodayGreetedCount 返回岗位当天打招呼数量。
 // item 为岗位记录，日期不是今天时返回零。
 func positionTodayGreetedCount(item Position) int {
-	if item.DailyGreetedDate != time.Now().In(time.Local).Format(time.DateOnly) || item.DailyGreetedCount < 0 {
+	if item.DailyGreetedDate != positionBusinessDate(time.Now()) || item.DailyGreetedCount < 0 {
 		return 0
 	}
 	return item.DailyGreetedCount

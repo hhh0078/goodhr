@@ -84,7 +84,7 @@ func (s *MemoryPositionStore) SavePosition(position Position) (Position, error) 
 		position.ID = s.nextID()
 		position.CreatedAt = now
 		position.Status = "created"
-		position.DailyGreetedDate = now.Format(time.DateOnly)
+		position.DailyGreetedDate = positionBusinessDate(now)
 	} else if existing, ok := s.positions[position.ID]; ok {
 		position.Status = existing.Status
 		position.ScannedCount = existing.ScannedCount
@@ -176,7 +176,7 @@ func (s *MemoryPositionStore) FinishPositionRun(positionID, status string, greet
 		return nil
 	}
 	now := s.now()
-	today := now.Format(time.DateOnly)
+	today := positionBusinessDate(now)
 	if position.DailyGreetedDate != today {
 		position.DailyGreetedDate = today
 		position.DailyGreetedCount = 0
@@ -210,7 +210,7 @@ func (s *MemoryPositionStore) SyncPositionCounts(positionID string, scanned, ski
 func (s *MemoryPositionStore) TodayGreetedTotal() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	today := s.now().Format(time.DateOnly)
+	today := positionBusinessDate(s.now())
 	total := 0
 	for _, position := range s.positions {
 		if position.DailyGreetedDate == today {
@@ -218,6 +218,12 @@ func (s *MemoryPositionStore) TodayGreetedTotal() (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// positionBusinessDate 返回 GoodHR 业务使用的北京时间日期。
+// now 为任意时区的当前时间，返回 YYYY-MM-DD 格式日期。
+func positionBusinessDate(now time.Time) string {
+	return now.In(chinaLocation()).Format(time.DateOnly)
 }
 
 // maxIntValue 返回两个整数中的较大值。

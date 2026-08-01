@@ -33,8 +33,11 @@ type Decision struct {
 }
 
 const (
-	defaultGreetPrompt  = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultDetailPrompt = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultGreetPrompt           = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultDetailPrompt          = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	candidateRequirementBoundary = `
+
+补充边界：评分必须以用户明确填写的“岗位要求”为主要依据并占绝大多数权重。岗位要求没有写出的工作经验、工作年限、专业、年龄等通用维度只能低权重辅助参考，不能单独导致候选人低于通过阈值；候选人资料没有展示某项信息不等于不符合。“优先”“加分项”只能适度加分，缺失时不能作为淘汰原因。reason 应优先说明岗位要求中明确条件的匹配情况。`
 )
 
 // ServiceError 表示 AI 网络或服务端错误及其重试策略。
@@ -402,7 +405,7 @@ func candidateSystemPrompt(cfg cloud.AIConfig, position cloud.PositionSnapshot) 
 	if system == "" {
 		system = defaultGreetPrompt
 	}
-	return applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume)
+	return applyStructuredCandidatePrompt(system, position.CommonConfig.OutputStructuredResume) + candidateRequirementBoundary
 }
 
 // candidateUserPrompt 构造候选人评分动态内容。
@@ -415,10 +418,11 @@ func candidateUserPrompt(position cloud.PositionSnapshot, candidate model.Candid
 
 // candidatePreviewSystemPrompt 返回岗位级候选人基础信息预判断提示词。
 func candidatePreviewSystemPrompt(position cloud.PositionSnapshot) string {
-	if prompt := strings.TrimSpace(position.AIOptions.OpenDetailPrompt); prompt != "" {
-		return prompt
+	system := strings.TrimSpace(position.AIOptions.OpenDetailPrompt)
+	if system == "" {
+		system = defaultDetailPrompt
 	}
-	return defaultDetailPrompt
+	return system + candidateRequirementBoundary
 }
 
 // candidatePreviewUserPrompt 构造不含候选人详情的基础预判断内容。

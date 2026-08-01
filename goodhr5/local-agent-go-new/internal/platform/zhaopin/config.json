@@ -185,7 +185,7 @@
       "description": "智联候选人卡片"
     },
     "candidate.open_target": {
-      "_comment": "卡片内打开详情目标。",
+      "_comment": "卡片内打开详情目标，只点击姓名区域，明确避开右侧打电话和打招呼按钮。",
       "parents": [],
       "target": {
         "_comment": "详情入口候选。",
@@ -215,10 +215,14 @@
       "_comment": "智联候选人打招呼按钮。",
       "parents": [],
       "target": {
-        "_comment": "打招呼按钮目标。",
+        "_comment": "按大屏和小屏两种按钮样式定位，并用精确文字排除同区域的打电话按钮。",
+        "text": "打招呼",
+        "_comment_text": "只允许点击文字为打招呼的按钮。",
+        "exact_text": true,
+        "_comment_exact_text": "避免误点同样式的打电话按钮。",
         "selectors": [
-          { "_comment": "普通打招呼按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16" },
-          { "_comment": "继续沟通按钮。", "type": "css", "value": ".resume-btn-small" }
+          { "_comment": "大屏幕候选人卡片右侧打招呼按钮。", "type": "css", "value": ".large-screen-btn" },
+          { "_comment": "小屏幕候选人卡片打招呼按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16" }
         ]
       },
       "state": "enabled",

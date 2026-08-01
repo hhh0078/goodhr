@@ -604,6 +604,9 @@ export default function PositionsPage() {
           });
           return changed ? next : current;
         });
+        if (item.status === "running" && taskStatus !== "running") {
+          void load();
+        }
       }
       const taskID = String(task?.task_id || "").trim();
       const errorMessage = String(task?.error_message || "").trim();
