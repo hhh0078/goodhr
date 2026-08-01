@@ -75,10 +75,19 @@ func ShouldStopTaskImmediately(err error) bool {
 	}
 }
 
-// normalizeOperationError 归一化错误中的数字和空白，避免超时时间变化打断连续计数。
+// normalizeOperationError 优先使用 Worker 稳定错误字段生成指纹，避免候选人姓名变化打断连续计数。
 func normalizeOperationError(err error) string {
 	if err == nil {
 		return ""
+	}
+	var workerErr *contract.WorkerError
+	if errors.As(err, &workerErr) && workerErr != nil {
+		code := strings.ToLower(strings.TrimSpace(workerErr.Body.Code))
+		action := strings.ToLower(strings.TrimSpace(workerErr.Body.Action))
+		step := strings.ToLower(strings.TrimSpace(workerErr.Body.Step))
+		if code != "" || action != "" || step != "" {
+			return strings.Join([]string{"worker", code, action, step}, "|")
+		}
 	}
 	text := operationErrorNumberPattern.ReplaceAllString(strings.ToLower(err.Error()), "#")
 	return strings.Join(strings.Fields(text), " ")

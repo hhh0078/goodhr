@@ -10,6 +10,8 @@ import (
 // Browser 定义平台适配层可以调用的 Worker 封装能力。
 type Browser interface {
 	OpenPage(context.Context, contract.PageOpenRequest) (contract.PageInfo, error)
+	ListPages(context.Context) (contract.PageListResult, error)
+	UsePage(context.Context, contract.PageUseRequest) (contract.PageInfo, error)
 	FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error)
 	Read(context.Context, contract.ElementReadRequest) (contract.ReadResult, error)
 	Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error)
