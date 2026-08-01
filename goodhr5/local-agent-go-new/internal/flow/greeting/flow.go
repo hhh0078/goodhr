@@ -358,6 +358,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		return nil
 	}
 	if err := runtime.ScrollToCandidate(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+		f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "滚动到候选人失败")
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "scroll_to_candidate", "failed", err.Error())
 		return fmt.Errorf("滚动到当前候选人失败：%w", err)
@@ -377,6 +378,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return err
 		}
 		if err := runtime.OpenCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打开候选人详情失败")
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "open_detail", "failed", err.Error())
 			return fmt.Errorf("打开候选人详情失败：%w", err)
@@ -517,10 +519,12 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		); err != nil {
 			return err
 		}
-		if err := runtime.CloseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+		closeDetailErr := runtime.CloseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
+		if closeDetailErr != nil {
+			f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "关闭候选人详情失败")
 			stats.Failed++
-			f.saveCandidate(ctx, prepared, candidate, "close_detail", "failed", err.Error())
-			return fmt.Errorf("关闭候选人详情失败：%w", err)
+			f.saveCandidate(ctx, prepared, candidate, "close_detail", "failed", closeDetailErr.Error())
+			return fmt.Errorf("关闭候选人详情失败：%w", closeDetailErr)
 		}
 		detailOpened = false
 	}
@@ -559,13 +563,15 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			requestInfo = candidateInfoAllowed(hasScore, score, threshold)
 		}
 	}
-	if err := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, model.GreetRequest{
+	greetErr := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, model.GreetRequest{
 		KeepConversationOpen: requestInfo || greetMessage != "",
-	}); err != nil {
+	})
+	if greetErr != nil {
+		f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打招呼失败")
 		evaluationStatus = "failed"
 		stats.Failed++
-		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", err.Error())
-		return fmt.Errorf("打招呼失败：%w", err)
+		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", greetErr.Error())
+		return fmt.Errorf("打招呼失败：%w", greetErr)
 	}
 	if prepared.Position.EnableSound && f.Notifier != nil {
 		soundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -580,6 +586,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if err := runtime.EnsureCandidateConversation(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 			conversationReady = false
 			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "warning", startedAt, err)
+			f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "确认候选人聊天框失败")
 		} else {
 			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "success", startedAt, nil)
 		}
@@ -587,6 +594,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			startedAt = time.Now()
 			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
 				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
+				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "索要候选人资料失败")
 			} else {
 				f.log(prepared.Request.TaskID, "request_candidate_info", "success", startedAt, nil)
 			}
@@ -595,6 +603,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			startedAt = time.Now()
 			if err := runtime.SendCandidateMessage(ctx, f.Browser, prepared.Platform, candidate, greetMessage); err != nil {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "warning", startedAt, err)
+				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "发送候选人消息失败")
 			} else {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
 			}
@@ -603,6 +612,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		startedAt = time.Now()
 		if err := runtime.CloseCandidateConversation(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
 			f.log(prepared.Request.TaskID, "close_candidate_conversation", "warning", startedAt, err)
+			f.reportPageDiagnostics(cleanupCtx, prepared.Request.TaskID, "关闭候选人聊天框失败")
 		} else {
 			f.log(prepared.Request.TaskID, "close_candidate_conversation", "success", startedAt, nil)
 		}

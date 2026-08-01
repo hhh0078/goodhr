@@ -15,8 +15,18 @@ import (
 const postGreetPromotionPollAttempts = 4
 const postGreetPromotionPollInterval = 150 * time.Millisecond
 
-// GreetCandidate 清理遗留弹层并按发布职位或快捷搜索模式完成猎聘开聊。
-func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) error {
+// GreetCandidate 清理遗留弹层并按发布职位或快捷搜索模式完成猎聘开聊，失败时清理开聊弹框。
+func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) (resultErr error) {
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		if cleanupErr := closeGreetModalIfPresent(cleanupCtx, browser, cfg); cleanupErr != nil {
+			resultErr = fmt.Errorf("%w；遗留的猎聘开聊弹框也没清理好：%v", resultErr, cleanupErr)
+		}
+	}()
 	if candidate.Fields["greet_state"] == "continue" {
 		return nil
 	}
@@ -154,17 +164,35 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 	}); err != nil {
 		return false, fmt.Errorf("滚动到猎聘开聊岗位失败：%w", err)
 	}
-	if _, err = browser.Click(ctx, contract.ElementClickRequest{
-		Selector:       selector,
-		ViewportMargin: 24,
-		Verify: &contract.ClickVerification{
-			TargetHidden: &list,
-			TimeoutMS:    3000,
-		},
-	}); err != nil {
-		return false, fmt.Errorf("选择猎聘开聊岗位失败：%w", err)
+	_, clickErr := browser.Click(ctx, contract.ElementClickRequest{
+		Selector: selector, ViewportMargin: 24,
+	})
+	selected, verifyErr := greetingJobAlreadySelected(ctx, browser, cfg, positionName)
+	if selected {
+		return true, nil
 	}
-	return true, nil
+	if clickErr != nil {
+		return false, fmt.Errorf("选择猎聘开聊岗位失败：%w", clickErr)
+	}
+	if verifyErr != nil {
+		return false, fmt.Errorf("确认猎聘已选开聊岗位失败：%w", verifyErr)
+	}
+	return false, fmt.Errorf("猎聘开聊岗位点击完成了，但页面没有选中目标岗位")
+}
+
+// greetingJobAlreadySelected 判断开聊弹框当前选中岗位是否匹配后端岗位名称。
+func greetingJobAlreadySelected(ctx context.Context, browser model.Browser, cfg model.Config, positionName string) (bool, error) {
+	selectedName, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.greet_job_selected_name")
+	if err != nil || !found {
+		return false, err
+	}
+	matchIndex := matchingGreetingJob([]contract.FindAllItem{{
+		Index: 0,
+		Fields: map[string]string{
+			"position_name": selectedName,
+		},
+	}}, positionName)
+	return matchIndex == 0, nil
 }
 
 // confirmGreeting 点击猎聘开聊确认按钮，并先确认职位弹框已经关闭。

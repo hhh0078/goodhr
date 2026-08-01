@@ -259,6 +259,26 @@
       "timeout_ms": 1000,
       "description": "猎聘猎头端开聊职位名称"
     },
+    "candidate.greet_job_selected_name": {
+      "_comment": "读取开聊弹框当前已经选中的职位标题，用于确认岗位点击的实际结果。",
+      "parents": [
+        {
+          "_comment": "限定在当前开聊弹框内。",
+          "selectors": [
+            { "_comment": "猎聘开聊职位弹框。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId'])" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "已选职位中的加粗标题。",
+        "selectors": [
+          { "_comment": "猎聘已选职位标题。", "type": "css", "value": ".ant-select-selection-item .hpublic-job-select-option strong" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘猎头端当前已选开聊职位"
+    },
     "candidate.greet_without_job": {
       "_comment": "不选择职位直接开聊按钮。",
       "parents": [

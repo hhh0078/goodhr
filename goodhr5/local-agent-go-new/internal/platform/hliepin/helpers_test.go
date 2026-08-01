@@ -22,10 +22,12 @@ type shortcutClickBrowser struct {
 
 type greetingJobBrowser struct {
 	model.Browser
-	items       []contract.FindAllItem
-	findRequest contract.ElementFindAllRequest
-	clicks      []contract.ElementClickRequest
-	scrolls     []contract.ScrollRequest
+	items        []contract.FindAllItem
+	findRequest  contract.ElementFindAllRequest
+	clicks       []contract.ElementClickRequest
+	scrolls      []contract.ScrollRequest
+	selectedName string
+	itemClickErr error
 }
 
 // promotionBrowser 模拟猎聘开聊后推广弹框及 Escape 兜底关闭行为。
@@ -60,7 +62,23 @@ func (b *shortcutClickBrowser) Read(_ context.Context, request contract.ElementR
 // Click 记录猎聘开聊职位下拉和职位选项的点击参数。
 func (b *greetingJobBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	b.clicks = append(b.clicks, request)
+	if request.Selector.Description == "开聊职位列表项" && len(b.items) > 0 {
+		b.selectedName = b.items[0].Fields["position_name"]
+		if b.itemClickErr != nil {
+			return contract.ClickResult{}, b.itemClickErr
+		}
+	}
 	return contract.ClickResult{Clicked: true}, nil
+}
+
+// Read 返回猎聘开聊弹框当前已经选中的岗位名称。
+func (b *greetingJobBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if request.Selector.Description == "当前已选开聊职位" && strings.TrimSpace(b.selectedName) != "" {
+		return contract.ReadResult{Value: b.selectedName}, nil
+	}
+	return contract.ReadResult{}, &contract.WorkerError{
+		Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"},
+	}
 }
 
 // FindAll 返回猎聘开聊职位选项并记录字段读取参数。
@@ -261,10 +279,11 @@ func TestSelectGreetingJobReadsTitleAndScrolls(t *testing.T) {
 	cfg := model.Config{
 		ID: "hliepin",
 		Selectors: map[string]contract.SelectorSpec{
-			"candidate.greet_job_open": selectorForGreetingTest("开聊职位下拉"),
-			"candidate.greet_job_item": selectorForGreetingTest("开聊职位列表项"),
-			"candidate.greet_job_list": selectorForGreetingTest("开聊职位列表"),
-			"candidate.greet_job_name": selectorForGreetingTest("开聊职位名称"),
+			"candidate.greet_job_open":          selectorForGreetingTest("开聊职位下拉"),
+			"candidate.greet_job_item":          selectorForGreetingTest("开聊职位列表项"),
+			"candidate.greet_job_list":          selectorForGreetingTest("开聊职位列表"),
+			"candidate.greet_job_name":          selectorForGreetingTest("开聊职位名称"),
+			"candidate.greet_job_selected_name": selectorForGreetingTest("当前已选开聊职位"),
 		},
 	}
 	selected, err := selectGreetingJob(
@@ -284,9 +303,29 @@ func TestSelectGreetingJobReadsTitleAndScrolls(t *testing.T) {
 		*browser.scrolls[0].Target.Target.Index != 0 {
 		t.Fatalf("选择岗位前没有滚动定位：%+v", browser.scrolls)
 	}
-	if len(browser.clicks) != 2 || browser.clicks[1].Verify == nil ||
-		browser.clicks[1].Verify.TargetHidden == nil {
-		t.Fatalf("职位点击没有验证下拉框关闭：%+v", browser.clicks)
+	if len(browser.clicks) != 2 || browser.clicks[1].Verify != nil {
+		t.Fatalf("职位点击不应再依赖下拉框关闭状态判断结果：%+v", browser.clicks)
+	}
+}
+
+// TestSelectGreetingJobAcceptsVerifiedSelectionAfterClickError 验证点击返回异常但页面已经选中时继续开聊。
+func TestSelectGreetingJobAcceptsVerifiedSelectionAfterClickError(t *testing.T) {
+	browser := &greetingJobBrowser{
+		items: []contract.FindAllItem{{
+			Index: 0, Fields: map[string]string{"position_name": "AI应用开发工程师初..."},
+		}},
+		itemClickErr: errors.New("点击结果偶发误判"),
+	}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_job_open":          selectorForGreetingTest("开聊职位下拉"),
+		"candidate.greet_job_item":          selectorForGreetingTest("开聊职位列表项"),
+		"candidate.greet_job_list":          selectorForGreetingTest("开聊职位列表"),
+		"candidate.greet_job_name":          selectorForGreetingTest("开聊职位名称"),
+		"candidate.greet_job_selected_name": selectorForGreetingTest("当前已选开聊职位"),
+	}}
+	selected, err := selectGreetingJob(context.Background(), browser, cfg, "AI应用开发工程师初级可以实习")
+	if err != nil || !selected {
+		t.Fatalf("页面已经选中时不应被点击误判打断：selected=%v err=%v", selected, err)
 	}
 }
 
