@@ -47,7 +47,7 @@ export default function ResumeDetailPage() {
           {candidate.projectExperiences.length ? <ResumeSection title="项目经历">{candidate.projectExperiences.map((item, index) => <Experience key={`project-${index}`} item={item} project />)}</ResumeSection> : null}
           {candidate.educations.length ? <ResumeSection title="教育经历">{candidate.educations.map((item, index) => <Experience key={`edu-${index}`} item={item} />)}</ResumeSection> : null}
           {candidate.rawText ? <ResumeSection title="原始文本"><Typography sx={{ whiteSpace: "pre-wrap", color: "text.secondary", lineHeight: 1.8 }}>{candidate.rawText}</Typography></ResumeSection> : null}
-          <Accordion elevation={0} sx={{ mt: 3, bgcolor: "#f7faf8" }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}><Typography sx={{ fontWeight: 720 }}>查看完整接口数据</Typography></AccordionSummary><AccordionDetails><JsonTree value={candidate.raw} /></AccordionDetails></Accordion>
+          <Accordion elevation={0} sx={{ mt: 3, bgcolor: "action.hover" }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}><Typography sx={{ fontWeight: 720 }}>查看完整接口数据</Typography></AccordionSummary><AccordionDetails><JsonTree value={candidate.raw} /></AccordionDetails></Accordion>
         </Box>
         <SidePanel candidate={candidate} />
       </Box>
@@ -67,7 +67,7 @@ function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
 /** SidePanel 展示候选人状态、AI 判断和经历概览。 */
 function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
   const overview = [...candidate.workExperiences, ...candidate.projectExperiences, ...candidate.educations].map(experienceLine).filter(Boolean).slice(0, 8);
-  return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "#fbfcfb" }}>
+  return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "action.hover" }}>
     <Typography sx={{ mb: 1.5, color: "text.secondary", fontWeight: 760 }}>候选人状态</Typography>
     <Chip label={statusText(candidate.status)} color="primary" sx={{ mb: 3 }} />
     <Typography sx={{ mb: 1.5, fontWeight: 820 }}>记录来源</Typography>
@@ -81,14 +81,14 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
       <AIBlock title="第二次分析" score={candidate.aiSecondAnalysis.score} reason={candidate.aiSecondAnalysis.reason} />
     </Stack>
     <Typography sx={{ mt: 3, mb: 1.5, fontWeight: 820 }}>经历概览</Typography>
-    <Stack spacing={1}>{overview.length ? overview.map((item) => <Typography key={item} sx={{ pl: 1.25, borderLeft: "3px solid #8fcf9d", fontSize: 13, lineHeight: 1.6 }}>{item}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>
+    <Stack spacing={1}>{overview.length ? overview.map((item) => <Typography key={item} sx={{ pl: 1.25, borderLeft: "3px solid", borderColor: "primary.light", fontSize: 13, lineHeight: 1.6 }}>{item}</Typography>) : <Typography color="text.secondary">暂无经历</Typography>}</Stack>
   </Box>;
 }
 
 /** AIBlock 展示一个 AI 阶段的分数和原因。 */
 function AIBlock({ title, score, reason }: { title: string; score: unknown; reason: string }) {
-  return <Box sx={{ p: 1.25, borderRadius: "8px", bgcolor: "#f2f7f3" }}>
-    <Stack direction="row" sx={{ justifyContent: "space-between", gap: 1 }}><Typography sx={{ fontWeight: 760 }}>{title}</Typography><Typography sx={{ color: "#16724c", fontWeight: 820 }}>{scoreText(score)}</Typography></Stack>
+  return <Box sx={{ p: 1.25, borderRadius: "8px", bgcolor: "action.selected" }}>
+    <Stack direction="row" sx={{ justifyContent: "space-between", gap: 1 }}><Typography sx={{ fontWeight: 760 }}>{title}</Typography><Typography sx={{ color: "primary.main", fontWeight: 820 }}>{scoreText(score)}</Typography></Stack>
     <Typography sx={{ mt: 0.7, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>{reason || "暂时没有返回原因"}</Typography>
   </Box>;
 }

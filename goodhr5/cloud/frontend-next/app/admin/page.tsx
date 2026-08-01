@@ -289,7 +289,7 @@ export default function DashboardPage() {
             key={label}
             sx={{
               p: 2,
-              bgcolor: "#f7faf8",
+              bgcolor: "action.hover",
               borderRadius: "8px",
               border: "1px solid",
               borderColor: "divider",
@@ -488,8 +488,8 @@ function AIWalletCard({
             clickable
             onClick={onOpenModelDialog}
             sx={{
-              bgcolor: "#eef6f0",
-              color: "#2f6f4f",
+              bgcolor: "action.selected",
+              color: "primary.dark",
               fontSize: 13,
               fontWeight: 700,
               maxWidth: "100%",
@@ -583,10 +583,11 @@ function OnboardingGuide({
       component='section'
       sx={{
         p: { xs: 2, md: 2.5 },
-        border: "1px solid #b9d4c1",
+        border: "1px solid",
+        borderColor: "primary.light",
         borderRadius: "8px",
-        bgcolor: "#edf6ef",
-        boxShadow: "0 12px 28px rgba(33, 85, 57, .08)",
+        bgcolor: "action.selected",
+        boxShadow: "0 12px 28px rgba(17, 17, 17, .08)",
       }}
     >
       <Stack
@@ -599,7 +600,8 @@ function OnboardingGuide({
             <Chip
               size='small'
               label='新手必看'
-              sx={{ bgcolor: "#1e6545", color: "white", fontWeight: 760 }}
+              color='primary'
+              sx={{ fontWeight: 760 }}
             />
             <Typography
               component='h2'
@@ -608,7 +610,7 @@ function OnboardingGuide({
               跑通第一条招聘岗位运行
             </Typography>
           </Stack>
-          <Typography sx={{ mt: 0.75, color: "#52665a" }}>
+          <Typography sx={{ mt: 0.75, color: "text.secondary" }}>
             每完成一步都会自动记录；全部完成后，这个教程会自动隐藏。
           </Typography>
         </Box>
@@ -617,17 +619,17 @@ function OnboardingGuide({
             direction='row'
             sx={{ mb: 0.75, justifyContent: "space-between" }}
           >
-            <Typography sx={{ color: "#52665a", fontSize: 13 }}>
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
               上手进度
             </Typography>
-            <Typography sx={{ color: "#1e6545", fontWeight: 800 }}>
+            <Typography sx={{ color: "primary.main", fontWeight: 800 }}>
               {doneCount}/{guideSteps.length}
             </Typography>
           </Stack>
           <LinearProgress
             variant='determinate'
             value={(doneCount / guideSteps.length) * 100}
-            sx={{ height: 9, borderRadius: "8px", bgcolor: "#d5e5d9" }}
+            sx={{ height: 9, borderRadius: "8px", bgcolor: "primary.light" }}
           />
         </Box>
       </Stack>
@@ -679,10 +681,10 @@ function GuideCard({
         minHeight: 235,
         p: 2,
         border: "1px solid",
-        borderColor: done ? "#d7e3da" : active ? "#4d8d68" : "#cbdccf",
+        borderColor: active ? "primary.main" : "divider",
         borderRadius: "8px",
         bgcolor: done ? "rgba(255,255,255,.58)" : "#fff",
-        boxShadow: active ? "0 10px 24px rgba(36, 94, 61, .11)" : "none",
+        boxShadow: active ? "0 10px 24px rgba(17, 17, 17, .11)" : "none",
         opacity: done ? 0.76 : 1,
       }}
     >
@@ -698,13 +700,13 @@ function GuideCard({
               display: "grid",
               placeItems: "center",
               borderRadius: "8px",
-              bgcolor: done ? "#e7efe9" : "#dcece1",
-              color: "#1e6545",
+              bgcolor: "action.selected",
+              color: "primary.main",
             }}
           >
             <Icon fontSize='small' />
           </Box>
-          <Typography sx={{ color: "#718078", fontSize: 12, fontWeight: 760 }}>
+          <Typography sx={{ color: "text.secondary", fontSize: 12, fontWeight: 760 }}>
             第 {index} 步
           </Typography>
         </Stack>

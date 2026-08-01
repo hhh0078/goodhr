@@ -110,7 +110,7 @@ export default function ChoiceCards({
                     ? "#242017"
                     : selected
                       ? "action.selected"
-                      : "#fbfdfc",
+                      : "background.paper",
                 },
               }}
             >

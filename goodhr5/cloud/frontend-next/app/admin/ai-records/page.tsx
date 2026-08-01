@@ -91,7 +91,7 @@ export default function AIRecordsPage() {
             <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
               <Table size='small'>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: "#f6faf7" }}>
+                  <TableRow sx={{ bgcolor: "action.hover" }}>
                     <TableCell>类型</TableCell>
                     <TableCell>金额</TableCell>
                     <TableCell>余额</TableCell>
@@ -173,7 +173,7 @@ function RecordCard({ record }: { record: any }) {
         border: "1px solid",
         borderColor: "divider",
         borderRadius: "8px",
-        bgcolor: "#fbfdfc",
+        bgcolor: "action.hover",
       }}
     >
       <Stack direction='row' sx={{ justifyContent: "space-between", gap: 1 }}>
@@ -228,7 +228,7 @@ function AmountText({ units, value }: { units: number; value: string }) {
       spacing={0.4}
       sx={{
         alignItems: "center",
-        color: positive ? "#15804f" : "#b45309",
+        color: positive ? "success.main" : "warning.dark",
         fontWeight: 800,
       }}
     >

@@ -243,8 +243,8 @@ export default function PersonalConfigPage() {
         <SectionPanel
           sx={{
             mb: 2,
-            borderColor: "#9fbca9",
-            bgcolor: "#f8fbf8",
+            borderColor: "primary.light",
+            bgcolor: "action.selected",
           }}
         >
           <SectionTitle
@@ -308,9 +308,9 @@ export default function PersonalConfigPage() {
       <SectionPanel
         sx={{
           mb: 2,
-          borderColor: "#9fbca9",
-          bgcolor: "#f8fbf8",
-          boxShadow: "0 16px 44px rgba(38, 88, 57, .08)",
+          borderColor: "primary.light",
+          bgcolor: "action.selected",
+          boxShadow: "0 16px 44px rgba(17, 17, 17, .08)",
         }}
       >
         <SectionTitle
@@ -324,10 +324,11 @@ export default function PersonalConfigPage() {
           sx={{
             mt: 2,
             mb: 2,
-            border: "1px solid #cbded4",
-            bgcolor: "#f3f8f5",
-            color: "#244d3b",
-            "& .MuiAlert-icon": { color: "#1e6545" },
+            border: "1px solid",
+            borderColor: "primary.light",
+            bgcolor: "action.hover",
+            color: "text.primary",
+            "& .MuiAlert-icon": { color: "primary.main" },
           }}
         >
           可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和
@@ -524,15 +525,15 @@ function QuickLink({
         height: "100%",
         alignItems: "center",
         border: "1px solid",
-        borderColor: primary ? "#9fc7ae" : "#d8e4dc",
+        borderColor: primary ? "primary.main" : "divider",
         borderRadius: "8px",
-        bgcolor: primary ? "#f3faf5" : "#fbfdfc",
+        bgcolor: primary ? "action.selected" : "action.hover",
         color: "text.primary",
-        boxShadow: primary ? "0 18px 44px rgba(38, 88, 57, .1)" : "none",
+        boxShadow: primary ? "0 18px 44px rgba(17, 17, 17, .1)" : "none",
         transition: "150ms ease",
         "&:hover": {
-          borderColor: "#82a891",
-          bgcolor: primary ? "#eef7f1" : "#f4f8f5",
+          borderColor: "primary.main",
+          bgcolor: primary ? "primary.light" : "action.hover",
           transform: "translateY(-1px)",
         },
       }}
@@ -544,8 +545,8 @@ function QuickLink({
           borderRadius: "999px",
           display: "grid",
           placeItems: "center",
-          bgcolor: primary ? "#1f7048" : "#e7f1ea",
-          color: primary ? "#fff" : "#1e6545",
+          bgcolor: primary ? "primary.main" : "action.selected",
+          color: primary ? "primary.contrastText" : "primary.main",
           flexShrink: 0,
           "& .MuiSvgIcon-root": { fontSize: primary ? 31 : 24 },
         }}
@@ -560,8 +561,8 @@ function QuickLink({
             px: 1,
             py: 0.35,
             borderRadius: "999px",
-            bgcolor: primary ? "#dff0e4" : "#eef4f0",
-            color: "#1e6545",
+            bgcolor: "action.selected",
+            color: "primary.dark",
             fontSize: 12,
             fontWeight: 760,
           }}
@@ -586,7 +587,7 @@ function QuickLink({
       </Box>
       <ArrowOutwardRoundedIcon
         sx={{
-          color: primary ? "#1e6545" : "text.secondary",
+          color: primary ? "primary.main" : "text.secondary",
           fontSize: 22,
           flexShrink: 0,
         }}
@@ -622,7 +623,7 @@ function SectionTitle({
 }) {
   return (
     <Stack direction='row' spacing={1.25} sx={{ alignItems: "center" }}>
-      <Box sx={{ color: "#1e6545", display: "grid", placeItems: "center" }}>
+      <Box sx={{ color: "primary.main", display: "grid", placeItems: "center" }}>
         {icon}
       </Box>
       <Box>

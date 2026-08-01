@@ -51,7 +51,7 @@ export default function PlatformLogo({
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        bgcolor: src ? "transparent" : "#f4f7f5",
+        bgcolor: src ? "transparent" : "action.hover",
         color: "text.secondary",
         fontSize: Math.max(12, Math.round(size * 0.42)),
         fontWeight: 800,

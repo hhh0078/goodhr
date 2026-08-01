@@ -244,7 +244,7 @@ export default function ResumesPage() {
                 gridTemplateColumns: "1.1fr 1.35fr .85fr .9fr",
                 px: 2,
                 py: 1.5,
-                bgcolor: "#fafbfa",
+                bgcolor: "action.hover",
                 borderBottom: "1px solid",
                 borderColor: "divider",
                 "& p": { fontWeight: 800 },
@@ -458,7 +458,7 @@ function NotePreview({
       }}
     >
       <Typography
-        sx={{ mb: 0.6, color: "#16724c", fontSize: 12, fontWeight: 820 }}
+        sx={{ mb: 0.6, color: "primary.main", fontSize: 12, fontWeight: 820 }}
       >
         备注
       </Typography>
@@ -543,7 +543,7 @@ function NoteDialog({
                   border: "1px solid",
                   borderColor: "divider",
                   borderRadius: "8px",
-                  bgcolor: "#fbfdfc",
+                  bgcolor: "action.hover",
                 }}
               >
                 <Typography sx={{ whiteSpace: "pre-wrap", lineHeight: 1.75 }}>
@@ -610,7 +610,7 @@ function AIText({
         whiteSpace: "normal",
       }}
     >
-      <Box component='span' sx={{ color: "#16724c", fontWeight: 800 }}>
+      <Box component='span' sx={{ color: "primary.main", fontWeight: 800 }}>
         {label} {scoreText(score)}
       </Box>
       {reason ? `：${reason}` : ""}

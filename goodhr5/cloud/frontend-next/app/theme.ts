@@ -72,6 +72,7 @@ export function createGoodHRTheme(membershipTheme: MembershipTheme = "free") {
       primary: {
         main: accent.main,
         dark: accent.dark,
+        light: accent.soft,
         contrastText: "#ffffff",
       },
       secondary: { main: accent.secondary },
@@ -79,7 +80,12 @@ export function createGoodHRTheme(membershipTheme: MembershipTheme = "free") {
       text: { primary: accent.textPrimary, secondary: accent.textSecondary },
       divider: accent.divider,
       action: { hover: accent.hover, selected: accent.soft },
-      success: { main: "#238653" },
+      success: {
+        main: "#238653",
+        dark: "#17633d",
+        light: "#eaf5ee",
+        contrastText: "#ffffff",
+      },
       warning: { main: "#c47a1a" },
       error: { main: "#c83f49" },
     },

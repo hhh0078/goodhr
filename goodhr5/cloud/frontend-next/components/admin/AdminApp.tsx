@@ -500,7 +500,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               sx={{
                 px: 1.5,
                 mb: 0.5,
-                color: "#89958f",
+                color: "text.secondary",
                 fontSize: 11,
                 fontWeight: 760,
               }}
@@ -525,13 +525,13 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                       minHeight: 40,
                       px: 1.5,
                       borderRadius: "8px",
-                      color: active ? "primary.dark" : "#718078",
+                      color: active ? "primary.dark" : "text.secondary",
                       bgcolor: active ? "action.selected" : "transparent",
                       "& .MuiButton-startIcon": {
-                        color: active ? "primary.main" : "#97a39d",
+                        color: active ? "primary.main" : "text.disabled",
                       },
                       "&:hover": {
-                        color: active ? "primary.dark" : "#4f5e56",
+                        color: active ? "primary.dark" : "text.primary",
                         bgcolor: active ? "action.selected" : "action.hover",
                       },
                     }}
@@ -552,8 +552,8 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           sx={{
             justifyContent: "flex-start",
             borderRadius: "8px",
-            color: "#718078",
-            "& .MuiButton-startIcon": { color: "#97a39d" },
+            color: "text.secondary",
+            "& .MuiButton-startIcon": { color: "text.disabled" },
           }}
         >
           退出登录
@@ -575,7 +575,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         data-admin-root
         sx={{
           minHeight: "100vh",
-          bgcolor: "#eef3f0",
+          bgcolor: "background.default",
           p: { xs: 0, md: 2 },
           "& .MuiButton-root": { minHeight: 38, px: 1.75 },
           "& .MuiIconButton-root": { width: 38, height: 38 },
@@ -597,7 +597,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             border: "1px solid",
             borderColor: "divider",
             borderRadius: "8px",
-            boxShadow: "0 16px 42px rgba(31,54,42,.08)",
+            boxShadow: "0 16px 42px rgba(17,17,17,.08)",
             overflow: "hidden",
             zIndex: 1200,
           }}
@@ -625,7 +625,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             width: { xs: "100%", md: `calc(100% - ${drawerWidth + 48}px)` },
             border: 0,
             borderRadius: { xs: 0, md: "8px" },
-            boxShadow: "0 12px 34px rgba(31,54,42,.07)",
+            boxShadow: "0 12px 34px rgba(17,17,17,.07)",
             overflow: "hidden",
           }}
         >
@@ -670,7 +670,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 onClick={() => void openBingBrowser()}
                 sx={{
                   display: { xs: "inline-flex", sm: "none" },
-                  bgcolor: "#f2f7f4",
+                  bgcolor: "action.hover",
                 }}
               >
                 <Box
@@ -689,7 +689,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               sx={{
                 ...topStatusButtonSx,
                 display: { xs: "none", sm: "inline-flex" },
-                boxShadow: "0 8px 20px rgba(21,154,98,.2)",
+                boxShadow: "0 8px 20px rgba(17,17,17,.14)",
               }}
             >
               视频教程
@@ -702,7 +702,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 color="primary"
                 sx={{
                   display: { xs: "inline-flex", sm: "none" },
-                  bgcolor: "#e7f5ed",
+                  bgcolor: "action.selected",
                 }}
               >
                 <PlayCircleRoundedIcon />
@@ -710,7 +710,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Tooltip>
             <Button
               variant="outlined"
-              color={subscription.active ? "success" : "warning"}
+              color={subscription.active ? "primary" : "warning"}
               startIcon={<CalendarMonthRoundedIcon />}
               onClick={() => router.push("/admin/subscription")}
               sx={{
@@ -772,7 +772,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               border: "1px solid",
               borderColor: "divider",
               borderRadius: { xs: "8px 8px 0 0", md: "8px" },
-              boxShadow: "0 16px 42px rgba(31,54,42,.06)",
+              boxShadow: "0 16px 42px rgba(17,17,17,.06)",
               overflow: "auto",
             }}
           >

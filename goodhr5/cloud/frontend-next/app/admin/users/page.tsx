@@ -265,7 +265,7 @@ export default function UsersPage() {
             <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
               <Table size="small" sx={{ tableLayout: "fixed" }}>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: "#f6faf7" }}>
+                  <TableRow sx={{ bgcolor: "action.hover" }}>
                     <TableCell sx={{ width: "32%" }}>用户</TableCell>
                     <TableCell sx={{ width: "14%" }}>会员</TableCell>
                     <TableCell sx={{ width: "10%" }}>AI余额</TableCell>
@@ -456,7 +456,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
         borderColor: "divider",
         borderRadius: "8px",
         bgcolor: "#fff",
-        boxShadow: "0 8px 20px rgba(39, 77, 55, 0.06)",
+        boxShadow: "0 8px 20px rgba(17, 17, 17, 0.06)",
       }}
     >
       <Stack spacing={0.75} sx={{ minWidth: 0 }}>
@@ -467,7 +467,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
             fontFamily: "monospace",
             fontSize: 14,
             fontWeight: 800,
-            color: "#1f2a23",
+            color: "text.primary",
           }}
         >
           {item.email}
@@ -556,7 +556,7 @@ function MobileInfoBlock({
   strong?: boolean;
 }) {
   return (
-    <Box sx={{ p: 1, borderRadius: "8px", bgcolor: "#f8fbf8", minWidth: 0 }}>
+    <Box sx={{ p: 1, borderRadius: "8px", bgcolor: "action.hover", minWidth: 0 }}>
       <Typography sx={{ mb: 0.5, fontSize: 11, color: "text.secondary" }}>
         {title}
       </Typography>
@@ -571,9 +571,9 @@ function MobileInfoBlock({
               fontWeight: index === 0 ? 720 : 400,
               color:
                 index === 0 && strong
-                  ? "#15945f"
+                  ? "primary.main"
                   : index === 0
-                    ? "#1f2a23"
+                    ? "text.primary"
                     : "text.secondary",
             }}
           >
@@ -645,7 +645,7 @@ function SubscriptionInfo({ item }: { item: AdminUserItem }) {
 function BalanceInfo({ item }: { item: AdminUserItem }) {
   return <Stack component={Link} href={`/admin/ai-records?email=${encodeURIComponent(item.email)}`} spacing={0.5} sx={{ color: "inherit", textDecoration: "none" }}>
       <Typography sx={{ fontSize: 12, fontWeight: 720 }}>AI余额</Typography>
-      <Typography sx={{ color: Number(item.ai_balance_units || 0) > 0 ? "#15945f" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
+      <Typography sx={{ color: Number(item.ai_balance_units || 0) > 0 ? "primary.main" : "text.secondary", fontSize: 13, fontWeight: 780 }}>
         ￥{item.ai_balance || "0.00"}
       </Typography>
     </Stack>;
@@ -752,8 +752,8 @@ function SmallTag({ label }: { label: string }) {
         px: 0.75,
         py: 0.25,
         borderRadius: "6px",
-        bgcolor: "#eef6f0",
-        color: "#2f6f4f",
+        bgcolor: "action.selected",
+        color: "primary.dark",
         fontSize: 11,
         lineHeight: 1.55,
       }}

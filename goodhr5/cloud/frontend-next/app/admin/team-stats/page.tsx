@@ -75,7 +75,7 @@ export default function TeamStatsPage() {
     </Box>
     <SectionPanel sx={{ p: 0, overflow: "hidden" }}>
       {members.length ? <>
-        <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "minmax(180px,1.4fr) repeat(7, minmax(86px, .8fr))", gap: 1, px: 2, py: 1.4, bgcolor: "#f6faf7", borderBottom: "1px solid", borderColor: "divider", "& p": { fontWeight: 820, fontSize: 13 } }}>
+        <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "minmax(180px,1.4fr) repeat(7, minmax(86px, .8fr))", gap: 1, px: 2, py: 1.4, bgcolor: "action.hover", borderBottom: "1px solid", borderColor: "divider", "& p": { fontWeight: 820, fontSize: 13 } }}>
           <Typography>员工</Typography>{metricFields.map(([, label]) => <Typography key={label} sx={{ textAlign: "right" }}>{label}</Typography>)}
         </Box>
         <Stack>{members.map((member: any) => <MemberRow key={member.email} member={member} />)}</Stack>
@@ -86,7 +86,7 @@ export default function TeamStatsPage() {
 
 /** MetricCard 展示单个统计数字。 */
 function MetricCard({ label, value }: { label: string; value: number }) {
-  return <Box sx={{ p: 1.5, borderRadius: "8px", border: "1px solid", borderColor: "divider", bgcolor: "#fbfdfc", minHeight: 82 }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Typography sx={{ mt: 0.6, fontSize: 26, fontWeight: 840 }}>{value}</Typography></Box>;
+  return <Box sx={{ p: 1.5, borderRadius: "8px", border: "1px solid", borderColor: "divider", bgcolor: "action.hover", minHeight: 82 }}><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{label}</Typography><Typography sx={{ mt: 0.6, fontSize: 26, fontWeight: 840 }}>{value}</Typography></Box>;
 }
 
 /** MemberRow 展示单个员工的统计行。 */

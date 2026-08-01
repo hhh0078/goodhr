@@ -855,7 +855,7 @@ export default function PositionsPage() {
                       </Button>
                     ) : (
                       <Button
-                        color='success'
+                        color='primary'
                         variant='contained'
                         startIcon={<PlayArrowRoundedIcon />}
                         disabled={busyPositionID === item.id}
@@ -1384,7 +1384,7 @@ export default function PositionsPage() {
                       p: 1.5,
                       borderLeft: "3px solid",
                       borderColor: "primary.main",
-                      bgcolor: "#f5f8f6",
+                      bgcolor: "action.hover",
                     }}
                   >
                     <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
@@ -1429,7 +1429,7 @@ export default function PositionsPage() {
                         px: 1.5,
                         py: 1.25,
                         color: "text.primary",
-                        bgcolor: advancedOpen ? "#f5f8f6" : "transparent",
+                        bgcolor: advancedOpen ? "action.hover" : "transparent",
                       }}
                     >
                       高级设置
@@ -1754,11 +1754,11 @@ function PlatformTipCard({
         />
       )}
       <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ color: "#22372c", fontSize: 13, fontWeight: 780 }}>
+        <Typography sx={{ color: "text.primary", fontSize: 13, fontWeight: 780 }}>
           {title}
         </Typography>
         <Typography
-          sx={{ mt: 0.35, color: "#54635a", fontSize: 12.5, lineHeight: 1.55 }}
+          sx={{ mt: 0.35, color: "text.secondary", fontSize: 12.5, lineHeight: 1.55 }}
         >
           {text}
         </Typography>
@@ -1793,7 +1793,7 @@ function HLiepinHiddenCandidateFilters({
         border: "1px solid",
         borderColor: "divider",
         borderRadius: "8px",
-        bgcolor: "#fbfcfb",
+        bgcolor: "action.hover",
       }}
     >
       <Typography sx={{ fontSize: 14, fontWeight: 760 }}>
@@ -2184,7 +2184,7 @@ function PositionLogPanel(props: {
         border: "1px solid",
         borderColor: "divider",
         borderRadius: "8px",
-        bgcolor: "#f7faf8",
+        bgcolor: "action.hover",
         overflow: "hidden",
       }}
     >

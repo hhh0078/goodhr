@@ -37,7 +37,7 @@ export default function ClickableImagePreview({
             border: "1px solid",
             borderColor: "divider",
             borderRadius: "8px",
-            bgcolor: "#f5f7f6",
+            bgcolor: "action.hover",
             cursor: "zoom-in",
             lineHeight: 0,
             "&:focus-visible": {
@@ -69,7 +69,7 @@ export default function ClickableImagePreview({
               px: 1,
               py: 0.75,
               borderRadius: "6px",
-              bgcolor: "rgba(20, 32, 25, .78)",
+              bgcolor: "rgba(20, 20, 20, .78)",
               color: "#fff",
               fontSize: 12,
               lineHeight: 1,
@@ -91,7 +91,7 @@ export default function ClickableImagePreview({
         slotProps={{
           paper: {
             sx: {
-              bgcolor: "rgba(14, 20, 16, .94)",
+              bgcolor: "rgba(14, 14, 14, .94)",
             },
           },
         }}
