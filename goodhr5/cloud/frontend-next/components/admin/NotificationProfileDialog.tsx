@@ -124,13 +124,13 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
 
   return (
     <Dialog open={open} fullWidth maxWidth="sm" onClose={loading ? undefined : cancel} slotProps={{ paper: { sx: { borderRadius: "8px", overflow: "hidden" } } }}>
-      <Box sx={{ position: "relative", bgcolor: "#f7fbf6", borderBottom: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ position: "relative", bgcolor: "action.hover", borderBottom: "1px solid", borderColor: "divider" }}>
         <IconButton aria-label="关闭" disabled={loading} onClick={() => void cancel()} sx={{ position: "absolute", top: 12, right: 12, zIndex: 1 }}>
           <CloseRoundedIcon />
         </IconButton>
         <Box sx={{ px: { xs: 2.25, sm: 3 }, pt: 3, pb: 2.5 }}>
           <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-            <Box sx={{ width: 42, height: 42, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "#2f6f4f", color: "white", animation: "profilePulse 1.8s ease-in-out infinite" }}>
+            <Box sx={{ width: 42, height: 42, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "primary.main", color: "primary.contrastText", animation: "profilePulse 1.8s ease-in-out infinite" }}>
               {step === 2 ? <CheckCircleRoundedIcon /> : <NotificationsActiveRoundedIcon />}
             </Box>
             <Box>
@@ -149,7 +149,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
 
       <DialogActions sx={{ px: { xs: 2.25, sm: 3 }, py: 2, justifyContent: "space-between", borderTop: "1px solid", borderColor: "divider" }}>
         <Button disabled={loading} onClick={() => void cancel()}>取消</Button>
-        <Button variant="contained" disabled={loading} onClick={() => void next()} sx={{ bgcolor: "#2f6f4f", "&:hover": { bgcolor: "#285f44" } }}>
+        <Button variant="contained" disabled={loading} onClick={() => void next()}>
           {loading ? <CircularProgress size={18} color="inherit" /> : step === 2 ? "完成" : "下一步"}
         </Button>
       </DialogActions>
@@ -176,12 +176,12 @@ function FormStep({ form, setForm, togglePlatform }: { form: NotificationProfile
 
 /** DoneStep 展示保存完成提示。 */
 function DoneStep() {
-  return <Stack spacing={2.25} sx={{ textAlign: "center", alignItems: "center", py: 3 }}><CheckCircleRoundedIcon sx={{ fontSize: 58, color: "#2f6f4f", animation: "profilePulse 1.2s ease-in-out 1" }} /><Typography sx={{ fontSize: 22, fontWeight: 780 }}>感谢赏脸，我记住了。</Typography><Typography sx={{ maxWidth: 420, color: "text.secondary", lineHeight: 1.9 }}>以后我们会尽量只发你可能真的用得上的通知。不保证完全不打扰，但我会努力当个有分寸的系统。</Typography></Stack>;
+  return <Stack spacing={2.25} sx={{ textAlign: "center", alignItems: "center", py: 3 }}><CheckCircleRoundedIcon sx={{ fontSize: 58, color: "primary.main", animation: "profilePulse 1.2s ease-in-out 1" }} /><Typography sx={{ fontSize: 22, fontWeight: 780 }}>感谢赏脸，我记住了。</Typography><Typography sx={{ maxWidth: 420, color: "text.secondary", lineHeight: 1.9 }}>以后我们会尽量只发你可能真的用得上的通知。不保证完全不打扰，但我会努力当个有分寸的系统。</Typography></Stack>;
 }
 
 /** ChoiceGroup 渲染单选按钮组。 */
 function ChoiceGroup({ icon, title, value, options, onChange }: { icon: ReactNode; title: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
-  return <Box><Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: "center" }}>{icon}<Typography sx={{ fontWeight: 760 }}>{title}</Typography></Stack><Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 1 }}>{options.map((option) => <Button key={option.value} variant={value === option.value ? "contained" : "outlined"} onClick={() => onChange(option.value)} sx={{ minHeight: 42, borderRadius: "8px", color: value === option.value ? "white" : "text.primary", bgcolor: value === option.value ? "#2f6f4f" : "transparent", borderColor: value === option.value ? "#2f6f4f" : "divider", "&:hover": { bgcolor: value === option.value ? "#285f44" : "#f7fbf6", borderColor: "#2f6f4f" } }}>{option.label}</Button>)}</Box></Box>;
+  return <Box><Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: "center" }}>{icon}<Typography sx={{ fontWeight: 760 }}>{title}</Typography></Stack><Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 1 }}>{options.map((option) => <Button key={option.value} variant={value === option.value ? "contained" : "outlined"} onClick={() => onChange(option.value)} sx={{ minHeight: 42, borderRadius: "8px", color: value === option.value ? "primary.contrastText" : "text.primary", bgcolor: value === option.value ? "primary.main" : "transparent", borderColor: value === option.value ? "primary.main" : "divider", "&:hover": { bgcolor: value === option.value ? "primary.dark" : "action.hover", borderColor: "primary.main" } }}>{option.label}</Button>)}</Box></Box>;
 }
 
 /** detectDevice 识别当前电脑系统和浏览器。 */

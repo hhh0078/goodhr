@@ -360,13 +360,13 @@ export default function SubscriptionPage() {
                   ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
                   : "未开通或已到期"
               }
-              color={subscription.active ? "success" : "default"}
+              color={subscription.active ? "primary" : "default"}
             />
             <Typography
               noWrap
               sx={{
                 color: subscription.active
-                  ? "rgba(248,241,218,.74)"
+                  ? "rgba(255,255,255,.72)"
                   : "text.secondary",
                 fontSize: 13,
               }}
@@ -397,8 +397,8 @@ export default function SubscriptionPage() {
               onClick={openModelDialog}
               sx={{
                 width: "fit-content",
-                bgcolor: "#eef6f0",
-                color: "#2f6f4f",
+                bgcolor: "action.selected",
+                color: "primary.dark",
                 fontWeight: 700,
               }}
             />
@@ -427,7 +427,7 @@ export default function SubscriptionPage() {
             display: "flex",
             flex: "1 1 260px",
             alignItems: "center",
-            bgcolor: "#fbfdfc",
+            bgcolor: "action.hover",
           }}
         >
           <Stack
@@ -648,8 +648,9 @@ function PaymentUnderstandingDialog({
               sx={{
                 p: 1.75,
                 borderRadius: 2,
-                bgcolor: "#eef6f0",
-                border: "1px solid #cfe4d6",
+                bgcolor: "action.selected",
+                border: "1px solid",
+                borderColor: "primary.light",
               }}
             >
               <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
@@ -663,7 +664,7 @@ function PaymentUnderstandingDialog({
             </Box>
           ) : null}
           <Box
-            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f4f8f5" }}
+            sx={{ p: 1.75, borderRadius: 2, bgcolor: "action.hover" }}
           >
             <Typography sx={{ fontWeight: 800 }}>会员费</Typography>
             <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
@@ -734,9 +735,9 @@ function InfoCard({
   return (
     <SectionPanel
       sx={{
-        bgcolor: dark ? "#15271e" : "#fbfdfc",
-        color: dark ? "#f8f1da" : "text.primary",
-        borderColor: dark ? "#4d5a48" : "divider",
+        bgcolor: dark ? "secondary.main" : "action.hover",
+        color: dark ? "#ffffff" : "text.primary",
+        borderColor: dark ? "primary.main" : "divider",
         ...sx,
       }}
     >
@@ -762,8 +763,8 @@ function InfoCard({
               display: "grid",
               placeItems: "center",
               flexShrink: 0,
-              bgcolor: dark ? "#c9a55d" : "#e9f2ec",
-              color: dark ? "#1b241e" : "#1e6545",
+              bgcolor: dark ? "primary.light" : "action.selected",
+              color: "primary.dark",
             }}
           >
             {icon}
@@ -873,7 +874,7 @@ function AIRecordList({
       <TableContainer sx={{ mt: 1.5, display: { xs: "none", md: "block" } }}>
         <Table size='small'>
           <TableHead>
-            <TableRow sx={{ bgcolor: "#f6faf7" }}>
+            <TableRow sx={{ bgcolor: "action.hover" }}>
               <TableCell>类型</TableCell>
               <TableCell>金额</TableCell>
               <TableCell>余额</TableCell>
@@ -955,7 +956,7 @@ function AIRecordCard({ record }: { record: any }) {
         border: "1px solid",
         borderColor: "divider",
         borderRadius: "8px",
-        bgcolor: "#fbfdfc",
+        bgcolor: "action.hover",
       }}
     >
       <Stack direction='row' sx={{ justifyContent: "space-between", gap: 1 }}>
@@ -1014,7 +1015,7 @@ function AmountText({ units, value }: { units: number; value: string }) {
       spacing={0.4}
       sx={{
         alignItems: "center",
-        color: positive ? "#15804f" : "#b45309",
+        color: positive ? "success.main" : "warning.dark",
         fontWeight: 800,
       }}
     >
@@ -1075,7 +1076,7 @@ function PlanCard({
         border: "1px solid",
         borderColor: featured ? "#b69957" : "divider",
         borderRadius: "8px",
-        bgcolor: featured ? "#fffdf7" : "#fbfdfc",
+        bgcolor: featured ? "#fffdf7" : "action.hover",
         boxShadow: featured ? "0 12px 28px rgba(76, 61, 28, .09)" : "none",
       }}
     >
@@ -1150,7 +1151,7 @@ function PlanCard({
               <CheckRoundedIcon
                 sx={{
                   mt: 0.15,
-                  color: featured ? "#9c7b32" : "#1e6545",
+                  color: featured ? "#9c7b32" : "primary.main",
                   fontSize: 19,
                 }}
               />
@@ -1188,8 +1189,8 @@ function PlanCard({
           sx={{
             mt: 2.5,
             alignSelf: "flex-start",
-            bgcolor: "#eaf3ed",
-            color: "#1e6545",
+            bgcolor: "action.selected",
+            color: "primary.dark",
             fontWeight: 700,
           }}
         />

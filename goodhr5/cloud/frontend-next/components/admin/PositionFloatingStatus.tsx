@@ -105,7 +105,7 @@ export async function openPositionFloatingWindow() {
       margin: "0",
       minWidth: "260px",
       minHeight: "180px",
-      background: "#edf5f0",
+      background: "#f5f5f2",
     });
     return pipWindow;
   } catch {

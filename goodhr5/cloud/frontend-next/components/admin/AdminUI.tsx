@@ -10,7 +10,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 
 /** SectionPanel 输出后台标准内容区域。 */
 export function SectionPanel({ children, sx = {} }: { children: ReactNode; sx?: Record<string, unknown> }) {
-  return <Box component="section" sx={{ p: { xs: 2, md: 2.5 }, borderRadius: "8px", border: "1px solid", borderColor: "divider", bgcolor: "#fbfdfc", ...sx }}>{children}</Box>;
+  return <Box component="section" sx={{ p: { xs: 2, md: 2.5 }, borderRadius: "8px", border: "1px solid", borderColor: "divider", bgcolor: "action.hover", ...sx }}>{children}</Box>;
 }
 
 /** EmptyState 展示暂无数据提示。 */

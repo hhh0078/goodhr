@@ -247,7 +247,7 @@ export default function AgentDownloadPage() {
                     border: "1px solid",
                     borderColor: "divider",
                     borderRadius: "6px",
-                    bgcolor: "#f4f7f5",
+                    bgcolor: "action.hover",
                     fontFamily: "monospace",
                     fontSize: 12,
                   }}

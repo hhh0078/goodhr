@@ -133,7 +133,7 @@ export default function AccountsPage() {
       />
       <SectionPanel>
         {accounts.length ? (
-          <Stack divider={<span style={{ borderTop: "1px solid #dce5e0" }} />}>
+          <Stack divider={<Box component="span" sx={{ borderTop: "1px solid", borderColor: "divider" }} />}>
             {accounts.map((account) => (
               <Stack key={account.id} direction={{ xs: "column", md: "row" }} spacing={2} sx={{ py: 2, alignItems: { md: "center" } }}>
                 <Stack direction='row' spacing={1.5} sx={{ flex: 1, minWidth: 0, alignItems: "center" }}>

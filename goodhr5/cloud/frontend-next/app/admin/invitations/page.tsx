@@ -88,8 +88,8 @@ export default function InvitationsPage() {
           sx={{
             position: "relative",
             overflow: "hidden",
-            bgcolor: "#f3f8f4",
-            borderColor: "#cfe0d3",
+            bgcolor: "action.selected",
+            borderColor: "primary.light",
           }}
         >
           <Stack direction='row' spacing={1.5} sx={{ alignItems: "center" }}>
@@ -100,8 +100,8 @@ export default function InvitationsPage() {
                 borderRadius: "8px",
                 display: "grid",
                 placeItems: "center",
-                bgcolor: "#1e6545",
-                color: "white",
+                bgcolor: "primary.main",
+                color: "primary.contrastText",
                 flexShrink: 0,
               }}
             >
@@ -158,7 +158,7 @@ export default function InvitationsPage() {
             </Box>
             <Box>
               <Typography
-                sx={{ fontSize: 30, fontWeight: 800, color: "#1e6545" }}
+                sx={{ fontSize: 30, fontWeight: 800, color: "primary.main" }}
               >
                 {Number(data.reward_days || data.total_reward_days || 0)}
               </Typography>
@@ -211,7 +211,8 @@ export default function InvitationsPage() {
           <Chip
             size='small'
             label={`共 ${invitees.length} 人`}
-            sx={{ bgcolor: "#edf5ef", color: "#1e6545" }}
+            color='primary'
+            variant='outlined'
           />
         </Stack>
         {invitees.length ? (
@@ -281,13 +282,14 @@ function RewardCard({
       spacing={1.5}
       sx={{
         p: 1.75,
-        border: "1px solid #d8e6db",
+        border: "1px solid",
+        borderColor: "divider",
         borderRadius: "8px",
         bgcolor: "rgba(255,255,255,.74)",
         alignItems: "center",
       }}
     >
-      <Box sx={{ color: "#1e6545", display: "grid", placeItems: "center" }}>
+      <Box sx={{ color: "primary.main", display: "grid", placeItems: "center" }}>
         {icon}
       </Box>
       <Box>
