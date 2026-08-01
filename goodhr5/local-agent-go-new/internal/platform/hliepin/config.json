@@ -104,13 +104,12 @@
       "description": "猎聘猎头端候选人行"
     },
     "candidate.open_target": {
-      "_comment": "候选人行内详情链接。",
+      "_comment": "候选人行左侧个人信息区域，避开右侧立即沟通按钮。",
       "parents": [],
       "target": {
-        "_comment": "详情链接目标。",
+        "_comment": "只点击候选人姓名、年龄、期望和标签所在的小区域，不再点击整张卡片。",
         "selectors": [
-          { "_comment": "2026 版详情链接。", "type": "css", "value": "a" },
-          { "_comment": "旧版简历卡片。", "type": "css", "value": ".tlog-common-resume-card" }
+          { "_comment": "2026 版候选人左侧个人信息区域。", "type": "css", "value": ".new-resume-personal" }
         ]
       },
       "state": "visible",

@@ -110,6 +110,19 @@ func TestLoadConfigUsesUniqueHLiepinCandidateRows(t *testing.T) {
 	}
 }
 
+// TestLoadConfigUsesSafeHLiepinDetailTarget 验证猎聘猎头端只点击左侧个人信息区域打开详情，避免随机点中立即沟通。
+func TestLoadConfigUsesSafeHLiepinDetailTarget(t *testing.T) {
+	cfg, err := LoadConfig("hliepin")
+	if err != nil {
+		t.Fatalf("读取猎聘猎头端本地配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.open_target"]
+	if len(selector.Target.Selectors) != 1 ||
+		selector.Target.Selectors[0].Value != ".new-resume-personal" {
+		t.Fatalf("猎聘详情入口必须保持为避开立即沟通按钮的左侧个人信息区域：%+v", selector.Target.Selectors)
+	}
+}
+
 // TestLoadConfigMatchesHLiepinPromotionVariants 验证猎聘推广弹框同时兼容旧活动文案和新版发送成功文案。
 func TestLoadConfigMatchesHLiepinPromotionVariants(t *testing.T) {
 	cfg, err := LoadConfig("hliepin")
