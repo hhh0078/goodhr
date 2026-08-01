@@ -5,6 +5,7 @@ package hliepin
 type Runtime struct {
 	positionName      string
 	nextCandidatePage int
+	detailReturnURL   string
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时。
