@@ -110,6 +110,25 @@ func TestLoadConfigUsesUniqueHLiepinCandidateRows(t *testing.T) {
 	}
 }
 
+// TestLoadConfigMatchesHLiepinPromotionVariants 验证猎聘推广弹框同时兼容旧活动文案和新版发送成功文案。
+func TestLoadConfigMatchesHLiepinPromotionVariants(t *testing.T) {
+	cfg, err := LoadConfig("hliepin")
+	if err != nil {
+		t.Fatalf("读取猎聘猎头端本地配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.greet_promotion_modal"]
+	values := make([]string, 0, len(selector.Target.Selectors))
+	for _, candidate := range selector.Target.Selectors {
+		values = append(values, candidate.Value)
+	}
+	joined := strings.Join(values, "\n")
+	for _, expected := range []string{"一键免费开聊相似候选人", "发送打招呼语", "免费开聊"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("猎聘推广弹框选择器缺少文案 %q：%s", expected, joined)
+		}
+	}
+}
+
 // TestValidateTaskConfig 验证自动回复缺少真实消息配置时会在启动前明确拦截。
 func TestValidateTaskConfig(t *testing.T) {
 	cfg, err := LoadConfig("zhaopin")

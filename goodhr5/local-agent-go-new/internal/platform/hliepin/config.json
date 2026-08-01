@@ -328,33 +328,31 @@
       "description": "猎聘猎头端立即开聊"
     },
     "candidate.greet_promotion_modal": {
-      "_comment": "开聊成功后偶尔出现的相似候选人免费开聊推广弹框，仅猎聘猎头端使用。",
+      "_comment": "开聊成功后偶尔出现的相似候选人免费开聊推广弹框，兼容旧活动文案和新版发送成功文案。",
       "parents": [],
       "target": {
-        "_comment": "按推广文案限定弹框，避免误关职位开聊弹框和候选人聊天框。",
-        "text": "一键免费开聊相似候选人",
-        "_comment_text": "兼容“限时福利，一键免费开聊相似候选人”等完整文案。",
-        "exact_text": false,
-        "_comment_exact_text": "推广标题前后可能附加活动文案，因此使用包含匹配。",
+        "_comment": "每个选择器都带推广专属文案，避免误关职位开聊弹框和候选人聊天框。",
         "selectors": [
-          { "_comment": "猎聘页面当前使用的 Ant Design 弹框。", "type": "css", "value": ".ant-modal" },
-          { "_comment": "兼容带标准对话框角色的推广层。", "type": "css", "value": "[role='dialog']" }
+          { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:has-text('一键免费开聊相似候选人')" },
+          { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:has-text('发送打招呼语'):has-text('免费开聊')" },
+          { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:has-text('一键免费开聊相似候选人')" },
+          { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:has-text('发送打招呼语'):has-text('免费开聊')" }
         ]
       },
       "state": "visible",
-      "timeout_ms": 800,
+      "timeout_ms": 300,
       "description": "猎聘猎头端开聊后推广弹框"
     },
     "candidate.greet_promotion_close": {
       "_comment": "相似候选人免费开聊推广弹框右上角关闭按钮；点击失败时由公共弹框能力使用 Escape 兜底。",
       "parents": [
         {
-          "_comment": "只在包含推广文案的弹框内查找关闭按钮。",
-          "text": "一键免费开聊相似候选人",
-          "exact_text": false,
+          "_comment": "只在旧版或新版推广弹框内查找关闭按钮。",
           "selectors": [
-            { "_comment": "猎聘页面当前使用的 Ant Design 弹框。", "type": "css", "value": ".ant-modal" },
-            { "_comment": "兼容带标准对话框角色的推广层。", "type": "css", "value": "[role='dialog']" }
+            { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:has-text('一键免费开聊相似候选人')" },
+            { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:has-text('发送打招呼语'):has-text('免费开聊')" },
+            { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:has-text('一键免费开聊相似候选人')" },
+            { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:has-text('发送打招呼语'):has-text('免费开聊')" }
           ]
         }
       ],

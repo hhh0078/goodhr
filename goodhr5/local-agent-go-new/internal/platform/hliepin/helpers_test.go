@@ -33,8 +33,10 @@ type greetingJobBrowser struct {
 // promotionBrowser 模拟猎聘开聊后推广弹框及 Escape 兜底关闭行为。
 type promotionBrowser struct {
 	model.Browser
-	opened     bool
-	pressCount int
+	opened            bool
+	pressCount        int
+	scrollCount       int
+	scrollWhileOpened bool
 }
 
 // Click 记录猎聘快捷搜索点击参数并返回成功。
@@ -115,6 +117,13 @@ func (b *promotionBrowser) PressKey(_ context.Context, request contract.Keyboard
 		b.pressCount++
 	}
 	return contract.KeyboardPressResult{}, nil
+}
+
+// Scroll 记录候选人滚动时推广弹框是否仍然存在。
+func (b *promotionBrowser) Scroll(_ context.Context, _ contract.ScrollRequest) (contract.ScrollResult, error) {
+	b.scrollCount++
+	b.scrollWhileOpened = b.opened
+	return contract.ScrollResult{Scrolled: true}, nil
 }
 
 // TestStableCandidateText 验证动态状态不会进入候选人稳定指纹。
@@ -364,6 +373,34 @@ func TestInitializeGreetingPageClosesStalePromotion(t *testing.T) {
 	}
 	if browser.opened || browser.pressCount != 1 {
 		t.Fatalf("遗留推广弹框没有在选择岗位前关闭：opened=%v press=%d", browser.opened, browser.pressCount)
+	}
+}
+
+// TestScrollToCandidateClosesLatePromotion 验证晚出现的猎聘推广弹框会在滚动下一位候选人前关闭。
+func TestScrollToCandidateClosesLatePromotion(t *testing.T) {
+	browser := &promotionBrowser{opened: true}
+	cfg := model.Config{
+		ID:   "hliepin",
+		Name: "猎聘猎头端",
+		Selectors: map[string]contract.SelectorSpec{
+			"candidate.greet_promotion_modal": selectorForGreetingTest("开聊后推广弹框"),
+			"candidate.greet_promotion_close": selectorForGreetingTest("关闭开聊后推广弹框"),
+			"candidate.item":                  selectorForGreetingTest("候选人行"),
+		},
+	}
+	if err := NewRuntime().ScrollToCandidate(
+		context.Background(),
+		browser,
+		cfg,
+		model.Candidate{Index: 0},
+	); err != nil {
+		t.Fatalf("清理推广弹框后滚动候选人失败：%v", err)
+	}
+	if browser.opened || browser.pressCount != 1 {
+		t.Fatalf("滚动前没有关闭推广弹框：opened=%v press=%d", browser.opened, browser.pressCount)
+	}
+	if browser.scrollCount != 1 || browser.scrollWhileOpened {
+		t.Fatalf("候选人滚动顺序不正确：count=%d while_opened=%v", browser.scrollCount, browser.scrollWhileOpened)
 	}
 }
 

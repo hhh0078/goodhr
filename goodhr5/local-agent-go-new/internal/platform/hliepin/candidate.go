@@ -60,8 +60,11 @@ func stableCandidateName(value string) string {
 	return ""
 }
 
-// ScrollToCandidate 通过真实滚轮定位指定猎聘猎头端候选人。
+// ScrollToCandidate 先清理晚出现的开聊推广弹框，再通过真实滚轮定位候选人。
 func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
+		return err
+	}
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
