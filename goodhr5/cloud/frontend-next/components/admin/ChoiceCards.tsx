@@ -21,6 +21,7 @@ export default function ChoiceCards({
   options,
   columns = 2,
   autoWidth = false,
+  readOnly = false,
   onChange,
 }: {
   label: string;
@@ -28,6 +29,7 @@ export default function ChoiceCards({
   options: ChoiceOption[];
   columns?: number;
   autoWidth?: boolean;
+  readOnly?: boolean;
   onChange: (value: string | boolean) => void;
 }) {
   return (
@@ -40,6 +42,7 @@ export default function ChoiceCards({
       <Box
         role="radiogroup"
         aria-label={label}
+        aria-readonly={readOnly || undefined}
         sx={{
           display: autoWidth ? "flex" : "grid",
           flexWrap: autoWidth ? "wrap" : undefined,
@@ -62,8 +65,8 @@ export default function ChoiceCards({
               role="radio"
               aria-label={option.label}
               aria-checked={selected}
-              disabled={option.disabled}
-              onClick={() => onChange(option.value)}
+              disabled={readOnly || option.disabled}
+              onClick={readOnly ? undefined : () => onChange(option.value)}
               sx={{
                 position: "relative",
                 display: "block",
@@ -88,7 +91,7 @@ export default function ChoiceCards({
                     ? "#242017"
                     : "#181713"
                   : selected
-                    ? "#edf7f1"
+                    ? "action.selected"
                     : "#fff",
                 boxShadow:
                   memberStyle && selected
@@ -106,7 +109,7 @@ export default function ChoiceCards({
                   bgcolor: memberStyle
                     ? "#242017"
                     : selected
-                      ? "#edf7f1"
+                      ? "action.selected"
                       : "#fbfdfc",
                 },
               }}
