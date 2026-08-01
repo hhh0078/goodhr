@@ -67,6 +67,10 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("打开 SQLite 失败：%w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("设置 SQLite 写入等待时间失败：%w", err)
+	}
 	store := &Store{db: db}
 	if err := store.Migrate(context.Background()); err != nil {
 		db.Close()

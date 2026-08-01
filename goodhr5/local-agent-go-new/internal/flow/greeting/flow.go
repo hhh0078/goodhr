@@ -3,6 +3,7 @@ package greeting
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -263,7 +264,11 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			}
 			cancelCandidate()
 			if candidateErr != nil {
-				f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
+				if errors.Is(candidateErr, model.ErrCandidateDetailUnavailable) {
+					f.log(prepared.Request.TaskID, "candidate_detail_unavailable", "skipped", time.Now(), candidateErr)
+				} else {
+					f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
+				}
 				if stopErr := errorPolicy.Record(candidateErr); stopErr != nil {
 					cancelPreviews()
 					return stopErr
@@ -378,6 +383,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return err
 		}
 		if err := runtime.OpenCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			if errors.Is(err, model.ErrCandidateDetailUnavailable) {
+				stats.Skipped++
+				f.saveCandidate(ctx, prepared, candidate, "open_detail", "skipped", err.Error())
+				return err
+			}
 			f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打开候选人详情失败")
 			stats.Failed++
 			f.saveCandidate(ctx, prepared, candidate, "open_detail", "failed", err.Error())
@@ -567,6 +577,13 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		KeepConversationOpen: requestInfo || greetMessage != "",
 	})
 	if greetErr != nil {
+		if errors.Is(greetErr, model.ErrCandidateAlreadyContacted) {
+			evaluationStatus = "skipped"
+			stats.Skipped++
+			f.log(prepared.Request.TaskID, "greet", "skipped", time.Now(), greetErr)
+			f.saveCandidate(ctx, prepared, candidate, "greet", "skipped", "候选人已经沟通过，本轮不重复打招呼")
+			return nil
+		}
 		f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打招呼失败")
 		evaluationStatus = "failed"
 		stats.Failed++

@@ -3,8 +3,16 @@ package model
 
 import (
 	"context"
+	"errors"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+)
+
+var (
+	// ErrCandidateAlreadyContacted 表示候选人卡片已经进入继续沟通状态，本轮无需重复打招呼。
+	ErrCandidateAlreadyContacted = errors.New("候选人已经沟通过")
+	// ErrCandidateDetailUnavailable 表示当前候选人卡片可以点击，但平台没有打开详情。
+	ErrCandidateDetailUnavailable = errors.New("候选人详情暂时不可用")
 )
 
 // Browser 定义平台适配层可以调用的 Worker 封装能力。

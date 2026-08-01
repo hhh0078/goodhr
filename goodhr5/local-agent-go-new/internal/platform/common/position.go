@@ -29,8 +29,8 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 			return nil
 		}
 	}
-	if err := ClickRequired(ctx, browser, cfg, "position.open"); err != nil {
-		return fmt.Errorf("打开岗位列表失败：%w", err)
+	if err := openPositionList(ctx, browser, cfg); err != nil {
+		return err
 	}
 	if _, ok := cfg.Selectors["position.input"]; ok {
 		if err := InputRequired(ctx, browser, cfg, "position.input", PositionSearchQuery(positionName)); err != nil {
@@ -90,6 +90,32 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 		return fmt.Errorf("岗位切换后页面显示“%s”，目标是“%s”", current, positionName)
 	}
 	return nil
+}
+
+// openPositionList 打开岗位列表并确认弹层出现，页面吞掉首次点击时只重试一次。
+func openPositionList(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	probeKey := ""
+	if _, exists := cfg.Selectors["position.panel"]; exists {
+		probeKey = "position.panel"
+	} else if _, exists := cfg.Selectors["position.input"]; exists {
+		probeKey = "position.input"
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := ClickRequired(ctx, browser, cfg, "position.open"); err != nil {
+			return fmt.Errorf("打开岗位列表失败：%w", err)
+		}
+		if probeKey == "" {
+			return nil
+		}
+		opened, err := ProbeSelectorExists(ctx, browser, cfg, probeKey)
+		if err != nil {
+			return fmt.Errorf("确认岗位列表状态失败：%w", err)
+		}
+		if opened {
+			return nil
+		}
+	}
+	return fmt.Errorf("岗位列表点击两次后仍然没有打开")
 }
 
 // PositionSearchQuery 去掉岗位名称后缀和括号备注，生成页面搜索词。

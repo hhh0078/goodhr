@@ -15,16 +15,33 @@ type clickFailureBrowser struct {
 	model.Browser
 }
 
+type swallowedPositionOpenBrowser struct {
+	model.Browser
+	clicks int
+}
+
 type greetBrowser struct {
 	model.Browser
-	dialogOpened bool
-	clicked      []string
-	findRequests []contract.ElementFindAllRequest
+	dialogOpened     bool
+	alreadyContacted bool
+	clicked          []string
+	findRequests     []contract.ElementFindAllRequest
 }
 
 type detailReadBrowser struct {
 	model.Browser
 	readCount int
+}
+
+type swallowedDetailOpenBrowser struct {
+	model.Browser
+	clicks       int
+	descriptions []string
+}
+
+type unavailableDetailOpenBrowser struct {
+	model.Browser
+	clicks int
 }
 
 type candidateChatBrowser struct {
@@ -41,7 +58,8 @@ type candidateChatBrowser struct {
 	readIndex       int
 	continueClicks  int
 	continueOpensAt int
-	closeVerified   bool
+	closeClicks     int
+	closeSucceedsAt int
 	pressCount      int
 	scrollCount     int
 	inputs          []string
@@ -67,6 +85,20 @@ func (clickFailureBrowser) Click(context.Context, contract.ElementClickRequest) 
 	return contract.ClickResult{}, errors.New("ELEMENT_NOT_FOUND")
 }
 
+// Click 模拟岗位入口第一次点击被页面吞掉、第二次点击才打开弹层。
+func (b *swallowedPositionOpenBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicks++
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// FindAll 模拟岗位弹层只在第二次点击后出现。
+func (b *swallowedPositionOpenBrowser) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if b.clicks >= 2 {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+}
+
 // Click 记录公共打招呼能力实际点击的目标。
 func (b *greetBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	b.clicked = append(b.clicked, request.Selector.Description)
@@ -76,6 +108,12 @@ func (b *greetBrowser) Click(_ context.Context, request contract.ElementClickReq
 // FindAll 模拟招呼语弹框存在或不存在。
 func (b *greetBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	b.findRequests = append(b.findRequests, request)
+	if request.Selector.Description == "候选人继续沟通按钮" {
+		if b.alreadyContacted {
+			return []contract.FindAllItem{{Index: 0, Text: "继续沟通"}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	}
 	if b.dialogOpened {
 		return []contract.FindAllItem{{Index: 0, Text: "选择招呼语"}}, nil
 	}
@@ -89,6 +127,32 @@ func (b *detailReadBrowser) Read(context.Context, contract.ElementReadRequest) (
 		return contract.ReadResult{}, nil
 	}
 	return contract.ReadResult{Value: "候选人详情已经加载"}, nil
+}
+
+// Click 模拟候选人详情入口第一次点击被页面吞掉。
+func (b *swallowedDetailOpenBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicks++
+	b.descriptions = append(b.descriptions, request.Selector.Description)
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// FindAll 模拟详情正文只在第二次点击后出现。
+func (b *swallowedDetailOpenBrowser) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	if b.clicks >= 2 {
+		return []contract.FindAllItem{{Index: 0}}, nil
+	}
+	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+}
+
+// Click 模拟候选人卡片可以点击，但平台始终没有打开详情。
+func (b *unavailableDetailOpenBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicks++
+	return contract.ClickResult{Clicked: true}, nil
+}
+
+// FindAll 模拟两次点击后详情正文仍然不存在。
+func (b *unavailableDetailOpenBrowser) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 }
 
 // Click 记录聊天框流程点击顺序，并模拟联系人列表与聊天框状态变化。
@@ -117,8 +181,10 @@ func (b *candidateChatBrowser) Click(_ context.Context, request contract.Element
 		}
 	}
 	if description == "关闭聊天框" {
-		b.closeVerified = request.Verify != nil && request.Verify.TargetHidden != nil
-		b.opened = false
+		b.closeClicks++
+		if b.closeSucceedsAt <= 1 || b.closeClicks >= b.closeSucceedsAt {
+			b.opened = false
+		}
 	}
 	if description == "关闭联系人列表" {
 		b.drawerOpened = false
@@ -221,6 +287,21 @@ func TestSelectPositionRequiresConfiguredOpenSelector(t *testing.T) {
 	}
 }
 
+// TestOpenPositionListRetriesSwallowedClick 验证岗位入口首次点击未生效时会再次点击并确认弹层。
+func TestOpenPositionListRetriesSwallowedClick(t *testing.T) {
+	browser := &swallowedPositionOpenBrowser{}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"position.open":  selector("岗位入口"),
+		"position.panel": selector("岗位弹层"),
+	}}
+	if err := openPositionList(context.Background(), browser, cfg); err != nil {
+		t.Fatalf("第二次点击岗位入口后仍未打开弹层：%v", err)
+	}
+	if browser.clicks != 2 {
+		t.Fatalf("岗位入口应只重试一次：clicks=%d", browser.clicks)
+	}
+}
+
 // TestPositionSearchQuery 验证岗位配置后缀和中英文括号备注会被清理。
 func TestPositionSearchQuery(t *testing.T) {
 	cases := map[string]string{
@@ -267,6 +348,18 @@ func TestCandidateFingerprint(t *testing.T) {
 	}
 	if value := CandidateFingerprint("boss", "范召", nil, "范召 本科 5年"); value != "" {
 		t.Fatalf("缺少年龄时不应生成稳定编号：%q", value)
+	}
+}
+
+// TestCandidateIdentityTextsKeepsAgeAsCompletePageText 验证年龄不会误匹配应届年份等其他裸数字。
+func TestCandidateIdentityTextsKeepsAgeAsCompletePageText(t *testing.T) {
+	texts := CandidateIdentityTexts(
+		"刘女士",
+		nil,
+		"刘女士 12小时前浏览过职位 27岁 本科 26年应届生",
+	)
+	if actual := strings.Join(texts, ","); actual != "刘女士,27岁" {
+		t.Fatalf("候选人身份文本不正确：%s", actual)
 	}
 }
 
@@ -362,6 +455,26 @@ func TestGreetCandidateSkipsMissingGreetingDialog(t *testing.T) {
 	}
 }
 
+// TestGreetCandidateReportsAlreadyContacted 验证卡片已经显示继续沟通时不会重复打招呼。
+func TestGreetCandidateReportsAlreadyContacted(t *testing.T) {
+	browser := &greetBrowser{alreadyContacted: true}
+	cfg := greetTestConfig()
+	cfg.Selectors["candidate.continue"] = selector("候选人继续沟通按钮")
+	err := GreetCandidate(
+		context.Background(),
+		browser,
+		cfg,
+		model.Candidate{Index: 0, Name: "张三"},
+		model.GreetRequest{},
+	)
+	if !errors.Is(err, model.ErrCandidateAlreadyContacted) {
+		t.Fatalf("已沟通过的候选人应当返回可识别状态：%v", err)
+	}
+	if len(browser.clicked) != 0 {
+		t.Fatalf("已沟通过的候选人不应重复点击打招呼：%v", browser.clicked)
+	}
+}
+
 // TestExtractCandidateDetailWaitsForAsyncContent 验证详情正文异步加载时会定时重读。
 func TestExtractCandidateDetailWaitsForAsyncContent(t *testing.T) {
 	browser := &detailReadBrowser{}
@@ -420,6 +533,44 @@ func TestCloseCandidateDetailWaitsUntilHidden(t *testing.T) {
 	}
 }
 
+// TestOpenCandidateDetailRetriesSwallowedClick 验证详情入口首次点击未生效时会重新定位再点一次。
+func TestOpenCandidateDetailRetriesSwallowedClick(t *testing.T) {
+	browser := &swallowedDetailOpenBrowser{}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.item":                 selector("候选人卡片"),
+		"candidate.open_target":          selector("详情入口"),
+		"candidate.open_target_fallback": selector("安全降级入口"),
+		"candidate.detail":               selector("详情正文"),
+	}}
+	if err := OpenCandidateDetail(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"}); err != nil {
+		t.Fatalf("第二次点击后详情仍未打开：%v", err)
+	}
+	if browser.clicks != 2 {
+		t.Fatalf("详情入口应只重试一次：clicks=%d", browser.clicks)
+	}
+	if actual := strings.Join(browser.descriptions, ","); actual != "详情入口,安全降级入口" {
+		t.Fatalf("详情第二次点击没有使用安全降级区域：%s", actual)
+	}
+}
+
+// TestOpenCandidateDetailReportsUnavailableAfterTwoClicks 验证个别卡片无法打开时返回可识别状态。
+func TestOpenCandidateDetailReportsUnavailableAfterTwoClicks(t *testing.T) {
+	browser := &unavailableDetailOpenBrowser{}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.item":                 selector("候选人卡片"),
+		"candidate.open_target":          selector("详情入口"),
+		"candidate.open_target_fallback": selector("安全降级入口"),
+		"candidate.detail":               selector("详情正文"),
+	}}
+	err := OpenCandidateDetail(context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"})
+	if !errors.Is(err, model.ErrCandidateDetailUnavailable) {
+		t.Fatalf("详情两次都没打开时应返回可识别状态：%v", err)
+	}
+	if browser.clicks != 2 {
+		t.Fatalf("详情不可用时仍应只点击两次：clicks=%d", browser.clicks)
+	}
+}
+
 // TestEnsureCandidateConversationReusesOpenedChat 验证已有当前候选人聊天框时不会重复点击继续沟通。
 func TestEnsureCandidateConversationReusesOpenedChat(t *testing.T) {
 	browser := &candidateChatBrowser{opened: true, chatName: "张三"}
@@ -430,8 +581,8 @@ func TestEnsureCandidateConversationReusesOpenedChat(t *testing.T) {
 	if actual := strings.Join(browser.clicked, ","); actual != "索要手机号,关闭聊天框" {
 		t.Fatalf("已有聊天框时点击顺序不正确：%s", actual)
 	}
-	if !browser.closeVerified {
-		t.Fatal("关闭聊天框时必须验证聊天框已经消失")
+	if browser.closeClicks != 1 || browser.opened {
+		t.Fatalf("关闭聊天框后必须复核弹层已经消失：clicks=%d opened=%v", browser.closeClicks, browser.opened)
 	}
 }
 
@@ -493,6 +644,27 @@ func TestEnsureCandidateConversationUsesCardBeforeDrawer(t *testing.T) {
 	}
 	if actual := strings.Join(browser.clicked, ","); actual != "继续沟通" {
 		t.Fatalf("已有继续沟通入口时不应打开联系人列表：%s", actual)
+	}
+}
+
+// TestEnsureCandidateConversationFromCardNeverOpensDrawer 验证卡片专用路径找不到继续沟通时不会打开联系人列表。
+func TestEnsureCandidateConversationFromCardNeverOpensDrawer(t *testing.T) {
+	browser := &candidateChatBrowser{
+		contactItems:    []string{"张三\n数学老师"},
+		continueMissing: true,
+	}
+	cfg := candidateChatTestConfig()
+	cfg.Selectors["candidate.contact_trigger"] = selector("打开联系人列表")
+	cfg.Selectors["candidate.contact_drawer"] = selector("联系人列表")
+	cfg.Selectors["candidate.contact_item"] = selector("候选人会话项")
+	err := EnsureCandidateConversationFromCard(
+		context.Background(), browser, cfg, model.Candidate{Index: 0, Name: "张三"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "继续沟通") {
+		t.Fatalf("卡片没有继续沟通按钮时应明确返回错误：%v", err)
+	}
+	if len(browser.clicked) != 0 {
+		t.Fatalf("卡片专用路径不应打开联系人列表：%v", browser.clicked)
 	}
 }
 
@@ -575,7 +747,7 @@ func TestCloseCandidateConversationStillClosesDrawerAfterChatFailure(t *testing.
 	if err != nil {
 		t.Fatalf("Escape 兜底成功后不应保留聊天框关闭错误：%v", err)
 	}
-	if actual := strings.Join(browser.clicked, ","); actual != "关闭聊天框,关闭联系人列表" {
+	if actual := strings.Join(browser.clicked, ","); actual != "关闭聊天框,关闭聊天框,关闭联系人列表" {
 		t.Fatalf("聊天框失败后仍应关闭联系人列表：%s", actual)
 	}
 	if browser.drawerOpened {
@@ -622,6 +794,17 @@ func TestCloseCandidateChatFallsBackToEscape(t *testing.T) {
 	}
 	if browser.pressCount != 1 || browser.opened {
 		t.Fatalf("聊天框关闭兜底不正确：press=%d opened=%v", browser.pressCount, browser.opened)
+	}
+}
+
+// TestCloseCandidateChatRetriesSwallowedClick 验证页面吞掉首次关闭点击时会重新定位按钮再点一次。
+func TestCloseCandidateChatRetriesSwallowedClick(t *testing.T) {
+	browser := &candidateChatBrowser{opened: true, closeSucceedsAt: 2}
+	if err := CloseCandidateChat(context.Background(), browser, candidateChatTestConfig()); err != nil {
+		t.Fatalf("第二次点击后聊天框仍未关闭：%v", err)
+	}
+	if browser.closeClicks != 2 || browser.pressCount != 0 || browser.opened {
+		t.Fatalf("聊天框关闭重试不正确：clicks=%d press=%d opened=%v", browser.closeClicks, browser.pressCount, browser.opened)
 	}
 }
 

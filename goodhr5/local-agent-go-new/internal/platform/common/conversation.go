@@ -17,23 +17,7 @@ const candidateConversationPollAttempts = 20
 
 // EnsureCandidateConversation 打开或复用指定候选人的聊天框，并在返回前核对候选人姓名。
 func EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	opened, err := ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
-	if err != nil {
-		return err
-	}
-	if opened {
-		matches, matchErr := candidateChatMatches(ctx, browser, cfg, candidate)
-		if matchErr != nil {
-			return matchErr
-		}
-		if matches {
-			return nil
-		}
-	}
-	if err = CloseCandidatePanels(ctx, browser, cfg); err != nil {
-		return fmt.Errorf("关闭%s其他候选人的沟通弹层失败：%w", cfg.Name, err)
-	}
-	continued, err := activateCandidateFromCard(ctx, browser, cfg, candidate)
+	continued, err := ensureCandidateConversationFromCard(ctx, browser, cfg, candidate, true)
 	if err != nil {
 		return err
 	}
@@ -54,6 +38,46 @@ func EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg
 		}
 	}
 	return fmt.Errorf("%s当前候选人还没有“继续沟通”入口，右侧联系人列表里也没找到，消息没有发送", cfg.Name)
+}
+
+// EnsureCandidateConversationFromCard 只通过当前候选人卡片的继续沟通入口打开聊天框。
+// 该路径不会打开或关闭联系人列表，适用于打招呼后按钮必然变成继续沟通的平台。
+func EnsureCandidateConversationFromCard(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	continued, err := ensureCandidateConversationFromCard(ctx, browser, cfg, candidate, false)
+	if err != nil {
+		return err
+	}
+	if !continued {
+		return fmt.Errorf("%s打招呼后的“继续沟通”按钮还没出现，聊天框没有打开", cfg.Name)
+	}
+	return nil
+}
+
+// ensureCandidateConversationFromCard 复用聊天框或点击当前卡片的继续沟通按钮。
+// closeContactDrawer 表示切换候选人前是否同时清理联系人列表。
+func ensureCandidateConversationFromCard(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, closeContactDrawer bool) (bool, error) {
+	opened, err := ProbeSelectorExists(ctx, browser, cfg, "candidate.chat_modal")
+	if err != nil {
+		return false, err
+	}
+	if opened {
+		matches, matchErr := candidateChatMatches(ctx, browser, cfg, candidate)
+		if matchErr != nil {
+			return false, matchErr
+		}
+		if matches {
+			return true, nil
+		}
+	}
+	if closeContactDrawer {
+		err = CloseCandidatePanels(ctx, browser, cfg)
+	} else {
+		err = CloseCandidateChat(ctx, browser, cfg)
+	}
+	if err != nil {
+		return false, fmt.Errorf("关闭%s其他候选人的沟通弹层失败：%w", cfg.Name, err)
+	}
+	return activateCandidateFromCard(ctx, browser, cfg, candidate)
 }
 
 // ensureCandidateContactDrawer 在推荐页打开或复用右侧联系人列表。
@@ -142,20 +166,11 @@ func CloseCandidateConversation(ctx context.Context, browser model.Browser, cfg 
 // activateCandidateFromCard 检查并点击当前候选人卡片的继续沟通入口。
 // 返回 false 表示首次消息后按钮还没出现，需要再从推荐页右侧联系人列表查找。
 func activateCandidateFromCard(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) (bool, error) {
-	continueSelector, err := CandidateActionSelector(cfg, "candidate.continue", candidate)
+	continued, err := CandidateActionExists(ctx, browser, cfg, candidate, "candidate.continue")
 	if err != nil {
 		return false, err
 	}
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector: continueSelector, MaxItems: 1, ExpectedMissing: true,
-	})
-	if IsElementMissing(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if len(items) == 0 {
+	if !continued {
 		return false, nil
 	}
 	if err = CandidateAction(ctx, browser, cfg, candidate, "candidate.continue"); err != nil {
@@ -341,10 +356,12 @@ func sendMessage(ctx context.Context, browser model.Browser, cfg model.Config, i
 		if err := ClickRequired(ctx, browser, cfg, sendKey); err != nil {
 			return fmt.Errorf("点击发送消息失败：%w", err)
 		}
-		return nil
+		// 招聘页面发送消息后会短暂刷新聊天组件，等一轮再执行关闭等后续动作。
+		return waitConversationPoll(ctx)
 	}
 	if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Enter", DelayMS: 80}); err != nil {
 		return fmt.Errorf("按 Enter 发送消息失败：%w", err)
 	}
-	return nil
+	// 招聘页面发送消息后会短暂刷新聊天组件，等一轮再执行关闭等后续动作。
+	return waitConversationPoll(ctx)
 }

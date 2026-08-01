@@ -10,7 +10,7 @@ import (
 
 // EnsureCandidateConversation 打开或复用智联当前候选人的聊天框。
 func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
-	return common.EnsureCandidateConversation(ctx, browser, cfg, candidate)
+	return common.EnsureCandidateConversationFromCard(ctx, browser, cfg, candidate)
 }
 
 // RequestCandidateInfo 在已确认身份的智联聊天框内按岗位要求索要信息。
@@ -23,7 +23,7 @@ func (r *Runtime) SendCandidateMessage(ctx context.Context, browser model.Browse
 	return common.SendCandidateMessage(ctx, browser, cfg, candidate, message)
 }
 
-// CloseCandidateConversation 关闭智联候选人聊天框和可能打开的侧边栏。
+// CloseCandidateConversation 关闭智联候选人聊天框；卡片继续沟通路径不会打开联系人列表。
 func (r *Runtime) CloseCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
-	return common.CloseCandidateConversation(ctx, browser, cfg)
+	return common.CloseCandidateChat(ctx, browser, cfg)
 }

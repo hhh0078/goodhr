@@ -22,8 +22,52 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 	if err != nil {
 		return err
 	}
-	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 16})
-	return err
+	clickSelectors := []contract.SelectorSpec{selector, selector}
+	if _, configured := cfg.Selectors["candidate.open_target_fallback"]; configured {
+		fallback, fallbackErr := CandidateActionSelector(cfg, "candidate.open_target_fallback", candidate)
+		if fallbackErr != nil {
+			return fallbackErr
+		}
+		clickSelectors[1] = fallback
+	}
+	var clickErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: clickSelectors[attempt-1], ViewportMargin: 16})
+		if clickErr != nil {
+			continue
+		}
+		timeoutMS := 1500
+		if attempt == 2 {
+			timeoutMS = 5000
+		}
+		opened, probeErr := candidateDetailOpened(ctx, browser, cfg, timeoutMS)
+		if probeErr != nil {
+			return probeErr
+		}
+		if opened {
+			return nil
+		}
+	}
+	if clickErr != nil {
+		return clickErr
+	}
+	return fmt.Errorf("%w：候选人详情入口点击两次后仍然没有打开", model.ErrCandidateDetailUnavailable)
+}
+
+// candidateDetailOpened 在不记录预期缺失错误的前提下确认详情正文已经出现。
+func candidateDetailOpened(ctx context.Context, browser model.Browser, cfg model.Config, timeoutMS int) (bool, error) {
+	selector, err := RequiredSelector(cfg, "candidate.detail")
+	if err != nil {
+		return false, err
+	}
+	selector.TimeoutMS = timeoutMS
+	_, err = browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+	})
+	if IsElementMissing(err) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // ExtractCandidateDetail 读取当前已经打开的候选人详情文本。

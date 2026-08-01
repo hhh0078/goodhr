@@ -197,6 +197,19 @@
       "timeout_ms": 5000,
       "description": "智联候选人详情入口"
     },
+    "candidate.open_target_fallback": {
+      "_comment": "姓名区域点击后没有打开详情时，改点卡片中间的经历区域；该区域远离头像和右侧操作按钮。",
+      "parents": [],
+      "target": {
+        "_comment": "详情入口安全降级目标。",
+        "selectors": [
+          { "_comment": "智联卡片中间的工作和教育经历区域。", "type": "css", "value": ".resume-item__content.resume-card-exp" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "智联候选人详情安全降级入口"
+    },
     "candidate.detail": {
       "_comment": "智联详情正文。",
       "parents": [],
@@ -271,7 +284,8 @@
         "exact_text": true,
         "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
-          { "_comment": "智联继续沟通按钮。", "type": "css", "value": ".resume-btn-small" },
+          { "_comment": "大屏幕打招呼后原按钮变成的继续沟通按钮。", "type": "css", "value": ".large-screen-btn" },
+          { "_comment": "兼容旧版继续沟通按钮。", "type": "css", "value": ".resume-btn-small" },
           { "_comment": "小屏操作按钮降级选择器。", "type": "css", "value": ".small-screen-btn.is-mr-16" }
         ]
       },

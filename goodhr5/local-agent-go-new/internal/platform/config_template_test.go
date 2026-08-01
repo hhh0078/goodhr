@@ -75,6 +75,11 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 		detail.Target.Selectors[0].Value != ".talent-basic-info__name--inner" {
 		t.Fatalf("智联详情入口必须只点击候选人姓名区域：%+v", detail.Target.Selectors)
 	}
+	detailFallback := cfg.Selectors["candidate.open_target_fallback"]
+	if len(detailFallback.Target.Selectors) != 1 ||
+		detailFallback.Target.Selectors[0].Value != ".resume-item__content.resume-card-exp" {
+		t.Fatalf("智联详情降级入口必须点击远离头像和操作按钮的经历区域：%+v", detailFallback.Target.Selectors)
+	}
 	greet := cfg.Selectors["candidate.greet"]
 	if greet.Target.Text != "打招呼" || greet.Target.ExactText == nil || !*greet.Target.ExactText {
 		t.Fatalf("智联打招呼按钮必须使用精确文字排除打电话按钮：%+v", greet.Target)
@@ -82,7 +87,7 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 	values := make([]string, 0, len(greet.Target.Selectors))
 	for _, selector := range greet.Target.Selectors {
 		values = append(values, selector.Value)
-		if selector.Value == detail.Target.Selectors[0].Value {
+		if selector.Value == detail.Target.Selectors[0].Value || selector.Value == detailFallback.Target.Selectors[0].Value {
 			t.Fatalf("智联详情入口不能混入打招呼按钮：%s", selector.Value)
 		}
 	}
@@ -90,6 +95,14 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 		if !slices.Contains(values, expected) {
 			t.Fatalf("智联打招呼选择器缺少 %q：%v", expected, values)
 		}
+	}
+	continueAction := cfg.Selectors["candidate.continue"]
+	continueValues := make([]string, 0, len(continueAction.Target.Selectors))
+	for _, selector := range continueAction.Target.Selectors {
+		continueValues = append(continueValues, selector.Value)
+	}
+	if continueAction.Target.Text != "继续沟通" || !slices.Contains(continueValues, ".large-screen-btn") {
+		t.Fatalf("智联大屏打招呼后必须复用原按钮打开聊天框：%+v", continueAction.Target)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	panelCloseCheckAttempts = 10
+	panelCloseCheckAttempts = 20
 	panelCloseCheckInterval = 180 * time.Millisecond
 )
 
@@ -202,6 +203,9 @@ func CandidateIdentityTexts(name string, fields map[string]string, summary strin
 	}
 	age := firstNonEmpty(fields["age"], fields["candidate_age"], extractAge(summary))
 	if age = strings.TrimSpace(age); age != "" {
+		if _, err := strconv.Atoi(age); err == nil {
+			age += "岁"
+		}
 		result = append(result, age)
 	}
 	return result
@@ -268,24 +272,23 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	if err != nil || !opened {
 		return err
 	}
-	panel, err := RequiredSelector(cfg, panelKey)
-	if err != nil {
-		return err
-	}
 	closeSelector, err := RequiredSelector(cfg, closeKey)
 	if err != nil {
 		return err
 	}
-	panel.TimeoutMS = 200
-	_, clickErr := browser.Click(ctx, contract.ElementClickRequest{
-		Selector: closeSelector,
-		Verify: &contract.ClickVerification{
-			TargetHidden: &panel,
-			TimeoutMS:    1800,
-		},
-	})
-	if clickErr == nil {
-		return nil
+	var clickErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: closeSelector})
+		if clickErr != nil {
+			continue
+		}
+		hidden, waitErr := waitSelectorHidden(ctx, browser, cfg, panelKey)
+		if waitErr != nil {
+			return waitErr
+		}
+		if hidden {
+			return nil
+		}
 	}
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
 		return fmt.Errorf("%s没关好，点击关闭失败：%v；按 Escape 也失败：%w", label, clickErr, err)
@@ -295,6 +298,9 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 		return err
 	}
 	if !hidden {
+		if clickErr == nil {
+			clickErr = fmt.Errorf("关闭按钮点击后弹层仍然存在")
+		}
 		return fmt.Errorf("%s仍然没有关闭：%w", label, clickErr)
 	}
 	return nil
@@ -376,6 +382,15 @@ func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Con
 
 // GreetCandidate 滚动到候选人后，按平台配置完成平台首次开聊动作。
 func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, _ model.GreetRequest) error {
+	if _, configured := cfg.Selectors["candidate.continue"]; configured {
+		alreadyContacted, err := CandidateActionExists(ctx, browser, cfg, candidate, "candidate.continue")
+		if err != nil {
+			return err
+		}
+		if alreadyContacted {
+			return model.ErrCandidateAlreadyContacted
+		}
+	}
 	selector, err := CandidateActionSelector(cfg, "candidate.greet", candidate)
 	if err != nil {
 		return err
@@ -403,6 +418,21 @@ func GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config
 		return ClickRequired(ctx, browser, cfg, "candidate.greet_send")
 	}
 	return nil
+}
+
+// CandidateActionExists 判断指定候选人卡片内的平台动作当前是否存在。
+func CandidateActionExists(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, actionKey string) (bool, error) {
+	selector, err := CandidateActionSelector(cfg, actionKey, candidate)
+	if err != nil {
+		return false, err
+	}
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector: selector, MaxItems: 1, ExpectedMissing: true,
+	})
+	if IsElementMissing(err) {
+		return false, nil
+	}
+	return len(items) > 0, err
 }
 
 // CandidateAction 点击指定候选人卡片内的平台动作。
@@ -523,13 +553,20 @@ func HashText(value string) string {
 
 // extractAge 从候选人卡片文本提取年龄。
 func extractAge(value string) string {
-	fields := strings.FieldsFunc(value, func(r rune) bool {
-		return r < '0' || r > '9'
-	})
-	for _, field := range fields {
-		if len(field) == 2 {
-			return field
+	for offset := 0; offset < len(value); {
+		relativeEnd := strings.Index(value[offset:], "岁")
+		if relativeEnd < 0 {
+			return ""
 		}
+		end := offset + relativeEnd
+		start := end
+		for start > 0 && value[start-1] >= '0' && value[start-1] <= '9' {
+			start--
+		}
+		if end-start == 2 {
+			return value[start:end]
+		}
+		offset = end + len("岁")
 	}
 	return ""
 }
