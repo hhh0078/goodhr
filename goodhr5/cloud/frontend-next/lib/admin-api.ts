@@ -14,9 +14,20 @@ export const CLOUD_API_BASE = (
 export const LOCAL_AGENT_PORTS = [43129];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
-const LOCAL_AGENT_MACHINE_ID_KEY = "goodhr5_local_agent_machine_id";
 const LOCAL_AGENT_PORT_QUERY_KEY = "local_port";
 const LOCAL_AGENT_PORT_CACHE_KEY = "goodhr5_local_agent_port";
+
+/** APIRequestError 保存统一接口返回的稳定错误码和 HTTP 状态。 */
+export class APIRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "APIRequestError";
+  }
+}
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -150,41 +161,14 @@ export function captureLocalAgentPortFromURL(search?: string) {
   return port;
 }
 
-/** bindDetectedLocalAgent 把浏览器已探测到的本地程序版本和匿名机器码同步到云端。 */
+/** bindDetectedLocalAgent 把浏览器 Token 交给本地程序，由本地程序读取设备编号并请求云端绑定。 */
 export async function bindDetectedLocalAgent(baseURL: string) {
-  const health = await localRequest(baseURL, "/health");
-  const localPort = Number(new URL(baseURL).port || 0);
-  const machineID = await buildLocalAgentMachineID(health);
-  return cloudRequest("/api/agents/bind", {
+  const token = getToken();
+  if (!token) throw new Error("登录状态已经失效，请重新登录");
+  return localRequest(baseURL, "/api/v1/session/bind", {
     method: "POST",
-    body: {
-      machine_id: machineID,
-      agent_version: String(health?.version || health?.agent_version || ""),
-      local_port: localPort,
-    },
+    body: { token },
   });
-}
-
-/** buildLocalAgentMachineID 根据本地数据目录生成不可逆机器码，缺少目录时使用浏览器持久化随机值。 */
-async function buildLocalAgentMachineID(health: any) {
-  const dataDir = String(health?.dataDir || health?.data_dir || "")
-    .trim()
-    .toLowerCase();
-  if (dataDir && globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(`goodhr-local-agent:${dataDir}`),
-    );
-    const hash = Array.from(new Uint8Array(digest), (value) =>
-      value.toString(16).padStart(2, "0"),
-    ).join("");
-    return `sha256-${hash}`;
-  }
-  const saved = localStorage.getItem(LOCAL_AGENT_MACHINE_ID_KEY);
-  if (saved) return saved;
-  const generated = `browser-${globalThis.crypto.randomUUID()}`;
-  localStorage.setItem(LOCAL_AGENT_MACHINE_ID_KEY, generated);
-  return generated;
 }
 
 /** detectLocalAgentOnce 执行一次真实端口探测。 */
@@ -348,9 +332,22 @@ async function parseResponse(
 				window.location.replace(`/login?next=${next}`);
 			}
 		}
-    throw new Error(responseErrorMessage(data, fallback));
+    throw new APIRequestError(
+      responseErrorMessage(data, fallback),
+      responseErrorCode(data),
+      response.status,
+    );
   }
   return data;
+}
+
+/** responseErrorCode 从统一错误对象中读取稳定错误码。 */
+function responseErrorCode(data: unknown) {
+  if (!isRecord(data)) return "";
+  if (typeof data.code === "string") return data.code.trim();
+  if (isRecord(data.error) && typeof data.error.code === "string")
+    return data.error.code.trim();
+  return "";
 }
 
 /** responseErrorMessage 从字符串或错误对象中读取用户可见信息，避免出现 object Object。 */

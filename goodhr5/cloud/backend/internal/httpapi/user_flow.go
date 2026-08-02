@@ -84,13 +84,14 @@ type UserFlowStore interface {
 
 // UserFlowService 处理当前登录用户的流程状态读取和上报。
 type UserFlowService struct {
-	auth  *AuthService
-	store UserFlowStore
+	auth      *AuthService
+	store     UserFlowStore
+	positions PositionStore
 }
 
 // NewUserFlowService 创建用户流程服务。
-func NewUserFlowService(auth *AuthService, store UserFlowStore) *UserFlowService {
-	return &UserFlowService{auth: auth, store: store}
+func NewUserFlowService(auth *AuthService, store UserFlowStore, positions PositionStore) *UserFlowService {
+	return &UserFlowService{auth: auth, store: store, positions: positions}
 }
 
 // Current 读取或上报当前登录用户的流程状态。
@@ -105,6 +106,11 @@ func (s *UserFlowService) Current(w http.ResponseWriter, r *http.Request) {
 		state, err := s.store.Get(session.Email)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to load user flow")
+			return
+		}
+		state, err = s.reconcilePositionProgress(session.Email, state)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to reconcile user flow")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "flow": state})
@@ -128,6 +134,28 @@ func (s *UserFlowService) Current(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// reconcilePositionProgress 使用当前账号岗位真实统计补齐遗漏的最后两个流程节点。
+func (s *UserFlowService) reconcilePositionProgress(email string, state UserFlowState) (UserFlowState, error) {
+	if s.positions == nil {
+		return state, nil
+	}
+	progress, err := s.positions.UserFlowProgress(email)
+	if err != nil {
+		return UserFlowState{}, err
+	}
+	if progress.GreetedToday && state.Steps[userFlowFirstGreetSuccess].Status != "completed" {
+		return s.store.Record(email, UserFlowUpdate{
+			Step: userFlowFirstGreetSuccess, Status: "completed", Source: "cloud_position_stats",
+		})
+	}
+	if progress.ProcessedResume && state.Steps[userFlowFirstResumeProcessed].Status != "completed" {
+		return s.store.Record(email, UserFlowUpdate{
+			Step: userFlowFirstResumeProcessed, Status: "completed", Source: "cloud_position_stats",
+		})
+	}
+	return state, nil
 }
 
 // MemoryUserFlowStore 在开发和测试环境中保存用户流程状态。

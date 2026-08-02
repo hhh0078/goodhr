@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,15 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 	userID, err := ensureUserID(ctx, s.db, binding.UserEmail)
 	if err != nil {
 		return AgentBinding{}, err
+	}
+	if isStableAgentMachineID(binding.MachineID) {
+		ownerEmail, ownerErr := s.activeBindingOwner(ctx, binding.MachineID, userID)
+		if ownerErr != nil && !errors.Is(ownerErr, sql.ErrNoRows) {
+			return AgentBinding{}, ownerErr
+		}
+		if ownerEmail != "" {
+			return AgentBinding{}, &AgentBindingConflictError{OwnerEmail: ownerEmail}
+		}
 	}
 
 	status := binding.BindStatus
@@ -62,10 +72,31 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 		&saved.CreatedAt,
 	)
 	if err != nil {
+		if isStableAgentMachineID(binding.MachineID) {
+			ownerEmail, ownerErr := s.activeBindingOwner(ctx, binding.MachineID, userID)
+			if ownerErr == nil && ownerEmail != "" {
+				return AgentBinding{}, &AgentBindingConflictError{OwnerEmail: ownerEmail}
+			}
+		}
 		return AgentBinding{}, err
 	}
 	saved.LocalPort = binding.LocalPort
 	return saved, nil
+}
+
+// activeBindingOwner 查询占用稳定设备的另一个有效账号邮箱。
+func (s *PostgresAgentStore) activeBindingOwner(ctx context.Context, machineID string, currentUserID string) (string, error) {
+	var ownerEmail string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT u.email
+		FROM local_agents la
+		INNER JOIN users u ON u.id = la.user_id
+		WHERE la.machine_id = $1
+		  AND la.bind_status = 'active'
+		  AND la.user_id <> $2::uuid
+		LIMIT 1
+	`, strings.TrimSpace(machineID), currentUserID).Scan(&ownerEmail)
+	return ownerEmail, err
 }
 
 // CurrentBinding 读取 PostgreSQL 中当前用户最近活跃的一台本地机器。
@@ -101,6 +132,22 @@ func (s *PostgresAgentStore) CurrentBinding(userEmail string) (AgentBinding, err
 		return AgentBinding{}, err
 	}
 	return binding, nil
+}
+
+// HasActiveBinding 判断 PostgreSQL 中指定账号与设备是否存在有效绑定。
+func (s *PostgresAgentStore) HasActiveBinding(userEmail string, machineID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var active bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM local_agents la
+			INNER JOIN users u ON u.id = la.user_id
+			WHERE u.email = $1 AND la.machine_id = $2 AND la.bind_status = 'active'
+		)
+	`, strings.ToLower(strings.TrimSpace(userEmail)), strings.TrimSpace(machineID)).Scan(&active)
+	return active, err
 }
 
 // DisableBindings 清理 PostgreSQL 中指定用户的全部本地程序连接记录。

@@ -15,6 +15,17 @@ type subscriptionCloudStub struct {
 	subscription cloud.Subscription
 }
 
+type deviceBindingCloudStub struct {
+	Cloud
+	request cloud.AgentBindRequest
+}
+
+// BindAgent 记录启动前检查提交的设备绑定信息。
+func (s *deviceBindingCloudStub) BindAgent(_ context.Context, _ string, request cloud.AgentBindRequest) (cloud.AgentBinding, error) {
+	s.request = request
+	return cloud.AgentBinding{MachineID: request.MachineID, BindStatus: "active"}, nil
+}
+
 // Subscription 返回测试指定的会员权限。
 func (s subscriptionCloudStub) Subscription(context.Context, string) (cloud.Subscription, error) {
 	return s.subscription, nil
@@ -32,6 +43,24 @@ func TestFreeKeywordOCRSkipsAIAndSubscription(t *testing.T) {
 	}
 	if err := checker.checkAI(context.Background(), prepared); err != nil {
 		t.Fatalf("免费关键词 OCR 任务不应检查 AI：%v", err)
+	}
+}
+
+// TestCheckDeviceBindingUsesStableMachineID 验证任务启动前会再次确认当前稳定设备绑定。
+func TestCheckDeviceBindingUsesStableMachineID(t *testing.T) {
+	cloudStub := &deviceBindingCloudStub{}
+	checker := &Checker{
+		Cloud: cloudStub,
+		AgentBind: cloud.AgentBindRequest{
+			MachineID: "goodhr-device-v1-test", AgentVersion: "6", LocalPort: 43129,
+		},
+	}
+	prepared := &shared.PreparedTask{Request: shared.StartRequest{Token: "browser-token"}}
+	if err := checker.checkDeviceBinding(context.Background(), prepared); err != nil {
+		t.Fatal(err)
+	}
+	if cloudStub.request.MachineID != "goodhr-device-v1-test" || cloudStub.request.LocalPort != 43129 {
+		t.Fatalf("binding request = %+v", cloudStub.request)
 	}
 }
 

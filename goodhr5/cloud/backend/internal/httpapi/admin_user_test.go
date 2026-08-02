@@ -231,12 +231,13 @@ func TestAdminUserManagementUnbindsAgent(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	userToken := loginForTest(t, routes, "agent-unbind@example.com")
+	nextUserToken := loginForTest(t, routes, "agent-next@example.com")
 	adminToken := loginForTest(t, routes, "1224299352@qq.com")
 
 	bindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-old","agent_version":"5.0.0","local_port":55271}`),
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-transfer","agent_version":"6","local_port":43129}`),
 	)
 	bindReq.Header.Set("Authorization", "Bearer "+userToken)
 	bindResp := httptest.NewRecorder()
@@ -260,9 +261,9 @@ func TestAdminUserManagementUnbindsAgent(t *testing.T) {
 	nextBindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-new","agent_version":"5.0.0","local_port":55272}`),
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-transfer","agent_version":"6","local_port":43129}`),
 	)
-	nextBindReq.Header.Set("Authorization", "Bearer "+userToken)
+	nextBindReq.Header.Set("Authorization", "Bearer "+nextUserToken)
 	nextBindResp := httptest.NewRecorder()
 	routes.ServeHTTP(nextBindResp, nextBindReq)
 	if nextBindResp.Code != http.StatusOK {

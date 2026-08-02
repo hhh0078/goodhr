@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -455,6 +456,25 @@ func (s *PostgresPositionStore) TodayGreetedTotal() (int, error) {
 	var total int
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(daily_greeted_count),0)::int FROM positions WHERE daily_greeted_date=$1::date`, positionBusinessDate(time.Now())).Scan(&total)
 	return total, err
+}
+
+// UserFlowProgress 返回指定账号岗位统计可以证明的首次流程进度。
+func (s *PostgresPositionStore) UserFlowProgress(userEmail string) (UserFlowProgress, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var progress UserFlowProgress
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(BOOL_OR(p.scanned_count > 0), false),
+			COALESCE(BOOL_OR(p.daily_greeted_date = $2::date AND p.daily_greeted_count > 0), false)
+		FROM positions p
+		INNER JOIN users u ON u.id = p.user_id
+		WHERE u.email = $1
+	`, strings.ToLower(strings.TrimSpace(userEmail)), positionBusinessDate(time.Now())).Scan(
+		&progress.ProcessedResume,
+		&progress.GreetedToday,
+	)
+	return progress, err
 }
 
 // DeletePosition 删除 PostgreSQL 中当前用户的岗位配置。

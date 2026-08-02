@@ -12,6 +12,38 @@ import (
 	"testing"
 )
 
+// TestBindAgentSendsStableDevice 验证本地程序会携带 Token 和稳定设备信息请求云端绑定。
+func TestBindAgentSendsStableDevice(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/bind" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer browser-token" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var request AgentBindRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.MachineID != "goodhr-device-v1-test" || request.LocalPort != 43129 {
+			t.Fatalf("binding request = %+v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"agent":{"machine_id":"goodhr-device-v1-test","agent_version":"6","local_port":43129,"bind_status":"active"}}`))
+	}))
+	defer server.Close()
+
+	binding, err := New(server.URL).BindAgent(context.Background(), "browser-token", AgentBindRequest{
+		MachineID: "goodhr-device-v1-test", AgentVersion: "6", LocalPort: 43129,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.MachineID != "goodhr-device-v1-test" || binding.BindStatus != "active" {
+		t.Fatalf("binding = %+v", binding)
+	}
+}
+
 // TestPreferencesReadsStrongTypes 验证个人运行配置会完整进入强类型结构。
 func TestPreferencesReadsStrongTypes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -123,20 +155,21 @@ func TestRequestPositionStartWaitsForCloudPermission(t *testing.T) {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
 		var payload struct {
-			TaskType string `json:"task_type"`
+			TaskType  string `json:"task_type"`
+			MachineID string `json:"machine_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.TaskType != "greeting" {
-			t.Fatalf("task_type = %q", payload.TaskType)
+		if payload.TaskType != "greeting" || payload.MachineID != "goodhr-device-v1-test" {
+			t.Fatalf("start payload = %+v", payload)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"status":"running"}`))
 	}))
 	defer server.Close()
 
-	if err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting"); err != nil {
+	if err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting", "goodhr-device-v1-test"); err != nil {
 		t.Fatalf("申请启动失败：%v", err)
 	}
 }
@@ -150,7 +183,7 @@ func TestRequestPositionStartReadsStructuredError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting")
+	err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting", "goodhr-device-v1-test")
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("error type = %T, want APIError", err)

@@ -32,16 +32,17 @@ type PositionExecutionService struct {
 	mailer         Mailer
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
+	agents         AgentStore
 }
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 所有运行状态直接归属于岗位，不再创建独立岗位运行记录。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
-		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow,
+		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
 	}
 }
 
@@ -58,7 +59,8 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var payload struct {
-		TaskType string `json:"task_type"`
+		TaskType  string `json:"task_type"`
+		MachineID string `json:"machine_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writePositionStartError(w, http.StatusBadRequest, "INVALID_REQUEST", "启动参数没读明白，请重新试一次")
@@ -73,6 +75,10 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 	}
 	if err != nil {
 		writePositionStartError(w, http.StatusInternalServerError, "POSITION_LOAD_FAILED", "岗位信息暂时没读出来，请稍后再试")
+		return
+	}
+	if failure := s.verifyActiveDevice(session.Email, payload.MachineID); failure != nil {
+		writePositionStartError(w, failure.status, failure.code, failure.message)
 		return
 	}
 	if failure := s.claimPositionStart(session.Email, position, payload.TaskType); failure != nil {
@@ -132,6 +138,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		TaskType        string `json:"task_type"`
 		RunGreetedCount int    `json:"run_greeted_count"`
 		RunSkippedCount int    `json:"run_skipped_count"`
+		MachineID       string `json:"machine_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid payload")
@@ -153,6 +160,10 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if status == "running" {
+		if failure := s.verifyActiveDevice(session.Email, payload.MachineID); failure != nil {
+			writePositionStartError(w, failure.status, failure.code, failure.message)
+			return
+		}
 		if failure := s.claimPositionStart(session.Email, position, payload.TaskType); failure != nil {
 			writePositionStartError(w, failure.status, failure.code, failure.message)
 			return
@@ -199,6 +210,25 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent})
+}
+
+// verifyActiveDevice 确认岗位启动请求来自当前账号刚刚绑定的稳定设备。
+func (s *PositionExecutionService) verifyActiveDevice(email string, machineID string) *positionStartError {
+	machineID = strings.TrimSpace(machineID)
+	if s.agents == nil || !isStableAgentMachineID(machineID) {
+		return &positionStartError{
+			status: http.StatusForbidden, code: "DEVICE_BINDING_REQUIRED",
+			message: "这台电脑还没有完成账号绑定，请刷新后台，等本地程序重新连接后再开始岗位。",
+		}
+	}
+	active, err := s.agents.HasActiveBinding(email, machineID)
+	if err != nil || !active {
+		return &positionStartError{
+			status: http.StatusForbidden, code: "DEVICE_BINDING_REQUIRED",
+			message: "这台电脑还没有完成账号绑定，请刷新后台，等本地程序重新连接后再开始岗位。",
+		}
+	}
+	return nil
 }
 
 // claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。

@@ -64,3 +64,46 @@ func TestUserFlowBlankStatusDefaultsCompleted(t *testing.T) {
 		t.Fatalf("blank status was not normalized: %+v", state)
 	}
 }
+
+// TestUserFlowReconcilesFirstResumeFromPositionStats 验证岗位扫描统计可以补齐遗漏的首份简历节点。
+func TestUserFlowReconcilesFirstResumeFromPositionStats(t *testing.T) {
+	positions := NewMemoryPositionStore()
+	position, err := positions.SavePosition(Position{UserEmail: "flow@example.com", Name: "测试岗位"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := positions.IncrementPositionCounts(position.ID, 1, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	flows := NewMemoryUserFlowStore()
+	service := NewUserFlowService(nil, flows, positions)
+	state, err := service.reconcilePositionProgress("flow@example.com", defaultUserFlowState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Steps[userFlowFirstResumeProcessed].Status != "completed" || state.Stage != userFlowFirstGreetSuccess {
+		t.Fatalf("首份简历节点没有按岗位统计补齐：%+v", state)
+	}
+}
+
+// TestUserFlowReconcilesGreetFromTodayCount 验证当前账号今日打招呼数可以一次补齐最后两个节点。
+func TestUserFlowReconcilesGreetFromTodayCount(t *testing.T) {
+	positions := NewMemoryPositionStore()
+	position, err := positions.SavePosition(Position{UserEmail: "flow@example.com", Name: "测试岗位"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := positions.FinishPositionRun(position.ID, "completed", 1); err != nil {
+		t.Fatal(err)
+	}
+	flows := NewMemoryUserFlowStore()
+	service := NewUserFlowService(nil, flows, positions)
+	state, err := service.reconcilePositionProgress("flow@example.com", defaultUserFlowState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Stage != "completed" || state.Steps[userFlowFirstResumeProcessed].Status != "completed" ||
+		state.Steps[userFlowFirstGreetSuccess].Status != "completed" {
+		t.Fatalf("今日打招呼数没有补齐最后两个节点：%+v", state)
+	}
+}

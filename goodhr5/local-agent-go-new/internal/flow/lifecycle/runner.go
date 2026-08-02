@@ -112,7 +112,10 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		r.release(active)
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
-	if err := r.cloud.RequestPositionStart(ctx, prepared.Request.Token, prepared.Position.ID, prepared.Request.TaskType); err != nil {
+	if err := r.cloud.RequestPositionStart(
+		ctx, prepared.Request.Token, prepared.Position.ID, prepared.Request.TaskType,
+		r.checker.AgentBind.MachineID,
+	); err != nil {
 		task.Status = "failed"
 		task.CurrentStep = "request_cloud_start"
 		task.ErrorCode = "CLOUD_START_DENIED"

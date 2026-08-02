@@ -53,6 +53,7 @@ import { useMembershipTheme } from "@/app/providers";
 import { resolveMembershipTheme } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
 import {
+  APIRequestError,
   bindDetectedLocalAgent,
   captureLocalAgentPortFromURL,
   cloudRequest,
@@ -239,6 +240,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [agentBase, setAgentBase] = useState("");
   const [agentVersion, setAgentVersion] = useState("");
   const [agentDetected, setAgentDetected] = useState(false);
+  const [deviceBindingError, setDeviceBindingError] = useState("");
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
   const agentChecking = useRef(false);
@@ -260,6 +262,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     user &&
     !loading &&
     !trialWelcomeOpen &&
+    !deviceBindingError &&
     agentDetected &&
     !agentBase &&
     !localAgentInstallNoticeClosed,
@@ -280,7 +283,22 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
       setAgentVersion("");
-      await bindDetectedLocalAgent(nextBase);
+      try {
+        await bindDetectedLocalAgent(nextBase);
+        setDeviceBindingError("");
+      } catch (error) {
+        if (
+          error instanceof APIRequestError &&
+          error.code === "DEVICE_ALREADY_BOUND"
+        ) {
+          agentBaseRef.current = "";
+          setAgentBase("");
+          setAgentVersion("");
+          setDeviceBindingError(error.message);
+          return;
+        }
+        throw error;
+      }
       void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
       const [runtimeResult, healthResult] = await Promise.allSettled([
         localRequest(nextBase, "/api/v1/runtime/status"),
@@ -812,6 +830,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </Typography>
           </Stack>
         </AdminDialog>{" "}
+        <AdminDialog
+          open={Boolean(deviceBindingError) && !trialWelcomeOpen}
+          title="这台电脑已经有账号了"
+          description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 GoodHR 账号。"
+          confirmText="退出当前账号"
+          showCancel={false}
+          hideClose
+          onClose={() => undefined}
+          onConfirm={logout}
+        >
+          <Typography color="text.secondary">{deviceBindingError}</Typography>
+        </AdminDialog>
         <AdminDialog
           open={localAgentInstallNoticeOpen}
           title="请先安装本地程序"

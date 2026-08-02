@@ -12,6 +12,21 @@ type UserSession struct {
 	LoggedIn bool   `json:"logged_in"`
 }
 
+// AgentBindRequest 表示本地程序向云端登记当前设备时提交的信息。
+type AgentBindRequest struct {
+	MachineID    string `json:"machine_id"`
+	AgentVersion string `json:"agent_version"`
+	LocalPort    int    `json:"local_port"`
+}
+
+// AgentBinding 表示云端确认后的当前设备绑定状态。
+type AgentBinding struct {
+	MachineID    string `json:"machine_id"`
+	AgentVersion string `json:"agent_version"`
+	LocalPort    int    `json:"local_port"`
+	BindStatus   string `json:"bind_status"`
+}
+
 // Subscription 表示会员可用状态。
 type Subscription struct {
 	Active         bool     `json:"active"`

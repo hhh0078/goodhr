@@ -23,6 +23,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/preflight"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	cloudintegration "goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/runtime"
@@ -42,6 +43,8 @@ type Server struct {
 	profiles        *profile.Manager
 	ocr             *ocr.Client
 	updater         *updater.Manager
+	cloud           *cloudintegration.Client
+	deviceID        func() (string, error)
 	http            *http.Server
 	downloadRootsMu sync.RWMutex
 	downloadRoots   map[string]struct{}
@@ -57,6 +60,8 @@ type Dependencies struct {
 	Profiles  *profile.Manager
 	OCR       *ocr.Client
 	Updater   *updater.Manager
+	Cloud     *cloudintegration.Client
+	DeviceID  func() (string, error)
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -66,10 +71,12 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 		browser: dependencies.Browser, downloads: dependencies.Downloads,
 		store: dependencies.Store, profiles: dependencies.Profiles,
 		ocr: dependencies.OCR, updater: dependencies.Updater,
+		cloud: dependencies.Cloud, deviceID: dependencies.DeviceID,
 		downloadRoots: map[string]struct{}{filepath.Clean(cfg.DownloadsDir): {}},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.handleHealth)
+	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)
 	mux.HandleFunc("GET /api/v1/diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)

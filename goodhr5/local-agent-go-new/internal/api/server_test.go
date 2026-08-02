@@ -13,8 +13,40 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/config"
+	cloudintegration "goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
+
+// TestAgentBindRouteUsesLocalDeviceID 验证浏览器只提交 Token，稳定设备编号由本地程序补齐后发往云端。
+func TestAgentBindRouteUsesLocalDeviceID(t *testing.T) {
+	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agents/bind" || r.Header.Get("Authorization") != "Bearer browser-token" {
+			t.Fatalf("unexpected cloud request: %s authorization=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		var request cloudintegration.AgentBindRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.MachineID != "goodhr-device-v1-local" || request.LocalPort != 43129 {
+			t.Fatalf("cloud binding request = %+v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"agent":{"machine_id":"goodhr-device-v1-local","bind_status":"active"}}`))
+	}))
+	defer cloudServer.Close()
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129}, Dependencies{
+		Cloud: cloudintegration.New(cloudServer.URL),
+		DeviceID: func() (string, error) {
+			return "goodhr-device-v1-local", nil
+		},
+	})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/bind", strings.NewReader(`{"token":"browser-token"}`))
+	server.http.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "goodhr-device-v1-local") {
+		t.Fatalf("bind status=%d body=%s", response.Code, response.Body.String())
+	}
+}
 
 // TestMiddlewareAllowsDeletePreflight 验证岗位日志清空请求可以通过跨域预检。
 func TestMiddlewareAllowsDeletePreflight(t *testing.T) {

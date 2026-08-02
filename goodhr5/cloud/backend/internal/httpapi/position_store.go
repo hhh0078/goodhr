@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,6 +40,12 @@ type Position struct {
 	FinishedAt        *time.Time
 }
 
+// UserFlowProgress 表示从岗位真实统计中推导出的首次流程进度。
+type UserFlowProgress struct {
+	ProcessedResume bool
+	GreetedToday    bool
+}
+
 // PositionStore 定义岗位配置的持久化能力。
 type PositionStore interface {
 	ListPositions(tenantID, userEmail string, isAdmin bool) ([]Position, error)
@@ -51,6 +58,7 @@ type PositionStore interface {
 	IncrementPositionCounts(positionID string, scanned, skipped, failed int) error
 	SyncPositionCounts(positionID string, scanned, skipped, failed int) error
 	TodayGreetedTotal() (int, error)
+	UserFlowProgress(userEmail string) (UserFlowProgress, error)
 }
 
 // MemoryPositionStore 提供开发期使用的内存岗位配置存储。
@@ -218,6 +226,23 @@ func (s *MemoryPositionStore) TodayGreetedTotal() (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// UserFlowProgress 返回指定账号是否处理过简历以及今天是否成功打过招呼。
+func (s *MemoryPositionStore) UserFlowProgress(userEmail string) (UserFlowProgress, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	progress := UserFlowProgress{}
+	today := positionBusinessDate(s.now())
+	for _, position := range s.positions {
+		if !strings.EqualFold(position.UserEmail, userEmail) {
+			continue
+		}
+		progress.ProcessedResume = progress.ProcessedResume || position.ScannedCount > 0
+		progress.GreetedToday = progress.GreetedToday ||
+			(position.DailyGreetedDate == today && position.DailyGreetedCount > 0)
+	}
+	return progress, nil
 }
 
 // positionBusinessDate 返回 GoodHR 业务使用的北京时间日期。

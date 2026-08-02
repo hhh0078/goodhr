@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -59,7 +60,7 @@ func TestAgentBindAllowsAnotherMachine(t *testing.T) {
 	firstReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-first","agent_version":"5.0.0","local_port":55271}`),
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-first","agent_version":"6","local_port":43129}`),
 	)
 	firstReq.Header.Set("Authorization", "Bearer "+token)
 	firstResp := httptest.NewRecorder()
@@ -71,13 +72,50 @@ func TestAgentBindAllowsAnotherMachine(t *testing.T) {
 	secondReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-second","agent_version":"5.0.0","local_port":55272}`),
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-second","agent_version":"6","local_port":43129}`),
 	)
 	secondReq.Header.Set("Authorization", "Bearer "+token)
 	secondResp := httptest.NewRecorder()
 	routes.ServeHTTP(secondResp, secondReq)
 	if secondResp.Code != http.StatusOK {
 		t.Fatalf("second bind status = %d, want %d, body = %s", secondResp.Code, http.StatusOK, secondResp.Body.String())
+	}
+}
+
+// TestAgentBindRejectsDeviceOwnedByAnotherAccount 验证一台稳定设备不能同时绑定两个账号，并返回完整占用邮箱。
+func TestAgentBindRejectsDeviceOwnedByAnotherAccount(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	firstToken := loginForTest(t, routes, "device-owner@example.com")
+	secondToken := loginForTest(t, routes, "device-new@example.com")
+	payload := `{"machine_id":"goodhr-device-v1-shared","agent_version":"6","local_port":43129}`
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(payload))
+	firstReq.Header.Set("Authorization", "Bearer "+firstToken)
+	firstResp := httptest.NewRecorder()
+	routes.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("first bind status = %d, body = %s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(payload))
+	secondReq.Header.Set("Authorization", "Bearer "+secondToken)
+	secondResp := httptest.NewRecorder()
+	routes.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusConflict {
+		t.Fatalf("second bind status = %d, body = %s", secondResp.Code, secondResp.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(secondResp.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "DEVICE_ALREADY_BOUND" || !strings.Contains(response.Error.Message, "device-owner@example.com") {
+		t.Fatalf("unexpected conflict response: %+v", response.Error)
 	}
 }
 

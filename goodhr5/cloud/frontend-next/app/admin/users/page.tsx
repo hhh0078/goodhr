@@ -166,8 +166,8 @@ export default function UsersPage() {
   /** unbind 解除用户本地程序绑定。 */
   async function unbind(item: AdminUserItem) {
     const ok = await confirm(
-      "确认解绑本地程序",
-      `要解绑 ${item.email} 的本地程序吗？`,
+      "确认解绑账号设备",
+      `要解绑 ${item.email} 当前占用的全部电脑吗？解绑后，这些电脑就可以绑定其他账号。`,
     );
     if (!ok) return;
     try {
@@ -175,7 +175,7 @@ export default function UsersPage() {
         method: "POST",
         body: { email: item.email },
       });
-      notify("本地程序已解绑", "success");
+      notify("账号设备已解绑，这些电脑现在可以换绑了。", "success");
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "解绑失败", "error");
@@ -737,7 +737,7 @@ unbind: (item: AdminUserItem) => Promise<void>;
         记录
       </Button>
       <Button size="small" color="error" onClick={() => void unbind(item)}>
-        解绑
+        解绑设备
       </Button>
     </Stack>
   );

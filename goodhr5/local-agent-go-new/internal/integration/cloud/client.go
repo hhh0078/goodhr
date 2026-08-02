@@ -60,6 +60,30 @@ func IsAuthExpired(err error) bool {
 		(apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden)
 }
 
+// BindAgent 使用浏览器传来的登录凭证把当前稳定设备编号绑定到云端账号。
+func (c *Client) BindAgent(ctx context.Context, token string, request AgentBindRequest) (AgentBinding, error) {
+	if strings.TrimSpace(request.MachineID) == "" {
+		return AgentBinding{}, fmt.Errorf("设备编号不能为空")
+	}
+	var response struct {
+		Agent AgentBinding `json:"agent"`
+		Data  struct {
+			Agent AgentBinding `json:"agent"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/agents/bind", token, request, &response); err != nil {
+		return AgentBinding{}, err
+	}
+	result := response.Agent
+	if result.MachineID == "" {
+		result = response.Data.Agent
+	}
+	if result.MachineID == "" {
+		return AgentBinding{}, fmt.Errorf("云端没有确认设备绑定结果")
+	}
+	return result, nil
+}
+
 // Subscription 读取当前会员状态。
 func (c *Client) Subscription(ctx context.Context, token string) (Subscription, error) {
 	var response struct {
@@ -147,14 +171,15 @@ func (c *Client) Preferences(ctx context.Context, token string) (UserPreferences
 
 // RequestPositionStart 同步请求云端完成启动检查并占用账号唯一运行名额。
 // token 为登录凭证，positionID 为岗位编号，taskType 为本地主流程类型。
-func (c *Client) RequestPositionStart(ctx context.Context, token string, positionID string, taskType string) error {
+func (c *Client) RequestPositionStart(ctx context.Context, token string, positionID string, taskType string, machineID string) error {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return fmt.Errorf("岗位编号不能为空")
 	}
 	request := struct {
-		TaskType string `json:"task_type"`
-	}{TaskType: strings.TrimSpace(taskType)}
+		TaskType  string `json:"task_type"`
+		MachineID string `json:"machine_id"`
+	}{TaskType: strings.TrimSpace(taskType), MachineID: strings.TrimSpace(machineID)}
 	path := "/api/positions/" + url.PathEscape(positionID) + "/start"
 	return c.do(ctx, http.MethodPost, path, token, request, nil)
 }

@@ -65,6 +65,16 @@ func (s *AgentService) Bind(w http.ResponseWriter, r *http.Request) {
 		PublicKey:    strings.TrimSpace(req.PublicKey),
 	})
 	if err != nil {
+		var conflict *AgentBindingConflictError
+		if errors.As(err, &conflict) {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"ok": false,
+				"error": map[string]string{
+					"code": "DEVICE_ALREADY_BOUND", "message": conflict.Error(),
+				},
+			})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to bind agent")
 		return
 	}

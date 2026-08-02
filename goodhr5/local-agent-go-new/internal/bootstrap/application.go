@@ -25,6 +25,7 @@ import (
 	runtimemanager "goodhr5/local-agent-go-new/internal/runtime"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/console"
+	"goodhr5/local-agent-go-new/internal/system/device"
 	systemfiles "goodhr5/local-agent-go-new/internal/system/files"
 	"goodhr5/local-agent-go-new/internal/system/notification"
 	"goodhr5/local-agent-go-new/internal/system/power"
@@ -62,6 +63,13 @@ func New(cfg config.Config) (*Application, error) {
 		cfg.NodePath, cfg.WorkerEntryPath, cfg.RuntimeDir, cfg.OCRExecutable, workerProcess,
 	)
 	cloudClient := cloud.New(cfg.CloudURL)
+	machineID, deviceErr := device.Current()
+	if deviceErr != nil {
+		log.Printf("稳定设备编号暂时不可用：%v", deviceErr)
+	}
+	agentBind := cloud.AgentBindRequest{
+		MachineID: machineID, AgentVersion: version.Value, LocalPort: cfg.Port,
+	}
 	aiClient := ai.New()
 	ocrClient := ocr.New(cfg.OCRExecutable)
 	profiles := profile.New(cfg.ProfilesDir)
@@ -74,7 +82,7 @@ func New(cfg config.Config) (*Application, error) {
 		Storage: store, Profiles: profiles, AI: aiClient, OCR: ocrClient,
 		Power:       powerGuard,
 		Directories: []string{cfg.DataDir, cfg.ProfilesDir, cfg.ExtensionsDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.LogsDir},
-		Logger:      logger,
+		Logger:      logger, AgentBind: agentBind,
 	}
 	greetingFlow := &greeting.Flow{
 		Browser: browserClient, AI: aiClient, OCR: ocrClient, Store: store,
@@ -92,6 +100,7 @@ func New(cfg config.Config) (*Application, error) {
 		Runner: runner, Runtime: runtimeManager, Browser: browserClient,
 		Downloads: downloads, Store: store, Profiles: profiles,
 		OCR: ocrClient, Updater: appUpdater,
+		Cloud: cloudClient, DeviceID: device.Current,
 	})
 	return &Application{
 		cfg: cfg, server: server, runner: runner, runtime: runtimeManager,

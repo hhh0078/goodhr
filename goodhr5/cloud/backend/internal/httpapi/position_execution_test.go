@@ -11,6 +11,24 @@ import (
 	"testing"
 )
 
+const positionTestMachineID = "goodhr-device-v1-position-test"
+
+// bindPositionDeviceForTest 为岗位启动测试绑定一台稳定设备。
+func bindPositionDeviceForTest(t *testing.T, routes http.Handler, token string) {
+	t.Helper()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"`+positionTestMachineID+`","agent_version":"6","local_port":43129}`),
+	)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	routes.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("bind device status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 // postPositionExecutionForTest 调用岗位运行子接口并返回响应。
 func postPositionExecutionForTest(t *testing.T, routes http.Handler, token, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -63,6 +81,7 @@ func TestPositionStartRejectsInsufficientAIBalance(t *testing.T) {
 	routes := server.Routes()
 	email := "position-ai-balance@example.com"
 	token := loginForTest(t, routes, email)
+	bindPositionDeviceForTest(t, routes, token)
 	positionID := createPositionWithConfigForTest(t, routes, token, "AI 岗位", `{"mode_default":"ai"}`)
 	wallet := server.positionExecution.aiWallet
 	balance, err := wallet.BalanceUnits(email)
@@ -75,7 +94,7 @@ func TestPositionStartRejectsInsufficientAIBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting"}`)
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
 	if resp.Code != http.StatusPaymentRequired {
 		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
 	}
@@ -90,12 +109,13 @@ func TestPositionStartRejectsExpiredSubscription(t *testing.T) {
 	routes := server.Routes()
 	email := "position-subscription@example.com"
 	token := loginForTest(t, routes, email)
+	bindPositionDeviceForTest(t, routes, token)
 	positionID := createPositionWithConfigForTest(t, routes, token, "会员岗位", `{"detail_mode":"ai"}`)
 	if _, err := server.positionExecution.subscriptions.AdjustSubscriptionDays(email, defaultMemberType, -10); err != nil {
 		t.Fatal(err)
 	}
 
-	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting"}`)
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
 	}
@@ -110,12 +130,13 @@ func TestPositionStartRequiresMaxForAutoReply(t *testing.T) {
 	routes := server.Routes()
 	email := "position-auto-reply@example.com"
 	token := loginForTest(t, routes, email)
+	bindPositionDeviceForTest(t, routes, token)
 	positionID := createPositionWithConfigForTest(t, routes, token, "自动回复岗位", `{"mode_default":"keyword"}`)
 	if _, err := server.positionExecution.subscriptions.AdjustSubscriptionDays(email, memberTypePlus, 30); err != nil {
 		t.Fatal(err)
 	}
 
-	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"auto_reply"}`)
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"auto_reply","machine_id":"`+positionTestMachineID+`"}`)
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
 	}
@@ -129,19 +150,60 @@ func TestPositionStartAllowsOnlyOneRunningPosition(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	token := loginForTest(t, routes, "position-conflict@example.com")
+	bindPositionDeviceForTest(t, routes, token)
 	firstID := createPositionWithConfigForTest(t, routes, token, "第一个岗位", `{"mode_default":"keyword"}`)
 	secondID := createPositionWithConfigForTest(t, routes, token, "第二个岗位", `{"mode_default":"keyword"}`)
 
-	firstResp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+firstID+"/start", `{"task_type":"greeting"}`)
+	firstResp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+firstID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
 	if firstResp.Code != http.StatusOK {
 		t.Fatalf("first start status = %d, body = %s", firstResp.Code, firstResp.Body.String())
 	}
-	secondResp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+secondID+"/start", `{"task_type":"greeting"}`)
+	secondResp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+secondID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
 	if secondResp.Code != http.StatusConflict {
 		t.Fatalf("second start status = %d, body = %s", secondResp.Code, secondResp.Body.String())
 	}
 	if code := positionStartErrorCodeForTest(t, secondResp); code != "POSITION_TASK_CONFLICT" {
 		t.Fatalf("error code = %s", code)
+	}
+}
+
+// TestPositionStartRequiresBoundStableDevice 验证没有稳定设备绑定时云端不会允许岗位启动。
+func TestPositionStartRequiresBoundStableDevice(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "position-device-required@example.com")
+	positionID := createPositionWithConfigForTest(t, routes, token, "设备校验岗位", `{"mode_default":"keyword"}`)
+	response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting"}`)
+	if response.Code != http.StatusForbidden || positionStartErrorCodeForTest(t, response) != "DEVICE_BINDING_REQUIRED" {
+		t.Fatalf("start status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+// TestPositionStartAllowsAnyDeviceOwnedByAccount 验证同一账号较早绑定的电脑也可以启动岗位。
+func TestPositionStartAllowsAnyDeviceOwnedByAccount(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "position-multi-device@example.com")
+	for _, machineID := range []string{"goodhr-device-v1-earlier", "goodhr-device-v1-latest"} {
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/api/agents/bind",
+			bytes.NewBufferString(`{"machine_id":"`+machineID+`","agent_version":"6","local_port":43129}`),
+		)
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		routes.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("bind %s status = %d, body = %s", machineID, response.Code, response.Body.String())
+		}
+	}
+	positionID := createPositionWithConfigForTest(t, routes, token, "多设备岗位", `{"mode_default":"keyword"}`)
+	response := postPositionExecutionForTest(
+		t, routes, token, "/api/positions/"+positionID+"/start",
+		`{"task_type":"greeting","machine_id":"goodhr-device-v1-earlier"}`,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("start status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

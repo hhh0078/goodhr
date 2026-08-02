@@ -226,7 +226,7 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// UnbindAgent 清理指定用户当前本地程序连接记录。
+// UnbindAgent 解除指定用户全部有效设备占用，使这些电脑可以重新绑定其他账号。
 func (s *AdminUserService) UnbindAgent(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {

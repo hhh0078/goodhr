@@ -17,6 +17,7 @@ import (
 // Cloud 定义启动前检查使用的云端能力。
 type Cloud interface {
 	ValidateSession(context.Context, string) (cloud.UserSession, error)
+	BindAgent(context.Context, string, cloud.AgentBindRequest) (cloud.AgentBinding, error)
 	Subscription(context.Context, string) (cloud.Subscription, error)
 	Position(context.Context, string, string) (cloud.PositionSnapshot, error)
 	Preferences(context.Context, string) (cloud.UserPreferences, error)
@@ -91,6 +92,7 @@ type Checker struct {
 	Power       Power
 	Directories []string
 	Logger      shared.Logger
+	AgentBind   cloud.AgentBindRequest
 }
 
 type checkStep struct {
@@ -138,6 +140,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "validate_request", label: "启动参数", run: validateRequest},
 		{name: "check_local_program", label: "本地程序", run: c.checkLocalProgram},
 		{name: "check_cloud_session", label: "登录状态", run: c.checkCloudSession},
+		{name: "check_device_binding", label: "设备绑定", run: c.checkDeviceBinding},
 		{name: "load_position_snapshot", label: "岗位配置", run: c.loadPosition},
 		{name: "check_subscription", label: "会员状态", run: c.checkSubscription},
 		{name: "load_user_preferences", label: "个人设置", run: c.loadPreferences},
@@ -188,6 +191,15 @@ func (c *Checker) checkLocalProgram(_ context.Context, _ *shared.PreparedTask) e
 func (c *Checker) checkCloudSession(ctx context.Context, prepared *shared.PreparedTask) error {
 	session, err := c.Cloud.ValidateSession(ctx, prepared.Request.Token)
 	prepared.Session = session
+	return err
+}
+
+// checkDeviceBinding 在每次任务开始前复查当前电脑仍然属于登录账号。
+func (c *Checker) checkDeviceBinding(ctx context.Context, prepared *shared.PreparedTask) error {
+	if strings.TrimSpace(c.AgentBind.MachineID) == "" {
+		return fmt.Errorf("这台电脑的设备编号暂时没读出来，请重启本地程序后再试")
+	}
+	_, err := c.Cloud.BindAgent(ctx, prepared.Request.Token, c.AgentBind)
 	return err
 }
 

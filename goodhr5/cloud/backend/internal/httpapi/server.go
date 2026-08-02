@@ -92,7 +92,7 @@ func NewServer() (*Server, error) {
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
-		userFlow:            NewUserFlowService(auth, userFlowStore),
+		userFlow:            NewUserFlowService(auth, userFlowStore, positionStore),
 		agentWS:             agentWS,
 		ai:                  NewAIConfigService(auth, aiConfigStore),
 		aiWallet:            aiWalletService,
@@ -100,7 +100,7 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
 		positionLogs:        positionLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
