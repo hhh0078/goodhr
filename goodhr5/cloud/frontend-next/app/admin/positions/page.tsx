@@ -3,9 +3,11 @@
 
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
+import ChatRoundedIcon from "@mui/icons-material/ChatRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import HistoryRoundedIcon from "@mui/icons-material/HistoryRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
@@ -27,6 +29,8 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
+import AutoReplyAuditDialog from "@/components/admin/AutoReplyAuditDialog";
+import AutoReplyPositionDialog from "@/components/admin/AutoReplyPositionDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
@@ -48,7 +52,13 @@ import PositionFloatingStatus, {
 import { cloudRequest, formatDate, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
-import { canUseAI, normalizeSubscription } from "@/lib/subscription";
+import { canUseAI, canUseAutoReply, normalizeSubscription } from "@/lib/subscription";
+import {
+  loadPositionAutoReplyConfig,
+  loadPositionAutoReplyStatus,
+  savePositionAutoReplyConfig,
+  type PositionAutoReplyStatus,
+} from "@/lib/auto-reply";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
@@ -129,6 +139,14 @@ export default function PositionsPage() {
     positionName: string;
     message: string;
   } | null>(null);
+  const [autoReplyStatuses, setAutoReplyStatuses] = useState<
+    Record<string, PositionAutoReplyStatus>
+  >({});
+  const [autoReplyBusyPositionID, setAutoReplyBusyPositionID] = useState("");
+  const [autoReplyConfigPosition, setAutoReplyConfigPosition] =
+    useState<{ id: string; name: string } | null>(null);
+  const [autoReplyAuditPosition, setAutoReplyAuditPosition] =
+    useState<{ id: string; name: string } | null>(null);
   const shownTaskFailureIDs = useRef<Set<string>>(new Set());
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
   const [platformConfigs, setPlatformConfigs] = useState<PlatformConfigLike[]>(
@@ -140,6 +158,7 @@ export default function PositionsPage() {
     review_prompt: "",
   });
   const aiMembership = canUseAI(subscription);
+  const autoReplyMembership = canUseAutoReply(subscription);
 
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
@@ -150,7 +169,12 @@ export default function PositionsPage() {
         cloudRequest("/api/system/default-prompts"),
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
-      setItems(sortTeamPositions(positions.positions || [], user?.email));
+      const positionItems = sortTeamPositions(
+        positions.positions || [],
+        user?.email,
+      );
+      setItems(positionItems);
+      void loadAutoReplyStatuses(positionItems);
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
@@ -763,6 +787,92 @@ export default function PositionsPage() {
     if (go) router.push("/admin/subscription");
   }
 
+  /** requireAutoReplyMembership 引导没有自动回复权限的用户查看 Max 套餐。 */
+  async function requireAutoReplyMembership() {
+    const go = await confirm(
+      "自动回复需要 Max 全能版",
+      "Plus 可以继续使用主动打招呼；自动回复需要 Max 或全功能体验会员。要去看看 Max 套餐吗？",
+    );
+    if (go) router.push("/admin/subscription");
+  }
+
+  /** loadAutoReplyStatuses 批量读取当前账号岗位的自动回复实时开关。 */
+  async function loadAutoReplyStatuses(positionItems: any[]) {
+    const entries = await Promise.all(
+      positionItems
+        .filter((item) => isCurrentUserPosition(item, user?.email))
+        .map(async (item) => {
+          try {
+            const status = await loadPositionAutoReplyStatus(item.id);
+            return [item.id, status] as const;
+          } catch {
+            return null;
+          }
+        }),
+    );
+    setAutoReplyStatuses(
+      Object.fromEntries(
+        entries.filter(
+          (entry): entry is readonly [string, PositionAutoReplyStatus] =>
+            entry !== null,
+        ),
+      ),
+    );
+  }
+
+  /** toggleAutoReply 读取完整配置后只修改当前岗位的自动回复开关。 */
+  async function toggleAutoReply(item: any, enabled: boolean) {
+    if (enabled && !autoReplyMembership) {
+      await requireAutoReplyMembership();
+      return;
+    }
+    setAutoReplyBusyPositionID(item.id);
+    try {
+      const config = await loadPositionAutoReplyConfig(item.id);
+      if (enabled && !config.company_profile_id) {
+        notify("第一次开启前要先补好公司档案和岗位说明，我已经帮你打开设置。", "info");
+        setAutoReplyConfigPosition({ id: item.id, name: item.name });
+        return;
+      }
+      const saved = await savePositionAutoReplyConfig({ ...config, enabled });
+      setAutoReplyStatuses((current) => ({
+        ...current,
+        [item.id]: {
+          enabled: saved.enabled && autoReplyMembership,
+          configured_enabled: saved.enabled,
+          version: saved.version,
+          allow_auto_reply: autoReplyMembership,
+        },
+      }));
+      notify(
+        saved.enabled
+          ? "自动回复已开启，我会在候选人发来消息时接着干活。"
+          : "自动回复已关闭，正在处理的当前会话会先礼貌收尾。",
+        "success",
+      );
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "自动回复开关没保存成功。",
+        "error",
+      );
+    } finally {
+      setAutoReplyBusyPositionID("");
+    }
+  }
+
+  /** syncSavedAutoReplyStatus 同步配置弹框保存后的岗位开关。 */
+  function syncSavedAutoReplyStatus(positionID: string, enabled: boolean) {
+    setAutoReplyStatuses((current) => ({
+      ...current,
+      [positionID]: {
+        enabled: enabled && autoReplyMembership,
+        configured_enabled: enabled,
+        version: (current[positionID]?.version || 0) + 1,
+        allow_auto_reply: autoReplyMembership,
+      },
+    }));
+  }
+
   return (
     <>
       <PositionFloatingStatus
@@ -853,6 +963,52 @@ export default function PositionsPage() {
                   </Box>
                   {isCurrentUserPosition(item, user?.email) ? (
                   <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size='small'
+                          checked={Boolean(
+                            autoReplyStatuses[item.id]?.configured_enabled,
+                          )}
+                          disabled={autoReplyBusyPositionID === item.id}
+                          onChange={(event) =>
+                            void toggleAutoReply(item, event.target.checked)
+                          }
+                        />
+                      }
+                      label='自动回复'
+                      sx={{
+                        minHeight: 36,
+                        ml: 0,
+                        mr: 0.5,
+                        "& .MuiFormControlLabel-label": {
+                          fontSize: 13,
+                          fontWeight: 650,
+                        },
+                      }}
+                    />
+                    <Button
+                      startIcon={<ChatRoundedIcon />}
+                      onClick={() =>
+                        setAutoReplyConfigPosition({
+                          id: item.id,
+                          name: item.name,
+                        })
+                      }
+                    >
+                      回复设置
+                    </Button>
+                    <Button
+                      startIcon={<HistoryRoundedIcon />}
+                      onClick={() =>
+                        setAutoReplyAuditPosition({
+                          id: item.id,
+                          name: item.name,
+                        })
+                      }
+                    >
+                      AI记录
+                    </Button>
                     {item.status === "running" ? (
                       <Button
                         color='error'
@@ -1006,6 +1162,25 @@ export default function PositionsPage() {
       >
         <PositionLogList logs={allLogs} maxHeight='60vh' />
       </AdminDialog>
+      <AutoReplyPositionDialog
+        open={Boolean(autoReplyConfigPosition)}
+        position={autoReplyConfigPosition}
+        allowAutoReply={autoReplyMembership}
+        notify={notify}
+        confirm={confirm}
+        onRequireMax={() => void requireAutoReplyMembership()}
+        onClose={() => setAutoReplyConfigPosition(null)}
+        onSaved={(enabled) => {
+          if (!autoReplyConfigPosition) return;
+          syncSavedAutoReplyStatus(autoReplyConfigPosition.id, enabled);
+        }}
+      />
+      <AutoReplyAuditDialog
+        open={Boolean(autoReplyAuditPosition)}
+        position={autoReplyAuditPosition}
+        notify={notify}
+        onClose={() => setAutoReplyAuditPosition(null)}
+      />
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}

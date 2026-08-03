@@ -23,6 +23,7 @@ export class APIRequestError extends Error {
     message: string,
     public readonly code: string,
     public readonly status: number,
+    public readonly errorID = "",
   ) {
     super(message);
     this.name = "APIRequestError";
@@ -332,10 +333,13 @@ async function parseResponse(
 				window.location.replace(`/login?next=${next}`);
 			}
 		}
+    const errorID = responseErrorID(data);
+    const message = responseErrorMessage(data, fallback);
     throw new APIRequestError(
-      responseErrorMessage(data, fallback),
+      errorID ? `${message}（错误编号：${errorID}）` : message,
       responseErrorCode(data),
       response.status,
+      errorID,
     );
   }
   return data;
@@ -347,6 +351,15 @@ function responseErrorCode(data: unknown) {
   if (typeof data.code === "string") return data.code.trim();
   if (isRecord(data.error) && typeof data.error.code === "string")
     return data.error.code.trim();
+  return "";
+}
+
+/** responseErrorID 从统一错误对象中读取服务端追踪编号。 */
+function responseErrorID(data: unknown) {
+  if (!isRecord(data)) return "";
+  if (typeof data.error_id === "string") return data.error_id.trim();
+  if (isRecord(data.error) && typeof data.error.error_id === "string")
+    return data.error.error_id.trim();
   return "";
 }
 
