@@ -161,4 +161,4 @@
 | 阶段 | 分支 | 提交 | 合并到大分支 | 验证摘要 |
 | --- | --- | --- | --- | --- |
 | 0 | `codex/auto-reply-docs` | `1ba87569` | 已完成 | `git diff --check`、权威文档与数据边界核对通过 |
-| 1 | `codex/auto-reply-data` | `2c341fde` | 待合并 | 云端 `go test ./...`、干净 PostgreSQL 完整存储链路、迁移重复执行和字段中文备注检查通过 |
+| 1 | `codex/auto-reply-data` | `2c341fde` | 已完成（`c19c2e1c`） | 云端 `go test ./...`、干净 PostgreSQL 完整存储链路、迁移重复执行和字段中文备注检查通过 |
