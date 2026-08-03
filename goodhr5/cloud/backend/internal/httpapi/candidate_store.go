@@ -21,7 +21,10 @@ type PositionCandidate struct {
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	Gender              string
 	BirthYM             string
+	BirthYMPrecision    string
+	NormalizedPhone     string
 	Phone               string
 	Email               string
 	WorkRegion          string
@@ -62,11 +65,15 @@ type PositionCandidate struct {
 
 // CandidateProfileInput 表示候选人主体保存参数。
 type CandidateProfileInput struct {
+	CandidateID         string
 	UserEmail           string
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	Gender              string
 	BirthYM             string
+	BirthYMPrecision    string
+	NormalizedPhone     string
 	Phone               string
 	Email               string
 	WorkRegion          string
@@ -204,14 +211,24 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 	defer s.mu.Unlock()
 
 	now := s.now()
-	id := s.nextID("candidate")
+	id := strings.TrimSpace(item.CandidateID)
+	createdAt := now
+	if existing, ok := s.profiles[id]; ok && id != "" {
+		createdAt = existing.CreatedAt
+	}
+	if id == "" {
+		id = s.nextID("candidate")
+	}
 	profile := PositionCandidate{
 		ID:                  id,
 		UserEmail:           item.UserEmail,
 		PlatformID:          item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID,
 		CandidateName:       item.CandidateName,
+		Gender:              item.Gender,
 		BirthYM:             item.BirthYM,
+		BirthYMPrecision:    item.BirthYMPrecision,
+		NormalizedPhone:     normalizeCandidatePhone(firstNonEmpty(item.NormalizedPhone, item.Phone)),
 		Phone:               item.Phone,
 		Email:               item.Email,
 		WorkRegion:          item.WorkRegion,
@@ -240,7 +257,7 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		AIGreetReason:       item.AIGreetReason,
 		AIGreetScore:        item.AIGreetScore,
 		FirstSeenAt:         item.FirstSeenAt,
-		CreatedAt:           now,
+		CreatedAt:           createdAt,
 		UpdatedAt:           now,
 	}
 	s.profiles[id] = profile

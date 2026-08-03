@@ -1,4 +1,4 @@
-// 本文件负责自动回复 AI 总记录、工具调用、配置建议和180天清理的 PostgreSQL 存储。
+// Package httpapi 本文件负责自动回复 AI 总记录、工具调用、配置建议和180天清理的 PostgreSQL 存储。
 package httpapi
 
 import (
@@ -13,10 +13,10 @@ import (
 // StartAutoReplyAIRun 创建一条正在运行的 AI 总审计记录。
 func (s *PostgresAutoReplyStore) StartAutoReplyAIRun(ctx context.Context, item AutoReplyAIRun) (AutoReplyAIRun, error) {
 	if strings.TrimSpace(item.TenantID) == "" || strings.TrimSpace(item.ConversationID) == "" || strings.TrimSpace(item.TraceID) == "" {
-		return AutoReplyAIRun{}, errors.New("AI总记录缺少团队、会话或追踪编号")
+		return AutoReplyAIRun{}, newAutoReplyValidationError("AI总记录缺少团队、会话或追踪编号")
 	}
 	if strings.TrimSpace(item.BasedOnMessageKey) == "" {
-		return AutoReplyAIRun{}, errors.New("AI总记录缺少依据消息")
+		return AutoReplyAIRun{}, newAutoReplyValidationError("AI总记录缺少依据消息")
 	}
 	if err := validateJSONDocument(item.InputMessages, false); err != nil {
 		return AutoReplyAIRun{}, err
@@ -57,10 +57,10 @@ func (s *PostgresAutoReplyStore) StartAutoReplyAIRun(ctx context.Context, item A
 // FinishAutoReplyAIRun 完成 AI 总审计记录并保存完整返回或安全错误。
 func (s *PostgresAutoReplyStore) FinishAutoReplyAIRun(ctx context.Context, item AutoReplyAIRun) (AutoReplyAIRun, error) {
 	if item.Status != "completed" && item.Status != "failed" && item.Status != "notified" {
-		return AutoReplyAIRun{}, errors.New("AI总记录结束状态不支持")
+		return AutoReplyAIRun{}, newAutoReplyValidationError("AI总记录结束状态不支持")
 	}
 	if item.TokenUsage < 0 {
-		return AutoReplyAIRun{}, errors.New("AI Token使用量不能小于0")
+		return AutoReplyAIRun{}, newAutoReplyValidationError("AI Token使用量不能小于0")
 	}
 	output := item.OutputMessage
 	if len(strings.TrimSpace(string(output))) == 0 {
@@ -95,16 +95,16 @@ func (s *PostgresAutoReplyStore) FinishAutoReplyAIRun(ctx context.Context, item 
 // SaveAutoReplyToolCall 新增或更新一次 AI 工具调用审计。
 func (s *PostgresAutoReplyStore) SaveAutoReplyToolCall(ctx context.Context, item AutoReplyToolCall) (AutoReplyToolCall, error) {
 	if strings.TrimSpace(item.TenantID) == "" || strings.TrimSpace(item.AIRunID) == "" || strings.TrimSpace(item.ToolCallID) == "" {
-		return AutoReplyToolCall{}, errors.New("AI工具记录缺少团队、AI运行或调用编号")
+		return AutoReplyToolCall{}, newAutoReplyValidationError("AI工具记录缺少团队、AI运行或调用编号")
 	}
 	if item.SequenceNo < 1 || item.SequenceNo > 8 {
-		return AutoReplyToolCall{}, errors.New("单条候选人消息最多调用8次工具")
+		return AutoReplyToolCall{}, newAutoReplyValidationError("单条候选人消息最多调用8次工具")
 	}
 	if strings.TrimSpace(item.ToolName) == "" {
-		return AutoReplyToolCall{}, errors.New("AI工具名称不能为空")
+		return AutoReplyToolCall{}, newAutoReplyValidationError("AI工具名称不能为空")
 	}
 	if item.Status != "running" && item.Status != "completed" && item.Status != "failed" {
-		return AutoReplyToolCall{}, errors.New("AI工具状态不支持")
+		return AutoReplyToolCall{}, newAutoReplyValidationError("AI工具状态不支持")
 	}
 	arguments := nonEmptyJSON(item.ArgumentsJSON)
 	result := nonEmptyJSON(item.ResultJSON)
@@ -152,16 +152,16 @@ func (s *PostgresAutoReplyStore) SaveAutoReplyToolCall(ctx context.Context, item
 // SaveAutoReplyConfigSuggestion 保存 AI 提交、等待 HR 审核的配置修改建议。
 func (s *PostgresAutoReplyStore) SaveAutoReplyConfigSuggestion(ctx context.Context, item AutoReplyConfigSuggestion) (AutoReplyConfigSuggestion, error) {
 	if item.SuggestionType != "position" && item.SuggestionType != "company" {
-		return AutoReplyConfigSuggestion{}, errors.New("配置建议类型不支持")
+		return AutoReplyConfigSuggestion{}, newAutoReplyValidationError("配置建议类型不支持")
 	}
 	if item.Operation != "create" && item.Operation != "update" && item.Operation != "delete" {
-		return AutoReplyConfigSuggestion{}, errors.New("配置建议操作不支持")
+		return AutoReplyConfigSuggestion{}, newAutoReplyValidationError("配置建议操作不支持")
 	}
 	if strings.TrimSpace(item.Reason) == "" {
-		return AutoReplyConfigSuggestion{}, errors.New("配置建议需要说明原因")
+		return AutoReplyConfigSuggestion{}, newAutoReplyValidationError("配置建议需要说明原因")
 	}
 	if strings.TrimSpace(item.PositionID) == "" && strings.TrimSpace(item.CompanyProfileID) == "" {
-		return AutoReplyConfigSuggestion{}, errors.New("配置建议需要关联岗位或公司档案")
+		return AutoReplyConfigSuggestion{}, newAutoReplyValidationError("配置建议需要关联岗位或公司档案")
 	}
 	proposed := nonEmptyJSON(item.ProposedValue)
 	if err := validateJSONDocument(proposed, false); err != nil {
@@ -215,10 +215,10 @@ func (s *PostgresAutoReplyStore) ClaimAutoReplyNotification(ctx context.Context,
 	item.RecipientEmail = strings.ToLower(strings.TrimSpace(item.RecipientEmail))
 	item.Gender = strings.TrimSpace(item.Gender)
 	if item.TenantID == "" || item.ConversationID == "" || item.BasedOnMessageKey == "" || item.Reason == "" || item.RecipientEmail == "" {
-		return AutoReplyNotification{}, false, errors.New("人工接管通知缺少团队、会话、消息、原因或收件人")
+		return AutoReplyNotification{}, false, newAutoReplyValidationError("人工接管通知缺少团队、会话、消息、原因或收件人")
 	}
 	if item.Gender != "" && item.Gender != "男" && item.Gender != "女" {
-		return AutoReplyNotification{}, false, errors.New("候选人性别只支持男、女或空值")
+		return AutoReplyNotification{}, false, newAutoReplyValidationError("候选人性别只支持男、女或空值")
 	}
 	for kind, id := range map[string]string{"conversation": item.ConversationID, "position": item.PositionID} {
 		if err := s.ensureAutoReplyReference(ctx, item.TenantID, kind, id); err != nil {
@@ -266,7 +266,7 @@ func (s *PostgresAutoReplyStore) ClaimAutoReplyNotification(ctx context.Context,
 // FinishAutoReplyNotification 保存人工接管邮件的最终发送结果。
 func (s *PostgresAutoReplyStore) FinishAutoReplyNotification(ctx context.Context, item AutoReplyNotification) (AutoReplyNotification, error) {
 	if item.Status != "sent" && item.Status != "failed" {
-		return AutoReplyNotification{}, errors.New("人工接管通知结束状态不支持")
+		return AutoReplyNotification{}, newAutoReplyValidationError("人工接管通知结束状态不支持")
 	}
 	err := s.db.QueryRowContext(ctx, `
 		UPDATE auto_reply_notifications

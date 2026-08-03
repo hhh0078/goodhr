@@ -4,7 +4,11 @@ services:
     build: ./cloud/backend
     network_mode: host
     env_file: ./cloud/backend/.env
-    volumes: ["./cloud/backend:/app", "/app/tmp"]
+    volumes:
+      - ./cloud/backend:/app
+      - /app/tmp
+      # 服务器宿主机目录持久化自动回复简历，备份和迁移时可直接处理该目录。
+      - ./data/auto-reply-resumes:/app/data/auto-reply-resumes
 
   frontend:
     build: ./cloud/frontend-next

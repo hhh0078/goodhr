@@ -1,4 +1,4 @@
-// 本文件负责自动回复平台身份、临时会话、聊天差量和手机号身份的 PostgreSQL 存储。
+// Package httpapi 本文件负责自动回复平台身份、临时会话、聊天差量和手机号身份的 PostgreSQL 存储。
 package httpapi
 
 import (
@@ -18,10 +18,10 @@ func (s *PostgresAutoReplyStore) UpsertCandidatePlatformIdentity(ctx context.Con
 	item.Gender = strings.TrimSpace(item.Gender)
 	item.NormalizedPhone = normalizeCandidatePhone(item.NormalizedPhone)
 	if item.TenantID == "" || item.PlatformID == "" || item.PlatformCandidateID == "" {
-		return CandidatePlatformIdentity{}, errors.New("平台候选人身份缺少团队、平台或稳定标识")
+		return CandidatePlatformIdentity{}, newAutoReplyValidationError("平台候选人身份缺少团队、平台或稳定标识")
 	}
 	if item.Gender != "" && item.Gender != "男" && item.Gender != "女" {
-		return CandidatePlatformIdentity{}, errors.New("候选人性别只支持男、女或空值")
+		return CandidatePlatformIdentity{}, newAutoReplyValidationError("候选人性别只支持男、女或空值")
 	}
 	if err := s.ensureAutoReplyReference(ctx, item.TenantID, "candidate", item.CandidateID); err != nil {
 		return CandidatePlatformIdentity{}, err
@@ -42,7 +42,7 @@ func (s *PostgresAutoReplyStore) UpsertCandidatePlatformIdentity(ctx context.Con
 	if err != nil {
 		return CandidatePlatformIdentity{}, err
 	}
-	err = s.db.QueryRowContext(ctx, `
+	return scanCandidatePlatformIdentity(s.db.QueryRowContext(ctx, `
 		UPDATE candidate_platform_identities
 		SET candidate_id=COALESCE(NULLIF($5,'')::uuid,candidate_id),
 			candidate_name=CASE WHEN $6='' THEN candidate_name ELSE $6 END,
@@ -57,13 +57,7 @@ func (s *PostgresAutoReplyStore) UpsertCandidatePlatformIdentity(ctx context.Con
 			gender, normalized_phone, first_seen_at, last_seen_at, created_at, updated_at
 	`, item.TenantID, item.PlatformID, item.PlatformAccountID, item.PlatformCandidateID,
 		item.CandidateID, strings.TrimSpace(item.CandidateName), item.Gender,
-		item.NormalizedPhone, nullableTime(item.LastSeenAt)).Scan(
-		&item.ID, &item.TenantID, &item.CandidateID, &item.PlatformID,
-		&item.PlatformAccountID, &item.PlatformCandidateID, &item.CandidateName,
-		&item.Gender, &item.NormalizedPhone, &item.FirstSeenAt, &item.LastSeenAt,
-		&item.CreatedAt, &item.UpdatedAt,
-	)
-	return item, err
+		item.NormalizedPhone, nullableTime(item.LastSeenAt)))
 }
 
 // UpsertAutoReplyConversation 新增或更新一个平台会话，并校验所有关联数据属于同一团队。
@@ -72,16 +66,16 @@ func (s *PostgresAutoReplyStore) UpsertAutoReplyConversation(ctx context.Context
 	item.PlatformThreadID = strings.TrimSpace(item.PlatformThreadID)
 	item.Gender = strings.TrimSpace(item.Gender)
 	if item.TenantID == "" || item.PlatformID == "" || item.PlatformThreadID == "" {
-		return AutoReplyConversation{}, errors.New("自动回复会话缺少团队、平台或稳定会话标识")
+		return AutoReplyConversation{}, newAutoReplyValidationError("自动回复会话缺少团队、平台或稳定会话标识")
 	}
 	if item.Status == "" {
 		item.Status = "active"
 	}
 	if !validConversationStatus(item.Status) {
-		return AutoReplyConversation{}, errors.New("自动回复会话状态不支持")
+		return AutoReplyConversation{}, newAutoReplyValidationError("自动回复会话状态不支持")
 	}
 	if item.Gender != "" && item.Gender != "男" && item.Gender != "女" {
-		return AutoReplyConversation{}, errors.New("候选人性别只支持男、女或空值")
+		return AutoReplyConversation{}, newAutoReplyValidationError("候选人性别只支持男、女或空值")
 	}
 	for kind, id := range map[string]string{
 		"candidate": item.CandidateID, "identity": item.PlatformIdentityID,
@@ -109,7 +103,7 @@ func (s *PostgresAutoReplyStore) UpsertAutoReplyConversation(ctx context.Context
 	if err != nil {
 		return AutoReplyConversation{}, err
 	}
-	err = s.db.QueryRowContext(ctx, `
+	return scanAutoReplyConversation(s.db.QueryRowContext(ctx, `
 		UPDATE candidate_conversations
 		SET candidate_id=COALESCE(NULLIF($5,'')::uuid,candidate_id),
 			platform_identity_id=COALESCE(NULLIF($6,'')::uuid,platform_identity_id),
@@ -134,14 +128,43 @@ func (s *PostgresAutoReplyStore) UpsertAutoReplyConversation(ctx context.Context
 	`, item.TenantID, item.PlatformID, item.PlatformAccountID, item.PlatformThreadID,
 		item.CandidateID, item.PlatformIdentityID, item.EngagementID, item.PositionID,
 		strings.TrimSpace(item.CandidateName), item.Gender, strings.TrimSpace(item.PagePositionText),
-		item.Status, item.HistoryComplete, strings.TrimSpace(item.UnresolvedReason), item.LastCheckedAt).Scan(
-		&item.ID, &item.TenantID, &item.CandidateID, &item.PlatformIdentityID,
-		&item.EngagementID, &item.PositionID, &item.PlatformAccountID,
-		&item.PlatformID, &item.PlatformThreadID, &item.CandidateName, &item.Gender,
-		&item.PagePositionText, &item.Status, &item.HistoryComplete,
-		&item.LastSyncedMessageKey, &item.LastCandidateMessageKey,
-		&item.UnresolvedReason, &item.LastCheckedAt, &item.CreatedAt, &item.UpdatedAt,
-	)
+		item.Status, item.HistoryComplete, strings.TrimSpace(item.UnresolvedReason), item.LastCheckedAt))
+}
+
+// FindCandidatePlatformIdentity 按团队、平台账号和平台候选人标识读取身份映射。
+func (s *PostgresAutoReplyStore) FindCandidatePlatformIdentity(ctx context.Context, tenantID, platformID, accountID, platformCandidateID string) (CandidatePlatformIdentity, error) {
+	item, err := scanCandidatePlatformIdentity(s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, COALESCE(candidate_id::text,''), platform_id,
+			COALESCE(platform_account_id::text,''), platform_candidate_id, candidate_name,
+			gender, normalized_phone, first_seen_at, last_seen_at, created_at, updated_at
+		FROM candidate_platform_identities
+		WHERE tenant_id=$1 AND platform_id=$2
+			AND platform_account_id IS NOT DISTINCT FROM NULLIF($3,'')::uuid
+			AND platform_candidate_id=$4
+	`, tenantID, strings.TrimSpace(platformID), strings.TrimSpace(accountID), strings.TrimSpace(platformCandidateID)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return CandidatePlatformIdentity{}, ErrNotFound
+	}
+	return item, err
+}
+
+// FindAutoReplyConversation 按平台会话标识读取当前团队已同步的会话和差量游标。
+func (s *PostgresAutoReplyStore) FindAutoReplyConversation(ctx context.Context, tenantID, platformID, accountID, platformThreadID string) (AutoReplyConversation, error) {
+	item, err := scanAutoReplyConversation(s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, COALESCE(candidate_id::text,''),
+			COALESCE(platform_identity_id::text,''), COALESCE(engagement_id::text,''),
+			COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
+			platform_id, platform_thread_id, candidate_name, gender, page_position_text,
+			status, history_complete, last_synced_message_key, last_candidate_message_key,
+			unresolved_reason, last_checked_at, created_at, updated_at
+		FROM candidate_conversations
+		WHERE tenant_id=$1 AND platform_id=$2
+			AND platform_account_id IS NOT DISTINCT FROM NULLIF($3,'')::uuid
+			AND platform_thread_id=$4
+	`, tenantID, strings.TrimSpace(platformID), strings.TrimSpace(accountID), strings.TrimSpace(platformThreadID)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AutoReplyConversation{}, ErrNotFound
+	}
 	return item, err
 }
 
@@ -149,7 +172,7 @@ func (s *PostgresAutoReplyStore) UpsertAutoReplyConversation(ctx context.Context
 func (s *PostgresAutoReplyStore) SyncAutoReplyMessages(ctx context.Context, tenantID, conversationID string, historyComplete bool, messages []AutoReplyMessage) (MessageSyncResult, error) {
 	result := MessageSyncResult{}
 	if len(messages) > 5000 {
-		return result, errors.New("首次聊天同步最多5000条")
+		return result, newAutoReplyValidationError("首次聊天同步最多5000条")
 	}
 	for _, message := range messages {
 		if err := validateAutoReplyMessage(message); err != nil {
@@ -250,10 +273,10 @@ func (s *PostgresAutoReplyStore) ListAutoReplyMessages(ctx context.Context, tena
 func (s *PostgresAutoReplyStore) ResolveCanonicalCandidateByPhone(ctx context.Context, tenantID, candidateID, phone string) (string, error) {
 	normalized := normalizeCandidatePhone(phone)
 	if normalized == "" {
-		return "", errors.New("手机号为空，候选人暂时不能进入正式简历库")
+		return "", newAutoReplyValidationError("手机号为空，候选人暂时不能进入正式简历库")
 	}
 	if len(normalized) > 32 {
-		return "", errors.New("手机号格式过长")
+		return "", newAutoReplyValidationError("手机号格式过长")
 	}
 	if err := s.ensureAutoReplyReference(ctx, tenantID, "candidate", candidateID); err != nil {
 		return "", err
@@ -274,6 +297,23 @@ func (s *PostgresAutoReplyStore) ResolveCanonicalCandidateByPhone(ctx context.Co
 		WHERE tenant_id=$1 AND id=$3
 	`, tenantID, normalized, canonicalID)
 	return canonicalID, err
+}
+
+// CandidateIDByPhone 返回团队内已经绑定该标准化手机号的正式候选人标识。
+func (s *PostgresAutoReplyStore) CandidateIDByPhone(ctx context.Context, tenantID, phone string) (string, error) {
+	normalized := normalizeCandidatePhone(phone)
+	if normalized == "" {
+		return "", newAutoReplyValidationError("手机号为空，候选人暂时不能进入正式简历库")
+	}
+	var candidateID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT candidate_id FROM candidate_phone_identities
+		WHERE tenant_id=$1 AND normalized_phone=$2
+	`, tenantID, normalized).Scan(&candidateID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return candidateID, err
 }
 
 // ensureAutoReplyReference 校验可选关联ID存在且属于当前团队。
@@ -332,6 +372,32 @@ func messageStableKey(item AutoReplyMessage) string {
 		return "fp:" + value
 	}
 	return ""
+}
+
+// scanCandidatePlatformIdentity 从查询结果读取一条平台候选人身份。
+func scanCandidatePlatformIdentity(scanner candidateScanner) (CandidatePlatformIdentity, error) {
+	var item CandidatePlatformIdentity
+	err := scanner.Scan(
+		&item.ID, &item.TenantID, &item.CandidateID, &item.PlatformID,
+		&item.PlatformAccountID, &item.PlatformCandidateID, &item.CandidateName,
+		&item.Gender, &item.NormalizedPhone, &item.FirstSeenAt, &item.LastSeenAt,
+		&item.CreatedAt, &item.UpdatedAt,
+	)
+	return item, err
+}
+
+// scanAutoReplyConversation 从查询结果读取一条自动回复会话。
+func scanAutoReplyConversation(scanner candidateScanner) (AutoReplyConversation, error) {
+	var item AutoReplyConversation
+	err := scanner.Scan(
+		&item.ID, &item.TenantID, &item.CandidateID, &item.PlatformIdentityID,
+		&item.EngagementID, &item.PositionID, &item.PlatformAccountID,
+		&item.PlatformID, &item.PlatformThreadID, &item.CandidateName, &item.Gender,
+		&item.PagePositionText, &item.Status, &item.HistoryComplete,
+		&item.LastSyncedMessageKey, &item.LastCandidateMessageKey,
+		&item.UnresolvedReason, &item.LastCheckedAt, &item.CreatedAt, &item.UpdatedAt,
+	)
+	return item, err
 }
 
 // validConversationStatus 判断会话状态是否在数据库约束范围内。

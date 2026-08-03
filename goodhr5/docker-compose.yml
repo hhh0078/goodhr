@@ -5,7 +5,10 @@ services:
     env_file: ./cloud/backend/.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes: ["./cloud/backend:/app", "/app/tmp"]
+    volumes:
+      - ./cloud/backend:/app
+      - /app/tmp
+      - backend_auto_reply_resumes:/app/data/auto-reply-resumes
 
   frontend:
     build:
@@ -27,5 +30,7 @@ services:
       - backend
 
 volumes:
+  # 自动回复取得的简历附件保存在独立持久化卷，重建后端容器不会丢失。
+  backend_auto_reply_resumes:
   frontend_node_modules:
   frontend_next_cache:

@@ -1,4 +1,4 @@
-// 本文件负责自动回复简历附件、候选人确认项和状态证据的 PostgreSQL 存储。
+// Package httpapi 本文件负责自动回复简历附件、候选人确认项和状态证据的 PostgreSQL 存储。
 package httpapi
 
 import (
@@ -53,7 +53,7 @@ func (s *PostgresAutoReplyStore) SaveResumeAttachment(ctx context.Context, item 
 // ListResumeAttachments 返回候选人或临时会话关联的简历附件。
 func (s *PostgresAutoReplyStore) ListResumeAttachments(ctx context.Context, tenantID, candidateID, conversationID string) ([]StoredResumeAttachment, error) {
 	if strings.TrimSpace(candidateID) == "" && strings.TrimSpace(conversationID) == "" {
-		return nil, errors.New("读取简历附件需要候选人或会话标识")
+		return nil, newAutoReplyValidationError("读取简历附件需要候选人或会话标识")
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, tenant_id, COALESCE(candidate_id::text,''), COALESCE(conversation_id::text,''),
@@ -80,6 +80,27 @@ func (s *PostgresAutoReplyStore) ListResumeAttachments(ctx context.Context, tena
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// GetResumeAttachment 返回当前团队指定简历附件元数据。
+func (s *PostgresAutoReplyStore) GetResumeAttachment(ctx context.Context, tenantID, attachmentID string) (StoredResumeAttachment, error) {
+	var item StoredResumeAttachment
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, COALESCE(candidate_id::text,''), COALESCE(conversation_id::text,''),
+			COALESCE(source_message_id::text,''), platform_id, original_name, storage_path,
+			sha256, mime_type, size_bytes, extracted_text, COALESCE(created_by_user_id::text,''), created_at
+		FROM candidate_resume_attachments
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, attachmentID).Scan(
+		&item.ID, &item.TenantID, &item.CandidateID, &item.ConversationID,
+		&item.SourceMessageID, &item.PlatformID, &item.OriginalName, &item.StoragePath,
+		&item.SHA256, &item.MIMEType, &item.SizeBytes, &item.ExtractedText,
+		&item.CreatedByUserID, &item.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StoredResumeAttachment{}, ErrNotFound
+	}
+	return item, err
 }
 
 // UpsertConfirmationItem 新增或修改候选人确认项，并在状态或证据变化时保存事件。

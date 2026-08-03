@@ -7,7 +7,7 @@ ALTER TABLE candidate_profiles
 
 COMMENT ON COLUMN candidate_profiles.gender IS '候选人性别，只允许男、女或空字符串';
 COMMENT ON COLUMN candidate_profiles.birth_ym_precision IS '出生年月精度：month精确到月，year_estimated按年龄估算年份，空字符串表示未知';
-COMMENT ON COLUMN candidate_profiles.normalized_phone IS '仅保留数字的标准化手机号，用于团队内跨平台候选人合并';
+COMMENT ON COLUMN candidate_profiles.normalized_phone IS '标准化手机号：中国大陆手机号去掉86或0086国家码，其他号码仅保留数字，用于团队内跨平台候选人合并';
 
 ALTER TABLE candidate_profiles
     DROP CONSTRAINT IF EXISTS chk_candidate_profiles_gender;
@@ -19,9 +19,19 @@ ALTER TABLE candidate_profiles
 ALTER TABLE candidate_profiles
     ADD CONSTRAINT chk_candidate_profiles_birth_precision CHECK (birth_ym_precision IN ('', 'month', 'year_estimated'));
 
-UPDATE candidate_profiles
-SET normalized_phone = regexp_replace(phone, '[^0-9]', '', 'g')
-WHERE normalized_phone = '' AND phone <> '';
+WITH normalized_candidate_phones AS (
+    SELECT id, regexp_replace(phone, '[^0-9]', '', 'g') AS digits
+    FROM candidate_profiles
+    WHERE normalized_phone = '' AND phone <> ''
+)
+UPDATE candidate_profiles AS candidate
+SET normalized_phone = CASE
+    WHEN normalized.digits ~ '^861[0-9]{10}$' THEN substring(normalized.digits FROM 3)
+    WHEN normalized.digits ~ '^00861[0-9]{10}$' THEN substring(normalized.digits FROM 5)
+    ELSE normalized.digits
+END
+FROM normalized_candidate_phones AS normalized
+WHERE candidate.id = normalized.id;
 
 CREATE INDEX IF NOT EXISTS idx_candidate_profiles_tenant_phone
     ON candidate_profiles (tenant_id, normalized_phone)
@@ -156,7 +166,7 @@ COMMENT ON COLUMN candidate_platform_identities.platform_account_id IS '招聘�
 COMMENT ON COLUMN candidate_platform_identities.platform_candidate_id IS '平台可稳定读取的候选人标识';
 COMMENT ON COLUMN candidate_platform_identities.candidate_name IS '页面可见候选人名称';
 COMMENT ON COLUMN candidate_platform_identities.gender IS '页面或简历可见性别，只允许男、女或空字符串';
-COMMENT ON COLUMN candidate_platform_identities.normalized_phone IS '平台身份最近获得的标准化手机号';
+COMMENT ON COLUMN candidate_platform_identities.normalized_phone IS '平台身份最近获得的标准化手机号，中国大陆手机号不保留国家码';
 COMMENT ON COLUMN candidate_platform_identities.first_seen_at IS '首次发现该平台身份的时间';
 COMMENT ON COLUMN candidate_platform_identities.last_seen_at IS '最近看见该平台身份的时间';
 COMMENT ON COLUMN candidate_platform_identities.created_at IS '平台身份记录创建时间';
@@ -180,7 +190,7 @@ CREATE TABLE IF NOT EXISTS candidate_phone_identities (
 
 COMMENT ON TABLE candidate_phone_identities IS '团队内标准化手机号到正式候选人的唯一映射';
 COMMENT ON COLUMN candidate_phone_identities.tenant_id IS '手机号身份所属团队标识';
-COMMENT ON COLUMN candidate_phone_identities.normalized_phone IS '仅保留数字的标准化手机号';
+COMMENT ON COLUMN candidate_phone_identities.normalized_phone IS '标准化手机号，中国大陆手机号不保留国家码，其他号码仅保留数字';
 COMMENT ON COLUMN candidate_phone_identities.candidate_id IS '手机号对应的正式候选人标识';
 COMMENT ON COLUMN candidate_phone_identities.created_at IS '手机号身份创建时间';
 COMMENT ON COLUMN candidate_phone_identities.updated_at IS '手机号身份最近更新时间';

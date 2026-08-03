@@ -31,6 +31,7 @@ type Config struct {
 	HaoshoumiReturnURL          string
 	HaoshoumiDefaultPaymentType string
 	UniversalLoginCodeOffsetMin int
+	AutoReplyResumeDir          string
 }
 
 // LoadConfigFromEnv 从环境变量读取云端后端配置。
@@ -53,7 +54,16 @@ func LoadConfigFromEnv() Config {
 		HaoshoumiReturnURL:          os.Getenv("GOODHR_HAOSHOUMI_RETURN_URL"),
 		HaoshoumiDefaultPaymentType: os.Getenv("GOODHR_HAOSHOUMI_DEFAULT_TYPE"),
 		UniversalLoginCodeOffsetMin: envInt("GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES", 0),
+		AutoReplyResumeDir:          envString("GOODHR_AUTO_REPLY_RESUME_DIR", "data/auto-reply-resumes"),
 	}
+}
+
+// AutoReplyStore 创建自动回复 PostgreSQL 存储；未配置数据库时返回 nil 并由接口明确提示。
+func (c Config) AutoReplyStore(db *sql.DB) *PostgresAutoReplyStore {
+	if db == nil {
+		return nil
+	}
+	return NewPostgresAutoReplyStore(db)
 }
 
 // PostgresDB 按环境变量创建 PostgreSQL 连接；未配置时返回 nil。
