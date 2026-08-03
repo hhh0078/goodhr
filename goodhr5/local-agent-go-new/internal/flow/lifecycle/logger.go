@@ -44,9 +44,19 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 		!l.analysisVisibleAt.IsZero() &&
 		now.Sub(l.analysisVisibleAt) < analysisResultHoldDuration &&
 		analysisChangedCandidate(l.analysis, status) {
+		if sameAnalysisCandidate(l.pendingAnalysis, status) {
+			status.Timeline = mergeAnalysisTimeline(l.pendingAnalysis.Timeline, status)
+		} else {
+			status.Timeline = mergeAnalysisTimeline(nil, status)
+		}
 		l.pendingAnalysis = status
 		l.analysisMu.Unlock()
 		return
+	}
+	if l.analysisTaskID == taskID && sameAnalysisCandidate(l.analysis, status) {
+		status.Timeline = mergeAnalysisTimeline(l.analysis.Timeline, status)
+	} else {
+		status.Timeline = mergeAnalysisTimeline(nil, status)
 	}
 	l.analysisTaskID = taskID
 	l.analysis = status
@@ -79,6 +89,7 @@ func (l *TaskLogger) AnalysisStatus(taskID string) *shared.AnalysisStatus {
 	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
+	status.Timeline = append([]shared.AnalysisEvent(nil), status.Timeline...)
 	return &status
 }
 
@@ -87,6 +98,36 @@ func analysisChangedCandidate(current shared.AnalysisStatus, incoming shared.Ana
 	currentName := strings.TrimSpace(current.CandidateName)
 	incomingName := strings.TrimSpace(incoming.CandidateName)
 	return currentName != "" && incomingName != "" && currentName != incomingName
+}
+
+// sameAnalysisCandidate 判断两条状态是否属于同一任务候选人和同一种分析流程。
+func sameAnalysisCandidate(current shared.AnalysisStatus, incoming shared.AnalysisStatus) bool {
+	return strings.TrimSpace(current.Kind) != "" &&
+		current.Kind == incoming.Kind &&
+		strings.TrimSpace(current.CandidateName) == strings.TrimSpace(incoming.CandidateName)
+}
+
+// mergeAnalysisTimeline 为自动回复累积最近20条状态，并过滤连续重复记录。
+func mergeAnalysisTimeline(existing []shared.AnalysisEvent, incoming shared.AnalysisStatus) []shared.AnalysisEvent {
+	result := append([]shared.AnalysisEvent(nil), existing...)
+	if incoming.Kind != "auto_reply" || strings.TrimSpace(incoming.Reason) == "" {
+		return result
+	}
+	event := shared.AnalysisEvent{
+		Phase: incoming.Phase, Stage: incoming.Stage,
+		Message: strings.TrimSpace(incoming.Reason), UpdatedAt: incoming.UpdatedAt,
+	}
+	if len(result) > 0 {
+		last := result[len(result)-1]
+		if last.Phase == event.Phase && last.Stage == event.Stage && last.Message == event.Message {
+			return result
+		}
+	}
+	result = append(result, event)
+	if len(result) > 20 {
+		result = append([]shared.AnalysisEvent(nil), result[len(result)-20:]...)
+	}
+	return result
 }
 
 // ResetAnalysis 清空旧分析内容并把内存状态归属到当前任务。

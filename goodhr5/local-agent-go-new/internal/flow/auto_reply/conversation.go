@@ -111,6 +111,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	})
 	decision, err := f.Responder.Reply(ctx, ReplyContext{
 		TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
+		AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 		Conversation: cloudConversation, CandidateState: state, Messages: messages,
 		ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
 		BasedOnMessageKey: latestCandidateKey,
@@ -219,7 +220,7 @@ func convertMessages(items []model.ConversationMessage) ([]cloud.AutoReplyMessag
 	latestCandidateKey := ""
 	for index, item := range items {
 		direction := strings.ToLower(strings.TrimSpace(item.Direction))
-		if direction != "candidate" && direction != "recruiter" {
+		if direction != "candidate" && direction != "self" && direction != "system" {
 			return nil, "", fmt.Errorf("第%d条聊天消息方向无法确认", index+1)
 		}
 		card := item.CardContent

@@ -31,6 +31,8 @@ type Responder interface {
 type ReplyContext struct {
 	TaskID            string
 	Credentials       cloud.AgentCredentials
+	AIConfig          cloud.AIConfig
+	EnableThinking    bool
 	Position          cloud.AutoReplyPositionSnapshot
 	Conversation      cloud.AutoReplyConversation
 	CandidateState    cloud.AutoReplyCandidateState

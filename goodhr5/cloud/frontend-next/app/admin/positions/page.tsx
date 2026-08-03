@@ -2270,7 +2270,7 @@ function normalizePositionTaskStats(task: any): PositionTaskStats {
 function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const kind = record.kind === "ai" || record.kind === "keyword"
+  const kind = record.kind === "ai" || record.kind === "keyword" || record.kind === "auto_reply"
     ? record.kind
     : null;
   const phase =
@@ -2283,10 +2283,7 @@ function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | nul
   const status: PositionAnalysisStatus = {
     kind,
     phase,
-    stage:
-      record.stage === "preview" || record.stage === "final"
-        ? record.stage
-        : undefined,
+    stage: typeof record.stage === "string" ? record.stage.trim() : undefined,
     terminal: Boolean(record.terminal),
     candidate_name: String(record.candidate_name || "").trim(),
     reason: String(record.reason || "").trim(),
@@ -2295,6 +2292,7 @@ function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | nul
     matched_keywords: floatingStringArray(record.matched_keywords),
     exclude_keywords: floatingStringArray(record.exclude_keywords),
     matched_excludes: floatingStringArray(record.matched_excludes),
+    timeline: normalizeFloatingTimeline(record.timeline),
   };
   if (typeof record.score === "number" && Number.isFinite(record.score)) {
     status.score = record.score;
@@ -2309,6 +2307,31 @@ function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | nul
     status.accepted = record.accepted;
   }
   return status;
+}
+
+/** normalizeFloatingTimeline 清理自动回复小窗中的 AI 处理总记录。 */
+function normalizeFloatingTimeline(
+  value: unknown,
+): NonNullable<PositionAnalysisStatus["timeline"]> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-20).flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const phase =
+      record.phase === "loading" ||
+      record.phase === "result" ||
+      record.phase === "error"
+        ? record.phase
+        : null;
+    const message = String(record.message || "").trim();
+    if (!phase || !message) return [];
+    return [{
+      phase,
+      stage: String(record.stage || "").trim(),
+      message,
+      updated_at: String(record.updated_at || "").trim(),
+    }];
+  });
 }
 
 /** floatingStringArray 清理悬浮窗状态中的字符串数组。 */
