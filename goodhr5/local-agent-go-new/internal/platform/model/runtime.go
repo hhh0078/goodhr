@@ -178,6 +178,7 @@ type AutoReplyRuntime interface {
 	CollectAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) (AutoReplyResumeBundle, error)
 	SendAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot, string) error
 	ReadLatestAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot) (ConversationMessage, error)
+	CloseAutoReplyConversation(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
 }
 
 // Runtime 定义各平台必须显式实现的页面、候选人和消息能力。

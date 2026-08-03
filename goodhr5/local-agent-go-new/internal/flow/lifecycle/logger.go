@@ -39,6 +39,15 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
 	l.analysisMu.Lock()
 	now := time.Now()
+	if l.analysisTaskID == taskID && status.Kind == "auto_reply" {
+		base := l.analysis
+		if sameAnalysisCandidate(l.pendingAnalysis, status) {
+			base = l.pendingAnalysis
+		}
+		status.ProcessedCount = max(status.ProcessedCount, base.ProcessedCount)
+		status.SucceededCount = max(status.SucceededCount, base.SucceededCount)
+		status.SkippedCount = max(status.SkippedCount, base.SkippedCount)
+	}
 	if l.analysisTaskID == taskID &&
 		l.analysis.Terminal &&
 		!l.analysisVisibleAt.IsZero() &&

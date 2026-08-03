@@ -4,6 +4,7 @@ package auto_reply
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -84,8 +85,10 @@ func (b *autoReplyBrowserStub) ClosePage(context.Context) error {
 type autoReplyRuntimeStub struct {
 	latestBefore model.ConversationMessage
 	latestAfter  model.ConversationMessage
+	opened       model.AutoReplyConversationSnapshot
 	sent         bool
 	sentText     string
+	closeCount   int
 }
 
 // InitializeAutoReplyPage 模拟页面初始化。
@@ -95,7 +98,7 @@ func (r *autoReplyRuntimeStub) InitializeAutoReplyPage(context.Context, model.Br
 
 // OpenAutoReplyConversation 返回空会话快照。
 func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(context.Context, model.Browser, model.Config, model.Conversation, string, int) (model.AutoReplyConversationSnapshot, error) {
-	return model.AutoReplyConversationSnapshot{}, nil
+	return r.opened, nil
 }
 
 // RequestAutoReplyResume 模拟索要简历。
@@ -121,6 +124,21 @@ func (r *autoReplyRuntimeStub) ReadLatestAutoReplyMessage(context.Context, model
 		return r.latestAfter, nil
 	}
 	return r.latestBefore, nil
+}
+
+// CloseAutoReplyConversation 模拟关闭自动回复候选人会话。
+func (r *autoReplyRuntimeStub) CloseAutoReplyConversation(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) error {
+	r.closeCount++
+	return nil
+}
+
+type unreadScannerStub struct {
+	err error
+}
+
+// ScanUnreadConversations 返回检查点错误策略测试配置的固定错误。
+func (s unreadScannerStub) ScanUnreadConversations(context.Context, model.Browser, model.Config) ([]model.Conversation, error) {
+	return nil, s.err
 }
 
 // TestResolvePositionRequiresUniqueMatch 验证完整岗位、截断岗位和同前缀冲突的安全规则。
@@ -229,6 +247,12 @@ func TestSendVerifiedMessageChecksLatestAndAvoidsDuplicate(t *testing.T) {
 	if err != nil || sent || runtime.sent {
 		t.Fatalf("候选人新消息出现后旧回复应该废弃：sent=%t runtime.sent=%t err=%v", sent, runtime.sent, err)
 	}
+
+	runtime.sent = false
+	sent, err = flow.sendVerifiedMessage(context.Background(), prepared, runtime, conversation, snapshot, "in-2", "薪资面议", true)
+	if err != nil || !sent || !runtime.sent {
+		t.Fatalf("同一候选人的新消息应该允许复用相同回复：sent=%t runtime.sent=%t err=%v", sent, runtime.sent, err)
+	}
 }
 
 // TestCheckpointSettingsCapsThree 验证单轮配置永远不会超过三个候选人。
@@ -240,6 +264,60 @@ func TestCheckpointSettingsCapsThree(t *testing.T) {
 	limit, wait := checkpointSettings(items, "p1")
 	if limit != 3 || wait != 5 {
 		t.Fatalf("checkpoint settings limit=%d wait=%d", limit, wait)
+	}
+}
+
+// TestRunCheckpointSkipsWithoutAutoReplyAccess 验证 Plus 或过期会员的打招呼任务不会误调自动回复接口。
+func TestRunCheckpointSkipsWithoutAutoReplyAccess(t *testing.T) {
+	result, err := (&Flow{}).RunCheckpoint(
+		context.Background(), shared.PreparedTask{}, nil, &CheckpointSession{},
+	)
+	if err != nil || result.Enabled || result.TouchedPage || result.Processed != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+// TestProcessCheckpointStopsAfterThreeScanErrors 验证未读列表同类错误前两次跳过、第三次停止。
+func TestProcessCheckpointStopsAfterThreeScanErrors(t *testing.T) {
+	flow := &Flow{}
+	policy := &shared.ConsecutiveErrorPolicy{}
+	stats := &shared.Stats{}
+	prepared := shared.PreparedTask{Request: shared.StartRequest{TaskID: "task-1"}}
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, err := flow.processCheckpoint(
+			context.Background(), prepared, unreadScannerStub{err: fmt.Errorf("侧边栏暂时没读到")},
+			&autoReplyRuntimeStub{}, nil, 3, stats, policy, false,
+		)
+		if attempt < 3 && err != nil {
+			t.Fatalf("attempt %d error = %v", attempt, err)
+		}
+		if attempt == 3 && (err == nil || !strings.Contains(err.Error(), "连续 3 次")) {
+			t.Fatalf("attempt 3 error = %v", err)
+		}
+	}
+}
+
+// TestProcessConversationAlwaysClosesOpenedConversation 验证消息格式报错时也会关闭已经打开的候选人会话。
+func TestProcessConversationAlwaysClosesOpenedConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auto-reply/agent/candidate-state" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"found":false,"attachments":[]}`))
+	}))
+	defer server.Close()
+	runtime := &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{
+		Messages: []model.ConversationMessage{{Direction: "unknown", TextContent: "测试"}},
+	}}
+	flow := &Flow{Cloud: cloud.New(server.URL)}
+	stats := &shared.Stats{}
+	err := flow.processConversation(context.Background(), shared.PreparedTask{
+		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
+		Platform: model.Config{ID: "liepin"},
+	}, runtime, nil, model.Conversation{Key: "thread-1"}, stats)
+	if err == nil || runtime.closeCount != 1 {
+		t.Fatalf("error=%v close_count=%d", err, runtime.closeCount)
 	}
 }
 

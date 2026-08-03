@@ -2293,6 +2293,9 @@ function normalizeFloatingAnalysis(value: unknown): PositionAnalysisStatus | nul
     exclude_keywords: floatingStringArray(record.exclude_keywords),
     matched_excludes: floatingStringArray(record.matched_excludes),
     timeline: normalizeFloatingTimeline(record.timeline),
+    processed_count: Math.max(0, Number(record.processed_count) || 0),
+    succeeded_count: Math.max(0, Number(record.succeeded_count) || 0),
+    skipped_count: Math.max(0, Number(record.skipped_count) || 0),
   };
   if (typeof record.score === "number" && Number.isFinite(record.score)) {
     status.score = record.score;

@@ -24,6 +24,9 @@ export type PositionAnalysisStatus = {
   matched_keywords?: string[];
   exclude_keywords?: string[];
   matched_excludes?: string[];
+  processed_count?: number;
+  succeeded_count?: number;
+  skipped_count?: number;
   timeline?: Array<{
     phase: "loading" | "result" | "error";
     stage: string;
@@ -194,6 +197,15 @@ export default function PositionFloatingStatus({
   const keywords = analysis?.keywords || [];
   const excludeKeywords = analysis?.exclude_keywords || [];
   const timeline = analysis?.timeline || [];
+  const displayProcessed = analysis?.kind === "auto_reply"
+    ? Math.max(0, analysis.processed_count || 0)
+    : Math.max(0, scannedCount || 0);
+  const displaySucceeded = analysis?.kind === "auto_reply"
+    ? Math.max(0, analysis.succeeded_count || 0)
+    : Math.max(0, greetedCount || 0);
+  const displaySkipped = analysis?.kind === "auto_reply"
+    ? Math.max(0, analysis.skipped_count || 0)
+    : Math.max(0, skippedCount || 0);
 
   return createPortal(
     <main
@@ -415,15 +427,15 @@ export default function PositionFloatingStatus({
         >
           <span>
             {analysis?.kind === "auto_reply" ? "会话" : "扫描"}{" "}
-            {Math.max(0, scannedCount || 0)}
+            {displayProcessed}
           </span>
           <span>
             {analysis?.kind === "auto_reply" ? "已回复" : "打招呼"}{" "}
-            {Math.max(0, greetedCount || 0)}
+            {displaySucceeded}
           </span>
           <span>
             {analysis?.kind === "auto_reply" ? "转人工/跳过" : "跳过"}{" "}
-            {Math.max(0, skippedCount || 0)}
+            {displaySkipped}
           </span>
         </div>
         <div
