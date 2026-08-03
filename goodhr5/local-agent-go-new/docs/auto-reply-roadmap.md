@@ -164,4 +164,4 @@
 | 1 | `codex/auto-reply-data` | `2c341fde` | 已完成（`c19c2e1c`） | 云端 `go test ./...`、干净 PostgreSQL 完整存储链路、迁移重复执行和字段中文备注检查通过 |
 | 2 | `codex/auto-reply-cloud-api` | `b2edf0bb` | 已完成（`2bf7100c`） | 云端 `go test ./...`、`go vet ./...`、真实与干净 PostgreSQL HTTP/存储链路连续两次通过，四份 Compose 配置和 `git diff --check` 通过 |
 | 3 | `codex/auto-reply-frontend` | `f0424b39` | 已完成（`f737c021`） | `node --test lib/auto-reply.test.mjs`、`npx tsc --noEmit`、`npm run build -- --webpack`、猎聘企业岗位桌面与手机宽度真实页面回归通过 |
-| 4 | `codex/auto-reply-local-contracts` | `a84d8072` | 待合并 | 本地 Agent `go test ./...`、`go vet ./...`、设备请求头、错误编号、取消与超时、5000条消息、20MB附件、SHA-256和隐私摘要测试通过 |
+| 4 | `codex/auto-reply-local-contracts` | `a84d8072` | 已完成（`e0bedafa`） | 本地 Agent `go test ./...`、`go vet ./...`、设备请求头、错误编号、取消与超时、5000条消息、20MB附件、SHA-256和隐私摘要测试通过 |
