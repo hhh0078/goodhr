@@ -199,6 +199,7 @@ func (c *Checker) checkDeviceBinding(ctx context.Context, prepared *shared.Prepa
 	if strings.TrimSpace(c.AgentBind.MachineID) == "" {
 		return fmt.Errorf("这台电脑的设备编号暂时没读出来，请重启本地程序后再试")
 	}
+	prepared.MachineID = strings.TrimSpace(c.AgentBind.MachineID)
 	_, err := c.Cloud.BindAgent(ctx, prepared.Request.Token, c.AgentBind)
 	return err
 }

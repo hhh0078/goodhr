@@ -3,7 +3,9 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 )
@@ -114,11 +116,68 @@ type DetailBrowser interface {
 
 // Conversation 表示未读会话摘要。
 type Conversation struct {
-	Index   int               `json:"index"`
-	Key     string            `json:"key"`
-	Name    string            `json:"name"`
-	Summary string            `json:"summary"`
-	Fields  map[string]string `json:"fields"`
+	Index                 int               `json:"index"`
+	Key                   string            `json:"key"`
+	Name                  string            `json:"name"`
+	Gender                string            `json:"gender"`
+	PlatformThreadID      string            `json:"platform_thread_id"`
+	PlatformCandidateID   string            `json:"platform_candidate_id"`
+	PlatformAccountID     string            `json:"platform_account_id"`
+	CommunicationPosition string            `json:"communication_position"`
+	Summary               string            `json:"summary"`
+	Fields                map[string]string `json:"fields"`
+}
+
+// ConversationMessage 表示从招聘页面读取并准备同步云端的一条标准化聊天消息。
+type ConversationMessage struct {
+	Key               string          `json:"key"`
+	PlatformMessageID string          `json:"platform_message_id"`
+	Direction         string          `json:"direction"`
+	MessageType       string          `json:"message_type"`
+	TextContent       string          `json:"text_content"`
+	CardContent       json.RawMessage `json:"card_content"`
+	SenderName        string          `json:"sender_name"`
+	SentAt            *time.Time      `json:"sent_at"`
+}
+
+// AutoReplyConversationSnapshot 表示打开会话后一次性读取的身份、岗位、消息和简历卡片状态。
+type AutoReplyConversationSnapshot struct {
+	Conversation          Conversation          `json:"conversation"`
+	CandidateName         string                `json:"candidate_name"`
+	Gender                string                `json:"gender"`
+	Phone                 string                `json:"phone"`
+	PlatformThreadID      string                `json:"platform_thread_id"`
+	PlatformCandidateID   string                `json:"platform_candidate_id"`
+	PlatformAccountID     string                `json:"platform_account_id"`
+	CommunicationPosition string                `json:"communication_position"`
+	Messages              []ConversationMessage `json:"messages"`
+	HistoryComplete       bool                  `json:"history_complete"`
+	ResumeCardAvailable   bool                  `json:"resume_card_available"`
+	ResumeSourceMessageID string                `json:"resume_source_message_id"`
+}
+
+// AutoReplyResumeBundle 表示平台读取的在线简历原文和本地已下载附件。
+type AutoReplyResumeBundle struct {
+	CandidateName         string   `json:"candidate_name"`
+	Gender                string   `json:"gender"`
+	Phone                 string   `json:"phone"`
+	Email                 string   `json:"email"`
+	Wechat                string   `json:"wechat"`
+	BirthYM               string   `json:"birth_ym"`
+	BirthYMPrecision      string   `json:"birth_ym_precision"`
+	OnlineResumeText      string   `json:"online_resume_text"`
+	AttachmentPaths       []string `json:"attachment_paths"`
+	ResumeSourceMessageID string   `json:"resume_source_message_id"`
+}
+
+// AutoReplyRuntime 定义自动回复独立主流程需要的平台页面能力。
+type AutoReplyRuntime interface {
+	InitializeAutoReplyPage(context.Context, Browser, Config) error
+	OpenAutoReplyConversation(context.Context, Browser, Config, Conversation, string, int) (AutoReplyConversationSnapshot, error)
+	RequestAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
+	CollectAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) (AutoReplyResumeBundle, error)
+	SendAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot, string) error
+	ReadLatestAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot) (ConversationMessage, error)
 }
 
 // Runtime 定义各平台必须显式实现的页面、候选人和消息能力。

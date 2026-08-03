@@ -53,6 +53,29 @@ func TestAutoReplySnapshotSendsDeviceAndReadsStrongTypes(t *testing.T) {
 	}
 }
 
+// TestAutoReplySnapshotsReadsAllEnabledPositions 验证同一平台多个已开启岗位会一起下发给本地主流程。
+func TestAutoReplySnapshotsReadsAllEnabledPositions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auto-reply/agent/positions" || r.URL.Query().Get("platform_id") != "liepin" {
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"positions":[
+			{"ok":true,"position":{"id":"position-1","name":"高中数学老师","platform_id":"liepin"},"config":{"position_id":"position-1","company_profile_id":"company-1","enabled":true},"company_profile":{"id":"company-1"},"subscription":{"active":true,"allow_auto_reply":true}},
+			{"ok":true,"position":{"id":"position-2","name":"AI应用开发工程师","platform_id":"liepin"},"config":{"position_id":"position-2","company_profile_id":"company-1","enabled":true},"company_profile":{"id":"company-1"},"subscription":{"active":true,"allow_auto_reply":true}}
+		]}`))
+	}))
+	defer server.Close()
+
+	items, err := New(server.URL).AutoReplySnapshots(context.Background(), testAutoReplyCredentials, "liepin")
+	if err != nil {
+		t.Fatalf("读取多岗位快照失败：%v", err)
+	}
+	if len(items) != 2 || items[0].Position.Name != "高中数学老师" || items[1].Position.Name != "AI应用开发工程师" {
+		t.Fatalf("多岗位快照解析不正确：%+v", items)
+	}
+}
+
 // TestAutoReplyClientKeepsStructuredErrorID 验证云端内部错误编号会进入稳定 APIError。
 func TestAutoReplyClientKeepsStructuredErrorID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

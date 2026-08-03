@@ -88,14 +88,14 @@
 
 分支：`codex/auto-reply-local-flow`
 
-- [ ] 重构 `internal/flow/auto_reply`，保持平铺编排。
-- [ ] 当前 URL 平台识别。
-- [ ] 未读入口、会话快照和单轮最多3人。
-- [ ] 首次最多5000条、后续差量同步。
-- [ ] 岗位归属、候选人身份和手机号后备匹配。
-- [ ] 简历索要、附件检查、下载监听和正式入库门槛。
-- [ ] 发送前复核、发送后回读和幂等保护。
-- [ ] 优雅停止和三次连续错误策略。
+- [x] 重构 `internal/flow/auto_reply`，保持平铺编排。
+- [x] 当前 URL 平台识别。
+- [x] 未读入口、会话快照和单轮最多3人。
+- [x] 首次最多5000条、后续差量同步。
+- [x] 岗位归属、候选人身份和手机号后备匹配。
+- [x] 简历索要、附件检查、下载监听和正式入库门槛。
+- [x] 发送前复核、发送后回读和幂等保护。
+- [x] 优雅停止和三次连续错误策略。
 
 验证：流程单元测试、伪平台集成测试、停止和并发测试。
 
@@ -165,3 +165,4 @@
 | 2 | `codex/auto-reply-cloud-api` | `b2edf0bb` | 已完成（`2bf7100c`） | 云端 `go test ./...`、`go vet ./...`、真实与干净 PostgreSQL HTTP/存储链路连续两次通过，四份 Compose 配置和 `git diff --check` 通过 |
 | 3 | `codex/auto-reply-frontend` | `f0424b39` | 已完成（`f737c021`） | `node --test lib/auto-reply.test.mjs`、`npx tsc --noEmit`、`npm run build -- --webpack`、猎聘企业岗位桌面与手机宽度真实页面回归通过 |
 | 4 | `codex/auto-reply-local-contracts` | `a84d8072` | 已完成（`e0bedafa`） | 本地 Agent `go test ./...`、`go vet ./...`、设备请求头、错误编号、取消与超时、5000条消息、20MB附件、SHA-256和隐私摘要测试通过 |
+| 5 | `codex/auto-reply-local-flow` | `eeef3cfa` | 待合并 | 云端和本地 Agent `go test ./...`、`go vet ./...`、多岗位唯一匹配、当前标签页、5000条差量游标、单轮3人、发送前后复核和重复保护测试通过 |
