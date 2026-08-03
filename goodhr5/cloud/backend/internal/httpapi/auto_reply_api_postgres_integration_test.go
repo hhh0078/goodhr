@@ -193,6 +193,19 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 	if snapshotResponse.Code != http.StatusOK {
 		t.Fatalf("snapshot status=%d body=%s", snapshotResponse.Code, snapshotResponse.Body.String())
 	}
+	positionListResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodGet, "/api/auto-reply/agent/positions?platform_id=liepin", nil)
+	if positionListResponse.Code != http.StatusOK {
+		t.Fatalf("position list status=%d body=%s", positionListResponse.Code, positionListResponse.Body.String())
+	}
+	var positionListPayload struct {
+		Positions []struct {
+			Position map[string]any `json:"position"`
+		} `json:"positions"`
+	}
+	decodeAutoReplyResponseForTest(t, positionListResponse, &positionListPayload)
+	if len(positionListPayload.Positions) != 1 || positionListPayload.Positions[0].Position["id"] != position.ID {
+		t.Fatalf("enabled position list=%+v", positionListPayload.Positions)
+	}
 
 	candidateResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodPost, "/api/auto-reply/agent/candidates", map[string]any{
 		"position_id": position.ID, "platform_id": "liepin", "platform_account_id": account.ID,

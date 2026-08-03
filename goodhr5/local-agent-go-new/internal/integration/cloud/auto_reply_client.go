@@ -31,6 +31,26 @@ func (c *Client) AutoReplySnapshot(ctx context.Context, credentials AgentCredent
 	return result, nil
 }
 
+// AutoReplySnapshots 读取当前招聘平台全部已开启自动回复的岗位快照。
+func (c *Client) AutoReplySnapshots(ctx context.Context, credentials AgentCredentials, platformID string) ([]AutoReplyPositionSnapshot, error) {
+	if err := validateAutoReplyCredentials(credentials); err != nil {
+		return nil, err
+	}
+	platformID = strings.TrimSpace(platformID)
+	if platformID == "" {
+		return nil, fmt.Errorf("招聘平台编号不能为空")
+	}
+	var result AutoReplyPositionSnapshots
+	path := autoReplyAgentBasePath + "/positions?platform_id=" + url.QueryEscape(platformID)
+	if err := c.doWithMachineID(ctx, http.MethodGet, path, credentials.Token, credentials.MachineID, nil, &result); err != nil {
+		return nil, err
+	}
+	if result.Positions == nil {
+		result.Positions = make([]AutoReplyPositionSnapshot, 0)
+	}
+	return result.Positions, nil
+}
+
 // AutoReplyStatus 读取岗位自动回复实时开关和当前会员权限。
 func (c *Client) AutoReplyStatus(ctx context.Context, credentials AgentCredentials, positionID string) (AutoReplyPositionStatus, error) {
 	if err := validateAutoReplyCredentials(credentials); err != nil {

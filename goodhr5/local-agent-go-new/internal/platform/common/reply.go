@@ -25,9 +25,13 @@ func ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg mod
 	result := make([]model.Conversation, 0, len(items))
 	for _, item := range items {
 		name := firstNonEmpty(item.Fields["name"], item.Text)
-		key := firstNonEmpty(item.Fields["id"], HashText(platformID+"|"+name+"|"+item.Text))
+		threadID := firstNonEmpty(item.Fields["thread_id"], item.Fields["id"])
+		key := firstNonEmpty(threadID, HashText(platformID+"|"+name+"|"+item.Text))
 		result = append(result, model.Conversation{
-			Index: item.Index, Key: key, Name: name, Summary: item.Text, Fields: item.Fields,
+			Index: item.Index, Key: key, Name: name, Gender: item.Fields["gender"],
+			PlatformThreadID: threadID, PlatformCandidateID: item.Fields["candidate_id"],
+			PlatformAccountID: item.Fields["account_id"], CommunicationPosition: item.Fields["position_name"],
+			Summary: item.Text, Fields: item.Fields,
 		})
 	}
 	return result, nil

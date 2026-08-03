@@ -84,6 +84,12 @@ type AutoReplyPositionSnapshot struct {
 	Subscription   AutoReplySubscription   `json:"subscription"`
 }
 
+// AutoReplyPositionSnapshots 表示当前招聘平台全部已开启自动回复的岗位快照。
+type AutoReplyPositionSnapshots struct {
+	OK        bool                        `json:"ok"`
+	Positions []AutoReplyPositionSnapshot `json:"positions"`
+}
+
 // AutoReplyPositionStatus 表示岗位自动回复的实时开关和权限状态。
 type AutoReplyPositionStatus struct {
 	OK                bool                  `json:"ok"`

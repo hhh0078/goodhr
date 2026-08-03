@@ -22,6 +22,7 @@ type StartRequest struct {
 // PreparedTask 表示启动前检查生成且后续流程直接复用的快照。
 type PreparedTask struct {
 	Request      StartRequest
+	MachineID    string
 	Session      cloud.UserSession
 	Subscription cloud.Subscription
 	Position     cloud.PositionSnapshot

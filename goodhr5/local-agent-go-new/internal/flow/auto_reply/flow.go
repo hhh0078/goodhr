@@ -1,54 +1,92 @@
-// Package auto_reply 实现自动回复独立主流程，并提供重复发送和空回复保护。
+// Package auto_reply 实现与主动打招呼完全独立的自动回复主流程。
 package auto_reply
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
-	"goodhr5/local-agent-go-new/internal/browser/client"
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
-	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+const defaultCheckpointLimit = 3
+
+// Browser 定义自动回复主流程需要的浏览器会话和平台标准能力。
+type Browser interface {
+	model.Browser
+	StartBrowser(context.Context, contract.BrowserStartRequest) (contract.BrowserStatus, error)
+}
+
+// Responder 定义阶段6实现的 AI 工具循环入口。
+type Responder interface {
+	Reply(context.Context, ReplyContext) (ReplyDecision, error)
+}
+
+// ReplyContext 表示一次自动回复决策已经完成同步和身份校验的全部上下文。
+type ReplyContext struct {
+	TaskID            string
+	Credentials       cloud.AgentCredentials
+	Position          cloud.AutoReplyPositionSnapshot
+	Conversation      cloud.AutoReplyConversation
+	CandidateState    cloud.AutoReplyCandidateState
+	Messages          []cloud.AutoReplyMessage
+	ConfirmationItems []cloud.CandidateConfirmationItem
+	PageSnapshot      model.AutoReplyConversationSnapshot
+	Resume            *model.AutoReplyResumeBundle
+	BasedOnMessageKey string
+}
+
+// ReplyDecision 表示 AI 工具循环最终决定发送回复或转人工。
+type ReplyDecision struct {
+	Reply        string
+	ManualReason string
+	ReasonKey    string
+}
+
 // Flow 组装自动回复主流程依赖。
 type Flow struct {
-	Browser        *client.Client
-	AI             *ai.Client
+	Browser        Browser
 	Store          *storage.Store
 	Cloud          *cloud.Client
+	Responder      Responder
 	Logger         shared.Logger
 	DownloadsDir   string
 	ExtensionPaths func() []string
 }
 
 type flowStep struct {
-	name     string
-	label    string
-	optional bool
-	run      func(context.Context) error
+	name  string
+	label string
+	run   func(context.Context) error
 }
 
-// Run 按平铺步骤启动浏览器、准备消息页、处理未读会话并同步摘要。
+// Run 按平铺步骤复用浏览器、确认当前平台、初始化页面并持续处理未读会话。
 func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime) (shared.Stats, error) {
 	stats := shared.Stats{}
+	replyRuntime, ok := runtime.(model.AutoReplyRuntime)
+	if !ok {
+		return stats, fmt.Errorf("%s 自动回复页面能力还没有准备完整", prepared.Platform.Name)
+	}
+	if err := f.validateDependencies(); err != nil {
+		return stats, err
+	}
 	steps := []flowStep{
-		{name: "start_browser", label: "启动增强浏览器", run: func(ctx context.Context) error { return f.startBrowser(ctx, prepared) }},
-		{name: "open_message_page", label: "打开消息页面", run: func(ctx context.Context) error {
-			return runtime.OpenMessagesPage(ctx, f.Browser, prepared.Platform)
+		{name: "start_browser", label: "启动增强浏览器", run: func(ctx context.Context) error {
+			return f.startBrowser(ctx, prepared)
 		}},
-		{name: "initialize_message_page", label: "整理消息页面", run: func(ctx context.Context) error {
-			return runtime.InitializeMessagesPage(ctx, f.Browser, prepared.Platform)
+		{name: "select_current_platform_page", label: "确认当前招聘页面", run: func(ctx context.Context) error {
+			return f.selectCurrentPlatformPage(ctx, prepared.Platform)
 		}},
-		{name: "scan_generate_and_reply", label: "读取消息并自动回复", run: func(ctx context.Context) error {
-			return f.processConversations(ctx, prepared, runtime, &stats)
+		{name: "initialize_auto_reply_page", label: "整理自动回复页面", run: func(ctx context.Context) error {
+			return replyRuntime.InitializeAutoReplyPage(ctx, f.Browser, prepared.Platform)
+		}},
+		{name: "process_auto_reply_loop", label: "处理候选人新消息", run: func(ctx context.Context) error {
+			return f.runLoop(ctx, prepared, runtime, replyRuntime, &stats)
 		}},
 	}
 	for _, step := range steps {
@@ -58,10 +96,6 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, step.name, "start", startedAt, nil)
 		if err := step.run(ctx); err != nil {
-			if step.optional {
-				f.log(prepared.Request.TaskID, step.name, "warning", startedAt, err)
-				continue
-			}
 			f.log(prepared.Request.TaskID, step.name, "failed", startedAt, err)
 			return stats, fmt.Errorf("%s没处理成功：%w", step.label, err)
 		}
@@ -70,7 +104,18 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 	return stats, nil
 }
 
-// startBrowser 使用当前 Profile 启动或复用 CloakBrowser。
+// validateDependencies 在流程开始前确认必需依赖已经组装。
+func (f *Flow) validateDependencies() error {
+	if f.Browser == nil || f.Store == nil || f.Cloud == nil {
+		return fmt.Errorf("自动回复运行组件没有准备完整")
+	}
+	if f.Responder == nil {
+		return fmt.Errorf("自动回复 AI 处理器没有准备完整")
+	}
+	return nil
+}
+
+// startBrowser 使用当前 Profile 启动或复用 CloakBrowser，不新建第二个浏览器窗口。
 func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) error {
 	headless := prepared.Request.Headless
 	humanize := true
@@ -90,124 +135,12 @@ func (f *Flow) extensionPaths() []string {
 	return f.ExtensionPaths()
 }
 
-// processConversations 读取未读会话并逐条执行生成、安全检查、发送和保存。
-func (f *Flow) processConversations(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, stats *shared.Stats) error {
-	maxRounds := prepared.Position.MaxBatches
-	if maxRounds <= 0 {
-		maxRounds = 1
+// credentials 返回本次任务访问自动回复敏感接口所需的登录和设备凭证。
+func credentials(prepared shared.PreparedTask) cloud.AgentCredentials {
+	return cloud.AgentCredentials{
+		Token:     strings.TrimSpace(prepared.Request.Token),
+		MachineID: strings.TrimSpace(prepared.MachineID),
 	}
-	errorPolicy := &shared.ConsecutiveErrorPolicy{}
-	for round := 0; round < maxRounds; round++ {
-		if shared.GracefulStopRequested(ctx) {
-			return nil
-		}
-		if err := shared.EnsureCloudSession(ctx, f.Cloud, prepared.Request.Token, prepared.Request.TaskID, "auto_reply", f.Logger); err != nil {
-			return err
-		}
-		conversations, err := runtime.ScanUnreadConversations(ctx, f.Browser, prepared.Platform)
-		if err != nil {
-			return err
-		}
-		if len(conversations) == 0 {
-			return nil
-		}
-		for _, conversation := range conversations {
-			if shared.GracefulStopRequested(ctx) {
-				return nil
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := f.processConversation(ctx, prepared, runtime, conversation, stats); err != nil {
-				f.log(prepared.Request.TaskID, "conversation_operation", "failed", time.Now(), err)
-				if stopErr := errorPolicy.Record(err); stopErr != nil {
-					return stopErr
-				}
-				continue
-			}
-			errorPolicy.Reset()
-			if shared.GracefulStopRequested(ctx) {
-				return nil
-			}
-		}
-		if round+1 < maxRounds {
-			wait := prepared.Position.AutoReplyWait
-			if wait <= 0 {
-				wait = 3
-			}
-			timer := time.NewTimer(time.Duration(wait) * time.Second)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ctx.Err()
-			case <-shared.GracefulStopSignal(ctx):
-				timer.Stop()
-				return nil
-			case <-timer.C:
-			}
-		}
-	}
-	return nil
-}
-
-// processConversation 平铺执行读取上下文、AI 生成、安全检查、发送和去重保存。
-func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, conversation model.Conversation, stats *shared.Stats) error {
-	stats.Processed++
-	history, err := runtime.ReadConversation(ctx, f.Browser, prepared.Platform, conversation)
-	if err != nil {
-		stats.Failed++
-		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
-		return fmt.Errorf("读取候选人消息失败：%w", err)
-	}
-	reply, err := f.AI.GenerateReply(ctx, prepared.Position.AI, prepared.Position, conversation, history)
-	if err != nil {
-		stats.Failed++
-		f.log(prepared.Request.TaskID, "generate_reply", "failed", time.Now(), err)
-		return fmt.Errorf("生成回复失败：%w", err)
-	}
-	reply = strings.TrimSpace(reply)
-	if reply == "" || len([]rune(reply)) > 1000 {
-		stats.Failed++
-		err := fmt.Errorf("AI 回复为空或超过 1000 字")
-		f.log(prepared.Request.TaskID, "reply_safety_check", "failed", time.Now(), err)
-		return fmt.Errorf("检查回复内容失败：%w", err)
-	}
-	replyHash := hashReply(reply)
-	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.Key, replyHash)
-	if err != nil {
-		stats.Failed++
-		f.log(prepared.Request.TaskID, "reply_duplicate_check", "failed", time.Now(), err)
-		return fmt.Errorf("检查重复回复失败：%w", err)
-	}
-	if exists {
-		stats.Skipped++
-		return nil
-	}
-	if err := runtime.ReplyConversation(ctx, f.Browser, prepared.Platform, conversation, reply); err != nil {
-		stats.Failed++
-		f.log(prepared.Request.TaskID, "send_reply", "failed", time.Now(), err)
-		f.saveConversation(ctx, prepared, conversation, replyHash, "failed")
-		return fmt.Errorf("发送回复失败：%w", err)
-	}
-	stats.Succeeded++
-	f.saveConversation(ctx, prepared, conversation, replyHash, "success")
-	return nil
-}
-
-// saveConversation 保存不含会话正文和回复正文的去重摘要。
-func (f *Flow) saveConversation(ctx context.Context, prepared shared.PreparedTask, conversation model.Conversation, replyHash string, result string) {
-	if err := f.Store.SaveConversation(context.WithoutCancel(ctx), storage.ConversationRecord{
-		TaskID: prepared.Request.TaskID, ConversationKey: conversation.Key,
-		PlatformID: prepared.Position.PlatformID, ReplyHash: replyHash, Result: result,
-	}); err != nil {
-		f.log(prepared.Request.TaskID, "save_conversation", "warning", time.Now(), err)
-	}
-}
-
-// hashReply 返回回复正文的本地去重哈希。
-func hashReply(reply string) string {
-	sum := sha256.Sum256([]byte(reply))
-	return hex.EncodeToString(sum[:])
 }
 
 // log 输出自动回复步骤日志。

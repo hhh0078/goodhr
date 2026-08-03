@@ -57,6 +57,8 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasPrefix(path, "positions/") && strings.HasSuffix(path, "/snapshot"):
 		s.agentPositionSnapshot(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "positions/"), "/snapshot"))
+	case path == "positions":
+		s.agentPositionSnapshots(w, r)
 	case path == "candidates":
 		s.agentSaveCandidate(w, r)
 	case path == "candidate-state":
@@ -86,6 +88,52 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeAutoReplyError(w, http.StatusNotFound, "AUTO_REPLY_ROUTE_NOT_FOUND", "这个本地自动回复地址没认出来")
 	}
+}
+
+// agentPositionSnapshots 返回当前账号在指定平台已开启自动回复的全部岗位快照。
+func (s *AutoReplyService) agentPositionSnapshots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAutoReplyError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "岗位快照列表这里只支持读取")
+		return
+	}
+	requestContext, ok := s.currentRequestContext(w, r, true, true)
+	if !ok {
+		return
+	}
+	platformID := strings.TrimSpace(r.URL.Query().Get("platform_id"))
+	if platformID == "" {
+		writeAutoReplyError(w, http.StatusBadRequest, "PLATFORM_REQUIRED", "读取自动回复岗位需要招聘平台")
+		return
+	}
+	positions, err := s.positions.ListPositions(requestContext.Tenant.ID, requestContext.Session.Email, false)
+	if err != nil {
+		writeAutoReplyInternalError(w, "POSITION_LIST_FAILED", "自动回复岗位暂时没读出来", err)
+		return
+	}
+	items := make([]map[string]any, 0)
+	for _, position := range positions {
+		if !strings.EqualFold(strings.TrimSpace(position.PlatformID), platformID) {
+			continue
+		}
+		config, configErr := s.store.GetPositionAutoReplyConfig(r.Context(), requestContext.Tenant.ID, position.ID)
+		if errors.Is(configErr, ErrNotFound) || (configErr == nil && !config.Enabled) {
+			continue
+		}
+		if configErr != nil {
+			writeAutoReplyInternalError(w, "AUTO_REPLY_CONFIG_LOAD_FAILED", "自动回复岗位配置暂时没读出来", configErr)
+			return
+		}
+		company, companyErr := s.store.GetCompanyProfile(r.Context(), requestContext.Tenant.ID, config.CompanyProfileID)
+		if companyErr != nil {
+			writeAutoReplyStoreError(w, companyErr, "岗位公司档案暂时没读出来")
+			return
+		}
+		items = append(items, map[string]any{
+			"ok": true, "position": publicAutoReplyPosition(position), "config": config,
+			"company_profile": company, "subscription": publicSubscriptionAccess(requestContext.Access),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "positions": items})
 }
 
 // agentCandidateState 按平台候选人ID优先、手机号后备读取正式简历、会话和附件状态。
