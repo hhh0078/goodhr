@@ -36,6 +36,18 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		return PositionCandidate{}, err
 	}
 	key := candidateIdentityKey(item)
+	item.Gender = strings.TrimSpace(item.Gender)
+	if item.Gender != "" && item.Gender != "男" && item.Gender != "女" {
+		return PositionCandidate{}, fmt.Errorf("候选人性别只支持男、女或空值")
+	}
+	item.BirthYMPrecision = strings.TrimSpace(item.BirthYMPrecision)
+	if item.BirthYMPrecision != "" && item.BirthYMPrecision != "month" && item.BirthYMPrecision != "year_estimated" {
+		return PositionCandidate{}, fmt.Errorf("候选人出生年月精度不支持")
+	}
+	item.NormalizedPhone = normalizeCandidatePhone(firstNonEmpty(item.NormalizedPhone, item.Phone))
+	if strings.TrimSpace(item.CandidateID) != "" {
+		return updateCandidateProfileByID(ctx, s.db, tenantID, item)
+	}
 	var saved PositionCandidate
 	err = s.db.QueryRowContext(
 		ctx,
@@ -47,12 +59,13 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			expected_position, online_status, personal_description, work_status,
 			raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications,
-			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at
+			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at,
+			gender, birth_ym_precision, normalized_phone
 		)
 		VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 			$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,
-			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30
+			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30,$31,$32,$33
 		)
 		ON CONFLICT (tenant_id, source_platform_id, source_platform_candidate_id)
 		DO UPDATE SET
@@ -81,6 +94,9 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			ai_detail_score = EXCLUDED.ai_detail_score,
 			ai_greet_reason = EXCLUDED.ai_greet_reason,
 			ai_greet_score = EXCLUDED.ai_greet_score,
+			gender = CASE WHEN EXCLUDED.gender='' THEN candidate_profiles.gender ELSE EXCLUDED.gender END,
+			birth_ym_precision = CASE WHEN EXCLUDED.birth_ym_precision='' THEN candidate_profiles.birth_ym_precision ELSE EXCLUDED.birth_ym_precision END,
+			normalized_phone = CASE WHEN EXCLUDED.normalized_phone='' THEN candidate_profiles.normalized_phone ELSE EXCLUDED.normalized_phone END,
 			first_seen_at = COALESCE(candidate_profiles.first_seen_at, EXCLUDED.first_seen_at),
 			updated_at = now()
 		RETURNING
@@ -89,7 +105,8 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			basic_info, education_level, expected_position, online_status, personal_description,
 			work_status, raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications, ai_detail_reason, ai_detail_score,
-			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at
+			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at,
+			gender, birth_ym_precision, normalized_phone
 		`,
 		tenantID,
 		userID,
@@ -121,6 +138,9 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		item.AIGreetReason,
 		item.AIGreetScore,
 		item.FirstSeenAt,
+		item.Gender,
+		item.BirthYMPrecision,
+		item.NormalizedPhone,
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,
@@ -153,11 +173,72 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		&saved.FirstSeenAt,
 		&saved.CreatedAt,
 		&saved.UpdatedAt,
+		&saved.Gender,
+		&saved.BirthYMPrecision,
+		&saved.NormalizedPhone,
 	)
 	if err != nil {
 		return PositionCandidate{}, err
 	}
 	return saved, nil
+}
+
+// updateCandidateProfileByID 使用团队内手机号已解析出的正式候选人标识更新完整简历。
+func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string, item CandidateProfileInput) (PositionCandidate, error) {
+	result, err := db.ExecContext(ctx, `
+		UPDATE candidate_profiles
+		SET source_platform_id=COALESCE(NULLIF($3,''),source_platform_id),
+			source_platform_candidate_id=COALESCE(NULLIF($4,''),source_platform_candidate_id),
+			candidate_name=COALESCE(NULLIF($5,''),candidate_name), birth_ym=COALESCE(NULLIF($6,''),birth_ym),
+			phone=COALESCE(NULLIF($7,''),phone), email=COALESCE(NULLIF($8,''),email),
+			work_region=COALESCE(NULLIF($9,''),work_region), work_years=COALESCE(NULLIF($10,''),work_years),
+			expected_salary_min=COALESCE($11,expected_salary_min), expected_salary_max=COALESCE($12,expected_salary_max),
+			basic_info=COALESCE(NULLIF($13,''),basic_info), education_level=COALESCE(NULLIF($14,''),education_level),
+			expected_position=COALESCE(NULLIF($15,''),expected_position), online_status=COALESCE(NULLIF($16,''),online_status),
+			personal_description=COALESCE(NULLIF($17,''),personal_description), work_status=COALESCE(NULLIF($18,''),work_status),
+			raw_text=COALESCE(NULLIF($19,''),raw_text), work_experiences=$20::jsonb,
+			educations=$21::jsonb, certificates=$22::jsonb, honors=$23::jsonb,
+			project_experiences=$24::jsonb, colleague_communications=$25::jsonb,
+			gender=COALESCE(NULLIF($26,''),gender), birth_ym_precision=COALESCE(NULLIF($27,''),birth_ym_precision),
+			normalized_phone=COALESCE(NULLIF($28,''),normalized_phone), updated_at=now()
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, item.CandidateID, item.PlatformID, item.PlatformCandidateID,
+		strings.TrimSpace(item.CandidateName), strings.TrimSpace(item.BirthYM), strings.TrimSpace(item.Phone),
+		strings.TrimSpace(item.Email), strings.TrimSpace(item.WorkRegion), strings.TrimSpace(item.WorkYears),
+		item.ExpectedSalaryMin, item.ExpectedSalaryMax, strings.TrimSpace(item.BasicInfo),
+		strings.TrimSpace(item.EducationLevel), strings.TrimSpace(item.ExpectedPosition), strings.TrimSpace(item.OnlineStatus),
+		strings.TrimSpace(item.PersonalDescription), strings.TrimSpace(item.WorkStatus), strings.TrimSpace(item.RawText),
+		string(toJSONB(item.WorkExperiences)), string(toJSONB(item.Educations)), string(toJSONB(item.Certificates)),
+		string(toJSONB(item.Honors)), string(toJSONB(item.ProjectExperiences)), string(toJSONB(item.Communications)),
+		item.Gender, item.BirthYMPrecision, item.NormalizedPhone)
+	if err != nil {
+		return PositionCandidate{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return PositionCandidate{}, err
+	}
+	if affected == 0 {
+		return PositionCandidate{}, ErrNotFound
+	}
+	var createdAt, updatedAt time.Time
+	if err = db.QueryRowContext(ctx, `SELECT created_at, updated_at FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenantID, item.CandidateID).Scan(&createdAt, &updatedAt); err != nil {
+		return PositionCandidate{}, err
+	}
+	return PositionCandidate{
+		ID: item.CandidateID, UserEmail: item.UserEmail, PlatformID: item.PlatformID,
+		PlatformCandidateID: item.PlatformCandidateID, CandidateName: item.CandidateName,
+		Gender: item.Gender, BirthYM: item.BirthYM, BirthYMPrecision: item.BirthYMPrecision,
+		NormalizedPhone: item.NormalizedPhone, Phone: item.Phone, Email: item.Email,
+		WorkRegion: item.WorkRegion, WorkYears: item.WorkYears, ExpectedSalaryMin: item.ExpectedSalaryMin,
+		ExpectedSalaryMax: item.ExpectedSalaryMax, BasicInfo: item.BasicInfo,
+		EducationLevel: item.EducationLevel, ExpectedPosition: item.ExpectedPosition,
+		OnlineStatus: item.OnlineStatus, PersonalDescription: item.PersonalDescription,
+		WorkStatus: item.WorkStatus, RawText: item.RawText, WorkExperiences: item.WorkExperiences,
+		Educations: item.Educations, Certificates: item.Certificates, Honors: item.Honors,
+		ProjectExperiences: item.ProjectExperiences, Communications: item.Communications,
+		CreatedAt: createdAt, UpdatedAt: updatedAt,
+	}, nil
 }
 
 // UpsertCandidateEngagement 新增或更新候选人触达上下文。
@@ -502,6 +583,9 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		cp.source_platform_candidate_id,
 		cp.candidate_name,
 		cp.birth_ym,
+		cp.gender,
+		cp.birth_ym_precision,
+		cp.normalized_phone,
 		cp.phone,
 		cp.email,
 		cp.work_region,
@@ -599,6 +683,9 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.PlatformCandidateID,
 		&item.CandidateName,
 		&item.BirthYM,
+		&item.Gender,
+		&item.BirthYMPrecision,
+		&item.NormalizedPhone,
 		&item.Phone,
 		&item.Email,
 		&item.WorkRegion,

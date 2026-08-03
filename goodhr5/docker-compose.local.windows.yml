@@ -15,6 +15,7 @@ services:
     volumes:
       - ./cloud/backend:/app
       - backend_tmp:/app/tmp
+      - backend_auto_reply_resumes:/app/data/auto-reply-resumes
       - backend_go_cache:/go/pkg/mod
       - backend_build_cache:/root/.cache/go-build
     networks:
@@ -51,6 +52,8 @@ networks:
 volumes:
   # 以下命名卷只保存开发缓存，不保存或覆盖业务数据库数据。
   backend_tmp:
+  # 自动回复取得的简历附件保存在独立持久化卷，重建后端容器不会丢失。
+  backend_auto_reply_resumes:
   backend_go_cache:
   backend_build_cache:
   frontend_node_modules:

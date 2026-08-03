@@ -41,6 +41,7 @@ type Server struct {
 	systemConfigs       SystemConfigStore
 	tenants             *TenantService
 	cookies             *CookieService
+	autoReply           *AutoReplyService
 }
 
 // NewServer 创建云端 HTTP 服务实例，并完成认证和各业务模块依赖注入。
@@ -71,6 +72,7 @@ func NewServer() (*Server, error) {
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
+	autoReplyStore := config.AutoReplyStore(db)
 	userFlowStore := config.UserFlowStore(db)
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
@@ -100,7 +102,7 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, autoReplyStore),
 		positionLogs:        positionLogs,
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
@@ -117,6 +119,7 @@ func NewServer() (*Server, error) {
 		systemConfigs:       systemConfigStore,
 		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
+		autoReply:           NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, config.AutoReplyResumeDir),
 	}, nil
 }
 
@@ -208,6 +211,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/cookies", s.cookies.List)
 	mux.HandleFunc("/api/cookies/create", s.cookies.Create)
 	mux.HandleFunc("/api/cookies/", s.cookieRoute)
+	// 注册自动回复配置、审计和本地 Agent 数据同步接口。
+	mux.HandleFunc("/api/auto-reply/company-profiles", s.autoReply.CompanyProfiles)
+	mux.HandleFunc("/api/auto-reply/company-profiles/", s.autoReply.CompanyProfile)
+	mux.HandleFunc("/api/auto-reply/attachments/", s.autoReply.Attachment)
+	mux.HandleFunc("/api/auto-reply/positions/", s.autoReply.Position)
+	mux.HandleFunc("/api/auto-reply/agent/", s.autoReply.Agent)
+	mux.HandleFunc("/api/auto-reply/audit", s.autoReply.Audit)
+	mux.HandleFunc("/api/auto-reply/suggestions", s.autoReply.Suggestions)
+	mux.HandleFunc("/api/auto-reply/suggestions/", s.autoReply.Suggestion)
 	return cors(mux)
 }
 
@@ -571,7 +583,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GoodHR-Agent-BaseURL")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GoodHR-Agent-BaseURL, X-GoodHR-Machine-ID")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

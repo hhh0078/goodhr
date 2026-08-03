@@ -1,4 +1,4 @@
-// 本文件负责定义云端自动回复配置、会话、简历、确认项和 AI 审计的强类型数据模型。
+// Package httpapi 本文件负责定义云端自动回复配置、会话、简历、确认项和 AI 审计的强类型数据模型。
 package httpapi
 
 import (
@@ -235,6 +235,7 @@ type AutoReplyNotification struct {
 	Gender            string     `json:"gender"`
 	PlatformID        string     `json:"platform_id"`
 	Reason            string     `json:"reason"`
+	LatestMessage     string     `json:"latest_message"`
 	RecipientEmail    string     `json:"recipient_email"`
 	Status            string     `json:"status"`
 	ErrorMessage      string     `json:"error_message"`
@@ -242,4 +243,14 @@ type AutoReplyNotification struct {
 	ExpiresAt         time.Time  `json:"expires_at"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// AutoReplyAuditRecord 表示前端运行小窗和审计页使用的一条 AI 总记录。
+type AutoReplyAuditRecord struct {
+	Run           AutoReplyAIRun      `json:"run"`
+	CandidateName string              `json:"candidate_name"`
+	Gender        string              `json:"gender"`
+	PlatformID    string              `json:"platform_id"`
+	PositionName  string              `json:"position_name"`
+	ToolCalls     []AutoReplyToolCall `json:"tool_calls"`
 }

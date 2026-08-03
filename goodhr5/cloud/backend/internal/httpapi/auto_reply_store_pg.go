@@ -1,11 +1,10 @@
-// 本文件负责提供自动回复 PostgreSQL 存储的公共连接、身份校验和公司岗位配置能力。
+// Package httpapi 本文件负责提供自动回复 PostgreSQL 存储的公共连接、身份校验和公司岗位配置能力。
 package httpapi
 
 import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -66,7 +65,7 @@ func (s *PostgresAutoReplyStore) SaveCompanyProfile(ctx context.Context, tenantI
 	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return CompanyProfile{}, errors.New("这个公司档案名称已经存在")
+			return CompanyProfile{}, newAutoReplyValidationError("这个公司档案名称已经存在")
 		}
 		return CompanyProfile{}, err
 	}
@@ -99,12 +98,31 @@ func (s *PostgresAutoReplyStore) ListCompanyProfiles(ctx context.Context, tenant
 	return items, rows.Err()
 }
 
+// GetCompanyProfile 返回当前团队指定公司档案。
+func (s *PostgresAutoReplyStore) GetCompanyProfile(ctx context.Context, tenantID, profileID string) (CompanyProfile, error) {
+	var item CompanyProfile
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, name, address, contact, overview, extra_info,
+			COALESCE(created_by_user_id::text,''), COALESCE(updated_by_user_id::text,''), created_at, updated_at
+		FROM tenant_company_profiles
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, profileID).Scan(
+		&item.ID, &item.TenantID, &item.Name, &item.Address, &item.Contact,
+		&item.Overview, &item.ExtraInfo, &item.CreatedByUserID, &item.UpdatedByUserID,
+		&item.CreatedAt, &item.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CompanyProfile{}, ErrNotFound
+	}
+	return item, err
+}
+
 // DeleteCompanyProfile 删除没有被岗位引用的团队公司档案。
 func (s *PostgresAutoReplyStore) DeleteCompanyProfile(ctx context.Context, tenantID, profileID string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM tenant_company_profiles WHERE tenant_id=$1 AND id=$2`, tenantID, profileID)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "foreign key") {
-			return errors.New("这个公司档案还有岗位在用，暂时不能删除")
+			return newAutoReplyValidationError("这个公司档案还有岗位在用，暂时不能删除")
 		}
 		return err
 	}
@@ -272,7 +290,7 @@ func ensurePositionAndCompanyForAutoReply(ctx context.Context, tx *sql.Tx, item 
 		return err
 	}
 	if !companyExists {
-		return fmt.Errorf("选择的公司档案不在当前团队")
+		return newAutoReplyValidationError("选择的公司档案不在当前团队")
 	}
 	return nil
 }

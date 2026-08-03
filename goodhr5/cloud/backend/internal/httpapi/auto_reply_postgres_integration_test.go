@@ -1,4 +1,4 @@
-// 本文件使用真实 PostgreSQL 验证自动回复配置、会话、简历和 AI 审计的完整存储链路。
+// Package httpapi 本文件使用真实 PostgreSQL 验证自动回复配置、会话、简历和 AI 审计的完整存储链路。
 package httpapi
 
 import (
@@ -201,6 +201,18 @@ func TestPostgresAutoReplyStorageFlow(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	pendingSuggestions, err := autoReplyStore.ListAutoReplyConfigSuggestions(ctx, tenant.ID, "pending", 10)
+	if err != nil || len(pendingSuggestions) != 1 || pendingSuggestions[0].ID != suggestion.ID {
+		t.Fatalf("pending suggestions=%#v err=%v", pendingSuggestions, err)
+	}
+	suggestion, err = autoReplyStore.ReviewAutoReplyConfigSuggestion(ctx, tenant.ID, ownerEmail, suggestion.ID, "approved")
+	if err != nil || suggestion.Status != "approved" || suggestion.ReviewedAt == nil {
+		t.Fatalf("reviewed suggestion=%#v err=%v", suggestion, err)
+	}
+	approvedSuggestions, err := autoReplyStore.ListAutoReplyConfigSuggestions(ctx, tenant.ID, "approved", 10)
+	if err != nil || len(approvedSuggestions) != 1 || approvedSuggestions[0].ID != suggestion.ID {
+		t.Fatalf("approved suggestions=%#v err=%v", approvedSuggestions, err)
 	}
 	aiRun.Status = "completed"
 	aiRun.OutputMessage = json.RawMessage(`{"reply":"薪资面议"}`)
