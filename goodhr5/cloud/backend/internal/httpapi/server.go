@@ -115,7 +115,7 @@ func NewServer() (*Server, error) {
 		dailyStats:          dailyStatsStore,
 		help:                NewHelpService(auth, systemConfigStore, aiConfigStore),
 		systemConfigs:       systemConfigStore,
-		tenants:             NewTenantService(auth, tenantStore),
+		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
 	}, nil
 }
@@ -201,6 +201,8 @@ func (s *Server) Routes() http.Handler {
 	// 注册租户管理接口，用于管理员邀请成员和管理租户。
 	mux.HandleFunc("/api/tenants/members", s.tenants.Members)
 	mux.HandleFunc("/api/tenants/invite", s.tenants.Invite)
+	mux.HandleFunc("/api/tenants/invitations/pending", s.tenants.PendingInvitations)
+	mux.HandleFunc("/api/tenants/invitations/", s.tenants.InvitationAction)
 	mux.HandleFunc("/api/tenants/cookie-sharing", s.tenants.ToggleCookieSharing)
 	mux.HandleFunc("/api/tenants/members/", s.tenantMember)
 	mux.HandleFunc("/api/cookies", s.cookies.List)

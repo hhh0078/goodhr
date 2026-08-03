@@ -28,15 +28,22 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
-		       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count,
-		       p.daily_greeted_count, p.daily_greeted_date::text, p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking,
-		       p.created_at, p.updated_at, p.started_at, p.finished_at
-		FROM positions p
-		INNER JOIN users u ON u.id = p.user_id
-		WHERE u.email = $1
-		ORDER BY p.updated_at DESC, p.created_at DESC
-		`,
+			SELECT u.email, p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
+			       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count,
+			       p.daily_greeted_count, p.daily_greeted_date::text, p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking,
+			       p.created_at, p.updated_at, p.started_at, p.finished_at
+			FROM positions p
+			INNER JOIN users u ON u.id = p.user_id
+			WHERE (
+				NULLIF($1, '') IS NULL AND LOWER(u.email) = LOWER($2)
+			) OR (
+				NULLIF($1, '') IS NOT NULL AND u.tenant_id = NULLIF($1, '')::uuid AND u.status = 'active'
+			)
+			ORDER BY CASE WHEN LOWER(u.email) = LOWER($2) THEN 0 ELSE 1 END,
+			         p.created_at DESC,
+			         p.id DESC
+			`,
+		tenantID,
 		userEmail,
 	)
 	if err != nil {
@@ -52,8 +59,8 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 		var commonConfigJSON []byte
 		var aiConfigJSON []byte
 		var keywordConfigJSON []byte
-		item.UserEmail = userEmail
 		if err := rows.Scan(
+			&item.UserEmail,
 			&item.ID,
 			&item.PlatformID,
 			&item.Name,

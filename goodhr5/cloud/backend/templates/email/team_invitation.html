@@ -1,0 +1,39 @@
+<!-- 本文件是 GoodHR 团队邀请邮件 HTML 模板，提醒用户登录后亲自确认加入并适配移动端。 -->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GoodHR 团队邀请</title>
+  <style>
+    @media only screen and (max-width: 560px) {
+      .mail-wrap { padding: 12px 8px !important; }
+      .mail-card { padding: 22px 18px !important; }
+      .mail-title { font-size: 24px !important; }
+      .mail-button { display: block !important; width: auto !important; text-align: center !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;background:#f2f6f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;color:#1f2a23;">
+  <div class="mail-wrap" style="max-width:640px;margin:0 auto;padding:24px 14px;">
+    <div class="mail-card" style="background:#ffffff;border:1px solid #dfe7e1;border-radius:12px;padding:30px;box-shadow:0 10px 30px rgba(31,42,35,.06);">
+      <div style="font-size:13px;font-weight:700;color:#50705b;">GOODHR 团队邀请</div>
+      <h1 class="mail-title" style="margin:10px 0 14px;font-size:28px;line-height:1.35;color:#1f2a23;">我小声递个邀请</h1>
+      <p style="margin:0 0 18px;font-size:15px;line-height:1.85;color:#56645b;word-break:break-word;">
+        <strong style="color:#26372c;">{{.InviterEmail}}</strong> 邀请你加入 <strong style="color:#26372c;">{{.TeamName}}</strong>。
+      </p>
+      <div style="margin:0 0 22px;padding:15px 16px;border-radius:8px;background:#f5f8f6;border:1px solid #e2e9e4;font-size:14px;line-height:1.8;color:#4f5e54;">
+        <div>团队所有者：{{.TeamOwner}}</div>
+        <div>加入后身份：{{.RoleLabel}}</div>
+      </div>
+      <p style="margin:0 0 22px;font-size:14px;line-height:1.85;color:#68756c;">
+        放心，我不会趁你不注意偷偷搬数据。登录后你点“同意加入”，我才会把你的岗位、简历等资料认真搬进团队；不想加入也可以拒绝，我不记仇。
+      </p>
+      <a class="mail-button" href="{{.LoginURL}}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 22px;border-radius:8px;background:#2f6b45;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">登录后查看邀请</a>
+      <p style="margin:24px 0 0;padding-top:18px;border-top:1px solid #e6ece8;font-size:12px;line-height:1.75;color:#8a958d;">
+        如果你不认识邀请人，直接忽略或拒绝即可。这个邀请不会影响你当前的 GoodHR 数据。
+      </p>
+    </div>
+  </div>
+</body>
+</html>

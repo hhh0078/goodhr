@@ -89,15 +89,24 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用岗位存储读取当前用户的岗位配置，供后续岗位运行选择和复用。
-	items, err := s.store.ListPositions("", session.Email, false)
+	tenantID := ""
+	if s.auth != nil && s.auth.tenantStore != nil {
+		tenant, tenantErr := s.auth.tenantStore.GetOrCreateTenant(session.Email)
+		if tenantErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get tenant")
+			return
+		}
+		tenantID = tenant.ID
+	}
+	// 调用岗位存储读取团队岗位，当前账号创建的岗位优先，其余岗位仅供查看。
+	items, err := s.store.ListPositions(tenantID, session.Email, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"positions": publicPositions(items),
+		"positions": publicPositionsForUser(items, session.Email),
 	})
 }
 
@@ -442,10 +451,20 @@ func publicPositions(items []Position) []map[string]any {
 	return result
 }
 
+// publicPositionsForUser 返回团队岗位，并标记哪些岗位属于当前登录账号。
+func publicPositionsForUser(items []Position, currentEmail string) []map[string]any {
+	result := publicPositions(items)
+	for index, item := range items {
+		result[index]["is_current_user"] = strings.EqualFold(item.UserEmail, currentEmail)
+	}
+	return result
+}
+
 // publicPosition 将岗位配置转换为前端响应结构。
 func publicPosition(item Position) map[string]any {
 	return map[string]any{
 		"id":                  item.ID,
+		"creator_email":       item.UserEmail,
 		"platform_id":         normalizePositionPlatformID(item.PlatformID),
 		"name":                item.Name,
 		"keywords":            item.Keywords,
