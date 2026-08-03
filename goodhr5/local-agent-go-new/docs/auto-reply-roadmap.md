@@ -103,14 +103,14 @@
 
 分支：`codex/auto-reply-ai-tools`
 
-- [ ] 标准 OpenAI `tool_calls` 流式解析和能力检测。
-- [ ] 九个本地工具及强类型参数校验。
-- [ ] 最多8次工具调用、最多2次参数修正。
-- [ ] 固定 system 与动态 user/tool 消息分离。
-- [ ] 确认项自动去重和证据更新。
-- [ ] 岗位、公司修改建议，不允许 AI 直接修改。
-- [ ] 一条候选人新消息最多发送一条回复。
-- [ ] 总记录同步到运行小窗和云端审计。
+- [x] 标准 OpenAI `tool_calls` 流式解析和能力检测。
+- [x] 九个本地工具及强类型参数校验。
+- [x] 最多8次工具调用、最多2次参数修正。
+- [x] 固定 system 与动态 user/tool 消息分离。
+- [x] 确认项自动去重和证据更新。
+- [x] 岗位、公司修改建议，不允许 AI 直接修改。
+- [x] 一条候选人新消息最多发送一条回复。
+- [x] 总记录同步到运行小窗和云端审计。
 
 验证：SSE/tool_calls、错误修正、重复发送和提示词缓存边界测试。
 
@@ -166,3 +166,4 @@
 | 3 | `codex/auto-reply-frontend` | `f0424b39` | 已完成（`f737c021`） | `node --test lib/auto-reply.test.mjs`、`npx tsc --noEmit`、`npm run build -- --webpack`、猎聘企业岗位桌面与手机宽度真实页面回归通过 |
 | 4 | `codex/auto-reply-local-contracts` | `a84d8072` | 已完成（`e0bedafa`） | 本地 Agent `go test ./...`、`go vet ./...`、设备请求头、错误编号、取消与超时、5000条消息、20MB附件、SHA-256和隐私摘要测试通过 |
 | 5 | `codex/auto-reply-local-flow` | `eeef3cfa` | 已完成（`9f5a19c1`） | 云端和本地 Agent `go test ./...`、`go vet ./...`、多岗位唯一匹配、当前标签页、5000条差量游标、单轮3人、发送前后复核和重复保护测试通过 |
+| 6 | `codex/auto-reply-ai-tools` | `9736750e` | 已完成（`d0303ff9`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖SSE分段、能力错误、取消、两次参数修正、8次上限、提示词缓存边界、云端工具审计和悬浮窗总记录 |
