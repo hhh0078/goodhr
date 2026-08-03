@@ -300,8 +300,10 @@ func candidateMaps(candidates []platformcore.Candidate) []map[string]any {
 // position 为岗位运行记录，candidates 为候选人列表；有详情阶段时不在列表阶段做关键词终判。
 func (r *Runner) prepareCandidatesForFirstStage(position localdb.Position, candidates []map[string]any) ([]map[string]any, int) {
 	if positionMode(position) == "keyword" && !shouldFetchDetail(position) {
-		return applyKeywordFilter(position, candidates, func(message string) {
+		return applyKeywordFilterWithDecision(position, candidates, func(message string) {
 			r.positionLog(position.ID, "info", message)
+		}, func(candidate map[string]any, state keywordMatchState) {
+			r.updateKeywordAnalysis(position.ID, state, candidate, keywordAnalysisReason(candidate, state), true)
 		})
 	}
 	return prepareCandidatesForFirstStage(position, candidates)

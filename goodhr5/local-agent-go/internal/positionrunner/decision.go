@@ -82,6 +82,7 @@ func (r *Runner) showAIReply(ctx context.Context, exec platformExecutor, title s
 // ctx 为请求上下文，exec 为 Worker 执行器，position 为岗位运行记录，candidate 为候选人。
 func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecutor, position localdb.Position, candidate map[string]any) {
 	state := buildKeywordMatchState(position, candidate)
+	r.updateKeywordAnalysis(position.ID, state, candidate, keywordAnalysisReason(candidate, state), true)
 	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
 	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
@@ -100,6 +101,18 @@ func (r *Runner) showKeywordMatchOverlay(ctx context.Context, exec platformExecu
 // ctx 为请求上下文，exec 为 Worker 执行器，position 为岗位运行记录，candidate 为候选人。
 func (r *Runner) showKeywordOCRLoadingOverlay(ctx context.Context, exec platformExecutor, position localdb.Position, candidate map[string]any) {
 	state := buildKeywordMatchState(position, candidate)
+	r.updateAnalysis(position.ID, positionAnalysisStatus{
+		Kind:            "keyword",
+		Phase:           "loading",
+		Stage:           "final",
+		Terminal:        false,
+		CandidateName:   candidateLogName(candidate),
+		Reason:          "OCR 正在识别详情，识别完我再判断关键词",
+		Keywords:        state.Keywords,
+		MatchedKeywords: state.Matched,
+		ExcludeKeywords: state.Excludes,
+		MatchedExcludes: state.Excluded,
+	})
 	overlayCtx, overlayCancel := context.WithTimeout(context.WithoutCancel(ctx), overlayActionTimeout)
 	_, _ = exec.Post(overlayCtx, "/api/v1/page/keyword-overlay", map[string]any{
 		"action":           "show",
@@ -291,9 +304,12 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, position lo
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
 // position 为岗位运行记录，candidate 为已补充详情的候选人，返回本次是否跳过。
 func (r *Runner) applyKeywordGreetDecision(position localdb.Position, candidate map[string]any) int {
-	return applyKeywordGreetDecisionWithLog(position, candidate, func(message string) {
+	skipped := applyKeywordGreetDecisionWithLog(position, candidate, func(message string) {
 		r.positionLog(position.ID, "info", message)
 	})
+	state := buildKeywordMatchState(position, candidate)
+	r.updateKeywordAnalysis(position.ID, state, candidate, keywordAnalysisReason(candidate, state), true)
+	return skipped
 }
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
@@ -422,6 +438,12 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, posi
 // applyKeywordFilter 按岗位运行岗位快照过滤候选人。
 // position 为岗位运行记录，candidates 为候选人列表，logf 为空时不写日志。
 func applyKeywordFilter(position localdb.Position, candidates []map[string]any, logf func(string)) ([]map[string]any, int) {
+	return applyKeywordFilterWithDecision(position, candidates, logf, nil)
+}
+
+// applyKeywordFilterWithDecision 按岗位快照过滤候选人，并回传每位候选人的关键词判断结果。
+// position 为岗位运行记录，candidates 为候选人列表，decisionf 为空时只返回过滤结果。
+func applyKeywordFilterWithDecision(position localdb.Position, candidates []map[string]any, logf func(string), decisionf func(map[string]any, keywordMatchState)) ([]map[string]any, int) {
 	keywords := stringListFromMap(position.PositionSnapshot, "keywords")
 	excludes := stringListFromMap(position.PositionSnapshot, "exclude_keywords")
 	isAndMode := boolFromMap(position.PositionSnapshot, "is_and_mode")
@@ -435,6 +457,8 @@ func applyKeywordFilter(position localdb.Position, candidates []map[string]any, 
 		if matched := matchedWords(text, excludes); len(matched) > 0 {
 			candidate["status"] = "skipped"
 			candidate["skip_reason"] = "命中排除词：" + strings.Join(matched, "、")
+			candidate["matched_excludes"] = matched
+			reportKeywordFilterDecision(decisionf, position, candidate)
 			logKeywordDecision(logf, "列表关键词跳过", candidate, "命中排除词="+strings.Join(matched, "、"))
 			skipped++
 			continue
@@ -443,16 +467,63 @@ func applyKeywordFilter(position localdb.Position, candidates []map[string]any, 
 		if len(keywords) > 0 && ((!isAndMode && len(matched) == 0) || (isAndMode && len(matched) < len(keywords))) {
 			candidate["status"] = "skipped"
 			candidate["skip_reason"] = "未命中关键词"
+			candidate["matched_keywords"] = matched
+			reportKeywordFilterDecision(decisionf, position, candidate)
 			logKeywordDecision(logf, "列表关键词跳过", candidate, fmt.Sprintf("命中=%s 需要=%s", keywordListLabel(matched), keywordListLabel(keywords)))
 			skipped++
 			continue
 		}
 		candidate["status"] = "passed"
 		candidate["matched_keywords"] = matched
+		reportKeywordFilterDecision(decisionf, position, candidate)
 		logKeywordDecision(logf, "列表关键词通过", candidate, "命中="+keywordListLabel(matched))
 		result = append(result, candidate)
 	}
 	return result, skipped
+}
+
+// reportKeywordFilterDecision 回传列表阶段单个候选人的关键词判断状态。
+// decisionf 为空时不执行任何操作。
+func reportKeywordFilterDecision(decisionf func(map[string]any, keywordMatchState), position localdb.Position, candidate map[string]any) {
+	if decisionf == nil {
+		return
+	}
+	decisionf(candidate, buildKeywordMatchState(position, candidate))
+}
+
+// updateKeywordAnalysis 更新关键词判断结果到控制台置顶小窗。
+// positionID 为岗位运行 ID，state 为关键词命中状态，candidate 为当前候选人。
+func (r *Runner) updateKeywordAnalysis(positionID string, state keywordMatchState, candidate map[string]any, reason string, terminal bool) {
+	status := stringFromMap(candidate, "status")
+	accepted := status == "passed" || status == "ai_passed" || status == "detail_fetched"
+	r.updateAnalysis(positionID, positionAnalysisStatus{
+		Kind:            "keyword",
+		Phase:           "result",
+		Stage:           "final",
+		Terminal:        terminal,
+		CandidateName:   candidateLogName(candidate),
+		Accepted:        &accepted,
+		Reason:          reason,
+		Keywords:        state.Keywords,
+		MatchedKeywords: state.Matched,
+		ExcludeKeywords: state.Excludes,
+		MatchedExcludes: state.Excluded,
+	})
+}
+
+// keywordAnalysisReason 返回给控制台置顶小窗展示的关键词判断说明。
+// candidate 为当前候选人，state 为关键词命中状态。
+func keywordAnalysisReason(candidate map[string]any, state keywordMatchState) string {
+	if reason := strings.TrimSpace(stringFromMap(candidate, "skip_reason")); reason != "" {
+		return reason
+	}
+	if len(state.Excluded) > 0 {
+		return "命中排除词：" + strings.Join(state.Excluded, "、")
+	}
+	if len(state.Keywords) > 0 && ((!state.AndMode && len(state.Matched) == 0) || (state.AndMode && len(state.Matched) < len(state.Keywords))) {
+		return "关键词还没匹配上，本轮先跳过"
+	}
+	return "关键词匹配通过，准备继续打招呼"
 }
 
 // logKeywordDecision 写入关键词筛选日志。

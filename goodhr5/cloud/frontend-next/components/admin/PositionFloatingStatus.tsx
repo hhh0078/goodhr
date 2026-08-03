@@ -186,6 +186,7 @@ export default function PositionFloatingStatus({
   const matchedKeywords = analysis?.matched_keywords || [];
   const matchedExcludes = analysis?.matched_excludes || [];
   const keywords = analysis?.keywords || [];
+  const excludeKeywords = analysis?.exclude_keywords || [];
 
   return createPortal(
     <main
@@ -328,14 +329,19 @@ export default function PositionFloatingStatus({
                 lineHeight: 1.35,
               }}
             >
+              {keywords.length ? (
+                <span style={{ opacity: 0.82 }}>需要：{keywords.join("、")}</span>
+              ) : null}
+              {excludeKeywords.length ? (
+                <span style={{ opacity: 0.82 }}>
+                  排除：{excludeKeywords.join("、")}
+                </span>
+              ) : null}
               <span>
                 命中：{matchedKeywords.length ? matchedKeywords.join("、") : "暂无"}
               </span>
               {matchedExcludes.length ? (
-                <span>排除词：{matchedExcludes.join("、")}</span>
-              ) : null}
-              {!matchedKeywords.length && keywords.length ? (
-                <span style={{ opacity: 0.78 }}>需要：{keywords.join("、")}</span>
+                <span>命中排除：{matchedExcludes.join("、")}</span>
               ) : null}
             </div>
           ) : null}

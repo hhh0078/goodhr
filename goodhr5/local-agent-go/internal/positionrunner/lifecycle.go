@@ -221,10 +221,23 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 	}
 	running := r.IsRunning(positionID)
 	progress := r.Progress(positionID, position)
+	analysis := r.analysisSnapshot(positionID)
 	logs, _ := r.db.ListPositionLogs(positionID, 20)
 	positionMap := localPositionStatusMap(position)
 	positionMap["current_run_greeted_count"] = r.currentRunGreeted(positionID)
-	return map[string]any{"position": positionMap, "running": running, "progress": progress, "logs": logs}, nil
+	return map[string]any{
+		"position":      positionMap,
+		"running":       running,
+		"progress":      progress,
+		"logs":          logs,
+		"status":        position.Status,
+		"current_step":  progress.Message,
+		"scanned_count": position.ScannedCount,
+		"greeted_count": position.GreetedCount,
+		"skipped_count": position.SkippedCount,
+		"failed_count":  position.FailedCount,
+		"analysis":      analysis,
+	}, nil
 }
 
 // isLocalPositionMissing 判断错误是否表示本地岗位运行尚未创建。
@@ -495,6 +508,42 @@ func (r *Runner) updateProgress(positionID string, progress Progress) {
 		progress.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	state.progress = progress
+}
+
+// updateAnalysis 更新岗位运行给控制台置顶小窗展示的结构化分析结果。
+func (r *Runner) updateAnalysis(positionID string, analysis positionAnalysisStatus) {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return
+	}
+	if analysis.UpdatedAt == "" {
+		analysis.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	analysis.Keywords = append([]string{}, analysis.Keywords...)
+	analysis.MatchedKeywords = append([]string{}, analysis.MatchedKeywords...)
+	analysis.ExcludeKeywords = append([]string{}, analysis.ExcludeKeywords...)
+	analysis.MatchedExcludes = append([]string{}, analysis.MatchedExcludes...)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[positionID]; state != nil {
+		state.analysis = &analysis
+	}
+}
+
+// analysisSnapshot 返回当前岗位运行最近一次结构化分析结果的安全副本。
+func (r *Runner) analysisSnapshot(positionID string) *positionAnalysisStatus {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.running[strings.TrimSpace(positionID)]
+	if state == nil || state.analysis == nil {
+		return nil
+	}
+	analysis := *state.analysis
+	analysis.Keywords = append([]string{}, state.analysis.Keywords...)
+	analysis.MatchedKeywords = append([]string{}, state.analysis.MatchedKeywords...)
+	analysis.ExcludeKeywords = append([]string{}, state.analysis.ExcludeKeywords...)
+	analysis.MatchedExcludes = append([]string{}, state.analysis.MatchedExcludes...)
+	return &analysis
 }
 
 // incrementRunGreeted 增加当前岗位运行本次运行已打招呼数量。

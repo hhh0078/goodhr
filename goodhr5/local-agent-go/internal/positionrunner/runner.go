@@ -89,6 +89,7 @@ type Runner struct {
 type runState struct {
 	cancel             context.CancelFunc
 	progress           Progress
+	analysis           *positionAnalysisStatus
 	emailForNotify     string // 失败通知邮箱
 	options            StartOptions
 	cancelReason       string
@@ -108,6 +109,22 @@ type Progress struct {
 	Round       int    `json:"round"`
 	TotalRounds int    `json:"total_rounds"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+// positionAnalysisStatus 表示控制台置顶小窗展示的 AI 或关键词判断状态。
+type positionAnalysisStatus struct {
+	Kind            string   `json:"kind"`
+	Phase           string   `json:"phase"`
+	Stage           string   `json:"stage,omitempty"`
+	Terminal        bool     `json:"terminal"`
+	CandidateName   string   `json:"candidate_name"`
+	Accepted        *bool    `json:"accepted,omitempty"`
+	Reason          string   `json:"reason"`
+	Keywords        []string `json:"keywords,omitempty"`
+	MatchedKeywords []string `json:"matched_keywords,omitempty"`
+	ExcludeKeywords []string `json:"exclude_keywords,omitempty"`
+	MatchedExcludes []string `json:"matched_excludes,omitempty"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
 // PositionRuntimeSnapshot 保存一次岗位运行运行开始时从云端读取到的完整快照。

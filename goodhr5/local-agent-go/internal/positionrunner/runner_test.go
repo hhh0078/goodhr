@@ -837,6 +837,37 @@ func TestApplyKeywordFilter(t *testing.T) {
 	}
 }
 
+// TestApplyKeywordFilterReportsDecision 验证列表阶段关键词过滤会回传置顶小窗需要的匹配状态。
+func TestApplyKeywordFilterReportsDecision(t *testing.T) {
+	position := localdb.Position{
+		PositionSnapshot: map[string]any{
+			"keywords":         []any{"本科", "销售"},
+			"exclude_keywords": []any{"外包"},
+			"is_and_mode":      true,
+		},
+	}
+	candidates := []map[string]any{
+		{"id": "1", "name": "张三", "raw_text": "本科 三年 销售经验"},
+		{"id": "2", "name": "李四", "raw_text": "本科 外包 项目"},
+	}
+	decisions := []keywordMatchState{}
+	filtered, skipped := applyKeywordFilterWithDecision(position, candidates, nil, func(_ map[string]any, state keywordMatchState) {
+		decisions = append(decisions, state)
+	})
+	if skipped != 1 || len(filtered) != 1 {
+		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+	if len(decisions) != 2 {
+		t.Fatalf("decisions = %+v", decisions)
+	}
+	if strings.Join(decisions[0].Matched, "、") != "本科、销售" {
+		t.Fatalf("matched = %+v", decisions[0].Matched)
+	}
+	if strings.Join(decisions[1].Excluded, "、") != "外包" {
+		t.Fatalf("excluded = %+v", decisions[1].Excluded)
+	}
+}
+
 // TestPrepareCandidatesForFirstStageWithDetail 验证有详情阶段时列表阶段不做关键词终判。
 func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
 	position := localdb.Position{
@@ -850,6 +881,30 @@ func TestPrepareCandidatesForFirstStageWithDetail(t *testing.T) {
 	filtered, skipped := prepareCandidatesForFirstStage(position, candidates)
 	if skipped != 0 || len(filtered) != 1 || filtered[0]["status"] != "passed" {
 		t.Fatalf("filtered = %+v, skipped = %d", filtered, skipped)
+	}
+}
+
+// TestRunnerAnalysisSnapshotCopiesSlices 验证置顶小窗分析状态读取时不会共享内部切片。
+func TestRunnerAnalysisSnapshotCopiesSlices(t *testing.T) {
+	runner := &Runner{running: map[string]*runState{"p1": {}}}
+	runner.updateAnalysis("p1", positionAnalysisStatus{
+		Kind:            "keyword",
+		Phase:           "result",
+		Stage:           "final",
+		Terminal:        true,
+		CandidateName:   "张三",
+		Reason:          "关键词匹配通过",
+		Keywords:        []string{"本科"},
+		MatchedKeywords: []string{"本科"},
+	})
+	first := runner.analysisSnapshot("p1")
+	if first == nil || first.Kind != "keyword" || first.UpdatedAt == "" {
+		t.Fatalf("analysis = %+v", first)
+	}
+	first.Keywords[0] = "改坏"
+	second := runner.analysisSnapshot("p1")
+	if second == nil || second.Keywords[0] != "本科" {
+		t.Fatalf("analysis slice should be copied, got %+v", second)
 	}
 }
 

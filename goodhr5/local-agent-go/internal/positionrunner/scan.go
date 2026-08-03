@@ -322,6 +322,8 @@ scanLoop:
 					if positionMode(position) == "keyword" && !shouldOpenDetailByProbability(options) {
 						candidate["status"] = "skipped"
 						candidate["skip_reason"] = fmt.Sprintf("未命中打开详情概率：%d%%", detailOpenProbability(options))
+						state := buildKeywordMatchState(position, candidate)
+						r.updateKeywordAnalysis(position.ID, state, candidate, "已匹配列表信息，但未命中打开详情概率，本轮先跳过", true)
 						batchResult.Skipped++
 						totalResult.Skipped++
 						r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
