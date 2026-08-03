@@ -14,6 +14,7 @@ import (
 
 // notifyUnresolved 发送包含岗位、候选人、性别、平台和原因的幂等人工接管通知。
 func (f *Flow) notifyUnresolved(ctx context.Context, prepared shared.PreparedTask, position cloud.AutoReplyPositionSnapshot, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, reason string, reasonKey string, basedOnMessageKey string) error {
+	f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHash(basedOnMessageKey, "manual:"+reasonKey), "manual")
 	latestMessage := ""
 	for index := len(snapshot.Messages) - 1; index >= 0; index-- {
 		if strings.EqualFold(strings.TrimSpace(snapshot.Messages[index].Direction), "candidate") {

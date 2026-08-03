@@ -240,6 +240,9 @@ func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) erro
 	if task == nil || strings.TrimSpace(task.TaskID) == "" {
 		return nil
 	}
+	if task.TaskType == "auto_reply" {
+		return s.fillTaskConversationCounts(ctx, task)
+	}
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(DISTINCT fingerprint),
@@ -251,6 +254,23 @@ func (s *Store) fillTaskCandidateCounts(ctx context.Context, task *TaskRun) erro
 	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
 	if err != nil {
 		return fmt.Errorf("统计本次任务候选人数量失败：%w", err)
+	}
+	return nil
+}
+
+// fillTaskConversationCounts 从自动回复摘要计算本次处理会话、成功回复和转人工或跳过数量。
+func (s *Store) fillTaskConversationCounts(ctx context.Context, task *TaskRun) error {
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN result = 'success' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN result != 'success' THEN 1 ELSE 0 END), 0)
+		FROM conversation_records
+		WHERE task_id = ?`,
+		task.TaskID,
+	).Scan(&task.ScannedCount, &task.GreetedCount, &task.SkippedCount)
+	if err != nil {
+		return fmt.Errorf("统计本次自动回复会话数量失败：%w", err)
 	}
 	return nil
 }

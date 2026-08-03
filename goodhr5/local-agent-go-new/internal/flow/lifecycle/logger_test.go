@@ -93,4 +93,15 @@ func TestTaskLoggerKeepsAutoReplyTimeline(t *testing.T) {
 	if result.Timeline[0].Stage != "sync" || result.Timeline[2].Stage != "reply" {
 		t.Fatalf("timeline = %+v", result.Timeline)
 	}
+	logger.ReportAnalysis("task-auto-reply", shared.AnalysisStatus{
+		Kind: "auto_reply", Phase: "loading", Stage: "sync", CandidateName: "陈女士",
+		Reason: "开始下一轮", ProcessedCount: 3, SucceededCount: 1, SkippedCount: 2,
+	})
+	logger.ReportAnalysis("task-auto-reply", shared.AnalysisStatus{
+		Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: "陈女士", Reason: "AI 正在分析",
+	})
+	result = logger.AnalysisStatus("task-auto-reply")
+	if result == nil || result.ProcessedCount != 3 || result.SucceededCount != 1 || result.SkippedCount != 2 {
+		t.Fatalf("自动回复累计统计被后续状态清空：%+v", result)
+	}
 }

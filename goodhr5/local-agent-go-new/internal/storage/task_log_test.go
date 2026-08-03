@@ -177,3 +177,35 @@ func TestLatestTaskIncludesCandidateCounts(t *testing.T) {
 		t.Fatalf("本次任务统计不正确：%+v", task)
 	}
 }
+
+// TestLatestAutoReplyTaskIncludesConversationCounts 验证自动回复任务使用会话摘要展示处理、回复和转人工数量。
+func TestLatestAutoReplyTaskIncludesConversationCounts(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败：%v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err = store.SaveTask(ctx, TaskRun{
+		TaskID: "task-reply-counts", PositionID: "position-reply-counts", PlatformID: "liepin",
+		TaskType: "auto_reply", Status: "running",
+	}); err != nil {
+		t.Fatalf("保存任务失败：%v", err)
+	}
+	for _, record := range []ConversationRecord{
+		{TaskID: "task-reply-counts", ConversationKey: "thread-1", PlatformID: "liepin", ReplyHash: "hash-1", Result: "success"},
+		{TaskID: "task-reply-counts", ConversationKey: "thread-2", PlatformID: "liepin", ReplyHash: "hash-2", Result: "manual"},
+		{TaskID: "task-reply-counts", ConversationKey: "thread-3", PlatformID: "liepin", ReplyHash: "hash-3", Result: "skipped"},
+	} {
+		if err = store.SaveConversation(ctx, record); err != nil {
+			t.Fatalf("保存会话摘要失败：%v", err)
+		}
+	}
+	task, err := store.LatestTaskForPosition(ctx, "position-reply-counts")
+	if err != nil {
+		t.Fatalf("读取最近任务失败：%v", err)
+	}
+	if task.ScannedCount != 3 || task.GreetedCount != 1 || task.SkippedCount != 2 {
+		t.Fatalf("自动回复任务统计不正确：%+v", task)
+	}
+}

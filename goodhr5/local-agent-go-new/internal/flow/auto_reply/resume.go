@@ -30,7 +30,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 			f.reportChangedMessage(prepared.Request.TaskID, snapshot.CandidateName)
 			return nil, true, nil
 		}
-		duplicate, err := f.replyAlreadyRecorded(ctx, prepared, *conversation, requestMessage)
+		duplicate, err := f.replyAlreadyRecorded(ctx, prepared, *conversation, basedOnMessageKey, requestMessage)
 		if err != nil {
 			stats.Failed++
 			return nil, false, err

@@ -63,6 +63,9 @@ type AnalysisStatus struct {
 	ExcludeKeywords []string        `json:"exclude_keywords,omitempty"`
 	MatchedExcludes []string        `json:"matched_excludes,omitempty"`
 	Timeline        []AnalysisEvent `json:"timeline,omitempty"`
+	ProcessedCount  int             `json:"processed_count"`
+	SucceededCount  int             `json:"succeeded_count"`
+	SkippedCount    int             `json:"skipped_count"`
 	UpdatedAt       string          `json:"updated_at"`
 }
 

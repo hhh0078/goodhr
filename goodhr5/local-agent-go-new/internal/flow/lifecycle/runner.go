@@ -264,7 +264,7 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	}
 	switch prepared.Request.TaskType {
 	case "greeting":
-		stats, err = r.greeting.Run(ctx, prepared, runtime)
+		stats, err = r.runGreetingWithAutoReply(ctx, prepared, runtime)
 	case "auto_reply":
 		stats, err = r.reply.Run(ctx, prepared, runtime)
 	default:
