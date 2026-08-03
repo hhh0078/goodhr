@@ -247,6 +247,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     message: "",
     severity: "info" as "success" | "error" | "warning" | "info",
   });
+  const [errorNotice, setErrorNotice] = useState("");
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -336,6 +337,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       message: string,
       severity: "success" | "error" | "warning" | "info" = "info",
     ) => {
+      if (severity === "error") {
+        setErrorNotice(message);
+        return;
+      }
       setNotice({ open: true, message, severity });
     },
     [],
@@ -861,6 +866,18 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             {notice.message}
           </Alert>
         </Snackbar>
+        <AdminDialog
+          open={Boolean(errorNotice)}
+          title="这一步没处理成功"
+          confirmText="我知道了"
+          showCancel={false}
+          onClose={() => setErrorNotice("")}
+          onConfirm={() => setErrorNotice("")}
+        >
+          <Typography color="text.secondary">
+            {errorNotice || "我没处理成功，但问题不大，我们再来一次。"}
+          </Typography>
+        </AdminDialog>
         <AdminDialog
           open={trialWelcomeOpen && teamInvitations.length === 0}
           title={`${subscription.member_name || "Max 全能体验版"}已到账`}
