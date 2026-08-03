@@ -169,7 +169,7 @@ func TestSelectCurrentPlatformPagePrefersCurrentAndRejectsAmbiguous(t *testing.T
 func TestConvertMessagesKeepsLatestCandidateKey(t *testing.T) {
 	messages, key, err := convertMessages([]model.ConversationMessage{
 		{PlatformMessageID: "in-1", Direction: "candidate", MessageType: "text", TextContent: "你好"},
-		{PlatformMessageID: "out-1", Direction: "recruiter", MessageType: "text", TextContent: "你好"},
+		{PlatformMessageID: "out-1", Direction: "self", MessageType: "text", TextContent: "你好"},
 		{Key: "in-2-fingerprint", Direction: "candidate", MessageType: "text", TextContent: "薪资是多少"},
 	})
 	if err != nil || len(messages) != 3 || key != "in-2-fingerprint" {
@@ -190,7 +190,7 @@ func TestSendVerifiedMessageChecksLatestAndAvoidsDuplicate(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if len(payload.Messages) != 1 || payload.Messages[0].Direction != "recruiter" || payload.Messages[0].TextContent != "薪资面议" {
+		if len(payload.Messages) != 1 || payload.Messages[0].Direction != "self" || payload.Messages[0].TextContent != "薪资面议" {
 			t.Fatalf("sent message sync=%+v", payload.Messages)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -209,7 +209,7 @@ func TestSendVerifiedMessageChecksLatestAndAvoidsDuplicate(t *testing.T) {
 	}
 	runtime := &autoReplyRuntimeStub{
 		latestBefore: model.ConversationMessage{PlatformMessageID: "in-1", Direction: "candidate", TextContent: "薪资是多少"},
-		latestAfter:  model.ConversationMessage{PlatformMessageID: "out-1", Direction: "recruiter", TextContent: "薪资面议"},
+		latestAfter:  model.ConversationMessage{PlatformMessageID: "out-1", Direction: "self", TextContent: "薪资面议"},
 	}
 	conversation := cloud.AutoReplyConversation{ID: "conversation-1", PlatformThreadID: "thread-1"}
 	snapshot := model.AutoReplyConversationSnapshot{CandidateName: "李女士"}

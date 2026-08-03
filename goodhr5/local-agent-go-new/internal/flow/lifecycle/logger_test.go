@@ -74,3 +74,23 @@ func TestTaskLoggerHoldsTerminalResult(t *testing.T) {
 		t.Fatalf("保留时间结束后没有展示最新状态：%+v", status)
 	}
 }
+
+// TestTaskLoggerKeepsAutoReplyTimeline 验证同一候选人的自动回复步骤会累积且连续重复不会刷屏。
+func TestTaskLoggerKeepsAutoReplyTimeline(t *testing.T) {
+	logger := NewTaskLogger(nil, nil)
+	for _, status := range []shared.AnalysisStatus{
+		{Kind: "auto_reply", Phase: "loading", Stage: "sync", CandidateName: "陈女士", Reason: "正在同步聊天"},
+		{Kind: "auto_reply", Phase: "loading", Stage: "tool", CandidateName: "陈女士", Reason: "AI 调用工具：查看简历"},
+		{Kind: "auto_reply", Phase: "loading", Stage: "tool", CandidateName: "陈女士", Reason: "AI 调用工具：查看简历"},
+		{Kind: "auto_reply", Phase: "result", Stage: "reply", Terminal: true, CandidateName: "陈女士", Reason: "AI 准备回复：您好"},
+	} {
+		logger.ReportAnalysis("task-auto-reply", status)
+	}
+	result := logger.AnalysisStatus("task-auto-reply")
+	if result == nil || len(result.Timeline) != 3 {
+		t.Fatalf("analysis = %+v", result)
+	}
+	if result.Timeline[0].Stage != "sync" || result.Timeline[2].Stage != "reply" {
+		t.Fatalf("timeline = %+v", result.Timeline)
+	}
+}

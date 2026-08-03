@@ -39,22 +39,31 @@ type Stats struct {
 	Skipped   int `json:"skipped"`
 }
 
+// AnalysisEvent 表示悬浮窗中一条不会被下一步立即覆盖的 AI 处理记录。
+type AnalysisEvent struct {
+	Phase     string `json:"phase"`
+	Stage     string `json:"stage"`
+	Message   string `json:"message"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 // AnalysisStatus 表示悬浮窗展示的 AI 或关键词判断状态。
 type AnalysisStatus struct {
-	Kind            string   `json:"kind"`
-	Phase           string   `json:"phase"`
-	Stage           string   `json:"stage,omitempty"`
-	Terminal        bool     `json:"terminal"`
-	CandidateName   string   `json:"candidate_name"`
-	Score           *float64 `json:"score,omitempty"`
-	Threshold       *float64 `json:"threshold,omitempty"`
-	Accepted        *bool    `json:"accepted,omitempty"`
-	Reason          string   `json:"reason"`
-	Keywords        []string `json:"keywords,omitempty"`
-	MatchedKeywords []string `json:"matched_keywords,omitempty"`
-	ExcludeKeywords []string `json:"exclude_keywords,omitempty"`
-	MatchedExcludes []string `json:"matched_excludes,omitempty"`
-	UpdatedAt       string   `json:"updated_at"`
+	Kind            string          `json:"kind"`
+	Phase           string          `json:"phase"`
+	Stage           string          `json:"stage,omitempty"`
+	Terminal        bool            `json:"terminal"`
+	CandidateName   string          `json:"candidate_name"`
+	Score           *float64        `json:"score,omitempty"`
+	Threshold       *float64        `json:"threshold,omitempty"`
+	Accepted        *bool           `json:"accepted,omitempty"`
+	Reason          string          `json:"reason"`
+	Keywords        []string        `json:"keywords,omitempty"`
+	MatchedKeywords []string        `json:"matched_keywords,omitempty"`
+	ExcludeKeywords []string        `json:"exclude_keywords,omitempty"`
+	MatchedExcludes []string        `json:"matched_excludes,omitempty"`
+	Timeline        []AnalysisEvent `json:"timeline,omitempty"`
+	UpdatedAt       string          `json:"updated_at"`
 }
 
 // Logger 定义流程步骤的统一结构化日志能力。

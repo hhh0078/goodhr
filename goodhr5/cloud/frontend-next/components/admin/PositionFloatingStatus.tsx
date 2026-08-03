@@ -11,9 +11,9 @@ export type PositionFloatingStatusValue =
   | "failed";
 
 export type PositionAnalysisStatus = {
-  kind: "ai" | "keyword";
+  kind: "ai" | "keyword" | "auto_reply";
   phase: "loading" | "result" | "error";
-  stage?: "preview" | "final";
+  stage?: string;
   terminal: boolean;
   candidate_name: string;
   score?: number;
@@ -24,6 +24,12 @@ export type PositionAnalysisStatus = {
   matched_keywords?: string[];
   exclude_keywords?: string[];
   matched_excludes?: string[];
+  timeline?: Array<{
+    phase: "loading" | "result" | "error";
+    stage: string;
+    message: string;
+    updated_at: string;
+  }>;
   updated_at: string;
 };
 
@@ -187,6 +193,7 @@ export default function PositionFloatingStatus({
   const matchedExcludes = analysis?.matched_excludes || [];
   const keywords = analysis?.keywords || [];
   const excludeKeywords = analysis?.exclude_keywords || [];
+  const timeline = analysis?.timeline || [];
 
   return createPortal(
     <main
@@ -315,7 +322,11 @@ export default function PositionFloatingStatus({
               }}
             >
               <AILoadingSpinner />
-              <span>正在分析候选人</span>
+              <span>
+                {analysis.kind === "auto_reply"
+                  ? "正在处理候选人消息"
+                  : "正在分析候选人"}
+              </span>
             </div>
           ) : null}
 
@@ -346,18 +357,49 @@ export default function PositionFloatingStatus({
             </div>
           ) : null}
 
-          <div
-            title={analysis?.reason || ""}
-            style={{
-              overflow: "auto",
-              maxHeight: 78,
-              fontSize: 13,
-              lineHeight: 1.45,
-              opacity: 0.96,
-            }}
-          >
-            {analysis?.reason || "分析结果会留在这里，不会被普通操作日志挤走。"}
-          </div>
+          {analysis?.kind === "auto_reply" && timeline.length ? (
+            <div
+              aria-label="AI 处理总记录"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                overflow: "auto",
+                maxHeight: 88,
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              {timeline.map((item, index) => (
+                <div
+                  key={`${item.updated_at}-${item.stage}-${index}`}
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    opacity: item.phase === "loading" ? 0.84 : 1,
+                  }}
+                >
+                  <span aria-hidden="true">
+                    {item.phase === "error" ? "×" : item.phase === "result" ? "✓" : "·"}
+                  </span>
+                  <span>{item.message}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              title={analysis?.reason || ""}
+              style={{
+                overflow: "auto",
+                maxHeight: 78,
+                fontSize: 13,
+                lineHeight: 1.45,
+                opacity: 0.96,
+              }}
+            >
+              {analysis?.reason || "分析结果会留在这里，不会被普通操作日志挤走。"}
+            </div>
+          )}
         </div>
 
         <div
@@ -371,9 +413,18 @@ export default function PositionFloatingStatus({
             opacity: 0.86,
           }}
         >
-          <span>扫描 {Math.max(0, scannedCount || 0)}</span>
-          <span>打招呼 {Math.max(0, greetedCount || 0)}</span>
-          <span>跳过 {Math.max(0, skippedCount || 0)}</span>
+          <span>
+            {analysis?.kind === "auto_reply" ? "会话" : "扫描"}{" "}
+            {Math.max(0, scannedCount || 0)}
+          </span>
+          <span>
+            {analysis?.kind === "auto_reply" ? "已回复" : "打招呼"}{" "}
+            {Math.max(0, greetedCount || 0)}
+          </span>
+          <span>
+            {analysis?.kind === "auto_reply" ? "转人工/跳过" : "跳过"}{" "}
+            {Math.max(0, skippedCount || 0)}
+          </span>
         </div>
         <div
           title={step}

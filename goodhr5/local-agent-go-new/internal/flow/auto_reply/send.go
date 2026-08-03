@@ -42,7 +42,7 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 		return false, fmt.Errorf("消息已经点击发送，但回读结果失败；我先不重发：%w", err)
 	}
 	direction := strings.ToLower(strings.TrimSpace(latest.Direction))
-	if direction != "recruiter" || strings.TrimSpace(latest.TextContent) != message {
+	if direction != "self" || strings.TrimSpace(latest.TextContent) != message {
 		f.saveLocalReplyRecord(ctx, prepared, conversation, hashReply(message), "unknown")
 		return false, fmt.Errorf("消息发送结果暂时不能确认，我先不重复发送")
 	}
