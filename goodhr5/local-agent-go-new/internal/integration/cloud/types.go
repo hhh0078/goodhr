@@ -44,14 +44,19 @@ type APIError struct {
 	StatusCode int
 	Code       string
 	Message    string
+	ErrorID    string
 }
 
 // Error 返回适合本地日志和用户查看的云端错误。
 func (e *APIError) Error() string {
-	if strings.TrimSpace(e.Message) == "" {
-		return fmt.Sprintf("云端请求失败，状态码 %d", e.StatusCode)
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		message = fmt.Sprintf("云端请求失败，状态码 %d", e.StatusCode)
 	}
-	return e.Message
+	if strings.TrimSpace(e.ErrorID) != "" {
+		return message + "（错误编号：" + strings.TrimSpace(e.ErrorID) + "）"
+	}
+	return message
 }
 
 // AIConfig 表示云端下发给本地 AI 客户端的配置。
