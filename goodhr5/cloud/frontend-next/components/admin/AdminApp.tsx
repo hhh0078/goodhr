@@ -17,7 +17,6 @@ import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
-import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import SensorsRoundedIcon from "@mui/icons-material/SensorsRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
@@ -126,7 +125,6 @@ const menuGroups: MenuGroup[] = [
     label: "团队与账户",
     items: [
       ["/admin/team", "团队管理", GroupRoundedIcon],
-      ["/admin/team-stats", "团队统计", QueryStatsRoundedIcon],
       ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
@@ -256,11 +254,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     resolve?: (value: boolean) => void;
   }>({ open: false, title: "", message: "" });
   const [trialWelcomeOpen, setTrialWelcomeOpen] = useState(false);
+  const [teamInvitations, setTeamInvitations] = useState<any[]>([]);
+  const [teamInvitationLoading, setTeamInvitationLoading] = useState(false);
   const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
     useState(false);
   const localAgentInstallNoticeOpen = Boolean(
     user &&
     !loading &&
+    teamInvitations.length === 0 &&
     !trialWelcomeOpen &&
     !deviceBindingError &&
     agentDetected &&
@@ -403,6 +404,52 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     }
   }
 
+  /** acceptTeamInvitation 接受当前团队邀请并刷新账号所属团队。 */
+  async function acceptTeamInvitation() {
+    const invitation = teamInvitations[0];
+    if (!invitation || teamInvitationLoading) return;
+    setTeamInvitationLoading(true);
+    try {
+      await cloudRequest(
+        `/api/tenants/invitations/${encodeURIComponent(invitation.id)}/accept`,
+        { method: "POST" },
+      );
+      setTeamInvitations((items) => items.slice(1));
+      await refreshSession();
+      router.refresh();
+      notify("已经加入团队，岗位和简历也搬好了。我这次没敢偷懒。", "success");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "团队暂时没加入成功，请稍后再试",
+        "error",
+      );
+    } finally {
+      setTeamInvitationLoading(false);
+    }
+  }
+
+  /** rejectTeamInvitation 拒绝当前邀请，拒绝后管理员仍可重新邀请。 */
+  async function rejectTeamInvitation() {
+    const invitation = teamInvitations[0];
+    if (!invitation || teamInvitationLoading) return;
+    setTeamInvitationLoading(true);
+    try {
+      await cloudRequest(
+        `/api/tenants/invitations/${encodeURIComponent(invitation.id)}/reject`,
+        { method: "POST" },
+      );
+      setTeamInvitations((items) => items.slice(1));
+      notify("这次先不加入也没关系，我已经替你婉拒了。", "info");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "邀请暂时没处理成功，请稍后再试",
+        "error",
+      );
+    } finally {
+      setTeamInvitationLoading(false);
+    }
+  }
+
   /** refreshSession 刷新用户、会员和系统公共配置。 */
   const refreshSession = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -411,6 +458,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       cloudRequest("/api/system/app-config", { auth: false }),
       cloudRequest("/api/runtime/config"),
       cloudRequest("/api/ai-wallet"),
+      cloudRequest("/api/tenants/invitations/pending"),
     ]);
     const authResult = results[0];
     if (authResult.status === "rejected") throw authResult.reason;
@@ -436,6 +484,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     }
     if (results[4].status === "fulfilled")
       setAIWallet(results[4].value.wallet || results[4].value || {});
+    if (results[5].status === "fulfilled")
+      setTeamInvitations(
+        Array.isArray(results[5].value.invitations)
+          ? results[5].value.invitations
+          : [],
+      );
     if (results[2].status === "fulfilled") {
       const payload = results[2].value;
       setAppConfig(payload.config || payload.app_config || payload || {});
@@ -808,7 +862,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           </Alert>
         </Snackbar>
         <AdminDialog
-          open={trialWelcomeOpen}
+          open={trialWelcomeOpen && teamInvitations.length === 0}
           title={`${subscription.member_name || "Max 全能体验版"}已到账`}
           confirmText="我知道了"
           showCancel={false}
@@ -831,7 +885,55 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           </Stack>
         </AdminDialog>{" "}
         <AdminDialog
-          open={Boolean(deviceBindingError) && !trialWelcomeOpen}
+          open={teamInvitations.length > 0}
+          title="有人想拉你进团队"
+          description="这次得你亲自点头，我不敢擅自替你答应。"
+          confirmText="同意加入"
+          showCancel={false}
+          hideClose
+          loading={teamInvitationLoading}
+          loadingText="正在搬家"
+          onClose={() => undefined}
+          onConfirm={() => void acceptTeamInvitation()}
+          extraActions={
+            <Button
+              color="secondary"
+              disabled={teamInvitationLoading}
+              onClick={() => void rejectTeamInvitation()}
+            >
+              拒绝邀请
+            </Button>
+          }
+        >
+          <Stack spacing={1.5}>
+            <Box
+              sx={{
+                p: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: "8px",
+                bgcolor: "action.hover",
+              }}
+            >
+              <Typography sx={{ fontWeight: 780, overflowWrap: "anywhere" }}>
+                {teamInvitations[0]?.tenant_name ||
+                  `${teamInvitations[0]?.tenant_owner || "对方"} 的团队`}
+              </Typography>
+              <Typography
+                sx={{ mt: 0.75, color: "text.secondary", fontSize: 13, overflowWrap: "anywhere" }}
+              >
+                邀请人：{teamInvitations[0]?.invited_by_email || "团队管理员"} ·
+                加入后身份：
+                {teamInvitations[0]?.role === "admin" ? "团队管理员" : "普通成员"}
+              </Typography>
+            </Box>
+            <Alert severity="warning" variant="outlined">
+              同意后，你现在的岗位、简历和平台账号会一起搬进这个团队，简历也会进入团队统一管理范围。如果你当前还有岗位在运行，我会先拦一下，请停掉后再加入。
+            </Alert>
+          </Stack>
+        </AdminDialog>
+        <AdminDialog
+          open={Boolean(deviceBindingError) && !trialWelcomeOpen && teamInvitations.length === 0}
           title="这台电脑已经有账号了"
           description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 GoodHR 账号。"
           confirmText="退出当前账号"

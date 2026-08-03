@@ -55,6 +55,15 @@ type PositionStatusNotice struct {
 	ErrorMessage      string
 }
 
+// TeamInvitationNotice 表示团队邀请邮件需要展示的内容。
+type TeamInvitationNotice struct {
+	InviterEmail string
+	TeamName     string
+	TeamOwner    string
+	Role         string
+	LoginURL     string
+}
+
 type DevMailer struct{}
 
 func (m DevMailer) SendLoginCode(email string, code string) error {
@@ -83,6 +92,12 @@ func (m DevMailer) SendPositionStatus(email string, notice PositionStatusNotice)
 // SendCustomHTML 在开发模式下记录自定义邮件发送请求。
 func (m DevMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
 	log.Printf("GoodHR dev custom mail for %s: subject=%s", email, subject)
+	return nil
+}
+
+// SendTeamInvitation 在开发模式下记录团队邀请邮件。
+func (m DevMailer) SendTeamInvitation(email string, notice TeamInvitationNotice) error {
+	log.Printf("GoodHR dev team invitation for %s: inviter=%s team=%s", email, notice.InviterEmail, notice.TeamName)
 	return nil
 }
 
@@ -210,6 +225,54 @@ func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice
 		"RunGreetedCount": notice.RunGreetedCount, "RunSkippedCount": notice.RunSkippedCount,
 		"ErrorMessage": strings.TrimSpace(notice.ErrorMessage),
 	}, lines)
+}
+
+// SendTeamInvitation 发送团队邀请邮件，用户登录后仍需本人确认才会加入。
+func (m SMTPMailer) SendTeamInvitation(email string, notice TeamInvitationNotice) error {
+	roleLabel := "普通成员"
+	if normalizeTenantRole(notice.Role) == "admin" {
+		roleLabel = "团队管理员"
+	}
+	teamName := strings.TrimSpace(notice.TeamName)
+	if teamName == "" {
+		teamName = strings.TrimSpace(notice.TeamOwner) + " 的团队"
+	}
+	return m.sendMessage(email, "GoodHR 团队邀请", "team_invitation.html", map[string]any{
+		"InviterEmail": strings.TrimSpace(notice.InviterEmail),
+		"TeamName":     teamName,
+		"TeamOwner":    strings.TrimSpace(notice.TeamOwner),
+		"RoleLabel":    roleLabel,
+		"LoginURL":     strings.TrimSpace(notice.LoginURL),
+	}, []string{
+		"我小声递个邀请。",
+		strings.TrimSpace(notice.InviterEmail) + " 邀请你加入 " + teamName + "。",
+		"登录 GoodHR 后确认加入，我才会开始搬数据。",
+		strings.TrimSpace(notice.LoginURL),
+	})
+}
+
+// sendTeamInvitationNotice 使用邮件服务发送团队邀请，并兼容测试邮件实现。
+func sendTeamInvitationNotice(mailer Mailer, email string, notice TeamInvitationNotice) error {
+	if mailer == nil {
+		return fmt.Errorf("邮件服务没有初始化")
+	}
+	if sender, ok := mailer.(interface {
+		SendTeamInvitation(string, TeamInvitationNotice) error
+	}); ok {
+		return sender.SendTeamInvitation(email, notice)
+	}
+	roleLabel := "普通成员"
+	if normalizeTenantRole(notice.Role) == "admin" {
+		roleLabel = "团队管理员"
+	}
+	htmlBody := SMTPMailer{}.renderHTML("team_invitation.html", map[string]any{
+		"InviterEmail": strings.TrimSpace(notice.InviterEmail),
+		"TeamName":     strings.TrimSpace(notice.TeamName),
+		"TeamOwner":    strings.TrimSpace(notice.TeamOwner),
+		"RoleLabel":    roleLabel,
+		"LoginURL":     strings.TrimSpace(notice.LoginURL),
+	})
+	return mailer.SendCustomHTML(email, "GoodHR 团队邀请", htmlBody, "登录 GoodHR 后确认是否加入团队："+strings.TrimSpace(notice.LoginURL))
 }
 
 // SendCustomHTML 发送超管自定义 HTML 邮件。

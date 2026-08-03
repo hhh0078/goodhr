@@ -45,7 +45,7 @@ import PositionFloatingStatus, {
   type PositionAnalysisStatus,
   type PositionFloatingStatusValue,
 } from "@/components/admin/PositionFloatingStatus";
-import { cloudRequest, getToken, localRequest } from "@/lib/admin-api";
+import { cloudRequest, formatDate, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
 import { canUseAI, normalizeSubscription } from "@/lib/subscription";
@@ -98,7 +98,7 @@ type FloatingPositionTask = {
 /** PositionsPage 管理岗位筛选、详情识别和 AI 提示词配置。 */
 export default function PositionsPage() {
   const router = useRouter();
-  const { subscription, notify, confirm, agentBase, onboardingConfig } = useAdmin();
+  const { user, subscription, notify, confirm, agentBase, onboardingConfig } = useAdmin();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
@@ -150,7 +150,7 @@ export default function PositionsPage() {
         cloudRequest("/api/system/default-prompts"),
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
-      setItems(positions.positions || []);
+      setItems(sortTeamPositions(positions.positions || [], user?.email));
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
@@ -170,7 +170,7 @@ export default function PositionsPage() {
   useEffect(() => {
     if (!agentBase || items.length === 0) return;
     void loadLatestTaskStats(items);
-  }, [agentBase, items.map((item) => item.id).join(",")]);
+  }, [agentBase, items.map((item) => item.id).join(","), user?.email]);
 
   useEffect(() => {
     const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
@@ -635,7 +635,7 @@ export default function PositionsPage() {
     if (!agentBase) return;
     const next: Record<string, PositionTaskStats> = {};
     await Promise.all(
-      positionItems.map(async (item) => {
+      positionItems.filter((item) => isCurrentUserPosition(item, user?.email)).map(async (item) => {
         try {
           const task = await localRequest(
             agentBase,
@@ -829,6 +829,12 @@ export default function PositionsPage() {
                       {item.name}
                     </Typography>
                     <Typography
+                      sx={{ mt: 0.4, color: "text.secondary", fontSize: 12, overflowWrap: "anywhere" }}
+                    >
+                      创建人：{item.creator_email || "当前账号"} · 创建于：
+                      {formatDate(item.created_at) || "--"}
+                    </Typography>
+                    <Typography
                       sx={{
                         mt: 0.5,
                         color: "text.secondary",
@@ -845,6 +851,7 @@ export default function PositionsPage() {
                       关键词：{(item.keywords || []).join(" / ") || "无"}
                     </Typography>
                   </Box>
+                  {isCurrentUserPosition(item, user?.email) ? (
                   <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
                     {item.status === "running" ? (
                       <Button
@@ -884,15 +891,22 @@ export default function PositionsPage() {
                       删除
                     </Button>
                   </Stack>
+                  ) : (
+                    <Typography sx={{ color: "text.secondary", fontSize: 13, whiteSpace: "nowrap" }}>
+                      团队岗位，仅查看
+                    </Typography>
+                  )}
                 </Stack>
               </Stack>
               <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
-                今日 {item.today_greeted_count || 0} · 本次（扫描{" "}
-                {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
-                {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
-                {latestTaskStats[item.id]?.skipped_count || 0}）
+                今日 {item.today_greeted_count || 0}
+                {isCurrentUserPosition(item, user?.email) ? <>
+                  {" "}· 本次（扫描 {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
+                  {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
+                  {latestTaskStats[item.id]?.skipped_count || 0}）
+                </> : null}
               </Typography>
-              <Collapse in={expandedLogPositionID === item.id}>
+              <Collapse in={isCurrentUserPosition(item, user?.email) && expandedLogPositionID === item.id}>
                 <PositionLogPanel
                   logs={logs[item.id] || []}
                   loading={logLoadingPositionID === item.id}
@@ -1978,6 +1992,25 @@ function formFromItem(
     },
     defaults,
   );
+}
+
+/** isCurrentUserPosition 判断岗位是否由当前登录账号创建。 */
+function isCurrentUserPosition(item: any, currentEmail: unknown) {
+  if (typeof item?.is_current_user === "boolean") return item.is_current_user;
+  const creator = String(item?.creator_email || "").trim().toLowerCase();
+  const current = String(currentEmail || "").trim().toLowerCase();
+  return !creator || (Boolean(current) && creator === current);
+}
+
+/** sortTeamPositions 按当前账号优先、创建时间从新到旧排列团队岗位。 */
+function sortTeamPositions(items: any[], currentEmail: unknown) {
+  return [...items].sort((left, right) => {
+    const ownDifference = Number(isCurrentUserPosition(right, currentEmail)) - Number(isCurrentUserPosition(left, currentEmail));
+    if (ownDifference !== 0) return ownDifference;
+    const leftCreatedAt = new Date(left?.created_at || 0).getTime();
+    const rightCreatedAt = new Date(right?.created_at || 0).getTime();
+    return rightCreatedAt - leftCreatedAt;
+  });
 }
 
 /** fillPrompts 为岗位空提示词补充系统默认值。 */

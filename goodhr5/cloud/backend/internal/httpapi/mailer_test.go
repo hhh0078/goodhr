@@ -53,6 +53,14 @@ func TestMailTemplatesRender(t *testing.T) {
 	if !strings.Contains(positionHTML, "今日打招呼") || !strings.Contains(positionHTML, "本次跳过") || !strings.Contains(positionHTML, "本地程序断开") {
 		t.Fatalf("position template did not render expected content: %s", positionHTML)
 	}
+
+	invitationHTML := mailer.renderHTML("team_invitation.html", map[string]any{
+		"InviterEmail": "owner@example.com", "TeamName": "招聘一组", "TeamOwner": "owner@example.com",
+		"RoleLabel": "普通成员", "LoginURL": "https://goodhr5.58it.cn/admin",
+	})
+	if !strings.Contains(invitationHTML, "<!doctype html>") || !strings.Contains(invitationHTML, "招聘一组") || !strings.Contains(invitationHTML, "登录后查看邀请") {
+		t.Fatalf("team invitation template did not render expected content: %s", invitationHTML)
+	}
 }
 
 // TestBuildMailMessageHasSingleSubject 验证邮件只包含一个主题头。
