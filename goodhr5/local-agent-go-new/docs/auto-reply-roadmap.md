@@ -162,4 +162,4 @@
 | --- | --- | --- | --- | --- |
 | 0 | `codex/auto-reply-docs` | `1ba87569` | 已完成 | `git diff --check`、权威文档与数据边界核对通过 |
 | 1 | `codex/auto-reply-data` | `2c341fde` | 已完成（`c19c2e1c`） | 云端 `go test ./...`、干净 PostgreSQL 完整存储链路、迁移重复执行和字段中文备注检查通过 |
-| 2 | `codex/auto-reply-cloud-api` | `b2edf0bb` | 待合并 | 云端 `go test ./...`、`go vet ./...`、真实与干净 PostgreSQL HTTP/存储链路连续两次通过，四份 Compose 配置和 `git diff --check` 通过 |
+| 2 | `codex/auto-reply-cloud-api` | `b2edf0bb` | 已完成（`2bf7100c`） | 云端 `go test ./...`、`go vet ./...`、真实与干净 PostgreSQL HTTP/存储链路连续两次通过，四份 Compose 配置和 `git diff --check` 通过 |
