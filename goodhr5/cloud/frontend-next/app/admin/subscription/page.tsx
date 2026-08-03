@@ -52,7 +52,7 @@ type PendingPayment =
 
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
-  const { notify, subscription, refreshSession } = useAdmin();
+  const { notify, subscription, refreshSession, agentBase } = useAdmin();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [wallet, setWallet] = useState<any>({});
@@ -77,6 +77,7 @@ export default function SubscriptionPage() {
   );
 
   const modelLabel = currentAIModel || wallet.default_model || "未配置";
+  const rechargeUnavailableMessage = "本系统为测试系统 无需充值";
   const aiPageCount = Math.max(1, Math.ceil(aiTotal / aiRecordPageSize));
   const pendingPlan = useMemo(
     () =>
@@ -208,10 +209,23 @@ export default function SubscriptionPage() {
 
   /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
   function requestPlanPayment(planID: string) {
+    if (!agentBase) {
+      notify(rechargeUnavailableMessage, "warning");
+      return;
+    }
     if (!planID) return;
     const plan = plans.find((item) => item.id === planID);
     if (!plan) return;
     setPendingPayment({ type: "membership", planID });
+  }
+
+  /** openRechargeDialog 在展示 AI 充值弹框前确认本地程序连接状态。 */
+  function openRechargeDialog() {
+    if (!agentBase) {
+      notify(rechargeUnavailableMessage, "warning");
+      return;
+    }
+    setRechargeDialogOpen(true);
   }
 
   /** rechargeAI 创建 AI 余额充值订单。 */
@@ -245,6 +259,11 @@ export default function SubscriptionPage() {
 
   /** requestAIRecharge 校验充值金额并在创建 AI 余额订单前打开确认框。 */
   function requestAIRecharge() {
+    if (!agentBase) {
+      notify(rechargeUnavailableMessage, "warning");
+      setRechargeDialogOpen(false);
+      return;
+    }
     const amount = Number(rechargeAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       notify("充值金额得大于 0，我先小声拦一下。", "warning");
@@ -407,7 +426,7 @@ export default function SubscriptionPage() {
                 size='small'
                 variant='contained'
                 disabled={recharging}
-                onClick={() => setRechargeDialogOpen(true)}
+                onClick={openRechargeDialog}
               >
                 {recharging ? "下单中" : "充值"}
               </Button>
