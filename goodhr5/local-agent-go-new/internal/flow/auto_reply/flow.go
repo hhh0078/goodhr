@@ -27,6 +27,11 @@ type Responder interface {
 	Reply(context.Context, ReplyContext) (ReplyDecision, error)
 }
 
+// ResumeStructurer 定义生产 AI 处理器可选实现的简历结构化能力。
+type ResumeStructurer interface {
+	StructureResume(context.Context, ResumeStructureContext) (StructuredResume, error)
+}
+
 // ReplyContext 表示一次自动回复决策已经完成同步和身份校验的全部上下文。
 type ReplyContext struct {
 	TaskID            string
@@ -41,6 +46,27 @@ type ReplyContext struct {
 	PageSnapshot      model.AutoReplyConversationSnapshot
 	Resume            *model.AutoReplyResumeBundle
 	BasedOnMessageKey string
+}
+
+// ResumeStructureContext 表示结构化简历请求需要的会话、AI配置和页面原文。
+type ResumeStructureContext struct {
+	TaskID            string
+	Credentials       cloud.AgentCredentials
+	AIConfig          cloud.AIConfig
+	EnableThinking    bool
+	Position          cloud.AutoReplyPositionSnapshot
+	Conversation      cloud.AutoReplyConversation
+	PageSnapshot      model.AutoReplyConversationSnapshot
+	Resume            model.AutoReplyResumeBundle
+	BasedOnMessageKey string
+}
+
+// StructuredResume 表示通过本地校验后可与页面字段合并的结构化简历。
+type StructuredResume struct {
+	Candidate        cloud.StructuredCandidate
+	Gender           string
+	BirthYMPrecision string
+	Wechat           string
 }
 
 // ReplyDecision 表示 AI 工具循环最终决定发送回复或转人工。

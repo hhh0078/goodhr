@@ -267,6 +267,7 @@ func publicPositionCandidate(item PositionCandidate) map[string]any {
 		"normalized_phone":         item.NormalizedPhone,
 		"phone":                    item.Phone,
 		"email":                    item.Email,
+		"wechat":                   item.Wechat,
 		"work_region":              item.WorkRegion,
 		"work_years":               item.WorkYears,
 		"expected_salary_min":      item.ExpectedSalaryMin,

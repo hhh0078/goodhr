@@ -28,6 +28,9 @@ export type NormalizedCandidate = {
   avatarUrl: string;
   age: string;
   gender: string;
+  phone: string;
+  email: string;
+  wechat: string;
   workRegion: string;
   workYears: string;
   educationLevel: string;
@@ -62,7 +65,10 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
     name: stringValue(source.candidate_name || "未命名候选人"),
     avatarUrl: "",
     age: ageFromBirthYM(source.birth_ym),
-    gender: "",
+    gender: stringValue(source.gender),
+    phone: stringValue(source.phone),
+    email: stringValue(source.email),
+    wechat: stringValue(source.wechat),
     workRegion: stringValue(source.work_region),
     workYears: stringValue(source.work_years),
     educationLevel: stringValue(source.education_level),

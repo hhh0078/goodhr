@@ -211,6 +211,7 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 		"position_id": position.ID, "platform_id": "liepin", "platform_account_id": account.ID,
 		"platform_candidate_id": "candidate-" + suffix, "candidate_name": "李女士", "gender": "女",
 		"birth_ym": "1995", "birth_ym_precision": "year_estimated", "phone": "+86 176-0708-0935",
+		"wechat":          "candidate_wechat",
 		"education_level": "本科", "work_experiences": []any{}, "educations": []any{},
 		"certificates": []any{}, "honors": []any{}, "project_experiences": []any{}, "colleague_communications": []any{},
 	})
@@ -222,12 +223,12 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 		Identity    CandidatePlatformIdentity `json:"platform_identity"`
 	}
 	decodeAutoReplyResponseForTest(t, candidateResponse, &candidatePayload)
-	var savedGender, savedBirthPrecision, savedPhone string
-	if err = db.QueryRow(`SELECT gender, birth_ym_precision, normalized_phone FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenant.ID, candidatePayload.CandidateID).Scan(&savedGender, &savedBirthPrecision, &savedPhone); err != nil {
+	var savedGender, savedBirthPrecision, savedPhone, savedWechat string
+	if err = db.QueryRow(`SELECT gender, birth_ym_precision, normalized_phone, wechat FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenant.ID, candidatePayload.CandidateID).Scan(&savedGender, &savedBirthPrecision, &savedPhone, &savedWechat); err != nil {
 		t.Fatal(err)
 	}
-	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" {
-		t.Fatalf("candidate normalized fields gender=%s precision=%s phone=%s", savedGender, savedBirthPrecision, savedPhone)
+	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" || savedWechat != "candidate_wechat" {
+		t.Fatalf("candidate normalized fields gender=%s precision=%s phone=%s wechat=%s", savedGender, savedBirthPrecision, savedPhone, savedWechat)
 	}
 	identityConflictResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodPost, "/api/auto-reply/agent/candidates", map[string]any{
 		"position_id": position.ID, "platform_id": "liepin", "platform_account_id": account.ID,

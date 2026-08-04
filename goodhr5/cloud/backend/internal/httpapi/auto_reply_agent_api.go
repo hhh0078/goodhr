@@ -21,6 +21,7 @@ type autoReplyCandidateRequest struct {
 	BirthYMPrecision    string                       `json:"birth_ym_precision"`
 	Phone               string                       `json:"phone"`
 	Email               string                       `json:"email"`
+	Wechat              string                       `json:"wechat"`
 	WorkRegion          string                       `json:"work_region"`
 	WorkYears           string                       `json:"work_years"`
 	ExpectedSalaryMin   *int                         `json:"expected_salary_min"`
@@ -326,8 +327,9 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		CandidateName: strings.TrimSpace(payload.CandidateName), Gender: strings.TrimSpace(payload.Gender),
 		BirthYM: strings.TrimSpace(payload.BirthYM), BirthYMPrecision: strings.TrimSpace(payload.BirthYMPrecision),
 		NormalizedPhone: normalizedPhone, Phone: strings.TrimSpace(payload.Phone),
-		Email: strings.TrimSpace(payload.Email), WorkRegion: strings.TrimSpace(payload.WorkRegion),
-		WorkYears: strings.TrimSpace(payload.WorkYears), ExpectedSalaryMin: payload.ExpectedSalaryMin,
+		Email: strings.TrimSpace(payload.Email), Wechat: strings.TrimSpace(payload.Wechat),
+		WorkRegion: strings.TrimSpace(payload.WorkRegion),
+		WorkYears:  strings.TrimSpace(payload.WorkYears), ExpectedSalaryMin: payload.ExpectedSalaryMin,
 		ExpectedSalaryMax: payload.ExpectedSalaryMax, BasicInfo: payload.BasicInfo,
 		EducationLevel: payload.EducationLevel, ExpectedPosition: payload.ExpectedPosition,
 		OnlineStatus: payload.OnlineStatus, PersonalDescription: payload.PersonalDescription,
@@ -538,6 +540,9 @@ func validateAutoReplyCandidateRequest(item autoReplyCandidateRequest) error {
 	}
 	if normalizeCandidatePhone(item.Phone) == "" {
 		return errors.New("没有手机号时只能保存临时会话，暂时不能进入正式简历库")
+	}
+	if len([]rune(strings.TrimSpace(item.Wechat))) > 128 {
+		return errors.New("候选人微信号不能超过128个字")
 	}
 	if item.Gender != "" && item.Gender != "男" && item.Gender != "女" {
 		return errors.New("候选人性别只支持男、女或空值")

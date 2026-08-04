@@ -206,6 +206,7 @@ type StructuredCandidate struct {
 	BirthYM                 string                       `json:"birth_ym,omitempty"`
 	Phone                   string                       `json:"phone,omitempty"`
 	Email                   string                       `json:"email,omitempty"`
+	Wechat                  string                       `json:"wechat,omitempty"`
 	WorkRegion              string                       `json:"work_region,omitempty"`
 	WorkYears               string                       `json:"work_years,omitempty"`
 	ExpectedSalaryMin       *int                         `json:"expected_salary_min,omitempty"`
