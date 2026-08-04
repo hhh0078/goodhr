@@ -131,16 +131,16 @@
 
 分支：`codex/auto-reply-liepin`
 
-- [ ] 用现有 CloakBrowser 实测消息入口和未读数字。
-- [ ] 实测联系人侧边栏、当前会话身份和沟通岗位位置。
-- [ ] 实测平台候选人 ID。
-- [ ] 实测聊天历史滚动和消息类型。
-- [ ] 实测简历卡片、在线简历和附件下载。
-- [ ] 补齐 `liepin/config.json` 选择器。
-- [ ] 只在 `liepin/reply.go` 组织平台动作。
+- [x] 用现有 CloakBrowser 实测猎聘同源 IM 消息入口和未读数字。
+- [x] 实测猎聘同源 IM 联系人侧边栏、当前会话身份和沟通岗位位置。
+- [x] 实测猎聘同源 IM 平台候选人 ID。
+- [x] 实测猎聘同源 IM 聊天历史真实滚轮和消息类型。
+- [x] 实测猎聘同源 IM 简历卡片、在线简历、附件预览和下载。
+- [x] 补齐 `liepin/config.json` 选择器。
+- [x] 在 `internal/platform/liepin` 按会话、消息和简历职责组织平台动作。
 - [ ] 使用现有猎聘企业岗位完成真实自动回复。
 
-验证：至少一条真实候选人消息完整闭环，并检查云端数据、邮件、AI审计和小窗。
+验证：Go 全量测试和静态检查、Worker TypeScript 检查及29项测试通过；真实同源 IM 组件已完成页面取证和附件下载。当前 Profile 为猎聘猎头身份，猎聘企业端因平台身份重复拦截，至少一条企业端真实候选人消息、云端数据、邮件、AI审计和小窗仍待验证。
 
 ### 阶段9：完整回归和交付检查
 
@@ -168,3 +168,4 @@
 | 5 | `codex/auto-reply-local-flow` | `eeef3cfa` | 已完成（`9f5a19c1`） | 云端和本地 Agent `go test ./...`、`go vet ./...`、多岗位唯一匹配、当前标签页、5000条差量游标、单轮3人、发送前后复核和重复保护测试通过 |
 | 6 | `codex/auto-reply-ai-tools` | `9736750e` | 已完成（`d0303ff9`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖SSE分段、能力错误、取消、两次参数修正、8次上限、提示词缓存边界、云端工具审计和悬浮窗总记录 |
 | 7 | `codex/auto-reply-scheduler-status` | `20eda204` | 已完成（`e7231a20`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖候选人前串行检查点、单轮3会话、连续3次错误、会话统一关闭、按候选人消息去重和自动回复独立统计 |
+| 8 | `codex/auto-reply-liepin` | `b8806cd8` | 待合并 | 猎聘同源IM未读、岗位、候选人ID、5000条历史、绝对时间指纹、在线简历、附件预览和下载已实现；Go全量测试、`go vet`、Worker类型检查和29项测试通过，企业身份真实发送闭环待验证 |

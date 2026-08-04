@@ -180,7 +180,7 @@ export function parseElementFindAllRequest(
   assignNumber(
     request,
     "max_items",
-    optionalNumber(record, "max_items", { min: 1, max: 500 }),
+    optionalNumber(record, "max_items", { min: 1, max: 5_000 }),
   );
   const fields = parseFieldSelectors(record.fields, traceId, action);
   if (Object.keys(fields).length > 0) {

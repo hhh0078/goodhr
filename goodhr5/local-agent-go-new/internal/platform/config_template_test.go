@@ -198,11 +198,22 @@ func TestValidateTaskConfig(t *testing.T) {
 		t.Fatal("智联自动回复缺少消息页时应返回错误")
 	}
 	cfg.MessagesURL = "https://example.com/messages"
-	for _, key := range []string{"message.unread_item", "message.context", "message.input", "message.send"} {
+	for _, key := range []string{
+		"message.entry", "message.unread_item", "message.contact_item",
+		"message.current_name", "message.current_position", "message.item",
+		"message.input", "message.send",
+	} {
 		cfg.Selectors[key] = contract.SelectorSpec{}
 	}
 	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil {
 		t.Fatal("自动回复选择器目标为空时应返回错误")
+	}
+	liepinConfig, err := LoadConfig("liepin")
+	if err != nil {
+		t.Fatalf("读取猎聘企业端本地配置失败：%v", err)
+	}
+	if err = ValidateTaskConfig(liepinConfig, "auto_reply"); err != nil {
+		t.Fatalf("猎聘企业端自动回复配置应该完整：%v", err)
 	}
 }
 

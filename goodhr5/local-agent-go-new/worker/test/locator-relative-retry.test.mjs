@@ -7,6 +7,34 @@ import { FindAction } from "../dist/browser/actions/find.js";
 import { LocatorPrimitive } from "../dist/browser/primitives/locator.js";
 import { parseElementFindAllRequest } from "../dist/validation/action-requests.js";
 
+/** 验证聊天首次同步可以一次读取最多五千条已加载消息。 */
+test("列表读取允许自动回复五千条聊天上限", () => {
+  const request = parseElementFindAllRequest(
+    {
+      selector: {
+        target: { selectors: [{ type: "css", value: ".message-item" }] },
+        description: "聊天消息",
+      },
+      max_items: 5_000,
+    },
+    "message-limit",
+    "element.find_all",
+  );
+  assert.equal(request.max_items, 5_000);
+  const clamped = parseElementFindAllRequest(
+    {
+      selector: {
+        target: { selectors: [{ type: "css", value: ".message-item" }] },
+        description: "聊天消息",
+      },
+      max_items: 5_001,
+    },
+    "message-limit-overflow",
+    "element.find_all",
+  );
+  assert.equal(clamped.max_items, 5_000);
+});
+
 /** 验证相对选择器在元素延迟出现时会继续查找。 */
 test("相对选择器会轮询等待延迟出现的元素", async () => {
   let queryCount = 0;

@@ -46,7 +46,11 @@ func ValidateTaskConfig(config model.Config, taskType string) error {
 	if strings.TrimSpace(config.MessagesURL) == "" {
 		return fmt.Errorf("%s 自动回复消息页还没有配置", config.Name)
 	}
-	for _, key := range []string{"message.unread_item", "message.context", "message.input", "message.send"} {
+	for _, key := range []string{
+		"message.entry", "message.unread_item", "message.contact_item",
+		"message.current_name", "message.current_position", "message.item",
+		"message.input", "message.send",
+	} {
 		selector, exists := config.Selectors[key]
 		if !exists || len(selector.Target.Selectors) == 0 {
 			return fmt.Errorf("%s 自动回复缺少选择器 %s", config.Name, key)
