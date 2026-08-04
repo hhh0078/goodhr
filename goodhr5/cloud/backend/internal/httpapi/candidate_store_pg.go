@@ -60,12 +60,12 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications,
 			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at,
-			gender, birth_ym_precision, normalized_phone
+			gender, birth_ym_precision, normalized_phone, wechat
 		)
 		VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 			$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,
-			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30,$31,$32,$33
+			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30,$31,$32,$33,$34
 		)
 		ON CONFLICT (tenant_id, source_platform_id, source_platform_candidate_id)
 		DO UPDATE SET
@@ -97,6 +97,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			gender = CASE WHEN EXCLUDED.gender='' THEN candidate_profiles.gender ELSE EXCLUDED.gender END,
 			birth_ym_precision = CASE WHEN EXCLUDED.birth_ym_precision='' THEN candidate_profiles.birth_ym_precision ELSE EXCLUDED.birth_ym_precision END,
 			normalized_phone = CASE WHEN EXCLUDED.normalized_phone='' THEN candidate_profiles.normalized_phone ELSE EXCLUDED.normalized_phone END,
+			wechat = CASE WHEN EXCLUDED.wechat='' THEN candidate_profiles.wechat ELSE EXCLUDED.wechat END,
 			first_seen_at = COALESCE(candidate_profiles.first_seen_at, EXCLUDED.first_seen_at),
 			updated_at = now()
 		RETURNING
@@ -106,7 +107,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			work_status, raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications, ai_detail_reason, ai_detail_score,
 			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at,
-			gender, birth_ym_precision, normalized_phone
+			gender, birth_ym_precision, normalized_phone, wechat
 		`,
 		tenantID,
 		userID,
@@ -141,6 +142,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		item.Gender,
 		item.BirthYMPrecision,
 		item.NormalizedPhone,
+		item.Wechat,
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,
@@ -176,6 +178,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		&saved.Gender,
 		&saved.BirthYMPrecision,
 		&saved.NormalizedPhone,
+		&saved.Wechat,
 	)
 	if err != nil {
 		return PositionCandidate{}, err
@@ -200,7 +203,8 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 			educations=$21::jsonb, certificates=$22::jsonb, honors=$23::jsonb,
 			project_experiences=$24::jsonb, colleague_communications=$25::jsonb,
 			gender=COALESCE(NULLIF($26,''),gender), birth_ym_precision=COALESCE(NULLIF($27,''),birth_ym_precision),
-			normalized_phone=COALESCE(NULLIF($28,''),normalized_phone), updated_at=now()
+			normalized_phone=COALESCE(NULLIF($28,''),normalized_phone),
+			wechat=COALESCE(NULLIF($29,''),wechat), updated_at=now()
 		WHERE tenant_id=$1 AND id=$2
 	`, tenantID, item.CandidateID, item.PlatformID, item.PlatformCandidateID,
 		strings.TrimSpace(item.CandidateName), strings.TrimSpace(item.BirthYM), strings.TrimSpace(item.Phone),
@@ -210,7 +214,7 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 		strings.TrimSpace(item.PersonalDescription), strings.TrimSpace(item.WorkStatus), strings.TrimSpace(item.RawText),
 		string(toJSONB(item.WorkExperiences)), string(toJSONB(item.Educations)), string(toJSONB(item.Certificates)),
 		string(toJSONB(item.Honors)), string(toJSONB(item.ProjectExperiences)), string(toJSONB(item.Communications)),
-		item.Gender, item.BirthYMPrecision, item.NormalizedPhone)
+		item.Gender, item.BirthYMPrecision, item.NormalizedPhone, strings.TrimSpace(item.Wechat))
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -229,7 +233,7 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 		ID: item.CandidateID, UserEmail: item.UserEmail, PlatformID: item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID, CandidateName: item.CandidateName,
 		Gender: item.Gender, BirthYM: item.BirthYM, BirthYMPrecision: item.BirthYMPrecision,
-		NormalizedPhone: item.NormalizedPhone, Phone: item.Phone, Email: item.Email,
+		NormalizedPhone: item.NormalizedPhone, Phone: item.Phone, Email: item.Email, Wechat: item.Wechat,
 		WorkRegion: item.WorkRegion, WorkYears: item.WorkYears, ExpectedSalaryMin: item.ExpectedSalaryMin,
 		ExpectedSalaryMax: item.ExpectedSalaryMax, BasicInfo: item.BasicInfo,
 		EducationLevel: item.EducationLevel, ExpectedPosition: item.ExpectedPosition,
@@ -603,6 +607,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		latest_engagement.greeted_at,
 		cp.created_at,
 		cp.updated_at,
+		cp.wechat,
 		COALESCE(latest_notes.notes, '[]'::jsonb)
 	FROM candidate_profiles cp
 	LEFT JOIN LATERAL (
@@ -703,6 +708,7 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.GreetedAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
+		&item.Wechat,
 		jsonScanner(&item.Notes),
 	)
 	return item, err
@@ -765,7 +771,7 @@ func candidateIdentityKey(item CandidateProfileInput) string {
 	if strings.TrimSpace(item.PlatformCandidateID) != "" {
 		return strings.TrimSpace(item.PlatformCandidateID)
 	}
-	parts := []string{item.CandidateName, item.Phone, item.Email, item.WorkRegion, item.WorkYears, item.BasicInfo}
+	parts := []string{item.CandidateName, item.Phone, item.Email, item.Wechat, item.WorkRegion, item.WorkYears, item.BasicInfo}
 	return strings.TrimSpace(strings.Join(parts, "|"))
 }
 

@@ -39,6 +39,89 @@ type toolErrorResult struct {
 	Error       string `json:"error"`
 }
 
+type resumeStructureAuditOutput struct {
+	Candidate        cloud.StructuredCandidate `json:"candidate"`
+	Gender           string                    `json:"gender"`
+	BirthYMPrecision string                    `json:"birth_ym_precision"`
+	Wechat           string                    `json:"wechat"`
+	RawResponse      string                    `json:"raw_response"`
+}
+
+// StructureResume 把页面简历交给独立结构化请求，并把完整输入输出保存到 AI 总记录。
+func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructureContext) (StructuredResume, error) {
+	if r == nil || r.AI == nil || r.Cloud == nil {
+		return StructuredResume{}, fmt.Errorf("自动回复 AI 处理器没有准备完整")
+	}
+	messages, err := ai.ResumeExtractionMessages(ai.ResumeExtractionInput{
+		CandidateName: input.PageSnapshot.CandidateName,
+		Gender:        input.PageSnapshot.Gender,
+		ResumeText:    input.Resume.OnlineResumeText,
+	})
+	if err != nil {
+		return StructuredResume{}, err
+	}
+	inputJSON, err := json.Marshal(messages)
+	if err != nil {
+		return StructuredResume{}, fmt.Errorf("编码简历结构化总记录失败：%w", err)
+	}
+	traceID, err := newAutoReplyTraceID(input.TaskID + "-resume")
+	if err != nil {
+		return StructuredResume{}, err
+	}
+	run, err := r.Cloud.StartAutoReplyAIRun(ctx, input.Credentials, cloud.AutoReplyAIRun{
+		ConversationID: input.Conversation.ID, CandidateID: input.Conversation.CandidateID,
+		PositionID: input.Position.Position.ID, TraceID: traceID, Model: input.AIConfig.Model,
+		BasedOnMessageKey: input.BasedOnMessageKey, InputMessages: inputJSON,
+	})
+	if err != nil {
+		return StructuredResume{}, fmt.Errorf("创建简历结构化总记录失败：%w", err)
+	}
+	r.reportResume(input, "loading", "AI 正在整理候选人简历", false)
+	result, extractErr := r.AI.ExtractStructuredResume(ctx, input.AIConfig, ai.ResumeExtractionInput{
+		CandidateName: input.PageSnapshot.CandidateName,
+		Gender:        input.PageSnapshot.Gender,
+		ResumeText:    input.Resume.OnlineResumeText,
+	}, input.EnableThinking)
+	if extractErr != nil {
+		run.Status = "failed"
+		run.ErrorCode = "RESUME_STRUCTURE_FAILED"
+		run.ErrorMessage = truncateRunText(extractErr.Error(), 1000)
+		run.OutputMessage = json.RawMessage(`{}`)
+		if _, finishErr := r.Cloud.FinishAutoReplyAIRun(context.WithoutCancel(ctx), input.Credentials, run); finishErr != nil {
+			return StructuredResume{}, fmt.Errorf("%w；简历结构化总记录也没保存完整：%v", extractErr, finishErr)
+		}
+		r.reportResume(input, "error", "简历结构化没处理成功，先保留原文", true)
+		return StructuredResume{}, extractErr
+	}
+	output, err := json.Marshal(resumeStructureAuditOutput{
+		Candidate: result.Candidate, Gender: result.Gender,
+		BirthYMPrecision: result.BirthYMPrecision, Wechat: result.Wechat,
+		RawResponse: result.RawResponse,
+	})
+	if err != nil {
+		return StructuredResume{}, fmt.Errorf("编码简历结构化结果失败：%w", err)
+	}
+	run.Status = "completed"
+	run.OutputMessage = output
+	if _, err = r.Cloud.FinishAutoReplyAIRun(context.WithoutCancel(ctx), input.Credentials, run); err != nil {
+		return StructuredResume{}, fmt.Errorf("保存简历结构化总记录失败：%w", err)
+	}
+	r.reportResume(input, "result", "候选人简历已经整理完成", true)
+	return StructuredResume{
+		Candidate: result.Candidate, Gender: result.Gender,
+		BirthYMPrecision: result.BirthYMPrecision, Wechat: result.Wechat,
+	}, nil
+}
+
+// reportResume 把简历结构化请求状态同步到当前运行小窗。
+func (r *AIResponder) reportResume(input ResumeStructureContext, phase string, reason string, terminal bool) {
+	shared.ReportAnalysis(r.Logger, input.TaskID, shared.AnalysisStatus{
+		Kind: "auto_reply", Phase: phase, Stage: "resume_ai", Terminal: terminal,
+		CandidateName: input.PageSnapshot.CandidateName, Reason: reason,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
 // Reply 执行最多8次工具调用并只返回待发送消息或明确的人工接管决定。
 func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecision, error) {
 	if r == nil || r.AI == nil || r.Cloud == nil {

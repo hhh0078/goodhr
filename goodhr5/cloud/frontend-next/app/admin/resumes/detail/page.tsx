@@ -39,6 +39,13 @@ export default function ResumeDetailPage() {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 290px" }, minHeight: 0 }}>
         <Box sx={{ p: { xs: 2, md: 3 } }}>
           <CandidateHeader candidate={candidate} />
+          {candidate.phone || candidate.email || candidate.wechat ? <ResumeSection title="联系方式">
+            <Stack spacing={0.8}>
+              {candidate.phone ? <Typography>手机：{candidate.phone}</Typography> : null}
+              {candidate.email ? <Typography>邮箱：{candidate.email}</Typography> : null}
+              {candidate.wechat ? <Typography>微信：{candidate.wechat}</Typography> : null}
+            </Stack>
+          </ResumeSection> : null}
           <ResumeSection title="求职意向">
             <Typography>{[candidate.workRegion, candidate.expectedPosition, candidate.expectedSalary, candidate.workStatus, candidate.onlineStatus].filter(Boolean).join("  |  ") || "暂无求职意向"}</Typography>
           </ResumeSection>

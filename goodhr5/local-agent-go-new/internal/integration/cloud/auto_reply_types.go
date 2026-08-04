@@ -298,6 +298,7 @@ type AutoReplyStoredCandidate struct {
 	BirthYMPrecision    string                       `json:"BirthYMPrecision"`
 	Phone               string                       `json:"Phone"`
 	Email               string                       `json:"Email"`
+	Wechat              string                       `json:"Wechat"`
 	WorkRegion          string                       `json:"WorkRegion"`
 	WorkYears           string                       `json:"WorkYears"`
 	ExpectedSalaryMin   *int                         `json:"ExpectedSalaryMin"`

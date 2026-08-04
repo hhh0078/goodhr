@@ -157,6 +157,45 @@ func TestAIResponderRejectsPlainTextAction(t *testing.T) {
 	}
 }
 
+// TestAIResponderStructuresResumeAndKeepsCompleteAudit 验证简历结构化结果经过清洗后保存完整 AI 总记录。
+func TestAIResponderStructuresResumeAndKeepsCompleteAudit(t *testing.T) {
+	state := &responderTestState{aiResponses: []string{`{"choices":[{"message":{"role":"assistant","content":"{\"candidate_name\":\"模型名字\",\"gender\":\"女\",\"phone\":\"+86 136-3281-3031\",\"email\":\"USER@EXAMPLE.COM\",\"wechat\":\"candidate_wechat\"}"}}]}`}}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+
+	result, err := (&AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}).StructureResume(
+		context.Background(), ResumeStructureContext{
+			TaskID: "task-resume", Credentials: cloud.AgentCredentials{Token: "token", MachineID: "machine"},
+			AIConfig:     cloud.AIConfig{BaseURL: server.URL, APIKey: "key", Model: "resume-model"},
+			Position:     cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}},
+			Conversation: cloud.AutoReplyConversation{ID: "conversation-1", CandidateID: "candidate-1"},
+			PageSnapshot: model.AutoReplyConversationSnapshot{CandidateName: "页面名字", Gender: "女"},
+			Resume:       model.AutoReplyResumeBundle{OnlineResumeText: "页面简历原文"}, BasedOnMessageKey: "message-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("StructureResume() error = %v", err)
+	}
+	if result.Candidate.CandidateName != "页面名字" || result.Candidate.Phone != "+8613632813031" || result.Candidate.Email != "user@example.com" || result.Wechat != "candidate_wechat" {
+		t.Fatalf("structured resume = %+v", result)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.finishedRuns) != 1 || state.finishedRuns[0].Status != "completed" {
+		t.Fatalf("finished runs = %+v", state.finishedRuns)
+	}
+	var auditMessages []ai.ToolMessage
+	if err = json.Unmarshal(state.finishedRuns[0].InputMessages, &auditMessages); err != nil {
+		t.Fatal(err)
+	}
+	if len(auditMessages) != 2 || strings.Contains(auditMessages[0].Content, "页面简历原文") || !strings.Contains(auditMessages[1].Content, "页面简历原文") {
+		t.Fatalf("audit prompt boundary = %+v", auditMessages)
+	}
+	if !strings.Contains(string(state.finishedRuns[0].OutputMessage), `"raw_response"`) || !strings.Contains(string(state.finishedRuns[0].OutputMessage), `"candidate_wechat"`) {
+		t.Fatalf("audit output = %s", state.finishedRuns[0].OutputMessage)
+	}
+}
+
 // serveHTTP 同时模拟标准 AI 接口和云端 AI 审计接口。
 func (s *responderTestState) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()

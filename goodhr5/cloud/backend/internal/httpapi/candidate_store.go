@@ -27,6 +27,7 @@ type PositionCandidate struct {
 	NormalizedPhone     string
 	Phone               string
 	Email               string
+	Wechat              string
 	WorkRegion          string
 	WorkYears           string
 	ExpectedSalaryMin   *int
@@ -76,6 +77,7 @@ type CandidateProfileInput struct {
 	NormalizedPhone     string
 	Phone               string
 	Email               string
+	Wechat              string
 	WorkRegion          string
 	WorkYears           string
 	ExpectedSalaryMin   *int
@@ -231,6 +233,7 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		NormalizedPhone:     normalizeCandidatePhone(firstNonEmpty(item.NormalizedPhone, item.Phone)),
 		Phone:               item.Phone,
 		Email:               item.Email,
+		Wechat:              item.Wechat,
 		WorkRegion:          item.WorkRegion,
 		WorkYears:           item.WorkYears,
 		ExpectedSalaryMin:   item.ExpectedSalaryMin,
@@ -429,7 +432,7 @@ func normalizeCandidatePage(page int, pageSize int) (int, int) {
 // candidateContainsKeyword 判断候选人是否命中搜索关键词。
 // item 为候选人记录，keyword 为前端搜索词。
 func candidateContainsKeyword(item PositionCandidate, keyword string) bool {
-	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
+	text := item.CandidateName + " " + item.Phone + " " + item.Email + " " + item.Wechat + " " + item.WorkRegion + " " + item.WorkYears + " " + item.BasicInfo + " " + item.EducationLevel + " " + item.ExpectedPosition + " " + item.PersonalDescription + " " + item.RawText + " " + item.FilterText + " " + item.ResumeText
 	return strings.Contains(strings.ToLower(text), strings.ToLower(keyword))
 }
 

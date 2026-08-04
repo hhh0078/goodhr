@@ -161,6 +161,54 @@ func TestResolvePositionRequiresUniqueMatch(t *testing.T) {
 	}
 }
 
+// TestMergeStructuredCandidatePreservesExistingCollections 验证 AI 空数组不会清掉云端已有经历，非空字段可以增量补齐。
+func TestMergeStructuredCandidatePreservesExistingCollections(t *testing.T) {
+	target := cloud.StructuredCandidate{
+		Phone:           "13800138000",
+		WorkExperiences: []cloud.CandidateWorkExperience{{CompanyName: "已有公司"}},
+		Educations:      []cloud.CandidateEducation{{SchoolName: "已有学校"}},
+	}
+	mergeStructuredCandidate(&target, cloud.StructuredCandidate{
+		Email:      "candidate@example.com",
+		Educations: []cloud.CandidateEducation{{SchoolName: "新学校"}},
+	})
+	if target.Phone != "13800138000" || target.Email != "candidate@example.com" {
+		t.Fatalf("基础字段没有正确增量合并：%+v", target)
+	}
+	if len(target.WorkExperiences) != 1 || target.WorkExperiences[0].CompanyName != "已有公司" {
+		t.Fatalf("AI 空工作经历清掉了已有数据：%+v", target.WorkExperiences)
+	}
+	if len(target.Educations) != 1 || target.Educations[0].SchoolName != "新学校" {
+		t.Fatalf("AI 非空教育经历没有更新：%+v", target.Educations)
+	}
+}
+
+// TestNormalizeAutoReplyContacts 验证国际手机号、错误短号和邮箱统一清洗。
+func TestNormalizeAutoReplyContacts(t *testing.T) {
+	if actual := normalizeAutoReplyPhone("+86 136-3281-3031"); actual != "+8613632813031" {
+		t.Fatalf("国际手机号清洗不正确：%q", actual)
+	}
+	if actual := normalizeAutoReplyPhone("123"); actual != "" {
+		t.Fatalf("错误短号不应进入正式简历：%q", actual)
+	}
+	if actual := normalizeAutoReplyEmail(" User@Example.COM "); actual != "user@example.com" {
+		t.Fatalf("邮箱清洗不正确：%q", actual)
+	}
+}
+
+// TestStoredAttachmentTextDeduplicatesContent 验证临时附件正文可在下一轮继续使用且不会重复拼接。
+func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
+	actual := storedAttachmentText([]cloud.StoredResumeAttachment{
+		{ExtractedText: "附件正文甲"},
+		{ExtractedText: " 附件正文甲 "},
+		{ExtractedText: "附件正文乙"},
+		{},
+	})
+	if actual != "附件正文甲\n\n附件正文乙" {
+		t.Fatalf("附件正文合并不正确：%q", actual)
+	}
+}
+
 // TestSelectCurrentPlatformPagePrefersCurrentAndRejectsAmbiguous 验证当前页优先以及多个后台标签页不猜测。
 func TestSelectCurrentPlatformPagePrefersCurrentAndRejectsAmbiguous(t *testing.T) {
 	config := model.Config{Name: "猎聘企业端", EntryURL: "https://lpt.liepin.com/recommend", LoginURL: "https://lpt.liepin.com/login"}

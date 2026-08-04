@@ -69,6 +69,7 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 		NormalizedPhone:     localCandidateString(payload, "normalized_phone"),
 		Phone:               localCandidateString(payload, "phone"),
 		Email:               localCandidateString(payload, "email"),
+		Wechat:              localCandidateString(payload, "wechat"),
 		WorkRegion:          localCandidateString(payload, "work_region"),
 		WorkYears:           localCandidateString(payload, "work_years"),
 		ExpectedSalaryMin:   localCandidateIntPtr(payload, "expected_salary_min"),
