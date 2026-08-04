@@ -214,6 +214,11 @@ func (b *candidateChatBrowser) Scroll(_ context.Context, _ contract.ScrollReques
 	return contract.ScrollResult{}, nil
 }
 
+// Click 模拟滚动测试完成后成功点击目标联系人。
+func (b *candidateScrollBrowser) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+	return contract.ClickResult{Clicked: true}, nil
+}
+
 // Read 模拟读取当前聊天框头部的候选人姓名。
 func (b *candidateChatBrowser) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
 	if len(b.readNames) > 0 {
@@ -382,6 +387,25 @@ func TestScrollToCandidateAcceptsPartiallyVisibleCard(t *testing.T) {
 	}
 	if browser.request.ViewportMargin != 48 {
 		t.Fatalf("候选人滚动应保留 48 像素安全边距：%+v", browser.request)
+	}
+}
+
+// TestOpenConfiguredConversationItemUsesContainerMargin 验证联系人滚动只在列表容器内保留小边距，不会卡住首项。
+func TestOpenConfiguredConversationItemUsesContainerMargin(t *testing.T) {
+	browser := &candidateScrollBrowser{}
+	cfg := model.Config{
+		ID: "test",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.contact_item":         selector("联系人项目"),
+			"message.contact_click_target": selector("联系人姓名"),
+			"message.drawer_scroll":        selector("联系人滚动区域"),
+		},
+	}
+	if err := OpenConfiguredConversationItem(context.Background(), browser, cfg, 0); err != nil {
+		t.Fatalf("打开联系人首项失败：%v", err)
+	}
+	if browser.request.ViewportMargin != 12 {
+		t.Fatalf("联系人滚动应只保留 12 像素容器边距：%+v", browser.request)
 	}
 }
 

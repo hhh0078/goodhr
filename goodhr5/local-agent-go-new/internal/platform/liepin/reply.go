@@ -16,23 +16,19 @@ import (
 const liepinConversationPollAttempts = 20
 const liepinConversationPollInterval = 300 * time.Millisecond
 
-// InitializeAutoReplyPage 清理遗留弹层，并在有未读数字时打开联系人抽屉。
+// InitializeAutoReplyPage 清理遗留弹层，让每轮扫描都从悬浮入口的新消息数字开始。
 func (r *Runtime) InitializeAutoReplyPage(ctx context.Context, browser model.Browser, cfg model.Config) error {
 	if err := common.CloseOptionalPanel(
 		ctx, browser, cfg, "message.attachment_preview", "message.attachment_preview_close", cfg.Name+"附件预览",
 	); err != nil {
 		return err
 	}
-	if err := common.CloseCandidateChat(ctx, browser, cfg); err != nil {
-		return err
-	}
-	_, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
-	return err
+	return common.CloseCandidatePanels(ctx, browser, cfg)
 }
 
 // ScanUnreadConversations 返回猎聘企业端当前联系人抽屉中的未读会话。
 func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
-	ready, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
+	ready, unreadCount, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil || !ready {
 		return nil, err
 	}
@@ -40,12 +36,47 @@ func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Bro
 	if err != nil {
 		return nil, err
 	}
-	return liepinConversations(items, true)
+	conversations, err := liepinConversations(items, true)
+	if err != nil {
+		return nil, err
+	}
+	if unreadCount > 0 && len(conversations) > unreadCount {
+		conversations = conversations[:unreadCount]
+	}
+	return conversations, nil
+}
+
+// ensureLiepinUnreadConversationDrawer 打开联系人抽屉并确认切到未读标签，保证会话始终从列表首项依次处理。
+func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, int, error) {
+	ready, unreadCount, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
+	if err != nil || !ready {
+		return ready, unreadCount, err
+	}
+	selected, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
+	if err != nil || selected {
+		return ready, unreadCount, err
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err = common.ClickRequired(ctx, browser, cfg, "message.unread_tab"); err != nil {
+			continue
+		}
+		selected, err = common.ProbeSelectorExists(ctx, browser, cfg, "message.unread_tab_selected")
+		if err != nil {
+			return false, 0, err
+		}
+		if selected {
+			return true, unreadCount, nil
+		}
+	}
+	if err != nil {
+		return false, 0, fmt.Errorf("切换%s联系人未读列表失败：%w", cfg.Name, err)
+	}
+	return false, 0, fmt.Errorf("%s联系人列表没有切到未读标签", cfg.Name)
 }
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
 func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, knownLastMessageKey string, maxHistory int) (model.AutoReplyConversationSnapshot, error) {
-	ready, err := common.EnsureUnreadConversationDrawer(ctx, browser, cfg)
+	ready, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}

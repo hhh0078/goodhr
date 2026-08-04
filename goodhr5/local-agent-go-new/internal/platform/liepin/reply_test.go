@@ -4,6 +4,7 @@ package liepin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
@@ -13,7 +14,11 @@ import (
 )
 
 type liepinReplyBrowserStub struct {
-	items []contract.FindAllItem
+	items          []contract.FindAllItem
+	drawerOpen     bool
+	unreadCount    int
+	unreadSelected bool
+	clicks         []string
 }
 
 // OpenPage 返回空页面，满足平台 Browser 测试契约。
@@ -32,17 +37,44 @@ func (b *liepinReplyBrowserStub) UsePage(context.Context, contract.PageUseReques
 }
 
 // FindAll 返回测试准备的最新联系人顺序。
-func (b *liepinReplyBrowserStub) FindAll(context.Context, contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	switch request.Selector.Description {
+	case "测试联系人抽屉":
+		if b.drawerOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读数字":
+		if b.unreadCount > 0 {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读标签已选中":
+		if b.unreadSelected {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	}
 	return b.items, nil
 }
 
 // Read 返回空读取结果，满足平台 Browser 测试契约。
-func (b *liepinReplyBrowserStub) Read(context.Context, contract.ElementReadRequest) (contract.ReadResult, error) {
+func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
+	if request.Selector.Description == "测试未读数字" {
+		return contract.ReadResult{Value: fmt.Sprintf("%d", b.unreadCount)}, nil
+	}
 	return contract.ReadResult{}, nil
 }
 
 // Click 返回成功点击结果，满足平台 Browser 测试契约。
-func (b *liepinReplyBrowserStub) Click(context.Context, contract.ElementClickRequest) (contract.ClickResult, error) {
+func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
+	b.clicks = append(b.clicks, request.Selector.Description)
+	if request.Selector.Description == "测试联系人入口" {
+		b.drawerOpen = true
+	}
+	if request.Selector.Description == "测试未读标签" {
+		b.unreadSelected = true
+	}
 	return contract.ClickResult{Clicked: true}, nil
 }
 
@@ -64,6 +96,52 @@ func (b *liepinReplyBrowserStub) PressKey(context.Context, contract.KeyboardPres
 // ClosePage 模拟成功关闭当前标签页。
 func (b *liepinReplyBrowserStub) ClosePage(context.Context) error {
 	return nil
+}
+
+// TestEnsureLiepinUnreadConversationDrawerSelectsUnreadTab 验证联系人抽屉会切到未读标签后再扫描会话。
+func TestEnsureLiepinUnreadConversationDrawerSelectsUnreadTab(t *testing.T) {
+	browser := &liepinReplyBrowserStub{drawerOpen: true}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
+			"message.unread_tab":          testLiepinSelector("测试未读标签"),
+			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
+		},
+	}
+	ready, _, err := ensureLiepinUnreadConversationDrawer(context.Background(), browser, cfg)
+	if err != nil || !ready {
+		t.Fatalf("联系人未读列表没有准备好：ready=%t err=%v", ready, err)
+	}
+	if !browser.unreadSelected || len(browser.clicks) != 1 || browser.clicks[0] != "测试未读标签" {
+		t.Fatalf("没有只点击一次未读标签：selected=%t clicks=%v", browser.unreadSelected, browser.clicks)
+	}
+}
+
+// TestScanUnreadConversationsCapsPlatformHistoryByEntryCount 验证猎聘长期保留的旧未读不会超过悬浮入口本次新消息数。
+func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
+	browser := &liepinReplyBrowserStub{
+		unreadCount: 1,
+		items: []contract.FindAllItem{
+			{Index: 0, Fields: map[string]string{"name": "邓云川", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
+			{Index: 1, Fields: map[string]string{"name": "旧候选人", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
+		},
+	}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
+		Selectors: map[string]contract.SelectorSpec{
+			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
+			"message.entry":               testLiepinSelector("测试联系人入口"),
+			"message.entry_unread_count":  testLiepinSelector("测试未读数字"),
+			"message.unread_tab":          testLiepinSelector("测试未读标签"),
+			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
+			"message.unread_item":         testLiepinSelector("测试未读联系人"),
+		},
+	}
+	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
+	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
+		t.Fatalf("没有按入口数字只保留最新会话：conversations=%+v err=%v", conversations, err)
+	}
 }
 
 // TestLocateLiepinConversationUsesFreshThreadID 验证旧序号变化后仍按 to_imid 找到目标会话。
