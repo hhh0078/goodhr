@@ -146,14 +146,14 @@
 
 分支：`codex/auto-reply-integration`
 
-- [ ] 云端 Go 测试。
-- [ ] 本地 Go Agent 测试。
-- [ ] Worker TypeScript 检查和测试。
-- [ ] Next.js 构建。
-- [ ] PostgreSQL 干净迁移和重复迁移。
-- [ ] macOS 本地打包检查。
-- [ ] `git diff --check`。
-- [ ] 更新文档、已知风险和最终验证记录。
+- [x] 云端 Go 测试。
+- [x] 本地 Go Agent 测试。
+- [x] Worker TypeScript 检查和测试。
+- [x] Next.js 构建。
+- [x] PostgreSQL 干净迁移和重复迁移。
+- [x] macOS 本地打包检查。
+- [x] `git diff --check`。
+- [x] 更新文档、已知风险和最终验证记录。
 - [ ] 推送大分支，仍不合并 `main`。
 
 ## 4. 完成记录
@@ -169,3 +169,4 @@
 | 6 | `codex/auto-reply-ai-tools` | `9736750e` | 已完成（`d0303ff9`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖SSE分段、能力错误、取消、两次参数修正、8次上限、提示词缓存边界、云端工具审计和悬浮窗总记录 |
 | 7 | `codex/auto-reply-scheduler-status` | `20eda204` | 已完成（`e7231a20`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖候选人前串行检查点、单轮3会话、连续3次错误、会话统一关闭、按候选人消息去重和自动回复独立统计 |
 | 8 | `codex/auto-reply-liepin` | `b8806cd8` | 已合并（`29470edf`） | 猎聘同源IM未读、岗位、候选人ID、5000条历史、绝对时间指纹、在线简历、附件预览和下载已实现；Go全量测试、`go vet`、Worker类型检查和29项测试通过，企业身份真实发送闭环待验证 |
+| 9 | `codex/auto-reply-integration` | `1d4e834d` | 待合并 | 简历结构化、AI总记录、手机号/邮箱/微信校验与持久化已完成；云端、本地Agent、Worker、前端、干净PostgreSQL和macOS版本6打包通过，企业身份真实发送闭环仍待验证 |
