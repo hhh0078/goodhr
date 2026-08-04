@@ -4,6 +4,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -11,35 +12,43 @@ import (
 )
 
 // EnsureUnreadConversationDrawer 在推荐页复用或打开未读联系人抽屉。
-// 返回 false 表示入口没有未读数字，本轮无需打开联系人列表。
-func EnsureUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
+// 返回的数量只代表悬浮入口当前提示的新消息数；入口没有数字时本轮无需打开联系人列表。
+func EnsureUnreadConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) (bool, int, error) {
 	opened, err := ProbeSelectorExists(ctx, browser, cfg, "message.drawer")
 	if err != nil || opened {
-		return opened, err
+		return opened, 0, err
+	}
+	unreadExists, err := ProbeSelectorExists(ctx, browser, cfg, "message.entry_unread_count")
+	if err != nil || !unreadExists {
+		return false, 0, err
 	}
 	unread, found, err := ReadOptional(ctx, browser, cfg, "message.entry_unread_count")
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	normalizedUnread := strings.Trim(strings.TrimSpace(unread), "+")
 	if !found || normalizedUnread == "" || normalizedUnread == "0" {
-		return false, nil
+		return false, 0, nil
+	}
+	unreadCount, err := strconv.Atoi(normalizedUnread)
+	if err != nil || unreadCount <= 0 {
+		return false, 0, fmt.Errorf("%s未读消息数量无法确认：%q", cfg.Name, unread)
 	}
 	if err = ClickRequired(ctx, browser, cfg, "message.entry"); err != nil {
-		return false, fmt.Errorf("打开%s未读联系人列表失败：%w", cfg.Name, err)
+		return false, 0, fmt.Errorf("打开%s未读联系人列表失败：%w", cfg.Name, err)
 	}
 	for attempt := 1; attempt <= candidateConversationPollAttempts; attempt++ {
 		opened, err = ProbeSelectorExists(ctx, browser, cfg, "message.drawer")
 		if err != nil || opened {
-			return opened, err
+			return opened, unreadCount, err
 		}
 		if attempt < candidateConversationPollAttempts {
 			if err = waitConversationPoll(ctx); err != nil {
-				return false, err
+				return false, 0, err
 			}
 		}
 	}
-	return false, fmt.Errorf("%s联系人列表没有在 6 秒内打开", cfg.Name)
+	return false, 0, fmt.Errorf("%s联系人列表没有在 6 秒内打开", cfg.Name)
 }
 
 // FindConfiguredConversationItems 使用平台配置读取联系人列表项及相对字段。
@@ -72,7 +81,7 @@ func OpenConfiguredConversationItem(ctx context.Context, browser model.Browser, 
 	requireFull := true
 	_, scrollErr := browser.Scroll(ctx, contract.ScrollRequest{
 		Target: &selector, WheelAnchor: &anchor, Distance: 180, MaxAttempts: 18,
-		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 80,
+		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 12,
 	})
 	if _, err = browser.Click(ctx, contract.ElementClickRequest{
 		Selector: selector, ViewportMargin: 0,

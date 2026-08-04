@@ -537,14 +537,14 @@
       "description": "猎聘企业端候选人会话项"
     },
     "message.entry": {
-      "_comment": "猎聘推荐页右侧联系人入口图标；点击图标可避开贴近视口右边缘的入口容器。",
+      "_comment": "猎聘推荐页右侧联系人入口容器；必须点击带平台事件的容器，内部 SVG 不会打开联系人抽屉。",
       "parents": [],
       "target": {
-        "_comment": "联系人入口中的第一个 SVG 图标。",
+        "_comment": "联系人入口可点击容器。",
         "selectors": [
-          { "_comment": "猎聘 IM 浮动入口图标。", "type": "css", "value": ".im-ui-basic-entry svg" }
-        ],
-        "index": 0
+          { "_comment": "猎聘推荐页 IM 浮动入口统计属性。", "type": "css", "value": "[data-tlg-elem-id='b_pc_im_light_btn']" },
+          { "_comment": "猎聘推荐页 IM 浮动入口稳定类名。", "type": "css", "value": ".im-ui-basic-entry" }
+        ]
       },
       "state": "enabled",
       "timeout_ms": 3000,
@@ -564,6 +564,46 @@
       "timeout_ms": 600,
       "description": "猎聘企业端未读消息数量"
     },
+    "message.unread_tab": {
+      "_comment": "联系人抽屉的未读标签；自动回复固定从未读列表首项依次处理，避免全部列表中较早会话被顶部区域遮住。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "未读分段标签文字。",
+        "selectors": [
+          { "_comment": "猎聘联系人未读标签。", "type": "css", "value": ".ant-im-segmented-item-label[title='未读']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人未读标签"
+    },
+    "message.unread_tab_selected": {
+      "_comment": "联系人抽屉已经切到未读标签的确认状态。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "带选中状态的未读分段标签。",
+        "selectors": [
+          { "_comment": "猎聘已选中的未读标签。", "type": "css", "value": ".ant-im-segmented-item.ant-im-segmented-item-selected .ant-im-segmented-item-label[title='未读']" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘企业端联系人未读标签已选中"
+    },
     "message.drawer": {
       "_comment": "推荐页右侧联系人抽屉。",
       "parents": [],
@@ -578,7 +618,7 @@
       "description": "猎聘企业端联系人抽屉"
     },
     "message.drawer_scroll": {
-      "_comment": "联系人列表真实滚轮落点，排除平台保留的隐藏加载容器。",
+      "_comment": "联系人列表真实滚轮落点，只选择当前可见容器，避开平台同时保留的隐藏副本。",
       "parents": [
         {
           "_comment": "限定在联系人抽屉内。",
@@ -588,9 +628,9 @@
         }
       ],
       "target": {
-        "_comment": "当前显示的联系人滚动容器。",
+        "_comment": "当前显示的唯一联系人滚动容器。",
         "selectors": [
-          { "_comment": "猎聘联系人滚动区域。", "type": "css", "value": ".im-ui-contacts-wrap:not(.im-ui-list-loading)" }
+          { "_comment": "猎聘当前可见的联系人滚动区域。", "type": "css", "value": ".im-ui-contacts-wrap:visible" }
         ]
       },
       "state": "visible",
