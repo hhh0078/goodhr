@@ -925,7 +925,7 @@
       "description": "猎聘企业端附件简历入口"
     },
     "message.online_resume_body": {
-      "_comment": "在线简历新标签页的完整可读正文。",
+      "_comment": "保留给兼容页面的在线简历正文选择器；当前企业端优先读取同页详情浮层。",
       "parents": [],
       "target": {
         "_comment": "在线简历页面正文。",

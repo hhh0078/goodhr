@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -14,11 +15,15 @@ import (
 )
 
 type liepinReplyBrowserStub struct {
-	items          []contract.FindAllItem
-	drawerOpen     bool
-	unreadCount    int
-	unreadSelected bool
-	clicks         []string
+	items            []contract.FindAllItem
+	drawerOpen       bool
+	detailOpen       bool
+	attachmentOpen   bool
+	conversationOpen bool
+	downloadPath     string
+	unreadCount      int
+	unreadSelected   bool
+	clicks           []string
 }
 
 // OpenPage 返回空页面，满足平台 Browser 测试契约。
@@ -54,6 +59,16 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 			return []contract.FindAllItem{{Index: 0}}, nil
 		}
 		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试在线简历浮层":
+		if b.detailOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试附件预览":
+		if b.attachmentOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 	}
 	return b.items, nil
 }
@@ -62,6 +77,15 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.ElementReadRequest) (contract.ReadResult, error) {
 	if request.Selector.Description == "测试未读数字" {
 		return contract.ReadResult{Value: fmt.Sprintf("%d", b.unreadCount)}, nil
+	}
+	if request.Selector.Description == "测试在线简历浮层" && b.detailOpen {
+		return contract.ReadResult{Value: "邓云川\n本科\n手机：17607080935"}, nil
+	}
+	if request.Selector.Description == "测试当前候选人" && b.conversationOpen {
+		return contract.ReadResult{Value: "邓云川"}, nil
+	}
+	if request.Selector.Description == "测试附件正文" && b.attachmentOpen {
+		return contract.ReadResult{Value: "邮箱：test@example.com"}, nil
 	}
 	return contract.ReadResult{}, nil
 }
@@ -74,6 +98,22 @@ func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.Eleme
 	}
 	if request.Selector.Description == "测试未读标签" {
 		b.unreadSelected = true
+	}
+	if request.Selector.Description == "测试在线简历入口" {
+		b.detailOpen = true
+	}
+	if request.Selector.Description == "测试在线简历关闭" {
+		b.detailOpen = false
+		b.conversationOpen = false
+	}
+	if request.Selector.Description == "测试附件入口" {
+		if !b.conversationOpen {
+			return contract.ClickResult{}, fmt.Errorf("聊天框已经关闭，附件入口不存在")
+		}
+		b.attachmentOpen = true
+	}
+	if request.Selector.Description == "测试附件关闭" {
+		b.attachmentOpen = false
 	}
 	return contract.ClickResult{Clicked: true}, nil
 }
@@ -90,11 +130,22 @@ func (b *liepinReplyBrowserStub) Scroll(context.Context, contract.ScrollRequest)
 
 // PressKey 返回成功按键结果，满足平台 Browser 测试契约。
 func (b *liepinReplyBrowserStub) PressKey(context.Context, contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	b.detailOpen = false
 	return contract.KeyboardPressResult{Pressed: true}, nil
 }
 
 // ClosePage 模拟成功关闭当前标签页。
 func (b *liepinReplyBrowserStub) ClosePage(context.Context) error {
+	return nil
+}
+
+// Downloads 返回测试准备的已落盘附件记录。
+func (b *liepinReplyBrowserStub) Downloads(context.Context) (contract.DownloadListResult, error) {
+	return contract.DownloadListResult{Downloads: []contract.DownloadRecord{{Status: "saved", FilePath: b.downloadPath}}}, nil
+}
+
+// ClearDownloads 模拟清空 Worker 下载记录，不删除测试附件。
+func (b *liepinReplyBrowserStub) ClearDownloads(context.Context) error {
 	return nil
 }
 
@@ -255,6 +306,73 @@ func TestParseLiepinResumeFields(t *testing.T) {
 	birthYM, precision := parseLiepinBirthYM(resume, time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC))
 	if birthYM != "1986" || precision != "year_estimated" {
 		t.Fatalf("年龄估算出生年份不正确：birth_ym=%q precision=%q", birthYM, precision)
+	}
+}
+
+// TestCollectLiepinOnlineResumeUsesSamePagePanel 验证在线简历按同页浮层读取并在完成后关闭。
+func TestCollectLiepinOnlineResumeUsesSamePagePanel(t *testing.T) {
+	browser := &liepinReplyBrowserStub{}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.resume_online_entry": testLiepinSelector("测试在线简历入口"),
+			"candidate.detail":            testLiepinSelector("测试在线简历浮层"),
+			"candidate.detail_close":      testLiepinSelector("测试在线简历关闭"),
+		},
+	}
+	text, err := collectLiepinOnlineResume(context.Background(), browser, cfg)
+	if err != nil || text != "邓云川\n本科\n手机：17607080935" {
+		t.Fatalf("同页在线简历读取失败：text=%q err=%v", text, err)
+	}
+	if browser.detailOpen {
+		t.Fatal("在线简历读取完成后仍然遮挡页面")
+	}
+	if len(browser.clicks) != 2 || browser.clicks[0] != "测试在线简历入口" || browser.clicks[1] != "测试在线简历关闭" {
+		t.Fatalf("在线简历打开和关闭顺序不正确：%v", browser.clicks)
+	}
+}
+
+// TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel 验证附件先于会关闭聊天框的在线简历浮层处理。
+func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T) {
+	downloadPath := t.TempDir() + "/resume.pdf"
+	if err := os.WriteFile(downloadPath, []byte("test resume"), 0o600); err != nil {
+		t.Fatalf("准备测试附件失败：%v", err)
+	}
+	browser := &liepinReplyBrowserStub{conversationOpen: true, downloadPath: downloadPath}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端",
+		Selectors: map[string]contract.SelectorSpec{
+			"message.current_name":             testLiepinSelector("测试当前候选人"),
+			"message.resume_attachment_entry":  testLiepinSelector("测试附件入口"),
+			"message.attachment_preview":       testLiepinSelector("测试附件预览"),
+			"message.attachment_body":          testLiepinSelector("测试附件正文"),
+			"message.attachment_download":      testLiepinSelector("测试附件下载"),
+			"message.attachment_preview_close": testLiepinSelector("测试附件关闭"),
+			"message.resume_online_entry":      testLiepinSelector("测试在线简历入口"),
+			"candidate.detail":                 testLiepinSelector("测试在线简历浮层"),
+			"candidate.detail_close":           testLiepinSelector("测试在线简历关闭"),
+		},
+	}
+	bundle, err := (&Runtime{}).CollectAutoReplyResume(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川", ResumeCardAvailable: true,
+	})
+	if err != nil {
+		t.Fatalf("收集猎聘简历失败：%v", err)
+	}
+	if len(bundle.AttachmentPaths) != 1 || bundle.AttachmentPaths[0] != downloadPath {
+		t.Fatalf("附件没有完成落盘：%v", bundle.AttachmentPaths)
+	}
+	attachmentIndex, onlineIndex := -1, -1
+	for index, click := range browser.clicks {
+		if click == "测试附件入口" {
+			attachmentIndex = index
+		}
+		if click == "测试在线简历入口" {
+			onlineIndex = index
+		}
+	}
+	if attachmentIndex < 0 || onlineIndex < 0 || attachmentIndex >= onlineIndex {
+		t.Fatalf("简历处理顺序不正确：clicks=%v", browser.clicks)
 	}
 }
 

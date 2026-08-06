@@ -32,7 +32,8 @@ func (r *Runtime) RequestAutoReplyResume(ctx context.Context, browser model.Brow
 	return common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestResume: true})
 }
 
-// CollectAutoReplyResume 读取在线简历和附件预览正文，下载附件并整理联系方式。
+// CollectAutoReplyResume 先下载附件，再读取在线简历并整理联系方式。
+// 猎聘关闭在线简历浮层时会同时关闭聊天框，因此在线简历必须放在最后读取。
 func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.AutoReplyResumeBundle, error) {
 	if !snapshot.ResumeCardAvailable {
 		return model.AutoReplyResumeBundle{}, fmt.Errorf("%s当前会话没有候选人简历卡片", cfg.Name)
@@ -40,11 +41,11 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName); err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
-	onlineText, err := collectLiepinOnlineResume(ctx, browser, cfg)
+	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
-	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg)
+	onlineText, err := collectLiepinOnlineResume(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
@@ -59,38 +60,29 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	}, nil
 }
 
-// collectLiepinOnlineResume 打开候选人在线简历新标签页，读取正文后关闭该标签页。
+// collectLiepinOnlineResume 打开候选人在线简历浮层，读取正文后确认关闭浮层。
 func collectLiepinOnlineResume(ctx context.Context, browser model.Browser, cfg model.Config) (text string, returnErr error) {
 	selector, err := common.RequiredSelector(cfg, "message.resume_online_entry")
 	if err != nil {
 		return "", err
 	}
-	result, err := browser.Click(ctx, contract.ElementClickRequest{
-		Selector: selector, ViewportMargin: 0, WaitForNewPage: true, NewPageTimeoutMS: 10000,
-	})
+	_, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 0})
 	if err != nil {
 		return "", fmt.Errorf("打开%s在线简历失败：%w", cfg.Name, err)
 	}
-	if !result.NewPageOpened {
-		return "", fmt.Errorf("%s在线简历没有打开新标签页", cfg.Name)
-	}
 	defer func() {
-		if closeErr := browser.ClosePage(context.WithoutCancel(ctx)); closeErr != nil && returnErr == nil {
-			returnErr = fmt.Errorf("关闭%s在线简历标签页失败：%w", cfg.Name, closeErr)
+		if closeErr := common.CloseCandidateDetail(context.WithoutCancel(ctx), browser, cfg); closeErr != nil && returnErr == nil {
+			returnErr = fmt.Errorf("关闭%s在线简历失败：%w", cfg.Name, closeErr)
 		}
 	}()
-	body, err := common.RequiredSelector(cfg, "message.online_resume_body")
-	if err != nil {
-		return "", err
-	}
-	read, err := browser.Read(ctx, contract.ElementReadRequest{Selector: body, Property: "text"})
+	detail, err := common.ExtractCandidateDetail(ctx, browser, cfg)
 	if err != nil {
 		return "", fmt.Errorf("读取%s在线简历失败：%w", cfg.Name, err)
 	}
-	if strings.TrimSpace(read.Value) == "" {
+	if strings.TrimSpace(detail.Text) == "" {
 		return "", fmt.Errorf("%s在线简历正文是空的", cfg.Name)
 	}
-	return strings.TrimSpace(read.Value), nil
+	return strings.TrimSpace(detail.Text), nil
 }
 
 // collectLiepinAttachment 打开附件预览，读取 iframe 正文并通过下载监听取得本地文件。
