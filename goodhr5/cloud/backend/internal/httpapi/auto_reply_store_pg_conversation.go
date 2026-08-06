@@ -168,6 +168,35 @@ func (s *PostgresAutoReplyStore) FindAutoReplyConversation(ctx context.Context, 
 	return item, err
 }
 
+// ListCandidateAutoReplyConversations 返回正式候选人在当前团队的全部自动回复会话。
+// tenantID 和 candidateID 用于限制团队及候选人范围。
+func (s *PostgresAutoReplyStore) ListCandidateAutoReplyConversations(ctx context.Context, tenantID, candidateID string) ([]AutoReplyConversation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, COALESCE(candidate_id::text,''),
+			COALESCE(platform_identity_id::text,''), COALESCE(engagement_id::text,''),
+			COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
+			platform_id, platform_thread_id, candidate_name, gender, page_position_text,
+			status, history_complete, last_synced_message_key, last_candidate_message_key,
+			unresolved_reason, last_checked_at, created_at, updated_at
+		FROM candidate_conversations
+		WHERE tenant_id=$1 AND candidate_id=$2
+		ORDER BY updated_at DESC, id
+	`, tenantID, strings.TrimSpace(candidateID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]AutoReplyConversation, 0)
+	for rows.Next() {
+		item, scanErr := scanAutoReplyConversation(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 // SyncAutoReplyMessages 幂等写入一批聊天消息并更新会话差量游标。
 func (s *PostgresAutoReplyStore) SyncAutoReplyMessages(ctx context.Context, tenantID, conversationID string, historyComplete bool, messages []AutoReplyMessage) (MessageSyncResult, error) {
 	result := MessageSyncResult{}

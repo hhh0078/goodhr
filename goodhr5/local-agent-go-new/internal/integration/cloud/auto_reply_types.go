@@ -181,6 +181,29 @@ type StoredResumeAttachment struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+// AutoReplyResumeStructureRequest 表示交给云端真实附件解析能力的强类型请求。
+type AutoReplyResumeStructureRequest struct {
+	ConversationID    string   `json:"conversation_id"`
+	PositionID        string   `json:"position_id"`
+	AttachmentIDs     []string `json:"attachment_ids"`
+	CandidateName     string   `json:"candidate_name"`
+	Gender            string   `json:"gender"`
+	OnlineResumeText  string   `json:"online_resume_text"`
+	BasedOnMessageKey string   `json:"based_on_message_key"`
+}
+
+// AutoReplyResumeStructureResult 表示云端从附件正文整理出的候选人资料。
+type AutoReplyResumeStructureResult struct {
+	Candidate        StructuredCandidate `json:"candidate"`
+	Gender           string              `json:"gender"`
+	BirthYMPrecision string              `json:"birth_ym_precision"`
+	Wechat           string              `json:"wechat"`
+	AttachmentText   string              `json:"attachment_text"`
+	AttachmentIDs    []string            `json:"attachment_ids"`
+	Attempts         int                 `json:"attempts"`
+	TokenUsage       int                 `json:"token_usage"`
+}
+
 // CandidateConfirmationItem 表示候选人与岗位之间的一条结构化确认项。
 type CandidateConfirmationItem struct {
 	ID             string    `json:"id"`

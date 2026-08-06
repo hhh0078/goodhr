@@ -29,7 +29,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
 	}
 	knownLastMessageKey := ""
-	if initialState.Conversation != nil {
+	if initialState.Conversation != nil && initialState.HasResumeAttachment {
 		knownLastMessageKey = initialState.Conversation.LastSyncedMessageKey
 	}
 	pageSnapshot, err := runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownLastMessageKey, cloud.AutoReplyMaxHistoryMessages)

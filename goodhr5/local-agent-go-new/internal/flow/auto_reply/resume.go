@@ -67,7 +67,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		OnlineResumeText: storedResumeText,
 	}
 	var err error
-	if snapshot.ResumeCardAvailable {
+	if snapshot.ResumeCardAvailable && len(state.Attachments) == 0 {
 		bundle, err = runtime.CollectAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot)
 		if err != nil {
 			stats.Failed++
@@ -78,16 +78,24 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		stats.Failed++
 		return nil, false, fmt.Errorf("候选人简历卡片已经出现，但没有读到在线简历或附件")
 	}
+	attachments, err := f.uploadResumeAttachments(ctx, prepared, *conversation, bundle, state.Attachments)
+	if err != nil {
+		stats.Failed++
+		return nil, false, err
+	}
+	if len(attachments) == 0 {
+		stats.Failed++
+		return nil, false, fmt.Errorf("候选人简历没有取得真实附件，暂时不能执行云端结构化")
+	}
 	structured := storedStructuredCandidate(state.Candidate)
 	structuredResult := StructuredResume{}
 	var structureErr error
-	if structurer, ok := f.Responder.(ResumeStructurer); ok && strings.TrimSpace(bundle.OnlineResumeText) != "" {
+	if structurer, ok := f.Responder.(ResumeStructurer); ok {
 		startedAt := time.Now()
 		structuredResult, structureErr = structurer.StructureResume(ctx, ResumeStructureContext{
 			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared),
-			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 			Position: position, Conversation: *conversation, PageSnapshot: snapshot,
-			Resume: bundle, BasedOnMessageKey: basedOnMessageKey,
+			Resume: bundle, Attachments: attachments, BasedOnMessageKey: basedOnMessageKey,
 		})
 		if structureErr != nil {
 			f.log(prepared.Request.TaskID, "structure_resume", "warning", startedAt, structureErr)
@@ -95,11 +103,11 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		}
 	}
 	mergeStructuredCandidate(&structured, structuredResult.Candidate)
-	bundle.CandidateName = firstNonEmpty(snapshot.CandidateName, bundle.CandidateName, structured.CandidateName)
-	bundle.Gender = firstNonEmpty(snapshot.Gender, bundle.Gender, structuredResult.Gender, storedCandidateGender(state.Candidate))
-	bundle.Phone = firstNonEmpty(normalizeAutoReplyPhone(bundle.Phone), normalizeAutoReplyPhone(structured.Phone))
-	bundle.Email = firstNonEmpty(normalizeAutoReplyEmail(bundle.Email), normalizeAutoReplyEmail(structured.Email))
-	bundle.Wechat = firstNonEmpty(bundle.Wechat, structuredResult.Wechat)
+	bundle.CandidateName = firstNonEmpty(structured.CandidateName, bundle.CandidateName, snapshot.CandidateName)
+	bundle.Gender = firstNonEmpty(structuredResult.Gender, bundle.Gender, snapshot.Gender, storedCandidateGender(state.Candidate))
+	bundle.Phone = firstNonEmpty(normalizeAutoReplyPhone(structured.Phone), normalizeAutoReplyPhone(bundle.Phone))
+	bundle.Email = firstNonEmpty(normalizeAutoReplyEmail(structured.Email), normalizeAutoReplyEmail(bundle.Email))
+	bundle.Wechat = firstNonEmpty(structured.Wechat, structuredResult.Wechat, bundle.Wechat)
 	if structured.BirthYM != "" && structuredResult.BirthYMPrecision != "" {
 		bundle.BirthYM = structured.BirthYM
 		bundle.BirthYMPrecision = structuredResult.BirthYMPrecision
@@ -113,7 +121,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	structured.Phone = bundle.Phone
 	structured.Email = bundle.Email
 	structured.Wechat = bundle.Wechat
-	structured.RawText = bundle.OnlineResumeText
+	structured.RawText = firstNonEmpty(structuredResult.RawText, bundle.OnlineResumeText)
 	if structureErr != nil {
 		stats.Failed++
 		return nil, false, fmt.Errorf("整理候选人正式简历失败，本地附件已经保留：%w", structureErr)
@@ -152,16 +160,41 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		return nil, false, fmt.Errorf("关联正式简历和候选人会话失败：%w", saveErr)
 	}
 	*conversation = saved
-	for _, path := range bundle.AttachmentPaths {
-		if _, err = f.Cloud.UploadAutoReplyAttachment(ctx, credentials(prepared), cloud.AutoReplyAttachmentUpload{
-			FilePath: path, CandidateID: candidateID, ConversationID: conversation.ID,
-			PlatformID: prepared.Platform.ID, ExtractedText: bundle.OnlineResumeText,
-		}); err != nil {
-			stats.Failed++
-			return nil, false, fmt.Errorf("上传候选人简历附件失败：%w", err)
-		}
-	}
 	return &bundle, false, nil
+}
+
+// uploadResumeAttachments 先把真实附件保存到云端临时会话，供云端直接读取文件并结构化。
+func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, bundle model.AutoReplyResumeBundle, existing []cloud.StoredResumeAttachment) ([]cloud.StoredResumeAttachment, error) {
+	attachments := append([]cloud.StoredResumeAttachment(nil), existing...)
+	for _, path := range bundle.AttachmentPaths {
+		item, err := f.Cloud.UploadAutoReplyAttachment(ctx, credentials(prepared), cloud.AutoReplyAttachmentUpload{
+			FilePath: path, ConversationID: conversation.ID,
+			PlatformID: prepared.Platform.ID, ExtractedText: "",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("上传候选人简历附件失败：%w", err)
+		}
+		attachments = append(attachments, item)
+	}
+	return uniqueResumeAttachments(attachments), nil
+}
+
+// uniqueResumeAttachments 按云端附件编号去重并丢弃没有编号的记录。
+func uniqueResumeAttachments(items []cloud.StoredResumeAttachment) []cloud.StoredResumeAttachment {
+	result := make([]cloud.StoredResumeAttachment, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, item)
+	}
+	return result
 }
 
 // storedAttachmentText 合并云端已有附件的可读正文，供临时候选人下一轮继续结构化。

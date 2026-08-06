@@ -14,6 +14,7 @@ type CandidateService struct {
 	auth        *AuthService
 	store       CandidateStore
 	tenantStore TenantStore
+	autoReply   *PostgresAutoReplyStore
 }
 
 type candidateNoteRequest struct {
@@ -21,9 +22,9 @@ type candidateNoteRequest struct {
 }
 
 // NewCandidateService 创建候选人查询服务。
-// auth 用于认证当前用户，store 用于读取候选人，tenantStore 用于限定团队范围。
-func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore) *CandidateService {
-	return &CandidateService{auth: auth, store: store, tenantStore: tenantStore}
+// auth 用于认证当前用户，store 用于读取候选人，tenantStore 用于限定团队范围，autoReply 用于读取关联沟通资料。
+func NewCandidateService(auth *AuthService, store CandidateStore, tenantStore TenantStore, autoReply *PostgresAutoReplyStore) *CandidateService {
+	return &CandidateService{auth: auth, store: store, tenantStore: tenantStore, autoReply: autoReply}
 }
 
 // Collection 处理简历库候选人列表请求。
@@ -139,9 +140,18 @@ func (s *CandidateService) Detail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load candidate")
 		return
 	}
+	candidate := publicPositionCandidate(item)
+	if s.autoReply != nil {
+		autoReply, activityErr := s.loadCandidateAutoReplyDetail(r.Context(), tenant.ID, candidateID)
+		if activityErr != nil {
+			writeAutoReplyInternalError(w, "CANDIDATE_ACTIVITY_LOAD_FAILED", "候选人的附件和沟通记录暂时没读出来，请稍后再试", activityErr)
+			return
+		}
+		candidate["auto_reply"] = autoReply
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"candidate": publicPositionCandidate(item),
+		"candidate": candidate,
 	})
 }
 

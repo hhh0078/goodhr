@@ -68,6 +68,56 @@ func (s *PostgresAutoReplyStore) ListAutoReplyAudit(ctx context.Context, tenantI
 	return items, nil
 }
 
+// ListCandidateAutoReplyAudit 返回指定候选人的 AI 总记录和工具调用。
+// tenantID 和 candidateID 用于权限隔离，limit 为最多返回条数。
+func (s *PostgresAutoReplyStore) ListCandidateAutoReplyAudit(ctx context.Context, tenantID, candidateID string, limit int) ([]AutoReplyAuditRecord, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ar.id, ar.tenant_id, ar.conversation_id, COALESCE(ar.candidate_id::text,''),
+			COALESCE(ar.position_id::text,''), ar.trace_id, ar.model, ar.status,
+			ar.based_on_message_key, ar.input_messages, ar.output_message, ar.error_code,
+			ar.error_message, ar.token_usage, ar.started_at, ar.completed_at, ar.expires_at,
+			ar.created_at, cc.candidate_name, cc.gender, cc.platform_id, COALESCE(p.name,'')
+		FROM auto_reply_ai_runs ar
+		JOIN candidate_conversations cc ON cc.id=ar.conversation_id
+		LEFT JOIN positions p ON p.id=ar.position_id
+		WHERE ar.tenant_id=$1 AND (ar.candidate_id=$2 OR cc.candidate_id=$2)
+		ORDER BY ar.created_at DESC, ar.id DESC
+		LIMIT $3
+	`, tenantID, strings.TrimSpace(candidateID), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]AutoReplyAuditRecord, 0)
+	for rows.Next() {
+		var item AutoReplyAuditRecord
+		if err = rows.Scan(
+			&item.Run.ID, &item.Run.TenantID, &item.Run.ConversationID, &item.Run.CandidateID,
+			&item.Run.PositionID, &item.Run.TraceID, &item.Run.Model, &item.Run.Status,
+			&item.Run.BasedOnMessageKey, &item.Run.InputMessages, &item.Run.OutputMessage,
+			&item.Run.ErrorCode, &item.Run.ErrorMessage, &item.Run.TokenUsage,
+			&item.Run.StartedAt, &item.Run.CompletedAt, &item.Run.ExpiresAt, &item.Run.CreatedAt,
+			&item.CandidateName, &item.Gender, &item.PlatformID, &item.PositionName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	for index := range items {
+		items[index].ToolCalls, err = s.listAutoReplyToolCalls(ctx, tenantID, items[index].Run.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
 // listAutoReplyToolCalls 返回一次 AI 运行按执行顺序排列的工具记录。
 func (s *PostgresAutoReplyStore) listAutoReplyToolCalls(ctx context.Context, tenantID, aiRunID string) ([]AutoReplyToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `

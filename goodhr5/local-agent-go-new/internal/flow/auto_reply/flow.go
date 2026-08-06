@@ -52,12 +52,11 @@ type ReplyContext struct {
 type ResumeStructureContext struct {
 	TaskID            string
 	Credentials       cloud.AgentCredentials
-	AIConfig          cloud.AIConfig
-	EnableThinking    bool
 	Position          cloud.AutoReplyPositionSnapshot
 	Conversation      cloud.AutoReplyConversation
 	PageSnapshot      model.AutoReplyConversationSnapshot
 	Resume            model.AutoReplyResumeBundle
+	Attachments       []cloud.StoredResumeAttachment
 	BasedOnMessageKey string
 }
 
@@ -67,6 +66,7 @@ type StructuredResume struct {
 	Gender           string
 	BirthYMPrecision string
 	Wechat           string
+	RawText          string
 }
 
 // ReplyDecision 表示 AI 工具循环最终决定发送回复或转人工。

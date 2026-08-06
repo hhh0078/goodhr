@@ -39,77 +39,36 @@ type toolErrorResult struct {
 	Error       string `json:"error"`
 }
 
-type resumeStructureAuditOutput struct {
-	Candidate        cloud.StructuredCandidate `json:"candidate"`
-	Gender           string                    `json:"gender"`
-	BirthYMPrecision string                    `json:"birth_ym_precision"`
-	Wechat           string                    `json:"wechat"`
-	RawResponse      string                    `json:"raw_response"`
-}
-
-// StructureResume 把页面简历交给独立结构化请求，并把完整输入输出保存到 AI 总记录。
+// StructureResume 把已经上传的真实附件交给云端结构化，并同步运行小窗状态。
 func (r *AIResponder) StructureResume(ctx context.Context, input ResumeStructureContext) (StructuredResume, error) {
-	if r == nil || r.AI == nil || r.Cloud == nil {
-		return StructuredResume{}, fmt.Errorf("自动回复 AI 处理器没有准备完整")
+	if r == nil || r.Cloud == nil {
+		return StructuredResume{}, fmt.Errorf("自动回复云端简历处理器没有准备完整")
 	}
-	messages, err := ai.ResumeExtractionMessages(ai.ResumeExtractionInput{
-		CandidateName: input.PageSnapshot.CandidateName,
-		Gender:        input.PageSnapshot.Gender,
-		ResumeText:    input.Resume.OnlineResumeText,
-	})
-	if err != nil {
-		return StructuredResume{}, err
+	attachmentIDs := make([]string, 0, len(input.Attachments))
+	for _, attachment := range input.Attachments {
+		if id := strings.TrimSpace(attachment.ID); id != "" {
+			attachmentIDs = append(attachmentIDs, id)
+		}
 	}
-	inputJSON, err := json.Marshal(messages)
-	if err != nil {
-		return StructuredResume{}, fmt.Errorf("编码简历结构化总记录失败：%w", err)
-	}
-	traceID, err := newAutoReplyTraceID(input.TaskID + "-resume")
-	if err != nil {
-		return StructuredResume{}, err
-	}
-	run, err := r.Cloud.StartAutoReplyAIRun(ctx, input.Credentials, cloud.AutoReplyAIRun{
-		ConversationID: input.Conversation.ID, CandidateID: input.Conversation.CandidateID,
-		PositionID: input.Position.Position.ID, TraceID: traceID, Model: input.AIConfig.Model,
-		BasedOnMessageKey: input.BasedOnMessageKey, InputMessages: inputJSON,
-	})
-	if err != nil {
-		return StructuredResume{}, fmt.Errorf("创建简历结构化总记录失败：%w", err)
+	if len(attachmentIDs) == 0 {
+		return StructuredResume{}, fmt.Errorf("简历结构化需要已经上传的真实附件")
 	}
 	r.reportResume(input, "loading", "AI 正在整理候选人简历", false)
-	result, extractErr := r.AI.ExtractStructuredResume(ctx, input.AIConfig, ai.ResumeExtractionInput{
-		CandidateName: input.PageSnapshot.CandidateName,
-		Gender:        input.PageSnapshot.Gender,
-		ResumeText:    input.Resume.OnlineResumeText,
-	}, input.EnableThinking)
+	result, extractErr := r.Cloud.StructureAutoReplyResume(ctx, input.Credentials, cloud.AutoReplyResumeStructureRequest{
+		ConversationID: input.Conversation.ID, PositionID: input.Position.Position.ID,
+		AttachmentIDs: attachmentIDs, CandidateName: input.PageSnapshot.CandidateName,
+		Gender: input.PageSnapshot.Gender, OnlineResumeText: input.Resume.OnlineResumeText,
+		BasedOnMessageKey: input.BasedOnMessageKey,
+	})
 	if extractErr != nil {
-		run.Status = "failed"
-		run.ErrorCode = "RESUME_STRUCTURE_FAILED"
-		run.ErrorMessage = truncateRunText(extractErr.Error(), 1000)
-		run.OutputMessage = json.RawMessage(`{}`)
-		if _, finishErr := r.Cloud.FinishAutoReplyAIRun(context.WithoutCancel(ctx), input.Credentials, run); finishErr != nil {
-			return StructuredResume{}, fmt.Errorf("%w；简历结构化总记录也没保存完整：%v", extractErr, finishErr)
-		}
 		r.reportResume(input, "error", "简历结构化没处理成功，先保留原文", true)
 		return StructuredResume{}, extractErr
-	}
-	output, err := json.Marshal(resumeStructureAuditOutput{
-		Candidate: result.Candidate, Gender: result.Gender,
-		BirthYMPrecision: result.BirthYMPrecision, Wechat: result.Wechat,
-		RawResponse: result.RawResponse,
-	})
-	if err != nil {
-		return StructuredResume{}, fmt.Errorf("编码简历结构化结果失败：%w", err)
-	}
-	run.Status = "completed"
-	run.OutputMessage = output
-	if _, err = r.Cloud.FinishAutoReplyAIRun(context.WithoutCancel(ctx), input.Credentials, run); err != nil {
-		return StructuredResume{}, fmt.Errorf("保存简历结构化总记录失败：%w", err)
 	}
 	r.reportResume(input, "result", "候选人简历已经整理完成", true)
 	return StructuredResume{
 		Candidate: result.Candidate, Gender: result.Gender,
 		BirthYMPrecision: result.BirthYMPrecision, Wechat: result.Wechat,
+		RawText: result.AttachmentText,
 	}, nil
 }
 

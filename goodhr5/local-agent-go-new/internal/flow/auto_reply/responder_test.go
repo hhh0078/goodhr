@@ -17,12 +17,13 @@ import (
 )
 
 type responderTestState struct {
-	mu             sync.Mutex
-	aiResponses    []string
-	aiRequests     []json.RawMessage
-	toolCalls      []cloud.AutoReplyToolCall
-	finishedRuns   []cloud.AutoReplyAIRun
-	chatCallNumber int
+	mu                      sync.Mutex
+	aiResponses             []string
+	aiRequests              []json.RawMessage
+	toolCalls               []cloud.AutoReplyToolCall
+	finishedRuns            []cloud.AutoReplyAIRun
+	resumeStructureRequests []cloud.AutoReplyResumeStructureRequest
+	chatCallNumber          int
 }
 
 // TestAutoReplyToolDefinitionsAreStableAndUnique 验证九个工具名称唯一且每份参数定义都是合法 JSON。
@@ -157,42 +158,36 @@ func TestAIResponderRejectsPlainTextAction(t *testing.T) {
 	}
 }
 
-// TestAIResponderStructuresResumeAndKeepsCompleteAudit 验证简历结构化结果经过清洗后保存完整 AI 总记录。
-func TestAIResponderStructuresResumeAndKeepsCompleteAudit(t *testing.T) {
-	state := &responderTestState{aiResponses: []string{`{"choices":[{"message":{"role":"assistant","content":"{\"candidate_name\":\"模型名字\",\"gender\":\"女\",\"phone\":\"+86 136-3281-3031\",\"email\":\"USER@EXAMPLE.COM\",\"wechat\":\"candidate_wechat\"}"}}]}`}}
+// TestAIResponderStructuresResumeThroughCloudAttachment 验证简历结构化只调用云端真实附件能力。
+func TestAIResponderStructuresResumeThroughCloudAttachment(t *testing.T) {
+	state := &responderTestState{}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()
 
 	result, err := (&AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}).StructureResume(
 		context.Background(), ResumeStructureContext{
 			TaskID: "task-resume", Credentials: cloud.AgentCredentials{Token: "token", MachineID: "machine"},
-			AIConfig:     cloud.AIConfig{BaseURL: server.URL, APIKey: "key", Model: "resume-model"},
 			Position:     cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}},
 			Conversation: cloud.AutoReplyConversation{ID: "conversation-1", CandidateID: "candidate-1"},
 			PageSnapshot: model.AutoReplyConversationSnapshot{CandidateName: "页面名字", Gender: "女"},
-			Resume:       model.AutoReplyResumeBundle{OnlineResumeText: "页面简历原文"}, BasedOnMessageKey: "message-1",
+			Resume:       model.AutoReplyResumeBundle{OnlineResumeText: "页面简历原文"},
+			Attachments:  []cloud.StoredResumeAttachment{{ID: "attachment-1"}}, BasedOnMessageKey: "message-1",
 		},
 	)
 	if err != nil {
 		t.Fatalf("StructureResume() error = %v", err)
 	}
-	if result.Candidate.CandidateName != "页面名字" || result.Candidate.Phone != "+8613632813031" || result.Candidate.Email != "user@example.com" || result.Wechat != "candidate_wechat" {
+	if result.Candidate.CandidateName != "页面名字" || result.Candidate.Phone != "17607080935" || result.Candidate.Email != "user@example.com" || result.Wechat != "candidate_wechat" || result.RawText != "真实附件正文" {
 		t.Fatalf("structured resume = %+v", result)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.finishedRuns) != 1 || state.finishedRuns[0].Status != "completed" {
-		t.Fatalf("finished runs = %+v", state.finishedRuns)
+	if len(state.resumeStructureRequests) != 1 {
+		t.Fatalf("云端结构化请求 = %+v", state.resumeStructureRequests)
 	}
-	var auditMessages []ai.ToolMessage
-	if err = json.Unmarshal(state.finishedRuns[0].InputMessages, &auditMessages); err != nil {
-		t.Fatal(err)
-	}
-	if len(auditMessages) != 2 || strings.Contains(auditMessages[0].Content, "页面简历原文") || !strings.Contains(auditMessages[1].Content, "页面简历原文") {
-		t.Fatalf("audit prompt boundary = %+v", auditMessages)
-	}
-	if !strings.Contains(string(state.finishedRuns[0].OutputMessage), `"raw_response"`) || !strings.Contains(string(state.finishedRuns[0].OutputMessage), `"candidate_wechat"`) {
-		t.Fatalf("audit output = %s", state.finishedRuns[0].OutputMessage)
+	request := state.resumeStructureRequests[0]
+	if len(request.AttachmentIDs) != 1 || request.AttachmentIDs[0] != "attachment-1" || request.OnlineResumeText != "页面简历原文" {
+		t.Fatalf("云端结构化请求内容不正确：%+v", request)
 	}
 }
 
@@ -239,6 +234,18 @@ func (s *responderTestState) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		writeResponderJSON(w, struct {
 			Run cloud.AutoReplyAIRun `json:"ai_run"`
 		}{run})
+	case "/api/auto-reply/agent/resume-structure":
+		var request cloud.AutoReplyResumeStructureRequest
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		s.resumeStructureRequests = append(s.resumeStructureRequests, request)
+		writeResponderJSON(w, map[string]any{
+			"ok": true,
+			"candidate": map[string]any{
+				"candidate_name": "页面名字", "phone": "17607080935", "email": "user@example.com", "wechat": "candidate_wechat",
+			},
+			"gender": "女", "birth_ym_precision": "year_estimated", "wechat": "candidate_wechat",
+			"attachment_text": "真实附件正文", "attachment_ids": []string{"attachment-1"}, "attempts": 1,
+		})
 	default:
 		http.NotFound(w, r)
 	}

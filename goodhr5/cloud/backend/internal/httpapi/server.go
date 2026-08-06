@@ -104,7 +104,7 @@ func NewServer() (*Server, error) {
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
 		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, autoReplyStore),
 		positionLogs:        positionLogs,
-		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
+		candidates:          NewCandidateService(auth, candidateStore, tenantStore, autoReplyStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
 		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
@@ -119,7 +119,7 @@ func NewServer() (*Server, error) {
 		systemConfigs:       systemConfigStore,
 		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
-		autoReply:           NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, config.AutoReplyResumeDir),
+		autoReply:           NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, aiConfigStore, config.AutoReplyResumeDir),
 	}, nil
 }
 

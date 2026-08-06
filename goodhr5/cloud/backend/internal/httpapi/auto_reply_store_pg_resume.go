@@ -103,6 +103,44 @@ func (s *PostgresAutoReplyStore) GetResumeAttachment(ctx context.Context, tenant
 	return item, err
 }
 
+// UpdateResumeAttachmentExtractedText 保存云端从真实附件文件提取出的正文。
+// tenantID 和 attachmentID 用于限制团队范围，text 为附件正文。
+func (s *PostgresAutoReplyStore) UpdateResumeAttachmentExtractedText(ctx context.Context, tenantID, attachmentID, text string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE candidate_resume_attachments
+		SET extracted_text=$3
+		WHERE tenant_id=$1 AND id=$2
+	`, tenantID, attachmentID, strings.TrimSpace(text))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LinkConversationResumeAttachments 把临时会话附件关联到刚刚建立的正式候选人。
+// tenantID、conversationID 和 candidateID 必须属于同一团队。
+func (s *PostgresAutoReplyStore) LinkConversationResumeAttachments(ctx context.Context, tenantID, conversationID, candidateID string) error {
+	if err := s.ensureAutoReplyReference(ctx, tenantID, "conversation", conversationID); err != nil {
+		return err
+	}
+	if err := s.ensureAutoReplyReference(ctx, tenantID, "candidate", candidateID); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE candidate_resume_attachments
+		SET candidate_id=$3
+		WHERE tenant_id=$1 AND conversation_id=$2
+	`, tenantID, conversationID, candidateID)
+	return err
+}
+
 // UpsertConfirmationItem 新增或修改候选人确认项，并在状态或证据变化时保存事件。
 func (s *PostgresAutoReplyStore) UpsertConfirmationItem(ctx context.Context, item CandidateConfirmationItem) (CandidateConfirmationItem, error) {
 	if err := validateConfirmationItem(item); err != nil {

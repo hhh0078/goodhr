@@ -143,6 +143,43 @@ func TestAutoReplyClientHonorsCancellationAndTimeout(t *testing.T) {
 	})
 }
 
+// TestStructureAutoReplyResumeUsesDedicatedTimeout 验证简历结构化不会被通用云端短超时提前取消。
+func TestStructureAutoReplyResumeUsesDedicatedTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/auto-reply/agent/resume-structure" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("X-GoodHR-Machine-ID") != testAutoReplyCredentials.MachineID {
+			t.Fatalf("machine header = %q", r.Header.Get("X-GoodHR-Machine-ID"))
+		}
+		time.Sleep(20 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"ok":true,
+			"candidate":{"candidate_name":"邓云川","phone":"17607080935"},
+			"attachment_ids":["attachment-1"],
+			"attempts":1
+		}`))
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	client.http.Timeout = time.Millisecond
+	result, err := client.StructureAutoReplyResume(context.Background(), testAutoReplyCredentials, AutoReplyResumeStructureRequest{
+		ConversationID: "conversation-1", PositionID: "position-1",
+		AttachmentIDs: []string{"attachment-1"}, BasedOnMessageKey: "message-1",
+	})
+	if err != nil {
+		t.Fatalf("专用超时没有覆盖通用短超时：%v", err)
+	}
+	if result.Candidate.CandidateName != "邓云川" || result.Candidate.Phone != "17607080935" {
+		t.Fatalf("简历结构化结果不完整：%+v", result)
+	}
+	if client.http.Timeout != time.Millisecond {
+		t.Fatalf("专用超时不应修改共享客户端，实际为 %s", client.http.Timeout)
+	}
+}
+
 // TestUploadAutoReplyAttachmentAccepts20MBAndChecksHash 验证恰好20MB可以上传且云端哈希必须一致。
 func TestUploadAutoReplyAttachmentAccepts20MBAndChecksHash(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "resume.pdf")

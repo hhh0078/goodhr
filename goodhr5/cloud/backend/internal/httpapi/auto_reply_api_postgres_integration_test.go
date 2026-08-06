@@ -90,7 +90,7 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 	resumeDir := t.TempDir()
 	service := NewAutoReplyService(
 		auth, autoReplyStore, tenantStore, positionStore, accountStore, candidateStore,
-		subscriptionStore, systemConfigStore, agentStore, mailer, resumeDir,
+		subscriptionStore, systemConfigStore, agentStore, mailer, NewMemoryAIConfigStore(), resumeDir,
 	)
 	routes := autoReplyRoutesForTest(service)
 	tenant, err := tenantStore.GetOrCreateTenant(email)

@@ -20,6 +20,78 @@ export type NormalizedNote = {
   createdAt: string;
 };
 
+export type CandidateResumeAttachment = {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  downloadURL: string;
+  createdAt: string;
+};
+
+export type CandidateMessage = {
+  id: string;
+  direction: string;
+  messageType: string;
+  textContent: string;
+  senderName: string;
+  platformSentAt: string;
+  createdAt: string;
+};
+
+export type CandidateConfirmationItem = {
+  id: string;
+  itemType: string;
+  content: string;
+  status: string;
+  sourceType: string;
+  evidenceText: string;
+  summary: string;
+  updatedAt: string;
+};
+
+export type CandidateConversation = {
+  id: string;
+  platformID: string;
+  positionText: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: CandidateMessage[];
+  confirmationItems: CandidateConfirmationItem[];
+};
+
+export type CandidateAIToolCall = {
+  id: string;
+  sequenceNo: number;
+  toolName: string;
+  status: string;
+  arguments: unknown;
+  result: unknown;
+  errorMessage: string;
+};
+
+export type CandidateAIRecord = {
+  id: string;
+  positionName: string;
+  platformID: string;
+  model: string;
+  status: string;
+  inputMessages: unknown;
+  outputMessage: unknown;
+  errorMessage: string;
+  tokenUsage: number;
+  startedAt: string;
+  completedAt: string;
+  toolCalls: CandidateAIToolCall[];
+};
+
+export type CandidateAutoReplyDetail = {
+  attachments: CandidateResumeAttachment[];
+  conversations: CandidateConversation[];
+  aiRecords: CandidateAIRecord[];
+};
+
 export type NormalizedCandidate = {
   id: string;
   engagementId: string;
@@ -49,6 +121,7 @@ export type NormalizedCandidate = {
   aiFirstAnalysis: { score: unknown; reason: string };
   aiSecondAnalysis: { score: unknown; reason: string };
   notes: NormalizedNote[];
+  autoReply: CandidateAutoReplyDetail;
   creatorEmail: string;
   createdAt: string;
   updatedAt: string;
@@ -110,10 +183,75 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
       authorEmail: stringValue(item.author_email),
       createdAt: stringValue(item.created_at),
     })),
+    autoReply: normalizeCandidateAutoReply(source.auto_reply),
     creatorEmail: stringValue(source.user_email),
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),
     raw: source,
+  };
+}
+
+/** normalizeCandidateAutoReply 整理简历附件、沟通记录、确认项和 AI 审计数据。 */
+function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyDetail {
+  const source = recordValue(value);
+  return {
+    attachments: recordArray(source.attachments).map((item) => ({
+      id: stringValue(item.id),
+      originalName: stringValue(item.original_name),
+      mimeType: stringValue(item.mime_type),
+      sizeBytes: numberValue(item.size_bytes),
+      downloadURL: stringValue(item.download_url),
+      createdAt: stringValue(item.created_at),
+    })),
+    conversations: recordArray(source.conversations).map((item) => ({
+      id: stringValue(item.id),
+      platformID: stringValue(item.platform_id),
+      positionText: stringValue(item.page_position_text),
+      status: stringValue(item.status),
+      createdAt: stringValue(item.created_at),
+      updatedAt: stringValue(item.updated_at),
+      messages: recordArray(item.messages).map((message) => ({
+        id: stringValue(message.id),
+        direction: stringValue(message.direction),
+        messageType: stringValue(message.message_type),
+        textContent: stringValue(message.text_content),
+        senderName: stringValue(message.sender_name),
+        platformSentAt: stringValue(message.platform_sent_at),
+        createdAt: stringValue(message.created_at),
+      })),
+      confirmationItems: recordArray(item.confirmation_items).map((confirmation) => ({
+        id: stringValue(confirmation.id),
+        itemType: stringValue(confirmation.item_type),
+        content: stringValue(confirmation.content),
+        status: stringValue(confirmation.status),
+        sourceType: stringValue(confirmation.source_type),
+        evidenceText: stringValue(confirmation.evidence_text),
+        summary: stringValue(confirmation.summary),
+        updatedAt: stringValue(confirmation.updated_at),
+      })),
+    })),
+    aiRecords: recordArray(source.ai_records).map((item) => ({
+      id: stringValue(item.id),
+      positionName: stringValue(item.position_name),
+      platformID: stringValue(item.platform_id),
+      model: stringValue(item.model),
+      status: stringValue(item.status),
+      inputMessages: item.input_messages,
+      outputMessage: item.output_message,
+      errorMessage: stringValue(item.error_message),
+      tokenUsage: numberValue(item.token_usage),
+      startedAt: stringValue(item.started_at),
+      completedAt: stringValue(item.completed_at),
+      toolCalls: recordArray(item.tool_calls).map((tool) => ({
+        id: stringValue(tool.id),
+        sequenceNo: numberValue(tool.sequence_no),
+        toolName: stringValue(tool.tool_name),
+        status: stringValue(tool.status),
+        arguments: tool.arguments_json,
+        result: tool.result_json,
+        errorMessage: stringValue(tool.error_message),
+      })),
+    })),
   };
 }
 
@@ -147,6 +285,24 @@ function stringValue(value: unknown) {
 /** arrayValue 安全返回数组。 */
 function arrayValue(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
+}
+
+/** recordValue 把未知 JSON 安全收敛为普通对象。 */
+function recordValue(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+/** recordArray 把未知 JSON 数组中的对象安全收敛为普通对象。 */
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(recordValue) : [];
+}
+
+/** numberValue 把未知 JSON 安全转换为有限数字。 */
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** salaryText 返回薪资展示文本。 */

@@ -15,12 +15,15 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
+const liepinHistoryStableReadAttempts = 3
+
 // readLiepinConversationHistory 用真实滚轮向上加载聊天，遇到已同步游标、历史顶部或5000条上限时停止。
 func readLiepinConversationHistory(ctx context.Context, browser model.Browser, cfg model.Config, knownLastMessageKey string, maxHistory int) ([]model.ConversationMessage, bool, error) {
 	if maxHistory <= 0 || maxHistory > 5000 {
 		maxHistory = 5000
 	}
 	previousSignature := ""
+	stableReadAttempts := 0
 	for {
 		items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
 		if err != nil {
@@ -41,15 +44,17 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 		}
 		signature := firstLiepinValue(messages[0].PlatformMessageID, messages[0].Key) + "|" + strconv.Itoa(len(messages))
 		if signature == previousSignature {
-			return messages, true, nil
+			stableReadAttempts++
+			if stableReadAttempts >= liepinHistoryStableReadAttempts {
+				return messages, true, nil
+			}
+		} else {
+			previousSignature = signature
+			stableReadAttempts = 0
 		}
-		previousSignature = signature
-		result, err := common.ScrollConversationHistory(ctx, browser, cfg)
+		_, err = common.ScrollConversationHistory(ctx, browser, cfg)
 		if err != nil {
 			return nil, false, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
-		}
-		if !result.Scrolled {
-			return messages, true, nil
 		}
 	}
 }

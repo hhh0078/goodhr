@@ -76,6 +76,8 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 		s.agentConfirmations(w, r)
 	case path == "attachments":
 		s.agentAttachments(w, r)
+	case path == "resume-structure":
+		s.agentStructureResume(w, r)
 	case path == "ai-runs/start":
 		s.agentStartAIRun(w, r)
 	case path == "ai-runs/finish":
@@ -436,6 +438,12 @@ func (s *AutoReplyService) agentSaveConversation(w http.ResponseWriter, r *http.
 	if err != nil {
 		writeAutoReplyStoreError(w, err, "候选人会话没保存成功")
 		return
+	}
+	if saved.CandidateID != "" {
+		if err = s.store.LinkConversationResumeAttachments(r.Context(), requestContext.Tenant.ID, saved.ID, saved.CandidateID); err != nil {
+			writeAutoReplyStoreError(w, err, "候选人简历附件关联没保存成功")
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "conversation": saved})
 }

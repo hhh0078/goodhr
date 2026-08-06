@@ -87,14 +87,16 @@ func (b *autoReplyBrowserStub) ClosePage(context.Context) error {
 
 // autoReplyRuntimeStub 模拟平台自动回复能力和发送前后的最新消息。
 type autoReplyRuntimeStub struct {
-	latestBefore model.ConversationMessage
-	latestAfter  model.ConversationMessage
-	opened       model.AutoReplyConversationSnapshot
-	resumeBundle model.AutoReplyResumeBundle
-	resumeErr    error
-	sent         bool
-	sentText     string
-	closeCount   int
+	latestBefore    model.ConversationMessage
+	latestAfter     model.ConversationMessage
+	opened          model.AutoReplyConversationSnapshot
+	resumeBundle    model.AutoReplyResumeBundle
+	resumeErr       error
+	resumeCollects  int
+	sent            bool
+	sentText        string
+	closeCount      int
+	knownMessageKey string
 }
 
 // InitializeAutoReplyPage 模拟页面初始化。
@@ -103,7 +105,8 @@ func (r *autoReplyRuntimeStub) InitializeAutoReplyPage(context.Context, model.Br
 }
 
 // OpenAutoReplyConversation 返回空会话快照。
-func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(context.Context, model.Browser, model.Config, model.Conversation, string, int) (model.AutoReplyConversationSnapshot, error) {
+func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(_ context.Context, _ model.Browser, _ model.Config, _ model.Conversation, knownMessageKey string, _ int) (model.AutoReplyConversationSnapshot, error) {
+	r.knownMessageKey = knownMessageKey
 	return r.opened, nil
 }
 
@@ -114,6 +117,7 @@ func (r *autoReplyRuntimeStub) RequestAutoReplyResume(context.Context, model.Bro
 
 // CollectAutoReplyResume 返回空简历结果。
 func (r *autoReplyRuntimeStub) CollectAutoReplyResume(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) (model.AutoReplyResumeBundle, error) {
+	r.resumeCollects++
 	return r.resumeBundle, r.resumeErr
 }
 
@@ -231,14 +235,12 @@ func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
 	}
 }
 
-// TestEnsureResumeDoesNotUploadWithoutValidatedCandidate 验证结构化失败或缺少手机号时不会拿空候选人编号上传附件。
-func TestEnsureResumeDoesNotUploadWithoutValidatedCandidate(t *testing.T) {
-	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		http.Error(w, "不应该请求云端", http.StatusInternalServerError)
-	}))
-	defer server.Close()
+// TestEnsureResumePreservesAttachmentBeforeCandidateValidation 验证结构化失败或缺少手机号时附件仍先保存在临时会话。
+func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) {
+	resumePath := filepath.Join(t.TempDir(), "resume.pdf")
+	if err := os.WriteFile(resumePath, []byte("%PDF-test-resume"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	prepared := shared.PreparedTask{
 		Request:   shared.StartRequest{TaskID: "task-resume-guard", Token: "test-token"},
 		MachineID: "test-machine",
@@ -248,7 +250,7 @@ func TestEnsureResumeDoesNotUploadWithoutValidatedCandidate(t *testing.T) {
 	snapshot := model.AutoReplyConversationSnapshot{CandidateName: "邓云川", ResumeCardAvailable: true}
 	conversation := cloud.AutoReplyConversation{ID: "conversation-1"}
 	runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{
-		CandidateName: "邓云川", OnlineResumeText: "7年工作经验", AttachmentPaths: []string{"/tmp/test-resume.pdf"},
+		CandidateName: "邓云川", OnlineResumeText: "7年工作经验", AttachmentPaths: []string{resumePath},
 	}}
 	cases := []struct {
 		name      string
@@ -260,6 +262,35 @@ func TestEnsureResumeDoesNotUploadWithoutValidatedCandidate(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
+			uploadCount := 0
+			candidateSaveCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/auto-reply/agent/attachments":
+					uploadCount++
+					if err := r.ParseMultipartForm(1 << 20); err != nil {
+						t.Fatal(err)
+					}
+					file, _, err := r.FormFile("file")
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer file.Close()
+					hash := sha256.New()
+					size, _ := io.Copy(hash, file)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "attachment": map[string]any{
+						"id": "attachment-1", "conversation_id": "conversation-1",
+						"sha256": hex.EncodeToString(hash.Sum(nil)), "size_bytes": size, "created_at": "2026-08-06T00:00:00Z",
+					}})
+				case "/api/auto-reply/agent/candidates":
+					candidateSaveCount++
+					http.Error(w, "不应该保存候选人", http.StatusInternalServerError)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
 			stats := shared.Stats{}
 			flow := &Flow{Cloud: cloud.New(server.URL), Responder: testCase.responder}
 			_, _, err := flow.ensureResume(
@@ -272,10 +303,71 @@ func TestEnsureResumeDoesNotUploadWithoutValidatedCandidate(t *testing.T) {
 			if stats.Failed != 1 {
 				t.Fatalf("失败统计不正确：%+v", stats)
 			}
+			if uploadCount != 1 || candidateSaveCount != 0 {
+				t.Fatalf("临时附件和候选人保存顺序不正确：uploads=%d candidates=%d", uploadCount, candidateSaveCount)
+			}
 		})
 	}
-	if requestCount != 0 {
-		t.Fatalf("候选人未通过校验时仍请求了云端：count=%d", requestCount)
+}
+
+// TestEnsureResumeReusesStoredAttachment 验证结构化重试直接复用云端附件，不再重复下载和上传。
+func TestEnsureResumeReusesStoredAttachment(t *testing.T) {
+	uploadCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/auto-reply/agent/attachments":
+			uploadCount++
+			http.Error(w, "不应该重复上传附件", http.StatusInternalServerError)
+		case "/api/auto-reply/agent/candidates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "candidate_id": "candidate-1",
+				"platform_identity": map[string]any{"id": "identity-1"},
+			})
+		case "/api/auto-reply/agent/conversations":
+			var conversation cloud.AutoReplyConversation
+			if err := json.NewDecoder(r.Body).Decode(&conversation); err != nil {
+				t.Fatal(err)
+			}
+			conversation.ID = "conversation-1"
+			conversation.CandidateID = "candidate-1"
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "conversation": conversation})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runtime := &autoReplyRuntimeStub{resumeErr: fmt.Errorf("已有附件时不应再读取页面简历")}
+	flow := &Flow{
+		Cloud: cloud.New(server.URL),
+		Responder: resumeResponderStub{structured: StructuredResume{Candidate: cloud.StructuredCandidate{
+			CandidateName: "邓云川", Phone: "17607080935", WorkYears: "3 年",
+		}}},
+	}
+	conversation := cloud.AutoReplyConversation{ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1"}
+	resume, handled, err := flow.ensureResume(
+		context.Background(),
+		shared.PreparedTask{
+			Request: shared.StartRequest{TaskID: "task-retry", Token: "token"}, MachineID: "machine",
+			Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
+		},
+		runtime,
+		cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}},
+		&conversation,
+		model.AutoReplyConversationSnapshot{CandidateName: "邓云川", ResumeCardAvailable: true},
+		cloud.AutoReplyCandidateState{
+			HasResumeAttachment: true,
+			Attachments:         []cloud.StoredResumeAttachment{{ID: "attachment-1", ExtractedText: "附件正文"}},
+		},
+		"message-1",
+		&shared.Stats{},
+	)
+	if err != nil || handled || resume == nil {
+		t.Fatalf("复用云端附件失败：resume=%+v handled=%t err=%v", resume, handled, err)
+	}
+	if runtime.resumeCollects != 0 || uploadCount != 0 {
+		t.Fatalf("已有附件仍重复读取或上传：collects=%d uploads=%d", runtime.resumeCollects, uploadCount)
 	}
 }
 
@@ -309,7 +401,7 @@ func TestEnsureResumeDoesNotUsePlatformMessageKeyAsCloudMessageID(t *testing.T) 
 			if source := r.FormValue("source_message_id"); source != "" {
 				t.Fatalf("平台消息键被误当成云端消息 UUID：%q", source)
 			}
-			if r.FormValue("candidate_id") != "candidate-1" || r.FormValue("conversation_id") != "conversation-1" {
+			if r.FormValue("candidate_id") != "" || r.FormValue("conversation_id") != "temporary-conversation" {
 				t.Fatalf("附件归属不正确：candidate=%q conversation=%q", r.FormValue("candidate_id"), r.FormValue("conversation_id"))
 			}
 			file, _, err := r.FormFile("file")
@@ -325,7 +417,7 @@ func TestEnsureResumeDoesNotUsePlatformMessageKeyAsCloudMessageID(t *testing.T) 
 			uploaded = true
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true, "attachment": map[string]any{
-					"id": "attachment-1", "candidate_id": "candidate-1", "conversation_id": "conversation-1",
+					"id": "attachment-1", "candidate_id": "", "conversation_id": "temporary-conversation",
 					"sha256": hex.EncodeToString(hash.Sum(nil)), "size_bytes": size, "created_at": "2026-08-06T00:00:00Z",
 				},
 			})
@@ -507,7 +599,7 @@ func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"found":false,"attachments":[]}`))
+		_, _ = w.Write([]byte(`{"ok":true,"found":true,"has_resume_attachment":false,"conversation":{"id":"conversation-1","last_synced_message_key":"old-message"},"attachments":[]}`))
 	}))
 	defer server.Close()
 	runtime := &autoReplyRuntimeStub{opened: model.AutoReplyConversationSnapshot{
@@ -519,8 +611,8 @@ func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
 		Platform: model.Config{ID: "liepin"},
 	}, runtime, nil, model.Conversation{Key: "thread-1"}, stats)
-	if err == nil || runtime.closeCount != 0 {
-		t.Fatalf("error=%v close_count=%d", err, runtime.closeCount)
+	if err == nil || runtime.closeCount != 0 || runtime.knownMessageKey != "" {
+		t.Fatalf("error=%v close_count=%d known_message_key=%q", err, runtime.closeCount, runtime.knownMessageKey)
 	}
 }
 

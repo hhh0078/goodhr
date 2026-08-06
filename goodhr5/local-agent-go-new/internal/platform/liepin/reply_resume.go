@@ -49,6 +49,9 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	if err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
+	if err = ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
+		return model.AutoReplyResumeBundle{}, fmt.Errorf("恢复%s候选人聊天框失败：%w", cfg.Name, err)
+	}
 	resumeText := joinLiepinResumeText(onlineText, attachmentText)
 	phone, email, wechat := parseLiepinContacts(resumeText)
 	birthYM, precision := parseLiepinBirthYM(resumeText, time.Now())

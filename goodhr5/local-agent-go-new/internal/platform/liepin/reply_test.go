@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +27,10 @@ type liepinReplyBrowserStub struct {
 	downloadPath     string
 	unreadCount      int
 	unreadSelected   bool
+	allSelected      bool
 	clicks           []string
+	historyBatches   [][]contract.FindAllItem
+	historyBatch     int
 }
 
 // OpenPage 返回空页面，满足平台 Browser 测试契约。
@@ -47,6 +51,11 @@ func (b *liepinReplyBrowserStub) UsePage(context.Context, contract.PageUseReques
 // FindAll 返回测试准备的最新联系人顺序。
 func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	switch request.Selector.Description {
+	case "测试聊天消息":
+		if len(b.historyBatches) > 0 {
+			index := min(b.historyBatch, len(b.historyBatches)-1)
+			return b.historyBatches[index], nil
+		}
 	case "测试联系人抽屉":
 		if b.drawerOpen {
 			return []contract.FindAllItem{{Index: 0}}, nil
@@ -59,6 +68,11 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 	case "测试未读标签已选中":
 		if b.unreadSelected {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试全部标签已选中":
+		if b.allSelected {
 			return []contract.FindAllItem{{Index: 0}}, nil
 		}
 		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
@@ -87,6 +101,9 @@ func (b *liepinReplyBrowserStub) Read(_ context.Context, request contract.Elemen
 	if request.Selector.Description == "测试当前候选人" && b.conversationOpen {
 		return contract.ReadResult{Value: "邓云川"}, nil
 	}
+	if request.Selector.Description == "测试当前岗位" && b.conversationOpen {
+		return contract.ReadResult{Value: "测试岗位"}, nil
+	}
 	if request.Selector.Description == "测试附件正文" && b.attachmentOpen {
 		return contract.ReadResult{Value: "邮箱：test@example.com"}, nil
 	}
@@ -102,12 +119,20 @@ func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.Eleme
 	if request.Selector.Description == "测试未读标签" {
 		b.unreadSelected = true
 	}
+	if request.Selector.Description == "测试全部标签" {
+		b.allSelected = true
+		b.unreadSelected = false
+	}
+	if request.Selector.Description == "message.contact_click_target" {
+		b.conversationOpen = true
+	}
 	if request.Selector.Description == "测试在线简历入口" {
 		b.detailOpen = true
 	}
 	if request.Selector.Description == "测试在线简历关闭" {
 		b.detailOpen = false
 		b.conversationOpen = false
+		b.drawerOpen = false
 	}
 	if request.Selector.Description == "测试附件入口" {
 		b.attachmentVerify = request.Verify != nil && request.Verify.TargetVisible != nil
@@ -136,6 +161,9 @@ func (b *liepinReplyBrowserStub) Input(context.Context, contract.ElementInputReq
 
 // Scroll 返回成功滚动结果，满足平台 Browser 测试契约。
 func (b *liepinReplyBrowserStub) Scroll(context.Context, contract.ScrollRequest) (contract.ScrollResult, error) {
+	if len(b.historyBatches) > 0 {
+		b.historyBatch++
+	}
 	return contract.ScrollResult{Scrolled: true}, nil
 }
 
@@ -297,6 +325,29 @@ func TestLiepinMessagesParsesDirectionsAndResumeCard(t *testing.T) {
 	}
 }
 
+// TestReadLiepinConversationHistoryRetriesUnchangedScroll 验证第一次滚轮没有加载新节点时仍会继续读取更早的简历卡片。
+func TestReadLiepinConversationHistoryRetriesUnchangedScroll(t *testing.T) {
+	recent := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "最新消息", "message_time": "17:15",
+	}}}
+	withResume := append([]contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "这是我的简历",
+		"message_time": "11:44", "resume_card": "在线简历 附件简历",
+	}}}, recent...)
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{recent, recent, withResume}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item":           testLiepinSelector("测试聊天消息"),
+		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, "", 5000)
+	if err != nil || !complete {
+		t.Fatalf("聊天历史没有稳定读取完成：complete=%t err=%v", complete, err)
+	}
+	if available, _ := liepinResumeCard(messages); !available || browser.historyBatch < 2 {
+		t.Fatalf("第一次滚轮无变化后没有继续找到简历：available=%t scrolls=%d", available, browser.historyBatch)
+	}
+}
+
 // TestLiepinMessageFallbackKeyUsesAbsoluteTime 验证相对时间和次日月日时间会生成同一条消息指纹。
 func TestLiepinMessageFallbackKeyUsesAbsoluteTime(t *testing.T) {
 	yesterday := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
@@ -373,11 +424,24 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	if err := os.WriteFile(downloadPath, []byte("test resume"), 0o600); err != nil {
 		t.Fatalf("准备测试附件失败：%v", err)
 	}
-	browser := &liepinReplyBrowserStub{conversationOpen: true, downloadPath: downloadPath, attachmentFails: 1}
+	browser := &liepinReplyBrowserStub{
+		conversationOpen: true, downloadPath: downloadPath, attachmentFails: 1,
+		items: []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+			"name": "邓云川", "thread_meta": url.QueryEscape(`{"to_imid":"thread-target"}`),
+		}}},
+	}
 	cfg := model.Config{
 		ID: "liepin", Name: "猎聘企业端",
 		Selectors: map[string]contract.SelectorSpec{
 			"message.current_name":             testLiepinSelector("测试当前候选人"),
+			"message.current_position":         testLiepinSelector("测试当前岗位"),
+			"message.drawer":                   testLiepinSelector("测试联系人抽屉"),
+			"message.entry":                    testLiepinSelector("测试联系人入口"),
+			"message.all_tab":                  testLiepinSelector("测试全部标签"),
+			"message.all_tab_selected":         testLiepinSelector("测试全部标签已选中"),
+			"message.contact_item":             testLiepinSelector("测试联系人项目"),
+			"message.contact_click_target":     testLiepinSelector("测试联系人点击"),
+			"message.drawer_scroll":            testLiepinSelector("测试联系人滚动区域"),
 			"message.resume_attachment_entry":  testLiepinSelector("测试附件入口"),
 			"message.attachment_preview":       testLiepinSelector("测试附件预览"),
 			"message.attachment_body":          testLiepinSelector("测试附件正文"),
@@ -390,7 +454,9 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 		},
 	}
 	bundle, err := (&Runtime{}).CollectAutoReplyResume(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
-		CandidateName: "邓云川", ResumeCardAvailable: true,
+		Conversation:  model.Conversation{Name: "邓云川", PlatformThreadID: "thread-target"},
+		CandidateName: "邓云川", PlatformThreadID: "thread-target", CommunicationPosition: "测试岗位",
+		ResumeCardAvailable: true,
 	})
 	if err != nil {
 		t.Fatalf("收集猎聘简历失败：%v", err)
@@ -413,6 +479,9 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	}
 	if attachmentClicks != 2 || !browser.attachmentVerify || browser.attachmentAnchor != "测试聊天滚动区域" {
 		t.Fatalf("附件入口没有在滚动区内重试并验证弹框：clicks=%v verified=%t anchor=%q", browser.clicks, browser.attachmentVerify, browser.attachmentAnchor)
+	}
+	if !browser.conversationOpen || !browser.allSelected {
+		t.Fatalf("在线简历关闭后没有恢复原候选人聊天框：conversation_open=%t all_selected=%t clicks=%v", browser.conversationOpen, browser.allSelected, browser.clicks)
 	}
 }
 
@@ -454,6 +523,25 @@ func TestLiepinAttachmentEntryTargetsText(t *testing.T) {
 	}
 	if selector.Target.Text != "附件简历" || selector.Target.ExactText == nil || !*selector.Target.ExactText {
 		t.Fatalf("附件入口文字约束不正确：%+v", selector.Target)
+	}
+	if len(selector.Parents) != 2 || !strings.Contains(selector.Parents[1].Selectors[0].Value, ":not(:has(~") {
+		t.Fatalf("附件入口没有限定最后一条简历消息：%+v", selector.Parents)
+	}
+}
+
+// TestLiepinRequestResumeSelectorExcludesViewResume 验证索要简历不会误点已经变成“看简历”的同类按钮。
+func TestLiepinRequestResumeSelectorExcludesViewResume(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector := cfg.Selectors["candidate.request_resume"]
+	if selector.Target.Text != "索要简历" || selector.Target.ExactText == nil || !*selector.Target.ExactText {
+		t.Fatalf("索要简历没有排除看简历按钮：%+v", selector.Target)
 	}
 }
 

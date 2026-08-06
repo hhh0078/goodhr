@@ -121,7 +121,7 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 
 // SendAutoReplyMessage 核对候选人和沟通岗位后发送一条自动回复。
 func (r *Runtime) SendAutoReplyMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, message string) error {
-	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName); err != nil {
+	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return err
 	}
 	position, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_position")
@@ -136,7 +136,7 @@ func (r *Runtime) SendAutoReplyMessage(ctx context.Context, browser model.Browse
 
 // ReadLatestAutoReplyMessage 返回当前聊天框最后一条候选人或 HR 消息。
 func (r *Runtime) ReadLatestAutoReplyMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.ConversationMessage, error) {
-	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName); err != nil {
+	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return model.ConversationMessage{}, err
 	}
 	items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
@@ -153,6 +153,82 @@ func (r *Runtime) ReadLatestAutoReplyMessage(ctx context.Context, browser model.
 		}
 	}
 	return model.ConversationMessage{}, fmt.Errorf("%s当前聊天框没有读到候选人或 HR 消息", cfg.Name)
+}
+
+// ensureLiepinAutoReplyConversation 在在线简历关闭聊天弹框后，通过稳定会话编号重新打开原候选人。
+func ensureLiepinAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
+	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	if err != nil {
+		return err
+	}
+	if found && common.CandidateNamesMatch(snapshot.CandidateName, name) {
+		return nil
+	}
+	if err = ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
+		return err
+	}
+	expected := snapshot.Conversation
+	expected.Name = firstLiepinValue(expected.Name, snapshot.CandidateName)
+	expected.PlatformThreadID = firstLiepinValue(expected.PlatformThreadID, snapshot.PlatformThreadID)
+	expected.Key = firstLiepinValue(expected.Key, expected.PlatformThreadID)
+	index, err := locateLiepinConversation(ctx, browser, cfg, expected)
+	if err != nil {
+		return err
+	}
+	if err = common.OpenConfiguredConversationItem(ctx, browser, cfg, index); err != nil {
+		return err
+	}
+	_, _, err = waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName)
+	return err
+}
+
+// ensureLiepinConversationDrawer 不依赖未读数字打开全部联系人，供已经读过的当前会话恢复使用。
+func ensureLiepinConversationDrawer(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.drawer")
+	if err != nil {
+		return err
+	}
+	if !opened {
+		if err = common.ClickRequired(ctx, browser, cfg, "message.entry"); err != nil {
+			return fmt.Errorf("重新打开%s联系人列表失败：%w", cfg.Name, err)
+		}
+		for attempt := 1; attempt <= liepinConversationPollAttempts; attempt++ {
+			opened, err = common.ProbeSelectorExists(ctx, browser, cfg, "message.drawer")
+			if err != nil {
+				return err
+			}
+			if opened {
+				break
+			}
+			if attempt < liepinConversationPollAttempts {
+				if err = waitLiepinReplyPoll(ctx); err != nil {
+					return err
+				}
+			}
+		}
+		if !opened {
+			return fmt.Errorf("%s联系人列表没有重新打开", cfg.Name)
+		}
+	}
+	selected, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.all_tab_selected")
+	if err != nil || selected {
+		return err
+	}
+	if err = common.ClickRequired(ctx, browser, cfg, "message.all_tab"); err != nil {
+		return fmt.Errorf("切换%s全部联系人失败：%w", cfg.Name, err)
+	}
+	for attempt := 1; attempt <= liepinConversationPollAttempts; attempt++ {
+		selected, err = common.ProbeSelectorExists(ctx, browser, cfg, "message.all_tab_selected")
+		if err != nil || selected {
+			return err
+		}
+		if attempt < liepinConversationPollAttempts {
+			if err = waitLiepinReplyPoll(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return fmt.Errorf("%s联系人列表没有切到全部标签", cfg.Name)
 }
 
 // CloseAutoReplyConversation 关闭附件预览、候选人聊天框和联系人抽屉。

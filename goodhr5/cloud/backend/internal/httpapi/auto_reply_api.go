@@ -28,6 +28,8 @@ type AutoReplyService struct {
 	systemConfigs SystemConfigStore
 	agents        AgentStore
 	mailer        Mailer
+	aiConfigs     AIConfigStore
+	httpClient    *http.Client
 	resumeDir     string
 }
 
@@ -40,11 +42,12 @@ type autoReplyRequestContext struct {
 }
 
 // NewAutoReplyService 创建自动回复云端服务并注入存储、会员、设备和邮件能力。
-func NewAutoReplyService(auth *AuthService, store *PostgresAutoReplyStore, tenants TenantStore, positions PositionStore, accounts PlatformAccountStore, candidates CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, agents AgentStore, mailer Mailer, resumeDir string) *AutoReplyService {
+func NewAutoReplyService(auth *AuthService, store *PostgresAutoReplyStore, tenants TenantStore, positions PositionStore, accounts PlatformAccountStore, candidates CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, agents AgentStore, mailer Mailer, aiConfigs AIConfigStore, resumeDir string) *AutoReplyService {
 	return &AutoReplyService{
 		auth: auth, store: store, tenants: tenants, positions: positions, accounts: accounts,
 		candidates: candidates, subscriptions: subscriptions, systemConfigs: systemConfigs,
-		agents: agents, mailer: mailer, resumeDir: strings.TrimSpace(resumeDir),
+		agents: agents, mailer: mailer, aiConfigs: aiConfigs,
+		httpClient: newAIConfigTestHTTPClient(), resumeDir: strings.TrimSpace(resumeDir),
 	}
 }
 

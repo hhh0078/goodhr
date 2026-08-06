@@ -327,10 +327,12 @@
         }
       ],
       "target": {
-        "_comment": "简历操作目标。",
+        "_comment": "只允许点击索要简历，排除候选人已经发送简历后出现的看简历按钮。",
         "selectors": [
           { "_comment": "CSS 候选选择器。", "type": "css", "value": ".im-ui-action-button.action-item.action-resume" }
-        ]
+        ],
+        "text": "索要简历",
+        "exact_text": true
       },
       "state": "enabled",
       "timeout_ms": 5000,
@@ -603,6 +605,46 @@
       "state": "visible",
       "timeout_ms": 600,
       "description": "猎聘企业端联系人未读标签已选中"
+    },
+    "message.all_tab": {
+      "_comment": "在线简历关闭聊天框后，切到全部联系人重新定位已经读过的当前候选人。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "全部分段标签文字。",
+        "selectors": [
+          { "_comment": "猎聘联系人全部标签。", "type": "css", "value": ".ant-im-segmented-item-label[title='全部']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端联系人全部标签"
+    },
+    "message.all_tab_selected": {
+      "_comment": "联系人抽屉已经切到全部标签的确认状态。",
+      "parents": [
+        {
+          "_comment": "限定在当前联系人抽屉内。",
+          "selectors": [
+            { "_comment": "猎聘联系人抽屉。", "type": "css", "value": "#im-basic-contact" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "带选中状态的全部分段标签。",
+        "selectors": [
+          { "_comment": "猎聘已选中的全部标签。", "type": "css", "value": ".ant-im-segmented-item.ant-im-segmented-item-selected .ant-im-segmented-item-label[title='全部']" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘企业端联系人全部标签已选中"
     },
     "message.drawer": {
       "_comment": "推荐页右侧联系人抽屉。",
@@ -880,9 +922,9 @@
           ]
         },
         {
-          "_comment": "限定在候选人发送的简历卡片内。",
+          "_comment": "限定在最后一条候选人简历消息内，候选人重复发送简历时始终使用最新版。",
           "selectors": [
-            { "_comment": "猎聘附件简历卡片。", "type": "css", "value": ".im-ui-send-attachment-card" }
+            { "_comment": "没有更晚简历卡片的最后一条简历消息。", "type": "css", "value": ".im-ui-message-item.im-ui-message-item-wrapper:has(.im-ui-send-attachment-card):not(:has(~ .im-ui-message-item.im-ui-message-item-wrapper .im-ui-send-attachment-card))" }
           ]
         }
       ],
@@ -907,9 +949,9 @@
           ]
         },
         {
-          "_comment": "限定在候选人发送的简历卡片内。",
+          "_comment": "限定在最后一条候选人简历消息内，候选人重复发送简历时始终使用最新版。",
           "selectors": [
-            { "_comment": "猎聘附件简历卡片。", "type": "css", "value": ".im-ui-send-attachment-card" }
+            { "_comment": "没有更晚简历卡片的最后一条简历消息。", "type": "css", "value": ".im-ui-message-item.im-ui-message-item-wrapper:has(.im-ui-send-attachment-card):not(:has(~ .im-ui-message-item.im-ui-message-item-wrapper .im-ui-send-attachment-card))" }
           ]
         }
       ],

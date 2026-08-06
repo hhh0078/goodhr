@@ -86,6 +86,33 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   return parseResponse(response, "云端请求失败", Boolean(token));
 }
 
+/** cloudDownload 携带登录凭证下载云端受保护文件，并使用服务端文件名保存。 */
+export async function cloudDownload(path: string, filename: string) {
+  const token = getToken();
+  let response: Response;
+  try {
+    response = await fetch(`${CLOUD_API_BASE}${path}`, {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  } catch {
+    throw new Error("无法连接云端服务，请检查网络后重试");
+  }
+  if (!response.ok) {
+    await parseResponse(response, "简历附件下载失败", Boolean(token));
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "候选人简历";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** localRequest 统一请求本地程序接口。 */
 export async function localRequest(
   baseURL: string,
