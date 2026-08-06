@@ -334,7 +334,7 @@ func TestProcessCheckpointStopsAfterThreeScanErrors(t *testing.T) {
 	for attempt := 1; attempt <= 3; attempt++ {
 		_, err := flow.processCheckpoint(
 			context.Background(), prepared, unreadScannerStub{err: fmt.Errorf("侧边栏暂时没读到")},
-			&autoReplyRuntimeStub{}, nil, 3, stats, policy, false,
+			&autoReplyRuntimeStub{}, nil, 3, stats, policy,
 		)
 		if attempt < 3 && err != nil {
 			t.Fatalf("attempt %d error = %v", attempt, err)
@@ -345,8 +345,8 @@ func TestProcessCheckpointStopsAfterThreeScanErrors(t *testing.T) {
 	}
 }
 
-// TestProcessConversationAlwaysClosesOpenedConversation 验证消息格式报错时也会关闭已经打开的候选人会话。
-func TestProcessConversationAlwaysClosesOpenedConversation(t *testing.T) {
+// TestProcessConversationKeepsConversationOpen 验证消息格式报错时也保留自动回复侧边会话，方便批次内继续处理下一人。
+func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auto-reply/agent/candidate-state" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -364,7 +364,7 @@ func TestProcessConversationAlwaysClosesOpenedConversation(t *testing.T) {
 		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
 		Platform: model.Config{ID: "liepin"},
 	}, runtime, nil, model.Conversation{Key: "thread-1"}, stats)
-	if err == nil || runtime.closeCount != 1 {
+	if err == nil || runtime.closeCount != 0 {
 		t.Fatalf("error=%v close_count=%d", err, runtime.closeCount)
 	}
 }

@@ -23,23 +23,19 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 		if shared.GracefulStopRequested(ctx) {
 			return nil
 		}
-		status, err := f.Cloud.AutoReplyStatus(ctx, credentials(prepared), prepared.Position.ID)
-		if err != nil {
-			return fmt.Errorf("读取自动回复实时开关失败：%w", err)
-		}
-		if !status.Enabled {
-			shared.ReportProgress(f.Logger, prepared.Request.TaskID, "自动回复已经关闭，我处理完当前会话就停下来了")
-			return nil
-		}
 		positions, err := f.Cloud.AutoReplySnapshots(ctx, credentials(prepared), prepared.Platform.ID)
 		if err != nil {
 			return fmt.Errorf("读取自动回复岗位列表失败：%w", err)
 		}
 		if len(positions) == 0 {
-			return fmt.Errorf("%s暂时没有已开启自动回复的岗位", prepared.Platform.Name)
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, prepared.Platform.Name+"暂时没有已开启自动回复的岗位，我先等一小会儿")
+			if err := waitForNextCheckpoint(ctx, 3); err != nil {
+				return err
+			}
+			continue
 		}
 		limit, waitSeconds := checkpointSettings(positions, prepared.Position.ID)
-		_, err = f.processCheckpoint(ctx, prepared, runtime, replyRuntime, positions, limit, stats, errorPolicy, true)
+		_, err = f.processCheckpoint(ctx, prepared, runtime, replyRuntime, positions, limit, stats, errorPolicy)
 		if err != nil {
 			return err
 		}
@@ -51,7 +47,7 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 }
 
 // processCheckpoint 按页面顺序处理单轮最多三个未读会话。
-func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTask, scanner unreadConversationScanner, replyRuntime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, limit int, stats *shared.Stats, errorPolicy *shared.ConsecutiveErrorPolicy, stopWhenStartedPositionDisabled bool) (int, error) {
+func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTask, scanner unreadConversationScanner, replyRuntime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, limit int, stats *shared.Stats, errorPolicy *shared.ConsecutiveErrorPolicy) (int, error) {
 	conversations, err := scanner.ScanUnreadConversations(ctx, f.Browser, prepared.Platform)
 	if err != nil {
 		wrapped := fmt.Errorf("读取未读候选人列表失败：%w", err)
@@ -73,21 +69,6 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 	for _, conversation := range conversations {
 		if shared.GracefulStopRequested(ctx) {
 			return processed, nil
-		}
-		if stopWhenStartedPositionDisabled && processed > 0 {
-			status, statusErr := f.Cloud.AutoReplyStatus(ctx, credentials(prepared), prepared.Position.ID)
-			if statusErr != nil {
-				wrapped := fmt.Errorf("复核自动回复开关失败：%w", statusErr)
-				f.log(prepared.Request.TaskID, "check_auto_reply_status", "warning", time.Now(), wrapped)
-				if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
-					return processed, stopErr
-				}
-				return processed, nil
-			}
-			if !status.Enabled {
-				shared.ReportProgress(f.Logger, prepared.Request.TaskID, "自动回复已经关闭，当前会话处理完了，我先停在这里")
-				return processed, nil
-			}
 		}
 		startedAt := time.Now()
 		f.log(prepared.Request.TaskID, "process_conversation", "start", startedAt, nil)

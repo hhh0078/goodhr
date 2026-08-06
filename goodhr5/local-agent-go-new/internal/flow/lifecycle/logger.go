@@ -37,6 +37,7 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
+	l.saveAnalysisLog(taskID, status)
 	l.analysisMu.Lock()
 	now := time.Now()
 	if l.analysisTaskID == taskID && status.Kind == "auto_reply" {
@@ -137,6 +138,80 @@ func mergeAnalysisTimeline(existing []shared.AnalysisEvent, incoming shared.Anal
 		result = append([]shared.AnalysisEvent(nil), result[len(result)-20:]...)
 	}
 	return result
+}
+
+// saveAnalysisLog 把 AI 和关键词分析状态同步到用户可见的全局日志。
+func (l *TaskLogger) saveAnalysisLog(taskID string, status shared.AnalysisStatus) {
+	if l == nil || l.store == nil {
+		return
+	}
+	message := analysisLogMessage(status)
+	if message == "" {
+		return
+	}
+	level := "info"
+	stepStatus := "running"
+	if strings.EqualFold(status.Phase, "error") {
+		level = "error"
+		stepStatus = "failed"
+	} else if status.Terminal {
+		stepStatus = "success"
+	}
+	step := strings.Trim(strings.Join([]string{"analysis", status.Kind, status.Stage}, "."), ".")
+	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+		TaskID: taskID, Flow: "analysis", Step: step, Status: stepStatus, Level: level, Message: message,
+	}); err != nil {
+		log.Printf("task_id=%s flow=analysis step=save_log status=warning error=%q", taskID, err)
+	}
+}
+
+// analysisLogMessage 生成适合 HR 查看的一行中文分析记录。
+func analysisLogMessage(status shared.AnalysisStatus) string {
+	parts := make([]string, 0, 6)
+	label := analysisKindLabel(status.Kind)
+	if strings.TrimSpace(status.CandidateName) != "" {
+		parts = append(parts, label+"："+strings.TrimSpace(status.CandidateName))
+	} else {
+		parts = append(parts, label)
+	}
+	if status.Score != nil {
+		scoreText := strconv.FormatFloat(*status.Score, 'f', 1, 64)
+		if status.Threshold != nil {
+			scoreText += " / 阈值 " + strconv.FormatFloat(*status.Threshold, 'f', 1, 64)
+		}
+		parts = append(parts, "分数 "+scoreText)
+	}
+	if status.Accepted != nil {
+		if *status.Accepted {
+			parts = append(parts, "结果 通过")
+		} else {
+			parts = append(parts, "结果 未通过")
+		}
+	}
+	if len(status.MatchedKeywords) > 0 {
+		parts = append(parts, "命中 "+strings.Join(status.MatchedKeywords, "、"))
+	}
+	if len(status.MatchedExcludes) > 0 {
+		parts = append(parts, "排除 "+strings.Join(status.MatchedExcludes, "、"))
+	}
+	if strings.TrimSpace(status.Reason) != "" {
+		parts = append(parts, "原因 "+strings.TrimSpace(status.Reason))
+	}
+	return strings.Join(parts, "；")
+}
+
+// analysisKindLabel 返回分析类型的中文名称。
+func analysisKindLabel(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "ai":
+		return "AI 分析"
+	case "keyword":
+		return "关键词匹配"
+	case "auto_reply":
+		return "自动回复 AI"
+	default:
+		return "分析记录"
+	}
 }
 
 // ResetAnalysis 清空旧分析内容并把内存状态归属到当前任务。

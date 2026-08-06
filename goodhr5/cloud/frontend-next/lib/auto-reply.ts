@@ -53,35 +53,6 @@ export type PositionAutoReplyStatus = {
   allow_auto_reply: boolean;
 };
 
-export type AutoReplyToolCall = {
-  id: string;
-  sequence_no: number;
-  tool_name: string;
-  arguments_json: unknown;
-  result_json: unknown;
-  status: string;
-  error_message: string;
-  created_at: string;
-};
-
-export type AutoReplyAuditRecord = {
-  id: string;
-  trace_id: string;
-  candidate_name: string;
-  gender: string;
-  platform_id: string;
-  position_name: string;
-  model: string;
-  status: string;
-  input_messages: unknown;
-  output_message: unknown;
-  error_message: string;
-  token_usage: number;
-  started_at: string;
-  completed_at: string;
-  tool_calls: AutoReplyToolCall[];
-};
-
 export type AutoReplyConfigSuggestion = {
   id: string;
   position_id: string;
@@ -202,18 +173,6 @@ export async function loadPositionAutoReplyStatus(
   };
 }
 
-/** loadAutoReplyAudit 读取指定岗位最近的 AI 总记录。 */
-export async function loadAutoReplyAudit(positionID: string, limit = 50) {
-  const query = new URLSearchParams({
-    position_id: positionID,
-    limit: String(limit),
-  });
-  const payload = recordValue(
-    await cloudRequest(`/api/auto-reply/audit?${query.toString()}`),
-  );
-  return arrayValue(payload.records).map(normalizeAutoReplyAuditRecord);
-}
-
 /** loadAutoReplySuggestions 读取当前团队的配置修改建议。 */
 export async function loadAutoReplySuggestions(status = "pending") {
   const query = new URLSearchParams({ status, limit: "100" });
@@ -278,41 +237,6 @@ function normalizePositionAutoReplyConfig(
         content: stringValue(item.content),
         sort_order: finiteNumber(item.sort_order) || index,
         enabled: item.enabled !== false,
-      };
-    }),
-  };
-}
-
-/** normalizeAutoReplyAuditRecord 把 AI 总记录转换为页面展示类型。 */
-function normalizeAutoReplyAuditRecord(value: unknown): AutoReplyAuditRecord {
-  const source = recordValue(value);
-  const run = recordValue(source.run);
-  return {
-    id: stringValue(run.id),
-    trace_id: stringValue(run.trace_id),
-    candidate_name: stringValue(source.candidate_name),
-    gender: stringValue(source.gender),
-    platform_id: stringValue(source.platform_id),
-    position_name: stringValue(source.position_name),
-    model: stringValue(run.model),
-    status: stringValue(run.status),
-    input_messages: run.input_messages ?? {},
-    output_message: run.output_message ?? {},
-    error_message: stringValue(run.error_message),
-    token_usage: finiteNumber(run.token_usage),
-    started_at: stringValue(run.started_at),
-    completed_at: stringValue(run.completed_at),
-    tool_calls: arrayValue(source.tool_calls).map((tool) => {
-      const item = recordValue(tool);
-      return {
-        id: stringValue(item.id),
-        sequence_no: finiteNumber(item.sequence_no),
-        tool_name: stringValue(item.tool_name),
-        arguments_json: item.arguments_json ?? {},
-        result_json: item.result_json ?? {},
-        status: stringValue(item.status),
-        error_message: stringValue(item.error_message),
-        created_at: stringValue(item.created_at),
       };
     }),
   };

@@ -63,7 +63,7 @@ func (f *Flow) RunCheckpoint(ctx context.Context, prepared shared.PreparedTask, 
 	}
 	limit, _ := checkpointSettings(positions, prepared.Position.ID)
 	result.Processed, err = f.processCheckpoint(
-		ctx, prepared, runtime, replyRuntime, positions, limit, &session.stats, &session.errorPolicy, false,
+		ctx, prepared, runtime, replyRuntime, positions, limit, &session.stats, &session.errorPolicy,
 	)
 	if err != nil {
 		return result, err

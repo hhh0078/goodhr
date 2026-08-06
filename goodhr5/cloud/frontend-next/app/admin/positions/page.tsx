@@ -29,7 +29,6 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
-import AutoReplyAuditDialog from "@/components/admin/AutoReplyAuditDialog";
 import AutoReplyPositionDialog from "@/components/admin/AutoReplyPositionDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
@@ -68,8 +67,7 @@ const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
   "/assets/help/hliepin-shortcut-search-guide.png";
 const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
 const LOG_REFRESH_MS = 3000;
-const LOG_LIMIT = 100;
-const ALL_LOG_LIMIT = 1000;
+const ALL_LOG_LIMIT = 5000;
 
 /** normalizeFloatingTaskStatus 把本地任务状态转换为置顶小窗支持的明确状态。 */
 function normalizeFloatingTaskStatus(value: unknown): PositionFloatingStatusValue {
@@ -115,15 +113,15 @@ export default function PositionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [busyPositionID, setBusyPositionID] = useState("");
-  const [expandedLogPositionID, setExpandedLogPositionID] = useState("");
-  const [logs, setLogs] = useState<Record<string, any[]>>({});
   const [latestTaskStats, setLatestTaskStats] = useState<
     Record<string, PositionTaskStats>
   >({});
-  const [logLoadingPositionID, setLogLoadingPositionID] = useState("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
-  const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
+  const [globalLogOpen, setGlobalLogOpen] = useState(false);
+  const [autoReplyGlobalStatus, setAutoReplyGlobalStatus] =
+    useState<PositionFloatingStatusValue>("stopped");
+  const [autoReplyGlobalBusy, setAutoReplyGlobalBusy] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -144,8 +142,6 @@ export default function PositionsPage() {
   >({});
   const [autoReplyBusyPositionID, setAutoReplyBusyPositionID] = useState("");
   const [autoReplyConfigPosition, setAutoReplyConfigPosition] =
-    useState<{ id: string; name: string } | null>(null);
-  const [autoReplyAuditPosition, setAutoReplyAuditPosition] =
     useState<{ id: string; name: string } | null>(null);
   const shownTaskFailureIDs = useRef<Set<string>>(new Set());
   const [form, setForm] = useState<PositionForm>(createEmptyForm());
@@ -197,13 +193,37 @@ export default function PositionsPage() {
   }, [agentBase, items.map((item) => item.id).join(","), user?.email]);
 
   useEffect(() => {
-    const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
-    if (!expandedPosition || expandedPosition.status !== "running") return undefined;
+    if (!agentBase || !globalLogOpen) return undefined;
+    void loadGlobalLogs({ silent: true });
     const timer = window.setInterval(() => {
-      void loadPositionLogs(expandedPosition, { silent: true });
+      void loadGlobalLogs({ silent: true });
     }, LOG_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [agentBase, expandedLogPositionID, items]);
+  }, [agentBase, globalLogOpen]);
+  useEffect(() => {
+    if (!agentBase) {
+      setAutoReplyGlobalStatus("stopped");
+      return undefined;
+    }
+    let disposed = false;
+    async function refreshAutoReplyStatus() {
+      try {
+        const data = await localRequest(agentBase, "/api/v1/local/auto-reply/status", {
+          timeoutMS: 8000,
+        });
+        if (disposed) return;
+        setAutoReplyGlobalStatus(normalizeFloatingTaskStatus(data?.status));
+      } catch {
+        if (!disposed) setAutoReplyGlobalStatus("stopped");
+      }
+    }
+    void refreshAutoReplyStatus();
+    const timer = window.setInterval(() => void refreshAutoReplyStatus(), LOG_REFRESH_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [agentBase]);
 
   useEffect(() => {
     if (!agentBase || !floatingPositionTask?.followTask) return undefined;
@@ -378,11 +398,11 @@ export default function PositionsPage() {
     }
   }
 
-  /** openStartPosition 展开岗位日志并打开启动确认弹框。 */
+  /** openStartPosition 打开全局日志并展开岗位启动确认弹框。 */
   function openStartPosition(item: any) {
     if (!agentBase) return notify("请先启动本地程序", "warning");
-    setExpandedLogPositionID(item.id);
-    void loadPositionLogs(item);
+    setGlobalLogOpen(true);
+    void loadGlobalLogs({ silent: true });
     setStartStatus("");
     setStartError("");
     setStartOpeningPlatform(false);
@@ -548,7 +568,7 @@ export default function PositionsPage() {
       setStartPositionItem(null);
       setStartStatus("");
       setStartError("");
-      await Promise.all([load(), loadPositionLogs(item)]);
+      await Promise.all([load(), loadGlobalLogs({ silent: true })]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "岗位启动失败";
       setStartStatus(message);
@@ -570,7 +590,6 @@ export default function PositionsPage() {
   /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
   async function stopPosition(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
-    setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
@@ -592,65 +611,135 @@ export default function PositionsPage() {
     }
   }
 
-  /** togglePositionLogs 展开或收起岗位累计日志，不主动清空历史日志。 */
-  async function togglePositionLogs(item: any) {
-    if (expandedLogPositionID === item.id) {
-      setExpandedLogPositionID("");
-      return;
-    }
+  /** openGlobalLogs 打开全局日志弹框并立即刷新。 */
+  async function openGlobalLogs() {
     if (!agentBase) return notify("本地程序还没连上", "warning");
-    setExpandedLogPositionID(item.id);
-    await loadPositionLogs(item);
+    setGlobalLogOpen(true);
+    await loadGlobalLogs();
   }
 
-  /** loadPositionLogs 读取指定岗位最近的本地日志并更新卡片。 */
-  async function loadPositionLogs(item: any, options: { silent?: boolean } = {}) {
+  /** loadGlobalLogs 读取本地程序保留的全局日志。 */
+  async function loadGlobalLogs(options: { silent?: boolean } = {}) {
     if (!agentBase) return;
-    if (!options.silent) setLogLoadingPositionID(item.id);
+    if (!options.silent) setAllLogLoading(true);
     try {
-      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${LOG_LIMIT}`);
-      setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
+      const data = await localRequest(agentBase, `/api/v1/local/logs?limit=${ALL_LOG_LIMIT}`);
+      setAllLogs(data.logs || []);
       const task = data.task;
-      if (task) {
+      if (task?.position_id) {
         setLatestTaskStats((current) => ({
           ...current,
-          [item.id]: normalizePositionTaskStats(task),
+          [task.position_id]: normalizePositionTaskStats(task),
         }));
-      }
-      const taskStatus = String(task?.status || "").trim();
-      if (taskStatus) {
-        setItems((current) => {
-          let changed = false;
-          const next = current.map((position) => {
-            if (position.id !== item.id || position.status === taskStatus) return position;
-            changed = true;
-            return { ...position, status: taskStatus };
+        const taskStatus = String(task.status || "").trim();
+        if (taskStatus) {
+          setItems((current) => current.map((position) =>
+            position.id === task.position_id && position.status !== taskStatus
+              ? { ...position, status: taskStatus }
+              : position,
+          ));
+        }
+        const taskID = String(task.task_id || "").trim();
+        const errorMessage = String(task.error_message || "").trim();
+        if (
+          taskStatus === "failed" &&
+          taskID &&
+          errorMessage &&
+          !shownTaskFailureIDs.current.has(taskID)
+        ) {
+          shownTaskFailureIDs.current.add(taskID);
+          const position = items.find((item) => item.id === task.position_id);
+          setTaskFailure({
+            taskID,
+            positionName: String(position?.name || "当前任务"),
+            message: errorMessage,
           });
-          return changed ? next : current;
-        });
-        if (item.status === "running" && taskStatus !== "running") {
-          void load();
         }
       }
-      const taskID = String(task?.task_id || "").trim();
-      const errorMessage = String(task?.error_message || "").trim();
-      if (
-        taskStatus === "failed" &&
-        taskID &&
-        errorMessage &&
-        !shownTaskFailureIDs.current.has(taskID)
-      ) {
-        shownTaskFailureIDs.current.add(taskID);
-        setTaskFailure({
-          taskID,
-          positionName: String(item.name || "当前岗位"),
-          message: errorMessage,
-        });
-      }
     } catch (error) {
-      if (!options.silent) notify(error instanceof Error ? error.message : "日志读取失败", "error");
+      if (!options.silent) {
+        notify(error instanceof Error ? error.message : "全局日志读取失败", "error");
+      }
     } finally {
-      if (!options.silent) setLogLoadingPositionID("");
+      if (!options.silent) setAllLogLoading(false);
+    }
+  }
+
+  /** clearGlobalLogs 清空本地程序的全局日志和历史错误提示。 */
+  async function clearGlobalLogs() {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    const approved = await confirm(
+      "清空全局日志",
+      "公主请确认要清空本地程序全部日志吗？清完我就真的翻篇了。",
+    );
+    if (!approved) return;
+    try {
+      await localRequest(agentBase, "/api/v1/local/logs", { method: "DELETE" });
+      setAllLogs([]);
+      notify("全局日志已经清空，我的小本本重新开张。", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "日志没清空成功，我们再试一次。", "error");
+    }
+  }
+
+  /** startGlobalAutoReply 启动独立自动回复流程。 */
+  async function startGlobalAutoReply() {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    if (!autoReplyMembership) {
+      await requireAutoReplyMembership();
+      return;
+    }
+    const ownPositions = items.filter((item) => isCurrentUserPosition(item, user?.email));
+    const latestStatuses = await loadAutoReplyStatuses(ownPositions);
+    const enabledPositions = ownPositions.filter((item) => Boolean(latestStatuses[item.id]?.enabled));
+    const disabledPositions = ownPositions.filter((item) => !latestStatuses[item.id]?.enabled);
+    if (enabledPositions.length === 0) {
+      notify("还没有岗位开启自动回复，我先不乱接消息。", "warning");
+      return;
+    }
+    if (disabledPositions.length > 0) {
+      const preview = disabledPositions.slice(0, 8).map((item) => item.name).join("、");
+      const suffix = disabledPositions.length > 8 ? ` 等 ${disabledPositions.length} 个` : "";
+      const approved = await confirm(
+        "开始自动回复",
+        `我小声提醒一下：${preview}${suffix} 没有开启自动回复，这些岗位的候选人消息不会处理。继续开始吗？`,
+      );
+      if (!approved) return;
+    }
+    setGlobalLogOpen(true);
+    setAutoReplyGlobalBusy(true);
+    try {
+      await localRequest(agentBase, "/api/v1/local/auto-reply/start", {
+        method: "POST",
+        body: { token: getToken() },
+        timeoutMS: 60000,
+      });
+      setAutoReplyGlobalStatus("running");
+      notify("自动回复已开始，我会盯着未读消息。", "success");
+      await loadGlobalLogs({ silent: true });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "自动回复没有启动成功。", "error");
+    } finally {
+      setAutoReplyGlobalBusy(false);
+    }
+  }
+
+  /** stopGlobalAutoReply 请求自动回复处理完当前候选人后停止。 */
+  async function stopGlobalAutoReply() {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    setAutoReplyGlobalBusy(true);
+    try {
+      const task = await localRequest(agentBase, "/api/v1/local/auto-reply/stop", {
+        method: "POST",
+        timeoutMS: 220000,
+      });
+      setAutoReplyGlobalStatus(normalizeFloatingTaskStatus(task?.status));
+      notify("收到，自动回复处理完当前候选人就停。", "success");
+      await loadGlobalLogs({ silent: true });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "自动回复停止失败", "error");
+    } finally {
+      setAutoReplyGlobalBusy(false);
     }
   }
 
@@ -674,45 +763,10 @@ export default function PositionsPage() {
     setLatestTaskStats(next);
   }
 
-  /** clearPositionLogs 二次确认后清空指定岗位保存在本地程序中的日志。 */
-  async function clearPositionLogs(item: any) {
-    if (!agentBase) return notify("本地程序还没连上", "warning");
-    const approved = await confirm(
-      "清空岗位日志",
-      "公主请确认要清空这个岗位的全部本地日志吗？清空后我也找不回来了。",
-    );
-    if (!approved) return;
+  /** copyAllLogs 复制当前弹框中的完整全局日志。 */
+  async function copyAllLogs() {
     try {
-      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs`, {
-        method: "DELETE",
-      });
-      setLogs((current) => ({ ...current, [item.id]: [] }));
-      if (allLogPosition?.id === item.id) setAllLogs([]);
-      notify("岗位日志已经清空，我把小本本翻到新的一页了。", "success");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "日志没清空成功，我们再试一次。", "error");
-    }
-  }
-
-  /** loadAllPositionLogs 读取指定岗位保留的全部本地日志并打开弹框。 */
-  async function loadAllPositionLogs(item: any) {
-    if (!agentBase) return notify("本地程序还没连上", "warning");
-    setAllLogPosition(item);
-    setAllLogLoading(true);
-    try {
-      const data = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs?limit=${ALL_LOG_LIMIT}`);
-      setAllLogs(data.logs || []);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "全部日志读取失败", "error");
-    } finally {
-      setAllLogLoading(false);
-    }
-  }
-
-  /** copyAllPositionLogs 复制当前弹框中的完整岗位日志。 */
-  async function copyAllPositionLogs() {
-    try {
-      await navigator.clipboard.writeText(buildPositionLogText(allLogs));
+      await navigator.clipboard.writeText(buildGlobalLogText(allLogs));
       notify("全部日志已复制", "success");
     } catch {
       notify("复制失败，请手动选择日志内容", "warning");
@@ -810,14 +864,14 @@ export default function PositionsPage() {
           }
         }),
     );
-    setAutoReplyStatuses(
-      Object.fromEntries(
-        entries.filter(
-          (entry): entry is readonly [string, PositionAutoReplyStatus] =>
-            entry !== null,
-        ),
+    const nextStatuses = Object.fromEntries(
+      entries.filter(
+        (entry): entry is readonly [string, PositionAutoReplyStatus] =>
+          entry !== null,
       ),
     );
+    setAutoReplyStatuses(nextStatuses);
+    return nextStatuses;
   }
 
   /** toggleAutoReply 读取完整配置后只修改当前岗位的自动回复开关。 */
@@ -901,6 +955,38 @@ export default function PositionsPage() {
             >
               新建岗位
             </Button>
+            {autoReplyGlobalStatus === "running" ? (
+              <Button
+                color='error'
+                variant='contained'
+                startIcon={autoReplyGlobalBusy ? <CircularProgress color='inherit' size={18} /> : <StopRoundedIcon />}
+                disabled={!agentBase || autoReplyGlobalBusy}
+                onClick={() => void stopGlobalAutoReply()}
+              >
+                停止自动回复
+              </Button>
+            ) : (
+              <Button
+                color='primary'
+                variant='outlined'
+                startIcon={autoReplyGlobalBusy ? <CircularProgress color='inherit' size={18} /> : <ChatRoundedIcon />}
+                disabled={!agentBase || autoReplyGlobalBusy}
+                onClick={() => void startGlobalAutoReply()}
+              >
+                开始自动回复
+              </Button>
+            )}
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+              自动回复：{autoReplyGlobalStatus === "running" ? "运行中" : "已停止"}
+            </Typography>
+            <Button
+              variant='outlined'
+              startIcon={<HistoryRoundedIcon />}
+              disabled={!agentBase || allLogLoading}
+              onClick={() => void openGlobalLogs()}
+            >
+              日志
+            </Button>
             <RefreshButton loading={loading} onClick={() => void load()} />
           </>
         }
@@ -962,91 +1048,77 @@ export default function PositionsPage() {
                     </Typography>
                   </Box>
                   {isCurrentUserPosition(item, user?.email) ? (
-                  <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          size='small'
-                          checked={Boolean(
-                            autoReplyStatuses[item.id]?.configured_enabled,
-                          )}
-                          disabled={autoReplyBusyPositionID === item.id}
-                          onChange={(event) =>
-                            void toggleAutoReply(item, event.target.checked)
-                          }
-                        />
-                      }
-                      label='自动回复'
-                      sx={{
-                        minHeight: 36,
-                        ml: 0,
-                        mr: 0.5,
-                        "& .MuiFormControlLabel-label": {
-                          fontSize: 13,
-                          fontWeight: 650,
-                        },
-                      }}
-                    />
-                    <Button
-                      startIcon={<ChatRoundedIcon />}
-                      onClick={() =>
-                        setAutoReplyConfigPosition({
-                          id: item.id,
-                          name: item.name,
-                        })
-                      }
-                    >
-                      回复设置
-                    </Button>
-                    <Button
-                      startIcon={<HistoryRoundedIcon />}
-                      onClick={() =>
-                        setAutoReplyAuditPosition({
-                          id: item.id,
-                          name: item.name,
-                        })
-                      }
-                    >
-                      AI记录
-                    </Button>
-                    {item.status === "running" ? (
+                    <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
+                      {item.status === "running" ? (
+                        <Button
+                          color='error'
+                          variant='contained'
+                          startIcon={<StopRoundedIcon />}
+                          disabled={busyPositionID === item.id}
+                          onClick={() => void stopPosition(item)}
+                        >
+                          停止
+                        </Button>
+                      ) : (
+                        <Button
+                          color='primary'
+                          variant='contained'
+                          startIcon={<PlayArrowRoundedIcon />}
+                          disabled={busyPositionID === item.id}
+                          onClick={() => openStartPosition(item)}
+                        >
+                          开始
+                        </Button>
+                      )}
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size='small'
+                            checked={Boolean(
+                              autoReplyStatuses[item.id]?.configured_enabled,
+                            )}
+                            disabled={autoReplyBusyPositionID === item.id}
+                            onChange={(event) =>
+                              void toggleAutoReply(item, event.target.checked)
+                            }
+                          />
+                        }
+                        label='自动回复'
+                        sx={{
+                          minHeight: 36,
+                          ml: 0,
+                          mr: 0.5,
+                          "& .MuiFormControlLabel-label": {
+                            fontSize: 13,
+                            fontWeight: 650,
+                          },
+                        }}
+                      />
+                      <Button
+                        startIcon={<ChatRoundedIcon />}
+                        onClick={() =>
+                          setAutoReplyConfigPosition({
+                            id: item.id,
+                            name: item.name,
+                          })
+                        }
+                      >
+                        回复设置
+                      </Button>
+                      <Button
+                        startIcon={<EditRoundedIcon />}
+                        onClick={() => void openEdit(item)}
+                      >
+                        编辑
+                      </Button>
                       <Button
                         color='error'
-                        variant='contained'
-                        startIcon={<StopRoundedIcon />}
-                        disabled={busyPositionID === item.id}
-                        onClick={() => void stopPosition(item)}
+                        startIcon={<DeleteOutlineRoundedIcon />}
+                        onClick={() => void remove(item)}
                       >
-                        停止
+                        删除
                       </Button>
-                    ) : (
-                      <Button
-                        color='primary'
-                        variant='contained'
-                        startIcon={<PlayArrowRoundedIcon />}
-                        disabled={busyPositionID === item.id}
-                        onClick={() => openStartPosition(item)}
-                      >
-                        开始
-                      </Button>
-                    )}
-                    <Button onClick={() => void togglePositionLogs(item)}>
-                      {expandedLogPositionID === item.id ? "收起日志" : "日志"}
-                    </Button>
-                    <Button
-                      startIcon={<EditRoundedIcon />}
-                      onClick={() => void openEdit(item)}
-                    >
-                      编辑
-                    </Button>
-                    <Button
-                      color='error'
-                      startIcon={<DeleteOutlineRoundedIcon />}
-                      onClick={() => void remove(item)}
-                    >
-                      删除
-                    </Button>
-                  </Stack>
+                    </Stack>
                   ) : (
                     <Typography sx={{ color: "text.secondary", fontSize: 13, whiteSpace: "nowrap" }}>
                       团队岗位，仅查看
@@ -1062,15 +1134,6 @@ export default function PositionsPage() {
                   {latestTaskStats[item.id]?.skipped_count || 0}）
                 </> : null}
               </Typography>
-              <Collapse in={isCurrentUserPosition(item, user?.email) && expandedLogPositionID === item.id}>
-                <PositionLogPanel
-                  logs={logs[item.id] || []}
-                  loading={logLoadingPositionID === item.id}
-                  onRefresh={() => void loadPositionLogs(item)}
-                  onViewAll={() => void loadAllPositionLogs(item)}
-                  onClear={() => void clearPositionLogs(item)}
-                />
-              </Collapse>
             </Box>
           ))}
         </Stack>
@@ -1142,25 +1205,35 @@ export default function PositionsPage() {
             “{taskFailure?.positionName || "当前岗位"}”运行时遇到了问题，已经安全停止。
           </Typography>
           <Typography sx={{ mt: 0.75, lineHeight: 1.7 }}>
-            {taskFailure?.message || "错误原因已经记到岗位日志里。"}
+            {taskFailure?.message || "错误原因已经记到全局日志里。"}
           </Typography>
         </Alert>
       </AdminDialog>
       <AdminDialog
-        open={Boolean(allLogPosition)}
-        title='查看全部岗位日志'
-        description={`读取当前岗位已保留的全部日志，单次最多 ${ALL_LOG_LIMIT} 条，可复制后发给作者排查。`}
+        open={globalLogOpen}
+        title='本地运行日志'
+        description={`这里会显示本地程序最近 ${ALL_LOG_LIMIT} 条日志，AI 记录也会放在这里。`}
         confirmText='复制全部'
         cancelText='关闭'
         loading={allLogLoading}
         maxWidth='lg'
         onClose={() => {
-          setAllLogPosition(null);
-          setAllLogs([]);
+          setGlobalLogOpen(false);
         }}
-        onConfirm={() => void copyAllPositionLogs()}
+        onConfirm={() => void copyAllLogs()}
       >
-        <PositionLogList logs={allLogs} maxHeight='60vh' />
+        <Stack direction='row' spacing={1} sx={{ mb: 1, justifyContent: "flex-end" }}>
+          <Button size='small' onClick={() => void loadGlobalLogs()} disabled={allLogLoading}>
+            {allLogLoading ? "刷新中" : "刷新"}
+          </Button>
+          <Button color='error' size='small' onClick={() => void clearGlobalLogs()}>
+            清空
+          </Button>
+          <Button size='small' onClick={() => setGlobalLogOpen(false)}>
+            关闭
+          </Button>
+        </Stack>
+        <GlobalLogList logs={allLogs} maxHeight='60vh' />
       </AdminDialog>
       <AutoReplyPositionDialog
         open={Boolean(autoReplyConfigPosition)}
@@ -1174,12 +1247,6 @@ export default function PositionsPage() {
           if (!autoReplyConfigPosition) return;
           syncSavedAutoReplyStatus(autoReplyConfigPosition.id, enabled);
         }}
-      />
-      <AutoReplyAuditDialog
-        open={Boolean(autoReplyAuditPosition)}
-        position={autoReplyAuditPosition}
-        notify={notify}
-        onClose={() => setAutoReplyAuditPosition(null)}
       />
       <AdminDialog
         open={dialogOpen}
@@ -2405,62 +2472,10 @@ function isPositionStartErrorStatus(message: string) {
     .some((keyword) => String(message || "").includes(keyword));
 }
 
-/** PositionLogPanel 渲染岗位最近日志和日志操作入口。 */
-function PositionLogPanel(props: {
-  logs: any[];
-  loading: boolean;
-  onRefresh: () => void;
-  onViewAll: () => void;
-  onClear: () => void;
-}) {
-  const { logs, loading, onRefresh, onViewAll, onClear } = props;
-  return (
-    <Box
-      sx={{
-        mt: 1.5,
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "8px",
-        bgcolor: "action.hover",
-        overflow: "hidden",
-      }}
-    >
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1}
-        sx={{
-          px: 1.5,
-          py: 1,
-          alignItems: { sm: "center" },
-          justifyContent: "space-between",
-          borderBottom: "1px solid",
-          borderColor: "divider",
-        }}
-      >
-        <Stack direction='row' spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
-            本地岗位日志（最近 {LOG_LIMIT} 条）
-          </Typography>
-          <Button size='small' onClick={onViewAll}>查看全部日志</Button>
-        </Stack>
-        <Stack direction='row' spacing={0.5}>
-          <Button size='small' onClick={onRefresh} disabled={loading}>
-            {loading ? "刷新中" : "刷新"}
-          </Button>
-          <Button color='error' size='small' onClick={onClear}>
-            清空
-          </Button>
-        </Stack>
-      </Stack>
-      <PositionLogList logs={logs} maxHeight={420} />
-    </Box>
-  );
-}
-
-/** PositionLogList 按时间从新到旧展示日志，打开后优先看到最新记录。 */
-function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
+/** GlobalLogList 按时间从新到旧展示日志，打开后优先看到最新记录。 */
+function GlobalLogList(props: { logs: any[]; maxHeight: number | string }) {
   const { logs, maxHeight } = props;
-  const orderedLogs = sortPositionLogsNewestFirst(logs);
+  const orderedLogs = sortGlobalLogsNewestFirst(logs);
 
   return (
     <Stack
@@ -2468,7 +2483,7 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
       sx={{ p: 1, maxHeight, overflow: "auto" }}
     >
       {orderedLogs.length ? orderedLogs.map((item, index) => (
-        <PositionLogLine
+        <GlobalLogLine
           key={String(item.id || `${item.created_at || item.time}-${index}`)}
           item={item}
           previous={index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null}
@@ -2482,10 +2497,10 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
   );
 }
 
-/** PositionLogLine 渲染单条带中文等级和耗时的岗位日志。 */
-function PositionLogLine(props: { item: any; previous: any | null }) {
+/** GlobalLogLine 渲染单条带中文等级和耗时的全局日志。 */
+function GlobalLogLine(props: { item: any; previous: any | null }) {
   const { item, previous } = props;
-  const appearance = positionLogAppearance(item.level);
+  const appearance = globalLogAppearance(item.level);
   return (
     <Box
       sx={{
@@ -2514,8 +2529,8 @@ function PositionLogLine(props: { item: any; previous: any | null }) {
   );
 }
 
-/** sortPositionLogsNewestFirst 按时间从新到旧排列，让最新日志位于顶部。 */
-function sortPositionLogsNewestFirst(logs: any[]) {
+/** sortGlobalLogsNewestFirst 按时间从新到旧排列，让最新日志位于顶部。 */
+function sortGlobalLogsNewestFirst(logs: any[]) {
   return [...logs].sort((left, right) => positionLogTimeMs(right.created_at || right.time) - positionLogTimeMs(left.created_at || left.time));
 }
 
@@ -2547,17 +2562,17 @@ function positionLogDelta(item: any, previous: any | null) {
   return `+${Math.max(0, currentMs - previousMs)}ms`;
 }
 
-/** buildPositionLogText 构建可复制的完整岗位日志文本。 */
-function buildPositionLogText(logs: any[]) {
-  const orderedLogs = sortPositionLogsNewestFirst(logs);
+/** buildGlobalLogText 构建可复制的完整全局日志文本。 */
+function buildGlobalLogText(logs: any[]) {
+  const orderedLogs = sortGlobalLogsNewestFirst(logs);
   return orderedLogs.map((item, index) => {
     const previous = index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
-    return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level).label} ${positionLogMessage(item)}`;
+    return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${globalLogAppearance(item.level).label} ${positionLogMessage(item)}`;
   }).join("\n");
 }
 
-/** positionLogAppearance 返回岗位日志等级对应的中文分类和文字样式。 */
-function positionLogAppearance(value: unknown) {
+/** globalLogAppearance 返回全局日志等级对应的中文分类和文字样式。 */
+function globalLogAppearance(value: unknown) {
   const level = String(value || "info").trim().toLowerCase();
   if (level === "error") return { label: "错误", color: "error.main", weight: 760, error: true };
   if (level === "warning" || level === "warn") return { label: "警告", color: "warning.dark", weight: 600, error: false };

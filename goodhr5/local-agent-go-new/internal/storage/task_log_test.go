@@ -108,8 +108,8 @@ func TestCleanupExpired(t *testing.T) {
 	}
 }
 
-// TestTaskLogsKeepLatestThousand 验证每个岗位只保留最近 1000 条统一日志。
-func TestTaskLogsKeepLatestThousand(t *testing.T) {
+// TestTaskLogsKeepLatestGlobalLimit 验证本地只保留最近 5000 条统一日志。
+func TestTaskLogsKeepLatestGlobalLimit(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))
 	if err != nil {
 		t.Fatalf("打开测试数据库失败：%v", err)
@@ -122,7 +122,7 @@ func TestTaskLogsKeepLatestThousand(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("保存任务失败：%v", err)
 	}
-	for index := 0; index < maxPositionTaskLogs; index++ {
+	for index := 0; index < maxTaskLogs; index++ {
 		if _, err = store.db.Exec(
 			`INSERT INTO task_logs(task_id, position_id, message, created_at) VALUES (?, ?, ?, ?)`,
 			"task-logs", "position-logs", fmt.Sprintf("旧日志-%d", index), time.Now().UTC().Format(time.RFC3339Nano),
@@ -135,12 +135,12 @@ func TestTaskLogsKeepLatestThousand(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("保存最新岗位日志失败：%v", err)
 	}
-	logs, err := store.ListPositionLogs(ctx, "position-logs", maxPositionTaskLogs+100)
+	logs, err := store.ListTaskLogs(ctx, maxTaskLogs+100)
 	if err != nil {
 		t.Fatalf("读取岗位日志失败：%v", err)
 	}
-	if len(logs) != maxPositionTaskLogs || logs[0].Message == "旧日志-0" || logs[len(logs)-1].Message != "最新日志" {
-		t.Fatalf("岗位日志没有保留最近 1000 条：count=%d first=%s last=%s", len(logs), logs[0].Message, logs[len(logs)-1].Message)
+	if len(logs) != maxTaskLogs || logs[0].Message == "旧日志-0" || logs[len(logs)-1].Message != "最新日志" {
+		t.Fatalf("全局日志没有保留最近 5000 条：count=%d first=%s last=%s", len(logs), logs[0].Message, logs[len(logs)-1].Message)
 	}
 }
 

@@ -1,4 +1,4 @@
-// Package storage 文件作用：保存、读取和清理任务步骤日志，供本地控制台按岗位查看。
+// Package storage 文件作用：保存、读取和清理本地全局任务日志，供控制台统一查看。
 package storage
 
 import (
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const maxPositionTaskLogs = 1000
+const maxTaskLogs = 5000
 
 // TaskLog 表示一条不含敏感页面正文的本地任务日志。
 type TaskLog struct {
@@ -70,15 +70,37 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 		return TaskLog{}, fmt.Errorf("保存任务日志失败：%w", err)
 	}
 	item.ID, _ = result.LastInsertId()
-	if item.PositionID != "" {
-		if err := trimPositionTaskLogs(ctx, transaction, item.PositionID); err != nil {
-			return TaskLog{}, err
-		}
+	if err := trimTaskLogs(ctx, transaction); err != nil {
+		return TaskLog{}, err
 	}
 	if err := transaction.Commit(); err != nil {
 		return TaskLog{}, fmt.Errorf("提交任务日志失败：%w", err)
 	}
 	return item, nil
+}
+
+// ListTaskLogs 读取最近的全局本地任务日志，并按时间正序返回。
+func (s *Store) ListTaskLogs(ctx context.Context, limit int) ([]TaskLog, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > maxTaskLogs {
+		limit = maxTaskLogs
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
+		FROM (
+			SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
+			FROM task_logs
+			ORDER BY id DESC
+			LIMIT ?
+		)
+		ORDER BY id ASC`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("读取全局日志失败：%w", err)
+	}
+	defer rows.Close()
+	return scanTaskLogs(rows, "全局日志")
 }
 
 // ListPositionLogs 按岗位读取最近的本地任务日志，并按时间正序返回。
@@ -90,8 +112,8 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 	if limit <= 0 {
 		limit = 100
 	}
-	if limit > maxPositionTaskLogs {
-		limit = maxPositionTaskLogs
+	if limit > maxTaskLogs {
+		limit = maxTaskLogs
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
@@ -110,10 +132,15 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 		return nil, fmt.Errorf("读取岗位日志失败：%w", err)
 	}
 	defer rows.Close()
+	return scanTaskLogs(rows, "岗位日志")
+}
+
+// scanTaskLogs 把 SQLite 查询结果转换成任务日志数组。
+func scanTaskLogs(rows *sql.Rows, label string) ([]TaskLog, error) {
 	logs := make([]TaskLog, 0)
 	for rows.Next() {
 		var item TaskLog
-		if err = rows.Scan(
+		if err := rows.Scan(
 			&item.ID,
 			&item.TaskID,
 			&item.PositionID,
@@ -125,14 +152,36 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 			&item.DurationMS,
 			&item.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("解析岗位日志失败：%w", err)
+			return nil, fmt.Errorf("解析%s失败：%w", label, err)
 		}
 		logs = append(logs, item)
 	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历岗位日志失败：%w", err)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历%s失败：%w", label, err)
 	}
 	return logs, nil
+}
+
+// ClearTaskLogs 清空全部本地任务日志，并清理历史错误提示，避免旧错误反复弹窗。
+func (s *Store) ClearTaskLogs(ctx context.Context) error {
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("开始清空全局日志失败：%w", err)
+	}
+	defer transaction.Rollback()
+	if _, err = transaction.ExecContext(ctx, `DELETE FROM task_logs`); err != nil {
+		return fmt.Errorf("清空全局日志失败：%w", err)
+	}
+	if _, err = transaction.ExecContext(ctx, `
+		UPDATE task_runs
+		SET error_code = '', error_message = ''
+	`); err != nil {
+		return fmt.Errorf("清空历史错误失败：%w", err)
+	}
+	if err = transaction.Commit(); err != nil {
+		return fmt.Errorf("提交全局日志清理失败：%w", err)
+	}
+	return nil
 }
 
 // ClearPositionLogs 清空一个岗位的全部本地任务日志。
@@ -178,28 +227,23 @@ func (s *Store) attachTaskLogs(ctx context.Context, taskID string, positionID st
 	); err != nil {
 		return err
 	}
-	if err = trimPositionTaskLogs(ctx, transaction, positionID); err != nil {
+	if err = trimTaskLogs(ctx, transaction); err != nil {
 		return err
 	}
 	return transaction.Commit()
 }
 
-// trimPositionTaskLogs 删除岗位最早日志，只保留最近 1000 条。
-func trimPositionTaskLogs(ctx context.Context, transaction *sql.Tx, positionID string) error {
+// trimTaskLogs 删除最早日志，全局只保留最近 5000 条。
+func trimTaskLogs(ctx context.Context, transaction *sql.Tx) error {
 	_, err := transaction.ExecContext(ctx, `
 		DELETE FROM task_logs
-		WHERE position_id = ? AND id NOT IN (
+		WHERE id NOT IN (
 			SELECT id FROM task_logs
-			WHERE position_id = ?
 			ORDER BY id DESC
 			LIMIT ?
-		)`,
-		positionID,
-		positionID,
-		maxPositionTaskLogs,
-	)
+		)`, maxTaskLogs)
 	if err != nil {
-		return fmt.Errorf("裁剪岗位任务日志失败：%w", err)
+		return fmt.Errorf("裁剪全局任务日志失败：%w", err)
 	}
 	return nil
 }

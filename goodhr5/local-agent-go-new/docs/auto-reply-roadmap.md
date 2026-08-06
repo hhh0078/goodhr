@@ -170,3 +170,4 @@
 | 7 | `codex/auto-reply-scheduler-status` | `20eda204` | 已完成（`e7231a20`） | 本地 Agent `go test ./... -timeout=180s`、`go vet ./...`、前端 `npx tsc --noEmit` 和 `npm run build -- --webpack` 通过；覆盖候选人前串行检查点、单轮3会话、连续3次错误、会话统一关闭、按候选人消息去重和自动回复独立统计 |
 | 8 | `codex/auto-reply-liepin` | `b8806cd8` | 已合并（`29470edf`） | 猎聘同源IM未读、岗位、候选人ID、5000条历史、绝对时间指纹、在线简历、附件预览和下载已实现；后续企业 Profile 已完成邓云川真实同步、索要简历、发送及回读闭环，并修复入口、未读历史限流和首项滚动 |
 | 9 | `codex/auto-reply-integration` | `1d4e834d` | 已合并（`c1e3c713`） | 简历结构化、AI总记录、手机号/邮箱/微信校验与持久化已完成；云端、本地Agent、Worker、前端、干净PostgreSQL和macOS版本6打包通过，企业身份真实发送闭环仍待验证 |
+| 10 | `codex/auto-reply` | 当前提交 | 已完成 | 调整为顶部全局自动回复启动/停止；用户可见 AI 记录并入本地全局日志；自动回复批次内复用联系人侧边栏，不再每个候选人处理完就关闭；本地全量测试、`go vet`、前端类型检查和生产构建通过 |

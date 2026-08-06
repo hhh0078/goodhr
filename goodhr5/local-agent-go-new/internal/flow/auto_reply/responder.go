@@ -242,6 +242,11 @@ func (r *AIResponder) executeAuditedTool(ctx context.Context, input ReplyContext
 	if _, err := r.Cloud.SaveAutoReplyToolCall(context.WithoutCancel(ctx), input.Credentials, finished); err != nil {
 		return nil, fmt.Errorf("保存 AI 工具完成记录失败：%w", err)
 	}
+	if executeErr != nil {
+		r.report(input, "error", "tool", "AI 工具失败："+toolDisplayName(toolName)+"，"+truncateRunText(executeErr.Error(), 120), false)
+	} else {
+		r.report(input, "loading", "tool", "AI 工具完成："+toolDisplayName(toolName)+"，结果 "+truncateRunText(string(result), 160), false)
+	}
 	return result, executeErr
 }
 

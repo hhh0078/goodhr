@@ -77,7 +77,7 @@ const STATUS_PRESENTATION: Record<
   failed: {
     background: "#8f2f2f",
     label: "运行失败",
-    step: "这次没跑顺，请回岗位日志看看原因",
+    step: "这次没跑顺，请到全局日志看看原因",
   },
 };
 
