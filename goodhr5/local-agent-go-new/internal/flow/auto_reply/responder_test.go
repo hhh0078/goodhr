@@ -45,6 +45,45 @@ func TestAutoReplyToolDefinitionsAreStableAndUnique(t *testing.T) {
 	}
 }
 
+// TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries 验证固定提示词限制真人 HR 语气、本轮消息边界和内部确认项边界。
+func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
+	requiredRules := []string{
+		"你就是当前招聘岗位的 HR",
+		"based_on_message_key 对应的候选人消息是本轮唯一待回复消息",
+		"历史聊天只用于理解上下文和保持语气，不得主动补答历史消息",
+		"confirmation_items 是内部确认项",
+		"不得主动告知学历不符",
+		"没有可靠依据时禁止猜测、禁止承诺",
+		"禁止提及 GoodHR、AI、系统、工具、岗位资料或“招聘方”",
+		"通常1到3句",
+		"优先控制在120字以内，最多200字",
+	}
+	for _, rule := range requiredRules {
+		if !strings.Contains(autoReplySystemPrompt, rule) {
+			t.Fatalf("自动回复固定提示词缺少规则：%s", rule)
+		}
+	}
+}
+
+// TestPrepareMessageRejectsRepliesOverTwoHundredRunes 验证自动回复发送工具拒绝超过二百字的长消息。
+func TestPrepareMessageRejectsRepliesOverTwoHundredRunes(t *testing.T) {
+	state := &toolExecutionState{}
+	arguments, err := json.Marshal(sendMessageToolArgs{Message: strings.Repeat("招", maxAutoReplyMessageRunes+1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = state.prepareMessage(ai.ToolCall{
+		Type: "function",
+		Function: ai.ToolCallFunction{
+			Name:      toolSendMessage,
+			Arguments: string(arguments),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "不能超过200字") {
+		t.Fatalf("prepareMessage() error = %v", err)
+	}
+}
+
 // TestAIResponderRepairsArgumentsAndKeepsPromptBoundary 验证参数修正后只生成一条回复，且固定规则不混入动态岗位数据。
 func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{

@@ -126,9 +126,9 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey)
 	}
 	reply := strings.TrimSpace(decision.Reply)
-	if reply == "" || len([]rune(reply)) > 1000 {
+	if reply == "" || len([]rune(reply)) > maxAutoReplyMessageRunes {
 		stats.Failed++
-		return fmt.Errorf("AI 回复为空或超过1000字")
+		return fmt.Errorf("AI 回复为空或超过200字")
 	}
 	sent, err := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, reply, true)
 	if err != nil {

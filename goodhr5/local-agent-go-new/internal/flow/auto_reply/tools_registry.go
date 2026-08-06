@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	maxAutoReplyMessageRunes = 200
+
 	toolGetContext          = "get_context"
 	toolGetChatHistory      = "get_chat_history"
 	toolGetResume           = "get_resume"
@@ -87,7 +89,7 @@ func autoReplyToolDefinitions() []ai.ToolDefinition {
 		newToolDefinition(toolGetConfirmations, "查看候选人与当前岗位之间的结构化确认项。", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newToolDefinition(toolUpsertConfirmations, "批量新增或修改确认项，内容相同会自动去重。", `{"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","properties":{"item_type":{"type":"string","enum":["required","confirm","bonus"]},"content":{"type":"string","minLength":1,"maxLength":1000},"status":{"type":"string","enum":["pending","matched","unmatched","not_applicable","conflicted"]},"source_ref":{"type":"string","maxLength":256},"evidence_text":{"type":"string","maxLength":2000},"summary":{"type":"string","maxLength":500}},"required":["item_type","content","status"],"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`),
 		newToolDefinition(toolRequestResume, "查询固定流程是否已经索要或取得简历。", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newToolDefinition(toolSendMessage, "生成本条候选人消息唯一一条待发送回复；固定流程会在页面复核后发送。", `{"type":"object","properties":{"message":{"type":"string","minLength":1,"maxLength":1000}},"required":["message"],"additionalProperties":false}`),
+		newToolDefinition(toolSendMessage, "生成本条候选人消息唯一一条待发送回复；固定流程会在页面复核后发送。", `{"type":"object","properties":{"message":{"type":"string","minLength":1,"maxLength":200}},"required":["message"],"additionalProperties":false}`),
 		newToolDefinition(toolSuggestConfig, "提交岗位或公司资料的新增、修改或删除建议，等待 HR 审核。", `{"type":"object","properties":{"suggestion_type":{"type":"string","enum":["position","company"]},"operation":{"type":"string","enum":["create","update","delete"]},"target_id":{"type":"string","maxLength":128},"proposed_value":{"type":"object"},"reason":{"type":"string","minLength":1,"maxLength":1000}},"required":["suggestion_type","operation","proposed_value","reason"],"additionalProperties":false}`),
 		newToolDefinition(toolNotifyHR, "无法可靠回答或问题与招聘无关时，请求 HR 人工接管并邮件通知。", `{"type":"object","properties":{"reason":{"type":"string","minLength":1,"maxLength":500},"reason_key":{"type":"string","minLength":1,"maxLength":100}},"required":["reason","reason_key"],"additionalProperties":false}`),
 	}
@@ -269,8 +271,8 @@ func (s *toolExecutionState) prepareMessage(call ai.ToolCall) (json.RawMessage, 
 		return nil, err
 	}
 	message := strings.TrimSpace(args.Message)
-	if message == "" || len([]rune(message)) > 1000 {
-		return nil, argumentError("message 不能为空且不能超过1000字")
+	if message == "" || len([]rune(message)) > maxAutoReplyMessageRunes {
+		return nil, argumentError("message 不能为空且不能超过200字")
 	}
 	if s.manualReason != "" {
 		return nil, argumentError("已经选择转人工，不能同时发送消息")
