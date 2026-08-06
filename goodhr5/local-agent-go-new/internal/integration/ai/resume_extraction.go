@@ -81,14 +81,17 @@ func (c *Client) ExtractStructuredResume(ctx context.Context, cfg cloud.AIConfig
 func parseResumeExtraction(content string, input ResumeExtractionInput) (ResumeExtractionResult, error) {
 	var parsed struct {
 		cloud.StructuredCandidate
-		Gender           string `json:"gender"`
-		BirthYMPrecision string `json:"birth_ym_precision"`
-		Wechat           string `json:"wechat"`
+		WorkYears        resumeFlexibleText `json:"work_years"`
+		Gender           string             `json:"gender"`
+		BirthYMPrecision string             `json:"birth_ym_precision"`
+		Wechat           string             `json:"wechat"`
 	}
 	if err := json.Unmarshal([]byte(extractJSONObject(content)), &parsed); err != nil {
 		return ResumeExtractionResult{}, fmt.Errorf("AI 简历结构化格式不正确：%w", err)
 	}
-	candidate := sanitizeStructuredCandidate(parsed.StructuredCandidate)
+	candidate := parsed.StructuredCandidate
+	candidate.WorkYears = string(parsed.WorkYears)
+	candidate = sanitizeStructuredCandidate(candidate)
 	candidate.Wechat = truncateResumeText(parsed.Wechat, 128)
 	candidate.CandidateName = firstResumeValue(input.CandidateName, candidate.CandidateName)
 	candidate.RawText = strings.TrimSpace(input.ResumeText)
@@ -99,6 +102,38 @@ func parseResumeExtraction(content string, input ResumeExtractionInput) (ResumeE
 		Candidate: candidate, Gender: gender, BirthYMPrecision: precision,
 		Wechat: candidate.Wechat,
 	}, nil
+}
+
+// resumeFlexibleText 兼容 AI 在文本字段中偶尔返回 JSON 数字，并统一保留为字符串。
+type resumeFlexibleText string
+
+// UnmarshalJSON 接受字符串、数字或空值，其他类型继续返回明确格式错误。
+func (value *resumeFlexibleText) UnmarshalJSON(data []byte) error {
+	if value == nil {
+		return fmt.Errorf("简历文本接收位置为空")
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*value = ""
+		return nil
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var text string
+		if err := json.Unmarshal(data, &text); err != nil {
+			return err
+		}
+		*value = resumeFlexibleText(text)
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return fmt.Errorf("只接受字符串或数字：%w", err)
+	}
+	if _, err := number.Float64(); err != nil {
+		return fmt.Errorf("数字格式不正确：%w", err)
+	}
+	*value = resumeFlexibleText(number.String())
+	return nil
 }
 
 // sanitizeStructuredCandidate 清理 AI 结构化字段，并丢弃无法通过基本校验的联系方式、薪资和日期。

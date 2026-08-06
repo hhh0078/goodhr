@@ -37,9 +37,10 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	status.MatchedKeywords = append([]string(nil), status.MatchedKeywords...)
 	status.ExcludeKeywords = append([]string(nil), status.ExcludeKeywords...)
 	status.MatchedExcludes = append([]string(nil), status.MatchedExcludes...)
-	l.saveAnalysisLog(taskID, status)
 	l.analysisMu.Lock()
 	now := time.Now()
+	shouldSaveLog := l.analysisTaskID != taskID ||
+		(!sameAnalysisLogRecord(l.analysis, status) && !sameAnalysisLogRecord(l.pendingAnalysis, status))
 	if l.analysisTaskID == taskID && status.Kind == "auto_reply" {
 		base := l.analysis
 		if sameAnalysisCandidate(l.pendingAnalysis, status) {
@@ -61,6 +62,9 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 		}
 		l.pendingAnalysis = status
 		l.analysisMu.Unlock()
+		if shouldSaveLog {
+			l.saveAnalysisLog(taskID, status)
+		}
 		return
 	}
 	if l.analysisTaskID == taskID && sameAnalysisCandidate(l.analysis, status) {
@@ -73,6 +77,9 @@ func (l *TaskLogger) ReportAnalysis(taskID string, status shared.AnalysisStatus)
 	l.analysisVisibleAt = now
 	l.pendingAnalysis = shared.AnalysisStatus{}
 	l.analysisMu.Unlock()
+	if shouldSaveLog {
+		l.saveAnalysisLog(taskID, status)
+	}
 }
 
 // AnalysisStatus 返回指定任务最近一次结构化判断状态的副本。
@@ -115,6 +122,17 @@ func sameAnalysisCandidate(current shared.AnalysisStatus, incoming shared.Analys
 	return strings.TrimSpace(current.Kind) != "" &&
 		current.Kind == incoming.Kind &&
 		strings.TrimSpace(current.CandidateName) == strings.TrimSpace(incoming.CandidateName)
+}
+
+// sameAnalysisLogRecord 判断两次上报是否只是统计刷新，避免同一 AI 结果反复写入全局日志。
+func sameAnalysisLogRecord(current shared.AnalysisStatus, incoming shared.AnalysisStatus) bool {
+	return strings.TrimSpace(current.Kind) != "" &&
+		current.Kind == incoming.Kind &&
+		current.Phase == incoming.Phase &&
+		current.Stage == incoming.Stage &&
+		current.Terminal == incoming.Terminal &&
+		strings.TrimSpace(current.CandidateName) == strings.TrimSpace(incoming.CandidateName) &&
+		analysisLogMessage(current) == analysisLogMessage(incoming)
 }
 
 // mergeAnalysisTimeline 为自动回复累积最近20条状态，并过滤连续重复记录。

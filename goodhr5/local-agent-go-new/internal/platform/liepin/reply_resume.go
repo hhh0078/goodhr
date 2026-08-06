@@ -95,14 +95,7 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 		return "", nil, fmt.Errorf("清理旧下载记录失败：%w", err)
 	}
 	defer downloader.ClearDownloads(context.WithoutCancel(ctx))
-	selector, err := common.RequiredSelector(cfg, "message.resume_attachment_entry")
-	if err != nil {
-		return "", nil, err
-	}
-	if _, err = browser.Click(ctx, contract.ElementClickRequest{Selector: selector, ViewportMargin: 0}); err != nil {
-		return "", nil, fmt.Errorf("打开%s附件简历失败：%w", cfg.Name, err)
-	}
-	if err = waitLiepinAttachmentPreview(ctx, browser, cfg); err != nil {
+	if err := openLiepinAttachmentPreview(ctx, browser, cfg); err != nil {
 		return "", nil, err
 	}
 	defer common.CloseOptionalPanel(
@@ -115,7 +108,7 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 			attachmentText = strings.TrimSpace(read.Value)
 		}
 	}
-	if err = common.ClickRequired(ctx, browser, cfg, "message.attachment_download"); err != nil {
+	if err := common.ClickRequired(ctx, browser, cfg, "message.attachment_download"); err != nil {
 		return "", nil, fmt.Errorf("下载%s附件简历失败：%w", cfg.Name, err)
 	}
 	paths, err := waitLiepinDownloads(ctx, downloader)
@@ -125,23 +118,43 @@ func collectLiepinAttachment(ctx context.Context, browser model.Browser, cfg mod
 	return attachmentText, paths, nil
 }
 
-// waitLiepinAttachmentPreview 轮询确认附件预览弹框已经打开。
-func waitLiepinAttachmentPreview(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	for attempt := 1; attempt <= liepinConversationPollAttempts; attempt++ {
-		opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.attachment_preview")
-		if err != nil {
-			return err
+// openLiepinAttachmentPreview 点击附件入口并验证弹框，第一次没打开时最多重试两次。
+func openLiepinAttachmentPreview(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	entry, err := common.RequiredSelector(cfg, "message.resume_attachment_entry")
+	if err != nil {
+		return err
+	}
+	preview, err := common.RequiredSelector(cfg, "message.attachment_preview")
+	if err != nil {
+		return err
+	}
+	historyScroll, err := common.RequiredSelector(cfg, "message.history_scroll")
+	if err != nil {
+		return err
+	}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, lastErr = browser.Click(ctx, contract.ElementClickRequest{
+			Selector: entry, WheelAnchor: &historyScroll, ViewportMargin: 0,
+			Verify: &contract.ClickVerification{TargetVisible: &preview, TimeoutMS: 2500},
+		})
+		if lastErr == nil {
+			return nil
+		}
+		opened, probeErr := common.ProbeSelectorExists(ctx, browser, cfg, "message.attachment_preview")
+		if probeErr != nil {
+			return probeErr
 		}
 		if opened {
 			return nil
 		}
-		if attempt < liepinConversationPollAttempts {
+		if attempt < 3 {
 			if err = waitLiepinReplyPoll(ctx); err != nil {
 				return err
 			}
 		}
 	}
-	return fmt.Errorf("猎聘附件预览没有在 6 秒内打开")
+	return fmt.Errorf("打开%s附件简历连续尝试3次仍然失败：%w", cfg.Name, lastErr)
 }
 
 // waitLiepinDownloads 等待 Worker 下载记录全部落盘，并确认文件真实存在。

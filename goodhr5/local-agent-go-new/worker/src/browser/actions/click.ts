@@ -52,6 +52,7 @@ export class ClickAction {
       await this.scroll.ensureVisible(
         found,
         {
+          wheel_anchor: request.wheel_anchor,
           distance: 160,
           max_attempts: 24,
           viewport_margin: request.viewport_margin ?? 0,

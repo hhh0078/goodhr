@@ -54,3 +54,16 @@ func TestParseResumeExtractionSanitizesUntrustedFields(t *testing.T) {
 		t.Fatalf("原始简历没有按页面原文保存：%q", result.Candidate.RawText)
 	}
 }
+
+// TestParseResumeExtractionAcceptsNumericWorkYears 验证 AI 把工作年限返回为数字时仍会统一保存为字符串。
+func TestParseResumeExtractionAcceptsNumericWorkYears(t *testing.T) {
+	result, err := parseResumeExtraction(`{"candidate_name":"邓云川","work_years":7}`, ResumeExtractionInput{
+		CandidateName: "邓云川", ResumeText: "7年工作经验",
+	})
+	if err != nil {
+		t.Fatalf("数字工作年限不应该导致整份简历解析失败：%v", err)
+	}
+	if result.Candidate.WorkYears != "7" {
+		t.Fatalf("数字工作年限没有统一为字符串：%q", result.Candidate.WorkYears)
+	}
+}

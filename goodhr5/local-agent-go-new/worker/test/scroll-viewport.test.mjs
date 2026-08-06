@@ -213,6 +213,61 @@ test("大于视口的整页锚点不限制候选人可见区域", async () => {
   assert.equal(calls.moveToElement, 0);
 });
 
+test("目标在浏览器视口内但被内层容器裁剪时先真实滚轮再点击", async () => {
+  const target = foundElement({
+    box: { x: 760, y: 180, width: 120, height: 32 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: true,
+    fully_in_viewport: true,
+  });
+  const container = foundElement({
+    box: { x: 700, y: 300, width: 500, height: 320 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: true,
+    fully_in_viewport: true,
+  });
+  const { action, calls } = createScrollAction({
+    find: {
+      async one() {
+        return container;
+      },
+    },
+    locator: {
+      async view(_page, locator) {
+        if (locator === container.resolved.locator) {
+          return container.resolved.view;
+        }
+        return {
+          ...target.resolved.view,
+          box: { ...target.resolved.view.box, y: 340 },
+        };
+      },
+    },
+  });
+
+  await action.ensureVisible(
+    target,
+    {
+      wheel_anchor: {
+        target: { selectors: [{ type: "css", value: ".chat-scroll" }] },
+        description: "聊天历史滚动区域",
+      },
+      distance: 160,
+      max_attempts: 2,
+      require_full: true,
+    },
+    context,
+  );
+
+  assert.equal(calls.moveToElement, 1);
+  assert.equal(calls.moveToViewportCenter, 0);
+  assert.equal(calls.wheel, 1);
+});
+
 test("超高候选人卡片只需部分进入安全区域", async () => {
   const target = foundElement({
     box: { x: 100, y: 80, width: 600, height: 900 },

@@ -19,6 +19,9 @@ type liepinReplyBrowserStub struct {
 	drawerOpen       bool
 	detailOpen       bool
 	attachmentOpen   bool
+	attachmentVerify bool
+	attachmentAnchor string
+	attachmentFails  int
 	conversationOpen bool
 	downloadPath     string
 	unreadCount      int
@@ -107,8 +110,16 @@ func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.Eleme
 		b.conversationOpen = false
 	}
 	if request.Selector.Description == "测试附件入口" {
+		b.attachmentVerify = request.Verify != nil && request.Verify.TargetVisible != nil
+		if request.WheelAnchor != nil {
+			b.attachmentAnchor = request.WheelAnchor.Description
+		}
 		if !b.conversationOpen {
 			return contract.ClickResult{}, fmt.Errorf("聊天框已经关闭，附件入口不存在")
+		}
+		if b.attachmentFails > 0 {
+			b.attachmentFails--
+			return contract.ClickResult{}, fmt.Errorf("附件预览第一次没有打开")
 		}
 		b.attachmentOpen = true
 	}
@@ -174,8 +185,8 @@ func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
 	browser := &liepinReplyBrowserStub{
 		unreadCount: 1,
 		items: []contract.FindAllItem{
-			{Index: 0, Fields: map[string]string{"name": "邓云川", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
-			{Index: 1, Fields: map[string]string{"name": "旧候选人", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
+			{Index: 0, Fields: map[string]string{"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
+			{Index: 1, Fields: map[string]string{"name": "旧候选人", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
 		},
 	}
 	cfg := model.Config{
@@ -192,6 +203,30 @@ func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
 	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
 	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
 		t.Fatalf("没有按入口数字只保留最新会话：conversations=%+v err=%v", conversations, err)
+	}
+}
+
+// TestScanUnreadConversationsIgnoresHistoricalUnreadWithoutBadge 验证抽屉已打开时只处理头像上仍有数字的联系人。
+func TestScanUnreadConversationsIgnoresHistoricalUnreadWithoutBadge(t *testing.T) {
+	browser := &liepinReplyBrowserStub{
+		drawerOpen: true, unreadSelected: true,
+		items: []contract.FindAllItem{
+			{Index: 0, Fields: map[string]string{"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
+			{Index: 1, Fields: map[string]string{"name": "历史未读", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
+		},
+	}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
+		Selectors: map[string]contract.SelectorSpec{
+			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
+			"message.unread_tab":          testLiepinSelector("测试未读标签"),
+			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
+			"message.unread_item":         testLiepinSelector("测试未读联系人"),
+		},
+	}
+	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
+	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
+		t.Fatalf("没有只保留头像带数字的联系人：conversations=%+v err=%v", conversations, err)
 	}
 }
 
@@ -338,7 +373,7 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	if err := os.WriteFile(downloadPath, []byte("test resume"), 0o600); err != nil {
 		t.Fatalf("准备测试附件失败：%v", err)
 	}
-	browser := &liepinReplyBrowserStub{conversationOpen: true, downloadPath: downloadPath}
+	browser := &liepinReplyBrowserStub{conversationOpen: true, downloadPath: downloadPath, attachmentFails: 1}
 	cfg := model.Config{
 		ID: "liepin", Name: "猎聘企业端",
 		Selectors: map[string]contract.SelectorSpec{
@@ -348,6 +383,7 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 			"message.attachment_body":          testLiepinSelector("测试附件正文"),
 			"message.attachment_download":      testLiepinSelector("测试附件下载"),
 			"message.attachment_preview_close": testLiepinSelector("测试附件关闭"),
+			"message.history_scroll":           testLiepinSelector("测试聊天滚动区域"),
 			"message.resume_online_entry":      testLiepinSelector("测试在线简历入口"),
 			"candidate.detail":                 testLiepinSelector("测试在线简历浮层"),
 			"candidate.detail_close":           testLiepinSelector("测试在线简历关闭"),
@@ -362,10 +398,11 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	if len(bundle.AttachmentPaths) != 1 || bundle.AttachmentPaths[0] != downloadPath {
 		t.Fatalf("附件没有完成落盘：%v", bundle.AttachmentPaths)
 	}
-	attachmentIndex, onlineIndex := -1, -1
+	attachmentIndex, attachmentClicks, onlineIndex := -1, 0, -1
 	for index, click := range browser.clicks {
 		if click == "测试附件入口" {
 			attachmentIndex = index
+			attachmentClicks++
 		}
 		if click == "测试在线简历入口" {
 			onlineIndex = index
@@ -373,6 +410,50 @@ func TestCollectAutoReplyResumeDownloadsAttachmentBeforeOnlinePanel(t *testing.T
 	}
 	if attachmentIndex < 0 || onlineIndex < 0 || attachmentIndex >= onlineIndex {
 		t.Fatalf("简历处理顺序不正确：clicks=%v", browser.clicks)
+	}
+	if attachmentClicks != 2 || !browser.attachmentVerify || browser.attachmentAnchor != "测试聊天滚动区域" {
+		t.Fatalf("附件入口没有在滚动区内重试并验证弹框：clicks=%v verified=%t anchor=%q", browser.clicks, browser.attachmentVerify, browser.attachmentAnchor)
+	}
+}
+
+// TestLiepinAttachmentDownloadTargetsClickableAnchor 验证附件下载选择器直接点击真实链接，不误点只有样式的外层容器。
+func TestLiepinAttachmentDownloadTargetsClickableAnchor(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector, ok := cfg.Selectors["message.attachment_download"]
+	if !ok || len(selector.Target.Selectors) != 1 {
+		t.Fatalf("附件下载选择器没有准备完整：%+v", selector)
+	}
+	if value := selector.Target.Selectors[0].Value; value != ".ant-im-space-item a" {
+		t.Fatalf("附件下载没有指向可点击链接：%q", value)
+	}
+}
+
+// TestLiepinAttachmentEntryTargetsText 验证附件入口只点文字，不再随机落到整块卡片的图标或空白区域。
+func TestLiepinAttachmentEntryTargetsText(t *testing.T) {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		t.Fatalf("读取猎聘配置失败：%v", err)
+	}
+	var cfg model.Config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("解析猎聘配置失败：%v", err)
+	}
+	selector, ok := cfg.Selectors["message.resume_attachment_entry"]
+	if !ok || len(selector.Target.Selectors) != 1 {
+		t.Fatalf("附件入口选择器没有准备完整：%+v", selector)
+	}
+	if value := selector.Target.Selectors[0].Value; value != ".im-ui-send-attachment-card-info-item-content" {
+		t.Fatalf("附件入口没有缩小到文字：%q", value)
+	}
+	if selector.Target.Text != "附件简历" || selector.Target.ExactText == nil || !*selector.Target.ExactText {
+		t.Fatalf("附件入口文字约束不正确：%+v", selector.Target)
 	}
 }
 

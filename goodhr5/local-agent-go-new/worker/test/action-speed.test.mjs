@@ -79,6 +79,7 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
   const locator = {};
   const found = visibleElement(page, locator);
   let verifyTimeout;
+  let receivedWheelAnchor;
   const action = new ClickAction(
     {
       async one(selector) {
@@ -95,7 +96,11 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
         return found;
       },
     },
-    { async ensureVisible() {} },
+    {
+      async ensureVisible(_found, request) {
+        receivedWheelAnchor = request.wheel_anchor;
+      },
+    },
     { async toElement() {} },
     {
       async box() {
@@ -115,6 +120,10 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
         target: { selectors: [{ type: "css", value: ".button" }] },
         description: "关闭按钮",
       },
+      wheel_anchor: {
+        target: { selectors: [{ type: "css", value: ".scroll-area" }] },
+        description: "滚动区域",
+      },
       verify: {
         target_hidden: {
           target: { selectors: [{ type: "css", value: ".panel" }] },
@@ -128,6 +137,7 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
 
   assert.equal(result.verified, true);
   assert.equal(verifyTimeout, 0);
+  assert.equal(receivedWheelAnchor.description, "滚动区域");
 });
 
 test("九字招呼语的字符和词语拟人等待不超过两秒", async () => {

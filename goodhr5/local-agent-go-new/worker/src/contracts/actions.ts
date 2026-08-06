@@ -102,6 +102,7 @@ export interface ElementReadRequest {
 /** ElementClickRequest 表示执行完整封装点击的参数。 */
 export interface ElementClickRequest {
   selector: SelectorSpec;
+  wheel_anchor?: SelectorSpec;
   button?: "left" | "right" | "middle";
   click_count?: number;
   viewport_margin?: number;

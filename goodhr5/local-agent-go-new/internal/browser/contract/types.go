@@ -195,6 +195,7 @@ type ClickVerification struct {
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
 	Selector         SelectorSpec       `json:"selector"`
+	WheelAnchor      *SelectorSpec      `json:"wheel_anchor,omitempty"`
 	Button           string             `json:"button,omitempty"`
 	ClickCount       int                `json:"click_count,omitempty"`
 	ViewportMargin   int                `json:"viewport_margin,omitempty"`

@@ -2,12 +2,15 @@
 package lifecycle
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
@@ -15,6 +18,30 @@ func TestTaskLogMessageUsesChinese(t *testing.T) {
 	message := taskLogMessage("select_position", "failed", errors.New("没有找到岗位"))
 	if message != "选择岗位：没处理成功，没有找到岗位" {
 		t.Fatalf("中文流程日志不正确：%s", message)
+	}
+}
+
+// TestTaskLoggerDoesNotRepeatSameAnalysisLogOnStatsRefresh 验证轮询只刷新数量时不会重复写同一条 AI 终态日志。
+func TestTaskLoggerDoesNotRepeatSameAnalysisLogOnStatsRefresh(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatalf("打开测试数据库失败：%v", err)
+	}
+	defer store.Close()
+	logger := NewTaskLogger(store, nil)
+	status := shared.AnalysisStatus{
+		Kind: "auto_reply", Phase: "error", Stage: "resume_ai", Terminal: true,
+		CandidateName: "邓云川", Reason: "AI 简历结构化格式不正确",
+	}
+	logger.ReportAnalysis("task-analysis-repeat", status)
+	status.ProcessedCount = 1
+	logger.ReportAnalysis("task-analysis-repeat", status)
+	logs, err := store.ListTaskLogs(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("读取测试日志失败：%v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("同一 AI 终态被重复写入日志：count=%d logs=%+v", len(logs), logs)
 	}
 }
 

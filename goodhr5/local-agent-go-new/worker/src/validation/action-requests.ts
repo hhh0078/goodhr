@@ -221,6 +221,13 @@ export function parseElementClickRequest(
   const request: ElementClickRequest = {
     selector: parseSelectorSpec(record.selector, traceId, action),
   };
+  if (record.wheel_anchor !== undefined) {
+    request.wheel_anchor = parseSelectorSpec(
+      record.wheel_anchor,
+      traceId,
+      action,
+    );
+  }
   if (
     record.button === "left" ||
     record.button === "right" ||

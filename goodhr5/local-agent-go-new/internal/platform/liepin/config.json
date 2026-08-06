@@ -671,7 +671,7 @@
       "description": "猎聘企业端联系人姓名点击区域"
     },
     "message.unread_item": {
-      "_comment": "带红色未读数字的联系人项目。",
+      "_comment": "可能包含红色未读数字的联系人项目；扫描后还必须读取当前行可见的 unread_count 并确认大于0。",
       "parents": [
         {
           "_comment": "限定在联系人抽屉内。",
@@ -914,11 +914,12 @@
         }
       ],
       "target": {
-        "_comment": "简历卡片第二个入口为附件简历。",
+        "_comment": "只点击附件简历文字，避免随机落到整块容器里的图标或空白区域。",
         "selectors": [
-          { "_comment": "猎聘简历卡片入口。", "type": "css", "value": ".im-ui-send-attachment-card-info-item" }
+          { "_comment": "猎聘简历卡片入口文字。", "type": "css", "value": ".im-ui-send-attachment-card-info-item-content" }
         ],
-        "index": 1
+        "text": "附件简历",
+        "exact_text": true
       },
       "state": "enabled",
       "timeout_ms": 3000,
@@ -994,9 +995,9 @@
         }
       ],
       "target": {
-        "_comment": "标题栏第一个图标为下载。",
+        "_comment": "标题栏第一个图标内的链接才会真正触发浏览器下载。",
         "selectors": [
-          { "_comment": "猎聘附件预览标题栏图标。", "type": "css", "value": ".ant-im-space-item" }
+          { "_comment": "猎聘附件预览标题栏下载链接。", "type": "css", "value": ".ant-im-space-item a" }
         ],
         "index": 0
       },
@@ -1133,12 +1134,12 @@
           { "_comment": "猎聘联系人未读数字。", "type": "css", "value": ".ant-im-badge-count" }
         ]
       },
-      "state": "attached",
+      "state": "visible",
       "timeout_ms": 1000,
       "description": "猎聘企业端联系人未读数字"
     },
     "thread_meta": {
-      "_comment": "联系人行 data-tlg-ext，包含 unread 和稳定 to_imid。",
+      "_comment": "联系人行 data-tlg-ext，仅用于读取稳定 to_imid；历史 unread 属性不能作为实时未读依据。",
       "parents": [],
       "target": {
         "_comment": "当前列表项本身。",

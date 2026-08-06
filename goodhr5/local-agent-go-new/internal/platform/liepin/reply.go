@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,8 +219,14 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 		if err != nil {
 			return nil, fmt.Errorf("解析猎聘联系人会话编号失败：%w", err)
 		}
-		if unreadOnly && !meta.Unread {
-			continue
+		if unreadOnly {
+			unreadCount, countErr := parseLiepinUnreadCount(item.Fields["unread_count"])
+			if countErr != nil {
+				return nil, fmt.Errorf("解析猎聘联系人未读数字失败：%w", countErr)
+			}
+			if unreadCount <= 0 {
+				continue
+			}
 		}
 		name := strings.TrimSpace(item.Fields["name"])
 		lastMessage := strings.TrimSpace(item.Fields["last_message"])
@@ -237,11 +244,23 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 }
 
 type liepinContactMeta struct {
-	Unread   bool   `json:"unread"`
 	ThreadID string `json:"to_imid"`
 }
 
-// parseLiepinContactMeta 解码联系人 data-tlg-ext 中的未读状态和稳定会话编号。
+// parseLiepinUnreadCount 只接受联系人头像上真实可见的正整数未读数字。
+func parseLiepinUnreadCount(value string) (int, error) {
+	normalized := strings.TrimSuffix(strings.TrimSpace(value), "+")
+	if normalized == "" {
+		return 0, nil
+	}
+	count, err := strconv.Atoi(normalized)
+	if err != nil || count <= 0 {
+		return 0, fmt.Errorf("未读数字无法确认：%q", value)
+	}
+	return count, nil
+}
+
+// parseLiepinContactMeta 解码联系人 data-tlg-ext 中的稳定会话编号。
 func parseLiepinContactMeta(value string) (liepinContactMeta, error) {
 	decoded, err := url.QueryUnescape(strings.TrimSpace(value))
 	if err != nil {

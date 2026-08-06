@@ -968,17 +968,14 @@ export default function PositionsPage() {
             ) : (
               <Button
                 color='primary'
-                variant='outlined'
-                startIcon={autoReplyGlobalBusy ? <CircularProgress color='inherit' size={18} /> : <ChatRoundedIcon />}
+                variant='contained'
+                startIcon={autoReplyGlobalBusy ? <CircularProgress color='inherit' size={18} /> : <PlayArrowRoundedIcon />}
                 disabled={!agentBase || autoReplyGlobalBusy}
                 onClick={() => void startGlobalAutoReply()}
               >
                 开始自动回复
               </Button>
             )}
-            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-              自动回复：{autoReplyGlobalStatus === "running" ? "运行中" : "已停止"}
-            </Typography>
             <Button
               variant='outlined'
               startIcon={<HistoryRoundedIcon />}

@@ -3,10 +3,14 @@ package auto_reply
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,6 +90,8 @@ type autoReplyRuntimeStub struct {
 	latestBefore model.ConversationMessage
 	latestAfter  model.ConversationMessage
 	opened       model.AutoReplyConversationSnapshot
+	resumeBundle model.AutoReplyResumeBundle
+	resumeErr    error
 	sent         bool
 	sentText     string
 	closeCount   int
@@ -108,7 +114,7 @@ func (r *autoReplyRuntimeStub) RequestAutoReplyResume(context.Context, model.Bro
 
 // CollectAutoReplyResume 返回空简历结果。
 func (r *autoReplyRuntimeStub) CollectAutoReplyResume(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) (model.AutoReplyResumeBundle, error) {
-	return model.AutoReplyResumeBundle{}, nil
+	return r.resumeBundle, r.resumeErr
 }
 
 // SendAutoReplyMessage 记录实际发送的消息。
@@ -134,6 +140,22 @@ func (r *autoReplyRuntimeStub) CloseAutoReplyConversation(context.Context, model
 
 type unreadScannerStub struct {
 	err error
+}
+
+// resumeResponderStub 模拟简历结构化成功或失败，并满足自动回复处理器接口。
+type resumeResponderStub struct {
+	structured StructuredResume
+	err        error
+}
+
+// Reply 返回空决策，本测试只验证简历结构化边界。
+func (r resumeResponderStub) Reply(context.Context, ReplyContext) (ReplyDecision, error) {
+	return ReplyDecision{}, nil
+}
+
+// StructureResume 返回测试指定的结构化结果或错误。
+func (r resumeResponderStub) StructureResume(context.Context, ResumeStructureContext) (StructuredResume, error) {
+	return r.structured, r.err
 }
 
 // ScanUnreadConversations 返回检查点错误策略测试配置的固定错误。
@@ -206,6 +228,139 @@ func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
 	})
 	if actual != "附件正文甲\n\n附件正文乙" {
 		t.Fatalf("附件正文合并不正确：%q", actual)
+	}
+}
+
+// TestEnsureResumeDoesNotUploadWithoutValidatedCandidate 验证结构化失败或缺少手机号时不会拿空候选人编号上传附件。
+func TestEnsureResumeDoesNotUploadWithoutValidatedCandidate(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		http.Error(w, "不应该请求云端", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	prepared := shared.PreparedTask{
+		Request:   shared.StartRequest{TaskID: "task-resume-guard", Token: "test-token"},
+		MachineID: "test-machine",
+		Platform:  model.Config{ID: "liepin", Name: "猎聘企业端"},
+	}
+	position := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}}
+	snapshot := model.AutoReplyConversationSnapshot{CandidateName: "邓云川", ResumeCardAvailable: true}
+	conversation := cloud.AutoReplyConversation{ID: "conversation-1"}
+	runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{
+		CandidateName: "邓云川", OnlineResumeText: "7年工作经验", AttachmentPaths: []string{"/tmp/test-resume.pdf"},
+	}}
+	cases := []struct {
+		name      string
+		responder resumeResponderStub
+		wantError string
+	}{
+		{name: "结构化失败", responder: resumeResponderStub{err: fmt.Errorf("AI 返回格式不正确")}, wantError: "整理候选人正式简历失败"},
+		{name: "缺少手机号", responder: resumeResponderStub{structured: StructuredResume{Candidate: cloud.StructuredCandidate{WorkYears: "7"}}}, wantError: "没找到可用手机号"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			stats := shared.Stats{}
+			flow := &Flow{Cloud: cloud.New(server.URL), Responder: testCase.responder}
+			_, _, err := flow.ensureResume(
+				context.Background(), prepared, runtime, position, &conversation,
+				snapshot, cloud.AutoReplyCandidateState{}, "message-1", &stats,
+			)
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("没有返回真正的简历入库错误：%v", err)
+			}
+			if stats.Failed != 1 {
+				t.Fatalf("失败统计不正确：%+v", stats)
+			}
+		})
+	}
+	if requestCount != 0 {
+		t.Fatalf("候选人未通过校验时仍请求了云端：count=%d", requestCount)
+	}
+}
+
+// TestEnsureResumeDoesNotUsePlatformMessageKeyAsCloudMessageID 验证平台消息键不会误传给云端 UUID 外键。
+func TestEnsureResumeDoesNotUsePlatformMessageKeyAsCloudMessageID(t *testing.T) {
+	resumePath := filepath.Join(t.TempDir(), "resume.pdf")
+	if err := os.WriteFile(resumePath, []byte("%PDF-test-resume"), 0o600); err != nil {
+		t.Fatalf("准备测试简历失败：%v", err)
+	}
+	uploaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/auto-reply/agent/candidates":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "candidate_id": "candidate-1",
+				"platform_identity": map[string]any{"id": "identity-1"},
+			})
+		case "/api/auto-reply/agent/conversations":
+			var conversation cloud.AutoReplyConversation
+			if err := json.NewDecoder(r.Body).Decode(&conversation); err != nil {
+				t.Fatalf("读取会话请求失败：%v", err)
+			}
+			conversation.ID = "conversation-1"
+			conversation.CandidateID = "candidate-1"
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "conversation": conversation})
+		case "/api/auto-reply/agent/attachments":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatalf("读取附件请求失败：%v", err)
+			}
+			if source := r.FormValue("source_message_id"); source != "" {
+				t.Fatalf("平台消息键被误当成云端消息 UUID：%q", source)
+			}
+			if r.FormValue("candidate_id") != "candidate-1" || r.FormValue("conversation_id") != "conversation-1" {
+				t.Fatalf("附件归属不正确：candidate=%q conversation=%q", r.FormValue("candidate_id"), r.FormValue("conversation_id"))
+			}
+			file, _, err := r.FormFile("file")
+			if err != nil {
+				t.Fatalf("读取上传文件失败：%v", err)
+			}
+			defer file.Close()
+			hash := sha256.New()
+			size, err := io.Copy(hash, file)
+			if err != nil {
+				t.Fatalf("读取上传内容失败：%v", err)
+			}
+			uploaded = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "attachment": map[string]any{
+					"id": "attachment-1", "candidate_id": "candidate-1", "conversation_id": "conversation-1",
+					"sha256": hex.EncodeToString(hash.Sum(nil)), "size_bytes": size, "created_at": "2026-08-06T00:00:00Z",
+				},
+			})
+		default:
+			http.Error(w, "unexpected path", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	prepared := shared.PreparedTask{
+		Request: shared.StartRequest{TaskID: "task-resume-upload", Token: "test-token"}, MachineID: "test-machine",
+		Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
+	}
+	conversation := cloud.AutoReplyConversation{
+		ID: "temporary-conversation", PlatformID: "liepin", PlatformThreadID: "thread-1", CandidateName: "邓云川",
+	}
+	runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{
+		CandidateName: "邓云川", Phone: "17607080935", OnlineResumeText: "7年工作经验",
+		AttachmentPaths: []string{resumePath}, ResumeSourceMessageID: "platform-message-1",
+	}}
+	flow := &Flow{
+		Cloud: cloud.New(server.URL),
+		Responder: resumeResponderStub{structured: StructuredResume{Candidate: cloud.StructuredCandidate{
+			CandidateName: "邓云川", Phone: "17607080935", WorkYears: "7",
+		}}},
+	}
+	stats := shared.Stats{}
+	resume, handled, err := flow.ensureResume(
+		context.Background(), prepared, runtime,
+		cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}},
+		&conversation, model.AutoReplyConversationSnapshot{
+			CandidateName: "邓云川", ResumeCardAvailable: true, ResumeSourceMessageID: "platform-message-1",
+		}, cloud.AutoReplyCandidateState{}, "message-1", &stats,
+	)
+	if err != nil || handled || resume == nil || !uploaded {
+		t.Fatalf("简历附件没有正常保存：resume=%+v handled=%t uploaded=%t err=%v", resume, handled, uploaded, err)
 	}
 }
 

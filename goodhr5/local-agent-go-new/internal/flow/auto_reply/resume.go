@@ -80,19 +80,18 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	}
 	structured := storedStructuredCandidate(state.Candidate)
 	structuredResult := StructuredResume{}
-	structureSucceeded := true
+	var structureErr error
 	if structurer, ok := f.Responder.(ResumeStructurer); ok && strings.TrimSpace(bundle.OnlineResumeText) != "" {
 		startedAt := time.Now()
-		structuredResult, err = structurer.StructureResume(ctx, ResumeStructureContext{
+		structuredResult, structureErr = structurer.StructureResume(ctx, ResumeStructureContext{
 			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared),
 			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
 			Position: position, Conversation: *conversation, PageSnapshot: snapshot,
 			Resume: bundle, BasedOnMessageKey: basedOnMessageKey,
 		})
-		if err != nil {
-			f.log(prepared.Request.TaskID, "structure_resume", "warning", startedAt, err)
+		if structureErr != nil {
+			f.log(prepared.Request.TaskID, "structure_resume", "warning", startedAt, structureErr)
 			structuredResult = StructuredResume{}
-			structureSucceeded = false
 		}
 	}
 	mergeStructuredCandidate(&structured, structuredResult.Candidate)
@@ -115,39 +114,48 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	structured.Email = bundle.Email
 	structured.Wechat = bundle.Wechat
 	structured.RawText = bundle.OnlineResumeText
+	if structureErr != nil {
+		stats.Failed++
+		return nil, false, fmt.Errorf("整理候选人正式简历失败，本地附件已经保留：%w", structureErr)
+	}
+	if strings.TrimSpace(bundle.Phone) == "" {
+		stats.Failed++
+		return nil, false, fmt.Errorf("候选人简历里暂时没找到可用手机号，本地附件已经保留，暂时不能入库")
+	}
 	candidateID := ""
 	if state.Candidate != nil {
 		candidateID = state.Candidate.ID
 	}
-	if strings.TrimSpace(bundle.Phone) != "" && structureSucceeded {
-		result, saveErr := f.Cloud.SaveAutoReplyCandidate(ctx, credentials(prepared), cloud.AutoReplyCandidateInput{
-			StructuredCandidate: structured,
-			PositionID:          position.Position.ID, PlatformID: prepared.Platform.ID,
-			PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
-			Gender: firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
-			BasicInfo: bundle.OnlineResumeText,
-		})
-		if saveErr != nil {
-			stats.Failed++
-			return nil, false, fmt.Errorf("保存候选人正式简历失败：%w", saveErr)
-		}
-		candidateID = result.CandidateID
-		conversation.CandidateID = candidateID
-		if result.PlatformIdentity.ID != "" {
-			conversation.PlatformIdentityID = result.PlatformIdentity.ID
-		}
-		saved, saveErr := f.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), *conversation)
-		if saveErr != nil {
-			stats.Failed++
-			return nil, false, fmt.Errorf("关联正式简历和候选人会话失败：%w", saveErr)
-		}
-		*conversation = saved
+	result, saveErr := f.Cloud.SaveAutoReplyCandidate(ctx, credentials(prepared), cloud.AutoReplyCandidateInput{
+		StructuredCandidate: structured,
+		PositionID:          position.Position.ID, PlatformID: prepared.Platform.ID,
+		PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
+		Gender: firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
+		BasicInfo: bundle.OnlineResumeText,
+	})
+	if saveErr != nil {
+		stats.Failed++
+		return nil, false, fmt.Errorf("保存候选人正式简历失败：%w", saveErr)
 	}
+	candidateID = strings.TrimSpace(result.CandidateID)
+	if candidateID == "" {
+		stats.Failed++
+		return nil, false, fmt.Errorf("云端没有返回候选人编号，本地附件已经保留，暂时不能上传")
+	}
+	conversation.CandidateID = candidateID
+	if result.PlatformIdentity.ID != "" {
+		conversation.PlatformIdentityID = result.PlatformIdentity.ID
+	}
+	saved, saveErr := f.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), *conversation)
+	if saveErr != nil {
+		stats.Failed++
+		return nil, false, fmt.Errorf("关联正式简历和候选人会话失败：%w", saveErr)
+	}
+	*conversation = saved
 	for _, path := range bundle.AttachmentPaths {
 		if _, err = f.Cloud.UploadAutoReplyAttachment(ctx, credentials(prepared), cloud.AutoReplyAttachmentUpload{
 			FilePath: path, CandidateID: candidateID, ConversationID: conversation.ID,
-			SourceMessageID: firstNonEmpty(bundle.ResumeSourceMessageID, snapshot.ResumeSourceMessageID),
-			PlatformID:      prepared.Platform.ID, ExtractedText: bundle.OnlineResumeText,
+			PlatformID: prepared.Platform.ID, ExtractedText: bundle.OnlineResumeText,
 		}); err != nil {
 			stats.Failed++
 			return nil, false, fmt.Errorf("上传候选人简历附件失败：%w", err)
