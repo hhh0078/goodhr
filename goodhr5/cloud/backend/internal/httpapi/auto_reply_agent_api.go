@@ -15,6 +15,7 @@ type autoReplyCandidateRequest struct {
 	PlatformID          string                       `json:"platform_id"`
 	PlatformAccountID   string                       `json:"platform_account_id"`
 	PlatformCandidateID string                       `json:"platform_candidate_id"`
+	AvatarURL           string                       `json:"avatar_url"`
 	CandidateName       string                       `json:"candidate_name"`
 	Gender              string                       `json:"gender"`
 	BirthYM             string                       `json:"birth_ym"`
@@ -46,6 +47,7 @@ type autoReplyCandidateStateResponse struct {
 	OK                  bool                       `json:"ok"`
 	Found               bool                       `json:"found"`
 	HasResumeAttachment bool                       `json:"has_resume_attachment"`
+	RecentMessageKeys   []string                   `json:"recent_message_keys"`
 	Candidate           *PositionCandidate         `json:"candidate,omitempty"`
 	Identity            *CandidatePlatformIdentity `json:"identity,omitempty"`
 	Conversation        *AutoReplyConversation     `json:"conversation,omitempty"`
@@ -168,7 +170,9 @@ func (s *AutoReplyService) agentCandidateState(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	response := autoReplyCandidateStateResponse{OK: true, Attachments: make([]StoredResumeAttachment, 0)}
+	response := autoReplyCandidateStateResponse{
+		OK: true, Attachments: make([]StoredResumeAttachment, 0), RecentMessageKeys: make([]string, 0),
+	}
 	candidateID := ""
 	if platformCandidateID != "" {
 		identity, err := s.store.FindCandidatePlatformIdentity(r.Context(), requestContext.Tenant.ID, platformID, accountID, platformCandidateID)
@@ -213,6 +217,22 @@ func (s *AutoReplyService) agentCandidateState(w http.ResponseWriter, r *http.Re
 	conversationID := ""
 	if response.Conversation != nil {
 		conversationID = response.Conversation.ID
+	}
+	if conversationID != "" {
+		recentMessages, err := s.store.ListAutoReplyMessages(r.Context(), requestContext.Tenant.ID, conversationID, 2)
+		if err != nil {
+			writeAutoReplyStoreError(w, err, "候选人最近消息游标暂时没读出来")
+			return
+		}
+		for _, message := range recentMessages {
+			key := strings.TrimSpace(message.PlatformMessageID)
+			if key == "" {
+				key = strings.TrimSpace(message.Fingerprint)
+			}
+			if key != "" {
+				response.RecentMessageKeys = append(response.RecentMessageKeys, key)
+			}
+		}
 	}
 	if candidateID != "" || conversationID != "" {
 		attachments, err := s.store.ListResumeAttachments(r.Context(), requestContext.Tenant.ID, candidateID, conversationID)
@@ -323,10 +343,14 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		writeAutoReplyError(w, http.StatusConflict, "CANDIDATE_IDENTITY_CONFLICT", "这个候选人的平台身份和手机号对应到两份简历，我先不乱合并，请人工确认")
 		return
 	}
+	avatarURL := strings.TrimSpace(payload.AvatarURL)
+	if !strings.HasPrefix(avatarURL, "https://") && !strings.HasPrefix(avatarURL, "http://") {
+		avatarURL = ""
+	}
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
 		CandidateID: canonicalID, UserEmail: requestContext.Session.Email,
 		PlatformID: strings.TrimSpace(payload.PlatformID), PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),
-		CandidateName: strings.TrimSpace(payload.CandidateName), Gender: strings.TrimSpace(payload.Gender),
+		CandidateName: strings.TrimSpace(payload.CandidateName), AvatarURL: avatarURL, Gender: strings.TrimSpace(payload.Gender),
 		BirthYM: strings.TrimSpace(payload.BirthYM), BirthYMPrecision: strings.TrimSpace(payload.BirthYMPrecision),
 		NormalizedPhone: normalizedPhone, Phone: strings.TrimSpace(payload.Phone),
 		Email: strings.TrimSpace(payload.Email), Wechat: strings.TrimSpace(payload.Wechat),

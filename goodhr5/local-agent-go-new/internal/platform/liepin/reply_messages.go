@@ -17,8 +17,8 @@ import (
 
 const liepinHistoryStableReadAttempts = 3
 
-// readLiepinConversationHistory 用真实滚轮向上加载聊天，遇到已同步游标、历史顶部或5000条上限时停止。
-func readLiepinConversationHistory(ctx context.Context, browser model.Browser, cfg model.Config, knownLastMessageKey string, maxHistory int) ([]model.ConversationMessage, bool, error) {
+// readLiepinConversationHistory 用真实滚轮向上加载聊天，遇到最近两条已同步消息、历史顶部或5000条上限时停止。
+func readLiepinConversationHistory(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) ([]model.ConversationMessage, bool, error) {
 	if maxHistory <= 0 || maxHistory > 5000 {
 		maxHistory = 5000
 	}
@@ -36,8 +36,8 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 		if len(messages) == 0 {
 			return nil, false, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
 		}
-		if knownLastMessageKey != "" && liepinMessageKeyExists(messages, knownLastMessageKey) {
-			return messages, false, nil
+		if boundary := liepinKnownMessageBoundary(messages, knownMessageKeys); boundary >= 0 {
+			return messages[boundary+1:], false, nil
 		}
 		if len(messages) >= maxHistory {
 			return messages[len(messages)-maxHistory:], false, nil
@@ -149,15 +149,30 @@ func liepinResumeCard(messages []model.ConversationMessage) (bool, string) {
 	return false, ""
 }
 
-// liepinMessageKeyExists 判断已加载聊天中是否包含云端差量游标。
-func liepinMessageKeyExists(messages []model.ConversationMessage, expected string) bool {
-	expected = strings.TrimSpace(expected)
-	for _, message := range messages {
-		if expected == firstLiepinValue(message.PlatformMessageID, message.Key) {
-			return true
+// liepinKnownMessageBoundary 按顺序匹配云端最近两条消息，并返回已知消息边界的最后序号。
+func liepinKnownMessageBoundary(messages []model.ConversationMessage, knownMessageKeys []string) int {
+	known := make([]string, 0, len(knownMessageKeys))
+	for _, key := range knownMessageKeys {
+		if key = strings.TrimSpace(key); key != "" {
+			known = append(known, key)
 		}
 	}
-	return false
+	if len(known) == 0 || len(messages) < len(known) {
+		return -1
+	}
+	for start := len(messages) - len(known); start >= 0; start-- {
+		matched := true
+		for offset, expected := range known {
+			if expected != firstLiepinValue(messages[start+offset].PlatformMessageID, messages[start+offset].Key) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return start + len(known) - 1
+		}
+	}
+	return -1
 }
 
 // readLiepinGender 只在当前聊天框内识别男女图标，同时出现或都未出现时返回空值。

@@ -21,6 +21,7 @@ type PositionCandidate struct {
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	AvatarURL           string
 	Gender              string
 	BirthYM             string
 	BirthYMPrecision    string
@@ -71,6 +72,7 @@ type CandidateProfileInput struct {
 	PlatformID          string
 	PlatformCandidateID string
 	CandidateName       string
+	AvatarURL           string
 	Gender              string
 	BirthYM             string
 	BirthYMPrecision    string
@@ -161,7 +163,14 @@ type CandidateStore interface {
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
-	DeleteTeamCandidates(tenantID string) (int, error)
+	DeleteCandidate(tenantID string, candidateID string) (CandidateDeleteResult, error)
+	DeleteTeamCandidates(tenantID string) (CandidateDeleteResult, error)
+}
+
+// CandidateDeleteResult 表示候选人删除数量和需要清理的附件相对路径。
+type CandidateDeleteResult struct {
+	Deleted         int
+	AttachmentPaths []string
 }
 
 // PositionCandidateQuery 表示候选人列表查询条件。
@@ -227,6 +236,7 @@ func (s *MemoryCandidateStore) SaveCandidateProfile(item CandidateProfileInput) 
 		PlatformID:          item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID,
 		CandidateName:       item.CandidateName,
+		AvatarURL:           item.AvatarURL,
 		Gender:              item.Gender,
 		BirthYM:             item.BirthYM,
 		BirthYMPrecision:    item.BirthYMPrecision,
@@ -401,9 +411,28 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	return item, nil
 }
 
+// DeleteCandidate 删除单个内存候选人及其触达和事件记录。
+// tenantID 为团队 ID，candidateID 为候选人 ID；内存实现没有附件文件。
+func (s *MemoryCandidateStore) DeleteCandidate(tenantID string, candidateID string) (CandidateDeleteResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.profiles[candidateID]; !ok {
+		return CandidateDeleteResult{}, ErrNotFound
+	}
+	delete(s.profiles, candidateID)
+	delete(s.events, candidateID)
+	for engagementID, engagement := range s.engagements {
+		if engagement.CandidateID == candidateID {
+			delete(s.engagements, engagementID)
+		}
+	}
+	return CandidateDeleteResult{Deleted: 1, AttachmentPaths: []string{}}, nil
+}
+
 // DeleteTeamCandidates 清空团队候选人数据。
 // tenantID 为团队 ID，内存实现会清空全部候选人、触达和事件记录。
-func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
+func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (CandidateDeleteResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -411,7 +440,7 @@ func (s *MemoryCandidateStore) DeleteTeamCandidates(tenantID string) (int, error
 	s.profiles = map[string]PositionCandidate{}
 	s.engagements = map[string]CandidateEngagement{}
 	s.events = map[string][]CandidateEvent{}
-	return deleted, nil
+	return CandidateDeleteResult{Deleted: deleted, AttachmentPaths: []string{}}, nil
 }
 
 // normalizeCandidatePage 规范候选人分页参数。

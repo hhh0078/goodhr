@@ -28,11 +28,8 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
 	}
-	knownLastMessageKey := ""
-	if initialState.Conversation != nil && initialState.HasResumeAttachment {
-		knownLastMessageKey = initialState.Conversation.LastSyncedMessageKey
-	}
-	pageSnapshot, err := runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownLastMessageKey, cloud.AutoReplyMaxHistoryMessages)
+	knownMessageKeys := knownMessageKeysFromState(initialState)
+	pageSnapshot, err := runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages)
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("打开并读取候选人会话失败：%w", err)
@@ -42,6 +39,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	if err != nil {
 		stats.Failed++
 		return err
+	}
+	if len(messages) == 0 {
+		stats.Skipped++
+		return nil
 	}
 	position, positionErr := resolvePosition(positions, pageSnapshot.CommunicationPosition)
 	state := initialState
@@ -105,53 +106,149 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("自动回复 AI 处理器没有准备完整")
 	}
-	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
-		Reason: "AI 正在认真看消息", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	decision, err := f.Responder.Reply(ctx, ReplyContext{
-		TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
-		AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
-		Conversation: cloudConversation, CandidateState: state, Messages: messages,
-		ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
-		BasedOnMessageKey: latestCandidateKey,
-	})
-	if err != nil {
-		stats.Failed++
-		return fmt.Errorf("AI 自动回复判断失败：%w", err)
-	}
-	if strings.TrimSpace(decision.ManualReason) != "" {
-		stats.Skipped++
-		reasonKey := firstNonEmpty(decision.ReasonKey, "ai_manual_handoff")
-		return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey)
-	}
-	reply := strings.TrimSpace(decision.Reply)
-	if reply == "" || len([]rune(reply)) > maxAutoReplyMessageRunes {
-		stats.Failed++
-		return fmt.Errorf("AI 回复为空或超过200字")
-	}
-	sent, err := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, reply, true)
-	if err != nil {
-		stats.Failed++
-		return err
-	}
-	if !sent {
-		stats.Skipped++
+	for refreshes := 0; ; refreshes++ {
+		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
+			Kind: "auto_reply", Phase: "loading", Stage: "ai", CandidateName: pageSnapshot.CandidateName,
+			Reason: "AI 正在认真看消息", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		decision, changed, replyErr := f.replyWhileMonitoring(ctx, prepared, runtime, pageSnapshot, ReplyContext{
+			TaskID: prepared.Request.TaskID, Credentials: credentials(prepared), Position: position,
+			AIConfig: prepared.Position.AI, EnableThinking: prepared.Position.EnableThinking,
+			Conversation: cloudConversation, CandidateState: state, Messages: messages,
+			ConfirmationItems: confirmations, PageSnapshot: pageSnapshot, Resume: resume,
+			BasedOnMessageKey: latestCandidateKey,
+		})
+		if replyErr != nil {
+			stats.Failed++
+			return fmt.Errorf("AI 自动回复判断失败：%w", replyErr)
+		}
+		if !changed {
+			unchanged, checkErr := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, pageSnapshot, latestCandidateKey)
+			if checkErr != nil {
+				stats.Failed++
+				return checkErr
+			}
+			changed = !unchanged
+		}
+		if changed {
+			f.reportChangedMessage(prepared.Request.TaskID, pageSnapshot.CandidateName)
+			if refreshes >= maxAutoReplyMessageRefreshes {
+				stats.Skipped++
+				return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot,
+					"候选人连续发来新消息，我没敢抢着插话，请人工看一下", "candidate_message_keeps_changing", latestCandidateKey)
+			}
+			pageMessages, historyComplete, readErr := runtime.ReadAutoReplyMessages(
+				ctx, f.Browser, prepared.Platform, pageSnapshot, recentAutoReplyMessageKeys(messages), cloud.AutoReplyMaxHistoryMessages,
+			)
+			if readErr != nil {
+				stats.Failed++
+				return fmt.Errorf("候选人发来新消息后差量读取失败：%w", readErr)
+			}
+			pageSnapshot.Messages = pageMessages
+			pageSnapshot.HistoryComplete = historyComplete
+			delta, nextCandidateKey, convertErr := convertMessages(pageMessages)
+			if convertErr != nil {
+				stats.Failed++
+				return convertErr
+			}
+			if len(delta) == 0 {
+				stats.Skipped++
+				return nil
+			}
+			if _, syncErr := f.Cloud.SyncAutoReplyMessages(ctx, credentials(prepared), cloud.AutoReplyMessageSyncRequest{
+				ConversationID: cloudConversation.ID, HistoryComplete: historyComplete, Messages: delta,
+			}); syncErr != nil {
+				stats.Failed++
+				return fmt.Errorf("同步候选人新消息失败：%w", syncErr)
+			}
+			if nextCandidateKey == "" {
+				stats.Skipped++
+				return nil
+			}
+			messages, err = f.Cloud.AutoReplyMessages(ctx, credentials(prepared), cloudConversation.ID)
+			if err != nil {
+				stats.Failed++
+				return fmt.Errorf("刷新完整聊天记录失败：%w", err)
+			}
+			confirmations, err = f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
+			if err != nil {
+				stats.Failed++
+				return fmt.Errorf("刷新候选人确认项失败：%w", err)
+			}
+			latestCandidateKey = nextCandidateKey
+			continue
+		}
+		if strings.TrimSpace(decision.ManualReason) != "" {
+			stats.Skipped++
+			reasonKey := firstNonEmpty(decision.ReasonKey, "ai_manual_handoff")
+			return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey)
+		}
+		reply := strings.TrimSpace(decision.Reply)
+		if reply == "" || len([]rune(reply)) > maxAutoReplyMessageRunes {
+			stats.Failed++
+			return fmt.Errorf("AI 回复为空或超过200字")
+		}
+		sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, reply, false)
+		if sendErr != nil {
+			stats.Failed++
+			return sendErr
+		}
+		if !sent {
+			stats.Skipped++
+			return nil
+		}
+		stats.Succeeded++
+		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
+			Kind: "auto_reply", Phase: "result", Stage: "sent", Terminal: true,
+			CandidateName: pageSnapshot.CandidateName, Accepted: boolPointer(true),
+			Reason: "候选人消息已经回复", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		})
 		return nil
 	}
-	stats.Succeeded++
-	shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
-		Kind: "auto_reply", Phase: "result", Stage: "sent", Terminal: true,
-		CandidateName: pageSnapshot.CandidateName, Accepted: boolPointer(true),
-		Reason: "候选人消息已经回复", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	return nil
+}
+
+// knownMessageKeysFromState 返回云端最近两条消息游标，并兼容只返回最后一条游标的旧服务端。
+func knownMessageKeysFromState(state cloud.AutoReplyCandidateState) []string {
+	keys := cleanMessageKeys(state.RecentMessageKeys)
+	if len(keys) == 0 && state.Conversation != nil {
+		keys = cleanMessageKeys([]string{state.Conversation.LastSyncedMessageKey})
+	}
+	return keys
+}
+
+// recentAutoReplyMessageKeys 返回聊天记录最后两条可用的稳定消息编号。
+func recentAutoReplyMessageKeys(messages []cloud.AutoReplyMessage) []string {
+	start := len(messages) - 2
+	if start < 0 {
+		start = 0
+	}
+	keys := make([]string, 0, 2)
+	for _, message := range messages[start:] {
+		keys = append(keys, firstNonEmpty(message.PlatformMessageID, message.Fingerprint))
+	}
+	return cleanMessageKeys(keys)
+}
+
+// cleanMessageKeys 清理空白消息编号并只保留最后两条。
+func cleanMessageKeys(values []string) []string {
+	result := make([]string, 0, 2)
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			value = strings.TrimPrefix(strings.TrimPrefix(value, "id:"), "fp:")
+			result = append(result, value)
+		}
+	}
+	if len(result) > 2 {
+		result = result[len(result)-2:]
+	}
+	return result
 }
 
 // normalizePageSnapshot 用未读列表字段补齐打开会话后可能为空的身份字段。
 func normalizePageSnapshot(conversation model.Conversation, snapshot model.AutoReplyConversationSnapshot) model.AutoReplyConversationSnapshot {
 	snapshot.Conversation = conversation
 	snapshot.CandidateName = firstNonEmpty(snapshot.CandidateName, conversation.Name)
+	snapshot.AvatarURL = firstNonEmpty(snapshot.AvatarURL, conversation.AvatarURL)
 	snapshot.Gender = firstNonEmpty(snapshot.Gender, conversation.Gender)
 	snapshot.PlatformThreadID = firstNonEmpty(snapshot.PlatformThreadID, conversation.PlatformThreadID, conversation.Key)
 	snapshot.PlatformCandidateID = firstNonEmpty(snapshot.PlatformCandidateID, conversation.PlatformCandidateID)
@@ -237,6 +334,8 @@ func convertMessages(items []model.ConversationMessage) ([]cloud.AutoReplyMessag
 		result = append(result, message)
 		if direction == "candidate" {
 			latestCandidateKey = firstNonEmpty(message.PlatformMessageID, message.Fingerprint)
+		} else if direction == "self" {
+			latestCandidateKey = ""
 		}
 	}
 	return result, latestCandidateKey, nil

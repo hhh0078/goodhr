@@ -92,7 +92,8 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 		auth, autoReplyStore, tenantStore, positionStore, accountStore, candidateStore,
 		subscriptionStore, systemConfigStore, agentStore, mailer, NewMemoryAIConfigStore(), resumeDir,
 	)
-	routes := autoReplyRoutesForTest(service)
+	candidateService := NewCandidateService(auth, candidateStore, tenantStore, autoReplyStore, resumeDir)
+	routes := autoReplyRoutesForTest(service, candidateService)
 	tenant, err := tenantStore.GetOrCreateTenant(email)
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +210,7 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 
 	candidateResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodPost, "/api/auto-reply/agent/candidates", map[string]any{
 		"position_id": position.ID, "platform_id": "liepin", "platform_account_id": account.ID,
-		"platform_candidate_id": "candidate-" + suffix, "candidate_name": "李女士", "gender": "女",
+		"platform_candidate_id": "candidate-" + suffix, "candidate_name": "李女士", "avatar_url": "https://image.example.com/liepin-avatar.png", "gender": "女",
 		"birth_ym": "1995", "birth_ym_precision": "year_estimated", "phone": "+86 176-0708-0935",
 		"wechat":          "candidate_wechat",
 		"education_level": "本科", "work_experiences": []any{}, "educations": []any{},
@@ -223,12 +224,12 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 		Identity    CandidatePlatformIdentity `json:"platform_identity"`
 	}
 	decodeAutoReplyResponseForTest(t, candidateResponse, &candidatePayload)
-	var savedGender, savedBirthPrecision, savedPhone, savedWechat string
-	if err = db.QueryRow(`SELECT gender, birth_ym_precision, normalized_phone, wechat FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenant.ID, candidatePayload.CandidateID).Scan(&savedGender, &savedBirthPrecision, &savedPhone, &savedWechat); err != nil {
+	var savedGender, savedBirthPrecision, savedPhone, savedWechat, savedAvatarURL string
+	if err = db.QueryRow(`SELECT gender, birth_ym_precision, normalized_phone, wechat, avatar_url FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenant.ID, candidatePayload.CandidateID).Scan(&savedGender, &savedBirthPrecision, &savedPhone, &savedWechat, &savedAvatarURL); err != nil {
 		t.Fatal(err)
 	}
-	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" || savedWechat != "candidate_wechat" {
-		t.Fatalf("candidate normalized fields gender=%s precision=%s phone=%s wechat=%s", savedGender, savedBirthPrecision, savedPhone, savedWechat)
+	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" || savedWechat != "candidate_wechat" || savedAvatarURL != "https://image.example.com/liepin-avatar.png" {
+		t.Fatalf("candidate normalized fields gender=%s precision=%s phone=%s wechat=%s avatar=%s", savedGender, savedBirthPrecision, savedPhone, savedWechat, savedAvatarURL)
 	}
 	identityConflictResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodPost, "/api/auto-reply/agent/candidates", map[string]any{
 		"position_id": position.ID, "platform_id": "liepin", "platform_account_id": account.ID,
@@ -283,6 +284,7 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 	candidateStateResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodGet, candidateStatePath, nil)
 	if candidateStateResponse.Code != http.StatusOK || !strings.Contains(candidateStateResponse.Body.String(), `"found":true`) ||
 		!strings.Contains(candidateStateResponse.Body.String(), `"has_resume_attachment":true`) ||
+		!strings.Contains(candidateStateResponse.Body.String(), `"recent_message_keys":["message-`+suffix+`"]`) ||
 		!strings.Contains(candidateStateResponse.Body.String(), candidatePayload.CandidateID) {
 		t.Fatalf("candidate state status=%d body=%s", candidateStateResponse.Code, candidateStateResponse.Body.String())
 	}
@@ -357,10 +359,46 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 	if !strings.Contains(mailer.Calls[0].Plain, position.Name) || !strings.Contains(mailer.Calls[0].Plain, "李女士") || !strings.Contains(mailer.Calls[0].Plain, "薪资是多少") {
 		t.Fatalf("notification plain=%s", mailer.Calls[0].Plain)
 	}
+	attachmentPath, err := autoReplyResumeStoragePath(resumeDir, attachmentPayload.Attachment.StoragePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(attachmentPath); err != nil {
+		t.Fatalf("attachment should exist before candidate deletion: %v", err)
+	}
+	deleteResponse := autoReplyJSONRequestForTest(t, routes, token, "", http.MethodDelete, "/api/candidates/"+candidatePayload.CandidateID, nil)
+	if deleteResponse.Code != http.StatusOK || !strings.Contains(deleteResponse.Body.String(), `"deleted":1`) {
+		t.Fatalf("delete candidate status=%d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	if _, err = os.Stat(attachmentPath); !os.IsNotExist(err) {
+		t.Fatalf("attachment should be removed after candidate deletion: %v", err)
+	}
+	var profileCount, conversationCount, attachmentCount, messageCount int
+	var aiRunCount, toolCallCount, suggestionCount, notificationCount int
+	if err = db.QueryRow(`
+		SELECT
+			(SELECT COUNT(*) FROM candidate_profiles WHERE id=$1),
+			(SELECT COUNT(*) FROM candidate_conversations WHERE id=$2),
+			(SELECT COUNT(*) FROM candidate_resume_attachments WHERE id=$3),
+			(SELECT COUNT(*) FROM candidate_messages WHERE conversation_id=$2),
+			(SELECT COUNT(*) FROM auto_reply_ai_runs WHERE id=$4),
+			(SELECT COUNT(*) FROM auto_reply_tool_calls WHERE ai_run_id=$4),
+			(SELECT COUNT(*) FROM auto_reply_config_suggestions WHERE id=$5),
+			(SELECT COUNT(*) FROM auto_reply_notifications WHERE conversation_id=$2)
+	`, candidatePayload.CandidateID, conversationPayload.Conversation.ID, attachmentPayload.Attachment.ID, aiPayload.Run.ID, suggestionPayload.Suggestion.ID).Scan(
+		&profileCount, &conversationCount, &attachmentCount, &messageCount,
+		&aiRunCount, &toolCallCount, &suggestionCount, &notificationCount,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if profileCount+conversationCount+attachmentCount+messageCount+aiRunCount+toolCallCount+suggestionCount+notificationCount != 0 {
+		t.Fatalf("candidate related rows remain profile=%d conversation=%d attachment=%d message=%d ai=%d tool=%d suggestion=%d notification=%d",
+			profileCount, conversationCount, attachmentCount, messageCount, aiRunCount, toolCallCount, suggestionCount, notificationCount)
+	}
 }
 
 // autoReplyRoutesForTest 注册自动回复集成测试需要的 HTTP 路由。
-func autoReplyRoutesForTest(service *AutoReplyService) http.Handler {
+func autoReplyRoutesForTest(service *AutoReplyService, candidates *CandidateService) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auto-reply/company-profiles", service.CompanyProfiles)
 	mux.HandleFunc("/api/auto-reply/company-profiles/", service.CompanyProfile)
@@ -370,6 +408,7 @@ func autoReplyRoutesForTest(service *AutoReplyService) http.Handler {
 	mux.HandleFunc("/api/auto-reply/audit", service.Audit)
 	mux.HandleFunc("/api/auto-reply/suggestions", service.Suggestions)
 	mux.HandleFunc("/api/auto-reply/suggestions/", service.Suggestion)
+	mux.HandleFunc("/api/candidates/", candidates.Detail)
 	return mux
 }
 

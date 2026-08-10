@@ -6,24 +6,32 @@ import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import AttachFileRoundedIcon from "@mui/icons-material/AttachFileRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
 import LocationOnRoundedIcon from "@mui/icons-material/LocationOnRounded";
 import PsychologyRoundedIcon from "@mui/icons-material/PsychologyRounded";
-import { Accordion, AccordionDetails, AccordionSummary, Avatar, Box, Button, Chip, Stack, Typography } from "@mui/material";
+import { Accordion, AccordionDetails, AccordionSummary, Avatar, Box, Button, Chip, CircularProgress, Stack, Typography } from "@mui/material";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import JsonTree from "@/components/admin/JsonTree";
+import AdminDialog from "@/components/admin/AdminDialog";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudDownload, cloudRequest, formatDate } from "@/lib/admin-api";
-import { experienceLine, normalizeCandidate, periodText, scoreText, statusText, type CandidateAIRecord, type CandidateAutoReplyDetail, type CandidateConversation, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
+import { experienceLine, normalizeCandidate, normalizeCandidateAutoReply, periodText, scoreText, statusText, type CandidateAIRecord, type CandidateAutoReplyDetail, type CandidateConversation, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
+
+type AutoReplySection = "attachments" | "conversations" | "confirmations" | "ai_records";
 
 /** ResumeDetailPage 展示候选人基本信息、经历和分析结果。 */
 export default function ResumeDetailPage() {
   const params = useSearchParams();
   const { notify } = useAdmin();
   const [rawCandidate, setRawCandidate] = useState<any>(null);
+  const [autoReply, setAutoReply] = useState<CandidateAutoReplyDetail>(() => emptyAutoReplyDetail());
+  const [autoReplySection, setAutoReplySection] = useState<AutoReplySection | null>(null);
+  const [autoReplyLoading, setAutoReplyLoading] = useState<AutoReplySection | null>(null);
+  const [autoReplyLoaded, setAutoReplyLoaded] = useState<Partial<Record<AutoReplySection, boolean>>>({});
   const candidateID = params.get("candidate_id") || "";
   const engagementID = params.get("engagement_id") || "";
   const candidate = useMemo(() => rawCandidate ? normalizeCandidate(rawCandidate) : null, [rawCandidate]);
@@ -35,9 +43,37 @@ export default function ResumeDetailPage() {
 
   useEffect(() => {
     if (!candidateID) return;
+    setAutoReply(emptyAutoReplyDetail());
+    setAutoReplySection(null);
+    setAutoReplyLoading(null);
+    setAutoReplyLoaded({});
     const query = engagementID ? `?engagement_id=${encodeURIComponent(engagementID)}` : "";
     cloudRequest(`/api/candidates/${encodeURIComponent(candidateID)}${query}`).then((data) => setRawCandidate(data.candidate || data)).catch((error) => notify(error.message, "error"));
   }, [candidateID, engagementID, notify]);
+
+  /** openAutoReplySection 打开一个关联资料弹框，并在首次打开时单独加载该区块。 */
+  async function openAutoReplySection(section: AutoReplySection) {
+    setAutoReplySection(section);
+    if (autoReplyLoaded[section] || autoReplyLoading === section) return;
+    setAutoReplyLoading(section);
+    try {
+      const query = new URLSearchParams({ section });
+      if (engagementID) query.set("engagement_id", engagementID);
+      const data = await cloudRequest(`/api/candidates/${encodeURIComponent(candidateID)}/auto-reply?${query}`);
+      const loaded = normalizeCandidateAutoReply(data.auto_reply);
+      setAutoReply((current) => ({
+        attachments: section === "attachments" ? loaded.attachments : current.attachments,
+        conversations: section === "conversations" ? loaded.conversations : current.conversations,
+        confirmationItems: section === "confirmations" ? loaded.confirmationItems : current.confirmationItems,
+        aiRecords: section === "ai_records" ? loaded.aiRecords : current.aiRecords,
+      }));
+      setAutoReplyLoaded((current) => ({ ...current, [section]: true }));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "候选人关联资料没读出来", "error");
+    } finally {
+      setAutoReplyLoading(null);
+    }
+  }
 
   if (!candidateID) return <SectionPanel><Typography color="error">缺少候选人 ID</Typography></SectionPanel>;
   if (!candidate) return <SectionPanel><Typography color="text.secondary">正在读取简历详情...</Typography></SectionPanel>;
@@ -55,7 +91,6 @@ export default function ResumeDetailPage() {
               {candidate.wechat ? <Typography>微信：{candidate.wechat}</Typography> : null}
             </Stack>
           </ResumeSection> : null}
-          <AutoReplySections detail={candidate.autoReply} onDownload={downloadAttachment} />
           <ResumeSection title="求职意向">
             <Typography>{[candidate.workRegion, candidate.expectedPosition, candidate.expectedSalary, candidate.workStatus, candidate.onlineStatus].filter(Boolean).join("  |  ") || "暂无求职意向"}</Typography>
           </ResumeSection>
@@ -63,44 +98,49 @@ export default function ResumeDetailPage() {
           {candidate.workExperiences.length ? <ResumeSection title="工作经历">{candidate.workExperiences.map((item, index) => <Experience key={`work-${index}`} item={item} />)}</ResumeSection> : null}
           {candidate.projectExperiences.length ? <ResumeSection title="项目经历">{candidate.projectExperiences.map((item, index) => <Experience key={`project-${index}`} item={item} project />)}</ResumeSection> : null}
           {candidate.educations.length ? <ResumeSection title="教育经历">{candidate.educations.map((item, index) => <Experience key={`edu-${index}`} item={item} />)}</ResumeSection> : null}
-          {candidate.rawText ? <ResumeSection title="原始文本"><Typography sx={{ whiteSpace: "pre-wrap", color: "text.secondary", lineHeight: 1.8 }}>{candidate.rawText}</Typography></ResumeSection> : null}
+          {candidate.rawText ? <Accordion elevation={0} sx={{ mt: 4, borderTop: "1px solid", borderColor: "divider", "&:before": { display: "none" } }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />} sx={{ px: 0, pt: 2 }}><Typography component="h3" sx={{ fontSize: 19, fontWeight: 820 }}>原始文本</Typography></AccordionSummary><AccordionDetails sx={{ px: 0 }}><Typography sx={{ whiteSpace: "pre-wrap", color: "text.secondary", lineHeight: 1.8 }}>{candidate.rawText}</Typography></AccordionDetails></Accordion> : null}
           <Accordion elevation={0} sx={{ mt: 3, bgcolor: "action.hover" }}><AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}><Typography sx={{ fontWeight: 720 }}>查看完整接口数据</Typography></AccordionSummary><AccordionDetails><JsonTree value={candidate.raw} /></AccordionDetails></Accordion>
         </Box>
-        <SidePanel candidate={candidate} />
+        <SidePanel candidate={candidate} loadingSection={autoReplyLoading} onOpenSection={(section) => void openAutoReplySection(section)} />
       </Box>
     </SectionPanel>
+    <AutoReplyDialog section={autoReplySection} detail={autoReply} loading={autoReplyLoading === autoReplySection} onClose={() => setAutoReplySection(null)} onDownload={downloadAttachment} />
   </>;
 }
 
-/** AutoReplySections 展示附件、完整沟通记录、确认项和 AI 处理记录。 */
-function AutoReplySections({ detail, onDownload }: { detail: CandidateAutoReplyDetail; onDownload: (path: string, name: string) => void }) {
-  const confirmations = detail.conversations.flatMap((conversation) => conversation.confirmationItems);
-  const hasAny = detail.attachments.length || detail.conversations.length || detail.aiRecords.length;
-  if (!hasAny) return null;
-  return <>
-    <ResumeSection title="简历附件">
-      <Stack spacing={1}>
-        {detail.attachments.length ? detail.attachments.map((attachment) => <Stack key={attachment.id} direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px", alignItems: { sm: "center" } }}>
-          <AttachFileRoundedIcon color="primary" />
-          <Box sx={{ minWidth: 0, flex: 1 }}><Typography sx={{ fontWeight: 760, overflowWrap: "anywhere" }}>{attachment.originalName || "候选人简历"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{formatFileSize(attachment.sizeBytes)} · {attachment.createdAt ? formatDate(attachment.createdAt) : "时间暂时没记上"}</Typography></Box>
-          <Button size="small" startIcon={<DownloadRoundedIcon />} onClick={() => onDownload(attachment.downloadURL, attachment.originalName)}>下载附件</Button>
-        </Stack>) : <Typography color="text.secondary">这里暂时没有附件，我先不假装看见了。</Typography>}
-      </Stack>
-    </ResumeSection>
-    <ResumeSection title="沟通记录">
-      <Stack spacing={1.25}>{detail.conversations.length ? detail.conversations.map((conversation) => <ConversationRecord key={conversation.id} conversation={conversation} />) : <Typography color="text.secondary">暂时没有同步到沟通记录。</Typography>}</Stack>
-    </ResumeSection>
-    <ResumeSection title="确认项（思维记录）">
-      <Stack spacing={1}>{confirmations.length ? confirmations.map((item) => <Box key={item.id} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px" }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><Chip size="small" label={confirmationTypeText(item.itemType)} /><Chip size="small" color={confirmationColor(item.status)} label={confirmationStatusText(item.status)} /><Typography sx={{ fontWeight: 760 }}>{item.content}</Typography></Stack>
-        {item.summary || item.evidenceText ? <Typography sx={{ mt: 0.8, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>{item.summary || item.evidenceText}</Typography> : null}
-        {item.summary && item.evidenceText ? <Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}>依据：{item.evidenceText}</Typography> : null}
-      </Box>) : <Typography color="text.secondary">目前没有需要确认的条件。</Typography>}</Stack>
-    </ResumeSection>
-    <ResumeSection title="AI 处理记录">
-      <Stack spacing={1}>{detail.aiRecords.length ? detail.aiRecords.map((record) => <AIRecord key={record.id} record={record} />) : <Typography color="text.secondary">暂时没有 AI 处理记录。</Typography>}</Stack>
-    </ResumeSection>
-  </>;
+/** emptyAutoReplyDetail 返回互不复用数组的空关联资料。 */
+function emptyAutoReplyDetail(): CandidateAutoReplyDetail {
+  return { attachments: [], conversations: [], confirmationItems: [], aiRecords: [] };
+}
+
+/** AutoReplyDialog 按用户点击的类型展示已懒加载的候选人关联资料。 */
+function AutoReplyDialog({ section, detail, loading, onClose, onDownload }: { section: AutoReplySection | null; detail: CandidateAutoReplyDetail; loading: boolean; onClose: () => void; onDownload: (path: string, name: string) => void }) {
+  const title = ({ attachments: "简历附件", conversations: "沟通记录", confirmations: "思维记录", ai_records: "AI 处理记录" } as Record<AutoReplySection, string>)[section || "attachments"];
+  return <AdminDialog open={Boolean(section)} title={title} maxWidth="lg" cancelText="关闭" onClose={onClose}>
+    {loading ? <Stack direction="row" spacing={1.25} sx={{ py: 8, alignItems: "center", justifyContent: "center" }}><CircularProgress size={22} /><Typography color="text.secondary">正在读取，我尽量不让你久等。</Typography></Stack> : null}
+    {!loading && section === "attachments" ? <AttachmentRecords detail={detail} onDownload={onDownload} /> : null}
+    {!loading && section === "conversations" ? <Stack spacing={1.25}>{detail.conversations.length ? detail.conversations.map((conversation) => <ConversationRecord key={conversation.id} conversation={conversation} />) : <Typography color="text.secondary">暂时没有同步到沟通记录。</Typography>}</Stack> : null}
+    {!loading && section === "confirmations" ? <ConfirmationRecords detail={detail} /> : null}
+    {!loading && section === "ai_records" ? <Stack spacing={1}>{detail.aiRecords.length ? detail.aiRecords.map((record) => <AIRecord key={record.id} record={record} />) : <Typography color="text.secondary">暂时没有 AI 处理记录。</Typography>}</Stack> : null}
+  </AdminDialog>;
+}
+
+/** AttachmentRecords 展示候选人的可下载简历附件。 */
+function AttachmentRecords({ detail, onDownload }: { detail: CandidateAutoReplyDetail; onDownload: (path: string, name: string) => void }) {
+  return <Stack spacing={1}>{detail.attachments.length ? detail.attachments.map((attachment) => <Stack key={attachment.id} direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px", alignItems: { sm: "center" } }}>
+    <AttachFileRoundedIcon color="primary" />
+    <Box sx={{ minWidth: 0, flex: 1 }}><Typography sx={{ fontWeight: 760, overflowWrap: "anywhere" }}>{attachment.originalName || "候选人简历"}</Typography><Typography sx={{ color: "text.secondary", fontSize: 12 }}>{formatFileSize(attachment.sizeBytes)} · {attachment.createdAt ? formatDate(attachment.createdAt) : "时间暂时没记上"}</Typography></Box>
+    <Button size="small" startIcon={<DownloadRoundedIcon />} onClick={() => onDownload(attachment.downloadURL, attachment.originalName)}>下载附件</Button>
+  </Stack>) : <Typography color="text.secondary">这里暂时没有附件，我先不假装看见了。</Typography>}</Stack>;
+}
+
+/** ConfirmationRecords 展示 AI 和 HR 对候选人待确认条件的结构化记录。 */
+function ConfirmationRecords({ detail }: { detail: CandidateAutoReplyDetail }) {
+  return <Stack spacing={1}>{detail.confirmationItems.length ? detail.confirmationItems.map((item) => <Box key={item.id} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px" }}>
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><Chip size="small" label={confirmationTypeText(item.itemType)} /><Chip size="small" color={confirmationColor(item.status)} label={confirmationStatusText(item.status)} /><Typography sx={{ fontWeight: 760 }}>{item.content}</Typography></Stack>
+    {item.summary || item.evidenceText ? <Typography sx={{ mt: 0.8, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>{item.summary || item.evidenceText}</Typography> : null}
+    {item.summary && item.evidenceText ? <Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}>依据：{item.evidenceText}</Typography> : null}
+  </Box>) : <Typography color="text.secondary">目前没有需要确认的条件。</Typography>}</Stack>;
 }
 
 /** ConversationRecord 展示一段平台会话及全部已同步消息。 */
@@ -178,9 +218,15 @@ function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
   </Stack>;
 }
 
-/** SidePanel 展示候选人状态、AI 判断和经历概览。 */
-function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
+/** SidePanel 展示候选人状态、按需关联资料、AI 判断和经历概览。 */
+function SidePanel({ candidate, loadingSection, onOpenSection }: { candidate: NormalizedCandidate; loadingSection: AutoReplySection | null; onOpenSection: (section: AutoReplySection) => void }) {
   const overview = [...candidate.workExperiences, ...candidate.projectExperiences, ...candidate.educations].map(experienceLine).filter(Boolean).slice(0, 8);
+  const sectionButtons: { section: AutoReplySection; label: string; icon: ReactNode }[] = [
+    { section: "attachments", label: "简历附件", icon: <AttachFileRoundedIcon /> },
+    { section: "conversations", label: "沟通记录", icon: <ForumRoundedIcon /> },
+    { section: "confirmations", label: "思维记录", icon: <FactCheckRoundedIcon /> },
+    { section: "ai_records", label: "AI 记录", icon: <PsychologyRoundedIcon /> },
+  ];
   return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "action.hover" }}>
     <Typography sx={{ mb: 1.5, color: "text.secondary", fontWeight: 760 }}>候选人状态</Typography>
     <Chip label={statusText(candidate.status)} color="primary" sx={{ mb: 3 }} />
@@ -189,6 +235,8 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
       <Typography sx={{ color: "text.secondary", fontSize: 13 }}>创建人：{candidate.creatorEmail || "暂时没记上"}</Typography>
       <Typography sx={{ color: "text.secondary", fontSize: 13 }}>创建时间：{candidate.createdAt ? formatDate(candidate.createdAt) : "暂时没记上"}</Typography>
     </Stack>
+    <Typography sx={{ mb: 1.5, fontWeight: 820 }}>关联资料</Typography>
+    <Stack spacing={1} sx={{ mb: 3 }}>{sectionButtons.map((item) => <Button key={item.section} variant="outlined" startIcon={loadingSection === item.section ? <CircularProgress size={16} /> : item.icon} onClick={() => onOpenSection(item.section)} sx={{ justifyContent: "flex-start" }}>{item.label}</Button>)}</Stack>
     <Typography sx={{ mb: 1.5, fontWeight: 820 }}>AI 判断</Typography>
     <Stack spacing={1.25}>
       <AIBlock title="第一次分析" score={candidate.aiFirstAnalysis.score} reason={candidate.aiFirstAnalysis.reason} />

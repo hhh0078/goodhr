@@ -14,7 +14,11 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
-const defaultCheckpointLimit = 3
+const (
+	defaultCheckpointLimit              = 3
+	defaultAutoReplyMessagePollInterval = 3 * time.Second
+	maxAutoReplyMessageRefreshes        = 5
+)
 
 // Browser 定义自动回复主流程需要的浏览器会话和平台标准能力。
 type Browser interface {
@@ -78,13 +82,14 @@ type ReplyDecision struct {
 
 // Flow 组装自动回复主流程依赖。
 type Flow struct {
-	Browser        Browser
-	Store          *storage.Store
-	Cloud          *cloud.Client
-	Responder      Responder
-	Logger         shared.Logger
-	DownloadsDir   string
-	ExtensionPaths func() []string
+	Browser             Browser
+	Store               *storage.Store
+	Cloud               *cloud.Client
+	Responder           Responder
+	Logger              shared.Logger
+	DownloadsDir        string
+	ExtensionPaths      func() []string
+	messagePollInterval time.Duration
 }
 
 type flowStep struct {

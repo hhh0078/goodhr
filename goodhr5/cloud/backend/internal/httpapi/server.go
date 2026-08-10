@@ -104,7 +104,7 @@ func NewServer() (*Server, error) {
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
 		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, autoReplyStore),
 		positionLogs:        positionLogs,
-		candidates:          NewCandidateService(auth, candidateStore, tenantStore, autoReplyStore),
+		candidates:          NewCandidateService(auth, candidateStore, tenantStore, autoReplyStore, config.AutoReplyResumeDir),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
 		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
@@ -189,6 +189,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/candidates/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/notes") {
 			s.candidates.Notes(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/auto-reply") {
+			s.candidates.AutoReplyDetail(w, r)
 			return
 		}
 		s.candidates.Detail(w, r)

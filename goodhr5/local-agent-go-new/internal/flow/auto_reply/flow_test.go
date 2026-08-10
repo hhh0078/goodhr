@@ -87,16 +87,33 @@ func (b *autoReplyBrowserStub) ClosePage(context.Context) error {
 
 // autoReplyRuntimeStub 模拟平台自动回复能力和发送前后的最新消息。
 type autoReplyRuntimeStub struct {
-	latestBefore    model.ConversationMessage
-	latestAfter     model.ConversationMessage
-	opened          model.AutoReplyConversationSnapshot
-	resumeBundle    model.AutoReplyResumeBundle
-	resumeErr       error
-	resumeCollects  int
-	sent            bool
-	sentText        string
-	closeCount      int
-	knownMessageKey string
+	latestBefore     model.ConversationMessage
+	latestAfter      model.ConversationMessage
+	opened           model.AutoReplyConversationSnapshot
+	resumeBundle     model.AutoReplyResumeBundle
+	resumeErr        error
+	resumeCollects   int
+	sent             bool
+	sentText         string
+	closeCount       int
+	knownMessageKeys []string
+}
+
+type delayedResponderStub struct {
+	delay    time.Duration
+	decision ReplyDecision
+}
+
+// Reply 等待测试指定时间后返回旧消息对应的 AI 决策。
+func (r delayedResponderStub) Reply(ctx context.Context, _ ReplyContext) (ReplyDecision, error) {
+	timer := time.NewTimer(r.delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ReplyDecision{}, ctx.Err()
+	case <-timer.C:
+		return r.decision, nil
+	}
 }
 
 // InitializeAutoReplyPage 模拟页面初始化。
@@ -105,9 +122,14 @@ func (r *autoReplyRuntimeStub) InitializeAutoReplyPage(context.Context, model.Br
 }
 
 // OpenAutoReplyConversation 返回空会话快照。
-func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(_ context.Context, _ model.Browser, _ model.Config, _ model.Conversation, knownMessageKey string, _ int) (model.AutoReplyConversationSnapshot, error) {
-	r.knownMessageKey = knownMessageKey
+func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(_ context.Context, _ model.Browser, _ model.Config, _ model.Conversation, knownMessageKeys []string, _ int) (model.AutoReplyConversationSnapshot, error) {
+	r.knownMessageKeys = append([]string(nil), knownMessageKeys...)
 	return r.opened, nil
+}
+
+// ReadAutoReplyMessages 模拟从当前聊天框读取云端游标之后的新消息。
+func (r *autoReplyRuntimeStub) ReadAutoReplyMessages(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot, []string, int) ([]model.ConversationMessage, bool, error) {
+	return r.opened.Messages, r.opened.HistoryComplete, nil
 }
 
 // RequestAutoReplyResume 模拟索要简历。
@@ -611,8 +633,46 @@ func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
 		Platform: model.Config{ID: "liepin"},
 	}, runtime, nil, model.Conversation{Key: "thread-1"}, stats)
-	if err == nil || runtime.closeCount != 0 || runtime.knownMessageKey != "" {
-		t.Fatalf("error=%v close_count=%d known_message_key=%q", err, runtime.closeCount, runtime.knownMessageKey)
+	if err == nil || runtime.closeCount != 0 || len(runtime.knownMessageKeys) != 1 || runtime.knownMessageKeys[0] != "old-message" {
+		t.Fatalf("error=%v close_count=%d known_message_keys=%q", err, runtime.closeCount, runtime.knownMessageKeys)
+	}
+}
+
+// TestReplyWhileMonitoringDetectsNewMessage 验证 AI 等待期间会按轮询间隔发现候选人的新消息并废弃旧结果。
+func TestReplyWhileMonitoringDetectsNewMessage(t *testing.T) {
+	runtime := &autoReplyRuntimeStub{latestBefore: model.ConversationMessage{
+		Key: "new-message", Direction: "candidate", MessageType: "text", TextContent: "还有一个问题",
+	}}
+	flow := &Flow{
+		Responder:           delayedResponderStub{delay: 30 * time.Millisecond, decision: ReplyDecision{Reply: "旧回复"}},
+		messagePollInterval: 5 * time.Millisecond,
+	}
+	decision, changed, err := flow.replyWhileMonitoring(
+		context.Background(), shared.PreparedTask{Platform: model.Config{ID: "liepin"}}, runtime,
+		model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, ReplyContext{BasedOnMessageKey: "old-message"},
+	)
+	if err != nil || !changed || decision.Reply != "旧回复" {
+		t.Fatalf("decision=%+v changed=%t err=%v", decision, changed, err)
+	}
+}
+
+// TestKnownMessageKeysNormalizeOldCursorPrefix 验证本地兼容旧服务端带 id 或 fp 前缀的单条消息游标。
+func TestKnownMessageKeysNormalizeOldCursorPrefix(t *testing.T) {
+	state := cloud.AutoReplyCandidateState{Conversation: &cloud.AutoReplyConversation{LastSyncedMessageKey: "id:message-1"}}
+	keys := knownMessageKeysFromState(state)
+	if len(keys) != 1 || keys[0] != "message-1" {
+		t.Fatalf("keys=%v", keys)
+	}
+}
+
+// TestConvertMessagesOnlyRepliesWhenLatestHumanMessageIsCandidate 验证 HR 已经手动回复后不会再次回复更早的候选人消息。
+func TestConvertMessagesOnlyRepliesWhenLatestHumanMessageIsCandidate(t *testing.T) {
+	_, latest, err := convertMessages([]model.ConversationMessage{
+		{Key: "candidate-1", Direction: "candidate", MessageType: "text", TextContent: "地址在哪里"},
+		{Key: "self-1", Direction: "self", MessageType: "text", TextContent: "在成都"},
+	})
+	if err != nil || latest != "" {
+		t.Fatalf("latest=%q err=%v", latest, err)
 	}
 }
 

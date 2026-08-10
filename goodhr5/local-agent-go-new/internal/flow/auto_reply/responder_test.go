@@ -178,9 +178,45 @@ func TestAIResponderStopsBeforeNinthTool(t *testing.T) {
 	}
 }
 
-// TestAIResponderRejectsPlainTextAction 验证模型不用标准工具动作时明确失败，不会把普通文本直接发给候选人。
-func TestAIResponderRejectsPlainTextAction(t *testing.T) {
-	state := &responderTestState{aiResponses: []string{`{"choices":[{"message":{"role":"assistant","content":"直接回复您好"}}]}`}}
+// TestAIResponderRepairsPlainTextAction 验证普通文本会携带协议错误重新请求，并只执行修正后的标准工具动作。
+func TestAIResponderRepairsPlainTextAction(t *testing.T) {
+	state := &responderTestState{aiResponses: []string{
+		`{"choices":[{"message":{"role":"assistant","content":"直接回复您好"}}]}`,
+		toolCallResponse("call-good", toolSendMessage, `{"message":"您好，请问有什么想了解的？"}`, 2),
+	}}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+
+	decision, err := (&AIResponder{AI: newAIClient(), Cloud: cloud.New(server.URL)}).Reply(
+		context.Background(), responderInput(server.URL),
+	)
+	if err != nil {
+		t.Fatalf("Reply() error = %v", err)
+	}
+	if decision.Reply != "您好，请问有什么想了解的？" {
+		t.Fatalf("decision = %+v", decision)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.chatCallNumber != 2 || len(state.finishedRuns) != 1 || state.finishedRuns[0].Status != "completed" {
+		t.Fatalf("finished runs = %+v", state.finishedRuns)
+	}
+	var repairRequest struct {
+		Messages []ai.ToolMessage `json:"messages"`
+	}
+	if err = json.Unmarshal(state.aiRequests[1], &repairRequest); err != nil {
+		t.Fatal(err)
+	}
+	lastMessage := repairRequest.Messages[len(repairRequest.Messages)-1]
+	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "错误信息") || !strings.Contains(lastMessage.Content, "send_message") {
+		t.Fatalf("repair message = %+v", lastMessage)
+	}
+}
+
+// TestAIResponderRejectsPlainTextAfterTwoRepairs 验证连续三次普通文本后才明确失败，且不会直接发送普通文本。
+func TestAIResponderRejectsPlainTextAfterTwoRepairs(t *testing.T) {
+	plainText := `{"choices":[{"message":{"role":"assistant","content":"直接回复您好"}}]}`
+	state := &responderTestState{aiResponses: []string{plainText, plainText, plainText}}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()
 
@@ -192,8 +228,8 @@ func TestAIResponderRejectsPlainTextAction(t *testing.T) {
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.finishedRuns) != 1 || state.finishedRuns[0].Status != "failed" || state.finishedRuns[0].ErrorCode != "AI_TOOL_ACTION_MISSING" {
-		t.Fatalf("finished runs = %+v", state.finishedRuns)
+	if state.chatCallNumber != 3 || len(state.finishedRuns) != 1 || state.finishedRuns[0].Status != "failed" || state.finishedRuns[0].ErrorCode != "AI_TOOL_ACTION_MISSING" {
+		t.Fatalf("chat=%d finished=%+v", state.chatCallNumber, state.finishedRuns)
 	}
 }
 

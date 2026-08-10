@@ -2,6 +2,7 @@
 "use client";
 
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Avatar,
@@ -46,6 +47,7 @@ export default function ResumesPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [deletingID, setDeletingID] = useState("");
   const [noteCandidate, setNoteCandidate] =
     useState<NormalizedCandidate | null>(null);
   const [notes, setNotes] = useState<NormalizedNote[]>([]);
@@ -113,6 +115,40 @@ export default function ResumesPage() {
       await load(1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "清空失败", "error");
+    }
+  }
+
+  /** deleteCandidate 二次确认后删除单个候选人及其全部关联资料。 */
+  async function deleteCandidate(candidate: NormalizedCandidate) {
+    if (
+      !(await confirm(
+        "删除简历",
+        `我小声确认一下，删除“${candidate.name}”后，简历、附件、沟通记录和 AI 记录都会一起清掉，之后找不回来了。继续吗？`,
+      ))
+    )
+      return;
+    setDeletingID(candidate.id);
+    try {
+      const query = candidate.engagementId
+        ? `?engagement_id=${encodeURIComponent(candidate.engagementId)}`
+        : "";
+      const data = await cloudRequest(
+        `/api/candidates/${encodeURIComponent(candidate.id)}${query}`,
+        { method: "DELETE" },
+      );
+      const cleanupFailed = Number(data.cleanup_failed || 0);
+      notify(
+        cleanupFailed > 0
+          ? `简历已删除，不过有 ${cleanupFailed} 个附件文件没清干净，我已经记下了`
+          : "简历和相关记录都清掉了",
+        cleanupFailed > 0 ? "warning" : "success",
+      );
+      const nextPage = candidates.length === 1 && page > 1 ? page - 1 : page;
+      await load(nextPage);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "这份简历暂时没删成功", "error");
+    } finally {
+      setDeletingID("");
     }
   }
 
@@ -241,7 +277,7 @@ export default function ResumesPage() {
             <Box
               sx={{
                 display: { xs: "none", md: "grid" },
-                gridTemplateColumns: "1.1fr 1.35fr .85fr .9fr",
+                gridTemplateColumns: "1.05fr 1.25fr .8fr .85fr 92px",
                 px: 2,
                 py: 1.5,
                 bgcolor: "action.hover",
@@ -254,6 +290,7 @@ export default function ResumesPage() {
               <Typography>经历</Typography>
               <Typography>AI分析</Typography>
               <Typography>备注</Typography>
+              <Typography>操作</Typography>
             </Box>
             <Stack>
               {candidates.map((item) => (
@@ -261,6 +298,8 @@ export default function ResumesPage() {
                   key={`${item.id}-${item.engagementId}`}
                   item={item}
                   onOpenNotes={openNotes}
+                  onDelete={deleteCandidate}
+                  deleting={deletingID === item.id}
                 />
               ))}
             </Stack>
@@ -305,9 +344,13 @@ export default function ResumesPage() {
 function ResumeRow({
   item,
   onOpenNotes,
+  onDelete,
+  deleting,
 }: {
   item: NormalizedCandidate;
   onOpenNotes: (item: NormalizedCandidate) => void;
+  onDelete: (item: NormalizedCandidate) => void;
+  deleting: boolean;
 }) {
   const href = `/admin/resumes/detail?candidate_id=${encodeURIComponent(item.id)}${item.engagementId ? `&engagement_id=${encodeURIComponent(item.engagementId)}` : ""}`;
   const facts = [
@@ -319,18 +362,21 @@ function ResumeRow({
   ]
     .filter(Boolean)
     .join(" / ");
-  const ownerLine = [
-    item.creatorEmail ? `创建人：${item.creatorEmail}` : "",
-    item.createdAt ? `创建时间：${formatDate(item.createdAt)}` : "",
-  ]
-    .filter(Boolean)
-    .join("  ");
+  const ownerLine = item.creatorEmail ? `创建人：${item.creatorEmail}` : "";
+  const contacts = [
+    item.phone ? `手机：${item.phone}` : "",
+    item.email ? `邮箱：${item.email}` : "",
+    item.wechat ? `微信：${item.wechat}` : "",
+  ].filter(Boolean);
   const experiences = [...item.workExperiences, ...item.educations].slice(0, 3);
   return (
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.35fr .85fr .9fr" },
+        gridTemplateColumns: {
+          xs: "1fr",
+          md: "1.05fr 1.25fr .8fr .85fr 92px",
+        },
         gap: { xs: 1.25, md: 2 },
         alignItems: "center",
         width: "100%",
@@ -370,6 +416,16 @@ function ResumeRow({
             <Typography noWrap sx={{ mt: 0.6 }}>
               {item.expectedPosition || "暂无期望职位"}
             </Typography>
+            {contacts.map((contact) => (
+              <Typography
+                key={contact}
+                noWrap
+                title={contact}
+                sx={{ mt: 0.35, color: "text.secondary", fontSize: 12 }}
+              >
+                {contact}
+              </Typography>
+            ))}
             {ownerLine ? (
               <Typography
                 noWrap
@@ -405,7 +461,22 @@ function ResumeRow({
           reason={item.aiSecondAnalysis.reason}
         />
       </Stack>
-      <NotePreview notes={item.notes} onClick={() => onOpenNotes(item)} />
+      <NotePreview
+        notes={item.notes}
+        createdAt={item.createdAt}
+        onClick={() => onOpenNotes(item)}
+      />
+      <Button
+        color='error'
+        variant='outlined'
+        size='small'
+        startIcon={<DeleteOutlineRoundedIcon />}
+        disabled={deleting}
+        onClick={() => onDelete(item)}
+        sx={{ justifySelf: { md: "start" } }}
+      >
+        {deleting ? "删除中" : "删除"}
+      </Button>
     </Box>
   );
 }
@@ -440,9 +511,11 @@ function ExperienceSummary({ item }: { item: NormalizedExperience }) {
 /** NotePreview 展示候选人最新两条备注入口。 */
 function NotePreview({
   notes,
+  createdAt,
   onClick,
 }: {
   notes: NormalizedNote[];
+  createdAt: string;
   onClick: () => void;
 }) {
   return (
@@ -489,6 +562,20 @@ function NotePreview({
           这里暂时没备注
         </Typography>
       )}
+      {createdAt ? (
+        <Typography
+          sx={{
+            mt: 1,
+            pt: 0.8,
+            borderTop: "1px solid",
+            borderColor: "divider",
+            color: "text.secondary",
+            fontSize: 11,
+          }}
+        >
+          创建时间：{formatDate(createdAt)}
+        </Typography>
+      ) : null}
     </Button>
   );
 }

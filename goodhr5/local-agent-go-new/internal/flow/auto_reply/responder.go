@@ -19,6 +19,7 @@ import (
 const (
 	maxAutoReplyToolCalls       = 8
 	maxAutoReplyArgumentRepairs = 2
+	maxAutoReplyProtocolRepairs = 2
 )
 
 // AIResponder 组装 AI 客户端、云端审计和运行小窗日志。
@@ -118,6 +119,7 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 	totalTokens := 0
 	toolCount := 0
 	argumentRepairs := 0
+	protocolRepairs := 0
 	for round := 1; ; round++ {
 		r.report(input, "loading", "ai", fmt.Sprintf("AI 正在分析第%d轮", round), false)
 		result, chatErr := r.AI.ChatWithTools(ctx, input.AIConfig, ai.ToolChatRequest{
@@ -132,7 +134,16 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 		assistantMessages = append(assistantMessages, message)
 		if len(message.ToolCalls) == 0 {
 			protocolErr := fmt.Errorf("AI 没有按标准 tool_calls 返回发送或转人工动作，请检查当前模型是否支持工具调用")
-			return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_TOOL_ACTION_MISSING", protocolErr)
+			protocolRepairs++
+			if protocolRepairs > maxAutoReplyProtocolRepairs {
+				return ReplyDecision{}, r.failRun(input, run, assistantMessages, totalTokens, "AI_TOOL_ACTION_MISSING", protocolErr)
+			}
+			messages = append(messages, ai.ToolMessage{
+				Role: "user",
+				Content: "上一次输出没有通过工具协议校验，错误信息：" + protocolErr.Error() +
+					"。请根据错误重新处理，禁止直接返回普通文本；必须调用 send_message 准备回复，或调用 notify_hr 转人工。",
+			})
+			continue
 		}
 		if toolCount+len(message.ToolCalls) > maxAutoReplyToolCalls {
 			decision := ReplyDecision{ManualReason: "AI 工具调用超过8次，我没敢继续自动回复", ReasonKey: "ai_tool_limit"}

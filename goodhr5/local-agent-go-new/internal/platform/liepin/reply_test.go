@@ -213,7 +213,7 @@ func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
 	browser := &liepinReplyBrowserStub{
 		unreadCount: 1,
 		items: []contract.FindAllItem{
-			{Index: 0, Fields: map[string]string{"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
+			{Index: 0, Fields: map[string]string{"name": "邓云川", "avatar_url": "https://image.example.com/avatar.png", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`)}},
 			{Index: 1, Fields: map[string]string{"name": "旧候选人", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-old"}`)}},
 		},
 	}
@@ -229,7 +229,7 @@ func TestScanUnreadConversationsCapsPlatformHistoryByEntryCount(t *testing.T) {
 		},
 	}
 	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
-	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
+	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" || conversations[0].AvatarURL != "https://image.example.com/avatar.png" {
 		t.Fatalf("没有按入口数字只保留最新会话：conversations=%+v err=%v", conversations, err)
 	}
 }
@@ -339,12 +339,38 @@ func TestReadLiepinConversationHistoryRetriesUnchangedScroll(t *testing.T) {
 		"message.item":           testLiepinSelector("测试聊天消息"),
 		"message.history_scroll": testLiepinSelector("测试聊天滚动区域"),
 	}}
-	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, "", 5000)
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, nil, 5000)
 	if err != nil || !complete {
 		t.Fatalf("聊天历史没有稳定读取完成：complete=%t err=%v", complete, err)
 	}
 	if available, _ := liepinResumeCard(messages); !available || browser.historyBatch < 2 {
 		t.Fatalf("第一次滚轮无变化后没有继续找到简历：available=%t scrolls=%d", available, browser.historyBatch)
+	}
+}
+
+// TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary 验证页面已包含云端最近两条消息时不滚动，只返回边界后的新消息。
+func TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "旧消息一",
+			"message_meta": url.QueryEscape(`{"message_id":"old-1"}`), "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "旧回复",
+			"message_meta": url.QueryEscape(`{"message_id":"old-2"}`), "message_time": "10:01",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "新消息",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:02",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item": testLiepinSelector("测试聊天消息"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
+	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
 	}
 }
 

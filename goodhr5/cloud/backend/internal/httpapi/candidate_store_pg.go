@@ -60,12 +60,12 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications,
 			ai_detail_reason, ai_detail_score, ai_greet_reason, ai_greet_score, first_seen_at,
-			gender, birth_ym_precision, normalized_phone, wechat
+			gender, birth_ym_precision, normalized_phone, wechat, avatar_url
 		)
 		VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 			$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,
-			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30,$31,$32,$33,$34
+			$24::jsonb,$25::jsonb,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
 		)
 		ON CONFLICT (tenant_id, source_platform_id, source_platform_candidate_id)
 		DO UPDATE SET
@@ -98,6 +98,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			birth_ym_precision = CASE WHEN EXCLUDED.birth_ym_precision='' THEN candidate_profiles.birth_ym_precision ELSE EXCLUDED.birth_ym_precision END,
 			normalized_phone = CASE WHEN EXCLUDED.normalized_phone='' THEN candidate_profiles.normalized_phone ELSE EXCLUDED.normalized_phone END,
 			wechat = CASE WHEN EXCLUDED.wechat='' THEN candidate_profiles.wechat ELSE EXCLUDED.wechat END,
+			avatar_url = CASE WHEN EXCLUDED.avatar_url='' THEN candidate_profiles.avatar_url ELSE EXCLUDED.avatar_url END,
 			first_seen_at = COALESCE(candidate_profiles.first_seen_at, EXCLUDED.first_seen_at),
 			updated_at = now()
 		RETURNING
@@ -107,7 +108,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 			work_status, raw_text, work_experiences, educations, certificates, honors,
 			project_experiences, colleague_communications, ai_detail_reason, ai_detail_score,
 			ai_greet_reason, ai_greet_score, first_seen_at, created_at, updated_at,
-			gender, birth_ym_precision, normalized_phone, wechat
+			gender, birth_ym_precision, normalized_phone, wechat, avatar_url
 		`,
 		tenantID,
 		userID,
@@ -143,6 +144,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		item.BirthYMPrecision,
 		item.NormalizedPhone,
 		item.Wechat,
+		strings.TrimSpace(item.AvatarURL),
 	).Scan(
 		&saved.ID,
 		&saved.PlatformID,
@@ -179,6 +181,7 @@ func (s *PostgresCandidateStore) SaveCandidateProfile(item CandidateProfileInput
 		&saved.BirthYMPrecision,
 		&saved.NormalizedPhone,
 		&saved.Wechat,
+		&saved.AvatarURL,
 	)
 	if err != nil {
 		return PositionCandidate{}, err
@@ -204,7 +207,9 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 			project_experiences=$24::jsonb, colleague_communications=$25::jsonb,
 			gender=COALESCE(NULLIF($26,''),gender), birth_ym_precision=COALESCE(NULLIF($27,''),birth_ym_precision),
 			normalized_phone=COALESCE(NULLIF($28,''),normalized_phone),
-			wechat=COALESCE(NULLIF($29,''),wechat), updated_at=now()
+			wechat=COALESCE(NULLIF($29,''),wechat),
+			avatar_url=COALESCE(NULLIF($30,''),avatar_url),
+			updated_at=now()
 		WHERE tenant_id=$1 AND id=$2
 	`, tenantID, item.CandidateID, item.PlatformID, item.PlatformCandidateID,
 		strings.TrimSpace(item.CandidateName), strings.TrimSpace(item.BirthYM), strings.TrimSpace(item.Phone),
@@ -214,7 +219,7 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 		strings.TrimSpace(item.PersonalDescription), strings.TrimSpace(item.WorkStatus), strings.TrimSpace(item.RawText),
 		string(toJSONB(item.WorkExperiences)), string(toJSONB(item.Educations)), string(toJSONB(item.Certificates)),
 		string(toJSONB(item.Honors)), string(toJSONB(item.ProjectExperiences)), string(toJSONB(item.Communications)),
-		item.Gender, item.BirthYMPrecision, item.NormalizedPhone, strings.TrimSpace(item.Wechat))
+		item.Gender, item.BirthYMPrecision, item.NormalizedPhone, strings.TrimSpace(item.Wechat), strings.TrimSpace(item.AvatarURL))
 	if err != nil {
 		return PositionCandidate{}, err
 	}
@@ -232,7 +237,8 @@ func updateCandidateProfileByID(ctx context.Context, db *sql.DB, tenantID string
 	return PositionCandidate{
 		ID: item.CandidateID, UserEmail: item.UserEmail, PlatformID: item.PlatformID,
 		PlatformCandidateID: item.PlatformCandidateID, CandidateName: item.CandidateName,
-		Gender: item.Gender, BirthYM: item.BirthYM, BirthYMPrecision: item.BirthYMPrecision,
+		AvatarURL: item.AvatarURL,
+		Gender:    item.Gender, BirthYM: item.BirthYM, BirthYMPrecision: item.BirthYMPrecision,
 		NormalizedPhone: item.NormalizedPhone, Phone: item.Phone, Email: item.Email, Wechat: item.Wechat,
 		WorkRegion: item.WorkRegion, WorkYears: item.WorkYears, ExpectedSalaryMin: item.ExpectedSalaryMin,
 		ExpectedSalaryMax: item.ExpectedSalaryMax, BasicInfo: item.BasicInfo,
@@ -504,17 +510,148 @@ ORDER BY created_at DESC
 	return notes, rows.Err()
 }
 
-// DeleteTeamCandidates 清空团队候选人数据。
-// tenantID 为当前团队 ID，返回删除的候选人主体数量；事件和触达记录由外键级联删除。
-func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (int, error) {
+// DeleteCandidate 删除单个候选人及其自动回复会话关联数据。
+// tenantID 和 candidateID 共同限制删除范围，返回待清理的附件相对路径。
+func (s *PostgresCandidateStore) DeleteCandidate(tenantID string, candidateID string) (CandidateDeleteResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	result, err := s.db.ExecContext(ctx, `DELETE FROM candidate_profiles WHERE tenant_id = $1`, tenantID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return CandidateDeleteResult{}, err
 	}
-	rows, _ := result.RowsAffected()
-	return int(rows), nil
+	defer tx.Rollback()
+	result, err := deleteCandidateInTx(ctx, tx, tenantID, candidateID)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	return result, nil
+}
+
+// DeleteTeamCandidates 清空团队候选人及其自动回复会话关联数据。
+// tenantID 为当前团队 ID，返回删除数量和待清理的附件相对路径。
+func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (CandidateDeleteResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id::text FROM candidate_profiles WHERE tenant_id=$1 ORDER BY id FOR UPDATE`, tenantID)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	candidateIDs := make([]string, 0)
+	for rows.Next() {
+		var candidateID string
+		if err = rows.Scan(&candidateID); err != nil {
+			rows.Close()
+			return CandidateDeleteResult{}, err
+		}
+		candidateIDs = append(candidateIDs, candidateID)
+	}
+	if err = rows.Close(); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	result := CandidateDeleteResult{AttachmentPaths: []string{}}
+	for _, candidateID := range candidateIDs {
+		deleted, deleteErr := deleteCandidateInTx(ctx, tx, tenantID, candidateID)
+		if deleteErr != nil {
+			return CandidateDeleteResult{}, deleteErr
+		}
+		result.Deleted += deleted.Deleted
+		result.AttachmentPaths = append(result.AttachmentPaths, deleted.AttachmentPaths...)
+	}
+	if err = tx.Commit(); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	return result, nil
+}
+
+const relatedCandidateConversationsSQL = `
+	SELECT conversation.id
+	FROM candidate_conversations conversation
+	WHERE conversation.tenant_id=$1 AND (
+		conversation.candidate_id::text=$2
+		OR EXISTS (
+			SELECT 1 FROM candidate_platform_identities identity
+			WHERE identity.id=conversation.platform_identity_id
+				AND identity.tenant_id=$1 AND identity.candidate_id::text=$2
+		)
+		OR EXISTS (
+			SELECT 1 FROM candidate_resume_attachments attachment
+			WHERE attachment.tenant_id=$1 AND attachment.conversation_id=conversation.id
+				AND attachment.candidate_id::text=$2
+		)
+		OR EXISTS (
+			SELECT 1 FROM candidate_confirmation_items confirmation
+			WHERE confirmation.tenant_id=$1 AND confirmation.conversation_id=conversation.id
+				AND confirmation.candidate_id::text=$2
+		)
+		OR EXISTS (
+			SELECT 1 FROM auto_reply_ai_runs ai_run
+			WHERE ai_run.tenant_id=$1 AND ai_run.conversation_id=conversation.id
+				AND ai_run.candidate_id::text=$2
+		)
+	)
+`
+
+// deleteCandidateInTx 在事务中删除一份候选人和其全部会话关联数据。
+// ctx 和 tx 控制同一事务，tenantID 与 candidateID 限定目标。
+func deleteCandidateInTx(ctx context.Context, tx *sql.Tx, tenantID string, candidateID string) (CandidateDeleteResult, error) {
+	rows, err := tx.QueryContext(ctx, `
+		WITH related_conversations AS (`+relatedCandidateConversationsSQL+`)
+		SELECT attachment.storage_path
+		FROM candidate_resume_attachments attachment
+		WHERE attachment.tenant_id=$1 AND (
+			attachment.candidate_id::text=$2
+			OR attachment.conversation_id IN (SELECT id FROM related_conversations)
+		)
+	`, tenantID, candidateID)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	paths := make([]string, 0)
+	for rows.Next() {
+		var path string
+		if err = rows.Scan(&path); err != nil {
+			rows.Close()
+			return CandidateDeleteResult{}, err
+		}
+		paths = append(paths, path)
+	}
+	if err = rows.Close(); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		WITH related_conversations AS (`+relatedCandidateConversationsSQL+`)
+		DELETE FROM auto_reply_config_suggestions
+		WHERE tenant_id=$1 AND conversation_id IN (SELECT id FROM related_conversations)
+	`, tenantID, candidateID); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		WITH related_conversations AS (`+relatedCandidateConversationsSQL+`)
+		DELETE FROM candidate_conversations
+		WHERE tenant_id=$1 AND id IN (SELECT id FROM related_conversations)
+	`, tenantID, candidateID); err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	deleteResult, err := tx.ExecContext(ctx, `DELETE FROM candidate_profiles WHERE tenant_id=$1 AND id::text=$2`, tenantID, candidateID)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	deleted, err := deleteResult.RowsAffected()
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	if deleted == 0 {
+		return CandidateDeleteResult{}, ErrNotFound
+	}
+	return CandidateDeleteResult{Deleted: int(deleted), AttachmentPaths: paths}, nil
 }
 
 // listCandidateEvents 读取候选人事件流水。
@@ -586,6 +723,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		COALESCE(NULLIF(latest_engagement.platform_id, ''), cp.source_platform_id),
 		cp.source_platform_candidate_id,
 		cp.candidate_name,
+		cp.avatar_url,
 		cp.birth_ym,
 		cp.gender,
 		cp.birth_ym_precision,
@@ -687,6 +825,7 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.PlatformID,
 		&item.PlatformCandidateID,
 		&item.CandidateName,
+		&item.AvatarURL,
 		&item.BirthYM,
 		&item.Gender,
 		&item.BirthYMPrecision,

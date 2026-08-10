@@ -1154,6 +1154,22 @@
       "timeout_ms": 1000,
       "description": "猎聘企业端联系人姓名"
     },
+    "avatar_url": {
+      "_comment": "联系人列表候选人头像地址，用于简历库展示与招聘平台一致的头像。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行内头像图片。",
+        "selectors": [
+          { "_comment": "猎聘联系人头像容器内图片。", "type": "css", "value": ".im-ui-contact-avatar img" },
+          { "_comment": "兼容猎聘通用头像组件。", "type": "css", "value": ".ant-im-avatar img" },
+          { "_comment": "联系人行内唯一图片兜底。", "type": "css", "value": "img" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "src",
+      "description": "猎聘企业端联系人头像地址"
+    },
     "last_message": {
       "_comment": "联系人列表最后一条消息摘要。",
       "parents": [],

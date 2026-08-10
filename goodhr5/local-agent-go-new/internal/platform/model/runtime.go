@@ -119,6 +119,7 @@ type Conversation struct {
 	Index                 int               `json:"index"`
 	Key                   string            `json:"key"`
 	Name                  string            `json:"name"`
+	AvatarURL             string            `json:"avatar_url"`
 	Gender                string            `json:"gender"`
 	PlatformThreadID      string            `json:"platform_thread_id"`
 	PlatformCandidateID   string            `json:"platform_candidate_id"`
@@ -144,6 +145,7 @@ type ConversationMessage struct {
 type AutoReplyConversationSnapshot struct {
 	Conversation          Conversation          `json:"conversation"`
 	CandidateName         string                `json:"candidate_name"`
+	AvatarURL             string                `json:"avatar_url"`
 	Gender                string                `json:"gender"`
 	Phone                 string                `json:"phone"`
 	PlatformThreadID      string                `json:"platform_thread_id"`
@@ -173,7 +175,8 @@ type AutoReplyResumeBundle struct {
 // AutoReplyRuntime 定义自动回复独立主流程需要的平台页面能力。
 type AutoReplyRuntime interface {
 	InitializeAutoReplyPage(context.Context, Browser, Config) error
-	OpenAutoReplyConversation(context.Context, Browser, Config, Conversation, string, int) (AutoReplyConversationSnapshot, error)
+	OpenAutoReplyConversation(context.Context, Browser, Config, Conversation, []string, int) (AutoReplyConversationSnapshot, error)
+	ReadAutoReplyMessages(context.Context, Browser, Config, AutoReplyConversationSnapshot, []string, int) ([]ConversationMessage, bool, error)
 	RequestAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
 	CollectAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) (AutoReplyResumeBundle, error)
 	SendAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot, string) error

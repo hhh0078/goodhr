@@ -346,6 +346,7 @@ type AutoReplyCandidateState struct {
 	OK                  bool                       `json:"ok"`
 	Found               bool                       `json:"found"`
 	HasResumeAttachment bool                       `json:"has_resume_attachment"`
+	RecentMessageKeys   []string                   `json:"recent_message_keys"`
 	Candidate           *AutoReplyStoredCandidate  `json:"candidate,omitempty"`
 	Identity            *CandidatePlatformIdentity `json:"identity,omitempty"`
 	Conversation        *AutoReplyConversation     `json:"conversation,omitempty"`
@@ -359,6 +360,7 @@ type AutoReplyCandidateInput struct {
 	PlatformID          string `json:"platform_id"`
 	PlatformAccountID   string `json:"platform_account_id"`
 	PlatformCandidateID string `json:"platform_candidate_id"`
+	AvatarURL           string `json:"avatar_url"`
 	Gender              string `json:"gender"`
 	BirthYMPrecision    string `json:"birth_ym_precision"`
 	BasicInfo           string `json:"basic_info"`

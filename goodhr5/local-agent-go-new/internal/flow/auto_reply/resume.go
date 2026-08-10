@@ -138,7 +138,8 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		StructuredCandidate: structured,
 		PositionID:          position.Position.ID, PlatformID: prepared.Platform.ID,
 		PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
-		Gender: firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
+		AvatarURL: strings.TrimSpace(snapshot.AvatarURL),
+		Gender:    firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
 		BasicInfo: bundle.OnlineResumeText,
 	})
 	if saveErr != nil {

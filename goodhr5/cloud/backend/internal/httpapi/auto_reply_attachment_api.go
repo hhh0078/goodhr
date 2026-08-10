@@ -226,7 +226,13 @@ func safeAutoReplyStorageSegment(value string) bool {
 
 // resumeStoragePath 返回附件在云端持久化目录中的绝对路径，供受保护下载接口复用。
 func (s *AutoReplyService) resumeStoragePath(relativePath string) (string, error) {
-	root := strings.TrimSpace(s.resumeDir)
+	return autoReplyResumeStoragePath(s.resumeDir, relativePath)
+}
+
+// autoReplyResumeStoragePath 安全拼接自动回复附件根目录和数据库相对路径。
+// resumeDir 为附件根目录，relativePath 为数据库保存的相对路径。
+func autoReplyResumeStoragePath(resumeDir string, relativePath string) (string, error) {
+	root := strings.TrimSpace(resumeDir)
 	if root == "" {
 		root = "data/auto-reply-resumes"
 	}

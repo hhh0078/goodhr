@@ -1,42 +1,119 @@
-// Package httpapi 本文件负责把候选人的简历附件、沟通记录、确认项和 AI 记录聚合给简历详情页。
+// Package httpapi 本文件负责按需读取候选人的简历附件、沟通记录、确认项和 AI 记录。
 package httpapi
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
 )
 
-// loadCandidateAutoReplyDetail 读取候选人全部自动回复关联资料并返回前端安全字段。
-func (s *CandidateService) loadCandidateAutoReplyDetail(ctx context.Context, tenantID, candidateID string) (map[string]any, error) {
-	attachments, err := s.autoReply.ListResumeAttachments(ctx, tenantID, candidateID, "")
-	if err != nil {
-		return nil, err
+// AutoReplyDetail 校验简历查看权限后，只读取前端本次打开的一个关联资料区块。
+func (s *CandidateService) AutoReplyDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
 	}
-	conversations, err := s.autoReply.ListCandidateAutoReplyConversations(ctx, tenantID, candidateID)
-	if err != nil {
-		return nil, err
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
 	}
-	conversationDetails := make([]map[string]any, 0, len(conversations))
-	for _, conversation := range conversations {
-		messages, messageErr := s.autoReply.ListAutoReplyMessages(ctx, tenantID, conversation.ID, 5000)
-		if messageErr != nil {
-			return nil, messageErr
+	candidateID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/candidates/"), "/auto-reply")
+	if candidateID == "" || candidateID == r.URL.Path {
+		writeError(w, http.StatusBadRequest, "candidate id is required")
+		return
+	}
+	tenant, err := s.tenantStore.GetOrCreateTenant(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get tenant")
+		return
+	}
+	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
+	if _, err = s.store.GetPositionCandidate(tenant.ID, candidateID, strings.TrimSpace(r.URL.Query().Get("engagement_id")), session.Email, isAdmin); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "candidate not found")
+			return
 		}
-		confirmations, confirmationErr := s.autoReply.ListConfirmationItems(ctx, tenantID, conversation.ID)
-		if confirmationErr != nil {
-			return nil, confirmationErr
-		}
-		conversationDetails = append(conversationDetails, publicCandidateConversationDetail(conversation, messages, confirmations))
+		writeError(w, http.StatusInternalServerError, "failed to load candidate")
+		return
 	}
-	audit, err := s.autoReply.ListCandidateAutoReplyAudit(ctx, tenantID, candidateID, 100)
+	section := strings.TrimSpace(r.URL.Query().Get("section"))
+	validSections := map[string]struct{}{"attachments": {}, "conversations": {}, "confirmations": {}, "ai_records": {}}
+	if _, valid := validSections[section]; !valid {
+		writeError(w, http.StatusBadRequest, errCandidateAutoReplySection.Error())
+		return
+	}
+	if s.autoReply == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auto_reply": emptyCandidateAutoReplySection(section)})
+		return
+	}
+	detail, err := s.loadCandidateAutoReplySection(r.Context(), tenant.ID, candidateID, section)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, errCandidateAutoReplySection) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeAutoReplyInternalError(w, "CANDIDATE_ACTIVITY_LOAD_FAILED", "候选人的关联资料暂时没读出来，请稍后再试", err)
+		return
 	}
-	return map[string]any{
-		"attachments":   publicCandidateAttachments(attachments),
-		"conversations": conversationDetails,
-		"ai_records":    publicCandidateAIRecords(audit),
-	}, nil
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auto_reply": detail})
+}
+
+var errCandidateAutoReplySection = errors.New("关联资料类型不正确")
+
+// loadCandidateAutoReplySection 按区块读取数据，避免打开简历详情时一次加载全部历史。
+func (s *CandidateService) loadCandidateAutoReplySection(ctx context.Context, tenantID, candidateID, section string) (map[string]any, error) {
+	switch section {
+	case "attachments":
+		items, err := s.autoReply.ListResumeAttachments(ctx, tenantID, candidateID, "")
+		return map[string]any{"attachments": publicCandidateAttachments(items)}, err
+	case "conversations":
+		conversations, err := s.autoReply.ListCandidateAutoReplyConversations(ctx, tenantID, candidateID)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]map[string]any, 0, len(conversations))
+		for _, conversation := range conversations {
+			messages, messageErr := s.autoReply.ListAutoReplyMessages(ctx, tenantID, conversation.ID, 5000)
+			if messageErr != nil {
+				return nil, messageErr
+			}
+			result = append(result, publicCandidateConversationDetail(conversation, messages, nil))
+		}
+		return map[string]any{"conversations": result}, nil
+	case "confirmations":
+		conversations, err := s.autoReply.ListCandidateAutoReplyConversations(ctx, tenantID, candidateID)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]CandidateConfirmationItem, 0)
+		for _, conversation := range conversations {
+			items, confirmationErr := s.autoReply.ListConfirmationItems(ctx, tenantID, conversation.ID)
+			if confirmationErr != nil {
+				return nil, confirmationErr
+			}
+			result = append(result, items...)
+		}
+		return map[string]any{"confirmation_items": publicCandidateConfirmationItems(result)}, nil
+	case "ai_records":
+		items, err := s.autoReply.ListCandidateAutoReplyAudit(ctx, tenantID, candidateID, 100)
+		return map[string]any{"ai_records": publicCandidateAIRecords(items)}, err
+	default:
+		return nil, errCandidateAutoReplySection
+	}
+}
+
+// emptyCandidateAutoReplySection 在自动回复存储未启用时返回对应区块的空数组。
+func emptyCandidateAutoReplySection(section string) map[string]any {
+	keys := map[string]string{
+		"attachments": "attachments", "conversations": "conversations",
+		"confirmations": "confirmation_items", "ai_records": "ai_records",
+	}
+	if key := keys[section]; key != "" {
+		return map[string]any{key: []any{}}
+	}
+	return map[string]any{}
 }
 
 // publicCandidateAttachments 隐藏云端文件系统路径，只返回受保护下载地址和展示元数据。

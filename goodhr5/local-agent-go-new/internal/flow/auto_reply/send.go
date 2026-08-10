@@ -14,6 +14,52 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
+type monitoredReplyResult struct {
+	decision ReplyDecision
+	err      error
+}
+
+// replyWhileMonitoring 等待 AI 决策时每三秒复核最新消息，发现变化后只废弃旧结果，不并发操作页面流程。
+func (f *Flow) replyWhileMonitoring(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, snapshot model.AutoReplyConversationSnapshot, input ReplyContext) (ReplyDecision, bool, error) {
+	resultChannel := make(chan monitoredReplyResult, 1)
+	go func() {
+		decision, err := f.Responder.Reply(ctx, input)
+		resultChannel <- monitoredReplyResult{decision: decision, err: err}
+	}()
+	interval := f.messagePollInterval
+	if interval <= 0 {
+		interval = defaultAutoReplyMessagePollInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	changed := false
+	var monitorErr error
+	for {
+		select {
+		case <-ctx.Done():
+			return ReplyDecision{}, changed, ctx.Err()
+		case result := <-resultChannel:
+			if result.err != nil {
+				return ReplyDecision{}, changed, result.err
+			}
+			if monitorErr != nil {
+				return ReplyDecision{}, changed, monitorErr
+			}
+			return result.decision, changed, nil
+		case <-ticker.C:
+			if changed || monitorErr != nil {
+				continue
+			}
+			unchanged, err := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, snapshot, input.BasedOnMessageKey)
+			if err != nil {
+				monitorErr = err
+				continue
+			}
+			changed = !unchanged
+		}
+	}
+}
+
 // sendVerifiedMessage 发送一条消息并回读确认，结果未知时不直接重发。
 func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool) (bool, error) {
 	message = strings.TrimSpace(message)

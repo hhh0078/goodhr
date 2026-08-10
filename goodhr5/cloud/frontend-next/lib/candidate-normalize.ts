@@ -89,6 +89,7 @@ export type CandidateAIRecord = {
 export type CandidateAutoReplyDetail = {
   attachments: CandidateResumeAttachment[];
   conversations: CandidateConversation[];
+  confirmationItems: CandidateConfirmationItem[];
   aiRecords: CandidateAIRecord[];
 };
 
@@ -136,7 +137,7 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
     engagementId: stringValue(source.engagement_id),
     status: stringValue(source.engagement_status || "created"),
     name: stringValue(source.candidate_name || "未命名候选人"),
-    avatarUrl: "",
+    avatarUrl: stringValue(source.avatar_url),
     age: ageFromBirthYM(source.birth_ym),
     gender: stringValue(source.gender),
     phone: stringValue(source.phone),
@@ -191,9 +192,27 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
   };
 }
 
-/** normalizeCandidateAutoReply 整理简历附件、沟通记录、确认项和 AI 审计数据。 */
-function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyDetail {
+/** normalizeCandidateAutoReply 整理按需返回的简历附件、沟通记录、确认项和 AI 审计数据。 */
+export function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyDetail {
   const source = recordValue(value);
+  const conversations = recordArray(source.conversations).map((item) => ({
+    id: stringValue(item.id),
+    platformID: stringValue(item.platform_id),
+    positionText: stringValue(item.page_position_text),
+    status: stringValue(item.status),
+    createdAt: stringValue(item.created_at),
+    updatedAt: stringValue(item.updated_at),
+    messages: recordArray(item.messages).map((message) => ({
+      id: stringValue(message.id),
+      direction: stringValue(message.direction),
+      messageType: stringValue(message.message_type),
+      textContent: stringValue(message.text_content),
+      senderName: stringValue(message.sender_name),
+      platformSentAt: stringValue(message.platform_sent_at),
+      createdAt: stringValue(message.created_at),
+    })),
+    confirmationItems: recordArray(item.confirmation_items).map(normalizeCandidateConfirmation),
+  }));
   return {
     attachments: recordArray(source.attachments).map((item) => ({
       id: stringValue(item.id),
@@ -203,33 +222,9 @@ function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyDetail {
       downloadURL: stringValue(item.download_url),
       createdAt: stringValue(item.created_at),
     })),
-    conversations: recordArray(source.conversations).map((item) => ({
-      id: stringValue(item.id),
-      platformID: stringValue(item.platform_id),
-      positionText: stringValue(item.page_position_text),
-      status: stringValue(item.status),
-      createdAt: stringValue(item.created_at),
-      updatedAt: stringValue(item.updated_at),
-      messages: recordArray(item.messages).map((message) => ({
-        id: stringValue(message.id),
-        direction: stringValue(message.direction),
-        messageType: stringValue(message.message_type),
-        textContent: stringValue(message.text_content),
-        senderName: stringValue(message.sender_name),
-        platformSentAt: stringValue(message.platform_sent_at),
-        createdAt: stringValue(message.created_at),
-      })),
-      confirmationItems: recordArray(item.confirmation_items).map((confirmation) => ({
-        id: stringValue(confirmation.id),
-        itemType: stringValue(confirmation.item_type),
-        content: stringValue(confirmation.content),
-        status: stringValue(confirmation.status),
-        sourceType: stringValue(confirmation.source_type),
-        evidenceText: stringValue(confirmation.evidence_text),
-        summary: stringValue(confirmation.summary),
-        updatedAt: stringValue(confirmation.updated_at),
-      })),
-    })),
+    conversations,
+    confirmationItems: recordArray(source.confirmation_items).map(normalizeCandidateConfirmation)
+      .concat(conversations.flatMap((conversation) => conversation.confirmationItems)),
     aiRecords: recordArray(source.ai_records).map((item) => ({
       id: stringValue(item.id),
       positionName: stringValue(item.position_name),
@@ -252,6 +247,20 @@ function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyDetail {
         errorMessage: stringValue(tool.error_message),
       })),
     })),
+  };
+}
+
+/** normalizeCandidateConfirmation 整理一条候选人确认项。 */
+function normalizeCandidateConfirmation(item: Record<string, unknown>): CandidateConfirmationItem {
+  return {
+    id: stringValue(item.id),
+    itemType: stringValue(item.item_type),
+    content: stringValue(item.content),
+    status: stringValue(item.status),
+    sourceType: stringValue(item.source_type),
+    evidenceText: stringValue(item.evidence_text),
+    summary: stringValue(item.summary),
+    updatedAt: stringValue(item.updated_at),
   };
 }
 

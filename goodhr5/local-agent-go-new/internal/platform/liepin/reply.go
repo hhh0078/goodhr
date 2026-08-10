@@ -76,7 +76,7 @@ func ensureLiepinUnreadConversationDrawer(ctx context.Context, browser model.Bro
 }
 
 // OpenAutoReplyConversation 重新按稳定会话编号定位联系人，并读取身份、岗位、聊天和简历卡片。
-func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, knownLastMessageKey string, maxHistory int) (model.AutoReplyConversationSnapshot, error) {
+func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation, knownMessageKeys []string, maxHistory int) (model.AutoReplyConversationSnapshot, error) {
 	ready, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
@@ -96,7 +96,7 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 		return model.AutoReplyConversationSnapshot{}, err
 	}
 	messages, historyComplete, err := readLiepinConversationHistory(
-		ctx, browser, cfg, knownLastMessageKey, maxHistory,
+		ctx, browser, cfg, knownMessageKeys, maxHistory,
 	)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
@@ -111,12 +111,20 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 	}
 	resumeAvailable, resumeSourceKey := liepinResumeCard(messages)
 	return model.AutoReplyConversationSnapshot{
-		Conversation: conversation, CandidateName: name, Gender: gender,
+		Conversation: conversation, CandidateName: name, AvatarURL: conversation.AvatarURL, Gender: gender,
 		PlatformThreadID:    firstLiepinValue(conversation.PlatformThreadID, conversation.Key),
 		PlatformCandidateID: candidateID, PlatformAccountID: conversation.PlatformAccountID,
 		CommunicationPosition: position, Messages: messages, HistoryComplete: historyComplete,
 		ResumeCardAvailable: resumeAvailable, ResumeSourceMessageID: resumeSourceKey,
 	}, nil
+}
+
+// ReadAutoReplyMessages 从当前已经打开的聊天框读取云端游标之后的新消息，不重复打开联系人列表。
+func (r *Runtime) ReadAutoReplyMessages(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot, knownMessageKeys []string, maxHistory int) ([]model.ConversationMessage, bool, error) {
+	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
+		return nil, false, err
+	}
+	return readLiepinConversationHistory(ctx, browser, cfg, knownMessageKeys, maxHistory)
 }
 
 // SendAutoReplyMessage 核对候选人和沟通岗位后发送一条自动回复。
@@ -238,7 +246,7 @@ func (r *Runtime) CloseAutoReplyConversation(ctx context.Context, browser model.
 
 // ReadConversation 兼容平台公共接口，安全打开会话后返回可读聊天正文。
 func (r *Runtime) ReadConversation(ctx context.Context, browser model.Browser, cfg model.Config, conversation model.Conversation) (string, error) {
-	snapshot, err := r.OpenAutoReplyConversation(ctx, browser, cfg, conversation, "", 5000)
+	snapshot, err := r.OpenAutoReplyConversation(ctx, browser, cfg, conversation, nil, 5000)
 	if err != nil {
 		return "", err
 	}
@@ -312,7 +320,7 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 			key = common.HashText("liepin|" + name + "|" + lastMessage)
 		}
 		result = append(result, model.Conversation{
-			Index: item.Index, Key: key, Name: name, PlatformThreadID: threadID,
+			Index: item.Index, Key: key, Name: name, AvatarURL: strings.TrimSpace(item.Fields["avatar_url"]), PlatformThreadID: threadID,
 			Summary: lastMessage, Fields: item.Fields,
 		})
 	}
