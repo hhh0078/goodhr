@@ -186,9 +186,13 @@ export default function PositionFloatingStatus({
   const acceptedLabel =
     analysis?.accepted === undefined
       ? ""
-      : analysis.accepted
-        ? "通过"
-        : "跳过";
+      : analysis.kind === "auto_reply"
+        ? analysis.accepted
+          ? "已回复"
+          : "转人工/跳过"
+        : analysis.accepted
+          ? "通过"
+          : "跳过";
   const statusLabel = acceptedLabel
     ? `${presentation.label} · ${acceptedLabel}`
     : presentation.label;

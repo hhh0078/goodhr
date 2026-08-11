@@ -94,6 +94,7 @@ type PositionTaskStats = {
 type FloatingPositionTask = {
   id: string;
   name: string;
+  taskType: "position" | "auto_reply";
   status: PositionFloatingStatusValue;
   followTask: boolean;
   currentStep: string;
@@ -227,35 +228,48 @@ export default function PositionsPage() {
 
   useEffect(() => {
     if (!agentBase || !floatingPositionTask?.followTask) return undefined;
-    const positionID = floatingPositionTask.id;
+    const followedTaskID = floatingPositionTask.id;
+    const followedTaskType = floatingPositionTask.taskType;
     let disposed = false;
 
-    /** refreshFloatingPositionStatus 读取本地任务状态并同步到置顶小窗。 */
+    /** refreshFloatingPositionStatus 按任务类型读取本地状态并同步到通用置顶小窗。 */
     async function refreshFloatingPositionStatus() {
       try {
-        const task = await localRequest(
-          agentBase,
-          `/api/v1/local/positions/${encodeURIComponent(positionID)}/status`,
-        );
+        const statusPath = followedTaskType === "auto_reply"
+          ? "/api/v1/local/auto-reply/status"
+          : `/api/v1/local/positions/${encodeURIComponent(followedTaskID)}/status`;
+        const task = await localRequest(agentBase, statusPath);
         if (disposed) return;
         const status = normalizeFloatingTaskStatus(task?.status);
-        setFloatingPositionTask((current) =>
-          current && current.id === positionID
-            ? {
-                ...current,
-                status,
-                followTask: status === "running",
-                currentStep: String(task?.current_step || "").trim(),
-                analysis: nextFloatingAnalysis(
-                  current.analysis,
-                  normalizeFloatingAnalysis(task?.analysis),
-                ),
-                scannedCount: Math.max(0, Number(task?.scanned_count) || 0),
-                greetedCount: Math.max(0, Number(task?.greeted_count) || 0),
-                skippedCount: Math.max(0, Number(task?.skipped_count) || 0),
-              }
-            : current,
-        );
+        const incomingAnalysis = normalizeFloatingAnalysis(task?.analysis);
+        setFloatingPositionTask((current) => {
+          if (
+            !current ||
+            current.id !== followedTaskID ||
+            current.taskType !== followedTaskType
+          ) {
+            return current;
+          }
+          const analysis = nextFloatingAnalysis(
+            current.analysis,
+            incomingAnalysis,
+          );
+          return {
+            ...current,
+            status,
+            followTask: status === "running",
+            currentStep: floatingCurrentStep(
+              followedTaskType,
+              status,
+              task?.current_step,
+              analysis,
+            ),
+            analysis,
+            scannedCount: Math.max(0, Number(task?.scanned_count) || 0),
+            greetedCount: Math.max(0, Number(task?.greeted_count) || 0),
+            skippedCount: Math.max(0, Number(task?.skipped_count) || 0),
+          };
+        });
       } catch {
         // 短暂连接失败时保留上一次状态，避免把仍在运行的任务误报为已停止。
       }
@@ -270,7 +284,12 @@ export default function PositionsPage() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [agentBase, floatingPositionTask?.followTask, floatingPositionTask?.id]);
+  }, [
+    agentBase,
+    floatingPositionTask?.followTask,
+    floatingPositionTask?.id,
+    floatingPositionTask?.taskType,
+  ]);
 
   /** openCreate 使用免费版可用配置打开新增弹框。 */
   function openCreate() {
@@ -506,6 +525,7 @@ export default function PositionsPage() {
         setFloatingPositionTask({
           id: item.id,
           name: String(item.name || "当前岗位"),
+          taskType: "position",
           status: "running",
           followTask: false,
           currentStep: "正在检查岗位启动条件",
@@ -689,37 +709,121 @@ export default function PositionsPage() {
       await requireAutoReplyMembership();
       return;
     }
-    const ownPositions = items.filter((item) => isCurrentUserPosition(item, user?.email));
-    const latestStatuses = await loadAutoReplyStatuses(ownPositions);
-    const enabledPositions = ownPositions.filter((item) => Boolean(latestStatuses[item.id]?.enabled));
-    const disabledPositions = ownPositions.filter((item) => !latestStatuses[item.id]?.enabled);
-    if (enabledPositions.length === 0) {
-      notify("还没有岗位开启自动回复，我先不乱接消息。", "warning");
-      return;
-    }
-    if (disabledPositions.length > 0) {
-      const preview = disabledPositions.slice(0, 8).map((item) => item.name).join("、");
-      const suffix = disabledPositions.length > 8 ? ` 等 ${disabledPositions.length} 个` : "";
-      const approved = await confirm(
-        "开始自动回复",
-        `我小声提醒一下：${preview}${suffix} 没有开启自动回复，这些岗位的候选人消息不会处理。继续开始吗？`,
-      );
-      if (!approved) return;
-    }
-    setGlobalLogOpen(true);
+    const floatingWindowPromise = openPositionFloatingWindow();
+    const floatingTaskID = "global-auto-reply";
+    let started = false;
     setAutoReplyGlobalBusy(true);
     try {
+      const pipWindow = await floatingWindowPromise;
+      if (pipWindow) {
+        setFloatingStatusWindow(pipWindow);
+        setFloatingPositionTask({
+          id: floatingTaskID,
+          name: "自动回复",
+          taskType: "auto_reply",
+          status: "running",
+          followTask: false,
+          currentStep: "正在检查自动回复配置",
+          analysis: {
+            kind: "auto_reply",
+            phase: "result",
+            stage: "preparing",
+            terminal: false,
+            candidate_name: "",
+            reason: "正在检查哪些岗位需要我盯着消息。",
+            timeline: [],
+            updated_at: new Date().toISOString(),
+          },
+          scannedCount: 0,
+          greetedCount: 0,
+          skippedCount: 0,
+        });
+      }
+      const ownPositions = items.filter((item) => isCurrentUserPosition(item, user?.email));
+      const latestStatuses = await loadAutoReplyStatuses(ownPositions);
+      const enabledPositions = ownPositions.filter((item) => Boolean(latestStatuses[item.id]?.enabled));
+      const disabledPositions = ownPositions.filter((item) => !latestStatuses[item.id]?.enabled);
+      if (enabledPositions.length === 0) {
+        notify("还没有岗位开启自动回复，我先不乱接消息。", "warning");
+        return;
+      }
+      if (disabledPositions.length > 0) {
+        setFloatingPositionTask((current) =>
+          current?.id === floatingTaskID
+            ? { ...current, currentStep: "等待你确认自动回复岗位" }
+            : current,
+        );
+        const preview = disabledPositions.slice(0, 8).map((item) => item.name).join("、");
+        const suffix = disabledPositions.length > 8 ? ` 等 ${disabledPositions.length} 个` : "";
+        const approved = await confirm(
+          "开始自动回复",
+          `我小声提醒一下：${preview}${suffix} 没有开启自动回复，这些岗位的候选人消息不会处理。继续开始吗？`,
+        );
+        if (!approved) return;
+      }
+      setGlobalLogOpen(true);
+      setFloatingPositionTask((current) =>
+        current?.id === floatingTaskID
+          ? { ...current, currentStep: "正在启动自动回复" }
+          : current,
+      );
       await localRequest(agentBase, "/api/v1/local/auto-reply/start", {
         method: "POST",
         body: { token: getToken() },
         timeoutMS: 60000,
       });
+      started = true;
       setAutoReplyGlobalStatus("running");
+      setFloatingPositionTask((current) =>
+        current?.id === floatingTaskID
+          ? {
+              ...current,
+              status: "running",
+              followTask: true,
+              currentStep: "正在等待候选人的未读消息",
+              analysis: current.analysis
+                ? {
+                    ...current.analysis,
+                    reason: "我正在盯着未读消息，有新消息就开始处理。",
+                    updated_at: new Date().toISOString(),
+                  }
+                : current.analysis,
+            }
+          : current,
+      );
       notify("自动回复已开始，我会盯着未读消息。", "success");
       await loadGlobalLogs({ silent: true });
     } catch (error) {
-      notify(error instanceof Error ? error.message : "自动回复没有启动成功。", "error");
+      const message = error instanceof Error ? error.message : "自动回复没有启动成功。";
+      setAutoReplyGlobalStatus("failed");
+      setFloatingPositionTask((current) =>
+        current?.id === floatingTaskID
+          ? {
+              ...current,
+              status: "failed",
+              followTask: false,
+              currentStep: message,
+              analysis: current.analysis
+                ? {
+                    ...current.analysis,
+                    phase: "error",
+                    terminal: true,
+                    reason: message,
+                    updated_at: new Date().toISOString(),
+                  }
+                : current.analysis,
+            }
+          : current,
+      );
+      notify(message, "error");
     } finally {
+      if (!started) {
+        setFloatingPositionTask((current) =>
+          current?.id === floatingTaskID && current.status === "running"
+            ? { ...current, status: "stopped", followTask: false }
+            : current,
+        );
+      }
       setAutoReplyGlobalBusy(false);
     }
   }
@@ -733,7 +837,25 @@ export default function PositionsPage() {
         method: "POST",
         timeoutMS: 220000,
       });
-      setAutoReplyGlobalStatus(normalizeFloatingTaskStatus(task?.status));
+      const status = normalizeFloatingTaskStatus(task?.status);
+      setAutoReplyGlobalStatus(status);
+      setFloatingPositionTask((current) =>
+        current?.taskType === "auto_reply"
+          ? {
+              ...current,
+              status,
+              followTask: status === "running",
+              currentStep: String(task?.current_step || "自动回复已经停止").trim(),
+              analysis: nextFloatingAnalysis(
+                current.analysis,
+                normalizeFloatingAnalysis(task?.analysis),
+              ),
+              scannedCount: Math.max(0, Number(task?.scanned_count) || 0),
+              greetedCount: Math.max(0, Number(task?.greeted_count) || 0),
+              skippedCount: Math.max(0, Number(task?.skipped_count) || 0),
+            }
+          : current,
+      );
       notify("收到，自动回复处理完当前候选人就停。", "success");
       await loadGlobalLogs({ silent: true });
     } catch (error) {
@@ -2428,6 +2550,27 @@ function nextFloatingAnalysis(
     return current;
   }
   return incoming;
+}
+
+/** floatingCurrentStep 把自动回复的通用流程名转换成用户能看懂的实时状态。 */
+function floatingCurrentStep(
+  taskType: "position" | "auto_reply",
+  status: PositionFloatingStatusValue,
+  value: unknown,
+  analysis: PositionAnalysisStatus | null,
+) {
+  const currentStep = String(value || "").trim();
+  if (taskType !== "auto_reply" || (currentStep && currentStep !== "执行任务步骤")) {
+    return currentStep;
+  }
+  const latestTimelineMessage = analysis?.timeline?.at(-1)?.message || "";
+  if (analysis?.phase === "loading" && latestTimelineMessage) {
+    return latestTimelineMessage;
+  }
+  if (status === "running") {
+    return "正在等待候选人的未读消息";
+  }
+  return currentStep;
 }
 
 /** PositionSwitchOption 展示岗位布尔开关及面向普通用户的通俗说明。 */
