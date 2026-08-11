@@ -165,7 +165,8 @@ func (r *autoReplyRuntimeStub) CloseAutoReplyConversation(context.Context, model
 }
 
 type unreadScannerStub struct {
-	err error
+	err   error
+	calls *int
 }
 
 // resumeResponderStub 模拟简历结构化成功或失败，并满足自动回复处理器接口。
@@ -186,6 +187,9 @@ func (r resumeResponderStub) StructureResume(context.Context, ResumeStructureCon
 
 // ScanUnreadConversations 返回检查点错误策略测试配置的固定错误。
 func (s unreadScannerStub) ScanUnreadConversations(context.Context, model.Browser, model.Config) ([]model.Conversation, error) {
+	if s.calls != nil {
+		*s.calls++
+	}
 	return nil, s.err
 }
 
@@ -601,9 +605,9 @@ func TestProcessCheckpointStopsAfterThreeScanErrors(t *testing.T) {
 	stats := &shared.Stats{}
 	prepared := shared.PreparedTask{Request: shared.StartRequest{TaskID: "task-1"}}
 	for attempt := 1; attempt <= 3; attempt++ {
-		_, err := flow.processCheckpoint(
+		_, _, err := flow.processCheckpoint(
 			context.Background(), prepared, unreadScannerStub{err: fmt.Errorf("侧边栏暂时没读到")},
-			&autoReplyRuntimeStub{}, nil, 3, stats, policy,
+			&autoReplyRuntimeStub{}, nil, 3, stats, policy, nil,
 		)
 		if attempt < 3 && err != nil {
 			t.Fatalf("attempt %d error = %v", attempt, err)
@@ -632,9 +636,78 @@ func TestProcessConversationKeepsConversationOpen(t *testing.T) {
 	err := flow.processConversation(context.Background(), shared.PreparedTask{
 		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
 		Platform: model.Config{ID: "liepin"},
-	}, runtime, nil, model.Conversation{Key: "thread-1"}, stats)
+	}, runtime, nil, model.Conversation{Key: "thread-1"}, nil, stats)
 	if err == nil || runtime.closeCount != 0 || len(runtime.knownMessageKeys) != 1 || runtime.knownMessageKeys[0] != "old-message" {
 		t.Fatalf("error=%v close_count=%d known_message_keys=%q", err, runtime.closeCount, runtime.knownMessageKeys)
+	}
+}
+
+// TestProcessCheckpointReadsOpenConversationWithoutUnreadBadge 验证聊天框把新消息标成已读后仍优先处理当前会话。
+func TestProcessCheckpointReadsOpenConversationWithoutUnreadBadge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auto-reply/agent/candidate-state" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"found":true,"recent_message_keys":["self-1"],"conversation":{"id":"conversation-1","last_synced_message_key":"self-1"},"attachments":[]}`))
+	}))
+	defer server.Close()
+	runtime := &autoReplyRuntimeStub{latestBefore: model.ConversationMessage{
+		PlatformMessageID: "candidate-2", Direction: "candidate", MessageType: "text", TextContent: "刚刚又发了一条",
+	}}
+	flow := &Flow{Cloud: cloud.New(server.URL)}
+	prepared := shared.PreparedTask{
+		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
+		Platform: model.Config{ID: "liepin"},
+	}
+	current := &openAutoReplyConversation{
+		conversation: model.Conversation{Key: "thread-1", PlatformThreadID: "thread-1", Name: "邓云川"},
+		snapshot: model.AutoReplyConversationSnapshot{
+			CandidateName: "邓云川", PlatformThreadID: "thread-1",
+		},
+	}
+	scannerCalls := 0
+	processed, next, err := flow.processCheckpoint(
+		context.Background(), prepared, unreadScannerStub{calls: &scannerCalls}, runtime, nil, 3,
+		&shared.Stats{}, &shared.ConsecutiveErrorPolicy{}, current,
+	)
+	if err != nil || processed != 1 || scannerCalls != 0 || next != current {
+		t.Fatalf("processed=%d scanner_calls=%d next_same=%t err=%v", processed, scannerCalls, next == current, err)
+	}
+}
+
+// TestOpenConversationHasNewMessageUsesCloudCursor 验证已同步消息和 HR 最新消息不会被重复当成候选人新消息。
+func TestOpenConversationHasNewMessageUsesCloudCursor(t *testing.T) {
+	recentKey := "self-1"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"ok":true,"found":true,"recent_message_keys":[%q],"attachments":[]}`, recentKey)
+	}))
+	defer server.Close()
+	runtime := &autoReplyRuntimeStub{latestBefore: model.ConversationMessage{
+		PlatformMessageID: "candidate-2", Direction: "candidate", MessageType: "text", TextContent: "新问题",
+	}}
+	flow := &Flow{Cloud: cloud.New(server.URL)}
+	prepared := shared.PreparedTask{
+		Request: shared.StartRequest{Token: "token"}, MachineID: "machine", Platform: model.Config{ID: "liepin"},
+	}
+	current := &openAutoReplyConversation{
+		conversation: model.Conversation{Key: "thread-1"},
+		snapshot:     model.AutoReplyConversationSnapshot{CandidateName: "邓云川", PlatformThreadID: "thread-1"},
+	}
+	hasNew, err := flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || !hasNew {
+		t.Fatalf("未同步的候选人消息没有识别出来：has_new=%t err=%v", hasNew, err)
+	}
+	recentKey = "candidate-2"
+	hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || hasNew {
+		t.Fatalf("已同步候选人消息被重复识别：has_new=%t err=%v", hasNew, err)
+	}
+	runtime.latestBefore = model.ConversationMessage{PlatformMessageID: "self-2", Direction: "self", TextContent: "HR 已回复"}
+	hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || hasNew {
+		t.Fatalf("HR 消息不该触发自动回复：has_new=%t err=%v", hasNew, err)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 )
 
 // processConversation 平铺执行页面读取、岗位归属、云端同步、简历门槛、AI决定和安全发送。
-func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, stats *shared.Stats) error {
+func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, conversation model.Conversation, openSnapshot *model.AutoReplyConversationSnapshot, stats *shared.Stats) error {
 	stats.Processed++
 	initialState, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: conversation.PlatformAccountID,
@@ -29,12 +29,23 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		return fmt.Errorf("读取候选人差量游标失败：%w", err)
 	}
 	knownMessageKeys := knownMessageKeysFromState(initialState)
-	pageSnapshot, err := runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages)
+	pageSnapshot := model.AutoReplyConversationSnapshot{}
+	if openSnapshot != nil && openSnapshot.CandidateName != "" {
+		pageSnapshot = *openSnapshot
+		pageSnapshot.Messages, pageSnapshot.HistoryComplete, err = runtime.ReadAutoReplyMessages(
+			ctx, f.Browser, prepared.Platform, pageSnapshot, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages,
+		)
+	} else {
+		pageSnapshot, err = runtime.OpenAutoReplyConversation(ctx, f.Browser, prepared.Platform, conversation, knownMessageKeys, cloud.AutoReplyMaxHistoryMessages)
+	}
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("打开并读取候选人会话失败：%w", err)
 	}
 	pageSnapshot = normalizePageSnapshot(conversation, pageSnapshot)
+	if openSnapshot != nil {
+		*openSnapshot = pageSnapshot
+	}
 	messages, latestCandidateKey, err := convertMessages(pageSnapshot.Messages)
 	if err != nil {
 		stats.Failed++

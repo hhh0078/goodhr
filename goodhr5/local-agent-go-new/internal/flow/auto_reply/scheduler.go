@@ -62,8 +62,8 @@ func (f *Flow) RunCheckpoint(ctx context.Context, prepared shared.PreparedTask, 
 		return result, f.recordCheckpointError(prepared.Request.TaskID, session, "initialize_page", fmt.Errorf("整理自动回复页面失败：%w", err))
 	}
 	limit, _ := checkpointSettings(positions, prepared.Position.ID)
-	result.Processed, err = f.processCheckpoint(
-		ctx, prepared, runtime, replyRuntime, positions, limit, &session.stats, &session.errorPolicy,
+	result.Processed, _, err = f.processCheckpoint(
+		ctx, prepared, runtime, replyRuntime, positions, limit, &session.stats, &session.errorPolicy, nil,
 	)
 	if err != nil {
 		return result, err
