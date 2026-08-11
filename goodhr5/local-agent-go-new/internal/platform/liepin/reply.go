@@ -33,18 +33,58 @@ func (r *Runtime) ScanUnreadConversations(ctx context.Context, browser model.Bro
 	if err != nil || !ready {
 		return nil, err
 	}
-	items, err := common.FindConfiguredConversationItems(ctx, browser, cfg, "message.unread_item", true)
+	conversations, err := readLiepinUnreadConversations(ctx, browser, cfg)
 	if err != nil {
 		return nil, err
 	}
-	conversations, err := liepinConversations(items, true)
-	if err != nil {
-		return nil, err
+	if len(conversations) == 0 {
+		refreshed, refreshErr := refreshLiepinUnreadConversationList(ctx, browser, cfg)
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
+		if refreshed {
+			conversations, err = readLiepinUnreadConversations(ctx, browser, cfg)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if unreadCount > 0 && len(conversations) > unreadCount {
 		conversations = conversations[:unreadCount]
 	}
 	return conversations, nil
+}
+
+// readLiepinUnreadConversations 读取猎聘未读标签当前真实带数字的联系人。
+func readLiepinUnreadConversations(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Conversation, error) {
+	items, err := common.FindConfiguredConversationItems(ctx, browser, cfg, "message.unread_item", true)
+	if err != nil {
+		return nil, err
+	}
+	return liepinConversations(items, true)
+}
+
+// refreshLiepinUnreadConversationList 在入口有数字但未读列表为空时切换标签刷新一次。
+func refreshLiepinUnreadConversationList(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
+	unread, found, err := common.ReadOptional(ctx, browser, cfg, "message.entry_unread_count")
+	if err != nil || !found {
+		return false, err
+	}
+	unreadCount, err := parseLiepinUnreadCount(unread)
+	if err != nil || unreadCount <= 0 {
+		return false, err
+	}
+	if err = ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
+		return false, fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
+	}
+	ready, _, err := ensureLiepinUnreadConversationDrawer(ctx, browser, cfg)
+	if err != nil {
+		return false, fmt.Errorf("刷新%s未读联系人列表失败：%w", cfg.Name, err)
+	}
+	if !ready {
+		return false, fmt.Errorf("刷新%s未读联系人列表后抽屉没有准备好", cfg.Name)
+	}
+	return true, nil
 }
 
 // ensureLiepinUnreadConversationDrawer 打开联系人抽屉并确认切到未读标签，保证会话始终从列表首项依次处理。

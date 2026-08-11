@@ -102,7 +102,14 @@ func TestRequestCloudResumeStructureRetriesLegacyAliases(t *testing.T) {
 
 // TestCallCloudResumeAIUsesDedicatedTimeout 验证真实附件结构化不会被通用 AI 超时提前取消。
 func TestCallCloudResumeAIUsesDedicatedTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("AI 请求体无法解析：%v", err)
+		}
+		if request["enable_thinking"] != false {
+			t.Errorf("简历结构化没有关闭思考模式：%#v", request["enable_thinking"])
+		}
 		time.Sleep(20 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}],"usage":{"total_tokens":1}}`))

@@ -232,9 +232,10 @@ func (s *AutoReplyService) requestCloudResumeStructure(ctx context.Context, conf
 
 // callCloudResumeAI 调用用户当前云端 AI 配置，并读取非流式 JSON 结果和 Token 用量。
 func (s *AutoReplyService) callCloudResumeAI(ctx context.Context, config AIConfig, messages []AIMsg) (string, int, error) {
+	disableThinking := false
 	payload, err := json.Marshal(AIRequest{
 		Model: strings.TrimSpace(config.Model), Messages: messages, Temperature: 0,
-		ResponseFormat: map[string]string{"type": "json_object"},
+		ResponseFormat: map[string]string{"type": "json_object"}, EnableThinking: &disableThinking,
 	})
 	if err != nil {
 		return "", 0, fmt.Errorf("编码 AI 请求失败：%w", err)

@@ -28,6 +28,8 @@ type liepinReplyBrowserStub struct {
 	unreadCount      int
 	unreadSelected   bool
 	allSelected      bool
+	staleUnreadItems bool
+	refreshStarted   bool
 	clicks           []string
 	historyBatches   [][]contract.FindAllItem
 	historyBatch     int
@@ -76,6 +78,10 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 			return []contract.FindAllItem{{Index: 0}}, nil
 		}
 		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试未读联系人":
+		if b.staleUnreadItems {
+			return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+		}
 	case "测试在线简历浮层":
 		if b.detailOpen {
 			return []contract.FindAllItem{{Index: 0}}, nil
@@ -118,10 +124,15 @@ func (b *liepinReplyBrowserStub) Click(_ context.Context, request contract.Eleme
 	}
 	if request.Selector.Description == "测试未读标签" {
 		b.unreadSelected = true
+		b.allSelected = false
+		if b.refreshStarted {
+			b.staleUnreadItems = false
+		}
 	}
 	if request.Selector.Description == "测试全部标签" {
 		b.allSelected = true
 		b.unreadSelected = false
+		b.refreshStarted = true
 	}
 	if request.Selector.Description == "message.contact_click_target" {
 		b.conversationOpen = true
@@ -255,6 +266,35 @@ func TestScanUnreadConversationsIgnoresHistoricalUnreadWithoutBadge(t *testing.T
 	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
 	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
 		t.Fatalf("没有只保留头像带数字的联系人：conversations=%+v err=%v", conversations, err)
+	}
+}
+
+// TestScanUnreadConversationsRefreshesStaleUnreadTab 验证入口有数字但未读标签为空时会刷新一次标签。
+func TestScanUnreadConversationsRefreshesStaleUnreadTab(t *testing.T) {
+	browser := &liepinReplyBrowserStub{
+		drawerOpen: true, unreadSelected: true, unreadCount: 1, staleUnreadItems: true,
+		items: []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+			"name": "邓云川", "unread_count": "1", "thread_meta": url.QueryEscape(`{"unread":true,"to_imid":"thread-new"}`),
+		}}},
+	}
+	cfg := model.Config{
+		ID: "liepin", Name: "猎聘企业端", MaxItems: 100,
+		Selectors: map[string]contract.SelectorSpec{
+			"message.drawer":              testLiepinSelector("测试联系人抽屉"),
+			"message.entry_unread_count":  testLiepinSelector("测试未读数字"),
+			"message.unread_tab":          testLiepinSelector("测试未读标签"),
+			"message.unread_tab_selected": testLiepinSelector("测试未读标签已选中"),
+			"message.all_tab":             testLiepinSelector("测试全部标签"),
+			"message.all_tab_selected":    testLiepinSelector("测试全部标签已选中"),
+			"message.unread_item":         testLiepinSelector("测试未读联系人"),
+		},
+	}
+	conversations, err := (&Runtime{}).ScanUnreadConversations(context.Background(), browser, cfg)
+	if err != nil || len(conversations) != 1 || conversations[0].Name != "邓云川" {
+		t.Fatalf("刷新后仍没有读到未读联系人：conversations=%+v err=%v", conversations, err)
+	}
+	if !browser.refreshStarted || browser.staleUnreadItems {
+		t.Fatalf("没有完成全部到未读的刷新：clicks=%v stale=%t", browser.clicks, browser.staleUnreadItems)
 	}
 }
 

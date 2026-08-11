@@ -270,7 +270,7 @@ func (s *toolExecutionState) prepareMessage(call ai.ToolCall) (json.RawMessage, 
 	if err := decodeToolArguments(call, &args); err != nil {
 		return nil, err
 	}
-	message := strings.TrimSpace(args.Message)
+	message := normalizeSimpleCandidateReply(s.input, args.Message)
 	if message == "" || len([]rune(message)) > maxAutoReplyMessageRunes {
 		return nil, argumentError("message 不能为空且不能超过200字")
 	}
@@ -284,6 +284,42 @@ func (s *toolExecutionState) prepareMessage(call ai.ToolCall) (json.RawMessage, 
 	return marshalToolResult(struct {
 		Prepared bool `json:"prepared"`
 	}{true})
+}
+
+// normalizeSimpleCandidateReply 防止 AI 对纯问候、致谢或求职兴趣主动扩展岗位和简历信息。
+func normalizeSimpleCandidateReply(input ReplyContext, proposed string) string {
+	message, found := findBasedOnMessage(input.Messages, input.BasedOnMessageKey)
+	latest := strings.TrimSpace(message.TextContent)
+	if !found || latest == "" || looksLikeCandidateQuestion(latest) {
+		return strings.TrimSpace(proposed)
+	}
+	if containsAnyText(latest, "谢谢", "感谢", "辛苦了") && len([]rune(latest)) <= 30 {
+		return "不客气～"
+	}
+	if containsAnyText(latest, "感兴趣", "详聊", "沟通", "了解一下", "在看机会", "看看机会") && len([]rune(latest)) <= 80 {
+		return "可以的，你想了解岗位哪方面呢？"
+	}
+	if containsAnyText(latest, "你好", "您好", "嗨", "哈喽", "在吗") && len([]rune(latest)) <= 20 {
+		return "你好呀～"
+	}
+	return strings.TrimSpace(proposed)
+}
+
+// looksLikeCandidateQuestion 判断候选人是否提出了需要 AI 正常回答的具体问题。
+func looksLikeCandidateQuestion(value string) bool {
+	return strings.ContainsAny(value, "?？") || containsAnyText(value,
+		"多少", "哪里", "哪儿", "怎么", "如何", "为什么", "是否", "能否", "可以吗", "可不可以", "有没有", "几号", "几点", "什么时候", "什么样",
+	)
+}
+
+// containsAnyText 判断文字中是否包含任意一个非空关键词。
+func containsAnyText(value string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if keyword != "" && strings.Contains(value, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // saveSuggestion 校验并保存一条等待 HR 审核的岗位或公司资料建议。

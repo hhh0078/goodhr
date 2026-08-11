@@ -362,7 +362,6 @@ function ResumeRow({
   ]
     .filter(Boolean)
     .join(" / ");
-  const ownerLine = item.creatorEmail ? `创建人：${item.creatorEmail}` : "";
   const contacts = [
     item.phone ? `手机：${item.phone}` : "",
     item.email ? `邮箱：${item.email}` : "",
@@ -426,14 +425,6 @@ function ResumeRow({
                 {contact}
               </Typography>
             ))}
-            {ownerLine ? (
-              <Typography
-                noWrap
-                sx={{ mt: 0.5, color: "text.secondary", fontSize: 12 }}
-              >
-                {ownerLine}
-              </Typography>
-            ) : null}
           </Box>
         </Stack>
       </Button>
@@ -464,6 +455,7 @@ function ResumeRow({
       <NotePreview
         notes={item.notes}
         createdAt={item.createdAt}
+        creatorEmail={item.creatorEmail}
         onClick={() => onOpenNotes(item)}
       />
       <Button
@@ -512,10 +504,12 @@ function ExperienceSummary({ item }: { item: NormalizedExperience }) {
 function NotePreview({
   notes,
   createdAt,
+  creatorEmail,
   onClick,
 }: {
   notes: NormalizedNote[];
   createdAt: string;
+  creatorEmail: string;
   onClick: () => void;
 }) {
   return (
@@ -562,19 +556,27 @@ function NotePreview({
           这里暂时没备注
         </Typography>
       )}
-      {createdAt ? (
-        <Typography
+      {createdAt || creatorEmail ? (
+        <Stack
+          spacing={0.35}
           sx={{
             mt: 1,
             pt: 0.8,
             borderTop: "1px solid",
             borderColor: "divider",
-            color: "text.secondary",
-            fontSize: 11,
           }}
         >
-          创建时间：{formatDate(createdAt)}
-        </Typography>
+          {createdAt ? (
+            <Typography sx={{ color: "text.secondary", fontSize: 11 }}>
+              创建时间：{formatDate(createdAt)}
+            </Typography>
+          ) : null}
+          {creatorEmail ? (
+            <Typography sx={{ color: "text.secondary", fontSize: 11 }}>
+              创建人：{creatorEmail}
+            </Typography>
+          ) : null}
+        </Stack>
       ) : null}
     </Button>
   );

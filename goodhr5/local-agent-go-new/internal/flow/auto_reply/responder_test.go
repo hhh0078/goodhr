@@ -49,8 +49,10 @@ func TestAutoReplyToolDefinitionsAreStableAndUnique(t *testing.T) {
 func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 	requiredRules := []string{
 		"你就是当前招聘岗位的 HR",
-		"based_on_message_key 对应的候选人消息是本轮唯一待回复消息",
+		"based_on_message 是本轮唯一待回复消息",
 		"历史聊天只用于理解上下文和保持语气，不得主动补答历史消息",
+		"只是在问候、致谢、表达求职兴趣或愿意沟通",
+		"禁止主动介绍岗位信息、简历信息或匹配结论",
 		"confirmation_items 是内部确认项",
 		"不得主动告知学历不符",
 		"没有可靠依据时禁止猜测、禁止承诺",
@@ -81,6 +83,52 @@ func TestPrepareMessageRejectsRepliesOverTwoHundredRunes(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "不能超过200字") {
 		t.Fatalf("prepareMessage() error = %v", err)
+	}
+}
+
+// TestPrepareMessageKeepsSimpleInterestReplyShort 验证纯求职兴趣不会被 AI 扩展成岗位介绍或匹配判断。
+func TestPrepareMessageKeepsSimpleInterestReplyShort(t *testing.T) {
+	state := &toolExecutionState{input: ReplyContext{
+		Messages: []cloud.AutoReplyMessage{{
+			Fingerprint: "message-interest", Direction: "candidate",
+			TextContent: "我目前正在看机会，对这个职位很感兴趣，希望可以详聊~",
+		}},
+		BasedOnMessageKey: "message-interest",
+	}}
+	arguments, err := json.Marshal(sendMessageToolArgs{Message: "岗位在成都，而且你的经历和岗位不匹配，想确认下你的意向。"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = state.prepareMessage(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
+		Name: toolSendMessage, Arguments: string(arguments),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if state.pendingReply != "可以的，你想了解岗位哪方面呢？" {
+		t.Fatalf("纯兴趣消息没有被简短承接：%q", state.pendingReply)
+	}
+}
+
+// TestPrepareMessageDoesNotOverrideCandidateQuestion 验证候选人提出具体问题时仍保留 AI 的针对性回答。
+func TestPrepareMessageDoesNotOverrideCandidateQuestion(t *testing.T) {
+	state := &toolExecutionState{input: ReplyContext{
+		Messages: []cloud.AutoReplyMessage{{
+			Fingerprint: "message-question", Direction: "candidate",
+			TextContent: "我对岗位感兴趣，薪资多少",
+		}},
+		BasedOnMessageKey: "message-question",
+	}}
+	arguments, err := json.Marshal(sendMessageToolArgs{Message: "薪资是5k到8k。"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = state.prepareMessage(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
+		Name: toolSendMessage, Arguments: string(arguments),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if state.pendingReply != "薪资是5k到8k。" {
+		t.Fatalf("具体问题的回答不该被覆盖：%q", state.pendingReply)
 	}
 }
 
@@ -125,8 +173,24 @@ func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	if !strings.Contains(firstRequest.Messages[1].Content, "AI应用开发工程师") || !strings.Contains(firstRequest.Messages[1].Content, "薪资是多少") {
 		t.Fatalf("user 消息缺少动态上下文：%s", firstRequest.Messages[1].Content)
 	}
+	var dynamic replyPromptInput
+	if err = json.Unmarshal([]byte(firstRequest.Messages[1].Content), &dynamic); err != nil {
+		t.Fatalf("动态上下文无法解析：%v", err)
+	}
+	if dynamic.BasedOnMessage.TextContent != "薪资是多少" || dynamic.BasedOnMessage.Fingerprint != input.BasedOnMessageKey {
+		t.Fatalf("本轮唯一消息没有单独传给 AI：%+v", dynamic.BasedOnMessage)
+	}
 	if state.toolCalls[1].Status != "failed" || state.toolCalls[1].ErrorCode != "INVALID_TOOL_ARGUMENTS" {
 		t.Fatalf("first tool finish = %+v", state.toolCalls[1])
+	}
+}
+
+// TestInitialToolMessagesRejectsMissingBasedOnMessage 验证消息编号无法匹配时不会让 AI 猜要回复哪一条。
+func TestInitialToolMessagesRejectsMissingBasedOnMessage(t *testing.T) {
+	input := responderInput("https://example.com")
+	input.BasedOnMessageKey = "missing-message"
+	if _, err := initialToolMessages(input); err == nil || !strings.Contains(err.Error(), "没有在聊天上下文里找到") {
+		t.Fatalf("缺失本轮消息时没有停止：%v", err)
 	}
 }
 
