@@ -2,6 +2,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Download, Page } from "playwright-core";
@@ -96,27 +97,103 @@ export class DownloadManager {
     this.pendingDownloads.add(task);
   }
 
+  /** saveFetchedDocument 保存浏览器会话主动读取到的文档，并写入统一下载记录。 */
+  async saveFetchedDocument(
+    content: AsyncIterable<Uint8Array>,
+    maximumBytes: number,
+    requiredPrefix: Buffer | undefined,
+    sourceURL: string,
+    pageURL: string,
+    suggestedFilename: string,
+    actionContext: ActionContext,
+    deadlineAt?: number,
+  ): Promise<DownloadRecord> {
+    const startedAt = Date.now();
+    const record = this.createRecord(suggestedFilename, sourceURL, pageURL);
+    const temporaryPath = path.join(
+      this.downloadsPath,
+      `.goodhr-${randomUUID()}.part`,
+    );
+    let handle: FileHandle | null = null;
+    let savedPath = "";
+    let totalBytes = 0;
+    let header = Buffer.alloc(0);
+    this.logger.info(actionContext, "save_fetched_document", "start", {
+      page_url: safeURL(pageURL),
+      document_url: safeURL(sourceURL),
+      suggested_filename: record.suggested_filename,
+      directory: this.downloadsPath,
+      max_bytes: maximumBytes,
+    });
+    try {
+      await fs.mkdir(this.downloadsPath, { recursive: true });
+      handle = await fs.open(temporaryPath, "wx");
+      for await (const value of content) {
+        assertDocumentDeadline(deadlineAt);
+        const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+        if (totalBytes+chunk.length > maximumBytes) {
+          throw new Error(`文档实际大小超过 ${maximumBytes} 字节`);
+        }
+        totalBytes += chunk.length;
+        if (header.length < 65_536) {
+          header = Buffer.concat([
+            header,
+            chunk.subarray(0, Math.max(0, 65_536-header.length)),
+          ]);
+        }
+        await writeAll(handle, chunk, deadlineAt);
+      }
+      assertDocumentDeadline(deadlineAt);
+      await handle.close();
+      handle = null;
+      if (totalBytes === 0) {
+        throw new Error("文档页面返回了空文件");
+      }
+      if (requiredPrefix && !header.subarray(0, requiredPrefix.length).equals(requiredPrefix)) {
+        throw new Error("文档内容签名没有通过校验");
+      }
+      let filename = filenameWithExtension(record.suggested_filename, sourceURL);
+      if (!path.extname(filename)) {
+        const extension = extensionFromBuffer(header);
+        if (extension) {
+          filename += extension;
+        }
+      }
+      savedPath = await uniquePath(this.downloadsPath, filename);
+      await fs.rename(temporaryPath, savedPath);
+      await this.finishRecord(record, savedPath, sourceURL);
+      this.logger.info(actionContext, "save_fetched_document", "success", {
+        filename: record.filename,
+        size: record.size,
+        duration_ms: Date.now() - startedAt,
+      });
+      return record;
+    } catch (error) {
+      await handle?.close().catch(() => undefined);
+      await fs.unlink(temporaryPath).catch(() => undefined);
+      if (savedPath) {
+        await fs.unlink(savedPath).catch(() => undefined);
+      }
+      this.failRecord(record, error);
+      this.logger.error(actionContext, "save_fetched_document", "failed", {
+        error_code: "DOWNLOAD_FAILED",
+        message: record.error,
+        duration_ms: Date.now() - startedAt,
+      });
+      throw error;
+    }
+  }
+
   /** save 把浏览器下载保存到配置目录并写入成功或失败状态。 */
   private async save(download: Download, page: Page): Promise<void> {
     const startedAt = Date.now();
     const downloadURL = download.url();
     const suggestedFilename = safeFilename(download.suggestedFilename());
-    const record: DownloadRecord = {
-      id: randomUUID(),
-      filename: suggestedFilename,
-      file_name: suggestedFilename,
-      file_path: "",
-      path: "",
-      suggested_filename: suggestedFilename,
-      url: downloadURL,
-      page_url: page.isClosed() ? "" : page.url(),
-      size: 0,
-      status: "pending",
-      error: "",
-      created_at: new Date().toISOString(),
-    };
-    this.downloads.unshift(record);
-    this.trim();
+    const record = this.createRecord(
+      suggestedFilename,
+      downloadURL,
+      page.isClosed() ? "" : page.url(),
+    );
     const actionContext: ActionContext = {
       trace_id: record.id,
       action: "downloads.capture",
@@ -138,22 +215,14 @@ export class DownloadManager {
         throw new Error(failure);
       }
       const savedPath = await ensureDownloadExtension(filePath);
-      const stat = await fs.stat(savedPath);
-      record.id = downloadID(savedPath, downloadURL);
-      record.filename = path.basename(savedPath);
-      record.file_name = record.filename;
-      record.file_path = savedPath;
-      record.path = savedPath;
-      record.size = stat.size;
-      record.status = "saved";
+      await this.finishRecord(record, savedPath, downloadURL);
       this.logger.info(actionContext, "save_download", "success", {
         filename: record.filename,
         size: record.size,
         duration_ms: Date.now() - startedAt,
       });
     } catch (error) {
-      record.status = "failed";
-      record.error = error instanceof Error ? error.message : String(error);
+      this.failRecord(record, error);
       this.logger.error(actionContext, "save_download", "failed", {
         error_code: "DOWNLOAD_FAILED",
         message: record.error,
@@ -162,11 +231,84 @@ export class DownloadManager {
     }
   }
 
+  /** createRecord 创建一条与浏览器普通下载格式一致的待处理记录。 */
+  private createRecord(
+    suggestedFilename: string,
+    sourceURL: string,
+    pageURL: string,
+  ): DownloadRecord {
+    const filename = safeFilename(suggestedFilename);
+    const record: DownloadRecord = {
+      id: randomUUID(),
+      filename,
+      file_name: filename,
+      file_path: "",
+      path: "",
+      suggested_filename: filename,
+      url: safeURL(sourceURL),
+      page_url: safeURL(pageURL),
+      size: 0,
+      status: "pending",
+      error: "",
+      created_at: new Date().toISOString(),
+    };
+    this.downloads.unshift(record);
+    this.trim();
+    return record;
+  }
+
+  /** finishRecord 用最终文件信息把下载记录更新为成功。 */
+  private async finishRecord(
+    record: DownloadRecord,
+    savedPath: string,
+    sourceURL: string,
+  ): Promise<void> {
+    const stat = await fs.stat(savedPath);
+    record.id = downloadID(savedPath, sourceURL);
+    record.filename = path.basename(savedPath);
+    record.file_name = record.filename;
+    record.file_path = savedPath;
+    record.path = savedPath;
+    record.size = stat.size;
+    record.status = "saved";
+  }
+
+  /** failRecord 把未知保存异常整理到统一失败记录。 */
+  private failRecord(record: DownloadRecord, error: unknown): void {
+    record.status = "failed";
+    record.error = error instanceof Error ? error.message : String(error);
+  }
+
   /** trim 把下载记录限制在最近 100 条。 */
   private trim(): void {
     if (this.downloads.length > 100) {
       this.downloads.length = 100;
     }
+  }
+}
+
+/** writeAll 循环写完一个数据块，防止 FileHandle.write 短写造成文档缺页。 */
+async function writeAll(handle: FileHandle, chunk: Buffer, deadlineAt?: number): Promise<void> {
+  let offset = 0;
+  while (offset < chunk.length) {
+    assertDocumentDeadline(deadlineAt);
+    const { bytesWritten } = await handle.write(
+      chunk,
+      offset,
+      chunk.length - offset,
+      null,
+    );
+    if (bytesWritten <= 0) {
+      throw new Error("文档临时文件没有完整写入");
+    }
+    offset += bytesWritten;
+  }
+}
+
+/** assertDocumentDeadline 保证网络读取和本地落盘共同受同一个总超时约束。 */
+function assertDocumentDeadline(deadlineAt?: number): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new Error("保存文档页面超过总时限，已经停止读取");
   }
 }
 

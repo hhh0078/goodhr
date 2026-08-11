@@ -30,8 +30,8 @@
   "_comment_login_url": "平台登录页面地址。",
   "entry_url": "https://www.zhipin.com/web/chat/recommend",
   "_comment_entry_url": "主动打招呼流程入口页面地址。",
-  "messages_url": "https://www.zhipin.com/web/chat",
-  "_comment_messages_url": "自动回复流程消息页面地址。",
+  "messages_url": "https://www.zhipin.com/web/chat/recommend",
+  "_comment_messages_url": "自动回复继续复用推荐页右侧联系人入口，不跳转独立沟通页面。",
   "scroll_distance": 620,
   "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
   "max_items": 100,
@@ -566,6 +566,351 @@
       "state": "enabled",
       "timeout_ms": 1000,
       "description": "Boss确认索要简历"
+    },
+    "message.entry": {
+      "_comment": "推荐页右下角的全局消息入口；自动回复复用当前推荐页，不跳转独立沟通页面。",
+      "parents": [],
+      "target": {
+        "_comment": "Boss 全局联系人入口。",
+        "selectors": [
+          { "_comment": "Boss 推荐页消息入口容器。", "type": "css", "value": ".chat-global-entry" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss未读联系人入口"
+    },
+    "message.entry_unread_count": {
+      "_comment": "全局消息入口上的红色未读总数；没有数字时本轮不打开联系人列表。",
+      "parents": [
+        {
+          "_comment": "限定在 Boss 全局消息入口内。",
+          "selectors": [
+            { "_comment": "Boss 推荐页消息入口容器。", "type": "css", "value": ".chat-global-entry" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "入口未读数字。",
+        "selectors": [
+          { "_comment": "Boss 未读徽标数字。", "type": "css", "value": ".badge-count" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "Boss未读消息数量"
+    },
+    "message.drawer": {
+      "_comment": "推荐页右侧已经展开的联系人列表。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人列表根节点。",
+        "selectors": [
+          { "_comment": "Boss 全局联系人列表。", "type": "css", "value": ".chat-global-list" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss联系人列表"
+    },
+    "message.drawer_scroll": {
+      "_comment": "联系人列表的真实滚轮落点。",
+      "parents": [
+        {
+          "_comment": "限定在已经展开的联系人列表内。",
+          "selectors": [
+            { "_comment": "Boss 全局联系人列表。", "type": "css", "value": ".chat-global-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "联系人滚动内容区域。",
+        "selectors": [
+          { "_comment": "Boss 联系人列表滚动容器。", "type": "css", "value": ".chat-global-list-scroll-content" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss联系人滚动区域"
+    },
+    "message.contact_item": {
+      "_comment": "联系人列表全部项目；没有稳定平台编号时公共流程按唯一姓名安全恢复。",
+      "parents": [
+        {
+          "_comment": "限定在已经展开的联系人列表内。",
+          "selectors": [
+            { "_comment": "Boss 全局联系人列表。", "type": "css", "value": ".chat-global-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "Boss 联系人行。",
+        "selectors": [
+          { "_comment": "Boss 联系人稳定项目类名。", "type": "css", "value": ".friend-list-item" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1500,
+      "description": "Boss联系人项目"
+    },
+    "message.contact_click_target": {
+      "_comment": "联系人行内较小且稳定的姓名点击目标，避免误点头像。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名文字。",
+        "selectors": [
+          { "_comment": "Boss 联系人姓名。", "type": "css", "value": ".name" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "Boss联系人姓名点击区域"
+    },
+    "message.unread_item": {
+      "_comment": "头像区域确实带红色未读数字的联系人项目。",
+      "parents": [
+        {
+          "_comment": "限定在已经展开的联系人列表内。",
+          "selectors": [
+            { "_comment": "Boss 全局联系人列表。", "type": "css", "value": ".chat-global-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "包含未读徽标的联系人行。",
+        "selectors": [
+          { "_comment": "Boss 真实未读联系人。", "type": "css", "value": ".friend-list-item:has(.badge-count)" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss未读联系人"
+    },
+    "message.current_name": {
+      "_comment": "当前聊天框头部候选人姓名，用于每次读取和发送前防止串会话。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部姓名。",
+        "selectors": [
+          { "_comment": "Boss 会话候选人姓名。", "type": "css", "value": ".chatview-name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss当前聊天候选人"
+    },
+    "message.current_position": {
+      "_comment": "当前聊天框头部完整沟通岗位，用于避免同名候选人跨岗位串台。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部沟通岗位。",
+        "selectors": [
+          { "_comment": "Boss 当前沟通岗位。", "type": "css", "value": ".chat-global-job" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss当前沟通岗位"
+    },
+    "message.current_avatar": {
+      "_comment": "当前聊天框候选人消息里的头像；同一会话固定取第一张候选人头像。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人消息头像，序号从 0 开始。",
+        "selectors": [
+          { "_comment": "Boss 候选人消息头像图片。", "type": "css", "value": ".item-friend .avatar-content img" }
+        ],
+        "index": 0
+      },
+      "state": "attached",
+      "timeout_ms": 3000,
+      "description": "Boss当前候选人头像"
+    },
+    "message.item": {
+      "_comment": "当前聊天框已经加载的系统、候选人和 HR 消息。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        },
+        {
+          "_comment": "限定在消息列表内。",
+          "selectors": [
+            { "_comment": "Boss 聊天消息列表。", "type": "css", "value": ".chat-message-list" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "Boss 每条聊天消息。",
+        "selectors": [
+          { "_comment": "Boss 聊天消息项目。", "type": "css", "value": ".message-item" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 3000,
+      "description": "Boss聊天消息"
+    },
+    "message.history_scroll": {
+      "_comment": "聊天历史向上加载的真实滚轮落点。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "Boss 聊天消息滚动区域。",
+        "selectors": [
+          { "_comment": "Boss 聊天消息列表。", "type": "css", "value": ".chat-message-list" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "Boss聊天历史滚动区域"
+    },
+    "message.input": {
+      "_comment": "自动回复复用现有 Boss 聊天输入框。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天编辑器可输入区域。",
+        "selectors": [
+          { "_comment": "Boss 当前聊天框唯一可编辑区域。", "type": "css", "value": "#boss-chat-global-input" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss自动回复输入框"
+    },
+    "message.send": {
+      "_comment": "输入消息后使用当前聊天框的可用发送按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "排除未输入内容时的禁用按钮。",
+        "selectors": [
+          { "_comment": "Boss 可用发送按钮。", "type": "css", "value": ".btn-send:not(.btn-disabled)" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss发送自动回复"
+    },
+    "message.resume_attachment_entry": {
+      "_comment": "最后一条候选人附件简历消息中的预览按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前 Boss 聊天框内。",
+          "selectors": [
+            { "_comment": "Boss 全局候选人会话。", "type": "css", "value": ".chat-global-conversation" }
+          ]
+        },
+        {
+          "_comment": "限定在没有更晚附件卡片的最后一条候选人简历消息。",
+          "selectors": [
+            { "_comment": "Boss 最后一条候选人附件简历消息。", "type": "css", "value": ".message-item:has(.item-friend .message-card-wrap:has(.message-dialog-icon.resume-icon)):not(:has(~ .message-item .item-friend .message-card-wrap:has(.message-dialog-icon.resume-icon)))" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "附件卡片内真实可点击的预览按钮。",
+        "selectors": [
+          { "_comment": "Boss 附件简历预览按钮。", "type": "css", "value": ".message-card-wrap:has(.message-dialog-icon.resume-icon) .card-btn" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss附件简历入口"
+    },
+    "message.attachment_preview": {
+      "_comment": "包含 PDF iframe 的当前可见附件预览弹框。",
+      "parents": [],
+      "target": {
+        "_comment": "Boss 附件预览激活层。",
+        "selectors": [
+          { "_comment": "Boss 当前附件 PDF 预览弹框。", "type": "css", "value": ".dialog-wrap.active:has(iframe.attachment-iframe)" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 2500,
+      "description": "Boss附件简历预览"
+    },
+    "message.attachment_preview_close": {
+      "_comment": "附件预览右上角关闭按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前可见附件预览弹框内。",
+          "selectors": [
+            { "_comment": "Boss 当前附件 PDF 预览弹框。", "type": "css", "value": ".dialog-wrap.active:has(iframe.attachment-iframe)" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "附件预览顶部关闭目标。",
+        "selectors": [
+          { "_comment": "Boss 附件预览关闭按钮。", "type": "css", "value": ".close-btn" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss关闭附件预览"
+    },
+    "message.attachment_download": {
+      "_comment": "附件预览顶部工具栏中带“下载”提示的真实点击区域。",
+      "parents": [
+        {
+          "_comment": "限定在当前可见附件预览弹框内。",
+          "selectors": [
+            { "_comment": "Boss 当前附件 PDF 预览弹框。", "type": "css", "value": ".dialog-wrap.active:has(iframe.attachment-iframe)" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "通过内部“下载”提示唯一定位工具按钮。",
+        "selectors": [
+          { "_comment": "Boss 附件下载工具按钮。", "type": "css", "value": ".attachment-resume-btns .popover.icon-content:has(.popover-content:text-is(\"下载\"))" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "Boss下载附件简历"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
@@ -637,15 +982,133 @@
       "description": "Boss候选人描述"
     }
   },
-  "conversation_fields": {},
-  "_comment_conversation_fields": "自动回复字段暂未从旧版获得，接入消息流程前补 name、id、last_message。",
+  "conversation_fields": {
+    "name": {
+      "_comment": "联系人列表候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名文字。",
+        "selectors": [
+          { "_comment": "Boss 联系人姓名。", "type": "css", "value": ".name" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss联系人姓名"
+    },
+    "avatar_url": {
+      "_comment": "联系人列表候选人头像地址，后续由本地程序截图或安全下载到 GoodHR。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行内头像图片。",
+        "selectors": [
+          { "_comment": "Boss 联系人头像。", "type": "css", "value": "img.image-square" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "src",
+      "description": "Boss联系人头像地址"
+    },
+    "last_message": {
+      "_comment": "联系人列表最后一条消息摘要。",
+      "parents": [],
+      "target": {
+        "_comment": "最近消息文字。",
+        "selectors": [
+          { "_comment": "Boss 联系人最近消息。", "type": "css", "value": ".push-text" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss联系人最近消息"
+    },
+    "unread_count": {
+      "_comment": "联系人头像上的红色未读数字。",
+      "parents": [],
+      "target": {
+        "_comment": "当前联系人行未读徽标。",
+        "selectors": [
+          { "_comment": "Boss 联系人未读数字。", "type": "css", "value": ".badge-count" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "Boss联系人未读数字"
+    },
+    "body_class": {
+      "_comment": "消息方向容器类名；item-friend 表示候选人，item-myself 表示 HR。",
+      "parents": [],
+      "target": {
+        "_comment": "当前消息内的双方方向容器。",
+        "selectors": [
+          { "_comment": "Boss 候选人、HR 或系统方向容器。", "type": "css", "value": ":scope .item-friend, :scope .item-myself, :scope .item-system" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "class",
+      "description": "Boss消息方向类名"
+    },
+    "message_text": {
+      "_comment": "普通文字、附件卡片或其他消息正文。",
+      "parents": [],
+      "target": {
+        "_comment": "按精确文字到消息卡片降级读取。",
+        "selectors": [
+          { "_comment": "Boss 普通文字消息。", "type": "css", "value": ".text-content" },
+          { "_comment": "Boss 消息卡片正文。", "type": "css", "value": ".message-card-wrap" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss消息正文"
+    },
+    "message_time": {
+      "_comment": "消息时间，支持当日、昨天和月日格式。",
+      "parents": [],
+      "target": {
+        "_comment": "消息时间文字。",
+        "selectors": [
+          { "_comment": "Boss 消息时间。", "type": "css", "value": ".message-time .time" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss消息时间"
+    },
+    "resume_card": {
+      "_comment": "候选人发送的真实附件简历卡片。",
+      "parents": [],
+      "target": {
+        "_comment": "候选人方向内带简历图标的卡片。",
+        "selectors": [
+          { "_comment": "Boss 候选人附件简历卡片。", "type": "css", "value": ".item-friend .message-card-wrap:has(.message-dialog-icon.resume-icon)" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss候选人附件简历卡片"
+    },
+    "common_card": {
+      "_comment": "简历之外的候选人或 HR 消息卡片。",
+      "parents": [],
+      "target": {
+        "_comment": "排除附件简历后的通用消息卡片。",
+        "selectors": [
+          { "_comment": "Boss 通用消息卡片。", "type": "css", "value": ".message-card-wrap:not(:has(.message-dialog-icon.resume-icon))" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "Boss通用消息卡片"
+    }
+  },
+  "_comment_conversation_fields": "自动回复联系人、消息方向、正文、时间和附件卡片字段。",
   "pending_selectors": {
     "_comment": "旧版没有稳定选择器、真实回归前必须补齐的能力。",
     "candidate.favorite": "收藏候选人按钮",
     "candidate.reject": "不合适按钮",
-    "message.unread_item": "未读会话列表项",
-    "message.context": "会话上下文",
-    "message.input": "回复输入框",
-    "message.send": "回复发送按钮"
+    "message.context": "旧兼容接口的整段会话上下文"
   }
 }

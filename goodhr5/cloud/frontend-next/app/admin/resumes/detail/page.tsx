@@ -22,7 +22,7 @@ import JsonTree from "@/components/admin/JsonTree";
 import AdminDialog from "@/components/admin/AdminDialog";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { cloudDownload, cloudRequest, formatDate } from "@/lib/admin-api";
+import { cloudAssetURL, cloudDownload, cloudRequest, formatDate } from "@/lib/admin-api";
 import { experienceLine, normalizeCandidate, normalizeCandidateAutoReply, periodText, scoreText, statusText, type CandidateAIRecord, type CandidateAutoReplyDetail, type CandidateConversation, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
 import type { CandidateRecommendation } from "@/lib/recommendation";
 
@@ -258,7 +258,7 @@ function aiStatusText(value: string) {
 function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
   const facts = [candidate.age ? `${candidate.age}岁` : "", candidate.gender, candidate.educationLevel, candidate.workYears, candidate.workStatus, candidate.onlineStatus].filter(Boolean);
   return <Stack direction={{ xs: "column", sm: "row" }} spacing={2.25} sx={{ alignItems: { sm: "center" } }}>
-    <Avatar src={candidate.avatarUrl} sx={{ width: 74, height: 74, fontSize: 28 }}>{candidate.name.slice(0, 1)}</Avatar>
+    <Avatar src={cloudAssetURL(candidate.avatarUrl)} sx={{ width: 74, height: 74, fontSize: 28 }}>{candidate.name.slice(0, 1)}</Avatar>
     <Box sx={{ minWidth: 0 }}><Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><Typography component="h2" sx={{ fontSize: 28, fontWeight: 820 }}>{candidate.name}</Typography><Chip size="small" label={statusText(candidate.status)} color="primary" /></Stack><Typography sx={{ mt: 0.6, color: "text.secondary" }}>{facts.join("  |  ") || "暂无基础信息"}</Typography>{candidate.workRegion ? <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}><LocationOnRoundedIcon sx={{ mr: 0.5, fontSize: 16, verticalAlign: "text-bottom" }} />{candidate.workRegion}</Typography> : null}</Box>
   </Stack>;
 }

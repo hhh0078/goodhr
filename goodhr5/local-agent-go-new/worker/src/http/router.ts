@@ -22,6 +22,7 @@ import {
   parseLongScreenshotRequest,
   parsePageOpenRequest,
   parsePageUseRequest,
+  parseSaveCurrentDocumentRequest,
   parseScreenshotRequest,
   parseScrollRequest,
 } from "../validation/action-requests.js";
@@ -141,6 +142,19 @@ export class WorkerRouter {
       ),
       this.post("/api/v1/page/close", "page.close", (_body, context) =>
         this.actions.closePage(context),
+      ),
+      this.post(
+        "/api/v1/page/save-current-document",
+        "page.save_current_document",
+        (body, context) =>
+          this.actions.saveCurrentDocument(
+            parseSaveCurrentDocumentRequest(
+              body,
+              context.trace_id,
+              context.action,
+            ),
+            context,
+          ),
       ),
       this.get("/api/v1/page/url", "page.url", () =>
         this.actions.currentURL(),

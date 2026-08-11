@@ -3,7 +3,9 @@ package auto_reply
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -16,10 +18,20 @@ import (
 // handled 为 true 表示本轮已经发送索要简历话术，不应继续生成第二条回复。
 func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, position cloud.AutoReplyPositionSnapshot, conversation *cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, state cloud.AutoReplyCandidateState, basedOnMessageKey string, stats *shared.Stats) (*model.AutoReplyResumeBundle, bool, error) {
 	if state.HasResumeAttachment && state.Candidate != nil {
+		if preservedAutoReplyConversationStatus(conversation.Status) == "waiting_resume" {
+			if err := f.saveResumeConversationStatus(ctx, prepared, conversation, "ready"); err != nil {
+				stats.Failed++
+				return nil, false, err
+			}
+		}
 		return nil, false, nil
 	}
 	storedResumeText := storedAttachmentText(state.Attachments)
 	if !snapshot.ResumeCardAvailable && storedResumeText == "" && !state.HasResumeAttachment {
+		if state.Conversation != nil && preservedAutoReplyConversationStatus(state.Conversation.Status) == "waiting_resume" {
+			stats.Skipped++
+			return nil, true, nil
+		}
 		requestMessage := firstNonEmpty(position.Config.ResumeRequestMessage, "你好，能发一份简历吗？")
 		unchanged, err := f.latestCandidateMessageUnchanged(ctx, runtime, prepared, snapshot, basedOnMessageKey)
 		if err != nil {
@@ -43,6 +55,10 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		if err = runtime.RequestAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot); err != nil {
 			stats.Failed++
 			return nil, false, fmt.Errorf("索要候选人简历失败：%w", err)
+		}
+		if err = f.saveResumeConversationStatus(ctx, prepared, conversation, "waiting_resume"); err != nil {
+			stats.Failed++
+			return nil, false, err
 		}
 		sent, err := f.sendVerifiedMessage(ctx, prepared, runtime, *conversation, snapshot, basedOnMessageKey, requestMessage, false)
 		if err != nil {
@@ -68,6 +84,15 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	}
 	var err error
 	if snapshot.ResumeCardAvailable && len(state.Attachments) == 0 {
+		if sourceMessageID := strings.TrimSpace(snapshot.ResumeSourceMessageID); sourceMessageID != "" {
+			if _, _, err = runtime.ReadAutoReplyMessages(
+				ctx, f.Browser, prepared.Platform, snapshot,
+				[]string{sourceMessageID}, cloud.AutoReplyMaxHistoryMessages,
+			); err != nil {
+				stats.Failed++
+				return nil, false, fmt.Errorf("加载候选人历史简历卡片失败：%w", err)
+			}
+		}
 		bundle, err = runtime.CollectAutoReplyResume(ctx, f.Browser, prepared.Platform, snapshot)
 		if err != nil {
 			stats.Failed++
@@ -124,11 +149,11 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	structured.RawText = firstNonEmpty(structuredResult.RawText, bundle.OnlineResumeText)
 	if structureErr != nil {
 		stats.Failed++
-		return nil, false, fmt.Errorf("整理候选人正式简历失败，本地附件已经保留：%w", structureErr)
+		return nil, false, fmt.Errorf("整理候选人正式简历失败，云端附件已经保留：%w", structureErr)
 	}
 	if strings.TrimSpace(bundle.Phone) == "" {
 		stats.Failed++
-		return nil, false, fmt.Errorf("候选人简历里暂时没找到可用手机号，本地附件已经保留，暂时不能入库")
+		return nil, false, fmt.Errorf("候选人简历里暂时没找到可用手机号，云端附件已经保留，暂时不能入库")
 	}
 	candidateID := ""
 	if state.Candidate != nil {
@@ -138,7 +163,7 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 		StructuredCandidate: structured,
 		PositionID:          position.Position.ID, PlatformID: prepared.Platform.ID,
 		PlatformAccountID: snapshot.PlatformAccountID, PlatformCandidateID: snapshot.PlatformCandidateID,
-		AvatarURL: strings.TrimSpace(snapshot.AvatarURL),
+		AvatarURL: "",
 		Gender:    firstNonEmpty(bundle.Gender, snapshot.Gender), BirthYMPrecision: bundle.BirthYMPrecision,
 		BasicInfo: bundle.OnlineResumeText,
 	})
@@ -149,25 +174,49 @@ func (f *Flow) ensureResume(ctx context.Context, prepared shared.PreparedTask, r
 	candidateID = strings.TrimSpace(result.CandidateID)
 	if candidateID == "" {
 		stats.Failed++
-		return nil, false, fmt.Errorf("云端没有返回候选人编号，本地附件已经保留，暂时不能上传")
+		return nil, false, fmt.Errorf("云端没有返回候选人编号，云端附件已经保留，暂时不能关联")
 	}
 	conversation.CandidateID = candidateID
 	if result.PlatformIdentity.ID != "" {
 		conversation.PlatformIdentityID = result.PlatformIdentity.ID
 	}
-	saved, saveErr := f.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), *conversation)
-	if saveErr != nil {
+	if saveErr = f.saveResumeConversationStatus(ctx, prepared, conversation, "ready"); saveErr != nil {
 		stats.Failed++
-		return nil, false, fmt.Errorf("关联正式简历和候选人会话失败：%w", saveErr)
+		return nil, false, saveErr
+	}
+	return &bundle, false, nil
+}
+
+// saveResumeConversationStatus 在关键简历动作后立即把会话状态写入云端，避免下轮重复索要或永久等待。
+func (f *Flow) saveResumeConversationStatus(ctx context.Context, prepared shared.PreparedTask, conversation *cloud.AutoReplyConversation, status string) error {
+	if conversation == nil {
+		return fmt.Errorf("候选人会话还没准备完整")
+	}
+	conversation.Status = status
+	saved, err := f.Cloud.SaveAutoReplyConversation(ctx, credentials(prepared), *conversation)
+	if err != nil {
+		return fmt.Errorf("更新候选人简历会话状态失败：%w", err)
+	}
+	if strings.TrimSpace(saved.Status) == "" {
+		saved.Status = status
 	}
 	*conversation = saved
-	return &bundle, false, nil
+	return nil
 }
 
 // uploadResumeAttachments 先把真实附件保存到云端临时会话，供云端直接读取文件并结构化。
 func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, bundle model.AutoReplyResumeBundle, existing []cloud.StoredResumeAttachment) ([]cloud.StoredResumeAttachment, error) {
 	attachments := append([]cloud.StoredResumeAttachment(nil), existing...)
+	seenPaths := make(map[string]struct{}, len(bundle.AttachmentPaths))
 	for _, path := range bundle.AttachmentPaths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, exists := seenPaths[path]; exists {
+			continue
+		}
+		seenPaths[path] = struct{}{}
 		item, err := f.Cloud.UploadAutoReplyAttachment(ctx, credentials(prepared), cloud.AutoReplyAttachmentUpload{
 			FilePath: path, ConversationID: conversation.ID,
 			PlatformID: prepared.Platform.ID, ExtractedText: "",
@@ -176,6 +225,9 @@ func (f *Flow) uploadResumeAttachments(ctx context.Context, prepared shared.Prep
 			return nil, fmt.Errorf("上传候选人简历附件失败：%w", err)
 		}
 		attachments = append(attachments, item)
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			f.log(prepared.Request.TaskID, "cleanup_uploaded_resume", "warning", time.Now(), fmt.Errorf("云端已保存简历附件，但本地临时文件没清理成功"))
+		}
 	}
 	return uniqueResumeAttachments(attachments), nil
 }

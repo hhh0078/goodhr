@@ -4,6 +4,7 @@
 import { useState } from "react";
 import type { CandidateRecommendation, RecommendationConversation, RecommendationExperience, RecommendationPoint } from "@/lib/recommendation";
 import { normalizeRecommendationConversations, recommendationCopyText } from "@/lib/recommendation";
+import { candidateAvatarAssetURL } from "@/lib/candidate-avatar-url";
 import dialogStyles from "./recommendation-dialog.module.css";
 import styles from "./recommendation.module.css";
 
@@ -21,6 +22,7 @@ export default function RecommendationReportClient({ recommendation, apiBaseURL 
   const [conversationError, setConversationError] = useState("");
   const [conversations, setConversations] = useState<RecommendationConversation[]>([]);
   const { candidate, position } = recommendation.report;
+  const avatarURL = candidateAvatarAssetURL(candidate.avatarURL, apiBaseURL);
 
   /** copyDetails 把候选人基础信息和当前公共链接复制到剪贴板。 */
   async function copyDetails() {
@@ -64,7 +66,7 @@ export default function RecommendationReportClient({ recommendation, apiBaseURL 
     <article className={styles.paper}>
       <header className={styles.hero}>
         <div className={styles.identity}>
-          {candidate.avatarURL ? <img src={candidate.avatarURL} alt={`${candidate.name || "候选人"}头像`} /> : <div className={styles.avatarFallback}>{(candidate.name || "候").slice(0, 1)}</div>}
+          {avatarURL ? <img src={avatarURL} alt={`${candidate.name || "候选人"}头像`} /> : <div className={styles.avatarFallback}>{(candidate.name || "候").slice(0, 1)}</div>}
           <div><p className={styles.eyebrow}>候选人推荐报告</p><h1>{candidate.name || "未命名候选人"}</h1><p>{candidateFacts(recommendation)}</p></div>
         </div>
         <div className={styles.scoreCard}><strong>{Math.round(recommendation.matchScore)}</strong><span>岗位匹配分</span><em>{recommendation.recommendationLevel || "建议面试核验"}</em></div>

@@ -303,6 +303,38 @@ func TestScanUnreadConversationsRefreshesStaleUnreadTab(t *testing.T) {
 	}
 }
 
+// TestLiepinFallbackConversationKeyIgnoresChangedSummary 验证猎聘缺少原生编号时不会用消息摘要生成新会话。
+func TestLiepinFallbackConversationKeyIgnoresChangedSummary(t *testing.T) {
+	first, err := liepinConversations([]contract.FindAllItem{{
+		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "第一条消息"},
+	}}, false)
+	if err != nil {
+		t.Fatalf("整理第一条猎聘会话失败：%v", err)
+	}
+	second, err := liepinConversations([]contract.FindAllItem{{
+		Index: 0, Fields: map[string]string{"name": "张女士", "last_message": "摘要已经变化"},
+	}}, false)
+	if err != nil {
+		t.Fatalf("整理第二条猎聘会话失败：%v", err)
+	}
+	if len(first) != 1 || len(second) != 1 || first[0].Key != second[0].Key || !strings.HasPrefix(first[0].Key, "local:") {
+		t.Fatalf("猎聘同一候选人的本地会话键不稳定：first=%+v second=%+v", first, second)
+	}
+	if first[0].PlatformThreadID != "" || second[0].PlatformThreadID != "" {
+		t.Fatalf("猎聘本地会话键冒充了页面会话编号：first=%+v second=%+v", first[0], second[0])
+	}
+	browser := &liepinReplyBrowserStub{items: []contract.FindAllItem{{
+		Index: 7, Fields: map[string]string{"name": "张女士", "last_message": "候选人刚发来的新消息"},
+	}}}
+	cfg := model.Config{Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.contact_item": testLiepinSelector("联系人项目"),
+	}}
+	index, err := locateLiepinConversation(context.Background(), browser, cfg, first[0])
+	if err != nil || index != 7 {
+		t.Fatalf("猎聘摘要变化后没有按唯一姓名恢复本地会话：index=%d err=%v", index, err)
+	}
+}
+
 // TestLocateLiepinConversationUsesFreshThreadID 验证旧序号变化后仍按 to_imid 找到目标会话。
 func TestLocateLiepinConversationUsesFreshThreadID(t *testing.T) {
 	browser := &liepinReplyBrowserStub{items: []contract.FindAllItem{
@@ -449,6 +481,38 @@ func TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary(t *testing.T) {
 	}
 }
 
+// TestLiepinHistoryKeepsResumeCardBeforeKnownBoundary 验证旧简历卡片位于云端游标前时仍保留卡片状态。
+func TestLiepinHistoryKeepsResumeCardBeforeKnownBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "这是我的简历",
+			"resume_card": "在线简历 附件简历", "message_time": "09:58",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "收到",
+			"message_meta": url.QueryEscape(`{"message_id":"known-1"}`), "message_time": "10:00",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "工作地点在哪里？",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:01",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item": testLiepinSelector("测试聊天消息"),
+	}}
+	history, err := readLiepinConversationHistoryDetail(context.Background(), browser, cfg, []string{"known-1"}, 5000)
+	if err != nil {
+		t.Fatalf("读取猎聘差量消息失败：%v", err)
+	}
+	if len(history.Messages) != 1 || history.Messages[0].PlatformMessageID != "new-1" {
+		t.Fatalf("猎聘差量边界不正确：%+v", history.Messages)
+	}
+	if !history.ResumeCardAvailable || history.ResumeSourceMessageID == "" {
+		t.Fatalf("猎聘游标前的旧简历卡片状态丢失：%+v", history)
+	}
+}
+
 // TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat 验证空闲轮询只探测聊天框，不通过联系人列表重新打开旧候选人。
 func TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat(t *testing.T) {
 	browser := &liepinReplyBrowserStub{}
@@ -460,6 +524,41 @@ func TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat(t *testing.T) {
 	)
 	if err != nil || opened || message.Key != "" || len(browser.clicks) != 0 {
 		t.Fatalf("message=%+v opened=%t clicks=%v err=%v", message, opened, browser.clicks, err)
+	}
+}
+
+// TestLiepinOpenConversationRequiresMatchingNameAndPosition 验证猎聘企业端同名不同岗位不会被当成当前待回复会话。
+func TestLiepinOpenConversationRequiresMatchingNameAndPosition(t *testing.T) {
+	browser := &liepinReplyBrowserStub{conversationOpen: true}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.current_name":     testLiepinSelector("测试当前候选人"),
+		"message.current_position": testLiepinSelector("测试当前岗位"),
+	}}
+	matched, err := liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川", CommunicationPosition: "测试岗位",
+	})
+	if err != nil || !matched {
+		t.Fatalf("同一候选人和岗位没有匹配：matched=%t err=%v", matched, err)
+	}
+	matched, err = liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川", CommunicationPosition: "另一个岗位",
+	})
+	if err != nil || matched {
+		t.Fatalf("同名不同岗位被误判为同一会话：matched=%t err=%v", matched, err)
+	}
+	message, opened, err := (&Runtime{}).ReadOpenAutoReplyLatestMessage(
+		context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+			CandidateName: "邓云川", CommunicationPosition: "另一个岗位",
+		},
+	)
+	if err != nil || opened || message.Key != "" {
+		t.Fatalf("轮询读取了同名不同岗位的消息：message=%+v opened=%t err=%v", message, opened, err)
+	}
+	_, err = liepinAutoReplyConversationMatches(context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{
+		CandidateName: "邓云川",
+	})
+	if err == nil || !strings.Contains(err.Error(), "缺少沟通岗位") {
+		t.Fatalf("打开聊天框时缺少目标岗位应该拒绝复用：%v", err)
 	}
 }
 
@@ -483,6 +582,45 @@ func TestLiepinMessageFallbackKeyUsesAbsoluteTime(t *testing.T) {
 	}
 	if first[0].Key == "" || first[0].Key != second[0].Key {
 		t.Fatalf("同一条消息隔天指纹发生变化：first=%q second=%q", first[0].Key, second[0].Key)
+	}
+}
+
+// TestLiepinMessageKeysSurvivePrependedHistory 验证猎聘向顶部加载旧消息后不会改变原有无编号消息指纹。
+func TestLiepinMessageKeysSurvivePrependedHistory(t *testing.T) {
+	now := time.Date(2026, 8, 12, 10, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	recentItems := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "你好，请问有什么想了解的？", "message_time": "10:01",
+		}},
+	}
+	recent, err := liepinMessagesAt(recentItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘当前消息失败：%v", err)
+	}
+	withHistoryItems := append([]contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "你好", "message_time": "10:00",
+	}}}, recentItems...)
+	withHistory, err := liepinMessagesAt(withHistoryItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘补齐历史后的消息失败：%v", err)
+	}
+	if recent[0].Key == "" || recent[0].Key != withHistory[1].Key || recent[1].Key != withHistory[2].Key {
+		t.Fatalf("猎聘加载顶部历史后原消息指纹变化：recent=%+v history=%+v", recent, withHistory)
+	}
+	withNewItems := append(append([]contract.FindAllItem(nil), recentItems...), contract.FindAllItem{
+		Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "还有一个问题", "message_time": "10:02",
+		},
+	})
+	withNew, err := liepinMessagesAt(withNewItems, now)
+	if err != nil {
+		t.Fatalf("解析猎聘新增消息后的记录失败：%v", err)
+	}
+	if recent[0].Key != withNew[0].Key || recent[1].Key != withNew[1].Key {
+		t.Fatalf("猎聘收到更新消息后旧消息指纹变化：recent=%+v new=%+v", recent, withNew)
 	}
 }
 
@@ -660,13 +798,25 @@ func TestLiepinRequestResumeSelectorExcludesViewResume(t *testing.T) {
 	}
 }
 
-// TestLiepinPositionMatchesFullAndTruncated 验证完整岗位和带省略号岗位只按前缀安全匹配。
+// TestLiepinPositionMatchesFullAndTruncated 验证只有明确带省略号的岗位才允许按非空前缀匹配。
 func TestLiepinPositionMatchesFullAndTruncated(t *testing.T) {
+	if !liepinPositionMatches("高中数学老师", "高中数学老师") {
+		t.Fatal("完整岗位应该精确匹配")
+	}
 	if !liepinPositionMatches("AI应用开发工程师初级可以实习", "AI应用开发工程师初...") {
-		t.Fatal("页面截断岗位应该匹配完整岗位")
+		t.Fatal("三个点截断岗位应该匹配完整岗位")
+	}
+	if !liepinPositionMatches("AI应用开发工程师初级可以实习", "AI应用开发工程师初…") {
+		t.Fatal("中文省略号截断岗位应该匹配完整岗位")
 	}
 	if liepinPositionMatches("高中数学老师", "AI应用开发工程师初...") {
 		t.Fatal("不同岗位不能误匹配")
+	}
+	if liepinPositionMatches("高中数学老师助教", "高中数学老师") {
+		t.Fatal("没有省略号的岗位不能按前缀误匹配")
+	}
+	if liepinPositionMatches("高中数学老师", "...") || liepinPositionMatches("高中数学老师", "…") {
+		t.Fatal("省略号前缀为空时不能匹配任何岗位")
 	}
 }
 

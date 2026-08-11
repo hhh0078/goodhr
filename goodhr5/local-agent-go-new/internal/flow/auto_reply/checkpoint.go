@@ -33,9 +33,18 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 		}
 		positions, err := f.Cloud.AutoReplySnapshots(ctx, credentials(prepared), prepared.Platform.ID)
 		if err != nil {
-			return fmt.Errorf("读取自动回复岗位列表失败：%w", err)
+			wrapped := fmt.Errorf("读取自动回复岗位列表失败：%w", err)
+			f.log(prepared.Request.TaskID, "load_positions", "warning", time.Now(), wrapped)
+			if stopErr := errorPolicy.Record(wrapped); stopErr != nil {
+				return stopErr
+			}
+			if err = waitForNextCheckpoint(ctx, 3); err != nil {
+				return err
+			}
+			continue
 		}
 		if len(positions) == 0 {
+			errorPolicy.Reset()
 			shared.ReportProgress(f.Logger, prepared.Request.TaskID, prepared.Platform.Name+"暂时没有已开启自动回复的岗位，我先等一小会儿")
 			if err := waitForNextCheckpoint(ctx, 3); err != nil {
 				return err
@@ -63,10 +72,15 @@ func (f *Flow) runLoop(ctx context.Context, prepared shared.PreparedTask, runtim
 func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTask, scanner unreadConversationScanner, replyRuntime model.AutoReplyRuntime, positions []cloud.AutoReplyPositionSnapshot, limit int, stats *shared.Stats, errorPolicy *shared.ConsecutiveErrorPolicy, openConversation *openAutoReplyConversation) (int, *openAutoReplyConversation, error) {
 	conversations := make([]model.Conversation, 0, limit)
 	reuseOpenConversation := false
+	checkpointHadError := false
 	if openConversation != nil {
 		stillOpen, hasNewMessage, err := f.openConversationHasNewMessage(ctx, prepared, replyRuntime, openConversation)
 		if err != nil {
 			f.log(prepared.Request.TaskID, "check_open_conversation", "warning", time.Now(), err)
+			checkpointHadError = true
+			if stopErr := errorPolicy.Record(err); stopErr != nil {
+				return 0, openConversation, stopErr
+			}
 		} else if !stillOpen {
 			openConversation = nil
 		} else if hasNewMessage {
@@ -87,7 +101,9 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 		conversations = unreadConversations
 	}
 	if len(conversations) == 0 {
-		errorPolicy.Reset()
+		if !checkpointHadError {
+			errorPolicy.Reset()
+		}
 		return 0, openConversation, nil
 	}
 	limit = min(max(limit, 1), defaultCheckpointLimit)
@@ -138,8 +154,11 @@ func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared share
 	state, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: firstNonEmpty(current.snapshot.PlatformAccountID, current.conversation.PlatformAccountID),
 		PlatformCandidateID: firstNonEmpty(current.snapshot.PlatformCandidateID, current.conversation.PlatformCandidateID),
-		PlatformThreadID:    firstNonEmpty(current.snapshot.PlatformThreadID, current.conversation.PlatformThreadID, current.conversation.Key),
-		Phone:               current.snapshot.Phone,
+		PlatformThreadID: persistentConversationThreadID(
+			firstNonEmpty(current.snapshot.PlatformThreadID, current.conversation.PlatformThreadID),
+			current.conversation.Key,
+		),
+		Phone: current.snapshot.Phone,
 	})
 	if err != nil {
 		return true, false, fmt.Errorf("读取当前候选人消息游标失败：%w", err)

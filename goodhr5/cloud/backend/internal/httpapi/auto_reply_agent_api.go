@@ -78,6 +78,8 @@ func (s *AutoReplyService) Agent(w http.ResponseWriter, r *http.Request) {
 		s.agentConfirmations(w, r)
 	case path == "attachments":
 		s.agentAttachments(w, r)
+	case path == "avatars":
+		s.agentCandidateAvatar(w, r)
 	case path == "resume-structure":
 		s.agentStructureResume(w, r)
 	case path == "ai-runs/start":
@@ -211,6 +213,9 @@ func (s *AutoReplyService) agentCandidateState(w http.ResponseWriter, r *http.Re
 			writeAutoReplyStoreError(w, err, "正式简历暂时没读出来")
 			return
 		}
+		if !s.candidateAvatarAvailable(candidate.AvatarURL) {
+			candidate.AvatarURL = ""
+		}
 		response.Candidate = &candidate
 		response.Found = true
 	}
@@ -343,14 +348,11 @@ func (s *AutoReplyService) agentSaveCandidate(w http.ResponseWriter, r *http.Req
 		writeAutoReplyError(w, http.StatusConflict, "CANDIDATE_IDENTITY_CONFLICT", "这个候选人的平台身份和手机号对应到两份简历，我先不乱合并，请人工确认")
 		return
 	}
-	avatarURL := strings.TrimSpace(payload.AvatarURL)
-	if !strings.HasPrefix(avatarURL, "https://") && !strings.HasPrefix(avatarURL, "http://") {
-		avatarURL = ""
-	}
 	profile, err := s.candidates.SaveCandidateProfile(CandidateProfileInput{
-		CandidateID: canonicalID, UserEmail: requestContext.Session.Email,
+		CandidateID: canonicalID, TenantID: requestContext.Tenant.ID, UserEmail: requestContext.Session.Email,
 		PlatformID: strings.TrimSpace(payload.PlatformID), PlatformCandidateID: strings.TrimSpace(payload.PlatformCandidateID),
-		CandidateName: strings.TrimSpace(payload.CandidateName), AvatarURL: avatarURL, Gender: strings.TrimSpace(payload.Gender),
+		// 头像必须在正式候选人编号生成后走专用上传接口，禁止把招聘平台远程地址直接写入数据库。
+		CandidateName: strings.TrimSpace(payload.CandidateName), AvatarURL: "", Gender: strings.TrimSpace(payload.Gender),
 		BirthYM: strings.TrimSpace(payload.BirthYM), BirthYMPrecision: strings.TrimSpace(payload.BirthYMPrecision),
 		NormalizedPhone: normalizedPhone, Phone: strings.TrimSpace(payload.Phone),
 		Email: strings.TrimSpace(payload.Email), Wechat: strings.TrimSpace(payload.Wechat),

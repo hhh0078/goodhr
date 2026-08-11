@@ -1140,9 +1140,22 @@ export default function PositionsPage() {
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 760 }}>
-                      {item.name}
-                    </Typography>
+                    <Stack direction='row' spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                      <Typography sx={{ fontWeight: 760 }}>
+                        {item.name}
+                      </Typography>
+                      <Button
+                        size='small'
+                        onClick={() =>
+                          router.push(
+                            `/admin/resumes?position_id=${encodeURIComponent(item.id)}`,
+                          )
+                        }
+                        sx={{ minWidth: 0, px: 0.75, py: 0.2 }}
+                      >
+                        简历
+                      </Button>
+                    </Stack>
                     <Typography
                       sx={{ mt: 0.4, color: "text.secondary", fontSize: 12, overflowWrap: "anywhere" }}
                     >

@@ -135,12 +135,13 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
-	messages, historyComplete, err := readLiepinConversationHistory(
+	history, err := readLiepinConversationHistoryDetail(
 		ctx, browser, cfg, knownMessageKeys, maxHistory,
 	)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
+	messages := history.Messages
 	gender, err := readLiepinGender(ctx, browser, cfg)
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
@@ -149,13 +150,12 @@ func (r *Runtime) OpenAutoReplyConversation(ctx context.Context, browser model.B
 	if err != nil {
 		return model.AutoReplyConversationSnapshot{}, err
 	}
-	resumeAvailable, resumeSourceKey := liepinResumeCard(messages)
 	return model.AutoReplyConversationSnapshot{
 		Conversation: conversation, CandidateName: name, AvatarURL: conversation.AvatarURL, Gender: gender,
-		PlatformThreadID:    firstLiepinValue(conversation.PlatformThreadID, conversation.Key),
+		PlatformThreadID:    conversation.PlatformThreadID,
 		PlatformCandidateID: candidateID, PlatformAccountID: conversation.PlatformAccountID,
-		CommunicationPosition: position, Messages: messages, HistoryComplete: historyComplete,
-		ResumeCardAvailable: resumeAvailable, ResumeSourceMessageID: resumeSourceKey,
+		CommunicationPosition: position, Messages: messages, HistoryComplete: history.HistoryComplete,
+		ResumeCardAvailable: history.ResumeCardAvailable, ResumeSourceMessageID: history.ResumeSourceMessageID,
 	}, nil
 }
 
@@ -192,15 +192,11 @@ func (r *Runtime) ReadLatestAutoReplyMessage(ctx context.Context, browser model.
 
 // ReadOpenAutoReplyLatestMessage 只在目标聊天框仍然打开时读取最新消息，不为轮询重新打开旧会话。
 func (r *Runtime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
-	opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.current_name")
-	if err != nil || !opened {
-		return model.ConversationMessage{}, false, err
-	}
-	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	matched, err := liepinAutoReplyConversationMatches(ctx, browser, cfg, snapshot)
 	if err != nil {
 		return model.ConversationMessage{}, false, err
 	}
-	if !found || !common.CandidateNamesMatch(snapshot.CandidateName, name) {
+	if !matched {
 		return model.ConversationMessage{}, false, nil
 	}
 	latest, err := readLiepinLatestAutoReplyMessage(ctx, browser, cfg)
@@ -227,11 +223,11 @@ func readLiepinLatestAutoReplyMessage(ctx context.Context, browser model.Browser
 
 // ensureLiepinAutoReplyConversation 在在线简历关闭聊天弹框后，通过稳定会话编号重新打开原候选人。
 func ensureLiepinAutoReplyConversation(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
-	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	matched, err := liepinAutoReplyConversationMatches(ctx, browser, cfg, snapshot)
 	if err != nil {
 		return err
 	}
-	if found && common.CandidateNamesMatch(snapshot.CandidateName, name) {
+	if matched {
 		return nil
 	}
 	if err = ensureLiepinConversationDrawer(ctx, browser, cfg); err != nil {
@@ -248,8 +244,25 @@ func ensureLiepinAutoReplyConversation(ctx context.Context, browser model.Browse
 	if err = common.OpenConfiguredConversationItem(ctx, browser, cfg, index); err != nil {
 		return err
 	}
-	_, _, err = waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName)
+	_, _, err = waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition)
 	return err
+}
+
+// liepinAutoReplyConversationMatches 同时核对猎聘企业端当前聊天框的候选人和沟通岗位。
+func liepinAutoReplyConversationMatches(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (bool, error) {
+	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	if err != nil || !found || !common.CandidateNamesMatch(snapshot.CandidateName, name) {
+		return false, err
+	}
+	expectedPosition := strings.TrimSpace(snapshot.CommunicationPosition)
+	if expectedPosition == "" {
+		return false, fmt.Errorf("%s待回复会话缺少沟通岗位，无法安全核对候选人", cfg.Name)
+	}
+	position, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_position")
+	if err != nil || !found || strings.TrimSpace(position) == "" {
+		return false, err
+	}
+	return liepinPositionMatches(expectedPosition, position), nil
 }
 
 // ensureLiepinConversationDrawer 不依赖未读数字打开全部联系人，供已经读过的当前会话恢复使用。
@@ -341,13 +354,17 @@ func locateLiepinConversation(ctx context.Context, browser model.Browser, cfg mo
 		return -1, err
 	}
 	matches := make([]model.Conversation, 0, 1)
-	expectedThreadID := firstLiepinValue(expected.PlatformThreadID, expected.Key)
+	expectedThreadID := strings.TrimSpace(expected.PlatformThreadID)
 	for _, item := range conversations {
 		if expectedThreadID != "" && item.PlatformThreadID == expectedThreadID {
 			matches = append(matches, item)
 			continue
 		}
-		if expectedThreadID == "" && common.CandidateNamesMatch(expected.Name, item.Name) && strings.TrimSpace(expected.Summary) == strings.TrimSpace(item.Summary) {
+		if expectedThreadID == "" && strings.HasPrefix(expected.Key, "local:") && item.Key == expected.Key {
+			matches = append(matches, item)
+			continue
+		}
+		if expectedThreadID == "" && expected.Key == "" && common.CandidateNamesMatch(expected.Name, item.Name) {
 			matches = append(matches, item)
 		}
 	}
@@ -379,7 +396,10 @@ func liepinConversations(items []contract.FindAllItem, unreadOnly bool) ([]model
 		threadID := strings.TrimSpace(meta.ThreadID)
 		key := threadID
 		if key == "" {
-			key = common.HashText("liepin|" + name + "|" + lastMessage)
+			key, err = common.LocalConversationKey("liepin", name, item.Fields["avatar_url"])
+			if err != nil {
+				return nil, err
+			}
 		}
 		result = append(result, model.Conversation{
 			Index: item.Index, Key: key, Name: name, AvatarURL: strings.TrimSpace(item.Fields["avatar_url"]), PlatformThreadID: threadID,
@@ -422,16 +442,26 @@ func parseLiepinContactMeta(value string) (liepinContactMeta, error) {
 	return result, nil
 }
 
-// waitLiepinConversation 每 300 毫秒确认聊天框姓名，并读取页面显示的完整沟通岗位。
-func waitLiepinConversation(ctx context.Context, browser model.Browser, cfg model.Config, expectedName string) (string, string, error) {
+// waitLiepinConversation 每 300 毫秒确认聊天框姓名和可选岗位，并读取页面显示的完整沟通岗位。
+func waitLiepinConversation(ctx context.Context, browser model.Browser, cfg model.Config, expectedName string, expectedPositions ...string) (string, string, error) {
+	expectedPosition := ""
+	if len(expectedPositions) > 0 {
+		expectedPosition = strings.TrimSpace(expectedPositions[0])
+	}
 	for attempt := 1; attempt <= liepinConversationPollAttempts; attempt++ {
 		name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
 		if err != nil {
 			return "", "", err
 		}
 		if found && common.CandidateNamesMatch(expectedName, name) {
-			position, _, readErr := common.ReadOptional(ctx, browser, cfg, "message.current_position")
-			return name, cleanLiepinPosition(position), readErr
+			position, positionFound, readErr := common.ReadOptional(ctx, browser, cfg, "message.current_position")
+			position = cleanLiepinPosition(position)
+			if readErr != nil {
+				return "", "", readErr
+			}
+			if positionFound && position != "" && (expectedPosition == "" || liepinPositionMatches(expectedPosition, position)) {
+				return name, position, nil
+			}
 		}
 		if attempt < liepinConversationPollAttempts {
 			if err = waitLiepinReplyPoll(ctx); err != nil {
@@ -465,7 +495,20 @@ func cleanLiepinPosition(value string) string {
 func liepinPositionMatches(expected string, actual string) bool {
 	expected = cleanLiepinPosition(expected)
 	actual = cleanLiepinPosition(actual)
-	return expected != "" && actual != "" && (expected == actual || strings.HasPrefix(expected, strings.TrimSuffix(actual, "...")))
+	if expected == "" || actual == "" {
+		return false
+	}
+	if expected == actual {
+		return true
+	}
+	prefix := ""
+	switch {
+	case strings.HasSuffix(actual, "..."):
+		prefix = strings.TrimSpace(strings.TrimSuffix(actual, "..."))
+	case strings.HasSuffix(actual, "…"):
+		prefix = strings.TrimSpace(strings.TrimSuffix(actual, "…"))
+	}
+	return prefix != "" && strings.HasPrefix(expected, prefix)
 }
 
 // firstLiepinValue 返回第一段非空猎聘页面字段。

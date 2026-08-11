@@ -62,6 +62,11 @@ func TestLoadConfigUsesLocalZhaopinSelectors(t *testing.T) {
 			t.Errorf("智联本地选择器不正确：key=%s selector=%+v", key, selector)
 		}
 	}
+	avatar := cfg.ConversationFields["avatar_url"]
+	if avatar.ReadAttribute != "src" || len(avatar.Target.Selectors) != 1 ||
+		avatar.Target.Selectors[0].Value != ".km-list-item__avatar img.km-image__inner" {
+		t.Fatalf("智联联系人头像读取配置不正确：%+v", avatar)
+	}
 }
 
 // TestLoadConfigUsesSafeZhaopinCandidateActions 验证智联详情入口与大、小屏打招呼按钮完全分离。
@@ -187,33 +192,77 @@ func TestLoadConfigMatchesHLiepinPromotionVariants(t *testing.T) {
 
 // TestValidateTaskConfig 验证自动回复缺少真实消息配置时会在启动前明确拦截。
 func TestValidateTaskConfig(t *testing.T) {
-	cfg, err := LoadConfig("zhaopin")
+	cfg, err := LoadConfig("liepin")
 	if err != nil {
-		t.Fatalf("读取智联本地配置失败：%v", err)
+		t.Fatalf("读取猎聘企业端本地配置失败：%v", err)
 	}
 	if err = ValidateTaskConfig(cfg, "greeting"); err != nil {
 		t.Fatalf("打招呼任务不应要求消息页配置：%v", err)
 	}
-	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil {
-		t.Fatal("智联自动回复缺少消息页时应返回错误")
+	messagesURL := cfg.MessagesURL
+	cfg.MessagesURL = ""
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil || !strings.Contains(err.Error(), "消息页") {
+		t.Fatalf("自动回复缺少消息页时应返回明确错误：%v", err)
 	}
-	cfg.MessagesURL = "https://example.com/messages"
+	cfg.MessagesURL = messagesURL
 	for _, key := range []string{
-		"message.entry", "message.unread_item", "message.contact_item",
-		"message.current_name", "message.current_position", "message.item",
+		"message.entry", "message.entry_unread_count",
+		"message.drawer", "message.drawer_scroll",
+		"message.unread_item", "message.contact_item", "message.contact_click_target",
+		"message.current_name", "message.current_position", "message.current_avatar",
+		"message.item", "message.history_scroll",
 		"message.input", "message.send",
+		"message.resume_attachment_entry", "message.attachment_preview",
+		"message.attachment_download", "message.attachment_preview_close",
 	} {
-		cfg.Selectors[key] = contract.SelectorSpec{}
+		selector := cfg.Selectors[key]
+		delete(cfg.Selectors, key)
+		err = ValidateTaskConfig(cfg, "auto_reply")
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("自动回复缺少选择器 %s 时应返回明确错误：%v", key, err)
+		}
+		cfg.Selectors[key] = selector
 	}
-	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil {
-		t.Fatal("自动回复选择器目标为空时应返回错误")
+	inputSelector := cfg.Selectors["message.input"]
+	cfg.Selectors["message.input"] = contract.SelectorSpec{}
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil || !strings.Contains(err.Error(), "message.input") {
+		t.Fatalf("自动回复选择器目标为空时应返回明确错误：%v", err)
 	}
-	liepinConfig, err := LoadConfig("liepin")
-	if err != nil {
-		t.Fatalf("读取猎聘企业端本地配置失败：%v", err)
-	}
-	if err = ValidateTaskConfig(liepinConfig, "auto_reply"); err != nil {
+	cfg.Selectors["message.input"] = inputSelector
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err != nil {
 		t.Fatalf("猎聘企业端自动回复配置应该完整：%v", err)
+	}
+}
+
+// TestValidateZhaopinAutoReplyAllowsNewPageDocument 验证智联只需真实附件入口即可使用新标签页文档模式。
+func TestValidateZhaopinAutoReplyAllowsNewPageDocument(t *testing.T) {
+	cfg, err := LoadConfig("zhaopin")
+	if err != nil {
+		t.Fatalf("读取智联本地配置失败：%v", err)
+	}
+	if cfg.Behavior.AttachmentMode != "new_page_document" {
+		t.Fatalf("智联附件模式不正确：%s", cfg.Behavior.AttachmentMode)
+	}
+	if cfg.Behavior.AttachmentAllowedScheme == "" || cfg.Behavior.AttachmentAllowedHost == "" || cfg.Behavior.AttachmentAllowedPath == "" {
+		t.Fatalf("智联新标签页附件地址白名单不完整：%+v", cfg.Behavior)
+	}
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err != nil {
+		t.Fatalf("智联新标签页附件能力已经完整，不应再被拦截：%v", err)
+	}
+	entry := cfg.Selectors["message.resume_attachment_entry"]
+	delete(cfg.Selectors, "message.resume_attachment_entry")
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil || !strings.Contains(err.Error(), "message.resume_attachment_entry") {
+		t.Fatalf("智联缺少真实附件入口时应明确报错：%v", err)
+	}
+	cfg.Selectors["message.resume_attachment_entry"] = entry
+	allowedHost := cfg.Behavior.AttachmentAllowedHost
+	cfg.Behavior.AttachmentAllowedHost = ""
+	if err = ValidateTaskConfig(cfg, "auto_reply"); err == nil || !strings.Contains(err.Error(), "attachment_allowed_host") {
+		t.Fatalf("智联缺少附件允许域名时应明确报错：%v", err)
+	}
+	cfg.Behavior.AttachmentAllowedHost = allowedHost
+	if err = ValidateTaskConfig(cfg, "greeting"); err != nil {
+		t.Fatalf("智联主动打招呼不应被自动回复附件能力拦截：%v", err)
 	}
 }
 

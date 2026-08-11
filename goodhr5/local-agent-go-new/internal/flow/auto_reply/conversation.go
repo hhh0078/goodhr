@@ -22,7 +22,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	initialState, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: conversation.PlatformAccountID,
 		PlatformCandidateID: conversation.PlatformCandidateID,
-		PlatformThreadID:    firstNonEmpty(conversation.PlatformThreadID, conversation.Key),
+		PlatformThreadID:    persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key),
 	})
 	if err != nil {
 		stats.Failed++
@@ -42,6 +42,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("打开并读取候选人会话失败：%w", err)
 	}
+	pageSnapshot = mergePageResumeCard(pageSnapshot, pageSnapshot.Messages)
 	pageSnapshot = normalizePageSnapshot(conversation, pageSnapshot)
 	if openSnapshot != nil {
 		*openSnapshot = pageSnapshot
@@ -57,13 +58,14 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	position, positionErr := resolvePosition(positions, pageSnapshot.CommunicationPosition)
 	state := initialState
-	if pageSnapshot.PlatformThreadID != firstNonEmpty(conversation.PlatformThreadID, conversation.Key) ||
+	if persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key) != persistentConversationThreadID(conversation.PlatformThreadID, conversation.Key) ||
 		pageSnapshot.PlatformCandidateID != conversation.PlatformCandidateID ||
 		pageSnapshot.PlatformAccountID != conversation.PlatformAccountID || pageSnapshot.Phone != "" {
 		state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 			PlatformID: prepared.Platform.ID, PlatformAccountID: pageSnapshot.PlatformAccountID,
-			PlatformCandidateID: pageSnapshot.PlatformCandidateID, PlatformThreadID: pageSnapshot.PlatformThreadID,
-			Phone: pageSnapshot.Phone,
+			PlatformCandidateID: pageSnapshot.PlatformCandidateID,
+			PlatformThreadID:    persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key),
+			Phone:               pageSnapshot.Phone,
 		})
 		if err != nil {
 			stats.Failed++
@@ -104,18 +106,27 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("读取完整聊天记录失败：%w", err)
 	}
+	pageSnapshot = mergeCloudResumeCard(pageSnapshot, messages)
+	if openSnapshot != nil {
+		*openSnapshot = pageSnapshot
+	}
+	avatarHandled := f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate)
 	resume, handled, err := f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
 	if err != nil || handled {
 		return err
 	}
 	state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: pageSnapshot.PlatformAccountID,
-		PlatformCandidateID: pageSnapshot.PlatformCandidateID, PlatformThreadID: pageSnapshot.PlatformThreadID,
-		Phone: firstNonEmpty(pageSnapshot.Phone, resumePhone(resume)),
+		PlatformCandidateID: pageSnapshot.PlatformCandidateID,
+		PlatformThreadID:    persistentConversationThreadID(pageSnapshot.PlatformThreadID, pageSnapshot.Conversation.Key),
+		Phone:               firstNonEmpty(pageSnapshot.Phone, resumePhone(resume)),
 	})
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("刷新正式简历状态失败：%w", err)
+	}
+	if !avatarHandled {
+		f.syncCandidateAvatarBestEffort(ctx, prepared, pageSnapshot, state.Candidate)
 	}
 	confirmations, err := f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
 	if err != nil {
@@ -306,7 +317,7 @@ func normalizePageSnapshot(conversation model.Conversation, snapshot model.AutoR
 	snapshot.CandidateName = firstNonEmpty(snapshot.CandidateName, conversation.Name)
 	snapshot.AvatarURL = firstNonEmpty(snapshot.AvatarURL, conversation.AvatarURL)
 	snapshot.Gender = firstNonEmpty(snapshot.Gender, conversation.Gender)
-	snapshot.PlatformThreadID = firstNonEmpty(snapshot.PlatformThreadID, conversation.PlatformThreadID, conversation.Key)
+	snapshot.PlatformThreadID = firstNonEmpty(snapshot.PlatformThreadID, conversation.PlatformThreadID)
 	snapshot.PlatformCandidateID = firstNonEmpty(snapshot.PlatformCandidateID, conversation.PlatformCandidateID)
 	snapshot.PlatformAccountID = firstNonEmpty(snapshot.PlatformAccountID, conversation.PlatformAccountID)
 	snapshot.CommunicationPosition = firstNonEmpty(snapshot.CommunicationPosition, conversation.CommunicationPosition)
@@ -341,7 +352,7 @@ func (f *Flow) saveCloudConversation(ctx context.Context, prepared shared.Prepar
 	item := cloud.AutoReplyConversation{
 		PositionID: position.Position.ID, PlatformIdentityID: identity.ID,
 		PlatformAccountID: snapshot.PlatformAccountID, PlatformID: prepared.Platform.ID,
-		PlatformThreadID: snapshot.PlatformThreadID, CandidateName: snapshot.CandidateName,
+		PlatformThreadID: persistentConversationThreadID(snapshot.PlatformThreadID, snapshot.Conversation.Key), CandidateName: snapshot.CandidateName,
 		Gender: snapshot.Gender, PagePositionText: snapshot.CommunicationPosition,
 		Status: "active", HistoryComplete: snapshot.HistoryComplete,
 	}
@@ -353,6 +364,9 @@ func (f *Flow) saveCloudConversation(ctx context.Context, prepared shared.Prepar
 		item.EngagementID = state.Conversation.EngagementID
 		item.LastSyncedMessageKey = state.Conversation.LastSyncedMessageKey
 		item.LastCandidateMessageKey = state.Conversation.LastCandidateMessageKey
+		if status := preservedAutoReplyConversationStatus(state.Conversation.Status); status != "" {
+			item.Status = status
+		}
 	}
 	if positionErr != nil {
 		item.PositionID = ""
@@ -365,6 +379,17 @@ func (f *Flow) saveCloudConversation(ctx context.Context, prepared shared.Prepar
 		return cloud.AutoReplyConversation{}, fmt.Errorf("保存候选人会话失败：%w", err)
 	}
 	return saved, nil
+}
+
+// preservedAutoReplyConversationStatus 只保留云端数据库允许的已有会话状态，避免每轮检查覆盖等待简历状态。
+func preservedAutoReplyConversationStatus(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "active", "waiting_resume", "ready", "unresolved", "ended":
+		return value
+	default:
+		return ""
+	}
 }
 
 // convertMessages 校验平台消息方向并生成云端幂等指纹和最新候选人消息键。
@@ -417,6 +442,45 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// persistentConversationThreadID 返回云端持久化会话使用的稳定编号。
+// 页面有原生编号时原样使用；没有时使用明确带 local 前缀的本地键，不参与页面身份核对。
+func persistentConversationThreadID(platformThreadID string, conversationKey string) string {
+	if platformThreadID = strings.TrimSpace(platformThreadID); platformThreadID != "" {
+		return platformThreadID
+	}
+	conversationKey = strings.TrimSpace(conversationKey)
+	if conversationKey == "" || strings.HasPrefix(conversationKey, "local:") {
+		return conversationKey
+	}
+	return "local:" + conversationKey
+}
+
+// mergePageResumeCard 从本轮页面消息补齐简历卡片状态，并保留之前已经确认的卡片。
+func mergePageResumeCard(snapshot model.AutoReplyConversationSnapshot, messages []model.ConversationMessage) model.AutoReplyConversationSnapshot {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if strings.EqualFold(strings.TrimSpace(message.Direction), "candidate") && strings.EqualFold(strings.TrimSpace(message.MessageType), "resume") {
+			snapshot.ResumeCardAvailable = true
+			snapshot.ResumeSourceMessageID = firstNonEmpty(message.PlatformMessageID, message.Key, snapshot.ResumeSourceMessageID)
+			return snapshot
+		}
+	}
+	return snapshot
+}
+
+// mergeCloudResumeCard 从云端完整聊天记录恢复旧简历卡片状态，避免下载失败后再次索要。
+func mergeCloudResumeCard(snapshot model.AutoReplyConversationSnapshot, messages []cloud.AutoReplyMessage) model.AutoReplyConversationSnapshot {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if strings.EqualFold(strings.TrimSpace(message.Direction), "candidate") && strings.EqualFold(strings.TrimSpace(message.MessageType), "resume") {
+			snapshot.ResumeCardAvailable = true
+			snapshot.ResumeSourceMessageID = firstNonEmpty(message.PlatformMessageID, message.Fingerprint, snapshot.ResumeSourceMessageID)
+			return snapshot
+		}
+	}
+	return snapshot
 }
 
 // boolPointer 返回供悬浮窗状态使用的布尔指针。

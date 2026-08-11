@@ -3,9 +3,12 @@ package hliepin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
@@ -420,6 +423,51 @@ func TestFinishGreetingConversationDoesNotWaitAfterSelectingJob(t *testing.T) {
 	}
 	if browser.pressCount != 0 {
 		t.Fatalf("匹配岗位开聊后不应多按按键：%d", browser.pressCount)
+	}
+}
+
+// TestParseHLiepinAutoReplyConversationsUsesToIMID 验证联系人会话只保存稳定 to_imid，不保存整段埋点 JSON。
+func TestParseHLiepinAutoReplyConversationsUsesToIMID(t *testing.T) {
+	meta := url.QueryEscape(`{"to_imid":"thread-123","unread":9}`)
+	items := []contract.FindAllItem{{Index: 2, Fields: map[string]string{
+		"name": "周女士", "last_message": "您好", "unread_count": "1", "thread_meta": meta,
+	}}}
+	conversations, err := parseHLiepinAutoReplyConversations(items, true)
+	if err != nil {
+		t.Fatalf("解析猎聘猎头端会话失败：%v", err)
+	}
+	if len(conversations) != 1 || conversations[0].PlatformThreadID != "thread-123" || conversations[0].Key != "thread-123" {
+		t.Fatalf("猎聘猎头端稳定会话编号不正确：%+v", conversations)
+	}
+}
+
+// TestParseHLiepinAutoReplyMessagesKeepsPlatformIDs 验证 message_id 和候选人 cid 会进入统一消息模型。
+func TestParseHLiepinAutoReplyMessagesKeepsPlatformIDs(t *testing.T) {
+	messageMeta := url.QueryEscape(`{"message_id":"message-456"}`)
+	items := []contract.FindAllItem{{Index: 0, Fields: map[string]string{
+		"body_class":   "im-ui-message-item-body im-ui-message-item-receive",
+		"message_text": "这是我的简历", "resume_card": "附件简历",
+		"message_meta": messageMeta, "candidate_meta": "cid=candidate-789",
+	}}}
+	messages, err := parseHLiepinAutoReplyMessages(items, time.Now())
+	if err != nil {
+		t.Fatalf("解析猎聘猎头端消息失败：%v", err)
+	}
+	if len(messages) != 1 || messages[0].PlatformMessageID != "message-456" || messages[0].Direction != "candidate" {
+		t.Fatalf("猎聘猎头端消息稳定字段不正确：%+v", messages)
+	}
+	var card struct {
+		CandidateID string `json:"candidate_id"`
+	}
+	if err = json.Unmarshal(messages[0].CardContent, &card); err != nil || card.CandidateID != "candidate-789" {
+		t.Fatalf("猎聘猎头端候选人编号没有进入简历卡片：card=%+v err=%v", card, err)
+	}
+}
+
+// TestParseHLiepinAutoReplyMessageIDRejectsBrokenJSON 验证损坏的平台消息属性不会被悄悄当成稳定编号。
+func TestParseHLiepinAutoReplyMessageIDRejectsBrokenJSON(t *testing.T) {
+	if _, err := parseHLiepinAutoReplyMessageID("%7Bbroken"); err == nil {
+		t.Fatalf("损坏的猎聘猎头端消息属性应该返回错误")
 	}
 }
 

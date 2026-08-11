@@ -99,6 +99,11 @@ func (c *Client) ClosePage(ctx context.Context) error {
 	return call(ctx, c, http.MethodPost, "/api/v1/page/close", struct{}{}, &result)
 }
 
+// SaveCurrentDocument 使用当前浏览器会话的登录状态保存当前文档页。
+func (c *Client) SaveCurrentDocument(ctx context.Context, request contract.SaveCurrentDocumentRequest) (contract.DownloadRecord, error) {
+	return callValue[contract.DownloadRecord](ctx, c, "/api/v1/page/save-current-document", request)
+}
+
 // Find 查找一个页面元素。
 func (c *Client) Find(ctx context.Context, request contract.ElementFindRequest) (contract.FindResult, error) {
 	return callValue[contract.FindResult](ctx, c, "/api/v1/element/find", request)

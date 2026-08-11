@@ -17,36 +17,65 @@ import (
 
 const liepinHistoryStableReadAttempts = 3
 
+// liepinConversationHistory 保存猎聘差量消息以及当前完整页面中发现的简历卡片。
+type liepinConversationHistory struct {
+	Messages              []model.ConversationMessage
+	HistoryComplete       bool
+	ResumeCardAvailable   bool
+	ResumeSourceMessageID string
+}
+
 // readLiepinConversationHistory 用真实滚轮向上加载聊天，遇到最近两条已同步消息、历史顶部或5000条上限时停止。
 func readLiepinConversationHistory(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) ([]model.ConversationMessage, bool, error) {
+	result, err := readLiepinConversationHistoryDetail(ctx, browser, cfg, knownMessageKeys, maxHistory)
+	return result.Messages, result.HistoryComplete, err
+}
+
+// readLiepinConversationHistoryDetail 保留完整已加载消息中的简历卡片，游标只裁剪待同步消息。
+func readLiepinConversationHistoryDetail(ctx context.Context, browser model.Browser, cfg model.Config, knownMessageKeys []string, maxHistory int) (liepinConversationHistory, error) {
 	if maxHistory <= 0 || maxHistory > 5000 {
 		maxHistory = 5000
 	}
 	previousSignature := ""
 	stableReadAttempts := 0
+	resumeAvailable := false
+	resumeSourceID := ""
 	for {
 		items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
 		if err != nil {
-			return nil, false, err
+			return liepinConversationHistory{}, err
 		}
 		messages, err := liepinMessages(items)
 		if err != nil {
-			return nil, false, err
+			return liepinConversationHistory{}, err
 		}
 		if len(messages) == 0 {
-			return nil, false, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
+			return liepinConversationHistory{}, fmt.Errorf("%s当前聊天框没有读到消息", cfg.Name)
+		}
+		if available, sourceID := liepinResumeCard(messages); available {
+			resumeAvailable = true
+			resumeSourceID = sourceID
 		}
 		if boundary := liepinKnownMessageBoundary(messages, knownMessageKeys); boundary >= 0 {
-			return messages[boundary+1:], false, nil
+			return liepinConversationHistory{
+				Messages: messages[boundary+1:], ResumeCardAvailable: resumeAvailable,
+				ResumeSourceMessageID: resumeSourceID,
+			}, nil
 		}
 		if len(messages) >= maxHistory {
-			return messages[len(messages)-maxHistory:], false, nil
+			return liepinConversationHistory{
+				Messages: messages[len(messages)-maxHistory:], ResumeCardAvailable: resumeAvailable,
+				ResumeSourceMessageID: resumeSourceID,
+			}, nil
 		}
 		signature := firstLiepinValue(messages[0].PlatformMessageID, messages[0].Key) + "|" + strconv.Itoa(len(messages))
 		if signature == previousSignature {
 			stableReadAttempts++
 			if stableReadAttempts >= liepinHistoryStableReadAttempts {
-				return messages, true, nil
+				return liepinConversationHistory{
+					Messages: messages, HistoryComplete: true, ResumeCardAvailable: resumeAvailable,
+					ResumeSourceMessageID: resumeSourceID,
+				}, nil
 			}
 		} else {
 			previousSignature = signature
@@ -54,7 +83,7 @@ func readLiepinConversationHistory(ctx context.Context, browser model.Browser, c
 		}
 		_, err = common.ScrollConversationHistory(ctx, browser, cfg)
 		if err != nil {
-			return nil, false, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
+			return liepinConversationHistory{}, fmt.Errorf("向上读取%s聊天历史失败：%w", cfg.Name, err)
 		}
 	}
 }
@@ -67,11 +96,13 @@ func liepinMessages(items []contract.FindAllItem) ([]model.ConversationMessage, 
 // liepinMessagesAt 使用同一个基准时间解析整批消息，避免跨零点时同批指纹前后不一致。
 func liepinMessagesAt(items []contract.FindAllItem, now time.Time) ([]model.ConversationMessage, error) {
 	result := make([]model.ConversationMessage, 0, len(items))
-	occurrences := make(map[string]int)
 	for _, item := range items {
-		message, err := liepinMessage(item, occurrences, now)
+		message, baseKey, err := liepinMessage(item, now)
 		if err != nil {
 			return nil, fmt.Errorf("解析第%d条猎聘消息失败：%w", item.Index+1, err)
+		}
+		if message.PlatformMessageID == "" {
+			message.Key = common.StableAutoReplyMessageKey(baseKey)
 		}
 		result = append(result, message)
 	}
@@ -79,7 +110,7 @@ func liepinMessagesAt(items []contract.FindAllItem, now time.Time) ([]model.Conv
 }
 
 // liepinMessage 解析一条猎聘消息的方向、卡片、时间和平台编号。
-func liepinMessage(item contract.FindAllItem, occurrences map[string]int, now time.Time) (model.ConversationMessage, error) {
+func liepinMessage(item contract.FindAllItem, now time.Time) (model.ConversationMessage, string, error) {
 	bodyClass := strings.ToLower(strings.TrimSpace(item.Fields["body_class"]))
 	direction := "system"
 	switch {
@@ -88,7 +119,7 @@ func liepinMessage(item contract.FindAllItem, occurrences map[string]int, now ti
 	case strings.Contains(bodyClass, "message-item-send"):
 		direction = "self"
 	case bodyClass != "":
-		return model.ConversationMessage{}, fmt.Errorf("消息方向类名无法确认：%s", bodyClass)
+		return model.ConversationMessage{}, "", fmt.Errorf("消息方向类名无法确认：%s", bodyClass)
 	}
 	text := strings.TrimSpace(item.Fields["message_text"])
 	if text == "" {
@@ -105,7 +136,7 @@ func liepinMessage(item contract.FindAllItem, occurrences map[string]int, now ti
 	}
 	platformMessageID, err := parseLiepinMessageID(item.Fields["message_meta"])
 	if err != nil {
-		return model.ConversationMessage{}, err
+		return model.ConversationMessage{}, "", err
 	}
 	candidateID := parseLiepinCandidateID(item.Fields["candidate_meta"])
 	timeText := strings.TrimSpace(item.Fields["message_time"])
@@ -115,12 +146,6 @@ func liepinMessage(item contract.FindAllItem, occurrences map[string]int, now ti
 		timeKey = sentAt.UTC().Format(time.RFC3339)
 	}
 	baseKey := strings.Join([]string{direction, messageType, text, timeKey}, "|")
-	occurrence := occurrences[baseKey]
-	occurrences[baseKey] = occurrence + 1
-	key := platformMessageID
-	if key == "" {
-		key = common.HashText(baseKey + "|" + strconv.Itoa(occurrence))
-	}
 	card := json.RawMessage(`{}`)
 	if messageType != "text" {
 		encoded, marshalErr := json.Marshal(struct {
@@ -128,14 +153,14 @@ func liepinMessage(item contract.FindAllItem, occurrences map[string]int, now ti
 			CandidateID string `json:"candidate_id,omitempty"`
 		}{Summary: firstLiepinValue(resumeText, text), CandidateID: candidateID})
 		if marshalErr != nil {
-			return model.ConversationMessage{}, marshalErr
+			return model.ConversationMessage{}, "", marshalErr
 		}
 		card = encoded
 	}
 	return model.ConversationMessage{
-		Key: key, PlatformMessageID: platformMessageID, Direction: direction,
+		Key: platformMessageID, PlatformMessageID: platformMessageID, Direction: direction,
 		MessageType: messageType, TextContent: text, CardContent: card, SentAt: sentAt,
-	}, nil
+	}, baseKey, nil
 }
 
 // liepinResumeCard 返回会话里最后一张候选人附件简历卡片和来源消息编号。

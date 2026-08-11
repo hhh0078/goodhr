@@ -2,6 +2,7 @@
 "use client";
 
 import { TOKEN_KEY } from "./api";
+import { candidateAvatarAssetURL } from "./candidate-avatar-url";
 
 const DEFAULT_CLOUD_API_BASE =
   process.env.NODE_ENV === "production"
@@ -57,6 +58,11 @@ export function getToken() {
   return typeof window === "undefined"
     ? ""
     : localStorage.getItem(TOKEN_KEY) || "";
+}
+
+/** cloudAssetURL 只把云端生成的候选人头像路径转换为可访问地址，拒绝招聘平台远程图片。 */
+export function cloudAssetURL(value: string) {
+  return candidateAvatarAssetURL(value, CLOUD_API_BASE);
 }
 
 /** cloudRequest 统一请求云端接口并处理鉴权与错误。 */

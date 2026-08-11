@@ -30,8 +30,8 @@
   "_comment_login_url": "平台登录页面地址。",
   "entry_url": "https://rd6.zhaopin.com/app/recommend",
   "_comment_entry_url": "主动打招呼流程入口页面地址。",
-  "messages_url": "",
-  "_comment_messages_url": "旧配置没有独立消息页地址，接入自动回复前必须补齐。",
+  "messages_url": "https://rd6.zhaopin.com/app/recommend",
+  "_comment_messages_url": "自动回复继续复用推荐页右侧联系人组件，不跳转独立沟通页面。",
   "scroll_distance": 620,
   "_comment_scroll_distance": "候选人列表每次真实滚轮的基础距离。",
   "max_items": 100,
@@ -42,6 +42,14 @@
     "_comment_supports_paging": "智联推荐页当前按滚动加载。",
     "candidate_list_mode": "infinite_scroll",
     "_comment_candidate_list_mode": "候选人列表通过真实鼠标滚轮继续加载。",
+    "attachment_mode": "new_page_document",
+    "_comment_attachment_mode": "附件卡片会打开新的 PDF 标签页，由 Worker 使用当前浏览器会话保存文档。",
+    "attachment_allowed_scheme": "https",
+    "_comment_attachment_allowed_scheme": "智联附件页只允许使用 HTTPS。",
+    "attachment_allowed_host": "attachment.zhaopin.com",
+    "_comment_attachment_allowed_host": "智联附件页只允许来自官方附件域名。",
+    "attachment_allowed_path": "/resumeapi/parsev2/downloadFileTemporary",
+    "_comment_attachment_allowed_path": "智联附件页只允许使用官方临时下载路径，查询参数由平台临时生成。",
     "skip_position_selection": false,
     "_comment_skip_position_selection": "开始任务时需要通过职位弹层选择岗位。",
     "direct_position_selection": true,
@@ -479,6 +487,300 @@
       "state": "visible",
       "timeout_ms": 1500,
       "description": "智联候选人会话项"
+    },
+    "message.resume_attachment_entry": {
+      "_comment": "候选人附件卡片内的精确查看入口；点击后会打开新的 PDF 标签页。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框内，避免命中页面其他同名文字。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "只匹配文字完整等于查看附件简历的官方按钮，避免整张卡片包含候选人附言后精确匹配失败。",
+        "text": "查看附件简历",
+        "_comment_text": "排除微信等其他附件卡片。",
+        "exact_text": true,
+        "_comment_exact_text": "附件入口文字必须完整一致。",
+        "selectors": [
+          { "_comment": "智联官方附件简历卡片按钮。", "type": "css", "value": ".im-attachment-card__button" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 6000,
+      "description": "智联查看附件简历"
+    },
+    "message.entry": {
+      "_comment": "自动回复复用推荐页右侧联系人浮动入口，不离开当前推荐页。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人入口可点击容器。",
+        "selectors": [
+          { "_comment": "智联新版推荐页联系人入口。", "type": "css", "value": ".im-widget-trigger.no-print.im-widget-trigger--new-pc" },
+          { "_comment": "智联联系人入口基础类名降级。", "type": "css", "value": ".im-widget-trigger.no-print" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联未读联系人入口"
+    },
+    "message.entry_unread_count": {
+      "_comment": "联系人入口当前可见的未读数字；没有数字时本轮不打开联系人列表。",
+      "parents": [
+        {
+          "_comment": "限定在推荐页联系人入口内。",
+          "selectors": [
+            { "_comment": "智联新版推荐页联系人入口。", "type": "css", "value": ".im-widget-trigger.no-print.im-widget-trigger--new-pc" },
+            { "_comment": "智联联系人入口基础类名降级。", "type": "css", "value": ".im-widget-trigger.no-print" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "联系人入口内的可见数字徽标。",
+        "selectors": [
+          { "_comment": "智联通用数字徽标。", "type": "css", "value": ".km-badge__item" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "智联未读消息数量"
+    },
+    "message.drawer": {
+      "_comment": "推荐页右侧已经展开的智联联系人抽屉。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人抽屉可见根节点。",
+        "selectors": [
+          { "_comment": "旧版已经验证过的联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" },
+          { "_comment": "智联官方消息组件根节点降级。", "type": "css", "value": ".im-page.im-page-widget" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联联系人抽屉"
+    },
+    "message.drawer_scroll": {
+      "_comment": "联系人列表真实滚轮落点。",
+      "parents": [
+        {
+          "_comment": "限定在已展开的联系人抽屉内。",
+          "selectors": [
+            { "_comment": "旧版已经验证过的联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" },
+            { "_comment": "智联官方消息组件根节点降级。", "type": "css", "value": ".im-page.im-page-widget" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联联系人虚拟列表滚动容器。",
+        "selectors": [
+          { "_comment": "智联官方联系人滚动区域。", "type": "css", "value": ".im-session-list__virtual" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联联系人滚动区域"
+    },
+    "message.contact_item": {
+      "_comment": "联系人抽屉中的全部会话行；点击前公共流程会重新扫描并取得最新序号。",
+      "parents": [
+        {
+          "_comment": "限定在已展开的联系人抽屉内。",
+          "selectors": [
+            { "_comment": "旧版已经验证过的联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" },
+            { "_comment": "智联官方消息组件根节点降级。", "type": "css", "value": ".im-page.im-page-widget" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联官方联系人行。",
+        "selectors": [
+          { "_comment": "智联联系人会话项目。", "type": "css", "value": ".im-session-item" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联联系人项目"
+    },
+    "message.contact_click_target": {
+      "_comment": "联系人行内较小的姓名点击目标，避免点击行内其他操作。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名文字。",
+        "selectors": [
+          { "_comment": "智联联系人姓名。", "type": "css", "value": ".im-session-item__name-title" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 1500,
+      "description": "智联联系人姓名点击区域"
+    },
+    "message.unread_item": {
+      "_comment": "只匹配当前真实带未读数字徽标的联系人行；读取后还会再次确认数字大于零。",
+      "parents": [
+        {
+          "_comment": "限定在已展开的联系人抽屉内。",
+          "selectors": [
+            { "_comment": "旧版已经验证过的联系人组件展开状态。", "type": "css", "value": ".im-page-widget.im-widget-out" },
+            { "_comment": "智联官方消息组件根节点降级。", "type": "css", "value": ".im-page.im-page-widget" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "同时包含未读容器和数字徽标的联系人行。",
+        "selectors": [
+          { "_comment": "智联真实未读联系人。", "type": "css", "value": ".im-session-item:has(.im-session-item__unread .km-badge__item)" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "智联未读联系人"
+    },
+    "message.current_name": {
+      "_comment": "当前聊天框头部候选人姓名，用于每次读取和发送前防止串会话。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部候选人姓名。",
+        "selectors": [
+          { "_comment": "智联官方候选人姓名节点。", "type": "css", "value": ".im-candidate__name" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "智联当前聊天候选人"
+    },
+    "message.current_position": {
+      "_comment": "当前聊天框头部的沟通岗位，用于归属岗位和发送前复核。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "聊天框头部沟通岗位。",
+        "selectors": [
+          { "_comment": "智联官方候选人岗位节点。", "type": "css", "value": ".im-candidate__job" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "智联当前沟通岗位"
+    },
+    "message.current_avatar": {
+      "_comment": "当前聊天框头部候选人头像区域，公共流程会使用标准元素截图上传自托管头像。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "候选人头像组件容器。",
+        "selectors": [
+          { "_comment": "智联官方候选人头像区域。", "type": "css", "value": ".im-candidate__avatar" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "智联当前候选人头像"
+    },
+    "message.item": {
+      "_comment": "当前聊天框已经加载的候选人、HR 和系统消息行。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联官方聊天消息行。",
+        "selectors": [
+          { "_comment": "智联聊天消息项目。", "type": "css", "value": ".im-message" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 3000,
+      "description": "智联聊天消息"
+    },
+    "message.history_scroll": {
+      "_comment": "聊天历史向上加载时的真实滚轮落点。",
+      "parents": [
+        {
+          "_comment": "限定在当前会话详情内。",
+          "selectors": [
+            { "_comment": "智联当前会话详情根节点。", "type": "css", "value": "#im-session-detail" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联聊天时间线滚动容器。",
+        "selectors": [
+          { "_comment": "智联官方聊天历史滚动区域。", "type": "css", "value": ".im-timeline__wrapper" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 3000,
+      "description": "智联聊天历史滚动区域"
+    },
+    "message.input": {
+      "_comment": "自动回复当前聊天框的文字输入框。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框底部操作区。",
+          "selectors": [
+            { "_comment": "智联会话详情底部。", "type": "css", "value": "#im-session-detail-footer" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联聊天文本域。",
+        "selectors": [
+          { "_comment": "智联官方发送输入框。", "type": "css", "value": ".im-sender__input textarea" },
+          { "_comment": "兼容旧版带占位文字的聊天输入框。", "type": "css", "value": "textarea[placeholder='从这里开启对话...']" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联自动回复输入框"
+    },
+    "message.send": {
+      "_comment": "输入完成后才出现的可用发送按钮。",
+      "parents": [
+        {
+          "_comment": "限定在当前聊天框底部操作区。",
+          "selectors": [
+            { "_comment": "智联会话详情底部。", "type": "css", "value": "#im-session-detail-footer" }
+          ]
+        }
+      ],
+      "target": {
+        "_comment": "智联当前可发送状态按钮。",
+        "text": "发送",
+        "_comment_text": "只允许点击发送按钮。",
+        "exact_text": true,
+        "_comment_exact_text": "按钮文字必须完整等于发送。",
+        "selectors": [
+          { "_comment": "智联官方可用发送按钮。", "type": "css", "value": ".im-sender__input-tip--active .km-button" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "智联发送自动回复"
     }
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
@@ -537,16 +839,137 @@
       "description": "智联候选人描述"
     }
   },
-  "conversation_fields": {},
-  "_comment_conversation_fields": "自动回复字段暂未从旧版获得，接入前补 name、id、last_message。",
+  "conversation_fields": {
+    "name": {
+      "_comment": "联系人列表候选人姓名。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人姓名。",
+        "selectors": [
+          { "_comment": "智联官方联系人姓名。", "type": "css", "value": ".im-session-item__name-title" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联联系人姓名"
+    },
+    "avatar_url": {
+      "_comment": "联系人列表候选人头像地址，用于没有原生会话编号时区分同名联系人。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人行头像区域内的官方图片。",
+        "selectors": [
+          { "_comment": "智联联系人头像图片。", "type": "css", "value": ".km-list-item__avatar img.km-image__inner" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "read_attribute": "src",
+      "description": "智联联系人头像地址"
+    },
+    "last_message": {
+      "_comment": "联系人列表最后一条消息摘要。",
+      "parents": [],
+      "target": {
+        "_comment": "联系人最后消息。",
+        "selectors": [
+          { "_comment": "智联官方联系人最后消息。", "type": "css", "value": ".im-session-item__msg" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联联系人最后消息"
+    },
+    "unread_count": {
+      "_comment": "联系人行当前显示的红色未读数字。",
+      "parents": [],
+      "target": {
+        "_comment": "未读容器内的数字徽标。",
+        "selectors": [
+          { "_comment": "智联官方未读数字。", "type": "css", "value": ".im-session-item__unread .km-badge__item" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "智联联系人未读数字"
+    },
+    "candidate_marker": {
+      "_comment": "候选人消息的非本人气泡标记。",
+      "parents": [],
+      "target": {
+        "_comment": "没有本人方向类名的消息气泡。",
+        "selectors": [
+          { "_comment": "智联候选人消息气泡。", "type": "css", "value": ".im-message__bubble:not(.im-message__bubble--me)" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联候选人消息标记"
+    },
+    "self_marker": {
+      "_comment": "HR 自己发送消息的明确方向标记。",
+      "parents": [],
+      "target": {
+        "_comment": "带本人方向类名的消息气泡。",
+        "selectors": [
+          { "_comment": "智联 HR 自己发送的消息气泡。", "type": "css", "value": ".im-message__bubble--me" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联 HR 消息标记"
+    },
+    "message_text": {
+      "_comment": "普通消息或附件简历卡片中的可读正文。",
+      "parents": [],
+      "target": {
+        "_comment": "按普通文字到附件卡片文字降级读取。",
+        "selectors": [
+          { "_comment": "智联普通消息正文。", "type": "css", "value": ".im-message__text" },
+          { "_comment": "智联附件简历卡片正文。", "type": "css", "value": ".im-attachment-card__text" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联消息正文"
+    },
+    "message_time": {
+      "_comment": "平台按时间间隔显示的聊天时间。",
+      "parents": [],
+      "target": {
+        "_comment": "当前消息范围内的时间文字。",
+        "selectors": [
+          { "_comment": "智联官方消息时间。", "type": "css", "value": ".im-message__time" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联消息时间"
+    },
+    "resume_card": {
+      "_comment": "候选人发送的附件简历卡片；下载时复用已确认的查看附件简历入口。",
+      "parents": [],
+      "target": {
+        "_comment": "包含查看附件简历文字的附件卡片。",
+        "text": "查看附件简历",
+        "_comment_text": "排除微信等其他附件卡片。",
+        "exact_text": false,
+        "_comment_exact_text": "卡片还包含候选人附言，因此使用包含匹配。",
+        "selectors": [
+          { "_comment": "智联官方附件简历卡片。", "type": "css", "value": ".im-attachment-card" }
+        ]
+      },
+      "state": "attached",
+      "timeout_ms": 1000,
+      "description": "智联候选人附件简历卡片"
+    }
+  },
+  "_comment_conversation_fields": "联系人和聊天消息复用的相对字段；不存在于当前列表项的字段会安全返回空值。",
   "pending_selectors": {
     "_comment": "真实回归前仍需补齐的能力。",
     "candidate.detail_close": "详情关闭按钮，缺失时统一按 Escape",
     "candidate.favorite": "收藏候选人按钮",
     "candidate.reject": "不合适按钮",
-    "message.unread_item": "未读会话列表项",
-    "message.context": "会话上下文",
-    "message.input": "回复输入框",
-    "message.send": "回复发送按钮"
+    "message.resume_online_entry": "在线简历入口尚未取证；当前真实 PDF 附件不依赖这个入口。"
   }
 }

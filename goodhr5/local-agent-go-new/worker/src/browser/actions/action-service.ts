@@ -14,6 +14,7 @@ import type {
   LongScreenshotRequest,
   PageOpenRequest,
   PageUseRequest,
+  SaveCurrentDocumentRequest,
   ScreenshotRequest,
   ScrollRequest,
 } from "../../contracts/actions.js";
@@ -130,6 +131,14 @@ export class ActionService {
   /** closePage 关闭当前标签页。 */
   closePage(context: ActionContext) {
     return this.session.closeCurrentPage(context);
+  }
+
+  /** saveCurrentDocument 使用当前浏览器会话下载并保存当前文档页。 */
+  saveCurrentDocument(
+    request: SaveCurrentDocumentRequest,
+    context: ActionContext,
+  ) {
+    return this.session.saveCurrentDocument(request, context);
   }
 
   /** currentURL 返回当前页面地址。 */

@@ -414,14 +414,14 @@ func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID st
 }
 
 // ListPositionCandidates 按团队和筛选条件分页读取候选人记录。
-// tenantID 为当前用户团队 ID，query 可传搜索词、岗位 ID、岗位 ID 和分页条件。
+// tenantID 为当前用户团队 ID，query 可传搜索词、岗位、平台、手机号、条件状态、排序和分页条件。
 func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	where, args := buildCandidateWhere(tenantID, query)
-	countSQL := "SELECT COUNT(*) FROM candidate_profiles cp WHERE " + where
+	countSQL := candidateCountSQL(where)
 	var total int
 	if err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return PositionCandidateListResult{}, err
@@ -430,8 +430,8 @@ func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query P
 	listArgs := append(args, pageSize, offset)
 	rows, err := s.db.QueryContext(
 		ctx,
-		candidateSelectSQL("WHERE "+where, candidateEngagementScope(query))+`
-		ORDER BY COALESCE(latest_engagement.created_at, cp.created_at) DESC
+		candidateSelectSQL("WHERE "+where, candidateEngagementScope(query), candidatePlatformIdentityScope(query))+`
+		`+candidateOrderSQL(query.Sort)+`
 		LIMIT $`+fmt.Sprint(len(args)+1)+`
 		OFFSET $`+fmt.Sprint(len(args)+2),
 		listArgs...,
@@ -445,6 +445,15 @@ func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query P
 		return PositionCandidateListResult{}, err
 	}
 	return PositionCandidateListResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+// candidateCountSQL 返回与候选人列表相同用户范围的总数查询。
+// whereClause 为列表共用的筛选条件，用户表关联确保非管理员邮箱条件可用。
+func candidateCountSQL(whereClause string) string {
+	return `SELECT COUNT(*)
+		FROM candidate_profiles cp
+		LEFT JOIN users u ON u.id = cp.created_by_user_id
+		WHERE ` + whereClause
 }
 
 // GetPositionCandidate 按 ID 读取当前团队内的候选人详情。
@@ -493,7 +502,7 @@ func (s *PostgresCandidateStore) ListCandidateNotes(tenantID string, candidateID
 SELECT id::text, candidate_id::text, message_text, COALESCE(metadata->>'author_email', ''), created_at
 FROM candidate_events
 WHERE tenant_id = $1 AND candidate_id::text = $2 AND event_type = 'manual_note'
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 `, tenantID, candidateID)
 	if err != nil {
 		return nil, err
@@ -556,7 +565,7 @@ func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (Candidat
 	if err = rows.Close(); err != nil {
 		return CandidateDeleteResult{}, err
 	}
-	result := CandidateDeleteResult{AttachmentPaths: []string{}}
+	result := CandidateDeleteResult{AttachmentPaths: []string{}, AvatarURLs: []string{}}
 	for _, candidateID := range candidateIDs {
 		deleted, deleteErr := deleteCandidateInTx(ctx, tx, tenantID, candidateID)
 		if deleteErr != nil {
@@ -564,6 +573,7 @@ func (s *PostgresCandidateStore) DeleteTeamCandidates(tenantID string) (Candidat
 		}
 		result.Deleted += deleted.Deleted
 		result.AttachmentPaths = append(result.AttachmentPaths, deleted.AttachmentPaths...)
+		result.AvatarURLs = append(result.AvatarURLs, deleted.AvatarURLs...)
 	}
 	if err = tx.Commit(); err != nil {
 		return CandidateDeleteResult{}, err
@@ -602,6 +612,37 @@ const relatedCandidateConversationsSQL = `
 // deleteCandidateInTx 在事务中删除一份候选人和其全部会话关联数据。
 // ctx 和 tx 控制同一事务，tenantID 与 candidateID 限定目标。
 func deleteCandidateInTx(ctx context.Context, tx *sql.Tx, tenantID string, candidateID string) (CandidateDeleteResult, error) {
+	var avatarURL string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT avatar_url FROM candidate_profiles
+		WHERE tenant_id=$1 AND id::text=$2
+		FOR UPDATE
+	`, tenantID, candidateID).Scan(&avatarURL); errors.Is(err, sql.ErrNoRows) {
+		return CandidateDeleteResult{}, ErrNotFound
+	} else if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	avatarURLs := []string{avatarURL}
+	avatarRows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT report_data #>> '{candidate,avatar_url}'
+		FROM candidate_recommendations
+		WHERE tenant_id=$1 AND candidate_id::text=$2
+			AND COALESCE(report_data #>> '{candidate,avatar_url}', '') <> ''
+	`, tenantID, candidateID)
+	if err != nil {
+		return CandidateDeleteResult{}, err
+	}
+	for avatarRows.Next() {
+		var snapshotAvatarURL string
+		if err = avatarRows.Scan(&snapshotAvatarURL); err != nil {
+			avatarRows.Close()
+			return CandidateDeleteResult{}, err
+		}
+		avatarURLs = append(avatarURLs, snapshotAvatarURL)
+	}
+	if err = avatarRows.Close(); err != nil {
+		return CandidateDeleteResult{}, err
+	}
 	rows, err := tx.QueryContext(ctx, `
 		WITH related_conversations AS (`+relatedCandidateConversationsSQL+`)
 		SELECT attachment.storage_path
@@ -651,7 +692,7 @@ func deleteCandidateInTx(ctx context.Context, tx *sql.Tx, tenantID string, candi
 	if deleted == 0 {
 		return CandidateDeleteResult{}, ErrNotFound
 	}
-	return CandidateDeleteResult{Deleted: int(deleted), AttachmentPaths: paths}, nil
+	return CandidateDeleteResult{Deleted: int(deleted), AttachmentPaths: paths, AvatarURLs: avatarURLs}, nil
 }
 
 // listCandidateEvents 读取候选人事件流水。
@@ -671,7 +712,7 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 			message_text, model, token_usage, metadata, created_at
 		FROM candidate_events
 		WHERE `+whereClause+`
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT 200
 		`,
 		args...,
@@ -709,8 +750,12 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 }
 
 // candidateSelectSQL 返回简历库候选人列表查询 SQL。
-// whereClause 为调用方传入的 WHERE 条件。
-func candidateSelectSQL(whereClause string, engagementScope string) string {
+// whereClause 为调用方传入的 WHERE 条件，engagementScope 和 identityScopes 分别限定触达与平台身份。
+func candidateSelectSQL(whereClause string, engagementScope string, identityScopes ...string) string {
+	identityScope := ""
+	if len(identityScopes) > 0 {
+		identityScope = identityScopes[0]
+	}
 	return `
 	SELECT
 		cp.id,
@@ -720,7 +765,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		COALESCE(p.name, ''),
 		COALESCE(latest_engagement.platform_account_id::text, ''),
 		COALESCE(u.email, ''),
-		COALESCE(NULLIF(latest_engagement.platform_id, ''), cp.source_platform_id),
+		COALESCE(NULLIF(latest_engagement.platform_id, ''), NULLIF(latest_platform_identity.platform_id, ''), cp.source_platform_id),
 		cp.source_platform_candidate_id,
 		cp.candidate_name,
 		cp.avatar_url,
@@ -740,7 +785,9 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		cp.online_status,
 		cp.personal_description,
 		cp.work_status,
-		cp.raw_text, cp.work_experiences, cp.educations, cp.certificates, cp.honors, cp.project_experiences, cp.colleague_communications, cp.ai_detail_reason, cp.ai_detail_score, cp.ai_greet_reason, cp.ai_greet_score, cp.first_seen_at,
+		cp.raw_text, cp.work_experiences, cp.educations, cp.certificates, cp.honors, cp.project_experiences, cp.colleague_communications, cp.ai_detail_reason, cp.ai_detail_score,
+		COALESCE(latest_greet_analysis.reason, ''),
+		latest_greet_analysis.score, cp.first_seen_at,
 		latest_engagement.detail_fetched_at,
 		latest_engagement.greeted_at,
 		cp.created_at,
@@ -752,9 +799,26 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		SELECT * FROM candidate_engagements ce2
 		WHERE ce2.candidate_id = cp.id
 		` + engagementScope + `
-		ORDER BY ce2.created_at DESC
+		ORDER BY ce2.created_at DESC, ce2.id DESC
 		LIMIT 1
 	) latest_engagement ON true
+	LEFT JOIN LATERAL (
+		SELECT identity.platform_id
+		FROM candidate_platform_identities identity
+		WHERE identity.candidate_id = cp.id
+		` + identityScope + `
+		ORDER BY identity.last_seen_at DESC, identity.id DESC
+		LIMIT 1
+	) latest_platform_identity ON true
+	LEFT JOIN LATERAL (
+		SELECT event.score, event.reason
+		FROM candidate_events event
+		WHERE event.candidate_id = cp.id
+			AND event.engagement_id = latest_engagement.id
+			AND event.event_type = 'greet_analysis'
+		ORDER BY event.created_at DESC, event.id DESC
+		LIMIT 1
+	) latest_greet_analysis ON true
 	LEFT JOIN LATERAL (
 		SELECT jsonb_agg(jsonb_build_object(
 			'id', note.id::text,
@@ -762,12 +826,12 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 			'content', note.message_text,
 			'author_email', COALESCE(note.metadata->>'author_email', ''),
 			'created_at', note.created_at
-		) ORDER BY note.created_at DESC) AS notes
+		) ORDER BY note.created_at DESC, note.id DESC) AS notes
 		FROM (
 			SELECT id, candidate_id, message_text, metadata, created_at
 			FROM candidate_events
 			WHERE candidate_id = cp.id AND event_type = 'manual_note'
-			ORDER BY created_at DESC
+			ORDER BY created_at DESC, id DESC
 			LIMIT 2
 		) note
 	) latest_notes ON true
@@ -780,15 +844,64 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 // candidateEngagementScope 生成候选人触达上下文筛选条件。
 // query 为简历库筛选条件，返回用于 latest_engagement 的 SQL 片段。
 func candidateEngagementScope(query PositionCandidateQuery) string {
-	parts := make([]string, 0, 1)
+	parts := make([]string, 0, 2)
+	positionPlaceholder, platformPlaceholder := candidateFilterPlaceholders(query)
+	if positionPlaceholder != "" {
+		parts = append(parts, "AND ce2.position_id::text = "+positionPlaceholder)
+	}
+	if platformPlaceholder != "" {
+		parts = append(parts, "AND LOWER(ce2.platform_id) = "+platformPlaceholder)
+	}
+	if predicate := candidateReviewStatusPredicate(query.ConditionStatus, "review_scope"); predicate != "" {
+		parts = append(parts, `AND EXISTS (
+			SELECT 1 FROM candidate_position_reviews review_scope
+			WHERE review_scope.tenant_id = ce2.tenant_id
+				AND review_scope.candidate_id = ce2.candidate_id
+				AND review_scope.position_id = ce2.position_id
+				AND `+predicate+`
+		)`)
+	}
+	return strings.Join(parts, "\n\t\t")
+}
+
+// candidatePlatformIdentityScope 生成候选人平台身份的筛选片段。
+// query 未指定平台时返回空值，指定平台时与列表平台参数使用同一占位符。
+func candidatePlatformIdentityScope(query PositionCandidateQuery) string {
+	_, platformPlaceholder := candidateFilterPlaceholders(query)
+	if platformPlaceholder == "" {
+		return ""
+	}
+	return "AND LOWER(identity.platform_id) = " + platformPlaceholder
+}
+
+// candidateFilterPlaceholders 返回岗位和平台在列表参数中的稳定占位符。
+// query 参数顺序固定为团队、用户、岗位、平台和关键词。
+func candidateFilterPlaceholders(query PositionCandidateQuery) (string, string) {
 	nextArg := 2
 	if query.UserEmail != "" {
 		nextArg++
 	}
+	positionPlaceholder := ""
 	if strings.TrimSpace(query.PositionID) != "" {
-		parts = append(parts, fmt.Sprintf("AND ce2.position_id::text = $%d", nextArg))
+		positionPlaceholder = fmt.Sprintf("$%d", nextArg)
+		nextArg++
 	}
-	return strings.Join(parts, "\n\t\t")
+	platformPlaceholder := ""
+	if strings.TrimSpace(query.PlatformID) != "" {
+		platformPlaceholder = fmt.Sprintf("$%d", nextArg)
+	}
+	return positionPlaceholder, platformPlaceholder
+}
+
+// candidateOrderSQL 返回简历库允许使用的排序语句。
+// sortMode 为规范后的排序值，空值继续使用旧版最近入库排序。
+func candidateOrderSQL(sortMode string) string {
+	if sortMode == "second_score_desc" {
+		return `ORDER BY latest_greet_analysis.score DESC NULLS LAST,
+			COALESCE(latest_engagement.created_at, cp.created_at) DESC,
+			cp.id ASC`
+	}
+	return "ORDER BY COALESCE(latest_engagement.created_at, cp.created_at) DESC, cp.id ASC"
 }
 
 // scanCandidateRows 解析候选人查询结果集。
@@ -864,7 +977,36 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 	}
 	if query.PositionID != "" {
 		args = append(args, query.PositionID)
-		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = $%d)", len(args)))
+	}
+	if query.PlatformID != "" {
+		args = append(args, strings.ToLower(query.PlatformID))
+	}
+	positionPlaceholder, platformPlaceholder := candidateFilterPlaceholders(query)
+	if positionPlaceholder != "" {
+		engagementScope := "ce_filter.tenant_id = cp.tenant_id AND ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = " + positionPlaceholder
+		if platformPlaceholder != "" {
+			engagementScope += " AND LOWER(ce_filter.platform_id) = " + platformPlaceholder
+		}
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE "+engagementScope+")")
+	} else if platformPlaceholder != "" {
+		clauses = append(clauses, `(EXISTS (
+			SELECT 1 FROM candidate_engagements ce_filter
+			WHERE ce_filter.tenant_id = cp.tenant_id AND ce_filter.candidate_id = cp.id
+				AND LOWER(ce_filter.platform_id) = `+platformPlaceholder+`
+		) OR EXISTS (
+			SELECT 1 FROM candidate_platform_identities identity_filter
+			WHERE identity_filter.tenant_id = cp.tenant_id AND identity_filter.candidate_id = cp.id
+				AND LOWER(identity_filter.platform_id) = `+platformPlaceholder+`
+		))`)
+	}
+	switch query.PhoneStatus {
+	case "has":
+		clauses = append(clauses, "COALESCE(NULLIF(BTRIM(cp.normalized_phone),''), NULLIF(BTRIM(cp.phone),'')) IS NOT NULL")
+	case "none":
+		clauses = append(clauses, "COALESCE(NULLIF(BTRIM(cp.normalized_phone),''), NULLIF(BTRIM(cp.phone),'')) IS NULL")
+	}
+	if conditionClause := candidateConditionStatusClause(query.ConditionStatus, positionPlaceholder, platformPlaceholder); conditionClause != "" {
+		clauses = append(clauses, conditionClause)
 	}
 	if query.Keyword != "" {
 		args = append(args, "%"+query.Keyword+"%")
@@ -880,6 +1022,47 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 			OR cp.personal_description ILIKE `+placeholder+` OR cp.raw_text ILIKE `+placeholder+`)`)
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+// candidateConditionStatusClause 返回候选人岗位条件状态筛选语句。
+// status 为规范后的条件状态；岗位和平台占位符非空时，评估必须来自同一岗位和平台触达。
+func candidateConditionStatusClause(status string, positionPlaceholder string, platformPlaceholder string) string {
+	reviewScope := "review.tenant_id = cp.tenant_id AND review.candidate_id = cp.id"
+	if positionPlaceholder != "" {
+		reviewScope += " AND review.position_id::text = " + positionPlaceholder
+	}
+	if platformPlaceholder != "" {
+		reviewScope += ` AND EXISTS (
+			SELECT 1 FROM candidate_engagements review_engagement
+			WHERE review_engagement.tenant_id = review.tenant_id
+				AND review_engagement.candidate_id = review.candidate_id
+				AND review_engagement.position_id = review.position_id
+				AND LOWER(review_engagement.platform_id) = ` + platformPlaceholder + `
+		)`
+	}
+	if status == "untracked" {
+		return "NOT EXISTS (SELECT 1 FROM candidate_position_reviews review WHERE " + reviewScope + ")"
+	}
+	predicate := candidateReviewStatusPredicate(status, "review")
+	if predicate == "" {
+		return ""
+	}
+	return "EXISTS (SELECT 1 FROM candidate_position_reviews review WHERE " + reviewScope + " AND " + predicate + ")"
+}
+
+// candidateReviewStatusPredicate 返回指定评估表别名对应的安全状态条件。
+// status 为前端条件状态，alias 只能由程序传入固定 SQL 别名。
+func candidateReviewStatusPredicate(status string, alias string) string {
+	switch status {
+	case "all_matched":
+		return alias + ".status IN ('qualified','generating','recommended','failed')"
+	case "pending":
+		return alias + ".status IN ('collecting','pending')"
+	case "unmatched":
+		return alias + ".status = 'unmatched'"
+	default:
+		return ""
+	}
 }
 
 // userTenantID 读取用户所属团队 ID。

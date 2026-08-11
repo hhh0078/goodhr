@@ -63,6 +63,10 @@ type ConfiguredAction struct {
 type Behavior struct {
 	SupportsPaging            bool   `json:"supports_paging"`
 	CandidateListMode         string `json:"candidate_list_mode"`
+	AttachmentMode            string `json:"attachment_mode"`
+	AttachmentAllowedScheme   string `json:"attachment_allowed_scheme"`
+	AttachmentAllowedHost     string `json:"attachment_allowed_host"`
+	AttachmentAllowedPath     string `json:"attachment_allowed_path"`
 	SkipPositionSelection     bool   `json:"skip_position_selection"`
 	DirectPositionSelection   bool   `json:"direct_position_selection"`
 	SelectFirstPositionResult bool   `json:"select_first_position_result"`

@@ -9,6 +9,8 @@ import (
 const (
 	// AutoReplyMaxAttachmentBytes 是本地和云端共同接受的单个简历附件上限。
 	AutoReplyMaxAttachmentBytes int64 = 20 * 1024 * 1024
+	// AutoReplyMaxAvatarBytes 是本地和云端共同接受的候选人头像原图上限。
+	AutoReplyMaxAvatarBytes int64 = 1 * 1024 * 1024
 	// AutoReplyMaxHistoryMessages 是首次聊天同步允许的最大消息条数。
 	AutoReplyMaxHistoryMessages = 5000
 )
@@ -324,6 +326,7 @@ type AutoReplyCandidateLookup struct {
 type AutoReplyStoredCandidate struct {
 	ID                  string                       `json:"ID"`
 	CandidateName       string                       `json:"CandidateName"`
+	AvatarURL           string                       `json:"AvatarURL"`
 	Gender              string                       `json:"Gender"`
 	BirthYM             string                       `json:"BirthYM"`
 	BirthYMPrecision    string                       `json:"BirthYMPrecision"`
@@ -390,4 +393,9 @@ type AutoReplyAttachmentUpload struct {
 	SourceMessageID string
 	PlatformID      string
 	ExtractedText   string
+}
+
+// AutoReplyAvatarUploadResult 表示云端完成头像自托管后的稳定访问路径。
+type AutoReplyAvatarUploadResult struct {
+	AvatarURL string `json:"avatar_url"`
 }

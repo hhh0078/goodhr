@@ -56,10 +56,14 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := PositionCandidateQuery{
-		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
-		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
-		Page:       parsePositiveInt(r.URL.Query().Get("page")),
-		PageSize:   parsePositiveInt(r.URL.Query().Get("page_size")),
+		PositionID:      strings.TrimSpace(r.URL.Query().Get("position_id")),
+		PlatformID:      normalizeCandidatePlatformID(r.URL.Query().Get("platform_id")),
+		Keyword:         firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
+		PhoneStatus:     normalizeCandidatePhoneStatus(r.URL.Query().Get("has_phone")),
+		ConditionStatus: normalizeCandidateConditionStatus(r.URL.Query().Get("condition_status")),
+		Sort:            normalizeCandidateSort(r.URL.Query().Get("sort")),
+		Page:            parsePositiveInt(r.URL.Query().Get("page")),
+		PageSize:        parsePositiveInt(r.URL.Query().Get("page_size")),
 	}
 	isAdmin, _ := s.tenantStore.IsTenantAdmin(tenant.ID, session.Email)
 	if !isAdmin {
@@ -105,7 +109,7 @@ func (s *CandidateService) ClearTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to clear candidates")
 		return
 	}
-	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths)
+	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths) + s.cleanupCandidateAvatars(result.AvatarURLs)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
 		"deleted":        result.Deleted,
@@ -195,7 +199,7 @@ func (s *CandidateService) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "这份简历暂时没删成功，请稍后再试")
 		return
 	}
-	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths)
+	cleanupFailed := s.cleanupCandidateAttachments(result.AttachmentPaths) + s.cleanupCandidateAvatars(result.AvatarURLs)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":             true,
 		"deleted":        result.Deleted,
@@ -226,6 +230,33 @@ func (s *CandidateService) cleanupCandidateAttachments(paths []string) int {
 		if err = os.Remove(absolutePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failed++
 			log.Printf("[简历删除] 附件文件清理失败 err=%v", err)
+		}
+	}
+	return failed
+}
+
+// cleanupCandidateAvatars 安全清理数据库删除后不再使用的自托管候选人头像。
+// avatarURLs 为数据库原有头像地址，远程地址或不安全路径只跳过、不发起网络请求。
+func (s *CandidateService) cleanupCandidateAvatars(avatarURLs []string) int {
+	failed := 0
+	seen := make(map[string]struct{}, len(avatarURLs))
+	for _, avatarURL := range avatarURLs {
+		avatarURL = strings.TrimSpace(avatarURL)
+		if avatarURL == "" {
+			continue
+		}
+		if _, exists := seen[avatarURL]; exists {
+			continue
+		}
+		seen[avatarURL] = struct{}{}
+		absolutePath, err := candidateAvatarStoragePath(s.resumeDir, avatarURL)
+		if err != nil {
+			log.Printf("[简历删除] 跳过非自托管头像地址")
+			continue
+		}
+		if err = os.Remove(absolutePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failed++
+			log.Printf("[简历删除] 头像文件清理失败 err=%v", err)
 		}
 	}
 	return failed

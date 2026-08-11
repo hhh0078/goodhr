@@ -81,6 +81,21 @@ func TestLoadPlatformUsesBundledConfig(t *testing.T) {
 	}
 }
 
+// TestLoadPlatformAllowsZhaopinAutoReplyNewPageDocument 验证智联真实 PDF 新标签页能力可以通过启动检查。
+func TestLoadPlatformAllowsZhaopinAutoReplyNewPageDocument(t *testing.T) {
+	checker := &Checker{}
+	prepared := &shared.PreparedTask{
+		Request:  shared.StartRequest{TaskType: "auto_reply"},
+		Position: cloud.PositionSnapshot{PlatformID: "zhaopin"},
+	}
+	if err := checker.loadPlatform(context.Background(), prepared); err != nil {
+		t.Fatalf("智联真实附件能力不应再被启动检查拦截：%v", err)
+	}
+	if prepared.Platform.Behavior.AttachmentMode != "new_page_document" {
+		t.Fatalf("智联启动检查没有加载新标签页附件模式：%s", prepared.Platform.Behavior.AttachmentMode)
+	}
+}
+
 // TestAutoReplyRequiresMaxPermission 验证自动回复会额外检查 Max 权限。
 func TestAutoReplyRequiresMaxPermission(t *testing.T) {
 	checker := &Checker{Cloud: subscriptionCloudStub{subscription: cloud.Subscription{

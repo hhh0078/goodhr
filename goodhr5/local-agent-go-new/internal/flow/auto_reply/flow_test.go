@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,12 +96,16 @@ type autoReplyRuntimeStub struct {
 	resumeBundle     model.AutoReplyResumeBundle
 	resumeErr        error
 	resumeCollects   int
+	resumeRequests   int
 	sent             bool
 	sentText         string
+	sendErr          error
 	closeCount       int
 	knownMessageKeys []string
+	readKnownKeys    []string
 	openChatClosed   bool
 	openReadCount    int
+	openReadErr      error
 }
 
 type delayedResponderStub struct {
@@ -130,12 +137,14 @@ func (r *autoReplyRuntimeStub) OpenAutoReplyConversation(_ context.Context, _ mo
 }
 
 // ReadAutoReplyMessages 模拟从当前聊天框读取云端游标之后的新消息。
-func (r *autoReplyRuntimeStub) ReadAutoReplyMessages(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot, []string, int) ([]model.ConversationMessage, bool, error) {
+func (r *autoReplyRuntimeStub) ReadAutoReplyMessages(_ context.Context, _ model.Browser, _ model.Config, _ model.AutoReplyConversationSnapshot, knownMessageKeys []string, _ int) ([]model.ConversationMessage, bool, error) {
+	r.readKnownKeys = append([]string(nil), knownMessageKeys...)
 	return r.opened.Messages, r.opened.HistoryComplete, nil
 }
 
 // RequestAutoReplyResume 模拟索要简历。
 func (r *autoReplyRuntimeStub) RequestAutoReplyResume(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) error {
+	r.resumeRequests++
 	return nil
 }
 
@@ -149,7 +158,7 @@ func (r *autoReplyRuntimeStub) CollectAutoReplyResume(context.Context, model.Bro
 func (r *autoReplyRuntimeStub) SendAutoReplyMessage(_ context.Context, _ model.Browser, _ model.Config, _ model.AutoReplyConversationSnapshot, message string) error {
 	r.sent = true
 	r.sentText = message
-	return nil
+	return r.sendErr
 }
 
 // ReadLatestAutoReplyMessage 按发送前后返回不同的页面最新消息。
@@ -163,6 +172,9 @@ func (r *autoReplyRuntimeStub) ReadLatestAutoReplyMessage(context.Context, model
 // ReadOpenAutoReplyLatestMessage 只模拟读取仍然打开的聊天框，不执行重新打开动作。
 func (r *autoReplyRuntimeStub) ReadOpenAutoReplyLatestMessage(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
 	r.openReadCount++
+	if r.openReadErr != nil {
+		return model.ConversationMessage{}, !r.openChatClosed, r.openReadErr
+	}
 	if r.openChatClosed {
 		return model.ConversationMessage{}, false, nil
 	}
@@ -289,12 +301,92 @@ func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
 	}
 }
 
-// TestEnsureResumePreservesAttachmentBeforeCandidateValidation 验证结构化失败或缺少手机号时附件仍先保存在临时会话。
-func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) {
-	resumePath := filepath.Join(t.TempDir(), "resume.pdf")
-	if err := os.WriteFile(resumePath, []byte("%PDF-test-resume"), 0o600); err != nil {
+// TestEnsureResumePersistsWaitingStatusBeforeSending 验证索要按钮成功后先保存等待状态，发送失败和下一轮都不会重复点击。
+func TestEnsureResumePersistsWaitingStatusBeforeSending(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "auto-reply.db"))
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
+	statuses := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/auto-reply/agent/conversations" {
+			http.NotFound(w, r)
+			return
+		}
+		var item cloud.AutoReplyConversation
+		if decodeErr := json.NewDecoder(r.Body).Decode(&item); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		statuses = append(statuses, item.Status)
+		item.ID = firstNonEmpty(item.ID, "conversation-1")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "conversation": item})
+	}))
+	defer server.Close()
+
+	prepared := shared.PreparedTask{
+		Request:   shared.StartRequest{TaskID: "task-waiting-resume", Token: "token"},
+		MachineID: "machine", Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
+	}
+	runtime := &autoReplyRuntimeStub{
+		latestBefore: model.ConversationMessage{Key: "message-1", Direction: "candidate", TextContent: "你好"},
+		sendErr:      fmt.Errorf("模拟输入框暂时不可用"),
+	}
+	flow := &Flow{Store: store, Cloud: cloud.New(server.URL)}
+	conversation := cloud.AutoReplyConversation{
+		ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1", Status: "active",
+	}
+	state := cloud.AutoReplyCandidateState{Conversation: &cloud.AutoReplyConversation{
+		ID: "conversation-1", PlatformID: "liepin", PlatformThreadID: "thread-1", Status: "active",
+	}}
+	stats := shared.Stats{}
+	_, handled, err := flow.ensureResume(
+		context.Background(), prepared, runtime,
+		cloud.AutoReplyPositionSnapshot{Config: cloud.PositionAutoReplyConfig{ResumeRequestMessage: "你好，能发一份简历吗？"}},
+		&conversation, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, state, "message-1", &stats,
+	)
+	if err == nil || handled || runtime.resumeRequests != 1 {
+		t.Fatalf("第一次索要结果不正确：handled=%t requests=%d err=%v", handled, runtime.resumeRequests, err)
+	}
+	if len(statuses) != 1 || statuses[0] != "waiting_resume" || conversation.Status != "waiting_resume" {
+		t.Fatalf("按钮成功后没有先保存等待状态：statuses=%v conversation=%+v", statuses, conversation)
+	}
+
+	waiting := conversation
+	state.Conversation = &waiting
+	_, handled, err = flow.ensureResume(
+		context.Background(), prepared, runtime, cloud.AutoReplyPositionSnapshot{},
+		&conversation, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, state, "message-1", &stats,
+	)
+	if err != nil || !handled || runtime.resumeRequests != 1 || len(statuses) != 1 {
+		t.Fatalf("等待简历状态仍重复索要：handled=%t requests=%d statuses=%v err=%v", handled, runtime.resumeRequests, statuses, err)
+	}
+}
+
+// TestEnsureResumeLoadsHistoricalSourceCardBeforeCollect 验证云端恢复旧简历卡片后先真实滚动到来源消息，再点击附件。
+func TestEnsureResumeLoadsHistoricalSourceCardBeforeCollect(t *testing.T) {
+	runtime := &autoReplyRuntimeStub{resumeErr: fmt.Errorf("模拟附件按钮暂时不可用")}
+	flow := &Flow{}
+	stats := shared.Stats{}
+	conversation := cloud.AutoReplyConversation{ID: "conversation-1"}
+	_, _, err := flow.ensureResume(
+		context.Background(),
+		shared.PreparedTask{Request: shared.StartRequest{TaskID: "task-history-card"}, Platform: model.Config{ID: "liepin", Name: "猎聘企业端"}},
+		runtime, cloud.AutoReplyPositionSnapshot{}, &conversation,
+		model.AutoReplyConversationSnapshot{CandidateName: "邓云川", ResumeCardAvailable: true, ResumeSourceMessageID: "resume-message-7"},
+		cloud.AutoReplyCandidateState{}, "message-9", &stats,
+	)
+	if err == nil || !strings.Contains(err.Error(), "读取候选人简历失败") {
+		t.Fatalf("附件读取错误没有按原路径返回：%v", err)
+	}
+	if !slices.Equal(runtime.readKnownKeys, []string{"resume-message-7"}) || runtime.resumeCollects != 1 {
+		t.Fatalf("没有先加载旧简历来源消息：known=%v collects=%d", runtime.readKnownKeys, runtime.resumeCollects)
+	}
+}
+
+// TestEnsureResumePreservesAttachmentBeforeCandidateValidation 验证结构化失败或缺少手机号时附件先保存到云端，再清理本地临时文件。
+func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) {
 	prepared := shared.PreparedTask{
 		Request:   shared.StartRequest{TaskID: "task-resume-guard", Token: "test-token"},
 		MachineID: "test-machine",
@@ -303,9 +395,6 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 	position := cloud.AutoReplyPositionSnapshot{Position: cloud.AutoReplyPosition{ID: "position-1"}}
 	snapshot := model.AutoReplyConversationSnapshot{CandidateName: "邓云川", ResumeCardAvailable: true}
 	conversation := cloud.AutoReplyConversation{ID: "conversation-1"}
-	runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{
-		CandidateName: "邓云川", OnlineResumeText: "7年工作经验", AttachmentPaths: []string{resumePath},
-	}}
 	cases := []struct {
 		name      string
 		responder resumeResponderStub
@@ -316,6 +405,13 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
+			resumePath := filepath.Join(t.TempDir(), "resume.pdf")
+			if err := os.WriteFile(resumePath, []byte("%PDF-test-resume"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runtime := &autoReplyRuntimeStub{resumeBundle: model.AutoReplyResumeBundle{
+				CandidateName: "邓云川", OnlineResumeText: "7年工作经验", AttachmentPaths: []string{resumePath},
+			}}
 			uploadCount := 0
 			candidateSaveCount := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,6 +455,9 @@ func TestEnsureResumePreservesAttachmentBeforeCandidateValidation(t *testing.T) 
 			}
 			if uploadCount != 1 || candidateSaveCount != 0 {
 				t.Fatalf("临时附件和候选人保存顺序不正确：uploads=%d candidates=%d", uploadCount, candidateSaveCount)
+			}
+			if _, statErr := os.Stat(resumePath); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("云端校验成功后没有清理本地简历附件：%v", statErr)
 			}
 		})
 	}
@@ -507,6 +606,40 @@ func TestEnsureResumeDoesNotUsePlatformMessageKeyAsCloudMessageID(t *testing.T) 
 	)
 	if err != nil || handled || resume == nil || !uploaded {
 		t.Fatalf("简历附件没有正常保存：resume=%+v handled=%t uploaded=%t err=%v", resume, handled, uploaded, err)
+	}
+}
+
+// TestLocalConversationKeyDoesNotBecomePageThreadID 验证本地稳定键只用于云端持久化，不冒充页面原生会话编号。
+func TestLocalConversationKeyDoesNotBecomePageThreadID(t *testing.T) {
+	conversation := model.Conversation{Key: "local:abc", Name: "邓云川"}
+	snapshot := normalizePageSnapshot(conversation, model.AutoReplyConversationSnapshot{})
+	if snapshot.PlatformThreadID != "" {
+		t.Fatalf("本地键被误写为页面会话编号：%q", snapshot.PlatformThreadID)
+	}
+	if actual := persistentConversationThreadID("", conversation.Key); actual != "local:abc" {
+		t.Fatalf("本地持久化会话编号不正确：%q", actual)
+	}
+	if actual := persistentConversationThreadID("", "abc"); actual != "local:abc" {
+		t.Fatalf("旧本地键没有补充明确前缀：%q", actual)
+	}
+	if actual := persistentConversationThreadID("thread-1", conversation.Key); actual != "thread-1" {
+		t.Fatalf("页面原生会话编号没有优先使用：%q", actual)
+	}
+}
+
+// TestResumeCardStateMergesFromPageAndCloudHistory 验证页面差量或云端旧记录里的简历卡片都能恢复状态。
+func TestResumeCardStateMergesFromPageAndCloudHistory(t *testing.T) {
+	pageSnapshot := mergePageResumeCard(model.AutoReplyConversationSnapshot{}, []model.ConversationMessage{
+		{Key: "page-resume", Direction: "candidate", MessageType: "resume"},
+	})
+	if !pageSnapshot.ResumeCardAvailable || pageSnapshot.ResumeSourceMessageID != "page-resume" {
+		t.Fatalf("页面简历卡片状态没有合并：%+v", pageSnapshot)
+	}
+	cloudSnapshot := mergeCloudResumeCard(model.AutoReplyConversationSnapshot{}, []cloud.AutoReplyMessage{
+		{Fingerprint: "cloud-resume", Direction: "candidate", MessageType: "resume"},
+	})
+	if !cloudSnapshot.ResumeCardAvailable || cloudSnapshot.ResumeSourceMessageID != "cloud-resume" {
+		t.Fatalf("云端旧简历卡片状态没有恢复：%+v", cloudSnapshot)
 	}
 }
 
@@ -659,6 +792,86 @@ func TestProcessCheckpointStopsAfterThreeScanErrors(t *testing.T) {
 		_, _, err := flow.processCheckpoint(
 			context.Background(), prepared, unreadScannerStub{err: fmt.Errorf("侧边栏暂时没读到")},
 			&autoReplyRuntimeStub{}, nil, 3, stats, policy, nil,
+		)
+		if attempt < 3 && err != nil {
+			t.Fatalf("attempt %d error = %v", attempt, err)
+		}
+		if attempt == 3 && (err == nil || !strings.Contains(err.Error(), "连续 3 次")) {
+			t.Fatalf("attempt 3 error = %v", err)
+		}
+	}
+}
+
+// TestRunLoopStopsAfterThreeSnapshotErrors 验证独立自动回复读取岗位快照前两次失败继续、第三次同类失败才停止。
+func TestRunLoopStopsAfterThreeSnapshotErrors(t *testing.T) {
+	wakeups := make(chan struct{}, 2)
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempt := attempts.Add(1)
+		if attempt < 3 {
+			wakeups <- struct{}{}
+		}
+		http.Error(w, "temporary failure", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	flow := &Flow{Cloud: cloud.New(server.URL)}
+	prepared := shared.PreparedTask{
+		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
+		Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
+	}
+	err := flow.runLoop(shared.WithGracefulStop(context.Background(), wakeups), prepared, nil, nil, &shared.Stats{})
+	if err == nil || !strings.Contains(err.Error(), "连续 3 次") || attempts.Load() != 3 {
+		t.Fatalf("attempts=%d err=%v", attempts.Load(), err)
+	}
+}
+
+// TestRunLoopEmptySnapshotResetsSnapshotErrors 验证成功读取空岗位快照后，之前的临时错误次数会被清零。
+func TestRunLoopEmptySnapshotResetsSnapshotErrors(t *testing.T) {
+	wakeups := make(chan struct{}, 4)
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempt := attempts.Add(1)
+		if attempt == 1 || attempt == 3 || attempt == 4 {
+			wakeups <- struct{}{}
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"positions":[]}`))
+		if attempt == 2 {
+			wakeups <- struct{}{}
+			return
+		}
+		if attempt == 5 {
+			close(wakeups)
+		}
+	}))
+	defer server.Close()
+	flow := &Flow{Cloud: cloud.New(server.URL)}
+	prepared := shared.PreparedTask{
+		Request: shared.StartRequest{TaskID: "task-1", Token: "token"}, MachineID: "machine",
+		Platform: model.Config{ID: "liepin", Name: "猎聘企业端"},
+	}
+	err := flow.runLoop(shared.WithGracefulStop(context.Background(), wakeups), prepared, nil, nil, &shared.Stats{})
+	if err != nil || attempts.Load() != 5 {
+		t.Fatalf("attempts=%d err=%v", attempts.Load(), err)
+	}
+}
+
+// TestProcessCheckpointStopsAfterThreeOpenConversationErrors 验证当前聊天框检查错误不会被空未读轮次清零。
+func TestProcessCheckpointStopsAfterThreeOpenConversationErrors(t *testing.T) {
+	flow := &Flow{}
+	policy := &shared.ConsecutiveErrorPolicy{}
+	stats := &shared.Stats{}
+	prepared := shared.PreparedTask{Request: shared.StartRequest{TaskID: "task-1"}}
+	runtime := &autoReplyRuntimeStub{openReadErr: fmt.Errorf("当前聊天框暂时读不到")}
+	current := &openAutoReplyConversation{
+		conversation: model.Conversation{Key: "thread-1", Name: "邓云川"},
+		snapshot:     model.AutoReplyConversationSnapshot{CandidateName: "邓云川", PlatformThreadID: "thread-1"},
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, _, err := flow.processCheckpoint(
+			context.Background(), prepared, unreadScannerStub{}, runtime, nil, 3, stats, policy, current,
 		)
 		if attempt < 3 && err != nil {
 			t.Fatalf("attempt %d error = %v", attempt, err)

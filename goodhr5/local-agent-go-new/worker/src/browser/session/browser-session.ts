@@ -7,6 +7,7 @@ import {
   type LaunchContextOptions,
 } from "cloakbrowser";
 import type {
+  APIResponse,
   Browser,
   BrowserContext,
   Cookie,
@@ -16,9 +17,11 @@ import type {
   BrowserStartRequest,
   BrowserStatusResult,
   DownloadListResult,
+  DownloadRecord,
   PageInfo,
   PageListResult,
   PageOpenRequest,
+  SaveCurrentDocumentRequest,
 } from "../../contracts/actions.js";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js";
@@ -318,6 +321,55 @@ export class BrowserSession {
     };
   }
 
+  /** saveCurrentDocument 使用当前 BrowserContext 的 Cookie 读取并保存当前文档页。 */
+  async saveCurrentDocument(
+    request: SaveCurrentDocumentRequest,
+    actionContext: ActionContext,
+  ): Promise<DownloadRecord> {
+    const step = "save_current_document";
+    const maximumBytes = request.max_bytes ?? 26_214_400;
+    const allowedContentTypes = request.allowed_content_types ?? ["application/pdf"];
+    const page = await this.requirePage(actionContext, step);
+    const context = this.requireContext(actionContext, step);
+    const pageURL = page.url();
+    assertHTTPDocumentURL(pageURL, actionContext);
+    this.logger.info(actionContext, step, "start", {
+      page_url: safeURL(pageURL),
+      max_bytes: maximumBytes,
+      allowed_content_types: allowedContentTypes,
+    });
+    try {
+      const saved = await streamCurrentDocument(
+        context,
+        this.downloadManager,
+        pageURL,
+        maximumBytes,
+        allowedContentTypes,
+        request.suggested_filename ?? "document",
+        request.timeout_ms ?? 30_000,
+        actionContext,
+      );
+      this.logger.info(actionContext, step, "success", {
+        page_url: safeURL(pageURL),
+        filename: saved.filename,
+        size: saved.size,
+      });
+      return saved;
+    } catch (error) {
+      const normalized = normalizeWorkerError(error, {
+        code: "DOWNLOAD_FAILED",
+        message: "当前文档页没保存成功，我已经把原因记下来了",
+        action: actionContext.action,
+        step,
+        trace_id: actionContext.trace_id,
+        retryable: true,
+        details: { page_url: safeURL(pageURL) },
+      });
+      this.logger.failure(actionContext, normalized);
+      throw normalized;
+    }
+  }
+
   /** requirePage 返回可用的当前页面，不存在时统一抛错。 */
   async requirePage(
     actionContext: ActionContext,
@@ -523,4 +575,194 @@ function samePaths(left: string[] | undefined, right: string[]): boolean {
     current.length === right.length &&
     current.every((value, index) => value === right[index])
   );
+}
+
+/** assertHTTPDocumentURL 拒绝使用浏览器会话读取非 HTTP 文档地址。 */
+function assertHTTPDocumentURL(
+  rawURL: string,
+  actionContext: ActionContext,
+): void {
+  try {
+    const parsed = new URL(rawURL);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return;
+    }
+  } catch {
+    // 统一在下方返回结构化错误。
+  }
+  throw documentError(actionContext, "当前页面不是可以保存的网页文档", {
+    page_url: safeURL(rawURL),
+  });
+}
+
+/** assertContentLength 在读取正文前拦截响应头中已经超限的文件。 */
+function assertContentLength(
+  rawLength: string | undefined,
+  maximumBytes: number,
+  actionContext: ActionContext,
+): void {
+  if (!rawLength || !/^\d+$/.test(rawLength.trim())) {
+    return;
+  }
+  const contentLength = Number.parseInt(rawLength, 10);
+  if (contentLength > maximumBytes) {
+    throw documentError(actionContext, "文档文件太大了，已经停止保存", {
+      max_bytes: maximumBytes,
+      content_length: contentLength,
+    });
+  }
+}
+
+/** assertContentTypeBeforeRead 在读取正文前拒绝明确不允许的响应类型。 */
+function assertContentTypeBeforeRead(
+  contentType: string,
+  allowedContentTypes: string[],
+  actionContext: ActionContext,
+): void {
+  const allowed = normalizedAllowedContentTypes(allowedContentTypes);
+  if (allowed.includes(contentType)) {
+    return;
+  }
+  const genericDocumentType =
+    contentType === "" ||
+    contentType === "application/octet-stream" ||
+    contentType === "binary/octet-stream" ||
+    contentType === "application/download";
+  if (genericDocumentType && allowed.includes("application/pdf")) {
+    return;
+  }
+  throw documentError(actionContext, "文档类型不在允许范围内，已经停止保存", {
+    content_type: contentType || "unknown",
+    allowed_content_types: allowed,
+  });
+}
+
+/** streamCurrentDocument 通过当前浏览器上下文保存标签页文档，不允许调用方传入其他地址。 */
+async function streamCurrentDocument(
+  context: BrowserContext,
+  downloadManager: DownloadManager,
+  currentPageURL: string,
+  maximumBytes: number,
+  allowedContentTypes: string[],
+  suggestedFilename: string,
+  timeoutMS: number,
+  actionContext: ActionContext,
+): Promise<DownloadRecord> {
+  assertHTTPDocumentURL(currentPageURL, actionContext);
+  const deadlineAt = Date.now() + timeoutMS;
+  let response: APIResponse | undefined;
+  try {
+    response = await context.request.get(currentPageURL, {
+      headers: {
+        accept: allowedContentTypes.join(", "),
+        "accept-encoding": "identity",
+      },
+      failOnStatusCode: false,
+      maxRedirects: 5,
+      timeout: timeoutMS,
+    });
+    const responseURL = response.url();
+    assertHTTPDocumentURL(responseURL, actionContext);
+    const status = response.status();
+    if (status < 200 || status >= 300) {
+      throw new WorkerError({
+        code: "DOWNLOAD_FAILED",
+        message: `文档页面返回了 HTTP ${status}，暂时没保存下来`,
+        action: actionContext.action,
+        step: "save_current_document",
+        trace_id: actionContext.trace_id,
+        retryable: status >= 500,
+        details: { status, page_url: safeURL(responseURL) },
+      });
+    }
+    const headers = response.headers();
+    const contentType = normalizeContentType(headers["content-type"] ?? "");
+    assertContentLength(
+      headers["content-length"],
+      maximumBytes,
+      actionContext,
+    );
+    assertContentTypeBeforeRead(
+      contentType,
+      allowedContentTypes,
+      actionContext,
+    );
+    const body = await response.body();
+    if (Date.now() >= deadlineAt) {
+      throw documentError(actionContext, "保存文档页面超过总时限，已经停止读取", {
+        page_url: safeURL(responseURL),
+      });
+    }
+    if (body.length > maximumBytes) {
+      throw documentError(actionContext, "文档实际大小超过限制，已经停止保存", {
+        max_bytes: maximumBytes,
+        actual_bytes: body.length,
+      });
+    }
+    const requiredPrefix = requiresPDFSignature(
+      contentType,
+      allowedContentTypes,
+    )
+      ? Buffer.from("%PDF-", "latin1")
+      : undefined;
+    return await downloadManager.saveFetchedDocument(
+      singleDocumentChunk(body),
+      maximumBytes,
+      requiredPrefix,
+      responseURL,
+      currentPageURL,
+      suggestedFilename,
+      actionContext,
+      deadlineAt,
+    );
+  } finally {
+    await response?.dispose().catch(() => undefined);
+  }
+}
+
+/** singleDocumentChunk 把 BrowserContext 请求返回的单个 Buffer 交给统一文件保存流程。 */
+async function* singleDocumentChunk(body: Buffer): AsyncGenerator<Buffer> {
+  yield body;
+}
+
+/** requiresPDFSignature 判断当前响应必须以 PDF 文件签名开头。 */
+function requiresPDFSignature(
+  contentType: string,
+  allowedContentTypes: string[],
+): boolean {
+  const allowed = normalizedAllowedContentTypes(allowedContentTypes);
+  const declaresPDF = contentType === "application/pdf";
+  const genericType =
+    contentType === "" ||
+    contentType === "application/octet-stream" ||
+    contentType === "binary/octet-stream" ||
+    contentType === "application/download";
+  return allowed.includes("application/pdf") && (declaresPDF || genericType);
+}
+
+/** normalizedAllowedContentTypes 统一调用方传入的内容类型格式。 */
+function normalizedAllowedContentTypes(values: string[]): string[] {
+  return values.map(normalizeContentType).filter(Boolean);
+}
+
+/** normalizeContentType 去掉响应类型参数并统一小写。 */
+function normalizeContentType(value: string): string {
+  return value.toLowerCase().split(";", 1)[0]?.trim() ?? "";
+}
+
+/** documentError 创建保存当前文档页使用的统一下载错误。 */
+function documentError(
+  actionContext: ActionContext,
+  message: string,
+  details: JsonObject,
+): WorkerError {
+  return new WorkerError({
+    code: "DOWNLOAD_FAILED",
+    message,
+    action: actionContext.action,
+    step: "save_current_document",
+    trace_id: actionContext.trace_id,
+    retryable: false,
+    details,
+  });
 }

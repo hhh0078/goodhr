@@ -222,13 +222,20 @@ func CandidateFingerprint(platformID string, name string, fields map[string]stri
 	return strings.ToLower(strings.TrimSpace(platformID)) + "_" + normalizedName + "_" + normalizedAge
 }
 
-// ReadOptional 读取可选选择器文本，未配置或元素不存在时返回 found=false。
+// ReadOptional 按选择器配置读取可选文本、属性或页面属性，未配置或元素不存在时返回 found=false。
 func ReadOptional(ctx context.Context, browser model.Browser, cfg model.Config, key string) (value string, found bool, err error) {
 	selector, ok := cfg.Selectors[key]
 	if !ok || len(selector.Target.Selectors) == 0 {
 		return "", false, nil
 	}
-	result, err := browser.Read(ctx, contract.ElementReadRequest{Selector: selector, Property: "text"})
+	property := strings.TrimSpace(selector.ReadProperty)
+	attribute := strings.TrimSpace(selector.ReadAttribute)
+	if property == "" && attribute == "" {
+		property = "text"
+	}
+	result, err := browser.Read(ctx, contract.ElementReadRequest{
+		Selector: selector, Property: property, Attribute: attribute,
+	})
 	if IsElementMissing(err) {
 		return "", false, nil
 	}

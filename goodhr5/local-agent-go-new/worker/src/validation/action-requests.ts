@@ -14,6 +14,7 @@ import type {
   LongScreenshotRequest,
   PageOpenRequest,
   PageUseRequest,
+  SaveCurrentDocumentRequest,
   ScreenshotRequest,
   ScrollRequest,
 } from "../contracts/actions.js";
@@ -153,6 +154,62 @@ export function parsePageUseRequest(
   return {
     page_id: requiredString(record, "page_id", traceId, action),
   };
+}
+
+/** parseSaveCurrentDocumentRequest 校验使用当前浏览器会话保存文档页的请求。 */
+export function parseSaveCurrentDocumentRequest(
+  value: unknown,
+  traceId: string,
+  action: string,
+): SaveCurrentDocumentRequest {
+  const record = asRecord(value, traceId, action);
+  const request: SaveCurrentDocumentRequest = {};
+  if (record.max_bytes !== undefined) {
+    if (
+      typeof record.max_bytes !== "number" ||
+      !Number.isInteger(record.max_bytes) ||
+      record.max_bytes < 1 ||
+      record.max_bytes > 104_857_600
+    ) {
+      throw invalidRequest(traceId, action, "max_bytes 必须是 1 到 104857600 之间的整数");
+    }
+    request.max_bytes = record.max_bytes;
+  }
+  if (record.allowed_content_types !== undefined) {
+    if (!Array.isArray(record.allowed_content_types)) {
+      throw invalidRequest(traceId, action, "allowed_content_types 必须是非空字符串数组");
+    }
+    const allowedContentTypes = stringArray(record.allowed_content_types)
+      .map((item) => item.toLowerCase().split(";", 1)[0]?.trim() ?? "")
+      .filter(Boolean);
+    if (
+      allowedContentTypes.length === 0 ||
+      allowedContentTypes.length !== record.allowed_content_types.length ||
+      allowedContentTypes.some(
+        (item) => !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(item),
+      )
+    ) {
+      throw invalidRequest(traceId, action, "allowed_content_types 包含不正确的内容类型");
+    }
+    request.allowed_content_types = [...new Set(allowedContentTypes)];
+  }
+  assignString(
+    request,
+    "suggested_filename",
+    optionalString(record, "suggested_filename"),
+  );
+  if (record.timeout_ms !== undefined) {
+    if (
+      typeof record.timeout_ms !== "number" ||
+      !Number.isInteger(record.timeout_ms) ||
+      record.timeout_ms < 100 ||
+      record.timeout_ms > 120_000
+    ) {
+      throw invalidRequest(traceId, action, "timeout_ms 必须是 100 到 120000 之间的整数");
+    }
+    request.timeout_ms = record.timeout_ms;
+  }
+  return request;
 }
 
 /** parseElementFindRequest 校验单元素查找请求。 */

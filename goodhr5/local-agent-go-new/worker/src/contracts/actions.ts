@@ -79,6 +79,14 @@ export interface PageUseRequest {
   page_id: string;
 }
 
+/** SaveCurrentDocumentRequest 表示使用当前浏览器会话保存当前文档页的参数。 */
+export interface SaveCurrentDocumentRequest {
+  max_bytes?: number;
+  allowed_content_types?: string[];
+  suggested_filename?: string;
+  timeout_ms?: number;
+}
+
 /** ElementFindRequest 表示查找一个元素的参数。 */
 export interface ElementFindRequest {
   selector: SelectorSpec;

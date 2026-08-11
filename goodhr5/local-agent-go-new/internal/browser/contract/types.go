@@ -149,6 +149,14 @@ type PageUseRequest struct {
 	PageID string `json:"page_id"`
 }
 
+// SaveCurrentDocumentRequest 表示使用当前浏览器会话保存当前文档页的请求。
+type SaveCurrentDocumentRequest struct {
+	MaxBytes            int64    `json:"max_bytes,omitempty"`
+	AllowedContentTypes []string `json:"allowed_content_types,omitempty"`
+	SuggestedFilename   string   `json:"suggested_filename,omitempty"`
+	TimeoutMS           int      `json:"timeout_ms,omitempty"`
+}
+
 // ElementFindRequest 表示查找一个元素请求。
 type ElementFindRequest struct {
 	Selector SelectorSpec `json:"selector"`

@@ -61,6 +61,10 @@ func TestPostgresAutoReplyStorageFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	oldAvatarURL := candidateAvatarPublicPrefix + strings.Repeat("b", 64) + ".png"
+	if _, err = candidateStore.UpdateCandidateAvatar(ctx, tenant.ID, candidate.ID, oldAvatarURL); err != nil {
+		t.Fatal(err)
+	}
 	var userID string
 	if err = db.QueryRowContext(ctx, `SELECT id::text FROM users WHERE LOWER(email)=LOWER($1)`, ownerEmail).Scan(&userID); err != nil {
 		t.Fatal(err)
@@ -242,6 +246,20 @@ func TestPostgresAutoReplyStorageFlow(t *testing.T) {
 	}
 	if _, _, claimed, err = autoReplyStore.ClaimRecommendationNotification(ctx); err != nil || claimed {
 		t.Fatalf("已经发送的推荐邮件不应重复领取：claimed=%t err=%v", claimed, err)
+	}
+	newAvatarURL := candidateAvatarPublicPrefix + strings.Repeat("c", 64) + ".png"
+	if _, err = candidateStore.UpdateCandidateAvatar(ctx, tenant.ID, candidate.ID, newAvatarURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ExecContext(ctx, `UPDATE candidate_recommendations SET status='superseded' WHERE id=$1`, recommendation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = autoReplyStore.GetPublicRecommendation(ctx, recommendation.PublicID); err != nil {
+		t.Fatalf("旧版公开推荐报告不应因 superseded 失效：%v", err)
+	}
+	oldAvatarReferenced, err := candidateStore.CandidateAvatarPubliclyReferenced(ctx, oldAvatarURL)
+	if err != nil || !oldAvatarReferenced {
+		t.Fatalf("旧版公开推荐头像不应失效：referenced=%t err=%v", oldAvatarReferenced, err)
 	}
 	if err = autoReplyStore.RevokeRecommendationShare(ctx, tenant.ID, recommendation.PublicID); err != nil {
 		t.Fatal(err)

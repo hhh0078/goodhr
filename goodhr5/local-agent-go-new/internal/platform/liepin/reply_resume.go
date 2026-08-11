@@ -26,7 +26,7 @@ type liepinDownloadBrowser interface {
 
 // RequestAutoReplyResume 在当前已核对的候选人聊天框中索要简历。
 func (r *Runtime) RequestAutoReplyResume(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) error {
-	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName); err != nil {
+	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition); err != nil {
 		return err
 	}
 	return common.RequestCandidateInfo(ctx, browser, cfg, model.CandidateInfoRequest{RequestResume: true})
@@ -38,7 +38,7 @@ func (r *Runtime) CollectAutoReplyResume(ctx context.Context, browser model.Brow
 	if !snapshot.ResumeCardAvailable {
 		return model.AutoReplyResumeBundle{}, fmt.Errorf("%s当前会话没有候选人简历卡片", cfg.Name)
 	}
-	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName); err != nil {
+	if _, _, err := waitLiepinConversation(ctx, browser, cfg, snapshot.CandidateName, snapshot.CommunicationPosition); err != nil {
 		return model.AutoReplyResumeBundle{}, err
 	}
 	attachmentText, attachmentPaths, err := collectLiepinAttachment(ctx, browser, cfg)

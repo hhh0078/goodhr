@@ -228,7 +228,7 @@ func TestAutoReplyPostgresHTTPFlow(t *testing.T) {
 	if err = db.QueryRow(`SELECT gender, birth_ym_precision, normalized_phone, wechat, avatar_url FROM candidate_profiles WHERE tenant_id=$1 AND id=$2`, tenant.ID, candidatePayload.CandidateID).Scan(&savedGender, &savedBirthPrecision, &savedPhone, &savedWechat, &savedAvatarURL); err != nil {
 		t.Fatal(err)
 	}
-	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" || savedWechat != "candidate_wechat" || savedAvatarURL != "https://image.example.com/liepin-avatar.png" {
+	if savedGender != "女" || savedBirthPrecision != "year_estimated" || savedPhone != "17607080935" || savedWechat != "candidate_wechat" || savedAvatarURL != "" {
 		t.Fatalf("candidate normalized fields gender=%s precision=%s phone=%s wechat=%s avatar=%s", savedGender, savedBirthPrecision, savedPhone, savedWechat, savedAvatarURL)
 	}
 	identityConflictResponse := autoReplyJSONRequestForTest(t, routes, token, machineID, http.MethodPost, "/api/auto-reply/agent/candidates", map[string]any{

@@ -238,6 +238,7 @@ timeout_ms=5000
 - `page.list`
 - `page.use`
 - `page.close`
+- `page.save_current_document`
 
 元素：
 

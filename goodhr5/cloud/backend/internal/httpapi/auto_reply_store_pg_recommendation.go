@@ -510,7 +510,7 @@ func (s *PostgresAutoReplyStore) ListCandidateRecommendations(ctx context.Contex
 // GetPublicRecommendation 按不可猜测公开编号返回仍允许分享的报告。
 func (s *PostgresAutoReplyStore) GetPublicRecommendation(ctx context.Context, publicID string) (CandidateRecommendation, error) {
 	item, err := scanCandidateRecommendation(s.db.QueryRowContext(ctx, recommendationSelectSQL+`
-		WHERE recommendation.public_id=$1 AND recommendation.share_enabled=true
+		WHERE recommendation.public_id=$1 AND `+publicRecommendationAccessSQL+`
 	`, strings.TrimSpace(publicID)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return CandidateRecommendation{}, ErrNotFound
@@ -610,6 +610,9 @@ func (s *PostgresAutoReplyStore) ClaimRecommendationNotification(ctx context.Con
 	}
 	return item, strings.TrimSpace(recipient), true, nil
 }
+
+// publicRecommendationAccessSQL 定义公开推荐页和其静态资源共同遵守的可访问条件。
+const publicRecommendationAccessSQL = "recommendation.share_enabled=true"
 
 const recommendationSelectSQL = `
 	SELECT recommendation.id, recommendation.public_id, recommendation.tenant_id,
