@@ -10,6 +10,7 @@ services:
     environment:
       GOODHR_CLOUD_ADDR: ":8084"
       GOODHR_PG_DSN: "postgres://goodhr5_dev:goodhr5_dev@postgres:5432/goodhr5_dev?sslmode=disable"
+      GOODHR_PUBLIC_WEB_BASE_URL: "http://localhost:5173"
     ports:
       - "8084:8084"
     volumes:

@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,19 +19,20 @@ const autoReplyJSONBodyLimit = 2 << 20
 
 // AutoReplyService 处理自动回复前端配置和本地 Agent 数据接口。
 type AutoReplyService struct {
-	auth          *AuthService
-	store         *PostgresAutoReplyStore
-	tenants       TenantStore
-	positions     PositionStore
-	accounts      PlatformAccountStore
-	candidates    CandidateStore
-	subscriptions SubscriptionStore
-	systemConfigs SystemConfigStore
-	agents        AgentStore
-	mailer        Mailer
-	aiConfigs     AIConfigStore
-	httpClient    *http.Client
-	resumeDir     string
+	auth                     *AuthService
+	store                    *PostgresAutoReplyStore
+	tenants                  TenantStore
+	positions                PositionStore
+	accounts                 PlatformAccountStore
+	candidates               CandidateStore
+	subscriptions            SubscriptionStore
+	systemConfigs            SystemConfigStore
+	agents                   AgentStore
+	mailer                   Mailer
+	aiConfigs                AIConfigStore
+	httpClient               *http.Client
+	resumeDir                string
+	recommendationWorkerOnce sync.Once
 }
 
 // autoReplyRequestContext 表示自动回复请求已经验证过的用户、团队和会员上下文。

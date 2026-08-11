@@ -4,6 +4,8 @@ services:
     build: ./cloud/backend
     network_mode: host
     env_file: ./cloud/backend/.env
+    environment:
+      GOODHR_PUBLIC_WEB_BASE_URL: "https://goodhr5.58it.cn"
     volumes:
       - ./cloud/backend:/app
       - /app/tmp

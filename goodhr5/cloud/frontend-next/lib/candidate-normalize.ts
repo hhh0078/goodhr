@@ -1,5 +1,7 @@
 /** 本文件负责把 GoodHR 新版候选人接口数据整理成简历库展示结构。 */
 
+import { normalizeRecommendation, type CandidateRecommendation } from "./recommendation";
+
 export type NormalizedExperience = {
   companyName?: string;
   positionName?: string;
@@ -41,12 +43,17 @@ export type CandidateMessage = {
 
 export type CandidateConfirmationItem = {
   id: string;
+  positionConditionID: string;
   itemType: string;
   content: string;
   status: string;
+  statusReason: string;
   sourceType: string;
   evidenceText: string;
   summary: string;
+  askCount: number;
+  lastAskedAt: string;
+  lastAnsweredAt: string;
   updatedAt: string;
 };
 
@@ -91,6 +98,7 @@ export type CandidateAutoReplyDetail = {
   conversations: CandidateConversation[];
   confirmationItems: CandidateConfirmationItem[];
   aiRecords: CandidateAIRecord[];
+  recommendations: CandidateRecommendation[];
 };
 
 export type NormalizedCandidate = {
@@ -247,6 +255,7 @@ export function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyD
         errorMessage: stringValue(tool.error_message),
       })),
     })),
+    recommendations: recordArray(source.recommendations).map(normalizeRecommendation),
   };
 }
 
@@ -254,12 +263,17 @@ export function normalizeCandidateAutoReply(value: unknown): CandidateAutoReplyD
 function normalizeCandidateConfirmation(item: Record<string, unknown>): CandidateConfirmationItem {
   return {
     id: stringValue(item.id),
+    positionConditionID: stringValue(item.position_condition_id),
     itemType: stringValue(item.item_type),
     content: stringValue(item.content),
     status: stringValue(item.status),
+    statusReason: stringValue(item.status_reason),
     sourceType: stringValue(item.source_type),
     evidenceText: stringValue(item.evidence_text),
     summary: stringValue(item.summary),
+    askCount: numberValue(item.ask_count),
+    lastAskedAt: stringValue(item.last_asked_at),
+    lastAnsweredAt: stringValue(item.last_answered_at),
     updatedAt: stringValue(item.updated_at),
   };
 }

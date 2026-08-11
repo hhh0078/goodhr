@@ -91,6 +91,8 @@ func NewServer() (*Server, error) {
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewHaoshoumiProvider(config))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
+	autoReplyService := NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, aiConfigStore, config.AutoReplyResumeDir)
+	autoReplyService.StartRecommendationWorker()
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
@@ -119,7 +121,7 @@ func NewServer() (*Server, error) {
 		systemConfigs:       systemConfigStore,
 		tenants:             NewTenantService(auth, tenantStore, mailer),
 		cookies:             NewCookieService(auth, cookieStore, tenantStore, agentStore, agentWS),
-		autoReply:           NewAutoReplyService(auth, autoReplyStore, tenantStore, positionStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, agentStore, mailer, aiConfigStore, config.AutoReplyResumeDir),
+		autoReply:           autoReplyService,
 	}, nil
 }
 
@@ -135,6 +137,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
+	mux.HandleFunc("/api/public/recommendations/", s.autoReply.PublicRecommendation)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
@@ -224,6 +227,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auto-reply/audit", s.autoReply.Audit)
 	mux.HandleFunc("/api/auto-reply/suggestions", s.autoReply.Suggestions)
 	mux.HandleFunc("/api/auto-reply/suggestions/", s.autoReply.Suggestion)
+	mux.HandleFunc("/api/auto-reply/recommendations/", s.autoReply.Recommendation)
 	return cors(mux)
 }
 

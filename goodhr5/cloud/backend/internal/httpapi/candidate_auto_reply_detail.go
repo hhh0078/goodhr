@@ -39,7 +39,7 @@ func (s *CandidateService) AutoReplyDetail(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	section := strings.TrimSpace(r.URL.Query().Get("section"))
-	validSections := map[string]struct{}{"attachments": {}, "conversations": {}, "confirmations": {}, "ai_records": {}}
+	validSections := map[string]struct{}{"attachments": {}, "conversations": {}, "confirmations": {}, "ai_records": {}, "recommendations": {}}
 	if _, valid := validSections[section]; !valid {
 		writeError(w, http.StatusBadRequest, errCandidateAutoReplySection.Error())
 		return
@@ -88,17 +88,27 @@ func (s *CandidateService) loadCandidateAutoReplySection(ctx context.Context, te
 			return nil, err
 		}
 		result := make([]CandidateConfirmationItem, 0)
+		seen := make(map[string]struct{})
 		for _, conversation := range conversations {
 			items, confirmationErr := s.autoReply.ListConfirmationItems(ctx, tenantID, conversation.ID)
 			if confirmationErr != nil {
 				return nil, confirmationErr
 			}
-			result = append(result, items...)
+			for _, item := range items {
+				if _, exists := seen[item.ID]; exists {
+					continue
+				}
+				seen[item.ID] = struct{}{}
+				result = append(result, item)
+			}
 		}
 		return map[string]any{"confirmation_items": publicCandidateConfirmationItems(result)}, nil
 	case "ai_records":
 		items, err := s.autoReply.ListCandidateAutoReplyAudit(ctx, tenantID, candidateID, 100)
 		return map[string]any{"ai_records": publicCandidateAIRecords(items)}, err
+	case "recommendations":
+		items, err := s.autoReply.ListCandidateRecommendations(ctx, tenantID, candidateID)
+		return map[string]any{"recommendations": items}, err
 	default:
 		return nil, errCandidateAutoReplySection
 	}
@@ -108,7 +118,7 @@ func (s *CandidateService) loadCandidateAutoReplySection(ctx context.Context, te
 func emptyCandidateAutoReplySection(section string) map[string]any {
 	keys := map[string]string{
 		"attachments": "attachments", "conversations": "conversations",
-		"confirmations": "confirmation_items", "ai_records": "ai_records",
+		"confirmations": "confirmation_items", "ai_records": "ai_records", "recommendations": "recommendations",
 	}
 	if key := keys[section]; key != "" {
 		return map[string]any{key: []any{}}
@@ -164,10 +174,14 @@ func publicCandidateConfirmationItems(items []CandidateConfirmationItem) []map[s
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		result = append(result, map[string]any{
-			"id": item.ID, "item_type": item.ItemType, "content": item.Content,
-			"status": item.Status, "source_type": item.SourceType, "source_ref": item.SourceRef,
+			"id": item.ID, "position_condition_id": item.PositionConditionID,
+			"item_type": item.ItemType, "content": item.Content,
+			"status": item.Status, "status_reason": item.StatusReason,
+			"source_type": item.SourceType, "source_ref": item.SourceRef,
 			"evidence_text": item.EvidenceText, "summary": item.Summary,
-			"created_by_kind": item.CreatedByKind, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt,
+			"ask_count": item.AskCount, "last_asked_at": item.LastAskedAt,
+			"last_answered_at": item.LastAnsweredAt, "created_by_kind": item.CreatedByKind,
+			"created_at": item.CreatedAt, "updated_at": item.UpdatedAt,
 		})
 	}
 	return result

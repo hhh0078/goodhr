@@ -146,22 +146,188 @@ type StoredResumeAttachment struct {
 
 // CandidateConfirmationItem 表示候选人和岗位之间的一条可审计确认项。
 type CandidateConfirmationItem struct {
-	ID             string    `json:"id"`
-	TenantID       string    `json:"tenant_id"`
-	ConversationID string    `json:"conversation_id"`
-	CandidateID    string    `json:"candidate_id"`
-	PositionID     string    `json:"position_id"`
-	ItemType       string    `json:"item_type"`
-	Content        string    `json:"content"`
-	DedupeKey      string    `json:"dedupe_key"`
-	Status         string    `json:"status"`
-	SourceType     string    `json:"source_type"`
-	SourceRef      string    `json:"source_ref"`
-	EvidenceText   string    `json:"evidence_text"`
-	Summary        string    `json:"summary"`
-	CreatedByKind  string    `json:"created_by_kind"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                  string     `json:"id"`
+	TenantID            string     `json:"tenant_id"`
+	ReviewID            string     `json:"review_id"`
+	ConversationID      string     `json:"conversation_id"`
+	CandidateID         string     `json:"candidate_id"`
+	PositionID          string     `json:"position_id"`
+	PositionConditionID string     `json:"position_condition_id"`
+	ItemType            string     `json:"item_type"`
+	Content             string     `json:"content"`
+	DedupeKey           string     `json:"dedupe_key"`
+	Status              string     `json:"status"`
+	StatusReason        string     `json:"status_reason"`
+	SourceType          string     `json:"source_type"`
+	SourceRef           string     `json:"source_ref"`
+	EvidenceText        string     `json:"evidence_text"`
+	Summary             string     `json:"summary"`
+	CreatedByKind       string     `json:"created_by_kind"`
+	AskCount            int        `json:"ask_count"`
+	LastAskedAt         *time.Time `json:"last_asked_at"`
+	LastAnsweredAt      *time.Time `json:"last_answered_at"`
+	LastReviewedAt      *time.Time `json:"last_reviewed_at"`
+	ArchivedAt          *time.Time `json:"archived_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// CandidatePositionReview 表示候选人与岗位之间跨会话复用的长期评估主体。
+type CandidatePositionReview struct {
+	ID                      string     `json:"id"`
+	TenantID                string     `json:"tenant_id"`
+	CandidateID             string     `json:"candidate_id"`
+	PositionID              string     `json:"position_id"`
+	Status                  string     `json:"status"`
+	ConditionsInitializedAt *time.Time `json:"conditions_initialized_at"`
+	QualifiedAt             *time.Time `json:"qualified_at"`
+	CurrentRecommendationID string     `json:"current_recommendation_id"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
+}
+
+// RecommendationPoint 表示推荐报告中的一条优势、风险或面试关注点。
+type RecommendationPoint struct {
+	Title    string   `json:"title"`
+	Detail   string   `json:"detail"`
+	Severity string   `json:"severity,omitempty"`
+	Evidence []string `json:"evidence"`
+}
+
+// RecommendationCandidateSnapshot 表示推荐报告冻结的完整结构化简历。
+type RecommendationCandidateSnapshot struct {
+	ID                  string                       `json:"id"`
+	Name                string                       `json:"name"`
+	AvatarURL           string                       `json:"avatar_url"`
+	Gender              string                       `json:"gender"`
+	BirthYM             string                       `json:"birth_ym"`
+	Phone               string                       `json:"phone"`
+	Email               string                       `json:"email"`
+	Wechat              string                       `json:"wechat"`
+	WorkRegion          string                       `json:"work_region"`
+	WorkYears           string                       `json:"work_years"`
+	EducationLevel      string                       `json:"education_level"`
+	ExpectedPosition    string                       `json:"expected_position"`
+	ExpectedSalaryMin   *int                         `json:"expected_salary_min"`
+	ExpectedSalaryMax   *int                         `json:"expected_salary_max"`
+	WorkStatus          string                       `json:"work_status"`
+	OnlineStatus        string                       `json:"online_status"`
+	PersonalDescription string                       `json:"personal_description"`
+	BasicInfo           string                       `json:"basic_info"`
+	WorkExperiences     []CandidateWorkExperience    `json:"work_experiences"`
+	Educations          []CandidateEducation         `json:"educations"`
+	Certificates        []CandidateCertificate       `json:"certificates"`
+	Honors              []CandidateHonor             `json:"honors"`
+	ProjectExperiences  []CandidateProjectExperience `json:"project_experiences"`
+	CreatedAt           time.Time                    `json:"created_at"`
+	UpdatedAt           time.Time                    `json:"updated_at"`
+}
+
+// RecommendationPositionSnapshot 表示推荐报告冻结的岗位和公司资料。
+type RecommendationPositionSnapshot struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	PlatformID  string `json:"platform_id"`
+	Description string `json:"description"`
+	CompanyName string `json:"company_name"`
+	Address     string `json:"address"`
+	Contact     string `json:"contact"`
+	Overview    string `json:"overview"`
+	ExtraInfo   string `json:"extra_info"`
+}
+
+// RecommendationConditionSnapshot 表示报告生成时一条条件的状态和依据。
+type RecommendationConditionSnapshot struct {
+	ID           string   `json:"id"`
+	ItemType     string   `json:"item_type"`
+	Content      string   `json:"content"`
+	Status       string   `json:"status"`
+	StatusReason string   `json:"status_reason"`
+	Evidence     []string `json:"evidence"`
+}
+
+// RecommendationMessageSnapshot 表示公开沟通记录中的一条候选人或HR消息。
+type RecommendationMessageSnapshot struct {
+	ID             string     `json:"id"`
+	Direction      string     `json:"direction"`
+	MessageType    string     `json:"message_type"`
+	TextContent    string     `json:"text_content"`
+	SenderName     string     `json:"sender_name"`
+	PlatformSentAt *time.Time `json:"platform_sent_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// RecommendationConversationSnapshot 表示推荐报告数据截止时间内的一段真实沟通记录。
+type RecommendationConversationSnapshot struct {
+	ID            string                          `json:"id"`
+	PlatformID    string                          `json:"platform_id"`
+	PositionText  string                          `json:"position_text"`
+	CandidateName string                          `json:"candidate_name"`
+	Messages      []RecommendationMessageSnapshot `json:"messages"`
+	CreatedAt     time.Time                       `json:"created_at"`
+	UpdatedAt     time.Time                       `json:"updated_at"`
+}
+
+// CandidateRecommendationReport 表示公开页面和邮件共同使用的推荐报告快照。
+type CandidateRecommendationReport struct {
+	Candidate            RecommendationCandidateSnapshot   `json:"candidate"`
+	Position             RecommendationPositionSnapshot    `json:"position"`
+	MatchScore           float64                           `json:"match_score"`
+	RecommendationLevel  string                            `json:"recommendation_level"`
+	ExecutiveSummary     string                            `json:"executive_summary"`
+	Strengths            []RecommendationPoint             `json:"strengths"`
+	Risks                []RecommendationPoint             `json:"risks"`
+	Conditions           []RecommendationConditionSnapshot `json:"conditions"`
+	BonusItems           []RecommendationPoint             `json:"bonus_items"`
+	UnconfirmedItems     []RecommendationPoint             `json:"unconfirmed_items"`
+	JobIntentSummary     string                            `json:"job_intent_summary"`
+	StabilitySummary     string                            `json:"stability_summary"`
+	CommunicationSummary string                            `json:"communication_summary"`
+	InterviewFocus       []RecommendationPoint             `json:"interview_focus"`
+	SuggestedQuestions   []string                          `json:"suggested_questions"`
+	SourceCutoffAt       time.Time                         `json:"source_cutoff_at"`
+	GeneratedAt          time.Time                         `json:"generated_at"`
+}
+
+// CandidateRecommendation 表示一份可公开分享、可撤销的不可变推荐记录。
+type CandidateRecommendation struct {
+	ID                  string                        `json:"id"`
+	PublicID            string                        `json:"public_id"`
+	TenantID            string                        `json:"tenant_id,omitempty"`
+	ReviewID            string                        `json:"review_id"`
+	CandidateID         string                        `json:"candidate_id"`
+	PositionID          string                        `json:"position_id"`
+	Version             int                           `json:"version"`
+	InputHash           string                        `json:"-"`
+	Status              string                        `json:"status"`
+	MatchScore          float64                       `json:"match_score"`
+	RecommendationLevel string                        `json:"recommendation_level"`
+	Summary             string                        `json:"summary"`
+	Report              CandidateRecommendationReport `json:"report"`
+	Model               string                        `json:"model,omitempty"`
+	TokenUsage          int                           `json:"token_usage,omitempty"`
+	ShareEnabled        bool                          `json:"share_enabled"`
+	NotificationStatus  string                        `json:"notification_status,omitempty"`
+	NotificationError   string                        `json:"notification_error,omitempty"`
+	NotifiedAt          *time.Time                    `json:"notified_at,omitempty"`
+	SourceCutoffAt      time.Time                     `json:"source_cutoff_at"`
+	GeneratedAt         time.Time                     `json:"generated_at"`
+	CreatedAt           time.Time                     `json:"created_at"`
+	UpdatedAt           time.Time                     `json:"updated_at"`
+}
+
+// CandidateRecommendationJob 表示数据库中可重试的推荐报告生成任务。
+type CandidateRecommendationJob struct {
+	ID            string    `json:"id"`
+	TenantID      string    `json:"tenant_id"`
+	ReviewID      string    `json:"review_id"`
+	CandidateID   string    `json:"candidate_id"`
+	PositionID    string    `json:"position_id"`
+	InputHash     string    `json:"input_hash"`
+	Status        string    `json:"status"`
+	AttemptCount  int       `json:"attempt_count"`
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+	LastError     string    `json:"last_error"`
 }
 
 // AutoReplyAIRun 表示自动回复的一次 AI 总审计记录。

@@ -262,6 +262,20 @@ func TestNormalizeAutoReplyContacts(t *testing.T) {
 	}
 }
 
+// TestFindPositionConfirmationLinksExistingAICondition 验证同正文 AI 条件会被当前岗位配置接管，而不是留下永远缺失的配置条件。
+func TestFindPositionConfirmationLinksExistingAICondition(t *testing.T) {
+	items := []cloud.CandidateConfirmationItem{{
+		ID: "confirmation-1", ItemType: "confirm", Content: " 是否接受出差 ",
+		Status: "pending", SourceType: "ai",
+	}}
+	index, found := findPositionConfirmation(items, cloud.PositionReplyCondition{
+		ID: "position-condition-1", Type: "required", Content: "是否接受出差",
+	})
+	if !found || index != 0 {
+		t.Fatalf("同正文条件没有被识别：index=%d found=%t", index, found)
+	}
+}
+
 // TestStoredAttachmentTextDeduplicatesContent 验证临时附件正文可在下一轮继续使用且不会重复拼接。
 func TestStoredAttachmentTextDeduplicatesContent(t *testing.T) {
 	actual := storedAttachmentText([]cloud.StoredResumeAttachment{
@@ -590,6 +604,29 @@ func TestSendVerifiedMessageChecksLatestAndAvoidsDuplicate(t *testing.T) {
 	}
 }
 
+// TestLatestMessageAllowsFollowupStopsWhenCandidateInterrupts 验证候选人在两条消息之间插话时不会继续发送确认问题。
+func TestLatestMessageAllowsFollowupStopsWhenCandidateInterrupts(t *testing.T) {
+	flow := &Flow{Browser: &autoReplyBrowserStub{}}
+	runtime := &autoReplyRuntimeStub{sent: true, latestAfter: model.ConversationMessage{
+		Direction: "candidate", TextContent: "我再补充一下",
+	}}
+	ready, err := flow.latestMessageAllowsFollowup(
+		context.Background(), runtime, shared.PreparedTask{Platform: model.Config{ID: "liepin"}},
+		model.AutoReplyConversationSnapshot{CandidateName: "李女士"}, "工作地点在成都哈～",
+	)
+	if err != nil || ready {
+		t.Fatalf("候选人插话后仍允许第二条消息：ready=%t err=%v", ready, err)
+	}
+	runtime.latestAfter = model.ConversationMessage{Direction: "self", TextContent: "工作地点在成都哈～"}
+	ready, err = flow.latestMessageAllowsFollowup(
+		context.Background(), runtime, shared.PreparedTask{Platform: model.Config{ID: "liepin"}},
+		model.AutoReplyConversationSnapshot{CandidateName: "李女士"}, "工作地点在成都哈～",
+	)
+	if err != nil || !ready {
+		t.Fatalf("第一条消息回读正确时应允许确认问题：ready=%t err=%v", ready, err)
+	}
+}
+
 // TestCheckpointSettingsCapsThree 验证单轮配置永远不会超过三个候选人。
 func TestCheckpointSettingsCapsThree(t *testing.T) {
 	items := []cloud.AutoReplyPositionSnapshot{{
@@ -749,14 +786,14 @@ func TestReplyWhileMonitoringDetectsNewMessage(t *testing.T) {
 		Key: "new-message", Direction: "candidate", MessageType: "text", TextContent: "还有一个问题",
 	}}
 	flow := &Flow{
-		Responder:           delayedResponderStub{delay: 30 * time.Millisecond, decision: ReplyDecision{Reply: "旧回复"}},
+		Responder:           delayedResponderStub{delay: 30 * time.Millisecond, decision: ReplyDecision{Messages: []ReplyMessage{{Type: "answer", Content: "旧回复"}}}},
 		messagePollInterval: 5 * time.Millisecond,
 	}
 	decision, changed, err := flow.replyWhileMonitoring(
 		context.Background(), shared.PreparedTask{Platform: model.Config{ID: "liepin"}}, runtime,
 		model.AutoReplyConversationSnapshot{CandidateName: "邓云川"}, ReplyContext{BasedOnMessageKey: "old-message"},
 	)
-	if err != nil || !changed || decision.Reply != "旧回复" {
+	if err != nil || !changed || len(decision.Messages) != 1 || decision.Messages[0].Content != "旧回复" {
 		t.Fatalf("decision=%+v changed=%t err=%v", decision, changed, err)
 	}
 }

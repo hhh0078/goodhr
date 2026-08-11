@@ -61,7 +61,7 @@ func (f *Flow) replyWhileMonitoring(ctx context.Context, prepared shared.Prepare
 }
 
 // sendVerifiedMessage 发送一条消息并回读确认，结果未知时不直接重发。
-func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool) (bool, error) {
+func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, conversation cloud.AutoReplyConversation, snapshot model.AutoReplyConversationSnapshot, basedOnMessageKey string, message string, verifyCandidateBefore bool, sequence ...int) (bool, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return false, fmt.Errorf("候选人回复内容不能为空")
@@ -76,7 +76,11 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 			return false, err
 		}
 	}
-	duplicate, err := f.replyAlreadyRecorded(ctx, prepared, conversation, basedOnMessageKey, message)
+	messageSequence := 0
+	if len(sequence) > 0 {
+		messageSequence = sequence[0]
+	}
+	duplicate, err := f.replyAlreadyRecorded(ctx, prepared, conversation, basedOnMessageKey, message, messageSequence)
 	if err != nil || duplicate {
 		return false, err
 	}
@@ -85,12 +89,12 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	}
 	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
 	if err != nil {
-		f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHash(basedOnMessageKey, message), "unknown")
+		f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHashWithSequence(basedOnMessageKey, message, messageSequence), "unknown")
 		return false, fmt.Errorf("消息已经点击发送，但回读结果失败；我先不重发：%w", err)
 	}
 	direction := strings.ToLower(strings.TrimSpace(latest.Direction))
 	if direction != "self" || strings.TrimSpace(latest.TextContent) != message {
-		f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHash(basedOnMessageKey, message), "unknown")
+		f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHashWithSequence(basedOnMessageKey, message, messageSequence), "unknown")
 		return false, fmt.Errorf("消息发送结果暂时不能确认，我先不重复发送")
 	}
 	messages, _, err := convertMessages([]model.ConversationMessage{latest})
@@ -102,7 +106,7 @@ func (f *Flow) sendVerifiedMessage(ctx context.Context, prepared shared.Prepared
 	}); err != nil {
 		return false, fmt.Errorf("消息已经发送，但云端记录没同步成功：%w", err)
 	}
-	f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHash(basedOnMessageKey, message), "success")
+	f.saveLocalReplyRecord(ctx, prepared, conversation, replyRecordHashWithSequence(basedOnMessageKey, message, messageSequence), "success")
 	return true, nil
 }
 
@@ -119,9 +123,22 @@ func (f *Flow) latestCandidateMessageUnchanged(ctx context.Context, runtime mode
 	return key == strings.TrimSpace(basedOnMessageKey), nil
 }
 
+// latestMessageAllowsFollowup 确认第一条回复仍是页面最新消息，候选人没有在两条消息之间插入新内容。
+func (f *Flow) latestMessageAllowsFollowup(ctx context.Context, runtime model.AutoReplyRuntime, prepared shared.PreparedTask, snapshot model.AutoReplyConversationSnapshot, previousContent string) (bool, error) {
+	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, snapshot)
+	if err != nil {
+		return false, fmt.Errorf("发送第二条消息前复核最新聊天失败：%w", err)
+	}
+	return strings.EqualFold(strings.TrimSpace(latest.Direction), "self") && strings.TrimSpace(latest.TextContent) == strings.TrimSpace(previousContent), nil
+}
+
 // replyAlreadyRecorded 检查同一候选人新消息是否已经生成过完全相同的回复。
-func (f *Flow) replyAlreadyRecorded(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, basedOnMessageKey string, message string) (bool, error) {
-	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.PlatformThreadID, replyRecordHash(basedOnMessageKey, message))
+func (f *Flow) replyAlreadyRecorded(ctx context.Context, prepared shared.PreparedTask, conversation cloud.AutoReplyConversation, basedOnMessageKey string, message string, sequence ...int) (bool, error) {
+	messageSequence := 0
+	if len(sequence) > 0 {
+		messageSequence = sequence[0]
+	}
+	exists, err := f.Store.ConversationExists(ctx, prepared.Request.TaskID, conversation.PlatformThreadID, replyRecordHashWithSequence(basedOnMessageKey, message, messageSequence))
 	if err != nil {
 		return false, fmt.Errorf("检查重复回复失败：%w", err)
 	}
@@ -130,7 +147,12 @@ func (f *Flow) replyAlreadyRecorded(ctx context.Context, prepared shared.Prepare
 
 // replyRecordHash 返回“候选人消息 + 回复动作”的本地去重哈希。
 func replyRecordHash(basedOnMessageKey string, reply string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(basedOnMessageKey) + "\n" + strings.TrimSpace(reply)))
+	return replyRecordHashWithSequence(basedOnMessageKey, reply, 0)
+}
+
+// replyRecordHashWithSequence 把同轮消息顺序加入去重键，允许两条内容相同但职责不同的消息独立记录。
+func replyRecordHashWithSequence(basedOnMessageKey string, reply string, sequence int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\n%d\n%s", strings.TrimSpace(basedOnMessageKey), sequence, strings.TrimSpace(reply))))
 	return hex.EncodeToString(sum[:])
 }
 

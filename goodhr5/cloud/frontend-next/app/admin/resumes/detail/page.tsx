@@ -4,12 +4,16 @@
 import type { ReactNode } from "react";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import AttachFileRoundedIcon from "@mui/icons-material/AttachFileRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import ForumRoundedIcon from "@mui/icons-material/ForumRounded";
+import LinkOffRoundedIcon from "@mui/icons-material/LinkOffRounded";
 import LocationOnRoundedIcon from "@mui/icons-material/LocationOnRounded";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import PsychologyRoundedIcon from "@mui/icons-material/PsychologyRounded";
+import RecommendRoundedIcon from "@mui/icons-material/RecommendRounded";
 import { Accordion, AccordionDetails, AccordionSummary, Avatar, Box, Button, Chip, CircularProgress, Stack, Typography } from "@mui/material";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -20,8 +24,9 @@ import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudDownload, cloudRequest, formatDate } from "@/lib/admin-api";
 import { experienceLine, normalizeCandidate, normalizeCandidateAutoReply, periodText, scoreText, statusText, type CandidateAIRecord, type CandidateAutoReplyDetail, type CandidateConversation, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
+import type { CandidateRecommendation } from "@/lib/recommendation";
 
-type AutoReplySection = "attachments" | "conversations" | "confirmations" | "ai_records";
+type AutoReplySection = "attachments" | "conversations" | "confirmations" | "ai_records" | "recommendations";
 
 /** ResumeDetailPage 展示候选人基本信息、经历和分析结果。 */
 export default function ResumeDetailPage() {
@@ -66,12 +71,35 @@ export default function ResumeDetailPage() {
         conversations: section === "conversations" ? loaded.conversations : current.conversations,
         confirmationItems: section === "confirmations" ? loaded.confirmationItems : current.confirmationItems,
         aiRecords: section === "ai_records" ? loaded.aiRecords : current.aiRecords,
+        recommendations: section === "recommendations" ? loaded.recommendations : current.recommendations,
       }));
       setAutoReplyLoaded((current) => ({ ...current, [section]: true }));
     } catch (error) {
       notify(error instanceof Error ? error.message : "候选人关联资料没读出来", "error");
     } finally {
       setAutoReplyLoading(null);
+    }
+  }
+
+  /** copyRecommendationLink 复制一份仍然有效的公开推荐链接。 */
+  async function copyRecommendationLink(item: CandidateRecommendation) {
+    try {
+      await navigator.clipboard.writeText(recommendationURL(item.publicID));
+      notify("推荐链接已经复制，可以直接发给面试官。", "success");
+    } catch {
+      notify("链接没复制成功，你可以打开后手动复制。", "error");
+    }
+  }
+
+  /** revokeRecommendationLink 二次确认后永久撤销一份公开推荐链接。 */
+  async function revokeRecommendationLink(item: CandidateRecommendation) {
+    if (!window.confirm(`我小声确认一下，撤销“${item.report.position.name || "这份岗位"}”的推荐链接后，旧链接会立即失效。继续吗？`)) return;
+    try {
+      await cloudRequest(`/api/auto-reply/recommendations/${encodeURIComponent(item.publicID)}/revoke`, { method: "POST" });
+      setAutoReply((current) => ({ ...current, recommendations: current.recommendations.map((recommendation) => recommendation.publicID === item.publicID ? { ...recommendation, shareEnabled: false, status: "revoked" } : recommendation) }));
+      notify("公开链接已经撤销，旧地址现在打不开了。", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "推荐链接没撤销成功", "error");
     }
   }
 
@@ -104,24 +132,25 @@ export default function ResumeDetailPage() {
         <SidePanel candidate={candidate} loadingSection={autoReplyLoading} onOpenSection={(section) => void openAutoReplySection(section)} />
       </Box>
     </SectionPanel>
-    <AutoReplyDialog section={autoReplySection} detail={autoReply} loading={autoReplyLoading === autoReplySection} onClose={() => setAutoReplySection(null)} onDownload={downloadAttachment} />
+    <AutoReplyDialog section={autoReplySection} detail={autoReply} loading={autoReplyLoading === autoReplySection} onClose={() => setAutoReplySection(null)} onDownload={downloadAttachment} onCopyRecommendation={(item) => void copyRecommendationLink(item)} onRevokeRecommendation={(item) => void revokeRecommendationLink(item)} />
   </>;
 }
 
 /** emptyAutoReplyDetail 返回互不复用数组的空关联资料。 */
 function emptyAutoReplyDetail(): CandidateAutoReplyDetail {
-  return { attachments: [], conversations: [], confirmationItems: [], aiRecords: [] };
+  return { attachments: [], conversations: [], confirmationItems: [], aiRecords: [], recommendations: [] };
 }
 
 /** AutoReplyDialog 按用户点击的类型展示已懒加载的候选人关联资料。 */
-function AutoReplyDialog({ section, detail, loading, onClose, onDownload }: { section: AutoReplySection | null; detail: CandidateAutoReplyDetail; loading: boolean; onClose: () => void; onDownload: (path: string, name: string) => void }) {
-  const title = ({ attachments: "简历附件", conversations: "沟通记录", confirmations: "思维记录", ai_records: "AI 处理记录" } as Record<AutoReplySection, string>)[section || "attachments"];
+function AutoReplyDialog({ section, detail, loading, onClose, onDownload, onCopyRecommendation, onRevokeRecommendation }: { section: AutoReplySection | null; detail: CandidateAutoReplyDetail; loading: boolean; onClose: () => void; onDownload: (path: string, name: string) => void; onCopyRecommendation: (item: CandidateRecommendation) => void; onRevokeRecommendation: (item: CandidateRecommendation) => void }) {
+  const title = ({ attachments: "简历附件", conversations: "沟通记录", confirmations: "条件确认", ai_records: "AI 处理记录", recommendations: "推荐报告" } as Record<AutoReplySection, string>)[section || "attachments"];
   return <AdminDialog open={Boolean(section)} title={title} maxWidth="lg" cancelText="关闭" onClose={onClose}>
     {loading ? <Stack direction="row" spacing={1.25} sx={{ py: 8, alignItems: "center", justifyContent: "center" }}><CircularProgress size={22} /><Typography color="text.secondary">正在读取，我尽量不让你久等。</Typography></Stack> : null}
     {!loading && section === "attachments" ? <AttachmentRecords detail={detail} onDownload={onDownload} /> : null}
     {!loading && section === "conversations" ? <Stack spacing={1.25}>{detail.conversations.length ? detail.conversations.map((conversation) => <ConversationRecord key={conversation.id} conversation={conversation} />) : <Typography color="text.secondary">暂时没有同步到沟通记录。</Typography>}</Stack> : null}
     {!loading && section === "confirmations" ? <ConfirmationRecords detail={detail} /> : null}
     {!loading && section === "ai_records" ? <Stack spacing={1}>{detail.aiRecords.length ? detail.aiRecords.map((record) => <AIRecord key={record.id} record={record} />) : <Typography color="text.secondary">暂时没有 AI 处理记录。</Typography>}</Stack> : null}
+    {!loading && section === "recommendations" ? <RecommendationRecords items={detail.recommendations} onCopy={onCopyRecommendation} onRevoke={onRevokeRecommendation} /> : null}
   </AdminDialog>;
 }
 
@@ -138,9 +167,25 @@ function AttachmentRecords({ detail, onDownload }: { detail: CandidateAutoReplyD
 function ConfirmationRecords({ detail }: { detail: CandidateAutoReplyDetail }) {
   return <Stack spacing={1}>{detail.confirmationItems.length ? detail.confirmationItems.map((item) => <Box key={item.id} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: "8px" }}>
     <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}><Chip size="small" label={confirmationTypeText(item.itemType)} /><Chip size="small" color={confirmationColor(item.status)} label={confirmationStatusText(item.status)} /><Typography sx={{ fontWeight: 760 }}>{item.content}</Typography></Stack>
-    {item.summary || item.evidenceText ? <Typography sx={{ mt: 0.8, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>{item.summary || item.evidenceText}</Typography> : null}
-    {item.summary && item.evidenceText ? <Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}>依据：{item.evidenceText}</Typography> : null}
+    {item.statusReason || item.summary || item.evidenceText ? <Typography sx={{ mt: 0.8, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>{item.statusReason || item.summary || item.evidenceText}</Typography> : null}
+    {item.evidenceText && item.evidenceText !== item.statusReason ? <Typography sx={{ mt: 0.4, color: "text.secondary", fontSize: 12 }}>依据：{item.evidenceText}</Typography> : null}
   </Box>) : <Typography color="text.secondary">目前没有需要确认的条件。</Typography>}</Stack>;
+}
+
+/** RecommendationRecords 展示候选人已经生成的推荐版本和公开链接状态。 */
+function RecommendationRecords({ items, onCopy, onRevoke }: { items: CandidateRecommendation[]; onCopy: (item: CandidateRecommendation) => void; onRevoke: (item: CandidateRecommendation) => void }) {
+  if (!items.length) return <Typography color="text.secondary">条件还没全部确认，暂时没有生成推荐报告。</Typography>;
+  return <Stack spacing={1.25}>{items.map((item) => <Box key={item.publicID} sx={{ p: 1.75, border: "1px solid", borderColor: "divider", borderRadius: "8px" }}>
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
+      <Box sx={{ minWidth: 0, flex: 1 }}><Stack direction="row" spacing={0.8} sx={{ mb: 0.5, alignItems: "center", flexWrap: "wrap" }}><Typography sx={{ fontWeight: 800 }}>{item.report.position.name || "未命名岗位"}</Typography><Chip size="small" color={item.shareEnabled ? "success" : "default"} label={item.shareEnabled ? "链接有效" : "已撤销"} /><Chip size="small" label={`第 ${item.version || 1} 版`} /></Stack><Typography sx={{ color: "text.secondary", fontSize: 13 }}>{Math.round(item.matchScore)}分 · {item.recommendationLevel || "待确认"} · {formatDate(item.generatedAt)}</Typography></Box>
+      {item.shareEnabled ? <Stack direction="row" spacing={0.6} sx={{ flexWrap: "wrap" }}>
+        <Button size="small" component="a" href={recommendationURL(item.publicID)} target="_blank" rel="noreferrer" startIcon={<OpenInNewRoundedIcon />}>查看</Button>
+        <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => onCopy(item)}>复制链接</Button>
+        <Button size="small" color="error" startIcon={<LinkOffRoundedIcon />} onClick={() => onRevoke(item)}>撤销</Button>
+      </Stack> : null}
+    </Stack>
+    <Typography sx={{ mt: 1, lineHeight: 1.7 }}>{item.report.executiveSummary || item.summary || "暂时没有推荐摘要"}</Typography>
+  </Box>)}</Stack>;
 }
 
 /** ConversationRecord 展示一段平台会话及全部已同步消息。 */
@@ -222,9 +267,10 @@ function CandidateHeader({ candidate }: { candidate: NormalizedCandidate }) {
 function SidePanel({ candidate, loadingSection, onOpenSection }: { candidate: NormalizedCandidate; loadingSection: AutoReplySection | null; onOpenSection: (section: AutoReplySection) => void }) {
   const overview = [...candidate.workExperiences, ...candidate.projectExperiences, ...candidate.educations].map(experienceLine).filter(Boolean).slice(0, 8);
   const sectionButtons: { section: AutoReplySection; label: string; icon: ReactNode }[] = [
+    { section: "recommendations", label: "推荐报告", icon: <RecommendRoundedIcon /> },
     { section: "attachments", label: "简历附件", icon: <AttachFileRoundedIcon /> },
     { section: "conversations", label: "沟通记录", icon: <ForumRoundedIcon /> },
-    { section: "confirmations", label: "思维记录", icon: <FactCheckRoundedIcon /> },
+    { section: "confirmations", label: "条件确认", icon: <FactCheckRoundedIcon /> },
     { section: "ai_records", label: "AI 记录", icon: <PsychologyRoundedIcon /> },
   ];
   return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "action.hover" }}>
@@ -253,6 +299,12 @@ function AIBlock({ title, score, reason }: { title: string; score: unknown; reas
     <Stack direction="row" sx={{ justifyContent: "space-between", gap: 1 }}><Typography sx={{ fontWeight: 760 }}>{title}</Typography><Typography sx={{ color: "primary.main", fontWeight: 820 }}>{scoreText(score)}</Typography></Stack>
     <Typography sx={{ mt: 0.7, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>{reason || "暂时没有返回原因"}</Typography>
   </Box>;
+}
+
+/** recommendationURL 返回当前前端域名下的一份公开推荐地址。 */
+function recommendationURL(publicID: string) {
+  const path = `/recommendations/${encodeURIComponent(publicID)}`;
+  return typeof window === "undefined" ? path : `${window.location.origin}${path}`;
 }
 
 /** ResumeSection 输出一个有内容的简历区块。 */

@@ -206,21 +206,29 @@ type AutoReplyResumeStructureResult struct {
 
 // CandidateConfirmationItem 表示候选人与岗位之间的一条结构化确认项。
 type CandidateConfirmationItem struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	CandidateID    string    `json:"candidate_id"`
-	PositionID     string    `json:"position_id"`
-	ItemType       string    `json:"item_type"`
-	Content        string    `json:"content"`
-	DedupeKey      string    `json:"dedupe_key"`
-	Status         string    `json:"status"`
-	SourceType     string    `json:"source_type"`
-	SourceRef      string    `json:"source_ref"`
-	EvidenceText   string    `json:"evidence_text"`
-	Summary        string    `json:"summary"`
-	CreatedByKind  string    `json:"created_by_kind"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                  string     `json:"id"`
+	ReviewID            string     `json:"review_id"`
+	ConversationID      string     `json:"conversation_id"`
+	CandidateID         string     `json:"candidate_id"`
+	PositionID          string     `json:"position_id"`
+	PositionConditionID string     `json:"position_condition_id"`
+	ItemType            string     `json:"item_type"`
+	Content             string     `json:"content"`
+	DedupeKey           string     `json:"dedupe_key"`
+	Status              string     `json:"status"`
+	StatusReason        string     `json:"status_reason"`
+	SourceType          string     `json:"source_type"`
+	SourceRef           string     `json:"source_ref"`
+	EvidenceText        string     `json:"evidence_text"`
+	Summary             string     `json:"summary"`
+	CreatedByKind       string     `json:"created_by_kind"`
+	AskCount            int        `json:"ask_count"`
+	LastAskedAt         *time.Time `json:"last_asked_at"`
+	LastAnsweredAt      *time.Time `json:"last_answered_at"`
+	LastReviewedAt      *time.Time `json:"last_reviewed_at"`
+	ArchivedAt          *time.Time `json:"archived_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // AutoReplyAIRun 表示一次自动回复 AI 总记录。

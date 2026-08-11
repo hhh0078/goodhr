@@ -143,6 +143,11 @@ func (s *PostgresAutoReplyStore) LinkConversationResumeAttachments(ctx context.C
 
 // UpsertConfirmationItem 新增或修改候选人确认项，并在状态或证据变化时保存事件。
 func (s *PostgresAutoReplyStore) UpsertConfirmationItem(ctx context.Context, item CandidateConfirmationItem) (CandidateConfirmationItem, error) {
+	item.StatusReason = firstNonEmpty(item.StatusReason, firstNonEmpty(item.Summary, item.EvidenceText))
+	if item.StatusReason == "" {
+		item.StatusReason = "暂时没有足够信息，继续等待候选人确认"
+	}
+	item.Summary = firstNonEmpty(item.Summary, item.StatusReason)
 	if err := validateConfirmationItem(item); err != nil {
 		return CandidateConfirmationItem{}, err
 	}
@@ -153,51 +158,79 @@ func (s *PostgresAutoReplyStore) UpsertConfirmationItem(ctx context.Context, ite
 			return CandidateConfirmationItem{}, err
 		}
 	}
+	if item.CandidateID != "" && item.PositionID != "" {
+		review, err := s.EnsureCandidatePositionReview(ctx, item.TenantID, item.CandidateID, item.PositionID)
+		if err != nil {
+			return CandidateConfirmationItem{}, err
+		}
+		item.ReviewID = review.ID
+	}
 	item.DedupeKey = normalizeAutoReplyDedupeKey(item.Content)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return CandidateConfirmationItem{}, err
 	}
 	defer tx.Rollback()
-	var oldStatus, oldEvidence, oldSourceRef string
+	var oldStatus, oldReason, oldEvidence, oldSourceRef string
 	var existingID string
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, status, evidence_text, source_ref
+	lookupQuery := `
+		SELECT id, status, status_reason, evidence_text, source_ref
 		FROM candidate_confirmation_items
-		WHERE conversation_id=$1 AND dedupe_key=$2
-		FOR UPDATE
-	`, item.ConversationID, item.DedupeKey).Scan(&existingID, &oldStatus, &oldEvidence, &oldSourceRef)
+		WHERE conversation_id=$1 AND dedupe_key=$2 AND archived_at IS NULL
+		FOR UPDATE`
+	lookupArgs := []any{item.ConversationID, item.DedupeKey}
+	if item.ReviewID != "" {
+		lookupQuery = `
+			SELECT id, status, status_reason, evidence_text, source_ref
+			FROM candidate_confirmation_items
+			WHERE review_id=$1 AND dedupe_key=$2 AND archived_at IS NULL
+			FOR UPDATE`
+		lookupArgs[0] = item.ReviewID
+	}
+	err = tx.QueryRowContext(ctx, lookupQuery, lookupArgs...).Scan(&existingID, &oldStatus, &oldReason, &oldEvidence, &oldSourceRef)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return CandidateConfirmationItem{}, err
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		err = tx.QueryRowContext(ctx, `
 			INSERT INTO candidate_confirmation_items (
-				tenant_id, conversation_id, candidate_id, position_id, item_type, content,
-				dedupe_key, status, source_type, source_ref, evidence_text, summary, created_by_kind
-			) VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+				tenant_id, review_id, conversation_id, candidate_id, position_id, position_condition_id,
+				item_type, content, dedupe_key, status, status_reason, source_type, source_ref,
+				evidence_text, summary, created_by_kind, ask_count, last_asked_at,
+				last_answered_at, last_reviewed_at
+			) VALUES ($1,NULLIF($2,'')::uuid,$3,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,
+				NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,COALESCE($20,now()))
 			RETURNING id
-		`, item.TenantID, item.ConversationID, item.CandidateID, item.PositionID,
-			item.ItemType, strings.TrimSpace(item.Content), item.DedupeKey, item.Status,
-			item.SourceType, strings.TrimSpace(item.SourceRef), strings.TrimSpace(item.EvidenceText),
-			strings.TrimSpace(item.Summary), item.CreatedByKind).Scan(&existingID)
+		`, item.TenantID, item.ReviewID, item.ConversationID, item.CandidateID, item.PositionID,
+			item.PositionConditionID, item.ItemType, strings.TrimSpace(item.Content), item.DedupeKey,
+			item.Status, item.StatusReason, item.SourceType, strings.TrimSpace(item.SourceRef),
+			strings.TrimSpace(item.EvidenceText), strings.TrimSpace(item.Summary), item.CreatedByKind,
+			item.AskCount, item.LastAskedAt, item.LastAnsweredAt, item.LastReviewedAt).Scan(&existingID)
 		oldStatus = ""
 	} else {
 		_, err = tx.ExecContext(ctx, `
 			UPDATE candidate_confirmation_items
-			SET candidate_id=COALESCE(NULLIF($3,'')::uuid,candidate_id),
-				position_id=COALESCE(NULLIF($4,'')::uuid,position_id), item_type=$5,
-				content=$6, status=$7, source_type=$8, source_ref=$9,
-				evidence_text=$10, summary=$11, updated_at=now()
+			SET review_id=COALESCE(NULLIF($3,'')::uuid,review_id),
+				candidate_id=COALESCE(NULLIF($4,'')::uuid,candidate_id),
+				position_id=COALESCE(NULLIF($5,'')::uuid,position_id),
+				position_condition_id=COALESCE(NULLIF($6,'')::uuid,position_condition_id),
+				item_type=$7, content=$8, status=$9, status_reason=$10, source_type=$11,
+				source_ref=$12, evidence_text=$13, summary=$14,
+				ask_count=GREATEST(ask_count,$15),
+				last_asked_at=COALESCE($16,last_asked_at),
+				last_answered_at=COALESCE($17,last_answered_at),
+				last_reviewed_at=COALESCE($18,now()), updated_at=now()
 			WHERE tenant_id=$1 AND id=$2
-		`, item.TenantID, existingID, item.CandidateID, item.PositionID, item.ItemType,
-			strings.TrimSpace(item.Content), item.Status, item.SourceType,
-			strings.TrimSpace(item.SourceRef), strings.TrimSpace(item.EvidenceText), strings.TrimSpace(item.Summary))
+		`, item.TenantID, existingID, item.ReviewID, item.CandidateID, item.PositionID,
+			item.PositionConditionID, item.ItemType, strings.TrimSpace(item.Content), item.Status,
+			item.StatusReason, item.SourceType, strings.TrimSpace(item.SourceRef),
+			strings.TrimSpace(item.EvidenceText), strings.TrimSpace(item.Summary), item.AskCount,
+			item.LastAskedAt, item.LastAnsweredAt, item.LastReviewedAt)
 	}
 	if err != nil {
 		return CandidateConfirmationItem{}, err
 	}
-	changed := oldStatus != item.Status || oldEvidence != strings.TrimSpace(item.EvidenceText) || oldSourceRef != strings.TrimSpace(item.SourceRef)
+	changed := oldStatus != item.Status || oldReason != item.StatusReason || oldEvidence != strings.TrimSpace(item.EvidenceText) || oldSourceRef != strings.TrimSpace(item.SourceRef)
 	if changed {
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO candidate_confirmation_events (
@@ -211,15 +244,20 @@ func (s *PostgresAutoReplyStore) UpsertConfirmationItem(ctx context.Context, ite
 		}
 	}
 	if err = tx.QueryRowContext(ctx, `
-		SELECT id, tenant_id, conversation_id, COALESCE(candidate_id::text,''),
-			COALESCE(position_id::text,''), item_type, content, dedupe_key, status,
-			source_type, source_ref, evidence_text, summary, created_by_kind, created_at, updated_at
+		SELECT id, tenant_id, COALESCE(review_id::text,''), conversation_id,
+			COALESCE(candidate_id::text,''), COALESCE(position_id::text,''),
+			COALESCE(position_condition_id::text,''), item_type, content, dedupe_key, status,
+			status_reason, source_type, source_ref, evidence_text, summary, created_by_kind,
+			ask_count, last_asked_at, last_answered_at, last_reviewed_at, archived_at,
+			created_at, updated_at
 		FROM candidate_confirmation_items WHERE id=$1
 	`, existingID).Scan(
-		&item.ID, &item.TenantID, &item.ConversationID, &item.CandidateID,
-		&item.PositionID, &item.ItemType, &item.Content, &item.DedupeKey, &item.Status,
-		&item.SourceType, &item.SourceRef, &item.EvidenceText, &item.Summary,
-		&item.CreatedByKind, &item.CreatedAt, &item.UpdatedAt,
+		&item.ID, &item.TenantID, &item.ReviewID, &item.ConversationID, &item.CandidateID,
+		&item.PositionID, &item.PositionConditionID, &item.ItemType, &item.Content,
+		&item.DedupeKey, &item.Status, &item.StatusReason, &item.SourceType,
+		&item.SourceRef, &item.EvidenceText, &item.Summary, &item.CreatedByKind,
+		&item.AskCount, &item.LastAskedAt, &item.LastAnsweredAt, &item.LastReviewedAt,
+		&item.ArchivedAt, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
 		return CandidateConfirmationItem{}, err
 	}
@@ -232,13 +270,26 @@ func (s *PostgresAutoReplyStore) UpsertConfirmationItem(ctx context.Context, ite
 // ListConfirmationItems 返回会话全部确认项和当前状态。
 func (s *PostgresAutoReplyStore) ListConfirmationItems(ctx context.Context, tenantID, conversationID string) ([]CandidateConfirmationItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant_id, conversation_id, COALESCE(candidate_id::text,''),
-			COALESCE(position_id::text,''), item_type, content, dedupe_key, status,
-			source_type, source_ref, evidence_text, summary, created_by_kind, created_at, updated_at
-		FROM candidate_confirmation_items
-		WHERE tenant_id=$1 AND conversation_id=$2
+		WITH target AS (
+			SELECT candidate_id, position_id
+			FROM candidate_conversations WHERE tenant_id=$1 AND id=$2
+		)
+		SELECT item.id, item.tenant_id, COALESCE(item.review_id::text,''), item.conversation_id,
+			COALESCE(item.candidate_id::text,''), COALESCE(item.position_id::text,''),
+			COALESCE(item.position_condition_id::text,''), item.item_type, item.content,
+			item.dedupe_key, item.status, item.status_reason, item.source_type, item.source_ref,
+			item.evidence_text, item.summary, item.created_by_kind, item.ask_count,
+			item.last_asked_at, item.last_answered_at, item.last_reviewed_at, item.archived_at,
+			item.created_at, item.updated_at
+		FROM candidate_confirmation_items item, target
+		WHERE item.tenant_id=$1 AND item.archived_at IS NULL AND (
+			item.conversation_id=$2 OR (
+				target.candidate_id IS NOT NULL AND target.position_id IS NOT NULL
+				AND item.candidate_id=target.candidate_id AND item.position_id=target.position_id
+			)
+		)
 		ORDER BY CASE item_type WHEN 'required' THEN 0 WHEN 'confirm' THEN 1 ELSE 2 END,
-			created_at, id
+			item.created_at, item.id
 	`, tenantID, conversationID)
 	if err != nil {
 		return nil, err
@@ -247,10 +298,12 @@ func (s *PostgresAutoReplyStore) ListConfirmationItems(ctx context.Context, tena
 	items := make([]CandidateConfirmationItem, 0)
 	for rows.Next() {
 		var item CandidateConfirmationItem
-		if err = rows.Scan(&item.ID, &item.TenantID, &item.ConversationID, &item.CandidateID,
-			&item.PositionID, &item.ItemType, &item.Content, &item.DedupeKey, &item.Status,
-			&item.SourceType, &item.SourceRef, &item.EvidenceText, &item.Summary,
-			&item.CreatedByKind, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.TenantID, &item.ReviewID, &item.ConversationID,
+			&item.CandidateID, &item.PositionID, &item.PositionConditionID, &item.ItemType,
+			&item.Content, &item.DedupeKey, &item.Status, &item.StatusReason, &item.SourceType,
+			&item.SourceRef, &item.EvidenceText, &item.Summary, &item.CreatedByKind,
+			&item.AskCount, &item.LastAskedAt, &item.LastAnsweredAt, &item.LastReviewedAt,
+			&item.ArchivedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

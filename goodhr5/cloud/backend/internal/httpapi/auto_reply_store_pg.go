@@ -193,6 +193,31 @@ func (s *PostgresAutoReplyStore) SavePositionAutoReplyConfig(ctx context.Context
 			return PositionAutoReplyConfig{}, err
 		}
 	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE candidate_confirmation_items confirmation
+		SET position_condition_id=condition.id, item_type=condition.condition_type,
+			archived_at=NULL, updated_at=now()
+		FROM position_reply_conditions condition
+		WHERE confirmation.position_id=$1
+			AND confirmation.source_type='position'
+			AND condition.position_id=$1
+			AND condition.dedupe_key=confirmation.dedupe_key
+	`, item.PositionID); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE candidate_confirmation_items confirmation
+		SET archived_at=now(), updated_at=now()
+		WHERE confirmation.position_id=$1
+			AND confirmation.source_type='position'
+			AND confirmation.archived_at IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM position_reply_conditions condition
+				WHERE condition.position_id=$1 AND condition.dedupe_key=confirmation.dedupe_key
+			)
+	`, item.PositionID); err != nil {
+		return PositionAutoReplyConfig{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return PositionAutoReplyConfig{}, err
 	}

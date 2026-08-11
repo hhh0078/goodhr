@@ -51,19 +51,14 @@ func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 		"你就是当前岗位的招聘方 HR",
 		"对话中不存在另一个需要你转达的“招聘方”",
 		"based_on_message 是本轮唯一待回复消息",
-		"历史聊天只用于理解上下文和保持语气，不得主动补答历史消息",
-		"只是在问候、致谢、表达求职兴趣或愿意沟通",
-		"禁止主动介绍岗位信息、简历信息或匹配结论",
-		"confirmation_items 是内部确认项",
-		"不得主动告知学历不符",
-		"没有可靠答案时禁止猜测、禁止承诺",
-		"每次只能二选一",
-		"候选人不会收到消息",
-		"不存在“帮候选人询问或转达给招聘方”这种第三种动作",
-		"候选人问公司福利，但上下文没有任何福利信息，只调用 notify_hr",
+		"复核 confirmation_items 中的全部现有条件",
+		"条件状态只能是 pending、matched、unmatched",
+		"资料和聊天没有提到时必须是 pending",
+		"bonus 只是低权重加分项",
+		"回答完成后，用独立的第二条 confirmation 消息询问一个",
+		"如果最新问题没有可靠答案，只调用 notify_hr",
 		"禁止提及 GoodHR、AI、系统、工具、岗位资料或另一个“招聘方”",
-		"通常1到3句",
-		"优先控制在120字以内，最多200字",
+		"单条优先120字以内、最多200字",
 	}
 	for _, rule := range requiredRules {
 		if !strings.Contains(autoReplySystemPrompt, rule) {
@@ -78,9 +73,9 @@ func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
 	for _, definition := range autoReplyToolDefinitions() {
 		descriptions[definition.Function.Name] = definition.Function.Description
 	}
-	if !strings.Contains(descriptions[toolSendMessage], "当前招聘方 HR 身份直接回复") ||
-		!strings.Contains(descriptions[toolSendMessage], "应改用 notify_hr") {
-		t.Fatalf("send_message 工具说明不完整：%s", descriptions[toolSendMessage])
+	if !strings.Contains(descriptions[toolSendMessages], "最多两条") ||
+		!strings.Contains(descriptions[toolSendMessages], "改用 notify_hr") {
+		t.Fatalf("send_messages 工具说明不完整：%s", descriptions[toolSendMessages])
 	}
 	if !strings.Contains(descriptions[toolNotifyHR], "内部通知") ||
 		!strings.Contains(descriptions[toolNotifyHR], "候选人不会收到任何占位回复") {
@@ -90,74 +85,113 @@ func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
 
 // TestPrepareMessageRejectsRepliesOverTwoHundredRunes 验证自动回复发送工具拒绝超过二百字的长消息。
 func TestPrepareMessageRejectsRepliesOverTwoHundredRunes(t *testing.T) {
-	state := &toolExecutionState{}
-	arguments, err := json.Marshal(sendMessageToolArgs{Message: strings.Repeat("招", maxAutoReplyMessageRunes+1)})
+	state := &toolExecutionState{reviewedAllConfirmations: true}
+	arguments, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "answer", Content: strings.Repeat("招", maxAutoReplyMessageRunes+1)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = state.prepareMessage(ai.ToolCall{
+	_, err = state.prepareMessages(ai.ToolCall{
 		Type: "function",
 		Function: ai.ToolCallFunction{
-			Name:      toolSendMessage,
+			Name:      toolSendMessages,
 			Arguments: string(arguments),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "不能超过200字") {
+	if err == nil || !strings.Contains(err.Error(), "超过200字") {
 		t.Fatalf("prepareMessage() error = %v", err)
+	}
+}
+
+// TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation 验证 AI 可以先回答最新问题，再单独询问一条未确认条件。
+func TestPrepareMessagesAllowsAnswerThenOnePendingConfirmation(t *testing.T) {
+	state := &toolExecutionState{
+		reviewedAllConfirmations: true,
+		confirmations: []cloud.CandidateConfirmationItem{{
+			ID: "confirmation-1", ItemType: "required", Content: "是否能接受出差", Status: "pending",
+		}},
+	}
+	arguments, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{
+		{Type: "answer", Content: "工作地点在成都哈～"},
+		{Type: "confirmation", Content: "另外想确认下，你能接受偶尔出差吗？", ConfirmationItemID: "confirmation-1"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = state.prepareMessages(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
+		Name: toolSendMessages, Arguments: string(arguments),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.pendingMessages) != 2 || state.pendingMessages[1].ConfirmationItemID != "confirmation-1" {
+		t.Fatalf("两条消息没有正确保留：%+v", state.pendingMessages)
+	}
+}
+
+// TestConfirmationReviewCoverageRejectsMissingExistingItem 验证 AI 漏掉任一现有条件时会收到可修正错误。
+func TestConfirmationReviewCoverageRejectsMissingExistingItem(t *testing.T) {
+	state := &toolExecutionState{confirmations: []cloud.CandidateConfirmationItem{
+		{ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "pending"},
+		{ID: "confirmation-2", ItemType: "confirm", Content: "是否接受出差", Status: "pending"},
+	}}
+	err := state.validateConfirmationReviewCoverage([]confirmationToolItem{{
+		ID: "confirmation-1", ItemType: "required", Content: "必须统招本科", Status: "matched", StatusReason: "简历显示本科",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "是否接受出差") {
+		t.Fatalf("漏掉条件时没有返回明确信息：%v", err)
 	}
 }
 
 // TestPrepareMessageKeepsSimpleInterestReplyShort 验证纯求职兴趣不会被 AI 扩展成岗位介绍或匹配判断。
 func TestPrepareMessageKeepsSimpleInterestReplyShort(t *testing.T) {
-	state := &toolExecutionState{input: ReplyContext{
+	state := &toolExecutionState{reviewedAllConfirmations: true, input: ReplyContext{
 		Messages: []cloud.AutoReplyMessage{{
 			Fingerprint: "message-interest", Direction: "candidate",
 			TextContent: "我目前正在看机会，对这个职位很感兴趣，希望可以详聊~",
 		}},
 		BasedOnMessageKey: "message-interest",
 	}}
-	arguments, err := json.Marshal(sendMessageToolArgs{Message: "岗位在成都，而且你的经历和岗位不匹配，想确认下你的意向。"})
+	arguments, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "answer", Content: "岗位在成都，而且你的经历和岗位不匹配，想确认下你的意向。"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = state.prepareMessage(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
-		Name: toolSendMessage, Arguments: string(arguments),
+	if _, err = state.prepareMessages(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
+		Name: toolSendMessages, Arguments: string(arguments),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if state.pendingReply != "可以的，你想了解岗位哪方面呢？" {
-		t.Fatalf("纯兴趣消息没有被简短承接：%q", state.pendingReply)
+	if len(state.pendingMessages) != 1 || state.pendingMessages[0].Content != "可以的，你想了解岗位哪方面呢？" {
+		t.Fatalf("纯兴趣消息没有被简短承接：%+v", state.pendingMessages)
 	}
 }
 
 // TestPrepareMessageDoesNotOverrideCandidateQuestion 验证候选人提出具体问题时仍保留 AI 的针对性回答。
 func TestPrepareMessageDoesNotOverrideCandidateQuestion(t *testing.T) {
-	state := &toolExecutionState{input: ReplyContext{
+	state := &toolExecutionState{reviewedAllConfirmations: true, input: ReplyContext{
 		Messages: []cloud.AutoReplyMessage{{
 			Fingerprint: "message-question", Direction: "candidate",
 			TextContent: "我对岗位感兴趣，薪资多少",
 		}},
 		BasedOnMessageKey: "message-question",
 	}}
-	arguments, err := json.Marshal(sendMessageToolArgs{Message: "薪资是5k到8k。"})
+	arguments, err := json.Marshal(sendMessagesToolArgs{Messages: []ReplyMessage{{Type: "answer", Content: "薪资是5k到8k。"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = state.prepareMessage(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
-		Name: toolSendMessage, Arguments: string(arguments),
+	if _, err = state.prepareMessages(ai.ToolCall{Type: "function", Function: ai.ToolCallFunction{
+		Name: toolSendMessages, Arguments: string(arguments),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if state.pendingReply != "薪资是5k到8k。" {
-		t.Fatalf("具体问题的回答不该被覆盖：%q", state.pendingReply)
+	if len(state.pendingMessages) != 1 || state.pendingMessages[0].Content != "薪资是5k到8k。" {
+		t.Fatalf("具体问题的回答不该被覆盖：%+v", state.pendingMessages)
 	}
 }
 
 // TestAIResponderRepairsArgumentsAndKeepsPromptBoundary 验证参数修正后只生成一条回复，且固定规则不混入动态岗位数据。
 func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{
-		toolCallResponse("call-bad", toolSendMessage, `{"message":""}`, 10),
-		toolCallResponse("call-good", toolSendMessage, `{"message":"您好，薪资范围以岗位面谈为准。"}`, 11),
+		toolCallResponse("call-bad", toolSendMessages, `{"messages":[{"type":"answer","content":""}]}`, 10),
+		toolCallResponse("call-good", toolSendMessages, `{"messages":[{"type":"answer","content":"您好，薪资范围以岗位面谈为准。"}]}`, 11),
 	}}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()
@@ -168,7 +202,7 @@ func TestAIResponderRepairsArgumentsAndKeepsPromptBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reply() error = %v", err)
 	}
-	if decision.Reply != "您好，薪资范围以岗位面谈为准。" || decision.ManualReason != "" {
+	if len(decision.Messages) != 1 || decision.Messages[0].Content != "您好，薪资范围以岗位面谈为准。" || decision.ManualReason != "" {
 		t.Fatalf("decision = %+v", decision)
 	}
 	state.mu.Lock()
@@ -218,9 +252,9 @@ func TestInitialToolMessagesRejectsMissingBasedOnMessage(t *testing.T) {
 // TestAIResponderStopsAfterTwoArgumentRepairs 验证第三次错误参数不会继续调用 AI，而是安全转人工。
 func TestAIResponderStopsAfterTwoArgumentRepairs(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{
-		toolCallResponse("call-1", toolSendMessage, `{"message":""}`, 1),
-		toolCallResponse("call-2", toolSendMessage, `{"message":""}`, 1),
-		toolCallResponse("call-3", toolSendMessage, `{"message":""}`, 1),
+		toolCallResponse("call-1", toolSendMessages, `{"messages":[{"type":"answer","content":""}]}`, 1),
+		toolCallResponse("call-2", toolSendMessages, `{"messages":[{"type":"answer","content":""}]}`, 1),
+		toolCallResponse("call-3", toolSendMessages, `{"messages":[{"type":"answer","content":""}]}`, 1),
 	}}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()
@@ -267,7 +301,7 @@ func TestAIResponderStopsBeforeNinthTool(t *testing.T) {
 func TestAIResponderRepairsPlainTextAction(t *testing.T) {
 	state := &responderTestState{aiResponses: []string{
 		`{"choices":[{"message":{"role":"assistant","content":"直接回复您好"}}]}`,
-		toolCallResponse("call-good", toolSendMessage, `{"message":"您好，请问有什么想了解的？"}`, 2),
+		toolCallResponse("call-good", toolSendMessages, `{"messages":[{"type":"answer","content":"您好，请问有什么想了解的？"}]}`, 2),
 	}}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()
@@ -278,7 +312,7 @@ func TestAIResponderRepairsPlainTextAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reply() error = %v", err)
 	}
-	if decision.Reply != "您好，请问有什么想了解的？" {
+	if len(decision.Messages) != 1 || decision.Messages[0].Content != "您好，请问有什么想了解的？" {
 		t.Fatalf("decision = %+v", decision)
 	}
 	state.mu.Lock()
@@ -293,7 +327,7 @@ func TestAIResponderRepairsPlainTextAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	lastMessage := repairRequest.Messages[len(repairRequest.Messages)-1]
-	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "错误信息") || !strings.Contains(lastMessage.Content, "send_message") {
+	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "错误信息") || !strings.Contains(lastMessage.Content, "send_messages") {
 		t.Fatalf("repair message = %+v", lastMessage)
 	}
 }

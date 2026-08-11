@@ -1,0 +1,552 @@
+/* 本文件负责公开候选人推荐报告的 A4、移动端、弹框和打印样式。 */
+
+.pageShell {
+  min-height: 100vh;
+  padding: 24px 16px 56px;
+  color: #223129;
+  background: #f2f0e9;
+}
+
+.toolbar {
+  position: sticky;
+  z-index: 20;
+  top: 12px;
+  display: flex;
+  width: min(210mm, calc(100vw - 32px));
+  margin: 0 auto 18px;
+  padding: 12px 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #d8ded9;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 30px rgba(37, 55, 45, 0.08);
+}
+
+.toolbar > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.toolbar strong {
+  font-size: 14px;
+}
+
+.toolbar span {
+  min-height: 16px;
+  color: #647168;
+  font-size: 12px;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.toolbar button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cbd5cf;
+  border-radius: 8px;
+  color: #2c4e3d;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  background: #eef5f0;
+}
+
+.toolbar .primaryButton {
+  border-color: #235f45;
+  color: #fff;
+  background: #235f45;
+}
+
+.toolbar .primaryButton:hover {
+  background: #194b35;
+}
+
+.paper {
+  width: min(210mm, calc(100vw - 32px));
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 18mm 17mm;
+  border: 1px solid #e0e3df;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(37, 55, 45, 0.1);
+}
+
+.hero {
+  display: flex;
+  padding-bottom: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 3px solid #235f45;
+}
+
+.identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 18px;
+}
+
+.identity img,
+.avatarFallback {
+  width: 76px;
+  height: 76px;
+  flex: 0 0 76px;
+  border: 2px solid #dfe8e2;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatarFallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #376b52;
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: #557164;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.identity h1 {
+  margin: 0;
+  color: #183326;
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.identity div > p:last-child {
+  margin: 8px 0 0;
+  color: #65736b;
+  line-height: 1.6;
+}
+
+.scoreCard {
+  display: grid;
+  min-width: 122px;
+  padding: 12px 16px;
+  justify-items: center;
+  border: 1px solid #d9e4dd;
+  border-radius: 10px;
+  background: #f4f8f5;
+}
+
+.scoreCard strong {
+  color: #235f45;
+  font-size: 35px;
+  line-height: 1;
+}
+
+.scoreCard span {
+  margin-top: 4px;
+  color: #6b786f;
+  font-size: 11px;
+}
+
+.scoreCard em {
+  margin-top: 7px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #694d16;
+  background: #f4e8c9;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.positionBand {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 0.8fr;
+  margin-top: 18px;
+  padding: 14px 16px;
+  gap: 14px;
+  border-left: 4px solid #b68a31;
+  background: #faf7ee;
+}
+
+.positionBand div,
+.factGrid div,
+.summaryGrid div {
+  display: grid;
+  gap: 4px;
+}
+
+.positionBand span,
+.factGrid span,
+.summaryGrid span {
+  color: #788279;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.positionBand strong {
+  font-size: 14px;
+}
+
+.section {
+  margin-top: 28px;
+  break-inside: avoid;
+}
+
+.section h2 {
+  margin: 0 0 14px;
+  color: #1d4734;
+  font-size: 19px;
+}
+
+.leadSection {
+  padding: 18px;
+  border: 1px solid #dce6df;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+
+.leadSection h2 {
+  margin-bottom: 10px;
+}
+
+.summary {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 16px;
+  gap: 10px;
+}
+
+.summaryGrid div {
+  padding: 11px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.summaryGrid p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.factGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #e0e5e1;
+  border-radius: 8px;
+  background: #e0e5e1;
+}
+
+.factGrid div {
+  min-height: 62px;
+  padding: 11px 13px;
+  justify-content: center;
+  background: #fff;
+}
+
+.factGrid strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.conditionList,
+.pointList {
+  display: grid;
+  gap: 10px;
+}
+
+.conditionItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 12px 13px;
+  align-items: start;
+  gap: 11px;
+  border: 1px solid #e0e5e1;
+  border-radius: 8px;
+}
+
+.conditionItem > span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.matched {
+  color: #1e6847;
+  background: #ddf0e5;
+}
+
+.unmatched {
+  color: #9c342d;
+  background: #f8e1de;
+}
+
+.pending {
+  color: #79591e;
+  background: #f5eacb;
+}
+
+.conditionItem strong {
+  font-size: 14px;
+}
+
+.conditionItem p,
+.pointList p {
+  margin: 5px 0 0;
+  color: #65736b;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.twoColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+
+.pointList > div {
+  padding: 12px 13px;
+  border-left: 3px solid #789886;
+  background: #f7f8f7;
+}
+
+.pointList strong {
+  font-size: 14px;
+}
+
+.pointList small {
+  display: block;
+  margin-top: 6px;
+  color: #7d877f;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.emptyText {
+  margin: 0;
+  color: #7a857e;
+  font-size: 13px;
+}
+
+.resumeBlock {
+  margin-top: 22px;
+}
+
+.resumeBlock h3 {
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 3px solid #b68a31;
+  font-size: 15px;
+}
+
+.preLine {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline > div {
+  padding: 0 0 12px 15px;
+  border-left: 2px solid #dfe5e1;
+  break-inside: avoid;
+}
+
+.timeline header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.timeline header span,
+.timeline b {
+  color: #66736b;
+  font-size: 12px;
+}
+
+.timeline b {
+  display: block;
+  margin-top: 3px;
+}
+
+.timeline p {
+  margin-top: 7px;
+  color: #46564d;
+  font-size: 13px;
+}
+
+.simpleList,
+.questionList {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.simpleList li,
+.questionList li {
+  margin-bottom: 8px;
+  line-height: 1.65;
+}
+
+.simpleList strong,
+.simpleList span {
+  display: block;
+}
+
+.simpleList span {
+  color: #6f7b73;
+  font-size: 12px;
+}
+
+.reportFooter {
+  margin-top: 34px;
+  padding-top: 14px;
+  border-top: 1px solid #dfe4e0;
+  color: #7c867f;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .pageShell {
+    padding: 0 0 24px;
+    background: #fff;
+  }
+
+  .toolbar {
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 10px 12px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+  }
+
+  .toolbar > div:first-child {
+    display: none;
+  }
+
+  .toolbarActions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .toolbarActions button {
+    flex: 1;
+    padding: 0 8px;
+  }
+
+  .paper {
+    width: 100%;
+    min-height: 0;
+    padding: 24px 18px;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .hero,
+  .identity {
+    align-items: flex-start;
+  }
+
+  .hero {
+    gap: 12px;
+  }
+
+  .identity {
+    gap: 11px;
+  }
+
+  .identity img,
+  .avatarFallback {
+    width: 54px;
+    height: 54px;
+    flex-basis: 54px;
+    font-size: 22px;
+  }
+
+  .identity h1 {
+    font-size: 24px;
+  }
+
+  .scoreCard {
+    min-width: 83px;
+    padding: 9px;
+  }
+
+  .scoreCard strong {
+    font-size: 28px;
+  }
+
+  .positionBand,
+  .summaryGrid,
+  .factGrid,
+  .twoColumns {
+    grid-template-columns: 1fr;
+  }
+
+  .positionBand {
+    gap: 10px;
+  }
+
+  .twoColumns {
+    gap: 0;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  .pageShell {
+    padding: 0;
+    background: #fff;
+  }
+
+  .toolbar {
+    display: none !important;
+  }
+
+  .paper {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 15mm;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .section,
+  .resumeBlock,
+  .pointList > div,
+  .conditionItem {
+    break-inside: avoid;
+  }
+}

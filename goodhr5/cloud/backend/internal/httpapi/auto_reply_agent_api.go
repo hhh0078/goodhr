@@ -545,7 +545,12 @@ func (s *AutoReplyService) agentConfirmations(w http.ResponseWriter, r *http.Req
 		writeAutoReplyStoreError(w, err, "候选人确认项没保存成功")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "confirmation_item": saved})
+	queued, err := s.store.EnqueueRecommendationIfQualified(r.Context(), requestContext.Tenant.ID, saved.CandidateID, saved.PositionID)
+	if err != nil {
+		writeAutoReplyStoreError(w, err, "候选人条件保存好了，但推荐报告还没排进队列，请让本地程序重试")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "confirmation_item": saved, "recommendation_queued": queued})
 }
 
 // ownsPlatformAccount 判断平台账号是否属于当前登录用户，空账号仅用于平台无法提供账号标识的会话。

@@ -186,8 +186,17 @@ func validateConfirmationItem(item CandidateConfirmationItem) error {
 	if item.ItemType != "required" && item.ItemType != "confirm" && item.ItemType != "bonus" {
 		return newAutoReplyValidationError("候选人确认项类型不支持")
 	}
-	if item.Status != "pending" && item.Status != "matched" && item.Status != "unmatched" && item.Status != "not_applicable" && item.Status != "conflicted" {
+	if item.Status != "pending" && item.Status != "matched" && item.Status != "unmatched" {
 		return newAutoReplyValidationError("候选人确认项状态不支持")
+	}
+	if strings.TrimSpace(item.StatusReason) == "" {
+		return newAutoReplyValidationError("候选人确认项需要说明当前状态理由")
+	}
+	if len([]rune(item.StatusReason)) > 1000 || len([]rune(item.EvidenceText)) > 2000 {
+		return newAutoReplyValidationError("候选人确认项理由或依据过长")
+	}
+	if item.AskCount < 0 {
+		return newAutoReplyValidationError("候选人确认项询问次数不能小于0")
 	}
 	if item.SourceType != "position" && item.SourceType != "resume" && item.SourceType != "chat" && item.SourceType != "ai" {
 		return newAutoReplyValidationError("候选人确认项来源不支持")

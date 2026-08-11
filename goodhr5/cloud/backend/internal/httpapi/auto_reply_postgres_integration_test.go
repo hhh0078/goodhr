@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -153,7 +154,8 @@ func TestPostgresAutoReplyStorageFlow(t *testing.T) {
 
 	confirmation, err := autoReplyStore.UpsertConfirmationItem(ctx, CandidateConfirmationItem{
 		TenantID: tenant.ID, ConversationID: conversation.ID, CandidateID: candidate.ID,
-		PositionID: position.ID, ItemType: "confirm", Content: "需要确认到岗时间",
+		PositionID: position.ID, PositionConditionID: config.Conditions[1].ID,
+		ItemType: "confirm", Content: "需要确认到岗时间",
 		Status: "pending", SourceType: "position", SourceRef: config.Conditions[1].ID,
 		CreatedByKind: "system",
 	})
@@ -175,6 +177,77 @@ func TestPostgresAutoReplyStorageFlow(t *testing.T) {
 	}
 	if confirmation.Status != "matched" || confirmationEventCount != 2 {
 		t.Fatalf("confirmation=%#v events=%d", confirmation, confirmationEventCount)
+	}
+	requiredConfirmation, err := autoReplyStore.UpsertConfirmationItem(ctx, CandidateConfirmationItem{
+		TenantID: tenant.ID, ConversationID: conversation.ID, CandidateID: candidate.ID,
+		PositionID: position.ID, PositionConditionID: config.Conditions[0].ID,
+		ItemType: "required", Content: "必须本科及以上", Status: "pending",
+		StatusReason: "正在等待简历确认", SourceType: "position",
+		SourceRef: config.Conditions[0].ID, CreatedByKind: "system",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := autoReplyStore.EnqueueRecommendationIfQualified(ctx, tenant.ID, candidate.ID, position.ID)
+	if err != nil || queued {
+		t.Fatalf("存在未确认条件时不应生成推荐：queued=%t err=%v", queued, err)
+	}
+	requiredConfirmation.Status = "matched"
+	requiredConfirmation.StatusReason = "正式简历显示最高学历为本科"
+	requiredConfirmation.SourceType = "resume"
+	requiredConfirmation.SourceRef = attachment.ID
+	requiredConfirmation.EvidenceText = "最高学历：本科"
+	if _, err = autoReplyStore.UpsertConfirmationItem(ctx, requiredConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	queued, err = autoReplyStore.EnqueueRecommendationIfQualified(ctx, tenant.ID, candidate.ID, position.ID)
+	if err != nil || !queued {
+		t.Fatalf("全部关键条件满足后没有排入推荐任务：queued=%t err=%v", queued, err)
+	}
+	queued, err = autoReplyStore.EnqueueRecommendationIfQualified(ctx, tenant.ID, candidate.ID, position.ID)
+	if err != nil || queued {
+		t.Fatalf("相同输入不应重复创建推荐任务：queued=%t err=%v", queued, err)
+	}
+	recommendationJob, claimed, err := autoReplyStore.ClaimRecommendationJob(ctx)
+	if err != nil || !claimed || recommendationJob.AttemptCount != 1 {
+		t.Fatalf("推荐任务没有被可靠领取：job=%+v claimed=%t err=%v", recommendationJob, claimed, err)
+	}
+	recommendationSource, err := autoReplyStore.LoadRecommendationGenerationSource(ctx, recommendationJob.ReviewID)
+	if err != nil || len(recommendationSource.Conditions) != 2 || len(recommendationSource.Conversations) != 1 {
+		t.Fatalf("推荐生成快照不完整：conditions=%d conversations=%d err=%v", len(recommendationSource.Conditions), len(recommendationSource.Conversations), err)
+	}
+	recommendation, err := autoReplyStore.CompleteRecommendationJob(ctx, recommendationJob, "rec-"+strings.ReplaceAll(suffix, ".", ""), "test-model", 88, CandidateRecommendationReport{
+		Candidate: recommendationSource.Candidate, Position: recommendationSource.Position,
+		MatchScore: 82, RecommendationLevel: "建议推进", ExecutiveSummary: "关键条件已经确认，建议进入面试",
+		Conditions: recommendationSource.Conditions, SourceCutoffAt: recommendationSource.SourceCutoff,
+		GeneratedAt: time.Now().UTC(), SuggestedQuestions: []string{"可以何时到岗？"},
+	})
+	if err != nil || !recommendation.ShareEnabled || recommendation.Version != 1 {
+		t.Fatalf("推荐报告保存失败：recommendation=%+v err=%v", recommendation, err)
+	}
+	publicRecommendationItem, err := autoReplyStore.GetPublicRecommendation(ctx, recommendation.PublicID)
+	if err != nil || publicRecommendationItem.Report.Candidate.Phone == "" {
+		t.Fatalf("公开推荐没有保留完整简历：recommendation=%+v err=%v", publicRecommendationItem, err)
+	}
+	publicConversations, err := autoReplyStore.PublicRecommendationConversations(ctx, recommendation.PublicID)
+	if err != nil || len(publicConversations) != 1 || len(publicConversations[0].Messages) != 2 {
+		t.Fatalf("公开沟通记录不正确：conversations=%+v err=%v", publicConversations, err)
+	}
+	notificationRecommendation, recipient, claimed, err := autoReplyStore.ClaimRecommendationNotification(ctx)
+	if err != nil || !claimed || recipient != ownerEmail || notificationRecommendation.ID != recommendation.ID {
+		t.Fatalf("推荐邮件没有正确领取：item=%+v recipient=%q claimed=%t err=%v", notificationRecommendation, recipient, claimed, err)
+	}
+	if err = autoReplyStore.FinishRecommendationNotification(ctx, notificationRecommendation.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, claimed, err = autoReplyStore.ClaimRecommendationNotification(ctx); err != nil || claimed {
+		t.Fatalf("已经发送的推荐邮件不应重复领取：claimed=%t err=%v", claimed, err)
+	}
+	if err = autoReplyStore.RevokeRecommendationShare(ctx, tenant.ID, recommendation.PublicID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = autoReplyStore.GetPublicRecommendation(ctx, recommendation.PublicID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("撤销后公开链接仍然可读：%v", err)
 	}
 
 	aiRun, err := autoReplyStore.StartAutoReplyAIRun(ctx, AutoReplyAIRun{

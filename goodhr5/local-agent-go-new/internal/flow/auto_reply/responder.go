@@ -113,7 +113,8 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 
 	state := &toolExecutionState{
 		input: input, cloud: r.Cloud,
-		confirmations: append([]cloud.CandidateConfirmationItem(nil), input.ConfirmationItems...),
+		confirmations:            append([]cloud.CandidateConfirmationItem(nil), input.ConfirmationItems...),
+		reviewedAllConfirmations: len(input.ConfirmationItems) == 0,
 	}
 	assistantMessages := make([]ai.ToolMessage, 0, 4)
 	totalTokens := 0
@@ -141,7 +142,7 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 			messages = append(messages, ai.ToolMessage{
 				Role: "user",
 				Content: "上一次输出没有通过工具协议校验，错误信息：" + protocolErr.Error() +
-					"。请根据错误重新处理，禁止直接返回普通文本；必须调用 send_message 准备回复，或调用 notify_hr 转人工。",
+					"。请根据错误重新处理，禁止直接返回普通文本；先调用 upsert_confirmation_items 复核全部条件，再调用 send_messages 准备回复，或调用 notify_hr 转人工。",
 			})
 			continue
 		}
@@ -168,8 +169,8 @@ func (r *AIResponder) Reply(ctx context.Context, input ReplyContext) (ReplyDecis
 				Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: string(resultJSON),
 			})
 		}
-		if state.pendingReply != "" {
-			decision := ReplyDecision{Reply: state.pendingReply}
+		if len(state.pendingMessages) > 0 {
+			decision := ReplyDecision{Messages: append([]ReplyMessage(nil), state.pendingMessages...)}
 			return r.completeRun(input, run, assistantMessages, totalTokens, decision)
 		}
 		if state.manualReason != "" {
@@ -232,8 +233,12 @@ func (r *AIResponder) completeRun(input ReplyContext, run cloud.AutoReplyAIRun, 
 	if _, err = r.Cloud.FinishAutoReplyAIRun(context.Background(), input.Credentials, run); err != nil {
 		return ReplyDecision{}, fmt.Errorf("保存 AI 总记录完成状态失败：%w", err)
 	}
-	if decision.Reply != "" {
-		r.report(input, "result", "reply", "AI 准备回复："+truncateRunText(decision.Reply, 120), true)
+	if len(decision.Messages) > 0 {
+		parts := make([]string, 0, len(decision.Messages))
+		for _, item := range decision.Messages {
+			parts = append(parts, item.Content)
+		}
+		r.report(input, "result", "reply", "AI 准备回复："+truncateRunText(strings.Join(parts, " / "), 160), true)
 	} else {
 		r.report(input, "result", "manual", "转人工："+truncateRunText(decision.ManualReason, 120), true)
 	}
@@ -312,7 +317,7 @@ func toolDisplayName(name string) string {
 		toolGetContext: "查看岗位和候选人", toolGetChatHistory: "查看聊天记录",
 		toolGetResume: "查看简历", toolGetConfirmations: "查看确认项",
 		toolUpsertConfirmations: "更新确认项", toolRequestResume: "核对简历状态",
-		toolSendMessage: "准备回复", toolSuggestConfig: "提交资料建议", toolNotifyHR: "转人工",
+		toolSendMessages: "准备回复", toolSuggestConfig: "提交资料建议", toolNotifyHR: "转人工",
 	}
 	if label := labels[strings.TrimSpace(name)]; label != "" {
 		return label

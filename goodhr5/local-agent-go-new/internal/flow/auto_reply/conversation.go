@@ -104,13 +104,27 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		stats.Failed++
 		return fmt.Errorf("读取完整聊天记录失败：%w", err)
 	}
+	resume, handled, err := f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
+	if err != nil || handled {
+		return err
+	}
+	state, err = f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
+		PlatformID: prepared.Platform.ID, PlatformAccountID: pageSnapshot.PlatformAccountID,
+		PlatformCandidateID: pageSnapshot.PlatformCandidateID, PlatformThreadID: pageSnapshot.PlatformThreadID,
+		Phone: firstNonEmpty(pageSnapshot.Phone, resumePhone(resume)),
+	})
+	if err != nil {
+		stats.Failed++
+		return fmt.Errorf("刷新正式简历状态失败：%w", err)
+	}
 	confirmations, err := f.Cloud.AutoReplyConfirmationItems(ctx, credentials(prepared), cloudConversation.ID)
 	if err != nil {
 		stats.Failed++
 		return fmt.Errorf("读取候选人确认项失败：%w", err)
 	}
-	resume, handled, err := f.ensureResume(ctx, prepared, runtime, position, &cloudConversation, pageSnapshot, state, latestCandidateKey, stats)
-	if err != nil || handled {
+	confirmations, err = f.syncPositionConfirmationItems(ctx, credentials(prepared), position, cloudConversation, confirmations)
+	if err != nil {
+		stats.Failed++
 		return err
 	}
 	if f.Responder == nil {
@@ -194,17 +208,47 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 			reasonKey := firstNonEmpty(decision.ReasonKey, "ai_manual_handoff")
 			return f.notifyUnresolved(ctx, prepared, position, cloudConversation, pageSnapshot, decision.ManualReason, reasonKey, latestCandidateKey)
 		}
-		reply := strings.TrimSpace(decision.Reply)
-		if reply == "" || len([]rune(reply)) > maxAutoReplyMessageRunes {
+		if len(decision.Messages) == 0 || len(decision.Messages) > 2 {
 			stats.Failed++
-			return fmt.Errorf("AI 回复为空或超过200字")
+			return fmt.Errorf("AI 需要准备1到2条候选人消息")
 		}
-		sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, reply, false)
-		if sendErr != nil {
-			stats.Failed++
-			return sendErr
+		sentCount := 0
+		previousContent := ""
+		for index, reply := range decision.Messages {
+			if index > 0 {
+				ready, checkErr := f.latestMessageAllowsFollowup(ctx, runtime, prepared, pageSnapshot, previousContent)
+				if checkErr != nil {
+					stats.Failed++
+					return checkErr
+				}
+				if !ready {
+					f.reportChangedMessage(prepared.Request.TaskID, pageSnapshot.CandidateName)
+					break
+				}
+			}
+			content := strings.TrimSpace(reply.Content)
+			if !oneOf(reply.Type, "answer", "confirmation") || content == "" || len([]rune(content)) > maxAutoReplyMessageRunes {
+				stats.Failed++
+				return fmt.Errorf("AI 第%d条消息类型不正确、内容为空或超过200字", index+1)
+			}
+			sent, sendErr := f.sendVerifiedMessage(ctx, prepared, runtime, cloudConversation, pageSnapshot, latestCandidateKey, content, index == 0, index+1)
+			if sendErr != nil {
+				stats.Failed++
+				return sendErr
+			}
+			previousContent = content
+			if !sent {
+				continue
+			}
+			sentCount++
+			if reply.Type == "confirmation" {
+				if err = f.markConfirmationAsked(ctx, credentials(prepared), cloudConversation, reply.ConfirmationItemID, confirmations); err != nil {
+					stats.Failed++
+					return err
+				}
+			}
 		}
-		if !sent {
+		if sentCount == 0 {
 			stats.Skipped++
 			return nil
 		}
@@ -212,7 +256,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 		shared.ReportAnalysis(f.Logger, prepared.Request.TaskID, shared.AnalysisStatus{
 			Kind: "auto_reply", Phase: "result", Stage: "sent", Terminal: true,
 			CandidateName: pageSnapshot.CandidateName, Accepted: boolPointer(true),
-			Reason: "候选人消息已经回复", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Reason: fmt.Sprintf("候选人消息已经回复，共%d条", sentCount), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		})
 		return nil
 	}
@@ -378,6 +422,14 @@ func firstNonEmpty(values ...string) string {
 // boolPointer 返回供悬浮窗状态使用的布尔指针。
 func boolPointer(value bool) *bool {
 	return &value
+}
+
+// resumePhone 安全读取本轮页面简历中的手机号。
+func resumePhone(value *model.AutoReplyResumeBundle) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(value.Phone)
 }
 
 // saveLocalReplyRecord 保存不含消息正文的本地重复发送摘要。

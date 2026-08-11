@@ -73,11 +73,18 @@ type StructuredResume struct {
 	RawText          string
 }
 
-// ReplyDecision 表示 AI 工具循环最终决定发送回复或转人工。
+// ReplyMessage 表示 AI 准备的一条回答或条件确认消息。
+type ReplyMessage struct {
+	Type               string `json:"type"`
+	Content            string `json:"content"`
+	ConfirmationItemID string `json:"confirmation_item_id,omitempty"`
+}
+
+// ReplyDecision 表示 AI 工具循环最终决定发送最多两条消息或转人工。
 type ReplyDecision struct {
-	Reply        string
-	ManualReason string
-	ReasonKey    string
+	Messages     []ReplyMessage `json:"messages"`
+	ManualReason string         `json:"manual_reason,omitempty"`
+	ReasonKey    string         `json:"reason_key,omitempty"`
 }
 
 // Flow 组装自动回复主流程依赖。
