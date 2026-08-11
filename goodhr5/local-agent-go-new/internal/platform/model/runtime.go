@@ -181,6 +181,7 @@ type AutoReplyRuntime interface {
 	CollectAutoReplyResume(context.Context, Browser, Config, AutoReplyConversationSnapshot) (AutoReplyResumeBundle, error)
 	SendAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot, string) error
 	ReadLatestAutoReplyMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot) (ConversationMessage, error)
+	ReadOpenAutoReplyLatestMessage(context.Context, Browser, Config, AutoReplyConversationSnapshot) (ConversationMessage, bool, error)
 	CloseAutoReplyConversation(context.Context, Browser, Config, AutoReplyConversationSnapshot) error
 }
 

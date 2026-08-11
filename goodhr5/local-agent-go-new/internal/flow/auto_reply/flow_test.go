@@ -97,6 +97,8 @@ type autoReplyRuntimeStub struct {
 	sentText         string
 	closeCount       int
 	knownMessageKeys []string
+	openChatClosed   bool
+	openReadCount    int
 }
 
 type delayedResponderStub struct {
@@ -156,6 +158,18 @@ func (r *autoReplyRuntimeStub) ReadLatestAutoReplyMessage(context.Context, model
 		return r.latestAfter, nil
 	}
 	return r.latestBefore, nil
+}
+
+// ReadOpenAutoReplyLatestMessage 只模拟读取仍然打开的聊天框，不执行重新打开动作。
+func (r *autoReplyRuntimeStub) ReadOpenAutoReplyLatestMessage(context.Context, model.Browser, model.Config, model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
+	r.openReadCount++
+	if r.openChatClosed {
+		return model.ConversationMessage{}, false, nil
+	}
+	if r.sent {
+		return r.latestAfter, true, nil
+	}
+	return r.latestBefore, true, nil
 }
 
 // CloseAutoReplyConversation 模拟关闭自动回复候选人会话。
@@ -695,19 +709,37 @@ func TestOpenConversationHasNewMessageUsesCloudCursor(t *testing.T) {
 		conversation: model.Conversation{Key: "thread-1"},
 		snapshot:     model.AutoReplyConversationSnapshot{CandidateName: "邓云川", PlatformThreadID: "thread-1"},
 	}
-	hasNew, err := flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
-	if err != nil || !hasNew {
-		t.Fatalf("未同步的候选人消息没有识别出来：has_new=%t err=%v", hasNew, err)
+	stillOpen, hasNew, err := flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || !stillOpen || !hasNew {
+		t.Fatalf("未同步的候选人消息没有识别出来：still_open=%t has_new=%t err=%v", stillOpen, hasNew, err)
 	}
 	recentKey = "candidate-2"
-	hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
-	if err != nil || hasNew {
-		t.Fatalf("已同步候选人消息被重复识别：has_new=%t err=%v", hasNew, err)
+	stillOpen, hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || !stillOpen || hasNew {
+		t.Fatalf("已同步候选人消息被重复识别：still_open=%t has_new=%t err=%v", stillOpen, hasNew, err)
 	}
 	runtime.latestBefore = model.ConversationMessage{PlatformMessageID: "self-2", Direction: "self", TextContent: "HR 已回复"}
-	hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
-	if err != nil || hasNew {
-		t.Fatalf("HR 消息不该触发自动回复：has_new=%t err=%v", hasNew, err)
+	stillOpen, hasNew, err = flow.openConversationHasNewMessage(context.Background(), prepared, runtime, current)
+	if err != nil || !stillOpen || hasNew {
+		t.Fatalf("HR 消息不该触发自动回复：still_open=%t has_new=%t err=%v", stillOpen, hasNew, err)
+	}
+}
+
+// TestProcessCheckpointDoesNotReopenClosedConversation 验证旧聊天框已经关闭且没有新消息时只扫描未读，不重新打开旧候选人。
+func TestProcessCheckpointDoesNotReopenClosedConversation(t *testing.T) {
+	runtime := &autoReplyRuntimeStub{openChatClosed: true}
+	flow := &Flow{}
+	current := &openAutoReplyConversation{
+		conversation: model.Conversation{Key: "thread-1", Name: "邓云川"},
+		snapshot:     model.AutoReplyConversationSnapshot{CandidateName: "邓云川", PlatformThreadID: "thread-1"},
+	}
+	scannerCalls := 0
+	processed, next, err := flow.processCheckpoint(
+		context.Background(), shared.PreparedTask{}, unreadScannerStub{calls: &scannerCalls}, runtime, nil, 3,
+		&shared.Stats{}, &shared.ConsecutiveErrorPolicy{}, current,
+	)
+	if err != nil || processed != 0 || next != nil || scannerCalls != 1 || runtime.openReadCount != 1 {
+		t.Fatalf("processed=%d next=%+v scanner_calls=%d open_reads=%d err=%v", processed, next, scannerCalls, runtime.openReadCount, err)
 	}
 }
 
@@ -734,6 +766,18 @@ func TestKnownMessageKeysNormalizeOldCursorPrefix(t *testing.T) {
 	state := cloud.AutoReplyCandidateState{Conversation: &cloud.AutoReplyConversation{LastSyncedMessageKey: "id:message-1"}}
 	keys := knownMessageKeysFromState(state)
 	if len(keys) != 1 || keys[0] != "message-1" {
+		t.Fatalf("keys=%v", keys)
+	}
+}
+
+// TestKnownMessageKeysPreferLastSyncedCursor 验证同分钟消息排序不稳定时优先使用会话真正的最后同步游标。
+func TestKnownMessageKeysPreferLastSyncedCursor(t *testing.T) {
+	state := cloud.AutoReplyCandidateState{
+		RecentMessageKeys: []string{"same-minute-a", "same-minute-b"},
+		Conversation:      &cloud.AutoReplyConversation{LastSyncedMessageKey: "actual-last"},
+	}
+	keys := knownMessageKeysFromState(state)
+	if len(keys) != 1 || keys[0] != "actual-last" {
 		t.Fatalf("keys=%v", keys)
 	}
 }

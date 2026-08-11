@@ -64,9 +64,11 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 	conversations := make([]model.Conversation, 0, limit)
 	reuseOpenConversation := false
 	if openConversation != nil {
-		hasNewMessage, err := f.openConversationHasNewMessage(ctx, prepared, replyRuntime, openConversation)
+		stillOpen, hasNewMessage, err := f.openConversationHasNewMessage(ctx, prepared, replyRuntime, openConversation)
 		if err != nil {
 			f.log(prepared.Request.TaskID, "check_open_conversation", "warning", time.Now(), err)
+		} else if !stillOpen {
+			openConversation = nil
 		} else if hasNewMessage {
 			conversations = append(conversations, openConversation.conversation)
 			reuseOpenConversation = true
@@ -121,10 +123,17 @@ func (f *Flow) processCheckpoint(ctx context.Context, prepared shared.PreparedTa
 	return processed, openConversation, nil
 }
 
-// openConversationHasNewMessage 比较当前聊天框最后一条消息和云端游标，发现候选人新消息时优先继续当前会话。
-func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, current *openAutoReplyConversation) (bool, error) {
+// openConversationHasNewMessage 仅在聊天框仍然打开时比较最新消息和云端游标，不为轮询重新打开旧会话。
+func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared shared.PreparedTask, runtime model.AutoReplyRuntime, current *openAutoReplyConversation) (bool, bool, error) {
 	if current == nil || current.snapshot.CandidateName == "" {
-		return false, nil
+		return false, false, nil
+	}
+	latest, stillOpen, err := runtime.ReadOpenAutoReplyLatestMessage(ctx, f.Browser, prepared.Platform, current.snapshot)
+	if err != nil {
+		return stillOpen, false, fmt.Errorf("检查当前聊天框新消息失败：%w", err)
+	}
+	if !stillOpen {
+		return false, false, nil
 	}
 	state, err := f.Cloud.AutoReplyCandidateState(ctx, credentials(prepared), cloud.AutoReplyCandidateLookup{
 		PlatformID: prepared.Platform.ID, PlatformAccountID: firstNonEmpty(current.snapshot.PlatformAccountID, current.conversation.PlatformAccountID),
@@ -133,26 +142,22 @@ func (f *Flow) openConversationHasNewMessage(ctx context.Context, prepared share
 		Phone:               current.snapshot.Phone,
 	})
 	if err != nil {
-		return false, fmt.Errorf("读取当前候选人消息游标失败：%w", err)
-	}
-	latest, err := runtime.ReadLatestAutoReplyMessage(ctx, f.Browser, prepared.Platform, current.snapshot)
-	if err != nil {
-		return false, fmt.Errorf("检查当前聊天框新消息失败：%w", err)
+		return true, false, fmt.Errorf("读取当前候选人消息游标失败：%w", err)
 	}
 	if strings.ToLower(strings.TrimSpace(latest.Direction)) != "candidate" {
-		return false, nil
+		return true, false, nil
 	}
 	latestKeys := cleanMessageKeys([]string{firstNonEmpty(latest.PlatformMessageID, latest.Key, messageFingerprint(latest, 0))})
 	if len(latestKeys) == 0 {
-		return false, nil
+		return true, false, nil
 	}
 	latestKey := latestKeys[0]
 	for _, knownKey := range knownMessageKeysFromState(state) {
 		if latestKey == knownKey {
-			return false, nil
+			return true, false, nil
 		}
 	}
-	return latestKey != "", nil
+	return true, latestKey != "", nil
 }
 
 // checkpointSettings 返回启动岗位配置的单轮上限和轮询间隔。

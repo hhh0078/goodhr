@@ -48,15 +48,20 @@ func TestAutoReplyToolDefinitionsAreStableAndUnique(t *testing.T) {
 // TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries 验证固定提示词限制真人 HR 语气、本轮消息边界和内部确认项边界。
 func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 	requiredRules := []string{
-		"你就是当前招聘岗位的 HR",
+		"你就是当前岗位的招聘方 HR",
+		"对话中不存在另一个需要你转达的“招聘方”",
 		"based_on_message 是本轮唯一待回复消息",
 		"历史聊天只用于理解上下文和保持语气，不得主动补答历史消息",
 		"只是在问候、致谢、表达求职兴趣或愿意沟通",
 		"禁止主动介绍岗位信息、简历信息或匹配结论",
 		"confirmation_items 是内部确认项",
 		"不得主动告知学历不符",
-		"没有可靠依据时禁止猜测、禁止承诺",
-		"禁止提及 GoodHR、AI、系统、工具、岗位资料或“招聘方”",
+		"没有可靠答案时禁止猜测、禁止承诺",
+		"每次只能二选一",
+		"候选人不会收到消息",
+		"不存在“帮候选人询问或转达给招聘方”这种第三种动作",
+		"候选人问公司福利，但上下文没有任何福利信息，只调用 notify_hr",
+		"禁止提及 GoodHR、AI、系统、工具、岗位资料或另一个“招聘方”",
 		"通常1到3句",
 		"优先控制在120字以内，最多200字",
 	}
@@ -64,6 +69,22 @@ func TestAutoReplySystemPromptKeepsHumanHRReplyBoundaries(t *testing.T) {
 		if !strings.Contains(autoReplySystemPrompt, rule) {
 			t.Fatalf("自动回复固定提示词缺少规则：%s", rule)
 		}
+	}
+}
+
+// TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff 验证发送和转人工工具延续招聘方本人、无占位回复的固定边界。
+func TestAutoReplyActionToolsExplainDirectReplyOrInternalHandoff(t *testing.T) {
+	descriptions := make(map[string]string)
+	for _, definition := range autoReplyToolDefinitions() {
+		descriptions[definition.Function.Name] = definition.Function.Description
+	}
+	if !strings.Contains(descriptions[toolSendMessage], "当前招聘方 HR 身份直接回复") ||
+		!strings.Contains(descriptions[toolSendMessage], "应改用 notify_hr") {
+		t.Fatalf("send_message 工具说明不完整：%s", descriptions[toolSendMessage])
+	}
+	if !strings.Contains(descriptions[toolNotifyHR], "内部通知") ||
+		!strings.Contains(descriptions[toolNotifyHR], "候选人不会收到任何占位回复") {
+		t.Fatalf("notify_hr 工具说明不完整：%s", descriptions[toolNotifyHR])
 	}
 }
 

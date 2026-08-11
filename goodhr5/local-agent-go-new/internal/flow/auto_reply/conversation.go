@@ -218,13 +218,14 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 }
 
-// knownMessageKeysFromState 返回云端最近两条消息游标，并兼容只返回最后一条游标的旧服务端。
+// knownMessageKeysFromState 优先返回会话权威的最后同步游标，缺失时再兼容云端最近消息列表。
 func knownMessageKeysFromState(state cloud.AutoReplyCandidateState) []string {
-	keys := cleanMessageKeys(state.RecentMessageKeys)
-	if len(keys) == 0 && state.Conversation != nil {
-		keys = cleanMessageKeys([]string{state.Conversation.LastSyncedMessageKey})
+	if state.Conversation != nil {
+		if keys := cleanMessageKeys([]string{state.Conversation.LastSyncedMessageKey}); len(keys) > 0 {
+			return keys
+		}
 	}
-	return keys
+	return cleanMessageKeys(state.RecentMessageKeys)
 }
 
 // recentAutoReplyMessageKeys 返回聊天记录最后两条可用的稳定消息编号。

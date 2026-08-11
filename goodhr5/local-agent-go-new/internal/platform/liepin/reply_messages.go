@@ -149,27 +149,21 @@ func liepinResumeCard(messages []model.ConversationMessage) (bool, string) {
 	return false, ""
 }
 
-// liepinKnownMessageBoundary 按顺序匹配云端最近两条消息，并返回已知消息边界的最后序号。
+// liepinKnownMessageBoundary 从页面末尾向前匹配任意已同步消息，返回最靠后的差量边界。
 func liepinKnownMessageBoundary(messages []model.ConversationMessage, knownMessageKeys []string) int {
-	known := make([]string, 0, len(knownMessageKeys))
+	known := make(map[string]struct{}, len(knownMessageKeys))
 	for _, key := range knownMessageKeys {
 		if key = strings.TrimSpace(key); key != "" {
-			known = append(known, key)
+			known[key] = struct{}{}
 		}
 	}
-	if len(known) == 0 || len(messages) < len(known) {
+	if len(known) == 0 {
 		return -1
 	}
-	for start := len(messages) - len(known); start >= 0; start-- {
-		matched := true
-		for offset, expected := range known {
-			if expected != firstLiepinValue(messages[start+offset].PlatformMessageID, messages[start+offset].Key) {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return start + len(known) - 1
+	for index := len(messages) - 1; index >= 0; index-- {
+		key := firstLiepinValue(messages[index].PlatformMessageID, messages[index].Key)
+		if _, matched := known[key]; matched {
+			return index
 		}
 	}
 	return -1

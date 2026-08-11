@@ -92,6 +92,11 @@ func (b *liepinReplyBrowserStub) FindAll(_ context.Context, request contract.Ele
 			return []contract.FindAllItem{{Index: 0}}, nil
 		}
 		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	case "测试当前候选人":
+		if b.conversationOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
 	}
 	return b.items, nil
 }
@@ -411,6 +416,50 @@ func TestReadLiepinConversationHistoryStopsAtRecentTwoMessageBoundary(t *testing
 	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"old-1", "old-2"}, 5000)
 	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
 		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+}
+
+// TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary 验证两条已同步消息中间夹有同分钟消息时仍按最靠后的边界停止。
+func TestReadLiepinConversationHistoryStopsAtNewestKnownBoundary(t *testing.T) {
+	items := []contract.FindAllItem{
+		{Index: 0, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "已同步候选人消息",
+			"message_meta": url.QueryEscape(`{"message_id":"known-1"}`), "message_time": "10:00",
+		}},
+		{Index: 1, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "同一分钟的中间消息",
+			"message_meta": url.QueryEscape(`{"message_id":"middle-1"}`), "message_time": "10:00",
+		}},
+		{Index: 2, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-send", "message_text": "已同步回复",
+			"message_meta": url.QueryEscape(`{"message_id":"known-2"}`), "message_time": "10:00",
+		}},
+		{Index: 3, Fields: map[string]string{
+			"body_class": "im-ui-message-item-body im-ui-message-item-receive", "message_text": "真正的新消息",
+			"message_meta": url.QueryEscape(`{"message_id":"new-1"}`), "message_time": "10:01",
+		}},
+	}
+	browser := &liepinReplyBrowserStub{historyBatches: [][]contract.FindAllItem{items}}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.item": testLiepinSelector("测试聊天消息"),
+	}}
+	messages, complete, err := readLiepinConversationHistory(context.Background(), browser, cfg, []string{"known-1", "known-2"}, 5000)
+	if err != nil || complete || len(messages) != 1 || messages[0].PlatformMessageID != "new-1" || browser.historyBatch != 0 {
+		t.Fatalf("messages=%+v complete=%t scrolls=%d err=%v", messages, complete, browser.historyBatch, err)
+	}
+}
+
+// TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat 验证空闲轮询只探测聊天框，不通过联系人列表重新打开旧候选人。
+func TestReadOpenAutoReplyLatestMessageDoesNotReopenClosedChat(t *testing.T) {
+	browser := &liepinReplyBrowserStub{}
+	cfg := model.Config{ID: "liepin", Name: "猎聘企业端", Selectors: map[string]contract.SelectorSpec{
+		"message.current_name": testLiepinSelector("测试当前候选人"),
+	}}
+	message, opened, err := (&Runtime{}).ReadOpenAutoReplyLatestMessage(
+		context.Background(), browser, cfg, model.AutoReplyConversationSnapshot{CandidateName: "邓云川"},
+	)
+	if err != nil || opened || message.Key != "" || len(browser.clicks) != 0 {
+		t.Fatalf("message=%+v opened=%t clicks=%v err=%v", message, opened, browser.clicks, err)
 	}
 }
 

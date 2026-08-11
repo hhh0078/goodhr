@@ -187,6 +187,28 @@ func (r *Runtime) ReadLatestAutoReplyMessage(ctx context.Context, browser model.
 	if err := ensureLiepinAutoReplyConversation(ctx, browser, cfg, snapshot); err != nil {
 		return model.ConversationMessage{}, err
 	}
+	return readLiepinLatestAutoReplyMessage(ctx, browser, cfg)
+}
+
+// ReadOpenAutoReplyLatestMessage 只在目标聊天框仍然打开时读取最新消息，不为轮询重新打开旧会话。
+func (r *Runtime) ReadOpenAutoReplyLatestMessage(ctx context.Context, browser model.Browser, cfg model.Config, snapshot model.AutoReplyConversationSnapshot) (model.ConversationMessage, bool, error) {
+	opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "message.current_name")
+	if err != nil || !opened {
+		return model.ConversationMessage{}, false, err
+	}
+	name, found, err := common.ReadOptional(ctx, browser, cfg, "message.current_name")
+	if err != nil {
+		return model.ConversationMessage{}, false, err
+	}
+	if !found || !common.CandidateNamesMatch(snapshot.CandidateName, name) {
+		return model.ConversationMessage{}, false, nil
+	}
+	latest, err := readLiepinLatestAutoReplyMessage(ctx, browser, cfg)
+	return latest, true, err
+}
+
+// readLiepinLatestAutoReplyMessage 读取当前聊天框最后一条候选人或 HR 消息，不改变页面状态。
+func readLiepinLatestAutoReplyMessage(ctx context.Context, browser model.Browser, cfg model.Config) (model.ConversationMessage, error) {
 	items, err := common.ReadConfiguredConversationMessages(ctx, browser, cfg)
 	if err != nil {
 		return model.ConversationMessage{}, err
