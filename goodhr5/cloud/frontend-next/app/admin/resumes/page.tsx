@@ -305,10 +305,19 @@ export default function ResumesPage() {
           gridTemplateColumns: {
             xs: "1fr",
             sm: "repeat(2, minmax(0, 1fr))",
-            lg: "repeat(4, minmax(0, 1fr))",
+            md: "repeat(4, minmax(0, 1fr))",
           },
-          gap: 1.25,
+          "@media (min-width: 1350px)": {
+            gridTemplateColumns:
+              "minmax(210px, 1.55fr) minmax(135px, 1fr) minmax(96px, .7fr) minmax(100px, .72fr) minmax(110px, .8fr) minmax(160px, 1.15fr) 72px 64px",
+          },
+          gap: 1,
+          alignItems: "center",
           mb: 1.5,
+          "& .MuiOutlinedInput-root": {
+            minHeight: 40,
+            height: 40,
+          },
         }}
       >
         <TextField
@@ -319,7 +328,10 @@ export default function ResumesPage() {
             if (event.key === "Enter") void showList(1, activeFilters());
           }}
           placeholder='搜索姓名、岗位、公司或关键词'
-          sx={{ gridColumn: { sm: "span 2" } }}
+          sx={{
+            gridColumn: { sm: "span 2", md: "span 1" },
+            "@media (min-width: 1350px)": { gridColumn: "span 1" },
+          }}
           slotProps={{
             input: {
               startAdornment: (
@@ -422,13 +434,20 @@ export default function ResumesPage() {
         </TextField>
 
         <Button
+          size='small'
           variant='contained'
           disabled={loading}
           onClick={() => void showList(1, activeFilters())}
+          sx={{ whiteSpace: "nowrap" }}
         >
           查询
         </Button>
-        <Button color='secondary' onClick={resetFilters}>
+        <Button
+          size='small'
+          color='secondary'
+          onClick={resetFilters}
+          sx={{ whiteSpace: "nowrap" }}
+        >
           重置
         </Button>
       </Box>
