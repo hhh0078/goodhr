@@ -1,4 +1,4 @@
-// Package runtime 文件作用：下载、校验并安装 Node、CloakBrowser 和 OCR 运行组件。
+// Package runtime 文件作用：按顺序安装 Node、最新版 CloakBrowser 和可选 OCR 运行组件。
 package runtime
 
 import (
@@ -16,77 +16,99 @@ import (
 	"time"
 )
 
-// StartInstall 校验清单并在后台安装当前平台的运行组件。
-func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
+// StartInstall 校验 Key 并在后台安装当前平台的运行组件。
+func (m *Manager) StartInstall(manifest Manifest, licenseKey string) (Status, error) {
 	if !m.installMu.TryLock() {
 		return m.Status(), fmt.Errorf("运行组件正在更新中，请等它忙完这一轮")
 	}
-	if !manifestHasAssets(manifest) {
+	if strings.TrimSpace(licenseKey) != "" {
+		if err := m.SaveCloakBrowserLicenseKey(licenseKey); err != nil {
+			m.installMu.Unlock()
+			return m.Status(), err
+		}
+	}
+	if !m.CloakBrowserLicenseConfigured() {
 		m.installMu.Unlock()
-		return m.Status(), fmt.Errorf("运行组件下载配置为空")
+		return m.Status(), fmt.Errorf("还没填写 CloakBrowser Key，请先去个人配置里补上")
 	}
 	m.setInstallProgress(InstallProgress{
-		Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1,
+		Running: true, Stage: "queued", Message: "运行组件安装已开始", Percent: 1,
 	})
 	go func() {
 		defer m.installMu.Unlock()
 		if err := m.install(context.Background(), manifest); err != nil {
-			m.setInstallProgress(InstallProgress{
-				Running: false, Stage: "failed", Message: err.Error(),
-			})
+			progress := m.InstallProgress()
+			progress.Running = false
+			progress.Stage = "failed"
+			progress.Message = err.Error()
+			m.setInstallProgress(progress)
 			return
 		}
 		m.configureWorkerEnvironment()
 		m.setInstallProgress(InstallProgress{
-			Running: false, Stage: "installed", Message: "运行组件安装完成", Percent: 100,
+			Running: false, Component: "cloakbrowser", Stage: "installed",
+			Message: "运行组件安装完成", Percent: 100,
 		})
 	}()
 	return m.Status(), nil
 }
 
-// install 按 Node、CloakBrowser、OCR 的顺序安装当前平台资源。
+// install 按 Node、npm 依赖、Key 校验、官方 Chromium、试启动和 OCR 的顺序安装。
 func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	platform := platformKey()
-	steps := []struct {
-		component string
-		label     string
-		target    string
-		asset     Asset
-		optional  bool
-	}{
-		{component: "node_runtime", label: "Node 运行环境", target: "node", asset: manifest.NodeRuntime[platform]},
-		{component: "cloakbrowser", label: "CloakBrowser", target: "cloakbrowser", asset: manifest.CloakBrowser[platform]},
-		{component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
+	if m.CheckNode() == nil {
+		m.setInstallProgress(InstallProgress{
+			Running: true, Component: "node_runtime", Stage: "skipped",
+			Message: "Node 运行环境已经可用", Percent: 24,
+		})
+	} else {
+		asset := manifest.NodeRuntime[platform]
+		if strings.TrimSpace(asset.URL) == "" {
+			return fmt.Errorf("Node 运行环境没有当前系统 %s 的下载地址", platform)
+		}
+		if err := m.installAsset(ctx, "node_runtime", "Node 运行环境", "node", asset, 3, 24); err != nil {
+			return err
+		}
 	}
-	for index, step := range steps {
-		if step.component == "node_runtime" && m.CheckNode() == nil {
-			m.setInstallProgress(InstallProgress{
-				Running: true, Component: step.component, Stage: "skipped",
-				Message: "本机 Node.js 已可用，跳过重复下载", Percent: (index + 1) * 30,
-			})
-			continue
+	m.configureWorkerEnvironment()
+	if m.worker != nil {
+		if err := m.worker.Stop(); err != nil {
+			return fmt.Errorf("停止旧浏览器操作程序失败：%w", err)
 		}
-		if strings.TrimSpace(step.asset.URL) == "" {
-			if step.optional {
-				continue
-			}
-			return fmt.Errorf("%s没有当前系统 %s 的下载地址", step.label, platform)
-		}
-		if err := m.installAsset(ctx, step.component, step.label, step.target, step.asset); err != nil {
+	}
+	if err := m.installWorkerDependencies(ctx); err != nil {
+		return err
+	}
+	licenseKey := m.cloakBrowserLicenseKey()
+	if err := m.validateOfficialLicense(ctx, licenseKey); err != nil {
+		return err
+	}
+	info, err := m.installOfficialCloakBrowser(ctx, licenseKey)
+	if err != nil {
+		return err
+	}
+	if err = m.smokeTestCloakBrowser(ctx, licenseKey); err != nil {
+		return err
+	}
+	if err = m.saveCloakBrowserVersion(info.Binary.Version, info.Binary.Path); err != nil {
+		return err
+	}
+	if asset := manifest.OCR[platform]; strings.TrimSpace(asset.URL) != "" {
+		if err = m.installAsset(ctx, "ocr", "OCR 组件", "ocr", asset, 96, 99); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// installAsset 下载、SHA256 校验、安全解压并替换一个组件目录。
-func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
+// installAsset 下载、SHA256 校验、安全解压并替换一个 GoodHR 自有组件目录。
+func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset, progressStart int, progressEnd int) error {
 	if current, ok := m.loadVersions()[component]; ok &&
 		strings.TrimSpace(current.Version) == strings.TrimSpace(asset.Version) &&
 		m.componentInstalled(component) {
 		m.setInstallProgress(InstallProgress{
 			Running: true, Component: component, Stage: "skipped",
-			Message: label + "已经是当前版本", Percent: 95,
+			Message: label + "已经是当前版本", Percent: progressEnd,
 		})
 		return nil
 	}
@@ -103,22 +125,24 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	archivePath := filepath.Join(downloadsDir, archiveName(asset.URL, targetName))
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "download",
-		Message: "正在下载" + label, Percent: 5,
+		Message: "正在下载" + label, Percent: progressStart,
 	})
-	if err := m.downloadAsset(ctx, component, label, asset.URL, archivePath); err != nil {
+	verifyProgress := progressStart + max(1, (progressEnd-progressStart)*7/10)
+	if err := m.downloadAsset(ctx, component, label, asset.URL, archivePath, progressStart, verifyProgress); err != nil {
 		return err
 	}
 	defer os.Remove(archivePath)
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "verify",
-		Message: "正在校验" + label, Percent: 65,
+		Message: "正在校验" + label, Percent: verifyProgress,
 	})
 	if err := verifySHA256(archivePath, asset.SHA256); err != nil {
 		return fmt.Errorf("%s校验失败：%w", label, err)
 	}
+	extractProgress := progressStart + max(1, (progressEnd-progressStart)*8/10)
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "extract",
-		Message: "正在解压" + label, Percent: 75,
+		Message: "正在解压" + label, Percent: extractProgress,
 	})
 	stagingDir, err := os.MkdirTemp(m.runtimeDir, "."+targetName+"-install-*")
 	if err != nil {
@@ -138,13 +162,13 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	}
 	m.setInstallProgress(InstallProgress{
 		Running: true, Component: component, Stage: "installed",
-		Message: label + "安装完成", Percent: 95,
+		Message: label + "安装完成", Percent: progressEnd,
 	})
 	return nil
 }
 
-// downloadAsset 下载单个运行组件并保存到临时文件后原子替换。
-func (m *Manager) downloadAsset(ctx context.Context, component string, label string, sourceURL string, targetPath string) error {
+// downloadAsset 下载单个 GoodHR 自有组件并实时报告字节进度。
+func (m *Manager) downloadAsset(ctx context.Context, component string, label string, sourceURL string, targetPath string, progressStart int, progressEnd int) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
 		return fmt.Errorf("创建%s下载请求失败：%w", label, err)
@@ -166,9 +190,10 @@ func (m *Manager) downloadAsset(ctx context.Context, component string, label str
 	reader := &installProgressReader{
 		reader: response.Body, total: response.ContentLength,
 		onProgress: func(received int64, total int64) {
-			percent := 10
+			percent := progressStart
 			if total > 0 {
-				percent = min(60, 10+int(received*50/total))
+				percent += int(received * int64(progressEnd-progressStart) / total)
+				percent = min(percent, progressEnd)
 			}
 			m.setInstallProgress(InstallProgress{
 				Running: true, Component: component, Stage: "download",
@@ -193,30 +218,16 @@ func (m *Manager) downloadAsset(ctx context.Context, component string, label str
 	return nil
 }
 
-// componentInstalled 判断一个组件的关键文件是否已经存在。
+// componentInstalled 判断一个 GoodHR 自有组件的关键文件是否已经存在。
 func (m *Manager) componentInstalled(component string) bool {
 	switch component {
 	case "node_runtime":
 		return m.CheckNode() == nil
-	case "cloakbrowser":
-		return fileExists(m.CloakBrowserPath())
 	case "ocr":
 		return m.OCRInstalled()
 	default:
 		return false
 	}
-}
-
-// manifestHasAssets 判断清单是否至少配置了一个下载资源。
-func manifestHasAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.CloakBrowser, manifest.OCR} {
-		for _, asset := range group {
-			if strings.TrimSpace(asset.URL) != "" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // platformKey 返回运行组件清单使用的平台编号。
@@ -233,7 +244,7 @@ func platformKey() string {
 	}
 }
 
-// validateAssetURL 校验组件下载地址必须使用 HTTPS。
+// validateAssetURL 校验 GoodHR 自有组件下载地址必须使用 HTTPS。
 func validateAssetURL(value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {

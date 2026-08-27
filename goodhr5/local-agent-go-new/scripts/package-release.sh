@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 文件作用说明：生成包含 Go 主程序、Worker 编译产物和 Worker 生产依赖的 macOS 正式发布包。
+# 文件作用说明：生成包含 Go 主程序、Worker 编译产物和依赖锁文件的 macOS 正式发布包。
 
 set -euo pipefail
 
@@ -42,9 +42,6 @@ npm ci --registry="${npm_registry}"
 npm run build
 cp -R dist "${package_dir}/worker/dist"
 cp package.json package-lock.json "${package_dir}/worker/"
-
-cd "${package_dir}/worker"
-npm ci --omit=dev --registry="${npm_registry}"
 
 cd "${project_dir}"
 GOPROXY="${go_proxy}" go build \

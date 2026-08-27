@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import {
   buildRuntimeInstallPayload,
-  missingRequiredWinRuntimeURLs,
+  missingRuntimeNodeURL,
 } from "@/lib/admin-runtime";
 import {
   EmptyState,
@@ -43,8 +43,8 @@ type RuntimeComponentView = {
 
 const componentNames: Record<string, string> = {
   node_runtime: "Node 运行环境",
-  node_worker: "浏览器控制 Worker",
-  cloakbrowser: "CloakBrowser 浏览器",
+  cloakbrowser_wrapper: "CloakBrowser 控制组件",
+  cloakbrowser: "Stable 最新 Chromium",
   ocr: "OCR 组件",
 };
 
@@ -87,23 +87,35 @@ export default function AgentDownloadPage() {
     }
     setLoading(true);
     try {
+      const preferences = asRecord(
+        await cloudRequest("/api/config/user-preferences"),
+      );
+      const licenseKey = textValue(
+        asRecord(preferences.config).cloakbrowser_license_key,
+      );
+      if (!licenseKey) {
+        throw new Error("还没填写 CloakBrowser Key，请先去个人配置的“其他配置”里补上");
+      }
       let config: unknown = onboardingConfig;
-      let missing = missingRequiredWinRuntimeURLs(config);
-      if (missing.length) {
+      let missingNode = missingRuntimeNodeURL(config, runtime.platform);
+      if (!runtime.node_installed && missingNode) {
         const fresh = asRecord(await cloudRequest("/api/runtime/config"));
         config = fresh.config || {};
-        missing = missingRequiredWinRuntimeURLs(config);
+        missingNode = missingRuntimeNodeURL(config, runtime.platform);
       }
-      if (missing.length) {
+      if (!runtime.node_installed && missingNode) {
         throw new Error(
-          `运行组件下载地址没拿到：${missing.join("、")}。我重新拉了一次还是空，请检查系统配置。`,
+          "Node 下载地址没拿到。我重新拉了一次还是空，请检查系统配置。",
         );
       }
       await localRequest(agentBase, "/api/v1/runtime/install", {
         method: "POST",
-        body: buildRuntimeInstallPayload(config),
+        body: {
+          ...buildRuntimeInstallPayload(config),
+          license_key: licenseKey,
+        },
       });
-      notify("组件更新岗位运行已完成", "success");
+      notify("组件安装已经开始，进度弹框会认真报数", "success");
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "组件更新失败", "error");
@@ -361,9 +373,7 @@ function buildComponents(
   runtime: UnknownRecord,
   config: unknown,
 ): RuntimeComponentView[] {
-  const isWindows =
-    typeof navigator !== "undefined" &&
-    navigator.userAgent.toLowerCase().includes("windows");
+  const isWindows = textValue(runtime.platform).startsWith("win");
   const platformKey = isWindows ? "win" : "mac";
   const configured = asRecord(asRecord(config).runtime_components);
   const nestedRuntime = asRecord(runtime.runtime);
@@ -378,37 +388,81 @@ function buildComponents(
         componentConfig[isWindows ? "windows" : "macos"],
     );
     const local = asRecord(installed[key]);
-    const pathKey = `${key.replace("_runtime", "")}_path`;
-    const path =
-      textValue(runtime[pathKey]) ||
-      textValue(nestedRuntime[pathKey]) ||
-      (key === "node_worker"
-        ? textValue(runtime.worker_entry) ||
-          textValue(nestedRuntime.worker_entry)
-        : "");
+    const path = componentPath(key, runtime, nestedRuntime);
+    const installedVersion =
+      key === "cloakbrowser"
+        ? textValue(runtime.cloakbrowser_version) ||
+          textValue(nestedRuntime.cloakbrowser_version) ||
+          textValue(local.version)
+        : textValue(local.version);
     return {
       key,
       name: componentNames[key],
       required: key !== "ocr",
-      bundled: key === "node_worker",
-      installed: Boolean(
-        textValue(local.version) ||
-          path ||
-          runtime[`${key}_installed`] ||
-          nestedRuntime[`${key}_installed`],
-      ),
-      configVersion: textValue(asset.version),
-      installedVersion: textValue(local.version),
-      url: textValue(asset.url),
-      note:
-        key === "node_worker"
-          ? "随本地程序安装包内置，不需要单独安装。"
-          : textValue(asset.note) ||
-            textValue(asset.description) ||
-            "",
+      bundled: false,
+      installed: componentInstalled(key, runtime, nestedRuntime),
+      configVersion:
+        key === "cloakbrowser_wrapper"
+          ? "0.5.9"
+          : key === "cloakbrowser"
+            ? "Stable 最新版"
+            : textValue(asset.version),
+      installedVersion,
+      url:
+        key === "cloakbrowser_wrapper"
+          ? "国内 npm 镜像"
+          : key === "cloakbrowser"
+            ? "CloakBrowser 官方"
+            : textValue(asset.url),
+      note: componentNote(key, asset),
       path,
     };
   });
+}
+
+/** componentInstalled 只相信本地程序的真实检查结果，不用旧版本记录猜测安装状态。 */
+function componentInstalled(
+  key: string,
+  runtime: UnknownRecord,
+  nestedRuntime: UnknownRecord,
+) {
+  const field =
+    key === "node_runtime"
+      ? "node_installed"
+      : key === "cloakbrowser_wrapper"
+        ? "cloakbrowser_wrapper_installed"
+        : key === "cloakbrowser"
+          ? "cloakbrowser_installed"
+          : "ocr_installed";
+  return Boolean(runtime[field] || nestedRuntime[field]);
+}
+
+/** componentPath 返回各运行组件对应的本机路径。 */
+function componentPath(
+  key: string,
+  runtime: UnknownRecord,
+  nestedRuntime: UnknownRecord,
+) {
+  const field =
+    key === "node_runtime"
+      ? "node_path"
+      : key === "cloakbrowser_wrapper"
+        ? "worker_dependency"
+        : key === "cloakbrowser"
+          ? "cloakbrowser_path"
+          : "ocr_path";
+  return textValue(runtime[field]) || textValue(nestedRuntime[field]);
+}
+
+/** componentNote 返回新版安装方式对应的组件说明。 */
+function componentNote(key: string, asset: UnknownRecord) {
+  if (key === "cloakbrowser_wrapper") {
+    return "用户点击安装组件后，按锁文件通过国内 npm 镜像安装。";
+  }
+  if (key === "cloakbrowser") {
+    return "使用用户自己的 Key 从官方安装，日常启动不会后台下载更新。";
+  }
+  return textValue(asset.note) || textValue(asset.description) || "";
 }
 
 /** asRecord 把未知接口数据安全转换为可读取对象。 */

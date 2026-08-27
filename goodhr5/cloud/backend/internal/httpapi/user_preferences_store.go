@@ -10,6 +10,7 @@ import (
 
 type UserPreferences struct {
 	AIModel                string
+	CloakBrowserLicenseKey string
 	ClickFrequency         int
 	DetailOpenProbability  int
 	ScrollDelayMin         int
@@ -115,7 +116,8 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT up.ai_model, up.click_frequency, up.detail_open_probability,
+		SELECT up.ai_model, up.cloakbrowser_license_key,
+		       up.click_frequency, up.detail_open_probability,
 		       up.scroll_delay_min, up.scroll_delay_max,
 		       up.list_view_delay_min, up.list_view_delay_max,
 		       up.detail_view_delay_min, up.detail_view_delay_max,
@@ -134,6 +136,7 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		userEmail,
 	).Scan(
 		&prefs.AIModel,
+		&prefs.CloakBrowserLicenseKey,
 		&prefs.ClickFrequency,
 		&prefs.DetailOpenProbability,
 		&prefs.ScrollDelayMin,
@@ -181,7 +184,8 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		ctx,
 		`
 		INSERT INTO user_preferences (
-			user_id, ai_model, click_frequency, scroll_delay_min, scroll_delay_max,
+			user_id, ai_model, cloakbrowser_license_key,
+			click_frequency, scroll_delay_min, scroll_delay_max,
 			detail_open_probability,
 			list_view_delay_min, list_view_delay_max,
 			detail_view_delay_min, detail_view_delay_max,
@@ -193,10 +197,11 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_times_min, rest_times_max,
 			rest_duration_min, rest_duration_max
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		ON CONFLICT (user_id)
 		DO UPDATE SET
 			ai_model = EXCLUDED.ai_model,
+			cloakbrowser_license_key = EXCLUDED.cloakbrowser_license_key,
 			click_frequency = EXCLUDED.click_frequency,
 			scroll_delay_min = EXCLUDED.scroll_delay_min,
 			scroll_delay_max = EXCLUDED.scroll_delay_max,
@@ -220,7 +225,8 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_duration_min = EXCLUDED.rest_duration_min,
 			rest_duration_max = EXCLUDED.rest_duration_max,
 			updated_at = now()
-		RETURNING ai_model, click_frequency, detail_open_probability,
+		RETURNING ai_model, cloakbrowser_license_key,
+		          click_frequency, detail_open_probability,
 		          scroll_delay_min, scroll_delay_max,
 		          list_view_delay_min, list_view_delay_max,
 		          detail_view_delay_min, detail_view_delay_max,
@@ -235,6 +241,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		`,
 		userID,
 		prefs.AIModel,
+		prefs.CloakBrowserLicenseKey,
 		prefs.ClickFrequency,
 		prefs.ScrollDelayMin,
 		prefs.ScrollDelayMax,
@@ -259,6 +266,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		prefs.RestDurationMax,
 	).Scan(
 		&saved.AIModel,
+		&saved.CloakBrowserLicenseKey,
 		&saved.ClickFrequency,
 		&saved.DetailOpenProbability,
 		&saved.ScrollDelayMin,

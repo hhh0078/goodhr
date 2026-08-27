@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/config"
+	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	cloudintegration "goodhr5/local-agent-go-new/internal/integration/cloud"
+	runtimecomponents "goodhr5/local-agent-go-new/internal/runtime"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
@@ -170,6 +172,38 @@ func TestBrowserStartIsNotPublicRoute(t *testing.T) {
 	)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("POST /api/v1/browser/start status = %d", response.Code)
+	}
+}
+
+// TestRuntimeConfigureResponseDoesNotExposeLicenseKey 验证本机同步 Key 后只返回配置状态。
+func TestRuntimeConfigureResponseDoesNotExposeLicenseKey(t *testing.T) {
+	dataDir := t.TempDir()
+	runtimeManager := runtimecomponents.New(
+		"node",
+		filepath.Join(dataDir, "worker", "dist", "main.js"),
+		filepath.Join(dataDir, "runtime"),
+		"",
+		nil,
+	)
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129, DataDir: dataDir}, Dependencies{
+		Runner:  lifecycle.New(nil, nil, nil, nil, nil, nil, nil, nil, nil),
+		Runtime: runtimeManager,
+	})
+	licenseKey := "cb_test_local_api_secret_123456"
+	response := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(
+		response,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/v1/runtime/configure",
+			strings.NewReader(`{"license_key":"`+licenseKey+`"}`),
+		),
+	)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"configured":true`) {
+		t.Fatalf("configure status=%d body=%s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), licenseKey) {
+		t.Fatal("本机 Key 同步接口返回了明文 Key")
 	}
 }
 

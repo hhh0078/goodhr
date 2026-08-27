@@ -1,4 +1,4 @@
-# 文件作用说明：在 Windows x64 上构建 Go 主程序、严格 TypeScript Worker、ZIP 发布包和 Inno Setup 安装器。
+# 文件作用说明：在 Windows x64 上构建 Go 主程序、Worker 编译产物、ZIP 发布包和 Inno Setup 安装器。
 param(
   [string]$Version = "6"
 )
@@ -88,18 +88,6 @@ finally {
   Pop-Location
 }
 
-Write-Step "安装 Worker 生产依赖"
-Push-Location (Join-Path $PackageDir "worker")
-try {
-  & $Npm ci --omit=dev --registry=$NpmRegistry
-  if ($LASTEXITCODE -ne 0) {
-    throw "Worker 生产依赖安装失败，退出码：$LASTEXITCODE"
-  }
-}
-finally {
-  Pop-Location
-}
-
 Write-Step "编译 Windows x64 Go 主程序"
 Push-Location $ProjectDir
 try {
@@ -137,4 +125,3 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Step "Windows 发布包已生成：$ArchivePath"
-

@@ -55,7 +55,7 @@ StartTask
 - `GET /api/v1/tasks/{task_id}`：读取任务状态。
 - `GET /api/v1/runtime/status`：查看 Node 和 Worker 状态。
 - `POST /api/v1/runtime/ensure`：启动 Worker。
-- `POST /api/v1/runtime/install`：按云端清单异步安装 Node 22+、CloakBrowser 和可选 OCR，支持 SHA256、安全解压和失败回滚。
+- `POST /api/v1/runtime/install`：先按云端清单安装 Node 22+，再通过国内 npm 镜像安装锁定的 CloakBrowser 包装器，并用用户自己的 Key 从官方安装 Stable 最新 Chromium；可选 OCR 继续使用 SHA256、安全解压和失败回滚。
 - `GET /api/v1/diagnostics`：检查目录、端口、运行组件和 Profile 锁。
 - `GET|POST /api/v1/app-update/*`：读取程序更新进度并启动安装包更新。
 - `POST /api/v1/page/open`：唯一浏览器打开入口，统一启动或复用 Profile、打开页面，并支持 `new_tab=true` 新增标签页和旧版 `new_page=true` 兼容字段。
@@ -100,7 +100,7 @@ Go、Worker、AI 分析和自动回复工具调用摘要统一写入全局任务
 ./bin/goodhr-local-agent
 ```
 
-`prepare-runtime.sh` 会通过当前锁定的 `cloakbrowser 0.5.2` 下载它自己的增强 Chromium。Go 不会改为普通 Chrome，也不会绕过 CloakBrowser。CloakBrowser 官方的 `146.0.7680.177.5` 当前只提供 Linux x64 和 Windows x64，macOS 官方最新可用增强内核仍是 `145.0.7632.109.2`，不得跨平台混装。
+`prepare-runtime.sh` 会先通过国内 npm 镜像安装当前锁定的 `cloakbrowser 0.5.9`，再使用开发者自己的 `CLOAKBROWSER_LICENSE_KEY` 从官方安装 Stable 最新 Chromium。Go 不会改为普通 Chrome，也不会从 GoodHR OSS 分发官方二进制。
 
 开发环境可以执行：
 
@@ -128,9 +128,9 @@ Windows x64 正式包在 Windows 上生成，不能和 macOS 包混用：
 scripts\package-windows.bat 6
 ```
 
-Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成 ZIP 和 Inno Setup 安装器。Windows 运行时会使用 `node.exe`、`chrome.exe`、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 `node`、Chromium.app、`afplay`、Finder 和 `caffeinate`。
+Windows 脚本会独立编译 `windows/amd64` GUI 主程序，并生成 ZIP 和 Inno Setup 安装器。Windows 运行时会使用 `node.exe`、`chrome.exe`、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 `node`、Chromium.app、`afplay`、Finder 和 `caffeinate`。
 
-两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
+两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物、`package.json` 和锁文件，输出到已忽略提交的 `release/` 目录。Worker 生产依赖只在用户点击安装运行组件时通过国内 npm 镜像安装；官方 Chromium 只在该阶段使用用户 Key 下载，日常启动关闭自动更新。GoodHR 自有运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
 
 ## 核心原则
 

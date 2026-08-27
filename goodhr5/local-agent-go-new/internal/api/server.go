@@ -85,6 +85,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("/api/v1/local/auto-reply/{action}", server.handleLocalAutoReply)
 	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
+	mux.HandleFunc("POST /api/v1/runtime/configure", server.handleRuntimeConfigure)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
 	mux.HandleFunc("POST /api/v1/runtime/install", server.handleRuntimeInstall)
 	mux.HandleFunc("POST /api/v1/extensions/open-directory", server.handleExtensionsDirectoryOpen)
@@ -235,9 +236,8 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 		cloakStatus, cloakErr = s.browser.RuntimeStatus(r.Context())
 	}
 	status.WorkerReady = workerErr == nil
-	if cloakErr == nil && cloakStatus.Installed {
+	if cloakErr == nil && cloakStatus.Installed && status.CloakBrowserInstalled {
 		status.CloakBrowserReady = true
-		status.CloakBrowserInstalled = true
 		status.CloakBrowserVersion = cloakStatus.CloakBrowserVersion
 		if strings.TrimSpace(cloakStatus.BinaryPath) != "" {
 			status.CloakBrowserPath = cloakStatus.BinaryPath
@@ -257,7 +257,7 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
 		return
 	}
-	status, err := s.runtime.StartInstall(request.Manifest)
+	status, err := s.runtime.StartInstall(request.Manifest, request.LicenseKey)
 	if err != nil {
 		writeError(w, http.StatusConflict, "RUNTIME_INSTALL_FAILED", err)
 		return
@@ -266,6 +266,26 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 	status.AgentVersion = version.Value
 	status.DataDir = s.cfg.DataDir
 	writeSuccess(w, http.StatusAccepted, status)
+}
+
+// handleRuntimeConfigure 把云端个人配置中的 Key 同步到本机私密文件，响应不返回 Key。
+func (s *Server) handleRuntimeConfigure(w http.ResponseWriter, r *http.Request) {
+	if s.runner.HasActive() {
+		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在运行，Key 先别在半路更换"))
+		return
+	}
+	var request runtime.LicenseRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	if err := s.runtime.SaveCloakBrowserLicenseKey(request.LicenseKey); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_CLOAKBROWSER_KEY", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, struct {
+		Configured bool `json:"configured"`
+	}{Configured: s.runtime.CloakBrowserLicenseConfigured()})
 }
 
 // handleRuntimeEnsure 检查运行组件并启动 Worker。

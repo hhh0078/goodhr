@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,8 +82,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
 	configureProcess(command)
-	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
-	command.Env = append(command.Env, m.environment...)
+	command.Env = mergeEnvironment(os.Environ(), append(
+		[]string{"GOODHR_WORKER_PORT=" + strconv.Itoa(m.port)},
+		m.environment...,
+	))
 	lineWriter := &lineSinkWriter{sink: m.logSink}
 	command.Stdout = io.MultiWriter(os.Stdout, lineWriter)
 	command.Stderr = os.Stderr
@@ -99,6 +102,27 @@ func (m *Manager) Start(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// mergeEnvironment 合并子进程环境，并确保后写入的同名变量真正覆盖旧值。
+func mergeEnvironment(base []string, overrides []string) []string {
+	keys := make(map[string]struct{}, len(overrides))
+	for _, value := range overrides {
+		if key, _, ok := strings.Cut(value, "="); ok {
+			keys[strings.ToUpper(key)] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(base)+len(overrides))
+	for _, value := range base {
+		key, _, ok := strings.Cut(value, "=")
+		if !ok {
+			continue
+		}
+		if _, replaced := keys[strings.ToUpper(key)]; !replaced {
+			result = append(result, value)
+		}
+	}
+	return append(result, overrides...)
 }
 
 // Stop 优雅停止 Worker 子进程。

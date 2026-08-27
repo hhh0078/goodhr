@@ -97,6 +97,7 @@ type PositionAIOptions struct {
 // UserPreferences 表示云端个人配置中的拟人等待和休息参数。
 type UserPreferences struct {
 	AIModel                string  `json:"ai_model"`
+	CloakBrowserLicenseKey string  `json:"cloakbrowser_license_key"`
 	ClickFrequency         int     `json:"click_frequency"`
 	DetailOpenProbability  int     `json:"detail_open_probability"`
 	ScrollDelayMin         int     `json:"scroll_delay_min"`

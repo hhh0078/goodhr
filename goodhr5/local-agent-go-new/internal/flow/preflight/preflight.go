@@ -29,6 +29,7 @@ type Runtime interface {
 	CheckNode() error
 	CheckWorkerBuild() error
 	EnsureWorker(context.Context) error
+	SaveCloakBrowserLicenseKey(string) error
 }
 
 // Browser 定义启动前检查使用的 Worker 状态能力。
@@ -239,8 +240,17 @@ func (c *Checker) loadPosition(ctx context.Context, prepared *shared.PreparedTas
 // loadPreferences 读取并冻结当前用户的拟人等待和休息配置。
 func (c *Checker) loadPreferences(ctx context.Context, prepared *shared.PreparedTask) error {
 	preferences, err := c.Cloud.Preferences(ctx, prepared.Request.Token)
+	if err != nil {
+		return err
+	}
 	prepared.Preferences = preferences
-	return err
+	if err = c.Runtime.SaveCloakBrowserLicenseKey(preferences.CloakBrowserLicenseKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(preferences.CloakBrowserLicenseKey) == "" {
+		return fmt.Errorf("还没填写 CloakBrowser Key，请先去个人配置的“其他配置”里补上")
+	}
+	return nil
 }
 
 // loadPlatform 读取随程序发布的本地平台配置，并检查本地适配是否存在。
@@ -309,7 +319,7 @@ func (c *Checker) checkCloakBrowser(ctx context.Context, _ *shared.PreparedTask)
 		return err
 	}
 	if !status.Installed {
-		return fmt.Errorf("CloakBrowser 增强浏览器还没安装，请先执行 cloakbrowser install")
+		return fmt.Errorf("最新版 CloakBrowser 还没安装，请先完成运行组件安装")
 	}
 	return nil
 }

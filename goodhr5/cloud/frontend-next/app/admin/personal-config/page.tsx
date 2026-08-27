@@ -1,9 +1,10 @@
-/** 本文件负责新版后台个人 AI 接口、操作节奏和模拟休息配置。 */
+/** 本文件负责新版后台个人 AI、CloakBrowser Key、操作节奏和模拟休息配置。 */
 "use client";
 
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
@@ -23,7 +24,7 @@ import {
 } from "@mui/material";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { cloudRequest } from "@/lib/admin-api";
+import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
@@ -33,6 +34,7 @@ const defaults = {
     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
   model: "qwen3.7-plus",
   api_key: "",
+  cloakbrowser_license_key: "",
   click_frequency: 80,
   detail_open_probability: 80,
   detail_open_delay_min: 1,
@@ -60,7 +62,7 @@ function normalizeAIBaseURL(baseURL: string) {
 
 /** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
-  const { notify } = useAdmin();
+  const { notify, agentBase } = useAdmin();
   const [form, setForm] = useState({ ...defaults });
   const [keySet, setKeySet] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -129,34 +131,59 @@ export default function PersonalConfigPage() {
     }
   }
 
-  /** save 保存 AI 配置和操作偏好。 */
+  /** save 按当前分类保存 AI、CloakBrowser Key 和操作偏好。 */
   async function save() {
     const baseURL = normalizeAIBaseURL(form.base_url);
-    if (!baseURL || !form.model.trim())
+    const cloakBrowserKey = form.cloakbrowser_license_key.trim();
+    if (cloakBrowserKey && !isCloakBrowserKey(cloakBrowserKey))
+      return notify("CloakBrowser Key 看起来不完整，请重新复制", "warning");
+    if (activeTab === "custom" && (!baseURL || !form.model.trim()))
       return notify("请填写 AI 地址和模型", "warning");
-    if (!keySet && !form.api_key.trim())
+    if (activeTab === "custom" && !keySet && !form.api_key.trim())
       return notify("请填写 AI Key", "warning");
     setLoading(true);
     try {
-      setForm((current) => ({ ...current, base_url: baseURL }));
-      await cloudRequest("/api/config/user-ai", {
-        method: "PUT",
-        body: {
-          base_url: baseURL,
-          model: form.model.trim(),
-          api_key: form.api_key.trim(),
-          temperature: 0,
-          prompt_template: "",
-          enabled: true,
-        },
-      });
+      if (activeTab === "custom") {
+        setForm((current) => ({ ...current, base_url: baseURL }));
+        await cloudRequest("/api/config/user-ai", {
+          method: "PUT",
+          body: {
+            base_url: baseURL,
+            model: form.model.trim(),
+            api_key: form.api_key.trim(),
+            temperature: 0,
+            prompt_template: "",
+            enabled: true,
+          },
+        });
+      }
       const { base_url: _baseURL, model, api_key: _key, ...preference } = form;
       await cloudRequest("/api/config/user-preferences", {
         method: "PUT",
-        body: { ...preference, ai_model: model },
+        body: {
+          ...preference,
+          cloakbrowser_license_key: cloakBrowserKey,
+          ai_model: model,
+        },
       });
-      setKeySet(true);
-      notify("个人配置已保存", "success");
+      let localSyncFailed = false;
+      if (agentBase) {
+        try {
+          await localRequest(agentBase, "/api/v1/runtime/configure", {
+            method: "POST",
+            body: { license_key: cloakBrowserKey },
+          });
+        } catch {
+          localSyncFailed = true;
+        }
+      }
+      if (activeTab === "custom") setKeySet(true);
+      notify(
+        localSyncFailed
+          ? "云端已保存，本地程序暂时没同步，下次安装时会再补上"
+          : "个人配置已保存",
+        localSyncFailed ? "warning" : "success",
+      );
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存配置失败", "error");
     } finally {
@@ -236,6 +263,7 @@ export default function PersonalConfigPage() {
           <Tab value='builtin' label='内置AI' />
           <Tab value='custom' label='自定义AI' />
           <Tab value='timing' label='随机时间' />
+          <Tab value='other' label='其他配置' />
         </Tabs>
       </SectionPanel>
 
@@ -493,8 +521,60 @@ export default function PersonalConfigPage() {
         </SectionPanel>
       </Box>
       ) : null}
+
+      {activeTab === "other" ? (
+        <SectionPanel sx={{ maxWidth: 900 }}>
+          <SectionTitle
+            icon={<KeyRoundedIcon />}
+            title='CloakBrowser Key'
+            description='用于下载并启动官方最新版 Stable Chromium。'
+          />
+          <Alert severity='info' sx={{ mt: 2, mb: 2 }}>
+            免费 Key 支持 1 个浏览器会话。先用自己的 GitHub
+            登录，Key 会发送到 GitHub 绑定邮箱；每位用户都需要填写自己的 Key。
+          </Alert>
+          <TextField
+            fullWidth
+            label='CloakBrowser License Key'
+            value={form.cloakbrowser_license_key}
+            onChange={(event) =>
+              setForm({
+                ...form,
+                cloakbrowser_license_key: event.target.value,
+              })
+            }
+            placeholder='cb_...'
+            helperText='Key 会明文保存在个人配置，并以私密文件同步到本机；请不要发给其他人。'
+            sx={{ maxWidth: 760 }}
+          />
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.25}
+            sx={{ mt: 2, alignItems: { sm: "center" } }}
+          >
+            <Button
+              component='a'
+              href='https://cloakbrowser.dev/free/'
+              target='_blank'
+              rel='noreferrer'
+              variant='outlined'
+              startIcon={<ArrowOutwardRoundedIcon />}
+            >
+              用 GitHub 获取免费 Key
+            </Button>
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+              填好后点击右上角保存，组件安装页会自动接着下载最新版浏览器。
+            </Typography>
+          </Stack>
+        </SectionPanel>
+      ) : null}
     </>
   );
+}
+
+/** isCloakBrowserKey 检查 Key 的基础格式，最终有效性由官方安装阶段确认。 */
+function isCloakBrowserKey(value: string) {
+  return /^cb_[A-Za-z0-9_-]{13,253}$/.test(value.trim());
 }
 
 /** QuickLink 展示个人配置页的外部帮助入口。 */

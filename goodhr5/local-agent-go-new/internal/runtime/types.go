@@ -3,6 +3,7 @@ package runtime
 
 // Status 表示本机 Node、Worker、CloakBrowser 和 OCR 状态。
 type Status struct {
+	Platform              string                        `json:"platform"`
 	Version               string                        `json:"version"`
 	AgentVersion          string                        `json:"agent_version"`
 	DataDir               string                        `json:"data_dir"`
@@ -18,6 +19,8 @@ type Status struct {
 	WorkerDependency      string                        `json:"worker_dependency"`
 	CloakBrowserReady     bool                          `json:"cloakbrowser_ready"`
 	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
+	CloakBrowserWrapper   bool                          `json:"cloakbrowser_wrapper_installed"`
+	CloakBrowserLicensed  bool                          `json:"cloakbrowser_license_configured"`
 	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
 	CloakBrowserVersion   string                        `json:"cloakbrowser_version"`
 	OCRInstalled          bool                          `json:"ocr_installed"`
@@ -31,6 +34,7 @@ type InstalledComponent struct {
 	Version     string `json:"version"`
 	URL         string `json:"url"`
 	SHA256      string `json:"sha256"`
+	Path        string `json:"path,omitempty"`
 	InstalledAt string `json:"installed_at"`
 }
 
@@ -48,9 +52,8 @@ type InstallProgress struct {
 
 // Manifest 表示云端下发的运行组件安装清单。
 type Manifest struct {
-	NodeRuntime  map[string]Asset `json:"node_runtime"`
-	CloakBrowser map[string]Asset `json:"cloakbrowser"`
-	OCR          map[string]Asset `json:"ocr"`
+	NodeRuntime map[string]Asset `json:"node_runtime"`
+	OCR         map[string]Asset `json:"ocr"`
 }
 
 // Asset 表示一个平台上的单个运行组件压缩包。
@@ -63,5 +66,11 @@ type Asset struct {
 
 // InstallRequest 表示运行组件安装接口参数。
 type InstallRequest struct {
-	Manifest Manifest `json:"manifest"`
+	Manifest   Manifest `json:"manifest"`
+	LicenseKey string   `json:"license_key"`
+}
+
+// LicenseRequest 表示本机私密 CloakBrowser Key 同步参数。
+type LicenseRequest struct {
+	LicenseKey string `json:"license_key"`
 }

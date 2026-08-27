@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,8 @@ type Manager struct {
 	installMu  sync.Mutex
 	progressMu sync.Mutex
 	progress   InstallProgress
+	settingsMu sync.RWMutex
+	licenseKey string
 }
 
 // New 创建运行组件管理器。
@@ -36,6 +39,7 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 		ocrPath: ocrPath, worker: worker,
 		progress: InstallProgress{Stage: "idle", Message: "等待安装"},
 	}
+	manager.loadPrivateSettings()
 	manager.configureWorkerEnvironment()
 	return manager
 }
@@ -78,8 +82,8 @@ func (m *Manager) CheckWorkerBuild() error {
 	if _, err := os.Stat(m.entryPath); err != nil {
 		return fmt.Errorf("Worker 还没编译好：%w", err)
 	}
-	if dependency := m.WorkerDependencyPath(); !fileExists(dependency) {
-		return fmt.Errorf("Worker 缺少 CloakBrowser Node 依赖：%s", dependency)
+	if !m.workerDependenciesReady() {
+		return fmt.Errorf("Worker 生产依赖还没安装完整，请先安装运行组件")
 	}
 	return nil
 }
@@ -106,6 +110,12 @@ func (m *Manager) EnsureWorker(ctx context.Context) error {
 	if err := m.CheckNode(); err != nil {
 		return err
 	}
+	if !m.CloakBrowserLicenseConfigured() {
+		return fmt.Errorf("还没填写 CloakBrowser Key，请先去个人配置里补上")
+	}
+	if !fileExists(m.CloakBrowserPath()) {
+		return fmt.Errorf("最新版 CloakBrowser 还没安装，请先完成运行组件安装")
+	}
 	if err := m.CheckWorkerBuild(); err != nil {
 		return err
 	}
@@ -122,18 +132,32 @@ func (m *Manager) Status() Status {
 	nodePath := m.NodePath()
 	cloakPath := m.CloakBrowserPath()
 	ocrPath := m.OCRPath()
+	wrapperInstalled := m.cloakBrowserWrapperReady()
+	licenseConfigured := m.CloakBrowserLicenseConfigured()
+	cloakInstalled := wrapperInstalled && licenseConfigured && fileExists(cloakPath)
+	versions := m.loadVersions()
+	cloakVersion := ""
+	if installed, ok := versions["cloakbrowser"]; ok && fileExists(installed.Path) {
+		cloakVersion = installed.Version
+	} else {
+		delete(versions, "cloakbrowser")
+	}
 	return Status{
+		Platform:              platformKey(),
 		NodeInstalled:         m.CheckNode() == nil,
 		NodePath:              nodePath,
 		NodeWorkerInstalled:   m.CheckWorkerBuild() == nil,
 		WorkerEntry:           m.entryPath,
 		WorkerDependency:      m.WorkerDependencyPath(),
-		CloakBrowserInstalled: fileExists(cloakPath),
+		CloakBrowserInstalled: cloakInstalled,
+		CloakBrowserWrapper:   wrapperInstalled,
+		CloakBrowserLicensed:  licenseConfigured,
 		CloakBrowserPath:      cloakPath,
+		CloakBrowserVersion:   cloakVersion,
 		OCRInstalled:          m.OCRInstalled(),
 		OCRPath:               ocrPath,
 		RuntimeDir:            m.runtimeDir,
-		InstalledVersions:     m.loadVersions(),
+		InstalledVersions:     versions,
 		InstallProgress:       m.InstallProgress(),
 	}
 }
@@ -156,23 +180,35 @@ func (m *Manager) OCRPath() string {
 	return m.ocrPath
 }
 
-// CloakBrowserPath 返回本地运行目录中的 CloakBrowser 增强浏览器路径。
+// CloakBrowserPath 返回 GoodHR 私有缓存中的官方 CloakBrowser 增强浏览器路径。
 func (m *Manager) CloakBrowserPath() string {
-	if value := strings.TrimSpace(os.Getenv("CLOAKBROWSER_BINARY_PATH")); value != "" {
-		return value
+	if installed, ok := m.loadVersions()["cloakbrowser"]; ok && fileExists(installed.Path) {
+		return installed.Path
 	}
 	root := filepath.Join(m.runtimeDir, "cloakbrowser")
+	patterns := []string{}
 	switch goruntime.GOOS {
 	case "darwin":
-		return firstExistingFile(
-			filepath.Join(root, "Chromium.app", "Contents", "MacOS", "Chromium"),
-			findFile(root, "Chromium"),
-		)
+		patterns = append(patterns, filepath.Join(root, "chromium-*-pro", "Chromium.app", "Contents", "MacOS", "Chromium"))
 	case "windows":
-		return firstExistingFile(findFile(root, "chrome.exe"), findFile(root, "chromium.exe"))
+		patterns = append(patterns, filepath.Join(root, "chromium-*-pro", "chrome.exe"))
 	default:
-		return firstExistingFile(findFile(root, "chrome"), findFile(root, "chromium"))
+		patterns = append(patterns, filepath.Join(root, "chromium-*-pro", "chrome"))
 	}
+	candidates := make([]string, 0)
+	for _, pattern := range patterns {
+		matches, _ := filepath.Glob(pattern)
+		for _, match := range matches {
+			if fileExists(match) {
+				candidates = append(candidates, match)
+			}
+		}
+	}
+	sort.Strings(candidates)
+	if len(candidates) > 0 {
+		return candidates[len(candidates)-1]
+	}
+	return ""
 }
 
 // OCRInstalled 检查 OCR 可执行文件和基础检测模型是否完整。
@@ -200,16 +236,22 @@ func (m *Manager) setInstallProgress(progress InstallProgress) {
 	m.progress = progress
 }
 
-// configureWorkerEnvironment 把本地运行目录中的 CloakBrowser 路径交给 Worker。
+// configureWorkerEnvironment 把 Key、官方缓存目录和稳定通道交给 Worker，并禁用启动时后台下载。
 func (m *Manager) configureWorkerEnvironment() {
 	if m.worker == nil {
 		return
 	}
 	m.worker.SetExecutable(m.NodePath())
-	cloakPath := m.CloakBrowserPath()
-	if fileExists(cloakPath) {
-		m.worker.SetEnvironment("CLOAKBROWSER_BINARY_PATH=" + cloakPath)
-	}
+	m.worker.SetEnvironment(
+		"CLOAKBROWSER_LICENSE_KEY="+m.cloakBrowserLicenseKey(),
+		"CLOAKBROWSER_CACHE_DIR="+filepath.Join(m.runtimeDir, "cloakbrowser"),
+		"CLOAKBROWSER_RELEASE_CHANNEL=stable",
+		"CLOAKBROWSER_AUTO_UPDATE=false",
+		"CLOAKBROWSER_BINARY_PATH=",
+		"CLOAKBROWSER_DOWNLOAD_URL=",
+		"CLOAKBROWSER_VERSION=",
+		"CLOAKBROWSER_SKIP_CHECKSUM=false",
+	)
 }
 
 // nodeBinaryName 返回当前平台的 Node.js 可执行文件名。
@@ -253,23 +295,27 @@ func (m *Manager) saveVersion(component string, asset Asset) error {
 	return os.WriteFile(m.statePath(), content, 0o644)
 }
 
+// saveCloakBrowserVersion 保存官方安装后确认的 Chromium 版本和真实路径。
+func (m *Manager) saveCloakBrowserVersion(version string, path string) error {
+	versions := m.loadVersions()
+	versions["cloakbrowser"] = InstalledComponent{
+		Version: strings.TrimSpace(version), Path: filepath.Clean(path),
+		InstalledAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	content, err := json.MarshalIndent(versions, "", "  ")
+	if err != nil {
+		return fmt.Errorf("编码浏览器版本记录失败：%w", err)
+	}
+	if err = os.MkdirAll(m.runtimeDir, 0o755); err != nil {
+		return fmt.Errorf("创建运行目录失败：%w", err)
+	}
+	return os.WriteFile(m.statePath(), content, 0o644)
+}
+
 // fileExists 判断路径是否为普通文件。
 func fileExists(path string) bool {
 	info, err := os.Stat(strings.TrimSpace(path))
 	return err == nil && !info.IsDir()
-}
-
-// firstExistingFile 返回第一个存在的文件路径。
-func firstExistingFile(paths ...string) string {
-	for _, path := range paths {
-		if fileExists(path) {
-			return path
-		}
-	}
-	if len(paths) > 0 {
-		return paths[0]
-	}
-	return ""
 }
 
 // findFile 在指定目录内递归查找文件名。

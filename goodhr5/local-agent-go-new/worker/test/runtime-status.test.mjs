@@ -1,30 +1,28 @@
-// 文件作用说明：验证运行状态优先展示 GoodHR 指定的 CloakBrowser 二进制路径。
+// 文件作用说明：验证 Worker 运行状态只读取 CloakBrowser 官方 Stable 缓存和本机 Key 状态。
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
 
 import { ActionService } from "../dist/browser/actions/action-service.js";
 
-/** 验证 CLOAKBROWSER_BINARY_PATH 会覆盖 SDK 自身的缓存路径显示。 */
-test("运行状态使用配置的浏览器路径", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "goodhr-cloakbrowser-"));
-  const binaryPath = path.join(directory, "Chromium");
-  const previous = process.env.CLOAKBROWSER_BINARY_PATH;
+/** 验证旧二进制覆盖变量不会改变 Worker 报告的官方缓存路径。 */
+test("运行状态忽略旧版二进制覆盖路径", () => {
+  const previousPath = process.env.CLOAKBROWSER_BINARY_PATH;
+  const previousKey = process.env.CLOAKBROWSER_LICENSE_KEY;
   try {
-    await writeFile(binaryPath, "");
-    process.env.CLOAKBROWSER_BINARY_PATH = binaryPath;
+    process.env.CLOAKBROWSER_BINARY_PATH = "/tmp/legacy-chromium";
+    process.env.CLOAKBROWSER_LICENSE_KEY = "cb_test_runtime_status_key";
     const status = new ActionService().runtimeStatus();
-    assert.equal(status.binary_path, binaryPath);
-    assert.equal(status.installed, true);
+    assert.notEqual(status.binary_path, "/tmp/legacy-chromium");
+    assert.equal(status.license_configured, true);
   } finally {
-    if (previous === undefined) {
-      delete process.env.CLOAKBROWSER_BINARY_PATH;
-    } else {
-      process.env.CLOAKBROWSER_BINARY_PATH = previous;
-    }
-    await rm(directory, { recursive: true, force: true });
+    restoreEnvironment("CLOAKBROWSER_BINARY_PATH", previousPath);
+    restoreEnvironment("CLOAKBROWSER_LICENSE_KEY", previousKey);
   }
 });
+
+/** restoreEnvironment 恢复测试前的环境变量值。 */
+function restoreEnvironment(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}

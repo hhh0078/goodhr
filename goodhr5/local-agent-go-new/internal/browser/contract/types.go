@@ -120,6 +120,7 @@ type WorkerRuntimeStatus struct {
 	Platform            string `json:"platform"`
 	BinaryPath          string `json:"binary_path"`
 	Installed           bool   `json:"installed"`
+	LicenseConfigured   bool   `json:"license_configured"`
 }
 
 // PageOpenRequest 表示打开页面请求。

@@ -1,32 +1,24 @@
 /** 本文件负责整理新版后台运行组件安装配置和状态。 */
 
 export type RequiredRuntimeComponent = {
-	key: "node_runtime" | "cloakbrowser";
+	key: "node_runtime" | "cloakbrowser_wrapper" | "cloakbrowser";
 	name: string;
 	installed: boolean;
 };
 
-const requiredWinRuntimeAssets: Record<string, string> = {
-	node_runtime: "Node 运行环境",
-	cloakbrowser: "CloakBrowser 浏览器",
-	ocr: "OCR 组件",
-};
-
-/** missingRequiredWinRuntimeURLs 返回 Windows 必需运行组件里缺少下载地址的项目。 */
-export function missingRequiredWinRuntimeURLs(config: any) {
+/** missingRuntimeNodeURL 判断当前本机平台是否缺少 Node 下载地址。 */
+export function missingRuntimeNodeURL(config: any, platform: unknown) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
-	return Object.entries(requiredWinRuntimeAssets)
-		.filter(([key]) => {
-			const item = source?.[key] || {};
-			return !String(item?.win?.url || item?.windows?.url || "").trim();
-		})
-		.map(([, name]) => name);
+	const node = source?.node_runtime || source?.nodeRuntime || source?.node || {};
+	const key = String(platform || "").startsWith("darwin") ? "mac" : "win";
+	const aliases = key === "mac" ? ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"] : ["win-x64", "windows-x64", "win", "windows"];
+	return !aliases.some((alias) => String(node?.[alias]?.url || "").trim());
 }
 
 /** buildRuntimeInstallPayload 将系统组件配置转换为本地程序安装接口参数。 */
 export function buildRuntimeInstallPayload(config: any) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
-	const aliases: Record<string, string[]> = { node_runtime: ["node_runtime", "nodeRuntime", "node"], cloakbrowser: ["cloakbrowser", "cloak_browser", "cloakBrowser", "browser"], ocr: ["ocr", "rapidocr", "rapidOCR"] };
+	const aliases: Record<string, string[]> = { node_runtime: ["node_runtime", "nodeRuntime", "node"], ocr: ["ocr", "rapidocr", "rapidOCR"] };
 	const platforms: Record<string, string[]> = { "win-x64": ["win-x64", "windows-x64", "win", "windows"], "darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"] };
 	const manifest: Record<string, any> = {};
 	for (const [component, componentAliases] of Object.entries(aliases)) {
@@ -44,7 +36,8 @@ export function buildRuntimeInstallPayload(config: any) {
 export function requiredRuntimeComponents(runtime: any): RequiredRuntimeComponent[] {
 	return [
 		{ key: "node_runtime", name: "Node 运行环境", installed: Boolean(runtime?.node_installed || runtime?.runtime?.node_installed) },
-		{ key: "cloakbrowser", name: "CloakBrowser 浏览器", installed: Boolean(runtime?.cloakbrowser_installed || runtime?.runtime?.cloakbrowser_installed) },
+		{ key: "cloakbrowser_wrapper", name: "CloakBrowser 控制组件", installed: Boolean(runtime?.cloakbrowser_wrapper_installed || runtime?.runtime?.cloakbrowser_wrapper_installed) },
+		{ key: "cloakbrowser", name: "最新版 Chromium", installed: Boolean(runtime?.cloakbrowser_installed || runtime?.runtime?.cloakbrowser_installed) },
 	];
 }
 

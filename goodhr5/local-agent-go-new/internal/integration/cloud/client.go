@@ -323,6 +323,7 @@ func DefaultUserPreferences() UserPreferences {
 
 // normalizeUserPreferences 修正云端个人配置中的越界值和反向区间。
 func normalizeUserPreferences(value UserPreferences) UserPreferences {
+	value.CloakBrowserLicenseKey = strings.TrimSpace(value.CloakBrowserLicenseKey)
 	value.DetailOpenProbability = clamp(value.DetailOpenProbability, 0, 100)
 	value.ScrollDelayMin, value.ScrollDelayMax = normalizeIntRange(value.ScrollDelayMin, value.ScrollDelayMax)
 	value.ListViewDelayMin, value.ListViewDelayMax = normalizeFloatRange(value.ListViewDelayMin, value.ListViewDelayMax)

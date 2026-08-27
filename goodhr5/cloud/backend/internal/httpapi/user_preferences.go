@@ -14,6 +14,7 @@ type UserPreferencesService struct {
 
 type userPreferencesRequest struct {
 	AIModel                string  `json:"ai_model"`
+	CloakBrowserLicenseKey string  `json:"cloakbrowser_license_key"`
 	ClickFrequency         int     `json:"click_frequency"`
 	DetailOpenProbability  int     `json:"detail_open_probability"`
 	ScrollDelayMin         int     `json:"scroll_delay_min"`
@@ -118,6 +119,7 @@ func (s *UserPreferencesService) currentSession(w http.ResponseWriter, r *http.R
 func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPreferences, bool) {
 	prefs := DefaultUserPreferences()
 	prefs.AIModel = strings.TrimSpace(r.AIModel)
+	prefs.CloakBrowserLicenseKey = strings.TrimSpace(r.CloakBrowserLicenseKey)
 	prefs.ClickFrequency = r.ClickFrequency
 	prefs.DetailOpenProbability = r.DetailOpenProbability
 	prefs.ScrollDelayMin = r.ScrollDelayMin
@@ -140,6 +142,10 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 	prefs.RestTimesMax = r.RestTimesMax
 	prefs.RestDurationMin = r.RestDurationMin
 	prefs.RestDurationMax = r.RestDurationMax
+	if prefs.CloakBrowserLicenseKey != "" && !validCloakBrowserLicenseKey(prefs.CloakBrowserLicenseKey) {
+		writeError(w, http.StatusBadRequest, "CloakBrowser Key 格式不正确，请重新复制完整 Key")
+		return UserPreferences{}, false
+	}
 	if prefs.ClickFrequency < 0 || prefs.ClickFrequency > 100 {
 		writeError(w, http.StatusBadRequest, "click_frequency must be between 0 and 100")
 		return UserPreferences{}, false
@@ -188,9 +194,25 @@ func validFloatRange(minValue float64, maxValue float64) bool {
 	return minValue >= 0 && maxValue >= minValue
 }
 
+// validCloakBrowserLicenseKey 检查 Key 前缀、长度和字符范围，避免保存截断内容。
+func validCloakBrowserLicenseKey(value string) bool {
+	if !strings.HasPrefix(value, "cb_") || len(value) < 16 || len(value) > 256 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' || char == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func publicUserPreferences(prefs UserPreferences) map[string]any {
 	return map[string]any{
 		"ai_model":                  prefs.AIModel,
+		"cloakbrowser_license_key":  prefs.CloakBrowserLicenseKey,
 		"click_frequency":           prefs.ClickFrequency,
 		"detail_open_probability":   prefs.DetailOpenProbability,
 		"scroll_delay_min":          prefs.ScrollDelayMin,

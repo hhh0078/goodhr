@@ -50,6 +50,7 @@ export interface WorkerRuntimeStatus extends JsonObject {
   platform: string;
   binary_path: string;
   installed: boolean;
+  license_configured: boolean;
 }
 
 /** PageOpenRequest 表示打开页面的参数。 */

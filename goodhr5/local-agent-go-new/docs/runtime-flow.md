@@ -253,18 +253,18 @@ StopTask
 ## 12. 运行组件安装流程
 
 ```text
-控制台提交强类型 manifest
-  -> 校验当前系统资源、HTTPS 地址和完整 SHA256
-  -> 按 Node、CloakBrowser、OCR 顺序处理
-  -> 下载到临时文件并报告进度
-  -> 校验 SHA256
-  -> 安全解压到临时目录
-  -> 原子替换目标目录，失败时恢复旧目录
-  -> 保存组件版本
-  -> 更新 Worker 的 Node 和 CloakBrowser 路径
+控制台提交强类型 manifest 和用户自己的 CloakBrowser Key
+  -> 安装或复用 Node 22+
+  -> 通过国内 npm 镜像按锁文件安装 Worker 生产依赖
+  -> 通过 CloakBrowser 官方校验 Key
+  -> 向官方确认 Stable 最新版本并显示下载进度
+  -> 使用官方签名与 SHA256 校验并解压 Chromium
+  -> 无界面试启动 Chromium，确认完整 Playwright 链路
+  -> 可选安装 OCR，并保存已确认的组件版本
+  -> 日常 Worker 启动关闭 CloakBrowser 自动更新
 ```
 
-Node 必须为 22 或更高。Worker 就绪检查同时验证编译入口和 `cloakbrowser` Node 依赖。OCR 可选，但岗位要求 OCR 时启动前检查必须通过；安装包有额外单层目录时，运行管理器和 OCR 客户端都会递归查找可执行文件。
+Node 必须为 22 或更高。正式发布包只携带 Worker 编译产物和 npm 锁文件，不携带 `node_modules` 或官方 Chromium；二者都在用户明确点击安装运行组件后准备。Key 明文保存在云端个人配置，并以 `0600` 私密文件同步到本机；状态接口只返回是否已配置。OCR 可选，但岗位要求 OCR 时启动前检查必须通过；安装包有额外单层目录时，运行管理器和 OCR 客户端都会递归查找可执行文件。
 
 ## 13. 本地程序更新流程
 
