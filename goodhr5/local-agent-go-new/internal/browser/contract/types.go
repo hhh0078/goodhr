@@ -215,12 +215,14 @@ type ElementClickRequest struct {
 
 // ClickResult 表示完整封装点击结果。
 type ClickResult struct {
-	Clicked       bool   `json:"clicked"`
-	ElementRef    string `json:"element_ref"`
-	HoldMS        int    `json:"hold_ms"`
-	Verified      bool   `json:"verified"`
-	NewPageOpened bool   `json:"new_page_opened"`
-	NewPageURL    string `json:"new_page_url"`
+	Clicked         bool   `json:"clicked"`
+	ElementRef      string `json:"element_ref"`
+	HoldMS          int    `json:"hold_ms"`
+	ClickDurationMS int    `json:"click_duration_ms"`
+	ClickMode       string `json:"click_mode"`
+	Verified        bool   `json:"verified"`
+	NewPageOpened   bool   `json:"new_page_opened"`
+	NewPageURL      string `json:"new_page_url"`
 }
 
 // ElementInputRequest 表示完整封装输入请求。

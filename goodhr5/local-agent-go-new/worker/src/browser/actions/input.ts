@@ -11,12 +11,37 @@ import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
 
-const DEFAULT_CHARACTER_DELAY_MIN_MS = 15;
-const DEFAULT_CHARACTER_DELAY_MAX_MS = 45;
-const WORD_DELAY_MIN_MS = 50;
-const WORD_DELAY_MAX_MS = 120;
-const FOCUS_HOLD_MIN_MS = 40;
-const FOCUS_HOLD_MAX_MS = 90;
+const DEFAULT_CHUNK_DELAY_MIN_MS = 15;
+const DEFAULT_CHUNK_DELAY_MAX_MS = 45;
+const CLOAK_UNSAFE_SHIFT_SYMBOLS = new Set([
+  "!",
+  "@",
+  "#",
+  "$",
+  "%",
+  "^",
+  "&",
+  "*",
+  "(",
+  ")",
+  "_",
+  "+",
+  "{",
+  "}",
+  "|",
+  ":",
+  '"',
+  "<",
+  ">",
+  "?",
+  "~",
+]);
+
+/** TypingChunk 表示可交给 CloakBrowser 的文本或必须安全插入的特殊符号。 */
+export interface TypingChunk {
+  text: string;
+  cloakbrowser: boolean;
+}
 
 /** InputResult 表示封装输入结果。 */
 export interface InputResult extends JsonObject {
@@ -64,10 +89,12 @@ export class InputAction {
         },
         actionContext,
       );
-      await this.move.toElement(found.resolved, actionContext);
-      await this.mouse.down(found.resolved.page, "left");
-      await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));
-      await this.mouse.up(found.resolved.page, "left");
+      const moved = await this.move.toElement(found.resolved, actionContext);
+      const focusClickDurationMS = await this.mouse.click(
+        found.resolved.page,
+        moved.x,
+        moved.y,
+      );
       if (request.clear ?? true) {
         const selectAll =
           process.platform === "darwin" ? "Meta+A" : "Control+A";
@@ -77,8 +104,8 @@ export class InputAction {
       await this.typeHumanized(
         found.resolved.page,
         request.text,
-        request.min_delay_ms ?? DEFAULT_CHARACTER_DELAY_MIN_MS,
-        request.max_delay_ms ?? DEFAULT_CHARACTER_DELAY_MAX_MS,
+        request.min_delay_ms ?? DEFAULT_CHUNK_DELAY_MIN_MS,
+        request.max_delay_ms ?? DEFAULT_CHUNK_DELAY_MAX_MS,
       );
       let verified = true;
       if (request.verify ?? true) {
@@ -97,6 +124,8 @@ export class InputAction {
       this.logger.info(actionContext, "input", "success", {
         target_description: request.selector.description,
         text_length: request.text.length,
+        focus_click_duration_ms: focusClickDurationMS,
+        typing_mode: "cloakbrowser",
         verified,
       });
       return result;
@@ -118,7 +147,7 @@ export class InputAction {
     }
   }
 
-  /** typeHumanized 按词语分段输入，并在词语之间增加真人式停顿。 */
+  /** typeHumanized 把完整安全文本交给 CloakBrowser，并隔离可能触发脚本兜底的特殊符号。 */
   private async typeHumanized(
     page: Parameters<KeyboardPrimitive["press"]>[0],
     text: string,
@@ -127,36 +156,42 @@ export class InputAction {
   ): Promise<void> {
     const min = Math.max(0, Math.min(minimumDelay, maximumDelay));
     const max = Math.max(min, maximumDelay);
-    const segments = humanTextSegments(text);
-    for (const [segmentIndex, segment] of segments.entries()) {
-      for (const character of segment) {
-        if (/^[\x20-\x7E]$/.test(character)) {
-          await this.keyboard.typeCharacter(page, character);
-        } else {
-          await this.keyboard.insertText(page, character);
-        }
-        await delay(randomInteger(min, max));
+    const chunks = safeTypingChunks(text);
+    for (const [index, chunk] of chunks.entries()) {
+      if (chunk.cloakbrowser) {
+        await this.keyboard.typeText(page, chunk.text);
+      } else {
+        await this.keyboard.insertText(page, chunk.text);
       }
-      if (segmentIndex + 1 < segments.length) {
-        await delay(randomInteger(WORD_DELAY_MIN_MS, WORD_DELAY_MAX_MS));
+      if (index + 1 < chunks.length) {
+        await delay(randomInteger(min, max));
       }
     }
   }
 }
 
-/** humanTextSegments 使用 Node 原生分词器整理适合逐段输入的文本。 */
-export function humanTextSegments(text: string): string[] {
-  if (text === "") {
-    return [];
+/** safeTypingChunks 隔离 CloakBrowser 在 CDP 失败时可能执行脚本兜底的 Shift 特殊符号。 */
+export function safeTypingChunks(text: string): TypingChunk[] {
+  const chunks: TypingChunk[] = [];
+  let safeText = "";
+  for (const character of text) {
+    if (CLOAK_UNSAFE_SHIFT_SYMBOLS.has(character)) {
+      if (safeText) {
+        chunks.push({ text: safeText, cloakbrowser: true });
+        safeText = "";
+      }
+      chunks.push({ text: character, cloakbrowser: false });
+    } else {
+      safeText += character;
+    }
   }
-  const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
-  const segments = [...segmenter.segment(text)]
-    .map((item) => item.segment)
-    .filter((item) => item !== "");
-  return segments.length > 0 ? segments : [...text];
+  if (safeText) {
+    chunks.push({ text: safeText, cloakbrowser: true });
+  }
+  return chunks;
 }
 
-/** delay 使用 Node 定时器模拟字符间等待。 */
+/** delay 使用 Node 定时器等待特殊符号前后的输入间隔。 */
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

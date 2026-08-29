@@ -128,12 +128,12 @@ export class ScrollAction {
               visibleArea ??
                 this.visibleArea(target.resolved.view, undefined, 0),
             )
-          : request.distance;
+          : this.variedDistance(request.distance);
         this.logger.info(actionContext, "wheel", "start", {
           attempt: index + 1,
           distance,
         });
-        await this.mouse.wheel(page, 0, distance);
+        const wheel = await this.mouse.wheelNaturally(page, distance);
         attempts += 1;
         await delay(Math.max(50, request.wait_ms ?? 250));
         after = target
@@ -180,6 +180,9 @@ export class ScrollAction {
         this.logger.info(actionContext, "wheel", "success", {
           attempt: index + 1,
           distance,
+          wheel_events: wheel.events,
+          wheel_elapsed_ms: wheel.duration_ms,
+          corrected: wheel.corrected,
           target_in_viewport:
             "in_viewport" in after ? Boolean(after.in_viewport) : false,
         });
@@ -289,7 +292,10 @@ export class ScrollAction {
         request.distance ?? 160,
         visibleArea,
       );
-      await this.mouse.wheel(found.resolved.page, 0, distance);
+      const wheel = await this.mouse.wheelNaturally(
+        found.resolved.page,
+        distance,
+      );
       await delay(220);
       found.resolved.view = await this.refreshTarget(found.resolved);
       const anchorView = anchor
@@ -316,6 +322,9 @@ export class ScrollAction {
       this.logger.info(actionContext, "ensure_visible", "progress", {
         attempt,
         distance,
+        wheel_events: wheel.events,
+        wheel_elapsed_ms: wheel.duration_ms,
+        corrected: wheel.corrected,
         in_viewport: found.resolved.view.in_viewport,
         remaining_distance: Math.round(nextGap),
       });
@@ -371,6 +380,19 @@ export class ScrollAction {
     return Math.min(
       maximumDistance,
       Math.max(40, Math.ceil(bottomGap + 12)),
+    );
+  }
+
+  /** variedDistance 让无明确目标的列表滚动总距离保持小幅自然浮动。 */
+  private variedDistance(rawDistance: number): number {
+    const direction = Math.sign(rawDistance);
+    const distance = Math.abs(Math.trunc(rawDistance));
+    if (direction === 0 || distance < 100) {
+      return Math.trunc(rawDistance);
+    }
+    return (
+      direction *
+      Math.max(40, Math.round(distance * randomBetween(0.88, 1.08)))
     );
   }
 
@@ -520,6 +542,11 @@ export class ScrollAction {
 /** delay 使用 Node 定时器等待，避免浏览器内固定等待命令。 */
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** randomBetween 返回两个边界之间的随机小数。 */
+function randomBetween(minimum: number, maximum: number): number {
+  return minimum + Math.random() * (maximum - minimum);
 }
 
 /** viewToJson 把元素或页面状态转换为可传输 JSON。 */

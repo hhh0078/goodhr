@@ -149,8 +149,15 @@ export class ScreenshotAction {
           scroll_position: scrollPosition,
         });
         previousBuffer = currentBuffer;
-        await this.mouse.wheel(page, 0, distance);
+        const wheel = await this.mouse.wheelNaturally(page, distance);
         scrollPosition += distance;
+        this.logger.info(actionContext, "wheel", "success", {
+          source: "screenshot_long",
+          distance,
+          wheel_events: wheel.events,
+          wheel_elapsed_ms: wheel.duration_ms,
+          corrected: wheel.corrected,
+        });
         await delay(waitMS);
       }
       const result: LongScreenshotResult = {

@@ -52,13 +52,13 @@ function silentLogger() {
   };
 }
 
-test("连续鼠标移动按上次位置计算步数并限制最大步数", async () => {
+test("鼠标移动只传目标坐标，不再记录会被 CloakBrowser 忽略的步数", async () => {
   const page = {};
-  const steps = [];
+  const moves = [];
   const action = new MoveAction(
     {
-      async move(_page, _x, _y, nextSteps) {
-        steps.push(nextSteps);
+      async move(_page, x, y, ...options) {
+        moves.push({ x, y, options });
       },
     },
     silentLogger(),
@@ -71,7 +71,8 @@ test("连续鼠标移动按上次位置计算步数并限制最大步数", async
   } finally {
     Math.random = originalRandom;
   }
-  assert.deepEqual(steps, [12, 4]);
+  assert.equal(moves.length, 2);
+  assert.deepEqual(moves.map((item) => item.options), [[], []]);
 });
 
 test("点击稳定检查只读取边界且隐藏验证使用即时探测", async () => {
@@ -80,6 +81,7 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
   const found = visibleElement(page, locator);
   let verifyTimeout;
   let receivedWheelAnchor;
+  let cloakBrowserClicks = 0;
   const action = new ClickAction(
     {
       async one(selector) {
@@ -101,13 +103,21 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
         receivedWheelAnchor = request.wheel_anchor;
       },
     },
-    { async toElement() {} },
+    {
+      async toElement() {
+        return { x: 150, y: 120 };
+      },
+    },
     {
       async box() {
         return found.resolved.view.box;
       },
     },
     {
+      async click() {
+        cloakBrowserClicks += 1;
+        return 180;
+      },
       async down() {},
       async up() {},
     },
@@ -136,6 +146,9 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
   );
 
   assert.equal(result.verified, true);
+  assert.equal(result.click_mode, "cloakbrowser");
+  assert.equal(result.hold_ms, 0);
+  assert.equal(cloakBrowserClicks, 1);
   assert.equal(verifyTimeout, 0);
   assert.equal(receivedWheelAnchor.description, "滚动区域");
 });
@@ -152,15 +165,20 @@ test("九字招呼语的字符和词语拟人等待不超过两秒", async () =>
   const action = new InputAction(
     { async one() { return found; } },
     { async ensureVisible() {} },
-    { async toElement() {} },
     {
-      async down() {},
-      async up() {},
+      async toElement() {
+        return { x: 150, y: 120 };
+      },
+    },
+    {
+      async click() {
+        return 180;
+      },
     },
     {
       async press() {},
-      async typeCharacter(_page, character) {
-        actual += character;
+      async typeText(_page, text) {
+        actual += text;
       },
       async insertText(_page, text) {
         actual += text;

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseBrowserStartRequest } from "../dist/validation/action-requests.js";
+import { BrowserSession } from "../dist/browser/session/browser-session.js";
 
 /** 验证合法启动、GeoIP 和新增标签页配置会进入 CloakBrowser 启动参数。 */
 test("保留合法启动、GeoIP 和新增标签页配置", () => {
@@ -40,4 +41,14 @@ test("拒绝只有宽度的视口", () => {
       "browser.start",
     ),
   );
+});
+
+test("浏览器拟人模式默认使用 CloakBrowser careful 预设", () => {
+  const session = new BrowserSession({
+    info() {},
+    failure() {},
+  });
+  const options = session.launchOptions({ humanize: true });
+  assert.equal(options.humanize, true);
+  assert.equal(options.humanPreset, "careful");
 });

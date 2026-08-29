@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ScrollAction } from "../dist/browser/actions/scroll.js";
+import { naturalWheelDeltas } from "../dist/browser/primitives/mouse.js";
 import { ViewportPrimitive } from "../dist/browser/primitives/viewport.js";
 
 const context = {
@@ -18,6 +19,7 @@ function createScrollAction(overrides = {}) {
     moveToElement: 0,
     moveToViewportCenter: 0,
     wheel: 0,
+    wheelDistances: [],
   };
   const action = new ScrollAction(
     overrides.session ?? {
@@ -40,8 +42,15 @@ function createScrollAction(overrides = {}) {
     },
     overrides.locator ?? {},
     {
-      async wheel() {
+      async wheelNaturally(_page, distance) {
         calls.wheel += 1;
+        calls.wheelDistances.push(distance);
+        return {
+          events: 4,
+          distance,
+          corrected: false,
+          duration_ms: 20,
+        };
       },
     },
     {
@@ -51,6 +60,62 @@ function createScrollAction(overrides = {}) {
   );
   return { action, calls };
 }
+
+test("自然滚轮脉冲会加速减速并保持请求总距离", () => {
+  const originalRandom = Math.random;
+  Math.random = () => 0.5;
+  try {
+    const deltas = naturalWheelDeltas(620);
+    assert.equal(deltas.reduce((sum, delta) => sum + delta, 0), 620);
+    assert.ok(deltas.length > 10);
+    assert.ok(Math.max(...deltas) > deltas[0]);
+    assert.ok(deltas.every((delta) => delta > 0));
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test("自然滚轮偶发过冲后会反向修正且不改变最终距离", () => {
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    const deltas = naturalWheelDeltas(620);
+    assert.equal(deltas.reduce((sum, delta) => sum + delta, 0), 620);
+    assert.ok(deltas.some((delta) => delta < 0));
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test("无明确目标的列表滚动会小幅改变每轮总距离", async () => {
+  let screenshots = 0;
+  const { action, calls } = createScrollAction({
+    session: {
+      async requirePage() {
+        return {
+          viewportSize() {
+            return { width: 1280, height: 720 };
+          },
+          async screenshot() {
+            screenshots += 1;
+            return Buffer.from(`frame-${screenshots}`);
+          },
+        };
+      },
+    },
+  });
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    await action.execute(
+      { distance: 620, max_attempts: 1, wait_ms: 50 },
+      context,
+    );
+  } finally {
+    Math.random = originalRandom;
+  }
+  assert.deepEqual(calls.wheelDistances, [546]);
+});
 
 /** 创建公共滚动测试使用的元素结果。 */
 function foundElement(view) {

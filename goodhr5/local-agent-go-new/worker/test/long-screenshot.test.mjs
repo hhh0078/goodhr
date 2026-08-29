@@ -35,7 +35,17 @@ test("long screenshot captures once per wheel and stops on duplicate", async () 
     { async requirePage() { return page; } },
     { async one() { return found; } },
     { async toElement() {} },
-    { async wheel() { wheelCalls += 1; } },
+    {
+      async wheelNaturally(_page, distance) {
+        wheelCalls += 1;
+        return {
+          events: 12,
+          distance,
+          corrected: false,
+          duration_ms: 120,
+        };
+      },
+    },
     { info() {}, failure() {} },
   );
 

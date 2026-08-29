@@ -18,6 +18,8 @@ export interface ClickResult extends JsonObject {
   clicked: boolean;
   element_ref: string;
   hold_ms: number;
+  click_duration_ms: number;
+  click_mode: string;
   verified: boolean;
   new_page_opened: boolean;
   new_page_url: string;
@@ -35,7 +37,7 @@ export class ClickAction {
     private readonly logger: WorkerLogger,
   ) {}
 
-  /** execute 平铺执行查找、滚动、移动、按下、松开和验证。 */
+  /** execute 平铺执行查找、滚动、移动、原子点击和验证。 */
   async execute(
     request: ElementClickRequest,
     actionContext: ActionContext,
@@ -61,7 +63,7 @@ export class ClickAction {
         actionContext,
       );
       await this.waitForStablePosition(found, actionContext);
-      await this.move.toElement(found.resolved, actionContext);
+      const moved = await this.move.toElement(found.resolved, actionContext);
       const newPagePromise = request.wait_for_new_page
         ? found.resolved.page
             .context()
@@ -72,15 +74,27 @@ export class ClickAction {
       const button = request.button ?? "left";
       const clickCount = Math.max(1, request.click_count ?? 1);
       let totalHold = 0;
-      for (let index = 0; index < clickCount; index += 1) {
-        const holdMs = randomInteger(70, 190);
-        await this.mouse.down(found.resolved.page, button);
-        await delay(holdMs);
-        await this.mouse.up(found.resolved.page, button);
-        totalHold += holdMs;
-        if (index + 1 < clickCount) {
-          await delay(randomInteger(80, 160));
+      let clickDurationMS = 0;
+      const cloakBrowserClick = button === "left" && clickCount === 1;
+      if (cloakBrowserClick) {
+        clickDurationMS = await this.mouse.click(
+          found.resolved.page,
+          moved.x,
+          moved.y,
+        );
+      } else {
+        const clickStartedAt = Date.now();
+        for (let index = 0; index < clickCount; index += 1) {
+          const holdMs = randomInteger(70, 190);
+          await this.mouse.down(found.resolved.page, button);
+          await delay(holdMs);
+          await this.mouse.up(found.resolved.page, button);
+          totalHold += holdMs;
+          if (index + 1 < clickCount) {
+            await delay(randomInteger(80, 160));
+          }
         }
+        clickDurationMS = Date.now() - clickStartedAt;
       }
       const newPage = newPagePromise ? await newPagePromise : null;
       if (newPage) {
@@ -103,13 +117,17 @@ export class ClickAction {
         clicked: true,
         element_ref: found.result.element_ref,
         hold_ms: totalHold,
+        click_duration_ms: clickDurationMS,
+        click_mode: cloakBrowserClick ? "cloakbrowser" : "manual",
         verified,
         new_page_opened: Boolean(newPage),
         new_page_url: newPage?.url() ?? "",
       };
       this.logger.info(actionContext, "click", "success", {
         target_description: request.selector.description,
-        hold_ms: totalHold,
+        click_duration_ms: clickDurationMS,
+        click_mode: cloakBrowserClick ? "cloakbrowser" : "manual",
+        ...(cloakBrowserClick ? {} : { hold_ms: totalHold }),
         verified,
         new_page_opened: Boolean(newPage),
       });

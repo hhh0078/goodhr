@@ -33,6 +33,8 @@ import { pageURLContainsTarget, safeURL } from "./navigation.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
+const HUMAN_PRESET = "careful" as const;
+
 /** BrowserSession 保存当前唯一浏览器会话和页面状态。 */
 export class BrowserSession {
   private browser: Browser | null = null;
@@ -69,6 +71,8 @@ export class BrowserSession {
     this.logger.info(actionContext, step, "start", {
       persistent: Boolean(request.user_data_dir),
       headless: request.headless ?? false,
+      humanize: request.humanize ?? true,
+      human_preset: request.humanize === false ? "disabled" : HUMAN_PRESET,
     });
     try {
       if (await this.isRunning()) {
@@ -451,6 +455,7 @@ export class BrowserSession {
     const options: LaunchContextOptions = {
       headless: request.headless ?? false,
       humanize: request.humanize ?? true,
+      humanPreset: HUMAN_PRESET,
       geoip: request.geoip ?? Boolean(request.proxy),
       ...(request.extension_paths
         ? { extensionPaths: request.extension_paths }

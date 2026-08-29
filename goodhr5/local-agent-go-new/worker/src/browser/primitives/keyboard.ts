@@ -1,4 +1,4 @@
-// 文件作用说明：提供只供封装能力调用的最小键盘按键、单字符输入和文本插入原子操作。
+// 文件作用说明：提供只供封装能力调用的键盘按键、CloakBrowser 文本输入和安全文本插入操作。
 
 import type { Page } from "playwright-core";
 
@@ -9,9 +9,9 @@ export class KeyboardPrimitive {
     await page.keyboard.press(key, { delay: Math.max(0, delayMs) });
   }
 
-  /** typeCharacter 输入一个 Playwright 支持的字符。 */
-  async typeCharacter(page: Page, character: string): Promise<void> {
-    await page.keyboard.type(character);
+  /** typeText 把完整文本交给 CloakBrowser 安排按键和字符间节奏。 */
+  async typeText(page: Page, text: string): Promise<void> {
+    await page.keyboard.type(text);
   }
 
   /** insertText 插入中文等键盘 type 无法稳定支持的文本。 */
