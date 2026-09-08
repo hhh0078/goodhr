@@ -134,7 +134,8 @@ func (m *Manager) Status() Status {
 	ocrPath := m.OCRPath()
 	wrapperInstalled := m.cloakBrowserWrapperReady()
 	licenseConfigured := m.CloakBrowserLicenseConfigured()
-	cloakInstalled := wrapperInstalled && licenseConfigured && fileExists(cloakPath)
+	cloakCached := fileExists(cloakPath)
+	cloakInstalled := wrapperInstalled && licenseConfigured && cloakCached
 	versions := m.loadVersions()
 	cloakVersion := ""
 	if installed, ok := versions["cloakbrowser"]; ok && fileExists(installed.Path) {
@@ -150,6 +151,7 @@ func (m *Manager) Status() Status {
 		WorkerEntry:           m.entryPath,
 		WorkerDependency:      m.WorkerDependencyPath(),
 		CloakBrowserInstalled: cloakInstalled,
+		CloakBrowserCached:    cloakCached,
 		CloakBrowserWrapper:   wrapperInstalled,
 		CloakBrowserLicensed:  licenseConfigured,
 		CloakBrowserPath:      cloakPath,
@@ -285,14 +287,7 @@ func (m *Manager) saveVersion(component string, asset Asset) error {
 		Version: asset.Version, URL: asset.URL, SHA256: asset.SHA256,
 		InstalledAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	content, err := json.MarshalIndent(versions, "", "  ")
-	if err != nil {
-		return fmt.Errorf("编码运行组件版本记录失败：%w", err)
-	}
-	if err = os.MkdirAll(m.runtimeDir, 0o755); err != nil {
-		return fmt.Errorf("创建运行目录失败：%w", err)
-	}
-	return os.WriteFile(m.statePath(), content, 0o644)
+	return m.writeVersions(versions)
 }
 
 // saveCloakBrowserVersion 保存官方安装后确认的 Chromium 版本和真实路径。
@@ -302,9 +297,14 @@ func (m *Manager) saveCloakBrowserVersion(version string, path string) error {
 		Version: strings.TrimSpace(version), Path: filepath.Clean(path),
 		InstalledAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
+	return m.writeVersions(versions)
+}
+
+// writeVersions 写入当前运行组件版本记录。
+func (m *Manager) writeVersions(versions map[string]InstalledComponent) error {
 	content, err := json.MarshalIndent(versions, "", "  ")
 	if err != nil {
-		return fmt.Errorf("编码浏览器版本记录失败：%w", err)
+		return fmt.Errorf("编码运行组件版本记录失败：%w", err)
 	}
 	if err = os.MkdirAll(m.runtimeDir, 0o755); err != nil {
 		return fmt.Errorf("创建运行目录失败：%w", err)

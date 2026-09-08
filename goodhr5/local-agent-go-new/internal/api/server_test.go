@@ -207,6 +207,32 @@ func TestRuntimeConfigureResponseDoesNotExposeLicenseKey(t *testing.T) {
 	}
 }
 
+// TestRuntimeComponentDeleteRouteRemovesManagedBrowser 验证组件删除接口只删除指定浏览器缓存。
+func TestRuntimeComponentDeleteRouteRemovesManagedBrowser(t *testing.T) {
+	dataDir := t.TempDir()
+	runtimeDir := filepath.Join(dataDir, "runtime")
+	browserDir := filepath.Join(runtimeDir, "cloakbrowser")
+	if err := os.MkdirAll(browserDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(browserDir, "cache"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtimeManager := runtimecomponents.New("node", filepath.Join(dataDir, "worker", "dist", "main.js"), runtimeDir, "", nil)
+	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129, DataDir: dataDir}, Dependencies{
+		Runner:  lifecycle.New(nil, nil, nil, nil, nil, nil, nil, nil, nil),
+		Runtime: runtimeManager,
+	})
+	response := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/api/v1/runtime/components/cloakbrowser", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(browserDir); !os.IsNotExist(err) {
+		t.Fatalf("浏览器目录仍存在：%v", err)
+	}
+}
+
 // TestExtensionsDirectoryRouteRejectsMissingFixedPath 验证扩展目录接口已注册且不会接受前端自定义路径。
 func TestExtensionsDirectoryRouteRejectsMissingFixedPath(t *testing.T) {
 	server := NewServer(config.Config{Host: "127.0.0.1", Port: 43129}, Dependencies{})

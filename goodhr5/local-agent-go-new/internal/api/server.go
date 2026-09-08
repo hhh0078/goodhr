@@ -88,6 +88,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("POST /api/v1/runtime/configure", server.handleRuntimeConfigure)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
 	mux.HandleFunc("POST /api/v1/runtime/install", server.handleRuntimeInstall)
+	mux.HandleFunc("DELETE /api/v1/runtime/components/{component}", server.handleRuntimeComponentDelete)
 	mux.HandleFunc("POST /api/v1/extensions/open-directory", server.handleExtensionsDirectoryOpen)
 	mux.HandleFunc("POST /api/v1/worker/start", server.handleWorkerStart)
 	mux.HandleFunc("POST /api/v1/worker/stop", server.handleWorkerStop)
@@ -266,6 +267,23 @@ func (s *Server) handleRuntimeInstall(w http.ResponseWriter, r *http.Request) {
 	status.AgentVersion = version.Value
 	status.DataDir = s.cfg.DataDir
 	writeSuccess(w, http.StatusAccepted, status)
+}
+
+// handleRuntimeComponentDelete 停止浏览器链路并删除一个 GoodHR 自有运行组件。
+func (s *Server) handleRuntimeComponentDelete(w http.ResponseWriter, r *http.Request) {
+	if s.runner != nil && s.runner.HasActive() {
+		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在运行，请先安全停止任务再删除组件"))
+		return
+	}
+	if s.runtime == nil {
+		writeError(w, http.StatusServiceUnavailable, "RUNTIME_UNAVAILABLE", fmt.Errorf("运行组件管理器暂时不可用"))
+		return
+	}
+	if err := s.runtime.RemoveComponent(r.PathValue("component")); err != nil {
+		writeError(w, http.StatusConflict, "RUNTIME_COMPONENT_DELETE_FAILED", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, s.runtime.Status())
 }
 
 // handleRuntimeConfigure 把云端个人配置中的 Key 同步到本机私密文件，响应不返回 Key。

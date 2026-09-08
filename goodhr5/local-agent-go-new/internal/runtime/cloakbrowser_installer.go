@@ -54,30 +54,42 @@ func (m *Manager) installWorkerDependencies(ctx context.Context) error {
 		})
 		return nil
 	}
-	m.setInstallProgress(InstallProgress{
-		Running: true, Component: "cloakbrowser_wrapper", Stage: "install_dependency",
-		Message: "正在通过国内镜像安装 CloakBrowser 控制组件", Percent: 25,
-	})
-	command, err := m.npmInstallCommand(ctx)
-	if err != nil {
-		return err
-	}
-	command.Dir = m.workerRoot()
-	command.Env = overrideEnvironment(os.Environ(), []string{
-		"npm_config_registry=" + npmMirrorRegistry,
-		"npm_config_audit=false",
-		"npm_config_fund=false",
-		"NO_UPDATE_NOTIFIER=1",
-	})
-	output, runErr := runStreamingCommand(command, m.cloakBrowserLicenseKey(), func(line string) {
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "added ") || strings.Contains(lower, "up to date") {
-			m.setInstallProgress(InstallProgress{
-				Running: true, Component: "cloakbrowser_wrapper", Stage: "install_dependency",
-				Message: "CloakBrowser 控制组件依赖已经下载，正在整理", Percent: 32,
-			})
+	var output string
+	var runErr error
+	for attempt := 1; attempt <= runtimeInstallMaxAttempts; attempt++ {
+		m.setInstallProgress(InstallProgress{
+			Running: true, Component: "cloakbrowser_wrapper", Stage: "install_dependency",
+			Message: "正在通过国内镜像安装 CloakBrowser 控制组件", Percent: 25,
+			Attempt: attempt, MaxAttempts: runtimeInstallMaxAttempts,
+		})
+		command, err := m.npmInstallCommand(ctx)
+		if err != nil {
+			return err
 		}
-	})
+		command.Dir = m.workerRoot()
+		command.Env = overrideEnvironment(os.Environ(), []string{
+			"npm_config_registry=" + npmMirrorRegistry,
+			"npm_config_audit=false",
+			"npm_config_fund=false",
+			"NO_UPDATE_NOTIFIER=1",
+		})
+		output, runErr = runStreamingCommand(command, m.cloakBrowserLicenseKey(), func(line string) {
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "added ") || strings.Contains(lower, "up to date") {
+				m.setInstallProgress(InstallProgress{
+					Running: true, Component: "cloakbrowser_wrapper", Stage: "install_dependency",
+					Message: "CloakBrowser 控制组件依赖已经下载，正在整理", Percent: 32,
+					Attempt: attempt, MaxAttempts: runtimeInstallMaxAttempts,
+				})
+			}
+		})
+		if runErr == nil || !retryableInstallError(output+"\n"+runErr.Error()) || attempt == runtimeInstallMaxAttempts {
+			break
+		}
+		if err = m.waitForInstallRetry(ctx, "cloakbrowser_wrapper", "install_dependency", "国内镜像连接刚才有点忙", 25, attempt+1, runtimeInstallMaxAttempts); err != nil {
+			return err
+		}
+	}
 	if runErr != nil {
 		return fmt.Errorf("安装 CloakBrowser 控制组件失败：%s", commandFailure(output, runErr))
 	}
@@ -93,25 +105,41 @@ func (m *Manager) installWorkerDependencies(ctx context.Context) error {
 
 // validateOfficialLicense 通过官方接口验证用户 Key，拒绝静默退回旧版免费内核。
 func (m *Manager) validateOfficialLicense(ctx context.Context, licenseKey string) error {
-	m.setInstallProgress(InstallProgress{
-		Running: true, Component: "cloakbrowser", Stage: "validate_license",
-		Message: "正在通过 CloakBrowser 官方校验 Key", Percent: 36,
-	})
-	info, err := m.cloakBrowserInfo(ctx, licenseKey)
-	if err != nil {
-		return fmt.Errorf("CloakBrowser Key 校验失败：%w", err)
+	for attempt := 1; attempt <= runtimeInstallMaxAttempts; attempt++ {
+		m.setInstallProgress(InstallProgress{
+			Running: true, Component: "cloakbrowser", Stage: "validate_license",
+			Message: "正在通过 CloakBrowser 官方校验 Key", Percent: 36,
+			Attempt: attempt, MaxAttempts: runtimeInstallMaxAttempts,
+		})
+		info, err := m.cloakBrowserInfo(ctx, licenseKey)
+		if err != nil {
+			if !retryableInstallError(err.Error()) || attempt == runtimeInstallMaxAttempts {
+				return fmt.Errorf("CloakBrowser Key 校验失败：%w", err)
+			}
+			if waitErr := m.waitForInstallRetry(ctx, "cloakbrowser", "validate_license", "CloakBrowser 官方校验接口刚才没连上", 36, attempt+1, runtimeInstallMaxAttempts); waitErr != nil {
+				return waitErr
+			}
+			continue
+		}
+		if info.License.Valid == nil {
+			if attempt == runtimeInstallMaxAttempts {
+				return fmt.Errorf("CloakBrowser 官方暂时没有确认这个 Key，请检查网络后重试")
+			}
+			if waitErr := m.waitForInstallRetry(ctx, "cloakbrowser", "validate_license", "CloakBrowser 官方暂时没有返回 Key 状态", 36, attempt+1, runtimeInstallMaxAttempts); waitErr != nil {
+				return waitErr
+			}
+			continue
+		}
+		if !*info.License.Valid {
+			return fmt.Errorf("CloakBrowser Key 无效或已过期，请重新获取后再试")
+		}
+		m.setInstallProgress(InstallProgress{
+			Running: true, Component: "cloakbrowser", Stage: "validate_license",
+			Message: "CloakBrowser Key 校验通过", Percent: 40,
+		})
+		return nil
 	}
-	if info.License.Valid == nil {
-		return fmt.Errorf("CloakBrowser 官方暂时没有确认这个 Key，请检查网络后重试")
-	}
-	if !*info.License.Valid {
-		return fmt.Errorf("CloakBrowser Key 无效或已过期，请重新获取后再试")
-	}
-	m.setInstallProgress(InstallProgress{
-		Running: true, Component: "cloakbrowser", Stage: "validate_license",
-		Message: "CloakBrowser Key 校验通过", Percent: 40,
-	})
-	return nil
+	return fmt.Errorf("CloakBrowser Key 校验失败")
 }
 
 // installOfficialCloakBrowser 强制刷新 Stable 最新版本并解析官方十等分下载进度。
@@ -156,22 +184,14 @@ func (m *Manager) runOfficialInstallWithRetry(ctx context.Context, licenseKey st
 		command := exec.CommandContext(ctx, m.NodePath(), m.cloakBrowserCLIPath(), "install")
 		command.Dir = m.workerRoot()
 		command.Env = m.cloakBrowserEnvironment(licenseKey, true)
-		output, runErr = runStreamingCommand(command, licenseKey, m.updateOfficialInstallProgress)
-		if runErr == nil || !retryableOfficialInstallError(output) || attempt == officialInstallMaxAttempts {
+		output, runErr = runStreamingCommand(command, licenseKey, func(line string) {
+			m.updateOfficialInstallProgress(line, attempt)
+		})
+		if runErr == nil || !retryableOfficialInstallError(output+"\n"+runErr.Error()) || attempt == officialInstallMaxAttempts {
 			return output, runErr
 		}
-		delay := time.Duration(attempt*2) * time.Second
-		m.setInstallProgress(InstallProgress{
-			Running: true, Component: "cloakbrowser", Stage: "resolve_version",
-			Message: fmt.Sprintf("CloakBrowser 官方刚才有点忙，%d 秒后自动重试（%d/%d）", int(delay.Seconds()), attempt+1, officialInstallMaxAttempts),
-			Percent: 41,
-		})
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return output, ctx.Err()
-		case <-timer.C:
+		if err := m.waitForInstallRetry(ctx, "cloakbrowser", "resolve_version", "CloakBrowser 官方刚才有点忙", 41, attempt+1, officialInstallMaxAttempts); err != nil {
+			return output, err
 		}
 	}
 	return output, runErr
@@ -179,27 +199,7 @@ func (m *Manager) runOfficialInstallWithRetry(ctx context.Context, licenseKey st
 
 // retryableOfficialInstallError 判断官方安装失败是否属于可安全重试的网络或服务波动。
 func retryableOfficialInstallError(output string) bool {
-	lower := strings.ToLower(output)
-	for _, fragment := range []string{
-		"could not determine latest pro version",
-		"pro binary unavailable",
-		"fetch failed",
-		"econnreset",
-		"econnrefused",
-		"etimedout",
-		"socket hang up",
-		"network error",
-		"http 429",
-		"http 500",
-		"http 502",
-		"http 503",
-		"http 504",
-	} {
-		if strings.Contains(lower, fragment) {
-			return true
-		}
-	}
-	return false
+	return retryableInstallError(output)
 }
 
 // smokeTestCloakBrowser 无界面启动官方浏览器并打开本地测试页，确认完整 Playwright 链路可用。
@@ -229,7 +229,13 @@ func (m *Manager) smokeTestCloakBrowser(ctx context.Context, licenseKey string) 
 }
 
 // updateOfficialInstallProgress 把官方日志中的下载、校验和解压阶段转换为前端进度。
-func (m *Manager) updateOfficialInstallProgress(line string) {
+func (m *Manager) updateOfficialInstallProgress(line string, attempts ...int) {
+	attempt := 0
+	maxAttempts := 0
+	if len(attempts) > 0 && attempts[0] > 0 {
+		attempt = attempts[0]
+		maxAttempts = officialInstallMaxAttempts
+	}
 	if match := officialDownloadProgress.FindStringSubmatch(line); len(match) == 4 {
 		percent, _ := strconv.Atoi(match[1])
 		receivedMB, _ := strconv.ParseInt(match[2], 10, 64)
@@ -239,18 +245,19 @@ func (m *Manager) updateOfficialInstallProgress(line string) {
 			Message:  fmt.Sprintf("正在从 CloakBrowser 官方下载最新版 Chromium（%d%%）", percent),
 			Percent:  42 + min(max(percent, 0), 100)*44/100,
 			Received: receivedMB * 1024 * 1024, Total: totalMB * 1024 * 1024,
+			Attempt: attempt, MaxAttempts: maxAttempts,
 		})
 		return
 	}
 	switch {
 	case strings.Contains(line, "Downloading from"):
-		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "download", Message: "已连接 CloakBrowser 官方，开始下载最新版 Chromium", Percent: 42})
+		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "download", Message: "已连接 CloakBrowser 官方，开始下载最新版 Chromium", Percent: 42, Attempt: attempt, MaxAttempts: maxAttempts})
 	case strings.Contains(line, "Checksum verified"):
-		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "verify", Message: "官方签名和 SHA256 校验通过", Percent: 88})
+		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "verify", Message: "官方签名和 SHA256 校验通过", Percent: 88, Attempt: attempt, MaxAttempts: maxAttempts})
 	case strings.Contains(line, "Extracting to"):
-		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "extract", Message: "正在解压最新版 Chromium", Percent: 89})
+		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "extract", Message: "正在解压最新版 Chromium", Percent: 89, Attempt: attempt, MaxAttempts: maxAttempts})
 	case strings.Contains(line, "Binary ready"):
-		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "verify", Message: "Chromium 文件已就位，正在核对版本", Percent: 90})
+		m.setInstallProgress(InstallProgress{Running: true, Component: "cloakbrowser", Stage: "verify", Message: "Chromium 文件已就位，正在核对版本", Percent: 90, Attempt: attempt, MaxAttempts: maxAttempts})
 	}
 }
 
@@ -486,13 +493,21 @@ func sanitizeSensitive(value string, secret string) string {
 	return strings.ReplaceAll(value, secret, "[Key 已隐藏]")
 }
 
-// commandFailure 返回命令最后一行可执行错误，避免把整段 npm 日志塞进页面。
+// commandFailure 返回命令末尾的关键错误上下文，并限制页面展示长度。
 func commandFailure(output string, runErr error) string {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
-		if line := strings.TrimSpace(lines[index]); line != "" {
-			return line
+	rawLines := strings.Split(strings.TrimSpace(output), "\n")
+	lines := make([]string, 0, 8)
+	for index := max(0, len(rawLines)-8); index < len(rawLines); index++ {
+		if line := strings.TrimSpace(rawLines[index]); line != "" {
+			lines = append(lines, line)
 		}
+	}
+	if len(lines) > 0 {
+		value := strings.Join(lines, "\n")
+		if len([]rune(value)) > 2000 {
+			value = string([]rune(value)[:2000]) + "..."
+		}
+		return value
 	}
 	if runErr != nil {
 		return runErr.Error()

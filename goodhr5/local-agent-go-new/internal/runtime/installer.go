@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const runtimeInstallMaxAttempts = 3
+
 // StartInstall 校验 Key 并在后台安装当前平台的运行组件。
 func (m *Manager) StartInstall(manifest Manifest, licenseKey string) (Status, error) {
 	if !m.installMu.TryLock() {
@@ -40,7 +42,9 @@ func (m *Manager) StartInstall(manifest Manifest, licenseKey string) (Status, er
 			progress := m.InstallProgress()
 			progress.Running = false
 			progress.Stage = "failed"
-			progress.Message = err.Error()
+			progress.Message = installErrorSummary(err)
+			progress.Detail = err.Error()
+			progress.CanRetry = true
 			m.setInstallProgress(progress)
 			return
 		}
@@ -169,6 +173,21 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 
 // downloadAsset 下载单个 GoodHR 自有组件并实时报告字节进度。
 func (m *Manager) downloadAsset(ctx context.Context, component string, label string, sourceURL string, targetPath string, progressStart int, progressEnd int) error {
+	var err error
+	for attempt := 1; attempt <= runtimeInstallMaxAttempts; attempt++ {
+		err = m.downloadAssetOnce(ctx, component, label, sourceURL, targetPath, progressStart, progressEnd, attempt)
+		if err == nil || !retryableInstallError(err.Error()) || attempt == runtimeInstallMaxAttempts {
+			return err
+		}
+		if waitErr := m.waitForInstallRetry(ctx, component, "download", label+"下载刚才断了一下", progressStart, attempt+1, runtimeInstallMaxAttempts); waitErr != nil {
+			return waitErr
+		}
+	}
+	return err
+}
+
+// downloadAssetOnce 执行一次 GoodHR 自有组件下载并实时报告字节进度。
+func (m *Manager) downloadAssetOnce(ctx context.Context, component string, label string, sourceURL string, targetPath string, progressStart int, progressEnd int, attempt int) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
 		return fmt.Errorf("创建%s下载请求失败：%w", label, err)
@@ -198,6 +217,7 @@ func (m *Manager) downloadAsset(ctx context.Context, component string, label str
 			m.setInstallProgress(InstallProgress{
 				Running: true, Component: component, Stage: "download",
 				Message: "正在下载" + label, Percent: percent, Received: received, Total: total,
+				Attempt: attempt, MaxAttempts: runtimeInstallMaxAttempts,
 			})
 		},
 	}
@@ -216,6 +236,57 @@ func (m *Manager) downloadAsset(ctx context.Context, component string, label str
 		return fmt.Errorf("完成%s下载失败：%w", label, err)
 	}
 	return nil
+}
+
+// waitForInstallRetry 展示下一次重试并等待短暂退避时间。
+func (m *Manager) waitForInstallRetry(ctx context.Context, component string, stage string, message string, percent int, attempt int, maxAttempts int) error {
+	delay := time.Duration((attempt-1)*2) * time.Second
+	m.setInstallProgress(InstallProgress{
+		Running: true, Component: component, Stage: stage, Percent: percent,
+		Message: fmt.Sprintf("%s，%d 秒后自动重试（%d/%d）", message, int(delay.Seconds()), attempt, maxAttempts),
+		Attempt: attempt, MaxAttempts: maxAttempts,
+	})
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// retryableInstallError 判断错误是否属于网络或服务短暂波动。
+func retryableInstallError(value string) bool {
+	lower := strings.ToLower(value)
+	for _, fragment := range []string{
+		"could not determine latest pro version", "pro binary unavailable",
+		"fetch failed", "econnreset", "econnrefused", "etimedout",
+		"socket hang up", "network error", "unexpected eof", "connection reset",
+		"connection refused", "timeout", "timed out", "tls handshake timeout",
+		"http 429", "http 500", "http 502", "http 503", "http 504",
+		"状态码：429", "状态码：500", "状态码：502", "状态码：503", "状态码：504",
+	} {
+		if strings.Contains(lower, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// installErrorSummary 返回适合在进度标题中展示的单行错误摘要。
+func installErrorSummary(err error) string {
+	if err == nil {
+		return "运行组件安装失败"
+	}
+	value := strings.TrimSpace(err.Error())
+	if line, _, ok := strings.Cut(value, "\n"); ok {
+		value = strings.TrimSpace(line)
+	}
+	if len([]rune(value)) > 180 {
+		value = string([]rune(value)[:180]) + "..."
+	}
+	return value
 }
 
 // componentInstalled 判断一个 GoodHR 自有组件的关键文件是否已经存在。

@@ -19,6 +19,7 @@ type Status struct {
 	WorkerDependency      string                        `json:"worker_dependency"`
 	CloakBrowserReady     bool                          `json:"cloakbrowser_ready"`
 	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
+	CloakBrowserCached    bool                          `json:"cloakbrowser_cached"`
 	CloakBrowserWrapper   bool                          `json:"cloakbrowser_wrapper_installed"`
 	CloakBrowserLicensed  bool                          `json:"cloakbrowser_license_configured"`
 	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
@@ -40,14 +41,18 @@ type InstalledComponent struct {
 
 // InstallProgress 表示控制台轮询的组件安装进度。
 type InstallProgress struct {
-	Running   bool   `json:"running"`
-	Component string `json:"component"`
-	Stage     string `json:"stage"`
-	Message   string `json:"message"`
-	Percent   int    `json:"percent"`
-	Received  int64  `json:"received"`
-	Total     int64  `json:"total"`
-	UpdatedAt string `json:"updated_at"`
+	Running     bool   `json:"running"`
+	Component   string `json:"component"`
+	Stage       string `json:"stage"`
+	Message     string `json:"message"`
+	Detail      string `json:"detail,omitempty"`
+	Percent     int    `json:"percent"`
+	Received    int64  `json:"received"`
+	Total       int64  `json:"total"`
+	Attempt     int    `json:"attempt,omitempty"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+	CanRetry    bool   `json:"can_retry,omitempty"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // Manifest 表示云端下发的运行组件安装清单。

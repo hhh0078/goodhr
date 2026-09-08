@@ -11,7 +11,7 @@ AppId={{A7F8D98D-9D3D-47E7-A1F6-50F333A1F6D2}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher=GoodHR
-DefaultDirName={localappdata}\Programs\GoodHRLocalAgent
+DefaultDirName={code:GetDefaultDirName}
 DefaultGroupName=GoodHR
 DisableProgramGroupPage=yes
 OutputDir=..\release
@@ -51,6 +51,15 @@ Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Tas
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// GetDefaultDirName 让全新安装优先使用 D 盘，没有 D 盘时回退当前用户目录。
+function GetDefaultDirName(Param: String): String;
+begin
+  if DirExists('D:\') then
+    Result := 'D:\GoodHRLocalAgent'
+  else
+    Result := ExpandConstant('{localappdata}\Programs\GoodHRLocalAgent');
+end;
+
 // StopProcessTree 在复制文件前停止旧版主程序和它的 Worker 进程树。
 procedure StopProcessTree(ImageName: String);
 var

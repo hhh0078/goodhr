@@ -3,6 +3,7 @@
 
 import ExtensionRoundedIcon from "@mui/icons-material/ExtensionRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
   Box,
@@ -50,10 +51,12 @@ const componentNames: Record<string, string> = {
 
 /** AgentDownloadPage 展示组件状态、扩展安装方法并触发运行组件更新。 */
 export default function AgentDownloadPage() {
-  const { agentBase, onboardingConfig, refreshAgent, notify } = useAdmin();
+  const { agentBase, onboardingConfig, refreshAgent, notify, confirm } =
+    useAdmin();
   const [runtime, setRuntime] = useState<UnknownRecord>({});
   const [loading, setLoading] = useState(false);
   const [openingExtensions, setOpeningExtensions] = useState(false);
+  const [deletingComponent, setDeletingComponent] = useState("");
 
   /** load 读取本地运行状态和云端组件配置。 */
   async function load() {
@@ -145,6 +148,34 @@ export default function AgentDownloadPage() {
       );
     } finally {
       setOpeningExtensions(false);
+    }
+  }
+
+  /** removeRuntimeComponent 二次确认后删除 GoodHR 自己管理的单个运行组件。 */
+  async function removeRuntimeComponent(item: RuntimeComponentView) {
+    if (!agentBase || !item.installed || deletingComponent) return;
+    const confirmed = await confirm(
+      "公主请确认删除组件",
+      `将删除“${item.name}”。浏览器账号和岗位数据会保留，需要时可以重新安装。`,
+    );
+    if (!confirmed) return;
+    setDeletingComponent(item.key);
+    try {
+      const result = await localRequest(
+        agentBase,
+        `/api/v1/runtime/components/${encodeURIComponent(item.key)}`,
+        { method: "DELETE" },
+      );
+      setRuntime(asRecord(result));
+      notify(`${item.name}已删除，需要时我再装回来`, "success");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : `${item.name}删除失败`,
+        "error",
+      );
+    } finally {
+      setDeletingComponent("");
+      await load();
     }
   }
 
@@ -359,6 +390,21 @@ export default function AgentDownloadPage() {
                   <dt>本地路径</dt>
                   <dd>{item.path || "--"}</dd>
                 </Box>
+                {item.installed ? (
+                  <Button
+                    color="error"
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DeleteOutlineRoundedIcon />}
+                    disabled={Boolean(deletingComponent) || loading}
+                    onClick={() => void removeRuntimeComponent(item)}
+                    sx={{ mt: 2 }}
+                  >
+                    {deletingComponent === item.key
+                      ? "正在删除"
+                      : "删除组件"}
+                  </Button>
+                ) : null}
               </SectionPanel>
             ))}
           </Box>
@@ -426,13 +472,19 @@ function componentInstalled(
   runtime: UnknownRecord,
   nestedRuntime: UnknownRecord,
 ) {
+  if (key === "cloakbrowser") {
+    return Boolean(
+      runtime.cloakbrowser_cached ||
+        nestedRuntime.cloakbrowser_cached ||
+        runtime.cloakbrowser_installed ||
+        nestedRuntime.cloakbrowser_installed,
+    );
+  }
   const field =
     key === "node_runtime"
       ? "node_installed"
-      : key === "cloakbrowser_wrapper"
-        ? "cloakbrowser_wrapper_installed"
-        : key === "cloakbrowser"
-          ? "cloakbrowser_installed"
+        : key === "cloakbrowser_wrapper"
+          ? "cloakbrowser_wrapper_installed"
           : "ocr_installed";
   return Boolean(runtime[field] || nestedRuntime[field]);
 }

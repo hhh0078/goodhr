@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,10 +110,13 @@ func TestPrivateSettingsProtectAndHideLicenseKey(t *testing.T) {
 // TestOfficialDownloadProgressParsing 验证官方十等分进度会转换为前端百分比和字节数。
 func TestOfficialDownloadProgressParsing(t *testing.T) {
 	manager := &Manager{}
-	manager.updateOfficialInstallProgress("[cloakbrowser] Download progress: 50% (120/240 MB)")
+	manager.updateOfficialInstallProgress("[cloakbrowser] Download progress: 50% (120/240 MB)", 2)
 	progress := manager.InstallProgress()
 	if progress.Stage != "download" || progress.Percent != 64 {
 		t.Fatalf("progress = %+v", progress)
+	}
+	if progress.Attempt != 2 || progress.MaxAttempts != officialInstallMaxAttempts {
+		t.Fatalf("attempt progress = %d/%d", progress.Attempt, progress.MaxAttempts)
 	}
 	if progress.Received != 120*1024*1024 || progress.Total != 240*1024*1024 {
 		t.Fatalf("download bytes = %d/%d", progress.Received, progress.Total)
@@ -137,6 +142,86 @@ func TestRetryableOfficialInstallError(t *testing.T) {
 				t.Fatalf("retryableOfficialInstallError(%q) = %v, want %v", testCase.output, got, testCase.want)
 			}
 		})
+	}
+}
+
+// TestCommandFailureKeepsUsefulContext 验证安装失败会保留末尾多行错误。
+func TestCommandFailureKeepsUsefulContext(t *testing.T) {
+	result := commandFailure("准备安装\n下载失败\nECONNRESET\n请检查网络", os.ErrPermission)
+	if !strings.Contains(result, "下载失败") || !strings.Contains(result, "ECONNRESET") || !strings.Contains(result, "请检查网络") {
+		t.Fatalf("commandFailure() 丢失错误上下文：%q", result)
+	}
+}
+
+// TestDownloadAssetRetriesTemporaryServerError 验证组件下载遇到短暂服务故障会自动重试。
+func TestDownloadAssetRetriesTemporaryServerError(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("runtime-data"))
+	}))
+	defer server.Close()
+	manager := &Manager{runtimeDir: t.TempDir()}
+	target := filepath.Join(manager.runtimeDir, "downloads", "node.zip")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.downloadAsset(t.Context(), "node_runtime", "Node 运行环境", server.URL, target, 3, 20); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("download attempts = %d, want 2", attempts)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "runtime-data" {
+		t.Fatalf("downloaded content=%q err=%v", content, err)
+	}
+}
+
+// TestRemoveComponentOnlyDeletesManagedDirectory 验证删除浏览器组件不会碰账号和 Key。
+func TestRemoveComponentOnlyDeletesManagedDirectory(t *testing.T) {
+	dataDir := t.TempDir()
+	runtimeDir := filepath.Join(dataDir, "runtime")
+	entryPath := filepath.Join(dataDir, "worker", "dist", "main.js")
+	manager := &Manager{runtimeDir: runtimeDir, entryPath: entryPath}
+	browserFile := filepath.Join(runtimeDir, "cloakbrowser", "chromium-test-pro", "chrome")
+	profileFile := filepath.Join(dataDir, "profiles", "default", "Cookies")
+	if err := os.MkdirAll(filepath.Dir(browserFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(browserFile, []byte("browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profileFile, []byte("profile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SaveCloakBrowserLicenseKey("cb_test_remove_component_123456"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.saveCloakBrowserVersion("test", browserFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RemoveComponent("cloakbrowser"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeDir, "cloakbrowser")); !os.IsNotExist(err) {
+		t.Fatalf("浏览器目录仍存在：%v", err)
+	}
+	if _, err := os.Stat(profileFile); err != nil {
+		t.Fatalf("账号目录被误删：%v", err)
+	}
+	if !manager.CloakBrowserLicenseConfigured() {
+		t.Fatal("删除浏览器时不应顺便清除 Key")
+	}
+	if _, exists := manager.loadVersions()["cloakbrowser"]; exists {
+		t.Fatal("浏览器版本记录仍存在")
 	}
 }
 
@@ -168,5 +253,28 @@ func TestStatusHidesRemovedLegacyCloakBrowser(t *testing.T) {
 	}
 	if _, exists := status.InstalledVersions["cloakbrowser"]; exists {
 		t.Fatal("状态接口仍返回已删除的旧浏览器记录")
+	}
+}
+
+// TestStatusReportsCachedBrowserWithoutLicense 验证清除 Key 后仍能识别并删除浏览器缓存。
+func TestStatusReportsCachedBrowserWithoutLicense(t *testing.T) {
+	runtimeDir := t.TempDir()
+	manager := &Manager{runtimeDir: runtimeDir}
+	browserPath := filepath.Join(runtimeDir, "cloakbrowser", "chromium-test-pro", "chrome")
+	if err := os.MkdirAll(filepath.Dir(browserPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(browserPath, []byte("browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.saveCloakBrowserVersion("test", browserPath); err != nil {
+		t.Fatal(err)
+	}
+	status := manager.Status()
+	if !status.CloakBrowserCached {
+		t.Fatal("已下载的浏览器缓存没有被识别")
+	}
+	if status.CloakBrowserInstalled {
+		t.Fatal("没有 Key 时浏览器不应被标记为可运行")
 	}
 }

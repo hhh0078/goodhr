@@ -72,7 +72,7 @@ func extractZip(archivePath string, targetDir string) error {
 	return nil
 }
 
-// extractTarGZ 安全解压 tar.gz 文件并拒绝链接和特殊文件。
+// extractTarGZ 安全解压 tar.gz 文件，只允许目标仍在组件目录内的相对符号链接。
 func extractTarGZ(archivePath string, targetDir string) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
@@ -117,6 +117,19 @@ func extractTarGZ(archivePath string, targetDir string) error {
 			}
 			if closeErr != nil {
 				return closeErr
+			}
+		case tar.TypeSymlink:
+			if filepath.IsAbs(header.Linkname) {
+				return fmt.Errorf("压缩包包含绝对符号链接：%s", header.Name)
+			}
+			if _, err = safeJoin(targetDir, filepath.Join(filepath.Dir(header.Name), header.Linkname)); err != nil {
+				return fmt.Errorf("压缩包包含越界符号链接：%s", header.Name)
+			}
+			if err = os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			if err = os.Symlink(header.Linkname, targetPath); err != nil {
+				return err
 			}
 		default:
 			return fmt.Errorf("压缩包包含不支持的链接或特殊文件：%s", header.Name)

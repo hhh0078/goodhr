@@ -59,13 +59,22 @@ export default function RequiredRuntimeInstaller({
   const progress = runtime?.install_progress || {};
   const missingLicense = licenseLoaded && !licenseKey;
   const missingComponents = components.some((item) => !item.installed);
+  const running = Boolean(installing || progress?.running);
   const visible = Boolean(
     agentBase &&
-      missingComponents &&
+      (missingComponents || running) &&
       !(missingLicense && pathname === "/admin/personal-config"),
   );
-  const running = Boolean(installing || progress?.running);
   const percent = clampPercent(progress?.percent);
+  const attemptText =
+    Number(progress?.attempt) > 0 && Number(progress?.max_attempts) > 1
+      ? `第 ${progress.attempt}/${progress.max_attempts} 次尝试`
+      : "";
+  const displayError =
+    error ||
+    (progress?.stage === "failed"
+      ? String(progress?.detail || progress?.message || "必要组件安装失败")
+      : "");
   const progressBytes = progress?.received
     ? progress.total > 0
       ? `${formatRuntimeBytes(Number(progress.received))} / ${formatRuntimeBytes(Number(progress.total))}`
@@ -197,7 +206,9 @@ export default function RequiredRuntimeInstaller({
     if (progress?.stage === "failed") {
       terminalRef.current = terminalKey;
       installStartedRef.current = false;
-      const message = String(progress?.message || "必要组件安装失败");
+      const message = String(
+        progress?.detail || progress?.message || "必要组件安装失败",
+      );
       setError(message);
       void reportUserFlow({
         step: "runtime_ready",
@@ -339,6 +350,7 @@ export default function RequiredRuntimeInstaller({
                 {runtimeProgressTitle(progress?.stage)}
               </Typography>
               <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+                {attemptText ? `${attemptText} · ` : ""}
                 {percent}%
               </Typography>
             </Stack>
@@ -362,9 +374,9 @@ export default function RequiredRuntimeInstaller({
           </Box>
         ) : null}
 
-        {error ? (
-          <Alert severity='error' sx={{ mt: 2 }}>
-            {error}
+        {displayError ? (
+          <Alert severity='error' sx={{ mt: 2, whiteSpace: "pre-wrap" }}>
+            {displayError}
           </Alert>
         ) : null}
 
@@ -377,7 +389,11 @@ export default function RequiredRuntimeInstaller({
           onClick={() => void installRuntime()}
           sx={{ mt: 2.5 }}
         >
-          {running ? "正在安装..." : error ? "重试安装" : "安装必要组件"}
+          {running
+            ? "正在安装..."
+            : displayError
+              ? "重试安装"
+              : "安装必要组件"}
         </Button>
       </DialogContent>
     </Dialog>
