@@ -135,11 +135,11 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 	"local_agent_console_url": "https://goodhr5.58it.cn/admin",
 		"runtime_components": {
 						"node_runtime": {
-							"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
-							"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
+							"win": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
+							"mac": {"version": "22.19.0", "url": "https://oss2.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
 						},
 						"ocr": {
-						"win": {"version": "rapidocr-json-2.0.0", "url": "https://oss.58it.cn/goodhr-ocr-win-x64.zip", "sha256": "4209f60feb4248376c56b8b9924d7c21aaf91de5058c6daddccc6bd1e0a025f3", "note": "RapidOCR JSON Windows x64"},
+						"win": {"version": "goodhr-rapidocr-json-0.2.0", "url": "https://oss2.58it.cn/goodhr-rapidocr-json-win-x64-v0.2.0.zip", "sha256": "4db6867818002f194f79d1edda291efb438ab6f371d4b307bae990232b917a3d", "note": "GoodHR RapidOCR JSON Windows x64"},
 						"mac": {"version": "", "url": "", "sha256": "", "note": "macOS OCR 组件待上传"}
 					}
 				},

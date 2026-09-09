@@ -14,11 +14,16 @@ type privateSettings struct {
 	CloakBrowserLicenseKey string `json:"cloakbrowser_license_key"`
 }
 
-// SaveCloakBrowserLicenseKey 校验并保存 Key；空值会清除本机 Key。
+// SaveCloakBrowserLicenseKey 校验并保存 Key；写入前停止旧 Worker，空值会清除本机 Key。
 func (m *Manager) SaveCloakBrowserLicenseKey(value string) error {
 	value = strings.TrimSpace(value)
 	if value != "" && !validCloakBrowserLicenseKey(value) {
 		return fmt.Errorf("CloakBrowser Key 格式不正确，请重新复制完整 Key")
+	}
+	if m.worker != nil {
+		if err := m.worker.Stop(); err != nil {
+			return fmt.Errorf("更新 CloakBrowser Key 前停止浏览器操作程序失败：%w", err)
+		}
 	}
 	path := m.privateSettingsPath()
 	if value == "" {
