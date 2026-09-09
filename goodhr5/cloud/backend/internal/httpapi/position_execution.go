@@ -58,7 +58,7 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writePositionStartError(w, http.StatusUnauthorized, "SESSION_EXPIRED", "登录状态已经失效，请重新登录")
+		writeAuthError(w, err)
 		return
 	}
 	var payload struct {
@@ -428,7 +428,7 @@ func positionStatusNoticeLabel(status string) string {
 func (s *PositionExecutionService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true
@@ -444,7 +444,7 @@ func (s *PositionExecutionService) currentSessionForFailNotice(w http.ResponseWr
 	if unsafeErr == nil {
 		return session, true
 	}
-	writeError(w, http.StatusUnauthorized, "session invalid or expired")
+	writeAuthError(w, unsafeErr)
 	return Session{}, false
 }
 

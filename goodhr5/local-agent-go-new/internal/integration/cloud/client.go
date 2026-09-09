@@ -443,6 +443,7 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 	}
 	if response.StatusCode >= 400 {
 		var failure struct {
+			Code    string          `json:"code"`
 			Message string          `json:"message"`
 			Error   json.RawMessage `json:"error"`
 			Msg     string          `json:"msg"`
@@ -450,7 +451,7 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 		}
 		_ = json.Unmarshal(content, &failure)
 		message := strings.TrimSpace(failure.Message)
-		code := ""
+		code := strings.TrimSpace(failure.Code)
 		errorID := strings.TrimSpace(failure.ErrorID)
 		if message == "" {
 			var errorBody struct {
@@ -459,7 +460,9 @@ func (c *Client) doBody(ctx context.Context, method string, path string, token s
 				ErrorID string `json:"error_id"`
 			}
 			if err := json.Unmarshal(failure.Error, &errorBody); err == nil {
-				code = strings.TrimSpace(errorBody.Code)
+				if code == "" {
+					code = strings.TrimSpace(errorBody.Code)
+				}
 				message = strings.TrimSpace(errorBody.Message)
 				errorID = strings.TrimSpace(errorBody.ErrorID)
 			}

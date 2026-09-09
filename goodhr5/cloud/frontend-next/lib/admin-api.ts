@@ -2,6 +2,7 @@
 "use client";
 
 import { TOKEN_KEY } from "./api";
+import { shouldClearSession } from "./auth-session";
 import { candidateAvatarAssetURL } from "./candidate-avatar-url";
 
 const DEFAULT_CLOUD_API_BASE =
@@ -89,7 +90,7 @@ export async function cloudRequest(path: string, options: RequestOptions = {}) {
   } catch {
     throw new Error("无法连接云端服务，请检查网络后重试");
   }
-  return parseResponse(response, "云端请求失败", Boolean(token));
+  return parseResponse(response, "云端请求失败", token);
 }
 
 /** cloudDownload 携带登录凭证下载云端受保护文件，并使用服务端文件名保存。 */
@@ -105,7 +106,7 @@ export async function cloudDownload(path: string, filename: string) {
     throw new Error("无法连接云端服务，请检查网络后重试");
   }
   if (!response.ok) {
-    await parseResponse(response, "简历附件下载失败", Boolean(token));
+    await parseResponse(response, "简历附件下载失败", token);
     return;
   }
   const blob = await response.blob();
@@ -141,7 +142,7 @@ export async function localRequest(
             ? body
             : JSON.stringify(body),
     });
-    const data = await parseResponse(response, "本地程序请求失败", false);
+    const data = await parseResponse(response, "本地程序请求失败", "");
     return data?.data ?? data;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError")
@@ -342,7 +343,7 @@ function saveLocalAgentDetectCache(cache: {
 async function parseResponse(
   response: Response,
   fallback: string,
-  clearInvalidToken: boolean,
+  requestToken: string,
 ) {
   const text = await response.text();
   let data: any = {};
@@ -359,13 +360,15 @@ async function parseResponse(
     data.ok === false ||
     (data.code != null && code !== 200)
   ) {
-		if (response.status === 401 && clearInvalidToken) {
-			localStorage.removeItem(TOKEN_KEY);
-			if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-				const next = encodeURIComponent(window.location.pathname + window.location.search);
-				window.location.replace(`/login?next=${next}`);
-			}
-		}
+    if (typeof window !== "undefined" && shouldClearSession(
+      response.status, responseErrorCode(data), requestToken, getToken(),
+    )) {
+      localStorage.removeItem(TOKEN_KEY);
+      if (!window.location.pathname.startsWith("/login")) {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.replace(`/login?next=${next}`);
+      }
+    }
     const errorID = responseErrorID(data);
     const message = responseErrorMessage(data, fallback);
     throw new APIRequestError(

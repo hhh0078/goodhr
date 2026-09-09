@@ -98,7 +98,7 @@ func NewUserFlowService(auth *AuthService, store UserFlowStore, positions Positi
 func (s *UserFlowService) Current(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	switch r.Method {

@@ -59,12 +59,12 @@ func (h *AgentWSHub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		token = bearerToken(r.Header.Get("Authorization"))
 	}
 	if token == "" {
-		writeError(w, http.StatusUnauthorized, "missing token")
+		writeAuthError(w, ErrSessionRequired)
 		return
 	}
 	session, err := h.auth.SessionFromToken(token)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	conn, err := h.upgrader.Upgrade(w, r, nil)
@@ -87,7 +87,7 @@ func (h *AgentWSHub) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

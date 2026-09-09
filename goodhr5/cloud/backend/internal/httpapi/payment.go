@@ -80,7 +80,7 @@ func (s *PaymentService) Orders(w http.ResponseWriter, r *http.Request) {
 func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	var req createAIBalanceOrderRequest
@@ -262,7 +262,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 func (s *PaymentService) ListMyOrders(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	orders, err := s.orders.ListByUser(session.Email)
@@ -277,7 +277,7 @@ func (s *PaymentService) ListMyOrders(w http.ResponseWriter, r *http.Request) {
 func (s *PaymentService) ListAdminOrders(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -300,7 +300,7 @@ func (s *PaymentService) OrderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	orderNo := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/payment/orders/"), "/")

@@ -66,12 +66,8 @@ func (s *SubscriptionService) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, err := s.auth.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return
 	}
 

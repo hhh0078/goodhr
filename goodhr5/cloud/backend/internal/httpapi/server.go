@@ -62,12 +62,15 @@ func NewServer() (*Server, error) {
 	adminUserStore := config.AdminUserStore(db, subscriptionStore)
 	invitationStore := config.InvitationStore(db)
 	activationCodeStore := config.ActivationCodeStore(db)
-	authStore, err := config.AuthStore()
+	authStore, err := config.AuthStore(db)
 	if err != nil {
 		return nil, err
 	}
 	if config.RedisAddr != "" {
 		log.Print("Redis 连接检查成功")
+	}
+	if db == nil && config.RedisAddr == "" {
+		log.Print("警告：未配置 PostgreSQL 或 Redis，登录会话仅保存在内存，重启会失效；正式环境请配置 PostgreSQL")
 	}
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
@@ -421,7 +424,7 @@ func (s *Server) ListAdminPlatformConfigs(w http.ResponseWriter, r *http.Request
 
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -472,7 +475,7 @@ func (s *Server) ListAdminSystemConfigs(w http.ResponseWriter, r *http.Request) 
 
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -496,7 +499,7 @@ func (s *Server) ListAdminSystemConfigs(w http.ResponseWriter, r *http.Request) 
 func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {

@@ -60,7 +60,7 @@ func (s *NotificationProfileService) User(w http.ResponseWriter, r *http.Request
 func (s *NotificationProfileService) Get(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	profile, err := s.store.GetNotificationProfile(session.Email)
@@ -75,7 +75,7 @@ func (s *NotificationProfileService) Get(w http.ResponseWriter, r *http.Request)
 func (s *NotificationProfileService) Update(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	var req struct {

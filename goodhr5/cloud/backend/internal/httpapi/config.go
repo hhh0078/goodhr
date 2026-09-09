@@ -96,16 +96,20 @@ func (c Config) PostgresDB() (*sql.DB, error) {
 	return db, nil
 }
 
-// AuthStore 创建认证存储；配置 Redis 时先检查连接，未配置时使用内存实现。
-func (c Config) AuthStore() (AuthStore, error) {
+// AuthStore 优先持久保存会话；Redis 保留验证码及旧会话，纯内存仅用于未接数据库的开发环境。
+func (c Config) AuthStore(db *sql.DB) (AuthStore, error) {
+	var legacy AuthStore = NewMemoryAuthStore()
 	if c.RedisAddr != "" {
 		store := NewRedisAuthStore(c.RedisAddr, c.RedisPassword, c.RedisDB)
 		if err := store.Ping(context.Background()); err != nil {
 			return nil, err
 		}
-		return store, nil
+		legacy = store
 	}
-	return NewMemoryAuthStore(), nil
+	if db != nil {
+		return NewPostgresAuthStore(db, legacy), nil
+	}
+	return legacy, nil
 }
 
 // Mailer 创建验证码发信器；配置 SMTP 时真实发信，否则使用开发模式。

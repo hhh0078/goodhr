@@ -595,7 +595,7 @@ func (s *AdminEmailService) resolveRecipients(req sendAdminEmailRequest) ([]stri
 func (s *AdminEmailService) requireSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return false
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {

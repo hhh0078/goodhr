@@ -133,12 +133,8 @@ func (s *HelpService) Chat(w http.ResponseWriter, r *http.Request) {
 // currentSession 从请求中解析登录会话。
 func (s *HelpService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	session, err := s.auth.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return Session{}, false
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true

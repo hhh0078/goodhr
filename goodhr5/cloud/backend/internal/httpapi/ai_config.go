@@ -400,12 +400,8 @@ func shouldRevealAPIKey(r *http.Request) bool {
 func (s *AIConfigService) currentSession(w http.ResponseWriter, r *http.Request) (Session, bool) {
 	// 调用认证服务解析请求会话，避免 AI 配置 API 自己重复处理 token。
 	session, err := s.auth.SessionFromRequest(r)
-	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
-		return Session{}, false
-	}
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeAuthError(w, err)
 		return Session{}, false
 	}
 	return session, true

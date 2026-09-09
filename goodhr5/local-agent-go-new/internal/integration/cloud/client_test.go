@@ -193,6 +193,21 @@ func TestRequestPositionStartReadsStructuredError(t *testing.T) {
 	}
 }
 
+// TestRequestPositionStartReadsAuthError 验证统一认证响应保留状态码和顶层错误码。
+func TestRequestPositionStartReadsAuthError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"AUTH_UNAVAILABLE","error":"登录状态暂时没查到，请稍后重试，无需重新登录"}`))
+	}))
+	defer server.Close()
+	err := New(server.URL).RequestPositionStart(context.Background(), "token", "position-1", "greeting", "goodhr-device-v1-test")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "AUTH_UNAVAILABLE" || apiErr.StatusCode != 503 {
+		t.Fatalf("认证错误解析失败：%v", err)
+	}
+}
+
 // TestSavePositionCandidateUsesStructuredEndpoint 验证结构化候选人会使用岗位简历库接口和强类型字段。
 func TestSavePositionCandidateUsesStructuredEndpoint(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

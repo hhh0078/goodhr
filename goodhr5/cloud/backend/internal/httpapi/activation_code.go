@@ -65,7 +65,7 @@ func NewActivationCodeService(auth *AuthService, store ActivationCodeStore, subs
 func (s *ActivationCodeService) AdminCollection(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	if !s.auth.IsSuperAdmin(session.Email) {
@@ -133,7 +133,7 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		writeAuthError(w, err)
 		return
 	}
 	var req redeemActivationCodeRequest

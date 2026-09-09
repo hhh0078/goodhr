@@ -233,7 +233,7 @@ func (s *AutoReplyService) currentRequestContext(w http.ResponseWriter, r *http.
 	}
 	session, err := s.auth.SessionFromRequest(r)
 	if err != nil {
-		writeAutoReplyError(w, http.StatusUnauthorized, "SESSION_EXPIRED", "登录状态已经失效，请重新登录")
+		writeAuthError(w, err)
 		return autoReplyRequestContext{}, false
 	}
 	tenant, err := s.tenants.GetOrCreateTenant(session.Email)
