@@ -45,6 +45,7 @@ export default function RequiredRuntimeInstaller({
   const pathname = usePathname();
   const router = useRouter();
   const [runtime, setRuntime] = useState<any>({});
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseLoaded, setLicenseLoaded] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -62,8 +63,9 @@ export default function RequiredRuntimeInstaller({
   const running = Boolean(installing || progress?.running);
   const visible = Boolean(
     agentBase &&
-      (missingComponents || running) &&
-      !(missingLicense && pathname === "/admin/personal-config"),
+      statusLoaded &&
+      (missingComponents || running || progress?.stage === "failed") &&
+      (running || !["/admin/personal-config", "/admin/agent-download"].includes(pathname)),
   );
   const percent = clampPercent(progress?.percent);
   const attemptText =
@@ -88,9 +90,10 @@ export default function RequiredRuntimeInstaller({
       return;
     }
     try {
-      setRuntime(
-        (await localRequest(agentBase, "/api/v1/runtime/status")) || {},
-      );
+      const status = (await localRequest(agentBase, "/api/v1/runtime/status")) || {};
+      setRuntime(status);
+      setStatusLoaded(true);
+      if (status.install_progress?.running) installStartedRef.current = true;
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -195,12 +198,12 @@ export default function RequiredRuntimeInstaller({
     void loadLicense();
   }, [loadLicense, pathname]);
   useEffect(() => {
-    if (visible || running) startPolling();
+    if (agentBase) startPolling();
     else stopPolling();
     return stopPolling;
-  }, [visible, running, loadStatus]);
+  }, [agentBase, loadStatus]);
   useEffect(() => {
-    if (!installStartedRef.current) return;
+    if (installing || !installStartedRef.current) return;
     const terminalKey = `${progress?.stage || ""}:${progress?.updated_at || ""}`;
     if (!terminalKey || terminalRef.current === terminalKey) return;
     if (progress?.stage === "failed") {
@@ -234,7 +237,7 @@ export default function RequiredRuntimeInstaller({
       notify("必要组件真的装好了，可以继续搬砖了", "success");
       void loadStatus();
     }
-  }, [progress, loadStatus, notify]);
+  }, [progress, installing, loadStatus, notify]);
 
   return (
     <Dialog
@@ -375,7 +378,7 @@ export default function RequiredRuntimeInstaller({
         ) : null}
 
         {displayError ? (
-          <Alert severity='error' sx={{ mt: 2, whiteSpace: "pre-wrap" }}>
+          <Alert severity='error' sx={{ mt: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
             {displayError}
           </Alert>
         ) : null}
@@ -395,6 +398,16 @@ export default function RequiredRuntimeInstaller({
               ? "重试安装"
               : "安装必要组件"}
         </Button>
+        {!running ? (
+          <Stack direction='row' spacing={1} sx={{ mt: 1 }}>
+            <Button startIcon={<SettingsRoundedIcon />} onClick={() => router.push("/admin/personal-config")}>
+              修改 Key
+            </Button>
+            <Button onClick={() => router.push("/admin/agent-download")}>
+              管理组件
+            </Button>
+          </Stack>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

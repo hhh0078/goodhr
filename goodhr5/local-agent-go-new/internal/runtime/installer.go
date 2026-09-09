@@ -24,7 +24,7 @@ func (m *Manager) StartInstall(manifest Manifest, licenseKey string) (Status, er
 		return m.Status(), fmt.Errorf("运行组件正在更新中，请等它忙完这一轮")
 	}
 	if strings.TrimSpace(licenseKey) != "" {
-		if err := m.SaveCloakBrowserLicenseKey(licenseKey); err != nil {
+		if err := m.saveCloakBrowserLicenseKey(licenseKey); err != nil {
 			m.installMu.Unlock()
 			return m.Status(), err
 		}
@@ -38,7 +38,9 @@ func (m *Manager) StartInstall(manifest Manifest, licenseKey string) (Status, er
 	})
 	go func() {
 		defer m.installMu.Unlock()
-		if err := m.install(context.Background(), manifest); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+		defer cancel()
+		if err := m.install(ctx, manifest); err != nil {
 			progress := m.InstallProgress()
 			progress.Running = false
 			progress.Stage = "failed"
@@ -263,7 +265,7 @@ func retryableInstallError(value string) bool {
 		"could not determine latest pro version", "pro binary unavailable",
 		"fetch failed", "econnreset", "econnrefused", "etimedout",
 		"socket hang up", "network error", "unexpected eof", "connection reset",
-		"connection refused", "timeout", "timed out", "tls handshake timeout",
+		"connection refused", "timeout", "timed out", "tls handshake timeout", "context deadline exceeded",
 		"http 429", "http 500", "http 502", "http 503", "http 504",
 		"状态码：429", "状态码：500", "状态码：502", "状态码：503", "状态码：504",
 	} {

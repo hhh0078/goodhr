@@ -11,6 +11,7 @@ type Status struct {
 	RuntimeDir            string                        `json:"runtime_dir"`
 	NodeReady             bool                          `json:"node_ready"`
 	NodeInstalled         bool                          `json:"node_installed"`
+	NodeManaged           bool                          `json:"node_managed"`
 	NodePath              string                        `json:"node_path"`
 	WorkerBuilt           bool                          `json:"worker_built"`
 	WorkerReady           bool                          `json:"worker_ready"`

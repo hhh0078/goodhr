@@ -16,9 +16,21 @@ type privateSettings struct {
 
 // SaveCloakBrowserLicenseKey 校验并保存 Key；写入前停止旧 Worker，空值会清除本机 Key。
 func (m *Manager) SaveCloakBrowserLicenseKey(value string) error {
+	if !m.installMu.TryLock() {
+		return fmt.Errorf("运行组件正在更新中，请等安装结束后再修改 Key")
+	}
+	defer m.installMu.Unlock()
+	return m.saveCloakBrowserLicenseKey(value)
+}
+
+// saveCloakBrowserLicenseKey 在调用方持有组件锁时保存 Key，相同 Key 不打断已有浏览器。
+func (m *Manager) saveCloakBrowserLicenseKey(value string) error {
 	value = strings.TrimSpace(value)
 	if value != "" && !validCloakBrowserLicenseKey(value) {
 		return fmt.Errorf("CloakBrowser Key 格式不正确，请重新复制完整 Key")
+	}
+	if value == m.cloakBrowserLicenseKey() {
+		return nil
 	}
 	if m.worker != nil {
 		if err := m.worker.Stop(); err != nil {

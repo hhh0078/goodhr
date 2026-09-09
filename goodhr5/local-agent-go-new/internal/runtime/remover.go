@@ -26,6 +26,11 @@ func (m *Manager) RemoveComponent(component string) error {
 		return fmt.Errorf("运行组件正在更新中，请等安装结束后再删除")
 	}
 	defer m.installMu.Unlock()
+	if component == "node_runtime" {
+		if _, err := os.Stat(m.componentDirectory(component)); os.IsNotExist(err) {
+			return fmt.Errorf("没有找到 GoodHR 安装的 Node；电脑原有的 Node 不会被删除")
+		}
+	}
 	if m.worker != nil {
 		if err := m.worker.Stop(); err != nil {
 			return fmt.Errorf("删除前停止浏览器操作程序失败：%w", err)

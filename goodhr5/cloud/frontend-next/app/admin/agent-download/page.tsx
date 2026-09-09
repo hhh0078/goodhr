@@ -6,6 +6,7 @@ import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -35,6 +36,7 @@ type RuntimeComponentView = {
   required: boolean;
   bundled: boolean;
   installed: boolean;
+  removable: boolean;
   configVersion: string;
   installedVersion: string;
   url: string;
@@ -59,9 +61,9 @@ export default function AgentDownloadPage() {
   const [deletingComponent, setDeletingComponent] = useState("");
 
   /** load 读取本地运行状态和云端组件配置。 */
-  async function load() {
+  async function load(silent = false) {
     if (!agentBase) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const result: unknown = await localRequest(
         agentBase,
@@ -69,17 +71,20 @@ export default function AgentDownloadPage() {
       );
       setRuntime(asRecord(result));
     } catch (error) {
-      notify(
+      if (!silent) notify(
         error instanceof Error ? error.message : "组件信息读取失败",
         "error",
       );
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
+    if (!agentBase) return;
+    const timer = window.setInterval(() => void load(true), 2000);
+    return () => window.clearInterval(timer);
   }, [agentBase]);
 
   /** updateRuntime 下载并安装缺失或版本不符的运行组件。 */
@@ -153,7 +158,7 @@ export default function AgentDownloadPage() {
 
   /** removeRuntimeComponent 二次确认后删除 GoodHR 自己管理的单个运行组件。 */
   async function removeRuntimeComponent(item: RuntimeComponentView) {
-    if (!agentBase || !item.installed || deletingComponent) return;
+    if (!agentBase || !item.installed || !item.removable || deletingComponent) return;
     const confirmed = await confirm(
       "公主请确认删除组件",
       `将删除“${item.name}”。浏览器账号和岗位数据会保留，需要时可以重新安装。`,
@@ -181,6 +186,7 @@ export default function AgentDownloadPage() {
 
   const components = buildComponents(runtime, onboardingConfig);
   const extensionsDirectory = textValue(runtime.extensions_dir);
+  const installProgress = asRecord(runtime.install_progress);
 
   return (
     <>
@@ -191,12 +197,12 @@ export default function AgentDownloadPage() {
           <>
             <RefreshButton
               loading={loading}
-              onClick={() => void refreshAgent().then(load)}
+              onClick={() => void refreshAgent().then(() => load())}
             />
             <Button
               variant="contained"
               startIcon={<SystemUpdateAltRoundedIcon />}
-              disabled={loading || !agentBase}
+              disabled={loading || !agentBase || Boolean(installProgress.running)}
               onClick={() => void updateRuntime()}
             >
               更新运行组件
@@ -205,6 +211,11 @@ export default function AgentDownloadPage() {
         }
       />
       {loading ? <LinearProgress sx={{ mb: 2 }} /> : null}
+      {installProgress.stage === "failed" ? (
+        <Alert severity="error" sx={{ mb: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          {textValue(installProgress.detail) || textValue(installProgress.message)}
+        </Alert>
+      ) : null}
       {!agentBase ? (
         <SectionPanel>
           <EmptyState text="本地程序未连接" />
@@ -390,13 +401,13 @@ export default function AgentDownloadPage() {
                   <dt>本地路径</dt>
                   <dd>{item.path || "--"}</dd>
                 </Box>
-                {item.installed ? (
+                {item.installed && item.removable ? (
                   <Button
                     color="error"
                     variant="outlined"
                     size="small"
                     startIcon={<DeleteOutlineRoundedIcon />}
-                    disabled={Boolean(deletingComponent) || loading}
+                    disabled={Boolean(deletingComponent) || loading || Boolean(installProgress.running)}
                     onClick={() => void removeRuntimeComponent(item)}
                     sx={{ mt: 2 }}
                   >
@@ -404,6 +415,10 @@ export default function AgentDownloadPage() {
                       ? "正在删除"
                       : "删除组件"}
                   </Button>
+                ) : item.installed ? (
+                  <Typography sx={{ mt: 2, color: "text.secondary", fontSize: 13 }}>
+                    正在使用电脑原有的 Node，由系统管理。
+                  </Typography>
                 ) : null}
               </SectionPanel>
             ))}
@@ -447,6 +462,7 @@ function buildComponents(
       required: key !== "ocr",
       bundled: false,
       installed: componentInstalled(key, runtime, nestedRuntime),
+      removable: key !== "node_runtime" || (runtime.node_managed ?? nestedRuntime.node_managed) !== false,
       configVersion:
         key === "cloakbrowser_wrapper"
           ? "0.5.9"

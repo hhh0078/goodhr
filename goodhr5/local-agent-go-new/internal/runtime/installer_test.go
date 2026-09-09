@@ -2,6 +2,7 @@
 package runtime
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,48 @@ import (
 	"strings"
 	"testing"
 )
+
+// TestComponentOperationsRejectConcurrentInstall 验证安装期间不能改 Key、启动或删除组件。
+func TestComponentOperationsRejectConcurrentInstall(t *testing.T) {
+	manager := &Manager{runtimeDir: filepath.Join(t.TempDir(), "runtime")}
+	if err := manager.SaveCloakBrowserLicenseKey("cb_test_original_123456"); err != nil {
+		t.Fatal(err)
+	}
+	manager.installMu.Lock()
+	defer manager.installMu.Unlock()
+	if err := manager.SaveCloakBrowserLicenseKey(""); err == nil {
+		t.Fatal("安装期间不应清除 Key")
+	}
+	if err := manager.EnsureWorker(context.Background()); err == nil || !strings.Contains(err.Error(), "正在更新") {
+		t.Fatalf("安装期间启动结果不正确：%v", err)
+	}
+	if err := manager.RemoveComponent("cloakbrowser"); err == nil {
+		t.Fatal("安装期间不应删除组件")
+	}
+	if manager.cloakBrowserLicenseKey() != "cb_test_original_123456" {
+		t.Fatal("被拒绝的修改改变了 Key")
+	}
+}
+
+// TestStartInstallInvalidKeyReleasesLock 验证安装入口内部保存 Key 不会重复加锁，失败后仍可重试。
+func TestStartInstallInvalidKeyReleasesLock(t *testing.T) {
+	manager := &Manager{runtimeDir: t.TempDir()}
+	if _, err := manager.StartInstall(Manifest{}, "invalid"); err == nil || !strings.Contains(err.Error(), "格式") {
+		t.Fatalf("无效 Key 应立即返回格式错误：%v", err)
+	}
+	if !manager.installMu.TryLock() {
+		t.Fatal("校验失败后安装锁未释放")
+	}
+	manager.installMu.Unlock()
+}
+
+// TestRemoveNodeWithoutManagedDirectoryRejectsFalseSuccess 验证没有自有 Node 时不虚报删除成功。
+func TestRemoveNodeWithoutManagedDirectoryRejectsFalseSuccess(t *testing.T) {
+	manager := &Manager{runtimeDir: t.TempDir()}
+	if err := manager.RemoveComponent("node_runtime"); err == nil || !strings.Contains(err.Error(), "不会被删除") {
+		t.Fatalf("没有自有 Node 时应给出明确说明：%v", err)
+	}
+}
 
 // TestVerifySHA256 验证正确校验值通过、错误校验值失败。
 func TestVerifySHA256(t *testing.T) {

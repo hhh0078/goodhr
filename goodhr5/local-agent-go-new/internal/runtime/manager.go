@@ -50,7 +50,11 @@ func (m *Manager) CheckNode() error {
 	if !fileExists(nodePath) {
 		return fmt.Errorf("Node.js 暂时没找到：%s", nodePath)
 	}
-	output, err := exec.Command(nodePath, "--version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, nodePath, "--version")
+	configureRuntimeCommand(command)
+	output, err := command.Output()
 	if err != nil {
 		return fmt.Errorf("Node.js 版本读取失败：%w", err)
 	}
@@ -107,6 +111,10 @@ func (m *Manager) WorkerDependencyPath() string {
 
 // EnsureWorker 检查 Node 和入口后启动 Worker。
 func (m *Manager) EnsureWorker(ctx context.Context) error {
+	if !m.installMu.TryLock() {
+		return fmt.Errorf("运行组件正在更新中，请等安装结束后再启动浏览器")
+	}
+	defer m.installMu.Unlock()
 	if err := m.CheckNode(); err != nil {
 		return err
 	}
@@ -146,6 +154,7 @@ func (m *Manager) Status() Status {
 	return Status{
 		Platform:              platformKey(),
 		NodeInstalled:         m.CheckNode() == nil,
+		NodeManaged:           findFile(filepath.Join(m.runtimeDir, "node"), nodeBinaryName()) != "",
 		NodePath:              nodePath,
 		NodeWorkerInstalled:   m.CheckWorkerBuild() == nil,
 		WorkerEntry:           m.entryPath,

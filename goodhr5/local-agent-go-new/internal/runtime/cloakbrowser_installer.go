@@ -62,8 +62,10 @@ func (m *Manager) installWorkerDependencies(ctx context.Context) error {
 			Message: "正在通过国内镜像安装 CloakBrowser 控制组件", Percent: 25,
 			Attempt: attempt, MaxAttempts: runtimeInstallMaxAttempts,
 		})
-		command, err := m.npmInstallCommand(ctx)
+		attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		command, err := m.npmInstallCommand(attemptCtx)
 		if err != nil {
+			cancel()
 			return err
 		}
 		command.Dir = m.workerRoot()
@@ -83,6 +85,10 @@ func (m *Manager) installWorkerDependencies(ctx context.Context) error {
 				})
 			}
 		})
+		if attemptCtx.Err() != nil {
+			runErr = fmt.Errorf("控制组件安装超时或已取消：%w", attemptCtx.Err())
+		}
+		cancel()
 		if runErr == nil || !retryableInstallError(output+"\n"+runErr.Error()) || attempt == runtimeInstallMaxAttempts {
 			break
 		}
@@ -181,12 +187,17 @@ func (m *Manager) runOfficialInstallWithRetry(ctx context.Context, licenseKey st
 	var output string
 	var runErr error
 	for attempt := 1; attempt <= officialInstallMaxAttempts; attempt++ {
-		command := exec.CommandContext(ctx, m.NodePath(), m.cloakBrowserCLIPath(), "install")
+		attemptCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+		command := exec.CommandContext(attemptCtx, m.NodePath(), m.cloakBrowserCLIPath(), "install")
 		command.Dir = m.workerRoot()
 		command.Env = m.cloakBrowserEnvironment(licenseKey, true)
 		output, runErr = runStreamingCommand(command, licenseKey, func(line string) {
 			m.updateOfficialInstallProgress(line, attempt)
 		})
+		if attemptCtx.Err() != nil {
+			runErr = fmt.Errorf("浏览器下载安装超时或已取消：%w", attemptCtx.Err())
+		}
+		cancel()
 		if runErr == nil || !retryableOfficialInstallError(output+"\n"+runErr.Error()) || attempt == officialInstallMaxAttempts {
 			return output, runErr
 		}
@@ -218,6 +229,9 @@ func (m *Manager) smokeTestCloakBrowser(ctx context.Context, licenseKey string) 
 	command.Dir = m.workerRoot()
 	command.Env = m.cloakBrowserEnvironment(licenseKey, false)
 	output, err := runStreamingCommand(command, licenseKey, nil)
+	if testCtx.Err() != nil {
+		err = fmt.Errorf("浏览器启动检查超时或已取消：%w", testCtx.Err())
+	}
 	if err != nil {
 		return fmt.Errorf("最新版 Chromium 试启动失败：%s", commandFailure(output, err))
 	}
@@ -266,6 +280,7 @@ func (m *Manager) cloakBrowserInfo(ctx context.Context, licenseKey string) (cloa
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(infoCtx, m.NodePath(), m.cloakBrowserCLIPath(), "info", "--quick", "--json")
+	configureRuntimeCommand(command)
 	command.Dir = m.workerRoot()
 	command.Env = m.cloakBrowserEnvironment(licenseKey, false)
 	var stdout bytes.Buffer
@@ -273,6 +288,9 @@ func (m *Manager) cloakBrowserInfo(ctx context.Context, licenseKey string) (cloa
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
+		if infoCtx.Err() != nil {
+			return cloakBrowserDiagnostics{}, fmt.Errorf("官方 Key 诊断超时或已取消：%w", infoCtx.Err())
+		}
 		output := sanitizeSensitive(stderr.String()+"\n"+stdout.String(), licenseKey)
 		return cloakBrowserDiagnostics{}, fmt.Errorf("%s", commandFailure(output, err))
 	}
@@ -440,6 +458,7 @@ func overrideEnvironment(base []string, overrides []string) []string {
 
 // runStreamingCommand 同时读取命令标准输出和错误输出，并逐行回调安装进度。
 func runStreamingCommand(command *exec.Cmd, secret string, onLine func(string)) (string, error) {
+	configureRuntimeCommand(command)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return "", err
@@ -447,6 +466,15 @@ func runStreamingCommand(command *exec.Cmd, secret string, onLine func(string)) 
 	stderr, err := command.StderrPipe()
 	if err != nil {
 		return "", err
+	}
+	// 超时后同时关闭读管道，防止后代进程占用管道导致安装一直不结束。
+	if cancel := command.Cancel; cancel != nil {
+		command.Cancel = func() error {
+			err := cancel()
+			_ = stdout.Close()
+			_ = stderr.Close()
+			return err
+		}
 	}
 	if err = command.Start(); err != nil {
 		return "", err
@@ -501,6 +529,9 @@ func commandFailure(output string, runErr error) string {
 		if line := strings.TrimSpace(rawLines[index]); line != "" {
 			lines = append(lines, line)
 		}
+	}
+	if runErr != nil {
+		lines = append(lines, runErr.Error())
 	}
 	if len(lines) > 0 {
 		value := strings.Join(lines, "\n")
