@@ -27,6 +27,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ElementType } from "react";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
+import {
+  WechatPayDialog,
+  wechatPaymentFromResponse,
+  type WechatPaymentState,
+} from "@/components/payment/WechatPayDialog";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { type UserFlowState, type UserFlowStep } from "@/lib/user-flow";
 
@@ -95,7 +100,7 @@ const guideSteps: GuideStep[] = [
 
 /** DashboardPage 展示用户当前最需要关注的招聘和本地运行状态。 */
 export default function DashboardPage() {
-  const { agentBase, subscription, refreshAgent, notify, confirm } =
+  const { agentBase, subscription, refreshAgent, refreshSession, notify, confirm } =
     useAdmin();
   const [positions, setPositions] = useState<any[]>([]);
   const [resumeCount, setResumeCount] = useState(0);
@@ -106,6 +111,8 @@ export default function DashboardPage() {
   const [rechargeAmount, setRechargeAmount] = useState("10");
   const [recharging, setRecharging] = useState(false);
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
+  const [wechatPayment, setWechatPayment] =
+    useState<WechatPaymentState | null>(null);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [savingModel, setSavingModel] = useState(false);
@@ -195,9 +202,9 @@ export default function DashboardPage() {
         method: "POST",
         body: { amount_yuan: rechargeAmount || "10" },
       });
-      submitPayment(data.payment);
+      setWechatPayment(wechatPaymentFromResponse(data, "AI 余额充值"));
       setRechargeDialogOpen(false);
-      notify("充值订单已打开，支付完我再回来认真记账。", "success");
+      notify("微信支付二维码准备好了，扫一下就行。", "success");
     } catch (error) {
       notify(
         error instanceof Error
@@ -446,6 +453,15 @@ export default function DashboardPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <WechatPayDialog
+        payment={wechatPayment}
+        onClose={() => setWechatPayment(null)}
+        onPaid={async () => {
+          setWechatPayment(null);
+          notify("支付成功，AI 余额已经到账。", "success");
+          await Promise.all([load(), refreshSession()]);
+        }}
+      />
     </>
   );
 }
@@ -547,25 +563,6 @@ function AIWalletCard({
       </Stack>
     </SectionPanel>
   );
-}
-
-/** submitPayment 创建并提交第三方支付表单。 */
-function submitPayment(payment: any) {
-  if (!payment?.submit_url) throw new Error("支付平台没有返回可打开的支付地址");
-  const form = document.createElement("form");
-  form.method = payment.submit_method || "POST";
-  form.action = payment.submit_url;
-  form.target = "_blank";
-  Object.entries(payment.submit_fields || {}).forEach(([key, value]) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = key;
-    input.value = String(value ?? "");
-    form.appendChild(input);
-  });
-  document.body.appendChild(form);
-  form.submit();
-  form.remove();
 }
 
 /** OnboardingGuide 展示云端真实业务事件计算的新手引导。 */

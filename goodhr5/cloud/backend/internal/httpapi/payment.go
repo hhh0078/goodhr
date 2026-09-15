@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const defaultPaymentProvider = "haoshoumi"
+const defaultPaymentProvider = wechatPayProviderName
 
 type createPaymentOrderRequest struct {
 	PlanID string `json:"plan_id"`
@@ -170,7 +170,7 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "payment provider is not configured")
 		return
 	}
-	payResult, err := provider.CreateOrder(PaymentProviderOrderInput{
+	payResult, err := provider.CreateOrder(r.Context(), PaymentProviderOrderInput{
 		OrderNo:     order.OrderNo,
 		Title:       "GoodHR " + order.PlanName,
 		AmountCents: order.AmountCents,
@@ -245,7 +245,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed create payment order")
 		return
 	}
-	payResult, err := provider.CreateOrder(PaymentProviderOrderInput{
+	payResult, err := provider.CreateOrder(r.Context(), PaymentProviderOrderInput{
 		OrderNo:     order.OrderNo,
 		Title:       "GoodHR AI余额充值",
 		AmountCents: order.AmountCents,
@@ -321,36 +321,61 @@ func (s *PaymentService) OrderDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "permission denied")
 		return
 	}
+	if order.Status == "pending" && (order.ExpiredAt == nil || time.Now().Before(*order.ExpiredAt)) {
+		if provider, ok := s.providers[order.PaymentProvider]; ok {
+			result, queryErr := provider.QueryOrder(r.Context(), order.OrderNo)
+			if queryErr != nil {
+				log.Printf("[支付] 主动查单失败 order=%s provider=%s err=%v", order.OrderNo, order.PaymentProvider, queryErr)
+			} else if result.Paid {
+				if completeErr := s.completeProviderTransaction(order.PaymentProvider, result); completeErr != nil {
+					log.Printf("[支付] 主动查单到账处理失败 order=%s provider=%s err=%v", order.OrderNo, order.PaymentProvider, completeErr)
+				} else if refreshed, refreshErr := s.orders.ByOrderNo(order.OrderNo); refreshErr == nil {
+					order = refreshed
+				}
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "order": publicPaymentOrder(order)})
 }
 
-// HaoshoumiNotify 处理好收米支付回调。
-func (s *PaymentService) HaoshoumiNotify(w http.ResponseWriter, r *http.Request) {
-	values, err := readNotifyValues(r)
+// WechatNotify 处理微信支付回调并返回微信要求的应答格式。
+func (s *PaymentService) WechatNotify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"code": "FAIL", "message": "请求方式不支持"})
+		return
+	}
+	provider, ok := s.providers[wechatPayProviderName]
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "FAIL", "message": "微信支付暂未配置"})
+		return
+	}
+	result, err := provider.ParseNotify(r.Context(), r)
+	if err == nil {
+		err = s.completeProviderTransaction(wechatPayProviderName, result)
+	}
 	if err != nil {
-		http.Error(w, "fail", http.StatusBadRequest)
+		log.Printf("[支付] 微信回调处理失败 err=%v", err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "FAIL", "message": "支付通知处理失败"})
 		return
 	}
-	if err := s.HandleNotify(defaultPaymentProvider, values); err != nil {
-		http.Error(w, "fail", http.StatusBadRequest)
-		return
-	}
-	_, _ = w.Write([]byte("success"))
+	writeJSON(w, http.StatusOK, map[string]string{"code": "SUCCESS", "message": "成功"})
 }
 
-// HandleNotify 统一处理第三方支付回调和会员续期。
-func (s *PaymentService) HandleNotify(providerName string, values map[string]string) error {
+// completeProviderTransaction 校验第三方交易并完成到账业务。
+func (s *PaymentService) completeProviderTransaction(providerName string, result PaymentProviderTransactionResult) error {
 	provider, ok := s.providers[providerName]
 	if !ok {
 		return fmt.Errorf("payment provider not found")
 	}
-	result, err := provider.VerifyNotify(values)
+	if provider.Name() != providerName || !result.Paid {
+		return fmt.Errorf("payment is not successful")
+	}
+	order, err := s.orders.ByOrderNo(strings.TrimSpace(result.OrderNo))
 	if err != nil {
 		return err
 	}
-	order, err := s.orders.ByOrderNo(result.OrderNo)
-	if err != nil {
-		return err
+	if order.PaymentProvider != providerName {
+		return fmt.Errorf("payment provider mismatch")
 	}
 	if order.AmountCents != result.AmountCents {
 		return fmt.Errorf("payment amount mismatch")
@@ -567,33 +592,6 @@ func publicPaymentOrder(order PaymentOrder) map[string]any {
 		"expired_at":               order.ExpiredAt,
 		"created_at":               order.CreatedAt,
 	}
-}
-
-// readNotifyValues 读取支付平台 GET、表单或 JSON 回调参数。
-func readNotifyValues(r *http.Request) (map[string]string, error) {
-	values := map[string]string{}
-	for key, vals := range r.URL.Query() {
-		if len(vals) > 0 {
-			values[key] = vals[0]
-		}
-	}
-	if len(values) > 0 {
-		return values, nil
-	}
-	if err := r.ParseForm(); err == nil {
-		for key, vals := range r.PostForm {
-			if len(vals) > 0 {
-				values[key] = vals[0]
-			}
-		}
-	}
-	if len(values) > 0 {
-		return values, nil
-	}
-	if err := json.NewDecoder(r.Body).Decode(&values); err != nil {
-		return nil, err
-	}
-	return values, nil
 }
 
 // generatePaymentOrderNo 生成会员订阅订单号。

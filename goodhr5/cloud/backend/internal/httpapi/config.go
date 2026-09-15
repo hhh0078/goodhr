@@ -24,12 +24,14 @@ type Config struct {
 	SMTPUsername                string
 	SMTPPassword                string
 	SMTPFrom                    string
-	HaoshoumiMerchantID         string
-	HaoshoumiMerchantKey        string
-	HaoshoumiAPIURL             string
-	HaoshoumiNotifyURL          string
-	HaoshoumiReturnURL          string
-	HaoshoumiDefaultPaymentType string
+	WechatPayAppID              string
+	WechatPayMerchantID         string
+	WechatPayMerchantSerialNo   string
+	WechatPayPrivateKeyBase64   string
+	WechatPayAPIV3Key           string
+	WechatPayPublicKeyID        string
+	WechatPayPublicKeyBase64    string
+	WechatPayNotifyURL          string
 	UniversalLoginCodeOffsetMin int
 }
 
@@ -46,12 +48,14 @@ func LoadConfigFromEnv() Config {
 		SMTPUsername:                os.Getenv("GOODHR_SMTP_USERNAME"),
 		SMTPPassword:                os.Getenv("GOODHR_SMTP_PASSWORD"),
 		SMTPFrom:                    os.Getenv("GOODHR_SMTP_FROM"),
-		HaoshoumiMerchantID:         os.Getenv("GOODHR_HAOSHOUMI_MERCHANT_ID"),
-		HaoshoumiMerchantKey:        os.Getenv("GOODHR_HAOSHOUMI_MERCHANT_KEY"),
-		HaoshoumiAPIURL:             envString("GOODHR_HAOSHOUMI_API_URL", "https://api.kuaixiaopu.com/submit.php"),
-		HaoshoumiNotifyURL:          os.Getenv("GOODHR_HAOSHOUMI_NOTIFY_URL"),
-		HaoshoumiReturnURL:          os.Getenv("GOODHR_HAOSHOUMI_RETURN_URL"),
-		HaoshoumiDefaultPaymentType: os.Getenv("GOODHR_HAOSHOUMI_DEFAULT_TYPE"),
+		WechatPayAppID:              os.Getenv("GOODHR_WECHAT_PAY_APP_ID"),
+		WechatPayMerchantID:         os.Getenv("GOODHR_WECHAT_PAY_MCH_ID"),
+		WechatPayMerchantSerialNo:   os.Getenv("GOODHR_WECHAT_PAY_MERCHANT_SERIAL_NO"),
+		WechatPayPrivateKeyBase64:   os.Getenv("GOODHR_WECHAT_PAY_PRIVATE_KEY_BASE64"),
+		WechatPayAPIV3Key:           os.Getenv("GOODHR_WECHAT_PAY_API_V3_KEY"),
+		WechatPayPublicKeyID:        os.Getenv("GOODHR_WECHAT_PAY_PUBLIC_KEY_ID"),
+		WechatPayPublicKeyBase64:    os.Getenv("GOODHR_WECHAT_PAY_PUBLIC_KEY_BASE64"),
+		WechatPayNotifyURL:          os.Getenv("GOODHR_WECHAT_PAY_NOTIFY_URL"),
 		UniversalLoginCodeOffsetMin: envInt("GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES", 0),
 	}
 }

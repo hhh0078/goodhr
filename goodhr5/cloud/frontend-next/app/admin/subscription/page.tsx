@@ -38,6 +38,11 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import {
+  WechatPayDialog,
+  wechatPaymentFromResponse,
+  type WechatPaymentState,
+} from "@/components/payment/WechatPayDialog";
+import {
   estimateSubscriptionQuote,
   normalizeSubscriptionPlans,
   type SubscriptionPlan,
@@ -75,6 +80,8 @@ export default function SubscriptionPage() {
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(
     null,
   );
+  const [wechatPayment, setWechatPayment] =
+    useState<WechatPaymentState | null>(null);
 
   const modelLabel = currentAIModel || wallet.default_model || "未配置";
   const aiPageCount = Math.max(1, Math.ceil(aiTotal / aiRecordPageSize));
@@ -189,8 +196,8 @@ export default function SubscriptionPage() {
       if (data.payment_completed) {
         notify("Plus 剩余时间已经抵完差价，Max 全能版已到账。", "success");
       } else {
-        submitPayment(data.payment);
-        notify("支付页面已打开，付完我会回来认真记账。", "success");
+        setWechatPayment(wechatPaymentFromResponse(data, "会员订阅"));
+        notify("微信支付二维码准备好了，扫一下就行。", "success");
       }
       await loadSummary();
       await refreshSession();
@@ -227,9 +234,9 @@ export default function SubscriptionPage() {
         method: "POST",
         body: { amount_yuan: rechargeAmount || "10" },
       });
-      submitPayment(data.payment);
+      setWechatPayment(wechatPaymentFromResponse(data, "AI 余额充值"));
       setRechargeDialogOpen(false);
-      notify("AI 余额支付页面已打开，付完我再回来记账。", "success");
+      notify("微信支付二维码准备好了，扫一下就行。", "success");
       await loadSummary();
     } catch (error) {
       notify(
@@ -605,6 +612,15 @@ export default function SubscriptionPage() {
         }
         onClose={() => setPendingPayment(null)}
         onConfirm={() => void confirmPendingPayment()}
+      />
+      <WechatPayDialog
+        payment={wechatPayment}
+        onClose={() => setWechatPayment(null)}
+        onPaid={async () => {
+          setWechatPayment(null);
+          notify("支付成功，钱和权益都认真记好了。", "success");
+          await refreshAll();
+        }}
       />
     </>
   );
@@ -1206,23 +1222,4 @@ function statusText(status: string) {
     : status === "closed"
       ? "已关闭"
       : "待支付";
-}
-
-/** submitPayment 创建并提交第三方支付表单。 */
-function submitPayment(payment: any) {
-  if (!payment?.submit_url) throw new Error("支付平台没有返回可打开的支付地址");
-  const form = document.createElement("form");
-  form.method = payment.submit_method || "POST";
-  form.action = payment.submit_url;
-  form.target = "_blank";
-  Object.entries(payment.submit_fields || {}).forEach(([key, value]) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = key;
-    input.value = String(value ?? "");
-    form.appendChild(input);
-  });
-  document.body.appendChild(form);
-  form.submit();
-  form.remove();
 }

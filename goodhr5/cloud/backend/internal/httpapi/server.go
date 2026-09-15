@@ -86,7 +86,7 @@ func NewServer() (*Server, error) {
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
-	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewHaoshoumiProvider(config))
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(config))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
 	return &Server{
@@ -153,7 +153,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
 	mux.HandleFunc("/api/payment/ai-balance", s.payments.AIBalanceOrder)
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
-	mux.HandleFunc("/api/payment/notify/haoshoumi", s.payments.HaoshoumiNotify)
+	mux.HandleFunc("/api/payment/notify/wechat", s.payments.WechatNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)
 	mux.HandleFunc("/api/runtime/config", s.runtimeConfig.Current)
 	mux.HandleFunc("/api/invitations/summary", s.invitations.Summary)
