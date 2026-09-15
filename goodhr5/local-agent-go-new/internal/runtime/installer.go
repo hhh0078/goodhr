@@ -126,7 +126,17 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 		return fmt.Errorf("创建%s临时目录失败：%w", label, err)
 	}
 	defer os.RemoveAll(stagingDir)
-	if err = extractArchive(archivePath, stagingDir); err != nil {
+	if err = extractArchive(archivePath, stagingDir, func(written int64, total int64) {
+		progress := InstallProgress{
+			Running: true, Component: component, Stage: "extract",
+			Message: fmt.Sprintf("正在解压%s（已写入 %d MB）", label, written/1024/1024),
+			Percent: 75,
+		}
+		if total > 0 {
+			progress.Percent = min(95, 75+int(written*20/total))
+		}
+		m.setInstallProgress(progress)
+	}); err != nil {
 		return fmt.Errorf("解压%s失败：%w", label, err)
 	}
 	sourceDir := installRoot(stagingDir, component)

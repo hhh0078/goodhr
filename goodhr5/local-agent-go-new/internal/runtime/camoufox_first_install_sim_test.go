@@ -44,8 +44,15 @@ func TestSimulateFirstInstallCamoufox(t *testing.T) {
 		t.Fatalf("StartInstall() error = %v", err)
 	}
 	deadline := time.Now().Add(30 * time.Minute)
+	lastPercent := -1
 	for {
 		progress := manager.InstallProgress()
+		if progress.Percent != lastPercent {
+			t.Logf("进度 [%s] %s %d%% received=%d total=%d message=%s",
+				progress.Component, progress.Stage, progress.Percent,
+				progress.Received, progress.Total, progress.Message)
+			lastPercent = progress.Percent
+		}
 		if !progress.Running {
 			if progress.Stage != "installed" {
 				t.Fatalf("安装未成功：stage=%s message=%s", progress.Stage, progress.Message)
@@ -55,7 +62,7 @@ func TestSimulateFirstInstallCamoufox(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("安装超时：stage=%s message=%s", progress.Stage, progress.Message)
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 
 	binaryPath := manager.CamoufoxPath()

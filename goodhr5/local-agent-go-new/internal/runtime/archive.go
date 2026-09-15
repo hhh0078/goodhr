@@ -12,26 +12,32 @@ import (
 	"strings"
 )
 
-// extractArchive 根据后缀解压 zip 或 tar.gz 运行组件。
-func extractArchive(archivePath string, targetDir string) error {
+// extractArchive 根据后缀解压 zip 或 tar.gz 运行组件，并通过回调上报解压进度。
+// zip 回调携带真实总量（written/total 均有效），tar.gz 解压前无法得知总量，total 传 0。
+func extractArchive(archivePath string, targetDir string, onProgress func(written int64, total int64)) error {
 	lower := strings.ToLower(archivePath)
 	switch {
 	case strings.HasSuffix(lower, ".zip"):
-		return extractZip(archivePath, targetDir)
+		return extractZip(archivePath, targetDir, onProgress)
 	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return extractTarGZ(archivePath, targetDir)
+		return extractTarGZ(archivePath, targetDir, onProgress)
 	default:
 		return fmt.Errorf("暂不支持的压缩包格式：%s", filepath.Base(archivePath))
 	}
 }
 
-// extractZip 安全解压 zip 文件并拒绝符号链接。
-func extractZip(archivePath string, targetDir string) error {
+// extractZip 安全解压 zip 文件并拒绝符号链接，每写完一个条目上报一次累计进度。
+func extractZip(archivePath string, targetDir string, onProgress func(written int64, total int64)) error {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+	var total int64
+	for _, entry := range reader.File {
+		total += int64(entry.UncompressedSize64)
+	}
+	var written int64
 	for _, entry := range reader.File {
 		targetPath, err := safeJoin(targetDir, entry.Name)
 		if err != nil {
@@ -68,12 +74,16 @@ func extractZip(archivePath string, targetDir string) error {
 		if closeErr != nil {
 			return closeErr
 		}
+		written += int64(entry.UncompressedSize64)
+		if onProgress != nil {
+			onProgress(written, total)
+		}
 	}
 	return nil
 }
 
-// extractTarGZ 安全解压 tar.gz 文件并拒绝链接和特殊文件。
-func extractTarGZ(archivePath string, targetDir string) error {
+// extractTarGZ 安全解压 tar.gz 文件并拒绝链接和特殊文件，每写完一个条目上报累计写入量（总量未知传 0）。
+func extractTarGZ(archivePath string, targetDir string, onProgress func(written int64, total int64)) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -85,6 +95,7 @@ func extractTarGZ(archivePath string, targetDir string) error {
 	}
 	defer gzipReader.Close()
 	reader := tar.NewReader(gzipReader)
+	var written int64
 	for {
 		header, nextErr := reader.Next()
 		if nextErr == io.EOF {
@@ -117,6 +128,10 @@ func extractTarGZ(archivePath string, targetDir string) error {
 			}
 			if closeErr != nil {
 				return closeErr
+			}
+			written += header.Size
+			if onProgress != nil {
+				onProgress(written, 0)
 			}
 		default:
 			return fmt.Errorf("压缩包包含不支持的链接或特殊文件：%s", header.Name)
