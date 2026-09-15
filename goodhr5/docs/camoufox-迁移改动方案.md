@@ -118,6 +118,12 @@ Worker TS（浏览器启动封装/指纹）      ← 改动最重
 | D6 | 登录态迁移 | Chromium profile 无法迁移到 Firefox，升级后用户需重新登录招聘平台；云端已有 Cookie 存储，可在首次启动时尝试用 Playwright `context.addCookies()` 重注入（localStorage 无法迁移，部分平台可能仍需重新登录）。需在升级提示里讲清楚 | 只提示重新登录（最简单，体验略差） |
 | D7 | 实验性 GoController | 标记弃用/删除（Firefox 无 CDP，维护无意义） | 改造为 launchServer + firefox.connect（投入产出比低） |
 
+### 实施期新增决策（2026-09-16）
+
+| # | 决策点 | 结论 |
+|---|--------|------|
+| D8 | geoip 按代理 IP 匹配地理位置 | **停用**。用户与招聘平台均在中国大陆，语言（zh-CN）与时区（Asia/Shanghai）为固定身份，无需动态匹配；因此不分发 GeoLite2 数据库、不做 IP 定位接口对接，Worker 层将 locale/timezone 兜底为固定中国值。协议字段 `geoip` 保留但传入不生效 |
+
 ---
 
 ## 六、实施阶段
