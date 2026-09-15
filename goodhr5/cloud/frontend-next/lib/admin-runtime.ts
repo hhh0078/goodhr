@@ -37,6 +37,7 @@ export function buildRuntimeInstallPayload(config: any) {
 		node_runtime: ["node_runtime", "nodeRuntime", "node"],
 		camoufox: ["camoufox", "camofox", "camou_fox", "camouFox"],
 		cloakbrowser: ["cloakbrowser", "cloak_browser", "cloakBrowser", "browser"],
+		geoip: ["geoip", "geo_ip", "geoIP"],
 		ocr: ["ocr", "rapidocr", "rapidOCR"],
 	};
 	const platforms: Record<string, string[]> = { "win-x64": ["win-x64", "windows-x64", "win", "windows"], "darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"] };
