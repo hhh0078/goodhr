@@ -62,7 +62,7 @@ type screenshotCompatibilityRequest struct {
 	Height     int    `json:"height"`
 }
 
-// handlePageOpen 启动或复用指定 Profile，并通过 CloakBrowser 打开平台页面。
+// handlePageOpen 启动或复用指定 Profile，并通过 Camoufox 打开平台页面。
 func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 	if s.runner.HasActive() {
 		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务正在使用浏览器，现在不能切换页面"))
@@ -139,7 +139,7 @@ func requestedNewTab(request pageOpenRequest) *bool {
 	return request.NewPage
 }
 
-// handlePageURL 返回当前 CloakBrowser 页面地址。
+// handlePageURL 返回当前 Camoufox 页面地址。
 func (s *Server) handlePageURL(w http.ResponseWriter, r *http.Request) {
 	result, err := s.browser.BrowserStatus(r.Context())
 	if err != nil {

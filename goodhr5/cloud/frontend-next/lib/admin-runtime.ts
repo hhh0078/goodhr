@@ -1,14 +1,15 @@
 /** 本文件负责整理新版后台运行组件安装配置和状态。 */
 
 export type RequiredRuntimeComponent = {
-	key: "node_runtime" | "cloakbrowser";
+	key: "node_runtime" | "camoufox" | "cloakbrowser";
 	name: string;
 	installed: boolean;
 };
 
 const requiredWinRuntimeAssets: Record<string, string> = {
 	node_runtime: "Node 运行环境",
-	cloakbrowser: "CloakBrowser 浏览器",
+	camoufox: "Camoufox 浏览器",
+	cloakbrowser: "Camoufox 浏览器",
 	ocr: "OCR 组件",
 };
 
@@ -17,16 +18,27 @@ export function missingRequiredWinRuntimeURLs(config: any) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
 	return Object.entries(requiredWinRuntimeAssets)
 		.filter(([key]) => {
+			if (key === "cloakbrowser") {
+				// 新旧两组浏览器配置指向同一个组件，任一配置了下载地址即可。
+				const camoufoxConfigured = ["camoufox", "camofox"].some((alias) => String(source?.[alias]?.win?.url || source?.[alias]?.windows?.url || "").trim());
+				if (camoufoxConfigured) return false;
+			}
 			const item = source?.[key] || {};
 			return !String(item?.win?.url || item?.windows?.url || "").trim();
 		})
+		.filter(([key], index, all) => !(key === "cloakbrowser" && all.some(([other]) => other === "camoufox")))
 		.map(([, name]) => name);
 }
 
 /** buildRuntimeInstallPayload 将系统组件配置转换为本地程序安装接口参数。 */
 export function buildRuntimeInstallPayload(config: any) {
 	const source = config?.runtime_components || config?.runtimeComponents || config?.local_runtime_components || config?.runtime || {};
-	const aliases: Record<string, string[]> = { node_runtime: ["node_runtime", "nodeRuntime", "node"], cloakbrowser: ["cloakbrowser", "cloak_browser", "cloakBrowser", "browser"], ocr: ["ocr", "rapidocr", "rapidOCR"] };
+	const aliases: Record<string, string[]> = {
+		node_runtime: ["node_runtime", "nodeRuntime", "node"],
+		camoufox: ["camoufox", "camofox", "camou_fox", "camouFox"],
+		cloakbrowser: ["cloakbrowser", "cloak_browser", "cloakBrowser", "browser"],
+		ocr: ["ocr", "rapidocr", "rapidOCR"],
+	};
 	const platforms: Record<string, string[]> = { "win-x64": ["win-x64", "windows-x64", "win", "windows"], "darwin-arm64": ["darwin-arm64", "mac-arm64", "macos-arm64", "mac", "macos", "darwin"] };
 	const manifest: Record<string, any> = {};
 	for (const [component, componentAliases] of Object.entries(aliases)) {
@@ -42,9 +54,10 @@ export function buildRuntimeInstallPayload(config: any) {
 
 /** requiredRuntimeComponents 返回必须安装的运行组件列表。 */
 export function requiredRuntimeComponents(runtime: any): RequiredRuntimeComponent[] {
+	const browserInstalled = Boolean(runtime?.camoufox_installed || runtime?.runtime?.camoufox_installed || runtime?.cloakbrowser_installed || runtime?.runtime?.cloakbrowser_installed);
 	return [
 		{ key: "node_runtime", name: "Node 运行环境", installed: Boolean(runtime?.node_installed || runtime?.runtime?.node_installed) },
-		{ key: "cloakbrowser", name: "CloakBrowser 浏览器", installed: Boolean(runtime?.cloakbrowser_installed || runtime?.runtime?.cloakbrowser_installed) },
+		{ key: "camoufox", name: "Camoufox 浏览器", installed: browserInstalled },
 	];
 }
 

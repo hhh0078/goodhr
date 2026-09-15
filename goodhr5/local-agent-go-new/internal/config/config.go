@@ -156,7 +156,7 @@ func (c Config) EnsureDirectories() error {
 	return nil
 }
 
-// ExtensionPaths 返回扩展目录下可以交给 CloakBrowser 加载的一级子目录。
+// ExtensionPaths 返回扩展目录下可以交给 Camoufox（Firefox 插件）加载的一级子目录。
 // 无效扩展目录会被忽略，避免一个放错位置的文件阻断浏览器启动。
 func (c Config) ExtensionPaths() []string {
 	entries, err := os.ReadDir(c.ExtensionsDir)

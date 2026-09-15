@@ -44,7 +44,8 @@ type RuntimeComponentView = {
 const componentNames: Record<string, string> = {
   node_runtime: "Node 运行环境",
   node_worker: "浏览器控制 Worker",
-  cloakbrowser: "CloakBrowser 浏览器",
+  camoufox: "Camoufox 浏览器",
+  cloakbrowser: "Camoufox 浏览器",
   ocr: "OCR 组件",
 };
 
@@ -262,7 +263,7 @@ export default function AgentDownloadPage() {
                     lineHeight: 1.7,
                   }}
                 >
-                  放好后请关闭并重新打开 CloakBrowser。只刷新招聘页面不会加载新扩展，我先小声提醒一下。
+                  放好后请关闭并重新打开浏览器。只刷新招聘页面不会加载新扩展，我先小声提醒一下。
                 </Typography>
               </Box>
               <Button

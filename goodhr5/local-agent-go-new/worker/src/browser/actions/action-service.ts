@@ -17,13 +17,13 @@ import type {
   ScreenshotRequest,
   ScrollRequest,
 } from "../../contracts/actions.js";
-import { binaryInfo } from "cloakbrowser";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { KeyboardPrimitive } from "../primitives/keyboard.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { BrowserSession } from "../session/browser-session.js";
+import { resolveCamoufoxBinary } from "../session/camoufox-binary.js";
 import { ClickAction } from "./click.js";
 import { FindAction } from "./find.js";
 import { InputAction } from "./input.js";
@@ -84,7 +84,7 @@ export class ActionService {
     this.logger,
   );
 
-  /** startBrowser 启动或复用 CloakBrowser 会话。 */
+  /** startBrowser 启动或复用 Camoufox 会话。 */
   startBrowser(request: BrowserStartRequest, context: ActionContext) {
     return this.session.start(request, context);
   }
@@ -99,16 +99,14 @@ export class ActionService {
     return this.session.status(false);
   }
 
-  /** runtimeStatus 返回 CloakBrowser 增强二进制安装状态。 */
+  /** runtimeStatus 返回 Camoufox 浏览器二进制安装状态。 */
   runtimeStatus() {
-    const info = binaryInfo();
-    const configuredPath = process.env.CLOAKBROWSER_BINARY_PATH?.trim();
-    const binaryPath = configuredPath || info.binaryPath;
+    const resolved = resolveCamoufoxBinary();
     return {
-      cloakbrowser_version: info.version,
-      platform: info.platform,
-      binary_path: binaryPath,
-      installed: existsSync(binaryPath),
+      camoufox_version: resolved.version,
+      platform: `${process.platform}-${process.arch}`,
+      binary_path: resolved.binaryPath,
+      installed: Boolean(resolved.binaryPath) && existsSync(resolved.binaryPath),
     };
   }
 

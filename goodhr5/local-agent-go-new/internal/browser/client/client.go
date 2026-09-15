@@ -50,24 +50,24 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-// StartBrowser 启动或复用 CloakBrowser。
+// StartBrowser 启动或复用 Camoufox。
 func (c *Client) StartBrowser(ctx context.Context, request contract.BrowserStartRequest) (contract.BrowserStatus, error) {
 	return callValue[contract.BrowserStatus](ctx, c, "/api/v1/browser/start", request)
 }
 
-// StopBrowser 关闭 CloakBrowser。
+// StopBrowser 关闭 Camoufox。
 func (c *Client) StopBrowser(ctx context.Context) (contract.BrowserStatus, error) {
 	return callValue[contract.BrowserStatus](ctx, c, "/api/v1/browser/stop", struct{}{})
 }
 
-// BrowserStatus 返回 CloakBrowser 状态。
+// BrowserStatus 返回 Camoufox 状态。
 func (c *Client) BrowserStatus(ctx context.Context) (contract.BrowserStatus, error) {
 	var result contract.BrowserStatus
 	err := call(ctx, c, http.MethodGet, "/api/v1/browser/status", nil, &result)
 	return result, err
 }
 
-// RuntimeStatus 返回 CloakBrowser 增强浏览器二进制安装状态。
+// RuntimeStatus 返回 Camoufox 增强浏览器二进制安装状态。
 func (c *Client) RuntimeStatus(ctx context.Context) (contract.WorkerRuntimeStatus, error) {
 	var result contract.WorkerRuntimeStatus
 	err := call(ctx, c, http.MethodGet, "/api/v1/runtime/status", nil, &result)

@@ -1,10 +1,11 @@
-// Package runtime 文件作用：下载、校验并安装 Node、CloakBrowser 和 OCR 运行组件。
+// Package runtime 文件作用：下载、校验并安装 Node、Camoufox 和 OCR 运行组件。
 package runtime
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,7 +45,7 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 	return m.Status(), nil
 }
 
-// install 按 Node、CloakBrowser、OCR 的顺序安装当前平台资源。
+// install 按 Node、Camoufox、OCR 的顺序安装当前平台资源。
 func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	platform := platformKey()
 	steps := []struct {
@@ -55,7 +56,7 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 		optional  bool
 	}{
 		{component: "node_runtime", label: "Node 运行环境", target: "node", asset: manifest.NodeRuntime[platform]},
-		{component: "cloakbrowser", label: "CloakBrowser", target: "cloakbrowser", asset: manifest.CloakBrowser[platform]},
+		{component: "camoufox", label: "Camoufox 浏览器", target: "camoufox", asset: manifest.BrowserAsset(platform)},
 		{component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
 	}
 	for index, step := range steps {
@@ -133,6 +134,9 @@ func (m *Manager) installAsset(ctx context.Context, component string, label stri
 	if err = replaceDirectory(sourceDir, targetDir); err != nil {
 		return fmt.Errorf("安装%s失败：%w", label, err)
 	}
+	if component == "camoufox" {
+		m.writeCamoufoxVersionFile(targetDir, asset.Version)
+	}
 	if err = m.saveVersion(component, asset); err != nil {
 		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
 	}
@@ -198,8 +202,8 @@ func (m *Manager) componentInstalled(component string) bool {
 	switch component {
 	case "node_runtime":
 		return m.CheckNode() == nil
-	case "cloakbrowser":
-		return fileExists(m.CloakBrowserPath())
+	case "camoufox", "cloakbrowser":
+		return fileExists(m.CamoufoxPath())
 	case "ocr":
 		return m.OCRInstalled()
 	default:
@@ -209,7 +213,7 @@ func (m *Manager) componentInstalled(component string) bool {
 
 // manifestHasAssets 判断清单是否至少配置了一个下载资源。
 func manifestHasAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.CloakBrowser, manifest.OCR} {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.CloakBrowser, manifest.OCR} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
 				return true
@@ -307,4 +311,41 @@ func (r *installProgressReader) Read(buffer []byte) (int, error) {
 		}
 	}
 	return count, err
+}
+
+// writeCamoufoxVersionFile 按 camoufox-js 约定在组件根目录写入 version.json，缺失时才写入。
+func (m *Manager) writeCamoufoxVersionFile(targetDir string, version string) {
+	content := camoufoxVersionJSON(version)
+	if content == "" {
+		return
+	}
+	versionPath := filepath.Join(targetDir, "version.json")
+	if fileExists(versionPath) {
+		return
+	}
+	if err := os.WriteFile(versionPath, []byte(content), 0o644); err != nil {
+		// 写入失败只影响 camoufox-js 的版本校验提示，不阻断浏览器使用。
+		return
+	}
+}
+
+// camoufoxVersionJSON 把清单版本号转换为 camoufox-js version.json 内容，无法解析时返回空字符串。
+func camoufoxVersionJSON(version string) string {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return ""
+	}
+	release := ""
+	if index := strings.Index(trimmed, "-"); index >= 0 {
+		release = trimmed[index+1:]
+		trimmed = trimmed[:index]
+	}
+	if release == "" {
+		release = "stable"
+	}
+	payload, err := json.Marshal(map[string]string{"version": trimmed, "release": release})
+	if err != nil {
+		return ""
+	}
+	return string(payload)
 }

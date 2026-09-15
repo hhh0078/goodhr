@@ -1,4 +1,4 @@
-// Package runtime 检查并启动 Node、TypeScript Worker 和 CloakBrowser 所需运行组件。
+// Package runtime 检查并启动 Node、TypeScript Worker 和 Camoufox 所需运行组件。
 package runtime
 
 import (
@@ -79,16 +79,16 @@ func (m *Manager) CheckWorkerBuild() error {
 		return fmt.Errorf("Worker 还没编译好：%w", err)
 	}
 	if dependency := m.WorkerDependencyPath(); !fileExists(dependency) {
-		return fmt.Errorf("Worker 缺少 CloakBrowser Node 依赖：%s", dependency)
+		return fmt.Errorf("Worker 缺少 Camoufox Node 依赖：%s", dependency)
 	}
 	return nil
 }
 
-// WorkerDependencyPath 返回 Node 解析 Worker 入口时会使用的 CloakBrowser 包路径。
+// WorkerDependencyPath 返回 Node 解析 Worker 入口时会使用的 Camoufox 客户端包路径。
 func (m *Manager) WorkerDependencyPath() string {
 	current := filepath.Dir(m.entryPath)
 	for {
-		candidate := filepath.Join(current, "node_modules", "cloakbrowser", "package.json")
+		candidate := filepath.Join(current, "node_modules", "camoufox-js", "package.json")
 		if fileExists(candidate) {
 			return candidate
 		}
@@ -98,7 +98,7 @@ func (m *Manager) WorkerDependencyPath() string {
 		}
 		current = parent
 	}
-	return filepath.Join(filepath.Dir(filepath.Dir(m.entryPath)), "node_modules", "cloakbrowser", "package.json")
+	return filepath.Join(filepath.Dir(filepath.Dir(m.entryPath)), "node_modules", "camoufox-js", "package.json")
 }
 
 // EnsureWorker 检查 Node 和入口后启动 Worker。
@@ -120,7 +120,7 @@ func (m *Manager) StopWorker() error {
 // Status 返回控制台使用的运行组件路径、安装状态、版本记录和安装进度。
 func (m *Manager) Status() Status {
 	nodePath := m.NodePath()
-	cloakPath := m.CloakBrowserPath()
+	browserPath := m.CamoufoxPath()
 	ocrPath := m.OCRPath()
 	return Status{
 		NodeInstalled:         m.CheckNode() == nil,
@@ -128,8 +128,10 @@ func (m *Manager) Status() Status {
 		NodeWorkerInstalled:   m.CheckWorkerBuild() == nil,
 		WorkerEntry:           m.entryPath,
 		WorkerDependency:      m.WorkerDependencyPath(),
-		CloakBrowserInstalled: fileExists(cloakPath),
-		CloakBrowserPath:      cloakPath,
+		CamoufoxInstalled:     fileExists(browserPath),
+		CamoufoxPath:          browserPath,
+		CloakBrowserInstalled: fileExists(browserPath),
+		CloakBrowserPath:      browserPath,
 		OCRInstalled:          m.OCRInstalled(),
 		OCRPath:               ocrPath,
 		RuntimeDir:            m.runtimeDir,
@@ -156,22 +158,22 @@ func (m *Manager) OCRPath() string {
 	return m.ocrPath
 }
 
-// CloakBrowserPath 返回本地运行目录中的 CloakBrowser 增强浏览器路径。
-func (m *Manager) CloakBrowserPath() string {
-	if value := strings.TrimSpace(os.Getenv("CLOAKBROWSER_BINARY_PATH")); value != "" {
+// CamoufoxPath 返回本地运行目录中的 Camoufox 浏览器可执行文件路径。
+func (m *Manager) CamoufoxPath() string {
+	if value := strings.TrimSpace(os.Getenv("CAMOUFOX_BINARY_PATH")); value != "" {
 		return value
 	}
-	root := filepath.Join(m.runtimeDir, "cloakbrowser")
+	root := filepath.Join(m.runtimeDir, "camoufox")
 	switch goruntime.GOOS {
 	case "darwin":
 		return firstExistingFile(
-			filepath.Join(root, "Chromium.app", "Contents", "MacOS", "Chromium"),
-			findFile(root, "Chromium"),
+			filepath.Join(root, "Camoufox.app", "Contents", "MacOS", "camoufox"),
+			findFile(root, "camoufox"),
 		)
 	case "windows":
-		return firstExistingFile(findFile(root, "chrome.exe"), findFile(root, "chromium.exe"))
+		return firstExistingFile(findFile(root, "camoufox.exe"), findFile(root, "camoufox"))
 	default:
-		return firstExistingFile(findFile(root, "chrome"), findFile(root, "chromium"))
+		return firstExistingFile(findFile(root, "camoufox-bin"), findFile(root, "camoufox"))
 	}
 }
 
@@ -200,16 +202,18 @@ func (m *Manager) setInstallProgress(progress InstallProgress) {
 	m.progress = progress
 }
 
-// configureWorkerEnvironment 把本地运行目录中的 CloakBrowser 路径交给 Worker。
+// configureWorkerEnvironment 把本地运行目录中的 Camoufox 路径交给 Worker。
 func (m *Manager) configureWorkerEnvironment() {
 	if m.worker == nil {
 		return
 	}
 	m.worker.SetExecutable(m.NodePath())
-	cloakPath := m.CloakBrowserPath()
-	if fileExists(cloakPath) {
-		m.worker.SetEnvironment("CLOAKBROWSER_BINARY_PATH=" + cloakPath)
+	browserPath := m.CamoufoxPath()
+	if fileExists(browserPath) {
+		m.worker.SetEnvironment("CAMOUFOX_BINARY_PATH=" + browserPath)
 	}
+	// camoufox-js 依赖 INSTALL_DIR 解析启动文件和版本信息，必须指向组件根目录。
+	m.worker.SetEnvironment("CAMOUFOX_INSTALL_DIR=" + filepath.Join(m.runtimeDir, "camoufox"))
 }
 
 // nodeBinaryName 返回当前平台的 Node.js 可执行文件名。

@@ -1,17 +1,15 @@
-// 文件作用说明：管理 CloakBrowser、持久化 Profile、页面、Cookie、下载和浏览器生命周期。
+// 文件作用说明：管理 Camoufox、持久化 Profile、页面、Cookie、下载和浏览器生命周期。
 
 import fs from "node:fs/promises";
-import {
-  launch,
-  launchPersistentContext,
-  type LaunchContextOptions,
-} from "cloakbrowser";
+import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import type {
   Browser,
   BrowserContext,
   Cookie,
+  LaunchOptions,
   Page,
 } from "playwright-core";
+import { firefox } from "playwright-core";
 import type {
   BrowserStartRequest,
   BrowserStatusResult,
@@ -25,7 +23,7 @@ import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js"
 import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
 import { ElementRegistry } from "./element-registry.js";
-import { withStableProfileFingerprint } from "./fingerprint.js";
+import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
@@ -47,7 +45,7 @@ export class BrowserSession {
     this.downloadManager = new DownloadManager(logger);
   }
 
-  /** start 启动或复用 CloakBrowser 会话。 */
+  /** start 启动或复用 Camoufox 会话。 */
   async start(
     request: BrowserStartRequest,
     actionContext: ActionContext,
@@ -94,22 +92,38 @@ export class BrowserSession {
       }
 
       await this.downloadManager.prepare(request.downloads_path);
-      const options = this.launchOptions(request);
       this.extensionPaths = [...(request.extension_paths ?? [])];
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
         await fs.mkdir(this.userDataDir, { recursive: true });
-        this.context = await launchPersistentContext({
-          ...options,
-          userDataDir: this.userDataDir,
-          contextOptions: {
+        const fingerprint = await loadStableProfileFingerprint(
+          this.userDataDir,
+        );
+        const options = await this.buildLaunchOptions(
+          request,
+          actionContext,
+          fingerprint,
+        );
+        this.context = await firefox.launchPersistentContext(
+          this.userDataDir,
+          {
+            ...options,
+            viewport:
+              request.viewport_width && request.viewport_height
+                ? {
+                    width: request.viewport_width,
+                    height: request.viewport_height,
+                  }
+                : null,
             acceptDownloads: true,
+            downloadsPath: this.downloadManager.directory(),
           },
-        });
+        );
         this.browser = this.context.browser();
       } else {
         this.userDataDir = "";
-        this.browser = await launch(options);
+        const options = await this.buildLaunchOptions(request, actionContext);
+        this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
           acceptDownloads: true,
           viewport:
@@ -394,42 +408,43 @@ export class BrowserSession {
     return this.context.pages().some((item) => !item.isClosed());
   }
 
-  /** launchOptions 生成 CloakBrowser 官方启动参数。 */
-  private launchOptions(request: BrowserStartRequest): LaunchContextOptions {
-    const options: LaunchContextOptions = {
+  /** buildLaunchOptions 把启动请求转换为 Camoufox + Playwright 启动参数，GeoIP 异常时自动降级。 */
+  private async buildLaunchOptions(
+    request: BrowserStartRequest,
+    actionContext: ActionContext,
+    fingerprint?: Awaited<ReturnType<typeof loadStableProfileFingerprint>>,
+  ): Promise<LaunchOptions> {
+    const wantsGeoIP = request.geoip ?? Boolean(request.proxy);
+    const camoufoxInput = {
       headless: request.headless ?? false,
-      humanize: request.humanize ?? true,
-      geoip: request.geoip ?? Boolean(request.proxy),
-      ...(request.extension_paths
-        ? { extensionPaths: request.extension_paths }
-        : {}),
-      args: withStableProfileFingerprint(
-        request.args,
-        request.user_data_dir,
-      ),
-      launchOptions: {
-        downloadsPath: this.downloadManager.directory(),
-      },
+      // 决策点 D3：关闭 Camoufox 自带鼠标人类化，统一沿用 Worker 自研类人操作原语，行为更可控。
+      humanize: false,
+      locale: request.locale,
+      proxy: request.proxy,
+      // Firefox 插件目录（沿用原扩展目录约定，需包含 manifest.json）。
+      addons: request.extension_paths,
+      // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
+      // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
+      ...(request.timezone ? { config: { timezone: request.timezone } } : {}),
+      ...(fingerprint ? { fingerprint } : {}),
     };
-    if (request.locale) {
-      options.locale = request.locale;
+    let prepared: Record<string, unknown>;
+    try {
+      prepared = await camoufoxLaunchOptions({
+        ...camoufoxInput,
+        ...(wantsGeoIP ? { geoip: true } : {}),
+      });
+    } catch (error) {
+      if (!wantsGeoIP) {
+        throw error;
+      }
+      // GeoIP 依赖在线 IP 定位和 MaxMind 数据库，网络不佳时降级为不启用，保证浏览器能启动。
+      this.logger.warn(actionContext, "build_launch_options", "geoip_fallback", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      prepared = await camoufoxLaunchOptions({ ...camoufoxInput });
     }
-    if (request.timezone) {
-      options.timezone = request.timezone;
-    }
-    if (request.user_agent) {
-      options.userAgent = request.user_agent;
-    }
-    if (request.viewport_width && request.viewport_height) {
-      options.viewport = {
-        width: request.viewport_width,
-        height: request.viewport_height,
-      };
-    }
-    if (request.proxy) {
-      options.proxy = request.proxy;
-    }
-    return options;
+    return toPlaywrightLaunchOptions(prepared);
   }
 
   /** requireContext 返回浏览器上下文，不存在时统一抛错。 */
@@ -522,5 +537,77 @@ function samePaths(left: string[] | undefined, right: string[]): boolean {
   return (
     current.length === right.length &&
     current.every((value, index) => value === right[index])
+  );
+}
+
+/** toPlaywrightLaunchOptions 把 Camoufox 返回的启动配置收敛为 Playwright 强类型启动参数。 */
+function toPlaywrightLaunchOptions(
+  prepared: Record<string, unknown>,
+): LaunchOptions {
+  const options: LaunchOptions = {};
+  const executablePath = prepared["executablePath"];
+  if (typeof executablePath === "string" && executablePath) {
+    options.executablePath = executablePath;
+  }
+  const headless = prepared["headless"];
+  if (typeof headless === "boolean") {
+    options.headless = headless;
+  }
+  const args = prepared["args"];
+  if (Array.isArray(args)) {
+    options.args = args.filter((item): item is string =>
+      typeof item === "string",
+    );
+  }
+  const env = prepared["env"];
+  if (env && typeof env === "object" && !Array.isArray(env)) {
+    const stringEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (["string", "number", "boolean"].includes(typeof value)) {
+        stringEnv[key] = String(value);
+      }
+    }
+    options.env = stringEnv;
+  }
+  const userPrefs = prepared["firefoxUserPrefs"];
+  if (isPrimitiveRecord(userPrefs)) {
+    options.firefoxUserPrefs = userPrefs;
+  }
+  const proxy = prepared["proxy"];
+  if (isProxySettings(proxy)) {
+    options.proxy = proxy;
+  }
+  return options;
+}
+
+/** CamoufoxProxySettings 与 Playwright 代理配置保持结构一致。 */
+interface CamoufoxProxySettings {
+  server: string;
+  bypass?: string;
+  username?: string;
+  password?: string;
+}
+
+/** isProxySettings 校验并收敛外部返回的代理配置。 */
+function isProxySettings(value: unknown): value is CamoufoxProxySettings {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { server?: unknown };
+  return typeof candidate.server === "string" && candidate.server.length > 0;
+}
+
+/** isPrimitiveRecord 判断值是否为基础类型组成的记录，用于收敛外部依赖返回的弱类型数据。 */
+function isPrimitiveRecord(
+  value: unknown,
+): value is Record<string, string | number | boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every(
+    (item) =>
+      typeof item === "string" ||
+      typeof item === "number" ||
+      typeof item === "boolean",
   );
 }

@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 文件作用说明：安装锁定的 Worker 依赖并下载 CloakBrowser 增强浏览器二进制。
+# 文件作用说明：安装锁定的 Worker 依赖并下载 Camoufox 反检测浏览器二进制。
 
 set -euo pipefail
 
@@ -9,5 +9,5 @@ npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
 
 cd "${project_dir}/worker"
 npm ci --registry="${npm_registry}"
-npm exec -- cloakbrowser install
+npx camoufox-js fetch
 npm run build

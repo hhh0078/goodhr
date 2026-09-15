@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { parseBrowserStartRequest } from "../dist/validation/action-requests.js";
 
-/** 验证合法启动、GeoIP 和新增标签页配置会进入 CloakBrowser 启动参数。 */
+/** 验证合法启动、GeoIP 和新增标签页配置会进入 Camoufox 启动参数。 */
 test("保留合法启动、GeoIP 和新增标签页配置", () => {
   const request = parseBrowserStartRequest(
     {

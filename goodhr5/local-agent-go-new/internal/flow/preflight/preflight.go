@@ -150,7 +150,7 @@ func (c *Checker) steps() []checkStep {
 		{name: "check_node_runtime", label: "浏览器运行组件", run: c.checkNode},
 		{name: "check_worker_build", label: "浏览器操作程序", run: c.checkWorkerBuild},
 		{name: "check_worker", label: "浏览器操作程序启动", run: c.checkWorker},
-		{name: "check_cloakbrowser", label: "增强浏览器", run: c.checkCloakBrowser},
+		{name: "check_camoufox", label: "隐身浏览器", run: c.checkCamoufox},
 		{name: "check_local_storage", label: "本地数据", run: c.checkStorage},
 		{name: "check_required_ai", label: "AI 配置", run: c.checkAI},
 		{name: "check_required_ocr", label: "文字识别组件", run: c.checkOCR},
@@ -298,8 +298,8 @@ func (c *Checker) checkWorker(ctx context.Context, _ *shared.PreparedTask) error
 	return c.Browser.Health(ctx)
 }
 
-// checkCloakBrowser 通过 Worker 会话接口确认 CloakBrowser 模块可调用。
-func (c *Checker) checkCloakBrowser(ctx context.Context, _ *shared.PreparedTask) error {
+// checkCamoufox 通过 Worker 会话接口确认 Camoufox 浏览器可调用。
+func (c *Checker) checkCamoufox(ctx context.Context, _ *shared.PreparedTask) error {
 	if _, err := c.Browser.BrowserStatus(ctx); err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func (c *Checker) checkCloakBrowser(ctx context.Context, _ *shared.PreparedTask)
 		return err
 	}
 	if !status.Installed {
-		return fmt.Errorf("CloakBrowser 增强浏览器还没安装，请先执行 cloakbrowser install")
+		return fmt.Errorf("Camoufox 隐身浏览器还没装好，打开控制台「下载运行组件」装一下就好，我等你")
 	}
 	return nil
 }

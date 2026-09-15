@@ -22,7 +22,7 @@
   -> TypeScript Worker HTTP Router
   -> TypeScript Browser Actions
   -> TypeScript Browser Primitives
-  -> CloakBrowser
+  -> Camoufox
   -> 招聘平台
 ```
 
@@ -71,7 +71,7 @@ Go 本地服务默认监听 `127.0.0.1:43129`，并在打开云端控制台时�
 
 Worker 负责：
 
-- 启动、复用和关闭 CloakBrowser。
+- 启动、复用和关闭 Camoufox。
 - 管理 Browser、Context、Page 和 Profile。
 - 命中已有目标标签页时直接复用，保留用户手动筛选状态。
 - 查找和验证元素。
@@ -100,7 +100,7 @@ HTTP Router
 
 - Router：解析和验证请求，只调用 Action。
 - Action：对 Go 暴露的完整封装能力。
-- Primitive：最小 Playwright/CloakBrowser 操作，只允许 Action 调用。
+- Primitive：最小 Playwright/Camoufox 操作，只允许 Action 调用。
 
 Go 请求中不得出现 Primitive 名称或路由。
 
@@ -129,7 +129,7 @@ Go 请求中不得出现 Primitive 名称或路由。
 - 解压后的 Chromium 扩展目录。
 - 截图和下载文件。
 - Worker 和任务日志。
-- Node、CloakBrowser 和 OCR 运行组件。
+- Node、Camoufox 和 OCR 运行组件。
 
 Worker 内存保存最近 100 条当前会话下载状态。Go 下载同步流程只把 `saved` 和 `failed` 终态写入 SQLite，并用记录编号去重提示；程序重启后不会把历史记录伪装成仍在处理的下载。
 
@@ -137,7 +137,7 @@ Worker 内存保存最近 100 条当前会话下载状态。Go 下载同步流�
 
 下载目录可以在运行时切换。文件打开和 Finder 定位接口只接受绝对路径，并只允许访问默认下载目录或 Worker 已成功使用过的下载目录；校验真实路径，禁止通过软链接越界。切换目录只影响后续下载，清空下载记录不会删除文件。
 
-扩展只从本地数据目录的 `extensions/` 一级子目录加载。每个扩展必须包含有效 `manifest.json`；Go 每次启动或复用浏览器前重新扫描，Worker 通过 CloakBrowser 官方 `extensionPaths` 参数启动持久化 Profile。扩展列表发生变化时必须重启浏览器，不能复用旧会话。
+扩展只从本地数据目录的 `extensions/` 一级子目录加载。每个扩展必须包含有效 `manifest.json`；Go 每次启动或复用浏览器前重新扫描，Worker 通过 Camoufox 官方 `extensionPaths` 参数启动持久化 Profile。扩展列表发生变化时必须重启浏览器，不能复用旧会话。
 
 浏览器 Profile 保存：
 
@@ -147,7 +147,7 @@ Worker 内存保存最近 100 条当前会话下载状态。Go 下载同步流�
 - 浏览器缓存。
 - 用户已有书签，以及幂等补齐的 GoodHR、BOSS、猎聘和智联默认导航书签。
 
-同一个持久化 Profile 使用稳定的 CloakBrowser 指纹种子。配置代理时默认启用 GeoIP；未配置代理时使用调用方设置或中国区默认时区和语言。
+同一个持久化 Profile 使用稳定的 Camoufox 指纹种子。配置代理时默认启用 GeoIP；未配置代理时使用调用方设置或中国区默认时区和语言。
 
 禁止把 Cookie、完整简历截图、OCR 原文和敏感页面内容上传到云端日志。
 
@@ -165,7 +165,7 @@ Worker 内存保存最近 100 条当前会话下载状态。Go 下载同步流�
 
 - Go 主程序。
 - TypeScript Node Worker。
-- CloakBrowser 官方 Node SDK。
+- Camoufox 官方 Node SDK。
 
 不迁移：
 

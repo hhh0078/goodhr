@@ -227,19 +227,24 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 	status.NodeReady = status.NodeInstalled
 	status.WorkerBuilt = status.NodeWorkerInstalled
 	workerErr := s.browser.Health(r.Context())
-	var cloakStatus contract.WorkerRuntimeStatus
-	var cloakErr error
+	var browserStatus contract.WorkerRuntimeStatus
+	var browserErr error
 	if workerErr == nil {
-		cloakStatus, cloakErr = s.browser.RuntimeStatus(r.Context())
+		browserStatus, browserErr = s.browser.RuntimeStatus(r.Context())
 	}
 	status.WorkerReady = workerErr == nil
-	if cloakErr == nil && cloakStatus.Installed {
-		status.CloakBrowserReady = true
-		status.CloakBrowserInstalled = true
-		status.CloakBrowserVersion = cloakStatus.CloakBrowserVersion
-		if strings.TrimSpace(cloakStatus.BinaryPath) != "" {
-			status.CloakBrowserPath = cloakStatus.BinaryPath
+	if browserErr == nil && browserStatus.Installed {
+		status.CamoufoxReady = true
+		status.CamoufoxInstalled = true
+		status.CamoufoxVersion = browserStatus.CamoufoxVersion
+		if strings.TrimSpace(browserStatus.BinaryPath) != "" {
+			status.CamoufoxPath = browserStatus.BinaryPath
 		}
+		// 旧控制台仍读取 cloakbrowser_* 字段，过渡期内填充同一份 Camoufox 取值。
+		status.CloakBrowserReady = status.CamoufoxReady
+		status.CloakBrowserInstalled = status.CamoufoxInstalled
+		status.CloakBrowserVersion = status.CamoufoxVersion
+		status.CloakBrowserPath = status.CamoufoxPath
 	}
 	writeSuccess(w, http.StatusOK, status)
 }
@@ -277,7 +282,7 @@ func (s *Server) handleRuntimeEnsure(w http.ResponseWriter, r *http.Request) {
 	}{Ready: true})
 }
 
-// handleBrowserStatus 返回 CloakBrowser 会话状态。
+// handleBrowserStatus 返回 Camoufox 会话状态。
 func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
 	result, err := s.browser.BrowserStatus(r.Context())
 	if err != nil {
@@ -287,7 +292,7 @@ func (s *Server) handleBrowserStatus(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, http.StatusOK, result)
 }
 
-// handleBrowserStop 关闭 CloakBrowser 会话。
+// handleBrowserStop 关闭 Camoufox 会话。
 func (s *Server) handleBrowserStop(w http.ResponseWriter, r *http.Request) {
 	if s.runner.HasActive() {
 		writeError(w, http.StatusConflict, "TASK_RUNNING", fmt.Errorf("任务还在运行，请先安全停止任务"))

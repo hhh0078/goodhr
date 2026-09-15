@@ -2,13 +2,13 @@
 
 # GoodHR 新本地程序
 
-`local-agent-go-new` 是按清晰边界重构后的 GoodHR 本地程序。它保留 CloakBrowser 及其反检测增强，由严格 TypeScript Worker 调用浏览器，Go 负责任务流程和平台适配。
+`local-agent-go-new` 是按清晰边界重构后的 GoodHR 本地程序。它保留 Camoufox 及其反检测增强，由严格 TypeScript Worker 调用浏览器，Go 负责任务流程和平台适配。
 
 ## 技术组成
 
 - Go：本地 HTTP 服务、任务流程、平台适配、本地数据、AI/OCR、运行组件和系统能力。
 - TypeScript：Browser Worker 和强类型浏览器封装能力。
-- CloakBrowser：浏览器运行和反检测增强。
+- Camoufox：浏览器运行和反检测增强。
 - SQLite：保存本地任务状态、统一步骤日志、候选人动作摘要、自动回复去重摘要和下载结果。
 
 ## 唯一正式链路
@@ -19,7 +19,7 @@ Go 主流程
   -> Go Browser Client
   -> TypeScript 封装能力
   -> TypeScript 原子能力
-  -> CloakBrowser
+  -> Camoufox
 ```
 
 ## 开发前阅读顺序
@@ -44,7 +44,7 @@ StartTask
   -> 保存最终状态并同步云端摘要
 ```
 
-启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、本地平台配置、Profile、冲突、Node、Worker、CloakBrowser、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
+启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、本地平台配置、Profile、冲突、Node、Worker、Camoufox、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
 
 会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
 
@@ -55,7 +55,7 @@ StartTask
 - `GET /api/v1/tasks/{task_id}`：读取任务状态。
 - `GET /api/v1/runtime/status`：查看 Node 和 Worker 状态。
 - `POST /api/v1/runtime/ensure`：启动 Worker。
-- `POST /api/v1/runtime/install`：按云端清单异步安装 Node 22+、CloakBrowser 和可选 OCR，支持 SHA256、安全解压和失败回滚。
+- `POST /api/v1/runtime/install`：按云端清单异步安装 Node 22+、Camoufox 和可选 OCR，支持 SHA256、安全解压和失败回滚。
 - `GET /api/v1/diagnostics`：检查目录、端口、运行组件和 Profile 锁。
 - `GET|POST /api/v1/app-update/*`：读取程序更新进度并启动安装包更新。
 - `POST /api/v1/page/open`：唯一浏览器打开入口，统一启动或复用 Profile、打开页面，并支持 `new_tab=true` 新增标签页和旧版 `new_page=true` 兼容字段。
@@ -70,9 +70,9 @@ Worker 的完整协议见 `contracts/browser-api.md`。
 
 页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；传入 `new_tab=true` 时会始终新增并切换到一个标签页，登录页即使带有回跳参数也不会被误复用。真实滚轮使用元素位置或截图变化验证结果，不读取页面内部滚动状态，也不向招聘页面注入或执行 JavaScript。
 
-CloakBrowser 启动默认启用 `humanize`。同一个持久化 Profile 会获得稳定指纹种子；配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，调用方显式传入的时区、语言或指纹参数仍然优先。
+Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Profile 会在 Profile 目录维护一份稳定指纹文件（`goodhr-fingerprint.json`），同一账号指纹不漂移。Camoufox 自带的鼠标人类化保持关闭，统一使用 Worker 自研类人操作原语。配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，在线定位失败时自动降级为不启用；调用方显式传入的时区、语言参数仍然优先。
 
-把解压后的 Chromium 扩展文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 CloakBrowser 官方 `extensionPaths` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
+把解压后的 Firefox 插件文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 Camoufox 官方 `addons` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
 
 每个 Profile 首次准备时会保留用户原有书签，并在书签栏前面补齐 GoodHR、BOSS直聘、猎聘猎头端、猎聘和智联招聘入口。书签栏会在所有页面显示；这只是手动导航入口，不参与平台自动化流程。
 
@@ -100,7 +100,7 @@ Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近
 ./bin/goodhr-local-agent
 ```
 
-`prepare-runtime.sh` 会通过当前锁定的 `cloakbrowser 0.5.2` 下载它自己的增强 Chromium。Go 不会改为普通 Chrome，也不会绕过 CloakBrowser。CloakBrowser 官方的 `146.0.7680.177.5` 当前只提供 Linux x64 和 Windows x64，macOS 官方最新可用增强内核仍是 `145.0.7632.109.2`，不得跨平台混装。
+`prepare-runtime.sh` 会安装锁定的 Worker 依赖，并通过官方 `npx camoufox-js fetch` 下载 Camoufox 反检测浏览器（开发环境走 GitHub Releases；生产环境由 Go 安装器按云端清单从自建 OSS 下载并做 SHA256 校验）。Go 不会改为普通浏览器，也不会绕过 Camoufox。
 
 开发环境可以执行：
 

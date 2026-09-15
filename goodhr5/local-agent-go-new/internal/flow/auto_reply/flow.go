@@ -70,7 +70,7 @@ func (f *Flow) Run(ctx context.Context, prepared shared.PreparedTask, runtime mo
 	return stats, nil
 }
 
-// startBrowser 使用当前 Profile 启动或复用 CloakBrowser。
+// startBrowser 使用当前 Profile 启动或复用 Camoufox。
 func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) error {
 	headless := prepared.Request.Headless
 	humanize := true

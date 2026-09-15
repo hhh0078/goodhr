@@ -45,11 +45,11 @@ func TestSafeJoinRejectsTraversal(t *testing.T) {
 	}
 }
 
-// TestWorkerDependencyPathFindsParentNodeModules 验证 Worker 编译入口可以向父目录找到 CloakBrowser 依赖。
+// TestWorkerDependencyPathFindsParentNodeModules 验证 Worker 编译入口可以向父目录找到 Camoufox 依赖。
 func TestWorkerDependencyPathFindsParentNodeModules(t *testing.T) {
 	root := t.TempDir()
 	entry := filepath.Join(root, "worker", "dist", "main.js")
-	dependency := filepath.Join(root, "worker", "node_modules", "cloakbrowser", "package.json")
+	dependency := filepath.Join(root, "worker", "node_modules", "camoufox-js", "package.json")
 	for _, path := range []string{entry, dependency} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)

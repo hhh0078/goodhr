@@ -12,9 +12,9 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "cloakbrowser": "0.5.2",
-    "mmdb-lib": "3.0.2",
-    "playwright-core": "1.61.1"
+    "camoufox-js": "0.12.0",
+    "fingerprint-generator": "2.1.86",
+    "playwright-core": "1.60.0"
   },
   "devDependencies": {
     "@types/node": "22.19.11",

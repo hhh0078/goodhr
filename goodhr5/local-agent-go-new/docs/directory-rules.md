@@ -207,7 +207,7 @@ flow/
 
 - Node Runtime。
 - Browser Worker。
-- CloakBrowser。
+- Camoufox。
 - OCR 运行组件。
 - 下载、校验、解压、版本和安装状态。
 
@@ -250,7 +250,7 @@ flow/
 
 ## `worker/src/browser/primitives`
 
-- 最小 Playwright/CloakBrowser 调用。
+- 最小 Playwright/Camoufox 调用。
 - 不注册路由。
 - 不被 Go 调用。
 - 不组合业务动作。
@@ -284,5 +284,5 @@ flow/
 
 ## `test/integration`
 
-- Go + Worker + CloakBrowser 的跨模块冒烟测试。
+- Go + Worker + Camoufox 的跨模块冒烟测试。
 - 不存真实 Cookie、账号、手机号和候选人数据。

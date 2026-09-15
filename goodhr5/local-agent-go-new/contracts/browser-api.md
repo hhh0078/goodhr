@@ -39,10 +39,10 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 | 方法 | 路径 | 封装能力 |
 |---|---|---|
 | GET | `/health` | Worker 健康检查 |
-| POST | `/api/v1/browser/start` | 启动或复用 CloakBrowser |
+| POST | `/api/v1/browser/start` | 启动或复用 Camoufox |
 | POST | `/api/v1/browser/stop` | 关闭浏览器 |
 | GET | `/api/v1/browser/status` | 浏览器状态 |
-| GET | `/api/v1/runtime/status` | CloakBrowser 增强二进制安装状态 |
+| GET | `/api/v1/runtime/status` | Camoufox 增强二进制安装状态 |
 | POST | `/api/v1/page/open` | 打开页面 |
 | GET | `/api/v1/page/list` | 标签页列表 |
 | POST | `/api/v1/page/use` | 切换标签页 |

@@ -82,7 +82,7 @@ type ProxyConfig struct {
 	Password string `json:"password,omitempty"`
 }
 
-// BrowserStartRequest 表示 CloakBrowser 启动参数。
+// BrowserStartRequest 表示 Camoufox 启动参数。
 type BrowserStartRequest struct {
 	UserDataDir    string       `json:"user_data_dir,omitempty"`
 	DownloadsPath  string       `json:"downloads_path,omitempty"`
@@ -114,12 +114,12 @@ type BrowserStatus struct {
 	CurrentURL     string   `json:"current_url"`
 }
 
-// WorkerRuntimeStatus 表示 CloakBrowser 增强二进制安装状态。
+// WorkerRuntimeStatus 表示 Camoufox 浏览器二进制安装状态。
 type WorkerRuntimeStatus struct {
-	CloakBrowserVersion string `json:"cloakbrowser_version"`
-	Platform            string `json:"platform"`
-	BinaryPath          string `json:"binary_path"`
-	Installed           bool   `json:"installed"`
+	CamoufoxVersion string `json:"camoufox_version"`
+	Platform        string `json:"platform"`
+	BinaryPath      string `json:"binary_path"`
+	Installed       bool   `json:"installed"`
 }
 
 // PageOpenRequest 表示打开页面请求。

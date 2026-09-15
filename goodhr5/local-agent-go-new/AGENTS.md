@@ -4,7 +4,7 @@
 
 - 严禁使用 `page.evaluate()`、`locator.evaluate()`、`evaluateHandle()`、`$eval()`、`$$eval()`、`addScriptTag()`、`addInitScript()` 或 `dispatchEvent()` 读取或控制招聘页面。
 - 严禁向招聘页面注入 JavaScript，或修改页面 DOM、样式、滚动位置、焦点和运行状态。
-- 页面读取与操作只能使用 CloakBrowser/Playwright 标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图能力。
+- 页面读取与操作只能使用 Camoufox/Playwright 标准 `Page`、`Locator`、鼠标、键盘、真实滚轮和截图能力。
 - 如果标准能力无法完成需求，必须停下来向邓云川确认，不能偷偷改用脚本注入。
 - 本规则优先于本文件内其他说明，适用于 Go、TypeScript Worker 和全部平台流程。
 
@@ -19,7 +19,7 @@
 GoodHR 本地程序由两部分组成：
 
 - Go 主程序：负责本地接口、任务生命周期、公共任务流程、平台适配、AI/OCR 调用、本地数据、运行组件和系统能力。
-- TypeScript Browser Worker：负责调用 CloakBrowser，只提供与招聘平台无关的浏览器封装能力。
+- TypeScript Browser Worker：负责调用 Camoufox，只提供与招聘平台无关的浏览器封装能力。
 
 平台页面配置归属必须保持单一：
 
@@ -38,7 +38,7 @@ Go 主流程
   -> Go 强类型 Browser Client
   -> TypeScript 封装能力
   -> TypeScript 原子能力
-  -> CloakBrowser
+  -> Camoufox
 ```
 
 禁止再增加 Go 直连 CDP、第二个 Node Worker或其他平行浏览器实现。
@@ -76,7 +76,7 @@ local-agent-go-new/
 ├── internal/storage/            SQLite 数据访问
 ├── internal/integration/        云端、AI、OCR 等外部能力
 ├── internal/profile/            浏览器账号和 Profile
-├── internal/runtime/            Node、Worker、CloakBrowser、OCR 组件管理
+├── internal/runtime/            Node、Worker、Camoufox、OCR 组件管理
 ├── internal/updater/            本地程序更新
 ├── internal/system/             文件、端口、进程、防睡眠等系统能力
 ├── worker/                      TypeScript Browser Worker
@@ -139,7 +139,7 @@ StartTask
 5. 本地平台配置检查。
 6. Profile 和登录状态检查。
 7. Node Worker 检查。
-8. CloakBrowser 检查。
+8. Camoufox 检查。
 9. 本地目录和 SQLite 检查。
 10. AI/OCR 检查，仅在当前流程需要时执行。
 11. 同账号、同 Profile、同任务并发冲突检查。
@@ -270,7 +270,7 @@ Worker 必须分成两层。
 worker/src/browser/primitives/
 ```
 
-原子能力只封装 Playwright/CloakBrowser 的最小操作，例如：
+原子能力只封装 Playwright/Camoufox 的最小操作，例如：
 
 - 查询 locator。
 - 读取元素边界。
@@ -479,7 +479,7 @@ ELEMENT_NOT_FOUND
 - Go 单元测试：流程步骤、平台规则、存储和错误策略。
 - TypeScript 单元测试：选择器解析、查找、移动、点击、输入、滚动和错误规范化。
 - Worker 协议测试：Go 请求和 TypeScript 接口字段一致。
-- 集成冒烟测试：启动 Worker、启动 CloakBrowser、打开页面、查找、点击、输入、真实滚轮、截图、关闭。
+- 集成冒烟测试：启动 Worker、启动 Camoufox、打开页面、查找、点击、输入、真实滚轮、截图、关闭。
 - 平台回归测试：Boss、智联、猎聘企业端、猎聘猎头端分别验证。
 
 修复非简单问题时，必须留下一个能防止复发的测试。

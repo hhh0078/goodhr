@@ -145,7 +145,7 @@ func safeJoin(root string, name string) (string, error) {
 	return targetPath, nil
 }
 
-// installRoot 跳过无意义的单层包装目录，但保留 Chromium.app 结构。
+// installRoot 跳过无意义的单层包装目录，但保留 .app 应用结构（Camoufox.app / Chromium.app）。
 func installRoot(stagingDir string, component string) string {
 	current := stagingDir
 	for {
@@ -154,7 +154,7 @@ func installRoot(stagingDir string, component string) string {
 			return current
 		}
 		name := entries[0].Name()
-		if component == "cloakbrowser" && strings.HasSuffix(strings.ToLower(name), ".app") {
+		if (component == "camoufox" || component == "cloakbrowser") && strings.HasSuffix(strings.ToLower(name), ".app") {
 			return current
 		}
 		current = filepath.Join(current, name)

@@ -62,7 +62,7 @@ checks = [
   CheckNodeRuntime,
   CheckWorkerBuild,
   CheckWorker,
-  CheckCloakBrowser,
+  CheckCamoufox,
   CheckLocalStorage,
   CheckRequiredAI,
   CheckRequiredOCR,
@@ -252,13 +252,13 @@ StopTask
 ```text
 控制台提交强类型 manifest
   -> 校验当前系统资源、HTTPS 地址和完整 SHA256
-  -> 按 Node、CloakBrowser、OCR 顺序处理
+  -> 按 Node、Camoufox、OCR 顺序处理
   -> 下载到临时文件并报告进度
   -> 校验 SHA256
   -> 安全解压到临时目录
   -> 原子替换目标目录，失败时恢复旧目录
   -> 保存组件版本
-  -> 更新 Worker 的 Node 和 CloakBrowser 路径
+  -> 更新 Worker 的 Node 和 Camoufox 路径
 ```
 
 Node 必须为 22 或更高。Worker 就绪检查同时验证编译入口和 `cloakbrowser` Node 依赖。OCR 可选，但岗位要求 OCR 时启动前检查必须通过；安装包有额外单层目录时，运行管理器和 OCR 客户端都会递归查找可执行文件。
@@ -275,7 +275,7 @@ Node 必须为 22 或更高。Worker 就绪检查同时验证编译入口和 `cl
   -> 用 macOS 默认安装方式打开
 ```
 
-本地程序更新与 Node/CloakBrowser/OCR 运行组件更新分开，不能放进同一个管理器。
+本地程序更新与 Node/Camoufox/OCR 运行组件更新分开，不能放进同一个管理器。
 
 ## 14. 日志和本地数据保留
 

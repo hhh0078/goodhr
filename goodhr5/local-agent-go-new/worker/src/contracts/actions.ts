@@ -12,7 +12,7 @@ export interface ProxyConfig {
   password?: string;
 }
 
-/** BrowserStartRequest 表示启动或复用 CloakBrowser 的参数。 */
+/** BrowserStartRequest 表示启动或复用 Camoufox 的参数。 */
 export interface BrowserStartRequest {
   user_data_dir?: string;
   downloads_path?: string;
@@ -44,9 +44,9 @@ export interface BrowserStatusResult extends JsonObject {
   current_url: string;
 }
 
-/** WorkerRuntimeStatus 表示 CloakBrowser 增强浏览器二进制安装状态。 */
+/** WorkerRuntimeStatus 表示 Camoufox 浏览器二进制安装状态。 */
 export interface WorkerRuntimeStatus extends JsonObject {
-  cloakbrowser_version: string;
+  camoufox_version: string;
   platform: string;
   binary_path: string;
   installed: boolean;

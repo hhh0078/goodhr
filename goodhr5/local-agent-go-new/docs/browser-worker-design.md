@@ -40,7 +40,7 @@ HTTP Router
 - 对 Go 不可见。
 - 对 Router 不可见。
 - 只允许 Action 调用。
-- 是最小的 Playwright/CloakBrowser 操作。
+- 是最小的 Playwright/Camoufox 操作。
 
 ## 3. 通用选择器
 
