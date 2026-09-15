@@ -77,8 +77,6 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 			return err
 		}
 	}
-	// GeoIP 数据库按单文件补充到 Camoufox 目录，缺失或失败不影响组件安装结果。
-	m.installGeoIPDatabase(ctx, manifest)
 	return nil
 }
 
@@ -206,8 +204,6 @@ func (m *Manager) componentInstalled(component string) bool {
 		return m.CheckNode() == nil
 	case "camoufox", "cloakbrowser":
 		return fileExists(m.CamoufoxPath())
-	case "geoip":
-		return fileExists(m.geoIPDatabasePath())
 	case "ocr":
 		return m.OCRInstalled()
 	default:
@@ -215,63 +211,9 @@ func (m *Manager) componentInstalled(component string) bool {
 	}
 }
 
-// installGeoIPDatabase 在 Camoufox 目录缺失 GeoIP 数据库时，按清单可选配置下载补充。
-// 该数据库供代理场景自动匹配时区、语言和经纬度；由本安装器分发后 camoufox-js 不再访问 GitHub。
-// 缺失配置或下载失败只跳过，不阻断组件安装，Worker 启动时会自动降级为不启用 GeoIP。
-func (m *Manager) installGeoIPDatabase(ctx context.Context, manifest Manifest) {
-	asset, ok := manifest.GeoIP[platformKey()]
-	if !ok || strings.TrimSpace(asset.URL) == "" {
-		return
-	}
-	targetPath := m.geoIPDatabasePath()
-	if fileExists(targetPath) {
-		return
-	}
-	if err := validateAssetURL(asset.URL); err != nil {
-		return
-	}
-	if err := validateSHA256(asset.SHA256); err != nil {
-		return
-	}
-	downloadsDir := filepath.Join(m.runtimeDir, "downloads")
-	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
-		return
-	}
-	downloadPath := filepath.Join(downloadsDir, "GeoLite2-City.mmdb")
-	m.setInstallProgress(InstallProgress{
-		Running: true, Component: "geoip", Stage: "download",
-		Message: "正在下载 GeoIP 数据库", Percent: 92,
-	})
-	if err := m.downloadAsset(ctx, "geoip", "GeoIP 数据库", asset.URL, downloadPath); err != nil {
-		return
-	}
-	if err := verifySHA256(downloadPath, asset.SHA256); err != nil {
-		_ = os.Remove(downloadPath)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		_ = os.Remove(downloadPath)
-		return
-	}
-	_ = os.Remove(targetPath)
-	if err := os.Rename(downloadPath, targetPath); err != nil {
-		_ = os.Remove(downloadPath)
-		return
-	}
-	m.setInstallProgress(InstallProgress{
-		Running: true, Component: "geoip", Stage: "installed",
-		Message: "GeoIP 数据库已就绪", Percent: 95,
-	})
-}
-
-// geoIPDatabasePath 返回 camoufox-js 约定的 GeoIP 数据库落盘路径，即 Camoufox 组件根目录。
-func (m *Manager) geoIPDatabasePath() string {
-	return filepath.Join(m.runtimeDir, "camoufox", "GeoLite2-City.mmdb")
-}
-
 // manifestHasAssets 判断清单是否至少配置了一个下载资源。
 func manifestHasAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.CloakBrowser, manifest.GeoIP, manifest.OCR} {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.CloakBrowser, manifest.OCR} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
 				return true

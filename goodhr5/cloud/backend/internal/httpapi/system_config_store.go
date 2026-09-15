@@ -146,10 +146,6 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"win": {"version": "146.0.7680.177.5", "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip", "sha256": "", "note": "旧版 CloakBrowser Windows x64，Camoufox 镜像就绪前的回退配置"},
 						"mac": {"version": "145.0.7632.109.2", "url": "https://oss.58it.cn/cloakbrowser-darwin-arm64.tar.gz", "sha256": "505582aa1bd3971c577f70e0cbbe016431702bdb693529abfd943b5bd9120c1c", "note": "旧版 CloakBrowser macOS Apple Silicon，Camoufox 镜像就绪前的回退配置"}
 					},
-					"geoip": {
-						"win": {"version": "", "url": "", "sha256": "", "note": "GeoLite2-City GeoIP 数据库（win/mac 为同一文件），代理场景时区语言匹配使用，避免用户访问 GitHub 下载"},
-						"mac": {"version": "", "url": "", "sha256": "", "note": "GeoLite2-City GeoIP 数据库（与 win 相同文件），镜像上传 OSS 后填入"}
-					},
 					"ocr": {
 						"win": {"version": "rapidocr-json-2.0.0", "url": "https://oss.58it.cn/goodhr-ocr-win-x64.zip", "sha256": "4209f60feb4248376c56b8b9924d7c21aaf91de5058c6daddccc6bd1e0a025f3", "note": "RapidOCR JSON Windows x64"},
 						"mac": {"version": "", "url": "", "sha256": "", "note": "macOS OCR 组件待上传"}

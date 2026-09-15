@@ -46,7 +46,6 @@ export function parseBrowserStartRequest(
   assignString(request, "user_agent", optionalString(record, "user_agent"));
   assignBoolean(request, "headless", optionalBoolean(record, "headless"));
   assignBoolean(request, "humanize", optionalBoolean(record, "humanize"));
-  assignBoolean(request, "geoip", optionalBoolean(record, "geoip"));
   assignBoolean(request, "new_tab", optionalBoolean(record, "new_tab"));
   assignNumber(
     request,

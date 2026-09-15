@@ -58,7 +58,6 @@ type Manifest struct {
 	NodeRuntime  map[string]Asset `json:"node_runtime"`
 	Camoufox     map[string]Asset `json:"camoufox"`
 	CloakBrowser map[string]Asset `json:"cloakbrowser"`
-	GeoIP        map[string]Asset `json:"geoip"`
 	OCR          map[string]Asset `json:"ocr"`
 }
 

@@ -1,4 +1,4 @@
-// 文件作用说明：模拟用户第一次安装——按云端清单下载 Camoufox 浏览器与 GeoIP 数据库并校验落盘结果。（临时模拟测试，验证后删除）
+// 文件作用说明：模拟用户第一次安装——按云端清单下载 Camoufox 浏览器并校验落盘结果。真实下载约 380MB，仅发布前校验镜像时使用。
 
 package runtime
 
@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// TestSimulateFirstInstallCamoufoxAndGeoIP 走 StartInstall 完整链路：下载、校验、解压、补版本文件、补 GeoIP 数据库。
+// TestSimulateFirstInstallCamoufox 走 StartInstall 完整链路：下载、SHA256 校验、解压并补写版本文件。
 // 真实下载约 380MB，仅在设置 GOODHR_SIMULATE_FIRST_INSTALL=1 时运行，用于发布前校验镜像地址与校验值。
-func TestSimulateFirstInstallCamoufoxAndGeoIP(t *testing.T) {
+func TestSimulateFirstInstallCamoufox(t *testing.T) {
 	if os.Getenv("GOODHR_SIMULATE_FIRST_INSTALL") != "1" {
 		t.Skip("需要真实下载 380MB 镜像，设置 GOODHR_SIMULATE_FIRST_INSTALL=1 后运行")
 	}
@@ -39,18 +39,11 @@ func TestSimulateFirstInstallCamoufoxAndGeoIP(t *testing.T) {
 				SHA256:  "3b43e766574f286a6a63296cf58b660b7a3120952086c869b4df4c9a71604bc3",
 			},
 		},
-		GeoIP: map[string]Asset{
-			"darwin-arm64": {
-				Version: "2026.09.13",
-				URL:     "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.09.13/GeoLite2-City.mmdb",
-				SHA256:  "04f2ac880ad5f25cd0aef185038156ffd8758577df13c9ed38e3f4e9068e35e3",
-			},
-		},
 	}
 	if _, err := manager.StartInstall(manifest); err != nil {
 		t.Fatalf("StartInstall() error = %v", err)
 	}
-	deadline := time.Now().Add(20 * time.Minute)
+	deadline := time.Now().Add(30 * time.Minute)
 	for {
 		progress := manager.InstallProgress()
 		if !progress.Running {
@@ -82,14 +75,6 @@ func TestSimulateFirstInstallCamoufoxAndGeoIP(t *testing.T) {
 	}
 	if version["version"] != "152.0.4" || version["release"] != "beta.30" {
 		t.Fatalf("version.json 内容不符：%s", versionContent)
-	}
-	mmdbPath := manager.geoIPDatabasePath()
-	info, err := os.Stat(mmdbPath)
-	if err != nil {
-		t.Fatalf("GeoIP 数据库不存在：%v", err)
-	}
-	if info.Size() < 50*1024*1024 {
-		t.Fatalf("GeoIP 数据库大小异常：%d", info.Size())
 	}
 	// 把安装目录写给后续的 Worker 启动验证步骤使用（worker/camoufox-launch-verify.mjs 读取）。
 	markerPath := filepath.Join("..", "..", "worker", ".smoke-runtime-dir.txt")

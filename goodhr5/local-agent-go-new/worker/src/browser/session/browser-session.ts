@@ -99,11 +99,7 @@ export class BrowserSession {
         const fingerprint = await loadStableProfileFingerprint(
           this.userDataDir,
         );
-        const options = await this.buildLaunchOptions(
-          request,
-          actionContext,
-          fingerprint,
-        );
+        const options = await this.buildLaunchOptions(request, fingerprint);
         this.context = await firefox.launchPersistentContext(
           this.userDataDir,
           {
@@ -122,7 +118,7 @@ export class BrowserSession {
         this.browser = this.context.browser();
       } else {
         this.userDataDir = "";
-        const options = await this.buildLaunchOptions(request, actionContext);
+        const options = await this.buildLaunchOptions(request);
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
           acceptDownloads: true,
@@ -408,42 +404,26 @@ export class BrowserSession {
     return this.context.pages().some((item) => !item.isClosed());
   }
 
-  /** buildLaunchOptions 把启动请求转换为 Camoufox + Playwright 启动参数，GeoIP 异常时自动降级。 */
+  /** buildLaunchOptions 把启动请求转换为 Camoufox + Playwright 启动参数。 */
   private async buildLaunchOptions(
     request: BrowserStartRequest,
-    actionContext: ActionContext,
     fingerprint?: Awaited<ReturnType<typeof loadStableProfileFingerprint>>,
   ): Promise<LaunchOptions> {
-    const wantsGeoIP = request.geoip ?? Boolean(request.proxy);
-    const camoufoxInput = {
+    // 决策：用户与招聘平台均在中国大陆，语言与时区统一固定为 zh-CN / Asia/Shanghai，
+    // 无需按代理 IP 动态匹配地理位置，因此不启用 Camoufox 的 geoip（协议字段保留但已停用）。
+    const prepared = await camoufoxLaunchOptions({
       headless: request.headless ?? false,
       // 决策点 D3：关闭 Camoufox 自带鼠标人类化，统一沿用 Worker 自研类人操作原语，行为更可控。
       humanize: false,
-      locale: request.locale,
+      locale: request.locale ?? "zh-CN",
       proxy: request.proxy,
       // Firefox 插件目录（沿用原扩展目录约定，需包含 manifest.json）。
       addons: request.extension_paths,
       // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
       // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
-      ...(request.timezone ? { config: { timezone: request.timezone } } : {}),
+      config: { timezone: request.timezone ?? "Asia/Shanghai" },
       ...(fingerprint ? { fingerprint } : {}),
-    };
-    let prepared: Record<string, unknown>;
-    try {
-      prepared = await camoufoxLaunchOptions({
-        ...camoufoxInput,
-        ...(wantsGeoIP ? { geoip: true } : {}),
-      });
-    } catch (error) {
-      if (!wantsGeoIP) {
-        throw error;
-      }
-      // GeoIP 依赖在线 IP 定位和 MaxMind 数据库，网络不佳时降级为不启用，保证浏览器能启动。
-      this.logger.warn(actionContext, "build_launch_options", "geoip_fallback", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-      prepared = await camoufoxLaunchOptions({ ...camoufoxInput });
-    }
+    });
     return toPlaywrightLaunchOptions(prepared);
   }
 

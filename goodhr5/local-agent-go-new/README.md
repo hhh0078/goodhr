@@ -70,9 +70,9 @@ Worker 的完整协议见 `contracts/browser-api.md`。
 
 页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；传入 `new_tab=true` 时会始终新增并切换到一个标签页，登录页即使带有回跳参数也不会被误复用。真实滚轮使用元素位置或截图变化验证结果，不读取页面内部滚动状态，也不向招聘页面注入或执行 JavaScript。
 
-Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Profile 会在 Profile 目录维护一份稳定指纹文件（`goodhr-fingerprint.json`），同一账号指纹不漂移。Camoufox 自带的鼠标人类化保持关闭，统一使用 Worker 自研类人操作原语。配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，在线定位失败时自动降级为不启用；调用方显式传入的时区、语言参数仍然优先。
+Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Profile 会在 Profile 目录维护一份稳定指纹文件（`goodhr-fingerprint.json`），同一账号指纹不漂移。Camoufox 自带的鼠标人类化保持关闭，统一使用 Worker 自研类人操作原语。
 
-GeoIP 数据库（GeoLite2-City）由运行组件安装器自主分发：安装 Camoufox 时按云端清单 `geoip` 分组下载到组件根目录，camoufox-js 检测到本地文件后不会再访问 GitHub。制作 Camoufox 镜像包时也可以直接把 `GeoLite2-City.mmdb` 打进压缩包根目录，两条路径任意一条生效即可。
+语言与时区固定为 zh-CN 和 Asia/Shanghai：用户与招聘平台均在中国大陆，指纹身份保持一致即可，不启用 Camoufox 的 geoip（按代理 IP 动态匹配时区、语言和经纬度），因此也不需要 GeoLite2 数据库、不产生额外的联网探测；启动参数中的 `geoip` 字段为旧版兼容保留，传入后不生效。
 
 把解压后的 Firefox 插件文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 Camoufox 官方 `addons` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
 

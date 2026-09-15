@@ -29,7 +29,7 @@ type pageOpenRequest struct {
 	DownloadsPath     string          `json:"downloads_path"`
 	Headless          bool            `json:"headless"`
 	Humanize          *bool           `json:"humanize"`
-	GeoIP             *bool           `json:"geoip"`
+	GeoIP             *bool           `json:"geoip"` // 旧版控制台兼容字段，geoip 已停用，仅接受不生效
 	Persistent        bool            `json:"persistent"`
 	WaitUntil         string          `json:"wait_until"`
 	TimeoutMS         int             `json:"timeout_ms"`
@@ -96,17 +96,10 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_PROXY", err)
 		return
 	}
-	geoIP := request.GeoIP
-	if geoIP == nil {
-		enabled := proxy != nil
-		geoIP = &enabled
-	}
-	locale := strings.TrimSpace(request.Locale)
-	timezone := strings.TrimSpace(request.Timezone)
-	if proxy == nil || !*geoIP {
-		locale = firstNonEmpty(locale, "zh-CN")
-		timezone = firstNonEmpty(timezone, "Asia/Shanghai")
-	}
+	// 用户与招聘平台均在中国大陆，语言与时区统一默认 zh-CN / Asia/Shanghai；
+	// 请求里的 geoip 字段为旧版控制台兼容保留，本地已停用按 IP 匹配地理位置。
+	locale := firstNonEmpty(strings.TrimSpace(request.Locale), "zh-CN")
+	timezone := firstNonEmpty(strings.TrimSpace(request.Timezone), "Asia/Shanghai")
 	newTab := requestedNewTab(request)
 	downloadsPath := firstNonEmpty(request.DownloadsPath, s.cfg.DownloadsDir)
 	downloadsPath, err = normalizeDownloadRoot(downloadsPath)
@@ -116,7 +109,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.browser.StartBrowser(r.Context(), contract.BrowserStartRequest{
 		UserDataDir: profilePath, DownloadsPath: downloadsPath,
-		Headless: &request.Headless, Humanize: &humanize, GeoIP: geoIP,
+		Headless: &request.Headless, Humanize: &humanize,
 		URL: request.URL, WaitUntil: request.WaitUntil, TimeoutMS: request.TimeoutMS, NewTab: newTab,
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, ViewportWidth: request.ViewportWidth,
