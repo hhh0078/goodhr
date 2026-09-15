@@ -130,7 +130,10 @@ Worker TS（浏览器启动封装/指纹）      ← 改动最重
 2. 跑通：持久化启动（`user_data_dir`）→ 打开 Boss直聘登录页 → 标准点击/输入/滚轮滚动/截图 → 关闭重开验证登录态保留；
 3. 记录：macOS/Windows 解压后的真实目录结构（供 Go 探测逻辑）、`executable_path` 自定义路径是否生效、GeoIP 数据库在 JS 版的获取方式；
 4. 用 browserscan/creepjs 检测隐身效果；
-5. 验证 `fingerprint-generator` 生成的指纹对象可以持久化复用（二次启动指纹一致）。
+5. 验证 `fingerprint-generator` 生成的指纹对象可以持久化复用（二次启动指纹一致）；
+6. 验证截图能力：视口截图、元素截图、长图（真实滚轮分段截取 + Go 侧拼接）在 Firefox 下正常；
+7. 专项验证社区反馈的崩溃点：playwright-core 1.60 + Camoufox 下，页面抛出无 location 的未捕获 JS 错误可能整浏览器崩溃（重 JS 站点如 Boss直聘需重点压测；若复现，评估官方修复进度或引入社区补丁方案）；
+8. 专项确认 playwright-core 必须钉在 1.60.x：1.61 会在 `Browser.setDefaultViewport` 协议调用中多发 `viewport.isMobile` 字段，Camoufox 的 Juggler 不识别会导致 newPage 直接失败（官方 issue daijro/camoufox#653）。
 
 ### 阶段 1：Worker 切换内核
 
@@ -167,7 +170,8 @@ Worker TS（浏览器启动封装/指纹）      ← 改动最重
 | camoufox-js 是 Experimental | 边缘功能可能有 bug；升级节奏受上游约束 | 锁定精确版本；封装层隔离（浏览器启动只动 browser-session.ts 一个文件面）；有问题可读源码（开源）或给 Apify 提 issue |
 | 用户升级后登录态丢失 | 体验受损，客服压力 | 决策点 D6 的 Cookie 重注入 + 升级提示文案讲清楚 + 平台登录页引导 |
 | 安装包大（GB 级）下载慢 | 用户安装等待时间长 | OSS 镜像 + 断点续传（安装器已支持校验重试）+ 下载进度文案 |
-| playwright-core 降级引入回归 | Worker 其他功能受影响 | 降级后先跑一遍现有全部单测与冒烟；1.60 与 1.61 差异小，风险可控 |
+| playwright-core 降级引入回归 | Worker 其他功能受影响 | 降级后先跑一遍现有全部单测与冒烟；钉 1.60.x 是硬约束：camoufox-js peer 依赖 <1.61.0，且 1.61 的 `viewport.isMobile` 字段会让 Camoufox newPage 直接失败（daijro/camoufox#653），绝不能升 1.61 |
+| 页面未捕获 JS 错误可能导致整浏览器崩溃（社区反馈，playwright-core 1.60 + Camoufox） | 重 JS 站点（Boss直聘）长会话中途挂掉 | 阶段 0 PoC 专项压测；Worker 已有错误兜底策略，可加"浏览器意外退出自动重启"兜底；关注上游修复 |
 | better-sqlite3（camoufox-js 依赖）原生模块 | npmmirror 安装/打包可能踩坑 | 阶段 0 一并验证；必要时用 `--build-from-source` 或预编译镜像 |
 | 双内核并存期的组件冲突 | 用户机器上 Chromium/Firefox 残留 | 安装器提供旧组件清理逻辑；Windows 进程清理名单补充 camoufox |
 
