@@ -86,7 +86,7 @@ func NewServer() (*Server, error) {
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
-	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(config))
+	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
 	return &Server{
@@ -520,6 +520,13 @@ func (s *Server) UpdateAdminPlatformConfig(w http.ResponseWriter, r *http.Reques
 	if configKey == "system.subscription_plans" {
 		if _, err := parseSubscriptionPlans(raw); err != nil {
 			writeError(w, http.StatusBadRequest, "会员套餐配置没保存："+err.Error())
+			return
+		}
+	}
+	if configKey == wechatPayConfigKey {
+		var settings wechatPaySettings
+		if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+			writeError(w, http.StatusBadRequest, "微信支付配置没保存："+err.Error())
 			return
 		}
 	}

@@ -169,6 +169,21 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			Description: "系统指南配置，供帮助中心和 AI 助手使用",
 			Enabled:     true,
 		},
+		"system.payment_wechat": {
+			ConfigKey: "system.payment_wechat",
+			ConfigValue: `{
+	"app_id": "",
+	"mch_id": "",
+	"merchant_serial_no": "",
+	"private_key_base64": "",
+	"api_v3_key": "",
+	"public_key_id": "",
+	"public_key_base64": "",
+	"notify_url": ""
+}`,
+			Description: "微信支付配置：应用ID(app_id)、商户号(mch_id)、商户证书序列号(merchant_serial_no)、商户私钥(private_key_base64)、APIv3密钥(api_v3_key)、公钥ID(public_key_id)、公钥(public_key_base64)和支付回调地址(notify_url)，明文保存，修改后立即生效",
+			Enabled:     true,
+		},
 	}
 }
 

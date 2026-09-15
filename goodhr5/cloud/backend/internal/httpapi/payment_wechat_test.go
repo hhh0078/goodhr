@@ -26,20 +26,20 @@ func TestWechatPayParseNotify(t *testing.T) {
 	merchantKey := generatePaymentRSAKey(t)
 	wechatKey := generatePaymentRSAKey(t)
 	apiV3Key := "0123456789abcdef0123456789abcdef"
-	config := Config{
-		WechatPayAppID:            "wx-test-app",
-		WechatPayMerchantID:       "1900000001",
-		WechatPayMerchantSerialNo: "merchant-serial",
-		WechatPayPrivateKeyBase64: base64.StdEncoding.EncodeToString(paymentPrivateKeyPEM(t, merchantKey)),
-		WechatPayAPIV3Key:         apiV3Key,
-		WechatPayPublicKeyID:      "PUB_KEY_ID_3000000001",
-		WechatPayPublicKeyBase64:  base64.StdEncoding.EncodeToString(paymentPublicKeyPEM(t, &wechatKey.PublicKey)),
-		WechatPayNotifyURL:        "https://goodhr.test/api/payment/notify/wechat",
+	settings := wechatPaySettings{
+		AppID:            "wx-test-app",
+		MerchantID:       "1900000001",
+		MerchantSerialNo: "merchant-serial",
+		PrivateKeyBase64: base64.StdEncoding.EncodeToString(paymentPrivateKeyPEM(t, merchantKey)),
+		APIV3Key:         apiV3Key,
+		PublicKeyID:      "PUB_KEY_ID_3000000001",
+		PublicKeyBase64:  base64.StdEncoding.EncodeToString(paymentPublicKeyPEM(t, &wechatKey.PublicKey)),
+		NotifyURL:        "https://goodhr.test/api/payment/notify/wechat",
 	}
-	provider := NewWechatPayProvider(config)
+	provider := NewWechatPayProvider(newTestWechatPayConfigStore(t, settings))
 	body := paymentNotifyBody(t, apiV3Key, map[string]any{
-		"appid":          config.WechatPayAppID,
-		"mchid":          config.WechatPayMerchantID,
+		"appid":          settings.AppID,
+		"mchid":          settings.MerchantID,
 		"out_trade_no":   "S123",
 		"transaction_id": "wx-trade-123",
 		"trade_state":    "SUCCESS",
@@ -49,7 +49,7 @@ func TestWechatPayParseNotify(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/payment/notify/wechat", bytes.NewReader(body))
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := "notify-header-nonce"
-	request.Header.Set("Wechatpay-Serial", config.WechatPayPublicKeyID)
+	request.Header.Set("Wechatpay-Serial", settings.PublicKeyID)
 	request.Header.Set("Wechatpay-Timestamp", timestamp)
 	request.Header.Set("Wechatpay-Nonce", nonce)
 	request.Header.Set("Wechatpay-Signature", paymentNotifySignature(t, wechatKey, timestamp, nonce, body))
@@ -61,6 +61,25 @@ func TestWechatPayParseNotify(t *testing.T) {
 	if !result.Paid || result.OrderNo != "S123" || result.TradeNo != "wx-trade-123" || result.AmountCents != 4000 {
 		t.Fatalf("微信支付回调解析结果不正确: %+v", result)
 	}
+}
+
+// newTestWechatPayConfigStore 创建带微信支付配置的内存系统配置存储，供支付单元测试使用。
+func newTestWechatPayConfigStore(t *testing.T, settings wechatPaySettings) SystemConfigStore {
+	t.Helper()
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemorySystemConfigStore()
+	if err := store.Save(SystemConfig{
+		ConfigKey:   wechatPayConfigKey,
+		ConfigValue: string(raw),
+		Description: "测试微信支付配置",
+		Enabled:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 
 // generatePaymentRSAKey 生成支付单元测试使用的 RSA 密钥。
