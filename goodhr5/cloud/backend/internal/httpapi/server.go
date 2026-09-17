@@ -300,6 +300,20 @@ func (s *Server) GetAppConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "system app config is invalid")
 		return
 	}
+	// 公开接口仅保留内置 AI 的展示字段，防止上游密钥或后续新增内部配置泄露。
+	if appConfig, ok := value.(map[string]any); ok {
+		if builtinAI, ok := appConfig["builtin_ai"].(map[string]any); ok {
+			publicBuiltinAI := make(map[string]any)
+			for _, key := range []string{"public_base_url", "default_model", "signup_bonus_cents", "models"} {
+				if field, exists := builtinAI[key]; exists {
+					publicBuiltinAI[key] = field
+				}
+			}
+			appConfig["builtin_ai"] = publicBuiltinAI
+		} else {
+			delete(appConfig, "builtin_ai")
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
