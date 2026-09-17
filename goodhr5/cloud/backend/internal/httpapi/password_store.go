@@ -16,6 +16,7 @@ type PasswordStore interface {
 	AccountStatus(email string) (exists bool, passwordSet bool, err error)
 	PasswordHash(email string) (string, error)
 	SavePasswordHash(email string, passwordHash string) error
+	UpdatePasswordHash(email string, passwordHash string) error
 }
 
 // MemoryPasswordStore 为无数据库的本地开发环境保存临时账号密码。
@@ -54,6 +55,17 @@ func (s *MemoryPasswordStore) SavePasswordHash(email string, passwordHash string
 	defer s.mu.Unlock()
 	if current, exists := s.accounts[email]; exists && current != "" {
 		return ErrPasswordAlreadySet
+	}
+	s.accounts[email] = passwordHash
+	return nil
+}
+
+// UpdatePasswordHash 覆盖内存账号已有密码摘要，账号不存在时返回 ErrNotFound。
+func (s *MemoryPasswordStore) UpdatePasswordHash(email string, passwordHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.accounts[email]; !exists {
+		return ErrNotFound
 	}
 	s.accounts[email] = passwordHash
 	return nil
@@ -127,6 +139,24 @@ func (s *PostgresPasswordStore) SavePasswordHash(email string, passwordHash stri
 	}
 	if rows == 0 {
 		return ErrPasswordAlreadySet
+	}
+	return nil
+}
+
+// UpdatePasswordHash 覆盖 PostgreSQL 账号已有密码摘要，账号不存在时返回 ErrNotFound。
+func (s *PostgresPasswordStore) UpdatePasswordHash(email string, passwordHash string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash=$2 WHERE email=$1`, email, passwordHash)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

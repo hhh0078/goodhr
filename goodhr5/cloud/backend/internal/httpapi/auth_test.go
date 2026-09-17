@@ -390,6 +390,10 @@ type recordingMailer struct {
 		email string
 		code  string
 	}
+	resetCodes []struct {
+		email string
+		code  string
+	}
 	rewards []struct {
 		email  string
 		notice SubscriptionRewardNotice
@@ -409,6 +413,15 @@ type recordingMailer struct {
 // SendLoginCode 记录验证码邮件发送请求。
 func (m *recordingMailer) SendLoginCode(email string, code string) error {
 	m.loginCodes = append(m.loginCodes, struct {
+		email string
+		code  string
+	}{email: email, code: code})
+	return nil
+}
+
+// SendPasswordResetCode 记录重置密码验证码邮件发送请求。
+func (m *recordingMailer) SendPasswordResetCode(email string, code string) error {
+	m.resetCodes = append(m.resetCodes, struct {
 		email string
 		code  string
 	}{email: email, code: code})
@@ -481,5 +494,105 @@ func TestAuthMeRejectsMissingToken(t *testing.T) {
 
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("me status = %d, want %d", resp.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestChangePasswordVerifiesOldPassword 验证修改密码必须校验旧密码，且新密码立即生效。
+func TestChangePasswordVerifiesOldPassword(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "change-password@example.com"
+	token := loginForTest(t, routes, email)
+
+	wrongReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"wrong-password-1","new_password":"brand-new-pass-1"}`))
+	wrongReq.Header.Set("Authorization", "Bearer "+token)
+	wrongResp := httptest.NewRecorder()
+	routes.ServeHTTP(wrongResp, wrongReq)
+	if wrongResp.Code != http.StatusUnauthorized {
+		t.Fatalf("旧密码错误应返回 401, 实际 %d, body=%s", wrongResp.Code, wrongResp.Body.String())
+	}
+
+	changeReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"test-password-123","new_password":"brand-new-pass-1"}`))
+	changeReq.Header.Set("Authorization", "Bearer "+token)
+	changeResp := httptest.NewRecorder()
+	routes.ServeHTTP(changeResp, changeReq)
+	if changeResp.Code != http.StatusOK {
+		t.Fatalf("修改密码 status = %d, body = %s", changeResp.Code, changeResp.Body.String())
+	}
+
+	oldLogin := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"test-password-123"}`))
+	oldLoginResp := httptest.NewRecorder()
+	routes.ServeHTTP(oldLoginResp, oldLogin)
+	if oldLoginResp.Code == http.StatusOK {
+		t.Fatalf("旧密码修改后不应再能登录")
+	}
+	newLogin := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"brand-new-pass-1"}`))
+	newLoginResp := httptest.NewRecorder()
+	routes.ServeHTTP(newLoginResp, newLogin)
+	if newLoginResp.Code != http.StatusOK {
+		t.Fatalf("新密码应能登录, status = %d, body = %s", newLoginResp.Code, newLoginResp.Body.String())
+	}
+}
+
+// TestResetPasswordWithCode 验证忘记密码可以用邮箱验证码重设，且验证码一次性有效。
+func TestResetPasswordWithCode(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "reset-password@example.com"
+	loginForTest(t, routes, email)
+
+	codeReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/reset-code", bytes.NewBufferString(`{"email":"`+email+`"}`))
+	codeResp := httptest.NewRecorder()
+	routes.ServeHTTP(codeResp, codeReq)
+	if codeResp.Code != http.StatusOK {
+		t.Fatalf("发送重置验证码 status = %d, body = %s", codeResp.Code, codeResp.Body.String())
+	}
+	var codePayload struct {
+		DebugCode string `json:"debug_code"`
+	}
+	if err := json.NewDecoder(codeResp.Body).Decode(&codePayload); err != nil {
+		t.Fatal(err)
+	}
+	if codePayload.DebugCode == "" {
+		t.Fatalf("开发模式应返回 debug_code, body = %s", codeResp.Body.String())
+	}
+
+	resetReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/reset", bytes.NewBufferString(`{"email":"`+email+`","code":"`+codePayload.DebugCode+`","password":"reset-new-pass-1"}`))
+	resetResp := httptest.NewRecorder()
+	routes.ServeHTTP(resetResp, resetReq)
+	if resetResp.Code != http.StatusOK {
+		t.Fatalf("重置密码 status = %d, body = %s", resetResp.Code, resetResp.Body.String())
+	}
+
+	reuseReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/reset", bytes.NewBufferString(`{"email":"`+email+`","code":"`+codePayload.DebugCode+`","password":"another-pass-123"}`))
+	reuseResp := httptest.NewRecorder()
+	routes.ServeHTTP(reuseResp, reuseReq)
+	if reuseResp.Code != http.StatusUnauthorized {
+		t.Fatalf("验证码重复使用应返回 401, 实际 %d", reuseResp.Code)
+	}
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"reset-new-pass-1"}`))
+	loginResp := httptest.NewRecorder()
+	routes.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("重置后的新密码应能登录, status = %d, body = %s", loginResp.Code, loginResp.Body.String())
+	}
+}
+
+// TestSetupPasswordRejectsAlreadySet 验证已经设置过密码的账号不能再走补设接口，避免假成功。
+func TestSetupPasswordRejectsAlreadySet(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "setup-twice@example.com")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/password/setup", bytes.NewBufferString(`{"password":"another-pass-123"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("已设置密码的账号补设应返回 409, 实际 %d, body = %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "个人配置") {
+		t.Fatalf("应提示去个人配置修改, body = %s", resp.Body.String())
 	}
 }

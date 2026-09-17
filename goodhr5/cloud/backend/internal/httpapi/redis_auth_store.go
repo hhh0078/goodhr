@@ -56,6 +56,31 @@ func (s *RedisAuthStore) ConsumeLoginCode(email string, code string) (bool, erro
 	return true, nil
 }
 
+// SavePasswordResetCode 在 Redis 保存一个只能用于重置密码的验证码。
+func (s *RedisAuthStore) SavePasswordResetCode(email string, code string, ttl time.Duration) error {
+	return s.client.Set(context.Background(), passwordResetCodeKey(email), code, ttl).Err()
+}
+
+// ConsumePasswordResetCode 从 Redis 校验并消费一个重置密码验证码。
+func (s *RedisAuthStore) ConsumePasswordResetCode(email string, code string) (bool, error) {
+	ctx := context.Background()
+	key := passwordResetCodeKey(email)
+	saved, err := s.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if saved != code {
+		return false, nil
+	}
+	if err := s.client.Del(ctx, key).Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Duration) error {
 	ctx := context.Background()
 	session.ExpiresAt = time.Now().Add(ttl)
@@ -133,6 +158,11 @@ func passwordFailuresKey(email string) string {
 
 func loginCodeKey(email string) string {
 	return "login_code:" + email
+}
+
+// passwordResetCodeKey 返回重置密码验证码的 Redis 键，与登录验证码分开存放。
+func passwordResetCodeKey(email string) string {
+	return "password_reset_code:" + email
 }
 
 func sessionKey(token string) string {

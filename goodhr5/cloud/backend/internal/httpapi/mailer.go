@@ -18,6 +18,7 @@ import (
 
 type Mailer interface {
 	SendLoginCode(email string, code string) error
+	SendPasswordResetCode(email string, code string) error
 	SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error
 	SendAIBalanceNotice(email string, notice AIBalanceNotice) error
 	SendPositionStatus(email string, notice PositionStatusNotice) error
@@ -71,6 +72,12 @@ func (m DevMailer) SendLoginCode(email string, code string) error {
 	return nil
 }
 
+// SendPasswordResetCode 在开发模式下记录重置密码验证码。
+func (m DevMailer) SendPasswordResetCode(email string, code string) error {
+	log.Printf("GoodHR dev password reset code for %s: %s", email, code)
+	return nil
+}
+
 // SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
 	log.Printf("GoodHR dev subscription changed for %s: reason=%s member=%s days=%d expires=%s related=%s", email, notice.Reason, notice.MemberName, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
@@ -115,6 +122,16 @@ func (m SMTPMailer) SendLoginCode(email string, code string) error {
 	}, []string{
 		"你的 GoodHR 登录验证码是：" + code,
 		"验证码 5 分钟内有效，请勿转发给他人。",
+	})
+}
+
+// SendPasswordResetCode 发送重置密码验证码邮件。
+func (m SMTPMailer) SendPasswordResetCode(email string, code string) error {
+	return m.sendMessage(email, "GoodHR 重置密码验证码", "password_reset_code.html", map[string]any{
+		"Code": code,
+	}, []string{
+		"你的 GoodHR 重置密码验证码是：" + code,
+		"验证码 5 分钟内有效，只能用于重置密码，请勿转发给他人。",
 	})
 }
 

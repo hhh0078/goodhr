@@ -110,6 +110,13 @@ export default function LoginForm() {
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [acceptedEmail, setAcceptedEmail] = useState("");
   const [loginPreferencesLoaded, setLoginPreferencesLoaded] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetCooldown, setResetCooldown] = useState(0);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const agreementReady = acceptedEmail === normalizedEmail || agreementChecked;
@@ -149,6 +156,15 @@ export default function LoginForm() {
   }, [cooldown]);
 
   useEffect(() => {
+    if (resetCooldown <= 0) return undefined;
+    const timer = window.setInterval(
+      () => setResetCooldown((value) => Math.max(0, value - 1)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [resetCooldown]);
+
+  useEffect(() => {
     setAgreementChecked(false);
     setAgreementScrolled(false);
     setAcceptedEmail((current) => (current === normalizedEmail ? current : ""));
@@ -183,6 +199,72 @@ export default function LoginForm() {
     }
   }
 
+  /** openReset 打开忘记密码弹框并清空上一次的输入。 */
+  function openReset() {
+    setResetCode("");
+    setResetPassword("");
+    setResetConfirmation("");
+    setResetMessage("");
+    setResetOpen(true);
+  }
+
+  /** sendResetCode 请求向当前邮箱发送重置密码验证码。 */
+  async function sendResetCode() {
+    setResetMessage("");
+    if (!normalizedEmail) {
+      setResetOpen(false);
+      return setError("请先填写邮箱");
+    }
+    setResetBusy(true);
+    try {
+      const data = await apiRequest("/api/auth/password/reset-code", {
+        method: "POST",
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+      setResetCooldown(60);
+      if (data.debug_code) setResetCode(String(data.debug_code));
+      setResetMessage(
+        data.debug_code
+          ? "本地开发验证码已自动填好"
+          : "验证码已发送，请查看邮箱",
+      );
+    } catch (requestError) {
+      setResetMessage(errorMessage(requestError));
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  /** submitReset 用验证码重设密码，成功后回到密码登录。 */
+  async function submitReset() {
+    setResetMessage("");
+    if (resetCode.trim().length !== 4)
+      return setResetMessage("请输入 4 位验证码");
+    if ([...resetPassword].length < 8)
+      return setResetMessage("新密码至少 8 位，太短了我记不住");
+    if (resetPassword !== resetConfirmation)
+      return setResetMessage("两次新密码不一样，再核对一下");
+    setResetBusy(true);
+    try {
+      await apiRequest("/api/auth/password/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          email: normalizedEmail,
+          code: resetCode.trim(),
+          password: resetPassword,
+        }),
+      });
+      setResetOpen(false);
+      setLoginMode("password");
+      setPassword(resetPassword);
+      setError("");
+      setMessage("密码已经重设好了，直接用新密码登录就行");
+    } catch (requestError) {
+      setResetMessage(errorMessage(requestError));
+    } finally {
+      setResetBusy(false);
+    }
+  }
   /** ensureAgreementAccepted 确认当前邮箱是否已经完成协议确认。 */
   async function ensureAgreementAccepted() {
     if (acceptedEmail === normalizedEmail || agreementChecked) return true;
@@ -360,15 +442,20 @@ export default function LoginForm() {
           <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
             同一账号支持多处登录，不会再互相挤下线。
           </Typography>
-          <Button
-            size="small"
-            onClick={() => {
-              setAgreementOpen(true);
-              setAgreementScrolled(false);
-            }}
-          >
-            阅读协议
-          </Button>
+          <Stack direction="row" spacing={0.5}>
+            <Button size="small" onClick={openReset} disabled={loading}>
+              忘记密码
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                setAgreementOpen(true);
+                setAgreementScrolled(false);
+              }}
+            >
+              阅读协议
+            </Button>
+          </Stack>
         </Stack>
         {error ? <Alert severity="error">{error}</Alert> : null}
         {message ? <Alert severity="success">{message}</Alert> : null}
@@ -435,6 +522,71 @@ export default function LoginForm() {
             onClick={acceptAgreement}
           >
             同意并继续
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={resetOpen} onClose={() => setResetOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>忘记密码</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography sx={{ color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
+              别慌，用 {normalizedEmail || "你的邮箱"} 收一个验证码，就能设一个新密码。
+            </Typography>
+            <TextField
+              label="验证码"
+              inputMode="numeric"
+              placeholder="请输入4位验证码"
+              autoComplete="one-time-code"
+              value={resetCode}
+              onChange={(event) =>
+                setResetCode(event.target.value.replace(/\D/g, "").slice(0, 4))
+              }
+              disabled={resetBusy}
+              fullWidth
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Button
+                        size="small"
+                        onClick={() => void sendResetCode()}
+                        disabled={resetBusy || resetCooldown > 0 || !email.trim()}
+                      >
+                        {resetCooldown > 0 ? `${resetCooldown}s 后重试` : "发送验证码"}
+                      </Button>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <TextField
+              label="新密码"
+              type="password"
+              autoComplete="new-password"
+              helperText="至少 8 位。"
+              value={resetPassword}
+              onChange={(event) => setResetPassword(event.target.value)}
+              disabled={resetBusy}
+              fullWidth
+            />
+            <TextField
+              label="再输入一次新密码"
+              type="password"
+              autoComplete="new-password"
+              value={resetConfirmation}
+              onChange={(event) => setResetConfirmation(event.target.value)}
+              disabled={resetBusy}
+              fullWidth
+            />
+            {resetMessage ? <Alert severity="info">{resetMessage}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setResetOpen(false)} disabled={resetBusy}>
+            先不换了
+          </Button>
+          <Button variant="contained" onClick={() => void submitReset()} disabled={resetBusy}>
+            {resetBusy ? "处理中" : "重设密码"}
           </Button>
         </DialogActions>
       </Dialog>

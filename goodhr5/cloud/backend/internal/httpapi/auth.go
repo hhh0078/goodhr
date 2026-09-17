@@ -316,7 +316,7 @@ func (s *AuthService) SetupPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if passwordSet {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+		writeError(w, http.StatusConflict, "密码已经设置过了，想换的话去「个人配置 - 账号安全」里修改")
 		return
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -326,13 +326,176 @@ func (s *AuthService) SetupPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.passwords.SavePasswordHash(session.Email, string(passwordHash)); err != nil {
 		if errors.Is(err, ErrPasswordAlreadySet) {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+			writeError(w, http.StatusConflict, "密码已经设置过了，想换的话去「个人配置 - 账号安全」里修改")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+}
+
+// changePasswordRequest 是修改密码接口的请求体。
+type changePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// ChangePassword 在登录态下校验旧密码并更换新密码。
+func (s *AuthService) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	currentHash, err := s.passwords.PasswordHash(session.Email)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusConflict, "这个账号还没设置过密码，请先用验证码登录后设置")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号密码失败")
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.OldPassword)) != nil {
+		writeError(w, http.StatusUnauthorized, "旧密码不对，再想想看")
+		return
+	}
+	if strings.TrimSpace(req.NewPassword) == strings.TrimSpace(req.OldPassword) {
+		writeError(w, http.StatusBadRequest, "新密码别和旧密码一样，换个新的吧")
+		return
+	}
+	if err := validateNewPassword(req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	if err := s.passwords.UpdatePasswordHash(session.Email, string(passwordHash)); err != nil {
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// sendPasswordResetCodeRequest 是发送重置密码验证码接口的请求体。
+type sendPasswordResetCodeRequest struct {
+	Email string `json:"email"`
+}
+
+// SendPasswordResetCode 给已经设置过密码的账号发送重置密码验证码。
+func (s *AuthService) SendPasswordResetCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req sendPasswordResetCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	exists, passwordSet, err := s.passwords.AccountStatus(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
+	// 账号不存在或还没设过密码时同样按成功返回，避免别人借此试探哪些邮箱注册过。
+	if !exists || !passwordSet {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "expires_in": int(codeTTL.Seconds())})
+		return
+	}
+	code, err := randomDigits(4)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate code")
+		return
+	}
+	if err := s.store.SavePasswordResetCode(email, code, codeTTL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save code")
+		return
+	}
+	log.Printf("GoodHR 重置密码验证码已生成 email=%s code_length=%d", email, len(code))
+	if err := s.mailer.SendPasswordResetCode(email, code); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send code")
+		return
+	}
+	response := map[string]any{"ok": true, "expires_in": int(codeTTL.Seconds())}
+	if s.exposeDebugCode {
+		response["debug_code"] = code
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// resetPasswordRequest 是重置密码接口的请求体。
+type resetPasswordRequest struct {
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Password string `json:"password"`
+}
+
+// ResetPassword 用邮箱验证码为账号重设密码。
+func (s *AuthService) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req resetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if len(code) != 4 {
+		writeError(w, http.StatusBadRequest, "invalid code")
+		return
+	}
+	if err := validateNewPassword(req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	matched, err := s.store.ConsumePasswordResetCode(email, code)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify code")
+		return
+	}
+	if !matched {
+		writeError(w, http.StatusUnauthorized, "验证码错误或已过期")
+		return
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	if err := s.passwords.UpdatePasswordHash(email, string(passwordHash)); err != nil {
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	if err := s.store.ClearPasswordLoginFailures(email); err != nil {
+		log.Printf("GoodHR 重置密码后清理登录失败计数失败 email=%s err=%v", email, err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // completeLogin 保存会话并完成登录后的账号初始化。

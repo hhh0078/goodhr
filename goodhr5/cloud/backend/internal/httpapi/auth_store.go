@@ -11,6 +11,8 @@ var ErrNotFound = errors.New("not found")
 type AuthStore interface {
 	SaveLoginCode(email string, code string, ttl time.Duration) error
 	ConsumeLoginCode(email string, code string) (bool, error)
+	SavePasswordResetCode(email string, code string, ttl time.Duration) error
+	ConsumePasswordResetCode(email string, code string) (bool, error)
 	SaveSession(token string, session Session, ttl time.Duration) error
 	GetSession(token string) (Session, error)
 	GetSessionUnsafe(token string) (Session, error)
@@ -28,6 +30,7 @@ type Session struct {
 type MemoryAuthStore struct {
 	mu               sync.Mutex
 	codes            map[string]loginCode
+	resetCodes       map[string]loginCode
 	sessions         map[string]Session
 	passwordFailures map[string]passwordLoginFailures
 	now              func() time.Time
@@ -46,6 +49,7 @@ type loginCode struct {
 func NewMemoryAuthStore() *MemoryAuthStore {
 	return &MemoryAuthStore{
 		codes:            make(map[string]loginCode),
+		resetCodes:       make(map[string]loginCode),
 		sessions:         make(map[string]Session),
 		passwordFailures: make(map[string]passwordLoginFailures),
 		now:              time.Now,
@@ -114,6 +118,39 @@ func (s *MemoryAuthStore) ConsumeLoginCode(email string, code string) (bool, err
 	}
 
 	delete(s.codes, email)
+	return true, nil
+}
+
+// SavePasswordResetCode 保存一个只能用于重置密码的验证码。
+func (s *MemoryAuthStore) SavePasswordResetCode(email string, code string, ttl time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.resetCodes[email] = loginCode{
+		Code:      code,
+		ExpiresAt: s.now().Add(ttl),
+	}
+	return nil
+}
+
+// ConsumePasswordResetCode 校验并消费一个重置密码验证码，验证成功后立即失效。
+func (s *MemoryAuthStore) ConsumePasswordResetCode(email string, code string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	saved, ok := s.resetCodes[email]
+	if !ok {
+		return false, nil
+	}
+	if s.now().After(saved.ExpiresAt) {
+		delete(s.resetCodes, email)
+		return false, nil
+	}
+	if saved.Code != code {
+		return false, nil
+	}
+
+	delete(s.resetCodes, email)
 	return true, nil
 }
 

@@ -4,6 +4,7 @@
 import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
@@ -66,6 +67,12 @@ export default function PersonalConfigPage() {
   const [loading, setLoading] = useState(false);
   const [profileOpenSignal, setProfileOpenSignal] = useState(0);
   const [activeTab, setActiveTab] = useState("builtin");
+  const [passwordForm, setPasswordForm] = useState({
+    old_password: "",
+    new_password: "",
+    confirm_password: "",
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   /** load 读取个人 AI 配置和操作偏好。 */
   async function load() {
@@ -197,6 +204,34 @@ export default function PersonalConfigPage() {
     setForm((current) => ({ ...current, [key]: Number(value || 0) }));
   }
 
+  /** changePassword 校验当前密码后更换登录密码。 */
+  async function changePassword() {
+    if (!passwordForm.old_password)
+      return notify("先填一下当前密码，我确认是本人", "warning");
+    if (!passwordForm.new_password) return notify("新密码还没填", "warning");
+    if (passwordForm.new_password !== passwordForm.confirm_password)
+      return notify("两次输入的新密码不一样，再核对一下", "warning");
+    setPasswordSaving(true);
+    try {
+      await cloudRequest("/api/auth/password/change", {
+        method: "POST",
+        body: {
+          old_password: passwordForm.old_password,
+          new_password: passwordForm.new_password,
+        },
+      });
+      setPasswordForm({ old_password: "", new_password: "", confirm_password: "" });
+      notify("密码已经换好了，下次登录用新的", "success");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "密码没换成，我们再来一次",
+        "error",
+      );
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
   return (
     <>
       <NotificationProfileDialog openSignal={profileOpenSignal} />
@@ -236,6 +271,7 @@ export default function PersonalConfigPage() {
           <Tab value='builtin' label='内置AI' />
           <Tab value='custom' label='自定义AI' />
           <Tab value='timing' label='随机时间' />
+          <Tab value='account' label='账号安全' />
         </Tabs>
       </SectionPanel>
 
@@ -492,6 +528,82 @@ export default function PersonalConfigPage() {
           </Stack>
         </SectionPanel>
       </Box>
+      ) : null}
+
+      {activeTab === "account" ? (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" },
+            gap: 2,
+            mb: 2,
+          }}
+        >
+          <SectionPanel>
+            <SectionTitle
+              icon={<LockRoundedIcon />}
+              title='修改登录密码'
+              description='需要输入当前密码，确认是本人之后才换。'
+            />
+            <Stack spacing={2} sx={{ mt: 2.5, maxWidth: 420 }}>
+              <TextField
+                label='当前密码'
+                type='password'
+                size='small'
+                value={passwordForm.old_password}
+                onChange={(event) =>
+                  setPasswordForm((current) => ({
+                    ...current,
+                    old_password: event.target.value,
+                  }))
+                }
+              />
+              <TextField
+                label='新密码'
+                type='password'
+                size='small'
+                helperText='至少 8 位，别和当前密码一样。'
+                value={passwordForm.new_password}
+                onChange={(event) =>
+                  setPasswordForm((current) => ({
+                    ...current,
+                    new_password: event.target.value,
+                  }))
+                }
+              />
+              <TextField
+                label='再输入一次新密码'
+                type='password'
+                size='small'
+                value={passwordForm.confirm_password}
+                onChange={(event) =>
+                  setPasswordForm((current) => ({
+                    ...current,
+                    confirm_password: event.target.value,
+                  }))
+                }
+              />
+              <Button
+                variant='contained'
+                disabled={passwordSaving}
+                onClick={() => void changePassword()}
+                sx={{ alignSelf: "flex-start" }}
+              >
+                {passwordSaving ? "处理中" : "确认修改"}
+              </Button>
+            </Stack>
+          </SectionPanel>
+          <SectionPanel>
+            <SectionTitle
+              icon={<LockRoundedIcon />}
+              title='密码忘了怎么办'
+              description='在登录页点「忘记密码」，用邮箱验证码就能重设，不用找人。'
+            />
+            <Alert severity='info' sx={{ mt: 2 }}>
+              重置验证码会发到你注册用的邮箱，5 分钟内有效，只能用一次。
+            </Alert>
+          </SectionPanel>
+        </Box>
       ) : null}
     </>
   );
