@@ -1,4 +1,4 @@
-# 文件作用说明：从项目 GoodHR PNG Logo 生成带多种尺寸的 Windows ICO，供安装器和快捷方式统一使用。
+﻿# 文件作用说明：从项目 GoodHR PNG Logo 生成带多种尺寸的 Windows ICO，供安装器和快捷方式统一使用。
 param(
   [string]$SourcePath = (Join-Path $PSScriptRoot "..\assets\goodhr-logo-transparent-512.png"),
   [string]$OutputPath = (Join-Path $PSScriptRoot "..\assets\goodhr-logo.ico")

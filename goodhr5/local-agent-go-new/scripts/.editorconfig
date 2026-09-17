@@ -1,0 +1,6 @@
+# 文件作用说明：确保 Windows PowerShell 脚本保留 UTF-8 BOM，避免中文被 PowerShell 5.1 错误解析。
+
+[*.ps1]
+charset = utf-8-bom
+end_of_line = crlf
+insert_final_newline = true

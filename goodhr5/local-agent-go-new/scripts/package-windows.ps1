@@ -1,4 +1,4 @@
-# 文件作用说明：在 Windows x64 上构建 Go 主程序、严格 TypeScript Worker、ZIP 发布包和 Inno Setup 安装器。
+﻿# 文件作用说明：在 Windows x64 上构建 Go 主程序、严格 TypeScript Worker、ZIP 发布包和 Inno Setup 安装器。
 param(
   [string]$Version = "6"
 )
