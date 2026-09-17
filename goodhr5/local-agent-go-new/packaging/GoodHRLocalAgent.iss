@@ -5,13 +5,14 @@
 #endif
 #define MyAppExeName "goodhr-local-agent.exe"
 #define MyPackageDir "..\release\goodhr-local-agent-v" + MyAppVersion + "-windows-x64"
+#define MyLogoFile "..\assets\goodhr-logo.ico"
 
 [Setup]
 AppId={{A7F8D98D-9D3D-47E7-A1F6-50F333A1F6D2}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher=GoodHR
-DefaultDirName={localappdata}\Programs\GoodHRLocalAgent
+DefaultDirName={code:GetDefaultInstallDir}
 DefaultGroupName=GoodHR
 DisableProgramGroupPage=yes
 OutputDir=..\release
@@ -24,6 +25,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
 RestartApplications=no
+SetupIconFile={#MyLogoFile}
+UninstallDisplayIcon={app}\goodhr-logo.ico
+WizardSmallImageFile=..\assets\goodhr-logo-transparent-512.png
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
@@ -39,18 +43,32 @@ Type: filesandordirs; Name: "{app}\worker"
 Source: "{#MyPackageDir}\goodhr-local-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\worker\*"; DestDir: "{app}\worker"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyLogoFile}"; DestDir: "{app}"; DestName: "goodhr-logo.ico"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: checkedonce
 
 [Icons]
-Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"
+Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// GetDefaultInstallDir 按 D、B、E、C 的顺序选择默认安装目录。
+function GetDefaultInstallDir(Param: String): String;
+begin
+  if DirExists('D:\') then
+    Result := 'D:\GoodHRLocalAgent'
+  else if DirExists('B:\') then
+    Result := 'B:\GoodHRLocalAgent'
+  else if DirExists('E:\') then
+    Result := 'E:\GoodHRLocalAgent'
+  else
+    Result := ExpandConstant('{localappdata}\Programs\GoodHRLocalAgent');
+end;
+
 // StopProcessTree 在复制文件前停止旧版主程序和它的 Worker 进程树。
 procedure StopProcessTree(ImageName: String);
 var
