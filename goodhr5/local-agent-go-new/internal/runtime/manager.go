@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +38,20 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 		progress: InstallProgress{Stage: "idle", Message: "等待安装"},
 	}
 	manager.configureWorkerEnvironment()
+	manager.ensureCamoufoxLanguagePack()
 	return manager
+}
+
+// ensureCamoufoxLanguagePack 在 Camoufox 已经安装时补齐内置中文语言包。
+// 语言包只影响浏览器界面语言，装不上时记一条日志，界面保持英文，不影响任务。
+func (m *Manager) ensureCamoufoxLanguagePack() {
+	if !fileExists(m.CamoufoxPath()) {
+		return
+	}
+	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	if err := EnsureChineseLanguagePack(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 中文语言包没有装上，浏览器界面会保持英文 err=%v", err)
+	}
 }
 
 // CheckNode 检查 Node.js 二进制是否存在。

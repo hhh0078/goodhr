@@ -422,6 +422,9 @@ export class BrowserSession {
       // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
       // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
       config: { timezone: request.timezone ?? "Asia/Shanghai" },
+      // 界面语言：Camoufox 只打包英文界面资源，中文界面依赖 Go 预装的 zh-CN 语言包；
+      // 这里请求简体中文，语言包缺失时 Firefox 会自动回退英文，不影响启动。
+      firefox_user_prefs: { "intl.locale.requested": "zh-CN" },
       ...(fingerprint ? { fingerprint } : {}),
     });
     return toPlaywrightLaunchOptions(prepared);
