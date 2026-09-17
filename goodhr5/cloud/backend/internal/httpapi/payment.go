@@ -383,7 +383,7 @@ func (s *PaymentService) completeProviderTransaction(providerName string, result
 		return fmt.Errorf("payment amount mismatch")
 	}
 	raw, _ := json.Marshal(result.Raw)
-	paidOrder, _, err := s.orders.MarkPaid(order.OrderNo, result.TradeNo, string(raw))
+	paidOrder, firstProcessing, err := s.orders.MarkPaid(order.OrderNo, result.TradeNo, string(raw))
 	if err != nil {
 		return err
 	}
@@ -394,16 +394,40 @@ func (s *PaymentService) completeProviderTransaction(providerName string, result
 		if s.aiWallet == nil {
 			return fmt.Errorf("ai wallet not configured")
 		}
-		_, err = s.aiWallet.AdjustBalance(AIWalletRecord{
+		changeUnits := centsToAIUnits(paidOrder.AmountCents)
+		balanceUnits, err := s.aiWallet.AdjustBalance(AIWalletRecord{
 			UserEmail:      paidOrder.UserEmail,
-			ChangeUnits:    centsToAIUnits(paidOrder.AmountCents),
+			ChangeUnits:    changeUnits,
 			Category:       "recharge",
 			Reason:         "AI余额充值成功",
 			RelatedOrderNo: paidOrder.OrderNo,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		// 余额由钱包按订单号去重，重复回调不会重复加钱；提醒邮件只在首次处理这笔订单时发一次。
+		if firstProcessing {
+			s.notifyAIBalanceRecharge(paidOrder, changeUnits, balanceUnits)
+		}
+		return nil
 	}
 	return s.applyPaidSubscriptionOrder(paidOrder)
+}
+
+// notifyAIBalanceRecharge 在 AI 余额充值到账后给用户发送到账提醒邮件。
+// 邮件只是提醒，发送失败只记日志，不能让支付回调返回错误，否则支付渠道会重复推送回调。
+func (s *PaymentService) notifyAIBalanceRecharge(order PaymentOrder, changeUnits int64, balanceUnits int64) {
+	if s.mailer == nil {
+		return
+	}
+	err := sendAIBalanceNotice(s.mailer, order.UserEmail, AIBalanceNotice{
+		Reason:       "AI余额充值成功",
+		ChangeUnits:  changeUnits,
+		BalanceUnits: balanceUnits,
+	})
+	if err != nil {
+		log.Printf("[支付] AI余额已到账，但通知邮件发送失败 order=%s user=%s err=%v", order.OrderNo, order.UserEmail, err)
+	}
 }
 
 // applyPaidSubscriptionOrder 根据普通续费或套餐切换订单更新会员并发送提醒。

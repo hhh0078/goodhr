@@ -152,6 +152,60 @@ func TestApplyPaidSubscriptionOrderIgnoresMailFailure(t *testing.T) {
 	}
 }
 
+// TestAIBalanceRechargeSendsBalanceNotice 验证 AI 余额充值到账后会发送余额提醒邮件，且重复回调不重复发邮件。
+func TestAIBalanceRechargeSendsBalanceNotice(t *testing.T) {
+	server := mustNewServer(t)
+	mailer := &recordingMailer{}
+	server.payments.mailer = mailer
+	provider := &fakeWechatPaymentProvider{}
+	server.payments.providers = map[string]PaymentProvider{provider.Name(): provider}
+	email := "recharge@example.com"
+	order, err := server.payments.orders.Create(PaymentOrder{
+		OrderNo:             "ai-recharge-notice",
+		OrderType:           "ai_balance",
+		UserEmail:           email,
+		PlanID:              "ai_balance",
+		PlanName:            "AI余额充值",
+		OriginalAmountCents: 5000,
+		AmountCents:         5000,
+		PaymentProvider:     provider.Name(),
+		Status:              "pending",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := PaymentProviderTransactionResult{
+		OrderNo:     order.OrderNo,
+		TradeNo:     "trade-recharge",
+		AmountCents: 5000,
+		Paid:        true,
+	}
+	if err := server.payments.completeProviderTransaction(provider.Name(), result); err != nil {
+		t.Fatal(err)
+	}
+	balance, err := server.payments.aiWallet.BalanceUnits(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != centsToAIUnits(5000) {
+		t.Fatalf("充值后余额 = %d, 期望 %d", balance, centsToAIUnits(5000))
+	}
+	if len(mailer.balanceNotices) != 1 {
+		t.Fatalf("充值成功应发送一封余额提醒邮件, 实际 %d 封", len(mailer.balanceNotices))
+	}
+	notice := mailer.balanceNotices[0]
+	if notice.email != email || notice.notice.Reason != "AI余额充值成功" || notice.notice.ChangeUnits != centsToAIUnits(5000) {
+		t.Fatalf("余额提醒内容不符合预期: %+v", notice)
+	}
+
+	if err := server.payments.completeProviderTransaction(provider.Name(), result); err != nil {
+		t.Fatal(err)
+	}
+	if len(mailer.balanceNotices) != 1 {
+		t.Fatalf("重复支付回调不应重复发送余额提醒邮件, 实际 %d 封", len(mailer.balanceNotices))
+	}
+}
+
 // TestMemoryPaymentStoreDoesNotReopenClosedOrder 验证已关闭订单收到迟到回调时不会重新变成已支付。
 func TestMemoryPaymentStoreDoesNotReopenClosedOrder(t *testing.T) {
 	store := NewMemoryPaymentStore()
