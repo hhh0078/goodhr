@@ -117,6 +117,11 @@ func (p *fakeWechatPaymentProvider) ParseNotify(_ context.Context, _ *http.Reque
 	return PaymentProviderTransactionResult{}, errors.New("not implemented in fake provider")
 }
 
+// Refund 返回固定的微信退款成功结果。
+func (p *fakeWechatPaymentProvider) Refund(_ context.Context, input PaymentProviderRefundInput) (PaymentProviderRefundResult, error) {
+	return PaymentProviderRefundResult{Provider: p.Name(), OrderNo: input.OrderNo, RefundNo: input.RefundNo, ProviderRefundID: "refund-test", Status: "SUCCESS"}, nil
+}
+
 // TestApplyPaidSubscriptionOrderIgnoresMailFailure 验证邮件失败不会阻止会员到账或导致重试重复加时长。
 func TestApplyPaidSubscriptionOrderIgnoresMailFailure(t *testing.T) {
 	server := mustNewServer(t)
@@ -163,6 +168,74 @@ func TestMemoryPaymentStoreDoesNotReopenClosedOrder(t *testing.T) {
 	}
 	if changed || updated.Status != "closed" {
 		t.Fatalf("已关闭订单不应重新标记为已支付: changed=%v status=%s", changed, updated.Status)
+	}
+}
+
+// TestAutomaticMembershipRefund 验证会员退款会查找成功订单、调用支付平台并扣减对应会员天数。
+func TestAutomaticMembershipRefund(t *testing.T) {
+	server := mustNewServer(t)
+	provider := &fakeWechatPaymentProvider{}
+	server.payments.providers = map[string]PaymentProvider{provider.Name(): provider}
+	routes := server.Routes()
+	email := "refund-member@example.com"
+	token := loginForTest(t, routes, email)
+	if _, err := server.payments.subscriptions.ReplaceSubscriptionFromNow(email, memberTypeMax, 30); err != nil {
+		t.Fatal(err)
+	}
+	paidAt := time.Now().Add(-24 * time.Hour)
+	if _, err := server.payments.orders.Create(PaymentOrder{
+		OrderNo: "paid-member-refund", OrderType: "subscription", UserEmail: email,
+		MemberType: memberTypeMax, DurationDays: 30, AmountCents: 3000,
+		PaymentProvider: provider.Name(), Status: "paid", PaidAt: &paidAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := server.payments.subscriptions.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/payment/refund", bytes.NewBufferString(`{"refund_type":"membership","amount_cents":1000}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("refund status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	after, err := server.payments.subscriptions.UserSubscription(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if days := int(before.ExpiresAt.Sub(after.ExpiresAt).Hours() / 24); days != 10 {
+		t.Fatalf("会员退款应扣减 10 天，实际扣减 %d 天", days)
+	}
+}
+
+// TestAIBalanceRefundRejectsInsufficientCurrentBalance 验证 AI 退款金额超过当前余额时会直接拒绝。
+func TestAIBalanceRefundRejectsInsufficientCurrentBalance(t *testing.T) {
+	server := mustNewServer(t)
+	provider := &fakeWechatPaymentProvider{}
+	server.payments.providers = map[string]PaymentProvider{provider.Name(): provider}
+	routes := server.Routes()
+	email := "refund-ai@example.com"
+	token := loginForTest(t, routes, email)
+	paidAt := time.Now()
+	if _, err := server.payments.orders.Create(PaymentOrder{
+		OrderNo: "paid-ai-refund", OrderType: "ai_balance", UserEmail: email,
+		AmountCents: 1000, PaymentProvider: provider.Name(), Status: "paid", PaidAt: &paidAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.payments.aiWallet.AdjustBalance(AIWalletRecord{
+		UserEmail: email, ChangeUnits: centsToAIUnits(500), Category: "recharge", RelatedOrderNo: "paid-ai-refund",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/payment/refund", bytes.NewBufferString(`{"refund_type":"ai_balance","amount_cents":600}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("insufficient balance refund status=%d body=%s", resp.Code, resp.Body.String())
 	}
 }
 
