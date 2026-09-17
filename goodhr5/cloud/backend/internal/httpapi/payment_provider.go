@@ -17,6 +17,8 @@ type PaymentProvider interface {
 	QueryOrder(ctx context.Context, orderNo string) (PaymentProviderTransactionResult, error)
 	// ParseNotify 验证并解析第三方支付回调。
 	ParseNotify(ctx context.Context, request *http.Request) (PaymentProviderTransactionResult, error)
+	// Refund 发起原支付订单退款。
+	Refund(ctx context.Context, input PaymentProviderRefundInput) (PaymentProviderRefundResult, error)
 }
 
 // PaymentProviderOrderInput 表示创建第三方支付订单所需参数。
@@ -41,6 +43,25 @@ type PaymentProviderTransactionResult struct {
 	AmountCents int
 	Paid        bool
 	Raw         any
+}
+
+// PaymentProviderRefundInput 表示发起第三方退款所需参数。
+type PaymentProviderRefundInput struct {
+	OrderNo     string
+	RefundNo    string
+	AmountCents int
+	TotalCents  int
+	Reason      string
+}
+
+// PaymentProviderRefundResult 表示第三方退款受理结果。
+type PaymentProviderRefundResult struct {
+	Provider         string `json:"provider"`
+	OrderNo          string `json:"order_no"`
+	RefundNo         string `json:"refund_no"`
+	ProviderRefundID string `json:"provider_refund_id"`
+	Status           string `json:"status"`
+	Raw              any    `json:"-"`
 }
 
 // centsToYuanString 将分转换为两位小数元字符串。

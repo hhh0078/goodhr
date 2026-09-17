@@ -154,6 +154,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/subscription/plans", s.subscriptions.Plans)
 	mux.HandleFunc("/api/payment/orders", s.payments.Orders)
 	mux.HandleFunc("/api/payment/ai-balance", s.payments.AIBalanceOrder)
+	mux.HandleFunc("/api/payment/refund", s.payments.Refund)
 	mux.HandleFunc("/api/payment/orders/", s.payments.OrderDetail)
 	mux.HandleFunc("/api/payment/notify/wechat", s.payments.WechatNotify)
 	mux.HandleFunc("/api/admin/payment/orders", s.payments.ListAdminOrders)

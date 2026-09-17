@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type subscriptionPaymentQuote struct {
 	UpgradeCreditCents int
 }
 
-// PaymentService 处理会员订阅支付、回调和支付记录查询。
+// PaymentService 处理会员订阅支付、AI 充值、退款、回调和支付记录查询。
 type PaymentService struct {
 	auth          *AuthService
 	orders        PaymentStore
@@ -41,6 +42,7 @@ type PaymentService struct {
 	mailer        Mailer
 	aiWallet      AIWalletStore
 	providers     map[string]PaymentProvider
+	refundMu      sync.Mutex
 }
 
 // NewPaymentService 创建支付服务。

@@ -33,7 +33,6 @@ import { cloudRequest, formatDate } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
-  RefreshButton,
   SectionPanel,
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
@@ -54,6 +53,18 @@ const aiRecordPageSize = 10;
 type PendingPayment =
   | { type: "membership"; planID: string }
   | { type: "ai_balance" };
+
+type RefundType = "membership" | "ai_balance";
+
+type RefundQuote = Record<
+  RefundType,
+  {
+    available: boolean;
+    max_amount_cents: number;
+    max_amount: string;
+    message?: string;
+  }
+>;
 
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
@@ -77,6 +88,12 @@ export default function SubscriptionPage() {
   const [payingPlanID, setPayingPlanID] = useState("");
   const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+  const [refundType, setRefundType] = useState<RefundType>("membership");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundQuote, setRefundQuote] = useState<RefundQuote | null>(null);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(
     null,
   );
@@ -319,16 +336,77 @@ export default function SubscriptionPage() {
     }
   }
 
+  /** openRefundDialog 打开退款弹框并从服务器读取实时可退额度。 */
+  async function openRefundDialog() {
+    setRefundDialogOpen(true);
+    setRefundLoading(true);
+    try {
+      const data = await cloudRequest("/api/payment/refund");
+      const quote = data as RefundQuote;
+      setRefundQuote(quote);
+      const preferred: RefundType = quote.membership?.available
+        ? "membership"
+        : "ai_balance";
+      setRefundType(preferred);
+      setRefundAmount(quote[preferred]?.max_amount || "");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "可退金额暂时没查清楚。",
+        "error",
+      );
+    } finally {
+      setRefundLoading(false);
+    }
+  }
+
+  /** changeRefundType 切换退款类型并自动填入该类型最高可退金额。 */
+  function changeRefundType(value: RefundType) {
+    setRefundType(value);
+    setRefundAmount(refundQuote?.[value]?.max_amount || "");
+  }
+
+  /** submitRefund 确认后交给服务器重新校验并自动原路退款。 */
+  async function submitRefund() {
+    const amount = Number(refundAmount || 0);
+    const maximum =
+      Number(refundQuote?.[refundType]?.max_amount_cents || 0) / 100;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > maximum) {
+      notify(`退款金额需在 0.01 元到 ${maximum.toFixed(2)} 元之间。`, "warning");
+      return;
+    }
+    setRefunding(true);
+    try {
+      const data = await cloudRequest("/api/payment/refund", {
+        method: "POST",
+        body: { refund_type: refundType, amount_yuan: refundAmount },
+      });
+      setRefundDialogOpen(false);
+      notify(data.message || "退款已提交，请留意微信到账通知。", "success");
+      await refreshAll();
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "退款没处理成功，我们再来一次。",
+        "error",
+      );
+    } finally {
+      setRefunding(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         title='订阅会员'
         description='会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。'
         actions={
-          <RefreshButton
-            loading={loading || aiLoading}
-            onClick={() => void refreshAll()}
-          />
+          <Button
+            variant='text'
+            color='inherit'
+            sx={{ color: "text.secondary", minWidth: 0, px: 1 }}
+            onClick={() => void openRefundDialog()}
+          >
+            退款
+          </Button>
         }
       />
 
@@ -613,6 +691,62 @@ export default function SubscriptionPage() {
         onClose={() => setPendingPayment(null)}
         onConfirm={() => void confirmPendingPayment()}
       />
+      <Dialog
+        open={refundDialogOpen}
+        onClose={refunding ? undefined : () => setRefundDialogOpen(false)}
+        fullWidth
+        maxWidth='xs'
+      >
+        <DialogTitle>申请退款</DialogTitle>
+        <DialogContent>
+          <TextField
+            select
+            fullWidth
+            label='退款类型'
+            value={refundType}
+            disabled={refundLoading || refunding}
+            onChange={(event) =>
+              changeRefundType(event.target.value as RefundType)
+            }
+            sx={{ mt: 1 }}
+          >
+            <MenuItem value='membership'>会员退款</MenuItem>
+            <MenuItem value='ai_balance'>AI 余额退款</MenuItem>
+          </TextField>
+          <TextField
+            fullWidth
+            label='退款金额（元）'
+            value={refundAmount}
+            disabled={refundLoading || refunding}
+            onChange={(event) => setRefundAmount(event.target.value)}
+            slotProps={{ htmlInput: { inputMode: "decimal" } }}
+            sx={{ mt: 2 }}
+          />
+          <Typography sx={{ mt: 1.25, color: "text.secondary", fontSize: 13 }}>
+            {refundLoading
+              ? "我正在核对成功支付订单和剩余权益。"
+              : refundQuote?.[refundType]?.available
+                ? `当前最多可退 ￥${refundQuote[refundType].max_amount}。确认后会自动原路退回，并同步扣减对应权益。`
+                : refundQuote?.[refundType]?.message || "当前没有可退金额。"}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={refunding} onClick={() => setRefundDialogOpen(false)}>
+            先不退
+          </Button>
+          <Button
+            variant='contained'
+            disabled={
+              refundLoading ||
+              refunding ||
+              !refundQuote?.[refundType]?.available
+            }
+            onClick={() => void submitRefund()}
+          >
+            {refunding ? "退款处理中" : "确认退款"}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <WechatPayDialog
         payment={wechatPayment}
         onClose={() => setWechatPayment(null)}
@@ -709,7 +843,7 @@ function PaymentUnderstandingDialog({
               现有退款政策
             </Typography>
             <Typography sx={{ mt: 0.5, color: "#714700", lineHeight: 1.7 }}>
-              需要退款时，按套餐原价折算剩余天数，并扣除支付渠道产生的 5% 手续费。
+              会员退款按该笔订单实付金额和购买天数折算，只退还尚未使用的部分；AI 余额最多退还当前剩余且有成功充值订单支撑的金额。
             </Typography>
             <Typography sx={{ mt: 0.75, color: "#714700", lineHeight: 1.7 }}>
               需要开发票请联系作者处理。发票开出后，该笔订单不支持退费。
@@ -998,6 +1132,7 @@ function CategoryChip({ category }: { category: string }) {
   const labelMap: Record<string, string> = {
     ai_usage: "AI调用",
     recharge: "充值",
+    refund: "退款",
     signup_bonus: "注册赠送",
     admin_adjust: "后台调整",
   };

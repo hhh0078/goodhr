@@ -35,6 +35,23 @@ type PaymentOrder struct {
 	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
+// PaymentRefund 表示一条自动退款记录。
+type PaymentRefund struct {
+	ID               string     `json:"id"`
+	RefundNo         string     `json:"refund_no"`
+	OrderNo          string     `json:"order_no"`
+	UserEmail        string     `json:"user_email"`
+	RefundType       string     `json:"refund_type"`
+	AmountCents      int        `json:"amount_cents"`
+	DeductedDays     int        `json:"deducted_days"`
+	Status           string     `json:"status"`
+	ProviderRefundID string     `json:"provider_refund_id"`
+	ResponseData     string     `json:"-"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+}
+
 // PaymentStore 定义支付记录持久化能力。
 type PaymentStore interface {
 	// Create 保存一条新支付记录。
@@ -47,17 +64,72 @@ type PaymentStore interface {
 	ListAll() ([]PaymentOrder, error)
 	// MarkPaid 将待支付订单标记为已支付。
 	MarkPaid(orderNo string, tradeNo string, notifyData string) (PaymentOrder, bool, error)
+	// CreateRefund 保存待提交的退款记录，用于先占用可退额度。
+	CreateRefund(refund PaymentRefund) (PaymentRefund, error)
+	// UpdateRefund 更新第三方退款结果。
+	UpdateRefund(refundNo string, status string, providerRefundID string, responseData string) (PaymentRefund, error)
+	// RefundedCentsByOrder 汇总订单已占用和已受理的退款金额。
+	RefundedCentsByOrder(orderNo string) (int, error)
 }
 
 // MemoryPaymentStore 在内存中保存支付记录，用于未启用 PostgreSQL 的开发环境。
 type MemoryPaymentStore struct {
-	mu     sync.Mutex
-	orders map[string]PaymentOrder
+	mu      sync.Mutex
+	orders  map[string]PaymentOrder
+	refunds map[string]PaymentRefund
 }
 
 // NewMemoryPaymentStore 创建内存支付记录存储。
 func NewMemoryPaymentStore() *MemoryPaymentStore {
-	return &MemoryPaymentStore{orders: map[string]PaymentOrder{}}
+	return &MemoryPaymentStore{orders: map[string]PaymentOrder{}, refunds: map[string]PaymentRefund{}}
+}
+
+// CreateRefund 保存内存退款记录。
+func (s *MemoryPaymentStore) CreateRefund(refund PaymentRefund) (PaymentRefund, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if refund.ID == "" {
+		refund.ID = refund.RefundNo
+	}
+	refund.Status = defaultString(refund.Status, "pending")
+	refund.CreatedAt = now
+	refund.UpdatedAt = now
+	s.refunds[refund.RefundNo] = refund
+	return refund, nil
+}
+
+// UpdateRefund 更新内存退款结果。
+func (s *MemoryPaymentStore) UpdateRefund(refundNo string, status string, providerRefundID string, responseData string) (PaymentRefund, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	refund, ok := s.refunds[refundNo]
+	if !ok {
+		return PaymentRefund{}, ErrNotFound
+	}
+	now := time.Now()
+	refund.Status = status
+	refund.ProviderRefundID = providerRefundID
+	refund.ResponseData = responseData
+	refund.UpdatedAt = now
+	if status == "success" {
+		refund.CompletedAt = &now
+	}
+	s.refunds[refundNo] = refund
+	return refund, nil
+}
+
+// RefundedCentsByOrder 汇总内存订单仍占用额度的退款金额。
+func (s *MemoryPaymentStore) RefundedCentsByOrder(orderNo string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := 0
+	for _, refund := range s.refunds {
+		if refund.OrderNo == orderNo && refund.Status != "failed" && refund.Status != "closed" {
+			total += refund.AmountCents
+		}
+	}
+	return total, nil
 }
 
 // Create 保存内存支付记录。
@@ -254,6 +326,64 @@ func (s *PostgresPaymentStore) MarkPaid(orderNo string, tradeNo string, notifyDa
 	}
 	updated, err := s.ByOrderNo(orderNo)
 	return updated, affected > 0, err
+}
+
+// CreateRefund 保存 PostgreSQL 退款记录。
+func (s *PostgresPaymentStore) CreateRefund(refund PaymentRefund) (PaymentRefund, error) {
+	userID, err := ensureUserID(context.Background(), s.db, refund.UserEmail)
+	if err != nil {
+		return PaymentRefund{}, err
+	}
+	err = s.db.QueryRow(`
+		INSERT INTO payment_refunds (
+			refund_no, order_no, user_id, user_email, refund_type, amount_cents,
+			deducted_days, status, response_data
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'{}'::jsonb)
+		RETURNING id::text, created_at, updated_at
+	`, refund.RefundNo, refund.OrderNo, userID, refund.UserEmail, refund.RefundType, refund.AmountCents, refund.DeductedDays, defaultString(refund.Status, "pending")).Scan(&refund.ID, &refund.CreatedAt, &refund.UpdatedAt)
+	if err != nil {
+		return PaymentRefund{}, err
+	}
+	return refund, nil
+}
+
+// UpdateRefund 更新 PostgreSQL 退款结果。
+func (s *PostgresPaymentStore) UpdateRefund(refundNo string, status string, providerRefundID string, responseData string) (PaymentRefund, error) {
+	completed := status == "success"
+	row := s.db.QueryRow(`
+		UPDATE payment_refunds
+		SET status=$2, provider_refund_id=$3, response_data=$4::jsonb,
+			updated_at=NOW(), completed_at=CASE WHEN $5 THEN NOW() ELSE completed_at END
+		WHERE refund_no=$1
+		RETURNING id::text, refund_no, order_no, user_email, refund_type, amount_cents,
+			deducted_days, status, provider_refund_id, response_data::text,
+			created_at, updated_at, completed_at
+	`, refundNo, status, providerRefundID, safeJSONText(responseData), completed)
+	return scanPaymentRefund(row)
+}
+
+// RefundedCentsByOrder 汇总 PostgreSQL 订单仍占用额度的退款金额。
+func (s *PostgresPaymentStore) RefundedCentsByOrder(orderNo string) (int, error) {
+	var total int
+	err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(amount_cents), 0)
+		FROM payment_refunds
+		WHERE order_no=$1 AND status NOT IN ('failed', 'closed')
+	`, orderNo).Scan(&total)
+	return total, err
+}
+
+// scanPaymentRefund 解析单条退款记录。
+func scanPaymentRefund(row interface{ Scan(dest ...any) error }) (PaymentRefund, error) {
+	var refund PaymentRefund
+	err := row.Scan(&refund.ID, &refund.RefundNo, &refund.OrderNo, &refund.UserEmail,
+		&refund.RefundType, &refund.AmountCents, &refund.DeductedDays, &refund.Status,
+		&refund.ProviderRefundID, &refund.ResponseData, &refund.CreatedAt, &refund.UpdatedAt,
+		&refund.CompletedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PaymentRefund{}, ErrNotFound
+	}
+	return refund, err
 }
 
 // scanPaymentOrder 解析单条支付记录。

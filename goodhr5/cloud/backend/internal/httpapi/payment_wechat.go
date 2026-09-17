@@ -20,6 +20,7 @@ import (
 	"github.com/wechatpay-apiv3/wechatpay-go/core/option"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
 	"github.com/wechatpay-apiv3/wechatpay-go/services/payments/native"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/refunddomestic"
 	"github.com/wechatpay-apiv3/wechatpay-go/utils"
 )
 
@@ -48,7 +49,43 @@ type wechatPaySettings struct {
 type wechatPayRuntime struct {
 	settings      wechatPaySettings
 	service       *native.NativeApiService
+	refundService *refunddomestic.RefundsApiService
 	notifyHandler *notify.Handler
+}
+
+// Refund 调用微信支付退款接口并返回退款受理状态。
+func (p *WechatPayProvider) Refund(ctx context.Context, input PaymentProviderRefundInput) (PaymentProviderRefundResult, error) {
+	runtime, err := p.initialize(ctx)
+	if err != nil {
+		return PaymentProviderRefundResult{}, err
+	}
+	if input.AmountCents <= 0 || input.TotalCents <= 0 || input.AmountCents > input.TotalCents {
+		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款金额不正确")
+	}
+	response, _, err := runtime.refundService.Create(ctx, refunddomestic.CreateRequest{
+		OutTradeNo:  core.String(strings.TrimSpace(input.OrderNo)),
+		OutRefundNo: core.String(strings.TrimSpace(input.RefundNo)),
+		Reason:      core.String(paymentTitle(input.Reason)),
+		Amount: &refunddomestic.AmountReq{
+			Currency: core.String("CNY"),
+			Refund:   core.Int64(int64(input.AmountCents)),
+			Total:    core.Int64(int64(input.TotalCents)),
+		},
+	})
+	if err != nil {
+		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款申请失败: %w", err)
+	}
+	if response == nil || response.RefundId == nil || response.Status == nil {
+		return PaymentProviderRefundResult{}, fmt.Errorf("微信退款没有返回完整结果")
+	}
+	return PaymentProviderRefundResult{
+		Provider:         p.Name(),
+		OrderNo:          input.OrderNo,
+		RefundNo:         input.RefundNo,
+		ProviderRefundID: strings.TrimSpace(*response.RefundId),
+		Status:           string(*response.Status),
+		Raw:              response,
+	}, nil
 }
 
 // WechatPayProvider 实现微信支付 V3 Native 支付，配置每次请求前从系统配置表读取。
@@ -255,6 +292,7 @@ func (p *WechatPayProvider) initialize(ctx context.Context) (*wechatPayRuntime, 
 	p.runtime = &wechatPayRuntime{
 		settings:      settings,
 		service:       &native.NativeApiService{Client: client},
+		refundService: &refunddomestic.RefundsApiService{Client: client},
 		notifyHandler: handler,
 	}
 	p.signature = signature

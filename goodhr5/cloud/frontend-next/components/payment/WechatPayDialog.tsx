@@ -108,7 +108,17 @@ export function WechatPayDialog({
                 lineHeight: 0,
               }}
             >
-              <QRCodeSVG value={payment.codeURL} size={220} level='M' />
+              <QRCodeSVG
+                value={payment.codeURL}
+                size={220}
+                level='H'
+                imageSettings={{
+                  src: "/assets/payment/wechat-pay.png",
+                  width: 48,
+                  height: 40,
+                  excavate: true,
+                }}
+              />
             </Box>
             <Box>
               <Typography sx={{ fontWeight: 800 }}>{payment.title}</Typography>
