@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/client"
@@ -17,13 +18,14 @@ import (
 
 const syncInterval = time.Second
 
-// Monitor 定时同步 Worker 已结束的下载记录。
+// Monitor 定时同步 Worker 下载结果，保存本地记录并显示完成提示。
 type Monitor struct {
 	Browser   *client.Client
 	Store     *storage.Store
 	Notifier  *notification.Notifier
 	lastError string
 	connected bool
+	notifyMu  sync.Mutex
 }
 
 // Run 持续同步下载结果，直到上下文被取消。
@@ -59,7 +61,7 @@ func (m *Monitor) Sync(ctx context.Context) error {
 			return err
 		}
 		if inserted && status == "saved" {
-			m.notifySaved(ctx, item.FilePath)
+			go m.notifySaved(ctx, item.FilePath)
 		}
 	}
 	return nil
@@ -96,10 +98,14 @@ func (m *Monitor) syncQuietly(ctx context.Context) {
 }
 
 // notifySaved 显示下载提示，并执行用户选择的打开动作。
+// 弹窗最长会等十秒，调用方需要在后台 goroutine 里执行，
+// 这里再加一把锁保证同一时刻只弹一个提示窗。
 func (m *Monitor) notifySaved(ctx context.Context, filePath string) {
 	if m.Notifier == nil || strings.TrimSpace(filePath) == "" {
 		return
 	}
+	m.notifyMu.Lock()
+	defer m.notifyMu.Unlock()
 	action, err := m.Notifier.NotifyDownload(ctx, filePath)
 	if err != nil {
 		log.Printf("[下载同步] 下载提示没有显示成功 file_name=%s err=%v", filepath.Base(filePath), err)

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 const downloadDialogScript = `
@@ -51,12 +50,5 @@ func (Notifier) NotifyDownload(ctx context.Context, filePath string) (DownloadAc
 	if err != nil {
 		return DownloadDismiss, fmt.Errorf("显示下载提示失败：%w", err)
 	}
-	switch strings.TrimSpace(string(output)) {
-	case string(DownloadOpen):
-		return DownloadOpen, nil
-	case string(DownloadReveal):
-		return DownloadReveal, nil
-	default:
-		return DownloadDismiss, nil
-	}
+	return parseDownloadAction(string(output)), nil
 }

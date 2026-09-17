@@ -4,10 +4,13 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/storage"
@@ -55,6 +58,7 @@ func (s *Server) handleDownloadsConfigure(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.rememberDownloadRoot(directory)
+	s.persistDownloadRoots()
 	writeSuccess(w, http.StatusOK, struct {
 		Configured bool   `json:"configured"`
 		Directory  string `json:"directory"`
@@ -138,6 +142,48 @@ func (s *Server) rememberDownloadRoot(directory string) {
 		s.downloadRoots = make(map[string]struct{})
 	}
 	s.downloadRoots[filepath.Clean(directory)] = struct{}{}
+}
+
+// loadPersistedDownloadRoots 把上次运行保存过的下载目录读回内存，
+// 这样程序重启后依然能打开旧目录里的历史下载文件。
+func (s *Server) loadPersistedDownloadRoots() {
+	if s.store == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	value, err := s.store.GetSetting(ctx, storage.SettingKeyDownloadRoots)
+	if err != nil {
+		log.Printf("[下载] 读取历史下载目录失败，本次只允许默认目录 err=%v", err)
+		return
+	}
+	for _, line := range strings.Split(value, "\n") {
+		directory := strings.TrimSpace(line)
+		if directory == "" {
+			continue
+		}
+		s.rememberDownloadRoot(directory)
+	}
+}
+
+// persistDownloadRoots 把当前允许的全部下载目录写回本地设置。
+func (s *Server) persistDownloadRoots() {
+	if s.store == nil {
+		return
+	}
+	s.downloadRootsMu.RLock()
+	roots := make([]string, 0, len(s.downloadRoots))
+	for root := range s.downloadRoots {
+		roots = append(roots, root)
+	}
+	s.downloadRootsMu.RUnlock()
+	sort.Strings(roots)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := s.store.SetSetting(ctx, storage.SettingKeyDownloadRoots, strings.Join(roots, "\n"))
+	if err != nil {
+		log.Printf("[下载] 保存历史下载目录失败，重启后可能打不开旧目录里的文件 err=%v", err)
+	}
 }
 
 // downloadPathAllowed 判断真实文件路径是否位于任一已配置下载目录。

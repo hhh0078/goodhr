@@ -74,6 +74,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 		cloud: dependencies.Cloud, deviceID: dependencies.DeviceID,
 		downloadRoots: map[string]struct{}{filepath.Clean(cfg.DownloadsDir): {}},
 	}
+	server.loadPersistedDownloadRoots()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("POST /api/v1/session/bind", server.handleAgentBind)

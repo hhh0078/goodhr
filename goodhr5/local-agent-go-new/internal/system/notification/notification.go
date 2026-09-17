@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Notifier 使用当前操作系统的原生播放器启动提示音。
@@ -21,6 +22,21 @@ const (
 	// DownloadReveal 表示用户希望在文件管理器中显示下载文件。
 	DownloadReveal DownloadAction = "reveal"
 )
+
+// parseDownloadAction 从提示窗脚本的输出里解析用户选择的动作。
+// 只认输出中最后一个非空行，避免系统或脚本的额外输出把结果带偏。
+func parseDownloadAction(output string) DownloadAction {
+	lines := strings.Split(output, "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		switch strings.TrimSpace(lines[index]) {
+		case string(DownloadOpen):
+			return DownloadOpen
+		case string(DownloadReveal):
+			return DownloadReveal
+		}
+	}
+	return DownloadDismiss
+}
 
 // PlaySuccess 播放一次成功提示音。
 func (Notifier) PlaySuccess(ctx context.Context) error {
