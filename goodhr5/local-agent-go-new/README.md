@@ -140,6 +140,8 @@ Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生�
 
 每次构建会先删除本版本的旧安装器，避免遗留文件与 Windows 图标缓存混淆。安装器首次安装默认按 `D → B → E → C` 选择存在的磁盘，优先安装到 `D:\GoodHRLocalAgent`；C 盘兜底使用当前用户的 `%LOCALAPPDATA%\Programs\GoodHRLocalAgent`。升级时保留用户上一次选定的目录。
 
+升级前安装器会结束旧主程序，以及命令行指向当前安装目录的残留 Node Worker，避免 `better-sqlite3` 原生文件被占用导致安装回滚；不会结束其他项目的 Node 进程。
+
 Logo 源文件统一保存在 `assets\goodhr-logo-transparent-512.png`。打包脚本会自动调用 `scripts\generate-windows-icon.ps1`，从这个 PNG 生成 `assets\goodhr-logo.ico`，用于安装器文件图标、卸载项和快捷方式；安装向导直接使用源 PNG。以后修改 Logo，只需替换该 PNG 再执行打包命令。
 
 Windows 运行时使用各平台对应的 Node、Camoufox、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 Node、Camoufox、`afplay`、Finder 和 `caffeinate`。

@@ -77,11 +77,28 @@ begin
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "' + ImageName + '" /T /F >NUL 2>NUL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-// CurStepChanged 在安装阶段清理旧进程，避免升级文件被占用。
-procedure CurStepChanged(CurStep: TSetupStep);
+// StopGoodHRWorkerProcesses 只结束命令行指向当前安装目录的残留 Node Worker，避免锁住原生依赖导致升级回滚。
+procedure StopGoodHRWorkerProcesses;
+var
+  ResultCode: Integer;
+  Script: String;
+  WorkerEntry: String;
 begin
-  if CurStep = ssInstall then
-  begin
-    StopProcessTree('goodhr-local-agent.exe');
-  end;
+  WorkerEntry := ExpandConstant('{app}\worker\dist\main.js');
+  Script := '$target = ''' + WorkerEntry + '''; ' +
+    'Get-CimInstance Win32_Process -Filter "Name=''node.exe''" | ' +
+    'Where-Object { $_.CommandLine -like (''*'' + $target + ''*'') } | ' +
+    'ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate | Out-Null }';
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "' + Script + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// PrepareToInstall 在复制文件前清理旧进程，避免原生依赖被残留 Worker 占用。
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopProcessTree('goodhr-local-agent.exe');
+  StopGoodHRWorkerProcesses;
+  Sleep(500);
+  Result := '';
 end;
