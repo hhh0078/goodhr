@@ -126,11 +126,23 @@ macOS 正式包只在 Mac 上生成：
 
 Windows x64 正式包在 Windows 上生成，不能和 macOS 包混用：
 
-```bat
-scripts\package-windows.bat 6
+```powershell
+cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
+.\scripts\package-windows.ps1 -Version 6
 ```
 
-Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成 ZIP 和 Inno Setup 安装器。Windows 运行时会使用 `node.exe`、`chrome.exe`、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 `node`、Chromium.app、`afplay`、Finder 和 `caffeinate`。
+命令行也可以使用 `scripts\package-windows.bat 6`。版本号换成实际发布版本即可。打包机需要 Go、Node.js 22+ 和 Inno Setup 6；脚本默认使用 npm 国内镜像 `https://registry.npmmirror.com` 和 Go 国内镜像 `https://goproxy.cn,direct`。
+
+Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成以下文件：
+
+- `release\goodhr-local-agent-v6-windows-x64.zip`
+- `release\GoodHR-Local-Agent-Setup-v6-windows-x64.exe`
+
+每次构建会先删除本版本的旧安装器，避免遗留文件与 Windows 图标缓存混淆。安装器首次安装默认按 `D → B → E → C` 选择存在的磁盘，优先安装到 `D:\GoodHRLocalAgent`；C 盘兜底使用当前用户的 `%LOCALAPPDATA%\Programs\GoodHRLocalAgent`。升级时保留用户上一次选定的目录。
+
+Logo 源文件统一保存在 `assets\goodhr-logo-transparent-512.png`。打包脚本会自动调用 `scripts\generate-windows-icon.ps1`，从这个 PNG 生成 `assets\goodhr-logo.ico`，用于安装器文件图标、卸载项和快捷方式；安装向导直接使用源 PNG。以后修改 Logo，只需替换该 PNG 再执行打包命令。
+
+Windows 运行时使用各平台对应的 Node、Camoufox、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 Node、Camoufox、`afplay`、Finder 和 `caffeinate`。
 
 两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
 

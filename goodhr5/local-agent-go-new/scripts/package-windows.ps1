@@ -11,6 +11,8 @@ $ReleaseRoot = Join-Path $ProjectDir "release"
 $PackageName = "goodhr-local-agent-v$Version-windows-x64"
 $PackageDir = Join-Path $ReleaseRoot $PackageName
 $ArchivePath = Join-Path $ReleaseRoot "$PackageName.zip"
+$InstallerPath = Join-Path $ReleaseRoot "GoodHR-Local-Agent-Setup-v$Version-windows-x64.exe"
+$LegacyInstallerPath = Join-Path $ReleaseRoot "GoodHRLocalAgentSetup-$Version-windows-x64.exe"
 $InstallerScript = Join-Path $ProjectDir "packaging\GoodHRLocalAgent.iss"
 $NpmRegistry = if ($env:GOODHR_NPM_REGISTRY) { $env:GOODHR_NPM_REGISTRY } else { "https://registry.npmmirror.com" }
 $GoProxy = if ($env:GOPROXY) { $env:GOPROXY } else { "https://goproxy.cn,direct" }
@@ -62,12 +64,21 @@ $Node = Find-CommandPath @("node.exe", "node")
 $Go = Find-CommandPath @("go.exe", "go")
 $InnoSetup = Find-InnoSetup
 
+Write-Step "从项目 PNG Logo 生成 Windows 图标"
+& (Join-Path $PSScriptRoot "generate-windows-icon.ps1")
+
 Write-Step "清理本次 Windows 发布目录"
 if (Test-Path $PackageDir) {
   Remove-Item -Recurse -Force $PackageDir
 }
 if (Test-Path $ArchivePath) {
   Remove-Item -Force $ArchivePath
+}
+if (Test-Path $InstallerPath) {
+  Remove-Item -Force $InstallerPath
+}
+if (Test-Path $LegacyInstallerPath) {
+  Remove-Item -Force $LegacyInstallerPath
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $PackageDir "worker") | Out-Null
 

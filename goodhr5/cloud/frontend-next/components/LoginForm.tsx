@@ -1,4 +1,4 @@
-/** 本文件负责新版登录页的邮箱验证码登录流程和首次协议确认。 */
+/** 本文件负责登录页的邮箱、登录方式偏好、密码或验证码登录及首次协议确认。 */
 "use client";
 
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
@@ -90,6 +90,8 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 
 如果你不同意，或者无法承担相关风险，请停止使用 GoodHR。`;
 
+const LOGIN_MODE_CACHE_KEY = "goodhr.login.mode";
+
 /** LoginForm 提供验证码发送、倒计时、协议确认和登录状态保存。 */
 export default function LoginForm() {
   const [email, setEmail] = useState("");
@@ -107,6 +109,7 @@ export default function LoginForm() {
   const [agreementScrolled, setAgreementScrolled] = useState(false);
   const [agreementChecked, setAgreementChecked] = useState(false);
   const [acceptedEmail, setAcceptedEmail] = useState("");
+  const [loginPreferencesLoaded, setLoginPreferencesLoaded] = useState(false);
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const agreementReady = acceptedEmail === normalizedEmail || agreementChecked;
@@ -117,9 +120,24 @@ export default function LoginForm() {
       .trim()
       .toLowerCase();
     if (cachedEmail) setEmail(cachedEmail);
+    const cachedMode = localStorage.getItem(LOGIN_MODE_CACHE_KEY);
+    if (cachedMode === "code" || cachedMode === "password") {
+      setLoginMode(cachedMode);
+    }
+    setLoginPreferencesLoaded(true);
     const token = localStorage.getItem(TOKEN_KEY) || "";
     if (token) window.location.replace(resolveNextPath());
   }, []);
+
+  useEffect(() => {
+    if (!loginPreferencesLoaded) return;
+    localStorage.setItem(LOGIN_MODE_CACHE_KEY, loginMode);
+    if (normalizedEmail) {
+      localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
+    } else {
+      localStorage.removeItem(SESSION_EMAIL_KEY);
+    }
+  }, [loginMode, loginPreferencesLoaded, normalizedEmail]);
 
   useEffect(() => {
     if (cooldown <= 0) return undefined;
