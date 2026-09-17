@@ -129,7 +129,7 @@ try {
   $env:GOOS = "windows"
   $env:GOARCH = "amd64"
   $env:GOPROXY = $GoProxy
-  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr5.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr5.58it.cn"
+  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr.ai.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr.ai.58it.cn"
   & $Go build -trimpath -ldflags $Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
   if ($LASTEXITCODE -ne 0) {
     throw "Windows Go 主程序编译失败，退出码：$LASTEXITCODE"

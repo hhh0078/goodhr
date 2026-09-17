@@ -82,7 +82,7 @@ Worker 会监听已有标签页和新标签页的下载事件。Go 每秒同步�
 
 四个平台都按 `entry.go`、`position.go`、`candidate.go`、`detail.go`、`greet.go`、`followup.go`、`reply.go` 和 `runtime.go` 分责。每个平台目录中的 `config.json` 是带中文属性说明的本地运行配置和能力核对表，通过 `go:embed` 随 Go 程序一起编译，也是平台 URL、行为和选择器的唯一来源；本地程序不会向云端读取或合并平台配置。配置中的 `pending_selectors` 表示旧版也没有可确认的配置，自动回复缺少真实页面地址或选择器时会在启动前明确拦截。
 
-本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，正式打包时才固定打开 `https://goodhr5.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
+本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，正式打包时固定打开 `https://goodhr.ai.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
 如果固定端口上已经是一个健康的 GoodHR 本地程序，新进程只会复用该实例、打开现有控制台后退出；不会结束不明端口占用者。
 本地 Go 服务默认监听 `127.0.0.1:43129`，启动参数传入其他端口时，控制台仍以 URL 中的实际 `local_port` 为准；前端没有收到端口时也默认探测 `43129`。内部 Browser Worker 继续使用 `39881`。
 

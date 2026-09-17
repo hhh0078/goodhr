@@ -1,0 +1,21 @@
+# 本文件用于在服务器上部署 goodhr.ai.58it.cn 测试环境，并与现有 GoodHR 正式容器隔离。
+name: goodhr6
+
+services:
+  backend:
+    build: ./cloud/backend
+    network_mode: host
+    env_file: ./cloud/backend/.env
+    volumes: ["./cloud/backend:/app", "/app/tmp"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./cloud/frontend-next
+      args:
+        NEXT_PUBLIC_CLOUD_API_BASE: "https://goodhr.ai.58it.cn"
+        NEXT_PUBLIC_SITE_URL: "https://goodhr.ai.58it.cn"
+        NEXT_PUBLIC_LEGACY_ADMIN_URL: "/admin/"
+        CLOUD_API_BASE: "https://goodhr.ai.58it.cn"
+    ports: ["127.0.0.1:5174:3000"]
+    restart: unless-stopped
