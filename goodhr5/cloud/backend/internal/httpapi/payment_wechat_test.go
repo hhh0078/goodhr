@@ -21,6 +21,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/wechatpay-apiv3/wechatpay-go/core"
+	"github.com/wechatpay-apiv3/wechatpay-go/services/payments"
 )
 
 // TestWechatPayParseNotify 验证微信支付回调必须通过签名校验和 AES-GCM 解密。
@@ -62,6 +65,29 @@ func TestWechatPayParseNotify(t *testing.T) {
 	}
 	if !result.Paid || result.OrderNo != "S123" || result.TradeNo != "wx-trade-123" || result.AmountCents != 4000 {
 		t.Fatalf("微信支付回调解析结果不正确: %+v", result)
+	}
+}
+
+// TestWechatTransactionResultAllowsProviderTradeType 验证查单返回不同交易类型文本时仍按订单归属和金额判断到账。
+func TestWechatTransactionResultAllowsProviderTradeType(t *testing.T) {
+	settings := wechatPaySettings{AppID: "wx-test-app", MerchantID: "1900000001"}
+	result, err := transactionResult(settings, &payments.Transaction{
+		Appid:         core.String(settings.AppID),
+		Mchid:         core.String(settings.MerchantID),
+		OutTradeNo:    core.String("S-query-123"),
+		TransactionId: core.String("wx-query-123"),
+		TradeState:    core.String("SUCCESS"),
+		TradeType:     core.String("provider-value"),
+		Amount: &payments.TransactionAmount{
+			Total:    core.Int64(4000),
+			Currency: core.String("CNY"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Paid || result.OrderNo != "S-query-123" || result.AmountCents != 4000 {
+		t.Fatalf("微信查单结果解析不正确: %+v", result)
 	}
 }
 
