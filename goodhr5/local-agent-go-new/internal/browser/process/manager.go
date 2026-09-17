@@ -4,7 +4,6 @@ package process
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -84,8 +83,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
 	command.Env = append(command.Env, m.environment...)
 	lineWriter := &lineSinkWriter{sink: m.logSink}
-	command.Stdout = io.MultiWriter(os.Stdout, lineWriter)
-	command.Stderr = os.Stderr
+	configureOutput(command, lineWriter)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("启动 Browser Worker 失败：%w", err)
 	}

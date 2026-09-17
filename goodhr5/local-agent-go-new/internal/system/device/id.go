@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -36,7 +35,7 @@ func Current() (string, error) {
 func readHardwareID() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
-		output, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+		output, err := commandOutput("ioreg", "-rd1", "-c", "IOPlatformExpertDevice")
 		if err != nil {
 			return "", fmt.Errorf("读取 macOS 设备编号失败：%w", err)
 		}
@@ -48,7 +47,7 @@ func readHardwareID() (string, error) {
 			{"powershell", "-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance Win32_ComputerSystemProduct).UUID"},
 		}
 		for _, command := range commands {
-			output, err := exec.Command(command[0], command[1:]...).Output()
+			output, err := commandOutput(command[0], command[1:]...)
 			if err != nil {
 				continue
 			}

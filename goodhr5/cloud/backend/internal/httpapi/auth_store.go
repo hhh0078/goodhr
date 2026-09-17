@@ -14,6 +14,9 @@ type AuthStore interface {
 	SaveSession(token string, session Session, ttl time.Duration) error
 	GetSession(token string) (Session, error)
 	GetSessionUnsafe(token string) (Session, error)
+	PasswordLoginAllowed(email string) (bool, error)
+	RecordPasswordLoginFailure(email string) error
+	ClearPasswordLoginFailures(email string) error
 }
 
 type Session struct {
@@ -23,10 +26,16 @@ type Session struct {
 }
 
 type MemoryAuthStore struct {
-	mu       sync.Mutex
-	codes    map[string]loginCode
-	sessions map[string]Session
-	now      func() time.Time
+	mu               sync.Mutex
+	codes            map[string]loginCode
+	sessions         map[string]Session
+	passwordFailures map[string]passwordLoginFailures
+	now              func() time.Time
+}
+
+type passwordLoginFailures struct {
+	Attempts  int
+	ExpiresAt time.Time
 }
 
 type loginCode struct {
@@ -36,10 +45,45 @@ type loginCode struct {
 
 func NewMemoryAuthStore() *MemoryAuthStore {
 	return &MemoryAuthStore{
-		codes:    make(map[string]loginCode),
-		sessions: make(map[string]Session),
-		now:      time.Now,
+		codes:            make(map[string]loginCode),
+		sessions:         make(map[string]Session),
+		passwordFailures: make(map[string]passwordLoginFailures),
+		now:              time.Now,
 	}
+}
+
+// PasswordLoginAllowed 判断账号是否已因连续输错密码而进入短暂等待期。
+func (s *MemoryAuthStore) PasswordLoginAllowed(email string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	failures, ok := s.passwordFailures[email]
+	if !ok || s.now().After(failures.ExpiresAt) {
+		delete(s.passwordFailures, email)
+		return true, nil
+	}
+	return failures.Attempts < maxPasswordLoginAttempts, nil
+}
+
+// RecordPasswordLoginFailure 记录一次密码错误，并刷新等待期。
+func (s *MemoryAuthStore) RecordPasswordLoginFailure(email string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	failures := s.passwordFailures[email]
+	if s.now().After(failures.ExpiresAt) {
+		failures.Attempts = 0
+	}
+	failures.Attempts++
+	failures.ExpiresAt = s.now().Add(passwordFailureTTL)
+	s.passwordFailures[email] = failures
+	return nil
+}
+
+// ClearPasswordLoginFailures 在密码登录成功后清除账号的错误计数。
+func (s *MemoryAuthStore) ClearPasswordLoginFailures(email string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.passwordFailures, email)
+	return nil
 }
 
 func (s *MemoryAuthStore) SaveLoginCode(email string, code string, ttl time.Duration) error {

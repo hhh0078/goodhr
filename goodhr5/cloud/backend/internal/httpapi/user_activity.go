@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"time"
 )
@@ -127,11 +128,11 @@ func (s *PostgresUserActivityStore) RecordLogin(email string, at time.Time) erro
 func (s *PostgresUserActivityStore) HasAcceptedAgreement(email string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := ensureUserID(ctx, s.db, email); err != nil {
-		return false, err
-	}
 	var accepted bool
 	err := s.db.QueryRowContext(ctx, `SELECT agreement_accepted_at IS NOT NULL FROM users WHERE email=$1`, email).Scan(&accepted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	return accepted, err
 }
 

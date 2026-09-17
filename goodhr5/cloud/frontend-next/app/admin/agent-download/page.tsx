@@ -16,7 +16,8 @@ import { useEffect, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import {
   buildRuntimeInstallPayload,
-  missingRequiredWinRuntimeURLs,
+  missingRequiredRuntimeURLs,
+  waitForRuntimeInstall,
 } from "@/lib/admin-runtime";
 import {
   EmptyState,
@@ -45,7 +46,6 @@ const componentNames: Record<string, string> = {
   node_runtime: "Node 运行环境",
   node_worker: "浏览器控制 Worker",
   camoufox: "Camoufox 浏览器",
-  cloakbrowser: "Camoufox 浏览器",
   ocr: "OCR 组件",
 };
 
@@ -89,11 +89,11 @@ export default function AgentDownloadPage() {
     setLoading(true);
     try {
       let config: unknown = onboardingConfig;
-      let missing = missingRequiredWinRuntimeURLs(config);
+      let missing = missingRequiredRuntimeURLs(config, textValue(runtime.platform));
       if (missing.length) {
         const fresh = asRecord(await cloudRequest("/api/runtime/config"));
         config = fresh.config || {};
-        missing = missingRequiredWinRuntimeURLs(config);
+        missing = missingRequiredRuntimeURLs(config, textValue(runtime.platform));
       }
       if (missing.length) {
         throw new Error(
@@ -104,8 +104,11 @@ export default function AgentDownloadPage() {
         method: "POST",
         body: buildRuntimeInstallPayload(config),
       });
-      notify("组件更新岗位运行已完成", "success");
-      await load();
+      await waitForRuntimeInstall(
+        () => localRequest(agentBase, "/api/v1/runtime/status"),
+        (status) => setRuntime(status),
+      );
+      notify("组件更新完成，可以继续搬砖了", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "组件更新失败", "error");
     } finally {

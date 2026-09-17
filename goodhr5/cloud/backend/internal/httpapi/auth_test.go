@@ -39,7 +39,7 @@ func TestAuthCodeLogin(t *testing.T) {
 		t.Fatalf("debug code length = %d", len(sendPayload.DebugCode))
 	}
 
-	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `","agreement_accepted":true}`)
+	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `","password":"test-password-123","agreement_accepted":true}`)
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", loginBody)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
@@ -88,11 +88,109 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestNewAccountRequiresPassword 验证新邮箱必须同时提交验证码和合格密码才能注册。
+func TestNewAccountRequiresPassword(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	sendResp := httptest.NewRecorder()
+	routes.ServeHTTP(sendResp, httptest.NewRequest(http.MethodPost, "/api/auth/send-code", bytes.NewBufferString(`{"email":"new-password@example.com"}`)))
+	var sent struct {
+		DebugCode string `json:"debug_code"`
+	}
+	if err := json.NewDecoder(sendResp.Body).Decode(&sent); err != nil {
+		t.Fatal(err)
+	}
+	loginResp := httptest.NewRecorder()
+	routes.ServeHTTP(loginResp, httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"new-password@example.com","code":"`+sent.DebugCode+`","agreement_accepted":true}`)))
+	if loginResp.Code != http.StatusBadRequest || !strings.Contains(loginResp.Body.String(), "密码至少需要 8 位") {
+		t.Fatalf("login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
+	}
+}
+
+// TestPasswordLogin 验证完成注册的用户可以使用邮箱和密码登录。
+func TestPasswordLogin(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	loginForTest(t, routes, "password-login@example.com")
+
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"password-login@example.com","password":"test-password-123"}`)))
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "access_token") {
+		t.Fatalf("password login status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+}
+
+// TestPasswordLoginRateLimit 验证连续输错密码后会短暂限制继续尝试。
+func TestPasswordLoginRateLimit(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	loginForTest(t, routes, "password-limit@example.com")
+	for attempt := 0; attempt < maxPasswordLoginAttempts; attempt++ {
+		resp := httptest.NewRecorder()
+		routes.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"password-limit@example.com","password":"wrong-password"}`)))
+		if resp.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, body = %s", attempt+1, resp.Code, resp.Body.String())
+		}
+	}
+	limited := httptest.NewRecorder()
+	routes.ServeHTTP(limited, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"password-limit@example.com","password":"test-password-123"}`)))
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("limited status = %d, body = %s", limited.Code, limited.Body.String())
+	}
+}
+
+// TestLegacyAccountMustSetPassword 验证历史账号用验证码登录后必须补设密码，随后可以密码登录。
+func TestLegacyAccountMustSetPassword(t *testing.T) {
+	server := mustNewServer(t)
+	passwords, ok := server.auth.passwords.(*MemoryPasswordStore)
+	if !ok {
+		t.Fatal("test password store is not memory store")
+	}
+	passwords.AddLegacyAccount("legacy@example.com")
+	routes := server.Routes()
+
+	sendResp := httptest.NewRecorder()
+	routes.ServeHTTP(sendResp, httptest.NewRequest(http.MethodPost, "/api/auth/send-code", bytes.NewBufferString(`{"email":"legacy@example.com"}`)))
+	var sent struct {
+		DebugCode string `json:"debug_code"`
+	}
+	if err := json.NewDecoder(sendResp.Body).Decode(&sent); err != nil {
+		t.Fatal(err)
+	}
+	loginResp := httptest.NewRecorder()
+	routes.ServeHTTP(loginResp, httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"legacy@example.com","code":"`+sent.DebugCode+`","agreement_accepted":true}`)))
+	var login struct {
+		AccessToken           string `json:"access_token"`
+		RequiresPasswordSetup bool   `json:"requires_password_setup"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&login); err != nil {
+		t.Fatal(err)
+	}
+	if loginResp.Code != http.StatusOK || login.AccessToken == "" || !login.RequiresPasswordSetup {
+		t.Fatalf("legacy login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
+	}
+
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/setup", bytes.NewBufferString(`{"password":"legacy-password-123"}`))
+	setupReq.Header.Set("Authorization", "Bearer "+login.AccessToken)
+	setupResp := httptest.NewRecorder()
+	routes.ServeHTTP(setupResp, setupReq)
+	if setupResp.Code != http.StatusOK {
+		t.Fatalf("setup status = %d, body = %s", setupResp.Code, setupResp.Body.String())
+	}
+
+	passwordResp := httptest.NewRecorder()
+	routes.ServeHTTP(passwordResp, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"legacy@example.com","password":"legacy-password-123"}`)))
+	if passwordResp.Code != http.StatusOK {
+		t.Fatalf("password login status = %d, body = %s", passwordResp.Code, passwordResp.Body.String())
+	}
+}
+
 // TestAuthMeRefreshesLastLogin 验证用户复用有效登录态进入后台时也会刷新最近登录时间。
 func TestAuthMeRefreshesLastLogin(t *testing.T) {
 	store := NewMemoryAuthStore()
 	activity := &recordingUserActivityStore{}
-	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil, 0)
+	auth := NewAuthService(store, NewMemoryPasswordStore(), DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil, 0)
 	if err := store.SaveSession("active-token", Session{Email: "active@example.com", CreatedAt: time.Now()}, time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +376,7 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	if isUniversalLoginCode(wrongCode, time.Now(), 3) {
 		wrongCode = "9999"
 	}
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","agreement_accepted":true}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","password":"test-password-123","agreement_accepted":true}`))
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
 

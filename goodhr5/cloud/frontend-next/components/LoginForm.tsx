@@ -2,6 +2,7 @@
 "use client";
 
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
+import LockOutlineRoundedIcon from "@mui/icons-material/LockOutlineRounded";
 import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
 import {
@@ -29,6 +30,7 @@ import {
   TOKEN_KEY,
 } from "@/lib/api";
 import { captureLocalAgentPortFromURL } from "@/lib/admin-api";
+import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 
 const AGREEMENT_MARKDOWN = `## GoodHR 使用协议与隐私说明
 
@@ -92,6 +94,11 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [loginMode, setLoginMode] = useState<"code" | "password">("code");
+  const [isNewAccount, setIsNewAccount] = useState<boolean | null>(null);
+  const [passwordSetupRequired, setPasswordSetupRequired] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -129,6 +136,13 @@ export default function LoginForm() {
     setAcceptedEmail((current) => (current === normalizedEmail ? current : ""));
   }, [normalizedEmail]);
 
+  useEffect(() => {
+    setIsNewAccount(null);
+    setCode("");
+    setPassword("");
+    setPasswordConfirmation("");
+  }, [normalizedEmail]);
+
   /** sendCode 请求向当前邮箱发送登录验证码。 */
   async function sendCode() {
     setError("");
@@ -136,12 +150,14 @@ export default function LoginForm() {
     if (!normalizedEmail) return setError("请先填写邮箱");
     setLoading(true);
     try {
-      await apiRequest("/api/auth/send-code", {
+      const data = await apiRequest("/api/auth/send-code", {
         method: "POST",
         body: JSON.stringify({ email: normalizedEmail }),
       });
+	  setIsNewAccount(Boolean(data.is_new_account));
+	  if (data.debug_code) setCode(String(data.debug_code));
       setCooldown(60);
-      setMessage("验证码已发送，请查看邮箱");
+      setMessage(data.debug_code ? "本地开发验证码已自动填好" : "验证码已发送，请查看邮箱");
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -165,32 +181,51 @@ export default function LoginForm() {
     return false;
   }
 
-  /** login 提交邮箱验证码并保存登录凭证。 */
+  /** finishLogin 保存登录凭证，并在需要时先要求历史账号设置密码。 */
+  function finishLogin(data: any) {
+    const token = String(data.access_token || "");
+    if (!token) throw new Error("登录成功但未返回登录凭证");
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
+    localStorage.removeItem(INVITE_CACHE_KEY);
+    if (data.requires_password_setup) {
+      setPasswordSetupRequired(true);
+      setMessage("验证码通过了，再补一个密码就能继续");
+      return;
+    }
+    setMessage("登录成功，正在进入控制台");
+    window.location.assign(resolveNextPath());
+  }
+
+  /** login 根据当前方式提交验证码或密码登录。 */
   async function login() {
     setError("");
     setMessage("");
     if (!normalizedEmail) return setError("请先填写邮箱");
-    if (code.trim().length !== 4) return setError("请输入 4 位验证码");
+    if (loginMode === "password" && !password) return setError("请输入密码");
+    if (loginMode === "code" && code.trim().length !== 4) return setError("请输入 4 位验证码");
+    if (loginMode === "code" && isNewAccount === null) return setError("请先发送验证码");
+    if (loginMode === "code" && isNewAccount && [...password].length < 8) return setError("首次注册需要设置至少 8 位密码");
+    if (loginMode === "code" && isNewAccount && password !== passwordConfirmation) return setError("两次密码不一样，我先不敢注册");
     setLoading(true);
     try {
       if (!(await ensureAgreementAccepted())) return;
       const inviterID = localStorage.getItem(INVITE_CACHE_KEY) || "";
-      const data = await apiRequest("/api/auth/login", {
+      const data = await apiRequest(loginMode === "password" ? "/api/auth/password-login" : "/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({
+        body: JSON.stringify(loginMode === "password" ? {
+          email: normalizedEmail,
+          password,
+          agreement_accepted: agreementChecked,
+        } : {
           email: normalizedEmail,
           code: code.trim(),
+          password: isNewAccount ? password : "",
           inviter_id: inviterID,
           agreement_accepted: agreementChecked,
         }),
       });
-      const token = String(data.access_token || "");
-      if (!token) throw new Error("登录成功但未返回登录凭证");
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(SESSION_EMAIL_KEY, normalizedEmail);
-      localStorage.removeItem(INVITE_CACHE_KEY);
-      setMessage("登录成功，正在进入控制台");
-      window.location.assign(resolveNextPath());
+      finishLogin(data);
     } catch (requestError) {
       setError(errorMessage(requestError));
     } finally {
@@ -224,6 +259,10 @@ export default function LoginForm() {
       noValidate
     >
       <Stack spacing={2.25}>
+        <Stack direction="row" spacing={1}>
+          <Button fullWidth variant={loginMode === "code" ? "contained" : "outlined"} onClick={() => setLoginMode("code")} disabled={loading}>验证码登录</Button>
+          <Button fullWidth variant={loginMode === "password" ? "contained" : "outlined"} onClick={() => setLoginMode("password")} disabled={loading}>密码登录</Button>
+        </Stack>
         <TextField
           label="邮箱"
           placeholder="请输入邮箱(12242993@qq.com 为示例)"
@@ -243,7 +282,7 @@ export default function LoginForm() {
             },
           }}
         />
-        <TextField
+        {loginMode === "code" ? <TextField
           label="验证码"
           inputMode="numeric"
           placeholder="请输入4位验证码"
@@ -274,7 +313,27 @@ export default function LoginForm() {
               ),
             },
           }}
-        />
+        /> : null}
+        {loginMode === "password" || isNewAccount ? <TextField
+          label={isNewAccount && loginMode === "code" ? "设置登录密码" : "密码"}
+          type="password"
+          autoComplete={isNewAccount ? "new-password" : "current-password"}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={loading}
+          helperText={isNewAccount && loginMode === "code" ? "首次注册必须设置至少 8 位密码" : undefined}
+          fullWidth
+          slotProps={{ input: { startAdornment: <InputAdornment position="start"><LockOutlineRoundedIcon color="action" /></InputAdornment> } }}
+        /> : null}
+        {loginMode === "code" && isNewAccount ? <TextField
+          label="再输入一次密码"
+          type="password"
+          autoComplete="new-password"
+          value={passwordConfirmation}
+          onChange={(event) => setPasswordConfirmation(event.target.value)}
+          disabled={loading}
+          fullWidth
+        /> : null}
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={1}
@@ -299,7 +358,7 @@ export default function LoginForm() {
           type="submit"
           variant="contained"
           size="large"
-          disabled={loading || !email.trim() || code.length !== 4}
+          disabled={loading || !email.trim() || (loginMode === "code" ? code.length !== 4 : !password)}
           endIcon={
             loading ? (
               <CircularProgress size={18} color="inherit" />
@@ -308,11 +367,11 @@ export default function LoginForm() {
             )
           }
         >
-          {loading ? "正在处理" : "登录并进入控制台"}
+          {loading ? "正在处理" : loginMode === "password" ? "密码登录" : isNewAccount ? "注册并进入控制台" : "登录并进入控制台"}
         </Button>
       </Stack>
       <Typography sx={{ mt: 2.5, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
-        未注册的邮箱首次登录后会自动创建账号。首次使用需要阅读并同意 GoodHR 使用协议。
+        新邮箱注册需要验证码和密码。老账号没有密码也别慌，先用验证码登录，我会带你补上。
       </Typography>
       <Dialog
         open={agreementOpen}
@@ -361,6 +420,20 @@ export default function LoginForm() {
           </Button>
         </DialogActions>
       </Dialog>
+      <PasswordSetupDialog
+        open={passwordSetupRequired}
+        email={normalizedEmail}
+        onSubmit={async (nextPassword) => {
+          const token = localStorage.getItem(TOKEN_KEY) || "";
+          await apiRequest("/api/auth/password/setup", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ password: nextPassword }),
+          });
+          setPasswordSetupRequired(false);
+          window.location.assign(resolveNextPath());
+        }}
+      />
     </Box>
   );
 }

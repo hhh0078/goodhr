@@ -32,13 +32,17 @@ test("运行状态使用配置的浏览器路径", async () => {
 /** 验证安装目录内可以自动找到 Camoufox 启动文件并读取版本。 */
 test("默认安装目录自动探测启动文件和版本", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "goodhr-camoufox-"));
-  const binaryPath = path.join(directory, "Camoufox.app", "Contents", "MacOS");
+  const binaryPath = process.platform === "win32"
+    ? path.join(directory, "camoufox.exe")
+    : process.platform === "darwin"
+      ? path.join(directory, "Camoufox.app", "Contents", "MacOS", "camoufox")
+      : path.join(directory, "camoufox-bin");
   const previousBinary = process.env.CAMOUFOX_BINARY_PATH;
   const previousInstall = process.env.CAMOUFOX_INSTALL_DIR;
   try {
     delete process.env.CAMOUFOX_BINARY_PATH;
-    await mkdir(binaryPath, { recursive: true });
-    await writeFile(path.join(binaryPath, "camoufox"), "");
+    await mkdir(path.dirname(binaryPath), { recursive: true });
+    await writeFile(binaryPath, "");
     await writeFile(
       path.join(directory, "version.json"),
       JSON.stringify({ version: "135.0.1", release: "beta.24" }),
@@ -46,7 +50,7 @@ test("默认安装目录自动探测启动文件和版本", async () => {
     );
     process.env.CAMOUFOX_INSTALL_DIR = directory;
     const status = new ActionService().runtimeStatus();
-    assert.equal(status.binary_path, path.join(binaryPath, "camoufox"));
+    assert.equal(status.binary_path, binaryPath);
     assert.equal(status.installed, true);
     assert.equal(status.camoufox_version, "135.0.1-beta.24");
   } finally {

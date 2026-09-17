@@ -22,6 +22,12 @@ func configureProcess(command *exec.Cmd) {
 	}
 }
 
+// configureOutput 把 GUI 安装版的 Worker 输出交给内部日志接收器，避免无效终端句柄让 Node 退出。
+func configureOutput(command *exec.Cmd, lineWriter *lineSinkWriter) {
+	command.Stdout = lineWriter
+	command.Stderr = lineWriter
+}
+
 // stopProcess 使用 taskkill 停止 Node Worker 和它启动的浏览器进程树。
 func stopProcess(process *os.Process) error {
 	if process == nil {

@@ -86,6 +86,14 @@ func (c Config) AuthStore() (AuthStore, error) {
 	return NewMemoryAuthStore(), nil
 }
 
+// PasswordStore 创建用户密码存储；生产环境使用 PostgreSQL，本地开发使用内存实现。
+func (c Config) PasswordStore(db *sql.DB) PasswordStore {
+	if db != nil {
+		return NewPostgresPasswordStore(db)
+	}
+	return NewMemoryPasswordStore()
+}
+
 // Mailer 创建验证码发信器；配置 SMTP 时真实发信，否则使用开发模式。
 func (c Config) Mailer() (Mailer, bool) {
 	if c.SMTPHost != "" && c.SMTPUsername != "" && c.SMTPPassword != "" {

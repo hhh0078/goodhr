@@ -48,6 +48,7 @@ import {
   type ReactNode,
 } from "react";
 import BrandMark from "@/components/BrandMark";
+import PasswordSetupDialog from "@/components/PasswordSetupDialog";
 import { useMembershipTheme } from "@/app/providers";
 import { resolveMembershipTheme } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
@@ -254,6 +255,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     resolve?: (value: boolean) => void;
   }>({ open: false, title: "", message: "" });
   const [trialWelcomeOpen, setTrialWelcomeOpen] = useState(false);
+  const [passwordSetupRequired, setPasswordSetupRequired] = useState(false);
   const [teamInvitations, setTeamInvitations] = useState<any[]>([]);
   const [teamInvitationLoading, setTeamInvitationLoading] = useState(false);
   const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
@@ -465,9 +467,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     const authPayload = authResult.value;
     const nextUser = authPayload.user || authPayload;
     setUser(nextUser);
+    const nextPasswordSetupRequired = Boolean(authPayload.requires_password_setup);
+    setPasswordSetupRequired(nextPasswordSetupRequired);
     const welcomeKey = `goodhr_trial_welcome_${nextUser?.email || ""}`;
     setTrialWelcomeOpen(
-      Boolean(authPayload.show_trial_welcome) &&
+      !nextPasswordSetupRequired && Boolean(authPayload.show_trial_welcome) &&
         !localStorage.getItem(welcomeKey),
     );
     if (results[1].status === "fulfilled") {
@@ -1033,6 +1037,15 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             ]}
           />
         </AdminDialog>
+        <PasswordSetupDialog
+          open={passwordSetupRequired}
+          email={user?.email}
+          onSubmit={async (password) => {
+            await cloudRequest("/api/auth/password/setup", { method: "POST", body: { password } });
+            setPasswordSetupRequired(false);
+            notify("密码设置好了，这次记住它就行。", "success");
+          }}
+        />
       </Box>
     </AdminContext.Provider>
   );

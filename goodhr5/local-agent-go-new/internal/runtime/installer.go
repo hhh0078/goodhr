@@ -56,7 +56,7 @@ func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 		optional  bool
 	}{
 		{component: "node_runtime", label: "Node 运行环境", target: "node", asset: manifest.NodeRuntime[platform]},
-		{component: "camoufox", label: "Camoufox 浏览器", target: "camoufox", asset: manifest.BrowserAsset(platform)},
+		{component: "camoufox", label: "Camoufox 浏览器", target: "camoufox", asset: manifest.Camoufox[platform]},
 		{component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
 	}
 	for index, step := range steps {
@@ -212,7 +212,7 @@ func (m *Manager) componentInstalled(component string) bool {
 	switch component {
 	case "node_runtime":
 		return m.CheckNode() == nil
-	case "camoufox", "cloakbrowser":
+	case "camoufox":
 		return fileExists(m.CamoufoxPath())
 	case "ocr":
 		return m.OCRInstalled()
@@ -223,7 +223,7 @@ func (m *Manager) componentInstalled(component string) bool {
 
 // manifestHasAssets 判断清单是否至少配置了一个下载资源。
 func manifestHasAssets(manifest Manifest) bool {
-	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.CloakBrowser, manifest.OCR} {
+	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.Camoufox, manifest.OCR} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
 				return true

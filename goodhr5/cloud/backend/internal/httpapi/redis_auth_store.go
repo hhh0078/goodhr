@@ -101,6 +101,36 @@ func (s *RedisAuthStore) GetSessionUnsafe(token string) (Session, error) {
 	return session, nil
 }
 
+// PasswordLoginAllowed 从 Redis 读取密码错误次数，限制连续密码尝试。
+func (s *RedisAuthStore) PasswordLoginAllowed(email string) (bool, error) {
+	count, err := s.client.Get(context.Background(), passwordFailuresKey(email)).Int()
+	if err == redis.Nil {
+		return true, nil
+	}
+	return count < maxPasswordLoginAttempts, err
+}
+
+// RecordPasswordLoginFailure 在 Redis 原子递增密码错误次数，并刷新等待期。
+func (s *RedisAuthStore) RecordPasswordLoginFailure(email string) error {
+	ctx := context.Background()
+	_, err := s.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Incr(ctx, passwordFailuresKey(email))
+		pipe.Expire(ctx, passwordFailuresKey(email), passwordFailureTTL)
+		return nil
+	})
+	return err
+}
+
+// ClearPasswordLoginFailures 在密码登录成功后删除 Redis 中的错误计数。
+func (s *RedisAuthStore) ClearPasswordLoginFailures(email string) error {
+	return s.client.Del(context.Background(), passwordFailuresKey(email)).Err()
+}
+
+// passwordFailuresKey 返回账号密码错误计数的 Redis 键。
+func passwordFailuresKey(email string) string {
+	return "password_login_failures:" + email
+}
+
 func loginCodeKey(email string) string {
 	return "login_code:" + email
 }

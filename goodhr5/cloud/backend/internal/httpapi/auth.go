@@ -12,14 +12,19 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const codeTTL = 5 * time.Minute
 const sessionTTL = 30 * 24 * time.Hour
+const passwordFailureTTL = 15 * time.Minute
+const maxPasswordLoginAttempts = 5
 const chinaTimezoneName = "Asia/Shanghai"
 
 type AuthService struct {
 	store                       AuthStore
+	passwords                   PasswordStore
 	mailer                      Mailer
 	exposeDebugCode             bool
 	tenantStore                 TenantStore
@@ -39,12 +44,23 @@ type sendCodeRequest struct {
 type loginRequest struct {
 	Email             string `json:"email"`
 	Code              string `json:"code"`
+	Password          string `json:"password"`
 	InviterID         string `json:"inviter_id"`
 	AgreementAccepted bool   `json:"agreement_accepted"`
 }
 
+type passwordLoginRequest struct {
+	Email             string `json:"email"`
+	Password          string `json:"password"`
+	AgreementAccepted bool   `json:"agreement_accepted"`
+}
+
+type setupPasswordRequest struct {
+	Password string `json:"password"`
+}
+
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string, universalLoginCodeOffsetMin int) *AuthService {
+func NewAuthService(store AuthStore, passwords PasswordStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string, universalLoginCodeOffsetMin int) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -55,6 +71,7 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 	}
 	return &AuthService{
 		store:                       store,
+		passwords:                   passwords,
 		mailer:                      mailer,
 		exposeDebugCode:             exposeDebugCode,
 		tenantStore:                 tenantStore,
@@ -100,6 +117,11 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save code")
 		return
 	}
+	accountExists, passwordSet, err := s.passwords.AccountStatus(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
 
 	log.Printf("GoodHR 登录验证码已生成 email=%s code_length=%d", email, len(code))
 	if err := s.mailer.SendLoginCode(email, code); err != nil {
@@ -108,9 +130,11 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := map[string]any{
-		"ok":         true,
-		"email":      email,
-		"expires_in": int(codeTTL.Seconds()),
+		"ok":             true,
+		"email":          email,
+		"expires_in":     int(codeTTL.Seconds()),
+		"is_new_account": !accountExists,
+		"password_set":   passwordSet,
 	}
 	if s.exposeDebugCode {
 		response["debug_code"] = code
@@ -135,13 +159,22 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
+	accountExists, passwordSet, err := s.passwords.AccountStatus(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
 
 	code := strings.TrimSpace(req.Code)
 	if len(code) != 4 {
 		writeError(w, http.StatusBadRequest, "invalid code")
 		return
 	}
-	if s.userActivity != nil {
+	if !accountExists && !req.AgreementAccepted {
+		writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+		return
+	}
+	if accountExists && s.userActivity != nil {
 		accepted, err := s.userActivity.HasAcceptedAgreement(email)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed read agreement status")
@@ -149,6 +182,16 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		if !accepted && !req.AgreementAccepted {
 			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			return
+		}
+	}
+	if !accountExists {
+		if !s.emailDomainAllowed(email) {
+			writeError(w, http.StatusForbidden, "该邮箱域名不在白名单内，请使用qq邮箱、163 等等常见邮箱域名")
+			return
+		}
+		if err := validateNewPassword(req.Password); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -162,6 +205,138 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "验证码错误或已过期")
 		return
 	}
+	if !accountExists {
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+			return
+		}
+		if err := s.passwords.SavePasswordHash(email, string(passwordHash)); err != nil {
+			if errors.Is(err, ErrPasswordAlreadySet) {
+				writeError(w, http.StatusConflict, "账号刚刚已经注册，请直接登录")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+			return
+		}
+		passwordSet = true
+	}
+
+	s.completeLogin(w, email, strings.TrimSpace(req.InviterID), req.AgreementAccepted, !passwordSet)
+}
+
+// PasswordLogin 使用邮箱和密码创建登录会话。
+func (s *AuthService) PasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req passwordLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "请输入邮箱和密码")
+		return
+	}
+	allowed, err := s.store.PasswordLoginAllowed(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "暂时没查到登录状态，请稍后再试")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "密码连续输错了几次，先等 15 分钟，或者用验证码登录")
+		return
+	}
+	accountExists, passwordSet, err := s.passwords.AccountStatus(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
+	if accountExists && !passwordSet {
+		writeError(w, http.StatusForbidden, "这个老账号还没有密码，请先用验证码登录并设置密码")
+		return
+	}
+	passwordHash, err := s.passwords.PasswordHash(email)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
+	if !accountExists || err != nil || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+		if err := s.store.RecordPasswordLoginFailure(email); err != nil {
+			writeError(w, http.StatusInternalServerError, "暂时没记住登录状态，请稍后再试")
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "邮箱或密码不正确")
+		return
+	}
+	if err := s.store.ClearPasswordLoginFailures(email); err != nil {
+		writeError(w, http.StatusInternalServerError, "暂时没记住登录状态，请稍后再试")
+		return
+	}
+	if s.userActivity != nil {
+		accepted, err := s.userActivity.HasAcceptedAgreement(email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed read agreement status")
+			return
+		}
+		if !accepted && !req.AgreementAccepted {
+			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			return
+		}
+	}
+	s.completeLogin(w, email, "", req.AgreementAccepted, false)
+}
+
+// SetupPassword 为验证码登录后的历史账号补设密码。
+func (s *AuthService) SetupPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.SessionFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	var req setupPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if err := validateNewPassword(req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, passwordSet, err := s.passwords.AccountStatus(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
+	if passwordSet {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+		return
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	if err := s.passwords.SavePasswordHash(session.Email, string(passwordHash)); err != nil {
+		if errors.Is(err, ErrPasswordAlreadySet) {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "密码保存失败，请稍后再试")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password_set": true})
+}
+
+// completeLogin 保存会话并完成登录后的账号初始化。
+func (s *AuthService) completeLogin(w http.ResponseWriter, email string, inviterID string, agreementAccepted bool, requiresPasswordSetup bool) {
 
 	token, err := randomToken()
 	if err != nil {
@@ -181,7 +356,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to record login")
 		return
 	}
-	if req.AgreementAccepted && s.userActivity != nil {
+	if agreementAccepted && s.userActivity != nil {
 		if err := s.userActivity.AcceptAgreement(email, now); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to accept agreement")
 			return
@@ -199,17 +374,18 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.applyInviteOnLogin(email, strings.TrimSpace(req.InviterID)); err != nil {
+	if err := s.applyInviteOnLogin(email, inviterID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to apply invite reward")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":           true,
-		"access_token": token,
-		"token_type":   "Bearer",
-		"expires_in":   int(sessionTTL.Seconds()),
-		"user":         s.publicUser(email),
+		"ok":                      true,
+		"access_token":            token,
+		"token_type":              "Bearer",
+		"expires_in":              int(sessionTTL.Seconds()),
+		"user":                    s.publicUser(email),
+		"requires_password_setup": requiresPasswordSetup,
 	})
 }
 
@@ -243,6 +419,11 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	_, passwordSet, err := s.passwords.AccountStatus(session.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取账号状态失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"user": s.publicUser(session.Email),
@@ -250,7 +431,8 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 			"created_at": session.CreatedAt,
 			"expires_at": session.ExpiresAt,
 		},
-		"show_trial_welcome": showTrialWelcome,
+		"show_trial_welcome":      showTrialWelcome,
+		"requires_password_setup": !passwordSet,
 	})
 }
 
@@ -488,6 +670,20 @@ func normalizeEmail(value string) (string, bool) {
 		return "", false
 	}
 	return email, true
+}
+
+// validateNewPassword 校验注册和补设密码时的长度边界。
+func validateNewPassword(password string) error {
+	if len([]rune(password)) < 8 {
+		return errors.New("密码至少需要 8 位")
+	}
+	if strings.TrimSpace(password) == "" {
+		return errors.New("密码不能全是空格")
+	}
+	if len([]byte(password)) > 72 {
+		return errors.New("密码太长了，请控制在 72 个字节以内")
+	}
+	return nil
 }
 
 func randomDigits(length int) (string, error) {

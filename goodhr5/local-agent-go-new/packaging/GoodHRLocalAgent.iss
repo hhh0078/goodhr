@@ -26,7 +26,7 @@ CloseApplications=no
 RestartApplications=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Dirs]
 Name: "{localappdata}\GoodHR\local-agent-new"

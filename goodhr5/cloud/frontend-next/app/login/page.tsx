@@ -1,11 +1,11 @@
-/** 本文件负责展示 GoodHR 新版邮箱验证码登录页面。 */
+/** 本文件负责展示 GoodHR 验证码与密码登录页面。 */
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import { Box, Button, Container, Paper, Stack, Typography } from "@mui/material";
 import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
 
-const loginPoints = ["邮箱验证码登录，无需记密码", "登录状态与现有后台完全兼容", "平台账号与浏览器数据仍保留在本地"];
+const loginPoints = ["验证码或密码都能登录", "新账号用验证码和密码完成注册", "平台账号与浏览器数据仍保留在本地"];
 
 /** LoginPage 输出与新版首页统一的明亮登录界面。 */
 export default function LoginPage() {
@@ -38,7 +38,7 @@ export default function LoginPage() {
           </Box>
           <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, borderRadius: "24px", borderColor: "divider", boxShadow: "0 24px 70px rgba(31, 55, 43, 0.10)" }}>
             <Typography component="h2" sx={{ color: "text.primary", fontSize: 28, fontWeight: 750 }}>欢迎回来</Typography>
-            <Typography sx={{ mt: 1, mb: 3.5, color: "text.secondary" }}>输入邮箱，获取 4 位验证码</Typography>
+            <Typography sx={{ mt: 1, mb: 3.5, color: "text.secondary" }}>选一种顺手的方式登录</Typography>
             <LoginForm />
           </Paper>
         </Box>

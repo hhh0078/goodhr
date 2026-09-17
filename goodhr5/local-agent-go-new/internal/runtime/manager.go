@@ -46,7 +46,7 @@ func (m *Manager) CheckNode() error {
 	if !fileExists(nodePath) {
 		return fmt.Errorf("Node.js 暂时没找到：%s", nodePath)
 	}
-	output, err := exec.Command(nodePath, "--version").Output()
+	output, err := commandOutput(nodePath, "--version")
 	if err != nil {
 		return fmt.Errorf("Node.js 版本读取失败：%w", err)
 	}
@@ -123,20 +123,19 @@ func (m *Manager) Status() Status {
 	browserPath := m.CamoufoxPath()
 	ocrPath := m.OCRPath()
 	return Status{
-		NodeInstalled:         m.CheckNode() == nil,
-		NodePath:              nodePath,
-		NodeWorkerInstalled:   m.CheckWorkerBuild() == nil,
-		WorkerEntry:           m.entryPath,
-		WorkerDependency:      m.WorkerDependencyPath(),
-		CamoufoxInstalled:     fileExists(browserPath),
-		CamoufoxPath:          browserPath,
-		CloakBrowserInstalled: fileExists(browserPath),
-		CloakBrowserPath:      browserPath,
-		OCRInstalled:          m.OCRInstalled(),
-		OCRPath:               ocrPath,
-		RuntimeDir:            m.runtimeDir,
-		InstalledVersions:     m.loadVersions(),
-		InstallProgress:       m.InstallProgress(),
+		NodeInstalled:       m.CheckNode() == nil,
+		NodePath:            nodePath,
+		NodeWorkerInstalled: m.CheckWorkerBuild() == nil,
+		WorkerEntry:         m.entryPath,
+		WorkerDependency:    m.WorkerDependencyPath(),
+		CamoufoxInstalled:   fileExists(browserPath),
+		CamoufoxPath:        browserPath,
+		OCRInstalled:        m.OCRInstalled(),
+		OCRPath:             ocrPath,
+		RuntimeDir:          m.runtimeDir,
+		Platform:            platformKey(),
+		InstalledVersions:   m.loadVersions(),
+		InstallProgress:     m.InstallProgress(),
 	}
 }
 

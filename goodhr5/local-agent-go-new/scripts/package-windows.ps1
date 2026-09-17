@@ -58,6 +58,7 @@ function Find-InnoSetup {
 }
 
 $Npm = Find-CommandPath @("npm.cmd", "npm")
+$Node = Find-CommandPath @("node.exe", "node")
 $Go = Find-CommandPath @("go.exe", "go")
 $InnoSetup = Find-InnoSetup
 
@@ -73,7 +74,8 @@ New-Item -ItemType Directory -Force -Path (Join-Path $PackageDir "worker") | Out
 Write-Step "编译严格 TypeScript Worker"
 Push-Location $WorkerDir
 try {
-  & $Npm ci --registry=$NpmRegistry
+  # better-sqlite3 已自带 Windows 预编译文件；跳过其隐式 node-gyp，避免打包机必须安装 Visual Studio。
+  & $Npm ci --ignore-scripts --registry=$NpmRegistry
   if ($LASTEXITCODE -ne 0) {
     throw "Worker 依赖安装失败，退出码：$LASTEXITCODE"
   }
@@ -91,9 +93,14 @@ finally {
 Write-Step "安装 Worker 生产依赖"
 Push-Location (Join-Path $PackageDir "worker")
 try {
-  & $Npm ci --omit=dev --registry=$NpmRegistry
+  & $Npm ci --omit=dev --ignore-scripts --registry=$NpmRegistry
   if ($LASTEXITCODE -ne 0) {
     throw "Worker 生产依赖安装失败，退出码：$LASTEXITCODE"
+  }
+  # 验证预编译 SQLite 模块确实可加载，防止跳过脚本后打出不可运行的安装包。
+  & $Node -e "const Database=require('better-sqlite3');const db=new Database(':memory:');db.prepare('SELECT 1').get();db.close()"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Worker 生产依赖中的 SQLite 模块不可用，退出码：$LASTEXITCODE"
   }
 }
 finally {
@@ -112,7 +119,7 @@ try {
   $env:GOARCH = "amd64"
   $env:GOPROXY = $GoProxy
   $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr5.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr5.58it.cn"
-  & $Go build -trimpath -ldflags=$Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
+  & $Go build -trimpath -ldflags $Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
   if ($LASTEXITCODE -ne 0) {
     throw "Windows Go 主程序编译失败，退出码：$LASTEXITCODE"
   }
@@ -131,7 +138,7 @@ Write-Step "生成 Windows ZIP 发布包"
 Compress-Archive -Path $PackageDir -DestinationPath $ArchivePath -CompressionLevel Optimal
 
 Write-Step "生成 Inno Setup 安装器"
-& $InnoSetup "/DMyAppVersion=$Version" $InstallerScript
+& $InnoSetup "/Q" "/DMyAppVersion=$Version" $InstallerScript
 if ($LASTEXITCODE -ne 0) {
   throw "Windows 安装器生成失败，退出码：$LASTEXITCODE"
 }

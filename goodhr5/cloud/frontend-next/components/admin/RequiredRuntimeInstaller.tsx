@@ -5,7 +5,7 @@ import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import { Box, Button, Chip, Dialog, DialogContent, LinearProgress, Stack, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
-import { buildRuntimeInstallPayload, formatRuntimeBytes, missingRequiredWinRuntimeURLs, requiredRuntimeComponents } from "@/lib/admin-runtime";
+import { buildRuntimeInstallPayload, formatRuntimeBytes, missingRequiredRuntimeURLs, requiredRuntimeComponents, waitForRuntimeInstall } from "@/lib/admin-runtime";
 import { reportUserFlow } from "@/lib/user-flow";
 
 type RequiredRuntimeInstallerProps = {
@@ -48,17 +48,20 @@ export default function RequiredRuntimeInstaller({ agentBase, onboardingConfig, 
 		startPolling();
 		try {
 			let config = onboardingConfig;
-			let missing = missingRequiredWinRuntimeURLs(config);
+			let missing = missingRequiredRuntimeURLs(config, runtime?.platform);
 			if (missing.length) {
 				const fresh = await cloudRequest("/api/runtime/config");
 				config = fresh.config || {};
-				missing = missingRequiredWinRuntimeURLs(config);
+				missing = missingRequiredRuntimeURLs(config, runtime?.platform);
 			}
 			if (missing.length) {
 				throw new Error(`运行组件下载地址没拿到：${missing.join("、")}。我重新拉了一次还是空，请检查系统配置。`);
 			}
 			await localRequest(agentBase, "/api/v1/runtime/install", { method: "POST", body: buildRuntimeInstallPayload(config) });
-			await loadStatus();
+			await waitForRuntimeInstall(
+				() => localRequest(agentBase, "/api/v1/runtime/status"),
+				(status) => setRuntime(status),
+			);
 			await reportUserFlow({ step: "runtime_ready", source: "runtime_installer" });
 			notify("必要组件安装完成，可以继续搬砖了", "success");
 		} catch (installError) {

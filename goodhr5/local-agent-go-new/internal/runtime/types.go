@@ -1,36 +1,30 @@
 // Package runtime 文件作用：定义运行组件状态、安装清单和安装进度的强类型模型。
 package runtime
 
-import "strings"
-
 // Status 表示本机 Node、Worker、Camoufox 和 OCR 状态。
-// CloakBrowser 系列字段为旧控制台兼容字段，过渡期内与 Camoufox 字段填充相同取值。
 type Status struct {
-	Version               string                        `json:"version"`
-	AgentVersion          string                        `json:"agent_version"`
-	DataDir               string                        `json:"data_dir"`
-	ExtensionsDir         string                        `json:"extensions_dir"`
-	RuntimeDir            string                        `json:"runtime_dir"`
-	NodeReady             bool                          `json:"node_ready"`
-	NodeInstalled         bool                          `json:"node_installed"`
-	NodePath              string                        `json:"node_path"`
-	WorkerBuilt           bool                          `json:"worker_built"`
-	WorkerReady           bool                          `json:"worker_ready"`
-	NodeWorkerInstalled   bool                          `json:"node_worker_installed"`
-	WorkerEntry           string                        `json:"worker_entry"`
-	WorkerDependency      string                        `json:"worker_dependency"`
-	CamoufoxReady         bool                          `json:"camoufox_ready"`
-	CamoufoxInstalled     bool                          `json:"camoufox_installed"`
-	CamoufoxPath          string                        `json:"camoufox_path"`
-	CamoufoxVersion       string                        `json:"camoufox_version"`
-	CloakBrowserReady     bool                          `json:"cloakbrowser_ready"`
-	CloakBrowserInstalled bool                          `json:"cloakbrowser_installed"`
-	CloakBrowserPath      string                        `json:"cloakbrowser_path"`
-	CloakBrowserVersion   string                        `json:"cloakbrowser_version"`
-	OCRInstalled          bool                          `json:"ocr_installed"`
-	OCRPath               string                        `json:"ocr_path"`
-	InstalledVersions     map[string]InstalledComponent `json:"installed_versions"`
-	InstallProgress       InstallProgress               `json:"install_progress"`
+	Version             string                        `json:"version"`
+	AgentVersion        string                        `json:"agent_version"`
+	DataDir             string                        `json:"data_dir"`
+	ExtensionsDir       string                        `json:"extensions_dir"`
+	RuntimeDir          string                        `json:"runtime_dir"`
+	Platform            string                        `json:"platform"`
+	NodeReady           bool                          `json:"node_ready"`
+	NodeInstalled       bool                          `json:"node_installed"`
+	NodePath            string                        `json:"node_path"`
+	WorkerBuilt         bool                          `json:"worker_built"`
+	WorkerReady         bool                          `json:"worker_ready"`
+	NodeWorkerInstalled bool                          `json:"node_worker_installed"`
+	WorkerEntry         string                        `json:"worker_entry"`
+	WorkerDependency    string                        `json:"worker_dependency"`
+	CamoufoxReady       bool                          `json:"camoufox_ready"`
+	CamoufoxInstalled   bool                          `json:"camoufox_installed"`
+	CamoufoxPath        string                        `json:"camoufox_path"`
+	CamoufoxVersion     string                        `json:"camoufox_version"`
+	OCRInstalled        bool                          `json:"ocr_installed"`
+	OCRPath             string                        `json:"ocr_path"`
+	InstalledVersions   map[string]InstalledComponent `json:"installed_versions"`
+	InstallProgress     InstallProgress               `json:"install_progress"`
 }
 
 // InstalledComponent 表示本地已安装组件的一条版本记录。
@@ -55,18 +49,9 @@ type InstallProgress struct {
 
 // Manifest 表示云端下发的运行组件安装清单。
 type Manifest struct {
-	NodeRuntime  map[string]Asset `json:"node_runtime"`
-	Camoufox     map[string]Asset `json:"camoufox"`
-	CloakBrowser map[string]Asset `json:"cloakbrowser"`
-	OCR          map[string]Asset `json:"ocr"`
-}
-
-// BrowserAsset 返回浏览器组件当前可用的下载资源，优先使用 Camoufox，为空时回退旧 CloakBrowser 配置。
-func (m Manifest) BrowserAsset(platform string) Asset {
-	if asset, ok := m.Camoufox[platform]; ok && strings.TrimSpace(asset.URL) != "" {
-		return asset
-	}
-	return m.CloakBrowser[platform]
+	NodeRuntime map[string]Asset `json:"node_runtime"`
+	Camoufox    map[string]Asset `json:"camoufox"`
+	OCR         map[string]Asset `json:"ocr"`
 }
 
 // Asset 表示一个平台上的单个运行组件压缩包。

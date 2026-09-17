@@ -36,7 +36,7 @@ func TestInvitationBindOnLogin(t *testing.T) {
 	loginReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/auth/login",
-		bytes.NewBufferString(`{"email":"invitee@example.com","code":"`+code+`","inviter_id":"`+summaryPayload.InviteID+`","agreement_accepted":true}`),
+		bytes.NewBufferString(`{"email":"invitee@example.com","code":"`+code+`","password":"test-password-123","inviter_id":"`+summaryPayload.InviteID+`","agreement_accepted":true}`),
 	)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
@@ -91,7 +91,7 @@ func TestInvitationBindExistingUserOnLogin(t *testing.T) {
 	loginReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/auth/login",
-		bytes.NewBufferString(`{"email":"existing-invitee@example.com","code":"`+code+`","inviter_id":"`+summaryPayload.InviteID+`","agreement_accepted":true}`),
+		bytes.NewBufferString(`{"email":"existing-invitee@example.com","code":"`+code+`","password":"test-password-123","inviter_id":"`+summaryPayload.InviteID+`","agreement_accepted":true}`),
 	)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)

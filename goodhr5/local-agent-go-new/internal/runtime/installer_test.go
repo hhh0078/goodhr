@@ -4,10 +4,22 @@ package runtime
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// TestLegacyBrowserManifestIgnored 验证旧浏览器清单不能触发组件下载。
+func TestLegacyBrowserManifestIgnored(t *testing.T) {
+	var manifest Manifest
+	if err := json.Unmarshal([]byte(`{"cloakbrowser":{"win-x64":{"url":"https://example.com/old.zip"}}}`), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifestHasAssets(manifest) {
+		t.Fatal("旧浏览器地址不应触发组件安装")
+	}
+}
 
 // TestVerifySHA256 验证正确校验值通过、错误校验值失败。
 func TestVerifySHA256(t *testing.T) {

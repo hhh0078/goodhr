@@ -240,11 +240,6 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(browserStatus.BinaryPath) != "" {
 			status.CamoufoxPath = browserStatus.BinaryPath
 		}
-		// 旧控制台仍读取 cloakbrowser_* 字段，过渡期内填充同一份 Camoufox 取值。
-		status.CloakBrowserReady = status.CamoufoxReady
-		status.CloakBrowserInstalled = status.CamoufoxInstalled
-		status.CloakBrowserVersion = status.CamoufoxVersion
-		status.CloakBrowserPath = status.CamoufoxPath
 	}
 	writeSuccess(w, http.StatusOK, status)
 }

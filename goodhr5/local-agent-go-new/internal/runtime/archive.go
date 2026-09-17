@@ -169,7 +169,7 @@ func installRoot(stagingDir string, component string) string {
 			return current
 		}
 		name := entries[0].Name()
-		if (component == "camoufox" || component == "cloakbrowser") && strings.HasSuffix(strings.ToLower(name), ".app") {
+		if component == "camoufox" && strings.HasSuffix(strings.ToLower(name), ".app") {
 			return current
 		}
 		current = filepath.Join(current, name)
