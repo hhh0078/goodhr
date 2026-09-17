@@ -44,6 +44,18 @@ GOODHR_REDIS_DB=6
 GOODHR_PUBLIC_BASE_URL=https://goodhr.ai.58it.cn
 ```
 
+微信支付 PEM 文件保存在源码目录外，并以只读方式挂载到后端容器：
+
+```text
+宿主机：/www/wwwroot/goodhr.ai.58it.cn/secrets/wechat/apiclient_key.pem
+容器内：/run/secrets/wechat/apiclient_key.pem
+
+宿主机：/www/wwwroot/goodhr.ai.58it.cn/secrets/wechat/wechatpay_public.pem
+容器内：/run/secrets/wechat/wechatpay_public.pem
+```
+
+后台配置填写容器内路径 `private_key_path` 和 `public_key_path`。替换文件后，后端会在下一次支付请求时读取新内容并重建微信支付客户端。
+
 修改 Nginx 前先备份，仅编辑测试站点配置，再验证并重载：
 
 ```bash

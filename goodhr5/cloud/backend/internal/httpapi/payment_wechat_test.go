@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -60,6 +62,27 @@ func TestWechatPayParseNotify(t *testing.T) {
 	}
 	if !result.Paid || result.OrderNo != "S123" || result.TradeNo != "wx-trade-123" || result.AmountCents != 4000 {
 		t.Fatalf("微信支付回调解析结果不正确: %+v", result)
+	}
+}
+
+// TestLoadPaymentPEMFromFile 验证证书文件优先于旧配置读取，替换文件后可以取得最新内容。
+func TestLoadPaymentPEMFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "payment.pem")
+	first := "-----BEGIN PRIVATE KEY-----\nfirst\n-----END PRIVATE KEY-----"
+	second := "-----BEGIN PRIVATE KEY-----\nsecond\n-----END PRIVATE KEY-----"
+	if err := os.WriteFile(path, []byte(first), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadPaymentPEM(path, "不是有效的 Base64")
+	if err != nil || loaded != first {
+		t.Fatalf("首次读取 PEM 文件失败: value=%q err=%v", loaded, err)
+	}
+	if err := os.WriteFile(path, []byte(second), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = loadPaymentPEM(path, "")
+	if err != nil || loaded != second {
+		t.Fatalf("替换后读取 PEM 文件失败: value=%q err=%v", loaded, err)
 	}
 }
 

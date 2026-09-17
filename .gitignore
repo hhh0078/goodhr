@@ -15,3 +15,6 @@ goodhr5/local-agent/dist/
 .trae/**
 **/.codex-run/**
 **/dist-installer/**
+# 微信支付证书只能保存在部署机，禁止提交到 Git。
+**/certs/wechat/*.pem
+**/secrets/wechat/*.pem

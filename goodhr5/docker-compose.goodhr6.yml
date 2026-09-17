@@ -6,7 +6,10 @@ services:
     build: ./cloud/backend
     network_mode: host
     env_file: ./cloud/backend/.env
-    volumes: ["./cloud/backend:/app", "/app/tmp"]
+    volumes:
+      - "./cloud/backend:/app"
+      - "/app/tmp"
+      - "/www/wwwroot/goodhr.ai.58it.cn/secrets/wechat:/run/secrets/wechat:ro"
     restart: unless-stopped
 
   frontend:

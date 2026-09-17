@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -34,9 +35,11 @@ type wechatPaySettings struct {
 	AppID            string `json:"app_id"`
 	MerchantID       string `json:"mch_id"`
 	MerchantSerialNo string `json:"merchant_serial_no"`
+	PrivateKeyPath   string `json:"private_key_path"`
 	PrivateKeyBase64 string `json:"private_key_base64"`
 	APIV3Key         string `json:"api_v3_key"`
 	PublicKeyID      string `json:"public_key_id"`
+	PublicKeyPath    string `json:"public_key_path"`
 	PublicKeyBase64  string `json:"public_key_base64"`
 	NotifyURL        string `json:"notify_url"`
 }
@@ -164,10 +167,8 @@ func validateWechatPaySettings(settings wechatPaySettings) error {
 		{"应用 ID（app_id）", settings.AppID},
 		{"商户号（mch_id）", settings.MerchantID},
 		{"商户证书序列号（merchant_serial_no）", settings.MerchantSerialNo},
-		{"商户私钥（private_key_base64）", settings.PrivateKeyBase64},
 		{"APIv3 密钥（api_v3_key）", settings.APIV3Key},
 		{"微信支付公钥 ID（public_key_id）", settings.PublicKeyID},
-		{"微信支付公钥（public_key_base64）", settings.PublicKeyBase64},
 		{"回调地址（notify_url）", settings.NotifyURL},
 	}
 	for _, item := range required {
@@ -175,20 +176,30 @@ func validateWechatPaySettings(settings wechatPaySettings) error {
 			return fmt.Errorf("微信支付配置里 %s 还没填", item.name)
 		}
 	}
+	if strings.TrimSpace(settings.PrivateKeyPath) == "" && strings.TrimSpace(settings.PrivateKeyBase64) == "" {
+		return fmt.Errorf("微信支付配置里商户私钥文件路径（private_key_path）还没填")
+	}
+	if strings.TrimSpace(settings.PublicKeyPath) == "" && strings.TrimSpace(settings.PublicKeyBase64) == "" {
+		return fmt.Errorf("微信支付配置里微信支付公钥文件路径（public_key_path）还没填")
+	}
 	return nil
 }
 
-// wechatPayConfigSignature 拼接配置内容作为指纹，用于判断配置是否变化。
-func wechatPayConfigSignature(settings wechatPaySettings) string {
+// wechatPayConfigSignature 拼接配置和证书内容作为指纹，替换证书文件后会自动重建客户端。
+func wechatPayConfigSignature(settings wechatPaySettings, privateKeyText string, publicKeyText string) string {
 	return strings.Join([]string{
 		settings.AppID,
 		settings.MerchantID,
 		settings.MerchantSerialNo,
+		settings.PrivateKeyPath,
 		settings.PrivateKeyBase64,
 		settings.APIV3Key,
 		settings.PublicKeyID,
+		settings.PublicKeyPath,
 		settings.PublicKeyBase64,
 		settings.NotifyURL,
+		privateKeyText,
+		publicKeyText,
 	}, "\n")
 }
 
@@ -201,24 +212,24 @@ func (p *WechatPayProvider) initialize(ctx context.Context) (*wechatPayRuntime, 
 	if err := validateWechatPaySettings(settings); err != nil {
 		return nil, err
 	}
-	signature := wechatPayConfigSignature(settings)
+	privateKeyText, err := loadPaymentPEM(settings.PrivateKeyPath, settings.PrivateKeyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("微信支付商户私钥读取失败: %w", err)
+	}
+	publicKeyText, err := loadPaymentPEM(settings.PublicKeyPath, settings.PublicKeyBase64)
+	if err != nil {
+		return nil, fmt.Errorf("微信支付公钥读取失败: %w", err)
+	}
+	signature := wechatPayConfigSignature(settings, privateKeyText, publicKeyText)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.runtime != nil && p.signature == signature {
 		return p.runtime, nil
 	}
-	privateKeyText, err := decodePaymentPEM(settings.PrivateKeyBase64)
-	if err != nil {
-		return nil, fmt.Errorf("微信支付商户私钥读取失败: %w", err)
-	}
 	privateKey, err := utils.LoadPrivateKey(privateKeyText)
 	if err != nil {
 		return nil, fmt.Errorf("微信支付商户私钥格式不正确: %w", err)
-	}
-	publicKeyText, err := decodePaymentPEM(settings.PublicKeyBase64)
-	if err != nil {
-		return nil, fmt.Errorf("微信支付公钥读取失败: %w", err)
 	}
 	publicKey, err := utils.LoadPublicKey(publicKeyText)
 	if err != nil {
@@ -280,6 +291,23 @@ func transactionResult(settings wechatPaySettings, transaction *payments.Transac
 		return PaymentProviderTransactionResult{}, fmt.Errorf("微信支付流水号为空")
 	}
 	return result, nil
+}
+
+// loadPaymentPEM 优先读取部署机上的 PEM 文件，并兼容旧的 Base64 或 PEM 文本配置。
+func loadPaymentPEM(path string, legacyValue string) (string, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath != "" {
+		data, err := os.ReadFile(trimmedPath)
+		if err != nil {
+			return "", fmt.Errorf("文件 %s 无法读取: %w", trimmedPath, err)
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			return "", fmt.Errorf("文件 %s 是空文件", trimmedPath)
+		}
+		return content, nil
+	}
+	return decodePaymentPEM(legacyValue)
 }
 
 // decodePaymentPEM 从 Base64 配置读取 PEM，也兼容直接填写 PEM 文本。
