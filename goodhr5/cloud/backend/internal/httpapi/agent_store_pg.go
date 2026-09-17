@@ -28,15 +28,6 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 	if err != nil {
 		return AgentBinding{}, err
 	}
-	if isStableAgentMachineID(binding.MachineID) {
-		ownerEmail, ownerErr := s.activeBindingOwner(ctx, binding.MachineID, userID)
-		if ownerErr != nil && !errors.Is(ownerErr, sql.ErrNoRows) {
-			return AgentBinding{}, ownerErr
-		}
-		if ownerEmail != "" {
-			return AgentBinding{}, &AgentBindingConflictError{OwnerEmail: ownerEmail}
-		}
-	}
 
 	status := binding.BindStatus
 	if status == "" {
@@ -72,31 +63,10 @@ func (s *PostgresAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, er
 		&saved.CreatedAt,
 	)
 	if err != nil {
-		if isStableAgentMachineID(binding.MachineID) {
-			ownerEmail, ownerErr := s.activeBindingOwner(ctx, binding.MachineID, userID)
-			if ownerErr == nil && ownerEmail != "" {
-				return AgentBinding{}, &AgentBindingConflictError{OwnerEmail: ownerEmail}
-			}
-		}
 		return AgentBinding{}, err
 	}
 	saved.LocalPort = binding.LocalPort
 	return saved, nil
-}
-
-// activeBindingOwner 查询占用稳定设备的另一个有效账号邮箱。
-func (s *PostgresAgentStore) activeBindingOwner(ctx context.Context, machineID string, currentUserID string) (string, error) {
-	var ownerEmail string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT u.email
-		FROM local_agents la
-		INNER JOIN users u ON u.id = la.user_id
-		WHERE la.machine_id = $1
-		  AND la.bind_status = 'active'
-		  AND la.user_id <> $2::uuid
-		LIMIT 1
-	`, strings.TrimSpace(machineID), currentUserID).Scan(&ownerEmail)
-	return ownerEmail, err
 }
 
 // CurrentBinding 读取 PostgreSQL 中当前用户最近活跃的一台本地机器。

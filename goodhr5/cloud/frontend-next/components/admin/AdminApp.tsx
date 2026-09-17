@@ -53,7 +53,6 @@ import { useMembershipTheme } from "@/app/providers";
 import { resolveMembershipTheme } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
 import {
-  APIRequestError,
   bindDetectedLocalAgent,
   captureLocalAgentPortFromURL,
   cloudRequest,
@@ -239,7 +238,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   const [agentBase, setAgentBase] = useState("");
   const [agentVersion, setAgentVersion] = useState("");
   const [agentDetected, setAgentDetected] = useState(false);
-  const [deviceBindingError, setDeviceBindingError] = useState("");
   const agentBaseRef = useRef("");
   const initialPath = useRef(pathname);
   const agentChecking = useRef(false);
@@ -265,7 +263,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     !loading &&
     teamInvitations.length === 0 &&
     !trialWelcomeOpen &&
-    !deviceBindingError &&
     agentDetected &&
     !agentBase &&
     !localAgentInstallNoticeClosed,
@@ -286,22 +283,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       agentBaseRef.current = nextBase;
       setAgentBase(nextBase);
       setAgentVersion("");
-      try {
-        await bindDetectedLocalAgent(nextBase);
-        setDeviceBindingError("");
-      } catch (error) {
-        if (
-          error instanceof APIRequestError &&
-          error.code === "DEVICE_ALREADY_BOUND"
-        ) {
-          agentBaseRef.current = "";
-          setAgentBase("");
-          setAgentVersion("");
-          setDeviceBindingError(error.message);
-          return;
-        }
-        throw error;
-      }
+      await bindDetectedLocalAgent(nextBase);
       void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
       const [runtimeResult, healthResult] = await Promise.allSettled([
         localRequest(nextBase, "/api/v1/runtime/status"),
@@ -935,18 +917,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               同意后，你现在的岗位、简历和平台账号会一起搬进这个团队，简历也会进入团队统一管理范围。如果你当前还有岗位在运行，我会先拦一下，请停掉后再加入。
             </Alert>
           </Stack>
-        </AdminDialog>
-        <AdminDialog
-          open={Boolean(deviceBindingError) && !trialWelcomeOpen && teamInvitations.length === 0}
-          title="这台电脑已经有账号了"
-          description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 GoodHR 账号。"
-          confirmText="退出当前账号"
-          showCancel={false}
-          hideClose
-          onClose={() => undefined}
-          onConfirm={logout}
-        >
-          <Typography color="text.secondary">{deviceBindingError}</Typography>
         </AdminDialog>
         <AdminDialog
           open={localAgentInstallNoticeOpen}

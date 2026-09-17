@@ -2,23 +2,12 @@
 package httpapi
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 )
 
 const stableAgentMachineIDPrefix = "goodhr-device-v1-"
-
-// AgentBindingConflictError 表示稳定设备已被另一个账号占用。
-type AgentBindingConflictError struct {
-	OwnerEmail string
-}
-
-// Error 返回包含已绑定完整邮箱和下一步处理方式的用户提示。
-func (e *AgentBindingConflictError) Error() string {
-	return fmt.Sprintf("这台电脑已经绑定到账号 %s，当前账号暂时不能再绑定。请退出后使用已绑定账号登录，或者请超级管理员先在用户管理里解绑。", e.OwnerEmail)
-}
 
 // AgentBinding 表示一个云端账号和一台本地程序的连接记录。
 type AgentBinding struct {
@@ -61,14 +50,6 @@ func (s *MemoryAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if isStableAgentMachineID(binding.MachineID) {
-		for _, existing := range s.bindings {
-			if existing.BindStatus == "active" && existing.MachineID == binding.MachineID &&
-				!strings.EqualFold(existing.UserEmail, binding.UserEmail) {
-				return AgentBinding{}, &AgentBindingConflictError{OwnerEmail: existing.UserEmail}
-			}
-		}
-	}
 	now := s.now()
 	key := agentBindingKey(binding.UserEmail, binding.MachineID)
 	if existing, ok := s.bindings[key]; ok {

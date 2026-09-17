@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -82,8 +81,8 @@ func TestAgentBindAllowsAnotherMachine(t *testing.T) {
 	}
 }
 
-// TestAgentBindRejectsDeviceOwnedByAnotherAccount 验证一台稳定设备不能同时绑定两个账号，并返回完整占用邮箱。
-func TestAgentBindRejectsDeviceOwnedByAnotherAccount(t *testing.T) {
+// TestAgentBindAllowsSharedDeviceAcrossAccounts 验证同一台电脑可以依次连接不同的 GoodHR 账号。
+func TestAgentBindAllowsSharedDeviceAcrossAccounts(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	firstToken := loginForTest(t, routes, "device-owner@example.com")
@@ -102,20 +101,8 @@ func TestAgentBindRejectsDeviceOwnedByAnotherAccount(t *testing.T) {
 	secondReq.Header.Set("Authorization", "Bearer "+secondToken)
 	secondResp := httptest.NewRecorder()
 	routes.ServeHTTP(secondResp, secondReq)
-	if secondResp.Code != http.StatusConflict {
+	if secondResp.Code != http.StatusOK {
 		t.Fatalf("second bind status = %d, body = %s", secondResp.Code, secondResp.Body.String())
-	}
-	var response struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(secondResp.Body).Decode(&response); err != nil {
-		t.Fatal(err)
-	}
-	if response.Error.Code != "DEVICE_ALREADY_BOUND" || !strings.Contains(response.Error.Message, "device-owner@example.com") {
-		t.Fatalf("unexpected conflict response: %+v", response.Error)
 	}
 }
 
