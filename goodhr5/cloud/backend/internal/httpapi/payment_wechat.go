@@ -313,9 +313,6 @@ func transactionResult(settings wechatPaySettings, transaction *payments.Transac
 	if transaction.Amount.Currency == nil || strings.TrimSpace(*transaction.Amount.Currency) != "CNY" {
 		return PaymentProviderTransactionResult{}, fmt.Errorf("微信支付币种不匹配")
 	}
-	if transaction.TradeType == nil || strings.TrimSpace(*transaction.TradeType) != "NATIVE" {
-		return PaymentProviderTransactionResult{}, fmt.Errorf("微信支付交易类型不匹配")
-	}
 	result := PaymentProviderTransactionResult{
 		OrderNo:     strings.TrimSpace(*transaction.OutTradeNo),
 		AmountCents: int(*transaction.Amount.Total),
