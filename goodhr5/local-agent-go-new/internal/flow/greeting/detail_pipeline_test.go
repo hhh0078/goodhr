@@ -3,15 +3,20 @@ package greeting
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/client"
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 	"goodhr5/local-agent-go-new/internal/storage"
@@ -96,5 +101,78 @@ func TestKeywordRequiresDetailWithoutLegacyMode(t *testing.T) {
 	prepared := shared.PreparedTask{Position: cloud.PositionSnapshot{Keywords: []string{"销售"}, CommonConfig: cloud.PositionCommonConfig{ModeDefault: "keyword"}}}
 	if !needsCandidateDetail(prepared) {
 		t.Fatal("关键词任务必须读取详情，不能只看列表卡片")
+	}
+}
+
+// TestOCRKeepsOriginalScreenshotSegments 验证平台要求拼接时，OCR 仍拿到每段原图，避免长图缩放漏掉关键词。
+func TestOCRKeepsOriginalScreenshotSegments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"parts":[{"path":"first.png","filename":"first.png"},{"path":"second.png","filename":"second.png"}],"complete":true}}`))
+	}))
+	defer server.Close()
+	prepared := shared.PreparedTask{
+		Position: cloud.PositionSnapshot{RequiresOCR: true},
+		Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}},
+	}
+	prepared.Platform.Behavior.StitchDetailScreenshots = true
+	flow := Flow{Browser: client.New(server.URL), ScreenshotsDir: t.TempDir()}
+	parts, err := flow.captureDetailScreenshots(context.Background(), prepared, model.Candidate{})
+	if err != nil || len(parts) != 2 || parts[0].Path != "first.png" || parts[1].Path != "second.png" {
+		t.Fatalf("OCR 原图分段没有保留：%+v %v", parts, err)
+	}
+}
+
+// TestVisionKeywordReadsDetailBeforeMatching 验证 AI 图片中的关键词先转录再做 AND/排除词判断，后续评分复用原截图。
+func TestVisionKeywordReadsDetailBeforeMatching(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("excluded_%t", excluded), func(t *testing.T) {
+			dir := t.TempDir()
+			imagePath := filepath.Join(dir, "detail.png")
+			if err := os.WriteFile(imagePath, []byte("fixture-image"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			captures, aiCalls := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if request.URL.Path == "/api/v1/element/screenshot-long" {
+					captures++
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"parts": []contract.ScreenshotPart{{Path: imagePath, Filename: "detail.png"}}}})
+					return
+				}
+				aiCalls++
+				content := `{"text":"本科毕业，具有销售运营经验"}`
+				if aiCalls > 1 {
+					content = `{"score":0,"reason":"回归测试不发送"}`
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": content}}}})
+			}))
+			defer server.Close()
+			store, err := storage.Open(":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			position := cloud.PositionSnapshot{RequiresAI: true, Keywords: []string{"本科", "销售"}, IsAndMode: true,
+				CommonConfig: cloud.PositionCommonConfig{ModeDefault: "keyword", DetailMode: "ai"},
+				AI:           cloud.AIConfig{BaseURL: server.URL, APIKey: "fixture", Model: "fixture"}}
+			if excluded {
+				position.ExcludeKeywords = []string{"运营"}
+			}
+			prepared := shared.PreparedTask{Position: position, Platform: model.Config{Selectors: map[string]contract.SelectorSpec{"candidate.detail": {}}}}
+			flow := Flow{Browser: client.New(server.URL), AI: ai.New(), Store: store, ScreenshotsDir: dir}
+			runtime := &imageDetailRuntime{}
+			stats := shared.Stats{}
+			if err := flow.processCandidate(context.Background(), prepared, runtime, model.Candidate{}, &stats); err != nil {
+				t.Fatal(err)
+			}
+			expectedCalls := 2
+			if excluded {
+				expectedCalls = 1
+			}
+			if captures != 1 || aiCalls != expectedCalls || runtime.domReads != 0 || runtime.greetings != 0 {
+				t.Fatalf("截图=%d AI=%d DOM=%d 发送=%d", captures, aiCalls, runtime.domReads, runtime.greetings)
+			}
+		})
 	}
 }

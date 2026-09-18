@@ -370,6 +370,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		return fmt.Errorf("滚动到当前候选人失败：%w", err)
 	}
 	detail := model.CandidateDetail{}
+	var detailImages [][]byte
 	detailOpened := false
 	defer func() {
 		if detailOpened {
@@ -433,6 +434,21 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			}
 			f.log(prepared.Request.TaskID, "ocr", "success", ocrStartedAt, nil)
 		}
+		if deferKeywordDecision && detailMode == "ai" {
+			startedAt := time.Now()
+			f.log(prepared.Request.TaskID, "vision_keyword_text", "start", startedAt, nil)
+			detailImages, err = f.readDetailImages(ctx, prepared, candidate)
+			if err == nil {
+				detail.Text, err = f.AI.ReadDetailTextVision(ctx, prepared.Position.AI, detailImages)
+			}
+			if err != nil {
+				f.log(prepared.Request.TaskID, "vision_keyword_text", "failed", startedAt, err)
+				return fmt.Errorf("读取 AI 详情关键词文字失败：%w", err)
+			}
+			detail.Text = runtime.CleanCandidateDetailText(detail.Text)
+			f.log(prepared.Request.TaskID, "vision_keyword_text", "success", startedAt, nil)
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("AI 详情已读取 %d 字，开始核对关键词", len([]rune(detail.Text))))
+		}
 		if err := waitRandomSeconds(
 			ctx, f.Logger, prepared.Request.TaskID, "detail_view",
 			prepared.Preferences.DetailViewDelayMin, prepared.Preferences.DetailViewDelayMax,
@@ -487,7 +503,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		evaluationCtx, cancelEvaluation := context.WithTimeout(context.WithoutCancel(ctx), candidateTimeout)
 		evaluationCancel = cancelEvaluation
 		if detailMode == "ai" {
-			images, imageErr := f.readDetailImages(ctx, prepared, candidate)
+			images := detailImages
+			var imageErr error
+			if len(images) == 0 {
+				images, imageErr = f.readDetailImages(ctx, prepared, candidate)
+			}
 			if imageErr != nil {
 				decisionErr = imageErr
 			} else {

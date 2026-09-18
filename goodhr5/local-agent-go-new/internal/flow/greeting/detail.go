@@ -88,7 +88,8 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 			return nil, fmt.Errorf("候选人详情长截图没有生成分段")
 		}
 		shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("详情截图已完成：%d 段，已确认滚动到底", len(result.Parts)))
-		if prepared.Platform.Behavior.StitchDetailScreenshots {
+		// OCR 按原始分段识别，避免长图缩放丢字和模型处理大图时内存突增。
+		if prepared.Platform.Behavior.StitchDetailScreenshots && !prepared.Position.RequiresOCR {
 			outputPath := filepath.Join(
 				directory,
 				strings.TrimSuffix(filename, filepath.Ext(filename))+".stitched.png",

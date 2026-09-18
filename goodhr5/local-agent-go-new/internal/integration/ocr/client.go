@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,25 +111,36 @@ func (c *Client) Recognize(ctx context.Context, imagePath string) (Result, error
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := c.ensureProcessLocked(); err != nil {
-		return Result{}, err
-	}
-	if err := json.NewEncoder(c.stdin).Encode(struct {
-		ImagePath string `json:"image_path"`
-	}{ImagePath: imagePath}); err != nil {
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		if err := c.ensureProcessLocked(); err != nil {
+			return Result{}, err
+		}
+		pid := c.command.Process.Pid
+		err := json.NewEncoder(c.stdin).Encode(struct {
+			ImagePath string `json:"image_path"`
+		}{ImagePath: imagePath})
+		var line []byte
+		if err == nil {
+			line, err = c.readJSONLineLocked(ctx)
+		}
+		if err == nil {
+			text, parseErr := parseOCRText(line)
+			return Result{Text: text}, parseErr
+		}
+		log.Printf("event=ocr_process_failed pid=%d attempt=%d error=%q", pid, attempt, err)
 		c.stopLocked()
-		return Result{}, &Error{Code: ErrorUnavailable, Message: "发送 OCR 请求失败", Cause: err}
+		if ctx.Err() != nil {
+			return Result{}, ctx.Err()
+		}
+		if attempt == 2 {
+			return Result{}, &Error{Code: ErrorUnavailable, Message: "OCR 组件重启后仍未返回结果", Cause: err}
+		}
+		log.Printf("event=ocr_process_retry attempt=%d", attempt+1)
 	}
-	line, err := c.readJSONLineLocked(ctx)
-	if err != nil {
-		c.stopLocked()
-		return Result{}, err
-	}
-	text, err := parseOCRText(line)
-	if err != nil {
-		return Result{}, err
-	}
-	return Result{Text: text}, nil
+	return Result{}, &Error{Code: ErrorUnavailable, Message: "OCR 组件没有返回结果"}
 }
 
 // Close 停止 OCR 常驻进程并释放管道。
@@ -143,9 +155,14 @@ func (c *Client) Close() {
 
 // ensureProcessLocked 确保 OCR 常驻进程已经启动。
 func (c *Client) ensureProcessLocked() error {
-	if c.command != nil && c.command.Process != nil &&
-		(c.command.ProcessState == nil || !c.command.ProcessState.Exited()) {
-		return nil
+	if c.command != nil && c.command.Process != nil {
+		select {
+		case exitErr := <-c.done:
+			log.Printf("event=ocr_process_exited pid=%d error=%v", c.command.Process.Pid, exitErr)
+			c.done = nil
+		default:
+			return nil
+		}
 	}
 	c.stopLocked()
 	executable, err := c.resolveExecutable()
@@ -156,6 +173,7 @@ func (c *Client) ensureProcessLocked() error {
 		return err
 	}
 	command := exec.Command(executable, ocrArgs()...)
+	configureCommand(command)
 	command.Dir = filepath.Dir(executable)
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -174,9 +192,11 @@ func (c *Client) ensureProcessLocked() error {
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
 	c.done = make(chan error, 1)
+	done := c.done
 	go func() {
-		c.done <- command.Wait()
+		done <- command.Wait()
 	}()
+	log.Printf("event=ocr_process_started pid=%d", command.Process.Pid)
 	return nil
 }
 
@@ -212,10 +232,11 @@ func (c *Client) readJSONLineLocked(ctx context.Context) ([]byte, error) {
 		if done != nil {
 			select {
 			case exitErr := <-done:
+				c.done = nil
 				if exitErr != nil {
 					err = exitErr
 				}
-			default:
+			case <-time.After(250 * time.Millisecond):
 			}
 		}
 		return nil, &Error{Code: ErrorUnavailable, Message: "OCR 组件没有返回结果", Cause: err}
@@ -227,8 +248,7 @@ func (c *Client) stopLocked() {
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
-	if c.command != nil && c.command.Process != nil &&
-		(c.command.ProcessState == nil || !c.command.ProcessState.Exited()) {
+	if c.command != nil && c.command.Process != nil {
 		_ = c.command.Process.Kill()
 	}
 	if c.done != nil {

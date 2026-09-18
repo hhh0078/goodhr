@@ -2,11 +2,14 @@
 package ocr
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestErrorClassification 验证 OCR 错误分类不会依赖中文字符串判断。
@@ -22,6 +25,80 @@ func TestErrorClassification(t *testing.T) {
 	if IsUnavailable(errors.New("OCR 组件不可用")) {
 		t.Fatal("普通文本错误不应伪装成稳定 OCR 错误码")
 	}
+}
+
+// TestRecognizeRestartsExitedProcess 验证首次识别崩溃可恢复，连续崩溃最多重试一次，正常请求复用进程。
+func TestRecognizeRestartsExitedProcess(t *testing.T) {
+	for _, mode := range []string{"once", "always"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			self, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(self)
+			if err != nil {
+				t.Fatal(err)
+			}
+			executable := filepath.Join(root, "ocr-test"+filepath.Ext(self))
+			if err := os.WriteFile(executable, content, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(filepath.Join(root, "models"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{filepath.Join(root, "models", "ch_PP-OCRv3_det_infer.onnx"), filepath.Join(root, "image.png")} {
+				if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("GOODHR_OCR_TEST_MODE", mode)
+			t.Setenv("GOODHR_OCR_TEST_MARKER", filepath.Join(root, "starts"))
+			t.Setenv("GOODHR_OCR_ARGS", "-test.run=TestOCRHelperProcess")
+			client := New(executable)
+			defer client.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			result, err := client.Recognize(ctx, filepath.Join(root, "image.png"))
+			if mode == "always" {
+				if !IsUnavailable(err) {
+					t.Fatalf("连续崩溃应报错：%v", err)
+				}
+			} else {
+				if err != nil || result.Text != "本科销售" {
+					t.Fatalf("重启未恢复：%+v %v", result, err)
+				}
+				if _, err := client.Recognize(ctx, filepath.Join(root, "image.png")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			starts, err := os.ReadFile(filepath.Join(root, "starts"))
+			if err != nil || string(starts) != "xx" {
+				t.Fatalf("启动次数不符：%q %v", starts, err)
+			}
+		})
+	}
+}
+
+// TestOCRHelperProcess 模拟 JSON 行 OCR 程序，仅在子进程测试标记存在时执行。
+func TestOCRHelperProcess(t *testing.T) {
+	mode := os.Getenv("GOODHR_OCR_TEST_MODE")
+	if mode == "" {
+		return
+	}
+	marker := os.Getenv("GOODHR_OCR_TEST_MARKER")
+	previous, _ := os.ReadFile(marker)
+	if err := os.WriteFile(marker, append(previous, 'x'), 0o600); err != nil {
+		os.Exit(3)
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		if mode == "always" || len(previous) == 0 {
+			os.Exit(7)
+		}
+		_, _ = os.Stdout.WriteString("{\"text\":\"本科销售\"}\n")
+	}
+	os.Exit(0)
 }
 
 // TestParseOCRText 验证顶层和嵌套 RapidOCR 文字都能提取，坐标等字段不会混入正文。
