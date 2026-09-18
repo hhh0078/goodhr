@@ -261,23 +261,21 @@ func (c *Client) resolveExecutable() (string, error) {
 	return "", &Error{Code: ErrorUnavailable, Message: "OCR 组件还没安装"}
 }
 
-// findOCRExecutable 在运行组件目录内递归查找 RapidOCR 可执行文件。
 // findOCRExecutable 在 OCR 安装根目录中查找可执行文件，返回空字符串表示没有找到。
 func findOCRExecutable(root string) string {
 	if strings.TrimSpace(root) == "" {
 		return ""
 	}
 	names := map[string]bool{
-		"RapidOCR-json": true,
-		"RapidOCR_json": true,
 		"rapidocr-json": true,
+		"rapidocr_json": true,
 	}
 	found := ""
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil || found != "" {
 			return nil
 		}
-		if !entry.IsDir() && names[entry.Name()] {
+		if !entry.IsDir() && names[strings.TrimSuffix(strings.ToLower(entry.Name()), ".exe")] {
 			found = path
 			return filepath.SkipAll
 		}

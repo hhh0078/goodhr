@@ -375,9 +375,9 @@ func ScrollToCandidate(ctx context.Context, browser model.Browser, cfg model.Con
 	if anchor, ok := cfg.Selectors["candidate.list"]; ok {
 		wheelAnchor = &anchor
 	}
-	requireFull := false
+	requireFull := true
 	_, err = browser.Scroll(ctx, contract.ScrollRequest{
-		Target: &selector, WheelAnchor: wheelAnchor, Distance: 180, MaxAttempts: 18,
+		Target: &selector, WheelAnchor: wheelAnchor, Distance: 260, MaxAttempts: 30,
 		WaitMS: 180, RequireFull: &requireFull, ViewportMargin: 48,
 	})
 	return err

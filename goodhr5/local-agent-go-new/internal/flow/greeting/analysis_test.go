@@ -27,3 +27,18 @@ func TestMatchKeywordsReturnsStructuredHits(t *testing.T) {
 		t.Fatalf("排除词命中结果不正确：%+v", rejected)
 	}
 }
+
+// TestKeywordMatchUsesCompleteNormalizedDetail 验证只在详情中出现的关键词、OCR 断行和全角字符正确匹配。
+func TestKeywordMatchUsesCompleteNormalizedDetail(t *testing.T) {
+	position := cloud.PositionSnapshot{Keywords: []string{"本科", "Java"}, ExcludeKeywords: []string{"外包"}, IsAndMode: true}
+	candidate := model.Candidate{Summary: "应聘软件工程师"}
+	if matchKeywords(candidate, "", position).Accepted {
+		t.Fatal("卡片没有关键词时不能假装命中")
+	}
+	if !matchKeywords(candidate, "学历：本\n科，技能：Ｊａ ｖａ", position).Accepted {
+		t.Fatal("详情的 OCR 关键词未匹配")
+	}
+	if matchKeywords(candidate, "本科 Java，外\n包", position).Accepted {
+		t.Fatal("详情排除词应优先拒绝")
+	}
+}

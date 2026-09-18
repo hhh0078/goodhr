@@ -53,14 +53,29 @@
   },
   "login_init_actions": [],
   "_comment_login_init_actions": "登录页面初始化动作，当前旧版没有可确认的弹框动作。",
-  "greeting_init_actions": [],
-  "_comment_greeting_init_actions": "主动打招呼页面初始化动作，当前旧版没有可确认的弹框动作。",
+  "greeting_init_actions": [
+    {
+      "_comment": "关闭现场确认的 AI-Pro 推广遮罩，不点击购买入口。",
+      "name": "关闭入口推广弹框", "_comment_name": "初始化日志中的中文动作名。",
+      "type": "click", "_comment_type": "使用统一封装点击能力。",
+      "selector_key": "entry.dismiss", "_comment_selector_key": "引用本文件推广关闭选择器。",
+      "optional": true, "_comment_optional": "无推广弹框时安全跳过。"
+    }
+  ],
+  "_comment_greeting_init_actions": "主动打招呼前清理已知推广遮罩。",
   "message_init_actions": [],
   "_comment_message_init_actions": "消息页面初始化动作，当前旧版没有可确认的动作。",
   "filter_actions": [],
   "_comment_filter_actions": "旧版猎聘企业端没有自动基础筛选动作。",
   "_comment_selectors": "所有页面动作共用的 SelectorSpec 集合。",
   "selectors": {
+    "entry.dismiss": {
+      "_comment": "现场确认的猎聘广告 SDK 推广弹框关闭按钮。",
+      "target": { "_comment": "广告关闭目标。", "selectors": [{ "_comment": "广告 SDK 关闭按钮的固定属性。", "type": "css", "value": "[data-selector='adslot-sdk-dialog-close']" }] },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "猎聘企业端关闭入口推广弹框"
+    },
     "position.current": {
       "_comment": "猎聘企业端当前选中的岗位名称。",
       "parents": [
@@ -244,7 +259,7 @@
         {
           "_comment": "限定在打招呼成功后的批量推荐弹框内。",
           "selectors": [
-            { "_comment": "猎聘打招呼成功批量推荐弹框。", "type": "css", "value": ".im-ui-recommend-chat-modal" }
+            { "_comment": "猎聘发送后的批量推荐或超级聊聊推广弹框。", "type": "css", "value": ".im-ui-recommend-chat-modal:visible, .im-ui-super-chat-promote-modal:visible" }
           ]
         }
       ],
@@ -257,6 +272,13 @@
       "state": "enabled",
       "timeout_ms": 5000,
       "description": "猎聘企业端关闭打招呼成功弹框"
+    },
+    "candidate.greet_result_panel": {
+      "_comment": "发送后的推广浮层，只关闭，不触发免费发起或购买。",
+      "target": { "_comment": "当前可见的发送后推广弹框。", "selectors": [{ "_comment": "批量推荐与超级聊聊两类浮层。", "type": "css", "value": ".im-ui-recommend-chat-modal:visible, .im-ui-super-chat-promote-modal:visible" }] },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "猎聘企业端发送后提示"
     },
     "candidate.continue": {
       "_comment": "候选人卡片内继续沟通按钮。",

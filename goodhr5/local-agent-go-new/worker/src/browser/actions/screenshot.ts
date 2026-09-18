@@ -18,6 +18,7 @@ import { MousePrimitive } from "../primitives/mouse.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
+import { variedDistance, wheelGesture, readingPause } from "./wheel-gesture.js";
 
 /** ScreenshotAction 实现页面和元素截图封装能力。 */
 export class ScreenshotAction {
@@ -112,16 +113,31 @@ export class ScreenshotAction {
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
-      await this.move.toElement(anchor.resolved, actionContext);
-      const distance = Math.max(
-        100,
-        request.distance ??
-          Math.floor(Math.max(400, target.resolved.view.viewport.height * 0.75)),
-      );
+      await this.move.toElement(anchor.resolved, actionContext, { centered: true });
+      const box = target.resolved.view.box;
+      const viewportHeight = target.resolved.view.viewport.height;
+      const visibleHeight = Math.min(viewportHeight, box.y + box.height) - Math.max(0, box.y);
+      if (visibleHeight < 80) throw new Error("详情截图区域太小，无法保证相邻画面完整重叠");
+      // 每段最多跨过可见高度的 65%，为变速滚动和长图拼接保留重叠。
+      const distance = Math.max(40, Math.min(request.distance ?? 520, Math.floor(visibleHeight * 0.65)));
+      let topBuffer = await this.primitive.elementBuffer(target.resolved.locator);
+      let topStable = 0;
+      for (let attempt = 0; attempt < maxParts + 2 && topStable < 2; attempt++) {
+        actionContext.signal?.throwIfAborted();
+        await wheelGesture(this.mouse, page, 0, -variedDistance(distance), actionContext, this.logger);
+        await readingPause(waitMS, actionContext);
+        const next = await this.primitive.elementBuffer(target.resolved.locator);
+        topStable = screenshotsAreDuplicate(topBuffer, next) ? topStable + 1 : 0;
+        topBuffer = next;
+      }
+      if (topStable < 2) throw new Error("详情截图前未能确认已回到顶部，避免漏掉开头内容");
+      this.logger.info(actionContext, "screenshot_top", "success");
       let complete = false;
       let previousBuffer: Buffer | null = null;
       let scrollPosition = 0;
-      for (let index = 0; index < maxParts; index += 1) {
+      let duplicateFrames = 0;
+      for (let attempt = 0; attempt < maxParts + 2; attempt += 1) {
+        actionContext.signal?.throwIfAborted();
         const currentBuffer = await this.primitive.elementBuffer(
           target.resolved.locator,
         );
@@ -129,29 +145,25 @@ export class ScreenshotAction {
           previousBuffer &&
           screenshotsAreDuplicate(previousBuffer, currentBuffer)
         ) {
-          complete = true;
-          break;
+          duplicateFrames++;
+          if (duplicateFrames >= 2) { complete = true; break; }
+        } else {
+          duplicateFrames = 0;
+          if (parts.length >= maxParts) break;
+          const index = parts.length;
+          const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
+          const filePath = path.join(request.directory, filename);
+          await fs.mkdir(request.directory, { recursive: true });
+          await fs.writeFile(filePath, currentBuffer);
+          const size = (await fs.stat(filePath)).size;
+          parts.push({ path: filePath, filename, size, index, scroll_position: scrollPosition });
+          this.logger.info(actionContext, "capture_part", "success", { index: index + 1, scroll_position: scrollPosition });
         }
-        const filename = `${baseFilename}.part-${String(index + 1).padStart(3, "0")}.png`;
-        const filePath = path.join(request.directory, filename);
-        await fs.mkdir(request.directory, { recursive: true });
-        await fs.writeFile(filePath, currentBuffer);
-        const size = (await fs.stat(filePath)).size;
-        parts.push({
-          path: filePath,
-          filename,
-          size,
-          index,
-          scroll_position: scrollPosition,
-        });
-        this.logger.info(actionContext, "capture_part", "success", {
-          index: index + 1,
-          scroll_position: scrollPosition,
-        });
         previousBuffer = currentBuffer;
-        await this.mouse.wheel(page, 0, distance);
-        scrollPosition += distance;
-        await delay(waitMS);
+        const stepDistance = variedDistance(distance);
+        await wheelGesture(this.mouse, page, 0, stepDistance, actionContext, this.logger);
+        scrollPosition += stepDistance;
+        await readingPause(waitMS, actionContext);
       }
       const result: LongScreenshotResult = {
         parts,
@@ -193,11 +205,6 @@ function safePNGFilename(rawName: string): string {
     .trim();
   const name = base || "screenshot.png";
   return name.toLowerCase().endsWith(".png") ? name : `${name}.png`;
-}
-
-/** delay 使用 Node 定时器等待页面滚动和截图状态稳定。 */
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 interface DecodedPNG {

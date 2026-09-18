@@ -69,3 +69,25 @@ func TestResolveExecutableFindsNestedInstall(t *testing.T) {
 		t.Fatalf("resolveExecutable() = %s, want %s", resolved, nestedExecutable)
 	}
 }
+
+// TestResolveExecutableFindsWindowsEXE 验证 Windows 已安装的 exe 和模型可直接用于 OCR 启动检查。
+func TestResolveExecutableFindsWindowsEXE(t *testing.T) {
+	root := t.TempDir()
+	executable := filepath.Join(root, "RapidOCR-json.exe")
+	if err := os.MkdirAll(filepath.Join(root, "models"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{executable, filepath.Join(root, "models", "ch_PP-OCRv3_det_infer.onnx")} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := New(filepath.Join(root, "RapidOCR-json"))
+	resolved, err := client.resolveExecutable()
+	if err != nil || resolved != executable {
+		t.Fatalf("resolved=%s err=%v", resolved, err)
+	}
+	if err := client.Ready(); err != nil {
+		t.Fatal(err)
+	}
+}

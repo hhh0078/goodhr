@@ -16,6 +16,7 @@ import { ViewportPrimitive } from "../primitives/viewport.js";
 import { BrowserSession } from "../session/browser-session.js";
 import type { FindAction, FoundElement } from "./find.js";
 import { MoveAction } from "./move.js";
+import { variedDistance, wheelGesture, readingPause } from "./wheel-gesture.js";
 import { assertTargetCanFit, directedWheel, intersectsViewport, targetGap, viewAccepted, visibleArea as calculateVisibleArea } from "./scroll-geometry.js";
 
 /** ScrollResult 表示真实滚轮滚动次数和前后状态。 */
@@ -115,19 +116,19 @@ export class ScrollAction {
         const distance = target
           ? directedWheel(
               target.resolved.view,
-              request.distance,
+              variedDistance(request.distance),
               visibleArea ??
                 calculateVisibleArea(target.resolved.view, undefined, 0),
               request.require_full ?? false,
             )
-          : { x: 0, y: request.distance };
+          : { x: 0, y: variedDistance(request.distance) };
         this.logger.info(actionContext, "wheel", "start", {
           attempt: index + 1,
           delta_x: distance.x, delta_y: distance.y,
         });
-        await this.mouse.wheel(page, distance.x, distance.y);
+        await wheelGesture(this.mouse, page, distance.x, distance.y, actionContext, this.logger);
         attempts += 1;
-        await delay(Math.max(50, request.wait_ms ?? 250));
+        await readingPause(Math.max(50, request.wait_ms ?? 250), actionContext);
         after = target
           ? await this.refreshTarget(target.resolved)
           : await this.screenshotState(page);
@@ -286,12 +287,12 @@ export class ScrollAction {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const distance = directedWheel(
         found.resolved.view,
-        request.distance ?? 160,
+        variedDistance(request.distance ?? 160),
         visibleArea,
         request.require_full ?? false,
       );
-      await this.mouse.wheel(found.resolved.page, distance.x, distance.y);
-      await delay(220);
+      await wheelGesture(this.mouse, found.resolved.page, distance.x, distance.y, actionContext, this.logger);
+      await readingPause(220, actionContext);
       found.resolved.view = await this.refreshTarget(found.resolved);
       const anchorView = anchor
         ? await this.refreshTarget(anchor.resolved)
@@ -363,11 +364,6 @@ export class ScrollAction {
       screenshot_hash: createHash("sha256").update(image).digest("hex"),
     };
   }
-}
-
-/** delay 使用 Node 定时器等待，避免浏览器内固定等待命令。 */
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /** viewToJson 把元素或页面状态转换为可传输 JSON。 */

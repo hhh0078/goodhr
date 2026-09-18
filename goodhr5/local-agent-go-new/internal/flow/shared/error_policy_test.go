@@ -8,7 +8,17 @@ import (
 	"testing"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+// TestUnconfirmedGreetingStopsImmediately 验证未确认发送时立即暂停，不再对后续候选人消耗权益。
+func TestUnconfirmedGreetingStopsImmediately(t *testing.T) {
+	policy := &ConsecutiveErrorPolicy{}
+	err := fmt.Errorf("打招呼失败：%w", model.ErrGreetingUnconfirmed)
+	if !errors.Is(policy.Record(err), model.ErrGreetingUnconfirmed) {
+		t.Fatal("发送结果不确定时应立即停止")
+	}
+}
 
 // TestConsecutiveErrorPolicyStopsAtThree 验证变化的超时数字不会打断同类错误计数。
 func TestConsecutiveErrorPolicyStopsAtThree(t *testing.T) {

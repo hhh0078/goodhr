@@ -24,6 +24,21 @@ func TestShouldOpenDetailHonorsZeroProbability(t *testing.T) {
 	}
 }
 
+// TestKeywordDetailCannotBeSkipped 验证详情关键词判断不受随机打开概率影响。
+func TestKeywordDetailCannotBeSkipped(t *testing.T) {
+	for _, excludeOnly := range []bool{false, true} {
+		prepared := shared.PreparedTask{Position: cloud.PositionSnapshot{CommonConfig: cloud.PositionCommonConfig{ModeDefault: "keyword"}}}
+		if excludeOnly {
+			prepared.Position.ExcludeKeywords = []string{"外包"}
+		} else {
+			prepared.Position.Keywords = []string{"销售"}
+		}
+		if !shouldOpenDetail(prepared) {
+			t.Fatal("关键词和排除词都必须读取详情后决定")
+		}
+	}
+}
+
 // TestRequestScoreThresholdFallback 验证索要阈值优先级和默认值。
 func TestRequestScoreThresholdFallback(t *testing.T) {
 	position := cloud.PositionSnapshot{

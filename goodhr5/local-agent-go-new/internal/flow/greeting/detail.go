@@ -15,7 +15,7 @@ import (
 )
 
 // readDetailWithOCR 截取当前详情页并在本地识别文字。
-func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, detail model.CandidateDetail) (model.CandidateDetail, error) {
+func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTask, candidate model.Candidate, detail model.CandidateDetail, clean func(string) string) (model.CandidateDetail, error) {
 	parts, err := f.captureDetailScreenshots(ctx, prepared, candidate)
 	if err != nil {
 		return detail, err
@@ -29,13 +29,15 @@ func (f *Flow) readDetailWithOCR(ctx context.Context, prepared shared.PreparedTa
 			}
 			return detail, recognizeErr
 		}
-		if text := strings.TrimSpace(result.Text); text != "" {
+		if text := clean(result.Text); text != "" {
 			ocrTexts = append(ocrTexts, text)
+			shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("OCR 已识别 %s：%d 字", part.Filename, len([]rune(text))))
 		}
 	}
 	if len(ocrTexts) == 0 {
 		return detail, &ocr.Error{Code: ocr.ErrorNoText, Message: "候选人详情截图没有识别到文字"}
 	}
+	// DOM 和每份 OCR 分别清理后才合并，避免 DOM 页尾标记截掉后续 OCR 正文。
 	detail.Text = strings.TrimSpace(detail.Text + "\n" + strings.Join(ocrTexts, "\n"))
 	return detail, nil
 }
@@ -85,6 +87,7 @@ func (f *Flow) captureDetailScreenshots(ctx context.Context, prepared shared.Pre
 		if len(result.Parts) == 0 {
 			return nil, fmt.Errorf("候选人详情长截图没有生成分段")
 		}
+		shared.ReportProgress(f.Logger, prepared.Request.TaskID, fmt.Sprintf("详情截图已完成：%d 段，已确认滚动到底", len(result.Parts)))
 		if prepared.Platform.Behavior.StitchDetailScreenshots {
 			outputPath := filepath.Join(
 				directory,

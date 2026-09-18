@@ -14,12 +14,16 @@ func needsCandidateDetail(prepared shared.PreparedTask) bool {
 	return prepared.Platform.Behavior.NeedsDetail ||
 		prepared.Position.RequiresAI ||
 		prepared.Position.RequiresOCR ||
+		(isKeywordMode(prepared.Position) && (len(cleanKeywords(prepared.Position.Keywords)) > 0 || len(cleanKeywords(prepared.Position.ExcludeKeywords)) > 0 || strings.TrimSpace(prepared.Position.Keyword) != "")) ||
 		strings.TrimSpace(prepared.Position.CommonConfig.DetailMode) != ""
 }
 
-// shouldOpenDetail 按关键词模式的个人概率判断本次是否打开详情。
+// shouldOpenDetail 有关键词或排除词时必须读取详情，不能因随机概率漏掉只出现在详情中的词。
 func shouldOpenDetail(prepared shared.PreparedTask) bool {
 	if strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.ModeDefault)) != "keyword" {
+		return true
+	}
+	if len(cleanKeywords(prepared.Position.Keywords)) > 0 || len(cleanKeywords(prepared.Position.ExcludeKeywords)) > 0 || strings.TrimSpace(prepared.Position.Keyword) != "" {
 		return true
 	}
 	probability := prepared.Preferences.DetailOpenProbability

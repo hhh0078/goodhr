@@ -395,20 +395,31 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return fmt.Errorf("打开候选人详情失败：%w", err)
 		}
 		detailOpened = true
+		// 截图模式自身从顶部完整滚动；DOM 模式先浏览以加载详情，再读取正文。
+		if detailMode != "ai" && !prepared.Position.RequiresOCR {
+			if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
+				startedAt := time.Now()
+				if err := detailBrowser.BrowseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+					return fmt.Errorf("浏览候选人详情中断：%w", err)
+				}
+				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
+			}
+		}
 		var err error
-		detail, err = runtime.ExtractCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
-		if err != nil {
-			if detailMode != "ai" || shared.ShouldStopTaskImmediately(err) {
+		// 图片详情没有 DOM 正文；OCR 和 AI 看图直接读取截图，避免被空正文提前拦截。
+		if detailMode != "ai" && !prepared.Position.RequiresOCR {
+			detail, err = runtime.ExtractCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
+			if err != nil {
 				stats.Failed++
 				f.saveCandidate(ctx, prepared, candidate, "detail", "failed", err.Error())
 				return fmt.Errorf("读取候选人详情失败：%w", err)
 			}
-			f.log(prepared.Request.TaskID, "read_detail_text", "warning", time.Now(), err)
+			detail.Text = runtime.CleanCandidateDetailText(detail.Text)
 		}
 		if prepared.Position.RequiresOCR {
 			ocrStartedAt := time.Now()
 			f.log(prepared.Request.TaskID, "ocr", "start", ocrStartedAt, nil)
-			detail, err = f.readDetailWithOCR(ctx, prepared, candidate, detail)
+			detail, err = f.readDetailWithOCR(ctx, prepared, candidate, detail, runtime.CleanCandidateDetailText)
 			if err != nil {
 				f.log(prepared.Request.TaskID, "ocr", "failed", ocrStartedAt, err)
 				if ocr.IsNoText(err) {
@@ -428,7 +439,6 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		); err != nil {
 			return err
 		}
-		detail.Text = runtime.CleanCandidateDetailText(detail.Text)
 		if strings.TrimSpace(detail.Text) == "" && detailMode != "ai" {
 			stats.Skipped++
 			f.saveCandidate(ctx, prepared, candidate, "detail", "skipped", "候选人详情为空")
@@ -463,17 +473,6 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 	}()
 	if prepared.Position.RequiresAI {
-		if detailBrowser, ok := runtime.(model.DetailBrowser); ok && detailOpened {
-			startedAt := time.Now()
-			if err := detailBrowser.BrowseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
-				if shared.ShouldStopTaskImmediately(err) {
-					return fmt.Errorf("浏览候选人详情中断：%w", err)
-				}
-				f.log(prepared.Request.TaskID, "browse_candidate_detail", "warning", startedAt, err)
-			} else {
-				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
-			}
-		}
 		var decision ai.Decision
 		var decisionErr error
 		decisionStartedAt := time.Now()

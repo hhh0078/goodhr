@@ -363,8 +363,8 @@ func TestCandidateIdentityTextsKeepsAgeAsCompletePageText(t *testing.T) {
 	}
 }
 
-// TestScrollToCandidateAcceptsPartiallyVisibleCard 验证高卡片只需进入安全区域，不强求整张完整显示。
-func TestScrollToCandidateAcceptsPartiallyVisibleCard(t *testing.T) {
+// TestScrollToCandidateRequiresCompleteCard 验证卡片必须完整进入安全区域后才能继续点击。
+func TestScrollToCandidateRequiresCompleteCard(t *testing.T) {
 	browser := &candidateScrollBrowser{}
 	cfg := model.Config{
 		ID: "test",
@@ -377,8 +377,8 @@ func TestScrollToCandidateAcceptsPartiallyVisibleCard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("公共候选人滚动失败：%v", err)
 	}
-	if browser.request.RequireFull == nil || *browser.request.RequireFull {
-		t.Fatalf("候选人卡片不应要求完整显示：%+v", browser.request)
+	if browser.request.RequireFull == nil || !*browser.request.RequireFull {
+		t.Fatalf("候选人卡片必须要求完整显示：%+v", browser.request)
 	}
 	if browser.request.ViewportMargin != 48 {
 		t.Fatalf("候选人滚动应保留 48 像素安全边距：%+v", browser.request)

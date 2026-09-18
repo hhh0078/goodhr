@@ -56,10 +56,15 @@ export function visibleArea(target: ElementView, containerView: ElementView | un
   const container = containerView?.box;
   const limitsWidth = Boolean(container && container.width > 0 && container.width < viewport.width);
   const limitsHeight = Boolean(container && container.height > 0 && container.height < viewport.height);
-  const left = Math.max(margin, limitsWidth && container ? container.x + margin : margin);
-  const top = Math.max(margin, limitsHeight && container ? container.y + margin : margin);
-  const right = Math.min(viewport.width - margin, limitsWidth && container ? container.x + container.width - margin : viewport.width - margin);
-  const bottom = Math.min(viewport.height - margin, limitsHeight && container ? container.y + container.height - margin : viewport.height - margin);
+  const physicalLeft = Math.max(0, limitsWidth && container ? container.x : 0);
+  const physicalRight = Math.min(viewport.width, limitsWidth && container ? container.x + container.width : viewport.width);
+  // 宽卡片允许缩小横向留白，但仍必须完整处于窗口和列表交集内，不能把留白不足误报为窗口太小。
+  const horizontalMargin = Math.min(margin, Math.max(0, (physicalRight - physicalLeft - target.box.width) / 2));
+  // 边距用于避开窗口固定栏；列表里的卡片常与容器等宽，不能再把容器两侧各扣一次边距。
+  const left = Math.max(horizontalMargin, physicalLeft);
+  const top = Math.max(margin, limitsHeight && container ? container.y : margin);
+  const right = Math.min(viewport.width - horizontalMargin, physicalRight);
+  const bottom = Math.min(viewport.height - margin, limitsHeight && container ? container.y + container.height : viewport.height - margin);
   return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 

@@ -3,6 +3,7 @@ package greeting
 
 import (
 	"strings"
+	"unicode"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
@@ -26,7 +27,7 @@ func matchKeywords(candidate model.Candidate, detailText string, position cloud.
 	for _, value := range candidate.Fields {
 		parts = append(parts, value)
 	}
-	content := strings.ToLower(strings.Join(parts, "\n"))
+	content := normalizedKeywordText(strings.Join(parts, "\n"))
 	result := keywordMatchResult{
 		Keywords:        cleanKeywords(position.Keywords),
 		ExcludeKeywords: cleanKeywords(position.ExcludeKeywords),
@@ -35,12 +36,12 @@ func matchKeywords(candidate model.Candidate, detailText string, position cloud.
 		result.Keywords = []string{strings.TrimSpace(position.Keyword)}
 	}
 	for _, keyword := range result.ExcludeKeywords {
-		if strings.Contains(content, strings.ToLower(keyword)) {
+		if strings.Contains(content, normalizedKeywordText(keyword)) {
 			result.MatchedExcludes = append(result.MatchedExcludes, keyword)
 		}
 	}
 	for _, keyword := range result.Keywords {
-		if strings.Contains(content, strings.ToLower(keyword)) {
+		if strings.Contains(content, normalizedKeywordText(keyword)) {
 			result.MatchedKeywords = append(result.MatchedKeywords, keyword)
 		}
 	}
@@ -62,6 +63,19 @@ func matchKeywords(candidate model.Candidate, detailText string, position cloud.
 		result.Reason = "暂时没有命中关键词"
 	}
 	return result
+}
+
+// normalizedKeywordText 统一全角英数和大小写，去除 OCR 换行、空格及零宽分隔，不改动标点含义。
+func normalizedKeywordText(value string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || r == '\u200b' || r == '\ufeff' {
+			return -1
+		}
+		if r >= '\uff01' && r <= '\uff5e' {
+			r -= 0xfee0
+		}
+		return unicode.ToLower(r)
+	}, value)
 }
 
 // cleanKeywords 清理空关键词并保留用户配置的原始顺序。

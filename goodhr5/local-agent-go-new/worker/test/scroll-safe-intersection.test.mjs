@@ -23,3 +23,26 @@ test('贴边抽屉部分可见时不要求整个元素进入窗口', () => {
   assert.equal(viewAccepted(view, false, area), true);
   assert.equal(viewAccepted(view, true, area), false);
 });
+
+test('候选人卡片只露出半张时不能通过完整可见检查', () => {
+  const view = makeView({ x: 100, y: 800, width: 700, height: 240 });
+  const area = visibleArea(view, undefined, 48);
+  assert.equal(viewAccepted(view, true, area), false);
+  assert.equal(directedWheel(view, 260, area, true).y, 168);
+  assert.equal(viewAccepted(makeView({ ...view.box, y: 632 }), true, area), true);
+});
+
+test('卡片与列表等宽时保留真实容器宽度，不重复扣除窗口边距', () => {
+  const view = makeView({ x: 206, y: 106, width: 1004.8, height: 172 });
+  const container = makeView({ ...view.box, height: 2718 });
+  const area = visibleArea(view, container, 48);
+  assert.equal(viewAccepted(view, true, area), true);
+});
+
+test('宽卡片只缺横向留白时允许完整显示，真正超出窗口仍不放行', () => {
+  const view = makeView({ x: 172, y: 472, width: 1064, height: 156 });
+  const container = makeView({ x: 172, y: 408, width: 1064, height: 2500 });
+  const area = visibleArea(view, container, 48);
+  assert.equal(viewAccepted(view, true, area), true);
+  assert.equal(viewAccepted(makeView({ ...view.box, x: 220 }), true, area), false);
+});

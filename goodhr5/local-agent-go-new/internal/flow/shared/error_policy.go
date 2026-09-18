@@ -11,6 +11,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 const consecutiveOperationErrorLimit = 3
@@ -60,7 +61,7 @@ func ShouldStopTaskImmediately(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || ai.IsPositionStoppingError(err) || ocr.IsUnavailable(err) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, model.ErrGreetingUnconfirmed) || ai.IsPositionStoppingError(err) || ocr.IsUnavailable(err) {
 		return true
 	}
 	return contract.IsSessionUnavailable(err)
