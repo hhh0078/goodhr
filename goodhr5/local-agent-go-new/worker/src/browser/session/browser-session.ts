@@ -406,8 +406,8 @@ export class BrowserSession {
     // 无需按代理 IP 动态匹配地理位置，因此不启用 Camoufox 的 geoip（协议字段保留但已停用）。
     const prepared = await camoufoxLaunchOptions({
       headless: request.headless ?? false,
-      // 决策点 D3：关闭 Camoufox 自带鼠标人类化，统一沿用 Worker 自研类人操作原语，行为更可控。
-      humanize: false,
+      // 由浏览器生成完整拟人轨迹，最长约 1.5 秒；Worker 只发送目标坐标并等待移动结束。
+      humanize: 1.5,
       // 运行组件会修正浏览器资源，启动时刷新代码缓存，使已有 Profile 立即使用新资源。
       args: ["-purgecaches"],
       locale: request.locale ?? "zh-CN",

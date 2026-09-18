@@ -52,13 +52,13 @@ function silentLogger() {
   };
 }
 
-test("连续鼠标移动按上次位置计算步数并限制最大步数", async () => {
+test("远近目标与滚动锚点都只发送一次目标坐标，由浏览器生成完整轨迹", async () => {
   const page = {};
-  const steps = [];
+  const moves = [];
   const action = new MoveAction(
     {
-      async move(_page, _x, _y, nextSteps) {
-        steps.push(nextSteps);
+      async move(...args) {
+        moves.push(args);
       },
     },
     silentLogger(),
@@ -68,10 +68,11 @@ test("连续鼠标移动按上次位置计算步数并限制最大步数", async
   try {
     await action.toElement(visibleElement(page, {}, 1100).resolved, context);
     await action.toElement(visibleElement(page, {}, 1110).resolved, context);
+    await action.toViewportCenter(page, 1400, 900, context);
   } finally {
     Math.random = originalRandom;
   }
-  assert.deepEqual(steps, [12, 4]);
+  assert.deepEqual(moves, [[page, 1150, 120], [page, 1160, 120], [page, 700, 450]]);
 });
 
 for (const hiddenCode of ["ELEMENT_NOT_FOUND", "ELEMENT_NOT_VISIBLE"]) {

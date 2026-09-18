@@ -31,11 +31,11 @@ test("鼠标定位移动前释放遗留左键", async () => {
   const page = { mouse: {
     async down() { events.push("down"); },
     async up({ button }) { events.push(`up:${button}`); },
-    async move() { events.push("move"); },
+    async move(...args) { assert.equal(args.length, 2); events.push("move"); },
   } };
-  await mouse.move(page, 10, 20, 4);
+  await mouse.move(page, 10, 20);
   await mouse.down(page, "left");
-  await mouse.move(page, 20, 30, 4);
+  await mouse.move(page, 20, 30);
   await mouse.up(page, "left");
   assert.deepEqual(events, ["move", "down", "up:left", "move"]);
 });

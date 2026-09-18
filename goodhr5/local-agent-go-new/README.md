@@ -70,7 +70,7 @@ Worker 的完整协议见 `contracts/browser-api.md`。
 
 页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；传入 `new_tab=true` 时会始终新增并切换到一个标签页，登录页即使带有回跳参数也不会被误复用。真实滚轮使用元素位置或截图变化验证结果，不读取页面内部滚动状态，也不向招聘页面注入或执行 JavaScript。
 
-Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Profile 会在 Profile 目录维护一份稳定指纹文件（`goodhr-fingerprint.json`），同一账号指纹不漂移。Camoufox 自带的鼠标人类化保持关闭，统一使用 Worker 自研类人操作原语。
+Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Profile 会在 Profile 目录维护一份稳定指纹文件（`goodhr-fingerprint.json`），同一账号指纹不漂移。启用 Camoufox 原生拟人鼠标移动（`humanize: 1.5`），由浏览器生成轨迹并等待移动完成。Worker 只发送一次目标坐标，不叠加 Playwright 的直线分步；继续保留随机安全落点、点击停顿、输入焦点检查和异常松键。
 
 语言与时区固定为 zh-CN 和 Asia/Shanghai：用户与招聘平台均在中国大陆，指纹身份保持一致即可，不启用 Camoufox 的 geoip（按代理 IP 动态匹配时区、语言和经纬度），因此也不需要 GeoLite2 数据库、不产生额外的联网探测；启动参数中的 `geoip` 字段为旧版兼容保留，传入后不生效。
 
@@ -183,10 +183,10 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 ```powershell
 cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
-.\scripts\package-windows.ps1 -Version 6-interaction-recovery
+.\scripts\package-windows.ps1 -Version 6-native-mouse
 ```
 
-对应安装器：`release\GoodHR-Local-Agent-Setup-v6-interaction-recovery-windows-x64.exe`。
+对应安装器：`release\GoodHR-Local-Agent-Setup-v6-native-mouse-windows-x64.exe`。本版本启用原生拟人鼠标轨迹，更新后必须重新启动浏览器会话才能生效；不固定窗口宽高。单次长距离移动的本机测试记录到 118 个中间事件、约 1.29 秒，点击确认和中文输入均成功，未发生拖选。轨迹和用时会随距离及随机路径变化。
 
 ## 核心原则
 

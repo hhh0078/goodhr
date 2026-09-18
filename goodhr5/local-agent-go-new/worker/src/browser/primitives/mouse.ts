@@ -5,16 +5,16 @@ import type { Page } from "playwright-core";
 /** MousePrimitive 封装 Playwright 鼠标最小操作，不查找元素也不决定流程。 */
 export class MousePrimitive {
   private readonly pressed = new WeakMap<Page, Set<"left" | "right" | "middle">>();
-  /** move 把鼠标移动到指定坐标。 */
+  /** move 发送一次目标坐标，等待 Camoufox 原生拟人轨迹执行完成。 */
   async move(
     page: Page,
     x: number,
     y: number,
-    steps: number,
   ): Promise<void> {
     // 本原子仅用于悬停定位，不执行拖拽；先释放遗留按键，避免移动时选中页面文字。
     await this.up(page, "left");
-    await page.mouse.move(x, y, { steps: Math.max(1, Math.floor(steps)) });
+    // 不再拆成多段直线，否则每一小段都会重复触发浏览器的拟人轨迹。
+    await page.mouse.move(x, y);
   }
 
   /** down 按下指定鼠标按键。 */
