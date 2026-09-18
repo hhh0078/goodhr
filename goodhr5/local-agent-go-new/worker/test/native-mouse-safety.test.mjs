@@ -7,7 +7,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../../internal/runtime/mouse_safety.js', import.meta.url), 'utf8');
 
 /** fixture 提供没有页面脚本的协议单元测试环境，模拟浏览器仅为有效移动发送回执。 */
-function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 5.2,5.2, 5.3,5.3, 100,100, 10,10, 10,10]) {
+function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 8.2,8.2, 8.3,8.3, 100,100, 10,10, 10,10]) {
   const sent = [];
   let disposed = false;
   const target = {
@@ -43,7 +43,7 @@ function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 5.2,5.2, 5.3,5.3, 
 test('轨迹重复像素及越界点不发送，仍能精确到达终点', async () => {
   const value = fixture();
   await value.run();
-  assert.deepEqual(value.sent, [{ type: 'mousemove', x: 5, y: 5 }, { type: 'mousemove', x: 10, y: 10 }]);
+  assert.deepEqual(value.sent, [{ type: 'mousemove', x: 8, y: 8 }, { type: 'mousemove', x: 10, y: 10 }]);
   assert.equal(value.disposed(), true);
 });
 
@@ -54,8 +54,8 @@ test('丢失回执时明确失败、清理观察器，不再发送剩余轨迹',
   assert.equal(value.disposed(), true);
 });
 
-test('窗口边缘的小数轨迹取整后仍在窗口内部', async () => {
+test('窗口边缘的中间轨迹被跳过，仍会到达指定终点', async () => {
   const value = fixture(false, [0,0, 99.8,99.8, 10,10]);
   await value.run();
-  assert.deepEqual(value.sent, [{ type: 'mousemove', x: 99, y: 99 }, { type: 'mousemove', x: 10, y: 10 }]);
+  assert.deepEqual(value.sent, [{ type: 'mousemove', x: 10, y: 10 }]);
 });

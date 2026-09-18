@@ -49,8 +49,10 @@
             for (let i = 2; i < trajectory.length - 2; i += 2) {
               const currentX = trajectory[i];
               const currentY = trajectory[i + 1];
+              // 原生曲线可能越过目标后贴近窗口边缘；缩放下这些点会被识别为移出内容区。
+              // 仅跳过曲线的边缘中间点，终点仍按调用者要求发送。
               if (!Number.isFinite(currentX) || !Number.isFinite(currentY) ||
-                  currentX < 0 || currentY < 0 || currentX >= boundingBox.width || currentY >= boundingBox.height) continue;
+                  currentX < 8 || currentY < 8 || currentX >= boundingBox.width - 8 || currentY >= boundingBox.height - 8) continue;
               await sendOne('mousemove', currentX, currentY);
               await new Promise(resolve => setTimeout(resolve, 10));
             }
