@@ -15,6 +15,8 @@ AppPublisher=GoodHR
 DefaultDirName={code:GetDefaultInstallDir}
 DefaultGroupName=GoodHR
 DisableProgramGroupPage=yes
+; 每次安装默认勾选桌面快捷方式，不沿用上一次安装的任务选择。
+UsePreviousTasks=no
 OutputDir=..\release
 OutputBaseFilename=GoodHR-Local-Agent-Setup-v{#MyAppVersion}-windows-x64
 Compression=lzma2
@@ -46,7 +48,7 @@ Source: "{#MyPackageDir}\worker\*"; DestDir: "{app}\worker"; Flags: ignoreversio
 Source: "{#MyLogoFile}"; DestDir: "{app}"; DestName: "goodhr-logo.ico"; Flags: ignoreversion
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: checkedonce
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："
 
 [Icons]
 Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"
