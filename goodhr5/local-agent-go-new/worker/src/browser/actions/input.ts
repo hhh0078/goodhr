@@ -13,8 +13,8 @@ import { ScrollAction } from "./scroll.js";
 import { LocatorPrimitive } from "../primitives/locator.js";
 import { waitForStablePosition } from "./stable-position.js";
 
-const DEFAULT_CHARACTER_DELAY_MIN_MS = 15;
-const DEFAULT_CHARACTER_DELAY_MAX_MS = 45;
+const DEFAULT_CHARACTER_DELAY_MIN_MS = 50;
+const DEFAULT_CHARACTER_DELAY_MAX_MS = 100;
 const WORD_DELAY_MIN_MS = 50;
 const WORD_DELAY_MAX_MS = 120;
 const FOCUS_HOLD_MIN_MS = 40;

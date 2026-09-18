@@ -133,7 +133,7 @@ test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报�
 });
 }
 
-test("九字招呼语的字符和词语拟人等待不超过两秒", async () => {
+test("九字招呼语放慢逐字输入后仍保持合理总时长", async () => {
   const page = {};
   let actual = "";
   const locator = {
@@ -183,5 +183,6 @@ test("九字招呼语的字符和词语拟人等待不超过两秒", async () =>
   }
 
   assert.equal(actual, "你好 能发个简历吗");
-  assert.ok(Date.now() - startedAt < 2_000);
+  assert.ok(Date.now() - startedAt >= 9 * 100);
+  assert.ok(Date.now() - startedAt < 3_500);
 });
