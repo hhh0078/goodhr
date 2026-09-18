@@ -20,13 +20,14 @@ function axisGap(start: number, size: number, low: number, high: number, full: b
     if (start < low) return start - low;
     if (start + size > high) return start + size - high;
   } else {
-    if (start + size <= low) return start + size - low - 1;
-    if (start >= high) return start - high + 1;
+    const requiredOverlap = Math.min(8, size, Math.max(0, high - low));
+    if (start + size < low + requiredOverlap) return start + size - low - requiredOverlap;
+    if (start > high - requiredOverlap) return start - high + requiredOverlap;
   }
   return 0;
 }
 
-/** targetGap 同时衡量横纵方向，部分可见模式只要求目标与安全区域相交。 */
+/** targetGap 同时衡量横纵方向，部分可见模式保留至少八像素的安全落点区域。 */
 export function targetGap(view: ElementView, area: VisibleArea, full: boolean): number {
   return Math.hypot(
     axisGap(view.box.x, view.box.width, area.left, area.right, full),
@@ -50,7 +51,7 @@ export function viewAccepted(view: ElementView, full: boolean, area: VisibleArea
 
 /** visibleArea 计算窗口与可选滚动容器交集，整页锚点不缩小窗口范围。 */
 export function visibleArea(target: ElementView, containerView: ElementView | undefined, rawMargin: number): VisibleArea {
-  const margin = Math.max(0, rawMargin);
+  const margin = Math.max(1, rawMargin);
   const viewport = target.viewport;
   const container = containerView?.box;
   const limitsWidth = Boolean(container && container.width > 0 && container.width < viewport.width);
@@ -62,9 +63,9 @@ export function visibleArea(target: ElementView, containerView: ElementView | un
   return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
-/** intersectsViewport 判断元素是否至少有一部分位于浏览器内容视口内。 */
+/** intersectsViewport 判断可见部分是否足够承接鼠标，极窄边缘改用窗口中央滚动。 */
 export function intersectsViewport(view: ElementView): boolean {
-  return view.visible && view.box.x + view.box.width > 0 && view.box.y + view.box.height > 0 && view.box.x < view.viewport.width && view.box.y < view.viewport.height;
+  return viewAccepted(view, false, visibleArea(view, undefined, 0));
 }
 
 /** assertTargetCanFit 在窗口或容器无法容纳完整目标时明确停止，避免无效滚动。 */

@@ -306,8 +306,8 @@ test("超高卡片从上方进入窗口时按相交距离滚动，不用完整�
   const { target, action, calls } = movingTarget({ x: 100, y: -1000, width: 200, height: 900 });
   await action.execute({ target: {}, distance: 180, max_attempts: 5, wait_ms: 50, viewport_margin: 48, require_full: false }, context);
   assert.equal(calls.wheel, 1);
-  assert.equal(calls.deltas[0].y, -149);
-  assert.ok(target.resolved.view.box.y + 900 > 48);
+  assert.equal(calls.deltas[0].y, -156);
+  assert.ok(target.resolved.view.box.y + 900 >= 48 + 8);
 });
 
 test("步数耗尽而目标未到位必须报错，不能假装滚动完成后继续点击", async () => {

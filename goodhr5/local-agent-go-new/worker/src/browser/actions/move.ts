@@ -8,7 +8,7 @@ import {
 } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { MousePrimitive } from "../primitives/mouse.js";
-import type { ResolvedElement } from "../primitives/locator.js";
+import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 
 /** MoveResult 表示鼠标移动位置和元素视口状态。 */
 export interface MoveResult {
@@ -23,12 +23,14 @@ export class MoveAction {
   constructor(
     private readonly mouse: MousePrimitive,
     private readonly logger: WorkerLogger,
+    private readonly locator: Pick<LocatorPrimitive, "view"> = new LocatorPrimitive(),
   ) {}
 
   /** toElement 移动到已找到元素内部的安全随机点，不重新查找。 */
   async toElement(
     found: ResolvedElement,
     actionContext: ActionContext,
+    allowAckRetry = true,
   ): Promise<MoveResult> {
     const step = "move";
     this.logger.info(actionContext, step, "start");
@@ -88,6 +90,14 @@ export class MoveAction {
       });
       return result;
     } catch (error) {
+      if (allowAckRetry && String(error).includes("GOODHR_MOUSE_ACK_TIMEOUT:mousemove") &&
+          !actionContext.signal?.aborted &&
+          (actionContext.deadline_at ?? Infinity) - Date.now() > 7_000) {
+        this.logger.warn(actionContext, step, "retry", { reason: "native_mouse_ack_timeout", attempt: 2 });
+        // 原协议调用已经明确结束；只重新定位和移动，不重放任何按键、点击或发送。
+        found.view = await this.locator.view(found.page, found.locator);
+        return this.toElement(found, actionContext, false);
+      }
       const normalized = normalizeWorkerError(error, {
         code: "MOVE_FAILED",
         message: "鼠标没顺利移动到目标位置",
