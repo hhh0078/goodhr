@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/model"
@@ -45,7 +46,7 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 	if itemText, exists := cfg.Selectors["position.item_text"]; exists {
 		fields["position_name"] = itemText
 	}
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+	items, err := readPositionSearchResults(ctx, browser, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: 200, Fields: fields,
 	})
 	if err != nil {
@@ -90,6 +91,31 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 		return fmt.Errorf("岗位切换后页面显示“%s”，目标是“%s”", current, positionName)
 	}
 	return nil
+}
+
+// readPositionSearchResults 等待搜索刷新后的有效列表，短暂空列表不能直接判定岗位不存在。
+func readPositionSearchResults(ctx context.Context, browser model.Browser, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		items, err := browser.FindAll(ctx, request)
+		if err != nil && !IsElementMissing(err) {
+			return nil, err
+		}
+		if len(items) > 0 {
+			return items, nil
+		}
+		lastErr = err
+		if attempt < 3 {
+			timer := time.NewTimer(300 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	return nil, lastErr
 }
 
 // openPositionList 打开岗位列表并确认弹层出现，页面吞掉首次点击时只重试一次。

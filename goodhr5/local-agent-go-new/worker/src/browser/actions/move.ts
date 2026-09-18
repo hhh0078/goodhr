@@ -30,7 +30,7 @@ export class MoveAction {
   async toElement(
     found: ResolvedElement,
     actionContext: ActionContext,
-    allowAckRetry = true,
+    options: { allowAckRetry?: boolean; centered?: boolean } = {},
   ): Promise<MoveResult> {
     const step = "move";
     this.logger.info(actionContext, step, "start");
@@ -73,8 +73,8 @@ export class MoveAction {
       }
       const visibleWidth = visibleRight - visibleLeft;
       const visibleHeight = visibleBottom - visibleTop;
-      const paddingX = Math.min(16, box.width * 0.2, visibleWidth * 0.25);
-      const paddingY = Math.min(12, box.height * 0.2, visibleHeight * 0.25);
+      const paddingX = options.centered ? visibleWidth * 0.3 : Math.min(16, box.width * 0.2, visibleWidth * 0.25);
+      const paddingY = options.centered ? visibleHeight * 0.3 : Math.min(12, box.height * 0.2, visibleHeight * 0.25);
       const minX = visibleLeft + paddingX;
       const maxX = visibleRight - paddingX;
       const minY = visibleTop + paddingY;
@@ -90,13 +90,13 @@ export class MoveAction {
       });
       return result;
     } catch (error) {
-      if (allowAckRetry && String(error).includes("GOODHR_MOUSE_ACK_TIMEOUT:mousemove") &&
+      if (options.allowAckRetry !== false && String(error).includes("GOODHR_MOUSE_ACK_TIMEOUT:mousemove") &&
           !actionContext.signal?.aborted &&
           (actionContext.deadline_at ?? Infinity) - Date.now() > 7_000) {
         this.logger.warn(actionContext, step, "retry", { reason: "native_mouse_ack_timeout", attempt: 2 });
         // 原协议调用已经明确结束；只重新定位和移动，不重放任何按键、点击或发送。
         found.view = await this.locator.view(found.page, found.locator);
-        return this.toElement(found, actionContext, false);
+        return this.toElement(found, actionContext, { ...options, allowAckRetry: false });
       }
       const normalized = normalizeWorkerError(error, {
         code: "MOVE_FAILED",

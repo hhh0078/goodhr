@@ -91,7 +91,7 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 			t.Fatalf("智联详情入口不能混入打招呼按钮：%s", selector.Value)
 		}
 	}
-	for _, expected := range []string{".large-screen-btn", ".small-screen-btn.is-mr-16"} {
+	for _, expected := range []string{".large-screen-btn:visible", ".small-screen-btn.is-mr-16:visible"} {
 		if !slices.Contains(values, expected) {
 			t.Fatalf("智联打招呼选择器缺少 %q：%v", expected, values)
 		}
@@ -101,7 +101,7 @@ func TestLoadConfigUsesSafeZhaopinCandidateActions(t *testing.T) {
 	for _, selector := range continueAction.Target.Selectors {
 		continueValues = append(continueValues, selector.Value)
 	}
-	if continueAction.Target.Text != "继续沟通" || !slices.Contains(continueValues, ".large-screen-btn") {
+	if continueAction.Target.Text != "继续沟通" || !slices.Contains(continueValues, ".large-screen-btn:visible") {
 		t.Fatalf("智联大屏打招呼后必须复用原按钮打开聊天框：%+v", continueAction.Target)
 	}
 }

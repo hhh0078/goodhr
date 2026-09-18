@@ -62,9 +62,9 @@ export class ScrollAction {
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
       if (anchor && intersectsViewport(anchor.resolved.view)) {
-        await this.move.toElement(anchor.resolved, actionContext);
+        await this.move.toElement(anchor.resolved, actionContext, { centered: true });
       } else if (target && intersectsViewport(target.resolved.view)) {
-        await this.move.toElement(target.resolved, actionContext);
+        await this.move.toElement(target.resolved, actionContext, { centered: true });
       } else {
         const viewport = await this.viewport.size(page);
         await this.move.toViewportCenter(
@@ -268,9 +268,9 @@ export class ScrollAction {
       return;
     }
     if (anchor && intersectsViewport(anchor.resolved.view)) {
-      await this.move.toElement(anchor.resolved, actionContext);
+      await this.move.toElement(anchor.resolved, actionContext, { centered: true });
     } else if (intersectsViewport(found.resolved.view)) {
-      await this.move.toElement(found.resolved, actionContext);
+      await this.move.toElement(found.resolved, actionContext, { centered: true });
     } else {
       const viewport = found.resolved.view.viewport;
       await this.move.toViewportCenter(

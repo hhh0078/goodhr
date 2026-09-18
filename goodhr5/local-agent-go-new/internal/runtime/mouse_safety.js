@@ -3,8 +3,26 @@
       const { clearTimeout } = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
-      if (win.windowUtils.flushApzRepaints())
-        await helper.awaitTopic('apz-repaints-flushed');
+      // 先订阅再刷新，防止合成器通知先到；丢失通知时明确退出，不无限占用输入队列。
+      const observerService = Cc['@mozilla.org/observer-service;1'].getService(Ci.nsIObserverService);
+      let repaintTimer;
+      let repaintDone;
+      const repaintPromise = new Promise(resolve => { repaintDone = resolve; });
+      const repaintObserver = { observe() { repaintDone(); } };
+      observerService.addObserver(repaintObserver, 'apz-repaints-flushed');
+      try {
+        if (win.windowUtils.flushApzRepaints()) {
+          await Promise.race([
+            repaintPromise,
+            new Promise((_, reject) => {
+              repaintTimer = setTimeout(() => reject(new Error('GOODHR_MOUSE_APZ_TIMEOUT:' + types.join(','))), 5000);
+            }),
+          ]);
+        }
+      } finally {
+        clearTimeout(repaintTimer);
+        observerService.removeObserver(repaintObserver, 'apz-repaints-flushed');
+      }
       const watcher = new EventWatcher(this._pageEventSink, types, this._pendingEventWatchers);
       let lastX = this._lastTrackedPos.x;
       let lastY = this._lastTrackedPos.y;

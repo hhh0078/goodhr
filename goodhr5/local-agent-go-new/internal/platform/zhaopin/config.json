@@ -234,8 +234,8 @@
         "exact_text": true,
         "_comment_exact_text": "避免误点同样式的打电话按钮。",
         "selectors": [
-          { "_comment": "大屏幕候选人卡片右侧打招呼按钮。", "type": "css", "value": ".large-screen-btn" },
-          { "_comment": "小屏幕候选人卡片打招呼按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16" }
+          { "_comment": "只选择当前可见的大屏打招呼按钮，避免隐藏样式抢先匹配。", "type": "css", "value": ".large-screen-btn:visible" },
+          { "_comment": "当前窗口可见的小屏打招呼按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16:visible" }
         ]
       },
       "state": "enabled",
@@ -284,9 +284,9 @@
         "exact_text": true,
         "_comment_exact_text": "按钮文字必须完整一致。",
         "selectors": [
-          { "_comment": "大屏幕打招呼后原按钮变成的继续沟通按钮。", "type": "css", "value": ".large-screen-btn" },
-          { "_comment": "兼容旧版继续沟通按钮。", "type": "css", "value": ".resume-btn-small" },
-          { "_comment": "小屏操作按钮降级选择器。", "type": "css", "value": ".small-screen-btn.is-mr-16" }
+          { "_comment": "当前可见的大屏继续沟通按钮。", "type": "css", "value": ".large-screen-btn:visible" },
+          { "_comment": "兼容当前可见的旧版继续沟通按钮。", "type": "css", "value": ".resume-btn-small:visible" },
+          { "_comment": "当前可见的小屏继续沟通按钮。", "type": "css", "value": ".small-screen-btn.is-mr-16:visible" }
         ]
       },
       "state": "enabled",

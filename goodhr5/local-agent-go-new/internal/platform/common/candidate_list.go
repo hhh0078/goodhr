@@ -155,6 +155,47 @@ func advanceCandidateScroll(
 	return false, nil
 }
 
+// WaitForCandidateListChange 为平台切岗复用列表更新验证，不执行滚动和点击。
+func WaitForCandidateListChange(ctx context.Context, browser model.Browser, cfg model.Config, platformID string, before []model.Candidate) (bool, error) {
+	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+}
+
+// WaitForStableCandidateList 等待候选人名单连续三秒不变，防止切岗多阶段加载产生过期快照。
+func WaitForStableCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, platformID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	var previous map[string]struct{}
+	var stableSince time.Time
+	for {
+		candidates, err := FindCandidates(ctx, browser, cfg, platformID)
+		if err != nil && !IsElementMissing(err) {
+			return err
+		}
+		current := candidateFingerprintSet(candidates)
+		same := len(current) > 0 && len(current) == len(previous)
+		for key := range current {
+			if _, ok := previous[key]; !ok {
+				same = false
+				break
+			}
+		}
+		if !same {
+			stableSince = time.Now()
+		}
+		if same && time.Since(stableSince) >= 3*time.Second {
+			return nil
+		}
+		previous = current
+		timer := time.NewTimer(300 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("候选人列表仍在刷新：%w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
 // waitForCandidateListChange 每 300 毫秒读取一次列表，最多尝试 20 次。
 func waitForCandidateListChange(
 	ctx context.Context,

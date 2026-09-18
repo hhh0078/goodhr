@@ -34,3 +34,13 @@ test('预算不足时不重试移动', async () => {
   await assert.rejects(f.action.toElement(f.found, { action: 'element.click', trace_id: 'test', started_at: Date.now(), deadline_at: Date.now() + 1000 }));
   assert.deepEqual(f.counts(), { moves: 1, reads: 0, clicks: 0 });
 });
+
+test('滚动锚点落在可见区域中央，避免随机落进顶部固定栏', async () => {
+  const points = [];
+  const action = new MoveAction({ async move(_page, x, y) { points.push({ x, y }); } }, { info() {}, failure() {} });
+  const found = { page: {}, locator: {}, view: {
+    visible: true, box: { x: 100, y: -500, width: 1000, height: 2200 }, viewport: { width: 1265.6, height: 920.8 },
+  } };
+  for (let i = 0; i < 20; i++) await action.toElement(found, { action: 'element.scroll', trace_id: 'test', started_at: Date.now() }, { centered: true });
+  assert.ok(points.every(p => p.x >= 400 && p.x <= 800 && p.y > 275 && p.y < 645));
+});
