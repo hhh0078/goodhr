@@ -12,6 +12,9 @@ import (
 
 // EnsureCandidateConversation 打开或复用猎聘猎头端当前候选人的聊天框。
 func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
+		return err
+	}
 	return common.EnsureCandidateConversation(ctx, browser, cfg, candidate)
 }
 
@@ -37,5 +40,5 @@ func (r *Runtime) SendCandidateMessage(ctx context.Context, browser model.Browse
 
 // CloseCandidateConversation 关闭猎聘猎头端候选人聊天框和可能打开的侧边栏。
 func (r *Runtime) CloseCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
-	return common.CloseCandidateConversation(ctx, browser, cfg)
+	return closeGreetingPanels(ctx, browser, cfg, false)
 }

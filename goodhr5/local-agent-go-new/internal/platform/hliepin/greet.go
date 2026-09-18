@@ -12,46 +12,26 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-const postGreetPromotionPollAttempts = 4
-const postGreetPromotionPollInterval = 150 * time.Millisecond
-
 // GreetCandidate 清理遗留弹层并按发布职位或快捷搜索模式完成猎聘开聊，失败时清理开聊弹框。
 func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) (resultErr error) {
 	defer func() {
 		if resultErr == nil {
 			return
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		if cleanupErr := closeGreetModalIfPresent(cleanupCtx, browser, cfg); cleanupErr != nil {
-			resultErr = fmt.Errorf("%w；遗留的猎聘开聊弹框也没清理好：%v", resultErr, cleanupErr)
+		if cleanupErr := closeGreetingPanels(cleanupCtx, browser, cfg, true); cleanupErr != nil {
+			resultErr = fmt.Errorf("%w；遗留的猎聘弹层也没清理好：%v", resultErr, cleanupErr)
 		}
 	}()
 	if candidate.Fields["greet_state"] == "continue" {
-		return nil
+		return model.ErrCandidateAlreadyContacted
 	}
-	if err := closePostGreetPromotion(ctx, browser, cfg, 1); err != nil {
+	if err := closeGreetingPanels(ctx, browser, cfg, false); err != nil {
 		return err
 	}
-	if err := closeGreetModalIfPresent(ctx, browser, cfg); err != nil {
+	if err := openGreetingModal(ctx, browser, cfg, candidate); err != nil {
 		return err
-	}
-	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
-		return err
-	}
-	greetSelector, err := common.CandidateActionSelector(cfg, "candidate.greet", candidate)
-	if err != nil {
-		return err
-	}
-	modal, err := common.RequiredSelector(cfg, "candidate.greet_modal")
-	if err != nil {
-		return err
-	}
-	if _, err = browser.Click(ctx, contract.ElementClickRequest{
-		Selector: greetSelector, ViewportMargin: 48,
-		Verify: &contract.ClickVerification{TargetVisible: &modal, TimeoutMS: 5000},
-	}); err != nil {
-		return fmt.Errorf("点击猎聘“立即沟通”失败：%w", err)
 	}
 	selectedJob, err := selectGreetingJob(ctx, browser, cfg, r.positionName)
 	if err != nil {
@@ -218,44 +198,6 @@ func confirmGreeting(ctx context.Context, browser model.Browser, cfg model.Confi
 	return nil
 }
 
-// closePostGreetPromotion 检测并关闭猎聘开聊后偶发的相似候选人推广弹框。
-// attempts 为检测轮次，弹框关闭按钮失效时公共能力会按 Escape 兜底。
-func closePostGreetPromotion(ctx context.Context, browser model.Browser, cfg model.Config, attempts int) error {
-	if attempts < 1 {
-		attempts = 1
-	}
-	for attempt := 1; attempt <= attempts; attempt++ {
-		opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_promotion_modal")
-		if err != nil {
-			return fmt.Errorf("检查猎聘开聊后推广弹框失败：%w", err)
-		}
-		if opened {
-			if err = common.CloseOptionalPanel(
-				ctx,
-				browser,
-				cfg,
-				"candidate.greet_promotion_modal",
-				"candidate.greet_promotion_close",
-				"猎聘开聊后推广弹框",
-			); err != nil {
-				return fmt.Errorf("关闭猎聘开聊后推广弹框失败：%w", err)
-			}
-			return nil
-		}
-		if attempt == attempts {
-			break
-		}
-		timer := time.NewTimer(postGreetPromotionPollInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return nil
-}
-
 // matchingGreetingJob 优先完整匹配岗位，再按页面省略号前缀选择唯一且最长的匹配项。
 func matchingGreetingJob(items []contract.FindAllItem, positionName string) int {
 	target := normalizeGreetingJob(positionName)
@@ -308,6 +250,13 @@ func closeGreetModalIfPresent(ctx context.Context, browser model.Browser, cfg mo
 	_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 	if err != nil {
 		return fmt.Errorf("关闭遗留猎聘开聊弹框失败：%w", err)
+	}
+	opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
+	if err != nil {
+		return err
+	}
+	if opened {
+		return fmt.Errorf("猎聘开聊弹框按 Escape 后仍未关闭")
 	}
 	return nil
 }

@@ -175,12 +175,23 @@ func TestLoadConfigMatchesHLiepinPromotionVariants(t *testing.T) {
 	selector := cfg.Selectors["candidate.greet_promotion_modal"]
 	values := make([]string, 0, len(selector.Target.Selectors))
 	for _, candidate := range selector.Target.Selectors {
+		if !strings.Contains(candidate.Value, ":visible") {
+			t.Fatalf("推广检测不能先匹配到隐藏的旧弹框：%s", candidate.Value)
+		}
 		values = append(values, candidate.Value)
 	}
 	joined := strings.Join(values, "\n")
-	for _, expected := range []string{"一键免费开聊相似候选人", "发送打招呼语", "免费开聊"} {
+	for _, expected := range []string{"一键免费开聊相似候选人", "发送打招呼语", "免费开聊", ".recommend-chat-modal-title", ".imh-batch-recommend-resumes"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("猎聘推广弹框选择器缺少文案 %q：%s", expected, joined)
+		}
+	}
+	closeSelector := cfg.Selectors["candidate.greet_promotion_close"]
+	for _, parent := range closeSelector.Parents {
+		for _, candidate := range parent.Selectors {
+			if !strings.Contains(candidate.Value, ":visible") {
+				t.Fatalf("关闭按钮不能匹配隐藏的推广弹框：%s", candidate.Value)
+			}
 		}
 	}
 }

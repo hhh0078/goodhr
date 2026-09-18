@@ -330,12 +330,13 @@
       "_comment": "开聊成功后偶尔出现的相似候选人免费开聊推广弹框，兼容旧活动文案和新版发送成功文案。",
       "parents": [],
       "target": {
-        "_comment": "每个选择器都带推广专属文案，避免误关职位开聊弹框和候选人聊天框。",
+        "_comment": "通过推广专属结构或文案匹配当前可见弹框，排除隐藏的旧节点。",
         "selectors": [
-          { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:has-text('一键免费开聊相似候选人')" },
-          { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:has-text('发送打招呼语'):has-text('免费开聊')" },
-          { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:has-text('一键免费开聊相似候选人')" },
-          { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:has-text('发送打招呼语'):has-text('免费开聊')" }
+          { "_comment": "现场确认的猎聘 IM 推广弹框，仅匹配可见节点，排除保留的旧弹框。", "type": "css", "value": "[role='dialog']:visible:has(.recommend-chat-modal-title):has(.imh-batch-recommend-resumes)" },
+          { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:visible:has-text('一键免费开聊相似候选人')" },
+          { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:visible:has-text('发送打招呼语'):has-text('免费开聊')" },
+          { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:visible:has-text('一键免费开聊相似候选人')" },
+          { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:visible:has-text('发送打招呼语'):has-text('免费开聊')" }
         ]
       },
       "state": "visible",
@@ -348,19 +349,21 @@
         {
           "_comment": "只在旧版或新版推广弹框内查找关闭按钮。",
           "selectors": [
-            { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:has-text('一键免费开聊相似候选人')" },
-            { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:has-text('发送打招呼语'):has-text('免费开聊')" },
-            { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:has-text('一键免费开聊相似候选人')" },
-            { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:has-text('发送打招呼语'):has-text('免费开聊')" }
+            { "_comment": "现场确认的猎聘 IM 推广弹框，仅匹配可见节点，排除保留的旧弹框。", "type": "css", "value": "[role='dialog']:visible:has(.recommend-chat-modal-title):has(.imh-batch-recommend-resumes)" },
+            { "_comment": "旧版 Ant Design 相似候选人推广弹框。", "type": "css", "value": ".ant-modal:visible:has-text('一键免费开聊相似候选人')" },
+            { "_comment": "新版 Ant Design 发送成功推广弹框。", "type": "css", "value": ".ant-modal:visible:has-text('发送打招呼语'):has-text('免费开聊')" },
+            { "_comment": "旧版标准对话框角色推广层。", "type": "css", "value": "[role='dialog']:visible:has-text('一键免费开聊相似候选人')" },
+            { "_comment": "新版标准对话框角色发送成功推广层。", "type": "css", "value": "[role='dialog']:visible:has-text('发送打招呼语'):has-text('免费开聊')" }
           ]
         }
       ],
       "target": {
-        "_comment": "优先尝试标准关闭按钮，页面改版找不到时会回退 Escape。",
+        "_comment": "优先按 Escape，仍未关闭时在当前可见推广弹框内尝试关闭按钮。",
         "selectors": [
-          { "_comment": "Ant Design 标准弹框关闭按钮。", "type": "css", "value": ".ant-modal-close" },
-          { "_comment": "Ant Design 关闭图标容器。", "type": "css", "value": ".ant-modal-close-x" },
-          { "_comment": "兼容带无障碍关闭说明的按钮。", "type": "css", "value": "[aria-label='Close']" }
+          { "_comment": "猎聘 IM 推广弹框关闭按钮。", "type": "css", "value": ".ant-im-modal-close:visible" },
+          { "_comment": "Ant Design 标准弹框关闭按钮。", "type": "css", "value": ".ant-modal-close:visible" },
+          { "_comment": "Ant Design 关闭图标容器。", "type": "css", "value": ".ant-modal-close-x:visible" },
+          { "_comment": "兼容带无障碍关闭说明的按钮。", "type": "css", "value": "[aria-label='Close']:visible" }
         ]
       },
       "state": "enabled",

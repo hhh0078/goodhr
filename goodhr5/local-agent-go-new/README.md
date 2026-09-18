@@ -158,6 +158,21 @@ Windows 运行时使用各平台对应的 Node、Camoufox、PowerShell 提示音
 
 两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
 
+## 猎聘开聊弹层恢复
+
+猎聘会保留已经隐藏的推广弹框节点。推广识别限定当前可见弹框，并兼容 IM 推广层的实际结构，避免隐藏旧节点导致漏检或匹配多个关闭按钮。
+
+点击“立即沟通”后没有出现职位弹框时，程序会留出两秒观察延迟推广层，依次清理推广弹框、职位弹框、候选人聊天框及右侧联系人列表，再重新定位同一候选人，最多重试一次。重试前出现“继续沟通”则直接停止重复点击；发送确认按钮不在重试范围内。发送成功后同样观察两秒，推广层优先按 Esc，验证仍未关闭时再尝试关闭按钮。失败清理使用独立限时上下文，停止任务后也会尝试关闭遗留弹层。
+
+此修复的 Windows 安装包构建命令：
+
+```powershell
+cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
+.\scripts\package-windows.ps1 -Version 6-hliepin-dialog
+```
+
+产物为 `release\GoodHR-Local-Agent-Setup-v6-hliepin-dialog-windows-x64.exe`。平台配置编译在 Go 程序中，需安装新包并重新启动本地程序后生效。
+
 ## 核心原则
 
 - 不整体复制旧目录。
