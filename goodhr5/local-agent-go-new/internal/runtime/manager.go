@@ -38,17 +38,19 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 		progress: InstallProgress{Stage: "idle", Message: "等待安装"},
 	}
 	manager.configureWorkerEnvironment()
-	manager.ensureCamoufoxLanguagePack()
+	manager.ensureCamoufoxInterface()
 	return manager
 }
 
-// ensureCamoufoxLanguagePack 在 Camoufox 已经安装时补齐内置中文语言包。
-// 语言包只影响浏览器界面语言，装不上时记一条日志，界面保持英文，不影响任务。
-func (m *Manager) ensureCamoufoxLanguagePack() {
+// ensureCamoufoxInterface 在已有组件中补齐中文语言包和浏览器标签交互修正。
+func (m *Manager) ensureCamoufoxInterface() {
 	if !fileExists(m.CamoufoxPath()) {
 		return
 	}
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	if err := EnsureCamoufoxTabInteraction(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 浏览器标签交互修正没有完成 err=%v", err)
+	}
 	if err := EnsureChineseLanguagePack(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 中文语言包没有装上，浏览器界面会保持英文 err=%v", err)
 	}

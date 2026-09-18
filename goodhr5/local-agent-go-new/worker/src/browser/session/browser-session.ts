@@ -426,7 +426,11 @@ export class BrowserSession {
       config: { timezone: request.timezone ?? "Asia/Shanghai" },
       // 界面语言：Camoufox 只打包英文界面资源，中文界面依赖 Go 预装的 zh-CN 语言包；
       // 这里请求简体中文，语言包缺失时 Firefox 会自动回退英文，不影响启动。
-      firefox_user_prefs: { "intl.locale.requested": "zh-CN" },
+      firefox_user_prefs: {
+        "intl.locale.requested": "zh-CN",
+        // Windows 使用系统标题栏绘制窗口按钮，避免字体伪装把按钮图标变成方块。
+        ...(process.platform === "win32" ? { "browser.tabs.inTitlebar": 0 } : {}),
+      },
       ...(fingerprint ? { fingerprint } : {}),
     });
     return toPlaywrightLaunchOptions(prepared);
