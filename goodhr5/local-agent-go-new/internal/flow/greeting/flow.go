@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/notification"
 )
@@ -105,7 +106,7 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 		Humanize:       &humanize,
 		Locale:         "zh-CN",
 		Timezone:       "Asia/Shanghai",
-		ExtensionPaths: f.extensionPaths(),
+		ExtensionPaths: profile.WithBookmarkExtension(prepared.ProfilePath, f.extensionPaths()),
 	})
 	return err
 }

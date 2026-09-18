@@ -16,6 +16,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/lifecycle"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
@@ -114,7 +115,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		Locale: locale, Timezone: timezone,
 		UserAgent: request.UserAgent, ViewportWidth: request.ViewportWidth,
 		ViewportHeight: request.ViewportHeight, Proxy: proxy, Args: request.Args,
-		ExtensionPaths: s.cfg.ExtensionPaths(),
+		ExtensionPaths: profile.WithBookmarkExtension(profilePath, s.cfg.ExtensionPaths()),
 	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "PAGE_OPEN_FAILED", err)

@@ -3,6 +3,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ const camoufoxTabInteractionCSS = `
 }
 #TabsToolbar .tab-content {
   pointer-events: auto !important;
+}
+/* 尊重用户显示或隐藏书签栏的选择，覆盖上游主题的强制隐藏。 */
+#navigator-toolbox #PersonalToolbar:not([collapsed="true"]) {
+  display: flex !important;
 }
 `
 
@@ -48,4 +53,48 @@ func EnsureCamoufoxTabInteraction(camoufoxDir string) error {
 		return fmt.Errorf("修正浏览器标签交互失败：%w", err)
 	}
 	return nil
+}
+
+// EnsureCamoufoxBookmarkToolbar 修正组件自带的隐藏书签栏策略，保留所有其他浏览器策略。
+func EnsureCamoufoxBookmarkToolbar(camoufoxDir string) error {
+	if strings.TrimSpace(camoufoxDir) == "" {
+		return fmt.Errorf("Camoufox 目录为空")
+	}
+	policyPath := filepath.Join(camoufoxDir, "distribution", "policies.json")
+	content, err := os.ReadFile(policyPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("读取浏览器策略失败：%w", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		return err
+	}
+	var policies map[string]json.RawMessage
+	if err := json.Unmarshal(document["policies"], &policies); err != nil {
+		return err
+	}
+	if policies == nil {
+		return fmt.Errorf("浏览器策略内容为空")
+	}
+	var visibility string
+	if json.Unmarshal(policies["DisplayBookmarksToolbar"], &visibility) == nil && visibility == "always" {
+		return nil
+	}
+	policies["DisplayBookmarksToolbar"] = json.RawMessage(`"always"`)
+	document["policies"], err = json.Marshal(policies)
+	if err != nil {
+		return err
+	}
+	updated, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(policyPath)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(policyPath, updated, info.Mode().Perm())
 }

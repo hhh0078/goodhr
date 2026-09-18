@@ -1,116 +1,120 @@
-// Package profile 验证 GoodHR 默认书签、书签栏显示、用户书签保留和重复初始化幂等性。
+// Package profile 验证 Firefox 书签扩展资源、旧书签迁移及重复初始化不破坏用户配置。
 package profile
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// TestResolveCreatesDefaultBookmarks 验证首次准备 Profile 时会写入旧版的五个默认书签。
+// TestResolveCreatesDefaultBookmarks 验证新配置生成五个 Firefox 默认入口且不再写 Chromium 文件。
 func TestResolveCreatesDefaultBookmarks(t *testing.T) {
 	root := t.TempDir()
 	profilePath, err := New(root).Resolve("default")
 	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
+		t.Fatal(err)
 	}
-	bookmarks := readBookmarkTestJSON(t, filepath.Join(profilePath, "Default", "Bookmarks"))
-	children := bookmarkArray(bookmarkMap(bookmarkMap(bookmarks, "roots"), "bookmark_bar"), "children")
-	if len(children) != len(defaultBookmarks) {
-		t.Fatalf("bookmark count = %d, want %d", len(children), len(defaultBookmarks))
+	data, err := os.ReadFile(filepath.Join(profilePath, bookmarkExtensionDir, "bookmarks.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for index, spec := range defaultBookmarks {
-		node, ok := children[index].(map[string]any)
-		if !ok {
-			t.Fatalf("bookmark[%d] type = %T", index, children[index])
-		}
-		if bookmarkString(node["name"]) != spec.Name || bookmarkString(node["url"]) != spec.URL {
-			t.Fatalf("bookmark[%d] = %v, want %s %s", index, node, spec.Name, spec.URL)
-		}
+	var configuration bookmarkConfiguration
+	if err := json.Unmarshal(data, &configuration); err != nil {
+		t.Fatal(err)
 	}
-	if bookmarkString(bookmarks["checksum"]) == "" {
-		t.Fatal("bookmark checksum is empty")
+	if len(configuration.Defaults) != 5 || configuration.Defaults[0].URL != "https://goodhr.ai.58it.cn/" {
+		t.Fatalf("默认入口错误：%+v", configuration.Defaults)
 	}
-	preferences := readBookmarkTestJSON(t, filepath.Join(profilePath, "Default", "Preferences"))
-	if visible, ok := bookmarkMap(preferences, "bookmark_bar")["show_on_all_tabs"].(bool); !ok || !visible {
-		t.Fatal("bookmark bar should be visible on all tabs")
+	if _, err := os.Stat(filepath.Join(profilePath, "Default", "Bookmarks")); !os.IsNotExist(err) {
+		t.Fatal("不应再生成 Chromium 书签")
+	}
+	preference, err := os.ReadFile(filepath.Join(profilePath, "user.js"))
+	if err != nil || !strings.Contains(string(preference), `"always"`) {
+		t.Fatal("书签栏显示配置缺失", err)
+	}
+	extensions := WithBookmarkExtension(profilePath, []string{"custom-addon"})
+	if len(extensions) != 2 || extensions[0] != "custom-addon" {
+		t.Fatal("用户扩展未保留")
+	}
+	if len(WithBookmarkExtension(profilePath, extensions)) != 2 {
+		t.Fatal("重复添加扩展")
 	}
 }
 
-// TestResolvePreservesUserBookmarksAndDoesNotRewrite 验证用户书签会保留，并且配置稳定后不重复写文件。
+// TestResolvePreservesUserBookmarksAndDoesNotRewrite 验证旧文件夹迁移及配置资源幂等性。
 func TestResolvePreservesUserBookmarksAndDoesNotRewrite(t *testing.T) {
 	root := t.TempDir()
+	profileDir := filepath.Join(root, "old")
+	if err := os.MkdirAll(filepath.Join(profileDir, "Default"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"roots":{"bookmark_bar":{"children":[{"type":"folder","name":"我的文件夹","children":[{"type":"url","name":"我的书签","url":"https://example.com/"}]}]},"other":{"children":[{"type":"url","name":"其他入口","url":"https://example.org/"}]}}}`)
+	legacyPath := filepath.Join(profileDir, "Default", "Bookmarks")
+	if err := os.WriteFile(legacyPath, legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "user.js"), []byte("user_pref(\"other.setting\", true);\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	manager := New(root)
-	profilePath, err := manager.Resolve("account-1")
+	if _, err := manager.Resolve("old"); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(profileDir, bookmarkExtensionDir, "bookmarks.json")
+	before, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("first Resolve() error = %v", err)
+		t.Fatal(err)
 	}
-	path := filepath.Join(profilePath, "Default", "Bookmarks")
-	bookmarks := readBookmarkTestJSON(t, path)
-	bar := bookmarkMap(bookmarkMap(bookmarks, "roots"), "bookmark_bar")
-	bar["children"] = []any{map[string]any{
-		"date_added": "1",
-		"guid":       "11111111-1111-4111-8111-111111111111",
-		"id":         "99",
-		"name":       "我的书签",
-		"type":       "url",
-		"url":        "https://example.com/",
-	}}
-	bookmarks["checksum"] = bookmarkChecksum(bookmarks)
-	writeBookmarkTestJSON(t, path, bookmarks)
-
-	if _, err = manager.Resolve("account-1"); err != nil {
-		t.Fatalf("second Resolve() error = %v", err)
+	var config bookmarkConfiguration
+	if err := json.Unmarshal(before, &config); err != nil {
+		t.Fatal(err)
 	}
-	afterUpdate, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read updated bookmarks: %v", err)
+	if len(config.Toolbar) != 1 || config.Toolbar[0].Title != "我的文件夹" || config.Toolbar[0].Children[0].URL != "https://example.com/" || len(config.Other) != 1 {
+		t.Fatal("旧书签结构丢失")
 	}
-	updated := readBookmarkTestJSON(t, path)
-	updatedChildren := bookmarkArray(bookmarkMap(bookmarkMap(updated, "roots"), "bookmark_bar"), "children")
-	if len(updatedChildren) != len(defaultBookmarks)+1 {
-		t.Fatalf("bookmark count = %d, want %d", len(updatedChildren), len(defaultBookmarks)+1)
+	if _, err := manager.Resolve("old"); err != nil {
+		t.Fatal(err)
 	}
-	userBookmark := updatedChildren[len(updatedChildren)-1].(map[string]any)
-	if bookmarkString(userBookmark["name"]) != "我的书签" {
-		t.Fatalf("user bookmark was not preserved: %v", userBookmark)
+	after, err := os.ReadFile(configPath)
+	if err != nil || string(before) != string(after) {
+		t.Fatal("重复初始化改变配置", err)
 	}
-
-	if _, err = manager.Resolve("account-1"); err != nil {
-		t.Fatalf("third Resolve() error = %v", err)
+	original, err := os.ReadFile(legacyPath)
+	if err != nil || string(original) != string(legacy) {
+		t.Fatal("旧书签文件被修改", err)
 	}
-	afterRepeat, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read repeated bookmarks: %v", err)
-	}
-	if string(afterRepeat) != string(afterUpdate) {
-		t.Fatal("stable bookmarks should not be rewritten")
+	prefs, err := os.ReadFile(filepath.Join(profileDir, "user.js"))
+	if err != nil || !strings.Contains(string(prefs), `"other.setting"`) || strings.Count(string(prefs), "bookmarks.visibility") != 1 {
+		t.Fatal("用户配置被覆盖或重复添加", err)
 	}
 }
 
-// readBookmarkTestJSON 读取测试 Profile 中的 JSON 文件。
-func readBookmarkTestJSON(t *testing.T, path string) map[string]any {
-	t.Helper()
-	data, err := os.ReadFile(path)
+// TestRepairBookmarkToolbar 验证书签组件误放地址栏时恢复位置，并保留其他布局、清理临时覆盖。
+func TestRepairBookmarkToolbar(t *testing.T) {
+	dir := t.TempDir()
+	state := `{"placements":{"nav-bar":["back-button","personal-bookmarks","downloads-button"],"PersonalToolbar":[]},"currentVersion":24}`
+	encoded, _ := json.Marshal(state)
+	pref := append([]byte("user_pref(\"browser.uiCustomization.state\", "), encoded...)
+	pref = append(pref, []byte(");\n")...)
+	if err := os.WriteFile(filepath.Join(dir, "prefs.js"), pref, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	userJS, err := repairBookmarkToolbar(dir, []byte("user_pref(\"other.setting\", true);\n"))
 	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+		t.Fatal(err)
 	}
-	var value map[string]any
-	if err = json.Unmarshal(data, &value); err != nil {
-		t.Fatalf("decode %s: %v", path, err)
+	if !strings.Contains(string(userJS), `\"PersonalToolbar\":[\"personal-bookmarks\"]`) || !strings.Contains(string(userJS), `\"nav-bar\":[\"back-button\",\"downloads-button\"]`) || !strings.Contains(string(userJS), `\"currentVersion\":24`) {
+		t.Fatal("书签组件未恢复或其他布局丢失", string(userJS))
 	}
-	return value
-}
-
-// writeBookmarkTestJSON 写入测试 Profile JSON 文件。
-func writeBookmarkTestJSON(t *testing.T, path string, value map[string]any) {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("encode %s: %v", path, err)
+	// 模拟浏览器保存了修复后的布局，下一次初始化应删除一次性覆盖。
+	patternStart := strings.Index(string(userJS), "user_pref(\"browser.uiCustomization.state\"")
+	if err := os.WriteFile(filepath.Join(dir, "prefs.js"), userJS[patternStart:], 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err = os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+	cleaned, err := repairBookmarkToolbar(dir, userJS)
+	if err != nil || strings.Contains(string(cleaned), "uiCustomization") || !strings.Contains(string(cleaned), "other.setting") {
+		t.Fatal("临时布局覆盖未清理", err)
 	}
 }

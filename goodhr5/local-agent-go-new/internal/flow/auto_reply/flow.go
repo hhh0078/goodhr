@@ -15,6 +15,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/integration/ai"
 	"goodhr5/local-agent-go-new/internal/integration/cloud"
 	"goodhr5/local-agent-go-new/internal/platform/model"
+	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
@@ -77,7 +78,7 @@ func (f *Flow) startBrowser(ctx context.Context, prepared shared.PreparedTask) e
 	_, err := f.Browser.StartBrowser(ctx, contract.BrowserStartRequest{
 		UserDataDir: prepared.ProfilePath, DownloadsPath: f.DownloadsDir,
 		Headless: &headless, Humanize: &humanize, Locale: "zh-CN", Timezone: "Asia/Shanghai",
-		ExtensionPaths: f.extensionPaths(),
+		ExtensionPaths: profile.WithBookmarkExtension(prepared.ProfilePath, f.extensionPaths()),
 	})
 	return err
 }

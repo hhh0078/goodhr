@@ -31,6 +31,9 @@ func TestEnsureCamoufoxTabInteraction(t *testing.T) {
 	if !strings.Contains(camoufoxTabInteractionCSS, "no-drag !important") || !strings.Contains(camoufoxTabInteractionCSS, "pointer-events: auto !important") {
 		t.Fatal("标签点击被阻断的规则没有覆盖")
 	}
+	if !strings.Contains(camoufoxTabInteractionCSS, `#navigator-toolbox #PersonalToolbar:not([collapsed="true"])`) {
+		t.Fatal("书签栏仍被主题强制隐藏，或没有保留用户隐藏书签栏的选择")
+	}
 	if err := os.WriteFile(stylePath, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}

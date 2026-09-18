@@ -42,7 +42,7 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 	return manager
 }
 
-// ensureCamoufoxInterface 在已有组件中补齐中文语言包和浏览器标签交互修正。
+// ensureCamoufoxInterface 在已有组件中补齐中文语言包、标签交互与书签栏修正。
 func (m *Manager) ensureCamoufoxInterface() {
 	if !fileExists(m.CamoufoxPath()) {
 		return
@@ -50,6 +50,12 @@ func (m *Manager) ensureCamoufoxInterface() {
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
 	if err := EnsureCamoufoxTabInteraction(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 浏览器标签交互修正没有完成 err=%v", err)
+	}
+	if err := EnsureCamoufoxBookmarkToolbar(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 浏览器书签栏策略修正没有完成 err=%v", err)
+	}
+	if err := EnsureCamoufoxBookmarkWidget(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 浏览器书签组件位置修正没有完成 err=%v", err)
 	}
 	if err := EnsureChineseLanguagePack(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 中文语言包没有装上，浏览器界面会保持英文 err=%v", err)
