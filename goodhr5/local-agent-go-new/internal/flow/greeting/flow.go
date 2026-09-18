@@ -662,21 +662,21 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
 			}
 		}
-		// 多层弹框包含拟人移动、点击和消失检查，共用完整的操作预算。
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		startedAt = time.Now()
-		if err := runtime.CloseCandidateConversation(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
-			if shared.ShouldStopTaskImmediately(err) {
-				cleanupCancel()
-				return err
-			}
-			f.log(prepared.Request.TaskID, "close_candidate_conversation", "warning", startedAt, err)
-			f.reportPageDiagnostics(cleanupCtx, prepared.Request.TaskID, "关闭候选人聊天框失败")
-		} else {
-			f.log(prepared.Request.TaskID, "close_candidate_conversation", "success", startedAt, nil)
-		}
-		cleanupCancel()
 	}
+	// 每次成功发送都清理弹层，即使没有索要资料或追加消息；多层关闭共用完整预算。
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	startedAt := time.Now()
+	if err := runtime.CloseCandidateConversation(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
+		if shared.ShouldStopTaskImmediately(err) {
+			cleanupCancel()
+			return err
+		}
+		f.log(prepared.Request.TaskID, "close_candidate_conversation", "warning", startedAt, err)
+		f.reportPageDiagnostics(cleanupCtx, prepared.Request.TaskID, "关闭候选人聊天框失败")
+	} else {
+		f.log(prepared.Request.TaskID, "close_candidate_conversation", "success", startedAt, nil)
+	}
+	cleanupCancel()
 	return nil
 }
 

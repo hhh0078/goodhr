@@ -25,7 +25,7 @@ import (
 // imageDetailRuntime 提供没有网页文字的图片简历，记录详情读取、关闭和打招呼调用。
 type imageDetailRuntime struct {
 	model.Runtime
-	domReads, closes, greetings int
+	domReads, closes, greetings, conversationCloses int
 }
 
 // ScrollToCandidate 模拟卡片已经完整进入可见区域。
@@ -57,6 +57,31 @@ func (r *imageDetailRuntime) CloseCandidateDetail(context.Context, model.Browser
 func (r *imageDetailRuntime) GreetCandidate(context.Context, model.Browser, model.Config, model.Candidate, model.GreetRequest) error {
 	r.greetings++
 	return nil
+}
+
+// CloseCandidateConversation 记录成功发送后必须执行的弹层清理。
+func (r *imageDetailRuntime) CloseCandidateConversation(context.Context, model.Browser, model.Config, model.Candidate) error {
+	r.conversationCloses++
+	return nil
+}
+
+// TestSuccessfulGreetingAlwaysClosesPanels 验证没有索要资料或追加消息时也关闭发送后的推广弹层。
+func TestSuccessfulGreetingAlwaysClosesPanels(t *testing.T) {
+	store, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	flow := Flow{Store: store}
+	runtime := &imageDetailRuntime{}
+	stats := shared.Stats{}
+	prepared := shared.PreparedTask{Position: cloud.PositionSnapshot{CommonConfig: cloud.PositionCommonConfig{ModeDefault: "keyword"}}}
+	if err := flow.processCandidate(context.Background(), prepared, runtime, model.Candidate{}, &stats); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.greetings != 1 || runtime.conversationCloses != 1 || stats.Succeeded != 1 {
+		t.Fatalf("成功发送必须清理一次且保留成功计数：发送=%d 清理=%d 统计=%+v", runtime.greetings, runtime.conversationCloses, stats)
+	}
 }
 
 // TestImageDetailReachesScreenshotWithoutDOM 验证 OCR 和 AI 看图直接进入截图，截图失败必须关闭详情且不能计为招呼成功。

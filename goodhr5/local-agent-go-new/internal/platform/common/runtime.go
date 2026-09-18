@@ -171,16 +171,38 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	if err != nil {
 		return nil, err
 	}
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+	request := contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: cfg.CandidateFields,
-	})
+	}
+	items, err := browser.FindAll(ctx, request)
 	if err != nil {
 		return nil, err
+	}
+	// 姓名是稳定定位依据；字段暂时为空时重读整批，禁止用会变化的简历正文代替姓名。
+	if _, required := cfg.CandidateFields["name"]; required {
+		for attempt := 0; ; attempt++ {
+			missing := 0
+			for _, item := range items {
+				if strings.TrimSpace(item.Fields["name"]) == "" {
+					missing++
+				}
+			}
+			if missing == 0 {
+				break
+			}
+			if attempt == 1 {
+				return nil, fmt.Errorf("候选人列表有 %d 张卡片的姓名尚未读到，重新读取后仍不完整，暂不操作", missing)
+			}
+			items, err = browser.FindAll(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	result := make([]model.Candidate, 0, len(items))
 	identityOccurrences := make(map[string]int)
 	for _, item := range items {
-		name := firstNonEmpty(item.Fields["name"], item.Text)
+		name := strings.TrimSpace(item.Fields["name"])
 		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
 		identityTexts := CandidateIdentityTexts(name, item.Fields, item.Text)
 		identityKey := strings.Join(identityTexts, "\x00")
