@@ -15,7 +15,7 @@ import PlatformLogo, { platformIconSrc, platformLabel } from "@/components/admin
 import { cloudRequest, formatDate } from "@/lib/admin-api";
 import { openPlatformBrowser, openPlatformLoginBrowser, pickPlatformAuthConfig, waitForPlatformLoggedIn } from "@/lib/platform-login";
 
-const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
+const CHROMIUM_ICON_SRC = "/assets/platforms/camoufox.png";
 
 /** AccountsPage 管理云端账号信息和本地浏览器资料目录。 */
 export default function AccountsPage() {
@@ -84,7 +84,7 @@ export default function AccountsPage() {
     if (!agentBase) throw new Error("请先启动本地程序");
     const auth = pickPlatformAuthConfig(platforms, account.platform_id);
     await openPlatformLoginBrowser(agentBase, account, auth);
-    setLoginStatus("请点击右下角蓝色浏览器图标，打开浏览器并完成登录。");
+    setLoginStatus("请点击任务栏里的橙色狐狸浏览器图标，打开浏览器并完成登录。");
     await waitForPlatformLoggedIn(agentBase, auth, setLoginStatus);
   }
 
@@ -202,7 +202,7 @@ export default function AccountsPage() {
             helperText='用于在岗位运行和控制台中区分不同招聘账号。'
           />
           <Alert severity='info' variant='outlined' icon={<Box component='img' src={CHROMIUM_ICON_SRC} alt='浏览器图标' sx={{ width: 28, height: 28 }} />}>
-            创建后，右下角会出现一个蓝色浏览器图标。请点击它打开浏览器，完成登录后保持浏览器打开，系统会连续确认 3 次登录状态。
+            创建后，任务栏里会出现一个橙色狐狸浏览器图标。请点击它打开浏览器，完成登录后保持浏览器打开，我会连续确认 3 次登录状态。
           </Alert>
           {loginStatus ? <Alert severity={loginStatus.includes("失败") || loginStatus.includes("超时") ? "warning" : "success"}>{loginStatus}</Alert> : null}
         </Stack>

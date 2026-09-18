@@ -52,7 +52,7 @@ import { canUseAI, normalizeSubscription } from "@/lib/subscription";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
-const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
+const CHROMIUM_ICON_SRC = "/assets/platforms/camoufox.png";
 const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
 const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
   "/assets/help/hliepin-shortcut-search-guide.png";
@@ -1145,7 +1145,7 @@ export default function PositionsPage() {
               <PlatformTipCard
                 iconSrc={CHROMIUM_ICON_SRC}
                 title='浏览器图标'
-                text='创建岗位运行后点右下角蓝色浏览器图标，完成对应平台登录。'
+                text='岗位打开后，点击任务栏里的橙色狐狸浏览器图标，完成对应平台登录。'
               />
               {form.platform_id === "boss" ? (
                 <PlatformTipCard
