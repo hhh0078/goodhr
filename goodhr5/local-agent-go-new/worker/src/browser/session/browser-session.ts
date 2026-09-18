@@ -80,7 +80,7 @@ export class BrowserSession {
             );
           }
           if (request.downloads_path) {
-            await this.downloadManager.prepare(request.downloads_path);
+            await this.downloadManager.configure(request.downloads_path, actionContext);
           }
           const status = await this.status(true);
           this.logger.info(actionContext, step, "success", {
@@ -94,6 +94,7 @@ export class BrowserSession {
       }
 
       await this.downloadManager.prepare(request.downloads_path);
+      const nativeDownloadPrefs = await this.downloadManager.prepareNativeSession();
       this.extensionPaths = [...(request.extension_paths ?? [])];
       if (request.user_data_dir) {
         this.userDataDir = request.user_data_dir;
@@ -103,26 +104,27 @@ export class BrowserSession {
         );
         const options = await this.buildLaunchOptions(request, fingerprint);
         await initializeChineseLanguagePack(this.userDataDir, options);
+        options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
+        await this.downloadManager.resetSnapshot();
         this.context = await firefox.launchPersistentContext(
           this.userDataDir,
           {
             ...options,
             viewport: null,
-            acceptDownloads: true,
-            downloadsPath: this.downloadManager.directory(),
           },
         );
         this.browser = this.context.browser();
       } else {
         this.userDataDir = "";
         const options = await this.buildLaunchOptions(request);
+        options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
-          acceptDownloads: true,
           viewport: null,
           ...(request.user_agent ? { userAgent: request.user_agent } : {}),
         });
       }
+      await this.downloadManager.waitForReady();
       this.registerContext(this.context);
       this.currentPage =
         this.context.pages().find((item) => !item.isClosed()) ??
@@ -367,7 +369,7 @@ export class BrowserSession {
   }
 
   /** listDownloads 返回当前会话已经保存的下载记录。 */
-  listDownloads(): DownloadListResult {
+  listDownloads(): Promise<DownloadListResult> {
     return this.downloadManager.list();
   }
 
@@ -380,7 +382,7 @@ export class BrowserSession {
   }
 
   /** clearDownloads 清空内存下载记录，不删除用户已经下载的文件。 */
-  clearDownloads(): JsonObject {
+  clearDownloads(): Promise<JsonObject> {
     return this.downloadManager.clear();
   }
 
@@ -406,6 +408,8 @@ export class BrowserSession {
       headless: request.headless ?? false,
       // 决策点 D3：关闭 Camoufox 自带鼠标人类化，统一沿用 Worker 自研类人操作原语，行为更可控。
       humanize: false,
+      // 运行组件会修正浏览器资源，启动时刷新代码缓存，使已有 Profile 立即使用新资源。
+      args: ["-purgecaches"],
       locale: request.locale ?? "zh-CN",
       proxy: request.proxy,
       // Firefox 插件目录（沿用原扩展目录约定，需包含 manifest.json）。
@@ -443,7 +447,7 @@ export class BrowserSession {
     });
   }
 
-  /** registerContext 为已有页面和后续新页面统一注册生命周期与下载监听。 */
+  /** registerContext 为已有页面和后续新页面统一注册生命周期，下载由浏览器全局原生观察器覆盖。 */
   private registerContext(context: BrowserContext): void {
     for (const page of context.pages()) {
       this.registerPage(page);
@@ -471,9 +475,6 @@ export class BrowserSession {
         this.elements.clearPage(page);
       }
     });
-    page.on("download", (download) => {
-      this.downloadManager.capture(download, page);
-    });
   }
 
   /** pageInfo 返回标签页基础信息。 */
@@ -491,7 +492,7 @@ export class BrowserSession {
   private async dispose(): Promise<void> {
     const context = this.context;
     const browser = this.browser;
-    await this.downloadManager.waitForPending();
+    await this.downloadManager.list().catch(() => undefined);
     this.context = null;
     this.browser = null;
     this.currentPage = null;
@@ -504,7 +505,8 @@ export class BrowserSession {
     if (browser) {
       await browser.close().catch(() => undefined);
     }
-    this.downloadManager.reset();
+    await this.downloadManager.list().catch(() => undefined);
+    await this.downloadManager.reset();
   }
 
 }

@@ -131,11 +131,12 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 
 ## 下载监听
 
-- Browser Context 创建的已有页面和后续新标签页都会注册 `download` 监听。
+- Firefox 使用原生下载管理，已有页面、新标签页和用户手动下载均由浏览器全局 `Downloads.ALL` 观察器覆盖。
 - 下载记录状态为 `pending`、`saved` 或 `failed`。
-- 保存时避免覆盖同名文件，并根据 URL 或文件头补全常见后缀。
+- Firefox 负责文件保存、实际文件名和同名文件处理；Worker 只读取原生状态快照，不另存或重命名。
 - `GET /api/v1/downloads` 返回最近 100 条记录、待处理数量和当前目录。
-- `downloads.clear` 只清空内存记录，不删除已经保存的文件。
+- `downloads.configure` 必须等待浏览器确认目录已生效，已有文件路径保持原样。
+- `downloads.clear` 只清空 GoodHR 记录，不删除已经保存的文件，也不清除浏览器原生历史。
 - Go 每秒主动读取一次下载终态，用于本地持久化和完成提示；Worker 不回调 Go 业务接口。
 
 ## 兼容规则

@@ -195,7 +195,7 @@ export interface CookieSetRequest {
   cookies: Cookie[];
 }
 
-/** DownloadRecord 表示 Worker 保存的一条浏览器下载记录。 */
+/** DownloadRecord 表示 Worker 观察到的一条浏览器原生下载记录。 */
 export interface DownloadRecord extends JsonObject {
   id: string;
   filename: string;

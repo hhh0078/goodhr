@@ -111,7 +111,7 @@
 
 | 旧文件 | 旧能力 | 新归属 | 状态 |
 |---|---|---|---|
-| `worker-node/src/index.js` | 会话、页面、元素、平台专用路由、截图、下载、Cookie、浮层 | `worker/src` 分层目录、`browser/session/download-manager.ts`、`flow/download`、`storage/download.go` | 已拆分；页面浮层不迁移，下载监听含处理中、成功、失败、后缀、重名和最近 100 条 |
+| `worker-node/src/index.js` | 会话、页面、元素、平台专用路由、截图、下载、Cookie、浮层 | `worker/src` 分层目录、`browser/session/download-manager.ts`、`flow/download`、`storage/download.go` | 已拆分；页面浮层不迁移；下载使用浏览器原生管理，Worker 观察处理中、成功、失败和最近 100 条，文件名、重名与历史由浏览器负责 |
 | `browser-actions.js` | 浏览器基础与高级动作 | `primitives`、`actions` | 公共替代 |
 | `human-type.js` | 随机字符输入 | `InputAction`、`KeyboardPrimitive` | 已迁移 |
 | `hliepin-stable-click.js` | 猎聘稳定单击 | 通用 `ClickAction.waitForStablePosition` | 公共替代 |
