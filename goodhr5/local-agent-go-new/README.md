@@ -48,6 +48,19 @@ StartTask
 
 会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
 
+## 连接超时与闪退日志
+
+Windows 日志目录：`%APPDATA%\GoodHR\local-agent-new\logs`。
+
+- `agent.log`：本地程序启动、Worker 进程编号、退出码、请求耗时和恢复结果。
+- `worker.log`：每次请求编号、排队时间、鼠标移动/按下/松开、滚轮、截图及异常。
+- `crash.log`：Go 意外崩溃时的运行时堆栈；正常运行时可以为空。分享前需检查并脱敏。
+- 前两种日志会过滤凭据和 URL 查询参数，每份最多 10 MiB，各保留四份历史备份。清空页面岗位日志不会删除这些诊断文件。
+
+遇到问题时，先记下发生时间；用相同 `request_id` 查找最后一个开始但没有完成的步骤。`WORKER_UNRESPONSIVE` 表示执行中的操作未按时返回：队列会阻止后续输入，本地程序回收 Worker，任务停止。重新开始任务时恢复浏览器，不自动重放结果未知的打招呼或消息。
+
+Camoufox 原生鼠标资源会跳过拟人轨迹中连续重复的像素，并限制单次鼠标事件回执等待为 5 秒；修正仅作用于已识别的浏览器内部协议资源，不向招聘页面注入脚本。未知资源版本保持原文件并记录原因。原始资源备份保存在对应 `omni.ja.goodhr-original`。
+
 ## 本地接口
 
 - `POST /api/v1/tasks/start`：启动主动打招呼或自动回复。
@@ -187,6 +200,17 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 ```
 
 对应安装器：`release\GoodHR-Local-Agent-Setup-v6-natural-speed-windows-x64.exe`。本版本启用原生拟人鼠标轨迹，更新后必须重新启动浏览器会话才能生效；不固定窗口宽高。原生轨迹最长时间调整为约 0.8 秒；输入使用 Playwright 标准键盘能力，默认字符间隔随机 50～100 毫秒，词间保留额外 50～120 毫秒短暂停顿。轨迹和用时会随距离及随机路径变化。
+
+## 稳定性诊断版本打包
+
+```powershell
+cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
+.\scripts\package-windows.ps1 -Version 6-stability
+```
+
+安装器输出到 `release\GoodHR-Local-Agent-Setup-v6-stability-windows-x64.exe`。打包会重新安装 Worker 依赖，请先结束本机正在执行的招聘任务。安装后重新启动本地程序和浏览器，才能加载新的 Go 流程、Worker 与浏览器原生鼠标修正。
+
+已发送的招呼会在后续索要资料、发送补充消息和关闭弹层之前记账，避免收尾失败导致成功次数丢失。聊天弹层清理有独立的 45 秒预算；浏览器会话失效时立即结束本次任务，不自动重放发送操作。原生鼠标事件回执最多等待 5 秒，超时会记录 `GOODHR_MOUSE_ACK_TIMEOUT`，便于区分原生鼠标异常和整个 Worker 无响应。
 
 ## 核心原则
 

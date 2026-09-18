@@ -7,7 +7,7 @@ import {
 } from "../errors/worker-error.js";
 
 const sensitiveKeyPattern =
-  /cookie|authorization|token|password|proxy.*(user|pass)|secret/i;
+  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message_text|input_text|candidate_name|resume_text/i;
 
 /** sanitizeFields 清理日志中的敏感字段和过长文本。 */
 function sanitizeFields(fields: JsonObject): JsonObject {
@@ -113,6 +113,7 @@ export class WorkerLogger {
       timestamp: new Date().toISOString(),
       level,
       trace_id: context.trace_id,
+      request_id: context.request_id ?? "",
       action: context.action,
       step,
       status,

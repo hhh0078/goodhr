@@ -2,18 +2,19 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { traceOperation } from "../../logging/operation.js";
 import type { Locator, Page } from "playwright-core";
 
 /** ScreenshotPrimitive 封装页面和元素截图最小操作。 */
 export class ScreenshotPrimitive {
   /** pageBuffer 截取当前页面视口并返回内存中的 PNG，不写入本地文件。 */
   async pageBuffer(page: Page): Promise<Buffer> {
-    return page.screenshot({ type: "png" });
+    return traceOperation("screenshot_capture", () => page.screenshot({ type: "png", timeout: 5_000 }));
   }
 
   /** elementBuffer 截取指定元素并返回内存中的 PNG，不写入本地文件。 */
   async elementBuffer(locator: Locator): Promise<Buffer> {
-    return locator.screenshot({ type: "png" });
+    return traceOperation("screenshot_capture", () => locator.screenshot({ type: "png", timeout: 5_000 }));
   }
 
   /** page 保存页面截图并返回文件大小。 */
@@ -23,14 +24,14 @@ export class ScreenshotPrimitive {
     fullPage: boolean,
   ): Promise<number> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await page.screenshot({ path: filePath, fullPage, type: "png" });
+    await traceOperation("screenshot_capture", () => page.screenshot({ path: filePath, fullPage, type: "png", timeout: 5_000 }));
     return (await fs.stat(filePath)).size;
   }
 
   /** element 保存指定元素截图并返回文件大小。 */
   async element(locator: Locator, filePath: string): Promise<number> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await locator.screenshot({ path: filePath, type: "png" });
+    await traceOperation("screenshot_capture", () => locator.screenshot({ path: filePath, type: "png", timeout: 5_000 }));
     return (await fs.stat(filePath)).size;
   }
 }

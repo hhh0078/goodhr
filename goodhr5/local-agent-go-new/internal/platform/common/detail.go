@@ -140,13 +140,16 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		if clickErr == nil {
 			return nil
 		}
+		if contract.IsSessionUnavailable(clickErr) {
+			return clickErr
+		}
 	} else {
 		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 		return err
 	}
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
 		if clickErr != nil {
-			return fmt.Errorf("关闭详情按钮没有生效：%v；按 Escape 也失败：%w", clickErr, err)
+			return fmt.Errorf("关闭详情按钮没有生效：%w；按 Escape 也失败：%w", clickErr, err)
 		}
 		return err
 	}

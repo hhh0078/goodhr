@@ -24,6 +24,7 @@ export type WorkerErrorCode =
   | "DOWNLOAD_FAILED"
   | "ACTION_TIMEOUT"
   | "ACTION_CANCELLED"
+  | "WORKER_UNRESPONSIVE"
   | "INTERNAL_ERROR";
 
 /** WorkerError 表示 Worker 内部统一抛出和返回的错误。 */

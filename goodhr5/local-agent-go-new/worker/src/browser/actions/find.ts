@@ -127,7 +127,9 @@ export class FindAction {
         },
       );
       const items = await Promise.all(
-        resolvedItems.map(async (resolved, index): Promise<FindAllItem> => {
+        resolvedItems.map(async (resolved, index): Promise<FindAllItem | null> => {
+          const beforeText = await this.readPrimitive.text(resolved.locator).catch(() => null);
+          if (beforeText === null) return null;
           const fieldEntries = await Promise.all(
             Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
               fieldName,
@@ -141,25 +143,28 @@ export class FindAction {
             ] as const),
           );
           const values: JsonObject = Object.fromEntries(fieldEntries);
+          const afterText = await this.readPrimitive.text(resolved.locator).catch(() => null);
+          if (afterText !== beforeText) {
+            this.logger.warn(actionContext, "read_list_item", "changed", { index });
+            return null;
+          }
           return {
             index,
             element_ref: this.session.elements.remember(
               page,
               resolved.locator,
             ),
-            text: await this.readPrimitive
-              .text(resolved.locator)
-              .catch(() => ""),
+            text: afterText,
             fields: values,
           };
         }),
       );
       if (report) {
         this.logger.info(actionContext, step, "success", {
-          count: items.length,
+          count: items.filter((item) => item !== null).length,
         });
       }
-      return items;
+      return items.filter((item): item is FindAllItem => item !== null);
     } catch (error) {
       const normalized = normalizeWorkerError(error, {
         code: "ELEMENT_NOT_FOUND",
@@ -201,15 +206,15 @@ export class FindAction {
         },
       );
       if (spec.read_attribute) {
-        return this.readPrimitive.attribute(
+        return await this.readPrimitive.attribute(
           resolved.locator,
           spec.read_attribute,
         );
       }
       if (spec.read_property === "html") {
-        return this.readPrimitive.html(resolved.locator);
+        return await this.readPrimitive.html(resolved.locator);
       }
-      return this.readPrimitive.text(resolved.locator);
+      return await this.readPrimitive.text(resolved.locator);
     } catch {
       return "";
     }

@@ -48,6 +48,9 @@ func (m *Manager) ensureCamoufoxInterface() {
 		return
 	}
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	if err := EnsureCamoufoxMouseSafety(camoufoxDir); err != nil {
+		log.Printf("[运行组件] 浏览器鼠标防卡死修正没有完成 err=%v", err)
+	}
 	if err := EnsureCamoufoxTabInteraction(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 浏览器标签交互修正没有完成 err=%v", err)
 	}

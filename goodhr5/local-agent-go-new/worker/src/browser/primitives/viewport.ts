@@ -1,5 +1,6 @@
 // 文件作用说明：使用 Playwright 标准能力读取视口尺寸，不向招聘页面注入或执行脚本。
 
+import { traceOperation } from "../../logging/operation.js";
 import type { Page } from "playwright-core";
 import type { ViewportSize } from "../../contracts/selector.js";
 
@@ -11,7 +12,7 @@ export class ViewportPrimitive {
     if (configured && configured.width > 0 && configured.height > 0) {
       return configured;
     }
-    const screenshot = await page.screenshot({ type: "png" });
+    const screenshot = await traceOperation("viewport_capture", () => page.screenshot({ type: "png", timeout: 5_000 }));
     if (
       screenshot.length < 24 ||
       screenshot.subarray(1, 4).toString("ascii") !== "PNG"

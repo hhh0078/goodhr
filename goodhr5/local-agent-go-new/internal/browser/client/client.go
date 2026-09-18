@@ -5,19 +5,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 )
 
 // Client 是 Browser Worker 强类型客户端。
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL  string
+	http     *http.Client
+	recovery func() error
 }
 
 // envelope 表示 Worker 统一响应边界。
@@ -32,7 +37,38 @@ type envelope struct {
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: 45 * time.Second},
+		http:    &http.Client{},
+	}
+}
+
+// SetRecovery 设置操作失联后的进程回收方法，不自动重试可能已经发送的消息。
+func (c *Client) SetRecovery(recovery func() error) { c.recovery = recovery }
+
+// requestTimeout 根据逐字输入长度安排预算，普通请求仍为 45 秒。
+func requestTimeout(payload any) time.Duration {
+	timeout := 45 * time.Second
+	if input, ok := payload.(contract.ElementInputRequest); ok {
+		estimate := 30*time.Second + time.Duration(utf8.RuneCountInString(input.Text))*150*time.Millisecond
+		if estimate > timeout {
+			timeout = estimate
+		}
+	}
+	if timeout > 180*time.Second {
+		timeout = 180 * time.Second
+	}
+	return timeout
+}
+
+// recoverWorker 回收失联进程，确保旧动作不可能在后续任务中继续发送。
+func (c *Client) recoverWorker(path string) {
+	if c.recovery == nil {
+		return
+	}
+	log.Printf("event=worker_recovery path=%s status=start", path)
+	if err := c.recovery(); err != nil {
+		log.Printf("event=worker_recovery path=%s status=failed error=%v", path, err)
+	} else {
+		log.Printf("event=worker_recovery path=%s status=success", path)
 	}
 }
 
@@ -199,6 +235,12 @@ func callValue[T any](ctx context.Context, client *Client, path string, request 
 
 // call 执行 Worker HTTP 请求并在边界解析统一响应。
 func call(ctx context.Context, client *Client, method string, path string, payload any, result any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout(payload))
+	defer cancel()
 	var body io.Reader
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
@@ -212,11 +254,25 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("创建 Worker 请求失败：%w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	deadline, _ := ctx.Deadline()
+	remaining := time.Until(deadline)
+	budget := remaining - min(2*time.Second, remaining/10)
+	if budget < time.Millisecond {
+		budget = time.Millisecond
+	}
+	request.Header.Set("X-Worker-Timeout-Ms", strconv.FormatInt(budget.Milliseconds(), 10))
 	if traceID := traceIDFromContext(ctx); traceID != "" {
 		request.Header.Set("X-Trace-ID", traceID)
 	}
 	response, err := client.http.Do(request)
 	if err != nil {
+		if path != "/health" && path != "/api/v1/downloads" {
+			log.Printf("event=worker_request_failed path=%s trace_id=%s duration_ms=%d error=%v", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), err)
+		}
+		if method == http.MethodPost && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+			client.recoverWorker(path)
+			return &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE", Message: "浏览器连接中断，当前任务已停止，重新开始时会恢复浏览器", Action: path, Step: "http_request", TraceID: traceIDFromContext(ctx)}}
+		}
 		return fmt.Errorf("连接 Browser Worker 失败：%w", err)
 	}
 	defer response.Body.Close()
@@ -226,6 +282,10 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("解析 Worker 响应失败：%w", err)
 	}
 	if !wrapped.OK {
+		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
+		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" {
+			client.recoverWorker(path)
+		}
 		return &contract.WorkerError{Status: response.StatusCode, Body: wrapped.Error}
 	}
 	if result == nil || len(wrapped.Data) == 0 {

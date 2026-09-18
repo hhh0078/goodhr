@@ -1,6 +1,18 @@
 // 文件作用说明：读取 Worker 启动参数、启动本机 HTTP 服务并处理退出信号。
 
+import { WorkerLogger } from "./logging/logger.js";
 import { WorkerServer } from "./http/server.js";
+
+const logger = new WorkerLogger();
+// 保留 Node 默认的异常退出行为，只补充脱敏诊断，不能吞掉异常继续工作。
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, origin, "failed", {
+    pid: process.pid, error: error.message, stack: error.stack ?? "",
+  });
+});
+process.on("exit", (code) => {
+  logger.info({ trace_id: "", action: "worker.exit", started_at: Date.now() }, "exit", "finished", { pid: process.pid, exit_code: code });
+});
 
 /** main 启动 Browser Worker 并注册优雅退出。 */
 async function main(): Promise<void> {
@@ -14,6 +26,8 @@ async function main(): Promise<void> {
       level: "info",
       action: "worker.start",
       status: "success",
+      pid: process.pid,
+      node_version: process.version,
       host,
       port,
     })}\n`,

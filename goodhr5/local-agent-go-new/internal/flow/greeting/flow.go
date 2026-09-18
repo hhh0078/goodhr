@@ -398,7 +398,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		var err error
 		detail, err = runtime.ExtractCandidateDetail(ctx, f.Browser, prepared.Platform, candidate)
 		if err != nil {
-			if detailMode != "ai" {
+			if detailMode != "ai" || shared.ShouldStopTaskImmediately(err) {
 				stats.Failed++
 				f.saveCandidate(ctx, prepared, candidate, "detail", "failed", err.Error())
 				return fmt.Errorf("读取候选人详情失败：%w", err)
@@ -466,6 +466,9 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if detailBrowser, ok := runtime.(model.DetailBrowser); ok && detailOpened {
 			startedAt := time.Now()
 			if err := detailBrowser.BrowseCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+				if shared.ShouldStopTaskImmediately(err) {
+					return fmt.Errorf("浏览候选人详情中断：%w", err)
+				}
 				f.log(prepared.Request.TaskID, "browse_candidate_detail", "warning", startedAt, err)
 			} else {
 				f.log(prepared.Request.TaskID, "browse_candidate_detail", "success", startedAt, nil)
@@ -591,6 +594,10 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", greetErr.Error())
 		return fmt.Errorf("打招呼失败：%w", greetErr)
 	}
+	// 招呼已确认发送即保存成功；后续索要、发消息或清理失败不得把它变成未发送。
+	evaluationStatus = "greeted"
+	stats.Succeeded++
+	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
 	if prepared.Position.EnableSound && f.Notifier != nil {
 		soundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		if err := f.Notifier.PlaySuccess(soundCtx); err != nil {
@@ -602,6 +609,9 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		conversationReady := true
 		startedAt := time.Now()
 		if err := runtime.EnsureCandidateConversation(ctx, f.Browser, prepared.Platform, candidate); err != nil {
+			if shared.ShouldStopTaskImmediately(err) {
+				return err
+			}
 			conversationReady = false
 			f.log(prepared.Request.TaskID, "ensure_candidate_conversation", "warning", startedAt, err)
 			f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "确认候选人聊天框失败")
@@ -611,6 +621,9 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if conversationReady && requestInfo {
 			startedAt = time.Now()
 			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
+				if shared.ShouldStopTaskImmediately(err) {
+					return err
+				}
 				conversationReady = false
 				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "索要候选人资料失败")
@@ -621,15 +634,23 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if conversationReady && greetMessage != "" {
 			startedAt = time.Now()
 			if err := runtime.SendCandidateMessage(ctx, f.Browser, prepared.Platform, candidate, greetMessage); err != nil {
+				if shared.ShouldStopTaskImmediately(err) {
+					return err
+				}
 				f.log(prepared.Request.TaskID, "send_candidate_message", "warning", startedAt, err)
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "发送候选人消息失败")
 			} else {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
 			}
 		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		// 多层弹框包含拟人移动、点击和消失检查，共用完整的操作预算。
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 		startedAt = time.Now()
 		if err := runtime.CloseCandidateConversation(cleanupCtx, f.Browser, prepared.Platform, candidate); err != nil {
+			if shared.ShouldStopTaskImmediately(err) {
+				cleanupCancel()
+				return err
+			}
 			f.log(prepared.Request.TaskID, "close_candidate_conversation", "warning", startedAt, err)
 			f.reportPageDiagnostics(cleanupCtx, prepared.Request.TaskID, "关闭候选人聊天框失败")
 		} else {
@@ -637,9 +658,6 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 		cleanupCancel()
 	}
-	evaluationStatus = "greeted"
-	stats.Succeeded++
-	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
 	return nil
 }
 

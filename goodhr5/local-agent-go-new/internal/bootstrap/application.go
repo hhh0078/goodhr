@@ -26,6 +26,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 	"goodhr5/local-agent-go-new/internal/system/console"
 	"goodhr5/local-agent-go-new/internal/system/device"
+	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 	systemfiles "goodhr5/local-agent-go-new/internal/system/files"
 	"goodhr5/local-agent-go-new/internal/system/notification"
 	"goodhr5/local-agent-go-new/internal/system/power"
@@ -36,6 +37,7 @@ import (
 // Application 保存程序运行期间需要清理的顶层组件。
 type Application struct {
 	cfg       config.Config
+	workerLog *diagnostics.Writer
 	server    *api.Server
 	runner    *lifecycle.Runner
 	runtime   *runtimemanager.Manager
@@ -76,7 +78,13 @@ func New(cfg config.Config) (*Application, error) {
 	powerGuard := &power.Guard{}
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
-	workerProcess.SetLogSink(logger.WorkerLine)
+	workerLog, err := diagnostics.Open(cfg.LogsDir, "worker.log")
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("创建 Worker 日志失败：%w", err)
+	}
+	workerProcess.SetLogSink(diagnostics.WorkerLine(workerLog, logger.WorkerLine))
+	browserClient.SetRecovery(workerProcess.Stop)
 	checker := &preflight.Checker{
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
 		Storage: store, Profiles: profiles, AI: aiClient, OCR: ocrClient,
@@ -103,7 +111,7 @@ func New(cfg config.Config) (*Application, error) {
 		Cloud: cloudClient, DeviceID: device.Current,
 	})
 	return &Application{
-		cfg: cfg, server: server, runner: runner, runtime: runtimeManager,
+		cfg: cfg, server: server, runner: runner, runtime: runtimeManager, workerLog: workerLog,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
 	}, nil
 }
@@ -127,6 +135,7 @@ func cleanupLocalFiles(cfg config.Config) {
 
 // Run 启动本地 HTTP 服务并在上下文取消后按顺序收尾。
 func (a *Application) Run(ctx context.Context) error {
+	defer a.workerLog.Close()
 	downloadCtx, stopDownloads := context.WithCancel(ctx)
 	downloadDone := make(chan struct{})
 	go func() {

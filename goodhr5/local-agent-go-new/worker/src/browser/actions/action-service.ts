@@ -36,7 +36,11 @@ import { ActionQueue } from "./action-queue.js";
 
 /** ActionService 只暴露完整封装能力，原子能力不会越过本类进入 HTTP 层。 */
 export class ActionService {
-  private readonly interactionQueue = new ActionQueue();
+  private readonly interactionQueue = new ActionQueue((context) => {
+    void this.session.stop(context).catch((error: unknown) => {
+      this.logger.error(context, "queue_recovery", "failed", { error: String(error) });
+    });
+  });
   private readonly logger = new WorkerLogger();
   private readonly session = new BrowserSession(this.logger);
   private readonly locator = new LocatorPrimitive();
@@ -88,12 +92,18 @@ export class ActionService {
 
   /** startBrowser 启动或复用 Camoufox 会话。 */
   startBrowser(request: BrowserStartRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.start(request, context));
+    return this.interactionQueue.run(() => this.session.start(request, context), context);
   }
 
   /** stopBrowser 关闭浏览器会话。 */
   stopBrowser(context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.stop(context));
+    return this.interactionQueue.run(() => this.session.stop(context), context);
+  }
+
+  /** healthStatus 返回队列实际状态，避免卡死时仍报告完全正常。 */
+  healthStatus() {
+    const queue = this.interactionQueue.status();
+    return { status: queue.blocked ? "blocked" : "ok", version: "v1", queue };
   }
 
   /** browserStatus 返回浏览器当前状态。 */
@@ -114,7 +124,7 @@ export class ActionService {
 
   /** openPage 打开或新建标签页。 */
   openPage(request: PageOpenRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.open(request, context));
+    return this.interactionQueue.run(() => this.session.open(request, context), context);
   }
 
   /** listPages 返回当前全部标签页。 */
@@ -124,12 +134,12 @@ export class ActionService {
 
   /** usePage 切换当前标签页。 */
   usePage(request: PageUseRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context));
+    return this.interactionQueue.run(() => this.session.usePage(request.page_id, context), context);
   }
 
   /** closePage 关闭当前标签页。 */
   closePage(context: ActionContext) {
-    return this.interactionQueue.run(() => this.session.closeCurrentPage(context));
+    return this.interactionQueue.run(() => this.session.closeCurrentPage(context), context);
   }
 
   /** currentURL 返回当前页面地址。 */
@@ -161,22 +171,22 @@ export class ActionService {
 
   /** clickElement 执行完整封装点击。 */
   clickElement(request: ElementClickRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.clickAction.execute(request, context));
+    return this.interactionQueue.run(() => this.clickAction.execute(request, context), context);
   }
 
   /** inputElement 执行完整封装输入。 */
   inputElement(request: ElementInputRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.inputAction.execute(request, context));
+    return this.interactionQueue.run(() => this.inputAction.execute(request, context), context);
   }
 
   /** scroll 执行页面或元素真实滚轮滚动。 */
   scroll(request: ScrollRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.scrollAction.execute(request, context));
+    return this.interactionQueue.run(() => this.scrollAction.execute(request, context), context);
   }
 
   /** pressKey 在当前页面执行通用按键。 */
   pressKey(request: KeyboardPressRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.keyboardAction.press(request, context));
+    return this.interactionQueue.run(() => this.keyboardAction.press(request, context), context);
   }
 
   /** screenshot 保存页面或元素截图。 */
@@ -186,7 +196,7 @@ export class ActionService {
 
   /** screenshotLong 使用真实鼠标滚轮分段截取长元素。 */
   screenshotLong(request: LongScreenshotRequest, context: ActionContext) {
-    return this.interactionQueue.run(() => this.screenshotAction.long(request, context));
+    return this.interactionQueue.run(() => this.screenshotAction.long(request, context), context);
   }
 
   /** listCookies 读取当前浏览器 Cookie。 */

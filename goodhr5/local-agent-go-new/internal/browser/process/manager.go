@@ -4,6 +4,7 @@ package process
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -75,6 +76,18 @@ func (m *Manager) Start(ctx context.Context) error {
 			return nil
 		}
 	}
+	if m.command != nil && m.command.Process != nil {
+		log.Printf("event=worker_unhealthy pid=%d action=stop_before_restart", m.command.Process.Pid)
+		if err := stopProcess(m.command.Process); err != nil {
+			return err
+		}
+		select {
+		case <-m.done:
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("旧 Worker 尚未退出，暂不启动第二个进程")
+		}
+		m.command = nil
+	}
 	if _, err := os.Stat(m.entryPath); err != nil {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
@@ -87,13 +100,14 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("启动 Browser Worker 失败：%w", err)
 	}
+	log.Printf("event=worker_start pid=%d port=%d", command.Process.Pid, m.port)
 	m.command = command
 	m.lineWriter = lineWriter
 	done := make(chan struct{})
 	m.done = done
 	go m.wait(command, lineWriter, done)
 	if err := m.waitHealthy(ctx); err != nil {
-		_ = command.Process.Kill()
+		_ = stopProcess(command.Process)
 		return err
 	}
 	return nil
@@ -108,12 +122,19 @@ func (m *Manager) Stop() error {
 	}
 	process := m.command.Process
 	done := m.done
-	_ = stopProcess(process)
+	log.Printf("event=worker_stop_requested pid=%d", process.Pid)
+	if err := stopProcess(process); err != nil {
+		log.Printf("event=worker_stop_failed pid=%d error=%v", process.Pid, err)
+	}
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		_ = process.Kill()
-		<-done
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			return fmt.Errorf("Worker 退出等待超时")
+		}
 	}
 	m.command = nil
 	m.done = nil
@@ -148,7 +169,8 @@ func (m *Manager) waitHealthy(ctx context.Context) error {
 
 // wait 回收 Worker 进程并刷新尚未换行的统一日志。
 func (m *Manager) wait(command *exec.Cmd, lineWriter *lineSinkWriter, done chan struct{}) {
-	_ = command.Wait()
+	err := command.Wait()
+	log.Printf("event=worker_exit pid=%d exit_code=%d error=%v", command.Process.Pid, command.ProcessState.ExitCode(), err)
 	if lineWriter != nil {
 		lineWriter.Flush()
 	}

@@ -27,6 +27,9 @@ func closePostGreetPromotion(ctx context.Context, browser model.Browser, cfg mod
 		if opened {
 			// 已确定最上层是推广弹框，优先按 Esc，且必须验证它确实消失。
 			_, pressErr := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
+			if contract.IsSessionUnavailable(pressErr) {
+				return pressErr
+			}
 			stillOpen, probeErr := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_promotion_modal")
 			if probeErr != nil {
 				return probeErr
@@ -56,6 +59,9 @@ func closePostGreetPromotion(ctx context.Context, browser model.Browser, cfg mod
 func closeGreetingPanels(ctx context.Context, browser model.Browser, cfg model.Config, waitForPromotion bool) error {
 	var failures []error
 	if err := closeModalWithEscape(ctx, browser, cfg, "candidate.request_confirm_modal", "猎聘索要信息确认弹框"); err != nil {
+		if contract.IsSessionUnavailable(err) {
+			return err
+		}
 		failures = append(failures, err)
 	}
 	attempts := 1
@@ -63,9 +69,15 @@ func closeGreetingPanels(ctx context.Context, browser model.Browser, cfg model.C
 		attempts = postGreetPromotionPollAttempts
 	}
 	if err := closePostGreetPromotion(ctx, browser, cfg, attempts); err != nil {
+		if contract.IsSessionUnavailable(err) {
+			return err
+		}
 		failures = append(failures, err)
 	}
 	if err := closeGreetModalIfPresent(ctx, browser, cfg); err != nil {
+		if contract.IsSessionUnavailable(err) {
+			return err
+		}
 		failures = append(failures, err)
 	}
 	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
@@ -98,6 +110,9 @@ func openGreetingModal(ctx context.Context, browser model.Browser, cfg model.Con
 			Selector: selector, ViewportMargin: 48,
 			Verify: &contract.ClickVerification{TargetVisible: &modal, TimeoutMS: 5000},
 		})
+		if contract.IsSessionUnavailable(clickErr) {
+			return clickErr
+		}
 		// 验证阶段可能先遇到隐藏的旧节点，仍以当前可见职位弹框为准。
 		opened, probeErr := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
 		if probeErr != nil {

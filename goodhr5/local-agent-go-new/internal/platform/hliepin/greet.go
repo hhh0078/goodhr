@@ -18,7 +18,10 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 		if resultErr == nil {
 			return
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		if contract.IsSessionUnavailable(resultErr) {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 		defer cancel()
 		if cleanupErr := closeGreetingPanels(cleanupCtx, browser, cfg, true); cleanupErr != nil {
 			resultErr = fmt.Errorf("%w；遗留的猎聘弹层也没清理好：%v", resultErr, cleanupErr)

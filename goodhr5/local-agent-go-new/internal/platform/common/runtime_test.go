@@ -707,6 +707,17 @@ func TestEnsureCandidateConversationReportsMissingFirstContact(t *testing.T) {
 	}
 }
 
+// TestClosePanelStopsOnUnavailable 验证浏览器已回收时不重试点击或发送 Escape，并保留原始错误。
+func TestClosePanelStopsOnUnavailable(t *testing.T) {
+	fatal := &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "WORKER_UNRESPONSIVE"}}
+	browser := &candidateChatBrowser{opened: true, clickErrors: map[string]error{"关闭聊天框": fatal}}
+	cfg := candidateChatTestConfig()
+	err := CloseOptionalPanel(context.Background(), browser, cfg, "candidate.chat_modal", "candidate.chat_close", "聊天框")
+	if !errors.Is(err, fatal) || len(browser.clicked) != 1 || browser.pressCount != 0 {
+		t.Fatalf("浏览器失联后仍继续输入或丢失原始错误：%v clicks=%v keys=%d", err, browser.clicked, browser.pressCount)
+	}
+}
+
 // TestCloseCandidateConversationClosesContactDrawer 验证全部聊天动作结束后会继续关闭联系人列表抽屉。
 func TestCloseCandidateConversationClosesContactDrawer(t *testing.T) {
 	browser := &candidateChatBrowser{opened: true, drawerOpened: true, chatName: "张三"}

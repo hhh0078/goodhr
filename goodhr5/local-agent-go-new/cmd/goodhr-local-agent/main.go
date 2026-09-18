@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/bootstrap"
 	"goodhr5/local-agent-go-new/internal/config"
 	"goodhr5/local-agent-go-new/internal/system/console"
+	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 	"goodhr5/local-agent-go-new/internal/version"
 )
 
@@ -50,7 +53,23 @@ func main() {
 		return
 	}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.SetOutput(os.Stderr)
+	runLog, err := diagnostics.Open(cfg.LogsDir, "agent.log")
+	if err != nil {
+		log.Fatalf("创建运行日志失败：%v", err)
+	}
+	defer runLog.Close()
+	log.SetOutput(runLog)
+	crash, err := os.OpenFile(filepath.Join(cfg.LogsDir, "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		log.Fatalf("创建崩溃日志失败：%v", err)
+	}
+	if err = debug.SetCrashOutput(crash, debug.CrashOptions{}); err != nil {
+		log.Printf("启用崩溃日志失败：%v", err)
+	}
+	_ = crash.Close()
+	debug.SetTraceback("all")
+	log.Printf("event=agent_start pid=%d version=%s logs=%s", os.Getpid(), version.Value, cfg.LogsDir)
+	defer log.Printf("event=agent_exit pid=%d", os.Getpid())
 	application, err := bootstrap.New(cfg)
 	if err != nil {
 		log.Fatalf("初始化本地程序失败：%v", err)

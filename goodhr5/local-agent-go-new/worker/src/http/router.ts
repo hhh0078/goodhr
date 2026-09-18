@@ -1,5 +1,7 @@
 // 文件作用说明：注册 Worker 通用封装能力路由，完成 unknown 校验、Trace ID 和统一响应。
 
+import { actionContextStorage } from "../logging/operation.js";
+import { WorkerLogger } from "../logging/logger.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ActionService } from "../browser/actions/action-service.js";
@@ -75,17 +77,29 @@ export class WorkerRouter {
       });
       return;
     }
+    const controller = new AbortController();
+    const timeoutHeader = Number(request.headers["x-worker-timeout-ms"]);
+    const timeout = Number.isFinite(timeoutHeader) && timeoutHeader > 0 ? Math.min(180_000, timeoutHeader) : 40_000;
     const context: ActionContext = {
       trace_id: traceID,
       action: route.action,
       started_at: Date.now(),
+      request_id: randomUUID(),
+      deadline_at: Date.now() + timeout,
+      signal: controller.signal,
     };
+    const logger = new WorkerLogger();
+    /** onClose 连接在响应结束前断开时取消尚未执行的操作。 */
+    const onClose = (): void => { if (!response.writableEnded) controller.abort(); };
+    response.on("close", onClose);
+    const logRequest = route.action !== "health" && route.action !== "downloads.list";
+    if (logRequest) logger.info(context, "http", "received", { timeout_ms: timeout });
     try {
       const body =
         route.method === "POST"
           ? await readJSONBody(request, traceID, route.action)
           : {};
-      const result = await route.handler(body, context);
+      const result = await actionContextStorage.run(context, () => route.handler(body, context));
       this.writeJSON(response, 200, {
         ok: true,
         data: safeJsonValue(result),
@@ -97,18 +111,22 @@ export class WorkerRouter {
         step: "handle_request",
         trace_id: traceID,
       });
+      if (normalized.code !== "ELEMENT_NOT_FOUND") logger.failure(context, normalized);
       this.writeJSON(response, statusForError(normalized), {
         ok: false,
         error: normalized.toBody(),
         trace_id: traceID,
       });
+    } finally {
+      response.off("close", onClose);
+      if (logRequest) logger.info(context, "http", "finished");
     }
   }
 
   /** createRoutes 创建全部通用 Worker 路由。 */
   private createRoutes(): Route[] {
     return [
-      this.get("/health", "health", () => ({ status: "ok", version: "v1" })),
+      this.get("/health", "health", () => this.actions.healthStatus()),
       this.post("/api/v1/browser/start", "browser.start", (body, context) =>
         this.actions.startBrowser(
           parseBrowserStartRequest(body, context.trace_id, context.action),
@@ -261,6 +279,7 @@ export class WorkerRouter {
     status: number,
     payload: JsonValue,
   ): void {
+    if (response.destroyed || response.writableEnded) return;
     response.writeHead(status, {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",

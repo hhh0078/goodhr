@@ -63,16 +63,7 @@ func ShouldStopTaskImmediately(err error) bool {
 	if errors.Is(err, context.Canceled) || ai.IsPositionStoppingError(err) || ocr.IsUnavailable(err) {
 		return true
 	}
-	var workerErr *contract.WorkerError
-	if !errors.As(err, &workerErr) {
-		return false
-	}
-	switch workerErr.Body.Code {
-	case "BROWSER_NOT_RUNNING", "PAGE_CLOSED", "PAGE_NOT_AVAILABLE":
-		return true
-	default:
-		return false
-	}
+	return contract.IsSessionUnavailable(err)
 }
 
 // normalizeOperationError 优先使用 Worker 稳定错误字段生成指纹，避免候选人姓名变化打断连续计数。

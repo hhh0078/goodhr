@@ -16,6 +16,9 @@ export interface ActionContext {
   trace_id: string;
   action: string;
   started_at: number;
+  request_id?: string;
+  deadline_at?: number;
+  signal?: AbortSignal;
 }
 
 /** SuccessResponse 表示 Worker 接口成功响应。 */

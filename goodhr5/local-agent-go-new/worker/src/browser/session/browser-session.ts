@@ -242,6 +242,7 @@ export class BrowserSession {
         waitUntil: request.wait_until ?? "domcontentloaded",
         timeout: request.timeout_ms ?? 30_000,
       });
+      await page.bringToFront();
       this.elements.clearPage(page);
       const result = await this.pageInfo(page);
       this.logger.info(actionContext, step, "success", {
@@ -449,6 +450,12 @@ export class BrowserSession {
 
   /** registerContext 为已有页面和后续新页面统一注册生命周期，下载由浏览器全局原生观察器覆盖。 */
   private registerContext(context: BrowserContext): void {
+    context.on("close", () => {
+      this.logger.warn({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "context_closed", "closed");
+    });
+    this.browser?.on("disconnected", () => {
+      this.logger.warn({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "disconnected", "closed");
+    });
     for (const page of context.pages()) {
       this.registerPage(page);
     }
@@ -464,6 +471,9 @@ export class BrowserSession {
       return;
     }
     this.registeredPages.add(page);
+    page.on("crash", () => {
+      this.logger.error({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "page_crash", "failed", { page_url: safeURL(page.url()) });
+    });
     page.on("close", () => {
       this.elements.clearPage(page);
       if (this.currentPage === page) {

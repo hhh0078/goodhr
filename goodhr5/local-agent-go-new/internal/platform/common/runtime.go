@@ -280,6 +280,9 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 	for attempt := 1; attempt <= 2; attempt++ {
 		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{Selector: closeSelector})
 		if clickErr != nil {
+			if contract.IsSessionUnavailable(clickErr) {
+				return clickErr
+			}
 			continue
 		}
 		hidden, waitErr := waitSelectorHidden(ctx, browser, cfg, panelKey)
@@ -291,7 +294,7 @@ func CloseOptionalPanel(ctx context.Context, browser model.Browser, cfg model.Co
 		}
 	}
 	if _, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120}); err != nil {
-		return fmt.Errorf("%s没关好，点击关闭失败：%v；按 Escape 也失败：%w", label, clickErr, err)
+		return fmt.Errorf("%s没关好，点击关闭失败：%w；按 Escape 也失败：%w", label, clickErr, err)
 	}
 	hidden, err := waitSelectorHidden(ctx, browser, cfg, panelKey)
 	if err != nil {

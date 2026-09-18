@@ -3,6 +3,7 @@ package contract
 
 import (
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 )
@@ -22,6 +23,20 @@ type WorkerErrorBody struct {
 type WorkerError struct {
 	Status int
 	Body   WorkerErrorBody
+}
+
+// IsSessionUnavailable 判断浏览器会话是否已不可继续操作，供流程和弹框清理共用。
+func IsSessionUnavailable(err error) bool {
+	var workerErr *WorkerError
+	if !errors.As(err, &workerErr) || workerErr == nil {
+		return false
+	}
+	switch workerErr.Body.Code {
+	case "WORKER_UNRESPONSIVE", "BROWSER_NOT_RUNNING", "PAGE_CLOSED", "PAGE_NOT_AVAILABLE":
+		return true
+	default:
+		return false
+	}
 }
 
 // Error 返回适合本地日志展示的错误文本。

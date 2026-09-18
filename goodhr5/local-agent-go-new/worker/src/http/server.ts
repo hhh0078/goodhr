@@ -1,6 +1,9 @@
 // 文件作用说明：创建只监听本机地址的 Browser Worker HTTP 服务并提供优雅关闭。
 
 import http, { type Server } from "node:http";
+import { randomUUID } from "node:crypto";
+import { normalizeWorkerError } from "../errors/worker-error.js";
+import { WorkerLogger } from "../logging/logger.js";
 import { WorkerRouter } from "./router.js";
 
 /** WorkerServer 管理 Worker HTTP 监听生命周期。 */
@@ -14,7 +17,18 @@ export class WorkerServer {
     router = new WorkerRouter(),
   ) {
     this.server = http.createServer((request, response) => {
-      void router.handle(request, response);
+      void router.handle(request, response).catch((error: unknown) => {
+        const context = { trace_id: randomUUID(), action: "http", started_at: Date.now() };
+        const normalized = normalizeWorkerError(error, { ...context, step: "request_boundary" });
+        new WorkerLogger().failure(context, normalized);
+        if (response.destroyed || response.writableEnded) return;
+        if (response.headersSent) {
+          response.destroy();
+          return;
+        }
+        response.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ ok: false, error: normalized.toBody(), trace_id: context.trace_id }));
+      });
     });
   }
 
