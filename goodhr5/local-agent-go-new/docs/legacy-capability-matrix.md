@@ -187,7 +187,7 @@
 | `internal/browser/go_screenshot.go` | Go 页面和元素截图 | Worker 通用截图与真实滚轮长截图 | 公共替代 |
 | `internal/browser/go_scroll.go` | Go 滚动和视口判断 | Worker `ScrollAction`、元素位置和截图变化 | 公共替代，禁止页面脚本注入 |
 | `internal/browser/go_session.go` | Go 浏览器进程、页面和 Cookie 会话 | Worker `BrowserSession` | 公共替代 |
-| `internal/browser/viewport.go` | 固定视口配置 | 强类型浏览器启动参数 | 已迁移可选视口和 User-Agent；不再强制固定尺寸 |
+| `internal/browser/viewport.go` | 固定视口配置 | 强类型浏览器启动参数 | 保留 User-Agent；旧视口宽高字段忽略，窗口与页面尺寸由浏览器管理 |
 | `internal/browser/viewport_test.go` | 固定视口默认值测试 | `worker/test/browser-start-request.test.mjs` | 公共替代 |
 | `internal/browser/worker.go` | Node Worker 调用、启动、重启和固定端口清理 | `internal/browser/client/`、`internal/browser/process/`、`internal/runtime/` | 已拆分迁移 |
 | `internal/browser/worker_other.go` | 非 Windows Worker 进程结束 | `internal/browser/process/manager.go` | 已迁移，并在程序退出前先关闭浏览器 |

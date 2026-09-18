@@ -25,8 +25,6 @@ export interface BrowserStartRequest {
   locale?: string;
   timezone?: string;
   user_agent?: string;
-  viewport_width?: number;
-  viewport_height?: number;
   proxy?: string | ProxyConfig;
   args?: string[];
   extension_paths?: string[];

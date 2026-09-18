@@ -1,4 +1,4 @@
-// 文件作用说明：验证浏览器启动参数保留强类型视口和 User-Agent 配置。
+// 文件作用说明：验证启动请求保留导航配置并忽略旧客户端固定宽高。
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -21,21 +21,18 @@ test("保留合法启动和新增标签页配置", () => {
     "browser.start",
   );
   assert.equal(request.user_agent, "GoodHR-Test");
-  assert.equal(request.viewport_width, 1440);
-  assert.equal(request.viewport_height, 900);
+  assert.equal(request.viewport_width, undefined);
+  assert.equal(request.viewport_height, undefined);
   assert.equal(request.new_tab, true);
   assert.equal(request.wait_until, "domcontentloaded");
   assert.equal(request.timeout_ms, 45_000);
   assert.deepEqual(request.extension_paths, ["/tmp/goodhr-extension"]);
 });
 
-/** 验证不完整视口会被请求边界拒绝。 */
-test("拒绝只有宽度的视口", () => {
-  assert.throws(() =>
-    parseBrowserStartRequest(
-      { viewport_width: 1440 },
-      "trace-test",
-      "browser.start",
-    ),
+/** 验证旧版单个宽高字段也不影响自动窗口启动。 */
+test("忽略旧客户端单独传入的宽度", () => {
+  const request = parseBrowserStartRequest(
+    { viewport_width: 1440 }, "trace-test", "browser.start",
   );
+  assert.equal(request.viewport_width, undefined);
 });

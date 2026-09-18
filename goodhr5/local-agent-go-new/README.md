@@ -139,6 +139,8 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 浏览器窗口交互：本地程序启动和组件下载完成后，自动在 Camoufox 的 `chrome.css` 末尾补齐标签点击修正，避免标签栏被当成窗口拖动区。Windows 浏览器使用原生标题栏（`browser.tabs.inTitlebar=0`），绕过字体伪装导致的窗口按钮方块；网页字体白名单和已有账号指纹保持原样。安装新包后退出并重新启动本地程序及浏览器，修正才会生效。
 
+浏览器宽高自动管理：页面始终使用 `viewport: null`，旧接口传入的 `viewport_width`、`viewport_height` 不再生效。启动时只清除 Camoufox 配置中的窗口和页面尺寸覆盖，账号原始指纹文件不改写，其他指纹与插件保留。浏览器自行决定窗口大小，已有配置可沿用浏览器保存的窗口状态，手动调整窗口时页面随之变化。
+
 Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成以下文件：
 
 - `release\goodhr-local-agent-v6-windows-x64.zip`

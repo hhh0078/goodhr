@@ -39,8 +39,8 @@ type pageOpenRequest struct {
 	Locale            string          `json:"locale"`
 	Timezone          string          `json:"timezone"`
 	UserAgent         string          `json:"user_agent"`
-	ViewportWidth     int             `json:"viewport_width"`
-	ViewportHeight    int             `json:"viewport_height"`
+	ViewportWidth     json.RawMessage `json:"viewport_width"`  // 兼容旧客户端，只接受不生效。
+	ViewportHeight    json.RawMessage `json:"viewport_height"` // 兼容旧客户端，只接受不生效。
 	Proxy             json.RawMessage `json:"proxy"`
 	Args              []string        `json:"args"`
 }
@@ -113,8 +113,7 @@ func (s *Server) handlePageOpen(w http.ResponseWriter, r *http.Request) {
 		Headless: &request.Headless, Humanize: &humanize,
 		URL: request.URL, WaitUntil: request.WaitUntil, TimeoutMS: request.TimeoutMS, NewTab: newTab,
 		Locale: locale, Timezone: timezone,
-		UserAgent: request.UserAgent, ViewportWidth: request.ViewportWidth,
-		ViewportHeight: request.ViewportHeight, Proxy: proxy, Args: request.Args,
+		UserAgent: request.UserAgent, Proxy: proxy, Args: request.Args,
 		ExtensionPaths: profile.WithBookmarkExtension(profilePath, s.cfg.ExtensionPaths()),
 	})
 	if err != nil {

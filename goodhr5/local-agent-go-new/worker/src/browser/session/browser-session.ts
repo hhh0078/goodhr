@@ -26,6 +26,7 @@ import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
+import { useAutomaticWindowSize } from "./window-size.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -106,13 +107,7 @@ export class BrowserSession {
           this.userDataDir,
           {
             ...options,
-            viewport:
-              request.viewport_width && request.viewport_height
-                ? {
-                    width: request.viewport_width,
-                    height: request.viewport_height,
-                  }
-                : null,
+            viewport: null,
             acceptDownloads: true,
             downloadsPath: this.downloadManager.directory(),
           },
@@ -124,13 +119,7 @@ export class BrowserSession {
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
           acceptDownloads: true,
-          viewport:
-            request.viewport_width && request.viewport_height
-              ? {
-                  width: request.viewport_width,
-                  height: request.viewport_height,
-                }
-              : null,
+          viewport: null,
           ...(request.user_agent ? { userAgent: request.user_agent } : {}),
         });
       }
@@ -433,7 +422,7 @@ export class BrowserSession {
       },
       ...(fingerprint ? { fingerprint } : {}),
     });
-    return toPlaywrightLaunchOptions(prepared);
+    return useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared));
   }
 
   /** requireContext 返回浏览器上下文，不存在时统一抛错。 */

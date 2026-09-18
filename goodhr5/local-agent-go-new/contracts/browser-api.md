@@ -69,6 +69,8 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 
 `browser.start` 可以携带 `url`、`wait_until`、`timeout_ms` 和 `new_tab`，供 Go 的统一对外接口在一次内部请求中启动或复用浏览器并打开页面。语言与时区由 Worker 兜底为 `zh-CN` / `Asia/Shanghai`；`geoip` 已停用（用户与平台均在中国大陆），传入不生效。
 
+浏览器窗口大小由浏览器自行管理，页面始终跟随实际窗口。旧客户端传入的 `viewport_width`、`viewport_height` 被忽略；Worker 会清除 Camoufox 启动配置中的窗口和页面尺寸覆盖，但保留其他账号指纹与插件配置。
+
 `page.open` 在 `new_tab` 不为 `true` 时，会先检查全部已有标签页。同协议、同域名且页面路径命中目标路径时直接切换并复用，不执行导航，因此不会清掉用户提前设置的网页筛选条件；`new_tab=true` 会始终新增并切换标签页，登录页查询参数即使包含回跳地址也不会误命中。
 
 ## SelectorSpec

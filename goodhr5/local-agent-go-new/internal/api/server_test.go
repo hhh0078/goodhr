@@ -17,6 +17,23 @@ import (
 	"goodhr5/local-agent-go-new/internal/storage"
 )
 
+// TestPageOpenAcceptsLegacyViewportFields 验证严格请求校验仍接受旧宽高字段，但不要求成对提供。
+func TestPageOpenAcceptsLegacyViewportFields(t *testing.T) {
+	for _, body := range []string{
+		`{"url":"http://localhost/test","viewport_width":1440,"viewport_height":900}`,
+		`{"url":"http://localhost/test","viewport_width":1440}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/page/open", strings.NewReader(body))
+		var parsed pageOpenRequest
+		if err := decodeJSON(httptest.NewRecorder(), request, &parsed); err != nil {
+			t.Fatal("旧客户端宽高字段不应阻断打开页面", err)
+		}
+		if parsed.URL != "http://localhost/test" {
+			t.Fatal("导航地址丢失")
+		}
+	}
+}
+
 // TestAgentBindRouteUsesLocalDeviceID 验证浏览器只提交 Token，稳定设备编号由本地程序补齐后发往云端。
 func TestAgentBindRouteUsesLocalDeviceID(t *testing.T) {
 	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

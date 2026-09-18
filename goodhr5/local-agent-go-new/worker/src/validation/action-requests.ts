@@ -61,22 +61,7 @@ export function parseBrowserStartRequest(
   ) {
     request.wait_until = waitUntil;
   }
-  assignNumber(
-    request,
-    "viewport_width",
-    optionalNumber(record, "viewport_width", { min: 320, max: 7680 }),
-  );
-  assignNumber(
-    request,
-    "viewport_height",
-    optionalNumber(record, "viewport_height", { min: 240, max: 4320 }),
-  );
-  if (
-    (request.viewport_width === undefined) !==
-    (request.viewport_height === undefined)
-  ) {
-    throw invalidRequest(traceId, action, "viewport_width 和 viewport_height 必须一起提供");
-  }
+  // 旧客户端携带的宽高字段不再生效，页面跟随浏览器实际窗口。
   const args = stringArray(record.args);
   if (args.length > 0) {
     request.args = args;

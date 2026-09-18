@@ -95,8 +95,6 @@ type BrowserStartRequest struct {
 	Locale         string       `json:"locale,omitempty"`
 	Timezone       string       `json:"timezone,omitempty"`
 	UserAgent      string       `json:"user_agent,omitempty"`
-	ViewportWidth  int          `json:"viewport_width,omitempty"`
-	ViewportHeight int          `json:"viewport_height,omitempty"`
 	Proxy          *ProxyConfig `json:"proxy,omitempty"`
 	Args           []string     `json:"args,omitempty"`
 	ExtensionPaths []string     `json:"extension_paths,omitempty"`
