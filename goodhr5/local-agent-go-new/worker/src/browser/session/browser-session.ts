@@ -24,6 +24,7 @@ import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
 import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
+import { initializeChineseLanguagePack } from "./language-initializer.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
@@ -100,6 +101,7 @@ export class BrowserSession {
           this.userDataDir,
         );
         const options = await this.buildLaunchOptions(request, fingerprint);
+        await initializeChineseLanguagePack(this.userDataDir, options);
         this.context = await firefox.launchPersistentContext(
           this.userDataDir,
           {

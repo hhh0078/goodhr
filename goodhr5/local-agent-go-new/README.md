@@ -133,6 +133,8 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 该脚本使用带 BOM 的 UTF-8 编码，兼容 Windows 自带的 Windows PowerShell 5.1。命令行也可以使用 `scripts\package-windows.bat 6`。版本号换成实际发布版本即可。打包机需要 Go、Node.js 22+ 和 Inno Setup 6；脚本默认使用 npm 国内镜像 `https://registry.npmmirror.com` 和 Go 国内镜像 `https://goproxy.cn,direct`。
 
+中文界面首次启动：程序内置匹配 Firefox 152 的中文语言包。新建浏览器配置会先隐藏启动并正常关闭一次，保存语言包注册结果后才显示窗口；已有配置已启用中文时跳过这一步。初始化不打开招聘网站，也不会循环启动。首次启动会多等待几秒。
+
 Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成以下文件：
 
 - `release\goodhr-local-agent-v6-windows-x64.zip`
