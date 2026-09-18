@@ -136,11 +136,30 @@ func RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.
 			requestErrors = append(requestErrors, fmt.Errorf("%s失败：%w", step.label, err))
 			continue
 		}
-		if err := ClickOptional(ctx, browser, cfg, step.key+"_confirm"); err != nil {
+		if err := confirmCandidateInfo(ctx, browser, cfg, step.key+"_confirm"); err != nil {
 			requestErrors = append(requestErrors, fmt.Errorf("确认%s失败：%w", step.label, err))
+			// 确认弹框可能仍覆盖页面，不能继续点击另一种索要。
+			return errors.Join(requestErrors...)
 		}
 	}
 	return errors.Join(requestErrors...)
+}
+
+// confirmCandidateInfo 对配置了确认弹框的平台等待确认按钮，并验证点击后弹框消失。
+func confirmCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, key string) error {
+	modal, required := cfg.Selectors["candidate.request_confirm_modal"]
+	if !required {
+		return ClickOptional(ctx, browser, cfg, key)
+	}
+	selector, err := RequiredSelector(cfg, key)
+	if err != nil {
+		return err
+	}
+	_, err = browser.Click(ctx, contract.ElementClickRequest{
+		Selector: selector,
+		Verify:   &contract.ClickVerification{TargetHidden: &modal, TimeoutMS: 3000},
+	})
+	return err
 }
 
 // SendCandidateMessage 向已经确认属于当前候选人的聊天框发送非空消息。

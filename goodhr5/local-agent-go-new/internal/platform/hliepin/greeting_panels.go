@@ -55,6 +55,9 @@ func closePostGreetPromotion(ctx context.Context, browser model.Browser, cfg mod
 // closeGreetingPanels 按遮挡顺序清理已知弹层，某一步失败也继续尝试清理其余弹层。
 func closeGreetingPanels(ctx context.Context, browser model.Browser, cfg model.Config, waitForPromotion bool) error {
 	var failures []error
+	if err := closeModalWithEscape(ctx, browser, cfg, "candidate.request_confirm_modal", "猎聘索要信息确认弹框"); err != nil {
+		failures = append(failures, err)
+	}
 	attempts := 1
 	if waitForPromotion {
 		attempts = postGreetPromotionPollAttempts

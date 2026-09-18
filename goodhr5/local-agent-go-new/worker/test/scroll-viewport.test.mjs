@@ -18,6 +18,7 @@ function createScrollAction(overrides = {}) {
     moveToElement: 0,
     moveToViewportCenter: 0,
     wheel: 0,
+    deltas: [],
   };
   const action = new ScrollAction(
     overrides.session ?? {
@@ -40,8 +41,10 @@ function createScrollAction(overrides = {}) {
     },
     overrides.locator ?? {},
     {
-      async wheel() {
+      async wheel(_page, x, y) {
         calls.wheel += 1;
+        calls.deltas.push({ x, y });
+        await overrides.wheel?.(x, y);
       },
     },
     {
@@ -267,4 +270,50 @@ test("无固定 viewport 时按 HTML 宽度换算 Retina 截图尺寸", async ()
   const viewport = await new ViewportPrimitive().size(page);
 
   assert.deepEqual(viewport, { width: 1280, height: 720 });
+});
+
+/** 创建能随真实滚轮参数移动的测试页面，用于验证方向与停止条件。 */
+function movingTarget(box, width = 1006, height = 975) {
+  const target = foundElement({
+    box, viewport: { width, height }, visible: true, enabled: true,
+    in_viewport: false, fully_in_viewport: false,
+  });
+  let current = { ...box };
+  const { action, calls } = createScrollAction({
+    find: { async one() { return target; } },
+    locator: { async view() { return { ...target.resolved.view, box: { ...current } }; } },
+    async wheel(x, y) { current = { ...current, x: current.x - x, y: current.y - y }; },
+  });
+  return { target, action, calls };
+}
+
+test("右侧按钮横向越界时仅向右滚动，不再反复上下滚动", async () => {
+  const { target, action, calls } = movingTarget({ x: 1078, y: 400, width: 88, height: 32 });
+  await action.ensureVisible(target, { distance: 160, max_attempts: 8, viewport_margin: 48, require_full: true }, context);
+  assert.ok(calls.deltas.length > 0);
+  assert.ok(calls.deltas.every(({ x, y }) => x > 0 && y === 0));
+  assert.ok(target.resolved.view.box.x + 88 <= 958);
+});
+
+test("连续滚动更新当前位置并缩短最后一步，避免过冲后反向滚动", async () => {
+  const { target, action, calls } = movingTarget({ x: 100, y: 1250, width: 200, height: 32 });
+  await action.execute({ target: {}, distance: 160, max_attempts: 6, wait_ms: 50, viewport_margin: 48, require_full: true }, context);
+  assert.deepEqual(calls.deltas.map(({ y }) => y), [160, 160, 35]);
+  assert.equal(target.resolved.view.box.y, 895);
+});
+
+test("超高卡片从上方进入窗口时按相交距离滚动，不用完整卡片高度来回校正", async () => {
+  const { target, action, calls } = movingTarget({ x: 100, y: -1000, width: 200, height: 900 });
+  await action.execute({ target: {}, distance: 180, max_attempts: 5, wait_ms: 50, viewport_margin: 48, require_full: false }, context);
+  assert.equal(calls.wheel, 1);
+  assert.equal(calls.deltas[0].y, -149);
+  assert.ok(target.resolved.view.box.y + 900 > 48);
+});
+
+test("步数耗尽而目标未到位必须报错，不能假装滚动完成后继续点击", async () => {
+  const { action } = movingTarget({ x: 100, y: 2000, width: 200, height: 32 });
+  await assert.rejects(
+    action.execute({ target: {}, distance: 100, max_attempts: 1, wait_ms: 50, require_full: true }, context),
+    error => error.code === "SCROLL_FAILED" && error.message.includes("次数"),
+  );
 });

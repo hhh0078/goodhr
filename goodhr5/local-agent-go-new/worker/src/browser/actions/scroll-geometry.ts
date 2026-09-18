@@ -1,0 +1,82 @@
+// 文件作用说明：计算真实滚轮的方向、距离与安全区域，避免横向越界时反复纵向滚动。
+
+import type { ActionContext } from "../../contracts/common.js";
+import type { ElementView } from "../../contracts/selector.js";
+import { WorkerError } from "../../errors/worker-error.js";
+
+/** VisibleArea 表示目标元素允许进入的安全可见区域。 */
+export interface VisibleArea {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+/** axisGap 返回单个方向还需要滚动的有符号距离，已满足可见要求时返回零。 */
+function axisGap(start: number, size: number, low: number, high: number, full: boolean): number {
+  if (full) {
+    if (start < low) return start - low;
+    if (start + size > high) return start + size - high;
+  } else {
+    if (start + size <= low) return start + size - low - 1;
+    if (start >= high) return start - high + 1;
+  }
+  return 0;
+}
+
+/** targetGap 同时衡量横纵方向，部分可见模式只要求目标与安全区域相交。 */
+export function targetGap(view: ElementView, area: VisibleArea, full: boolean): number {
+  return Math.hypot(
+    axisGap(view.box.x, view.box.width, area.left, area.right, full),
+    axisGap(view.box.y, view.box.height, area.top, area.bottom, full),
+  );
+}
+
+/** directedWheel 按最新位置选择单轴小步滚动，纵向到位后才补齐横向，避免上下振荡。 */
+export function directedWheel(view: ElementView, distance: number, area: VisibleArea, full: boolean): { x: number; y: number } {
+  const maximum = Math.max(1, Math.abs(distance));
+  const gapY = axisGap(view.box.y, view.box.height, area.top, area.bottom, full);
+  const gapX = axisGap(view.box.x, view.box.width, area.left, area.right, full);
+  const step = (gap: number): number => Math.sign(gap) * Math.min(maximum, Math.ceil(Math.abs(gap)));
+  return gapY !== 0 ? { x: 0, y: step(gapY) } : { x: step(gapX), y: 0 };
+}
+
+/** viewAccepted 判断目标是否满足当前完整或部分可见要求。 */
+export function viewAccepted(view: ElementView, full: boolean, area: VisibleArea): boolean {
+  return view.visible && area.width > 0 && area.height > 0 && targetGap(view, area, full) === 0;
+}
+
+/** visibleArea 计算窗口与可选滚动容器交集，整页锚点不缩小窗口范围。 */
+export function visibleArea(target: ElementView, containerView: ElementView | undefined, rawMargin: number): VisibleArea {
+  const margin = Math.max(0, rawMargin);
+  const viewport = target.viewport;
+  const container = containerView?.box;
+  const limitsWidth = Boolean(container && container.width > 0 && container.width < viewport.width);
+  const limitsHeight = Boolean(container && container.height > 0 && container.height < viewport.height);
+  const left = Math.max(margin, limitsWidth && container ? container.x + margin : margin);
+  const top = Math.max(margin, limitsHeight && container ? container.y + margin : margin);
+  const right = Math.min(viewport.width - margin, limitsWidth && container ? container.x + container.width - margin : viewport.width - margin);
+  const bottom = Math.min(viewport.height - margin, limitsHeight && container ? container.y + container.height - margin : viewport.height - margin);
+  return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
+/** intersectsViewport 判断元素是否至少有一部分位于浏览器内容视口内。 */
+export function intersectsViewport(view: ElementView): boolean {
+  return view.visible && view.box.x + view.box.width > 0 && view.box.y + view.box.height > 0 && view.box.x < view.viewport.width && view.box.y < view.viewport.height;
+}
+
+/** assertTargetCanFit 在窗口或容器无法容纳完整目标时明确停止，避免无效滚动。 */
+export function assertTargetCanFit(view: ElementView, area: VisibleArea, full: boolean, context: ActionContext): void {
+  if (area.width > 0 && area.height > 0 && (!full || (view.box.width <= area.width && view.box.height <= area.height))) return;
+  throw new WorkerError({
+    code: "VIEWPORT_TOO_SMALL",
+    message: "浏览器窗口太小，目标元素无法完整显示，请放大窗口后再试",
+    action: context.action, step: "ensure_visible", trace_id: context.trace_id, retryable: true,
+    details: {
+      target_width: Math.round(view.box.width), target_height: Math.round(view.box.height),
+      available_width: Math.round(area.width), available_height: Math.round(area.height),
+    },
+  });
+}

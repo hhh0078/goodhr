@@ -10,6 +10,8 @@ import { ReadPrimitive } from "../primitives/read.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
+import { LocatorPrimitive } from "../primitives/locator.js";
+import { waitForStablePosition } from "./stable-position.js";
 
 const DEFAULT_CHARACTER_DELAY_MIN_MS = 15;
 const DEFAULT_CHARACTER_DELAY_MAX_MS = 45;
@@ -29,6 +31,7 @@ export interface InputResult extends JsonObject {
 /** InputAction 实现所有平台共用的完整输入能力。 */
 export class InputAction {
   private readonly read = new ReadPrimitive();
+  private readonly locator = new LocatorPrimitive();
 
   /** 创建封装输入能力。 */
   constructor(
@@ -64,10 +67,17 @@ export class InputAction {
         },
         actionContext,
       );
+      await waitForStablePosition(found, this.locator);
       await this.move.toElement(found.resolved, actionContext);
-      await this.mouse.down(found.resolved.page, "left");
-      await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));
-      await this.mouse.up(found.resolved.page, "left");
+      try {
+        await this.mouse.down(found.resolved.page, "left");
+        await delay(randomInteger(FOCUS_HOLD_MIN_MS, FOCUS_HOLD_MAX_MS));
+      } finally {
+        await this.mouse.up(found.resolved.page, "left");
+      }
+      if (!(await this.read.focused(found.resolved.locator))) {
+        throw new Error("输入框没有获得焦点，已停止全选和输入，请先关闭遮挡弹框");
+      }
       if (request.clear ?? true) {
         const selectAll =
           process.platform === "darwin" ? "Meta+A" : "Control+A";

@@ -435,13 +435,26 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端索要简历"
     },
+    "candidate.request_confirm_modal": {
+      "_comment": "索要电话、微信或简历后的确认框；必须确认消失后才允许继续输入消息。",
+      "parents": [],
+      "target": {
+        "_comment": "只匹配当前可见的 IM 二次确认框。",
+        "selectors": [
+          { "_comment": "猎聘 IM 二次确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm:visible" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 5000,
+      "description": "猎聘索要信息确认弹框"
+    },
     "candidate.request_phone_confirm": {
       "_comment": "索要电话后的二次确认按钮。",
       "parents": [
         {
           "_comment": "猎聘索要信息确认弹框。",
           "selectors": [
-            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm:visible" }
           ]
         }
       ],
@@ -453,7 +466,7 @@
         ]
       },
       "state": "enabled",
-      "timeout_ms": 1000,
+      "timeout_ms": 5000,
       "description": "猎聘猎头端确认索要电话"
     },
     "candidate.request_wechat_confirm": {
@@ -462,7 +475,7 @@
         {
           "_comment": "猎聘索要信息确认弹框。",
           "selectors": [
-            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm:visible" }
           ]
         }
       ],
@@ -474,7 +487,7 @@
         ]
       },
       "state": "enabled",
-      "timeout_ms": 1000,
+      "timeout_ms": 5000,
       "description": "猎聘猎头端确认索要微信"
     },
     "candidate.request_resume_confirm": {
@@ -483,7 +496,7 @@
         {
           "_comment": "猎聘索要信息确认弹框。",
           "selectors": [
-            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm" }
+            { "_comment": "猎聘 IM 确认弹框。", "type": "css", "value": ".ant-im-modal.ant-im-modal-confirm:visible" }
           ]
         }
       ],
@@ -495,7 +508,7 @@
         ]
       },
       "state": "enabled",
-      "timeout_ms": 1000,
+      "timeout_ms": 5000,
       "description": "猎聘猎头端确认索要简历"
     },
     "candidate.followup_input": {

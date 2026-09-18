@@ -12,6 +12,7 @@ import { LocatorPrimitive } from "../primitives/locator.js";
 import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
+import { waitForStablePosition } from "./stable-position.js";
 
 /** ClickResult 表示封装点击的查找、移动和验证结果。 */
 export interface ClickResult extends JsonObject {
@@ -55,11 +56,12 @@ export class ClickAction {
           distance: 160,
           max_attempts: 24,
           viewport_margin: request.viewport_margin ?? 0,
-          require_full: true,
+          // 点击只需要窗口内有安全落点；贴边抽屉行可能有一部分永久位于窗口外。
+          require_full: false,
         },
         actionContext,
       );
-      await this.waitForStablePosition(found, actionContext);
+      await waitForStablePosition(found, this.locator);
       await this.move.toElement(found.resolved, actionContext);
       const newPagePromise = request.wait_for_new_page
         ? found.resolved.page
@@ -73,9 +75,12 @@ export class ClickAction {
       let totalHold = 0;
       for (let index = 0; index < clickCount; index += 1) {
         const holdMs = randomInteger(70, 190);
-        await this.mouse.down(found.resolved.page, button);
-        await delay(holdMs);
-        await this.mouse.up(found.resolved.page, button);
+        try {
+          await this.mouse.down(found.resolved.page, button);
+          await delay(holdMs);
+        } finally {
+          await this.mouse.up(found.resolved.page, button);
+        }
         totalHold += holdMs;
         if (index + 1 < clickCount) {
           await delay(randomInteger(80, 160));
@@ -128,36 +133,6 @@ export class ClickAction {
     }
   }
 
-  /** waitForStablePosition 连续读取元素位置，稳定后才允许执行一次原子点击。 */
-  private async waitForStablePosition(
-    found: Awaited<ReturnType<FindAction["one"]>>,
-    actionContext: ActionContext,
-  ): Promise<void> {
-    let previous = found.resolved.view.box;
-    for (let check = 1; check <= 3; check += 1) {
-      await delay(60);
-      const current = await this.locator.box(found.resolved.locator);
-      if (!current) {
-        throw new Error("元素在点击前消失了，已取消本次点击");
-      }
-      const stable =
-        Math.abs(current.x - previous.x) <= 2 &&
-        Math.abs(current.y - previous.y) <= 2 &&
-        Math.abs(current.width - previous.width) <= 2 &&
-        Math.abs(current.height - previous.height) <= 2;
-      this.logger.info(actionContext, "wait_stable", "progress", {
-        check,
-        stable,
-      });
-      found.resolved.view.box = current;
-      if (stable && check >= 2) {
-        return;
-      }
-      previous = current;
-    }
-    throw new Error("元素位置持续变化，已取消本次点击以避免点错");
-  }
-
   /** verify 按请求验证点击后的 URL 或元素状态。 */
   private async verify(
     request: ElementClickRequest,
@@ -196,7 +171,7 @@ export class ClickAction {
     return false;
   }
 
-  /** isVisible 只把元素未找到视为不可见，其他浏览器错误继续抛出。 */
+  /** isVisible 将已移除或仍在 DOM 中但隐藏的元素都视为不可见，其余错误继续抛出。 */
   private async isVisible(
     selector: NonNullable<ElementClickRequest["verify"]>["target_visible"],
     actionContext: ActionContext,
@@ -206,7 +181,7 @@ export class ClickAction {
     }
     try {
       await this.find.one(
-        { ...selector, timeout_ms: 0 },
+        { ...selector, state: "visible", timeout_ms: 0 },
         actionContext,
         false,
         false,
@@ -215,7 +190,7 @@ export class ClickAction {
     } catch (error) {
       if (
         error instanceof WorkerError &&
-        error.code === "ELEMENT_NOT_FOUND"
+        (error.code === "ELEMENT_NOT_FOUND" || error.code === "ELEMENT_NOT_VISIBLE")
       ) {
         return false;
       }

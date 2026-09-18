@@ -74,7 +74,8 @@ test("连续鼠标移动按上次位置计算步数并限制最大步数", async
   assert.deepEqual(steps, [12, 4]);
 });
 
-test("点击稳定检查只读取边界且隐藏验证使用即时探测", async () => {
+for (const hiddenCode of ["ELEMENT_NOT_FOUND", "ELEMENT_NOT_VISIBLE"]) {
+test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报发送失败`, async () => {
   const page = {};
   const locator = {};
   const found = visibleElement(page, locator);
@@ -85,7 +86,7 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
         if (selector.description === "已关闭弹层") {
           verifyTimeout = selector.timeout_ms;
           throw new WorkerError({
-            code: "ELEMENT_NOT_FOUND",
+            code: hiddenCode,
             message: "弹层已经关闭",
             action: context.action,
             step: "find",
@@ -129,11 +130,14 @@ test("点击稳定检查只读取边界且隐藏验证使用即时探测", async
   assert.equal(result.verified, true);
   assert.equal(verifyTimeout, 0);
 });
+}
 
 test("九字招呼语的字符和词语拟人等待不超过两秒", async () => {
   const page = {};
   let actual = "";
   const locator = {
+    async boundingBox() { return { x: 100, y: 100, width: 100, height: 40 }; },
+    locator() { return { async count() { return 1; } }; },
     async inputValue() {
       return actual;
     },

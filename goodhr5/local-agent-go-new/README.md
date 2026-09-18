@@ -173,6 +173,21 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 产物为 `release\GoodHR-Local-Agent-Setup-v6-hliepin-dialog-windows-x64.exe`。平台配置编译在 Go 程序中，需安装新包并重新启动本地程序后生效。
 
+## 窄窗口滚动与点击验证修复
+
+浏览器继续自动管理窗口宽高，不强制放大窗口。公共滚动每一步重新读取目标位置，先调整纵向、再用真实横向滚轮把右侧按钮带入窗口；已经到位的方向不再滚动。部分可见的候选人卡片按相交区域计算距离；点击只要求有安全落点，避免贴边联系人行无法完整进入窗口时一直滚动。最后一步缩短距离以避免过冲。连续三次无进展或达到次数上限会明确停止，不把“执行过滚轮”当成“已到位”。
+
+点击后的隐藏验证同时接受“元素已移除”和“元素仍在 DOM 中但已隐藏”，避免职位弹框正常关闭后反而报发送失败。
+
+猎聘索要电话、微信、简历会等待可见确认按钮，并验证确认框消失；确认失败时停止后续索要和消息输入，清理确认弹框再收尾。Worker 的页面操作串行执行，点击和输入使用 `finally` 松开鼠标，定位移动前只释放本程序已按下的遗留左键，避免无效松键造成浏览器等待。点击和输入前等待目标连续三次位置稳定；输入前使用标准 `:focus` 查询确认焦点，未聚焦时禁止发送全选和输入按键。全程不向招聘页面注入脚本。
+
+```powershell
+cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
+.\scripts\package-windows.ps1 -Version 6-interaction-recovery
+```
+
+对应安装器：`release\GoodHR-Local-Agent-Setup-v6-interaction-recovery-windows-x64.exe`。
+
 ## 核心原则
 
 - 不整体复制旧目录。

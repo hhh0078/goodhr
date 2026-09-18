@@ -4,6 +4,11 @@ import type { Locator } from "playwright-core";
 
 /** ReadPrimitive 封装元素只读原子操作。 */
 export class ReadPrimitive {
+  /** focused 通过标准 CSS 焦点伪类确认当前 Locator 获得键盘焦点，不执行页面脚本。 */
+  async focused(locator: Locator): Promise<boolean> {
+    return (await locator.locator(":scope:focus").count()) === 1;
+  }
+
   /** text 读取元素可见文本。 */
   async text(locator: Locator): Promise<string> {
     return (await locator.innerText()).trim();

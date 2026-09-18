@@ -243,22 +243,33 @@ func normalizeGreetingJob(value string) string {
 
 // closeGreetModalIfPresent 只关闭遗留的猎聘开聊弹框。
 func closeGreetModalIfPresent(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	exists, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
+	return closeModalWithEscape(ctx, browser, cfg, "candidate.greet_modal", "猎聘开聊弹框")
+}
+
+// closeModalWithEscape 关闭已识别的弹框并短暂等待关闭动画，避免遗留遮罩挡住后续输入。
+func closeModalWithEscape(ctx context.Context, browser model.Browser, cfg model.Config, key, label string) error {
+	exists, err := common.ProbeSelectorExists(ctx, browser, cfg, key)
 	if err != nil || !exists {
 		return err
 	}
 	_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 	if err != nil {
-		return fmt.Errorf("关闭遗留猎聘开聊弹框失败：%w", err)
+		return fmt.Errorf("关闭%s失败：%w", label, err)
 	}
-	opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
-	if err != nil {
-		return err
+	for attempt := 0; attempt < 4; attempt++ {
+		opened, err := common.ProbeSelectorExists(ctx, browser, cfg, key)
+		if err != nil || !opened {
+			return err
+		}
+		timer := time.NewTimer(150 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
-	if opened {
-		return fmt.Errorf("猎聘开聊弹框按 Escape 后仍未关闭")
-	}
-	return nil
+	return fmt.Errorf("%s按 Escape 后仍未关闭", label)
 }
 
 // closeCandidatePanels 关闭遗留的猎聘聊天框和联系人抽屉。

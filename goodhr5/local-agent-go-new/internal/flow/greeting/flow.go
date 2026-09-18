@@ -611,6 +611,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if conversationReady && requestInfo {
 			startedAt = time.Now()
 			if err := runtime.RequestCandidateInfo(ctx, f.Browser, prepared.Platform, candidate, infoRequest); err != nil {
+				conversationReady = false
 				f.log(prepared.Request.TaskID, "request_candidate_info", "warning", startedAt, err)
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "索要候选人资料失败")
 			} else {
