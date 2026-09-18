@@ -29,7 +29,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
-import { cloudRequest, formatDate } from "@/lib/admin-api";
+import { cloudRequest, formatDate, requirePaymentLocalAgent } from "@/lib/admin-api";
 import {
   EmptyState,
   PageHeader,
@@ -68,7 +68,7 @@ type RefundQuote = Record<
 
 /** SubscriptionPage 展示会员状态、AI 余额和账务记录。 */
 export default function SubscriptionPage() {
-  const { notify, subscription, refreshSession } = useAdmin();
+  const { agentBase, notify, subscription, refreshSession } = useAdmin();
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [wallet, setWallet] = useState<any>({});
@@ -206,6 +206,7 @@ export default function SubscriptionPage() {
     if (!planID) return;
     setPayingPlanID(planID);
     try {
+      await requirePaymentLocalAgent(agentBase);
       const data = await cloudRequest("/api/payment/orders", {
         method: "POST",
         body: { plan_id: planID },
@@ -231,10 +232,16 @@ export default function SubscriptionPage() {
   }
 
   /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
-  function requestPlanPayment(planID: string) {
+  async function requestPlanPayment(planID: string) {
     if (!planID) return;
     const plan = plans.find((item) => item.id === planID);
     if (!plan) return;
+    try {
+      await requirePaymentLocalAgent(agentBase);
+    } catch (error) {
+      notify((error as Error).message, "error");
+      return;
+    }
     setPendingPayment({ type: "membership", planID });
   }
 
@@ -247,6 +254,7 @@ export default function SubscriptionPage() {
     }
     setRecharging(true);
     try {
+      await requirePaymentLocalAgent(agentBase);
       const data = await cloudRequest("/api/payment/ai-balance", {
         method: "POST",
         body: { amount_yuan: rechargeAmount || "10" },
@@ -268,10 +276,16 @@ export default function SubscriptionPage() {
   }
 
   /** requestAIRecharge 校验充值金额并在创建 AI 余额订单前打开确认框。 */
-  function requestAIRecharge() {
+  async function requestAIRecharge() {
     const amount = Number(rechargeAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       notify("充值金额得大于 0，我先小声拦一下。", "warning");
+      return;
+    }
+    try {
+      await requirePaymentLocalAgent(agentBase);
+    } catch (error) {
+      notify((error as Error).message, "error");
       return;
     }
     setRechargeDialogOpen(false);

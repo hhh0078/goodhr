@@ -147,6 +147,17 @@ export async function detectLocalAgent(preferredBaseURL = "") {
   return state.detecting;
 }
 
+/** requirePaymentLocalAgent 在前端支付前检查本地程序，并实时确认连接仍然可用。 */
+export async function requirePaymentLocalAgent(preferredBaseURL = "") {
+  try {
+    const baseURL = await detectLocalAgent(preferredBaseURL);
+    if (!baseURL) throw new Error("本地程序未连接");
+    await localRequest(baseURL, "/health", { timeoutMS: 1500 });
+  } catch {
+    throw new Error("系统无法在线支付。请联系管理员。");
+  }
+}
+
 /** captureLocalAgentPortFromURL 读取本地程序写入页面链接的端口，并持久化供登录页和后台共用。 */
 export function captureLocalAgentPortFromURL(search?: string) {
   if (typeof window === "undefined") return 0;

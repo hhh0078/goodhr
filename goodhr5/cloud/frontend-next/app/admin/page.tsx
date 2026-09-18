@@ -32,7 +32,7 @@ import {
   wechatPaymentFromResponse,
   type WechatPaymentState,
 } from "@/components/payment/WechatPayDialog";
-import { cloudRequest, localRequest } from "@/lib/admin-api";
+import { cloudRequest, localRequest, requirePaymentLocalAgent } from "@/lib/admin-api";
 import { type UserFlowState, type UserFlowStep } from "@/lib/user-flow";
 
 type GuideStep = {
@@ -191,6 +191,12 @@ export default function DashboardPage() {
   ] as const;
   /** rechargeAI 创建内置 AI 余额充值订单。 */
   async function rechargeAI() {
+    try {
+      await requirePaymentLocalAgent(agentBase);
+    } catch (error) {
+      notify((error as Error).message, "error");
+      return;
+    }
     const accepted = await confirm(
       "支付前请确认",
       "AI 余额仅用于 GoodHR 内置 AI 调用。需要开发票请联系作者处理，发票开出后该笔订单不支持退费。",
@@ -198,6 +204,7 @@ export default function DashboardPage() {
     if (!accepted) return;
     setRecharging(true);
     try {
+      await requirePaymentLocalAgent(agentBase);
       const data = await cloudRequest("/api/payment/ai-balance", {
         method: "POST",
         body: { amount_yuan: rechargeAmount || "10" },
