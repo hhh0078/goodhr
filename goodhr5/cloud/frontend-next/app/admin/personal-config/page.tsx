@@ -456,7 +456,7 @@ export default function PersonalConfigPage() {
             />
             <CompactNumber
               label='详情查看概率'
-              help='关键词模式下，决定是否打开详情继续筛选。'
+              help='仅影响未设置关键词和排除词的任务；需要匹配关键词时会读取详情，避免漏筛。'
               unit='%'
               value={form.detail_open_probability}
               onChange={(value) => setNumber("detail_open_probability", value)}

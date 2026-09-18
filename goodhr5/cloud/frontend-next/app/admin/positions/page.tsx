@@ -1243,7 +1243,7 @@ export default function PositionsPage() {
                     ]}
                   />
                   <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-                    关键词模式是否打开详情，由“个人配置”中的详情查看概率控制。满足任一关键词更宽松，必须同时满足则更严格。
+                    设置关键词或排除词后，会读取详情再判断，避免漏掉简历里的信息。满足任一关键词更宽松，必须同时满足则更严格。
                   </Typography>
                   <Box
                     sx={{
