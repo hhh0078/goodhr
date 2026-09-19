@@ -33,7 +33,7 @@ export default function PasswordSetupDialog({ open, email, onSubmit }: PasswordS
   /** submit 校验两次输入并保存密码。 */
   async function submit() {
     setError("");
-    if ([...password].length < 8) return setError("密码至少需要 8 位");
+    if ([...password].length < 2) return setError("密码至少需要 2 个字符");
     if (password !== confirmation) return setError("两次密码不一样，我先不敢保存");
     setLoading(true);
     try {
@@ -62,7 +62,7 @@ export default function PasswordSetupDialog({ open, email, onSubmit }: PasswordS
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={loading}
-            helperText="至少 8 位"
+            helperText="至少 2 个字符"
             slotProps={{ input: { startAdornment: <InputAdornment position="start"><LockOutlineRoundedIcon color="action" /></InputAdornment> } }}
             fullWidth
           />
@@ -85,7 +85,7 @@ export default function PasswordSetupDialog({ open, email, onSubmit }: PasswordS
         <Button
           variant="contained"
           onClick={() => void submit()}
-          disabled={loading || password.length < 8 || !confirmation}
+          disabled={loading || [...password].length < 2 || !confirmation}
           startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
           {loading ? "正在保存" : "设置密码并继续"}

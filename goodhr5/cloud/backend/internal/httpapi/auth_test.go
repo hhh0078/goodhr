@@ -39,7 +39,7 @@ func TestAuthCodeLogin(t *testing.T) {
 		t.Fatalf("debug code length = %d", len(sendPayload.DebugCode))
 	}
 
-	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `","password":"test-password-123","agreement_accepted":true}`)
+	loginBody := bytes.NewBufferString(`{"email":"user@example.com","code":"` + sendPayload.DebugCode + `","password":"12","agreement_accepted":true}`)
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", loginBody)
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
@@ -88,6 +88,32 @@ func TestAuthCodeLogin(t *testing.T) {
 	}
 }
 
+// TestNewPasswordBoundaries 验证两字符密码、Unicode 字符计数及空白和过长密码的边界。
+func TestNewPasswordBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+		valid    bool
+	}{
+		{"empty", "", false},
+		{"one_digit", "1", false},
+		{"one_unicode", "😀", false},
+		{"two_digits", "12", true},
+		{"two_unicode", "中文", true},
+		{"two_emoji", "😀😃", true},
+		{"whitespace", "  ", false},
+		{"maximum_bytes", strings.Repeat("a", 72), true},
+		{"too_many_bytes", strings.Repeat("a", 73), false},
+		{"unicode_too_many_bytes", strings.Repeat("中", 25), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateNewPassword(tc.password); (err == nil) != tc.valid {
+				t.Fatalf("密码边界校验不符：want valid=%v, error=%v", tc.valid, err)
+			}
+		})
+	}
+}
+
 // TestNewAccountRequiresPassword 验证新邮箱必须同时提交验证码和合格密码才能注册。
 func TestNewAccountRequiresPassword(t *testing.T) {
 	server := mustNewServer(t)
@@ -103,7 +129,7 @@ func TestNewAccountRequiresPassword(t *testing.T) {
 	}
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"new-password@example.com","code":"`+sent.DebugCode+`","agreement_accepted":true}`)))
-	if loginResp.Code != http.StatusBadRequest || !strings.Contains(loginResp.Body.String(), "密码至少需要 8 位") {
+	if loginResp.Code != http.StatusBadRequest || !strings.Contains(loginResp.Body.String(), "密码至少需要 2 个字符") {
 		t.Fatalf("login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
 	}
 }
@@ -171,7 +197,7 @@ func TestLegacyAccountMustSetPassword(t *testing.T) {
 		t.Fatalf("legacy login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
 	}
 
-	setupReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/setup", bytes.NewBufferString(`{"password":"legacy-password-123"}`))
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/setup", bytes.NewBufferString(`{"password":"12"}`))
 	setupReq.Header.Set("Authorization", "Bearer "+login.AccessToken)
 	setupResp := httptest.NewRecorder()
 	routes.ServeHTTP(setupResp, setupReq)
@@ -180,7 +206,7 @@ func TestLegacyAccountMustSetPassword(t *testing.T) {
 	}
 
 	passwordResp := httptest.NewRecorder()
-	routes.ServeHTTP(passwordResp, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"legacy@example.com","password":"legacy-password-123"}`)))
+	routes.ServeHTTP(passwordResp, httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"legacy@example.com","password":"12"}`)))
 	if passwordResp.Code != http.StatusOK {
 		t.Fatalf("password login status = %d, body = %s", passwordResp.Code, passwordResp.Body.String())
 	}
@@ -376,7 +402,7 @@ func TestAuthRejectsWrongCode(t *testing.T) {
 	if isUniversalLoginCode(wrongCode, time.Now(), 3) {
 		wrongCode = "9999"
 	}
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","password":"test-password-123","agreement_accepted":true}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"email":"user@example.com","code":"`+wrongCode+`","password":"12","agreement_accepted":true}`))
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
 
@@ -504,7 +530,7 @@ func TestChangePasswordVerifiesOldPassword(t *testing.T) {
 	email := "change-password@example.com"
 	token := loginForTest(t, routes, email)
 
-	wrongReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"wrong-password-1","new_password":"brand-new-pass-1"}`))
+	wrongReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"wrong-password-1","new_password":"34"}`))
 	wrongReq.Header.Set("Authorization", "Bearer "+token)
 	wrongResp := httptest.NewRecorder()
 	routes.ServeHTTP(wrongResp, wrongReq)
@@ -512,7 +538,7 @@ func TestChangePasswordVerifiesOldPassword(t *testing.T) {
 		t.Fatalf("旧密码错误应返回 401, 实际 %d, body=%s", wrongResp.Code, wrongResp.Body.String())
 	}
 
-	changeReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"test-password-123","new_password":"brand-new-pass-1"}`))
+	changeReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", bytes.NewBufferString(`{"old_password":"test-password-123","new_password":"34"}`))
 	changeReq.Header.Set("Authorization", "Bearer "+token)
 	changeResp := httptest.NewRecorder()
 	routes.ServeHTTP(changeResp, changeReq)
@@ -526,7 +552,7 @@ func TestChangePasswordVerifiesOldPassword(t *testing.T) {
 	if oldLoginResp.Code == http.StatusOK {
 		t.Fatalf("旧密码修改后不应再能登录")
 	}
-	newLogin := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"brand-new-pass-1"}`))
+	newLogin := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"34"}`))
 	newLoginResp := httptest.NewRecorder()
 	routes.ServeHTTP(newLoginResp, newLogin)
 	if newLoginResp.Code != http.StatusOK {
@@ -557,7 +583,7 @@ func TestResetPasswordWithCode(t *testing.T) {
 		t.Fatalf("开发模式应返回 debug_code, body = %s", codeResp.Body.String())
 	}
 
-	resetReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/reset", bytes.NewBufferString(`{"email":"`+email+`","code":"`+codePayload.DebugCode+`","password":"reset-new-pass-1"}`))
+	resetReq := httptest.NewRequest(http.MethodPost, "/api/auth/password/reset", bytes.NewBufferString(`{"email":"`+email+`","code":"`+codePayload.DebugCode+`","password":"56"}`))
 	resetResp := httptest.NewRecorder()
 	routes.ServeHTTP(resetResp, resetReq)
 	if resetResp.Code != http.StatusOK {
@@ -571,7 +597,7 @@ func TestResetPasswordWithCode(t *testing.T) {
 		t.Fatalf("验证码重复使用应返回 401, 实际 %d", reuseResp.Code)
 	}
 
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"reset-new-pass-1"}`))
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/password-login", bytes.NewBufferString(`{"email":"`+email+`","password":"56"}`))
 	loginResp := httptest.NewRecorder()
 	routes.ServeHTTP(loginResp, loginReq)
 	if loginResp.Code != http.StatusOK {

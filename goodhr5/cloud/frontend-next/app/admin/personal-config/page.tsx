@@ -209,6 +209,8 @@ export default function PersonalConfigPage() {
     if (!passwordForm.old_password)
       return notify("先填一下当前密码，我确认是本人", "warning");
     if (!passwordForm.new_password) return notify("新密码还没填", "warning");
+    if ([...passwordForm.new_password].length < 2)
+      return notify("新密码至少需要 2 个字符", "warning");
     if (passwordForm.new_password !== passwordForm.confirm_password)
       return notify("两次输入的新密码不一样，再核对一下", "warning");
     setPasswordSaving(true);
@@ -562,7 +564,7 @@ export default function PersonalConfigPage() {
                 label='新密码'
                 type='password'
                 size='small'
-                helperText='至少 8 位，别和当前密码一样。'
+                helperText='至少 2 个字符，别和当前密码一样。'
                 value={passwordForm.new_password}
                 onChange={(event) =>
                   setPasswordForm((current) => ({

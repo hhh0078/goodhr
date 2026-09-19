@@ -240,8 +240,8 @@ export default function LoginForm() {
     setResetMessage("");
     if (resetCode.trim().length !== 4)
       return setResetMessage("请输入 4 位验证码");
-    if ([...resetPassword].length < 8)
-      return setResetMessage("新密码至少 8 位，太短了我记不住");
+    if ([...resetPassword].length < 2)
+      return setResetMessage("新密码至少需要 2 个字符");
     if (resetPassword !== resetConfirmation)
       return setResetMessage("两次新密码不一样，再核对一下");
     setResetBusy(true);
@@ -305,7 +305,7 @@ export default function LoginForm() {
     if (loginMode === "password" && !password) return setError("请输入密码");
     if (loginMode === "code" && code.trim().length !== 4) return setError("请输入 4 位验证码");
     if (loginMode === "code" && isNewAccount === null) return setError("请先发送验证码");
-    if (loginMode === "code" && isNewAccount && [...password].length < 8) return setError("首次注册需要设置至少 8 位密码");
+    if (loginMode === "code" && isNewAccount && [...password].length < 2) return setError("首次注册需要设置至少 2 个字符的密码");
     if (loginMode === "code" && isNewAccount && password !== passwordConfirmation) return setError("两次密码不一样，我先不敢注册");
     setLoading(true);
     try {
@@ -421,7 +421,7 @@ export default function LoginForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           disabled={loading}
-          helperText={isNewAccount && loginMode === "code" ? "首次注册必须设置至少 8 位密码" : undefined}
+          helperText={isNewAccount && loginMode === "code" ? "首次注册必须设置至少 2 个字符的密码" : undefined}
           fullWidth
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><LockOutlineRoundedIcon color="action" /></InputAdornment> } }}
         /> : null}
@@ -563,7 +563,7 @@ export default function LoginForm() {
               label="新密码"
               type="password"
               autoComplete="new-password"
-              helperText="至少 8 位。"
+              helperText="至少 2 个字符。"
               value={resetPassword}
               onChange={(event) => setResetPassword(event.target.value)}
               disabled={resetBusy}

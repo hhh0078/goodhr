@@ -835,10 +835,10 @@ func normalizeEmail(value string) (string, bool) {
 	return email, true
 }
 
-// validateNewPassword 校验注册和补设密码时的长度边界。
+// validateNewPassword 统一校验注册、补设、重置和修改密码时的长度边界。
 func validateNewPassword(password string) error {
-	if len([]rune(password)) < 8 {
-		return errors.New("密码至少需要 8 位")
+	if len([]rune(password)) < 2 {
+		return errors.New("密码至少需要 2 个字符")
 	}
 	if strings.TrimSpace(password) == "" {
 		return errors.New("密码不能全是空格")
