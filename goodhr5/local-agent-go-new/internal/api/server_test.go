@@ -137,6 +137,8 @@ func TestAllowedOriginRejectsLookalikeHosts(t *testing.T) {
 		"http://127.0.0.1:55271",
 		"https://goodhr5.58it.cn",
 		"https://goodhr.ai.58it.cn",
+		"https://goodhr.58it.cn",
+		"https://goodhr-test.ai.58it.cn",
 	} {
 		if !allowedOrigin(origin) {
 			t.Fatalf("合法 Origin 被拒绝：%s", origin)
@@ -147,6 +149,8 @@ func TestAllowedOriginRejectsLookalikeHosts(t *testing.T) {
 		"http://127.0.0.1.evil.com",
 		"https://goodhr5.58it.cn.evil.com",
 		"https://goodhr.ai.58it.cn.evil.com",
+		"https://goodhr.58it.cn.evil.com",
+		"https://goodhr-test.ai.58it.cn.evil.com",
 		"https://goodhr5.58it.cn:443",
 		"http://goodhr5.58it.cn",
 	} {

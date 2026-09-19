@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
+
+	"goodhr5/local-agent-go-new/internal/config"
 )
 
 const bookmarkExtensionDir = "goodhr-bookmark-extension"
@@ -20,7 +23,7 @@ const bookmarkExtensionDir = "goodhr-bookmark-extension"
 var bookmarkBackground []byte
 
 var defaultBookmarks = []bookmarkNode{
-	{Title: "GoodHR", URL: "https://goodhr.ai.58it.cn/"},
+	{Title: "GoodHR"},
 	{Title: "BOSS直聘", URL: "https://www.zhipin.com/web/chat/recommend"},
 	{Title: "猎聘猎头端", URL: "https://h.liepin.com/"},
 	{Title: "猎聘", URL: "https://www.liepin.com/"},
@@ -52,7 +55,13 @@ type chromiumBookmarkNode struct {
 
 // ensureProfileBookmarks 准备 Firefox 书签扩展与偏好，不直接写浏览器数据库。
 func ensureProfileBookmarks(profileDir string) error {
-	configuration := bookmarkConfiguration{Defaults: defaultBookmarks}
+	defaults := append([]bookmarkNode(nil), defaultBookmarks...)
+	consoleURL := strings.TrimSpace(os.Getenv("GOODHR_CONSOLE_URL"))
+	if consoleURL == "" {
+		consoleURL = config.DefaultConsoleURL
+	}
+	defaults[0].URL = strings.TrimRight(consoleURL, "/") + "/"
+	configuration := bookmarkConfiguration{Defaults: defaults}
 	legacy, err := os.ReadFile(filepath.Join(profileDir, "Default", "Bookmarks"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("读取旧书签失败：%w", err)

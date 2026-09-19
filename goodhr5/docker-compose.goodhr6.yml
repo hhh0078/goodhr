@@ -16,9 +16,9 @@ services:
     build:
       context: ./cloud/frontend-next
       args:
-        NEXT_PUBLIC_CLOUD_API_BASE: "https://goodhr.ai.58it.cn"
-        NEXT_PUBLIC_SITE_URL: "https://goodhr.ai.58it.cn"
+        NEXT_PUBLIC_CLOUD_API_BASE: "https://goodhr-test.ai.58it.cn"
+        NEXT_PUBLIC_SITE_URL: "https://goodhr-test.ai.58it.cn"
         NEXT_PUBLIC_LEGACY_ADMIN_URL: "/admin/"
-        CLOUD_API_BASE: "https://goodhr.ai.58it.cn"
+        CLOUD_API_BASE: "https://goodhr-test.ai.58it.cn"
     ports: ["127.0.0.1:5174:3000"]
     restart: unless-stopped
