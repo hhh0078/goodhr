@@ -2,6 +2,8 @@
 
 # GoodHR 新本地程序
 
+本机联调、Windows/macOS 安装包、测试与正式环境发布的完整步骤，统一见 [运行、打包与部署说明](../DEPLOYMENT.md)。打包参数 `dev` 连接测试服务器，`build` 连接正式服务器；本机 localhost 联调使用源码启动方式。
+
 `local-agent-go-new` 是按清晰边界重构后的 GoodHR 本地程序。它保留 Camoufox 及其反检测增强，由严格 TypeScript Worker 调用浏览器，Go 负责任务流程和平台适配。
 
 ## 技术组成
@@ -99,7 +101,7 @@ Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Pro
 
 四个平台都按 `entry.go`、`position.go`、`candidate.go`、`detail.go`、`greet.go`、`followup.go`、`reply.go` 和 `runtime.go` 分责。每个平台目录中的 `config.json` 是带中文属性说明的本地运行配置和能力核对表，通过 `go:embed` 随 Go 程序一起编译，也是平台 URL、行为和选择器的唯一来源；本地程序不会向云端读取或合并平台配置。配置中的 `pending_selectors` 表示旧版也没有可确认的配置，自动回复缺少真实页面地址或选择器时会在启动前明确拦截。
 
-本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，正式打包时固定打开 `https://goodhr.ai.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
+本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，`build` 包打开 `https://goodhr.58it.cn/admin/`，`dev` 包打开 `https://goodhr-test.ai.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
 如果固定端口上已经是一个健康的 GoodHR 本地程序，新进程只会复用该实例、打开现有控制台后退出；不会结束不明端口占用者。
 本地 Go 服务默认监听 `127.0.0.1:43129`，启动参数传入其他端口时，控制台仍以 URL 中的实际 `local_port` 为准；前端没有收到端口时也默认探测 `43129`。内部 Browser Worker 继续使用 `39881`。
 

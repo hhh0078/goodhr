@@ -1,5 +1,11 @@
 # GoodHR 5
 
+## 运行、打包与部署
+
+完整步骤见 [本机开发、测试/正式部署和本地程序打包](DEPLOYMENT.md)。文档包含配置文件、启动顺序、Windows/macOS 打包命令、OSS 发布、日志和回退。
+
+当前开发入口为 `cloud/backend`（Go 后端）、`cloud/frontend-next`（Next.js 前端）和 `local-agent-go-new`（Go 本地程序＋TypeScript Worker＋Camoufox）。下面的初版说明属于历史记录。
+
 GoodHR 5 是新的云端控制台 + 本地执行器版本。
 
 目标结构：
