@@ -62,7 +62,8 @@ export class ClickAction {
         actionContext,
       );
       await waitForStablePosition(found, this.locator);
-      await this.move.toElement(found.resolved, actionContext);
+      // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
+      await this.move.toElement(found.resolved, actionContext, { centered: true });
       const newPagePromise = request.wait_for_new_page
         ? found.resolved.page
             .context()

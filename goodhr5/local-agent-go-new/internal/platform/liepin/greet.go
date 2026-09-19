@@ -34,7 +34,8 @@ func verifyGreetingSent(ctx context.Context, browser model.Browser, cfg model.Co
 		return err
 	}
 	selector.TimeoutMS = 200
-	deadline := time.NewTimer(5 * time.Second)
+	// 平台发送状态可能晚于点击返回；只延长只读确认窗口，不重复点击发送入口。
+	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
 	for {
 		items, findErr := browser.FindAll(ctx, contract.ElementFindAllRequest{Selector: selector, MaxItems: 1, ExpectedMissing: true})

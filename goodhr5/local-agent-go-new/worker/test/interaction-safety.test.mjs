@@ -5,6 +5,33 @@ import { ActionQueue } from "../dist/browser/actions/action-queue.js";
 import { InputAction } from "../dist/browser/actions/input.js";
 import { MousePrimitive } from "../dist/browser/primitives/mouse.js";
 import { waitForStablePosition } from "../dist/browser/actions/stable-position.js";
+import { ClickAction } from "../dist/browser/actions/click.js";
+import { MoveAction } from "../dist/browser/actions/move.js";
+
+test("按钮右缘与悬浮入口重叠时，点击落在中部而不误开入口", async () => {
+  const box = { x: 1124.2, y: 766.35, width: 87.8, height: 32 };
+  const found = { result: { element_ref: "button" }, resolved: {
+    page: {}, locator: {}, view: { box, viewport: { width: 1248.8, height: 908.58 } },
+  } };
+  const points = [];
+  const logger = { info() {}, failure() {} };
+  const mouse = { async move(_page, x, y) { points.push({ x, y }); }, async down() {}, async up() {} };
+  const action = new ClickAction(
+    { async one() { return found; } }, { async ensureVisible() {} },
+    new MoveAction(mouse, logger), { async box() { return box; } }, mouse, logger,
+  );
+  const random = Math.random;
+  try {
+    // 使用随机最大边界复现旧落点进入 x=1192.8 开始的悬浮入口。
+    Math.random = () => 1;
+    await action.execute({ selector: { description: "按钮" } }, { action: "element.click", trace_id: "overlap", started_at: Date.now() });
+  } finally {
+    Math.random = random;
+  }
+  assert.equal(points.length, 1);
+  assert.ok(points[0].x < 1192.8, "点击不能落入右侧悬浮入口");
+  assert.ok(points[0].x >= box.x + box.width * 0.3);
+});
 
 test("前一次操作失败并松开后才运行下一次操作", async () => {
   const queue = new ActionQueue();
