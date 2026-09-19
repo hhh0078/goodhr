@@ -387,7 +387,7 @@ func (s *Server) GetLocalAgentConsoleURL(w http.ResponseWriter, r *http.Request)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":  true,
-		"url": strings.TrimSpace(value.LocalAgentConsoleURL),
+		"url": environmentPublicURL(strings.TrimSpace(value.LocalAgentConsoleURL)),
 	})
 }
 

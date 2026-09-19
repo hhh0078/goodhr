@@ -5,7 +5,7 @@ import { TOKEN_KEY } from "./api";
 
 const DEFAULT_CLOUD_API_BASE =
   process.env.NODE_ENV === "production"
-    ? "https://goodhr5.58it.cn"
+    ? "https://goodhr.58it.cn"
     : "http://127.0.0.1:8084";
 
 export const CLOUD_API_BASE = (

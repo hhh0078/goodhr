@@ -5,3 +5,11 @@ tmp
 .DS_Store
 .git
 .gitignore
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets
+logs
+uploads

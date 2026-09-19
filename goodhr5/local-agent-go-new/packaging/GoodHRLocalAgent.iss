@@ -3,8 +3,11 @@
 #ifndef MyAppVersion
 #define MyAppVersion "6"
 #endif
+#ifndef MyEnvironmentSuffix
+#define MyEnvironmentSuffix ""
+#endif
 #define MyAppExeName "goodhr-local-agent.exe"
-#define MyPackageDir "..\release\goodhr-local-agent-v" + MyAppVersion + "-windows-x64"
+#define MyPackageDir "..\release\goodhr-local-agent-v" + MyAppVersion + MyEnvironmentSuffix + "-windows-x64"
 #define MyLogoFile "..\assets\goodhr-logo.ico"
 
 [Setup]
@@ -18,7 +21,7 @@ DisableProgramGroupPage=yes
 ; 每次安装默认勾选桌面快捷方式，不沿用上一次安装的任务选择。
 UsePreviousTasks=no
 OutputDir=..\release
-OutputBaseFilename=GoodHR-Local-Agent-Setup-v{#MyAppVersion}-windows-x64
+OutputBaseFilename=GoodHR-Local-Agent-Setup-v{#MyAppVersion}{#MyEnvironmentSuffix}-windows-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -44,6 +47,7 @@ Type: filesandordirs; Name: "{app}\worker"
 [Files]
 Source: "{#MyPackageDir}\goodhr-local-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyPackageDir}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackageDir}\worker\*"; DestDir: "{app}\worker"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#MyLogoFile}"; DestDir: "{app}"; DestName: "goodhr-logo.ico"; Flags: ignoreversion
 

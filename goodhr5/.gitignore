@@ -3,3 +3,8 @@ deploy.log
 .deploy.lock/
 **/dist/
 **/node_modules/
+backups/
+environments/*.local.env
+cloud/backend/.env
+cloud/frontend-next/.env.local
+cloud/backend/uploads/

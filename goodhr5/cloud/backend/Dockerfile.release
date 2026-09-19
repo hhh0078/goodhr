@@ -1,0 +1,16 @@
+# 本文件构建云端后端发布镜像，运行时通过环境文件和只读挂载提供敏感配置。
+FROM golang:1.24-alpine AS builder
+ENV GOPROXY=https://goproxy.cn,direct
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /goodhr-server ./cmd/server
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata
+WORKDIR /app
+COPY --from=builder /goodhr-server /usr/local/bin/goodhr-server
+COPY --from=builder /src/db ./db
+COPY --from=builder /src/templates ./templates
+CMD ["goodhr-server"]

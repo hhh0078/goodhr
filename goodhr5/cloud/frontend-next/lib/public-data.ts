@@ -94,7 +94,7 @@ export async function getGuideVideos(): Promise<GuideVideo[]> {
 /** cloudBaseURL 返回服务端访问云端 API 的统一地址。 */
 function cloudBaseURL() {
 	const fallback = process.env.NODE_ENV === "production"
-		? "https://goodhr5.58it.cn"
+		? "https://goodhr.58it.cn"
 		: "http://127.0.0.1:8084";
 	return (process.env.CLOUD_API_BASE || process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
 }

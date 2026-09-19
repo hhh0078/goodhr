@@ -1,0 +1,31 @@
+# 本文件部署正式环境；请通过 scripts/deploy-build.sh 加载对应公开配置。
+name: ${COMPOSE_PROJECT_NAME:?必须通过环境部署脚本执行}
+services:
+  backend:
+    build:
+      context: ./cloud/backend
+      dockerfile: Dockerfile.release
+    network_mode: host
+    env_file: ${GOODHR_BACKEND_ENV:-./cloud/backend/.env}
+    environment:
+      GOODHR_PUBLIC_BASE_URL: ${GOODHR_PUBLIC_BASE_URL:?必须指定公开域名}
+      GOODHR_CLOUD_ADDR: ${GOODHR_CLOUD_ADDR:?必须指定后端端口}
+      GOODHR_DISABLE_EMAIL_SCHEDULER: ${GOODHR_DISABLE_EMAIL_SCHEDULER:-false}
+    volumes:
+      - "./cloud/backend/uploads:/app/uploads"
+      - "./cloud/backend/logs:/app/logs"
+      - "${GOODHR_WECHAT_SECRET_DIR:?必须指定支付密钥目录}:/run/secrets/wechat:ro"
+    restart: unless-stopped
+  frontend:
+    build:
+      context: ./cloud/frontend-next
+      args:
+        NEXT_PUBLIC_CLOUD_API_BASE: ${NEXT_PUBLIC_CLOUD_API_BASE:?必须指定 API 域名}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?必须指定网站域名}
+        NEXT_PUBLIC_LEGACY_ADMIN_URL: "/admin/"
+        CLOUD_API_BASE: ${CLOUD_API_BASE:?必须指定 API 域名}
+    environment:
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:${GOODHR_FRONTEND_PORT:?必须指定前端端口}:3000"
+    restart: unless-stopped

@@ -138,17 +138,17 @@ Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近
 macOS 正式包只在 Mac 上生成：
 
 ```bash
-./scripts/package-release.sh 6
+./scripts/package-release.sh 6 build
 ```
 
 Windows x64 正式包在 Windows 上生成，不能和 macOS 包混用：
 
 ```powershell
 cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
-.\scripts\package-windows.ps1 -Version 6
+.\scripts\package-windows.ps1 -Version 6 build
 ```
 
-该脚本使用带 BOM 的 UTF-8 编码，兼容 Windows 自带的 Windows PowerShell 5.1。命令行也可以使用 `scripts\package-windows.bat 6`。版本号换成实际发布版本即可。打包机需要 Go、Node.js 22+ 和 Inno Setup 6；脚本默认使用 npm 国内镜像 `https://registry.npmmirror.com` 和 Go 国内镜像 `https://goproxy.cn,direct`。
+该脚本使用带 BOM 的 UTF-8 编码，兼容 Windows 自带的 Windows PowerShell 5.1。命令行也可以使用 `scripts\package-windows.bat 6 build`。版本号换成实际发布版本即可。打包机需要 Go、Node.js 22+ 和 Inno Setup 6；脚本默认使用 npm 国内镜像 `https://registry.npmmirror.com` 和 Go 国内镜像 `https://goproxy.cn,direct`。
 
 中文界面首次启动：程序内置匹配 Firefox 152 的中文语言包。新建浏览器配置会先隐藏启动并正常关闭一次，保存语言包注册结果后才显示窗口；已有配置已启用中文时跳过这一步。初始化不打开招聘网站，也不会循环启动。首次启动会多等待几秒。
 
@@ -181,7 +181,7 @@ Windows 运行时使用各平台对应的 Node、Camoufox、PowerShell 提示音
 
 ```powershell
 cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
-.\scripts\package-windows.ps1 -Version 6-hliepin-dialog
+.\scripts\package-windows.ps1 -Version 6-hliepin-dialog build
 ```
 
 产物为 `release\GoodHR-Local-Agent-Setup-v6-hliepin-dialog-windows-x64.exe`。平台配置编译在 Go 程序中，需安装新包并重新启动本地程序后生效。
@@ -196,7 +196,7 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 ```powershell
 cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
-.\scripts\package-windows.ps1 -Version 6-natural-speed
+.\scripts\package-windows.ps1 -Version 6-natural-speed build
 ```
 
 对应安装器：`release\GoodHR-Local-Agent-Setup-v6-natural-speed-windows-x64.exe`。本版本启用原生拟人鼠标轨迹，更新后必须重新启动浏览器会话才能生效；不固定窗口宽高。原生轨迹最长时间调整为约 0.8 秒；输入使用 Playwright 标准键盘能力，默认字符间隔随机 50～100 毫秒，词间保留额外 50～120 毫秒短暂停顿。轨迹和用时会随距离及随机路径变化。
@@ -205,7 +205,7 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 
 ```powershell
 cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
-.\scripts\package-windows.ps1 -Version 6-stability
+.\scripts\package-windows.ps1 -Version 6-stability build
 ```
 
 安装器输出到 `release\GoodHR-Local-Agent-Setup-v6-stability-windows-x64.exe`。打包会重新安装 Worker 依赖，请先结束本机正在执行的招聘任务。安装后重新启动本地程序和浏览器，才能加载新的 Go 流程、Worker 与浏览器原生鼠标修正。
@@ -224,3 +224,17 @@ cd D:\work\good-hr-ai-js\goodhr5\local-agent-go-new
 - 招聘页面完全禁止 JavaScript 注入，只使用标准 Locator、鼠标、键盘、真实滚轮和截图。
 - 所有选择器操作使用统一选择器类型。
 - 主流程使用平铺步骤，不隐藏深层调用链。
+
+## 正式和测试环境打包（6.1.1 起）
+
+打包命令必须以 `build`（正式）或 `dev`（测试）指定环境，不再使用旧的无环境命令。
+
+```powershell
+.\scripts\package-windows.ps1 -Version 6.1.1 build
+.\scripts\package-windows.ps1 -Version 6.1.1 dev
+.\scripts\package-windows.bat 6.1.1 build
+```
+
+正式域名为 `https://goodhr.58it.cn`，测试域名为 `https://goodhr-test.ai.58it.cn`。测试包文件名额外包含 `-test`，包内 `build-info.json` 可核对环境。macOS 使用 `zsh scripts/package-release.sh 6.1.1 build`，测试版末尾改为 `dev`。
+
+前后端 Docker 部署、数据库备份及 OSS 发布说明见 [分环境部署文档](../DEPLOYMENT.md)。

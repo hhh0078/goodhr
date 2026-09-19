@@ -1,17 +1,24 @@
 ﻿# 文件作用说明：在 Windows x64 上构建 Go 主程序、严格 TypeScript Worker、ZIP 发布包和 Inno Setup 安装器。
+[CmdletBinding(PositionalBinding = $false)]
 param(
-  [string]$Version = "6"
+  [string]$Version = "6",
+  [Parameter(Position = 0)]
+  [ValidateSet("dev", "build")]
+  [string]$Mode
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $Mode) { throw "请在打包命令后指定 dev（测试）或 build（正式），例如：-Version 6.1.1 build" }
+$Environment = if ($Mode -eq "build") { "production" } else { "test" }
 
 $ProjectDir = Resolve-Path (Join-Path $PSScriptRoot "..")
 $WorkerDir = Join-Path $ProjectDir "worker"
 $ReleaseRoot = Join-Path $ProjectDir "release"
-$PackageName = "goodhr-local-agent-v$Version-windows-x64"
+$EnvironmentSuffix = if ($Environment -eq "test") { "-test" } else { "" }
+$PackageName = "goodhr-local-agent-v$Version$EnvironmentSuffix-windows-x64"
 $PackageDir = Join-Path $ReleaseRoot $PackageName
 $ArchivePath = Join-Path $ReleaseRoot "$PackageName.zip"
-$InstallerPath = Join-Path $ReleaseRoot "GoodHR-Local-Agent-Setup-v$Version-windows-x64.exe"
+$InstallerPath = Join-Path $ReleaseRoot "GoodHR-Local-Agent-Setup-v$Version$EnvironmentSuffix-windows-x64.exe"
 $LegacyInstallerPath = Join-Path $ReleaseRoot "GoodHRLocalAgentSetup-$Version-windows-x64.exe"
 $InstallerScript = Join-Path $ProjectDir "packaging\GoodHRLocalAgent.iss"
 $NpmRegistry = if ($env:GOODHR_NPM_REGISTRY) { $env:GOODHR_NPM_REGISTRY } else { "https://registry.npmmirror.com" }
@@ -59,6 +66,13 @@ function Find-InnoSetup {
   throw "没有找到 Inno Setup 6，请安装后再生成 Windows 安装器"
 }
 
+$EnvironmentFile = Join-Path $ProjectDir "..\environments\$Environment.env"
+if (-not (Test-Path -LiteralPath $EnvironmentFile)) { throw "没有找到环境配置：$EnvironmentFile" }
+$DomainLine = Get-Content -LiteralPath $EnvironmentFile | Where-Object { $_ -match '^GOODHR_PUBLIC_BASE_URL=' } | Select-Object -First 1
+if (-not $DomainLine) { throw "环境配置缺少 GOODHR_PUBLIC_BASE_URL" }
+$PublicBaseURL = ($DomainLine -split '=', 2)[1].Trim().TrimEnd('/')
+if ($PublicBaseURL -notmatch '^https://[a-z0-9.-]+$') { throw "环境主域名格式不正确" }
+
 $Npm = Find-CommandPath @("npm.cmd", "npm")
 $Node = Find-CommandPath @("node.exe", "node")
 $Go = Find-CommandPath @("go.exe", "go")
@@ -68,6 +82,12 @@ Write-Step "从项目 PNG Logo 生成 Windows 图标"
 & (Join-Path $PSScriptRoot "generate-windows-icon.ps1")
 
 Write-Step "清理本次 Windows 发布目录"
+$ResolvedReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot).TrimEnd('\') + '\'
+foreach ($TargetPath in @($PackageDir, $ArchivePath, $InstallerPath, $LegacyInstallerPath)) {
+  if (-not [IO.Path]::GetFullPath($TargetPath).StartsWith($ResolvedReleaseRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "打包清理路径超出 release 目录"
+  }
+}
 if (Test-Path $PackageDir) {
   Remove-Item -Recurse -Force $PackageDir
 }
@@ -129,7 +149,7 @@ try {
   $env:GOOS = "windows"
   $env:GOARCH = "amd64"
   $env:GOPROXY = $GoProxy
-  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr.ai.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr.ai.58it.cn"
+  $Ldflags = "-H windowsgui -s -w -X goodhr5/local-agent-go-new/internal/version.Value=$Version -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=$PublicBaseURL -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=$PublicBaseURL"
   & $Go build -trimpath -ldflags $Ldflags -o (Join-Path $PackageDir "goodhr-local-agent.exe") .\cmd\goodhr-local-agent
   if ($LASTEXITCODE -ne 0) {
     throw "Windows Go 主程序编译失败，退出码：$LASTEXITCODE"
@@ -144,12 +164,13 @@ finally {
 }
 
 Copy-Item -Force (Join-Path $ProjectDir "README.md") (Join-Path $PackageDir "README.md")
+@{ version = $Version; environment = $Environment; public_base_url = $PublicBaseURL } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir "build-info.json") -Encoding UTF8
 
 Write-Step "生成 Windows ZIP 发布包"
 Compress-Archive -Path $PackageDir -DestinationPath $ArchivePath -CompressionLevel Optimal
 
 Write-Step "生成 Inno Setup 安装器"
-& $InnoSetup "/Q" "/DMyAppVersion=$Version" $InstallerScript
+& $InnoSetup "/Q" "/DMyAppVersion=$Version" "/DMyEnvironmentSuffix=$EnvironmentSuffix" $InstallerScript
 if ($LASTEXITCODE -ne 0) {
   throw "Windows 安装器生成失败，退出码：$LASTEXITCODE"
 }

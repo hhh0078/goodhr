@@ -6,6 +6,18 @@ set -euo pipefail
 script_dir=${0:A:h}
 project_dir=${script_dir:h}
 version=${1:-6}
+build_mode=${2:-}
+case "${build_mode}" in
+  build) build_environment=production ;;
+  dev) build_environment=test ;;
+  *) print -u2 "请在版本号后指定 dev（测试）或 build（正式）"; exit 1 ;;
+esac
+environment_file="${project_dir}/../environments/${build_environment}.env"
+[[ -f "${environment_file}" ]] || { print -u2 "缺少环境配置：${environment_file}"; exit 1; }
+public_base_url=$(sed -n 's/^GOODHR_PUBLIC_BASE_URL=//p' "${environment_file}" | tr -d '\r')
+[[ "${public_base_url}" =~ '^https://[a-z0-9.-]+$' ]] || { print -u2 "环境主域名格式不正确"; exit 1; }
+environment_suffix=""
+[[ "${build_environment}" != "test" ]] || environment_suffix="-test"
 npm_registry=${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}
 go_proxy=${GOPROXY:-https://goproxy.cn,direct}
 
@@ -24,7 +36,7 @@ case "$(uname -m)" in
 esac
 
 release_root="${project_dir}/release"
-package_name="goodhr-local-agent-v${version}-darwin-${release_arch}"
+package_name="goodhr-local-agent-v${version}${environment_suffix}-darwin-${release_arch}"
 package_dir="${release_root}/${package_name}"
 archive_path="${release_root}/${package_name}.zip"
 
@@ -49,10 +61,11 @@ npm ci --omit=dev --registry="${npm_registry}"
 cd "${project_dir}"
 GOPROXY="${go_proxy}" go build \
   -trimpath \
-  -ldflags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=https://goodhr.ai.58it.cn -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=https://goodhr.ai.58it.cn" \
+  -ldflags="-s -w -X goodhr5/local-agent-go-new/internal/version.Value=${version} -X goodhr5/local-agent-go-new/internal/config.DefaultCloudURL=${public_base_url} -X goodhr5/local-agent-go-new/internal/config.DefaultConsoleURL=${public_base_url}" \
   -o "${package_dir}/goodhr-local-agent" \
   ./cmd/goodhr-local-agent
 cp README.md "${package_dir}/README.md"
+printf '{"version":"%s","environment":"%s","public_base_url":"%s"}\n' "${version}" "${build_environment}" "${public_base_url}" > "${package_dir}/build-info.json"
 
 cd "${release_root}"
 ditto -c -k --sequesterRsrc --keepParent "${package_name}" "${archive_path}"

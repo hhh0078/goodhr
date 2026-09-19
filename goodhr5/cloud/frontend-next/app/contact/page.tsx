@@ -8,7 +8,7 @@ import { Box, Container, Link, Stack, Typography } from "@mui/material";
 import type { Metadata } from "next";
 import Image from "next/image";
 import MarketingShell from "@/components/MarketingShell";
-import { createPageMetadata } from "@/lib/seo";
+import { createPageMetadata, SITE_URL } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "联系GoodHR - 招聘自动化与AI招聘工具咨询",
@@ -36,8 +36,8 @@ const contacts = [
   {
     icon: LanguageRoundedIcon,
     label: "官方网站",
-    value: "goodhr5.58it.cn",
-    href: "https://goodhr5.58it.cn",
+    value: new URL(SITE_URL).host,
+    href: SITE_URL,
     note: "查看产品更新、教程和下载入口。",
   },
 ];

@@ -28,7 +28,7 @@ export default function InvitationsPage() {
   const config = data.config || {};
   const invitees = Array.isArray(data.invitees) ? data.invitees : [];
   const inviteURL = useMemo(() => {
-    const currentOrigin = "https://goodhr5.58it.cn";
+    const currentOrigin = "https://goodhr.58it.cn";
     const url = new URL(process.env.NEXT_PUBLIC_SITE_URL || currentOrigin);
     if (data.invite_id) url.searchParams.set("invite", data.invite_id);
     return url.toString();

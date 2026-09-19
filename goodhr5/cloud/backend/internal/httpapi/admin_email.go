@@ -357,6 +357,9 @@ func (s *AdminEmailService) sendFlowReminder(req flowReminderRequest, baseURL st
 
 // StartRecoveryScheduler 启动每日自动挽回邮件任务。
 func (s *AdminEmailService) StartRecoveryScheduler() {
+	if strings.EqualFold(os.Getenv("GOODHR_DISABLE_EMAIL_SCHEDULER"), "true") {
+		return
+	}
 	go func() {
 		for {
 			next := nextRecoveryRun(time.Now(), s.recoveryHour())
@@ -705,6 +708,12 @@ func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 // appendEmailFooter 给自动邮件追加统一反馈文案。
 // html 为邮件正文，wechat 为作者微信号。
 func appendEmailFooter(html string, wechat string, website string) string {
+	if strings.TrimSpace(os.Getenv("GOODHR_PUBLIC_BASE_URL")) != "" {
+		website = environmentPublicURL(website)
+		for _, base := range []string{"https://goodhr5.58it.cn", "https://goodhr.ai.58it.cn", "https://goodhr.58it.cn", "https://goodhr-test.ai.58it.cn"} {
+			html = strings.ReplaceAll(html, base+"/", deploymentPublicBaseURL()+"/")
+		}
+	}
 	footer := automaticEmailTemplateHTML("footer")
 	if strings.TrimSpace(footer) == "" {
 		footer = `<p style="margin-top:18px;color:#66756b;font-size:13px;">联系电话：{{wechat}} · 微信号：{{wechat}} · 官网：<a href="{{website}}">{{website}}</a></p>`

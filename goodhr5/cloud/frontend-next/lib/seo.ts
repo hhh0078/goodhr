@@ -2,7 +2,7 @@
 
 import type { Metadata } from "next";
 
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://goodhr5.58it.cn").replace(/\/$/, "");
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://goodhr.58it.cn").replace(/\/$/, "");
 export const GITHUB_REPOSITORY_URL = "https://github.com/hhh0078/goodhr";
 
 export const RECRUITMENT_PLATFORMS = ["BOSS直聘", "猎聘", "智联招聘", "前程无忧51job", "拉勾招聘", "58同城招聘", "店长直聘", "赶集直招", "鱼泡直聘", "脉脉招聘", "实习僧", "牛客招聘", "应届生求职", "国聘", "丁香人才", "最佳东方", "建筑英才网", "中国人才热线", "卓博人才网", "一览英才网"];

@@ -417,7 +417,7 @@ func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
 // loadBuiltinAIConfig 从 system.app_config 读取内置 AI 配置。
 func (s *AIWalletService) loadBuiltinAIConfig() builtinAIConfig {
 	cfg := builtinAIConfig{
-		PublicBaseURL:    defaultBuiltinAIBaseURL,
+		PublicBaseURL:    environmentPublicURL(defaultBuiltinAIBaseURL),
 		DefaultModel:     defaultBuiltinAIModel,
 		SignupBonusCents: defaultSignupBonusCents,
 		Models: []builtinAIModel{{
@@ -444,8 +444,9 @@ func (s *AIWalletService) loadBuiltinAIConfig() builtinAIConfig {
 		return cfg
 	}
 	_ = json.Unmarshal(raw, &cfg)
+	cfg.PublicBaseURL = environmentPublicURL(cfg.PublicBaseURL)
 	if strings.TrimSpace(cfg.PublicBaseURL) == "" {
-		cfg.PublicBaseURL = defaultBuiltinAIBaseURL
+		cfg.PublicBaseURL = environmentPublicURL(defaultBuiltinAIBaseURL)
 	}
 	if strings.TrimSpace(cfg.DefaultModel) == "" {
 		cfg.DefaultModel = defaultBuiltinAIModel

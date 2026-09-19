@@ -112,7 +112,7 @@ func (s *TenantService) Invite(w http.ResponseWriter, r *http.Request) {
 		TeamName:     invitation.TenantName,
 		TeamOwner:    invitation.TenantOwner,
 		Role:         invitation.Role,
-		LoginURL:     "https://goodhr5.58it.cn/admin",
+		LoginURL:     deploymentPublicBaseURL() + "/admin",
 	}); err != nil {
 		log.Printf("[团队邀请] 邮件发送失败 invitation=%s invitee=%s err=%v", invitation.ID, invitation.InviteeEmail, err)
 		writeError(w, http.StatusBadGateway, "邀请已经记下了，但邮件没发出去。问题不大，稍后点重发就行")
@@ -198,7 +198,7 @@ func (s *TenantService) InvitationAction(w http.ResponseWriter, r *http.Request)
 			s.writeInvitationActionError(w, err)
 			return
 		}
-		if err = sendTeamInvitationNotice(s.mailer, invitation.InviteeEmail, TeamInvitationNotice{InviterEmail: session.Email, TeamName: invitation.TenantName, TeamOwner: invitation.TenantOwner, Role: invitation.Role, LoginURL: "https://goodhr5.58it.cn/admin"}); err != nil {
+		if err = sendTeamInvitationNotice(s.mailer, invitation.InviteeEmail, TeamInvitationNotice{InviterEmail: session.Email, TeamName: invitation.TenantName, TeamOwner: invitation.TenantOwner, Role: invitation.Role, LoginURL: deploymentPublicBaseURL() + "/admin"}); err != nil {
 			log.Printf("[团队邀请] 重发邮件失败 invitation=%s invitee=%s err=%v", invitation.ID, invitation.InviteeEmail, err)
 			writeError(w, http.StatusBadGateway, "邮件这次还是没发出去，我已经记下了，可以稍后再试")
 			return

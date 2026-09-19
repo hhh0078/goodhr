@@ -1,0 +1,4 @@
+# 本文件保证服务器部署脚本使用 LF，Windows 打包脚本保留 CRLF；不改变 UTF-8 BOM。
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
