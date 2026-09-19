@@ -31,7 +31,7 @@ macOS 在同一目录使用 `zsh scripts/package-release.sh 6.1.1 build`，测�
 
 ## 云端一键部署
 
-服务器依赖 Docker Compose、curl、运行中的 PostgreSQL 容器。前后端使用独立容器，镜像构建使用国内 Go/npm 镜像。
+服务器依赖 Docker Compose、Python 3、curl、运行中的 PostgreSQL 容器。前后端使用独立容器，镜像构建使用国内 Go/npm 镜像。
 
 1. 分别准备正式、测试代码目录。将对应后端配置放在该目录的 `cloud/backend/.env`；也可通过绝对路径 `GOODHR_BACKEND_ENV` 指定。此文件不可提交。
 2. 确认 `GOODHR_PG_DSN` 指向本环境数据库，Redis 配置隔离。设置 `GOODHR_DATABASE` 为该 DSN 中的数据库名称。数据库方案必须在首次正式切换前确定。
@@ -82,5 +82,5 @@ OSS 站点根目录：`/www/wwwroot/oss2.58it.cn`。
 - 正式及原正式别名 `goodhr5.58it.cn` 已转到新容器；原 PHP 和历史下载路径保留。测试新旧域名共用现有站点和双域名证书。
 - 正式升级前备份：`/www/wwwroot/goodhr-production/backups/pre-6.1.1/`；最终停旧后端后的备份：`/www/wwwroot/goodhr-production/good-hr-ai-js/goodhr5/backups/production/20260919-125138/`。
 - 测试部署备份：`/www/wwwroot/goodhr.ai.58it.cn/good-hr-ai-js/goodhr5/backups/test/20260919-125044/`；测试域名及证书备份在旧站点 `backups/domain-20260919/`。
-- 旧正式容器已停止但保留。旧自动部署入口通过原项目 `.deploy.lock/release-owner` 暂停，防止它重新启用旧容器；当前使用上述新环境脚本部署。迁移完成前不要删除该锁。
+- 旧正式容器已停止但保留。旧自动部署入口通过原项目 `.deploy.lock/release-owner` 暂停，防止它重新启用旧容器；当前使用上述新环境脚本部署。旧计划任务改为新部署入口之前不要删除该锁。
 - Windows 正式与测试包均完成构建；PowerShell 5.1 解析正常，缺少模式会直接拒绝。后端与本地域名相关测试通过，云端页面/API、组件配置和公网下载摘要已核对。本机临时启动验收命令被执行策略拒绝，未将本机安装启动验收标记为完成；本次未构建 macOS 安装器。
