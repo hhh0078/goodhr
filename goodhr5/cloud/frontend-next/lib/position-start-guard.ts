@@ -10,8 +10,11 @@ export type PositionStartGuardFailure = {
 
 /** latestLocalAgentRelease 读取当前系统对应的本地程序版本要求。 */
 export function latestLocalAgentRelease(config: any) {
-  const item = Array.isArray(config?.local_agent) ? config.local_agent[0] || {} : {};
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows");
+  const releases = Array.isArray(config?.local_agent) ? config.local_agent : [];
+  const item = releases.find((release: any) => release && (isWindows
+    ? release.url_win || release.url_windows || release.url
+    : release.url_mac || release.url_macos || release.url)) || {};
   return {
     version: String(item.version || "").trim(),
     url: String(isWindows ? item.url_win || item.url_windows || item.url || "" : item.url_mac || item.url_macos || item.url || "").trim(),

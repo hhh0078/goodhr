@@ -19,6 +19,28 @@ source "environments/$environment.env"
 set +a
 export GOODHR_BACKEND_ENV="${GOODHR_BACKEND_ENV:-$root/cloud/backend/.env}"
 [[ -s "$GOODHR_BACKEND_ENV" ]] || { echo "缺少后端配置文件：$GOODHR_BACKEND_ENV" >&2; exit 1; }
+# 备份库名必须和服务实际连接的数据库一致，避免备份错库后仍执行迁移。
+if [[ "$action" != "--build-only" ]]; then
+  : "${GOODHR_DATABASE:?请设置 GOODHR_DATABASE 为本环境的数据库名}"
+  python3 - "$GOODHR_BACKEND_ENV" "$GOODHR_DATABASE" <<'PY'
+import sys, re, shlex
+from pathlib import Path
+from urllib.parse import urlsplit, unquote
+values = {}
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if '=' in line and not line.lstrip().startswith('#'):
+        key, value = line.split('=', 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+dsn = values.get('GOODHR_PG_DSN', '')
+if dsn.startswith(('postgres://', 'postgresql://')):
+    database = unquote(urlsplit(dsn).path.lstrip('/'))
+else:
+    fields = dict(item.split('=', 1) for item in shlex.split(dsn) if '=' in item)
+    database = fields.get('dbname', '')
+if not re.fullmatch(r'[A-Za-z0-9_]+', sys.argv[2]) or database != sys.argv[2]:
+    raise SystemExit('备份库名与后端配置不一致，部署已停止；请检查 GOODHR_DATABASE 和 GOODHR_PG_DSN')
+PY
+fi
 compose=(docker compose --env-file "environments/$environment.env" -f "docker-compose.$mode.yml")
 "${compose[@]}" config --quiet
 "${compose[@]}" build

@@ -40,7 +40,7 @@ macOS 在同一目录使用 `zsh scripts/package-release.sh 6.1.1 build`，测�
 
 ```bash
 # 正式环境：数据库名称按已确认方案填写
-GOODHR_DATABASE=实际正式数据库名 bash scripts/deploy-build.sh
+GOODHR_DATABASE=goodhr5 bash scripts/deploy-build.sh
 # 测试环境沿用 goodhr6
 GOODHR_DATABASE=goodhr6 bash scripts/deploy-dev.sh
 # 只验证并构建镜像，不启动容器、不操作数据库
@@ -62,7 +62,9 @@ OSS 站点根目录：`/www/wwwroot/oss2.58it.cn`。
 
 面向用户下载的 ZIP 只放两个文件：`GoodHR-Local-Agent-Setup-v6.1.1-windows-x64.exe` 和该站点原有的 `安装教程图片.jpg`。
 
-下载地址：`https://oss2.58it.cn/GoodHR-Local-Agent-v6.1.1-windows-x64.zip`。
+正式下载地址：`https://oss2.58it.cn/GoodHR-Local-Agent-v6.1.1-windows-x64-5b2bd42f.zip`。
+
+测试下载地址：`https://oss2.58it.cn/GoodHR-Local-Agent-v6.1.1-test-windows-x64-c3dc864b.zip`。文件名最后八位为 ZIP SHA256 前缀，避免重新构建时命中 CDN 旧缓存。
 
 验证 ZIP 和 HTTPS 下载后，在目标数据库 `system_configs` 的 `system.onboarding_config` JSON 中更新 `local_agent` 对应版本的 `url_win` 和 SHA256；保留 macOS 下载条目及全部 `runtime_components`。正式环境填写正式安装包，测试环境只能填写带 `-test` 的安装包，不能串用。
 
@@ -71,3 +73,14 @@ OSS 站点根目录：`/www/wwwroot/oss2.58it.cn`。
 ## 回退
 
 先保存旧容器、镜像、nginx 配置和数据库备份。反代切换出现问题时恢复 nginx 备份，执行 `nginx -t` 后重载。数据库迁移后不能仅切回旧程序就认定兼容；需核对迁移影响，涉及数据库恢复时先停止写入并保留新数据，避免覆盖切换后产生的订单。
+
+## 2026-09-19 部署记录
+
+- 正式代码：`/www/wwwroot/goodhr-production/good-hr-ai-js/goodhr5`；容器 `goodhr-production-backend-1`、`goodhr-production-frontend-1`；继续使用原正式库 `goodhr5`，Redis DB 0。
+- 测试代码仍在 `/www/wwwroot/goodhr.ai.58it.cn/good-hr-ai-js/goodhr5`；容器 `goodhr6-backend-1`、`goodhr6-frontend-1`；使用 `goodhr6`、Redis DB 6。测试环境关闭定时挽回邮件，登录验证码等主动邮件保留。
+- 正式库副本成功执行 15 个迁移后，正式库升级至 `0080_payment_refunds.sql`；用户和订单数量核对无缺失。支付 PEM 以文件挂载，回调按环境分开。
+- 正式及原正式别名 `goodhr5.58it.cn` 已转到新容器；原 PHP 和历史下载路径保留。测试新旧域名共用现有站点和双域名证书。
+- 正式升级前备份：`/www/wwwroot/goodhr-production/backups/pre-6.1.1/`；最终停旧后端后的备份：`/www/wwwroot/goodhr-production/good-hr-ai-js/goodhr5/backups/production/20260919-125138/`。
+- 测试部署备份：`/www/wwwroot/goodhr.ai.58it.cn/good-hr-ai-js/goodhr5/backups/test/20260919-125044/`；测试域名及证书备份在旧站点 `backups/domain-20260919/`。
+- 旧正式容器已停止但保留。旧自动部署入口通过原项目 `.deploy.lock/release-owner` 暂停，防止它重新启用旧容器；当前使用上述新环境脚本部署。迁移完成前不要删除该锁。
+- Windows 正式与测试包均完成构建；PowerShell 5.1 解析正常，缺少模式会直接拒绝。后端与本地域名相关测试通过，云端页面/API、组件配置和公网下载摘要已核对。本机临时启动验收命令被执行策略拒绝，未将本机安装启动验收标记为完成；本次未构建 macOS 安装器。
