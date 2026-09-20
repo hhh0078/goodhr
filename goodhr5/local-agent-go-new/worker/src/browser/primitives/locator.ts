@@ -210,7 +210,7 @@ export class LocatorPrimitive {
         step: context.step,
         trace_id: context.trace_id,
         retryable: true,
-        details: { description: spec.description },
+        details: { description: spec.description, visibility_error_type: view.visibility_error_type ?? null },
       });
     }
     return {
@@ -355,12 +355,16 @@ export class LocatorPrimitive {
   private async readView(
     locator: Locator,
     spec: SelectorSpec,
-  ): Promise<ElementView> {
+  ): Promise<ElementView & { visibility_error_type?: string }> {
     const state = spec.state ?? "visible";
+    let visibilityErrorType: string | undefined;
     const visible =
       state === "attached"
         ? true
-        : await locator.isVisible().catch(() => false);
+        : await locator.isVisible().catch(error => {
+            visibilityErrorType = error instanceof Error && error.name === "TimeoutError" ? "TimeoutError" : "Error";
+            return false;
+          });
     const enabled =
       state === "enabled"
         ? await locator.isEnabled().catch(() => false)
@@ -372,6 +376,7 @@ export class LocatorPrimitive {
       enabled,
       in_viewport: false,
       fully_in_viewport: false,
+      ...(visibilityErrorType ? { visibility_error_type: visibilityErrorType } : {}),
     };
   }
 

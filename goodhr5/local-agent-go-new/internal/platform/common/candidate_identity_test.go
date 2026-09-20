@@ -2,7 +2,9 @@
 package common
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"strings"
 	"testing"
 
@@ -46,6 +48,10 @@ func TestFindCandidatesRetriesMissingName(t *testing.T) {
 
 // TestFindCandidatesRejectsMissingName 验证持续缺失姓名时有界停止，不泄露正文或按旧序号误点。
 func TestFindCandidatesRejectsMissingName(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previous)
 	browser := &incompleteIdentityBrowser{alwaysMissing: true}
 	cfg := model.Config{
 		Selectors:       map[string]contract.SelectorSpec{"candidate.item": {Target: contract.SelectorGroup{Selectors: []contract.SelectorCandidate{{Type: "css", Value: ".card"}}}}},
@@ -54,5 +60,8 @@ func TestFindCandidatesRejectsMissingName(t *testing.T) {
 	items, err := FindCandidates(context.Background(), browser, cfg, "test")
 	if err == nil || browser.calls != 2 || len(items) != 0 || strings.Contains(err.Error(), "简历正文") {
 		t.Fatalf("缺少身份必须安全停止：calls=%d items=%d err=%v", browser.calls, len(items), err)
+	}
+	if !strings.Contains(logs.String(), "attempt=1 returned_count=1 missing_count=1 missing_indices=[0]") || !strings.Contains(logs.String(), "attempt=2 returned_count=1 missing_count=1 missing_indices=[0]") || strings.Contains(logs.String(), "测试候选人") {
+		t.Fatalf("诊断信息不完整或包含个人资料：%s", logs.String())
 	}
 }

@@ -174,6 +174,8 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	request := contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: cfg.CandidateFields,
 	}
+	readID := time.Now().UnixNano()
+	readStarted := time.Now()
 	items, err := browser.FindAll(ctx, request)
 	if err != nil {
 		return nil, err
@@ -187,12 +189,15 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 					missing++
 				}
 			}
+			logCandidateNameRead(platformID, readID, attempt+1, items, time.Since(readStarted))
 			if missing == 0 {
 				break
 			}
 			if attempt == 1 {
+				logCandidatePage(ctx, browser, cfg, platformID, readID)
 				return nil, fmt.Errorf("候选人列表有 %d 张卡片的姓名尚未读到，重新读取后仍不完整，暂不操作", missing)
 			}
+			readStarted = time.Now()
 			items, err = browser.FindAll(ctx, request)
 			if err != nil {
 				return nil, err

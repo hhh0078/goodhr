@@ -3,7 +3,7 @@
 import type { Locator } from "playwright-core";
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import type { FindResult, SelectorSpec } from "../../contracts/selector.js";
-import { normalizeWorkerError } from "../../errors/worker-error.js";
+import { normalizeWorkerError, WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import {
   LocatorPrimitive,
@@ -11,6 +11,7 @@ import {
 } from "../primitives/locator.js";
 import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
+import { safeURL } from "../session/navigation.js";
 
 /** FoundElement 保存封装查找结果和仅供后续封装能力复用的 Locator。 */
 export interface FoundElement {
@@ -126,9 +127,23 @@ export class FindAction {
           step,
         },
       );
+      const diagnoseNames = report && Object.hasOwn(fields, "name");
+      if (diagnoseNames) {
+        this.logger.info(actionContext, "list_name_diagnostics", "resolved", {
+          page_url: safeURL(page.url()),
+          resolved_count: resolvedItems.length,
+          field_count: Object.keys(fields).length,
+          matched_selector: resolvedItems[0]?.matched_selector.value ?? "",
+          selector_attempts: resolvedItems[0]?.attempts.map(attempt => ({
+            level: attempt.level, selector_type: attempt.selector_type,
+            selector_value: attempt.selector_value, matches: attempt.matches,
+            selected_index: attempt.selected_index,
+          })) ?? [],
+        });
+      }
       const items = await Promise.all(
         resolvedItems.map(async (resolved, index): Promise<FindAllItem | null> => {
-          const beforeText = await this.readPrimitive.text(resolved.locator).catch(() => null);
+          const beforeText = await this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames);
           if (beforeText === null) return null;
           const fieldEntries = await Promise.all(
             Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
@@ -139,13 +154,18 @@ export class FindAction {
                 fieldSpec,
                 actionContext,
                 fieldName,
+                index,
+                diagnoseNames,
               ),
             ] as const),
           );
           const values: JsonObject = Object.fromEntries(fieldEntries);
-          const afterText = await this.readPrimitive.text(resolved.locator).catch(() => null);
+          const afterText = await this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames);
+          if (afterText === null) return null;
           if (afterText !== beforeText) {
-            this.logger.warn(actionContext, "read_list_item", "changed", { index });
+            this.logger.warn(actionContext, "read_list_item", "changed", {
+              index, before_text_length: beforeText.length, after_text_length: afterText.length,
+            });
             return null;
           }
           return {
@@ -159,6 +179,14 @@ export class FindAction {
           };
         }),
       );
+      if (diagnoseNames) {
+        this.logger.info(actionContext, "list_name_diagnostics", "summary", {
+          resolved_count: resolvedItems.length,
+          returned_count: items.filter(item => item !== null).length,
+          dropped_indices: items.flatMap((item, index) => item === null ? [index] : []),
+          missing_name_indices: items.flatMap(item => item && !String(item.fields.name ?? "").trim() ? [item.index] : []),
+        });
+      }
       if (report) {
         this.logger.info(actionContext, step, "success", {
           count: items.filter((item) => item !== null).length,
@@ -181,6 +209,20 @@ export class FindAction {
     }
   }
 
+  /** readListText 保留原有失败丢弃行为，只记录读取阶段、耗时和错误类别，不记录简历正文。 */
+  private async readListText(root: Locator, context: ActionContext, index: number, phase: string, diagnose: boolean): Promise<string | null> {
+    const started = Date.now();
+    try {
+      return await this.readPrimitive.text(root);
+    } catch (error) {
+      if (diagnose) this.logger.warn(context, "read_list_item", "read_failed", {
+        index, phase, read_elapsed_ms: Date.now() - started, text_timeout_ms: 1500,
+        ...readFailureDetails(error),
+      });
+      return null;
+    }
+  }
+
   /** readRelativeField 在列表项内部读取一个字段，找不到时返回空字符串。 */
   private async readRelativeField(
     page: ResolvedElement["page"],
@@ -188,13 +230,18 @@ export class FindAction {
     spec: SelectorSpec,
     actionContext: ActionContext,
     fieldName: string,
+    index: number,
+    diagnose: boolean,
   ): Promise<string> {
+    const started = Date.now();
+    let phase = "locate";
+    let resolved: ResolvedElement | undefined;
     try {
       const fieldSpec: SelectorSpec = {
         ...spec,
         timeout_ms: 0,
       };
-      const resolved = await this.primitive.resolveRelative(
+      resolved = await this.primitive.resolveRelative(
         page,
         root,
         fieldSpec,
@@ -205,6 +252,7 @@ export class FindAction {
           require_unique: false,
         },
       );
+      phase = "read";
       if (spec.read_attribute) {
         return await this.readPrimitive.attribute(
           resolved.locator,
@@ -214,9 +262,43 @@ export class FindAction {
       if (spec.read_property === "html") {
         return await this.readPrimitive.html(resolved.locator);
       }
-      return await this.readPrimitive.text(resolved.locator);
-    } catch {
+      const value = await this.readPrimitive.text(resolved.locator);
+      if (diagnose && fieldName === "name") this.logger.info(actionContext, "read_field:name", value ? "read" : "empty", {
+        index, phase, field_elapsed_ms: Date.now() - started,
+        configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
+        field_state: spec.state ?? "visible", visible: resolved.view.visible,
+        field_matches: resolved.attempts.at(-1)?.matches ?? null,
+        text_length: value.length,
+      });
+      return value;
+    } catch (error) {
+      if (diagnose && fieldName === "name") this.logger.warn(actionContext, "read_field:name", "failed", {
+        index, phase, field_elapsed_ms: Date.now() - started,
+        configured_timeout_ms: spec.timeout_ms ?? null, effective_locator_timeout_ms: 0, text_timeout_ms: 1500,
+        field_state: spec.state ?? "visible", visible: resolved?.view.visible ?? (error instanceof WorkerError && error.code === "ELEMENT_NOT_VISIBLE" ? false : null),
+        field_selectors: spec.target.selectors.map(selector => ({ type: selector.type, value: selector.value })),
+        field_matches: resolved?.attempts.at(-1)?.matches ?? null,
+        ...readFailureDetails(error),
+      });
       return "";
     }
   }
+}
+
+/** readFailureDetails 提取原始错误类别与匹配数量；不输出可能含姓名、正文或凭据的异常消息和调用栈。 */
+function readFailureDetails(error: unknown): JsonObject {
+  if (error instanceof WorkerError) {
+    const attempts = Array.isArray(error.details.attempts) ? error.details.attempts : [];
+    return {
+      error_code: error.code, error_step: error.step, error_type: "WorkerError",
+      visibility_error_type: error.details.visibility_error_type ?? null,
+      cause_type: error.cause instanceof Error ? (["Error", "TimeoutError", "WorkerError"].includes(error.cause.name) ? error.cause.name : "UnknownError") : null,
+      match_attempts: attempts.map(attempt => {
+        if (!attempt || typeof attempt !== "object" || Array.isArray(attempt)) return {};
+        return { level: attempt.level ?? null, matches: attempt.matches ?? null, selected_index: attempt.selected_index ?? null };
+      }),
+    };
+  }
+  const name = error instanceof Error ? error.name : "UnknownError";
+  return { error_type: ["TimeoutError", "Error", "TypeError"].includes(name) ? name : "UnknownError", error_code: name === "TimeoutError" ? "READ_TIMEOUT" : "READ_ERROR" };
 }
