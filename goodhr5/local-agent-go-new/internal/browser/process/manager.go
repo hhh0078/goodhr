@@ -106,7 +106,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	done := make(chan struct{})
 	m.done = done
 	go m.wait(command, lineWriter, done)
-	if err := m.waitHealthy(ctx); err != nil {
+	if err := m.waitHealthy(ctx, done); err != nil {
 		_ = stopProcess(command.Process)
 		return err
 	}
@@ -142,7 +142,7 @@ func (m *Manager) Stop() error {
 }
 
 // waitHealthy 等待 Worker 健康检查通过。
-func (m *Manager) waitHealthy(ctx context.Context) error {
+func (m *Manager) waitHealthy(ctx context.Context, done <-chan struct{}) error {
 	if m.health == nil {
 		return nil
 	}
@@ -160,6 +160,8 @@ func (m *Manager) waitHealthy(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-done:
+			return fmt.Errorf("Browser Worker 启动后立即退出，请在运行组件检查中查看具体原因")
 		case <-deadline.C:
 			return fmt.Errorf("Browser Worker 启动超时")
 		case <-ticker.C:

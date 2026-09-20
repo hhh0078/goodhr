@@ -84,6 +84,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
 	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
+	mux.HandleFunc("POST /api/v1/runtime/system-check", server.handleRuntimeSystemCheck)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)
 	mux.HandleFunc("POST /api/v1/runtime/install", server.handleRuntimeInstall)
 	mux.HandleFunc("POST /api/v1/extensions/open-directory", server.handleExtensionsDirectoryOpen)
@@ -220,6 +221,19 @@ func (s *Server) handleTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleRuntimeStatus 返回 Node、Worker 编译产物和 Worker 健康状态。
 func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
+	writeSuccess(w, http.StatusOK, s.runtimeStatus(r.Context(), false))
+}
+
+// handleRuntimeSystemCheck 重新检查系统运行库和 Worker 原生组件，并返回完整组件状态。
+func (s *Server) handleRuntimeSystemCheck(w http.ResponseWriter, r *http.Request) {
+	writeSuccess(w, http.StatusOK, s.runtimeStatus(r.Context(), true))
+}
+
+// runtimeStatus 统一补齐本地版本、目录、Worker 和浏览器状态，避免检查接口返回不同口径。
+func (s *Server) runtimeStatus(ctx context.Context, refreshSystem bool) runtime.Status {
+	if refreshSystem {
+		s.runtime.SystemRuntimeStatus(true)
+	}
 	status := s.runtime.Status()
 	status.Version = version.Value
 	status.AgentVersion = version.Value
@@ -227,11 +241,11 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 	status.ExtensionsDir = s.cfg.ExtensionsDir
 	status.NodeReady = status.NodeInstalled
 	status.WorkerBuilt = status.NodeWorkerInstalled
-	workerErr := s.browser.Health(r.Context())
+	workerErr := s.browser.Health(ctx)
 	var browserStatus contract.WorkerRuntimeStatus
 	var browserErr error
 	if workerErr == nil {
-		browserStatus, browserErr = s.browser.RuntimeStatus(r.Context())
+		browserStatus, browserErr = s.browser.RuntimeStatus(ctx)
 	}
 	status.WorkerReady = workerErr == nil
 	if browserErr == nil && browserStatus.Installed {
@@ -242,7 +256,7 @@ func (s *Server) handleRuntimeStatus(w http.ResponseWriter, r *http.Request) {
 			status.CamoufoxPath = browserStatus.BinaryPath
 		}
 	}
-	writeSuccess(w, http.StatusOK, status)
+	return status
 }
 
 // handleRuntimeInstall 根据云端清单异步安装当前系统所需运行组件。

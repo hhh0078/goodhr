@@ -1,7 +1,7 @@
 /** 本文件负责整理新版后台运行组件安装配置和状态。 */
 
 export type RequiredRuntimeComponent = {
-	key: "node_runtime" | "camoufox";
+	key: "system_runtime" | "node_runtime" | "camoufox";
 	name: string;
 	installed: boolean;
 };
@@ -51,15 +51,29 @@ export function buildRuntimeInstallPayload(config: any) {
 /** requiredRuntimeComponents 返回必须安装的运行组件列表。 */
 export function requiredRuntimeComponents(runtime: any): RequiredRuntimeComponent[] {
 	const browserInstalled = Boolean(runtime?.camoufox_installed || runtime?.runtime?.camoufox_installed);
-	return [
+	const components: RequiredRuntimeComponent[] = [
 		{ key: "node_runtime", name: "Node 运行环境", installed: Boolean(runtime?.node_installed || runtime?.runtime?.node_installed) },
 		{ key: "camoufox", name: "Camoufox 浏览器", installed: browserInstalled },
 	];
+	const systemRuntime = runtime?.system_runtime || runtime?.runtime?.system_runtime;
+	if (systemRuntime?.required) {
+		components.unshift({
+			key: "system_runtime",
+			name: String(systemRuntime?.name || "Microsoft Visual C++ x64 运行库"),
+			installed: Boolean(systemRuntime?.ready),
+		});
+	}
+	return components;
 }
 
 /** hasMissingRequiredRuntime 判断是否缺少必要运行组件。 */
 export function hasMissingRequiredRuntime(runtime: any) {
 	return requiredRuntimeComponents(runtime).some((item) => !item.installed);
+}
+
+/** hasMissingDownloadableRuntime 判断是否还缺少由 GoodHR 自己下载的 Node 或浏览器组件。 */
+export function hasMissingDownloadableRuntime(runtime: any) {
+	return requiredRuntimeComponents(runtime).some((item) => item.key !== "system_runtime" && !item.installed);
 }
 
 /** waitForRuntimeInstall 等待本地异步安装真正完成，并把进度交给页面展示。 */
@@ -77,7 +91,7 @@ export async function waitForRuntimeInstall(
 			? status.install_progress as Record<string, unknown> : {};
 		if (!progress.running) {
 			if (progress.stage === "failed") throw new Error(String(progress.message || "组件安装没成功，请重试一次"));
-			if (progress.stage === "installed" && !hasMissingRequiredRuntime(status)) return;
+			if (progress.stage === "installed" && !hasMissingDownloadableRuntime(status)) return status;
 		}
 		await new Promise<void>((resolve) => setTimeout(resolve, 1000));
 	}
