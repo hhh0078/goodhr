@@ -243,6 +243,33 @@ test("超高候选人卡片只需部分进入安全区域", async () => {
   assert.equal(calls.moveToViewportCenter, 0);
 });
 
+test("要求完整显示的超高候选人卡片自动保留安全可操作区域", async () => {
+  const target = foundElement({
+    box: { x: 100, y: 80, width: 600, height: 900 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: true,
+    fully_in_viewport: false,
+  });
+  const { action, calls } = createScrollAction();
+
+  await action.ensureVisible(
+    target,
+    {
+      distance: 180,
+      max_attempts: 2,
+      viewport_margin: 48,
+      require_full: true,
+    },
+    context,
+  );
+
+  assert.equal(calls.wheel, 0);
+  assert.equal(calls.moveToElement, 0);
+  assert.equal(calls.moveToViewportCenter, 0);
+});
+
 test("无固定 viewport 时按 HTML 宽度换算 Retina 截图尺寸", async () => {
   const png = Buffer.alloc(24);
   png[1] = "P".charCodeAt(0);

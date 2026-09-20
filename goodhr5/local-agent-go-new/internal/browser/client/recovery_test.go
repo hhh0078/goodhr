@@ -1,4 +1,4 @@
-// 文件作用说明：验证 Worker 卡死错误会先回收进程且绝不重放请求，逐字输入得到足够预算。
+// 文件作用说明：验证 Worker 卡死错误会先回收进程且绝不重放请求，逐字输入和长截图得到足够预算。
 package client
 
 import (
@@ -41,6 +41,13 @@ func TestTypingBudget(t *testing.T) {
 		t.Fatalf("timeout=%s", got)
 	}
 	if got := requestTimeout(contract.ElementInputRequest{Text: strings.Repeat("中", 5000)}); got != 180*time.Second {
+		t.Fatalf("timeout=%s", got)
+	}
+}
+
+// TestLongScreenshotBudget 验证分段长截图不会被普通请求的 45 秒预算提前中断。
+func TestLongScreenshotBudget(t *testing.T) {
+	if got := requestTimeout(contract.LongScreenshotRequest{MaxParts: 20}); got != 180*time.Second {
 		t.Fatalf("timeout=%s", got)
 	}
 }

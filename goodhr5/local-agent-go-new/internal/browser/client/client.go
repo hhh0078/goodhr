@@ -44,7 +44,7 @@ func New(baseURL string) *Client {
 // SetRecovery 设置操作失联后的进程回收方法，不自动重试可能已经发送的消息。
 func (c *Client) SetRecovery(recovery func() error) { c.recovery = recovery }
 
-// requestTimeout 根据逐字输入长度安排预算，普通请求仍为 45 秒。
+// requestTimeout 根据逐字输入和长截图的实际工作量安排预算，普通请求仍为 45 秒。
 func requestTimeout(payload any) time.Duration {
 	timeout := 45 * time.Second
 	if input, ok := payload.(contract.ElementInputRequest); ok {
@@ -52,6 +52,10 @@ func requestTimeout(payload any) time.Duration {
 		if estimate > timeout {
 			timeout = estimate
 		}
+	}
+	if _, ok := payload.(contract.LongScreenshotRequest); ok {
+		// 长截图需要回到顶部、逐段截图并用真实滚轮确认到底，不能套用普通操作的 45 秒预算。
+		timeout = 180 * time.Second
 	}
 	if timeout > 180*time.Second {
 		timeout = 180 * time.Second

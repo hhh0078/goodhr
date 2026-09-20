@@ -18,7 +18,9 @@ export interface VisibleArea {
 
 /** axisGap 返回单个方向还需要滚动的有符号距离，已满足可见要求时返回零。 */
 function axisGap(start: number, size: number, low: number, high: number, full: boolean): number {
-  if (full) {
+  const available = Math.max(0, high - low);
+  // 目标本身大于可见区时不可能完整进入窗口，自动退回安全相交判断，避免把页面布局误报成窗口太小。
+  if (full && size <= available + VIEW_EDGE_TOLERANCE) {
     if (start < low - VIEW_EDGE_TOLERANCE) return start - low;
     if (start + size > high + VIEW_EDGE_TOLERANCE) return start + size - high;
   } else {
@@ -75,16 +77,17 @@ export function intersectsViewport(view: ElementView): boolean {
   return viewAccepted(view, false, visibleArea(view, undefined, 0));
 }
 
-/** assertTargetCanFit 在窗口或容器无法容纳完整目标时明确停止，避免无效滚动。 */
+/** assertTargetCanFit 确认可见区有效；超大目标由 axisGap 自动按安全相交处理。 */
 export function assertTargetCanFit(view: ElementView, area: VisibleArea, full: boolean, context: ActionContext): void {
-  if (area.width > 0 && area.height > 0 && (!full || (view.box.width <= area.width && view.box.height <= area.height))) return;
+  if (area.width > 0 && area.height > 0) return;
   throw new WorkerError({
     code: "VIEWPORT_TOO_SMALL",
-    message: "浏览器窗口太小，目标元素无法完整显示，请放大窗口后再试",
+    message: "浏览器当前没有可操作区域，请确认窗口没有最小化后再试",
     action: context.action, step: "ensure_visible", trace_id: context.trace_id, retryable: true,
     details: {
       target_width: Math.round(view.box.width), target_height: Math.round(view.box.height),
       available_width: Math.round(area.width), available_height: Math.round(area.height),
+      require_full: full,
     },
   });
 }
