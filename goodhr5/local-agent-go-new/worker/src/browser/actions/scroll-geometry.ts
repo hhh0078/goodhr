@@ -4,6 +4,8 @@ import type { ActionContext } from "../../contracts/common.js";
 import type { ElementView } from "../../contracts/selector.js";
 import { WorkerError } from "../../errors/worker-error.js";
 
+const VIEW_EDGE_TOLERANCE = 1;
+
 /** VisibleArea 表示目标元素允许进入的安全可见区域。 */
 export interface VisibleArea {
   left: number;
@@ -17,12 +19,12 @@ export interface VisibleArea {
 /** axisGap 返回单个方向还需要滚动的有符号距离，已满足可见要求时返回零。 */
 function axisGap(start: number, size: number, low: number, high: number, full: boolean): number {
   if (full) {
-    if (start < low) return start - low;
-    if (start + size > high) return start + size - high;
+    if (start < low - VIEW_EDGE_TOLERANCE) return start - low;
+    if (start + size > high + VIEW_EDGE_TOLERANCE) return start + size - high;
   } else {
     const requiredOverlap = Math.min(8, size, Math.max(0, high - low));
-    if (start + size < low + requiredOverlap) return start + size - low - requiredOverlap;
-    if (start > high - requiredOverlap) return start - high + requiredOverlap;
+    if (start + size < low + requiredOverlap - VIEW_EDGE_TOLERANCE) return start + size - low - requiredOverlap;
+    if (start > high - requiredOverlap + VIEW_EDGE_TOLERANCE) return start - high + requiredOverlap;
   }
   return 0;
 }
