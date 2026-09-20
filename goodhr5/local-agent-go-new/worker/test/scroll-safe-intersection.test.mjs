@@ -46,3 +46,14 @@ test('宽卡片只缺横向留白时允许完整显示，真正超出窗口仍�
   assert.equal(viewAccepted(view, true, area), true);
   assert.equal(viewAccepted(makeView({ ...view.box, x: 220 }), true, area), false);
 });
+
+test('边缘不足一像素的坐标误差不再触发无效滚轮', () => {
+  const area = { left: 48, top: 48, right: 1218, bottom: 873, width: 1170, height: 825 };
+  const subpixelView = makeView({ x: 47.6, y: 48, width: 1000, height: 156 });
+  assert.equal(viewAccepted(subpixelView, true, area), true);
+  assert.deepEqual(directedWheel(subpixelView, 260, area, true), { x: 0, y: 0 });
+
+  const outsideTolerance = makeView({ x: 46.7, y: 48, width: 1000, height: 156 });
+  assert.equal(viewAccepted(outsideTolerance, true, area), false);
+  assert.deepEqual(directedWheel(outsideTolerance, 260, area, true), { x: -2, y: 0 });
+});
