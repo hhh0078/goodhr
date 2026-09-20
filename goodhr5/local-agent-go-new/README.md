@@ -93,6 +93,8 @@ Camoufox（Firefox 反检测内核）负责指纹伪装：同一个持久化 Pro
 
 把解压后的 Firefox 插件文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 Camoufox 官方 `addons` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
 
+UBO（uBlock Origin）1.75.0 已随 Go 主程序内置，首次打开浏览器不再联网下载该扩展。启动前逐文件校验，文件缺失或损坏时从内置包离线恢复，旧目录保留为 `UBO-backup-*`，其他扩展与登录数据不受影响。Worker 明确排除默认 UBO 下载，扩展异常会记录具体目录。扩展自身的过滤规则更新保持原行为。UBO 作者为 Raymond Hill & contributors，原始扩展及其 GPL-3.0 和第三方许可证完整保留；对应源码见 https://github.com/gorhill/uBlock/tree/1.75.0 。
+
 每个 Profile 准备时会生成只拥有书签权限的 Firefox 扩展，浏览器启动后通过自身书签接口补齐 GoodHR、BOSS直聘、猎聘猎头端、猎聘和智联招聘入口。已有 Firefox 书签会保留，旧 `Default/Bookmarks` 中的 Chromium 书签及文件夹会按原层级迁移，重复启动不重复添加，原文件不删除。书签栏默认在所有页面显示；这些入口只用于手动导航，不参与平台自动化，也不向网页注入脚本。升级后请退出并重新启动本地程序和浏览器。
 
 书签栏兼容修正：程序会覆盖 Camoufox 主题的强制隐藏规则、把组件策略中的 `DisplayBookmarksToolbar` 改为 `always`，并将浏览器布局资源里的书签组件固定在书签栏。修改 `browser/omni.ja` 前保留 `omni.ja.goodhr-original` 原始备份，其他压缩资源原样保留；旧 Profile 的其他工具栏布局不变，只恢复误放到地址栏的书签组件，恢复保存后清除临时布局覆盖。用户仍可通过浏览器菜单显示或隐藏书签栏。

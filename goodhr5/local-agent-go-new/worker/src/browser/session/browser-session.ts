@@ -22,6 +22,7 @@ import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
+import { offlineAddonOptions } from "./bundled-addon.js";
 import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
@@ -102,7 +103,7 @@ export class BrowserSession {
         const fingerprint = await loadStableProfileFingerprint(
           this.userDataDir,
         );
-        const options = await this.buildLaunchOptions(request, fingerprint);
+        const options = await this.buildLaunchOptions(request, actionContext, fingerprint);
         await initializeChineseLanguagePack(this.userDataDir, options);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         await this.downloadManager.resetSnapshot();
@@ -116,7 +117,7 @@ export class BrowserSession {
         this.browser = this.context.browser();
       } else {
         this.userDataDir = "";
-        const options = await this.buildLaunchOptions(request);
+        const options = await this.buildLaunchOptions(request, actionContext);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
@@ -401,6 +402,7 @@ export class BrowserSession {
   /** buildLaunchOptions 把启动请求转换为 Camoufox + Playwright 启动参数。 */
   private async buildLaunchOptions(
     request: BrowserStartRequest,
+    actionContext: ActionContext,
     fingerprint?: Awaited<ReturnType<typeof loadStableProfileFingerprint>>,
   ): Promise<LaunchOptions> {
     // 决策：用户与招聘平台均在中国大陆，语言与时区统一固定为 zh-CN / Asia/Shanghai，
@@ -413,8 +415,8 @@ export class BrowserSession {
       args: ["-purgecaches"],
       locale: request.locale ?? "zh-CN",
       proxy: request.proxy,
-      // Firefox 插件目录（沿用原扩展目录约定，需包含 manifest.json）。
-      addons: request.extension_paths,
+      // Go 从内置包准备 UBO；显式关闭默认下载，首次启动也不等待外网。
+      ...await offlineAddonOptions(request.extension_paths, actionContext),
       // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
       // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
       config: { timezone: request.timezone ?? "Asia/Shanghai" },

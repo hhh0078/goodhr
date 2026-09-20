@@ -137,6 +137,11 @@ func (m *Manager) EnsureWorker(ctx context.Context) error {
 	if err := m.CheckWorkerBuild(); err != nil {
 		return err
 	}
+	if fileExists(m.CamoufoxPath()) {
+		if err := EnsureBundledUBO(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
+			return fmt.Errorf("浏览器内置扩展没准备好，请重试：%w", err)
+		}
+	}
 	return m.worker.Start(ctx)
 }
 
@@ -236,7 +241,11 @@ func (m *Manager) configureWorkerEnvironment() {
 	}
 	m.worker.SetExecutable(m.NodePath())
 	browserPath := m.CamoufoxPath()
-	environment := []string{"CAMOUFOX_INSTALL_DIR=" + filepath.Join(m.runtimeDir, "camoufox")}
+	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
+	environment := []string{
+		"CAMOUFOX_INSTALL_DIR=" + camoufoxDir,
+		"GOODHR_UBO_EXTENSION_PATH=" + bundledUBOPath(camoufoxDir, goruntime.GOOS),
+	}
 	if fileExists(browserPath) {
 		environment = append(environment, "CAMOUFOX_BINARY_PATH="+browserPath)
 	}

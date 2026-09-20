@@ -6,6 +6,7 @@ import type { ErrorBody, JsonObject, JsonValue } from "../contracts/common.js";
 export type WorkerErrorCode =
   | "INVALID_REQUEST"
   | "BROWSER_NOT_RUNNING"
+  | "BROWSER_ADDON_INVALID"
   | "PAGE_NOT_AVAILABLE"
   | "PAGE_CLOSED"
   | "ELEMENT_NOT_FOUND"
