@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/api"
@@ -38,6 +39,8 @@ import (
 type Application struct {
 	cfg       config.Config
 	workerLog *diagnostics.Writer
+	shutdown  chan struct{}
+	stopOnce  sync.Once
 	server    *api.Server
 	runner    *lifecycle.Runner
 	runtime   *runtimemanager.Manager
@@ -103,17 +106,28 @@ func New(cfg config.Config) (*Application, error) {
 	}
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
-	appUpdater := updater.New(cfg.DataDir, version.Value)
+	application := &Application{
+		cfg: cfg, runner: runner, runtime: runtimeManager, workerLog: workerLog,
+		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
+		shutdown: make(chan struct{}),
+	}
+	appUpdater := updater.New(cfg.DataDir, version.Value, application.RequestShutdown)
 	server := api.NewServer(cfg, api.Dependencies{
 		Runner: runner, Runtime: runtimeManager, Browser: browserClient,
 		Downloads: downloads, Store: store, Profiles: profiles,
 		OCR: ocrClient, Updater: appUpdater,
 		Cloud: cloudClient, DeviceID: device.Current,
 	})
-	return &Application{
-		cfg: cfg, server: server, runner: runner, runtime: runtimeManager, workerLog: workerLog,
-		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
-	}, nil
+	application.server = server
+	return application, nil
+}
+
+// RequestShutdown 请求主程序走完整收尾流程，确保 Worker 退出后更新安装器才覆盖文件。
+func (a *Application) RequestShutdown() {
+	if a == nil || a.shutdown == nil {
+		return
+	}
+	a.stopOnce.Do(func() { close(a.shutdown) })
 }
 
 // cleanupLocalFiles 清理崩溃遗留截图、组件压缩包和旧更新包，失败只记日志不阻断启动。
@@ -136,7 +150,17 @@ func cleanupLocalFiles(cfg config.Config) {
 // Run 启动本地 HTTP 服务并在上下文取消后按顺序收尾。
 func (a *Application) Run(ctx context.Context) error {
 	defer a.workerLog.Close()
-	downloadCtx, stopDownloads := context.WithCancel(ctx)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	go func() {
+		select {
+		case <-a.shutdown:
+			log.Printf("event=agent_shutdown_requested reason=update")
+			cancelRun()
+		case <-runCtx.Done():
+		}
+	}()
+	downloadCtx, stopDownloads := context.WithCancel(runCtx)
 	downloadDone := make(chan struct{})
 	go func() {
 		defer close(downloadDone)
@@ -149,7 +173,7 @@ func (a *Application) Run(ctx context.Context) error {
 	if a.cfg.AutoOpenConsole {
 		go func() {
 			healthURL := fmt.Sprintf("http://%s/health", a.cfg.Address())
-			if err := console.OpenWhenReady(ctx, healthURL, a.cfg.ConsolePageURL(), a.cfg.Port); err != nil && ctx.Err() == nil {
+			if err := console.OpenWhenReady(runCtx, healthURL, a.cfg.ConsolePageURL(), a.cfg.Port); err != nil && runCtx.Err() == nil {
 				log.Printf("自动打开 GoodHR 控制台失败：%v", err)
 			}
 		}()
@@ -158,7 +182,7 @@ func (a *Application) Run(ctx context.Context) error {
 	select {
 	case err := <-serverError:
 		runErr = err
-	case <-ctx.Done():
+	case <-runCtx.Done():
 	}
 	taskCtx, cancelTasks := context.WithTimeout(context.Background(), 45*time.Second)
 	a.runner.StopAll(taskCtx)

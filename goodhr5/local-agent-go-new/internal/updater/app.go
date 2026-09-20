@@ -45,19 +45,21 @@ type Progress struct {
 
 // Manager 管理当前唯一应用更新任务。
 type Manager struct {
-	mu             sync.Mutex
-	dataDir        string
-	currentVersion string
-	progress       Progress
-	http           *http.Client
+	mu              sync.Mutex
+	dataDir         string
+	currentVersion  string
+	requestShutdown func()
+	progress        Progress
+	http            *http.Client
 }
 
 // New 创建本地程序更新管理器。
-func New(dataDir string, currentVersion string) *Manager {
+func New(dataDir string, currentVersion string, requestShutdown func()) *Manager {
 	return &Manager{
-		dataDir:        dataDir,
-		currentVersion: strings.TrimSpace(currentVersion),
-		http:           &http.Client{Timeout: 30 * time.Minute},
+		dataDir:         dataDir,
+		currentVersion:  strings.TrimSpace(currentVersion),
+		requestShutdown: requestShutdown,
+		http:            &http.Client{Timeout: 30 * time.Minute},
 		progress: Progress{
 			Stage:          "idle",
 			Message:        "等待更新",
@@ -128,18 +130,19 @@ func (m *Manager) run(ctx context.Context, request Request) {
 	m.update(func(progress *Progress) {
 		progress.Running = true
 		progress.Stage = "install"
-		progress.Message = "下载完成，正在启动安装更新"
+		progress.Message = "下载完成，正在安全关闭小助手并安装更新"
 		progress.Percent = 100
 		progress.PackagePath = installerPath
 	})
+	if m.requestShutdown == nil {
+		m.fail(fmt.Errorf("更新安装器已经准备好，但主程序缺少安全退出入口"))
+		return
+	}
 	if err = startInstaller(installerPath); err != nil {
 		m.fail(err)
 		return
 	}
-	go func() {
-		time.Sleep(1200 * time.Millisecond)
-		os.Exit(0)
-	}()
+	m.requestShutdown()
 }
 
 // download 把更新包保存到本地数据目录，并持续更新下载进度。
@@ -345,12 +348,21 @@ func startInstaller(packagePath string) error {
 	case "darwin":
 		return exec.Command("open", packagePath).Start()
 	case "windows":
-		script := fmt.Sprintf(
-			"Start-Sleep -Seconds 2; Start-Process -FilePath '%s' -ArgumentList '/SILENT','/NORESTART'",
-			strings.ReplaceAll(packagePath, "'", "''"),
-		)
+		script := windowsInstallerScript(packagePath, os.Getpid())
 		return exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script).Start()
 	default:
 		return fmt.Errorf("当前系统暂不支持自动启动本地程序安装器")
 	}
+}
+
+// windowsInstallerScript 等待当前主程序完整退出后再安装，避免 Worker 的原生模块仍被占用。
+func windowsInstallerScript(packagePath string, parentPID int) string {
+	escapedPath := strings.ReplaceAll(packagePath, "'", "''")
+	return fmt.Sprintf(
+		"$deadline=(Get-Date).AddSeconds(180); "+
+			"while (Get-Process -Id %d -ErrorAction SilentlyContinue) { "+
+			"if ((Get-Date) -ge $deadline) { exit 1 }; Start-Sleep -Milliseconds 200 }; "+
+			"Start-Process -FilePath '%s' -ArgumentList '/SILENT','/NORESTART'",
+		parentPID, escapedPath,
+	)
 }

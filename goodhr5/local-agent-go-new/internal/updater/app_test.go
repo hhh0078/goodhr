@@ -63,3 +63,16 @@ func TestVerifySHA256(t *testing.T) {
 		t.Fatal("错误更新包摘要不应通过")
 	}
 }
+
+// TestWindowsInstallerScriptWaitsForAgentExit 验证安装器必须等主程序完整退出后才开始覆盖文件。
+func TestWindowsInstallerScriptWaitsForAgentExit(t *testing.T) {
+	script := windowsInstallerScript(`D:\GoodHRLocalAgent\update's.exe`, 2468)
+	waitIndex := strings.Index(script, "Get-Process -Id 2468")
+	startIndex := strings.Index(script, "Start-Process -FilePath")
+	if waitIndex < 0 || startIndex < 0 || waitIndex >= startIndex {
+		t.Fatalf("安装脚本没有先等待主程序退出：%s", script)
+	}
+	if !strings.Contains(script, `D:\GoodHRLocalAgent\update''s.exe`) {
+		t.Fatalf("安装包路径没有安全转义：%s", script)
+	}
+}
