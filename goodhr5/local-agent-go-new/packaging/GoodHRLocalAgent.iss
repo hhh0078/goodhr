@@ -38,7 +38,7 @@ WizardSmallImageFile=..\assets\goodhr-logo-transparent-512.png
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Dirs]
-Name: "{localappdata}\GoodHR\local-agent-new"
+Name: "{app}\data"; Flags: uninsneveruninstall
 
 [InstallDelete]
 ; 升级前删除旧 Worker，避免新 Go 主程序混用旧 TypeScript 产物。

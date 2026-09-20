@@ -52,7 +52,9 @@ StartTask
 
 ## 连接超时与闪退日志
 
-Windows 日志目录：`%APPDATA%\GoodHR\local-agent-new\logs`。
+Windows 日志目录：安装目录下的 `data\logs`，例如 `D:\GoodHRLocalAgent\data\logs`。旧版本日志在 `%APPDATA%\GoodHR\local-agent-new\logs`。
+
+Windows 浏览器、OCR、账号登录数据、截图、下载和运行时临时文件统一放在安装目录的 `data` 中；`--data-dir` 和 `GOODHR_DATA_DIR` 仍可指定其他位置。升级首次启动时，会在旧程序和浏览器退出后复制旧 AppData 数据，逐文件校验通过才切换并移除旧副本；复制失败保留原数据，已有新数据时不会覆盖。迁移需要目标盘有足够空间，卸载保留 `data`。旧版下载到系统“下载”目录的文件不会自动搬动。Windows 安装器自身可能仍使用系统临时目录，其临时解包不属于 Agent 运行数据。
 
 - `agent.log`：本地程序启动、Worker 进程编号、退出码、请求耗时和恢复结果。
 - `worker.log`：每次请求编号、排队时间、鼠标移动/按下/松开、滚轮、截图及异常。

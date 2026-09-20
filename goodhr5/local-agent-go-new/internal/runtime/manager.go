@@ -236,11 +236,12 @@ func (m *Manager) configureWorkerEnvironment() {
 	}
 	m.worker.SetExecutable(m.NodePath())
 	browserPath := m.CamoufoxPath()
+	environment := []string{"CAMOUFOX_INSTALL_DIR=" + filepath.Join(m.runtimeDir, "camoufox")}
 	if fileExists(browserPath) {
-		m.worker.SetEnvironment("CAMOUFOX_BINARY_PATH=" + browserPath)
+		environment = append(environment, "CAMOUFOX_BINARY_PATH="+browserPath)
 	}
 	// camoufox-js 依赖 INSTALL_DIR 解析启动文件和版本信息，必须指向组件根目录。
-	m.worker.SetEnvironment("CAMOUFOX_INSTALL_DIR=" + filepath.Join(m.runtimeDir, "camoufox"))
+	m.worker.SetEnvironment(environment...)
 }
 
 // nodeBinaryName 返回当前平台的 Node.js 可执行文件名。

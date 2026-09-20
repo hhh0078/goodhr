@@ -102,7 +102,15 @@ export class ClickAction {
         actionContext,
       );
       if (request.verify && !verified) {
-        throw new Error("点击后的页面状态没有通过验证");
+        throw new WorkerError({
+          code: "CLICK_VERIFICATION_FAILED",
+          message: "已经点击，但页面结果还没确认，请先检查当前状态",
+          action: actionContext.action,
+          step: "verify_click",
+          trace_id: actionContext.trace_id,
+          retryable: false,
+          details: { target_description: request.selector.description, clicked: true },
+        });
       }
       const result: ClickResult = {
         clicked: true,

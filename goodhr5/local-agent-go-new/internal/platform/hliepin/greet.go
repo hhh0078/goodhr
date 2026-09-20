@@ -3,6 +3,7 @@ package hliepin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg
 		confirmKey = "candidate.greet_without_job"
 		confirmLabel = "不选择职位开聊"
 	}
-	if err = confirmGreeting(ctx, browser, cfg, confirmKey, confirmLabel); err != nil {
+	if err = confirmGreeting(ctx, browser, cfg, candidate, confirmKey, confirmLabel); err != nil {
 		return err
 	}
 	if err = closePostGreetPromotion(ctx, browser, cfg, postGreetPromotionPollAttempts); err != nil {
@@ -179,7 +180,7 @@ func greetingJobAlreadySelected(ctx context.Context, browser model.Browser, cfg 
 }
 
 // confirmGreeting 点击猎聘开聊确认按钮，并先确认职位弹框已经关闭。
-func confirmGreeting(ctx context.Context, browser model.Browser, cfg model.Config, key string, label string) error {
+func confirmGreeting(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, key string, label string) error {
 	selector, err := common.RequiredSelector(cfg, key)
 	if err != nil {
 		return err
@@ -196,9 +197,47 @@ func confirmGreeting(ctx context.Context, browser model.Browser, cfg model.Confi
 			TimeoutMS:    5000,
 		},
 	}); err != nil {
+		var workerErr *contract.WorkerError
+		if errors.As(err, &workerErr) && workerErr.Body.Code == "CLICK_VERIFICATION_FAILED" {
+			// 已经松开鼠标，不再重复提交；只复查弹框和当前候选人的沟通状态。
+			if verifyErr := verifyGreetingResult(ctx, browser, cfg, candidate); verifyErr == nil {
+				return nil
+			} else {
+				return fmt.Errorf("已点击猎聘“%s”，但开聊结果尚未确认，请查看当前聊天状态：%w", label, errors.Join(err, verifyErr))
+			}
+		}
 		return fmt.Errorf("点击猎聘“%s”失败：%w", label, err)
 	}
 	return nil
+}
+
+// verifyGreetingResult 在验证超时后只读等待最多八秒，以弹框关闭或本候选人继续沟通按钮确认结果。
+func verifyGreetingResult(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	for {
+		opened, err := common.ProbeSelectorExists(ctx, browser, cfg, "candidate.greet_modal")
+		if err != nil {
+			return err
+		}
+		if !opened {
+			return nil
+		}
+		contacted, err := common.CandidateActionExists(ctx, browser, cfg, candidate, "candidate.continue")
+		if err != nil {
+			return err
+		}
+		if contacted {
+			return nil
+		}
+		timer := time.NewTimer(300 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // matchingGreetingJob 优先完整匹配岗位，再按页面省略号前缀选择唯一且最长的匹配项。

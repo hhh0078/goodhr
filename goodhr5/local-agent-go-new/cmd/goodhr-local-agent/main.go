@@ -52,6 +52,9 @@ func main() {
 		}
 		return
 	}
+	if err := cfg.PrepareData(); err != nil {
+		log.Fatalf("准备本地数据失败：%v", err)
+	}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	runLog, err := diagnostics.Open(cfg.LogsDir, "agent.log")
 	if err != nil {

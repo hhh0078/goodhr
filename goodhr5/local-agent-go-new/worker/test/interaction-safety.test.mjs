@@ -8,6 +8,24 @@ import { waitForStablePosition } from "../dist/browser/actions/stable-position.j
 import { ClickAction } from "../dist/browser/actions/click.js";
 import { MoveAction } from "../dist/browser/actions/move.js";
 
+test("点击已完成但验证失败时返回独立错误码并禁止盲目重试", async () => {
+  const box = { x: 20, y: 20, width: 100, height: 40 };
+  const found = { result: { element_ref: "button" }, resolved: { page: {}, locator: {}, view: { box } } };
+  let clicks = 0;
+  const mouse = { async down() { clicks++; }, async up() {} };
+  const action = new ClickAction(
+    { async one() { return found; } }, { async ensureVisible() {} },
+    { async toElement() {} }, { async box() { return box; } }, mouse,
+    { info() {}, failure() {} },
+  );
+  await assert.rejects(
+    action.execute({ selector: { description: "提交按钮" }, verify: { target_hidden: {}, timeout_ms: 1 } },
+      { action: "element.click", trace_id: "verification", started_at: Date.now() }),
+    error => error.code === "CLICK_VERIFICATION_FAILED" && error.step === "verify_click" && error.retryable === false && error.details.clicked === true,
+  );
+  assert.equal(clicks, 1);
+});
+
 test("按钮右缘与悬浮入口重叠时，点击落在中部而不误开入口", async () => {
   const box = { x: 1124.2, y: 766.35, width: 87.8, height: 32 };
   const found = { result: { element_ref: "button" }, resolved: {

@@ -47,6 +47,7 @@ type Config struct {
 	NodePath        string
 	OCRExecutable   string
 	AutoOpenConsole bool
+	LegacyDataDir   string
 }
 
 // Load 从启动参数和环境变量加载配置并创建必要目录。
@@ -82,6 +83,14 @@ func Load(host string, port int, dataDir string) (Config, error) {
 		NodePath:        defaultNodePath(runtimeDir),
 		OCRExecutable:   envString("GOODHR_OCR_EXECUTABLE", filepath.Join(runtimeDir, "ocr", "RapidOCR-json")),
 		AutoOpenConsole: envBool("GOODHR_AUTO_OPEN_CONSOLE", true),
+	}
+	if goruntime.GOOS == "windows" {
+		cfg.DownloadsDir = filepath.Join(resolvedDataDir, "downloads")
+	}
+	if goruntime.GOOS == "windows" && strings.TrimSpace(dataDir) == "" && strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR")) == "" {
+		if base, legacyErr := os.UserConfigDir(); legacyErr == nil {
+			cfg.LegacyDataDir = filepath.Join(base, "GoodHR", "local-agent-new")
+		}
 	}
 	if err := cfg.EnsureDirectories(); err != nil {
 		return Config{}, err
@@ -204,13 +213,20 @@ func (c Config) ConsolePageURL() string {
 	return strings.TrimRight(c.ConsoleURL, "/") + "/admin/"
 }
 
-// resolveDataDir 返回用户配置目录中的 GoodHR 新本地程序目录。
+// resolveDataDir 优先使用显式配置；Windows 默认把数据放在安装目录，其他系统保留用户目录。
 func resolveDataDir(value string) (string, error) {
 	if resolved := strings.TrimSpace(value); resolved != "" {
 		return filepath.Clean(resolved), nil
 	}
 	if resolved := strings.TrimSpace(os.Getenv("GOODHR_DATA_DIR")); resolved != "" {
 		return filepath.Clean(resolved), nil
+	}
+	if goruntime.GOOS == "windows" {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("读取安装目录失败：%w", err)
+		}
+		return filepath.Join(filepath.Dir(executable), "data"), nil
 	}
 	base, err := os.UserConfigDir()
 	if err != nil {
