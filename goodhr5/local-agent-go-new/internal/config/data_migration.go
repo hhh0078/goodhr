@@ -16,11 +16,17 @@ import (
 
 // PrepareData 在确认没有旧主程序运行后迁移数据，失败时禁止启动空白账号库。
 func (c Config) PrepareData() error {
+	return c.PrepareDataWithProgress(nil)
+}
+
+// PrepareDataWithProgress 在数据准备期间报告阶段与字节进度，不提前打开数据库或运行组件。
+func (c Config) PrepareDataWithProgress(report func(DataProgress)) error {
+	reportData(report, "checking", "正在检查本地数据是否需要搬家", 0, 0)
 	if runtime.GOOS != "windows" {
 		return c.EnsureDirectories()
 	}
 	if c.LegacyDataDir != "" && !strings.EqualFold(filepath.Clean(c.LegacyDataDir), filepath.Clean(c.DataDir)) {
-		if err := migrateData(c.LegacyDataDir, c.DataDir); err != nil {
+		if err := migrateDataWithProgress(c.LegacyDataDir, c.DataDir, report); err != nil {
 			return err
 		}
 	}
@@ -52,6 +58,11 @@ type dataFileStamp struct {
 
 // dataInventory 拒绝链接和特殊文件，完整校验普通文件，避免迁移越过用户数据边界。
 func dataInventory(root string) (map[string]dataFileStamp, error) {
+	return dataInventoryProgress(root, nil)
+}
+
+// dataInventoryProgress 在逐块校验时报告读取量，不暴露文件名和文件内容。
+func dataInventoryProgress(root string, read func(int)) (map[string]dataFileStamp, error) {
 	result := make(map[string]dataFileStamp)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -75,7 +86,7 @@ func dataInventory(root string) (map[string]dataFileStamp, error) {
 				return err
 			}
 			hash := sha256.New()
-			stamp.Size, err = io.Copy(hash, file)
+			stamp.Size, err = io.Copy(hash, &progressFile{File: file, read: read})
 			closeErr := file.Close()
 			if err != nil {
 				return err
@@ -111,6 +122,11 @@ func emptyDataTree(root string) (bool, error) {
 
 // migrateData 先复制到目标盘临时目录并双向校验，再发布完整目录，最后清理已校验的旧副本。
 func migrateData(source, destination string) error {
+	return migrateDataWithProgress(source, destination, nil)
+}
+
+// migrateDataWithProgress 保留原有完整性保护，在扫描、复制和双向校验时报告实际进度。
+func migrateDataWithProgress(source, destination string, report func(DataProgress)) error {
 	source, err := filepath.Abs(source)
 	if err != nil {
 		return err
@@ -124,6 +140,7 @@ func migrateData(source, destination string) error {
 	}
 	info, err := os.Lstat(source)
 	if os.IsNotExist(err) {
+		reportData(report, "skipped", "数据已在新位置，或这是首次使用，无需迁移", 0, 0)
 		return nil
 	}
 	if err != nil {
@@ -139,12 +156,19 @@ func migrateData(source, destination string) error {
 	defer unlock()
 	empty, err := emptyDataTree(destination)
 	if err != nil || !empty {
+		if err == nil {
+			reportData(report, "skipped", "正在使用安装目录中的数据，无需重复迁移", 0, 0)
+		}
 		return err // 新目录已有数据时继续使用，不合并两套账号库。
 	}
 	if err := ensureLegacyDataIdle(source); err != nil {
 		return err
 	}
-	before, err := dataInventory(source)
+	total, err := dataSize(source)
+	if err != nil {
+		return err
+	}
+	before, err := dataInventoryProgress(source, dataCounter(report, "verifying_source", "正在检查旧数据，先确认完整再搬家", total))
 	if err != nil {
 		return err
 	}
@@ -154,14 +178,14 @@ func migrateData(source, destination string) error {
 	}
 	defer os.RemoveAll(stage) // 仅清理本次在目标盘创建的临时目录。
 	log.Printf("正在迁移 GoodHR 数据 source=%s destination=%s", source, destination)
-	if err := os.CopyFS(stage, os.DirFS(source)); err != nil {
+	if err := os.CopyFS(stage, progressFS{FS: os.DirFS(source), read: dataCounter(report, "copying", "正在复制数据，原文件会先保留", total)}); err != nil {
 		return fmt.Errorf("旧数据复制未完成，原文件已保留：%w", err)
 	}
-	copied, err := dataInventory(stage)
+	copied, err := dataInventoryProgress(stage, dataCounter(report, "verifying_copy", "正在校验新副本，确认文件一个不少", total))
 	if err != nil {
 		return err
 	}
-	after, err := dataInventory(source)
+	after, err := dataInventoryProgress(source, dataCounter(report, "verifying_original", "正在复核原数据，马上就好", total))
 	if err != nil {
 		return err
 	}
@@ -181,11 +205,13 @@ func migrateData(source, destination string) error {
 	if err := os.Rename(stage, destination); err != nil {
 		return fmt.Errorf("切换数据目录失败，原文件已保留：%w", err)
 	}
+	reportData(report, "cleanup", "新数据已就位，正在收尾", 0, 0)
 	if err := os.RemoveAll(source); err != nil {
 		// 完整新副本已发布，清理失败不回退到旧目录。
 		log.Printf("新数据已启用，旧目录未清理完 source=%s error=%v", source, err)
 	}
 	log.Printf("GoodHR 数据迁移校验完成 destination=%s", destination)
+	reportData(report, "migrated", "数据搬家完成", total, total)
 	return nil
 }
 

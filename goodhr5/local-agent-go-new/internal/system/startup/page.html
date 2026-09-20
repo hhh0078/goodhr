@@ -1,0 +1,18 @@
+<!-- 文件作用：显示 GoodHR 本地启动与数据迁移进度；只运行在本机启动页，不接触招聘页面。 -->
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GoodHR · 正在准备</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f5f2;color:#253a32;font-family:system-ui,"Microsoft YaHei",sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:min(100%,580px);background:white;border:1px solid #dce4dc;border-radius:20px;padding:36px;box-shadow:0 12px 40px #273c3010}.brand{color:#496d53;font-size:14px;letter-spacing:1px}h1{font-size:25px;line-height:1.5;margin:20px 0 12px}p{color:#627069;line-height:1.8;font-size:14px}progress{width:100%;height:12px;accent-color:#52785d;margin-top:16px}#amount{font-variant-numeric:tabular-nums}#error{white-space:pre-wrap;overflow-wrap:anywhere;color:#a53d32;background:#fcf1ee;border-radius:10px;padding:16px}a{color:#386949}.foot{border-top:1px solid #edf0eb;padding-top:18px;margin-top:26px}button{border:1px solid #bbcbbc;border-radius:8px;padding:10px 18px;background:#f4f7f2;color:#315b3e;cursor:pointer}
+</style></head><body><main><div class="brand">GoodHR 小助手</div><h1 id="message">我先检查一下本地数据</h1><p id="hint">正在准备启动。数据多时会慢一些，这个页面会显示当前进度。</p><progress id="bar" aria-label="当前阶段进度"></progress><p id="amount" aria-live="polite">正在检查…</p><p id="error" hidden></p><p id="next" hidden>处理上面的原因后，关闭并重新启动本地程序。请先保留现有数据目录。</p><button id="dismiss" hidden>关闭启动程序</button><button id="retry" hidden>重新读取状态</button><p class="foot">先准备数据，再检查运行组件。已有数据不会重复搬家。</p></main>
+<script>
+// formatBytes 将实际处理字节转换为便于阅读的大小。
+function formatBytes(n){return n>=1073741824?(n/1073741824).toFixed(2)+' GB':n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B'}
+const message=document.getElementById('message'),bar=document.getElementById('bar'),amount=document.getElementById('amount'),error=document.getElementById('error'),next=document.getElementById('next'),retry=document.getElementById('retry');
+// pollStartup 只读取本机启动状态；数据准备完成后复用当前标签页进入控制台。
+async function pollStartup(){try{const response=await fetch('status',{cache:'no-store'});if(!response.ok)throw new Error('状态读取未成功');const s=await response.json();message.textContent=s.message;error.hidden=!s.error;error.textContent=s.error||'';next.hidden=!s.error;document.getElementById('dismiss').hidden=!s.error;retry.hidden=true;bar.hidden=Boolean(s.error);amount.hidden=Boolean(s.error);if(s.total>0){bar.max=s.total;bar.value=Math.min(s.done,s.total);amount.textContent='当前阶段 '+Math.min(100,Math.floor(s.done/s.total*100))+'% · '+formatBytes(s.done)+' / '+formatBytes(s.total)}else{bar.removeAttribute('value');amount.textContent='正在处理，请稍等…'}if(s.target){location.replace(s.target);return}if(s.error)return;setTimeout(pollStartup,500)}catch(e){message.textContent='暂时没连上本地程序';error.hidden=false;error.textContent='如果本地程序已经关闭，请重新打开；程序仍在运行时可以重试。';bar.hidden=true;amount.hidden=true;retry.hidden=false}}
+// retryStartup 由用户重新发起只读状态查询，不重复启动迁移。
+function retryStartup(){retry.hidden=true;pollStartup()}
+// dismissStartup 关闭已经失败的本地启动实例，方便用户处理原因后重试。
+async function dismissStartup(){try{const r=await fetch('dismiss',{method:'POST'});if(!r.ok)throw new Error();message.textContent='启动程序已关闭，可以处理后再打开';document.getElementById('dismiss').hidden=true}catch(e){error.textContent='关闭没有完成，请关闭本地程序后重试。'}}
+document.getElementById('dismiss').addEventListener('click',dismissStartup);retry.addEventListener('click',retryStartup);pollStartup();
+</script></body></html>
