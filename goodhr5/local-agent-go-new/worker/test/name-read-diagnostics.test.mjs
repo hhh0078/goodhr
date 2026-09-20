@@ -8,6 +8,7 @@ import { LocatorPrimitive } from "../dist/browser/primitives/locator.js";
 /** harness 使用只读模拟对象复现字段读取失败，不接触真实招聘页面。 */
 function harness(rows) {
   const logs = [];
+  const fieldReads = new Map();
   const page = { url: () => "https://example.com/list?token=private-token#secret" };
   const resolved = rows.map((row, index) => {
     let reads = 0;
@@ -29,7 +30,12 @@ function harness(rows) {
     { async resolveAll() { return resolved; }, async resolveRelative(_page, root) {
       const row = rows[root.index];
       if (row.locateError) throw row.locateError;
-      return { ...resolved[root.index], locator: { async innerText() { if (row.readError) throw row.readError; return row.name ?? "私密姓名"; } } };
+      return { ...resolved[root.index], locator: { async innerText() {
+        const count = (fieldReads.get(root.index) ?? 0) + 1;
+        fieldReads.set(root.index, count);
+        if (row.readError || (row.readErrorOnce && count === 1)) throw row.readError ?? row.readErrorOnce;
+        return row.name ?? "私密姓名";
+      } } };
     } }, logger,
   );
   return { logs, async run() {
@@ -58,6 +64,15 @@ test("姓名读取超时保留卡片并记录阶段、耗时和缺失序号，�
   assert.equal(failure.fields.effective_locator_timeout_ms, 0);
   assert.deepEqual(logs.find(log => log.status === "summary").fields.missing_name_indices, [0, 1]);
   assert.doesNotMatch(JSON.stringify(logs), /私密姓名|私密简历|private-token/);
+});
+
+test("姓名首次读取超时后逐项重读，恢复姓名且不重新读取整批列表", async () => {
+  const { run, logs } = harness([{ readErrorOnce: timeoutError() }, {}, {}]);
+  const items = await run();
+  assert.equal(items.length, 3);
+  assert.equal(items[0].fields.name, "私密姓名");
+  assert.equal(logs.find(log => log.status === "retry_read").fields.index, 0);
+  assert.deepEqual(logs.find(log => log.status === "summary").fields.missing_name_indices, []);
 });
 
 test("姓名节点存在但隐藏时保留实际错误码和匹配数量", async () => {

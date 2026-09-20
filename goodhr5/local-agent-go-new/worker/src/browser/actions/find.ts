@@ -13,6 +13,8 @@ import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { safeURL } from "../session/navigation.js";
 
+const LIST_READ_CONCURRENCY = 10;
+
 /** FoundElement 保存封装查找结果和仅供后续封装能力复用的 Locator。 */
 export interface FoundElement {
   resolved: ResolvedElement;
@@ -133,6 +135,7 @@ export class FindAction {
           page_url: safeURL(page.url()),
           resolved_count: resolvedItems.length,
           field_count: Object.keys(fields).length,
+          read_concurrency: LIST_READ_CONCURRENCY,
           matched_selector: resolvedItems[0]?.matched_selector.value ?? "",
           selector_attempts: resolvedItems[0]?.attempts.map(attempt => ({
             level: attempt.level, selector_type: attempt.selector_type,
@@ -141,12 +144,15 @@ export class FindAction {
           })) ?? [],
         });
       }
-      const items = await Promise.all(
-        resolvedItems.map(async (resolved, index): Promise<FindAllItem | null> => {
+      const items = await mapWithConcurrency(
+        resolvedItems,
+        LIST_READ_CONCURRENCY,
+        async (resolved, index): Promise<FindAllItem | null> => {
           const beforeText = await this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames);
           if (beforeText === null) return null;
-          const fieldEntries = await Promise.all(
-            Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
+          const fieldEntries: Array<readonly [string, string]> = [];
+          for (const [fieldName, fieldSpec] of Object.entries(fields)) {
+            fieldEntries.push([
               fieldName,
               await this.readRelativeField(
                 page,
@@ -157,8 +163,8 @@ export class FindAction {
                 index,
                 diagnoseNames,
               ),
-            ] as const),
-          );
+            ] as const);
+          }
           const values: JsonObject = Object.fromEntries(fieldEntries);
           const afterText = await this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames);
           if (afterText === null) return null;
@@ -177,8 +183,11 @@ export class FindAction {
             text: afterText,
             fields: values,
           };
-        }),
+        },
       );
+      if (fields.name) {
+        await this.retryMissingNames(page, resolvedItems, items, fields.name, actionContext, diagnoseNames);
+      }
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "summary", {
           resolved_count: resolvedItems.length,
@@ -283,6 +292,63 @@ export class FindAction {
       return "";
     }
   }
+
+  /** retryMissingNames 对已找到卡片但姓名读取超时的项目逐个重读，并用卡片正文前后校验防止串人。 */
+  private async retryMissingNames(
+    page: ResolvedElement["page"],
+    resolvedItems: ResolvedElement[],
+    items: Array<FindAllItem | null>,
+    nameSpec: SelectorSpec,
+    actionContext: ActionContext,
+    diagnose: boolean,
+  ): Promise<void> {
+    for (const [index, item] of items.entries()) {
+      if (!item || String(item.fields.name ?? "").trim()) continue;
+      const root = resolvedItems[index]?.locator;
+      if (!root) continue;
+      const beforeText = await this.readListText(root, actionContext, index, "name_retry_before", diagnose);
+      if (beforeText === null || beforeText !== item.text) {
+        items[index] = null;
+        continue;
+      }
+      const name = await this.readRelativeField(
+        page, root, nameSpec, actionContext, "name", index, diagnose,
+      );
+      const afterText = await this.readListText(root, actionContext, index, "name_retry_after", diagnose);
+      if (afterText === null || afterText !== beforeText) {
+        items[index] = null;
+        continue;
+      }
+      item.fields.name = name;
+      if (diagnose) {
+        this.logger.info(actionContext, "read_field:name", name ? "retry_read" : "retry_empty", {
+          index, text_length: name.length,
+        });
+      }
+    }
+  }
+}
+
+/** mapWithConcurrency 按固定并发数保持原顺序处理列表，避免把大量浏览器命令同时塞入队列。 */
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), values.length) },
+    async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index]!, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 /** readFailureDetails 提取原始错误类别与匹配数量；不输出可能含姓名、正文或凭据的异常消息和调用栈。 */

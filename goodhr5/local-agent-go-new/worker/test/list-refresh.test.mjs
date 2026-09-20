@@ -35,3 +35,26 @@ test("没有文字的可见图标和弹框仍然保留，不能误判不存在",
   assert.equal(rows.length, 1);
   assert.equal(rows[0].text, "");
 });
+
+test("大量卡片最多同时读取十张且保持原有顺序", async () => {
+  let active = 0;
+  let maximum = 0;
+  const resolved = Array.from({ length: 29 }, (_, index) => ({
+    locator: { index, async innerText() { return `记录-${index}`; } },
+  }));
+  const action = new FindAction(
+    { async requirePage() { return {}; }, elements: { remember(_page, root) { return `ref-${root.index}`; } } },
+    { async resolveAll() { return resolved; }, async resolveRelative(_page, root) {
+      active++;
+      maximum = Math.max(maximum, active);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      active--;
+      return { locator: { async innerText() { return `姓名-${root.index}`; } } };
+    } },
+    { info() {}, warn() {}, failure() {} },
+  );
+  const rows = await action.all({}, 100, { name: {} }, { trace_id: "concurrency", action: "find_all", started_at: Date.now() }, false);
+  assert.equal(rows.length, 29);
+  assert.equal(maximum, 10);
+  assert.deepEqual(rows.map(row => row.index), Array.from({ length: 29 }, (_, index) => index));
+});
