@@ -39,6 +39,7 @@ func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 		}
 		m.configureWorkerEnvironment()
 		m.ensureCamoufoxInterface()
+		m.InvalidateSystemRuntimeStatus()
 		m.setInstallProgress(InstallProgress{
 			Running: false, Stage: "installed", Message: "运行组件安装完成", Percent: 100,
 		})

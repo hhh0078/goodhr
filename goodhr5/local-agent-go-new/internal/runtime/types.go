@@ -25,6 +25,18 @@ type Status struct {
 	OCRPath             string                        `json:"ocr_path"`
 	InstalledVersions   map[string]InstalledComponent `json:"installed_versions"`
 	InstallProgress     InstallProgress               `json:"install_progress"`
+	SystemRuntime       SystemRuntimeStatus           `json:"system_runtime"`
+}
+
+// SystemRuntimeStatus 表示操作系统原生运行库与 Worker 原生模块的检查结果。
+type SystemRuntimeStatus struct {
+	Required         bool     `json:"required"`
+	Ready            bool     `json:"ready"`
+	Code             string   `json:"code"`
+	Name             string   `json:"name"`
+	Message          string   `json:"message"`
+	DownloadURL      string   `json:"download_url,omitempty"`
+	MissingLibraries []string `json:"missing_libraries,omitempty"`
 }
 
 // InstalledComponent 表示本地已安装组件的一条版本记录。

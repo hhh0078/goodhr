@@ -4,6 +4,8 @@
 package runtime
 
 import (
+	"context"
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -16,4 +18,12 @@ func commandOutput(name string, args ...string) ([]byte, error) {
 		CreationFlags: 0x08000000,
 	}
 	return command.Output()
+}
+
+// commandCombinedOutput 使用隐藏窗口执行短检查命令，并附加受控环境变量。
+func commandCombinedOutput(ctx context.Context, environment []string, name string, args ...string) ([]byte, error) {
+	command := exec.CommandContext(ctx, name, args...)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	command.Env = append(os.Environ(), environment...)
+	return command.CombinedOutput()
 }

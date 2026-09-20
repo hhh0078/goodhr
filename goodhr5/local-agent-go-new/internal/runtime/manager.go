@@ -20,14 +20,17 @@ import (
 
 // Manager 负责运行组件状态检查和 Worker 生命周期。
 type Manager struct {
-	nodePath   string
-	worker     *browserprocess.Manager
-	entryPath  string
-	runtimeDir string
-	ocrPath    string
-	installMu  sync.Mutex
-	progressMu sync.Mutex
-	progress   InstallProgress
+	nodePath      string
+	worker        *browserprocess.Manager
+	entryPath     string
+	runtimeDir    string
+	ocrPath       string
+	installMu     sync.Mutex
+	progressMu    sync.Mutex
+	progress      InstallProgress
+	systemMu      sync.Mutex
+	systemChecked bool
+	systemStatus  SystemRuntimeStatus
 }
 
 // New 创建运行组件管理器。
@@ -137,6 +140,9 @@ func (m *Manager) EnsureWorker(ctx context.Context) error {
 	if err := m.CheckWorkerBuild(); err != nil {
 		return err
 	}
+	if status := m.SystemRuntimeStatus(true); status.Required && !status.Ready {
+		return fmt.Errorf("%s", status.Message)
+	}
 	if fileExists(m.CamoufoxPath()) {
 		if err := EnsureBundledUBO(filepath.Join(m.runtimeDir, "camoufox")); err != nil {
 			return fmt.Errorf("浏览器内置扩展没准备好，请重试：%w", err)
@@ -169,6 +175,7 @@ func (m *Manager) Status() Status {
 		Platform:            platformKey(),
 		InstalledVersions:   m.loadVersions(),
 		InstallProgress:     m.InstallProgress(),
+		SystemRuntime:       m.SystemRuntimeStatus(false),
 	}
 }
 
