@@ -57,3 +57,10 @@ test('边缘不足一像素的坐标误差不再触发无效滚轮', () => {
   assert.equal(viewAccepted(outsideTolerance, true, area), false);
   assert.deepEqual(directedWheel(outsideTolerance, 260, area, true), { x: -2, y: 0 });
 });
+
+test('目标本身高于可见区时完整显示请求自动使用安全相交区域', () => {
+  const area = { left: 48, top: 48, right: 1218, bottom: 873, width: 1170, height: 825 };
+  const oversizedView = makeView({ x: 100, y: -300, width: 1000, height: 1500 });
+  assert.equal(viewAccepted(oversizedView, true, area), true);
+  assert.deepEqual(directedWheel(oversizedView, 260, area, true), { x: 0, y: 0 });
+});
