@@ -91,29 +91,30 @@ type PositionAIOptions struct {
 
 // UserPreferences 表示云端个人配置中的拟人等待和休息参数。
 type UserPreferences struct {
-	AIModel                string  `json:"ai_model"`
-	ClickFrequency         int     `json:"click_frequency"`
-	DetailOpenProbability  int     `json:"detail_open_probability"`
-	ScrollDelayMin         int     `json:"scroll_delay_min"`
-	ScrollDelayMax         int     `json:"scroll_delay_max"`
-	ListViewDelayMin       float64 `json:"list_view_delay_min"`
-	ListViewDelayMax       float64 `json:"list_view_delay_max"`
-	DetailViewDelayMin     float64 `json:"detail_view_delay_min"`
-	DetailViewDelayMax     float64 `json:"detail_view_delay_max"`
-	GreetDelayMin          float64 `json:"greet_delay_min"`
-	GreetDelayMax          float64 `json:"greet_delay_max"`
-	DetailOpenDelayMin     float64 `json:"detail_open_delay_min"`
-	DetailOpenDelayMax     float64 `json:"detail_open_delay_max"`
-	DetailCloseDelayMin    float64 `json:"detail_close_delay_min"`
-	DetailCloseDelayMax    float64 `json:"detail_close_delay_max"`
-	GreetBeforeDelayMin    float64 `json:"greet_before_delay_min"`
-	GreetBeforeDelayMax    float64 `json:"greet_before_delay_max"`
-	RestAfterCandidatesMin int     `json:"rest_after_candidates_min"`
-	RestAfterCandidatesMax int     `json:"rest_after_candidates_max"`
-	RestTimesMin           int     `json:"rest_times_min"`
-	RestTimesMax           int     `json:"rest_times_max"`
-	RestDurationMin        float64 `json:"rest_duration_min"`
-	RestDurationMax        float64 `json:"rest_duration_max"`
+	AIModel                  string  `json:"ai_model"`
+	ClickFrequency           int     `json:"click_frequency"`
+	DetailOpenProbability    int     `json:"detail_open_probability"`
+	CandidateReadConcurrency int     `json:"candidate_read_concurrency"`
+	ScrollDelayMin           int     `json:"scroll_delay_min"`
+	ScrollDelayMax           int     `json:"scroll_delay_max"`
+	ListViewDelayMin         float64 `json:"list_view_delay_min"`
+	ListViewDelayMax         float64 `json:"list_view_delay_max"`
+	DetailViewDelayMin       float64 `json:"detail_view_delay_min"`
+	DetailViewDelayMax       float64 `json:"detail_view_delay_max"`
+	GreetDelayMin            float64 `json:"greet_delay_min"`
+	GreetDelayMax            float64 `json:"greet_delay_max"`
+	DetailOpenDelayMin       float64 `json:"detail_open_delay_min"`
+	DetailOpenDelayMax       float64 `json:"detail_open_delay_max"`
+	DetailCloseDelayMin      float64 `json:"detail_close_delay_min"`
+	DetailCloseDelayMax      float64 `json:"detail_close_delay_max"`
+	GreetBeforeDelayMin      float64 `json:"greet_before_delay_min"`
+	GreetBeforeDelayMax      float64 `json:"greet_before_delay_max"`
+	RestAfterCandidatesMin   int     `json:"rest_after_candidates_min"`
+	RestAfterCandidatesMax   int     `json:"rest_after_candidates_max"`
+	RestTimesMin             int     `json:"rest_times_min"`
+	RestTimesMax             int     `json:"rest_times_max"`
+	RestDurationMin          float64 `json:"rest_duration_min"`
+	RestDurationMax          float64 `json:"rest_duration_max"`
 }
 
 // PositionSnapshot 表示任务启动时冻结的岗位配置。

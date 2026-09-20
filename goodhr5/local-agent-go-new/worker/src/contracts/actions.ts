@@ -85,6 +85,7 @@ export interface ElementFindRequest {
 export interface ElementFindAllRequest {
   selector: SelectorSpec;
   max_items?: number;
+  read_concurrency?: number;
   fields?: Record<string, SelectorSpec>;
   expected_missing?: boolean;
 }

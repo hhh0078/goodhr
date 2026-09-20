@@ -166,6 +166,11 @@ export function parseElementFindAllRequest(
     "max_items",
     optionalNumber(record, "max_items", { min: 1, max: 500 }),
   );
+  assignNumber(
+    request,
+    "read_concurrency",
+    optionalNumber(record, "read_concurrency", { min: 5, max: 100 }),
+  );
   const fields = parseFieldSelectors(record.fields, traceId, action);
   if (Object.keys(fields).length > 0) {
     request.fields = fields;

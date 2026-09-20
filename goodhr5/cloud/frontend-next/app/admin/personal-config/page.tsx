@@ -11,6 +11,7 @@ import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import ScienceRoundedIcon from "@mui/icons-material/ScienceRounded";
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
   Alert,
   Box,
@@ -36,6 +37,7 @@ const defaults = {
   api_key: "",
   click_frequency: 80,
   detail_open_probability: 80,
+  candidate_read_concurrency: 100,
   detail_open_delay_min: 1,
   detail_open_delay_max: 2,
   detail_close_delay_min: 0,
@@ -143,6 +145,13 @@ export default function PersonalConfigPage() {
       return notify("请填写 AI 地址和模型", "warning");
     if (!keySet && !form.api_key.trim())
       return notify("请填写 AI Key", "warning");
+    if (
+      !Number.isInteger(form.candidate_read_concurrency) ||
+      form.candidate_read_concurrency < 5 ||
+      form.candidate_read_concurrency > 100
+    ) {
+      return notify("同时读取候选人卡片数请填写 5 到 100 的整数", "warning");
+    }
     setLoading(true);
     try {
       setForm((current) => ({ ...current, base_url: baseURL }));
@@ -273,6 +282,7 @@ export default function PersonalConfigPage() {
           <Tab value='builtin' label='内置AI' />
           <Tab value='custom' label='自定义AI' />
           <Tab value='timing' label='随机时间' />
+          <Tab value='other' label='其他配置' />
           <Tab value='account' label='账号安全' />
         </Tabs>
       </SectionPanel>
@@ -532,6 +542,30 @@ export default function PersonalConfigPage() {
       </Box>
       ) : null}
 
+      {activeTab === "other" ? (
+        <SectionPanel sx={{ mb: 2 }}>
+          <SectionTitle
+            icon={<TuneRoundedIcon />}
+            title='候选人读取'
+            description='控制本地程序同时读取多少张候选人卡片。'
+          />
+          <Alert severity='info' sx={{ mt: 2, mb: 2.5 }}>
+            默认 100，最多 100，最少 5。如果你的电脑配置较低，可以把它调小一点，我会分批读完，不会少处理候选人。
+          </Alert>
+          <Stack spacing={2.25} sx={{ maxWidth: 720 }}>
+            <CompactNumber
+              label='同时读取候选人卡片数'
+              help='遇到姓名读取超时，可以先试试 10 或 20。数值越小越稳，读取时间也会稍长一点。'
+              unit='张'
+              value={form.candidate_read_concurrency}
+              min={5}
+              max={100}
+              onChange={(value) => setNumber("candidate_read_concurrency", value)}
+            />
+          </Stack>
+        </SectionPanel>
+      ) : null}
+
       {activeTab === "account" ? (
         <Box
           sx={{
@@ -758,12 +792,16 @@ function CompactNumber({
   help,
   unit,
   value,
+  min,
+  max,
   onChange,
 }: {
   label: string;
   help: string;
   unit: string;
   value: number;
+  min?: number;
+  max?: number;
   onChange: (value: string) => void;
 }) {
   return (
@@ -787,6 +825,7 @@ function CompactNumber({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         slotProps={{
+          htmlInput: { min, max, step: 1 },
           input: {
             endAdornment: (
               <InputAdornment position='end'>{unit}</InputAdornment>

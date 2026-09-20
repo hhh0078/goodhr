@@ -9,57 +9,59 @@ import (
 )
 
 type UserPreferences struct {
-	AIModel                string
-	ClickFrequency         int
-	DetailOpenProbability  int
-	ScrollDelayMin         int
-	ScrollDelayMax         int
-	ListViewDelayMin       float64
-	ListViewDelayMax       float64
-	DetailViewDelayMin     float64
-	DetailViewDelayMax     float64
-	GreetDelayMin          float64
-	GreetDelayMax          float64
-	DetailOpenDelayMin     float64
-	DetailOpenDelayMax     float64
-	DetailCloseDelayMin    float64
-	DetailCloseDelayMax    float64
-	GreetBeforeDelayMin    float64
-	GreetBeforeDelayMax    float64
-	RestAfterCandidatesMin int
-	RestAfterCandidatesMax int
-	RestTimesMin           int
-	RestTimesMax           int
-	RestDurationMin        float64
-	RestDurationMax        float64
-	UpdatedAt              time.Time
+	AIModel                  string
+	ClickFrequency           int
+	DetailOpenProbability    int
+	CandidateReadConcurrency int
+	ScrollDelayMin           int
+	ScrollDelayMax           int
+	ListViewDelayMin         float64
+	ListViewDelayMax         float64
+	DetailViewDelayMin       float64
+	DetailViewDelayMax       float64
+	GreetDelayMin            float64
+	GreetDelayMax            float64
+	DetailOpenDelayMin       float64
+	DetailOpenDelayMax       float64
+	DetailCloseDelayMin      float64
+	DetailCloseDelayMax      float64
+	GreetBeforeDelayMin      float64
+	GreetBeforeDelayMax      float64
+	RestAfterCandidatesMin   int
+	RestAfterCandidatesMax   int
+	RestTimesMin             int
+	RestTimesMax             int
+	RestDurationMin          float64
+	RestDurationMax          float64
+	UpdatedAt                time.Time
 }
 
 func DefaultUserPreferences() UserPreferences {
 	return UserPreferences{
-		AIModel:                "",
-		ClickFrequency:         80,
-		DetailOpenProbability:  80,
-		ScrollDelayMin:         3,
-		ScrollDelayMax:         8,
-		ListViewDelayMin:       1,
-		ListViewDelayMax:       2,
-		DetailViewDelayMin:     1,
-		DetailViewDelayMax:     2,
-		GreetDelayMin:          1,
-		GreetDelayMax:          2,
-		DetailOpenDelayMin:     1,
-		DetailOpenDelayMax:     2,
-		DetailCloseDelayMin:    0,
-		DetailCloseDelayMax:    0,
-		GreetBeforeDelayMin:    1,
-		GreetBeforeDelayMax:    2,
-		RestAfterCandidatesMin: 40,
-		RestAfterCandidatesMax: 70,
-		RestTimesMin:           2,
-		RestTimesMax:           3,
-		RestDurationMin:        2,
-		RestDurationMax:        7,
+		AIModel:                  "",
+		ClickFrequency:           80,
+		DetailOpenProbability:    80,
+		CandidateReadConcurrency: 100,
+		ScrollDelayMin:           3,
+		ScrollDelayMax:           8,
+		ListViewDelayMin:         1,
+		ListViewDelayMax:         2,
+		DetailViewDelayMin:       1,
+		DetailViewDelayMax:       2,
+		GreetDelayMin:            1,
+		GreetDelayMax:            2,
+		DetailOpenDelayMin:       1,
+		DetailOpenDelayMax:       2,
+		DetailCloseDelayMin:      0,
+		DetailCloseDelayMax:      0,
+		GreetBeforeDelayMin:      1,
+		GreetBeforeDelayMax:      2,
+		RestAfterCandidatesMin:   40,
+		RestAfterCandidatesMax:   70,
+		RestTimesMin:             2,
+		RestTimesMax:             3,
+		RestDurationMin:          2,
+		RestDurationMax:          7,
 	}
 }
 
@@ -116,6 +118,7 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		ctx,
 		`
 		SELECT up.ai_model, up.click_frequency, up.detail_open_probability,
+		       up.candidate_read_concurrency,
 		       up.scroll_delay_min, up.scroll_delay_max,
 		       up.list_view_delay_min, up.list_view_delay_max,
 		       up.detail_view_delay_min, up.detail_view_delay_max,
@@ -136,6 +139,7 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		&prefs.AIModel,
 		&prefs.ClickFrequency,
 		&prefs.DetailOpenProbability,
+		&prefs.CandidateReadConcurrency,
 		&prefs.ScrollDelayMin,
 		&prefs.ScrollDelayMax,
 		&prefs.ListViewDelayMin,
@@ -191,9 +195,10 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			greet_before_delay_min, greet_before_delay_max,
 			rest_after_candidates_min, rest_after_candidates_max,
 			rest_times_min, rest_times_max,
-			rest_duration_min, rest_duration_max
+			rest_duration_min, rest_duration_max,
+			candidate_read_concurrency
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		ON CONFLICT (user_id)
 		DO UPDATE SET
 			ai_model = EXCLUDED.ai_model,
@@ -219,6 +224,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_times_max = EXCLUDED.rest_times_max,
 			rest_duration_min = EXCLUDED.rest_duration_min,
 			rest_duration_max = EXCLUDED.rest_duration_max,
+			candidate_read_concurrency = EXCLUDED.candidate_read_concurrency,
 			updated_at = now()
 		RETURNING ai_model, click_frequency, detail_open_probability,
 		          scroll_delay_min, scroll_delay_max,
@@ -231,6 +237,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		          rest_after_candidates_min, rest_after_candidates_max,
 		          rest_times_min, rest_times_max,
 		          rest_duration_min, rest_duration_max,
+		          candidate_read_concurrency,
 		          updated_at
 		`,
 		userID,
@@ -257,6 +264,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		prefs.RestTimesMax,
 		prefs.RestDurationMin,
 		prefs.RestDurationMax,
+		prefs.CandidateReadConcurrency,
 	).Scan(
 		&saved.AIModel,
 		&saved.ClickFrequency,
@@ -281,6 +289,7 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		&saved.RestTimesMax,
 		&saved.RestDurationMin,
 		&saved.RestDurationMax,
+		&saved.CandidateReadConcurrency,
 		&saved.UpdatedAt,
 	)
 	if err != nil {

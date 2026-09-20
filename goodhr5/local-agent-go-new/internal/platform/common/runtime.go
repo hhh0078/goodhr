@@ -166,13 +166,14 @@ func ApplyConfiguredActions(ctx context.Context, browser model.Browser, cfg mode
 }
 
 // FindCandidates 读取当前候选人列表并整理成统一结构。
-func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, platformID string) ([]model.Candidate, error) {
+func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, platformID string, options model.CandidateListOptions) ([]model.Candidate, error) {
 	selector, err := RequiredSelector(cfg, "candidate.item")
 	if err != nil {
 		return nil, err
 	}
 	request := contract.ElementFindAllRequest{
-		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100), Fields: cfg.CandidateFields,
+		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100),
+		ReadConcurrency: candidateReadConcurrency(options.ReadConcurrency), Fields: cfg.CandidateFields,
 	}
 	readID := time.Now().UnixNano()
 	readStarted := time.Now()
@@ -220,6 +221,20 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		})
 	}
 	return result, nil
+}
+
+// candidateReadConcurrency 把候选人卡片并发读取数量限制在个人配置允许的范围内。
+func candidateReadConcurrency(value int) int {
+	if value == 0 {
+		return 100
+	}
+	if value < 5 {
+		return 5
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
 }
 
 // CandidateIdentityTexts 返回页面重新定位候选人时使用的姓名和年龄文本。

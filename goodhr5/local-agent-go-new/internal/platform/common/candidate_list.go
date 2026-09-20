@@ -26,6 +26,7 @@ func AdvanceCandidateList(
 	cfg model.Config,
 	platformID string,
 	before []model.Candidate,
+	options model.CandidateListOptions,
 ) (bool, error) {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Behavior.CandidateListMode))
 	if mode == "" && cfg.Behavior.SupportsPaging {
@@ -33,9 +34,9 @@ func AdvanceCandidateList(
 	}
 	switch mode {
 	case "next_page":
-		return advanceCandidatePage(ctx, browser, cfg, platformID, before)
+		return advanceCandidatePage(ctx, browser, cfg, platformID, before, options)
 	case "", "infinite_scroll":
-		return advanceCandidateScroll(ctx, browser, cfg, platformID, before)
+		return advanceCandidateScroll(ctx, browser, cfg, platformID, before, options)
 	default:
 		return false, nil
 	}
@@ -50,6 +51,7 @@ func AdvanceCandidateNumberPage(
 	selectorKey string,
 	pageNumber int,
 	before []model.Candidate,
+	options model.CandidateListOptions,
 ) (bool, error) {
 	selector, err := numberedPageSelector(cfg, selectorKey, pageNumber)
 	if err != nil {
@@ -87,7 +89,7 @@ func AdvanceCandidateNumberPage(
 	}); err != nil {
 		return false, err
 	}
-	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
 }
 
 // numberedPageSelector 把通用分页选择器收紧为指定的精确数字页码。
@@ -115,6 +117,7 @@ func advanceCandidatePage(
 	cfg model.Config,
 	platformID string,
 	before []model.Candidate,
+	options model.CandidateListOptions,
 ) (bool, error) {
 	exists, err := SelectorExists(ctx, browser, cfg, "candidate.next_page")
 	if err != nil || !exists {
@@ -123,7 +126,7 @@ func advanceCandidatePage(
 	if err = ClickRequired(ctx, browser, cfg, "candidate.next_page"); err != nil {
 		return false, err
 	}
-	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
 }
 
 // advanceCandidateScroll 在候选人列表区域执行真实滚轮，并确认出现了新候选人。
@@ -133,6 +136,7 @@ func advanceCandidateScroll(
 	cfg model.Config,
 	platformID string,
 	before []model.Candidate,
+	options model.CandidateListOptions,
 ) (bool, error) {
 	anchor, err := RequiredSelector(cfg, "candidate.list")
 	if err != nil {
@@ -147,7 +151,7 @@ func advanceCandidateScroll(
 		}); err != nil {
 			return false, err
 		}
-		changed, waitErr := waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+		changed, waitErr := waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
 		if waitErr != nil || changed {
 			return changed, waitErr
 		}
@@ -157,7 +161,7 @@ func advanceCandidateScroll(
 
 // WaitForCandidateListChange 为平台切岗复用列表更新验证，不执行滚动和点击。
 func WaitForCandidateListChange(ctx context.Context, browser model.Browser, cfg model.Config, platformID string, before []model.Candidate) (bool, error) {
-	return waitForCandidateListChange(ctx, browser, cfg, platformID, before)
+	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, model.CandidateListOptions{})
 }
 
 // WaitForStableCandidateList 等待候选人名单连续三秒不变，防止切岗多阶段加载产生过期快照。
@@ -167,7 +171,7 @@ func WaitForStableCandidateList(ctx context.Context, browser model.Browser, cfg 
 	var previous map[string]struct{}
 	var stableSince time.Time
 	for {
-		candidates, err := FindCandidates(ctx, browser, cfg, platformID)
+		candidates, err := FindCandidates(ctx, browser, cfg, platformID, model.CandidateListOptions{})
 		if err != nil && !IsElementMissing(err) {
 			return err
 		}
@@ -203,12 +207,13 @@ func waitForCandidateListChange(
 	cfg model.Config,
 	platformID string,
 	before []model.Candidate,
+	options model.CandidateListOptions,
 ) (bool, error) {
 	beforeSet := candidateFingerprintSet(before)
 	var lastMissingErr error
 	foundCandidates := false
 	for attempt := 0; attempt < candidateListPollAttempts; attempt++ {
-		candidates, err := FindCandidates(ctx, browser, cfg, platformID)
+		candidates, err := FindCandidates(ctx, browser, cfg, platformID, options)
 		if IsElementMissing(err) {
 			lastMissingErr = err
 		} else if err != nil {

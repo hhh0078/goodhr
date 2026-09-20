@@ -62,6 +62,9 @@ func TestPreferencesReadsStrongTypes(t *testing.T) {
 	if preferences.RestTimesMin != 1 || preferences.RestTimesMax != 2 {
 		t.Fatalf("休息次数解析不正确：%+v", preferences)
 	}
+	if preferences.CandidateReadConcurrency != 100 {
+		t.Fatalf("旧版云端没有返回并发配置时应使用 100，实际为 %d", preferences.CandidateReadConcurrency)
+	}
 }
 
 // TestValidateSessionReturnsAuthExpiredCode 验证 401 可以被运行中登录检查稳定识别。

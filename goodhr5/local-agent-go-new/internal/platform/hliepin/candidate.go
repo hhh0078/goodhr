@@ -10,8 +10,8 @@ import (
 )
 
 // FindCandidates 返回猎聘猎头端当前候选人列表的结构化摘要。
-func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Candidate, error) {
-	candidates, err := common.FindCandidates(ctx, browser, cfg, r.PlatformID())
+func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
+	candidates, err := common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 }
 
 // AdvanceCandidateList 按 2、3、4、5 的顺序点击数字页码加载更多候选人。
-func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
+func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate, options model.CandidateListOptions) (bool, error) {
 	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
 		return false, err
 	}
@@ -85,6 +85,7 @@ func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browse
 		"candidate.page_number",
 		pageNumber,
 		before,
+		options,
 	)
 	if err == nil && advanced {
 		r.nextCandidatePage = pageNumber + 1

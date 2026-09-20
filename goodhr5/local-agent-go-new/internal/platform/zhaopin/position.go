@@ -11,7 +11,7 @@ import (
 
 // SelectPosition 在智联职位选择弹层选择任务岗位。
 func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config, position model.Position) error {
-	before, err := common.FindCandidates(ctx, browser, cfg, cfg.ID)
+	before, err := common.FindCandidates(ctx, browser, cfg, cfg.ID, model.CandidateListOptions{})
 	if err != nil && !common.IsElementMissing(err) {
 		return fmt.Errorf("读取切岗前的候选人列表失败：%w", err)
 	}

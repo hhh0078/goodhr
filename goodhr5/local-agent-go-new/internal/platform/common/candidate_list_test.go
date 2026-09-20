@@ -16,6 +16,7 @@ type numberPageBrowser struct {
 	events        []string
 	scrollRequest contract.ScrollRequest
 	clickRequest  contract.ElementClickRequest
+	readRequest   contract.ElementFindAllRequest
 }
 
 // changingCandidatePageBrowser 模拟旧列表、翻页短暂无列表和新列表依次出现。
@@ -31,6 +32,7 @@ func (b *numberPageBrowser) FindAll(_ context.Context, request contract.ElementF
 		return []contract.FindAllItem{{Index: 0, Text: "2"}}, nil
 	}
 	b.events = append(b.events, "读取候选人")
+	b.readRequest = request
 	return []contract.FindAllItem{{
 		Index: 0,
 		Text:  "张三 25岁",
@@ -151,6 +153,7 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 		"candidate.page_number",
 		2,
 		nil,
+		model.CandidateListOptions{ReadConcurrency: 10},
 	)
 	if err != nil || !advanced {
 		t.Fatalf("数字翻页失败：advanced=%v err=%v", advanced, err)
@@ -165,6 +168,9 @@ func TestAdvanceCandidateNumberPageScrollsBeforeClick(t *testing.T) {
 	if browser.clickRequest.Verify == nil || browser.clickRequest.Verify.TargetVisible == nil ||
 		browser.clickRequest.Verify.TargetVisible.Target.Text != "2" {
 		t.Fatalf("数字翻页点击后没有确认当前页码：%+v", browser.clickRequest.Verify)
+	}
+	if browser.readRequest.ReadConcurrency != 10 {
+		t.Fatalf("翻页验证没有沿用个人并发配置：%d", browser.readRequest.ReadConcurrency)
 	}
 }
 
@@ -198,7 +204,7 @@ func TestWaitForCandidateListChangeRetriesTemporaryMissing(t *testing.T) {
 		},
 	}}
 
-	changed, err := waitForCandidateListChange(context.Background(), browser, cfg, "hliepin", before)
+	changed, err := waitForCandidateListChange(context.Background(), browser, cfg, "hliepin", before, model.CandidateListOptions{})
 	if err != nil || !changed {
 		t.Fatalf("翻页列表没有等到新候选人：changed=%v err=%v", changed, err)
 	}

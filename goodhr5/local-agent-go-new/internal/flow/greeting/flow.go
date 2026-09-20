@@ -125,6 +125,9 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 	errorPolicy := &shared.ConsecutiveErrorPolicy{}
 	seen := make(map[string]struct{})
 	rest := newRestSchedule(prepared.Preferences)
+	candidateListOptions := model.CandidateListOptions{
+		ReadConcurrency: prepared.Preferences.CandidateReadConcurrency,
+	}
 	for batch := 0; ; batch++ {
 		if shared.GracefulStopRequested(ctx) {
 			return nil
@@ -141,7 +144,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 		); err != nil {
 			return err
 		}
-		candidates, err := runtime.FindCandidates(ctx, f.Browser, prepared.Platform)
+		candidates, err := runtime.FindCandidates(ctx, f.Browser, prepared.Platform, candidateListOptions)
 		if err != nil {
 			return err
 		}
@@ -319,7 +322,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			prepared.Request.TaskID,
 			fmt.Sprintf("第 %d 批处理完了，正在加载更多候选人", batch+1),
 		)
-		advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates)
+		advanced, err := runtime.AdvanceCandidateList(ctx, f.Browser, prepared.Platform, candidates, candidateListOptions)
 		if err != nil {
 			return err
 		}

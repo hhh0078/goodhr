@@ -92,6 +92,11 @@ type Candidate struct {
 	IdentityOccurrence int               `json:"identity_occurrence"`
 }
 
+// CandidateListOptions 表示读取候选人列表时使用的任务级参数。
+type CandidateListOptions struct {
+	ReadConcurrency int `json:"read_concurrency"`
+}
+
 // CandidateDetail 表示当前任务内短期使用的候选人详情。
 type CandidateDetail struct {
 	Text string `json:"text"`
@@ -132,7 +137,7 @@ type Runtime interface {
 	InitializeGreetingPage(context.Context, Browser, Config) error
 	SelectPosition(context.Context, Browser, Config, Position) error
 	ApplyBasicFilters(context.Context, Browser, Config, Position) error
-	FindCandidates(context.Context, Browser, Config) ([]Candidate, error)
+	FindCandidates(context.Context, Browser, Config, CandidateListOptions) ([]Candidate, error)
 	ScrollToCandidate(context.Context, Browser, Config, Candidate) error
 	OpenCandidateDetail(context.Context, Browser, Config, Candidate) error
 	ExtractCandidateDetail(context.Context, Browser, Config, Candidate) (CandidateDetail, error)
@@ -145,7 +150,7 @@ type Runtime interface {
 	CloseCandidateConversation(context.Context, Browser, Config, Candidate) error
 	FavoriteCandidate(context.Context, Browser, Config, Candidate) error
 	RejectCandidate(context.Context, Browser, Config, Candidate) error
-	AdvanceCandidateList(context.Context, Browser, Config, []Candidate) (bool, error)
+	AdvanceCandidateList(context.Context, Browser, Config, []Candidate, CandidateListOptions) (bool, error)
 	OpenMessagesPage(context.Context, Browser, Config) error
 	InitializeMessagesPage(context.Context, Browser, Config) error
 	ScanUnreadConversations(context.Context, Browser, Config) ([]Conversation, error)

@@ -161,6 +161,7 @@ export class ActionService {
       request.fields ?? {},
       context,
       !request.expected_missing,
+      request.read_concurrency ?? 100,
     );
   }
 

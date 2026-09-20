@@ -13,8 +13,6 @@ import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { safeURL } from "../session/navigation.js";
 
-const LIST_READ_CONCURRENCY = 10;
-
 /** FoundElement 保存封装查找结果和仅供后续封装能力复用的 Locator。 */
 export interface FoundElement {
   resolved: ResolvedElement;
@@ -108,6 +106,7 @@ export class FindAction {
     fields: Record<string, SelectorSpec>,
     actionContext: ActionContext,
     report = true,
+    readConcurrency = 100,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
     if (report) {
@@ -135,7 +134,7 @@ export class FindAction {
           page_url: safeURL(page.url()),
           resolved_count: resolvedItems.length,
           field_count: Object.keys(fields).length,
-          read_concurrency: LIST_READ_CONCURRENCY,
+          read_concurrency: readConcurrency,
           matched_selector: resolvedItems[0]?.matched_selector.value ?? "",
           selector_attempts: resolvedItems[0]?.attempts.map(attempt => ({
             level: attempt.level, selector_type: attempt.selector_type,
@@ -146,13 +145,12 @@ export class FindAction {
       }
       const items = await mapWithConcurrency(
         resolvedItems,
-        LIST_READ_CONCURRENCY,
+        readConcurrency,
         async (resolved, index): Promise<FindAllItem | null> => {
           const beforeText = await this.readListText(resolved.locator, actionContext, index, "before", diagnoseNames);
           if (beforeText === null) return null;
-          const fieldEntries: Array<readonly [string, string]> = [];
-          for (const [fieldName, fieldSpec] of Object.entries(fields)) {
-            fieldEntries.push([
+          const fieldEntries = await Promise.all(
+            Object.entries(fields).map(async ([fieldName, fieldSpec]) => [
               fieldName,
               await this.readRelativeField(
                 page,
@@ -163,8 +161,8 @@ export class FindAction {
                 index,
                 diagnoseNames,
               ),
-            ] as const);
-          }
+            ] as const),
+          );
           const values: JsonObject = Object.fromEntries(fieldEntries);
           const afterText = await this.readListText(resolved.locator, actionContext, index, "after", diagnoseNames);
           if (afterText === null) return null;
@@ -329,7 +327,7 @@ export class FindAction {
   }
 }
 
-/** mapWithConcurrency 按固定并发数保持原顺序处理列表，避免把大量浏览器命令同时塞入队列。 */
+/** mapWithConcurrency 按指定并发数保持原顺序处理列表，避免把大量浏览器命令同时塞入队列。 */
 async function mapWithConcurrency<T, R>(
   values: T[],
   concurrency: number,

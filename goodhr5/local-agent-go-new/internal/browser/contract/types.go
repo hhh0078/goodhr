@@ -155,6 +155,7 @@ type ElementFindRequest struct {
 type ElementFindAllRequest struct {
 	Selector        SelectorSpec            `json:"selector"`
 	MaxItems        int                     `json:"max_items,omitempty"`
+	ReadConcurrency int                     `json:"read_concurrency,omitempty"`
 	Fields          map[string]SelectorSpec `json:"fields,omitempty"`
 	ExpectedMissing bool                    `json:"expected_missing,omitempty"`
 }

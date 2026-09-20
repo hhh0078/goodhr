@@ -309,7 +309,8 @@ func (c *Client) SendFailNotice(ctx context.Context, token string, positionID st
 func DefaultUserPreferences() UserPreferences {
 	return UserPreferences{
 		ClickFrequency: 80, DetailOpenProbability: 80,
-		ScrollDelayMin: 3, ScrollDelayMax: 8,
+		CandidateReadConcurrency: 100,
+		ScrollDelayMin:           3, ScrollDelayMax: 8,
 		ListViewDelayMin: 1, ListViewDelayMax: 2,
 		DetailViewDelayMin: 1, DetailViewDelayMax: 2,
 		GreetDelayMin: 1, GreetDelayMax: 2,
@@ -324,6 +325,11 @@ func DefaultUserPreferences() UserPreferences {
 // normalizeUserPreferences 修正云端个人配置中的越界值和反向区间。
 func normalizeUserPreferences(value UserPreferences) UserPreferences {
 	value.DetailOpenProbability = clamp(value.DetailOpenProbability, 0, 100)
+	if value.CandidateReadConcurrency == 0 {
+		value.CandidateReadConcurrency = 100
+	} else {
+		value.CandidateReadConcurrency = clamp(value.CandidateReadConcurrency, 5, 100)
+	}
 	value.ScrollDelayMin, value.ScrollDelayMax = normalizeIntRange(value.ScrollDelayMin, value.ScrollDelayMax)
 	value.ListViewDelayMin, value.ListViewDelayMax = normalizeFloatRange(value.ListViewDelayMin, value.ListViewDelayMax)
 	value.DetailViewDelayMin, value.DetailViewDelayMax = normalizeFloatRange(value.DetailViewDelayMin, value.DetailViewDelayMax)

@@ -9,8 +9,8 @@ import (
 )
 
 // FindCandidates 返回 Boss 当前候选人列表的结构化摘要。
-func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config) ([]model.Candidate, error) {
-	return common.FindCandidates(ctx, browser, cfg, r.PlatformID())
+func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config, options model.CandidateListOptions) ([]model.Candidate, error) {
+	return common.FindCandidates(ctx, browser, cfg, r.PlatformID(), options)
 }
 
 // ScrollToCandidate 通过真实滚轮定位指定 Boss 候选人。
@@ -19,6 +19,6 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 }
 
 // AdvanceCandidateList 通过公共真实滚轮能力加载更多 Boss 候选人。
-func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate) (bool, error) {
-	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before)
+func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate, options model.CandidateListOptions) (bool, error) {
+	return common.AdvanceCandidateList(ctx, browser, cfg, r.PlatformID(), before, options)
 }

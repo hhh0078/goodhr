@@ -36,7 +36,7 @@ test("没有文字的可见图标和弹框仍然保留，不能误判不存在",
   assert.equal(rows[0].text, "");
 });
 
-test("大量卡片最多同时读取十张且保持原有顺序", async () => {
+test("大量卡片按个人配置限制并发读取且保持原有顺序", async () => {
   let active = 0;
   let maximum = 0;
   const resolved = Array.from({ length: 29 }, (_, index) => ({
@@ -53,7 +53,7 @@ test("大量卡片最多同时读取十张且保持原有顺序", async () => {
     } },
     { info() {}, warn() {}, failure() {} },
   );
-  const rows = await action.all({}, 100, { name: {} }, { trace_id: "concurrency", action: "find_all", started_at: Date.now() }, false);
+  const rows = await action.all({}, 100, { name: {} }, { trace_id: "concurrency", action: "find_all", started_at: Date.now() }, false, 10);
   assert.equal(rows.length, 29);
   assert.equal(maximum, 10);
   assert.deepEqual(rows.map(row => row.index), Array.from({ length: 29 }, (_, index) => index));

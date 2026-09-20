@@ -77,12 +77,14 @@ test("预期元素不存在时不写错误过程日志", async () => {
         description: "已经关闭的详情",
       },
       max_items: 1,
+      read_concurrency: 10,
       expected_missing: true,
     },
     "expected-missing",
     "element.find_all",
   );
   assert.equal(request.expected_missing, true);
+  assert.equal(request.read_concurrency, 10);
 
   let logCount = 0;
   const action = new FindAction(
@@ -119,6 +121,26 @@ test("预期元素不存在时不写错误过程日志", async () => {
     ),
   );
   assert.equal(logCount, 0);
+});
+
+/** 验证候选人读取并发数会被安全收敛到 5 到 100。 */
+test("列表读取并发数限制为五到一百", () => {
+  const payload = {
+    selector: {
+      target: { selectors: [{ type: "css", value: ".candidate" }] },
+      description: "候选人列表",
+    },
+  };
+  assert.equal(parseElementFindAllRequest(
+    { ...payload, read_concurrency: 4 },
+    "concurrency-min",
+    "element.find_all",
+  ).read_concurrency, 5);
+  assert.equal(parseElementFindAllRequest(
+    { ...payload, read_concurrency: 101 },
+    "concurrency-max",
+    "element.find_all",
+  ).read_concurrency, 100);
 });
 
 /** 验证列表读取只检查必要状态，不为每张卡片重复测量坐标和视口。 */
