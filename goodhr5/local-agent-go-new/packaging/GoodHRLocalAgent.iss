@@ -59,7 +59,8 @@ Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Ic
 Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall skipifsilent
+; postinstall 让手动安装完成页默认勾选立即运行；不使用 skipifsilent，保证自动更新结束后也会重新启动。
+Filename: "{app}\{#MyAppExeName}"; Description: "安装完成后立即运行 GoodHR 小助手"; Flags: nowait postinstall
 
 [Code]
 // GetDefaultInstallDir 按 D、B、E、C 的顺序选择默认安装目录。
