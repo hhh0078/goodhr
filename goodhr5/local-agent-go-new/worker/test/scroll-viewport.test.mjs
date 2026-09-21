@@ -56,7 +56,7 @@ function createScrollAction(overrides = {}) {
 }
 
 /** 创建公共滚动测试使用的元素结果。 */
-function foundElement(view) {
+function foundElement(view, selector = ".target") {
   const page = {
     viewportSize() {
       return view.viewport;
@@ -66,7 +66,7 @@ function foundElement(view) {
     result: {
       element_ref: "element-1",
       description: "测试目标",
-      matched_selector: { type: "css", value: ".target" },
+      matched_selector: { type: "css", value: selector },
       attempts: [],
       view,
       page_id: "page-1",
@@ -75,7 +75,7 @@ function foundElement(view) {
     resolved: {
       page,
       locator: {},
-      matched_selector: { type: "css", value: ".target" },
+      matched_selector: { type: "css", value: selector },
       attempts: [],
       view,
     },
@@ -131,7 +131,7 @@ test("执行滚动时视口外锚点也会回退到窗口中心", async () => {
     enabled: true,
     in_viewport: false,
     fully_in_viewport: false,
-  });
+  }, "body");
   const { action, calls } = createScrollAction({
     find: {
       async one(selector) {
@@ -175,6 +175,120 @@ test("执行滚动时视口外锚点也会回退到窗口中心", async () => {
   assert.ok(calls.wheel >= 1);
 });
 
+test("视口外且高度略小的 body 锚点仍按整页处理", async () => {
+  const target = foundElement({
+    box: { x: 100, y: 900, width: 600, height: 100 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: false,
+    fully_in_viewport: false,
+  });
+  const body = foundElement({
+    box: { x: 0, y: -1920, width: 1280, height: 719.5 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: false,
+    fully_in_viewport: false,
+  }, "body");
+  const { action, calls } = createScrollAction({
+    find: {
+      async one(selector) {
+        return selector.description === "整页" ? body : target;
+      },
+    },
+    locator: {
+      async view(_page, locator) {
+        if (locator === body.resolved.locator) {
+          return body.resolved.view;
+        }
+        return {
+          ...target.resolved.view,
+          box: { ...target.resolved.view.box, y: 500 },
+          in_viewport: true,
+          fully_in_viewport: true,
+        };
+      },
+    },
+  });
+
+  await action.execute(
+    {
+      target: {
+        target: { selectors: [{ type: "css", value: ".target" }] },
+        description: "目标",
+      },
+      wheel_anchor: {
+        target: { selectors: [{ type: "css", value: "body" }] },
+        description: "整页",
+      },
+      distance: 500,
+      max_attempts: 1,
+      viewport_margin: 48,
+      require_full: true,
+    },
+    context,
+  );
+
+  assert.equal(calls.moveToViewportCenter, 1);
+  assert.ok(calls.wheel >= 1);
+});
+
+test("真实列表容器继续限制候选人的安全可见区域", async () => {
+  const target = foundElement({
+    box: { x: 100, y: 520, width: 600, height: 100 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: true,
+    fully_in_viewport: true,
+  });
+  const list = foundElement({
+    box: { x: 0, y: 100, width: 1280, height: 400 },
+    viewport: { width: 1280, height: 720 },
+    visible: true,
+    enabled: true,
+    in_viewport: true,
+    fully_in_viewport: true,
+  }, ".ant-table-body");
+  let currentY = target.resolved.view.box.y;
+  const { action, calls } = createScrollAction({
+    find: { async one() { return list; } },
+    locator: {
+      async view(_page, locator) {
+        if (locator === list.resolved.locator) {
+          return list.resolved.view;
+        }
+        return {
+          ...target.resolved.view,
+          box: { ...target.resolved.view.box, y: currentY },
+        };
+      },
+    },
+    async wheel(_x, y) {
+      currentY -= y;
+    },
+  });
+
+  await action.ensureVisible(
+    target,
+    {
+      wheel_anchor: {
+        target: { selectors: [{ type: "css", value: ".ant-table-body" }] },
+        description: "列表",
+      },
+      distance: 200,
+      max_attempts: 2,
+      require_full: true,
+    },
+    context,
+  );
+
+  assert.ok(calls.wheel >= 1);
+  assert.ok(currentY + target.resolved.view.box.height <= 500);
+});
+
 test("大于视口的整页锚点不限制候选人可见区域", async () => {
   const target = foundElement({
     box: { x: 100, y: 520, width: 600, height: 129 },
@@ -191,7 +305,7 @@ test("大于视口的整页锚点不限制候选人可见区域", async () => {
     enabled: true,
     in_viewport: true,
     fully_in_viewport: false,
-  });
+  }, "body");
   const { action, calls } = createScrollAction({
     find: {
       async one() {

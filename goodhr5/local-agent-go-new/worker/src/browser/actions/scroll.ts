@@ -81,11 +81,12 @@ export class ScrollAction {
       let visibleArea = target
         ? calculateVisibleArea(
             target.resolved.view,
-            request.wheel_anchor ? anchor?.resolved.view : undefined,
+            request.wheel_anchor ? scrollContainerView(anchor) : undefined,
             request.viewport_margin ?? 0,
           )
         : undefined;
       if (target && visibleArea) {
+        this.logGeometry(actionContext, "initial", target.resolved.view, anchor, visibleArea);
         assertTargetCanFit(
           target.resolved.view,
           visibleArea,
@@ -140,9 +141,12 @@ export class ScrollAction {
               : undefined;
           visibleArea = calculateVisibleArea(
             after as ElementView,
-            anchorView,
+            request.wheel_anchor ? scrollContainerView(anchor, anchorView) : undefined,
             request.viewport_margin ?? 0,
           );
+          if (visibleArea.width <= 0 || visibleArea.height <= 0) {
+            this.logGeometry(actionContext, "after_wheel", after as ElementView, anchor, visibleArea, anchorView);
+          }
           assertTargetCanFit(
             after as ElementView,
             visibleArea,
@@ -250,9 +254,10 @@ export class ScrollAction {
     }
     let visibleArea = calculateVisibleArea(
       found.resolved.view,
-      anchor?.resolved.view,
+      scrollContainerView(anchor),
       request.viewport_margin ?? 0,
     );
+    this.logGeometry(actionContext, "initial", found.resolved.view, anchor, visibleArea);
     assertTargetCanFit(
       found.resolved.view,
       visibleArea,
@@ -299,9 +304,12 @@ export class ScrollAction {
         : undefined;
       visibleArea = calculateVisibleArea(
         found.resolved.view,
-        anchorView,
+        scrollContainerView(anchor, anchorView),
         request.viewport_margin ?? 0,
       );
+      if (visibleArea.width <= 0 || visibleArea.height <= 0) {
+        this.logGeometry(actionContext, "after_wheel", found.resolved.view, anchor, visibleArea, anchorView);
+      }
       assertTargetCanFit(
         found.resolved.view,
         visibleArea,
@@ -364,6 +372,58 @@ export class ScrollAction {
       screenshot_hash: createHash("sha256").update(image).digest("hex"),
     };
   }
+
+  /** logGeometry 记录目标、滚轮锚点和安全区域，供不同页面布局下排查滚动误判。 */
+  private logGeometry(
+    actionContext: ActionContext,
+    phase: string,
+    targetView: ElementView,
+    anchor: FoundElement | null | undefined,
+    area: ReturnType<typeof calculateVisibleArea>,
+    anchorView: ElementView | undefined = anchor?.resolved.view,
+  ): void {
+    this.logger.info(actionContext, "ensure_visible", "geometry", {
+      phase,
+      target_box: {
+        x: targetView.box.x, y: targetView.box.y,
+        width: targetView.box.width, height: targetView.box.height,
+      },
+      viewport: {
+        width: targetView.viewport.width, height: targetView.viewport.height,
+      },
+      anchor_selector: anchor?.resolved.matched_selector.value ?? "",
+      anchor_box: anchorView ? {
+        x: anchorView.box.x, y: anchorView.box.y,
+        width: anchorView.box.width, height: anchorView.box.height,
+      } : null,
+      anchor_in_viewport: anchorView?.in_viewport ?? false,
+      anchor_is_document: isDocumentScrollAnchor(anchor),
+      available_area: {
+        left: area.left, top: area.top, right: area.right, bottom: area.bottom,
+        width: area.width, height: area.height,
+      },
+    });
+  }
+}
+
+/** scrollContainerView 只让真实滚动容器限制安全区域，整页锚点始终使用浏览器视口。 */
+function scrollContainerView(
+  anchor: FoundElement | null | undefined,
+  currentView: ElementView | undefined = anchor?.resolved.view,
+): ElementView | undefined {
+  if (!anchor || isDocumentScrollAnchor(anchor)) {
+    return undefined;
+  }
+  return currentView;
+}
+
+/** isDocumentScrollAnchor 判断当前匹配项是否为页面根滚动锚点。 */
+function isDocumentScrollAnchor(anchor: FoundElement | null | undefined): boolean {
+  const matched = anchor?.resolved.matched_selector;
+  return Boolean(
+    matched?.type === "css" &&
+      /^(?:body|html|:root)(?::visible)?$/i.test(matched.value.trim()),
+  );
 }
 
 /** viewToJson 把元素或页面状态转换为可传输 JSON。 */
