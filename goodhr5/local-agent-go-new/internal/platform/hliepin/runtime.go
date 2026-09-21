@@ -3,14 +3,13 @@ package hliepin
 
 // Runtime 是猎聘猎头端平台运行时，保存当前单任务的岗位和开聊方式。
 type Runtime struct {
-	positionName      string
-	nextCandidatePage int
-	detailReturnURL   string
+	positionName    string
+	detailReturnURL string
 }
 
 // NewRuntime 创建猎聘猎头端平台运行时。
 func NewRuntime() *Runtime {
-	return &Runtime{nextCandidatePage: 2}
+	return &Runtime{}
 }
 
 // PlatformID 返回猎聘猎头端平台编号。

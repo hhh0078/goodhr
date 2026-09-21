@@ -299,13 +299,13 @@ func selectorExists(ctx context.Context, browser model.Browser, cfg model.Config
 	if timeoutMS > 0 && (selector.TimeoutMS <= 0 || selector.TimeoutMS > timeoutMS) {
 		selector.TimeoutMS = timeoutMS
 	}
-	_, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: 1, ExpectedMissing: true,
 	})
 	if IsElementMissing(err) {
 		return false, nil
 	}
-	return err == nil, err
+	return err == nil && len(items) > 0, err
 }
 
 // CloseOptionalPanel 点击关闭可选弹层并确认弹层消失，点击无效时再用 Escape 收尾。

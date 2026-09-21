@@ -41,7 +41,7 @@
     "supports_paging": true,
     "_comment_supports_paging": "候选人列表支持数字页码翻页。",
     "candidate_list_mode": "number_page",
-    "_comment_candidate_list_mode": "候选人列表按 2、3、4、5 的顺序点击数字页码，不依赖下一页按钮。",
+    "_comment_candidate_list_mode": "平台适配每次读取实际页码，优先点击下一页按钮，缺少按钮时用当前页码加一定位数字页码。",
     "skip_position_selection": false,
     "_comment_skip_position_selection": "任务开始后按岗位配置中的猎聘快捷搜索名称完整选择岗位，不改变用户手动设置的其他筛选条件。",
     "direct_position_selection": false,
@@ -386,6 +386,32 @@
       "timeout_ms": 600,
       "description": "猎聘猎头端关闭开聊后推广弹框"
     },
+    "candidate.next_page": {
+      "_comment": "候选人分页栏中可用的下一页按钮，排除末页禁用状态。",
+      "parents": [],
+      "target": {
+        "_comment": "Ant Design 分页栏中的可用下一页入口。",
+        "selectors": [
+          { "_comment": "只点击可用分页项内的真实按钮。", "type": "css", "value": ".ant-pagination-next:not(.ant-pagination-disabled):not([aria-disabled='true']) button:not([disabled])" }
+        ]
+      },
+      "state": "enabled",
+      "timeout_ms": 3000,
+      "description": "猎聘猎头端下一页"
+    },
+    "candidate.next_page_disabled": {
+      "_comment": "只有明确读取到禁用的下一页，才把当前列表判断为最后一页。",
+      "parents": [],
+      "target": {
+        "_comment": "Ant Design 分页栏中的末页禁用标记。",
+        "selectors": [
+          { "_comment": "兼容分页项样式、无障碍属性及按钮禁用属性。", "type": "css", "value": ".ant-pagination-next.ant-pagination-disabled, .ant-pagination-next[aria-disabled='true'], .ant-pagination-next:has(button[disabled])" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "猎聘猎头端已到最后一页"
+    },
     "candidate.page_number": {
       "_comment": "候选人列表数字页码，运行时会附加精确页码文字。",
       "parents": [],
@@ -400,7 +426,7 @@
       "description": "猎聘猎头端数字页码"
     },
     "candidate.current_page": {
-      "_comment": "当前已经激活的候选人数字页码，用于复用旧窗口时从下一页继续。",
+      "_comment": "每次翻页前读取网页实际激活页码，并在点击后验证目标页已激活。",
       "parents": [],
       "target": {
         "_comment": "Ant Design 当前激活页码。",

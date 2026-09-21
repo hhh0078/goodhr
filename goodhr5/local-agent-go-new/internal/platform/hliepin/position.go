@@ -4,7 +4,6 @@ package hliepin
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"goodhr5/local-agent-go-new/internal/browser/contract"
@@ -48,16 +47,6 @@ func (r *Runtime) SelectPosition(ctx context.Context, browser model.Browser, cfg
 		ViewportMargin: 24,
 	}); err != nil {
 		return fmt.Errorf("选择猎聘快捷搜索“%s”失败：%w", shortcutName, err)
-	}
-	currentPage, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.current_page")
-	if err != nil {
-		return fmt.Errorf("读取猎聘当前候选人页码失败：%w", err)
-	}
-	if found {
-		pageNumber, parseErr := strconv.Atoi(strings.TrimSpace(currentPage))
-		if parseErr == nil && pageNumber > 0 {
-			r.nextCandidatePage = pageNumber + 1
-		}
 	}
 	return nil
 }

@@ -284,9 +284,6 @@ func TestSelectPositionUsesExactShortcutName(t *testing.T) {
 	if runtime.positionName != "AI应用开发工程师初级可以实习" {
 		t.Fatalf("后端完整岗位名称没有保存：%q", runtime.positionName)
 	}
-	if runtime.nextCandidatePage != 3 {
-		t.Fatalf("复用第 2 页时下一页应从 3 开始，实际为 %d", runtime.nextCandidatePage)
-	}
 }
 
 // TestSelectPositionKeepsManualSearch 验证配置要求沿用手动筛选时不会自动点击快捷搜索。

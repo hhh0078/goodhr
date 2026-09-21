@@ -3,8 +3,12 @@ package hliepin
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"strconv"
 	"strings"
 
+	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
@@ -68,28 +72,55 @@ func (r *Runtime) ScrollToCandidate(ctx context.Context, browser model.Browser, 
 	return common.ScrollToCandidate(ctx, browser, cfg, candidate)
 }
 
-// AdvanceCandidateList 按 2、3、4、5 的顺序点击数字页码加载更多候选人。
+// AdvanceCandidateList 按网页实际页码寻找下一页，只有页面明确禁用下一页时才结束列表。
 func (r *Runtime) AdvanceCandidateList(ctx context.Context, browser model.Browser, cfg model.Config, before []model.Candidate, options model.CandidateListOptions) (bool, error) {
 	if err := closeCandidatePanels(ctx, browser, cfg); err != nil {
 		return false, err
 	}
-	pageNumber := r.nextCandidatePage
-	if pageNumber < 2 {
-		pageNumber = 2
+	// 长列表逐段滚轮可能耗尽 Worker 等待时间，先用真实按键到页面底部，再由滚轮精确定位。
+	if _, err := browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Control+End", DelayMS: 200}); err != nil {
+		return false, fmt.Errorf("定位猎聘分页栏失败：%w", err)
 	}
-	advanced, err := common.AdvanceCandidateNumberPage(
-		ctx,
-		browser,
-		cfg,
-		r.PlatformID(),
-		"candidate.page_number",
-		pageNumber,
-		before,
-		options,
-	)
-	if err == nil && advanced {
-		r.nextCandidatePage = pageNumber + 1
+	currentText, found, err := common.ReadOptional(ctx, browser, cfg, "candidate.current_page")
+	if err != nil {
+		return false, fmt.Errorf("读取猎聘当前页码失败：%w", err)
 	}
+	currentPage, parseErr := strconv.Atoi(strings.TrimSpace(currentText))
+	if !found || parseErr != nil || currentPage < 1 || currentPage == int(^uint(0)>>1) {
+		log.Printf("event=candidate_page_advance platform=hliepin status=current_page_missing found=%t", found)
+		return false, fmt.Errorf("暂时没读到猎聘当前页码，未执行翻页；请确认候选人列表底部的分页栏已加载后重试")
+	}
+	lastPage, err := common.SelectorExists(ctx, browser, cfg, "candidate.next_page_disabled")
+	if err != nil {
+		return false, err
+	}
+	if lastPage {
+		log.Printf("event=candidate_page_advance platform=hliepin current_page=%d status=last_page", currentPage)
+		return false, nil
+	}
+	pageNumber := currentPage + 1
+	nextExists, err := common.SelectorExists(ctx, browser, cfg, "candidate.next_page")
+	if err != nil {
+		return false, err
+	}
+	method := "number_page"
+	var advanced bool
+	if nextExists {
+		method = "next_page"
+		selector, selectorErr := common.RequiredSelector(cfg, "candidate.next_page")
+		if selectorErr != nil {
+			return false, selectorErr
+		}
+		log.Printf("event=candidate_page_advance platform=hliepin current_page=%d target_page=%d method=%s status=start", currentPage, pageNumber, method)
+		advanced, err = common.AdvanceCandidatePageTarget(ctx, browser, cfg, r.PlatformID(), selector, pageNumber, before, options)
+	} else {
+		log.Printf("event=candidate_page_advance platform=hliepin current_page=%d target_page=%d method=%s status=start", currentPage, pageNumber, method)
+		advanced, err = common.AdvanceCandidateNumberPage(ctx, browser, cfg, r.PlatformID(), "candidate.page_number", pageNumber, before, options)
+	}
+	if err == nil && !advanced {
+		err = fmt.Errorf("猎聘从第 %d 页翻到第 %d 页尚未确认成功，暂不继续处理；请检查分页栏后重试", currentPage, pageNumber)
+	}
+	log.Printf("event=candidate_page_advance platform=hliepin current_page=%d target_page=%d method=%s advanced=%t failed=%t", currentPage, pageNumber, method, advanced, err != nil)
 	return advanced, err
 }
 

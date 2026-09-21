@@ -57,6 +57,20 @@ func AdvanceCandidateNumberPage(
 	if err != nil {
 		return false, err
 	}
+	return AdvanceCandidatePageTarget(ctx, browser, cfg, platformID, selector, pageNumber, before, options)
+}
+
+// AdvanceCandidatePageTarget 滚动并点击指定分页入口，确认目标页码和候选人列表均已更新。
+func AdvanceCandidatePageTarget(
+	ctx context.Context,
+	browser model.Browser,
+	cfg model.Config,
+	platformID string,
+	selector contract.SelectorSpec,
+	pageNumber int,
+	before []model.Candidate,
+	options model.CandidateListOptions,
+) (bool, error) {
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
 		Selector: selector, MaxItems: 1, ExpectedMissing: true,
 	})
