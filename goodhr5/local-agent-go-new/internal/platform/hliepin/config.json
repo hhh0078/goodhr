@@ -233,11 +233,12 @@
       "description": "猎聘猎头端开聊职位列表项"
     },
     "candidate.greet_job_list": {
-      "_comment": "当前可见的开聊职位下拉列表，用作真实滚轮的安全区域和选择后的关闭验证。",
+      "_comment": "当前可见的开聊职位内部滚动区域，用作真实滚轮的安全区域和选择后的关闭验证。",
       "parents": [],
       "target": {
-        "_comment": "只匹配当前已经展开且包含职位选项的下拉菜单。",
+        "_comment": "优先匹配真正裁剪职位行的内部滚动容器，旧结构再退回整个下拉菜单。",
         "selectors": [
+          { "_comment": "Ant Design 虚拟列表的可见滚动区域。", "type": "css", "value": ".ant-select-dropdown:not(.ant-select-dropdown-hidden):has(.hpublic-job-select-option) .rc-virtual-list-holder" },
           { "_comment": "猎聘当前可见的职位下拉菜单。", "type": "css", "value": ".ant-select-dropdown:not(.ant-select-dropdown-hidden):has(.hpublic-job-select-option)" }
         ]
       },
@@ -269,9 +270,11 @@
         }
       ],
       "target": {
-        "_comment": "已选职位中的加粗标题。",
+        "_comment": "兼容猎聘把已选职位渲染为完整选项、加粗标题或纯文本标签。",
         "selectors": [
-          { "_comment": "猎聘已选职位标题。", "type": "css", "value": ".ant-select-selection-item .hpublic-job-select-option strong" }
+          { "_comment": "完整选项中的职位标题。", "type": "css", "value": ".ant-select-selection-item .hpublic-job-select-option strong" },
+          { "_comment": "已选标签中的加粗职位标题。", "type": "css", "value": ".ant-form-item:has([id='jobId']) .ant-select-selection-item strong" },
+          { "_comment": "已选标签纯文本。", "type": "css", "value": ".ant-form-item:has([id='jobId']) .ant-select-selection-item" }
         ]
       },
       "state": "visible",

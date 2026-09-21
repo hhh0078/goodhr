@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
+
+const greetingJobScanMaxRounds = 40
 
 // GreetCandidate 清理遗留弹层并按发布职位或快捷搜索模式完成猎聘开聊，失败时清理开聊弹框。
 func (r *Runtime) GreetCandidate(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, request model.GreetRequest) (resultErr error) {
@@ -98,7 +101,7 @@ func (r *Runtime) RejectCandidate(ctx context.Context, browser model.Browser, cf
 	return common.CandidateAction(ctx, browser, cfg, candidate, "candidate.reject")
 }
 
-// selectGreetingJob 在开聊弹框中选择匹配岗位，未匹配时交给不选职位流程。
+// selectGreetingJob 在开聊弹框中逐段滚动查找匹配岗位，确认到底仍未匹配时交给不选职位流程。
 func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Config, positionName string) (bool, error) {
 	if strings.TrimSpace(positionName) == "" {
 		return false, fmt.Errorf("猎聘开聊岗位名称为空")
@@ -114,30 +117,66 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 	if err != nil {
 		return false, err
 	}
-	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector:        selector,
-		MaxItems:        100,
-		Fields:          map[string]contract.SelectorSpec{"position_name": nameSelector},
-		ExpectedMissing: true,
-	})
-	if common.IsElementMissing(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("读取猎聘开聊岗位列表失败：%w", err)
-	}
-	matchIndex := matchingGreetingJob(items, positionName)
-	if matchIndex < 0 {
-		return false, nil
-	}
-	selector.Target.Index = &matchIndex
 	list, err := common.RequiredSelector(cfg, "candidate.greet_job_list")
 	if err != nil {
 		return false, err
 	}
+	var previousFingerprint string
+	for round := 1; round <= greetingJobScanMaxRounds; round++ {
+		items, findErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
+			Selector:        selector,
+			MaxItems:        100,
+			Fields:          map[string]contract.SelectorSpec{"position_name": nameSelector},
+			ExpectedMissing: true,
+		})
+		if common.IsElementMissing(findErr) {
+			items = nil
+		} else if findErr != nil {
+			return false, fmt.Errorf("读取猎聘开聊岗位列表失败：%w", findErr)
+		}
+		matchIndex := matchingGreetingJob(items, positionName)
+		fingerprint := greetingJobListFingerprint(items)
+		log.Printf("event=greeting_job_scan platform=hliepin round=%d returned_count=%d match_index=%d", round, len(items), matchIndex)
+		if matchIndex >= 0 {
+			return clickGreetingJob(ctx, browser, cfg, selector, nameSelector, list, matchIndex, positionName)
+		}
+		if round > 1 && fingerprint == previousFingerprint {
+			log.Printf("event=greeting_job_scan platform=hliepin round=%d status=end_reached", round)
+			if err := closeGreetingJobList(ctx, browser, cfg); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+		previousFingerprint = fingerprint
+		scrollResult, scrollErr := browser.Scroll(ctx, contract.ScrollRequest{
+			WheelAnchor: &list,
+			Distance:    280,
+			MaxAttempts: 1,
+			WaitMS:      220,
+		})
+		if scrollErr != nil {
+			return false, fmt.Errorf("滚动查找猎聘开聊岗位失败：%w", scrollErr)
+		}
+		log.Printf("event=greeting_job_scan platform=hliepin round=%d status=scrolled changed=%t", round, scrollResult.Scrolled)
+	}
+	return false, fmt.Errorf("猎聘开聊岗位列表滚动查找已达 %d 次，仍未确认到底", greetingJobScanMaxRounds)
+}
+
+// clickGreetingJob 滚动到当前批次的匹配岗位并点击，读取选中名称确认页面确实完成选择。
+func clickGreetingJob(
+	ctx context.Context,
+	browser model.Browser,
+	cfg model.Config,
+	selector contract.SelectorSpec,
+	nameSelector contract.SelectorSpec,
+	list contract.SelectorSpec,
+	matchIndex int,
+	positionName string,
+) (bool, error) {
+	selector.Target.Index = &matchIndex
 	list.TimeoutMS = 200
-	requireFull := false
-	if _, err = browser.Scroll(ctx, contract.ScrollRequest{
+	requireFull := true
+	if _, err := browser.Scroll(ctx, contract.ScrollRequest{
 		Target:         &selector,
 		WheelAnchor:    &list,
 		Distance:       160,
@@ -148,6 +187,21 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 	}); err != nil {
 		return false, fmt.Errorf("滚动到猎聘开聊岗位失败：%w", err)
 	}
+	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
+		Selector:        selectorWithoutIndex(selector),
+		MaxItems:        100,
+		Fields:          map[string]contract.SelectorSpec{"position_name": nameSelector},
+		ExpectedMissing: true,
+	})
+	if err != nil {
+		return false, fmt.Errorf("滚动后重新读取猎聘开聊岗位失败：%w", err)
+	}
+	refreshedIndex := matchingGreetingJob(items, positionName)
+	if refreshedIndex < 0 {
+		return false, fmt.Errorf("猎聘开聊岗位已经滚到可见区域，但重新读取时没有找到目标岗位")
+	}
+	selector.Target.Index = &refreshedIndex
+	log.Printf("event=greeting_job_select platform=hliepin status=target_refreshed previous_index=%d refreshed_index=%d", matchIndex, refreshedIndex)
 	_, clickErr := browser.Click(ctx, contract.ElementClickRequest{
 		Selector: selector, ViewportMargin: 24,
 	})
@@ -162,6 +216,20 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 		return false, fmt.Errorf("确认猎聘已选开聊岗位失败：%w", verifyErr)
 	}
 	return false, fmt.Errorf("猎聘开聊岗位点击完成了，但页面没有选中目标岗位")
+}
+
+// selectorWithoutIndex 清除滚动前的列表下标，便于虚拟列表换批后重新定位目标岗位。
+func selectorWithoutIndex(selector contract.SelectorSpec) contract.SelectorSpec {
+	selector.Target.Index = nil
+	return selector
+}
+
+// closeGreetingJobList 在没有匹配岗位时关闭职位下拉框，避免它挡住“不选择职位开聊”按钮。
+func closeGreetingJobList(ctx context.Context, browser model.Browser, cfg model.Config) error {
+	if err := closeModalWithEscape(ctx, browser, cfg, "candidate.greet_job_list", "猎聘开聊岗位列表"); err != nil {
+		return fmt.Errorf("没有匹配岗位，但关闭猎聘开聊岗位列表失败：%w", err)
+	}
+	return nil
 }
 
 // greetingJobAlreadySelected 判断开聊弹框当前选中岗位是否匹配后端岗位名称。
@@ -276,6 +344,15 @@ func greetingJobName(item contract.FindAllItem) string {
 		return value
 	}
 	return strings.TrimSpace(item.Text)
+}
+
+// greetingJobListFingerprint 生成当前可见岗位批次的稳定摘要，用于判断真实滚轮是否已经到底。
+func greetingJobListFingerprint(items []contract.FindAllItem) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, normalizeGreetingJob(greetingJobName(item)))
+	}
+	return strings.Join(parts, "|")
 }
 
 // normalizeGreetingJob 清理猎聘开聊岗位比较文本。

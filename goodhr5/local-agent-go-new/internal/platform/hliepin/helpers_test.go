@@ -22,12 +22,18 @@ type shortcutClickBrowser struct {
 
 type greetingJobBrowser struct {
 	model.Browser
-	items        []contract.FindAllItem
-	findRequest  contract.ElementFindAllRequest
-	clicks       []contract.ElementClickRequest
-	scrolls      []contract.ScrollRequest
-	selectedName string
-	itemClickErr error
+	items                  []contract.FindAllItem
+	itemBatches            [][]contract.FindAllItem
+	batchIndex             int
+	findRequest            contract.ElementFindAllRequest
+	clicks                 []contract.ElementClickRequest
+	scrolls                []contract.ScrollRequest
+	selectedName           string
+	itemClickErr           error
+	skipSelection          bool
+	itemsAfterTargetScroll []contract.FindAllItem
+	listOpen               bool
+	pressCount             int
 }
 
 // promotionBrowser 模拟猎聘开聊后推广弹框及 Escape 兜底关闭行为。
@@ -64,8 +70,19 @@ func (b *shortcutClickBrowser) Read(_ context.Context, request contract.ElementR
 // Click 记录猎聘开聊职位下拉和职位选项的点击参数。
 func (b *greetingJobBrowser) Click(_ context.Context, request contract.ElementClickRequest) (contract.ClickResult, error) {
 	b.clicks = append(b.clicks, request)
-	if request.Selector.Description == "开聊职位列表项" && len(b.items) > 0 {
-		b.selectedName = b.items[0].Fields["position_name"]
+	if request.Selector.Description == "开聊职位下拉" {
+		b.listOpen = true
+	}
+	items := b.currentGreetingJobItems()
+	if request.Selector.Description == "开聊职位列表项" && len(items) > 0 {
+		index := 0
+		if request.Selector.Target.Index != nil {
+			index = *request.Selector.Target.Index
+		}
+		if !b.skipSelection && index >= 0 && index < len(items) {
+			b.selectedName = items[index].Fields["position_name"]
+		}
+		b.listOpen = false
 		if b.itemClickErr != nil {
 			return contract.ClickResult{}, b.itemClickErr
 		}
@@ -86,13 +103,44 @@ func (b *greetingJobBrowser) Read(_ context.Context, request contract.ElementRea
 // FindAll 返回猎聘开聊职位选项并记录字段读取参数。
 func (b *greetingJobBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	b.findRequest = request
-	return b.items, nil
+	if request.Selector.Description == "开聊职位列表" {
+		if b.listOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	}
+	return b.currentGreetingJobItems(), nil
 }
 
 // Scroll 记录猎聘开聊职位选项的真实滚轮定位参数。
 func (b *greetingJobBrowser) Scroll(_ context.Context, request contract.ScrollRequest) (contract.ScrollResult, error) {
 	b.scrolls = append(b.scrolls, request)
-	return contract.ScrollResult{}, nil
+	if request.Target == nil && b.batchIndex+1 < len(b.itemBatches) {
+		b.batchIndex++
+		return contract.ScrollResult{Scrolled: true, Attempts: 1, Distance: request.Distance}, nil
+	}
+	if request.Target != nil && len(b.itemsAfterTargetScroll) > 0 {
+		b.items = b.itemsAfterTargetScroll
+		b.itemsAfterTargetScroll = nil
+	}
+	return contract.ScrollResult{Scrolled: request.Target != nil}, nil
+}
+
+// PressKey 模拟按 Escape 关闭猎聘职位下拉框。
+func (b *greetingJobBrowser) PressKey(_ context.Context, request contract.KeyboardPressRequest) (contract.KeyboardPressResult, error) {
+	if request.Key == "Escape" {
+		b.listOpen = false
+		b.pressCount++
+	}
+	return contract.KeyboardPressResult{Pressed: true, Key: request.Key}, nil
+}
+
+// currentGreetingJobItems 返回当前滚动批次中可见的猎聘职位。
+func (b *greetingJobBrowser) currentGreetingJobItems() []contract.FindAllItem {
+	if len(b.itemBatches) > 0 {
+		return b.itemBatches[b.batchIndex]
+	}
+	return b.items
 }
 
 // FindAll 返回猎聘推广弹框的当前可见状态。
@@ -312,8 +360,38 @@ func TestSelectGreetingJobReadsTitleAndScrolls(t *testing.T) {
 		*browser.scrolls[0].Target.Target.Index != 0 {
 		t.Fatalf("选择岗位前没有滚动定位：%+v", browser.scrolls)
 	}
+	if browser.scrolls[0].RequireFull == nil || !*browser.scrolls[0].RequireFull {
+		t.Fatalf("岗位选项没有要求完整进入下拉框：%+v", browser.scrolls[0])
+	}
 	if len(browser.clicks) != 2 || browser.clicks[1].Verify != nil {
 		t.Fatalf("职位点击不应再依赖下拉框关闭状态判断结果：%+v", browser.clicks)
+	}
+}
+
+// TestSelectGreetingJobRefreshesVirtualListIndex 验证滚动导致虚拟列表换批后会重新读取目标下标再点击。
+func TestSelectGreetingJobRefreshesVirtualListIndex(t *testing.T) {
+	browser := &greetingJobBrowser{
+		items: []contract.FindAllItem{
+			{Index: 0, Fields: map[string]string{"position_name": "Java开发工程师"}},
+			{Index: 1, Fields: map[string]string{"position_name": "PHP程序员"}},
+		},
+		itemsAfterTargetScroll: []contract.FindAllItem{
+			{Index: 0, Fields: map[string]string{"position_name": "PHP程序员"}},
+		},
+	}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_job_open":          selectorForGreetingTest("开聊职位下拉"),
+		"candidate.greet_job_item":          selectorForGreetingTest("开聊职位列表项"),
+		"candidate.greet_job_list":          selectorForGreetingTest("开聊职位列表"),
+		"candidate.greet_job_name":          selectorForGreetingTest("开聊职位名称"),
+		"candidate.greet_job_selected_name": selectorForGreetingTest("当前已选开聊职位"),
+	}}
+	selected, err := selectGreetingJob(context.Background(), browser, cfg, "PHP程序员")
+	if err != nil || !selected {
+		t.Fatalf("虚拟列表换批后选择 PHP 程序员失败：selected=%v err=%v", selected, err)
+	}
+	if len(browser.clicks) != 2 || browser.clicks[1].Selector.Target.Index == nil || *browser.clicks[1].Selector.Target.Index != 0 {
+		t.Fatalf("没有使用滚动后的新下标点击：%+v", browser.clicks)
 	}
 }
 
@@ -335,6 +413,70 @@ func TestSelectGreetingJobAcceptsVerifiedSelectionAfterClickError(t *testing.T) 
 	selected, err := selectGreetingJob(context.Background(), browser, cfg, "AI应用开发工程师初级可以实习")
 	if err != nil || !selected {
 		t.Fatalf("页面已经选中时不应被点击误判打断：selected=%v err=%v", selected, err)
+	}
+}
+
+// TestSelectGreetingJobRejectsClosedListWithoutSelection 验证下拉框意外关闭但岗位没有选中时不会继续点击立即开聊。
+func TestSelectGreetingJobRejectsClosedListWithoutSelection(t *testing.T) {
+	browser := &greetingJobBrowser{
+		items: []contract.FindAllItem{{
+			Index: 0, Fields: map[string]string{"position_name": "PHP程序员"},
+		}},
+		skipSelection: true,
+	}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_job_open":          selectorForGreetingTest("开聊职位下拉"),
+		"candidate.greet_job_item":          selectorForGreetingTest("开聊职位列表项"),
+		"candidate.greet_job_list":          selectorForGreetingTest("开聊职位列表"),
+		"candidate.greet_job_name":          selectorForGreetingTest("开聊职位名称"),
+		"candidate.greet_job_selected_name": selectorForGreetingTest("当前已选开聊职位"),
+	}}
+	selected, err := selectGreetingJob(context.Background(), browser, cfg, "PHP程序员")
+	if err == nil || selected {
+		t.Fatalf("岗位没有真正选中时不应继续开聊：selected=%v err=%v", selected, err)
+	}
+}
+
+// TestSelectGreetingJobSearchesFollowingBatches 验证目标岗位不在首屏时会用真实滚轮继续查找并选择。
+func TestSelectGreetingJobSearchesFollowingBatches(t *testing.T) {
+	browser := &greetingJobBrowser{itemBatches: [][]contract.FindAllItem{
+		{{Index: 0, Fields: map[string]string{"position_name": "Java开发工程师"}}},
+		{{Index: 0, Fields: map[string]string{"position_name": "PHP程序员"}}},
+	}}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_job_open":          selectorForGreetingTest("开聊职位下拉"),
+		"candidate.greet_job_item":          selectorForGreetingTest("开聊职位列表项"),
+		"candidate.greet_job_list":          selectorForGreetingTest("开聊职位列表"),
+		"candidate.greet_job_name":          selectorForGreetingTest("开聊职位名称"),
+		"candidate.greet_job_selected_name": selectorForGreetingTest("当前已选开聊职位"),
+	}}
+	selected, err := selectGreetingJob(context.Background(), browser, cfg, "PHP程序员")
+	if err != nil || !selected {
+		t.Fatalf("滚动查找后选择 PHP 程序员失败：selected=%v err=%v", selected, err)
+	}
+	if len(browser.scrolls) != 2 || browser.scrolls[0].Target != nil || browser.scrolls[0].WheelAnchor == nil {
+		t.Fatalf("没有先滚动职位列表再定位目标：%+v", browser.scrolls)
+	}
+}
+
+// TestSelectGreetingJobClosesListWhenNoMatch 验证滚到底仍无匹配岗位时先关闭下拉框再交给不选职位流程。
+func TestSelectGreetingJobClosesListWhenNoMatch(t *testing.T) {
+	browser := &greetingJobBrowser{itemBatches: [][]contract.FindAllItem{
+		{{Index: 0, Fields: map[string]string{"position_name": "Java开发工程师"}}},
+		{{Index: 0, Fields: map[string]string{"position_name": "前端开发工程师"}}},
+	}}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_job_open": selectorForGreetingTest("开聊职位下拉"),
+		"candidate.greet_job_item": selectorForGreetingTest("开聊职位列表项"),
+		"candidate.greet_job_list": selectorForGreetingTest("开聊职位列表"),
+		"candidate.greet_job_name": selectorForGreetingTest("开聊职位名称"),
+	}}
+	selected, err := selectGreetingJob(context.Background(), browser, cfg, "PHP程序员")
+	if err != nil || selected {
+		t.Fatalf("没有匹配岗位时应进入不选职位流程：selected=%v err=%v", selected, err)
+	}
+	if browser.listOpen || browser.pressCount != 1 {
+		t.Fatalf("没有在返回前关闭职位下拉框：open=%v press=%d", browser.listOpen, browser.pressCount)
 	}
 }
 
