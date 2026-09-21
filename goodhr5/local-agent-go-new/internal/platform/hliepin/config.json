@@ -192,6 +192,19 @@
       "timeout_ms": 5000,
       "description": "猎聘猎头端开聊弹框"
     },
+    "candidate.greet_modal_close": {
+      "_comment": "开聊弹框不响应 Escape 时使用其关闭按钮，避免遮挡后续候选人。",
+      "parents": [],
+      "target": {
+        "_comment": "限定到开聊职位弹框右上角关闭按钮。",
+        "selectors": [
+          { "_comment": "Ant Design 弹框关闭按钮。", "type": "css", "value": ".ant-modal:has(.ant-form-item [id='jobId']) .ant-modal-close" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1000,
+      "description": "关闭猎聘猎头端开聊弹框"
+    },
     "candidate.greet_job_open": {
       "_comment": "开聊弹框中的职位下拉入口。",
       "parents": [
@@ -213,7 +226,7 @@
       "description": "猎聘猎头端开聊职位下拉"
     },
     "candidate.greet_job_item": {
-      "_comment": "开聊职位下拉列表项。",
+      "_comment": "开聊职位实际内容区域；虚拟列表底部外层空白可能被裁剪，使用完整内容区域判断可见并点击。",
       "parents": [
         {
           "_comment": "当前可见的职位下拉菜单。",
@@ -225,7 +238,7 @@
       "target": {
         "_comment": "可点击职位选项。",
         "selectors": [
-          { "_comment": "Ant Design 职位选项。", "type": "css", "value": ".ant-select-item-option" }
+          { "_comment": "职位文字和信息的完整内容区域，不包含外层空白边缘。", "type": "css", "value": ".ant-select-item-option .hpublic-job-select-option" }
         ]
       },
       "state": "visible",
@@ -252,7 +265,7 @@
       "target": {
         "_comment": "相对于单个职位选项读取加粗的职位名称。",
         "selectors": [
-          { "_comment": "猎聘职位选项标题。", "type": "css", "value": ".hpublic-job-select-option strong" }
+          { "_comment": "相对已找到的职位内容区域读取标题。", "type": "css", "value": "strong" }
         ]
       },
       "state": "visible",

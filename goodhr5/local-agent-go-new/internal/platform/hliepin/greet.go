@@ -138,6 +138,14 @@ func selectGreetingJob(ctx context.Context, browser model.Browser, cfg model.Con
 		fingerprint := greetingJobListFingerprint(items)
 		log.Printf("event=greeting_job_scan platform=hliepin round=%d returned_count=%d match_index=%d", round, len(items), matchIndex)
 		if matchIndex >= 0 {
+			// 虚拟列表会在每次滚轮中改变下标，必须在开始滚动前就绑定职位文字。
+			for _, item := range items {
+				if item.Index == matchIndex {
+					selector.Target.Text = greetingJobName(item)
+					selector.Target.Index = nil
+					break
+				}
+			}
 			return clickGreetingJob(ctx, browser, cfg, selector, nameSelector, list, matchIndex, positionName)
 		}
 		if round > 1 && fingerprint == previousFingerprint {
@@ -173,7 +181,7 @@ func clickGreetingJob(
 	matchIndex int,
 	positionName string,
 ) (bool, error) {
-	selector.Target.Index = &matchIndex
+	selector.Target.Index = nil
 	list.TimeoutMS = 200
 	requireFull := true
 	if _, err := browser.Scroll(ctx, contract.ScrollRequest{
@@ -188,7 +196,7 @@ func clickGreetingJob(
 		return false, fmt.Errorf("滚动到猎聘开聊岗位失败：%w", err)
 	}
 	items, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-		Selector:        selectorWithoutIndex(selector),
+		Selector:        selector,
 		MaxItems:        100,
 		Fields:          map[string]contract.SelectorSpec{"position_name": nameSelector},
 		ExpectedMissing: true,
@@ -200,13 +208,13 @@ func clickGreetingJob(
 	if refreshedIndex < 0 {
 		return false, fmt.Errorf("猎聘开聊岗位已经滚到可见区域，但重新读取时没有找到目标岗位")
 	}
-	selector.Target.Index = &refreshedIndex
-	log.Printf("event=greeting_job_select platform=hliepin status=target_refreshed previous_index=%d refreshed_index=%d", matchIndex, refreshedIndex)
+	log.Printf("event=greeting_job_select platform=hliepin status=target_refreshed previous_index=%d refreshed_index=%d stable_text=true", matchIndex, refreshedIndex)
 	_, clickErr := browser.Click(ctx, contract.ElementClickRequest{
 		Selector: selector, ViewportMargin: 24,
 	})
 	selected, verifyErr := greetingJobAlreadySelected(ctx, browser, cfg, positionName)
 	if selected {
+		log.Printf("event=greeting_job_select platform=hliepin status=selection_verified")
 		return true, nil
 	}
 	if clickErr != nil {
@@ -216,12 +224,6 @@ func clickGreetingJob(
 		return false, fmt.Errorf("确认猎聘已选开聊岗位失败：%w", verifyErr)
 	}
 	return false, fmt.Errorf("猎聘开聊岗位点击完成了，但页面没有选中目标岗位")
-}
-
-// selectorWithoutIndex 清除滚动前的列表下标，便于虚拟列表换批后重新定位目标岗位。
-func selectorWithoutIndex(selector contract.SelectorSpec) contract.SelectorSpec {
-	selector.Target.Index = nil
-	return selector
 }
 
 // closeGreetingJobList 在没有匹配岗位时关闭职位下拉框，避免它挡住“不选择职位开聊”按钮。
@@ -362,7 +364,7 @@ func normalizeGreetingJob(value string) string {
 
 // closeGreetModalIfPresent 只关闭遗留的猎聘开聊弹框。
 func closeGreetModalIfPresent(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	return closeModalWithEscape(ctx, browser, cfg, "candidate.greet_modal", "猎聘开聊弹框")
+	return common.CloseOptionalPanel(ctx, browser, cfg, "candidate.greet_modal", "candidate.greet_modal_close", "猎聘开聊弹框")
 }
 
 // closeModalWithEscape 关闭已识别的弹框并短暂等待关闭动画，避免遗留遮罩挡住后续输入。

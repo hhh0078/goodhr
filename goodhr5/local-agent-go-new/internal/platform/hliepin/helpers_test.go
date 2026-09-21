@@ -33,6 +33,7 @@ type greetingJobBrowser struct {
 	skipSelection          bool
 	itemsAfterTargetScroll []contract.FindAllItem
 	listOpen               bool
+	modalOpen              bool
 	pressCount             int
 }
 
@@ -73,11 +74,23 @@ func (b *greetingJobBrowser) Click(_ context.Context, request contract.ElementCl
 	if request.Selector.Description == "开聊职位下拉" {
 		b.listOpen = true
 	}
+	if request.Selector.Description == "关闭开聊弹框" {
+		b.modalOpen = false
+	}
 	items := b.currentGreetingJobItems()
 	if request.Selector.Description == "开聊职位列表项" && len(items) > 0 {
 		index := 0
 		if request.Selector.Target.Index != nil {
 			index = *request.Selector.Target.Index
+		}
+		if request.Selector.Target.Text != "" {
+			index = -1
+			for i, item := range items {
+				if strings.Contains(greetingJobName(item), request.Selector.Target.Text) {
+					index = i
+					break
+				}
+			}
 		}
 		if !b.skipSelection && index >= 0 && index < len(items) {
 			b.selectedName = items[index].Fields["position_name"]
@@ -103,6 +116,12 @@ func (b *greetingJobBrowser) Read(_ context.Context, request contract.ElementRea
 // FindAll 返回猎聘开聊职位选项并记录字段读取参数。
 func (b *greetingJobBrowser) FindAll(_ context.Context, request contract.ElementFindAllRequest) ([]contract.FindAllItem, error) {
 	b.findRequest = request
+	if request.Selector.Description == "开聊弹框" {
+		if b.modalOpen {
+			return []contract.FindAllItem{{Index: 0}}, nil
+		}
+		return nil, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "ELEMENT_NOT_FOUND"}}
+	}
 	if request.Selector.Description == "开聊职位列表" {
 		if b.listOpen {
 			return []contract.FindAllItem{{Index: 0}}, nil
@@ -122,6 +141,10 @@ func (b *greetingJobBrowser) Scroll(_ context.Context, request contract.ScrollRe
 	if request.Target != nil && len(b.itemsAfterTargetScroll) > 0 {
 		b.items = b.itemsAfterTargetScroll
 		b.itemsAfterTargetScroll = nil
+		// 模拟滚动期间下标失效；仅滚动结束后重读列表无法修复这次失败。
+		if request.Target.Target.Index != nil {
+			return contract.ScrollResult{}, &contract.WorkerError{Body: contract.WorkerErrorBody{Code: "VIEWPORT_TOO_SMALL"}}
+		}
 	}
 	return contract.ScrollResult{Scrolled: request.Target != nil}, nil
 }
@@ -356,8 +379,8 @@ func TestSelectGreetingJobReadsTitleAndScrolls(t *testing.T) {
 		t.Fatal("没有单独读取职位标题")
 	}
 	if len(browser.scrolls) != 1 || browser.scrolls[0].Target == nil ||
-		browser.scrolls[0].Target.Target.Index == nil ||
-		*browser.scrolls[0].Target.Target.Index != 0 {
+		browser.scrolls[0].Target.Target.Index != nil ||
+		browser.scrolls[0].Target.Target.Text != "AI应用开发工程师初..." {
 		t.Fatalf("选择岗位前没有滚动定位：%+v", browser.scrolls)
 	}
 	if browser.scrolls[0].RequireFull == nil || !*browser.scrolls[0].RequireFull {
@@ -368,8 +391,8 @@ func TestSelectGreetingJobReadsTitleAndScrolls(t *testing.T) {
 	}
 }
 
-// TestSelectGreetingJobRefreshesVirtualListIndex 验证滚动导致虚拟列表换批后会重新读取目标下标再点击。
-func TestSelectGreetingJobRefreshesVirtualListIndex(t *testing.T) {
+// TestSelectGreetingJobKeepsIdentityDuringVirtualScroll 验证滚动途中虚拟列表移除旧下标时仍按同一个职位完成滚动和点击。
+func TestSelectGreetingJobKeepsIdentityDuringVirtualScroll(t *testing.T) {
 	browser := &greetingJobBrowser{
 		items: []contract.FindAllItem{
 			{Index: 0, Fields: map[string]string{"position_name": "Java开发工程师"}},
@@ -390,8 +413,23 @@ func TestSelectGreetingJobRefreshesVirtualListIndex(t *testing.T) {
 	if err != nil || !selected {
 		t.Fatalf("虚拟列表换批后选择 PHP 程序员失败：selected=%v err=%v", selected, err)
 	}
-	if len(browser.clicks) != 2 || browser.clicks[1].Selector.Target.Index == nil || *browser.clicks[1].Selector.Target.Index != 0 {
-		t.Fatalf("没有使用滚动后的新下标点击：%+v", browser.clicks)
+	if len(browser.clicks) != 2 || browser.clicks[1].Selector.Target.Index != nil || browser.clicks[1].Selector.Target.Text != "PHP程序员" {
+		t.Fatalf("滚动和点击必须始终按岗位文字定位：%+v", browser.clicks)
+	}
+}
+
+// TestCloseGreetingModalWithoutEscape 验证开聊弹框不响应 Escape 时能点击关闭，避免阻挡后续候选人。
+func TestCloseGreetingModalWithoutEscape(t *testing.T) {
+	browser := &greetingJobBrowser{modalOpen: true}
+	cfg := model.Config{Selectors: map[string]contract.SelectorSpec{
+		"candidate.greet_modal":       selectorForGreetingTest("开聊弹框"),
+		"candidate.greet_modal_close": selectorForGreetingTest("关闭开聊弹框"),
+	}}
+	if err := closeGreetModalIfPresent(context.Background(), browser, cfg); err != nil {
+		t.Fatalf("关闭不响应 Escape 的开聊弹框失败：%v", err)
+	}
+	if browser.modalOpen || len(browser.clicks) != 1 || browser.pressCount != 0 {
+		t.Fatalf("没有点击关闭按钮清理弹框：%+v", browser)
 	}
 }
 
