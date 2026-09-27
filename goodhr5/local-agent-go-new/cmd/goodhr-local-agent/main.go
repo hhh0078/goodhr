@@ -176,7 +176,7 @@ func run() (runErr error) {
 func logAgentLifecycle(event string, message string, reason string, isError bool, details map[string]any) {
 	category := "运行"
 	if isError {
-		category = "错误"
+		category = "异常退出"
 	}
 	output := map[string]any{"event": event}
 	for key, value := range details {
