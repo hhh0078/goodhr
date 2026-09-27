@@ -7,7 +7,10 @@ import {
 } from "../errors/worker-error.js";
 
 const sensitiveKeyPattern =
-  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message_text|input_text|candidate_name|resume_text/i;
+  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message_text|input_text|candidate_name|resume_text|phone|wechat/i;
+
+const secretTextPattern = /(?:Bearer\s+\S+|(?:token|password|secret|cookie|api[_-]?key)\s*[=:]\s*\S+)/gi;
+const urlQueryPattern = /(https?:\/\/[^\s?"<>]+)\?[^\s"<>]*/gi;
 
 /** sanitizeFields 清理日志中的敏感字段和过长文本。 */
 function sanitizeFields(fields: JsonObject): JsonObject {
@@ -25,7 +28,8 @@ function sanitizeFields(fields: JsonObject): JsonObject {
 /** sanitizeValue 递归清理日志字段并限制单个字符串长度。 */
 function sanitizeValue(value: JsonValue): JsonValue {
   if (typeof value === "string") {
-    return value.length > 1000 ? `${value.slice(0, 1000)}…` : value;
+    const cleaned = value.replace(secretTextPattern, "[已隐藏]").replace(urlQueryPattern, "$1?[已隐藏]");
+    return cleaned.length > 1000 ? `${cleaned.slice(0, 1000)}…` : cleaned;
   }
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeValue(item));
@@ -109,8 +113,30 @@ export class WorkerLogger {
     status: string,
     fields: JsonObject,
   ): void {
+    const isError = level === "error" || status === "failed" || status === "panic";
+    const errorMessage = typeof fields.error_message === "string"
+      ? fields.error_message
+      : isError && typeof fields.error === "string" ? fields.error : "";
+    const input: JsonObject = fields.input && typeof fields.input === "object" && !Array.isArray(fields.input)
+      ? { ...(fields.input as JsonObject) }
+      : {};
+    const output: JsonObject = fields.output && typeof fields.output === "object" && !Array.isArray(fields.output)
+      ? { ...(fields.output as JsonObject) }
+      : { status, duration_ms: Date.now() - context.started_at };
+    for (const key of ["target_description", "candidates", "parent_levels", "frame_levels", "timeout_ms", "max_items"] as const) {
+      if (fields[key] !== undefined && input[key] === undefined) input[key] = fields[key];
+    }
+    for (const key of ["matches_checked", "matched_selector", "count", "verified", "error_code", "poll_attempts"] as const) {
+      if (fields[key] !== undefined && output[key] === undefined) output[key] = fields[key];
+    }
     const payload = sanitizeFields({
+      ...fields,
       timestamp: new Date().toISOString(),
+      category: context.action.startsWith("worker.") ? "worker" : "browser",
+      is_error: isError,
+      error_message: errorMessage,
+      input,
+      output,
       level,
       trace_id: context.trace_id,
       request_id: context.request_id ?? "",
@@ -118,7 +144,6 @@ export class WorkerLogger {
       step,
       status,
       duration_ms: Date.now() - context.started_at,
-      ...fields,
     });
     process.stdout.write(`${JSON.stringify(payload)}\n`);
   }

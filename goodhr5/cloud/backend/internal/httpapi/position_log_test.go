@@ -247,3 +247,74 @@ func TestPositionLogRejectsMissingPosition(t *testing.T) {
 		t.Fatalf("add log status = %d, want %d", resp.Code, http.StatusNotFound)
 	}
 }
+
+// TestPositionDiagnosticReplaceAndShare 验证批量覆盖、千条上限、脱敏和分享链接替换。
+func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "diagnostic-owner@example.com")
+	positionID := createPositionForTest(t, routes, token)
+	entries := make([]positionDiagnosticEvent, 1005)
+	for index := range entries {
+		entries[index] = positionDiagnosticEvent{
+			Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Second).Format(time.RFC3339Nano),
+			Category: "browser", Message: "步骤" + intString(index), Input: json.RawMessage(`{}`), Output: json.RawMessage(`{}`),
+		}
+	}
+	entries[1004].IsError = true
+	entries[1004].ErrorMessage = "点击失败 password=private-secret"
+	entries[1004].Input = json.RawMessage(`{"token":"private-token","target":"按钮"}`)
+	content, err := json.Marshal(map[string]any{"logs": entries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceRequest := httptest.NewRequest(http.MethodPut, "/api/positions/"+positionID+"/logs", bytes.NewReader(content))
+	replaceRequest.Header.Set("Authorization", "Bearer "+token)
+	replaceResponse := httptest.NewRecorder()
+	routes.ServeHTTP(replaceResponse, replaceRequest)
+	if replaceResponse.Code != http.StatusOK {
+		t.Fatalf("replace status=%d body=%s", replaceResponse.Code, replaceResponse.Body.String())
+	}
+	var replaceResult struct{ Count int `json:"count"` }
+	if err := json.Unmarshal(replaceResponse.Body.Bytes(), &replaceResult); err != nil || replaceResult.Count != 1000 {
+		t.Fatalf("replace count=%d err=%v", replaceResult.Count, err)
+	}
+	shareRequest := httptest.NewRequest(http.MethodPost, "/api/positions/"+positionID+"/logs/share", nil)
+	shareRequest.Header.Set("Authorization", "Bearer "+token)
+	shareResponse := httptest.NewRecorder()
+	routes.ServeHTTP(shareResponse, shareRequest)
+	if shareResponse.Code != http.StatusOK {
+		t.Fatalf("share status=%d body=%s", shareResponse.Code, shareResponse.Body.String())
+	}
+	var shared struct{ Token string `json:"token"` }
+	if err := json.Unmarshal(shareResponse.Body.Bytes(), &shared); err != nil || len(shared.Token) != 64 {
+		t.Fatalf("share token invalid: %v", err)
+	}
+	publicResponse := httptest.NewRecorder()
+	routes.ServeHTTP(publicResponse, httptest.NewRequest(http.MethodGet, "/api/public/position-log-shares/"+shared.Token, nil))
+	if publicResponse.Code != http.StatusOK {
+		t.Fatalf("public status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
+	}
+	var publicResult struct {
+		Logs []struct { Event positionDiagnosticEvent `json:"event"` } `json:"logs"`
+	}
+	if err := json.Unmarshal(publicResponse.Body.Bytes(), &publicResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(publicResult.Logs) != 1000 || !publicResult.Logs[0].Event.IsError || publicResult.Logs[len(publicResult.Logs)-1].Event.Message != "步骤5" {
+		t.Fatalf("share logs count=%d first=%+v last=%+v", len(publicResult.Logs), publicResult.Logs[0], publicResult.Logs[len(publicResult.Logs)-1])
+	}
+	if bytes.Contains(publicResponse.Body.Bytes(), []byte("private-secret")) || bytes.Contains(publicResponse.Body.Bytes(), []byte("private-token")) {
+		t.Fatal("shared logs contain credentials")
+	}
+	secondShare := httptest.NewRecorder()
+	routes.ServeHTTP(secondShare, shareRequest)
+	if secondShare.Code != http.StatusOK {
+		t.Fatalf("second share status=%d", secondShare.Code)
+	}
+	oldResponse := httptest.NewRecorder()
+	routes.ServeHTTP(oldResponse, httptest.NewRequest(http.MethodGet, "/api/public/position-log-shares/"+shared.Token, nil))
+	if oldResponse.Code != http.StatusNotFound {
+		t.Fatalf("old share status=%d, want 404", oldResponse.Code)
+	}
+}

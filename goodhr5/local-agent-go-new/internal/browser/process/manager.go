@@ -3,12 +3,14 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +31,7 @@ type Manager struct {
 	command     *exec.Cmd
 	lineWriter  *lineSinkWriter
 	done        chan struct{}
+	stopping    atomic.Bool
 }
 
 // SetEnvironment 设置 Worker 子进程需要的额外环境变量。
@@ -92,6 +95,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
+	m.stopping.Store(false)
 	configureProcess(command)
 	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
 	command.Env = append(command.Env, m.environment...)
@@ -117,6 +121,7 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.stopping.Store(true)
 	if m.command == nil || m.command.Process == nil {
 		return nil
 	}
@@ -172,9 +177,23 @@ func (m *Manager) waitHealthy(ctx context.Context, done <-chan struct{}) error {
 // wait 回收 Worker 进程并刷新尚未换行的统一日志。
 func (m *Manager) wait(command *exec.Cmd, lineWriter *lineSinkWriter, done chan struct{}) {
 	err := command.Wait()
-	log.Printf("event=worker_exit pid=%d exit_code=%d error=%v", command.Process.Pid, command.ProcessState.ExitCode(), err)
+	exitCode := command.ProcessState.ExitCode()
+	log.Printf("event=worker_exit pid=%d exit_code=%d error=%v", command.Process.Pid, exitCode, err)
 	if lineWriter != nil {
 		lineWriter.Flush()
+		if exitCode != 0 && !m.stopping.Load() && lineWriter.sink != nil {
+			reason := fmt.Sprintf("Browser Worker 意外退出，退出码 %d", exitCode)
+			if err != nil {
+				reason += "：" + err.Error()
+			}
+			data, _ := json.Marshal(map[string]any{
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "worker",
+				"action": "worker.exit", "step": "process_exit", "status": "failed", "level": "error",
+				"is_error": true, "error_message": reason, "exit_reason": reason, "exit_code": exitCode,
+				"input": map[string]any{"pid": command.Process.Pid}, "output": map[string]any{"exit_code": exitCode},
+			})
+			lineWriter.sink(data)
+		}
 	}
 	close(done)
 	m.mu.Lock()

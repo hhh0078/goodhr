@@ -61,7 +61,7 @@ type ConversationRecord struct {
 }
 
 // Open 打开 SQLite 并执行内嵌迁移。
-func Open(path string) (*Store, error) {
+func Open(path string, previousExitReason ...string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("打开 SQLite 失败：%w", err)
@@ -76,7 +76,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if _, err := store.RecoverInterruptedTasks(context.Background()); err != nil {
+	if _, err := store.RecoverInterruptedTasks(context.Background(), previousExitReason...); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -268,7 +268,29 @@ func (s *Store) UpdateTaskStep(ctx context.Context, taskID string, step string) 
 }
 
 // RecoverInterruptedTasks 把上次异常退出遗留的 running 任务统一收尾为失败。
-func (s *Store) RecoverInterruptedTasks(ctx context.Context) (int64, error) {
+func (s *Store) RecoverInterruptedTasks(ctx context.Context, previousExitReason ...string) (int64, error) {
+	reason := "上次异常退出，具体原因未知（可能是强制结束、断电或系统故障）"
+	if len(previousExitReason) > 0 && strings.TrimSpace(previousExitReason[0]) != "" {
+		reason = strings.TrimSpace(previousExitReason[0])
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT position_id FROM task_runs WHERE status = 'running' AND position_id != ''`)
+	if err != nil {
+		return 0, fmt.Errorf("读取异常中断岗位失败：%w", err)
+	}
+	positionIDs := []string{}
+	for rows.Next() {
+		var positionID string
+		if scanErr := rows.Scan(&positionID); scanErr != nil {
+			rows.Close()
+			return 0, scanErr
+		}
+		positionIDs = append(positionIDs, positionID)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE task_runs SET
@@ -286,7 +308,20 @@ func (s *Store) RecoverInterruptedTasks(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("恢复异常中断任务失败：%w", err)
 	}
+	for _, positionID := range positionIDs {
+		if err := s.MarkPositionLogUploadPending(ctx, positionID); err != nil {
+			return 0, err
+		}
+		_, _ = s.SaveTaskLog(ctx, TaskLog{PositionID: positionID, Flow: "lifecycle", Step: "agent_restart", Status: "failed", Category: "lifecycle", ErrorMessage: reason, Message: "本地程序上次异常退出：" + reason})
+	}
 	return result.RowsAffected()
+}
+
+// RunningTaskID 返回当前唯一运行任务的编号，供无 trace_id 的 Worker 崩溃日志归属岗位。
+func (s *Store) RunningTaskID(ctx context.Context) (string, error) {
+	var taskID string
+	err := s.db.QueryRowContext(ctx, `SELECT task_id FROM task_runs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1`).Scan(&taskID)
+	return taskID, err
 }
 
 // CleanupExpired 删除保留期限以前的任务、候选人、会话、下载和步骤日志摘要。

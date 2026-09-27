@@ -60,6 +60,8 @@ func (s *PositionLogService) Collection(w http.ResponseWriter, r *http.Request) 
 		s.List(w, r)
 	case http.MethodPost:
 		s.Add(w, r)
+	case http.MethodPut:
+		s.Replace(w, r)
 	case http.MethodDelete:
 		s.Clear(w, r)
 	default:
@@ -233,8 +235,8 @@ func normalizePositionLogLimit(limit int) int {
 	if limit <= 0 {
 		return 100
 	}
-	if limit > 300 {
-		return 300
+	if limit > maxPositionLogsPerPosition {
+		return maxPositionLogsPerPosition
 	}
 	return limit
 }
@@ -292,11 +294,16 @@ func publicPositionLogs(items []PositionLog) []map[string]any {
 
 // publicPositionLog 将岗位日志模型转换为前端响应结构。
 func publicPositionLog(item PositionLog) map[string]any {
-	return map[string]any{
+	result := map[string]any{
 		"id":          item.ID,
 		"position_id": item.PositionID,
 		"level":       item.Level,
 		"message":     item.Message,
 		"created_at":  item.CreatedAt,
 	}
+	var event positionDiagnosticEvent
+	if json.Unmarshal([]byte(item.Message), &event) == nil && event.Timestamp != "" && event.Category != "" {
+		result["event"] = event
+	}
+	return result
 }

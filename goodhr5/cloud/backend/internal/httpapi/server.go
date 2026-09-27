@@ -137,6 +137,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
+	mux.HandleFunc("/api/public/position-log-shares/", s.positionLogs.PublicShare)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
@@ -219,6 +220,10 @@ func (s *Server) Routes() http.Handler {
 
 // positionRoute 根据路径分发岗位详情、日志和本地程序同步请求。
 func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/logs/share") {
+		s.positionLogs.Share(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/logs") {
 		s.positionLogs.Collection(w, r)
 		return

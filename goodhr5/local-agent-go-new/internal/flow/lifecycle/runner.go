@@ -86,6 +86,9 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
 	prepared := preflightResult.Prepared
+	if strings.TrimSpace(prepared.Request.Token) != "" {
+		go r.retryPendingLogUploads(prepared.Request.Token)
+	}
 	r.mu.Lock()
 	if len(r.active) > 0 {
 		r.mu.Unlock()
@@ -129,6 +132,13 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		if saveErr := r.store.SaveTask(context.Background(), task); saveErr != nil {
 			r.logNotification(task.TaskID, "save_running_sync_failure", saveErr)
 		}
+		if r.logger != nil {
+			r.logger.Step(task.TaskID, "lifecycle", "request_cloud_start", "failed", task.StartedAt, err)
+		}
+		_ = r.store.MarkPositionLogUploadPending(context.Background(), task.PositionID)
+		uploadCtx, cancelUpload := context.WithTimeout(context.Background(), 15*time.Second)
+		_ = r.UploadPositionLogs(uploadCtx, prepared.Request.Token, task.PositionID)
+		cancelUpload()
 		r.release(active)
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
@@ -218,19 +228,22 @@ func (r *Runner) HasActive() bool {
 	return len(r.active) > 0
 }
 
-// StopAll 停止程序退出时仍在运行的任务。
-func (r *Runner) StopAll(ctx context.Context) {
+// StopAll 记录程序退出原因，再停止所有仍在运行的岗位任务。
+func (r *Runner) StopAll(ctx context.Context, reason string) {
 	r.mu.Lock()
 	tasks := make([]*activeTask, 0, len(r.active))
 	for _, active := range r.active {
 		active.stopped = true
-		active.stopOnce.Do(func() {
-			close(active.stop)
-		})
-		active.cancel()
 		tasks = append(tasks, active)
 	}
 	r.mu.Unlock()
+	for _, active := range tasks {
+		if r.logger != nil {
+			r.logger.Step(active.state.TaskID, "lifecycle", "agent_shutdown", "warning", time.Now(), errors.New(reason))
+		}
+		active.stopOnce.Do(func() { close(active.stop) })
+		active.cancel()
+	}
 	for _, active := range tasks {
 		select {
 		case <-ctx.Done():
@@ -262,6 +275,7 @@ func (r *Runner) run(ctx context.Context, active *activeTask) {
 	if err != nil {
 		return
 	}
+	runtime = &loggedRuntime{Runtime: runtime, taskID: prepared.Request.TaskID, logger: r.logger}
 	switch prepared.Request.TaskType {
 	case "greeting":
 		stats, err = r.greeting.Run(ctx, prepared, runtime)
@@ -306,6 +320,19 @@ func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 		r.logNotification(state.TaskID, "save_final_task", err)
 	}
 	r.notifyFinished(active.prepared, state, stats, runErr)
+	if r.logger != nil {
+		r.logger.Step(state.TaskID, "lifecycle", "finished", state.Status, state.StartedAt, runErr)
+	}
+	if err := r.store.MarkPositionLogUploadPending(context.Background(), state.PositionID); err != nil {
+		r.logNotification(state.TaskID, "mark_log_upload", err)
+	}
+	if r.cloud != nil && strings.TrimSpace(active.prepared.Request.Token) != "" {
+		uploadCtx, cancelUpload := context.WithTimeout(context.Background(), 20*time.Second)
+		if err := r.UploadPositionLogs(uploadCtx, active.prepared.Request.Token, state.PositionID); err != nil {
+			r.logNotification(state.TaskID, "upload_position_logs", err)
+		}
+		cancelUpload()
+	}
 	r.profiles.Release(active.prepared.Request.ProfileID, state.TaskID)
 	r.power.Stop()
 	close(active.done)
@@ -454,4 +481,13 @@ func (r *Runner) savePreflightFailure(ctx context.Context, request shared.StartR
 		StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC(),
 	}
 	_ = r.store.SaveTask(context.WithoutCancel(ctx), task)
+	if r.logger != nil {
+		r.logger.Step(task.TaskID, "lifecycle", "preflight", "failed", task.StartedAt, failure)
+	}
+	_ = r.store.MarkPositionLogUploadPending(context.Background(), task.PositionID)
+	if r.cloud != nil && strings.TrimSpace(request.Token) != "" {
+		uploadCtx, cancelUpload := context.WithTimeout(context.Background(), 15*time.Second)
+		_ = r.UploadPositionLogs(uploadCtx, request.Token, task.PositionID)
+		cancelUpload()
+	}
 }

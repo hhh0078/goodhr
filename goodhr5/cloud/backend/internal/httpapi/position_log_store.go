@@ -37,9 +37,48 @@ type PositionLogQuery struct {
 // PositionLogStore 定义岗位日志摘要的持久化能力。
 type PositionLogStore interface {
 	AddPositionLog(log PositionLog) (PositionLog, error)
+	ReplacePositionLogs(positionID, userEmail string, logs []PositionLog) error
 	ListPositionLogs(tenantID, userEmail, positionID string, isAdmin bool, query PositionLogQuery) ([]PositionLog, bool, error)
 	ClearPositionLogs(tenantID, userEmail, positionID string, isAdmin bool) error
 	SummarizePositionCounts(tenantID, userEmail string, isAdmin bool, since *time.Time) (map[string]PositionCountSummary, error)
+}
+
+// PositionLogShareStore 定义固定快照的排障链接存取能力。
+type PositionLogShareStore interface {
+	SavePositionLogShare(tokenHash, positionID, userEmail string, snapshot []PositionLog, expiresAt time.Time) error
+	LoadPositionLogShare(tokenHash string) ([]PositionLog, time.Time, error)
+}
+
+// PositionLogShare 是仅在链接有效期内保存的一份日志快照。
+type PositionLogShare struct {
+	PositionID string
+	UserEmail  string
+	Snapshot   []PositionLog
+	ExpiresAt  time.Time
+}
+
+// ReplacePositionLogs 用一批最近日志覆盖指定岗位旧记录，保证重复上传不产生重复项。
+func (s *MemoryPositionLogStore) ReplacePositionLogs(positionID, userEmail string, logs []PositionLog) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]PositionLog, 0, len(s.logs)+len(logs))
+	for _, item := range s.logs {
+		if item.PositionID != positionID || item.UserEmail != userEmail {
+			kept = append(kept, item)
+		}
+	}
+	if len(logs) > maxPositionLogsPerPosition {
+		logs = logs[len(logs)-maxPositionLogsPerPosition:]
+	}
+	for _, item := range logs {
+		item.PositionID, item.UserEmail, item.ID = positionID, userEmail, s.nextID()
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = s.now()
+		}
+		kept = append(kept, item)
+	}
+	s.logs = kept
+	return nil
 }
 
 // PositionLogFlushStore 定义岗位日志缓存落库能力。
@@ -51,6 +90,7 @@ type PositionLogFlushStore interface {
 type MemoryPositionLogStore struct {
 	mu     sync.Mutex
 	logs   []PositionLog
+	shares map[string]PositionLogShare
 	now    func() time.Time
 	nextID func() string
 }
@@ -59,8 +99,9 @@ type MemoryPositionLogStore struct {
 func NewMemoryPositionLogStore() *MemoryPositionLogStore {
 	seq := 0
 	return &MemoryPositionLogStore{
-		logs: make([]PositionLog, 0),
-		now:  time.Now,
+		logs:   make([]PositionLog, 0),
+		shares: make(map[string]PositionLogShare),
+		now:    time.Now,
 		nextID: func() string {
 			seq++
 			return "position_log_" + intString(seq)

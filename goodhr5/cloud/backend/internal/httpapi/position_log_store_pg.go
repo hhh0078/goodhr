@@ -17,6 +17,45 @@ func NewPostgresPositionLogStore(db *sql.DB) *PostgresPositionLogStore {
 	return &PostgresPositionLogStore{db: db}
 }
 
+// ReplacePositionLogs 在一个事务中覆盖该用户岗位的旧日志，最多保存最新 1000 条。
+func (s *PostgresPositionLogStore) ReplacePositionLogs(positionID, userEmail string, logs []PositionLog) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	userID, err := ensureUserID(ctx, s.db, userEmail)
+	if err != nil {
+		return err
+	}
+	if len(logs) > maxPositionLogsPerPosition {
+		logs = logs[len(logs)-maxPositionLogsPerPosition:]
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, positionID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM position_logs WHERE position_id=$1 AND user_id=$2`, positionID, userID); err != nil {
+		return err
+	}
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO position_logs(position_id,user_id,level,message,created_at) VALUES($1,$2,$3,$4,$5)`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	for _, item := range logs {
+		createdAt := item.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		if _, err = statement.ExecContext(ctx, positionID, userID, item.Level, item.Message, createdAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // AddPositionLog 新增一条 PostgreSQL 岗位日志摘要。
 func (s *PostgresPositionLogStore) AddPositionLog(log PositionLog) (PositionLog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -31,9 +70,6 @@ func (s *PostgresPositionLogStore) AddPositionLog(log PositionLog) (PositionLog,
 	if level == "" {
 		level = "info"
 	}
-	if err := s.trimPositionLogs(ctx, log.PositionID, log.UserEmail, 1); err != nil {
-		return PositionLog{}, err
-	}
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
@@ -41,7 +77,15 @@ func (s *PostgresPositionLogStore) AddPositionLog(log PositionLog) (PositionLog,
 
 	var saved PositionLog
 	saved.UserEmail = log.UserEmail
-	err = s.db.QueryRowContext(
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PositionLog{}, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, log.PositionID); err != nil {
+		return PositionLog{}, err
+	}
+	err = tx.QueryRowContext(
 		ctx,
 		`
 		INSERT INTO position_logs (position_id, user_id, level, message, created_at)
@@ -61,6 +105,16 @@ func (s *PostgresPositionLogStore) AddPositionLog(log PositionLog) (PositionLog,
 		&saved.CreatedAt,
 	)
 	if err != nil {
+		return PositionLog{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		DELETE FROM position_logs WHERE position_id=$1 AND user_id=$2 AND id NOT IN (
+			SELECT id FROM position_logs WHERE position_id=$1 AND user_id=$2
+			ORDER BY created_at DESC, id DESC LIMIT $3
+		)`, log.PositionID, userID, maxPositionLogsPerPosition); err != nil {
+		return PositionLog{}, err
+	}
+	if err = tx.Commit(); err != nil {
 		return PositionLog{}, err
 	}
 	return saved, nil

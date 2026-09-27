@@ -2,6 +2,7 @@
 "use client";
 
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
@@ -111,6 +112,7 @@ export default function PositionsPage() {
     Record<string, PositionTaskStats>
   >({});
   const [logLoadingPositionID, setLogLoadingPositionID] = useState("");
+  const [logSharePositionID, setLogSharePositionID] = useState("");
   const [allLogs, setAllLogs] = useState<any[]>([]);
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
@@ -685,6 +687,27 @@ export default function PositionsPage() {
     }
   }
 
+  /** copyPositionDiagnosticLink 先同步本地日志，再复制七天有效的只读排障链接。 */
+  async function copyPositionDiagnosticLink(item: any) {
+    setLogSharePositionID(item.id);
+    try {
+      if (agentBase) {
+        await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/logs/upload`, {
+          method: "POST", body: { token: getToken() }, timeoutMS: 30000,
+        });
+      }
+      const result = await cloudRequest(`/api/positions/${encodeURIComponent(item.id)}/logs/share`, { method: "POST" });
+      const token = String(result.token || "");
+      if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("排障链接没有生成成功，请再试一次");
+      await navigator.clipboard.writeText(`${window.location.origin}/diagnostics/${token}`);
+      notify(`排障链接已复制，发给作者就能查看这 ${Number(result.count || 0)} 条日志；7 天内有效。`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "排障链接没生成成功，我们再试一次。", "error");
+    } finally {
+      setLogSharePositionID("");
+    }
+  }
+
   /** copyAllPositionLogs 复制当前弹框中的完整岗位日志。 */
   async function copyAllPositionLogs() {
     try {
@@ -910,8 +933,10 @@ export default function PositionsPage() {
                 <PositionLogPanel
                   logs={logs[item.id] || []}
                   loading={logLoadingPositionID === item.id}
+                  sharing={logSharePositionID === item.id}
                   onRefresh={() => void loadPositionLogs(item)}
                   onViewAll={() => void loadAllPositionLogs(item)}
+                  onShare={() => void copyPositionDiagnosticLink(item)}
                   onClear={() => void clearPositionLogs(item)}
                 />
               </Collapse>
@@ -2208,11 +2233,13 @@ function isPositionStartErrorStatus(message: string) {
 function PositionLogPanel(props: {
   logs: any[];
   loading: boolean;
+  sharing: boolean;
   onRefresh: () => void;
   onViewAll: () => void;
+  onShare: () => void;
   onClear: () => void;
 }) {
-  const { logs, loading, onRefresh, onViewAll, onClear } = props;
+  const { logs, loading, sharing, onRefresh, onViewAll, onShare, onClear } = props;
   return (
     <Box
       sx={{
@@ -2243,6 +2270,9 @@ function PositionLogPanel(props: {
           <Button size='small' onClick={onViewAll}>查看全部日志</Button>
         </Stack>
         <Stack direction='row' spacing={0.5}>
+          <Button size='small' startIcon={<ContentCopyRoundedIcon />} onClick={onShare} disabled={sharing}>
+            {sharing ? "生成中" : "复制错误日志发送给作者"}
+          </Button>
           <Button size='small' onClick={onRefresh} disabled={loading}>
             {loading ? "刷新中" : "刷新"}
           </Button>

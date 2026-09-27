@@ -33,6 +33,16 @@ func NewRedisPositionLogStore(addr string, password string, db int, persistent P
 	}
 }
 
+// ReplacePositionLogs 先原子覆盖持久层，再移除该岗位旧缓存。
+func (s *RedisPositionLogStore) ReplacePositionLogs(positionID, userEmail string, logs []PositionLog) error {
+	if err := s.persistent.ReplacePositionLogs(positionID, userEmail, logs); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return s.client.Del(ctx, positionLogCacheKey(positionID)).Err()
+}
+
 // AddPositionLog 将岗位日志写入 Redis 缓存，并限制单岗位最多 1000 条。
 func (s *RedisPositionLogStore) AddPositionLog(log PositionLog) (PositionLog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -48,24 +58,17 @@ func (s *RedisPositionLogStore) AddPositionLog(log PositionLog) (PositionLog, er
 		log.ID = "position_log_cache_" + strconv.FormatInt(log.CreatedAt.UnixNano(), 10)
 	}
 	key := positionLogCacheKey(log.PositionID)
-	count, err := s.client.LLen(ctx, key).Result()
-	if err != nil {
-		return PositionLog{}, err
-	}
-	if count >= maxPositionLogsPerPosition {
-		keepFrom := count - int64(maxPositionLogsPerPosition) + 1
-		if err := s.client.LTrim(ctx, key, keepFrom, -1).Err(); err != nil {
-			return PositionLog{}, err
-		}
-	}
 	body, err := json.Marshal(log)
 	if err != nil {
 		return PositionLog{}, err
 	}
-	if err := s.client.RPush(ctx, key, body).Err(); err != nil {
+	pipeline := s.client.TxPipeline()
+	pipeline.RPush(ctx, key, body)
+	pipeline.LTrim(ctx, key, -maxPositionLogsPerPosition, -1)
+	pipeline.Expire(ctx, key, positionLogRedisTTL)
+	if _, err := pipeline.Exec(ctx); err != nil {
 		return PositionLog{}, err
 	}
-	_ = s.client.Expire(ctx, key, positionLogRedisTTL).Err()
 	return log, nil
 }
 

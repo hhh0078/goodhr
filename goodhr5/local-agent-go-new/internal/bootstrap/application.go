@@ -38,7 +38,6 @@ import (
 // Application 保存程序运行期间需要清理的顶层组件。
 type Application struct {
 	cfg       config.Config
-	workerLog *diagnostics.Writer
 	shutdown  chan struct{}
 	stopOnce  sync.Once
 	server    *api.Server
@@ -51,9 +50,9 @@ type Application struct {
 }
 
 // New 按依赖顺序创建 SQLite、客户端、流程和本地 HTTP 服务。
-func New(cfg config.Config) (*Application, error) {
+func New(cfg config.Config, runLog *diagnostics.Writer, previousExitReason ...string) (*Application, error) {
 	cleanupLocalFiles(cfg)
-	store, err := storage.Open(cfg.DatabasePath)
+	store, err := storage.Open(cfg.DatabasePath, previousExitReason...)
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +80,7 @@ func New(cfg config.Config) (*Application, error) {
 	powerGuard := &power.Guard{}
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
-	workerLog, err := diagnostics.Open(cfg.LogsDir, "worker.log")
-	if err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("创建 Worker 日志失败：%w", err)
-	}
-	workerProcess.SetLogSink(diagnostics.WorkerLine(workerLog, logger.WorkerLine))
+	workerProcess.SetLogSink(diagnostics.WorkerLine(runLog, logger.WorkerLine))
 	browserClient.SetRecovery(workerProcess.Stop)
 	checker := &preflight.Checker{
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
@@ -107,7 +101,7 @@ func New(cfg config.Config) (*Application, error) {
 	runner := lifecycle.New(checker, greetingFlow, replyFlow, store, profiles, powerGuard, cloudClient, notifier, logger)
 	downloads := &downloadflow.Monitor{Browser: browserClient, Store: store, Notifier: notifier}
 	application := &Application{
-		cfg: cfg, runner: runner, runtime: runtimeManager, workerLog: workerLog,
+		cfg: cfg, runner: runner, runtime: runtimeManager,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
 		shutdown: make(chan struct{}),
 	}
@@ -130,6 +124,19 @@ func (a *Application) RequestShutdown() {
 	a.stopOnce.Do(func() { close(a.shutdown) })
 }
 
+// ExitReason 返回主程序正常收尾的具体触发原因。
+func (a *Application) ExitReason() string {
+	if a == nil {
+		return "正常退出"
+	}
+	select {
+	case <-a.shutdown:
+		return "安装更新前主动退出"
+	default:
+		return "正常退出"
+	}
+}
+
 // cleanupLocalFiles 清理崩溃遗留截图、组件压缩包和旧更新包，失败只记日志不阻断启动。
 func cleanupLocalFiles(cfg config.Config) {
 	targets := []struct {
@@ -149,7 +156,6 @@ func cleanupLocalFiles(cfg config.Config) {
 
 // Run 启动本地 HTTP 服务并在上下文取消后按顺序收尾。
 func (a *Application) Run(ctx context.Context) error {
-	defer a.workerLog.Close()
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	go func() {
@@ -184,8 +190,24 @@ func (a *Application) Run(ctx context.Context) error {
 		runErr = err
 	case <-runCtx.Done():
 	}
+	shutdownReason := "收到系统退出信号"
+	select {
+	case <-a.shutdown:
+		shutdownReason = "安装更新前主动退出"
+	default:
+		if runErr != nil {
+			shutdownReason = "本地接口退出：" + runErr.Error()
+		}
+	}
+	log.Printf("event=agent_shutdown exit_reason=%q", shutdownReason)
 	taskCtx, cancelTasks := context.WithTimeout(context.Background(), 45*time.Second)
-	a.runner.StopAll(taskCtx)
+	a.runner.StopAll(taskCtx, shutdownReason)
+	if taskCtx.Err() != nil {
+		log.Printf("event=agent_shutdown_task_timeout exit_reason=%q", taskCtx.Err())
+		if runErr == nil {
+			runErr = fmt.Errorf("等待岗位任务停止超时：%w", taskCtx.Err())
+		}
+	}
 	cancelTasks()
 	serverCtx, cancelServer := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := a.server.Shutdown(serverCtx); err != nil && runErr == nil {

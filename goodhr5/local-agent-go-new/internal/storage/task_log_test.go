@@ -64,7 +64,7 @@ func TestOpenRecoversInterruptedTasks(t *testing.T) {
 	if err = store.Close(); err != nil {
 		t.Fatalf("关闭测试数据库失败：%v", err)
 	}
-	store, err = Open(databasePath)
+	store, err = Open(databasePath, "Browser Worker 意外退出，退出码 2")
 	if err != nil {
 		t.Fatalf("重新打开测试数据库失败：%v", err)
 	}
@@ -75,6 +75,10 @@ func TestOpenRecoversInterruptedTasks(t *testing.T) {
 	}
 	if task.Status != "failed" || task.ErrorCode != "AGENT_RESTARTED" || task.FinishedAt.IsZero() {
 		t.Fatalf("异常任务没有正确收尾：%+v", task)
+	}
+	logs, err := store.ListPositionLogs(context.Background(), "position-1", 100)
+	if err != nil || len(logs) == 0 || !strings.Contains(logs[len(logs)-1].ErrorMessage, "退出码 2") {
+		t.Fatalf("异常退出原因没有保存到岗位：logs=%+v err=%v", logs, err)
 	}
 }
 

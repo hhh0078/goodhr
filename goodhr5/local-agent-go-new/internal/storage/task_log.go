@@ -4,6 +4,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,16 +14,21 @@ const maxPositionTaskLogs = 1000
 
 // TaskLog 表示一条不含敏感页面正文的本地任务日志。
 type TaskLog struct {
-	ID         int64  `json:"id"`
-	TaskID     string `json:"task_id"`
-	PositionID string `json:"position_id"`
-	Flow       string `json:"flow"`
-	Step       string `json:"step"`
-	Status     string `json:"status"`
-	Level      string `json:"level"`
-	Message    string `json:"message"`
-	DurationMS int64  `json:"duration_ms"`
-	CreatedAt  string `json:"created_at"`
+	ID           int64           `json:"id"`
+	TaskID       string          `json:"task_id"`
+	PositionID   string          `json:"position_id"`
+	Flow         string          `json:"flow"`
+	Step         string          `json:"step"`
+	Status       string          `json:"status"`
+	Level        string          `json:"level"`
+	Message      string          `json:"message"`
+	Category     string          `json:"category"`
+	IsError      bool            `json:"is_error"`
+	ErrorMessage string          `json:"error_message"`
+	Input        json.RawMessage `json:"input"`
+	Output       json.RawMessage `json:"output"`
+	DurationMS   int64           `json:"duration_ms"`
+	CreatedAt    string          `json:"created_at"`
 }
 
 // SaveTaskLog 保存一条流程日志，并在任务已落库时自动补充岗位编号。
@@ -34,8 +40,19 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 	item.Status = strings.TrimSpace(item.Status)
 	item.Level = strings.TrimSpace(item.Level)
 	item.Message = strings.TrimSpace(item.Message)
+	item.Category = strings.TrimSpace(item.Category)
+	item.ErrorMessage = strings.TrimSpace(item.ErrorMessage)
+	if !json.Valid(item.Input) {
+		item.Input = json.RawMessage(`{}`)
+	}
+	if !json.Valid(item.Output) {
+		item.Output = json.RawMessage(`{}`)
+	}
 	if item.Level == "" {
 		item.Level = logLevel(item.Status)
+	}
+	if item.Level == "error" || item.Status == "failed" || item.Status == "panic" {
+		item.IsError = true
 	}
 	if item.CreatedAt == "" {
 		item.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
@@ -54,8 +71,9 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 	defer transaction.Rollback()
 	result, err := transaction.ExecContext(ctx, `
 		INSERT INTO task_logs (
-			task_id, position_id, flow, step, status, level, message, duration_ms, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
+			category, is_error, error_message, input_json, output_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.TaskID,
 		item.PositionID,
 		item.Flow,
@@ -65,6 +83,11 @@ func (s *Store) SaveTaskLog(ctx context.Context, item TaskLog) (TaskLog, error) 
 		item.Message,
 		max(item.DurationMS, 0),
 		item.CreatedAt,
+		item.Category,
+		item.IsError,
+		item.ErrorMessage,
+		string(item.Input),
+		string(item.Output),
 	)
 	if err != nil {
 		return TaskLog{}, fmt.Errorf("保存任务日志失败：%w", err)
@@ -94,9 +117,11 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 		limit = maxPositionTaskLogs
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
+		SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
+		       category, is_error, error_message, input_json, output_json
 		FROM (
-			SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at
+			SELECT id, task_id, position_id, flow, step, status, level, message, duration_ms, created_at,
+			       category, is_error, error_message, input_json, output_json
 			FROM task_logs
 			WHERE position_id = ?
 			ORDER BY id DESC
@@ -113,6 +138,7 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 	logs := make([]TaskLog, 0)
 	for rows.Next() {
 		var item TaskLog
+		var inputJSON, outputJSON string
 		if err = rows.Scan(
 			&item.ID,
 			&item.TaskID,
@@ -124,9 +150,16 @@ func (s *Store) ListPositionLogs(ctx context.Context, positionID string, limit i
 			&item.Message,
 			&item.DurationMS,
 			&item.CreatedAt,
+			&item.Category,
+			&item.IsError,
+			&item.ErrorMessage,
+			&inputJSON,
+			&outputJSON,
 		); err != nil {
 			return nil, fmt.Errorf("解析岗位日志失败：%w", err)
 		}
+		item.Input = json.RawMessage(inputJSON)
+		item.Output = json.RawMessage(outputJSON)
 		logs = append(logs, item)
 	}
 	if err = rows.Err(); err != nil {

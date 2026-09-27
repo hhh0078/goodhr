@@ -238,11 +238,29 @@ func callValue[T any](ctx context.Context, client *Client, path string, request 
 }
 
 // call 执行 Worker HTTP 请求并在边界解析统一响应。
-func call(ctx context.Context, client *Client, method string, path string, payload any, result any) error {
+func call(ctx context.Context, client *Client, method string, path string, payload any, result any) (callErr error) {
+	started := time.Now()
+	responseStatus := 0
+	responseBytes := 0
+	defer func() {
+		entry := map[string]any{
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "browser_call",
+			"is_error": callErr != nil, "error_message": "", "action": path,
+			"message": "Browser Worker 请求完成", "duration_ms": time.Since(started).Milliseconds(),
+			"trace_id": traceIDFromContext(ctx),
+			"input":    map[string]any{"method": method, "path": path, "has_payload": payload != nil},
+			"output":   map[string]any{"http_status": responseStatus, "response_bytes": responseBytes},
+		}
+		if callErr != nil {
+			entry["error_message"] = callErr.Error()
+		}
+		if encoded, err := json.Marshal(entry); err == nil {
+			log.Print(string(encoded))
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	started := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout(payload))
 	defer cancel()
 	var body io.Reader
@@ -280,11 +298,13 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("连接 Browser Worker 失败：%w", err)
 	}
 	defer response.Body.Close()
+	responseStatus = response.StatusCode
 	limited := io.LimitReader(response.Body, 4<<20)
 	var wrapped envelope
 	if err := json.NewDecoder(limited).Decode(&wrapped); err != nil {
 		return fmt.Errorf("解析 Worker 响应失败：%w", err)
 	}
+	responseBytes = len(wrapped.Data)
 	if !wrapped.OK {
 		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
 		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" {

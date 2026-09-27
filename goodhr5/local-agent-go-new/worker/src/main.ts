@@ -4,14 +4,28 @@ import { WorkerLogger } from "./logging/logger.js";
 import { WorkerServer } from "./http/server.js";
 
 const logger = new WorkerLogger();
+let exitReason = "运行结束";
 // 保留 Node 默认的异常退出行为，只补充脱敏诊断，不能吞掉异常继续工作。
 process.on("uncaughtExceptionMonitor", (error, origin) => {
+  exitReason = `${origin}: ${error.message}`;
   logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, origin, "failed", {
     pid: process.pid, error: error.message, stack: error.stack ?? "",
   });
 });
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  exitReason = `unhandledRejection: ${error.message}`;
+  logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, "unhandled_rejection", "failed", { error: error.message });
+  throw error;
+});
 process.on("exit", (code) => {
-  logger.info({ trace_id: "", action: "worker.exit", started_at: Date.now() }, "exit", "finished", { pid: process.pid, exit_code: code });
+  const context = { trace_id: "", action: "worker.exit", started_at: Date.now() };
+  const fields = { pid: process.pid, exit_code: code, exit_reason: exitReason };
+  if (code === 0) {
+    logger.info(context, "exit", "finished", fields);
+  } else {
+    logger.error(context, "exit", "failed", { ...fields, error_message: exitReason });
+  }
 });
 
 /** main 启动 Browser Worker 并注册优雅退出。 */
@@ -33,12 +47,19 @@ async function main(): Promise<void> {
     })}\n`,
   );
   /** shutdown 关闭 Worker HTTP 服务并设置正常退出状态。 */
-  const shutdown = async (): Promise<void> => {
-    await server.stop();
-    process.exitCode = 0;
+  const shutdown = async (signal: string): Promise<void> => {
+    exitReason = `收到 ${signal} 信号`;
+    try {
+      await server.stop();
+      process.exitCode = 0;
+    } catch (error) {
+      exitReason = `关闭失败：${error instanceof Error ? error.message : String(error)}`;
+      logger.error({ trace_id: "", action: "worker.exit", started_at: Date.now() }, "shutdown", "failed", { error: exitReason });
+      process.exitCode = 1;
+    }
   };
-  process.once("SIGINT", () => void shutdown());
-  process.once("SIGTERM", () => void shutdown());
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 /** parsePort 读取并约束 Worker 监听端口。 */

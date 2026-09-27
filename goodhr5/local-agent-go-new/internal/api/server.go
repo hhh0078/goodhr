@@ -83,6 +83,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
 	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)
+	mux.HandleFunc("POST /api/v1/local/positions/{position_id}/logs/upload", server.handlePositionLogUpload)
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
 	mux.HandleFunc("POST /api/v1/runtime/system-check", server.handleRuntimeSystemCheck)
 	mux.HandleFunc("POST /api/v1/runtime/ensure", server.handleRuntimeEnsure)

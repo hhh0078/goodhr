@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,7 +17,7 @@ import (
 const maxLogBytes int64 = 10 << 20
 const logBackups = 4
 
-var sensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)|message_text|input_text|resume_text`)
+var sensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)|message_text|input_text|resume_text|candidate_name|phone|wechat`)
 var sensitiveText = regexp.MustCompile(`(?i)((?:token|password|secret|authorization|cookie|api[_-]?key)\s*[=:]\s*)([^\s&,;]+)`)
 var urlQuery = regexp.MustCompile(`(https?://[^\s?"<>]+)\?[^\s"<>]*`)
 var bearer = regexp.MustCompile(`(?i)Bearer\s+[^\s",;]+`)
@@ -61,9 +62,9 @@ func (w *Writer) open() error {
 func (w *Writer) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	safe := Redact(data)
+	safe := Normalize(data)
 	if len(safe) > 64<<10 {
-		safe = append(safe[:64<<10], []byte(" [日志过长已截断]\n")...)
+		safe = Normalize([]byte(fmt.Sprintf("日志过长已截断，原始字节数=%d", len(data))))
 	}
 	if w.size+int64(len(safe)) > w.limit {
 		if err := w.rotate(); err != nil {
@@ -79,6 +80,52 @@ func (w *Writer) Write(data []byte) (int, error) {
 		return 0, err
 	}
 	return len(data), nil
+}
+
+// Normalize 把 Go 与 Worker 的输出统一成一行一个完整 JSON 日志对象。
+func Normalize(data []byte) []byte {
+	var item map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(data), &item); err != nil || item == nil {
+		message := strings.TrimSpace(string(data))
+		isError := strings.Contains(strings.ToLower(message), "error") || strings.Contains(message, "失败") || strings.Contains(message, "panic")
+		item = map[string]any{"message": message, "category": "agent", "is_error": isError}
+		if isError {
+			item["error_message"] = message
+		}
+	}
+	if _, ok := item["timestamp"]; !ok {
+		item["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if _, ok := item["category"]; !ok {
+		category := "agent"
+		if action, ok := item["action"].(string); ok && strings.TrimSpace(action) != "" {
+			category = "browser"
+		}
+		item["category"] = category
+	}
+	if _, ok := item["is_error"]; !ok {
+		level, _ := item["level"].(string)
+		status, _ := item["status"].(string)
+		item["is_error"] = strings.EqualFold(level, "error") || strings.EqualFold(status, "failed") || strings.EqualFold(status, "panic")
+	}
+	if _, ok := item["error_message"]; !ok {
+		if message, ok := item["error"].(string); ok && item["is_error"] == true {
+			item["error_message"] = message
+		} else {
+			item["error_message"] = ""
+		}
+	}
+	if _, ok := item["input"]; !ok {
+		item["input"] = map[string]any{}
+	}
+	if _, ok := item["output"]; !ok {
+		item["output"] = map[string]any{}
+	}
+	safe, err := json.Marshal(redactValue(item))
+	if err != nil {
+		return []byte("{\"timestamp\":\"1970-01-01T00:00:00Z\",\"category\":\"agent\",\"is_error\":true,\"error_message\":\"日志编码失败\",\"input\":{},\"output\":{}}\n")
+	}
+	return append(safe, '\n')
 }
 
 // rotate 保留最近四份备份；重命名失败时重新打开当前文件，避免静默丢失后续日志。
@@ -150,28 +197,38 @@ func redactValue(value any) any {
 	return value
 }
 
-// WorkerLine 将 Worker 原始输出保存到文件，再交给岗位日志过滤，保留无任务编号的启动和崩溃输出。
+// WorkerLine 将 Worker 输出统一成脱敏 JSON 行，并把异常 stderr 归入运行中的岗位。
 func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
 	return func(line []byte) {
 		data := bytes.TrimSpace(line)
-		structured := json.Valid(data)
 		if len(data) == 0 {
 			return
 		}
 		if !json.Valid(data) {
-			data, _ = json.Marshal(struct {
-				Timestamp string `json:"timestamp"`
-				Level     string `json:"level"`
-				Output    string `json:"output"`
-			}{
-				time.Now().Format(time.RFC3339Nano), "stderr", string(data),
+			message := strings.TrimSpace(string(Redact(data)))
+			isError := strings.Contains(strings.ToLower(message), "error") || strings.Contains(strings.ToLower(message), "panic") || strings.Contains(message, "失败")
+			status := "info"
+			level := "info"
+			if isError {
+				status, level = "failed", "error"
+			}
+			errorMessage := ""
+			if isError {
+				errorMessage = message
+			}
+			data, _ = json.Marshal(map[string]any{
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "worker",
+				"action": "worker.stderr", "step": "process_output", "status": status, "level": level,
+				"is_error": isError, "error_message": errorMessage, "message": message,
+				"input": map[string]any{}, "output": map[string]any{},
 			})
 		}
-		if _, err := writer.Write(append(data, '\n')); err != nil {
+		safe := Normalize(data)
+		if _, err := writer.Write(safe); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "写入 Worker 日志失败：%v\n", err)
 		}
-		if next != nil && structured {
-			next(line)
+		if next != nil {
+			next(bytes.TrimSpace(safe))
 		}
 	}
 }

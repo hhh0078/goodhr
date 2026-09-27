@@ -12,6 +12,7 @@ import (
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 )
 
 const analysisResultHoldDuration = 8 * time.Second
@@ -117,9 +118,24 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 	}
 	if l.store != nil {
 		message := taskLogMessage(step, status, err)
+		errorMessage := ""
+		if err != nil {
+			errorMessage = strings.TrimSpace(string(diagnostics.Redact([]byte(err.Error()))))
+		}
+		message = strings.TrimSpace(string(diagnostics.Redact([]byte(message))))
+		input, _ := json.Marshal(struct {
+			Flow string `json:"flow"`
+			Step string `json:"step"`
+		}{flow, step})
+		output, _ := json.Marshal(struct {
+			Status     string `json:"status"`
+			DurationMS int64  `json:"duration_ms"`
+		}{status, time.Since(startedAt).Milliseconds()})
 		if _, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 			TaskID: taskID, Flow: flow, Step: step, Status: status,
-			Message: message, DurationMS: time.Since(startedAt).Milliseconds(),
+			Message: message, DurationMS: time.Since(startedAt).Milliseconds(), Category: flow,
+			IsError: status == "failed" || status == "panic", ErrorMessage: errorMessage,
+			Input: input, Output: output,
 		}); saveErr != nil {
 			log.Printf("task_id=%s flow=lifecycle step=save_task_log status=warning error=%q", taskID, saveErr)
 		}
@@ -169,6 +185,8 @@ type workerLogLine struct {
 	TimeoutMS         int    `json:"timeout_ms"`
 	Attempt           int    `json:"attempt"`
 	RemainingDistance int    `json:"remaining_distance"`
+	ExitCode          int    `json:"exit_code"`
+	ExitReason        string `json:"exit_reason"`
 }
 
 // WorkerLine 解析 Worker JSON 行，并按 trace_id 汇入对应任务的岗位日志。
@@ -183,7 +201,15 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	}
 	item.TraceID = strings.TrimSpace(item.TraceID)
 	if item.TraceID == "" {
-		return
+		if strings.HasPrefix(item.Action, "worker.") || strings.HasPrefix(item.Action, "browser.") {
+			item.TraceID, _ = l.store.RunningTaskID(context.Background())
+		}
+		if item.TraceID == "" {
+			return
+		}
+	}
+	if item.Action == "worker.exit" && item.ExitCode != 0 && item.ErrorMessage == "" {
+		item.ErrorMessage = item.ExitReason
 	}
 	exists, err := l.store.TaskExists(context.Background(), item.TraceID)
 	if err != nil {
@@ -193,17 +219,29 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	if !exists {
 		return
 	}
-	if !keepWorkerLog(item) {
-		return
-	}
 	message := workerLogMessage(item)
-	if strings.EqualFold(item.Status, "start") {
+	if strings.EqualFold(item.Status, "start") && keepWorkerLog(item) {
 		l.updateCurrentStep(item.TraceID, workerCurrentStep(item))
 	}
+	input, _ := json.Marshal(struct {
+		Action    string `json:"action"`
+		Step      string `json:"step"`
+		Target    string `json:"target_description"`
+		TimeoutMS int    `json:"timeout_ms"`
+	}{item.Action, item.Step, item.TargetDescription, item.TimeoutMS})
+	output, _ := json.Marshal(struct {
+		Status       string `json:"status"`
+		DurationMS   int64  `json:"duration_ms"`
+		PageURL      string `json:"page_url"`
+		ErrorCode    string `json:"error_code"`
+		PollAttempts int    `json:"poll_attempts"`
+	}{item.Status, item.DurationMS, item.PageURL, item.ErrorCode, item.PollAttempts})
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 		TaskID: item.TraceID, Flow: "browser_worker", Step: item.Step,
 		Status: item.Status, Level: item.Level, Message: message,
-		DurationMS: item.DurationMS, CreatedAt: item.Timestamp,
+		DurationMS: item.DurationMS, CreatedAt: item.Timestamp, Category: "browser",
+		IsError:      strings.EqualFold(item.Level, "error") || strings.EqualFold(item.Status, "failed") || (item.Action == "worker.exit" && item.ExitCode != 0),
+		ErrorMessage: item.ErrorMessage, Input: input, Output: output,
 	}); err != nil {
 		log.Printf("task_id=%s flow=browser_worker step=save_log status=warning error=%q", item.TraceID, err)
 	}
@@ -242,6 +280,11 @@ func taskLogMessage(step string, status string, err error) string {
 			return label + "：没处理成功，" + err.Error()
 		}
 		return label + "：没处理成功，可以直接重试"
+	case "panic":
+		if err != nil {
+			return label + "：发生未捕获异常，" + err.Error()
+		}
+		return label + "：发生未捕获异常"
 	default:
 		return label + "：进行中"
 	}
@@ -304,6 +347,23 @@ func userStepLabel(step string) string {
 		"send_reply":                    "发送回复",
 		"save_conversation":             "保存回复结果",
 		"request_cloud_start":           "向云端申请开始任务",
+		"agent_shutdown":                "本地程序退出",
+		"platform_id":                   "确认招聘平台",
+		"open_login_page":               "打开平台登录页",
+		"initialize_login_page":         "整理平台登录页",
+		"find_candidates":               "查找候选人",
+		"open_candidate_detail":         "打开候选人详情",
+		"extract_candidate_detail":      "读取候选人详情",
+		"clean_candidate_detail_text":   "整理候选人详情文本",
+		"close_candidate_detail":        "关闭候选人详情",
+		"greet_candidate":               "向候选人打招呼",
+		"favorite_candidate":            "收藏候选人",
+		"reject_candidate":              "忽略候选人",
+		"advance_candidate_list":        "进入下一批候选人",
+		"open_messages_page":            "打开消息页面",
+		"initialize_messages_page":      "整理消息页面",
+		"scan_unread_conversations":     "扫描未读会话",
+		"reply_conversation":            "回复候选人会话",
 		"start_power_guard":             "启动防休眠",
 		"dispatch_task_flow":            "运行岗位任务",
 		"detect_sleep_resume":           "检查电脑休眠恢复",
@@ -365,6 +425,12 @@ func keepWorkerLog(item workerLogLine) bool {
 
 // workerLogMessage 把 Worker 稳定字段整理成中文用户日志。
 func workerLogMessage(item workerLogLine) string {
+	if item.Action == "worker.exit" {
+		return "浏览器操作进程已退出，退出代码：" + strconv.Itoa(item.ExitCode) + "；原因：" + item.ExitReason
+	}
+	if item.Action == "worker.crash" {
+		return "浏览器操作进程异常退出：" + item.ErrorMessage
+	}
 	label := workerActionLabel(item.Action)
 	target := strings.TrimSpace(item.TargetDescription)
 	if target != "" && !strings.Contains(label, target) {
@@ -392,6 +458,8 @@ func workerLogMessage(item workerLogLine) string {
 func workerActionLabel(action string) string {
 	labels := map[string]string{
 		"browser.start":           "启动增强浏览器",
+		"worker.exit":             "浏览器操作进程退出",
+		"worker.crash":            "浏览器操作进程崩溃",
 		"browser.stop":            "关闭增强浏览器",
 		"page.open":               "打开页面",
 		"page.close":              "关闭页面",

@@ -63,6 +63,7 @@ func run() (runErr error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	exitReason := "正常退出"
 	var view *startup.View
 	var report func(config.DataProgress)
 	if cfg.AutoOpenConsole {
@@ -71,11 +72,6 @@ func run() (runErr error) {
 			return fmt.Errorf("创建启动页面失败：%w", err)
 		}
 		defer view.Close()
-		if err := console.OpenWhenReady(ctx, view.URL+"health", view.URL, cfg.Port); err != nil {
-			return err
-		}
-		report = view.Update
-		cfg.AutoOpenConsole = false // 启动页会在服务就绪后跳转，避免再打开第二个标签页。
 		defer func() {
 			if runErr != nil {
 				view.Fail(runErr)
@@ -85,6 +81,11 @@ func run() (runErr error) {
 				}
 			}
 		}()
+		if err := console.OpenWhenReady(ctx, view.URL+"health", view.URL, cfg.Port); err != nil {
+			return err
+		}
+		report = view.Update
+		cfg.AutoOpenConsole = false // 启动页会在服务就绪后跳转，避免再打开第二个标签页。
 	}
 	if err := cfg.PrepareDataWithProgress(report); err != nil {
 		return fmt.Errorf("准备本地数据失败：%w", err)
@@ -92,19 +93,38 @@ func run() (runErr error) {
 	if view != nil {
 		view.Update(config.DataProgress{Stage: "initializing", Message: "数据已准备好，正在启动小助手"})
 	}
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	runLog, err := diagnostics.Open(cfg.LogsDir, "agent.log")
+	log.SetFlags(0)
+	runLog, err := diagnostics.Open(cfg.LogsDir, "goodhr.jsonl")
 	if err != nil {
 		return fmt.Errorf("创建运行日志失败：%w", err)
 	}
+	log.SetOutput(runLog)
+	var marker *diagnostics.RunMarker
 	defer func() {
+		panicked := false
+		if recovered := recover(); recovered != nil {
+			panicked = true
+			log.Printf("event=agent_panic exit_reason=%q stack=%q", fmt.Sprint(recovered), string(debug.Stack()))
+			runErr = fmt.Errorf("本地程序发生未捕获异常：%v", recovered)
+		}
 		if runErr != nil {
 			log.Printf("event=agent_start_or_run_failed error=%q", runErr)
+		}
+		reason := exitReason
+		if runErr != nil {
+			reason = "运行失败：" + runErr.Error()
+		} else if ctx.Err() != nil {
+			reason = "收到退出信号"
+		}
+		log.Printf("event=agent_exit pid=%d exit_reason=%q", os.Getpid(), reason)
+		if !panicked {
+			if err := marker.Clear(); err != nil {
+				log.Printf("event=agent_run_marker_clear_failed error=%q", err)
+			}
 		}
 		log.SetOutput(os.Stderr)
 		_ = runLog.Close()
 	}()
-	log.SetOutput(runLog)
 	crash, err := os.OpenFile(filepath.Join(cfg.LogsDir, "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("创建崩溃日志失败：%w", err)
@@ -112,11 +132,26 @@ func run() (runErr error) {
 	if err = debug.SetCrashOutput(crash, debug.CrashOptions{}); err != nil {
 		log.Printf("启用崩溃日志失败：%v", err)
 	}
+	crashInfo, _ := crash.Stat()
 	_ = crash.Close()
 	debug.SetTraceback("all")
+	crashOffset := int64(0)
+	if crashInfo != nil {
+		crashOffset = crashInfo.Size()
+	}
+	marker, previous, err := diagnostics.MarkRun(cfg.LogsDir, filepath.Join(cfg.LogsDir, "crash.log"), crashOffset)
+	if err != nil {
+		log.Printf("event=agent_run_marker_failed error=%q", err)
+	}
+	if previous != nil {
+		log.Printf("event=agent_previous_run_unclean pid=%d started_at=%s exit_reason=%q", previous.PID, previous.StartedAt, previous.Reason)
+	}
 	log.Printf("event=agent_start pid=%d version=%s logs=%s", os.Getpid(), version.Value, cfg.LogsDir)
-	defer log.Printf("event=agent_exit pid=%d", os.Getpid())
-	application, err := bootstrap.New(cfg)
+	previousReason := ""
+	if previous != nil {
+		previousReason = previous.Reason
+	}
+	application, err := bootstrap.New(cfg, runLog, previousReason)
 	if err != nil {
 		return fmt.Errorf("初始化本地程序失败：%w", err)
 	}
@@ -126,5 +161,6 @@ func run() (runErr error) {
 	if err := application.Run(ctx); err != nil {
 		return fmt.Errorf("本地程序运行失败：%w", err)
 	}
+	exitReason = application.ExitReason()
 	return nil
 }
