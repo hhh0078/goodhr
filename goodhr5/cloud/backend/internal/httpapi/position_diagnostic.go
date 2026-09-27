@@ -10,9 +10,11 @@ import (
 	"time"
 )
 
-var diagnosticSensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|resume|candidate_name|phone|wechat|message_text|input_text`)
+var diagnosticSensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|resume|candidate[_-]?name|phone|wechat|email|id[_-]?card|address|message[_-]?text|input[_-]?text`)
 var diagnosticSecretText = regexp.MustCompile(`(?i)(bearer\s+|(?:token|password|secret|cookie|api[_-]?key)\s*[=:]\s*)[^\s&,;]+`)
 var diagnosticURLQuery = regexp.MustCompile(`(https?://[^\s?"<>]+)\?[^\s"<>]*`)
+var diagnosticPhoneText = regexp.MustCompile(`\b1[3-9][0-9]{9}\b`)
+var diagnosticEmailText = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
 // positionDiagnosticEvent 表示对外分享时仍可安全阅读的一条岗位日志。
 type positionDiagnosticEvent struct {
@@ -41,12 +43,17 @@ func (s *PositionLogService) Replace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	if _, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin); errors.Is(err, ErrNotFound) {
+	position, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "position not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
+	}
+	ownerEmail := strings.TrimSpace(position.UserEmail)
+	if ownerEmail == "" {
+		ownerEmail = session.Email
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 	var body struct {
@@ -91,9 +98,9 @@ func (s *PositionLogService) Replace(w http.ResponseWriter, r *http.Request) {
 		if event.IsError {
 			level = "error"
 		}
-		items = append(items, PositionLog{PositionID: positionID, UserEmail: session.Email, Level: level, Message: string(encoded), CreatedAt: createdAt.UTC()})
+		items = append(items, PositionLog{PositionID: positionID, UserEmail: ownerEmail, Level: level, Message: string(encoded), CreatedAt: createdAt.UTC()})
 	}
-	if err := s.logStore.ReplacePositionLogs(positionID, session.Email, items); err != nil {
+	if err := s.logStore.ReplacePositionLogs(positionID, ownerEmail, items); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save diagnostic logs")
 		return
 	}
@@ -145,6 +152,8 @@ func sanitizeDiagnosticValue(value any) any {
 func sanitizeDiagnosticText(value string) string {
 	value = diagnosticSecretText.ReplaceAllString(value, "${1}[已隐藏]")
 	value = diagnosticURLQuery.ReplaceAllString(value, "${1}?[已隐藏]")
+	value = diagnosticPhoneText.ReplaceAllString(value, "[手机号已隐藏]")
+	value = diagnosticEmailText.ReplaceAllString(value, "[邮箱已隐藏]")
 	value = strings.TrimSpace(value)
 	if len(value) > 1000 {
 		value = value[:1000] + "…"

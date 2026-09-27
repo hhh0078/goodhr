@@ -29,19 +29,24 @@ func (s *PositionLogService) Share(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenantID, isAdmin := s.getTenantInfo(session.Email)
-	if _, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin); errors.Is(err, ErrNotFound) {
+	position, err := s.positions.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "position not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
+	ownerEmail := strings.TrimSpace(position.UserEmail)
+	if ownerEmail == "" {
+		ownerEmail = session.Email
+	}
 	store, ok := s.logStore.(PositionLogShareStore)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "share store unavailable")
 		return
 	}
-	logs, _, err := s.logStore.ListPositionLogs(tenantID, session.Email, positionID, isAdmin, PositionLogQuery{Limit: maxPositionLogsPerPosition})
+	logs, _, err := s.logStore.ListPositionLogs(tenantID, ownerEmail, positionID, isAdmin, PositionLogQuery{Limit: maxPositionLogsPerPosition})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position logs")
 		return
@@ -58,7 +63,7 @@ func (s *PositionLogService) Share(w http.ResponseWriter, r *http.Request) {
 	token := hex.EncodeToString(secret)
 	digest := sha256.Sum256([]byte(token))
 	expiresAt := time.Now().UTC().Add(positionLogShareTTL)
-	if err := store.SavePositionLogShare(hex.EncodeToString(digest[:]), positionID, session.Email, logs, expiresAt); err != nil {
+	if err := store.SavePositionLogShare(hex.EncodeToString(digest[:]), positionID, ownerEmail, logs, expiresAt); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save share link")
 		return
 	}

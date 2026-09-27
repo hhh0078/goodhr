@@ -17,10 +17,12 @@ import (
 const maxLogBytes int64 = 10 << 20
 const logBackups = 4
 
-var sensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)|message_text|input_text|resume_text|candidate_name|phone|wechat`)
+var sensitiveKey = regexp.MustCompile(`(?i)cookie|authorization|token|password|secret|api[_-]?key|proxy.*(user|pass)|message[_-]?text|input[_-]?text|resume[_-]?text|candidate[_-]?name|phone|wechat|email|id[_-]?card|address`)
 var sensitiveText = regexp.MustCompile(`(?i)((?:token|password|secret|authorization|cookie|api[_-]?key)\s*[=:]\s*)([^\s&,;]+)`)
 var urlQuery = regexp.MustCompile(`(https?://[^\s?"<>]+)\?[^\s"<>]*`)
 var bearer = regexp.MustCompile(`(?i)Bearer\s+[^\s",;]+`)
+var phoneText = regexp.MustCompile(`\b1[3-9][0-9]{9}\b`)
+var emailText = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
 // Writer 保存独立日志文件，所有写入先脱敏，超过上限自动轮转。
 type Writer struct {
@@ -171,7 +173,9 @@ func Redact(data []byte) []byte {
 	}
 	safe := sensitiveText.ReplaceAll(data, []byte("${1}[已隐藏]"))
 	safe = bearer.ReplaceAll(safe, []byte("Bearer [已隐藏]"))
-	return urlQuery.ReplaceAll(safe, []byte("${1}?[已隐藏]"))
+	safe = urlQuery.ReplaceAll(safe, []byte("${1}?[已隐藏]"))
+	safe = phoneText.ReplaceAll(safe, []byte("[手机号已隐藏]"))
+	return emailText.ReplaceAll(safe, []byte("[邮箱已隐藏]"))
 }
 
 // redactValue 只在未知 JSON 日志边界递归清理敏感字段。
@@ -192,7 +196,9 @@ func redactValue(value any) any {
 	case string:
 		safe := sensitiveText.ReplaceAllString(item, "${1}[已隐藏]")
 		safe = bearer.ReplaceAllString(safe, "Bearer [已隐藏]")
-		return urlQuery.ReplaceAllString(safe, "${1}?[已隐藏]")
+		safe = urlQuery.ReplaceAllString(safe, "${1}?[已隐藏]")
+		safe = phoneText.ReplaceAllString(safe, "[手机号已隐藏]")
+		return emailText.ReplaceAllString(safe, "[邮箱已隐藏]")
 	}
 	return value
 }

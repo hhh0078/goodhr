@@ -17,12 +17,12 @@ func TestLogRedactionAndRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer.limit = 300
-	line := []byte(`{"token":"private-value","api_key":"api-secret-value","nested":{"password":"secret-value"},"url":"https://example.test/a?access=hidden-value","error":"Bearer raw-value"}`)
+	line := []byte(`{"token":"private-value","api_key":"api-secret-value","nested":{"password":"secret-value","candidateName":"张三"},"url":"https://example.test/a?access=hidden-value","error":"Bearer raw-value 13800138000 candidate@example.com"}`)
 	if _, err = writer.Write(line); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := os.ReadFile(filepath.Join(directory, "worker.log"))
-	for _, secret := range []string{"private-value", "secret-value", "hidden-value", "raw-value", "api-secret-value"} {
+	for _, secret := range []string{"private-value", "secret-value", "hidden-value", "raw-value", "api-secret-value", "13800138000", "candidate@example.com", "张三"} {
 		if strings.Contains(string(first), secret) {
 			t.Fatalf("敏感内容未脱敏：%s", secret)
 		}

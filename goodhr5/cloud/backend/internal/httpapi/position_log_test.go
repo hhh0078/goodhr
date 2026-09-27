@@ -258,12 +258,12 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	for index := range entries {
 		entries[index] = positionDiagnosticEvent{
 			Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Second).Format(time.RFC3339Nano),
-			Category: "browser", Message: "步骤" + intString(index), Input: json.RawMessage(`{}`), Output: json.RawMessage(`{}`),
+			Category:  "browser", Message: "步骤" + intString(index), Input: json.RawMessage(`{}`), Output: json.RawMessage(`{}`),
 		}
 	}
 	entries[1004].IsError = true
-	entries[1004].ErrorMessage = "点击失败 password=private-secret"
-	entries[1004].Input = json.RawMessage(`{"token":"private-token","target":"按钮"}`)
+	entries[1004].ErrorMessage = "点击失败 password=private-secret 手机 13800138000 邮箱 candidate@example.com"
+	entries[1004].Input = json.RawMessage(`{"token":"private-token","candidateName":"张三","target":"按钮"}`)
 	content, err := json.Marshal(map[string]any{"logs": entries})
 	if err != nil {
 		t.Fatal(err)
@@ -275,9 +275,19 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	if replaceResponse.Code != http.StatusOK {
 		t.Fatalf("replace status=%d body=%s", replaceResponse.Code, replaceResponse.Body.String())
 	}
-	var replaceResult struct{ Count int `json:"count"` }
+	var replaceResult struct {
+		Count int `json:"count"`
+	}
 	if err := json.Unmarshal(replaceResponse.Body.Bytes(), &replaceResult); err != nil || replaceResult.Count != 1000 {
 		t.Fatalf("replace count=%d err=%v", replaceResult.Count, err)
+	}
+	otherToken := loginForTest(t, routes, "diagnostic-other@example.com")
+	unauthorizedReplace := httptest.NewRequest(http.MethodPut, "/api/positions/"+positionID+"/logs", bytes.NewReader(content))
+	unauthorizedReplace.Header.Set("Authorization", "Bearer "+otherToken)
+	unauthorizedResponse := httptest.NewRecorder()
+	routes.ServeHTTP(unauthorizedResponse, unauthorizedReplace)
+	if unauthorizedResponse.Code != http.StatusNotFound {
+		t.Fatalf("other user replace status=%d, want 404", unauthorizedResponse.Code)
 	}
 	shareRequest := httptest.NewRequest(http.MethodPost, "/api/positions/"+positionID+"/logs/share", nil)
 	shareRequest.Header.Set("Authorization", "Bearer "+token)
@@ -286,7 +296,9 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	if shareResponse.Code != http.StatusOK {
 		t.Fatalf("share status=%d body=%s", shareResponse.Code, shareResponse.Body.String())
 	}
-	var shared struct{ Token string `json:"token"` }
+	var shared struct {
+		Token string `json:"token"`
+	}
 	if err := json.Unmarshal(shareResponse.Body.Bytes(), &shared); err != nil || len(shared.Token) != 64 {
 		t.Fatalf("share token invalid: %v", err)
 	}
@@ -296,7 +308,9 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 		t.Fatalf("public status=%d body=%s", publicResponse.Code, publicResponse.Body.String())
 	}
 	var publicResult struct {
-		Logs []struct { Event positionDiagnosticEvent `json:"event"` } `json:"logs"`
+		Logs []struct {
+			Event positionDiagnosticEvent `json:"event"`
+		} `json:"logs"`
 	}
 	if err := json.Unmarshal(publicResponse.Body.Bytes(), &publicResult); err != nil {
 		t.Fatal(err)
@@ -304,8 +318,10 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	if len(publicResult.Logs) != 1000 || !publicResult.Logs[0].Event.IsError || publicResult.Logs[len(publicResult.Logs)-1].Event.Message != "步骤5" {
 		t.Fatalf("share logs count=%d first=%+v last=%+v", len(publicResult.Logs), publicResult.Logs[0], publicResult.Logs[len(publicResult.Logs)-1])
 	}
-	if bytes.Contains(publicResponse.Body.Bytes(), []byte("private-secret")) || bytes.Contains(publicResponse.Body.Bytes(), []byte("private-token")) {
-		t.Fatal("shared logs contain credentials")
+	for _, sensitive := range []string{"private-secret", "private-token", "13800138000", "candidate@example.com", "张三"} {
+		if bytes.Contains(publicResponse.Body.Bytes(), []byte(sensitive)) {
+			t.Fatalf("shared logs contain sensitive content: %s", sensitive)
+		}
 	}
 	secondShare := httptest.NewRecorder()
 	routes.ServeHTTP(secondShare, shareRequest)

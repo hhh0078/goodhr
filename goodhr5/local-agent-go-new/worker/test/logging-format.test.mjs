@@ -12,7 +12,7 @@ test("Worker 日志包含固定字段、操作摘要并隐藏凭据", () => {
     const logger = new WorkerLogger();
     const context = { trace_id: "task-1", action: "element.find", started_at: Date.now() };
     logger.info(context, "find", "success", { target_description: "搜索按钮", matches_checked: 2, token: "private-value" });
-    logger.error(context, "click", "failed", { error_message: "点击失败 password=private-password", error_code: "CLICK_FAILED" });
+    logger.error(context, "click", "failed", { error_message: "点击失败 password=private-password 13800138000 candidate@example.com", error_code: "CLICK_FAILED" });
   } finally {
     process.stdout.write = original;
   }
@@ -31,4 +31,5 @@ test("Worker 日志包含固定字段、操作摘要并隐藏凭据", () => {
   assert.equal(failure.is_error, true);
   assert.equal(failure.output.error_code, "CLICK_FAILED");
   assert.doesNotMatch(JSON.stringify(failure), /private-password/);
+  assert.doesNotMatch(JSON.stringify(failure), /13800138000|candidate@example.com/);
 });

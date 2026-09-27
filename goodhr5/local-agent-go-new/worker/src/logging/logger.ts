@@ -7,10 +7,12 @@ import {
 } from "../errors/worker-error.js";
 
 const sensitiveKeyPattern =
-  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message_text|input_text|candidate_name|resume_text|phone|wechat/i;
+  /cookie|authorization|token|password|proxy.*(user|pass)|secret|api[_-]?key|message[_-]?text|input[_-]?text|candidate[_-]?name|resume[_-]?text|phone|wechat|email|id[_-]?card|address/i;
 
 const secretTextPattern = /(?:Bearer\s+\S+|(?:token|password|secret|cookie|api[_-]?key)\s*[=:]\s*\S+)/gi;
 const urlQueryPattern = /(https?:\/\/[^\s?"<>]+)\?[^\s"<>]*/gi;
+const phoneTextPattern = /\b1[3-9][0-9]{9}\b/g;
+const emailTextPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 /** sanitizeFields 清理日志中的敏感字段和过长文本。 */
 function sanitizeFields(fields: JsonObject): JsonObject {
@@ -28,7 +30,8 @@ function sanitizeFields(fields: JsonObject): JsonObject {
 /** sanitizeValue 递归清理日志字段并限制单个字符串长度。 */
 function sanitizeValue(value: JsonValue): JsonValue {
   if (typeof value === "string") {
-    const cleaned = value.replace(secretTextPattern, "[已隐藏]").replace(urlQueryPattern, "$1?[已隐藏]");
+    const cleaned = value.replace(secretTextPattern, "[已隐藏]").replace(urlQueryPattern, "$1?[已隐藏]")
+      .replace(phoneTextPattern, "[手机号已隐藏]").replace(emailTextPattern, "[邮箱已隐藏]");
     return cleaned.length > 1000 ? `${cleaned.slice(0, 1000)}…` : cleaned;
   }
   if (Array.isArray(value)) {
