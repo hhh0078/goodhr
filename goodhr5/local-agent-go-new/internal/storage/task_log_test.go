@@ -73,12 +73,52 @@ func TestOpenRecoversInterruptedTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取恢复任务失败：%v", err)
 	}
-	if task.Status != "failed" || task.ErrorCode != "AGENT_RESTARTED" || task.FinishedAt.IsZero() {
+	if task.Status != "failed" || task.ErrorCode != "AGENT_RESTARTED" || task.FinishedAt.IsZero() || !strings.Contains(task.ErrorMessage, "退出码 2") {
 		t.Fatalf("异常任务没有正确收尾：%+v", task)
 	}
 	logs, err := store.ListPositionLogs(context.Background(), "position-1", 100)
 	if err != nil || len(logs) == 0 || !strings.Contains(logs[len(logs)-1].ErrorMessage, "退出码 2") {
 		t.Fatalf("异常退出原因没有保存到岗位：logs=%+v err=%v", logs, err)
+	}
+}
+
+// TestLegacyTaskLogResetRunsOnce 验证升级时删除旧岗位流水，随后生成的新日志不会在重启时再次丢失。
+func TestLegacyTaskLogResetRunsOnce(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.SaveTaskLog(ctx, TaskLog{PositionID: "position-1", Message: "旧技术流水"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkPositionLogUploadPending(ctx, "position-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = '005_reset_legacy_task_logs.sql'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := store.ListPositionLogs(ctx, "position-1", 100)
+	if err != nil || len(logs) != 0 {
+		t.Fatalf("旧岗位日志未清除：logs=%+v err=%v", logs, err)
+	}
+	pending, err := store.PendingPositionLogUploads(ctx)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("旧补传队列未清除：pending=%+v err=%v", pending, err)
+	}
+	if _, err := store.SaveTaskLog(ctx, TaskLog{PositionID: "position-1", Message: "新运行记录"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	logs, err = store.ListPositionLogs(ctx, "position-1", 100)
+	if err != nil || len(logs) != 1 || logs[0].Message != "新运行记录" {
+		t.Fatalf("新岗位日志被重复清除：logs=%+v err=%v", logs, err)
 	}
 }
 

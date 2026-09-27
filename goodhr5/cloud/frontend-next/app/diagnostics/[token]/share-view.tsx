@@ -98,7 +98,7 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
     <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ alignItems: { md: "center" } }}>
       <Typography sx={{ fontSize: 12, color: "text.secondary", minWidth: 205 }}>{formatTime(event?.timestamp || item.created_at)}</Typography>
       <Typography sx={{ fontSize: 12, fontWeight: 700, color: isError ? "error.main" : "text.secondary" }}>{isError ? "错误" : "正常"}</Typography>
-      <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{event?.category || "旧日志"} · {event?.action || event?.step || "岗位流程"}{event?.duration_ms != null ? ` · ${event.duration_ms}ms` : ""}</Typography>
+      <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{diagnosticActionLabel(event)}{event?.duration_ms != null ? ` · ${event.duration_ms}ms` : ""}</Typography>
     </Stack>
     <Typography sx={{ mt: 1, whiteSpace: "pre-wrap", wordBreak: "break-word", fontWeight: isError ? 650 : 400 }}>{event?.message || item.message}</Typography>
     {isError && event?.error_message && event.error_message !== event.message ? <Alert severity="error" sx={{ mt: 1 }}>{event.error_message}</Alert> : null}
@@ -111,6 +111,17 @@ function DiagnosticLine({ item }: { item: SharedLog }) {
       </Stack>
     </Box> : null}
   </Paper>;
+}
+
+/** diagnosticActionLabel 将内部流程代号转换成分享页可读的中文说明。 */
+function diagnosticActionLabel(event?: DiagnosticEvent) {
+  if (!event) return "旧日志";
+  if (event.action === "candidate") return event.step || "候选人处理";
+  const labels: Record<string, string> = {
+    lifecycle: "任务流程", greeting: "打招呼流程", auto_reply: "自动回复流程",
+    browser_worker: "浏览器操作", platform: "招聘页面", preflight: "启动检查",
+  };
+  return labels[event.action || ""] || event.step || "岗位流程";
 }
 
 /** DataBlock 格式化显示已脱敏的 JSON 摘要。 */

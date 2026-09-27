@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -93,6 +94,12 @@ func run() (runErr error) {
 	if view != nil {
 		view.Update(config.DataProgress{Stage: "initializing", Message: "数据已准备好，正在启动小助手"})
 	}
+	crashPath := filepath.Join(cfg.LogsDir, "crash.log")
+	previousBeforeReset := diagnostics.ReadPreviousRun(cfg.LogsDir, crashPath)
+	logsReset, err := diagnostics.ResetLegacyLogs(cfg.LogsDir)
+	if err != nil {
+		return fmt.Errorf("清理旧格式日志失败：%w", err)
+	}
 	log.SetFlags(0)
 	runLog, err := diagnostics.Open(cfg.LogsDir, "goodhr.jsonl")
 	if err != nil {
@@ -104,11 +111,8 @@ func run() (runErr error) {
 		panicked := false
 		if recovered := recover(); recovered != nil {
 			panicked = true
-			log.Printf("event=agent_panic exit_reason=%q stack=%q", fmt.Sprint(recovered), string(debug.Stack()))
 			runErr = fmt.Errorf("本地程序发生未捕获异常：%v", recovered)
-		}
-		if runErr != nil {
-			log.Printf("event=agent_start_or_run_failed error=%q", runErr)
+			logAgentLifecycle("agent_panic", "本地程序发生未捕获异常", runErr.Error(), true, map[string]any{"stack": string(debug.Stack())})
 		}
 		reason := exitReason
 		if runErr != nil {
@@ -116,7 +120,7 @@ func run() (runErr error) {
 		} else if ctx.Err() != nil {
 			reason = "收到退出信号"
 		}
-		log.Printf("event=agent_exit pid=%d exit_reason=%q", os.Getpid(), reason)
+		logAgentLifecycle("agent_exit", "本地程序已退出", reason, runErr != nil, map[string]any{"pid": os.Getpid()})
 		if !panicked {
 			if err := marker.Clear(); err != nil {
 				log.Printf("event=agent_run_marker_clear_failed error=%q", err)
@@ -125,7 +129,7 @@ func run() (runErr error) {
 		log.SetOutput(os.Stderr)
 		_ = runLog.Close()
 	}()
-	crash, err := os.OpenFile(filepath.Join(cfg.LogsDir, "crash.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	crash, err := os.OpenFile(crashPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("创建崩溃日志失败：%w", err)
 	}
@@ -139,14 +143,17 @@ func run() (runErr error) {
 	if crashInfo != nil {
 		crashOffset = crashInfo.Size()
 	}
-	marker, previous, err := diagnostics.MarkRun(cfg.LogsDir, filepath.Join(cfg.LogsDir, "crash.log"), crashOffset)
+	marker, previous, err := diagnostics.MarkRun(cfg.LogsDir, crashPath, crashOffset)
 	if err != nil {
 		log.Printf("event=agent_run_marker_failed error=%q", err)
 	}
-	if previous != nil {
-		log.Printf("event=agent_previous_run_unclean pid=%d started_at=%s exit_reason=%q", previous.PID, previous.StartedAt, previous.Reason)
+	if logsReset {
+		previous = previousBeforeReset
 	}
-	log.Printf("event=agent_start pid=%d version=%s logs=%s", os.Getpid(), version.Value, cfg.LogsDir)
+	if previous != nil {
+		logAgentLifecycle("agent_previous_run_unclean", "检测到上次异常退出", previous.Reason, true, map[string]any{"previous_pid": previous.PID, "previous_started_at": previous.StartedAt})
+	}
+	logAgentLifecycle("agent_start", "本地程序已启动", "", false, map[string]any{"pid": os.Getpid(), "version": version.Value})
 	previousReason := ""
 	if previous != nil {
 		previousReason = previous.Reason
@@ -163,4 +170,33 @@ func run() (runErr error) {
 	}
 	exitReason = application.ExitReason()
 	return nil
+}
+
+// logAgentLifecycle 把程序启动、退出和崩溃原因写成同一 JSONL 格式。
+func logAgentLifecycle(event string, message string, reason string, isError bool, details map[string]any) {
+	category := "运行"
+	if isError {
+		category = "错误"
+	}
+	output := map[string]any{"event": event}
+	for key, value := range details {
+		output[key] = value
+	}
+	if reason != "" {
+		output["exit_reason"] = reason
+	}
+	errorMessage := ""
+	if isError {
+		errorMessage = reason
+	}
+	data, err := json.Marshal(map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"category":  category, "is_error": isError, "error_message": errorMessage,
+		"message": message, "input": map[string]any{}, "output": output,
+	})
+	if err != nil {
+		log.Printf("记录程序生命周期日志失败：%v", err)
+		return
+	}
+	log.Print(string(data))
 }

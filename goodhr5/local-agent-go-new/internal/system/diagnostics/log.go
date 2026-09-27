@@ -89,7 +89,8 @@ func Normalize(data []byte) []byte {
 	var item map[string]any
 	if err := json.Unmarshal(bytes.TrimSpace(data), &item); err != nil || item == nil {
 		message := strings.TrimSpace(string(data))
-		isError := strings.Contains(strings.ToLower(message), "error") || strings.Contains(message, "失败") || strings.Contains(message, "panic")
+		lower := strings.ReplaceAll(strings.ToLower(message), `error=""`, "")
+		isError := strings.Contains(lower, "error") || strings.Contains(message, "失败") || strings.Contains(lower, "panic") || strings.Contains(lower, "status=failed")
 		item = map[string]any{"message": message, "category": "agent", "is_error": isError}
 		if isError {
 			item["error_message"] = message
@@ -98,17 +99,15 @@ func Normalize(data []byte) []byte {
 	if _, ok := item["timestamp"]; !ok {
 		item["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
 	}
-	if _, ok := item["category"]; !ok {
-		category := "agent"
-		if action, ok := item["action"].(string); ok && strings.TrimSpace(action) != "" {
-			category = "browser"
-		}
-		item["category"] = category
-	}
 	if _, ok := item["is_error"]; !ok {
 		level, _ := item["level"].(string)
 		status, _ := item["status"].(string)
 		item["is_error"] = strings.EqualFold(level, "error") || strings.EqualFold(status, "failed") || strings.EqualFold(status, "panic")
+	}
+	if item["is_error"] == true {
+		item["category"] = "错误"
+	} else {
+		item["category"] = "运行"
 	}
 	if _, ok := item["error_message"]; !ok {
 		if message, ok := item["error"].(string); ok && item["is_error"] == true {

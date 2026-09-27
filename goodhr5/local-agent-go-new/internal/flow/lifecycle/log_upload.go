@@ -30,10 +30,6 @@ func (r *Runner) UploadPositionLogs(ctx context.Context, token, positionID strin
 	}
 	logs := make([]cloud.PositionDiagnosticLog, 0, len(items))
 	for _, item := range items {
-		// 候选人进度保留为一条正常流程日志，但不分享可能含姓名的本机文案。
-		if item.Flow == "progress" {
-			item.Message = "候选人处理进度已更新"
-		}
 		category := item.Category
 		if category == "" {
 			category = item.Flow

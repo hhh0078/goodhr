@@ -2314,7 +2314,7 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
 /** PositionLogLine 渲染单条带中文等级和耗时的岗位日志。 */
 function PositionLogLine(props: { item: any; previous: any | null }) {
   const { item, previous } = props;
-  const appearance = positionLogAppearance(item.level);
+  const appearance = positionLogAppearance(item.level, item.is_error);
   return (
     <Box
       sx={{
@@ -2381,15 +2381,13 @@ function buildPositionLogText(logs: any[]) {
   const orderedLogs = sortPositionLogsNewestFirst(logs);
   return orderedLogs.map((item, index) => {
     const previous = index < orderedLogs.length - 1 ? orderedLogs[index + 1] : null;
-    return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level).label} ${positionLogMessage(item)}`;
+    return `${formatPositionLogTime(item.created_at || item.time)} ${positionLogDelta(item, previous)} ${positionLogAppearance(item.level, item.is_error).label} ${positionLogMessage(item)}`;
   }).join("\n");
 }
 
-/** positionLogAppearance 返回岗位日志等级对应的中文分类和文字样式。 */
-function positionLogAppearance(value: unknown) {
+/** positionLogAppearance 把岗位日志归为运行或错误两类。 */
+function positionLogAppearance(value: unknown, isErrorValue?: unknown) {
   const level = String(value || "info").trim().toLowerCase();
-  if (level === "error") return { label: "错误", color: "error.main", weight: 760, error: true };
-  if (level === "warning" || level === "warn") return { label: "警告", color: "warning.dark", weight: 600, error: false };
-  if (level === "debug") return { label: "调试", color: "text.secondary", weight: 400, error: false };
-  return { label: "信息", color: "text.primary", weight: 400, error: false };
+  if (isErrorValue === true || level === "error") return { label: "错误", color: "error.main", weight: 760, error: true };
+  return { label: "运行", color: "text.primary", weight: 400, error: false };
 }

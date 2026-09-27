@@ -298,10 +298,11 @@ func (s *Store) RecoverInterruptedTasks(ctx context.Context, previousExitReason 
 			current_step = 'finished',
 			summary = '上次运行被本地程序退出打断，已经自动收尾',
 			error_code = 'AGENT_RESTARTED',
-			error_message = '本地程序上次没有正常退出，请重新开始任务',
+			error_message = ?,
 			updated_at = ?,
 			finished_at = ?
 		WHERE status = 'running'`,
+		reason,
 		now,
 		now,
 	)
@@ -312,7 +313,7 @@ func (s *Store) RecoverInterruptedTasks(ctx context.Context, previousExitReason 
 		if err := s.MarkPositionLogUploadPending(ctx, positionID); err != nil {
 			return 0, err
 		}
-		_, _ = s.SaveTaskLog(ctx, TaskLog{PositionID: positionID, Flow: "lifecycle", Step: "agent_restart", Status: "failed", Category: "lifecycle", ErrorMessage: reason, Message: "本地程序上次异常退出：" + reason})
+		_, _ = s.SaveTaskLog(ctx, TaskLog{PositionID: positionID, Flow: "lifecycle", Step: "agent_restart", Status: "failed", Category: "错误", ErrorMessage: reason, Message: "本地程序上次异常退出：" + reason})
 	}
 	return result.RowsAffected()
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +20,9 @@ const analysisResultHoldDuration = 8 * time.Second
 type TaskLogger struct {
 	store             *storage.Store
 	next              shared.Logger
+	candidateMu       sync.RWMutex
+	candidateTaskID   string
+	candidateName     string
 	analysisMu        sync.RWMutex
 	analysisTaskID    string
 	analysis          shared.AnalysisStatus
@@ -110,16 +112,20 @@ func NewTaskLogger(store *storage.Store, next shared.Logger) *TaskLogger {
 
 // Step 输出步骤日志，并在步骤开始时更新 SQLite 当前状态。
 func (l *TaskLogger) Step(taskID string, flow string, step string, status string, startedAt time.Time, err error) {
+	if l == nil {
+		return
+	}
 	if l.next != nil {
 		l.next.Step(taskID, flow, step, status, startedAt, err)
 	}
 	if l.store != nil && status == "start" {
-		l.updateCurrentStep(taskID, userStepLabel(step))
+		l.updateCurrentStep(taskID, l.withCandidate(taskID, userStepLabel(step)))
 	}
-	if l.store != nil {
+	if l.store != nil && visibleTaskStep(flow, step, status, err) {
 		message := taskLogMessage(step, status, err)
+		message = l.withCandidate(taskID, message)
 		errorMessage := ""
-		if err != nil {
+		if err != nil && (status == "failed" || status == "panic" || status == "warning") {
 			errorMessage = strings.TrimSpace(string(diagnostics.Redact([]byte(err.Error()))))
 		}
 		message = strings.TrimSpace(string(diagnostics.Redact([]byte(message))))
@@ -131,10 +137,15 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 			Status     string `json:"status"`
 			DurationMS int64  `json:"duration_ms"`
 		}{status, time.Since(startedAt).Milliseconds()})
+		isError := status == "failed" || status == "panic" || (status == "warning" && err != nil)
+		category := "运行"
+		if isError {
+			category = "错误"
+		}
 		if _, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 			TaskID: taskID, Flow: flow, Step: step, Status: status,
-			Message: message, DurationMS: time.Since(startedAt).Milliseconds(), Category: flow,
-			IsError: status == "failed" || status == "panic", ErrorMessage: errorMessage,
+			Message: message, DurationMS: time.Since(startedAt).Milliseconds(), Category: category,
+			IsError: isError, ErrorMessage: errorMessage,
 			Input: input, Output: output,
 		}); saveErr != nil {
 			log.Printf("task_id=%s flow=lifecycle step=save_task_log status=warning error=%q", taskID, saveErr)
@@ -142,19 +153,121 @@ func (l *TaskLogger) Step(taskID string, flow string, step string, status string
 	}
 }
 
-// Progress 把具体中文进度同时写入当前任务状态和用户可见日志。
+// visibleTaskStep 只选取岗位时间线需要的流程节点和真实故障。
+func visibleTaskStep(flow string, step string, status string, err error) bool {
+	if status == "failed" || status == "panic" || (status == "warning" && err != nil) {
+		return true
+	}
+	if flow == "lifecycle" && step == "finished" {
+		return true
+	}
+	if flow == "lifecycle" && step == "agent_start" && status == "start" {
+		return true
+	}
+	if flow == "lifecycle" && step == "agent_shutdown" && status == "stopped" {
+		return true
+	}
+	if status != "start" {
+		return false
+	}
+	visible := map[string]bool{
+		"greeting/open_greeting_page":        true,
+		"greeting/select_position":           true,
+		"greeting/apply_basic_filters":       true,
+		"greeting/scan_decide_and_greet":     true,
+		"auto_reply/open_message_page":       true,
+		"auto_reply/scan_generate_and_reply": true,
+	}
+	return visible[flow+"/"+step]
+}
+
+// Progress 只更新当前任务状态；岗位时间线由精选流程节点和候选人动作组成。
 func (l *TaskLogger) Progress(taskID string, message string) {
 	message = strings.TrimSpace(message)
 	if l == nil || l.store == nil || message == "" {
 		return
 	}
 	l.updateCurrentStep(taskID, message)
-	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-		TaskID: taskID, Flow: "progress", Step: "progress", Status: "running",
-		Message: message,
-	}); err != nil {
-		log.Printf("task_id=%s flow=lifecycle step=save_progress status=warning error=%q", taskID, err)
+}
+
+// CandidateActivity 保存一条精简的候选人动作，并设置原子操作故障的当前候选人上下文。
+func (l *TaskLogger) CandidateActivity(taskID string, candidateName string, action string, status string, err error) {
+	if l == nil || l.store == nil || strings.TrimSpace(taskID) == "" {
+		return
 	}
+	candidateName = strings.Join(strings.Fields(candidateName), " ")
+	if candidateName == "" {
+		candidateName = "当前候选人"
+	}
+	if characters := []rune(candidateName); len(characters) > 80 {
+		candidateName = string(characters[:80]) + "…"
+	}
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return
+	}
+	l.candidateMu.Lock()
+	l.candidateTaskID, l.candidateName = taskID, candidateName
+	l.candidateMu.Unlock()
+	message := "当前“" + candidateName + "”，" + action
+	if err != nil {
+		message += "失败：" + err.Error()
+	}
+	isError := err != nil || status == "failed"
+	category := "运行"
+	if isError {
+		category = "错误"
+	}
+	l.updateCurrentStep(taskID, message)
+	input, _ := json.Marshal(map[string]string{"action": action})
+	message = strings.TrimSpace(string(diagnostics.Redact([]byte(message))))
+	errorMessage := candidateErrorText(err)
+	if line, marshalErr := json.Marshal(map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"category":  category, "is_error": isError, "error_message": errorMessage,
+		"message": message, "task_id": taskID, "action": "candidate", "step": action,
+		"status": status, "input": json.RawMessage(input), "output": map[string]any{},
+	}); marshalErr == nil {
+		log.Print(string(line))
+	}
+	if _, saveErr := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
+		TaskID: taskID, Flow: "candidate", Step: action, Status: status,
+		Message:  message,
+		Category: category, IsError: isError,
+		ErrorMessage: errorMessage, Input: input,
+	}); saveErr != nil {
+		log.Printf("task_id=%s flow=lifecycle step=save_candidate_activity status=warning error=%q", taskID, saveErr)
+	}
+}
+
+// candidateErrorText 对候选人动作错误做脱敏，保留可读原因。
+func candidateErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return strings.TrimSpace(string(diagnostics.Redact([]byte(err.Error()))))
+}
+
+// ClearCandidate 在一位候选人处理完后清除上下文。
+func (l *TaskLogger) ClearCandidate(taskID string) {
+	if l == nil {
+		return
+	}
+	l.candidateMu.Lock()
+	if l.candidateTaskID == taskID {
+		l.candidateTaskID, l.candidateName = "", ""
+	}
+	l.candidateMu.Unlock()
+}
+
+// withCandidate 为流程或 Worker 错误补充当前候选人姓名。
+func (l *TaskLogger) withCandidate(taskID string, message string) string {
+	l.candidateMu.RLock()
+	defer l.candidateMu.RUnlock()
+	if l.candidateTaskID != taskID || l.candidateName == "" || strings.Contains(message, l.candidateName) {
+		return message
+	}
+	return "当前“" + l.candidateName + "”，" + message
 }
 
 // updateCurrentStep 更新悬浮窗读取的当前任务步骤。
@@ -167,98 +280,14 @@ func (l *TaskLogger) updateCurrentStep(taskID string, message string) {
 	}
 }
 
-// workerLogLine 表示 Worker 输出到 stdout 的统一 JSON 行字段。
-type workerLogLine struct {
-	Timestamp         string `json:"timestamp"`
-	Level             string `json:"level"`
-	TraceID           string `json:"trace_id"`
-	Action            string `json:"action"`
-	Step              string `json:"step"`
-	Status            string `json:"status"`
-	DurationMS        int64  `json:"duration_ms"`
-	PageURL           string `json:"page_url"`
-	TargetDescription string `json:"target_description"`
-	ErrorCode         string `json:"error_code"`
-	ErrorMessage      string `json:"error_message"`
-	OriginalError     string `json:"original_error"`
-	PollAttempts      int    `json:"poll_attempts"`
-	TimeoutMS         int    `json:"timeout_ms"`
-	Attempt           int    `json:"attempt"`
-	RemainingDistance int    `json:"remaining_distance"`
-	ExitCode          int    `json:"exit_code"`
-	ExitReason        string `json:"exit_reason"`
-}
-
-// WorkerLine 解析 Worker JSON 行，并按 trace_id 汇入对应任务的岗位日志。
-func (l *TaskLogger) WorkerLine(line []byte) {
-	if l == nil || l.store == nil {
-		return
-	}
-	var item workerLogLine
-	if err := json.Unmarshal(line, &item); err != nil {
-		log.Printf("flow=browser_worker step=parse_log status=warning error=%q", err)
-		return
-	}
-	item.TraceID = strings.TrimSpace(item.TraceID)
-	if item.TraceID == "" {
-		if strings.HasPrefix(item.Action, "worker.") || strings.HasPrefix(item.Action, "browser.") {
-			item.TraceID, _ = l.store.RunningTaskID(context.Background())
-		}
-		if item.TraceID == "" {
-			return
-		}
-	}
-	if item.Action == "worker.exit" && item.ExitCode != 0 && item.ErrorMessage == "" {
-		item.ErrorMessage = item.ExitReason
-	}
-	exists, err := l.store.TaskExists(context.Background(), item.TraceID)
-	if err != nil {
-		log.Printf("task_id=%s flow=browser_worker step=check_task status=warning error=%q", item.TraceID, err)
-		return
-	}
-	if !exists {
-		return
-	}
-	message := workerLogMessage(item)
-	if strings.EqualFold(item.Status, "start") && keepWorkerLog(item) {
-		l.updateCurrentStep(item.TraceID, workerCurrentStep(item))
-	}
-	input, _ := json.Marshal(struct {
-		Action    string `json:"action"`
-		Step      string `json:"step"`
-		Target    string `json:"target_description"`
-		TimeoutMS int    `json:"timeout_ms"`
-	}{item.Action, item.Step, item.TargetDescription, item.TimeoutMS})
-	output, _ := json.Marshal(struct {
-		Status       string `json:"status"`
-		DurationMS   int64  `json:"duration_ms"`
-		PageURL      string `json:"page_url"`
-		ErrorCode    string `json:"error_code"`
-		PollAttempts int    `json:"poll_attempts"`
-	}{item.Status, item.DurationMS, item.PageURL, item.ErrorCode, item.PollAttempts})
-	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
-		TaskID: item.TraceID, Flow: "browser_worker", Step: item.Step,
-		Status: item.Status, Level: item.Level, Message: message,
-		DurationMS: item.DurationMS, CreatedAt: item.Timestamp, Category: "browser",
-		IsError:      strings.EqualFold(item.Level, "error") || strings.EqualFold(item.Status, "failed") || (item.Action == "worker.exit" && item.ExitCode != 0),
-		ErrorMessage: item.ErrorMessage, Input: input, Output: output,
-	}); err != nil {
-		log.Printf("task_id=%s flow=browser_worker step=save_log status=warning error=%q", item.TraceID, err)
-	}
-}
-
-// workerCurrentStep 把 Worker 封装动作转换成悬浮窗使用的简短中文状态。
-func workerCurrentStep(item workerLogLine) string {
-	label := workerActionLabel(item.Action)
-	target := strings.TrimSpace(item.TargetDescription)
-	if target != "" && !strings.Contains(label, target) {
-		label += "“" + target + "”"
-	}
-	return "正在" + label
-}
-
 // taskLogMessage 把流程步骤和状态转换成短中文用户文案。
 func taskLogMessage(step string, status string, err error) string {
+	if step == "agent_start" && status == "start" {
+		return "本地程序已启动，正在执行岗位任务"
+	}
+	if step == "agent_shutdown" && err != nil {
+		return "本地程序退出，原因：" + err.Error()
+	}
 	label := userStepLabel(step)
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "start", "running":
@@ -285,6 +314,8 @@ func taskLogMessage(step string, status string, err error) string {
 			return label + "：发生未捕获异常，" + err.Error()
 		}
 		return label + "：发生未捕获异常"
+	case "stopped":
+		return "岗位任务已停止"
 	default:
 		return label + "：进行中"
 	}
@@ -348,6 +379,8 @@ func userStepLabel(step string) string {
 		"save_conversation":             "保存回复结果",
 		"request_cloud_start":           "向云端申请开始任务",
 		"agent_shutdown":                "本地程序退出",
+		"agent_start":                   "本地程序启动",
+		"finished":                      "岗位任务",
 		"platform_id":                   "确认招聘平台",
 		"open_login_page":               "打开平台登录页",
 		"initialize_login_page":         "整理平台登录页",
@@ -395,103 +428,4 @@ func userStepLabel(step string) string {
 		return label
 	}
 	return "执行任务步骤"
-}
-
-// keepWorkerLog 只保留封装操作的首尾日志和所有失败，隐藏查找、移动等重复内部过程。
-func keepWorkerLog(item workerLogLine) bool {
-	if strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error") {
-		return true
-	}
-	expected := map[string]string{
-		"browser.start":           "start_browser",
-		"browser.stop":            "stop_browser",
-		"page.open":               "open_page",
-		"page.close":              "close_page",
-		"page.use":                "use_page",
-		"element.find":            "find",
-		"element.find_all":        "find_all",
-		"element.read":            "read",
-		"element.click":           "click",
-		"element.input":           "input",
-		"element.scroll":          "scroll",
-		"page.scroll":             "scroll",
-		"keyboard.press":          "press_key",
-		"page.screenshot":         "screenshot",
-		"element.screenshot":      "screenshot",
-		"element.screenshot_long": "screenshot_long",
-	}
-	return expected[item.Action] == item.Step
-}
-
-// workerLogMessage 把 Worker 稳定字段整理成中文用户日志。
-func workerLogMessage(item workerLogLine) string {
-	if item.Action == "worker.exit" {
-		return "浏览器操作进程已退出，退出代码：" + strconv.Itoa(item.ExitCode) + "；原因：" + item.ExitReason
-	}
-	if item.Action == "worker.crash" {
-		return "浏览器操作进程异常退出：" + item.ErrorMessage
-	}
-	label := workerActionLabel(item.Action)
-	target := strings.TrimSpace(item.TargetDescription)
-	if target != "" && !strings.Contains(label, target) {
-		label += "“" + target + "”"
-	}
-	if strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error") {
-		reason := strings.TrimSpace(item.ErrorMessage)
-		if reason == "" {
-			reason = "浏览器操作没有完成"
-		}
-		parts := []string{label + "：没处理成功，" + reason}
-		if item.PollAttempts > 0 {
-			parts = append(parts, "已经每 300 毫秒找了 "+strconv.Itoa(item.PollAttempts)+" 次")
-		}
-		parts = append(parts, workerLogSuggestion(item.ErrorCode))
-		return strings.Join(parts, "；")
-	}
-	if strings.EqualFold(item.Status, "start") {
-		return label + "：开始"
-	}
-	return label + "：完成"
-}
-
-// workerActionLabel 返回 Worker 封装操作对应的中文名称。
-func workerActionLabel(action string) string {
-	labels := map[string]string{
-		"browser.start":           "启动增强浏览器",
-		"worker.exit":             "浏览器操作进程退出",
-		"worker.crash":            "浏览器操作进程崩溃",
-		"browser.stop":            "关闭增强浏览器",
-		"page.open":               "打开页面",
-		"page.close":              "关闭页面",
-		"page.use":                "切换页面",
-		"element.find":            "查找页面元素",
-		"element.find_all":        "读取候选人列表",
-		"element.read":            "读取页面内容",
-		"element.click":           "点击",
-		"element.input":           "输入",
-		"element.scroll":          "滚动到目标",
-		"page.scroll":             "滚动页面",
-		"keyboard.press":          "按下键盘按键",
-		"page.screenshot":         "截取页面",
-		"element.screenshot":      "截取页面区域",
-		"element.screenshot_long": "分段读取详情",
-	}
-	if label := labels[strings.TrimSpace(action)]; label != "" {
-		return label
-	}
-	return "执行浏览器操作"
-}
-
-// workerLogSuggestion 根据 Worker 稳定错误码返回下一步提示。
-func workerLogSuggestion(code string) string {
-	switch strings.TrimSpace(code) {
-	case "VIEWPORT_TOO_SMALL", "MOUSE_TARGET_OUTSIDE_VIEWPORT":
-		return "请把浏览器窗口放大后再试"
-	case "ELEMENT_NOT_FOUND":
-		return "页面可能还没加载好，或平台页面结构有变化"
-	case "SCROLL_NO_PROGRESS":
-		return "列表可能已经到底，或当前区域不能继续滚动"
-	default:
-		return "我已经记下具体步骤，可以直接重试"
-	}
 }

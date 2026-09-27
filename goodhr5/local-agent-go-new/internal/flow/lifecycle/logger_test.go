@@ -2,12 +2,19 @@
 package lifecycle
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go-new/internal/flow/shared"
+	"goodhr5/local-agent-go-new/internal/integration/cloud"
+	"goodhr5/local-agent-go-new/internal/storage"
 )
 
 // TestTaskLogMessageUsesChinese 验证流程错误日志使用中文步骤名称。
@@ -15,6 +22,97 @@ func TestTaskLogMessageUsesChinese(t *testing.T) {
 	message := taskLogMessage("select_position", "failed", errors.New("没有找到岗位"))
 	if message != "选择岗位：没处理成功，没有找到岗位" {
 		t.Fatalf("中文流程日志不正确：%s", message)
+	}
+}
+
+// TestUploadPositionLogsKeepsCandidateName 验证分享日志仍能定位到发生动作的候选人。
+func TestUploadPositionLogsKeepsCandidateName(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "logs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.SaveTaskLog(ctx, storage.TaskLog{
+		PositionID: "position-readable", Flow: "candidate", Step: "正在点击打招呼按钮",
+		Category: "运行", Status: "running", Message: "当前王女士，正在点击打招呼按钮",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var captured struct {
+		Logs []cloud.PositionDiagnosticLog `json:"logs"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPut || request.URL.Path != "/api/positions/position-readable/logs" {
+			t.Errorf("上传接口不正确：%s %s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&captured); err != nil {
+			t.Errorf("解析上传日志失败：%v", err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	runner := &Runner{store: store, cloud: cloud.New(server.URL)}
+	if err := runner.UploadPositionLogs(ctx, "test-token", "position-readable"); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured.Logs) != 1 || !strings.Contains(captured.Logs[0].Message, "王女士") {
+		t.Fatalf("上传时丢失候选人称呼：%+v", captured.Logs)
+	}
+}
+
+// TestTaskLoggerCandidateTimeline 验证岗位日志保留候选人动作和详细错误，且不被原子操作成功记录淹没。
+func TestTaskLoggerCandidateTimeline(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "logs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SaveTask(ctx, storage.TaskRun{
+		TaskID: "task-readable", PositionID: "position-readable", Status: "running", TaskType: "greeting",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logger := NewTaskLogger(store, nil)
+	logger.Step("task-readable", "lifecycle", "agent_start", "start", time.Now(), nil)
+	logger.Step("task-readable", "platform", "find_candidates", "success", time.Now(), nil)
+	logger.Progress("task-readable", "OCR 已识别截图 1000 字")
+	logger.CandidateActivity("task-readable", "王女士", "正在点击打招呼按钮", "running", nil)
+	logger.WorkerLine([]byte(`{"trace_id":"task-readable","action":"element.click","step":"click","status":"success","level":"info","target_description":"打招呼按钮"}`))
+	logger.WorkerLine([]byte(`{"trace_id":"task-readable","action":"element.click","step":"click","status":"failed","level":"error","target_description":"打招呼按钮","error_code":"ELEMENT_NOT_FOUND","error_message":"按钮没有找到","input":{"candidates":["打招呼"]},"output":{"poll_attempts":4}}`))
+	logs, err := store.ListPositionLogs(ctx, "position-readable", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 3 {
+		t.Fatalf("应只保留启动、候选人动作和原子操作错误，实际 %d 条：%+v", len(logs), logs)
+	}
+	if !strings.Contains(logs[1].Message, "王女士") || !strings.Contains(logs[1].Message, "打招呼按钮") {
+		t.Fatalf("候选人动作不清楚：%s", logs[1].Message)
+	}
+	if !logs[2].IsError || !strings.Contains(logs[2].Message, "王女士") {
+		t.Fatalf("原子操作错误没有归属候选人：%+v", logs[2])
+	}
+	var input, output map[string]any
+	if err := json.Unmarshal(logs[2].Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(logs[2].Output, &output); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := input["candidates"]; !ok || output["error_code"] != "ELEMENT_NOT_FOUND" || output["poll_attempts"] != float64(4) {
+		t.Fatalf("详细排查字段丢失，入参=%v，出参=%v", input, output)
+	}
+	logger.ClearCandidate("task-readable")
+	if got := logger.withCandidate("task-readable", "下一步失败"); got != "下一步失败" {
+		t.Fatalf("候选人上下文未清空：%s", got)
+	}
+	logger.Step("task-readable", "lifecycle", "agent_shutdown", "stopped", time.Now(), errors.New("收到系统退出信号"))
+	logs, err = store.ListPositionLogs(ctx, "position-readable", 1000)
+	if err != nil || len(logs) != 4 || !strings.Contains(logs[3].Message, "收到系统退出信号") || logs[3].IsError || logs[3].ErrorMessage != "" {
+		t.Fatalf("正常退出原因没有正确记录：logs=%+v err=%v", logs, err)
 	}
 }
 

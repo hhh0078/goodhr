@@ -24,6 +24,21 @@ type RunMarker struct{ path string }
 // MarkRun 标记本次运行，并在标记仍存在时读取上次异常退出原因。
 func MarkRun(logsDir, crashPath string, crashOffset int64) (*RunMarker, *PreviousRun, error) {
 	path := filepath.Join(logsDir, "agent-running.json")
+	previous := ReadPreviousRun(logsDir, crashPath)
+	current := PreviousRun{PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339Nano), CrashOffset: crashOffset}
+	content, err := json.Marshal(current)
+	if err != nil {
+		return nil, previous, err
+	}
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		return nil, previous, fmt.Errorf("创建运行标记失败：%w", err)
+	}
+	return &RunMarker{path: path}, previous, nil
+}
+
+// ReadPreviousRun 在不改动磁盘标记的前提下，读取上次闪退的可见原因。
+func ReadPreviousRun(logsDir, crashPath string) *PreviousRun {
+	path := filepath.Join(logsDir, "agent-running.json")
 	var previous *PreviousRun
 	if content, err := os.ReadFile(path); err == nil {
 		previous = &PreviousRun{Reason: "上次异常退出，具体原因未知（可能是强制结束、断电或系统故障）"}
@@ -44,15 +59,30 @@ func MarkRun(logsDir, crashPath string, crashOffset int64) (*RunMarker, *Previou
 			}
 		}
 	}
-	current := PreviousRun{PID: os.Getpid(), StartedAt: time.Now().UTC().Format(time.RFC3339Nano), CrashOffset: crashOffset}
-	content, err := json.Marshal(current)
-	if err != nil {
-		return nil, previous, err
+	return previous
+}
+
+// ResetLegacyLogs 首次升级时清除旧 JSONL、轮转备份与崩溃日志，后续运行不再重复清理。
+func ResetLegacyLogs(logsDir string) (bool, error) {
+	marker := filepath.Join(logsDir, "readable-logs-v2.ready")
+	if _, err := os.Stat(marker); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
 	}
-	if err := os.WriteFile(path, content, 0600); err != nil {
-		return nil, previous, fmt.Errorf("创建运行标记失败：%w", err)
+	files := []string{"goodhr.jsonl", "crash.log", "agent-running.json"}
+	for index := 1; index <= logBackups; index++ {
+		files = append(files, fmt.Sprintf("goodhr.jsonl.%d", index))
 	}
-	return &RunMarker{path: path}, previous, nil
+	for _, name := range files {
+		if err := os.Remove(filepath.Join(logsDir, name)); err != nil && !os.IsNotExist(err) {
+			return false, fmt.Errorf("清理旧日志 %s 失败：%w", name, err)
+		}
+	}
+	if err := os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0600); err != nil {
+		return false, fmt.Errorf("记录日志格式升级失败：%w", err)
+	}
+	return true, nil
 }
 
 // crashReason 只提取崩溃摘要，避免把整段调用栈和业务数据传到岗位分享链接。

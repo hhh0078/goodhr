@@ -119,14 +119,22 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			candidateName := strings.TrimSpace(conversation.Name)
+			if candidateName == "" {
+				candidateName = fmt.Sprintf("第 %d 位候选人", conversation.Index+1)
+			}
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在查看会话", "running", nil)
 			if err := f.processConversation(ctx, prepared, runtime, conversation, stats); err != nil {
 				f.log(prepared.Request.TaskID, "conversation_operation", "failed", time.Now(), err)
 				if stopErr := errorPolicy.Record(err); stopErr != nil {
+					shared.ClearCandidateActivity(f.Logger, prepared.Request.TaskID)
 					return stopErr
 				}
+				shared.ClearCandidateActivity(f.Logger, prepared.Request.TaskID)
 				continue
 			}
 			errorPolicy.Reset()
+			shared.ClearCandidateActivity(f.Logger, prepared.Request.TaskID)
 			if shared.GracefulStopRequested(ctx) {
 				return nil
 			}
@@ -154,12 +162,17 @@ func (f *Flow) processConversations(ctx context.Context, prepared shared.Prepare
 // processConversation 平铺执行读取上下文、AI 生成、安全检查、发送和去重保存。
 func (f *Flow) processConversation(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, conversation model.Conversation, stats *shared.Stats) error {
 	stats.Processed++
+	candidateName := strings.TrimSpace(conversation.Name)
+	if candidateName == "" {
+		candidateName = fmt.Sprintf("第 %d 位候选人", conversation.Index+1)
+	}
 	history, err := runtime.ReadConversation(ctx, f.Browser, prepared.Platform, conversation)
 	if err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "read_conversation", "failed", time.Now(), err)
 		return fmt.Errorf("读取候选人消息失败：%w", err)
 	}
+	shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在生成回复", "running", nil)
 	reply, err := f.AI.GenerateReply(ctx, prepared.Position.AI, prepared.Position, conversation, history)
 	if err != nil {
 		stats.Failed++
@@ -182,8 +195,10 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	if exists {
 		stats.Skipped++
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "这条回复已经发过，已跳过", "skipped", nil)
 		return nil
 	}
+	shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在发送回复", "running", nil)
 	if err := runtime.ReplyConversation(ctx, f.Browser, prepared.Platform, conversation, reply); err != nil {
 		stats.Failed++
 		f.log(prepared.Request.TaskID, "send_reply", "failed", time.Now(), err)
@@ -192,6 +207,7 @@ func (f *Flow) processConversation(ctx context.Context, prepared shared.Prepared
 	}
 	stats.Succeeded++
 	f.saveConversation(ctx, prepared, conversation, replyHash, "success")
+	shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "回复已发送", "success", nil)
 	return nil
 }
 

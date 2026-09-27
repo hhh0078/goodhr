@@ -66,6 +66,12 @@ type ProgressLogger interface {
 	Progress(taskID string, message string)
 }
 
+// CandidateActivityLogger 定义带候选人姓名的用户可见动作日志及上下文清理能力。
+type CandidateActivityLogger interface {
+	CandidateActivity(taskID string, candidateName string, action string, status string, err error)
+	ClearCandidate(taskID string)
+}
+
 // AnalysisLogger 定义悬浮窗结构化分析状态的内存读写能力。
 type AnalysisLogger interface {
 	ReportAnalysis(taskID string, status AnalysisStatus)
@@ -77,6 +83,20 @@ type AnalysisLogger interface {
 func ReportProgress(logger Logger, taskID string, message string) {
 	if progress, ok := logger.(ProgressLogger); ok {
 		progress.Progress(taskID, message)
+	}
+}
+
+// ReportCandidateActivity 记录当前候选人正在做的事，供岗位日志和故障定位使用。
+func ReportCandidateActivity(logger Logger, taskID string, candidateName string, action string, status string, err error) {
+	if activity, ok := logger.(CandidateActivityLogger); ok {
+		activity.CandidateActivity(taskID, candidateName, action, status, err)
+	}
+}
+
+// ClearCandidateActivity 清除当前候选人，避免后续页面错误误归属上一位候选人。
+func ClearCandidateActivity(logger Logger, taskID string) {
+	if activity, ok := logger.(CandidateActivityLogger); ok {
+		activity.ClearCandidate(taskID)
 	}
 }
 

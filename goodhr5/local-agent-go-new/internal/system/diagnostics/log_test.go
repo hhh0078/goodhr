@@ -62,8 +62,30 @@ func TestLogAlwaysWritesJSONLines(t *testing.T) {
 				t.Fatalf("missing %s: %s", key, line)
 			}
 		}
+		if item["category"] != "运行" {
+			t.Fatalf("普通记录类别应为运行：%s", line)
+		}
 	}
 	_ = writer.Close()
+}
+
+// TestNormalizeDistinguishesEmptyError 验证正常步骤的空 error 字段不会被误判为错误。
+func TestNormalizeDistinguishesEmptyError(t *testing.T) {
+	for _, sample := range []struct {
+		line    string
+		isError bool
+	}{
+		{`task_id=task flow=greeting step=open_detail status=success duration_ms=35 error=""`, false},
+		{`task_id=task flow=greeting step=open_detail status=failed duration_ms=35 error="按钮没找到"`, true},
+	} {
+		var item map[string]any
+		if err := json.Unmarshal(Normalize([]byte(sample.line)), &item); err != nil {
+			t.Fatal(err)
+		}
+		if item["is_error"] != sample.isError {
+			t.Fatalf("日志错误分类不正确：%v", item)
+		}
+	}
 }
 
 // TestRunMarkerDetectsAbnormalExit 验证上次意外退出可提取致命崩溃原因。
@@ -84,6 +106,47 @@ func TestRunMarkerDetectsAbnormalExit(t *testing.T) {
 		t.Fatalf("previous=%+v err=%v", previous, err)
 	}
 	_ = marker.Clear()
+}
+
+// TestResetLegacyLogsPreservesPreviousCrashReason 验证首次清空旧文件前仍能识别上次闪退，且新日志不会反复删除。
+func TestResetLegacyLogsPreservesPreviousCrashReason(t *testing.T) {
+	directory := t.TempDir()
+	crashPath := filepath.Join(directory, "crash.log")
+	if _, _, err := MarkRun(directory, crashPath, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(crashPath, []byte("fatal error: old crash\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"goodhr.jsonl", "goodhr.jsonl.1"} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte("旧日志"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previous := ReadPreviousRun(directory, crashPath)
+	if previous == nil || !strings.Contains(previous.Reason, "fatal error: old crash") {
+		t.Fatalf("清理前未能保留闪退原因：%+v", previous)
+	}
+	reset, err := ResetLegacyLogs(directory)
+	if err != nil || !reset {
+		t.Fatalf("首次清理旧日志失败：reset=%v err=%v", reset, err)
+	}
+	for _, name := range []string{"goodhr.jsonl", "goodhr.jsonl.1", "crash.log", "agent-running.json"} {
+		if _, err := os.Stat(filepath.Join(directory, name)); !os.IsNotExist(err) {
+			t.Fatalf("旧文件仍存在：%s err=%v", name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(directory, "goodhr.jsonl"), []byte("新日志"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reset, err = ResetLegacyLogs(directory)
+	if err != nil || reset {
+		t.Fatalf("升级标记未防止重复清理：reset=%v err=%v", reset, err)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, "goodhr.jsonl"))
+	if err != nil || string(content) != "新日志" {
+		t.Fatalf("新日志被误删：%q err=%v", content, err)
+	}
 }
 
 // TestWorkerStderrWithoutTrace 保留没有任务编号的启动日志和未换行的崩溃信息。

@@ -224,11 +224,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			} else if item.Err != nil {
 				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
 			}
-			shared.ReportProgress(
-				f.Logger,
-				prepared.Request.TaskID,
-				fmt.Sprintf("正在处理候选人“%s”", candidateName),
-			)
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "正在查看候选人列表", "running", nil)
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
 			candidateErr := item.Err
 			if candidateErr == nil && item.Decision != nil && !item.Decision.Accepted {
@@ -254,6 +250,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					"skipped",
 					item.Decision.Reason,
 				)
+				shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "基础信息不匹配，已跳过", "skipped", nil)
 			} else if candidateErr == nil {
 				if item.Decision != nil {
 					f.log(
@@ -270,16 +267,19 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 			if candidateErr != nil {
 				if errors.Is(candidateErr, model.ErrCandidateDetailUnavailable) {
 					f.log(prepared.Request.TaskID, "candidate_detail_unavailable", "skipped", time.Now(), candidateErr)
+					shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateName, "详情暂时无法查看，已跳过", "skipped", nil)
 				} else {
 					f.log(prepared.Request.TaskID, "candidate_operation", "failed", time.Now(), candidateErr)
 				}
 				if stopErr := errorPolicy.Record(candidateErr); stopErr != nil {
+					shared.ClearCandidateActivity(f.Logger, prepared.Request.TaskID)
 					cancelPreviews()
 					return stopErr
 				}
 			} else {
 				errorPolicy.Reset()
 			}
+			shared.ClearCandidateActivity(f.Logger, prepared.Request.TaskID)
 			if shared.GracefulStopRequested(ctx) {
 				cancelPreviews()
 				return nil
@@ -358,12 +358,14 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if !keywordMatch.Accepted {
 			stats.Skipped++
 			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "关键词不匹配，已跳过", "skipped", nil)
 			return nil
 		}
 	}
 	if needsDetail && !shouldOpenDetail(prepared) {
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "detail_probability", "skipped", "本次未命中个人配置的详情打开概率")
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "本次未查看详情，已跳过", "skipped", nil)
 		return nil
 	}
 	if err := runtime.ScrollToCandidate(ctx, f.Browser, prepared.Platform, candidate); err != nil {
@@ -387,6 +389,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		); err != nil {
 			return err
 		}
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在打开详情页", "running", nil)
 		if err := runtime.OpenCandidateDetail(ctx, f.Browser, prepared.Platform, candidate); err != nil {
 			if errors.Is(err, model.ErrCandidateDetailUnavailable) {
 				stats.Skipped++
@@ -399,6 +402,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			return fmt.Errorf("打开候选人详情失败：%w", err)
 		}
 		detailOpened = true
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在查看详情页", "running", nil)
 		// 截图模式自身从顶部完整滚动；DOM 模式先浏览以加载详情，再读取正文。
 		if detailMode != "ai" && !prepared.Position.RequiresOCR {
 			if detailBrowser, ok := runtime.(model.DetailBrowser); ok {
@@ -470,6 +474,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		if !keywordMatch.Accepted {
 			stats.Skipped++
 			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "详情不匹配，已跳过", "skipped", nil)
 			return nil
 		}
 	}
@@ -492,6 +497,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		}
 	}()
 	if prepared.Position.RequiresAI {
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在判断是否适合打招呼", "running", nil)
 		var decision ai.Decision
 		var decisionErr error
 		decisionStartedAt := time.Now()
@@ -568,6 +574,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		evaluationStatus = "skipped"
 		stats.Skipped++
 		f.saveCandidate(ctx, prepared, candidate, "decision", "skipped", reason)
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "匹配度未达标，已跳过", "skipped", nil)
 		return nil
 	}
 	if err := waitRandomSeconds(
@@ -599,6 +606,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			requestInfo = candidateInfoAllowed(hasScore, score, threshold)
 		}
 	}
+	shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在点击打招呼按钮", "running", nil)
 	greetErr := runtime.GreetCandidate(ctx, f.Browser, prepared.Platform, candidate, model.GreetRequest{
 		KeepConversationOpen: requestInfo || greetMessage != "",
 	})
@@ -608,6 +616,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			stats.Skipped++
 			f.log(prepared.Request.TaskID, "greet", "skipped", time.Now(), greetErr)
 			f.saveCandidate(ctx, prepared, candidate, "greet", "skipped", "候选人已经沟通过，本轮不重复打招呼")
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "此前已沟通过，已跳过", "skipped", nil)
 			return nil
 		}
 		f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打招呼失败")
@@ -620,6 +629,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	evaluationStatus = "greeted"
 	stats.Succeeded++
 	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
+	shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "已成功打招呼", "success", nil)
 	if prepared.Position.EnableSound && f.Notifier != nil {
 		soundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		if err := f.Notifier.PlaySuccess(soundCtx); err != nil {
@@ -654,6 +664,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			}
 		}
 		if conversationReady && greetMessage != "" {
+			shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "正在发送打招呼消息", "running", nil)
 			startedAt = time.Now()
 			if err := runtime.SendCandidateMessage(ctx, f.Browser, prepared.Platform, candidate, greetMessage); err != nil {
 				if shared.ShouldStopTaskImmediately(err) {
@@ -663,6 +674,7 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 				f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "发送候选人消息失败")
 			} else {
 				f.log(prepared.Request.TaskID, "send_candidate_message", "success", startedAt, nil)
+				shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), "打招呼消息已发送", "success", nil)
 			}
 		}
 	}

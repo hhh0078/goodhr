@@ -115,6 +115,9 @@ func (r *Runner) StartTask(ctx context.Context, request shared.StartRequest) (St
 		r.release(active)
 		return StartResult{Preflight: preflightResult.Steps}, err
 	}
+	if r.logger != nil {
+		r.logger.Step(task.TaskID, "lifecycle", "agent_start", "start", task.StartedAt, nil)
+	}
 	if err := r.cloud.RequestPositionStart(
 		ctx, prepared.Request.Token, prepared.Position.ID, prepared.Request.TaskType,
 		r.checker.AgentBind.MachineID,
@@ -239,7 +242,11 @@ func (r *Runner) StopAll(ctx context.Context, reason string) {
 	r.mu.Unlock()
 	for _, active := range tasks {
 		if r.logger != nil {
-			r.logger.Step(active.state.TaskID, "lifecycle", "agent_shutdown", "warning", time.Now(), errors.New(reason))
+			status := "stopped"
+			if strings.HasPrefix(reason, "本地接口退出：") {
+				status = "failed"
+			}
+			r.logger.Step(active.state.TaskID, "lifecycle", "agent_shutdown", status, time.Now(), errors.New(reason))
 		}
 		active.stopOnce.Do(func() { close(active.stop) })
 		active.cancel()
@@ -294,6 +301,7 @@ func panicTaskError(recovered any) error {
 // finish 根据错误和用户停止标记保存唯一最终状态。
 func (r *Runner) finish(active *activeTask, stats shared.Stats, runErr error) {
 	active.cancel()
+	shared.ClearCandidateActivity(r.logger, active.state.TaskID)
 	r.mu.Lock()
 	state := active.state
 	if active.interrupt != nil {
