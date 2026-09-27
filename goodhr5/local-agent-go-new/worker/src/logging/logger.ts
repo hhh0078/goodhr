@@ -135,7 +135,7 @@ export class WorkerLogger {
     const payload = sanitizeFields({
       ...fields,
       timestamp: new Date().toISOString(),
-      category: context.action.startsWith("worker.") ? "worker" : "browser",
+      category: fields.category === "异常退出" ? "异常退出" : context.action.startsWith("worker.") ? "worker" : "browser",
       is_error: isError,
       error_message: errorMessage,
       input,

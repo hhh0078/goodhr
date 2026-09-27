@@ -104,7 +104,9 @@ func Normalize(data []byte) []byte {
 		status, _ := item["status"].(string)
 		item["is_error"] = strings.EqualFold(level, "error") || strings.EqualFold(status, "failed") || strings.EqualFold(status, "panic")
 	}
-	if item["is_error"] == true {
+	if item["category"] == "异常退出" {
+		item["is_error"] = true
+	} else if item["is_error"] == true {
 		item["category"] = "错误"
 	} else {
 		item["category"] = "运行"

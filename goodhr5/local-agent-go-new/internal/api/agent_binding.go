@@ -50,5 +50,10 @@ func (s *Server) handleAgentBind(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, code, err)
 		return
 	}
+	if s.incidents != nil {
+		if session, err := s.cloud.ValidateSession(r.Context(), request.Token); err == nil {
+			s.incidents.Bind(session.UserID, request.Token)
+		}
+	}
 	writeSuccess(w, http.StatusOK, binding)
 }

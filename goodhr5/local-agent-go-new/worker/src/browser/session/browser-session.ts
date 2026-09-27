@@ -40,6 +40,11 @@ export class BrowserSession {
   private extensionPaths: string[] = [];
   private readonly registeredPages = new WeakSet<Page>();
   private readonly downloadManager: DownloadManager;
+  private intentionalClose = false;
+  private exitRecorded = false;
+  private browserStartedAt = 0;
+  private lastBrowserAction = "启动浏览器";
+  private lastPageURL = "";
 
   readonly elements = new ElementRegistry();
 
@@ -95,6 +100,10 @@ export class BrowserSession {
       }
 
       await this.downloadManager.prepare(request.downloads_path);
+      this.intentionalClose = false;
+      this.exitRecorded = false;
+      this.browserStartedAt = Date.now();
+      this.lastBrowserAction = "启动浏览器";
       const nativeDownloadPrefs = await this.downloadManager.prepareNativeSession();
       this.extensionPaths = [...(request.extension_paths ?? [])];
       if (request.user_data_dir) {
@@ -125,8 +134,8 @@ export class BrowserSession {
           ...(request.user_agent ? { userAgent: request.user_agent } : {}),
         });
       }
-      await this.downloadManager.waitForReady();
       this.registerContext(this.context);
+      await this.downloadManager.waitForReady();
       this.currentPage =
         this.context.pages().find((item) => !item.isClosed()) ??
         (await this.context.newPage());
@@ -138,6 +147,7 @@ export class BrowserSession {
         );
       }
       const status = await this.status(false);
+      this.lastBrowserAction = "浏览器已打开";
       this.logger.info(actionContext, step, "success", {
         reused: false,
         current_url: status.current_url,
@@ -203,6 +213,7 @@ export class BrowserSession {
     actionContext: ActionContext,
   ): Promise<PageInfo> {
     const step = "open_page";
+    this.lastBrowserAction = request.new_tab ? "新建标签页" : "打开页面";
     this.logger.info(actionContext, step, "start", {
       target_url: safeURL(request.url),
       new_tab: request.new_tab ?? false,
@@ -246,6 +257,7 @@ export class BrowserSession {
       await page.bringToFront();
       this.elements.clearPage(page);
       const result = await this.pageInfo(page);
+      this.lastPageURL = safeURL(result.url);
       this.logger.info(actionContext, step, "success", {
         page_id: result.page_id,
         page_url: safeURL(result.url),
@@ -453,15 +465,16 @@ export class BrowserSession {
   /** registerContext 为已有页面和后续新页面统一注册生命周期，下载由浏览器全局原生观察器覆盖。 */
   private registerContext(context: BrowserContext): void {
     context.on("close", () => {
-      this.logger.warn({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "context_closed", "closed");
+      this.recordBrowserExit("浏览器上下文关闭，可能是浏览器窗口被关闭或进程退出");
     });
     this.browser?.on("disconnected", () => {
-      this.logger.warn({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "disconnected", "closed");
+      this.recordBrowserExit("浏览器进程连接断开，可能是崩溃、被系统终止或窗口被关闭；Playwright 未提供进程退出码");
     });
     for (const page of context.pages()) {
       this.registerPage(page);
     }
     context.on("page", (page) => {
+      this.lastBrowserAction = "新建标签页";
       this.currentPage = page;
       this.registerPage(page);
     });
@@ -474,6 +487,8 @@ export class BrowserSession {
     }
     this.registeredPages.add(page);
     page.on("crash", () => {
+      this.lastBrowserAction = "页面崩溃";
+      this.lastPageURL = safeURL(page.url());
       this.logger.error({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "page_crash", "failed", { page_url: safeURL(page.url()) });
     });
     page.on("close", () => {
@@ -484,8 +499,25 @@ export class BrowserSession {
     });
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) {
+        this.lastPageURL = safeURL(frame.url());
         this.elements.clearPage(page);
       }
+    });
+  }
+
+  /** recordBrowserExit 仅在非主动关闭时记录一次浏览器意外退出。 */
+  private recordBrowserExit(reason: string): void {
+    if (this.intentionalClose || this.exitRecorded) return;
+    this.exitRecorded = true;
+    this.logger.error({ trace_id: "", action: "browser.exit", started_at: Date.now() }, "unexpected_exit", "failed", {
+      category: "异常退出",
+      error_message: reason,
+      exit_reason: reason,
+      last_action: this.lastBrowserAction,
+      page_url: this.lastPageURL,
+      browser_uptime_ms: this.browserStartedAt ? Date.now() - this.browserStartedAt : 0,
+      input: { last_action: this.lastBrowserAction, page_url: this.lastPageURL },
+      output: { exit_reason: reason, exit_code: "无法取得" },
     });
   }
 
@@ -502,6 +534,7 @@ export class BrowserSession {
 
   /** dispose 关闭浏览器并清理本地引用。 */
   private async dispose(): Promise<void> {
+    this.intentionalClose = true;
     const context = this.context;
     const browser = this.browser;
     await this.downloadManager.list().catch(() => undefined);

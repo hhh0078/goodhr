@@ -47,6 +47,7 @@ type Application struct {
 	store     *storage.Store
 	downloads *downloadflow.Monitor
 	ocr       *ocr.Client
+	incidents *diagnostics.BrowserIncidentRecorder
 }
 
 // New 按依赖顺序创建 SQLite、客户端、流程和本地 HTTP 服务。
@@ -80,7 +81,15 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousExitReason ...st
 	powerGuard := &power.Guard{}
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
-	workerProcess.SetLogSink(diagnostics.WorkerLine(runLog, logger.WorkerLine))
+	incidents := diagnostics.NewBrowserIncidentRecorder(store, cloudClient)
+	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)
+	if len(previousExitReason) > 0 && previousExitReason[0] != "" {
+		incidents.RecordLifecycle("agent.previous_exit", "检测到上次异常退出："+previousExitReason[0], true)
+	}
+	workerProcess.SetLogSink(diagnostics.WorkerLine(runLog, func(line []byte) {
+		logger.WorkerLine(line)
+		incidents.WorkerLine(line)
+	}))
 	browserClient.SetRecovery(workerProcess.Stop)
 	checker := &preflight.Checker{
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
@@ -103,14 +112,14 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousExitReason ...st
 	application := &Application{
 		cfg: cfg, runner: runner, runtime: runtimeManager,
 		browser: browserClient, store: store, downloads: downloads, ocr: ocrClient,
-		shutdown: make(chan struct{}),
+		shutdown: make(chan struct{}), incidents: incidents,
 	}
 	appUpdater := updater.New(cfg.DataDir, version.Value, application.RequestShutdown)
 	server := api.NewServer(cfg, api.Dependencies{
 		Runner: runner, Runtime: runtimeManager, Browser: browserClient,
 		Downloads: downloads, Store: store, Profiles: profiles,
 		OCR: ocrClient, Updater: appUpdater,
-		Cloud: cloudClient, DeviceID: device.Current,
+		Cloud: cloudClient, DeviceID: device.Current, Incidents: incidents,
 	})
 	application.server = server
 	return application, nil
@@ -158,6 +167,7 @@ func cleanupLocalFiles(cfg config.Config) {
 func (a *Application) Run(ctx context.Context) error {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
+	go a.incidents.Run(runCtx)
 	go func() {
 		select {
 		case <-a.shutdown:
@@ -228,6 +238,10 @@ func (a *Application) Run(ctx context.Context) error {
 	<-downloadDone
 	_ = a.runtime.StopWorker()
 	a.ocr.Close()
+	a.incidents.RecordLifecycle("agent.exit", shutdownReason, runErr != nil)
+	incidentCtx, cancelIncidents := context.WithTimeout(context.Background(), 5*time.Second)
+	a.incidents.Flush(incidentCtx)
+	cancelIncidents()
 	if err := a.store.Close(); err != nil && runErr == nil {
 		runErr = fmt.Errorf("关闭 SQLite 失败：%w", err)
 	}

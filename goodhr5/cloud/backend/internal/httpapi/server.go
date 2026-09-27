@@ -26,6 +26,7 @@ type Server struct {
 	positions           *PositionService
 	positionExecution   *PositionExecutionService
 	positionLogs        *PositionLogService
+	browserEvents       *BrowserEventService
 	candidates          *CandidateService
 	subscriptions       *SubscriptionService
 	payments            *PaymentService
@@ -102,6 +103,7 @@ func NewServer() (*Server, error) {
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
 		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
 		positionLogs:        positionLogs,
+		browserEvents:       NewBrowserEventService(auth, db),
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
@@ -168,6 +170,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/activation-codes/redeem", s.activationCodes.Redeem)
 	mux.HandleFunc("/api/admin/activation-codes", s.activationCodes.AdminCollection)
 	mux.HandleFunc("/api/admin/users", s.adminUsers.Collection)
+	mux.HandleFunc("/api/admin/logs", s.browserEvents.AdminLogs)
+	mux.HandleFunc("/api/browser-events", s.browserEvents.Upload)
 	mux.HandleFunc("/api/admin/users/unbind-agent", s.adminUsers.UnbindAgent)
 	mux.HandleFunc("/api/admin/users/adjust-ai-balance", s.adminUsers.AdjustAIBalance)
 	mux.HandleFunc("/api/admin/users/batch-adjust", s.adminUsers.BatchAdjust)
