@@ -334,3 +334,24 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 		t.Fatalf("old share status=%d, want 404", oldResponse.Code)
 	}
 }
+
+// TestSanitizeSharedPositionLogs 验证旧版纯文本和 JSON 日志在公开分享前再次脱敏。
+func TestSanitizeSharedPositionLogs(t *testing.T) {
+	logs := []PositionLog{
+		{Message: `点击失败 token=old-secret 联系 13800138000 candidate@example.com`},
+		{Message: `{"timestamp":"2026-01-01T00:00:00Z","category":"browser","input":{"candidateName":"张三","password":"hidden-secret"},"message":"联系 candidate@example.com"}`},
+	}
+	shared := sanitizeSharedPositionLogs(logs)
+	encoded, err := json.Marshal(publicPositionLogs(shared))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"old-secret", "13800138000", "candidate@example.com", "张三", "hidden-secret"} {
+		if bytes.Contains(encoded, []byte(secret)) {
+			t.Fatalf("shared legacy logs contain %s", secret)
+		}
+	}
+	if logs[0].Message == shared[0].Message {
+		t.Fatal("legacy plain text log was not sanitized")
+	}
+}

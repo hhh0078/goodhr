@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -55,6 +56,7 @@ func (s *PositionLogService) Share(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "no position logs available")
 		return
 	}
+	logs = sanitizeSharedPositionLogs(logs)
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create share link")
@@ -103,5 +105,24 @@ func (s *PositionLogService) PublicShare(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to load share link")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logs": publicPositionLogs(logs), "expires_at": expiresAt, "count": len(logs)})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "logs": publicPositionLogs(sanitizeSharedPositionLogs(logs)), "expires_at": expiresAt, "count": len(logs)})
+}
+
+// sanitizeSharedPositionLogs 对历史日志及新日志统一脱敏，避免分享旧记录时泄露敏感字段。
+func sanitizeSharedPositionLogs(logs []PositionLog) []PositionLog {
+	result := make([]PositionLog, len(logs))
+	for index, item := range logs {
+		var value any
+		if json.Unmarshal([]byte(item.Message), &value) == nil && value != nil {
+			if encoded, err := json.Marshal(sanitizeDiagnosticValue(value)); err == nil {
+				item.Message = string(encoded)
+			} else {
+				item.Message = "日志内容无法安全展示"
+			}
+		} else {
+			item.Message = sanitizeDiagnosticText(item.Message)
+		}
+		result[index] = item
+	}
+	return result
 }
