@@ -10,6 +10,7 @@ import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import HelpRoundedIcon from "@mui/icons-material/HelpRounded";
+import ManageSearchRoundedIcon from "@mui/icons-material/ManageSearchRounded";
 import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
@@ -141,6 +142,7 @@ const menuGroups: MenuGroup[] = [
     superOnly: true,
     items: [
       ["/admin/users", "用户管理", PersonRoundedIcon],
+      ["/admin/logs", "运行日志", ManageSearchRoundedIcon],
       ["/admin/mail", "邮件群发", EmailRoundedIcon],
       ["/admin/activation-codes", "激活码管理", AdminPanelSettingsRoundedIcon],
       ["/admin/payment-records", "支付记录", PaidRoundedIcon],

@@ -12,7 +12,14 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/storage"
 )
+
+// UploadBrowserEvents 把已脱敏的浏览器异常退出日志批量上传云端。
+func (c *Client) UploadBrowserEvents(ctx context.Context, token string, events []storage.BrowserEvent) error {
+	return c.do(ctx, http.MethodPost, "/api/browser-events", token, map[string]any{"events": events}, nil)
+}
 
 // Client 是 GoodHR 云端强类型客户端。
 type Client struct {

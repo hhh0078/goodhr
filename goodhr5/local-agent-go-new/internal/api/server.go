@@ -28,6 +28,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/profile"
 	"goodhr5/local-agent-go-new/internal/runtime"
 	"goodhr5/local-agent-go-new/internal/storage"
+	"goodhr5/local-agent-go-new/internal/system/diagnostics"
 	"goodhr5/local-agent-go-new/internal/updater"
 	"goodhr5/local-agent-go-new/internal/version"
 )
@@ -45,6 +46,7 @@ type Server struct {
 	updater         *updater.Manager
 	cloud           *cloudintegration.Client
 	deviceID        func() (string, error)
+	incidents       *diagnostics.BrowserIncidentRecorder
 	http            *http.Server
 	downloadRootsMu sync.RWMutex
 	downloadRoots   map[string]struct{}
@@ -62,6 +64,7 @@ type Dependencies struct {
 	Updater   *updater.Manager
 	Cloud     *cloudintegration.Client
 	DeviceID  func() (string, error)
+	Incidents *diagnostics.BrowserIncidentRecorder
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -71,7 +74,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 		browser: dependencies.Browser, downloads: dependencies.Downloads,
 		store: dependencies.Store, profiles: dependencies.Profiles,
 		ocr: dependencies.OCR, updater: dependencies.Updater,
-		cloud: dependencies.Cloud, deviceID: dependencies.DeviceID,
+		cloud: dependencies.Cloud, deviceID: dependencies.DeviceID, incidents: dependencies.Incidents,
 		downloadRoots: map[string]struct{}{filepath.Clean(cfg.DownloadsDir): {}},
 	}
 	server.loadPersistedDownloadRoots()

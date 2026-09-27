@@ -181,13 +181,13 @@ func (m *Manager) wait(command *exec.Cmd, lineWriter *lineSinkWriter, done chan 
 	log.Printf("event=worker_exit pid=%d exit_code=%d error=%v", command.Process.Pid, exitCode, err)
 	if lineWriter != nil {
 		lineWriter.Flush()
-		if exitCode != 0 && !m.stopping.Load() && lineWriter.sink != nil {
+		if !m.stopping.Load() && lineWriter.sink != nil {
 			reason := fmt.Sprintf("Browser Worker 意外退出，退出码 %d", exitCode)
 			if err != nil {
 				reason += "：" + err.Error()
 			}
 			data, _ := json.Marshal(map[string]any{
-				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "worker",
+				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "异常退出",
 				"action": "worker.exit", "step": "process_exit", "status": "failed", "level": "error",
 				"is_error": true, "error_message": reason, "exit_reason": reason, "exit_code": exitCode,
 				"input": map[string]any{"pid": command.Process.Pid}, "output": map[string]any{"exit_code": exitCode},

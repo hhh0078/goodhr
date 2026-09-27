@@ -88,6 +88,17 @@ func TestNormalizeDistinguishesEmptyError(t *testing.T) {
 	}
 }
 
+// TestNormalizeKeepsAbnormalExit 验证异常退出不会被通用错误分类覆盖。
+func TestNormalizeKeepsAbnormalExit(t *testing.T) {
+	var item map[string]any
+	if err := json.Unmarshal(Normalize([]byte(`{"action":"browser.exit","category":"异常退出","is_error":true,"error_message":"浏览器连接断开"}`)), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item["category"] != "异常退出" || item["is_error"] != true {
+		t.Fatalf("异常退出分类丢失：%v", item)
+	}
+}
+
 // TestRunMarkerDetectsAbnormalExit 验证上次意外退出可提取致命崩溃原因。
 func TestRunMarkerDetectsAbnormalExit(t *testing.T) {
 	directory := t.TempDir()

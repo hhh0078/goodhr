@@ -16,6 +16,7 @@ import (
 type workerLogLine struct {
 	Timestamp         string          `json:"timestamp"`
 	Level             string          `json:"level"`
+	Category          string          `json:"category"`
 	TraceID           string          `json:"trace_id"`
 	Action            string          `json:"action"`
 	Step              string          `json:"step"`
@@ -86,7 +87,7 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 	if _, err := l.store.SaveTaskLog(context.Background(), storage.TaskLog{
 		TaskID: item.TraceID, Flow: "browser_worker", Step: item.Step,
 		Status: item.Status, Level: item.Level, Message: message,
-		DurationMS: item.DurationMS, CreatedAt: item.Timestamp, Category: "错误",
+		DurationMS: item.DurationMS, CreatedAt: item.Timestamp, Category: item.Category,
 		IsError:      isError,
 		ErrorMessage: strings.TrimSpace(string(diagnostics.Redact([]byte(item.ErrorMessage)))), Input: input, Output: output,
 	}); err != nil {
@@ -178,6 +179,9 @@ func keepWorkerLog(item workerLogLine) bool {
 
 // workerLogMessage 把 Worker 稳定字段整理成中文用户日志。
 func workerLogMessage(item workerLogLine) string {
+	if item.Action == "browser.exit" {
+		return "浏览器异常退出：" + strings.TrimSpace(item.ErrorMessage)
+	}
 	if item.Action == "worker.exit" {
 		return "浏览器操作进程已退出，退出代码：" + strconv.Itoa(item.ExitCode) + "；原因：" + item.ExitReason
 	}
@@ -211,6 +215,7 @@ func workerLogMessage(item workerLogLine) string {
 func workerActionLabel(action string) string {
 	labels := map[string]string{
 		"browser.start":           "启动增强浏览器",
+		"browser.exit":            "浏览器异常退出",
 		"worker.exit":             "浏览器操作进程退出",
 		"worker.crash":            "浏览器操作进程崩溃",
 		"worker.stderr":           "浏览器操作程序输出异常",

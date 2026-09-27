@@ -105,7 +105,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $PackageDir "worker") | Out
 Write-Step "编译严格 TypeScript Worker"
 Push-Location $WorkerDir
 try {
-  # better-sqlite3 已自带 Windows 预编译文件；跳过其隐式 node-gyp，避免打包机必须安装 Visual Studio。
+  # Worker 不依赖原生 Node 模块；跳过依赖安装脚本，避免打包时额外下载浏览器。
   & $Npm ci --ignore-scripts --registry=$NpmRegistry
   if ($LASTEXITCODE -ne 0) {
     throw "Worker 依赖安装失败，退出码：$LASTEXITCODE"
@@ -128,11 +128,11 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "Worker 生产依赖安装失败，退出码：$LASTEXITCODE"
   }
-  # 验证预编译 SQLite 模块确实可加载，防止跳过脚本后打出不可运行的安装包。
-  & $Node -e "const Database=require('better-sqlite3');const db=new Database(':memory:');db.prepare('SELECT 1').get();db.close()"
-  if ($LASTEXITCODE -ne 0) {
-    throw "Worker 生产依赖中的 SQLite 模块不可用，退出码：$LASTEXITCODE"
-  }
+  # 验证 Worker 入口语法以及 Camoufox、Playwright 生产依赖都已放入安装包。
+  & $Node --check (Join-Path $PackageDir "worker\dist\main.js")
+  if ($LASTEXITCODE -ne 0) { throw "Worker 生产依赖检查失败，退出码：$LASTEXITCODE" }
+  & $Node -e "require.resolve('camoufox-js'); require.resolve('playwright-core')"
+  if ($LASTEXITCODE -ne 0) { throw "Worker 生产依赖缺失，退出码：$LASTEXITCODE" }
 }
 finally {
   Pop-Location
