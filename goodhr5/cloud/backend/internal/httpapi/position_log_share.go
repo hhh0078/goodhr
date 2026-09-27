@@ -14,7 +14,7 @@ import (
 
 const positionLogShareTTL = 7 * 24 * time.Hour
 
-// Share 仅允许岗位所属账号生成一次性随机链接，新的链接会替换旧链接。
+// Share 仅允许岗位所有者或同租户管理员生成随机链接，新的链接会替换旧链接。
 func (s *PositionLogService) Share(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
