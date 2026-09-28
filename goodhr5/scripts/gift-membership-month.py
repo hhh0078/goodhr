@@ -22,6 +22,8 @@ SUBJECT = "goodhr 赠送一个月会员给您"
 BACKUP_ROOT = Path("/www/wwwroot/goodhr-production/backups")
 BACKUP_DIR = BACKUP_ROOT / "membership-gift-20260928"
 PRODUCTION_DIR = "/www/wwwroot/goodhr-production/good-hr-ai-js/goodhr5"
+# 少量复用连接，避免单连接收件人数和短时间连接频率两类限制。
+MAX_MESSAGES_PER_CONNECTION = 5
 
 
 def sql_literal(value):
@@ -295,10 +297,10 @@ FINISH;
             client = None
             try:
                 for index, recipient in enumerate(recipients):
-                    # 每封邮件使用独立连接，与现有SMTPMailer保持一致，避免服务商限制单连接收件人数。
-                    if client is not None:
-                        client.close()
-                    client = self.connect_smtp()
+                    if client is None or index % MAX_MESSAGES_PER_CONNECTION == 0:
+                        if client is not None:
+                            client.close()
+                        client = self.connect_smtp()
                     self.mark_recipient(recipient["id"], "pending", "[gift-sending] 已开始发送，异常中断后需核查")
                     try:
                         refused = client.send_message(build_message(self.config, users[recipient["email"]]))
@@ -306,8 +308,8 @@ FINISH;
                             raise smtplib.SMTPRecipientsRefused(refused)
                     except smtplib.SMTPRecipientsRefused as error:
                         self.mark_recipient(recipient["id"], "failed", str(error))
-                        if any(400 <= reply[0] < 500 for reply in error.recipients.values()):
-                            raise RuntimeError("邮件服务临时拒绝收件人，已停止，稍后只补发邮件") from error
+                        if any(400 <= reply[0] < 500 or b"MI:STC" in reply[1].upper() for reply in error.recipients.values()):
+                            raise RuntimeError("邮件服务限制发送，已停止，恢复后只补发邮件") from error
                     except smtplib.SMTPResponseException as error:
                         self.mark_recipient(recipient["id"], "failed", str(error))
                         raise RuntimeError("邮件服务拒绝发送，已停止，剩余邮件仍待发送") from error
@@ -331,7 +333,7 @@ def main():
     parser.add_argument("action", choices=("preview", "grant", "send", "report"), nargs="?", default="preview")
     parser.add_argument("--check-smtp", action="store_true", help="只验证邮件登录，不发邮件")
     parser.add_argument("--limit", type=int, default=1000, help="本次最多发送的邮件数")
-    parser.add_argument("--delay", type=float, default=1.0, help="每封邮件发送后的等待秒数")
+    parser.add_argument("--delay", type=float, default=2.0, help="每封邮件发送后的等待秒数")
     args = parser.parse_args()
     if args.limit < 1 or args.delay < 0.5:
         parser.error("发送数量必须大于0，每封至少间隔0.5秒")

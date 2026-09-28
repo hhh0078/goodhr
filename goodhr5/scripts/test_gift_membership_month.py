@@ -122,24 +122,43 @@ class GiftSafetyTests(unittest.TestCase):
         self.assertIn("[gift-uncertain]", operation.mark_recipient.call_args[0][2])
         operation.grant.assert_not_called()
 
-    def test_every_email_gets_its_own_smtp_connection(self):
-        """连续发送时每封邮件独立登录，避免服务商的单连接收件人数限制。"""
+    def test_smtp_connections_only_send_five_messages(self):
+        """每个连接最多发送五封，兼顾单连接收件人数和连接频率限制。"""
         operation = gift.GiftOperation.__new__(gift.GiftOperation)
         operation.config = {"GOODHR_SMTP_USERNAME": "sender@example.com"}
-        users = [dict(self.user, id=str(index), email="user" + str(index) + "@example.com") for index in range(3)]
+        users = [dict(self.user, id=str(index), email="user" + str(index) + "@example.com") for index in range(6)]
         operation.load_plan = Mock(return_value=gift.create_plan(users, self.now))
         operation.batch = Mock(return_value={"id": "batch"})
         operation.query = Mock(return_value=[{"id": str(index), "email": user["email"]} for index, user in enumerate(users)])
         operation.mark_recipient = Mock()
-        clients = [Mock(send_message=Mock(return_value={})) for _ in users]
+        clients = [Mock(send_message=Mock(return_value={})) for _ in range(2)]
         operation.connect_smtp = Mock(side_effect=clients)
-        operation.report = Mock(return_value={"sent": 3})
+        operation.report = Mock(return_value={"sent": 6})
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(gift, "BACKUP_DIR", Path(directory)), patch.dict(sys.modules, {"fcntl": Mock(LOCK_EX=1, LOCK_NB=2)}), patch.object(gift.time, "sleep"):
-                operation.send(3, 0.5)
-        self.assertEqual(operation.connect_smtp.call_count, 3)
-        for client in clients:
-            self.assertEqual(client.send_message.call_count, 1)
+                operation.send(6, 0.5)
+        self.assertEqual(operation.connect_smtp.call_count, 2)
+        self.assertEqual(clients[0].send_message.call_count, 5)
+        self.assertEqual(clients[1].send_message.call_count, 1)
+
+    def test_global_provider_limit_stops_after_first_rejection(self):
+        """账号级发送限制出现时立即停下，保留其他待发邮件，不持续碰撞限制。"""
+        operation = gift.GiftOperation.__new__(gift.GiftOperation)
+        operation.config = {"GOODHR_SMTP_USERNAME": "sender@example.com"}
+        users = [dict(self.user, id=str(index), email="user" + str(index) + "@example.com") for index in range(2)]
+        operation.load_plan = Mock(return_value=gift.create_plan(users, self.now))
+        operation.batch = Mock(return_value={"id": "batch"})
+        operation.query = Mock(return_value=[{"id": str(index), "email": user["email"]} for index, user in enumerate(users)])
+        operation.mark_recipient = Mock()
+        error = smtplib.SMTPRecipientsRefused({users[0]["email"]: (554, b"MI:STC provider limit")})
+        client = Mock(send_message=Mock(side_effect=error))
+        operation.connect_smtp = Mock(return_value=client)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(gift, "BACKUP_DIR", Path(directory)), patch.dict(sys.modules, {"fcntl": Mock(LOCK_EX=1, LOCK_NB=2)}):
+                with self.assertRaises(RuntimeError):
+                    operation.send(2, 0.5)
+        self.assertEqual(client.send_message.call_count, 1)
+        self.assertEqual(operation.mark_recipient.call_args[0][1], "failed")
 
 
 if __name__ == "__main__":
