@@ -94,7 +94,14 @@ type Candidate struct {
 
 // CandidateListOptions 表示读取候选人列表时使用的任务级参数。
 type CandidateListOptions struct {
-	ReadConcurrency int `json:"read_concurrency"`
+	ReadConcurrency int                  `json:"read_concurrency"`
+	Cursor          *CandidateListCursor `json:"-"`
+}
+
+// CandidateListCursor 保存当前任务滚动列表的读取位置，避免追加内容超过单批上限后重复读取开头。
+type CandidateListCursor struct {
+	StartIndex          int
+	IdentityOccurrences map[string]int // 已读窗口中同名同龄候选人的数量，用于后续窗口稳定定位。
 }
 
 // CandidateDetail 表示当前任务内短期使用的候选人详情。

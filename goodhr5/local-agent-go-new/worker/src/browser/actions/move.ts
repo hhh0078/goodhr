@@ -9,6 +9,7 @@ import {
 import { WorkerLogger } from "../../logging/logger.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
+import type { VisibleArea } from "./scroll-geometry.js";
 
 /** MoveResult 表示鼠标移动位置和元素视口状态。 */
 export interface MoveResult {
@@ -26,11 +27,11 @@ export class MoveAction {
     private readonly locator: Pick<LocatorPrimitive, "view"> = new LocatorPrimitive(),
   ) {}
 
-  /** toElement 移动到已找到元素内部的安全随机点，不重新查找。 */
+  /** toElement 移动到元素、窗口和可选容器交集内的安全随机点，不重新查找。 */
   async toElement(
     found: ResolvedElement,
     actionContext: ActionContext,
-    options: { allowAckRetry?: boolean; centered?: boolean } = {},
+    options: { allowAckRetry?: boolean; centered?: boolean; visibleArea?: VisibleArea } = {},
   ): Promise<MoveResult> {
     const step = "move";
     this.logger.info(actionContext, step, "start");
@@ -40,10 +41,10 @@ export class MoveAction {
         throw new Error("元素没有有效位置");
       }
       const viewport = found.view.viewport;
-      const visibleLeft = Math.max(1, box.x);
-      const visibleTop = Math.max(1, box.y);
-      const visibleRight = Math.min(viewport.width - 1, box.x + box.width);
-      const visibleBottom = Math.min(viewport.height - 1, box.y + box.height);
+      const visibleLeft = Math.max(1, box.x, options.visibleArea?.left ?? 0);
+      const visibleTop = Math.max(1, box.y, options.visibleArea?.top ?? 0);
+      const visibleRight = Math.min(viewport.width - 1, box.x + box.width, options.visibleArea?.right ?? viewport.width);
+      const visibleBottom = Math.min(viewport.height - 1, box.y + box.height, options.visibleArea?.bottom ?? viewport.height);
       if (
         viewport.width <= 2 ||
         viewport.height <= 2 ||

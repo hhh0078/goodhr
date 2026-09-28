@@ -85,6 +85,7 @@ export interface ElementFindRequest {
 export interface ElementFindAllRequest {
   selector: SelectorSpec;
   max_items?: number;
+  start_index?: number;
   read_concurrency?: number;
   fields?: Record<string, SelectorSpec>;
   expected_missing?: boolean;
@@ -135,6 +136,7 @@ export interface KeyboardPressRequest {
 /** ScrollRequest 表示页面或元素真实滚轮滚动参数。 */
 export interface ScrollRequest {
   target?: SelectorSpec;
+  progress_target?: SelectorSpec;
   wheel_anchor?: SelectorSpec;
   distance: number;
   max_attempts?: number;

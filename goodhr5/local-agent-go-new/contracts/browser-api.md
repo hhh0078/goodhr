@@ -107,11 +107,14 @@ Go 可以通过 `X-Trace-ID` 传入任务追踪编号；未传时 Worker 自动�
 - 页面跳转、刷新、关闭或超过有效期后，旧 `element_ref` 自动失效。
 - 列表字段可在 `SelectorSpec` 中使用 `read_property=text|html` 或 `read_attribute` 读取属性。
 - 单元素和列表查找都按 `timeout_ms` 轮询，超时错误保留最后一轮选择器尝试明细。
+- 列表查找支持可选的 `start_index`（默认 0）和 `max_items`，用于分批读取持续追加的列表。返回的 `index` 始终是原列表序号；起点超过已加载内容时返回空数组。
 
 ## 真实滚轮验证
 
 - 所有滚动只通过鼠标移动和 `mouse.wheel` 执行。
 - 提供 `wheel_anchor` 时，Worker 只把它作为真实鼠标落点；滚动前后通过目标位置或当前视口截图摘要验证变化，不读取页面内部滚动属性。
+- 继续加载时可提供 `progress_target` 跟踪已加载的末尾元素，与 `target` 互斥。Worker 始终执行滚轮，并返回 `progress_target_moved`（位置是否变化）和 `progress_target_visible`（元素底边是否进入可见区域）。末尾已进入窗口时优先把真实鼠标放在末尾，避免滚到外层页面。
+- Go 负责等待追加内容和判断任务结束：列表仍在移动时继续滚动，抵达末尾后重复等待加载；浏览器断开、滚动停在中间或等待超时都返回错误。
 - 读取和操作页面都禁止注入或执行 JavaScript，只能使用标准 Locator、鼠标、键盘、真实滚轮和截图。
 
 ## 长截图

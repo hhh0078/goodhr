@@ -171,6 +171,11 @@ export function parseElementFindAllRequest(
     "read_concurrency",
     optionalNumber(record, "read_concurrency", { min: 5, max: 100 }),
   );
+  const startIndex = optionalNumber(record, "start_index", { min: 0, max: 1_000_000 });
+  if (startIndex !== undefined && !Number.isInteger(startIndex)) {
+    throw invalidRequest(traceId, action, "start_index 必须是整数");
+  }
+  assignNumber(request, "start_index", startIndex);
   const fields = parseFieldSelectors(record.fields, traceId, action);
   if (Object.keys(fields).length > 0) {
     request.fields = fields;
@@ -313,6 +318,10 @@ export function parseScrollRequest(
   const request: ScrollRequest = { distance };
   if (record.target !== undefined) {
     request.target = parseSelectorSpec(record.target, traceId, action);
+  }
+  if (record.progress_target !== undefined) {
+    request.progress_target = parseSelectorSpec(record.progress_target, traceId, action);
+    if (request.target) throw invalidRequest(traceId, action, "progress_target 与 target 不能同时设置");
   }
   if (record.wheel_anchor !== undefined) {
     request.wheel_anchor = parseSelectorSpec(

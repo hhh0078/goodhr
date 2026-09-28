@@ -127,6 +127,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 	rest := newRestSchedule(prepared.Preferences)
 	candidateListOptions := model.CandidateListOptions{
 		ReadConcurrency: prepared.Preferences.CandidateReadConcurrency,
+		Cursor:          &model.CandidateListCursor{},
 	}
 	for batch := 0; ; batch++ {
 		if shared.GracefulStopRequested(ctx) {

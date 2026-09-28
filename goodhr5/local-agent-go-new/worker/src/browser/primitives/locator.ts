@@ -66,6 +66,7 @@ export class LocatorPrimitive {
       action: string;
       step: string;
     },
+    startIndex = 0,
   ): Promise<ResolvedElement[]> {
     return this.resolveWithPolling(
       page,
@@ -78,6 +79,7 @@ export class LocatorPrimitive {
           maxItems,
           attempts,
           context,
+          startIndex,
         ),
     );
   }
@@ -93,6 +95,7 @@ export class LocatorPrimitive {
       action: string;
       step: string;
     },
+    startIndex: number,
   ): Promise<ResolvedElement[]> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
@@ -108,11 +111,12 @@ export class LocatorPrimitive {
       if (count === 0) {
         continue;
       }
-      const start = spec.target.index ?? 0;
+      const start = spec.target.index ?? Math.max(0, startIndex);
       const end =
         spec.target.index !== undefined
           ? Math.min(count, start + 1)
-          : Math.min(count, Math.max(1, maxItems));
+          : Math.min(count, start + Math.max(1, maxItems));
+      if (spec.target.index === undefined && start >= count) return [];
       const results: ResolvedElement[] = [];
       for (let index = start; index < end; index += 1) {
         const item = locator.nth(index);
@@ -129,6 +133,7 @@ export class LocatorPrimitive {
           matched_selector: candidate,
           attempts: [...attempts],
           view,
+          list_index: index,
         });
       }
       if (results.length > 0) {
