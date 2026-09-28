@@ -155,6 +155,7 @@ type ElementFindRequest struct {
 type ElementFindAllRequest struct {
 	Selector        SelectorSpec            `json:"selector"`
 	MaxItems        int                     `json:"max_items,omitempty"`
+	StartIndex      int                     `json:"start_index,omitempty"`
 	ReadConcurrency int                     `json:"read_concurrency,omitempty"`
 	Fields          map[string]SelectorSpec `json:"fields,omitempty"`
 	ExpectedMissing bool                    `json:"expected_missing,omitempty"`
@@ -244,6 +245,7 @@ type KeyboardPressResult struct {
 // ScrollRequest 表示真实鼠标滚轮请求。
 type ScrollRequest struct {
 	Target         *SelectorSpec `json:"target,omitempty"`
+	ProgressTarget *SelectorSpec `json:"progress_target,omitempty"`
 	WheelAnchor    *SelectorSpec `json:"wheel_anchor,omitempty"`
 	Distance       int           `json:"distance"`
 	MaxAttempts    int           `json:"max_attempts,omitempty"`
@@ -254,9 +256,11 @@ type ScrollRequest struct {
 
 // ScrollResult 表示真实滚轮次数和前后状态。
 type ScrollResult struct {
-	Scrolled bool `json:"scrolled"`
-	Attempts int  `json:"attempts"`
-	Distance int  `json:"distance"`
+	Scrolled              bool  `json:"scrolled"`
+	Attempts              int   `json:"attempts"`
+	Distance              int   `json:"distance"`
+	ProgressTargetVisible *bool `json:"progress_target_visible,omitempty"`
+	ProgressTargetMoved   *bool `json:"progress_target_moved,omitempty"`
 }
 
 // ScreenshotRequest 表示页面或元素截图请求。

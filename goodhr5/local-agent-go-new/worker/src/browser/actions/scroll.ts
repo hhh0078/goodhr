@@ -26,6 +26,8 @@ export interface ScrollResult extends JsonObject {
   distance: number;
   before: JsonObject;
   after: JsonObject;
+  progress_target_visible?: boolean;
+  progress_target_moved?: boolean;
 }
 
 /** ScrollAction 实现通用页面或目标元素滚动能力。 */
@@ -59,10 +61,19 @@ export class ScrollAction {
       const target = request.target
         ? await this.find.one(request.target, actionContext, true)
         : null;
+      const progress = request.progress_target
+        ? await this.find.one(request.progress_target, actionContext, true)
+        : null;
+      const progressBefore = progress ? progress.resolved.view : undefined;
       const anchor = request.wheel_anchor
         ? await this.find.one(request.wheel_anchor, actionContext, true)
         : target;
-      if (anchor && intersectsViewport(anchor.resolved.view)) {
+      const progressArea = progress
+        ? calculateVisibleArea(progress.resolved.view, request.wheel_anchor ? scrollContainerView(anchor) : undefined, 0)
+        : undefined;
+      if (progress && progressArea && viewAccepted(progress.resolved.view, false, progressArea)) {
+        await this.move.toElement(progress.resolved, actionContext, { centered: true, visibleArea: progressArea });
+      } else if (anchor && intersectsViewport(anchor.resolved.view)) {
         await this.move.toElement(anchor.resolved, actionContext, { centered: true });
       } else if (target && intersectsViewport(target.resolved.view)) {
         await this.move.toElement(target.resolved, actionContext, { centered: true });
@@ -211,6 +222,21 @@ export class ScrollAction {
         before: viewToJson(before),
         after: viewToJson(after),
       };
+      if (progress && progressBefore) {
+        const progressAfter = await this.refreshTarget(progress.resolved);
+        result.progress_target_moved = (["x", "y", "width", "height"] as const).some(
+          key => Math.abs(progressAfter.box[key] - progressBefore.box[key]) > 1,
+        );
+        const area = calculateVisibleArea(progressAfter, request.wheel_anchor ? scrollContainerView(anchor, anchor ? await this.refreshTarget(anchor.resolved) : undefined) : undefined, 0);
+        const bottom = progressAfter.box.y + progressAfter.box.height;
+        result.progress_target_visible = progressAfter.visible && area.height > 0 &&
+          bottom <= area.bottom + 1 && bottom > area.top;
+        this.logger.info(actionContext, "scroll_progress", "success", {
+          progress_target_visible: result.progress_target_visible,
+          progress_target_moved: result.progress_target_moved,
+          before_y: progressBefore.box.y, after_y: progressAfter.box.y,
+        });
+      }
       if (target && attempts > 0 && !result.scrolled) {
         throw new Error("真实滚轮已执行，但页面状态没有变化");
       }

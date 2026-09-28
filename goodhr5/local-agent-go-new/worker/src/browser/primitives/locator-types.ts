@@ -32,6 +32,7 @@ export interface ResolvedElement {
   matched_selector: SelectorCandidate;
   attempts: SelectorAttempt[];
   view: ElementView;
+  list_index?: number;
 }
 
 /** FrameScope 保留 FrameLocator 类型约束，避免作用域被宽化为未知对象。 */

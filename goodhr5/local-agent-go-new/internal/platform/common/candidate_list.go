@@ -15,7 +15,6 @@ import (
 const (
 	candidateListPollAttempts = 20
 	candidateListPollInterval = 300 * time.Millisecond
-	candidateScrollAttempts   = 3
 )
 
 // AdvanceCandidateList 按平台配置使用真实滚轮或下一页按钮推进候选人列表。
@@ -141,36 +140,6 @@ func advanceCandidatePage(
 		return false, err
 	}
 	return waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
-}
-
-// advanceCandidateScroll 在候选人列表区域执行真实滚轮，并确认出现了新候选人。
-func advanceCandidateScroll(
-	ctx context.Context,
-	browser model.Browser,
-	cfg model.Config,
-	platformID string,
-	before []model.Candidate,
-	options model.CandidateListOptions,
-) (bool, error) {
-	anchor, err := RequiredSelector(cfg, "candidate.list")
-	if err != nil {
-		return false, err
-	}
-	for attempt := 0; attempt < candidateScrollAttempts; attempt++ {
-		if _, err = browser.Scroll(ctx, contract.ScrollRequest{
-			WheelAnchor: &anchor,
-			Distance:    positiveOr(cfg.ScrollDistance, 620),
-			MaxAttempts: 1,
-			WaitMS:      int(candidateListPollInterval / time.Millisecond),
-		}); err != nil {
-			return false, err
-		}
-		changed, waitErr := waitForCandidateListChange(ctx, browser, cfg, platformID, before, options)
-		if waitErr != nil || changed {
-			return changed, waitErr
-		}
-	}
-	return false, nil
 }
 
 // WaitForCandidateListChange 为平台切岗复用列表更新验证，不执行滚动和点击。

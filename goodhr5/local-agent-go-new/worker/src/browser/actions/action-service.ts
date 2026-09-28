@@ -162,6 +162,7 @@ export class ActionService {
       context,
       !request.expected_missing,
       request.read_concurrency ?? 100,
+      request.start_index ?? 0,
     );
   }
 

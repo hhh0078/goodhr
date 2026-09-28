@@ -107,12 +107,14 @@ export class FindAction {
     actionContext: ActionContext,
     report = true,
     readConcurrency = 100,
+    startIndex = 0,
   ): Promise<FindAllItem[]> {
     const step = "find_all";
     if (report) {
       this.logger.info(actionContext, step, "start", {
         target_description: spec.description,
         max_items: maxItems,
+        start_index: startIndex,
         field_count: Object.keys(fields).length,
       });
     }
@@ -127,6 +129,7 @@ export class FindAction {
           action: actionContext.action,
           step,
         },
+        startIndex,
       );
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       if (diagnoseNames) {
@@ -173,7 +176,7 @@ export class FindAction {
             return null;
           }
           return {
-            index,
+            index: resolved.list_index ?? index + startIndex,
             element_ref: this.session.elements.remember(
               page,
               resolved.locator,

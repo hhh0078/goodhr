@@ -175,6 +175,9 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 		Selector: selector, MaxItems: positiveOr(cfg.MaxItems, 100),
 		ReadConcurrency: candidateReadConcurrency(options.ReadConcurrency), Fields: cfg.CandidateFields,
 	}
+	if options.Cursor != nil {
+		request.StartIndex = max(0, options.Cursor.StartIndex)
+	}
 	readID := time.Now().UnixNano()
 	readStarted := time.Now()
 	items, err := browser.FindAll(ctx, request)
@@ -207,6 +210,11 @@ func FindCandidates(ctx context.Context, browser model.Browser, cfg model.Config
 	}
 	result := make([]model.Candidate, 0, len(items))
 	identityOccurrences := make(map[string]int)
+	if options.Cursor != nil {
+		for identity, count := range options.Cursor.IdentityOccurrences {
+			identityOccurrences[identity] = count
+		}
+	}
 	for _, item := range items {
 		name := strings.TrimSpace(item.Fields["name"])
 		fingerprint := CandidateFingerprint(platformID, name, item.Fields, item.Text)
