@@ -42,9 +42,11 @@ test('详情缺失、隐藏及查询异常分别带出真实匹配和状态证�
   }
 });
 
-test('遮挡检查只保留结构信息，不把候选人正文写进日志', async () => {
-  const result = await clickActionability({ click: async () => { throw new Error('<div class="dialog-mask">private-resume</div> intercepts pointer events'); } });
-  assert.equal(result.reason, 'pointer_intercepted'); assert.equal(result.blockers[0].css_class, 'dialog-mask');
+test('点击诊断只读状态，不触发页面操作或把候选人正文写进日志', async () => {
+  const result = await clickActionability({ isVisible: async () => true, isEnabled: async () => true,
+    click: async () => { assert.fail('诊断不应发送点击'); } });
+  assert.equal(result.method, 'readonly_locator_state'); assert.equal(result.reason, 'occlusion_not_checked');
+  assert.equal(result.actionable, null);
   assert.doesNotMatch(JSON.stringify(result), /private-resume/);
   const selector = selectorDiagnostic({ target: { selectors: [{ type: 'text', value: 'private-name' }], text: 'private-name' } });
   assert.doesNotMatch(JSON.stringify(selector), /private-name/);

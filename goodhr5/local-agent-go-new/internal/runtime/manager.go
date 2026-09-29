@@ -50,7 +50,7 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 // ensureCamoufoxInterface 在已有组件中补齐中文语言包、标签交互、书签栏与原生下载通道。
 func (m *Manager) ensureCamoufoxInterface() {
 	if !fileExists(m.CamoufoxPath()) {
-		m.setNativeInputSafetyStatus(NativeInputSafetyStatus{ExpectedVersion: "v7", InstalledVersion: "missing", Error: "浏览器尚未安装"})
+		m.setNativeInputSafetyStatus(NativeInputSafetyStatus{ExpectedVersion: nativeInputSafetyVersion, InstalledVersion: "missing", Error: "浏览器尚未安装"})
 		return
 	}
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")

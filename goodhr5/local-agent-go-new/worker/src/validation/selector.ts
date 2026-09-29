@@ -47,6 +47,17 @@ export function parseSelectorSpec(
   if (frames.length > 0) {
     result.frames = frames;
   }
+  if (record.frame_fallbacks !== undefined) {
+    if (!Array.isArray(record.frame_fallbacks) || record.frame_fallbacks.length > 4) {
+      throw invalidRequest(traceId, action, "selector.frame_fallbacks 必须是最多四条备用框架路径的数组");
+    }
+    result.frame_fallbacks = record.frame_fallbacks.map((path, index) => {
+      if (!Array.isArray(path) || path.length > 6) {
+        throw invalidRequest(traceId, action, `selector.frame_fallbacks[${index}] 必须是最多六层的数组`);
+      }
+      return parseGroupArray(path, traceId, action, `selector.frame_fallbacks[${index}]`);
+    });
+  }
   const parents = parseGroupArray(
     record.parents,
     traceId,

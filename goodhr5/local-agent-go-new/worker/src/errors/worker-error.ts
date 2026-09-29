@@ -7,6 +7,7 @@ import { nativeMouseDiagnostics, nativeMouseErrorText } from "./native-mouse-dia
 export type WorkerErrorCode =
   | "INVALID_REQUEST"
   | "BROWSER_NOT_RUNNING"
+  | "BROWSER_WINDOW_NOT_READY"
   | "BROWSER_ADDON_INVALID"
   | "PAGE_NOT_AVAILABLE"
   | "PAGE_CLOSED"
@@ -97,13 +98,14 @@ export function normalizeWorkerError(
   if (originalMessage) {
     details.original_error = originalMessage.slice(0, 1000);
   }
+  const windowNotReady = nativeMouse?.native_error_code === "GOODHR_MOUSE_WINDOW_NOT_READY";
   return new WorkerError({
-    code: nativeMouse?.recovery_required === true ? "WORKER_UNRESPONSIVE" : fallback.code ?? "INTERNAL_ERROR",
-    message: nativeMouse?.recovery_required === true ? "浏览器输入卡住了，当前任务已停止；重新开始时会恢复浏览器" : fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
+    code: windowNotReady ? "BROWSER_WINDOW_NOT_READY" : nativeMouse?.recovery_required === true ? "WORKER_UNRESPONSIVE" : fallback.code ?? "INTERNAL_ERROR",
+    message: windowNotReady ? "浏览器窗口暂时无法恢复，岗位先停一下；把窗口显示出来后重新开始" : nativeMouse?.recovery_required === true ? "浏览器输入卡住了，当前任务已停止；重新开始时会恢复浏览器" : fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
     action: fallback.action,
     step: fallback.step,
     trace_id: fallback.trace_id,
-    retryable: nativeMouse?.recovery_required === true ? false : fallback.retryable ?? false,
+    retryable: windowNotReady || nativeMouse?.recovery_required === true ? false : fallback.retryable ?? false,
     details,
     cause: error,
   });

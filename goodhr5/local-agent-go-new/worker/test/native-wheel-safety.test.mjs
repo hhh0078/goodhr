@@ -15,7 +15,7 @@ function fixture(mode) {
       flushApzRepaints() { if (mode === 'immediate') observer.observe(); return mode !== 'none'; },
       sendWheelEvent(...args) { sent.push(args); },
     } };
-  const browser = { docShellIsActive: false, hidden: false, scrollRectIntoViewIfNeeded() {},
+  const browser = { docShellIsActive: true, hidden: false, scrollRectIntoViewIfNeeded() {},
     getBoundingClientRect: () => ({ left: 0, top: 80, width: 1200, height: 800 }) };
   const tab = {};
   win.gBrowser = { selectedBrowser: browser, selectedTab: tab };
@@ -42,7 +42,7 @@ test('没有刷新通知时停止在发送前，并带出窗口、滚轮和等�
   await assert.rejects(value.run(), error => {
     const evidence = JSON.parse(error.message.split(' GOODHR_MOUSE_DIAGNOSTICS=')[1]);
     assert.equal(evidence.stage, 'apz_repaint'); assert.equal(evidence.delta_y, 100);
-    assert.equal(evidence.events_sent, 0); assert.equal(evidence.window_at_failure.browser_active, false);
+    assert.equal(evidence.events_sent, 0); assert.equal(evidence.window_at_failure.browser_active, true);
     assert.equal(evidence.window_before.tab_selected, true); return true;
   });
   assert.equal(value.sent.length, 0); assert.equal(value.observer(), undefined);

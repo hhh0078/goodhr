@@ -45,13 +45,13 @@ export class LocatorPrimitive {
       page,
       spec,
       context,
-      (attempts) =>
+      (attempts, variant, framePath) =>
         this.resolveOnce(
           page,
-          spec,
+          variant,
           attempts,
           context.require_unique,
-          context,
+          { ...context, frame_path: framePath },
         ),
     );
   }
@@ -72,13 +72,13 @@ export class LocatorPrimitive {
       page,
       spec,
       context,
-      (attempts) =>
+      (attempts, variant, framePath) =>
         this.resolveAllOnce(
           page,
-          spec,
+          variant,
           maxItems,
           attempts,
-          context,
+          { ...context, frame_path: framePath },
           startIndex,
         ),
     );
@@ -94,6 +94,7 @@ export class LocatorPrimitive {
       trace_id: string;
       action: string;
       step: string;
+      frame_path?: number;
     },
     startIndex: number,
   ): Promise<ResolvedElement[]> {
@@ -103,6 +104,7 @@ export class LocatorPrimitive {
       let queryError: string | undefined;
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
       const attempt: SelectorAttempt = {
+        ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
         level: "target",
         selector_type: candidate.type,
         selector_value: candidate.value,
@@ -166,13 +168,13 @@ export class LocatorPrimitive {
       page,
       spec,
       context,
-      (attempts) =>
+      (attempts, variant, framePath) =>
         this.resolveRelativeOnce(
           page,
           root,
-          spec,
+          variant,
           attempts,
-          context,
+          { ...context, frame_path: framePath },
         ),
     );
   }
@@ -188,6 +190,7 @@ export class LocatorPrimitive {
       action: string;
       step: string;
       require_unique: boolean;
+      frame_path?: number;
     },
   ): Promise<ResolvedElement> {
     let scope: LocatorScope = root;
@@ -239,33 +242,32 @@ export class LocatorPrimitive {
     page: Page,
     spec: SelectorSpec,
     context: { trace_id: string; action: string; step: string },
-    resolveOnce: (attempts: SelectorAttempt[]) => Promise<T>,
+    resolveOnce: (attempts: SelectorAttempt[], variant: SelectorSpec, framePath: number) => Promise<T>,
   ): Promise<T> {
     const timeoutMS = spec.timeout_ms ?? DEFAULT_SELECTOR_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMS;
     let lastAttempts: SelectorAttempt[] = [];
     let lastError: unknown;
     let pollAttempts = 0;
+    const variants = [spec, ...(spec.frame_fallbacks ?? []).map(frames => ({ ...spec, frames }))];
     while (true) {
       pollAttempts += 1;
       const attempts: SelectorAttempt[] = [];
-      try {
-        return await resolveOnce(attempts);
-      } catch (error) {
-        lastError = error;
-        lastAttempts = attempts;
-        if (
-          error instanceof WorkerError &&
-          error.code === "ELEMENT_AMBIGUOUS"
-        ) {
-          throw error;
+      // 每次轮询完整检查主路径与备用路径，所有路径共用一个等待期限。
+      for (const [framePath, variant] of variants.entries()) {
+        try {
+          return await resolveOnce(attempts, variant, framePath);
+        } catch (error) {
+          lastError = error;
+          lastAttempts = attempts;
+          if (error instanceof WorkerError && error.code === "ELEMENT_AMBIGUOUS") {
+            throw error;
+          }
         }
-        const remainingMS = deadline - Date.now();
-        if (remainingMS <= 0) {
-          break;
-        }
-        await delay(Math.min(SELECTOR_RETRY_DELAY_MS, remainingMS));
       }
+      const remainingMS = deadline - Date.now();
+      if (remainingMS <= 0) break;
+      await delay(Math.min(SELECTOR_RETRY_DELAY_MS, remainingMS));
     }
     if (
       lastError instanceof WorkerError &&
@@ -398,7 +400,7 @@ export class LocatorPrimitive {
     spec: SelectorSpec,
     attempts: SelectorAttempt[],
     requireUnique: boolean,
-    context: { trace_id: string; action: string; step: string },
+    context: { trace_id: string; action: string; step: string; frame_path?: number },
   ): Promise<ResolvedElement> {
     const scope = await this.resolveScope(page, spec, attempts, context);
     const selected = await this.selectFromGroup(
@@ -444,7 +446,7 @@ export class LocatorPrimitive {
     page: Page,
     spec: SelectorSpec,
     attempts: SelectorAttempt[],
-    context: { trace_id: string; action: string; step: string },
+    context: { trace_id: string; action: string; step: string; frame_path?: number },
   ): Promise<LocatorScope> {
     let scope: LocatorScope = page;
     for (const [index, frame] of (spec.frames ?? []).entries()) {
@@ -479,7 +481,7 @@ export class LocatorPrimitive {
     level: string,
     attempts: SelectorAttempt[],
     requireUnique: boolean,
-    context: { trace_id: string; action: string; step: string },
+    context: { trace_id: string; action: string; step: string; frame_path?: number },
   ): Promise<{ locator: Locator; candidate: SelectorCandidate }> {
     for (const candidate of group.selectors) {
       const locator = this.candidateLocator(scope, candidate, group);
@@ -487,6 +489,7 @@ export class LocatorPrimitive {
       const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
       const selectedIndex = group.index ?? 0;
       attempts.push({
+        ...(context.frame_path !== undefined ? { frame_path: context.frame_path } : {}),
         level,
         selector_type: candidate.type,
         selector_value: candidate.value,

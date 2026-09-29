@@ -255,15 +255,20 @@
       "description": "Boss候选人基础信息详情入口"
     },
     "candidate.detail": {
-      "_comment": "候选人详情正文，详情 iframe 与推荐列表 iframe 并列挂在主页面。",
+      "_comment": "候选人详情正文，同时兼容主页面并列详情框架和推荐列表内嵌详情框架。",
       "frames": [
         {
-          "_comment": "主页面上的候选人简历详情框架，不进入推荐列表框架。",
+          "_comment": "优先查找主页面上的候选人简历详情框架。",
           "selectors": [
             { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
           ]
         }
       ],
+      "_comment_frame_fallbacks": "并列路径未找到可用目标时，从推荐列表框架进入详情，所有路径共享超时。",
+      "frame_fallbacks": [[
+        { "_comment": "内嵌详情的外层推荐列表框架。", "selectors": [{ "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }] },
+        { "_comment": "推荐列表内当前可见的详情框架。", "selectors": [{ "_comment": "内嵌简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }] }
+      ]],
       "parents": [],
       "target": {
         "_comment": "稳定详情根节点。",
@@ -279,12 +284,17 @@
       "_comment": "Boss 详情内真正跟随真实滚轮变化的可见简历层，只用于分段截图，避免同页两个 #resume 产生歧义。",
       "frames": [
         {
-          "_comment": "主页面上的候选人简历详情框架，与正文定位保持一致。",
+          "_comment": "优先查找主页面详情框架，与正文定位保持一致。",
           "selectors": [
             { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
           ]
         }
       ],
+      "_comment_frame_fallbacks": "兼容推荐列表内嵌的详情截图区域。",
+      "frame_fallbacks": [[
+        { "_comment": "内嵌详情的外层推荐列表框架。", "selectors": [{ "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }] },
+        { "_comment": "推荐列表内当前可见的详情框架。", "selectors": [{ "_comment": "内嵌简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }] }
+      ]],
       "parents": [],
       "target": {
         "_comment": "带 translate 变换的当前可滚动简历视口。",
@@ -298,7 +308,11 @@
       "description": "Boss候选人详情截图区域"
     },
     "candidate.detail_dialog": {
-      "_comment": "主页面详情弹窗，正文尚未加载时也能检测并验证关闭结果。",
+      "_comment": "检查主页面或推荐框架内的详情弹窗，正文未加载时也能验证关闭结果。",
+      "_comment_frame_fallbacks": "主页面未找到弹窗时进入推荐列表框架检查详情 iframe 本身。",
+      "frame_fallbacks": [[
+        { "_comment": "内嵌详情的外层推荐列表框架。", "selectors": [{ "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }] }
+      ]],
       "parents": [],
       "target": {
         "_comment": "详情框架本身，不依赖 iframe 内的简历正文。",
@@ -314,12 +328,17 @@
       "_comment": "复用既有 Boss 详情关闭按钮，按钮缺失时退回 Escape 并验证弹窗消失。",
       "frames": [
         {
-          "_comment": "关闭按钮位于主页面详情 iframe 内。",
+          "_comment": "优先在主页面详情 iframe 内查找关闭按钮。",
           "selectors": [
             { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
           ]
         }
       ],
+      "_comment_frame_fallbacks": "兼容推荐列表内嵌详情的关闭按钮。",
+      "frame_fallbacks": [[
+        { "_comment": "内嵌详情的外层推荐列表框架。", "selectors": [{ "_comment": "Boss 推荐列表框架。", "type": "css", "value": "iframe[name='recommendFrame']" }] },
+        { "_comment": "推荐列表内当前可见的详情框架。", "selectors": [{ "_comment": "内嵌简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }] }
+      ]],
       "parents": [],
       "target": {
         "_comment": "既有平台配置使用的详情关闭按钮。",

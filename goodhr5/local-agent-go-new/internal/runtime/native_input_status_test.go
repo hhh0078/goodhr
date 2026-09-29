@@ -52,7 +52,7 @@ func TestNativeInputStatusUsesActualExecutable(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := InspectCamoufoxMouseSafety(binary)
-			if !status.Ready || status.InstalledVersion != "v7" || status.ArchivePath != archive || len(status.ResourceSHA256) != 64 || status.Error != "" {
+			if !status.Ready || status.InstalledVersion != nativeInputSafetyVersion || status.ArchivePath != archive || len(status.ResourceSHA256) != 64 || status.Error != "" {
 				t.Fatalf("没有检查实际浏览器资源：%+v", status)
 			}
 		})

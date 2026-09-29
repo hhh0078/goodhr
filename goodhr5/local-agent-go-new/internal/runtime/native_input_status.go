@@ -47,7 +47,7 @@ func nativeInputArchivePath(location string) (string, error) {
 
 // InspectCamoufoxMouseSafety 检查已安装资源的版本和关键保护方法，未知或缺失资源明确返回失败状态。
 func InspectCamoufoxMouseSafety(location string) NativeInputSafetyStatus {
-	status := NativeInputSafetyStatus{ExpectedVersion: "v7", InstalledVersion: "unknown"}
+	status := NativeInputSafetyStatus{ExpectedVersion: nativeInputSafetyVersion, InstalledVersion: "unknown"}
 	path, err := nativeInputArchivePath(location)
 	if err != nil {
 		status.Error = err.Error()
@@ -81,6 +81,8 @@ func InspectCamoufoxMouseSafety(location string) NativeInputSafetyStatus {
 			status.InstalledVersion = strings.TrimSpace(strings.TrimPrefix(firstLine, "// GoodHR native mouse safety "))
 		}
 		status.Ready = bytes.HasPrefix(content, []byte(mouseSafetyMarker+"\n")) &&
+			bytes.Contains(content, []byte("_goodhrEnsureWindowReady(")) &&
+			bytes.Contains(content, []byte("GOODHR_MOUSE_WINDOW_NOT_READY:")) &&
 			bytes.Contains(content, []byte("_goodhrRunInput(")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_INPUT_TIMEOUT:")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_APZ_TIMEOUT:wheel"))

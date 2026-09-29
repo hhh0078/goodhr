@@ -32,7 +32,7 @@ func IsSessionUnavailable(err error) bool {
 		return false
 	}
 	switch workerErr.Body.Code {
-	case "WORKER_UNRESPONSIVE", "BROWSER_NOT_RUNNING", "PAGE_CLOSED", "PAGE_NOT_AVAILABLE":
+	case "WORKER_UNRESPONSIVE", "BROWSER_WINDOW_NOT_READY", "BROWSER_NOT_RUNNING", "PAGE_CLOSED", "PAGE_NOT_AVAILABLE":
 		return true
 	default:
 		return false
@@ -78,6 +78,8 @@ func pluralAttempts(attempts int) string {
 // workerErrorSuggestion 根据稳定错误码返回下一步建议。
 func workerErrorSuggestion(code string) string {
 	switch strings.TrimSpace(code) {
+	case "BROWSER_WINDOW_NOT_READY":
+		return "请把浏览器窗口显示出来后重新开始岗位"
 	case "VIEWPORT_TOO_SMALL", "MOUSE_TARGET_OUTSIDE_VIEWPORT":
 		return "请把浏览器窗口放大后再试"
 	case "ELEMENT_NOT_FOUND":

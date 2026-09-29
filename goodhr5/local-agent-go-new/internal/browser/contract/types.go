@@ -20,14 +20,15 @@ type SelectorGroup struct {
 
 // SelectorSpec 表示 iframe、父级和目标组成的统一定位方案。
 type SelectorSpec struct {
-	Frames        []SelectorGroup `json:"frames,omitempty"`
-	Parents       []SelectorGroup `json:"parents,omitempty"`
-	Target        SelectorGroup   `json:"target"`
-	State         string          `json:"state,omitempty"`
-	TimeoutMS     int             `json:"timeout_ms,omitempty"`
-	ReadProperty  string          `json:"read_property,omitempty"`
-	ReadAttribute string          `json:"read_attribute,omitempty"`
-	Description   string          `json:"description"`
+	Frames         []SelectorGroup   `json:"frames,omitempty"`
+	FrameFallbacks [][]SelectorGroup `json:"frame_fallbacks,omitempty"`
+	Parents        []SelectorGroup   `json:"parents,omitempty"`
+	Target         SelectorGroup     `json:"target"`
+	State          string            `json:"state,omitempty"`
+	TimeoutMS      int               `json:"timeout_ms,omitempty"`
+	ReadProperty   string            `json:"read_property,omitempty"`
+	ReadAttribute  string            `json:"read_attribute,omitempty"`
+	Description    string            `json:"description"`
 }
 
 // ElementBox 表示元素在视口内的位置。
@@ -56,6 +57,7 @@ type ElementView struct {
 
 // SelectorAttempt 表示一次选择器尝试的诊断结果。
 type SelectorAttempt struct {
+	FramePath     *int   `json:"frame_path,omitempty"`
 	Level         string `json:"level"`
 	SelectorType  string `json:"selector_type"`
 	SelectorValue string `json:"selector_value"`

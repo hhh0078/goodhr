@@ -14,8 +14,8 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
-// TestBossDetailUsesSiblingFrame 验证详情正文与截图进入主页面的详情 iframe，清理探测不依赖正文加载。
-func TestBossDetailUsesSiblingFrame(t *testing.T) {
+// TestBossDetailUsesBothFrameLayouts 验证详情正文、截图与关闭兼容并列和内嵌框架，清理探测不依赖正文加载。
+func TestBossDetailUsesBothFrameLayouts(t *testing.T) {
 	cfg, err := LoadConfig("boss")
 	if err != nil {
 		t.Fatal(err)
@@ -25,10 +25,18 @@ func TestBossDetailUsesSiblingFrame(t *testing.T) {
 		if len(spec.Frames) != 1 || len(spec.Frames[0].Selectors) == 0 || !strings.Contains(spec.Frames[0].Selectors[0].Value, "c-resume/") || strings.Contains(spec.Frames[0].Selectors[0].Value, "recommendFrame") {
 			t.Fatalf("%s 仍在推荐 iframe 内找详情：%+v", key, spec)
 		}
+		if len(spec.FrameFallbacks) != 1 || len(spec.FrameFallbacks[0]) != 2 ||
+			!strings.Contains(spec.FrameFallbacks[0][0].Selectors[0].Value, "recommendFrame") ||
+			!strings.Contains(spec.FrameFallbacks[0][1].Selectors[0].Value, "c-resume/") {
+			t.Fatalf("%s 缺少推荐列表内嵌详情路径：%+v", key, spec.FrameFallbacks)
+		}
 	}
 	dialog := cfg.Selectors["candidate.detail_dialog"]
 	if len(dialog.Frames) != 0 || len(dialog.Target.Selectors) == 0 || !strings.Contains(dialog.Target.Selectors[0].Value, "iframe") {
 		t.Fatalf("弹窗关闭判断必须从主页面检查框架本身：%+v", dialog)
+	}
+	if len(dialog.FrameFallbacks) != 1 || len(dialog.FrameFallbacks[0]) != 1 || !strings.Contains(dialog.FrameFallbacks[0][0].Selectors[0].Value, "recommendFrame") {
+		t.Fatal("弹窗清理缺少内嵌框架路径")
 	}
 }
 
@@ -393,10 +401,11 @@ func assertCommentedSelectors(t *testing.T, raw json.RawMessage, path string) {
 	}
 	for key, value := range selectors {
 		var spec struct {
-			Comment string                   `json:"_comment"`
-			Frames  []commentedSelectorGroup `json:"frames"`
-			Parents []commentedSelectorGroup `json:"parents"`
-			Target  commentedSelectorGroup   `json:"target"`
+			Comment        string                     `json:"_comment"`
+			Frames         []commentedSelectorGroup   `json:"frames"`
+			FrameFallbacks [][]commentedSelectorGroup `json:"frame_fallbacks"`
+			Parents        []commentedSelectorGroup   `json:"parents"`
+			Target         commentedSelectorGroup     `json:"target"`
 		}
 		if json.Unmarshal(value, &spec) != nil {
 			t.Errorf("%s.%s 不是有效选择器", path, key)
@@ -407,6 +416,11 @@ func assertCommentedSelectors(t *testing.T, raw json.RawMessage, path string) {
 		}
 		for index, group := range append(spec.Frames, spec.Parents...) {
 			assertSelectorGroupComments(t, group, fmt.Sprintf("%s.%s.parents[%d]", path, key, index))
+		}
+		for pathIndex, groups := range spec.FrameFallbacks {
+			for index, group := range groups {
+				assertSelectorGroupComments(t, group, fmt.Sprintf("%s.%s.frame_fallbacks[%d][%d]", path, key, pathIndex, index))
+			}
 		}
 		assertSelectorGroupComments(t, spec.Target, path+"."+key+".target")
 	}

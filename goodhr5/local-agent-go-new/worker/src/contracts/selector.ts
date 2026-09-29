@@ -26,6 +26,7 @@ export type SelectorState = "attached" | "visible" | "enabled";
 /** SelectorSpec 表示从 iframe、父级到目标元素的完整通用定位方案。 */
 export interface SelectorSpec {
   frames?: SelectorGroup[];
+  frame_fallbacks?: SelectorGroup[][];
   parents?: SelectorGroup[];
   target: SelectorGroup;
   state?: SelectorState;
@@ -61,6 +62,7 @@ export interface ElementView {
 
 /** SelectorAttempt 表示一次选择器尝试的诊断结果。 */
 export interface SelectorAttempt {
+  frame_path?: number;
   level: string;
   selector_type: SelectorCandidateType;
   selector_value: string;

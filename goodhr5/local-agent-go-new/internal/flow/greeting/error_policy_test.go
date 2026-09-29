@@ -27,6 +27,7 @@ func TestShouldStopImmediately(t *testing.T) {
 		model.ErrCandidateDetailCleanupFailed,
 		&ocr.Error{Code: ocr.ErrorUnavailable, Message: "组件不可用"},
 		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "BROWSER_NOT_RUNNING"}},
+		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "BROWSER_WINDOW_NOT_READY"}},
 		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "PAGE_CLOSED"}},
 	}
 	for _, err := range cases {

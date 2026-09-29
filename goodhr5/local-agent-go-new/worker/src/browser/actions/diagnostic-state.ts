@@ -7,27 +7,19 @@ export { pageDiagnostic } from "../session/page-diagnostics.js";
 /** selectorDiagnostic 记录定位层级和序号，文本过滤条件只保留数量，避免保存候选人姓名。 */
 export function selectorDiagnostic(spec: SelectorSpec): JsonObject {
   return { description: spec.description, state: spec.state ?? "visible", timeout_ms: spec.timeout_ms ?? 6000,
-    frames: (spec.frames ?? []).map(groupDiagnostic), parents: (spec.parents ?? []).map(groupDiagnostic), target: groupDiagnostic(spec.target) };
+    frames: (spec.frames ?? []).map(groupDiagnostic), frame_fallbacks: (spec.frame_fallbacks ?? []).map(path => path.map(groupDiagnostic)),
+    parents: (spec.parents ?? []).map(groupDiagnostic), target: groupDiagnostic(spec.target) };
 }
 
-/** clickActionability 通过标准 trial 点击检查遮挡，不发送实际点击，也不返回包含简历正文的错误消息。 */
+/** clickActionability 只读取可见和可用状态，原生浏览器的 trial 点击可能发送真实输入，诊断阶段禁止调用。 */
 export async function clickActionability(locator: Locator): Promise<JsonObject> {
   const started = Date.now();
   try {
-    await locator.click({ trial: true, timeout: 800 });
-    return { actionable: true, elapsed_ms: Date.now() - started };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    const intercepted = /intercepts pointer events/i.test(message);
-    const blockers = message.split("\n").filter(line => /intercepts pointer events/i.test(line)).slice(-3).map(line => {
-      const tag = line.match(/<([a-z][a-z0-9-]*)[\s>]/i)?.[1] ?? "unknown";
-      const cssClass = line.match(/class=["']([a-z0-9_\-\s]+)["']/i)?.[1] ?? "";
-      return { tag, css_class: cssClass.slice(0, 200) };
-    });
-    return { actionable: intercepted || /not visible|not enabled|not stable/i.test(message) ? false : null, elapsed_ms: Date.now() - started,
-      reason: intercepted ? "pointer_intercepted" : /not visible/i.test(message) ? "not_visible" :
-        /not enabled/i.test(message) ? "not_enabled" : /not stable/i.test(message) ? "not_stable" : "trial_timeout_or_page_unavailable",
-      blockers };
+    const [visible, enabled] = await Promise.all([locator.isVisible(), locator.isEnabled({ timeout: 800 })]);
+    return { actionable: visible && enabled ? null : false, visible, enabled, elapsed_ms: Date.now() - started,
+      method: "readonly_locator_state", reason: !visible ? "not_visible" : !enabled ? "not_enabled" : "occlusion_not_checked" };
+  } catch {
+    return { actionable: null, elapsed_ms: Date.now() - started, method: "readonly_locator_state", reason: "element_state_unavailable" };
   }
 }
 
