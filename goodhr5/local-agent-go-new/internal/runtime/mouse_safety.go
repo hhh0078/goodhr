@@ -15,7 +15,7 @@ import (
 var mouseSafetyEvents []byte
 
 const mouseHandlerResource = "chrome/juggler/content/protocol/PageHandler.js"
-const mouseSafetyMarker = "// GoodHR native mouse safety v5"
+const mouseSafetyMarker = "// GoodHR native mouse safety v6"
 
 // EnsureCamoufoxMouseSafety 修正已知协议资源，保留原始备份，未知版本不修改。
 func EnsureCamoufoxMouseSafety(camoufoxDir string) error {
@@ -65,6 +65,7 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v2\n"))
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v3\n"))
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v4\n"))
+	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v5\n"))
 	start := []byte("    const sendEvents = async (types) => {")
 	end := []byte("\n    // We must switch to proper tab in the tabbed browser so that")
 	if bytes.Count(original, start) != 1 || bytes.Count(original, end) != 1 {

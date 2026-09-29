@@ -67,6 +67,8 @@ export class BrowserSession {
     this.logger.info(actionContext, step, "start", {
       persistent: Boolean(request.user_data_dir),
       headless: request.headless ?? false,
+      diagnostic: true,
+      input: { headless: request.headless ?? false, persistent: Boolean(request.user_data_dir) },
     });
     try {
       if (await this.isRunning()) {
@@ -86,6 +88,8 @@ export class BrowserSession {
           const status = await this.status(true);
           this.logger.info(actionContext, step, "success", {
             reused: true,
+            diagnostic: true,
+            output: { reused: true, current_url: safeURL(status.current_url) },
           });
           return status;
         }
@@ -143,6 +147,8 @@ export class BrowserSession {
       this.logger.info(actionContext, step, "success", {
         reused: false,
         current_url: status.current_url,
+        diagnostic: true,
+        output: { reused: false, current_url: safeURL(status.current_url) },
       });
       return status;
     } catch (error) {
@@ -163,11 +169,11 @@ export class BrowserSession {
   /** stop 关闭当前浏览器并清理全部页面引用。 */
   async stop(actionContext: ActionContext): Promise<BrowserStatusResult> {
     const step = "stop_browser";
-    this.logger.info(actionContext, step, "start");
+    this.logger.info(actionContext, step, "start", { diagnostic: true });
     try {
       await this.dispose();
       const result = await this.status(false);
-      this.logger.info(actionContext, step, "success");
+      this.logger.info(actionContext, step, "success", { diagnostic: true });
       return result;
     } catch (error) {
       const normalized = normalizeWorkerError(error, {

@@ -135,7 +135,7 @@ export class WorkerLogger {
     for (const key of ["target_description", "candidates", "parent_levels", "frame_levels", "timeout_ms", "max_items"] as const) {
       if (fields[key] !== undefined && input[key] === undefined) input[key] = fields[key];
     }
-    for (const key of ["matches_checked", "matched_selector", "count", "verified", "error_code", "poll_attempts"] as const) {
+    for (const key of ["matches_checked", "matched_selector", "count", "verified", "error_code", "poll_attempts", "native_mouse", "step_duration_ms"] as const) {
       if (fields[key] !== undefined && output[key] === undefined) output[key] = fields[key];
     }
     const critical = /^(worker\.crash|worker\.exit|browser\.exit|browser\.crash)$/.test(context.action);

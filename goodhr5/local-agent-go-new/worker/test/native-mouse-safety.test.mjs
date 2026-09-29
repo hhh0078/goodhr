@@ -30,7 +30,7 @@ function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 8.2,8.2, 8.3,8.3, 
         return repaint !== 'none';
       },
       jugglerSendMouseEvent(type, x, y) { sent.push({type,x,y}); return sent.length; },
-    } },
+    }, windowState: 2, STATE_MINIMIZED: 2, devicePixelRatio: 1.25, document: { hasFocus: () => false } },
     x: 10, y: 10, button: 0, clickCount: 0, modifiers: 0, buttons: 0,
     Cc: { '@mozilla.org/observer-service;1': { getService: () => observerService } },
     Ci: { nsIObserverService: {} },
@@ -79,7 +79,32 @@ test('合成器同步返回通知时不会漏掉，结束后解除订阅', async
 
 test('合成器未返回通知时停止且不发送鼠标事件，解除订阅', async () => {
   const value = fixture(false, [0,0, 10,10], 'missing');
-  await assert.rejects(value.run(), /GOODHR_MOUSE_APZ_TIMEOUT/);
+  await assert.rejects(value.run(), error => {
+    assert.match(error.message, /GOODHR_MOUSE_APZ_TIMEOUT/);
+    const diagnostic = JSON.parse(error.message.split(' GOODHR_MOUSE_DIAGNOSTICS=')[1]);
+    assert.equal(diagnostic.stage, 'apz_repaint');
+    assert.equal(diagnostic.apz_flush_requested, true);
+    assert.equal(diagnostic.apz_flush_result, true);
+    assert.equal(diagnostic.apz_repaint_received, false);
+    assert.equal(diagnostic.events_sent, 0);
+    assert.equal(diagnostic.window_at_failure.window_minimized, true);
+    assert.equal(diagnostic.window_at_failure.chrome_has_focus, false);
+    assert.equal(diagnostic.mouse_safety_version, 'v6');
+    return true;
+  });
   assert.equal(value.sent.length, 0);
   assert.equal(value.observer(), undefined);
+});
+
+test('鼠标已发送但未收到回执时，保留发送计数并与刷新超时区分', async () => {
+  const value = fixture(true, [0,0, 10,10], 'immediate');
+  await assert.rejects(value.run(), error => {
+    const diagnostic = JSON.parse(error.message.split(' GOODHR_MOUSE_DIAGNOSTICS=')[1]);
+    assert.equal(diagnostic.stage, 'mouse_ack');
+    assert.equal(diagnostic.apz_repaint_received, true);
+    assert.equal(diagnostic.events_sent, 1);
+    assert.equal(diagnostic.events_acknowledged, 0);
+    assert.equal(diagnostic.last_event, 'mousemove');
+    return true;
+  });
 });

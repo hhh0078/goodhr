@@ -264,6 +264,7 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	entries[1004].IsError = true
 	entries[1004].ErrorMessage = "点击失败 password=private-secret 手机 13800138000 邮箱 candidate@example.com"
 	entries[1004].Input = json.RawMessage(`{"token":"private-token","candidateName":"张三","target":"按钮"}`)
+	entries[1004].Output = json.RawMessage(`{"request_id":"mouse-request","step_duration_ms":5001,"native_mouse":{"schema_version":1,"mouse_safety_version":"v6","stage":"apz_repaint","apz_flush_requested":true,"apz_repaint_received":false,"events_sent":0,"window_at_failure":{"window_minimized":true,"chrome_has_focus":false}}}`)
 	content, err := json.Marshal(map[string]any{"logs": entries})
 	if err != nil {
 		t.Fatal(err)
@@ -317,6 +318,23 @@ func TestPositionDiagnosticReplaceAndShare(t *testing.T) {
 	}
 	if len(publicResult.Logs) != 1000 || !publicResult.Logs[0].Event.IsError || publicResult.Logs[len(publicResult.Logs)-1].Event.Message != "步骤5" {
 		t.Fatalf("share logs count=%d first=%+v last=%+v", len(publicResult.Logs), publicResult.Logs[0], publicResult.Logs[len(publicResult.Logs)-1])
+	}
+	// 原生鼠标证据必须经过服务器保存、公开快照和脱敏后仍然可读。
+	var diagnostic struct {
+		RequestID   string `json:"request_id"`
+		NativeMouse struct {
+			Stage      string `json:"stage"`
+			EventsSent int    `json:"events_sent"`
+			Window     struct {
+				Minimized bool `json:"window_minimized"`
+			} `json:"window_at_failure"`
+		} `json:"native_mouse"`
+	}
+	if err := json.Unmarshal(publicResult.Logs[0].Event.Output, &diagnostic); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic.RequestID != "mouse-request" || diagnostic.NativeMouse.Stage != "apz_repaint" || diagnostic.NativeMouse.EventsSent != 0 || !diagnostic.NativeMouse.Window.Minimized {
+		t.Fatalf("分享日志没有完整保留原生诊断证据：%+v", diagnostic)
 	}
 	for _, sensitive := range []string{"private-secret", "private-token", "13800138000", "candidate@example.com", "张三"} {
 		if bytes.Contains(publicResponse.Body.Bytes(), []byte(sensitive)) {

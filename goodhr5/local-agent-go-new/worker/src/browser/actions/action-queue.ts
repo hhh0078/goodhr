@@ -2,6 +2,7 @@
 import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
+import { exitDiagnostics } from "../../logging/exit-diagnostics.js";
 
 /** ActionQueue 保证鼠标、键盘及页面切换一次只执行一个动作。 */
 export class ActionQueue {
@@ -83,7 +84,8 @@ export class ActionQueue {
       action: context.action, step: "queue", trace_id: context.trace_id, retryable: false,
       details: { request_id: context.request_id ?? "", elapsed_ms: Date.now() - context.started_at,
         timeout_ms: context.deadline_at ? context.deadline_at - context.started_at : 40_000,
-        reason: context.signal?.aborted ? "client_disconnected" : "deadline_exceeded", recovery_required: started },
+        reason: context.signal?.aborted ? "client_disconnected" : "deadline_exceeded", recovery_required: started,
+        output: { queue: this.status(), diagnostics: exitDiagnostics(context.trace_id) } },
     });
   }
 }

@@ -16,6 +16,10 @@ export function rememberOperation(payload: JsonObject): void {
   }
   if (payload.error_message) item.error_message = String(payload.error_message).slice(0, 240);
   if (payload.target_description) item.target_description = String(payload.target_description).slice(0, 120);
+  if (payload.diagnostic === true) {
+    item.input = payload.input ?? {};
+    item.output = payload.output ?? {};
+  }
   recentOperations.push(item);
   if (recentOperations.length > 20) recentOperations.shift();
   if (payload.is_error) rememberError(payload, item);
@@ -26,19 +30,21 @@ export function rememberError(payload: JsonObject, operation: JsonObject = {}): 
   lastError = { ...operation, action: payload.action ?? "", step: payload.step ?? "", timestamp: payload.timestamp ?? "",
     error_message: String(payload.error_message ?? payload.error ?? "").slice(0, 1000),
     original_error: String(payload.original_error ?? payload.error ?? "").slice(0, 1000),
-    stack: String(payload.stack ?? "").slice(0, 3000) };
+    stack: String(payload.stack ?? "").slice(0, 3000),
+    ...(payload.diagnostic === true ? { input: payload.input ?? {}, output: payload.output ?? {} } : {}),
+    ...(payload.native_mouse ? { native_mouse: payload.native_mouse } : {}) };
 }
 
 /** exitDiagnostics 返回大小受限的进程信息、最近操作和最后错误。 */
-export function exitDiagnostics(): JsonObject {
+export function exitDiagnostics(traceID = ""): JsonObject {
   const memory = process.memoryUsage();
-  const recent = recentOperations.slice(-12);
+  const recent = recentOperations.filter(item => !traceID || item.trace_id === traceID).slice(-12);
   const result: JsonObject = {
     pid: process.pid, agent_version: process.env.GOODHR_AGENT_VERSION ?? "unknown",
     node_version: process.version, platform: process.platform, arch: process.arch,
     started_at: startedAt, uptime_ms: Math.round(process.uptime() * 1000),
     rss_bytes: memory.rss, heap_used_bytes: memory.heapUsed,
-    recent_operations: recent, last_error: lastError,
+    recent_operations: recent, last_error: !traceID || lastError.trace_id === traceID ? lastError : {},
   };
   while (recent.length && Buffer.byteLength(JSON.stringify(result)) > 8000) recent.shift();
   return result;

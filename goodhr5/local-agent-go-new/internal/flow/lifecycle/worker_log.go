@@ -18,6 +18,7 @@ type workerLogLine struct {
 	Level             string          `json:"level"`
 	Category          string          `json:"category"`
 	TraceID           string          `json:"trace_id"`
+	RequestID         string          `json:"request_id"`
 	Action            string          `json:"action"`
 	Step              string          `json:"step"`
 	Status            string          `json:"status"`
@@ -36,6 +37,7 @@ type workerLogLine struct {
 	Message           string          `json:"message"`
 	Input             json.RawMessage `json:"input"`
 	Output            json.RawMessage `json:"output"`
+	Diagnostic        bool            `json:"diagnostic"`
 }
 
 // WorkerLine 解析 Worker JSON 行，并按 trace_id 汇入对应任务的岗位日志。
@@ -79,7 +81,7 @@ func (l *TaskLogger) WorkerLine(line []byte) {
 		l.updateCurrentStep(item.TraceID, l.withCandidate(item.TraceID, workerCurrentStep(item)))
 	}
 	isError := strings.EqualFold(item.Level, "error") || strings.EqualFold(item.Status, "failed") || item.Action == "worker.crash" || (item.Action == "worker.exit" && item.ExitCode != 0)
-	if !isError {
+	if !isError && !item.Diagnostic {
 		return
 	}
 	message = strings.TrimSpace(string(diagnostics.Redact([]byte(l.withCandidate(item.TraceID, message)))))
@@ -117,6 +119,9 @@ func workerLogObjects(item workerLogLine) (json.RawMessage, json.RawMessage) {
 	}
 	output["status"] = item.Status
 	output["duration_ms"] = item.DurationMS
+	if item.RequestID != "" {
+		output["request_id"] = item.RequestID
+	}
 	if item.PageURL != "" {
 		output["page_url"] = item.PageURL
 	}
@@ -143,7 +148,7 @@ func workerLogObjects(item workerLogLine) (json.RawMessage, json.RawMessage) {
 
 // workerCurrentStep 把 Worker 封装动作转换成悬浮窗使用的简短中文状态。
 func workerCurrentStep(item workerLogLine) string {
-	label := workerActionLabel(item.Action)
+	label := workerStepLabel(item)
 	target := strings.TrimSpace(item.TargetDescription)
 	if target != "" && !strings.Contains(label, target) {
 		label += "“" + target + "”"
@@ -153,7 +158,7 @@ func workerCurrentStep(item workerLogLine) string {
 
 // keepWorkerLog 只保留封装操作的首尾日志和所有失败，隐藏查找、移动等重复内部过程。
 func keepWorkerLog(item workerLogLine) bool {
-	if strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error") {
+	if item.Diagnostic || strings.EqualFold(item.Status, "failed") || strings.EqualFold(item.Level, "error") {
 		return true
 	}
 	expected := map[string]string{
@@ -188,7 +193,7 @@ func workerLogMessage(item workerLogLine) string {
 	if item.Action == "worker.crash" {
 		return "浏览器操作进程异常退出：" + item.ErrorMessage
 	}
-	label := workerActionLabel(item.Action)
+	label := workerStepLabel(item)
 	target := strings.TrimSpace(item.TargetDescription)
 	if target != "" && !strings.Contains(label, target) {
 		label += "“" + target + "”"
@@ -209,6 +214,16 @@ func workerLogMessage(item workerLogLine) string {
 		return label + "：开始"
 	}
 	return label + "：完成"
+}
+
+// workerStepLabel 为重要鼠标诊断显示真实原子步骤，其余日志复用原有动作名称。
+func workerStepLabel(item workerLogLine) string {
+	if item.Diagnostic {
+		if label := map[string]string{"mouse_move": "移动鼠标", "mouse_down": "按下鼠标", "mouse_up": "松开鼠标", "mouse_wheel": "滚动鼠标"}[item.Step]; label != "" {
+			return label
+		}
+	}
+	return workerActionLabel(item.Action)
 }
 
 // workerActionLabel 返回 Worker 封装操作对应的中文名称。

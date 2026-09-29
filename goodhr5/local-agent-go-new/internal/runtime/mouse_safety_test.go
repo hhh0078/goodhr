@@ -23,4 +23,13 @@ func TestMouseSafetyPatch(t *testing.T) {
 	if _, err := patchMouseSafety([]byte("unknown version")); err == nil {
 		t.Fatal("未知资源没有拒绝")
 	}
+	legacy := bytes.Replace(updated, []byte(mouseSafetyMarker), []byte("// GoodHR native mouse safety v5"), 1)
+	upgraded, err := patchMouseSafety(legacy)
+	if err != nil || !bytes.HasPrefix(upgraded, []byte(mouseSafetyMarker)) || bytes.Count(upgraded, []byte("GOODHR_MOUSE_DIAGNOSTICS=")) != 1 {
+		t.Fatal("已有 v5 组件没有升级到含窗口诊断的版本", err)
+	}
+	stable, err := patchMouseSafety(upgraded)
+	if err != nil || !bytes.Equal(stable, upgraded) {
+		t.Fatal("升级后重复安装不稳定", err)
+	}
 }

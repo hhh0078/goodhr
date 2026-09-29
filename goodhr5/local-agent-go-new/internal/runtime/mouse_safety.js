@@ -1,6 +1,40 @@
-// 文件作用：修正浏览器原生拟人轨迹的重复像素回执等待，仅运行于浏览器内部协议模块。
+// 文件作用：修正原生鼠标回执等待，并在超时时携带浏览器内部刷新和窗口状态，不读取或注入招聘页面。
     const sendEvents = async (types) => {
       const { clearTimeout } = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
+      const startedAt = Date.now();
+      let repaintStartedAt = 0;
+      let ackStartedAt = 0;
+      const diagnostic = {
+        schema_version: 1, mouse_safety_version: 'v6', stage: 'prepare',
+        event_types: types.join(','), target_x: Math.round(x), target_y: Math.round(y), buttons,
+        apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,
+        apz_wait_ms: 0, mouse_ack_wait_ms: 0, events_sent: 0, events_acknowledged: 0,
+        duplicate_points_skipped: 0,
+      };
+      /** windowSnapshot 只读取浏览器内部窗口状态，失败时保留无法读取的标记。 */
+      const windowSnapshot = () => {
+        try {
+          const browser = this._pageTarget._linkedBrowser;
+          const rect = browser.getBoundingClientRect();
+          return {
+            window_state: typeof win.windowState === 'number' ? win.windowState : null,
+            window_minimized: typeof win.STATE_MINIMIZED === 'number' ? win.windowState === win.STATE_MINIMIZED : null,
+            chrome_has_focus: typeof win.document?.hasFocus === 'function' ? win.document.hasFocus() : null,
+            browser_active: typeof browser.docShellIsActive === 'boolean' ? browser.docShellIsActive : null,
+            browser_hidden: typeof browser.hidden === 'boolean' ? browser.hidden : null,
+            device_pixel_ratio: Number.isFinite(win.devicePixelRatio) ? win.devicePixelRatio : null,
+            browser_rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) },
+          };
+        } catch (_) { return { window_state_unavailable: true }; }
+      };
+      diagnostic.window_before = windowSnapshot();
+      /** diagnosticError 保留稳定错误前缀，并携带有界的原生阶段证据供 Worker 结构化上传。 */
+      const diagnosticError = (message) => new Error(message + ' GOODHR_MOUSE_DIAGNOSTICS=' + JSON.stringify({
+        ...diagnostic, elapsed_ms: Date.now() - startedAt,
+        apz_wait_ms: repaintStartedAt ? Date.now() - repaintStartedAt : diagnostic.apz_wait_ms,
+        mouse_ack_wait_ms: ackStartedAt ? Date.now() - ackStartedAt : diagnostic.mouse_ack_wait_ms,
+        window_at_failure: windowSnapshot(),
+      }));
       this._pageTarget._linkedBrowser.scrollRectIntoViewIfNeeded(x, y, 0, 0);
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
       // 先订阅再刷新，防止合成器通知先到；丢失通知时明确退出，不无限占用输入队列。
@@ -8,18 +42,24 @@
       let repaintTimer;
       let repaintDone;
       const repaintPromise = new Promise(resolve => { repaintDone = resolve; });
-      const repaintObserver = { observe() { repaintDone(); } };
+      const repaintObserver = { observe() { diagnostic.apz_repaint_received = true; repaintDone(); } };
       observerService.addObserver(repaintObserver, 'apz-repaints-flushed');
       try {
-        if (win.windowUtils.flushApzRepaints()) {
+        diagnostic.stage = 'apz_repaint';
+        diagnostic.apz_flush_requested = true;
+        repaintStartedAt = Date.now();
+        diagnostic.apz_flush_result = win.windowUtils.flushApzRepaints();
+        if (diagnostic.apz_flush_result) {
           await Promise.race([
             repaintPromise,
             new Promise((_, reject) => {
-              repaintTimer = setTimeout(() => reject(new Error('GOODHR_MOUSE_APZ_TIMEOUT:' + types.join(','))), 5000);
+              repaintTimer = setTimeout(() => reject(diagnosticError('GOODHR_MOUSE_APZ_TIMEOUT:' + types.join(','))), 5000);
             }),
           ]);
         }
       } finally {
+        diagnostic.apz_wait_ms = Date.now() - repaintStartedAt;
+        repaintStartedAt = 0;
         clearTimeout(repaintTimer);
         observerService.removeObserver(repaintObserver, 'apz-repaints-flushed');
       }
@@ -36,12 +76,19 @@
         const previousX = Math.round(lastX + boundingBox.left);
         const previousY = Math.round(lastY + boundingBox.top);
         if (eventType === 'mousemove' &&
-            dispatchX === previousX && dispatchY === previousY) return;
+            dispatchX === previousX && dispatchY === previousY) {
+          diagnostic.duplicate_points_skipped++;
+          return;
+        }
+        diagnostic.stage = 'dispatch';
+        diagnostic.last_event = eventType;
         const jugglerEventId = win.windowUtils.jugglerSendMouseEvent(
           eventType, dispatchX, dispatchY,
           button, clickCount, modifiers, false, 0.0, 0, true, false, buttons,
           win.windowUtils.DEFAULT_MOUSE_POINTER_ID, false
         );
+        diagnostic.events_sent++;
+        diagnostic.last_event_id = jugglerEventId;
         if (eventType === 'mousemove') {
           lastX = dispatchX - boundingBox.left;
           lastY = dispatchY - boundingBox.top;
@@ -49,14 +96,19 @@
         }
         let timer;
         try {
+          diagnostic.stage = 'mouse_ack';
+          ackStartedAt = Date.now();
           await Promise.race([
             watcher.ensureEvent(eventType, eventObject => eventObject.jugglerEventId === jugglerEventId),
             new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error('GOODHR_MOUSE_ACK_TIMEOUT:' + eventType +
+              timer = setTimeout(() => reject(diagnosticError('GOODHR_MOUSE_ACK_TIMEOUT:' + eventType +
                 ' from=' + previousX + ',' + previousY + ' to=' + dispatchX + ',' + dispatchY)), 5000);
             }),
           ]);
+          diagnostic.events_acknowledged++;
         } finally {
+          diagnostic.mouse_ack_wait_ms = Date.now() - ackStartedAt;
+          ackStartedAt = 0;
           clearTimeout(timer);
         }
       };

@@ -1,6 +1,7 @@
 // 文件作用说明：提供 Browser Worker 统一错误类型、错误码和未知异常规范化能力。
 
 import type { ErrorBody, JsonObject, JsonValue } from "../contracts/common.js";
+import { nativeMouseDiagnostics, nativeMouseErrorText } from "./native-mouse-diagnostics.js";
 
 /** WorkerErrorCode 表示 Go 可以稳定判断的 Worker 错误码。 */
 export type WorkerErrorCode =
@@ -89,9 +90,10 @@ export function normalizeWorkerError(
   if (error instanceof WorkerError) {
     return error;
   }
-  const originalMessage =
-    error instanceof Error ? error.message : String(error || "");
+  const originalMessage = nativeMouseErrorText(error);
   const details: JsonObject = { ...(fallback.details ?? {}) };
+  const nativeMouse = nativeMouseDiagnostics(error);
+  if (nativeMouse) details.native_mouse = nativeMouse;
   if (originalMessage) {
     details.original_error = originalMessage.slice(0, 1000);
   }
