@@ -51,7 +51,7 @@ export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown,
       message: "暂时没有读到本地程序当前版本或后台要求版本。本次岗位运行不会开始，请重新连接本地程序后重试。",
     };
   }
-  if (isVersionLower(current, required)) {
+  if (isMandatoryLocalAgentUpdate(current, required)) {
     return {
       code: "agent_version_outdated",
       title: "本地程序版本过低",
@@ -81,6 +81,14 @@ export function walletBalanceYuan(wallet: any): number | null {
 /** isVersionLower 判断当前版本是否低于目标版本。 */
 export function isVersionLower(current: string, target: string) {
   return compareVersion(target, current) > 0;
+}
+
+/** isMandatoryLocalAgentUpdate 仅在目标版本前三段升高时要求更新，第四段及之后的小补丁可忽略。 */
+export function isMandatoryLocalAgentUpdate(current: string, target: string) {
+  if (!String(current || "").trim() || !String(target || "").trim()) return false;
+  const currentBase = parseVersionParts(current).slice(0, 3).join(".");
+  const targetBase = parseVersionParts(target).slice(0, 3).join(".");
+  return compareVersion(targetBase, currentBase) > 0;
 }
 
 /** compareVersion 按点分数字比较版本号。 */
