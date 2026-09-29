@@ -8,7 +8,7 @@ import (
 
 // TestMouseSafetyPatch 验证已知资源替换、幂等和未知版本拒绝。
 func TestMouseSafetyPatch(t *testing.T) {
-	original := []byte("prefix\n    const sendEvents = async (types) => {\nChromeUtils.camouGetMouseTrajectory(); watcher.ensureEvent(eventType);\n};\n    // We must switch to proper tab in the tabbed browser so that\nsuffix")
+	original := []byte("prefix\n  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {\n    const win = this._pageTarget._window;\n    const sendEvents = async (types) => {\nChromeUtils.camouGetMouseTrajectory(); watcher.ensureEvent(eventType);\n};\n    // We must switch to proper tab in the tabbed browser so that\n    await this._pageTarget.activateAndRun(async () => {\n        await sendEvents(['mousemove']);\n    });\n  }\n  async ['Page.dispatchWheelEvent'](params) { oldWheel(); }\n  async ['Page.insertText'](options) {}\nsuffix")
 	updated, err := patchMouseSafety(original)
 	if err != nil {
 		t.Fatal(err)
@@ -23,10 +23,10 @@ func TestMouseSafetyPatch(t *testing.T) {
 	if _, err := patchMouseSafety([]byte("unknown version")); err == nil {
 		t.Fatal("未知资源没有拒绝")
 	}
-	legacy := bytes.Replace(updated, []byte(mouseSafetyMarker), []byte("// GoodHR native mouse safety v5"), 1)
+	legacy := append([]byte("// GoodHR native mouse safety v6\n"), original...)
 	upgraded, err := patchMouseSafety(legacy)
-	if err != nil || !bytes.HasPrefix(upgraded, []byte(mouseSafetyMarker)) || bytes.Count(upgraded, []byte("GOODHR_MOUSE_DIAGNOSTICS=")) != 1 {
-		t.Fatal("已有 v5 组件没有升级到含窗口诊断的版本", err)
+	if err != nil || !bytes.HasPrefix(upgraded, []byte(mouseSafetyMarker)) || bytes.Count(upgraded, []byte("GOODHR_MOUSE_DIAGNOSTICS=")) != 3 || bytes.Contains(upgraded, []byte("oldWheel()")) {
+		t.Fatal("已有 v6 组件没有升级到含滚轮和激活诊断的版本", err)
 	}
 	stable, err := patchMouseSafety(upgraded)
 	if err != nil || !bytes.Equal(stable, upgraded) {

@@ -4,33 +4,16 @@
       const startedAt = Date.now();
       let repaintStartedAt = 0;
       let ackStartedAt = 0;
-      const diagnostic = {
-        schema_version: 1, mouse_safety_version: 'v6', stage: 'prepare',
-        event_types: types.join(','), target_x: Math.round(x), target_y: Math.round(y), buttons,
-        apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,
-        apz_wait_ms: 0, mouse_ack_wait_ms: 0, events_sent: 0, events_acknowledged: 0,
-        duplicate_points_skipped: 0,
-      };
+      const diagnostic = inputDiagnostic;
+      diagnostic.event_types = types.join(',');
+      guard();
       /** windowSnapshot 只读取浏览器内部窗口状态，失败时保留无法读取的标记。 */
       const windowSnapshot = () => {
-        try {
-          const browser = this._pageTarget._linkedBrowser;
-          const rect = browser.getBoundingClientRect();
-          return {
-            window_state: typeof win.windowState === 'number' ? win.windowState : null,
-            window_minimized: typeof win.STATE_MINIMIZED === 'number' ? win.windowState === win.STATE_MINIMIZED : null,
-            chrome_has_focus: typeof win.document?.hasFocus === 'function' ? win.document.hasFocus() : null,
-            browser_active: typeof browser.docShellIsActive === 'boolean' ? browser.docShellIsActive : null,
-            browser_hidden: typeof browser.hidden === 'boolean' ? browser.hidden : null,
-            device_pixel_ratio: Number.isFinite(win.devicePixelRatio) ? win.devicePixelRatio : null,
-            browser_rect: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) },
-          };
-        } catch (_) { return { window_state_unavailable: true }; }
+        return this._goodhrWindowSnapshot();
       };
-      diagnostic.window_before = windowSnapshot();
       /** diagnosticError 保留稳定错误前缀，并携带有界的原生阶段证据供 Worker 结构化上传。 */
       const diagnosticError = (message) => new Error(message + ' GOODHR_MOUSE_DIAGNOSTICS=' + JSON.stringify({
-        ...diagnostic, elapsed_ms: Date.now() - startedAt,
+        ...diagnostic, elapsed_ms: Date.now() - diagnostic.input_started_at,
         apz_wait_ms: repaintStartedAt ? Date.now() - repaintStartedAt : diagnostic.apz_wait_ms,
         mouse_ack_wait_ms: ackStartedAt ? Date.now() - ackStartedAt : diagnostic.mouse_ack_wait_ms,
         window_at_failure: windowSnapshot(),
@@ -68,6 +51,7 @@
       let lastY = this._lastTrackedPos.y;
       /** sendOne 跳过重复像素，串行发送真实鼠标事件，并限制回执等待时间。 */
       const sendOne = async (eventType, eventX, eventY) => {
+        guard();
         // 比较和实际发送使用同一整数坐标，避免小数点在底层二次取整后变成零位移。
         const dispatchX = Math.max(Math.ceil(boundingBox.left), Math.min(
           Math.ceil(boundingBox.left + boundingBox.width) - 1, Math.round(eventX + boundingBox.left)));

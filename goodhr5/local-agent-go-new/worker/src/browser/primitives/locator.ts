@@ -100,14 +100,18 @@ export class LocatorPrimitive {
     const scope = await this.resolveScope(page, spec, attempts, context);
     for (const candidate of spec.target.selectors) {
       const locator = this.candidateLocator(scope, candidate, spec.target);
-      const count = await locator.count().catch(() => 0);
-      attempts.push({
+      let queryError: string | undefined;
+      const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
+      const attempt: SelectorAttempt = {
         level: "target",
         selector_type: candidate.type,
         selector_value: candidate.value,
         matches: count,
         selected_index: spec.target.index ?? -1,
-      });
+        ...(queryError ? { query_error_type: queryError } : {}),
+        state_checked: spec.state ?? "visible", state_matches: 0, attribute_matches: 0,
+      };
+      attempts.push(attempt);
       if (count === 0) {
         continue;
       }
@@ -123,10 +127,13 @@ export class LocatorPrimitive {
         if (!(await this.matchesAttributes(item, spec.target))) {
           continue;
         }
+        attempt.attribute_matches!++;
         const view = await this.readView(item, spec);
+        if (view.visibility_error_type) attempt.visibility_error_type = view.visibility_error_type;
         if (!(await this.matchesState(item, spec, view))) {
           continue;
         }
+        attempt.state_matches!++;
         results.push({
           page,
           locator: item,
@@ -476,7 +483,8 @@ export class LocatorPrimitive {
   ): Promise<{ locator: Locator; candidate: SelectorCandidate }> {
     for (const candidate of group.selectors) {
       const locator = this.candidateLocator(scope, candidate, group);
-      const count = await locator.count().catch(() => 0);
+      let queryError: string | undefined;
+      const count = await locator.count().catch(error => { queryError = queryErrorType(error); return 0; });
       const selectedIndex = group.index ?? 0;
       attempts.push({
         level,
@@ -484,6 +492,7 @@ export class LocatorPrimitive {
         selector_value: candidate.value,
         matches: count,
         selected_index: selectedIndex,
+        ...(queryError ? { query_error_type: queryError } : {}),
       });
       if (count === 0 || selectedIndex >= count) {
         continue;
@@ -505,7 +514,9 @@ export class LocatorPrimitive {
         });
       }
       const selected = locator.nth(selectedIndex);
-      if (!(await this.matchesAttributes(selected, group))) {
+      const attributesMatch = await this.matchesAttributes(selected, group);
+      attempts.at(-1)!.attribute_matches = attributesMatch ? 1 : 0;
+      if (!attributesMatch) {
         continue;
       }
       return { locator: selected, candidate };
@@ -631,13 +642,16 @@ function exactTextPattern(value: string): RegExp {
 
 /** safeAttempts 把内部选择器尝试记录转换成可安全返回的 JSON 字段。 */
 function safeAttempts(attempts: SelectorAttempt[]) {
-  return attempts.map((item) => ({
-    level: item.level,
-    selector_type: item.selector_type,
-    selector_value: item.selector_value,
-    matches: item.matches,
-    selected_index: item.selected_index,
-  }));
+  return attempts.map((item) => ({ ...item }));
+}
+
+/** queryErrorType 保留查询异常类别，避免把浏览器读取失败伪装成零匹配，不保存页面内容。 */
+function queryErrorType(error: unknown): string {
+  if (!(error instanceof Error)) return "UnknownError";
+  if (/page, context or browser has been closed/i.test(error.message)) return "PageClosed";
+  if (/Cannot find object with id/i.test(error.message)) return "StaleObjectReference";
+  if (/connector.*disposed|has been disposed/i.test(error.message)) return "DisposedConnection";
+  return ["TimeoutError", "Error", "TypeError"].includes(error.name) ? error.name : "UnknownError";
 }
 
 /** delay 使用 Node 定时器等待，避免发送浏览器内等待指令。 */

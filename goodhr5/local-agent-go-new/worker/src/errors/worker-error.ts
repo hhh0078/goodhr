@@ -98,12 +98,12 @@ export function normalizeWorkerError(
     details.original_error = originalMessage.slice(0, 1000);
   }
   return new WorkerError({
-    code: fallback.code ?? "INTERNAL_ERROR",
-    message: fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
+    code: nativeMouse?.recovery_required === true ? "WORKER_UNRESPONSIVE" : fallback.code ?? "INTERNAL_ERROR",
+    message: nativeMouse?.recovery_required === true ? "浏览器输入卡住了，当前任务已停止；重新开始时会恢复浏览器" : fallback.message ?? "浏览器操作没处理成功，但问题不大，我们再看看",
     action: fallback.action,
     step: fallback.step,
     trace_id: fallback.trace_id,
-    retryable: fallback.retryable ?? false,
+    retryable: nativeMouse?.recovery_required === true ? false : fallback.retryable ?? false,
     details,
     cause: error,
   });

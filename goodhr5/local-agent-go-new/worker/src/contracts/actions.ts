@@ -89,6 +89,9 @@ export interface ElementFindAllRequest {
   read_concurrency?: number;
   fields?: Record<string, SelectorSpec>;
   expected_missing?: boolean;
+  diagnostic?: boolean;
+  diagnostic_attempt?: number;
+  probe_only?: boolean;
 }
 
 /** ElementReadRequest 表示读取元素文本、HTML 或属性的参数。 */
@@ -101,6 +104,8 @@ export interface ElementReadRequest {
 /** ElementClickRequest 表示执行完整封装点击的参数。 */
 export interface ElementClickRequest {
   selector: SelectorSpec;
+  diagnostic?: boolean;
+  diagnostic_attempt?: number;
   button?: "left" | "right" | "middle";
   click_count?: number;
   viewport_margin?: number;

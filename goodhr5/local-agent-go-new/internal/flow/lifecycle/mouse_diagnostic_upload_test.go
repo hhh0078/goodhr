@@ -31,11 +31,13 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 		`{"timestamp":"2026-09-29T05:19:35Z","trace_id":"mouse-task","request_id":"mouse-request","action":"element.scroll","step":"mouse_move","status":"start","level":"info","diagnostic":true,"input":{"x":300,"y":450,"camoufox_version":"152.0.4-beta.30"}}`,
 		`{"timestamp":"2026-09-29T05:19:41Z","trace_id":"mouse-task","request_id":"mouse-request","action":"element.scroll","step":"mouse_move","status":"failed","level":"error","diagnostic":true,"error_message":"GOODHR_MOUSE_APZ_TIMEOUT:mousemove","input":{"x":300,"y":450},"output":{"step_duration_ms":6000,"native_mouse":{"stage":"apz_repaint","apz_flush_requested":true,"apz_repaint_received":false,"events_sent":0,"window_at_failure":{"window_minimized":true,"chrome_has_focus":false}}}}`,
 		`{"timestamp":"2026-09-29T05:19:42Z","trace_id":"mouse-task","action":"element.find","step":"find","status":"success","level":"info"}`,
+		`{"timestamp":"2026-09-29T05:19:43Z","trace_id":"mouse-task","request_id":"detail-request","action":"element.find_all","step":"selector_probe","status":"missing","level":"info","diagnostic":true,"input":{"attempt":2,"probe_only":true},"output":{"count":0,"selector_attempts":[{"level":"frame[1]","matches":0,"selected_index":0}],"page_state":{"frame_count":1,"recent_page_events":[{"type":"response","status":403}]}}}`,
+		`{"timestamp":"2026-09-29T05:19:44Z","trace_id":"mouse-task","action":"element.click","step":"click_target","status":"checked","level":"info","diagnostic":true,"output":{"actionability":{"actionable":false,"reason":"pointer_intercepted","blockers":[{"css_class":"dialog-mask"}]}}}`,
 	} {
 		logger.WorkerLine([]byte(event))
 	}
 	items, err := store.ListPositionLogs(ctx, "mouse-position", 1000)
-	if err != nil || len(items) != 2 {
+	if err != nil || len(items) != 4 {
 		t.Fatalf("重要首尾没有保留或普通查找被误保存：%+v %v", items, err)
 	}
 	if !strings.Contains(items[0].Message, "移动鼠标") {
@@ -76,7 +78,7 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 	if err := runner.UploadPositionLogs(ctx, "test-token", "mouse-position"); err != nil {
 		t.Fatal(err)
 	}
-	if len(received) != 2 || !received[1].IsError {
+	if len(received) != 4 || !received[1].IsError {
 		t.Fatalf("上传记录不完整：%+v", received)
 	}
 	var output struct {
@@ -94,6 +96,9 @@ func TestNativeMouseLogsUploadAndRetry(t *testing.T) {
 	}
 	if output.RequestID != "mouse-request" || output.NativeMouse.Stage != "apz_repaint" || !output.NativeMouse.Window.Minimized || output.NativeMouse.EventsSent != 0 {
 		t.Fatalf("服务器所需证据在上传时丢失：%+v", output)
+	}
+	if !strings.Contains(string(received[2].Output), `"frame[1]"`) || !strings.Contains(string(received[2].Output), `"status":403`) || !strings.Contains(string(received[3].Output), "dialog-mask") {
+		t.Fatal("详情匹配、网络和遮挡证据在上传时丢失")
 	}
 	pending, err = store.PendingPositionLogUploads(ctx)
 	if err != nil || len(pending) != 0 {

@@ -24,6 +24,7 @@ import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
+import { trackPageDiagnostics } from "./page-diagnostics.js";
 import { BrowserLifecycle } from "./browser-lifecycle.js";
 import { buildLaunchOptions } from "./launch-options.js";
 
@@ -446,6 +447,7 @@ export class BrowserSession {
       return;
     }
     this.registeredPages.add(page);
+    trackPageDiagnostics(page);
     page.on("close", () => {
       this.elements.clearPage(page);
       if (this.currentPage === page) {

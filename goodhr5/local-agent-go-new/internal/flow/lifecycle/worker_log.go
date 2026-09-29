@@ -219,7 +219,8 @@ func workerLogMessage(item workerLogLine) string {
 // workerStepLabel 为重要鼠标诊断显示真实原子步骤，其余日志复用原有动作名称。
 func workerStepLabel(item workerLogLine) string {
 	if item.Diagnostic {
-		if label := map[string]string{"mouse_move": "移动鼠标", "mouse_down": "按下鼠标", "mouse_up": "松开鼠标", "mouse_wheel": "滚动鼠标"}[item.Step]; label != "" {
+		if label := map[string]string{"mouse_move": "移动鼠标", "mouse_down": "按下鼠标", "mouse_up": "松开鼠标", "mouse_wheel": "滚动鼠标",
+			"selector_probe": "检查详情位置", "click_target": "检查点击位置", "click_landing": "记录点击落点"}[item.Step]; label != "" {
 			return label
 		}
 	}

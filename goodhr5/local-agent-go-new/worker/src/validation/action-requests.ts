@@ -185,6 +185,9 @@ export function parseElementFindAllRequest(
     "expected_missing",
     optionalBoolean(record, "expected_missing"),
   );
+  assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
+  assignBoolean(request, "probe_only", optionalBoolean(record, "probe_only"));
+  assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
   return request;
 }
 
@@ -249,6 +252,8 @@ export function parseElementClickRequest(
       action,
     );
   }
+  assignBoolean(request, "diagnostic", optionalBoolean(record, "diagnostic"));
+  assignNumber(request, "diagnostic_attempt", optionalNumber(record, "diagnostic_attempt", { min: 1, max: 100 }));
   return request;
 }
 

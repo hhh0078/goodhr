@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../internal/runtime/mouse_safety.js', import.meta.url), 'utf8');
+const inputSource = readFileSync(new URL('../../internal/runtime/native_input_safety.js', import.meta.url), 'utf8');
 
 /** fixture 提供没有页面脚本的协议单元测试环境，模拟浏览器仅为有效移动发送回执。 */
 function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 8.2,8.2, 8.3,8.3, 100,100, 10,10, 10,10], repaint = 'none') {
@@ -46,7 +47,10 @@ function fixture(missing = false, trajectory = [0,0, 0.1,0.1, 8.2,8.2, 8.3,8.3, 
     setTimeout: (fn, ms) => setTimeout(fn, ms === 5000 ? 5 : 0), clearTimeout,
     target,
   });
-  const run = vm.runInContext(`(async function() { ${source}\n await sendEvents(['mousemove']); }).bind(target)`, context);
+  const safety = vm.runInContext(`(class { ${inputSource} })`, context);
+  Object.setPrototypeOf(target, safety.prototype);
+  target._pageTarget._window = context.win;
+  const run = vm.runInContext(`(async function() { const inputDiagnostic = this._goodhrInputDiagnostic('mousemove', x, y, {buttons}); const guard = () => {}; ${source}\n await sendEvents(['mousemove']); }).bind(target)`, context);
   return { run, sent, disposed: () => disposed, observer: () => observer };
 }
 
@@ -89,7 +93,7 @@ test('合成器未返回通知时停止且不发送鼠标事件，解除订阅',
     assert.equal(diagnostic.events_sent, 0);
     assert.equal(diagnostic.window_at_failure.window_minimized, true);
     assert.equal(diagnostic.window_at_failure.chrome_has_focus, false);
-    assert.equal(diagnostic.mouse_safety_version, 'v6');
+    assert.equal(diagnostic.mouse_safety_version, 'v7');
     return true;
   });
   assert.equal(value.sent.length, 0);

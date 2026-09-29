@@ -14,8 +14,14 @@ import (
 //go:embed mouse_safety.js
 var mouseSafetyEvents []byte
 
+//go:embed native_input_safety.js
+var nativeInputSafety []byte
+
+//go:embed wheel_safety.js
+var wheelSafetyEvents []byte
+
 const mouseHandlerResource = "chrome/juggler/content/protocol/PageHandler.js"
-const mouseSafetyMarker = "// GoodHR native mouse safety v6"
+const mouseSafetyMarker = "// GoodHR native mouse safety v7"
 
 // EnsureCamoufoxMouseSafety 修正已知协议资源，保留原始备份，未知版本不修改。
 func EnsureCamoufoxMouseSafety(camoufoxDir string) error {
@@ -66,6 +72,7 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v3\n"))
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v4\n"))
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v5\n"))
+	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v6\n"))
 	start := []byte("    const sendEvents = async (types) => {")
 	end := []byte("\n    // We must switch to proper tab in the tabbed browser so that")
 	if bytes.Count(original, start) != 1 || bytes.Count(original, end) != 1 {
@@ -78,6 +85,34 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	result := append([]byte(mouseSafetyMarker+"\n"), original[:from]...)
 	result = append(result, mouseSafetyEvents...)
 	result = append(result, original[to:]...)
+	// 原生鼠标的激活等待也纳入保护；未知方法结构不修改原始归档。
+	mouseStart := []byte("  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {")
+	wheelStart := []byte("  async ['Page.dispatchWheelEvent'](")
+	wheelEnd := []byte("  async ['Page.insertText'](")
+	if bytes.Count(result, mouseStart) != 1 || bytes.Count(result, wheelStart) != 1 || bytes.Count(result, wheelEnd) != 1 {
+		return nil, fmt.Errorf("浏览器原生输入方法无法识别，原资源没有修改")
+	}
+	mouseFrom, wheelFrom, wheelTo := bytes.Index(result, mouseStart), bytes.Index(result, wheelStart), bytes.Index(result, wheelEnd)
+	if wheelFrom <= mouseFrom || wheelTo <= wheelFrom {
+		return nil, fmt.Errorf("浏览器原生输入方法顺序无法识别，原资源没有修改")
+	}
+	mouse := result[mouseFrom:wheelFrom]
+	preamble := []byte("    const win = this._pageTarget._window;")
+	activation := []byte("    await this._pageTarget.activateAndRun(async () => {")
+	if bytes.Count(mouse, preamble) != 1 || bytes.Count(mouse, activation) != 1 {
+		return nil, fmt.Errorf("浏览器鼠标激活方法无法识别，原资源没有修改")
+	}
+	mouse = bytes.Replace(mouse, preamble, append(append([]byte{}, preamble...), []byte("\n    const inputDiagnostic = this._goodhrInputDiagnostic(type, x, y, { buttons });\n    let guard = () => {};")...), 1)
+	mouse = bytes.Replace(mouse, activation, []byte("    await this._goodhrRunInput(inputDiagnostic, async (inputGuard) => {\n      guard = inputGuard;\n      guard();"), 1)
+	mouse = bytes.ReplaceAll(mouse, []byte("          await this._contentPage.send('dispatchDragEvent'"), []byte("          guard(); inputDiagnostic.stage = 'drag_event';\n          await this._contentPage.send('dispatchDragEvent'"))
+	patched := append([]byte{}, result[:mouseFrom]...)
+	patched = append(patched, nativeInputSafety...)
+	patched = append(patched, '\n')
+	patched = append(patched, mouse...)
+	patched = append(patched, wheelSafetyEvents...)
+	patched = append(patched, '\n')
+	patched = append(patched, result[wheelTo:]...)
+	result = patched
 	// 回执超时时同时释放调用方的拖拽观察器，避免异常路径积累监听器。
 	move := []byte("        await sendEvents(['mousemove']);")
 	if bytes.Count(result, move) == 1 {

@@ -45,7 +45,15 @@ export class ActionQueue {
         const value = await operation();
         if (!finished) resolve(value);
       });
-      this.tail = queued.then(() => undefined, (error: unknown) => { reject(error); });
+      this.tail = queued.then(() => undefined, (error: unknown) => {
+        if (error instanceof WorkerError && error.code === "WORKER_UNRESPONSIVE" && !this.fault) {
+          this.fault = error;
+          this.logger.failure(context, error);
+          this.faultSignal.abort();
+          this.onFault(context);
+        }
+        reject(error);
+      });
     });
     /** cancel 取消未执行请求；已开始的动作无法安全撤销，因此隔离整个队列。 */
     const cancel = (): void => {

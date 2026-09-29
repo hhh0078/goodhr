@@ -38,6 +38,23 @@ func (c *Client) UploadPositionLogs(ctx context.Context, token, positionID strin
 	if len(logs) > 1000 {
 		logs = logs[len(logs)-1000:]
 	}
+	// 云端请求上限为 8 MiB；详细诊断增大后保留最新完整记录，留出编码和协议余量。
+	bytesUsed, start := 16, len(logs)
+	for start > 0 {
+		encoded, err := json.Marshal(logs[start-1])
+		if err != nil {
+			return err
+		}
+		if bytesUsed+len(encoded)+1 > 6<<20 {
+			break
+		}
+		bytesUsed += len(encoded) + 1
+		start--
+	}
+	if start == len(logs) {
+		return fmt.Errorf("单条岗位日志超过上传大小限制")
+	}
+	logs = logs[start:]
 	request := struct {
 		Logs []PositionDiagnosticLog `json:"logs"`
 	}{Logs: logs}

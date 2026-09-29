@@ -14,6 +14,7 @@ import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
 import { waitForStablePosition } from "./stable-position.js";
 import { NewPageWaiter } from "./new-page-waiter.js";
+import { clickActionability, pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
 
 /** ClickResult 表示封装点击的查找、移动和验证结果。 */
 export interface ClickResult extends JsonObject {
@@ -43,8 +44,11 @@ export class ClickAction {
     actionContext: ActionContext,
   ): Promise<ClickResult> {
     let newPageWaiter: NewPageWaiter | undefined;
+    const diagnosticInput: JsonObject = request.diagnostic ? { selector: selectorDiagnostic(request.selector), attempt: request.diagnostic_attempt ?? 0,
+      verification_configured: Boolean(request.verify) } : {};
     this.logger.info(actionContext, "click", "start", {
       target_description: request.selector.description,
+      diagnostic: request.diagnostic ?? false, input: request.diagnostic ? diagnosticInput : {},
     });
     try {
       const found = await this.find.one(
@@ -64,8 +68,19 @@ export class ClickAction {
         actionContext,
       );
       await waitForStablePosition(found, this.locator);
+      if (request.diagnostic) {
+        const actionability = await clickActionability(found.resolved.locator);
+        this.logger.info(actionContext, "click_target", "checked", {
+          diagnostic: true, input: diagnosticInput, output: { matched_selector: found.resolved.matched_selector.value,
+            selector_attempts: this.logger.fromUnknown(found.resolved.attempts).value ?? [],
+            target_view: this.logger.fromUnknown(found.resolved.view), actionability, page_state: pageDiagnostic(found.resolved.page) },
+        });
+      }
       // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
-      await this.move.toElement(found.resolved, actionContext, { centered: true });
+      const landing = await this.move.toElement(found.resolved, actionContext, { centered: true });
+      if (request.diagnostic) this.logger.info(actionContext, "click_landing", "ready", {
+        diagnostic: true, input: diagnosticInput, output: { x: landing.x, y: landing.y, target_view: this.logger.fromUnknown(landing.view) },
+      });
       if (request.wait_for_new_page) {
         newPageWaiter = new NewPageWaiter(
           found.resolved.page.context(), actionContext, request.new_page_timeout_ms ?? 10_000,
@@ -125,6 +140,9 @@ export class ClickAction {
         hold_ms: totalHold,
         verified,
         new_page_opened: Boolean(newPage),
+        diagnostic: request.diagnostic ?? false,
+        ...(request.diagnostic ? { input: diagnosticInput, output: { clicked: true, verified,
+          verification_configured: Boolean(request.verify), page_state: pageDiagnostic(found.resolved.page) } } : {}),
       });
       return result;
     } catch (error) {

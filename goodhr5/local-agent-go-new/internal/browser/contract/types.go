@@ -153,12 +153,15 @@ type ElementFindRequest struct {
 
 // ElementFindAllRequest 表示查找元素列表和字段请求。
 type ElementFindAllRequest struct {
-	Selector        SelectorSpec            `json:"selector"`
-	MaxItems        int                     `json:"max_items,omitempty"`
-	StartIndex      int                     `json:"start_index,omitempty"`
-	ReadConcurrency int                     `json:"read_concurrency,omitempty"`
-	Fields          map[string]SelectorSpec `json:"fields,omitempty"`
-	ExpectedMissing bool                    `json:"expected_missing,omitempty"`
+	Selector          SelectorSpec            `json:"selector"`
+	MaxItems          int                     `json:"max_items,omitempty"`
+	StartIndex        int                     `json:"start_index,omitempty"`
+	ReadConcurrency   int                     `json:"read_concurrency,omitempty"`
+	Fields            map[string]SelectorSpec `json:"fields,omitempty"`
+	ExpectedMissing   bool                    `json:"expected_missing,omitempty"`
+	Diagnostic        bool                    `json:"diagnostic,omitempty"`
+	DiagnosticAttempt int                     `json:"diagnostic_attempt,omitempty"`
+	ProbeOnly         bool                    `json:"probe_only,omitempty"`
 }
 
 // FindAllItem 表示列表查找中的一个元素。
@@ -193,13 +196,15 @@ type ClickVerification struct {
 
 // ElementClickRequest 表示完整封装点击请求。
 type ElementClickRequest struct {
-	Selector         SelectorSpec       `json:"selector"`
-	Button           string             `json:"button,omitempty"`
-	ClickCount       int                `json:"click_count,omitempty"`
-	ViewportMargin   int                `json:"viewport_margin,omitempty"`
-	WaitForNewPage   bool               `json:"wait_for_new_page,omitempty"`
-	NewPageTimeoutMS int                `json:"new_page_timeout_ms,omitempty"`
-	Verify           *ClickVerification `json:"verify,omitempty"`
+	Selector          SelectorSpec       `json:"selector"`
+	Diagnostic        bool               `json:"diagnostic,omitempty"`
+	DiagnosticAttempt int                `json:"diagnostic_attempt,omitempty"`
+	Button            string             `json:"button,omitempty"`
+	ClickCount        int                `json:"click_count,omitempty"`
+	ViewportMargin    int                `json:"viewport_margin,omitempty"`
+	WaitForNewPage    bool               `json:"wait_for_new_page,omitempty"`
+	NewPageTimeoutMS  int                `json:"new_page_timeout_ms,omitempty"`
+	Verify            *ClickVerification `json:"verify,omitempty"`
 }
 
 // ClickResult 表示完整封装点击结果。

@@ -163,6 +163,7 @@ export class ActionService {
       !request.expected_missing,
       request.read_concurrency ?? 100,
       request.start_index ?? 0,
+      { diagnostic: request.diagnostic ?? false, attempt: request.diagnostic_attempt ?? 0, probe_only: request.probe_only ?? false },
     );
   }
 

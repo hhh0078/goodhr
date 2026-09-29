@@ -10,6 +10,7 @@ import { WorkerLogger } from "../../logging/logger.js";
 import { MousePrimitive } from "../primitives/mouse.js";
 import { LocatorPrimitive, type ResolvedElement } from "../primitives/locator.js";
 import type { VisibleArea } from "./scroll-geometry.js";
+import { nativeMouseDiagnostics } from "../../errors/native-mouse-diagnostics.js";
 
 /** MoveResult 表示鼠标移动位置和元素视口状态。 */
 export interface MoveResult {
@@ -91,7 +92,7 @@ export class MoveAction {
       });
       return result;
     } catch (error) {
-      if (options.allowAckRetry !== false && String(error).includes("GOODHR_MOUSE_ACK_TIMEOUT:mousemove") &&
+      if (options.allowAckRetry !== false && nativeMouseDiagnostics(error)?.native_error_code === "GOODHR_MOUSE_ACK_TIMEOUT" &&
           !actionContext.signal?.aborted &&
           (actionContext.deadline_at ?? Infinity) - Date.now() > 7_000) {
         this.logger.warn(actionContext, step, "retry", { reason: "native_mouse_ack_timeout", attempt: 2 });

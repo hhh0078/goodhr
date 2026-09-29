@@ -66,6 +66,11 @@ export interface SelectorAttempt {
   selector_value: string;
   matches: number;
   selected_index: number;
+  query_error_type?: string;
+  state_checked?: string;
+  state_matches?: number;
+  attribute_matches?: number;
+  visibility_error_type?: string;
 }
 
 /** FindResult 表示封装查找能力返回的元素引用和诊断信息。 */

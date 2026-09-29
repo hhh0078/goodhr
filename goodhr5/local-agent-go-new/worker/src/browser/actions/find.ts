@@ -12,6 +12,7 @@ import {
 import { ReadPrimitive } from "../primitives/read.js";
 import { BrowserSession } from "../session/browser-session.js";
 import { safeURL } from "../session/navigation.js";
+import { pageDiagnostic, selectorDiagnostic } from "./diagnostic-state.js";
 
 /** FoundElement 保存封装查找结果和仅供后续封装能力复用的 Locator。 */
 export interface FoundElement {
@@ -108,8 +109,12 @@ export class FindAction {
     report = true,
     readConcurrency = 100,
     startIndex = 0,
+    diagnostic = { diagnostic: false, attempt: 0, probe_only: false },
   ): Promise<FindAllItem[]> {
     const step = "find_all";
+    const diagnosticInput: JsonObject = diagnostic.diagnostic ? { selector: selectorDiagnostic(spec), attempt: diagnostic.attempt,
+      expected_missing: !report, probe_only: diagnostic.probe_only } : {};
+    if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "start", { diagnostic: true, input: diagnosticInput });
     if (report) {
       this.logger.info(actionContext, step, "start", {
         target_description: spec.description,
@@ -131,6 +136,13 @@ export class FindAction {
         },
         startIndex,
       );
+      if (diagnostic.diagnostic) this.logger.info(actionContext, "selector_probe", "success", {
+        diagnostic: true, input: diagnosticInput, output: { count: resolvedItems.length,
+          selector_attempts: this.logger.fromUnknown(resolvedItems[0]?.attempts ?? []).value ?? [], page_state: pageDiagnostic(page) },
+      });
+      if (diagnostic.probe_only) return resolvedItems.map((resolved, index) => ({
+        index: resolved.list_index ?? index + startIndex, element_ref: "", text: "", fields: {},
+      }));
       const diagnoseNames = report && Object.hasOwn(fields, "name");
       if (diagnoseNames) {
         this.logger.info(actionContext, "list_name_diagnostics", "resolved", {
@@ -212,6 +224,15 @@ export class FindAction {
         trace_id: actionContext.trace_id,
         retryable: true,
       });
+      if (diagnostic.diagnostic) {
+        const page = await this.session.requirePage(actionContext, step).catch(() => undefined);
+        const expected = !report && ["ELEMENT_NOT_FOUND", "ELEMENT_NOT_VISIBLE", "ELEMENT_NOT_ENABLED"].includes(normalized.code);
+        this.logger.info(actionContext, "selector_probe", expected ? "missing" : "unavailable", {
+          diagnostic: true, input: diagnosticInput, output: { count: 0, expected_missing: expected,
+            error_code: normalized.code, selector_attempts: normalized.details.attempts ?? [],
+            poll_attempts: normalized.details.poll_attempts ?? 0, page_state: page ? pageDiagnostic(page) : { page_unavailable: true } },
+        });
+      }
       if (report) {
         this.logger.failure(actionContext, normalized);
       }

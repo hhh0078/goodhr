@@ -39,6 +39,25 @@ test('历史、损坏和超长的原生证据保留错误类型且不会阻断�
   assert.equal(nativeMouseDiagnostics(new Error('ordinary failure')), undefined);
 });
 
+test('浏览器关闭附带的历史鼠标报错不能当成本次滚轮根因', () => {
+  const closed = new Error('mouse.wheel: Target page, context or browser has been closed\nBrowser logs:\n' + failure().message);
+  assert.equal(nativeMouseDiagnostics(closed), undefined);
+});
+
+test('激活超时要求回收浏览器，队列立即隔离且不执行后续动作', async () => {
+  let recovered = 0;
+  let secondRan = false;
+  const context = { action: 'page.scroll', trace_id: 'activation-timeout', started_at: Date.now() };
+  const error = normalizeWorkerError(new Error('GOODHR_MOUSE_INPUT_TIMEOUT:wheel GOODHR_MOUSE_DIAGNOSTICS=' +
+    JSON.stringify({ schema_version: 1, mouse_safety_version: 'v7', stage: 'activation', recovery_required: true,
+      activation_wait_ms: 15000, window_before: { tab_selected: false } })), { ...context, step: 'scroll' });
+  const queue = new ActionQueue(() => { recovered++; });
+  await assert.rejects(queue.run(async () => { throw error; }, context), value => value.code === 'WORKER_UNRESPONSIVE');
+  await assert.rejects(queue.run(async () => { secondRan = true; }, context));
+  assert.equal(recovered, 1);
+  assert.equal(secondRan, false);
+});
+
 test('操作卡住时队列错误包含同任务最后一个鼠标开始记录，过滤其他任务', async () => {
   const context = { action: 'element.scroll', trace_id: 'queue-native', request_id: 'queue-request', started_at: Date.now(), deadline_at: Date.now() + 40 };
   new WorkerLogger(() => {}).info({ ...context, trace_id: 'other-task' }, 'mouse_move', 'start', { diagnostic: true, input: { x: 999 } });
