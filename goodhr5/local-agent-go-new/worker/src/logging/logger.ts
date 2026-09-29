@@ -1,6 +1,8 @@
 // 文件作用说明：提供 Browser Worker 统一结构化日志并过滤 Cookie、Token 和代理密码等敏感字段。
 
 import type { ActionContext, JsonObject, JsonValue } from "../contracts/common.js";
+import { writeSync } from "node:fs";
+import { exitDiagnostics, rememberError, rememberOperation } from "./exit-diagnostics.js";
 import {
   safeJsonValue,
   type WorkerError,
@@ -22,20 +24,20 @@ function sanitizeFields(fields: JsonObject): JsonObject {
       result[key] = "[已隐藏]";
       continue;
     }
-    result[key] = sanitizeValue(value);
+    result[key] = sanitizeValue(value, key === "stack" ? 4000 : 1000);
   }
   return result;
 }
 
 /** sanitizeValue 递归清理日志字段并限制单个字符串长度。 */
-function sanitizeValue(value: JsonValue): JsonValue {
+function sanitizeValue(value: JsonValue, limit = 1000): JsonValue {
   if (typeof value === "string") {
     const cleaned = value.replace(secretTextPattern, "[已隐藏]").replace(urlQueryPattern, "$1?[已隐藏]")
       .replace(phoneTextPattern, "[手机号已隐藏]").replace(emailTextPattern, "[邮箱已隐藏]");
-    return cleaned.length > 1000 ? `${cleaned.slice(0, 1000)}…` : cleaned;
+    return cleaned.length > limit ? `${cleaned.slice(0, limit)}…` : cleaned;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item));
+    return value.map((item) => sanitizeValue(item, limit));
   }
   if (value && typeof value === "object") {
     return sanitizeFields(value);
@@ -46,6 +48,9 @@ function sanitizeValue(value: JsonValue): JsonValue {
 /** WorkerLogger 输出统一 JSON 行日志。 */
 export class WorkerLogger {
   private readonly recentFailures = new Map<string, number>();
+
+  /** 创建日志器；关键退出日志同步写入，测试时可以替换输出入口。 */
+  constructor(private readonly writeLine: (line: string, critical: boolean) => void = emitLine) {}
 
   /** info 输出普通操作日志。 */
   info(
@@ -97,6 +102,7 @@ export class WorkerLogger {
       ...error.details,
       error_code: error.code,
       error_message: error.message,
+      stack: error.stack ?? "",
     });
   }
 
@@ -132,8 +138,10 @@ export class WorkerLogger {
     for (const key of ["matches_checked", "matched_selector", "count", "verified", "error_code", "poll_attempts"] as const) {
       if (fields[key] !== undefined && output[key] === undefined) output[key] = fields[key];
     }
+    const critical = /^(worker\.crash|worker\.exit|browser\.exit|browser\.crash)$/.test(context.action);
     const payload = sanitizeFields({
       ...fields,
+      ...(critical ? { diagnostics: exitDiagnostics() } : {}),
       timestamp: new Date().toISOString(),
       category: fields.category === "异常退出" ? "异常退出" : context.action.startsWith("worker.") ? "worker" : "browser",
       is_error: isError,
@@ -148,6 +156,20 @@ export class WorkerLogger {
       status,
       duration_ms: Date.now() - context.started_at,
     });
-    process.stdout.write(`${JSON.stringify(payload)}\n`);
+    rememberOperation(payload);
+    if (context.action === "worker.crash" || context.action === "browser.crash") rememberError(payload);
+    if (critical && Buffer.byteLength(JSON.stringify(payload)) > 15_000) {
+      payload.diagnostics = { ...exitDiagnostics(), recent_operations: [], last_error: {} };
+      payload.input = {};
+      payload.diagnostic_truncated = true;
+    }
+    this.writeLine(`${JSON.stringify(payload)}\n`, critical);
   }
+}
+
+/** emitLine 在致命退出前同步落盘管道，普通日志仍使用标准输出缓冲。 */
+function emitLine(line: string, critical: boolean): void {
+  if (!critical) { process.stdout.write(line); return; }
+  try { writeSync(1, line); }
+  catch { try { writeSync(2, line); } catch { /* 上级进程已关闭管道时不能再次触发崩溃。 */ } }
 }

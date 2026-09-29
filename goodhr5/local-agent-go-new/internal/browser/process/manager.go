@@ -3,15 +3,15 @@ package process
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"goodhr5/local-agent-go-new/internal/version"
 )
 
 // HealthChecker 定义 Worker 启动后的健康检查能力。
@@ -31,7 +31,6 @@ type Manager struct {
 	command     *exec.Cmd
 	lineWriter  *lineSinkWriter
 	done        chan struct{}
-	stopping    atomic.Bool
 }
 
 // SetEnvironment 设置 Worker 子进程需要的额外环境变量。
@@ -81,6 +80,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	if m.command != nil && m.command.Process != nil {
 		log.Printf("event=worker_unhealthy pid=%d action=stop_before_restart", m.command.Process.Pid)
+		if m.lineWriter != nil {
+			m.lineWriter.MarkStopping("健康检查未通过，主动结束旧 Worker 后重启")
+		}
 		if err := stopProcess(m.command.Process); err != nil {
 			return err
 		}
@@ -95,11 +97,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("Worker 入口不存在，请先编译 TypeScript：%w", err)
 	}
 	command := exec.Command(m.nodePath, m.entryPath)
-	m.stopping.Store(false)
 	configureProcess(command)
-	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port))
+	command.Env = append(os.Environ(), "GOODHR_WORKER_PORT="+strconv.Itoa(m.port), "DEBUG=pw:browser", "GOODHR_AGENT_VERSION="+version.Value)
 	command.Env = append(command.Env, m.environment...)
-	lineWriter := &lineSinkWriter{sink: m.logSink}
+	lineWriter := &lineSinkWriter{sink: m.logSink, diagnostics: processDiagnostics{startedAt: time.Now()}}
 	configureOutput(command, lineWriter)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("启动 Browser Worker 失败：%w", err)
@@ -111,6 +112,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.done = done
 	go m.wait(command, lineWriter, done)
 	if err := m.waitHealthy(ctx, done); err != nil {
+		lineWriter.MarkStopping("Worker 启动检查失败，主动清理进程：" + err.Error())
 		_ = stopProcess(command.Process)
 		return err
 	}
@@ -121,11 +123,13 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.stopping.Store(true)
 	if m.command == nil || m.command.Process == nil {
 		return nil
 	}
 	process := m.command.Process
+	if m.lineWriter != nil {
+		m.lineWriter.MarkStopping("主程序主动停止 Worker")
+	}
 	done := m.done
 	log.Printf("event=worker_stop_requested pid=%d", process.Pid)
 	if err := stopProcess(process); err != nil {
@@ -144,6 +148,15 @@ func (m *Manager) Stop() error {
 	m.command = nil
 	m.done = nil
 	return nil
+}
+
+// PrepareStop 在主程序收尾开始时记录停止原因，避免系统信号先结束 Worker 被误报。
+func (m *Manager) PrepareStop(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.lineWriter != nil {
+		m.lineWriter.MarkStopping(reason)
+	}
 }
 
 // waitHealthy 等待 Worker 健康检查通过。
@@ -181,17 +194,7 @@ func (m *Manager) wait(command *exec.Cmd, lineWriter *lineSinkWriter, done chan 
 	log.Printf("event=worker_exit pid=%d exit_code=%d error=%v", command.Process.Pid, exitCode, err)
 	if lineWriter != nil {
 		lineWriter.Flush()
-		if !m.stopping.Load() && lineWriter.sink != nil {
-			reason := fmt.Sprintf("Browser Worker 意外退出，退出码 %d", exitCode)
-			if err != nil {
-				reason += "：" + err.Error()
-			}
-			data, _ := json.Marshal(map[string]any{
-				"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "异常退出",
-				"action": "worker.exit", "step": "process_exit", "status": "failed", "level": "error",
-				"is_error": true, "error_message": reason, "exit_reason": reason, "exit_code": exitCode,
-				"input": map[string]any{"pid": command.Process.Pid}, "output": map[string]any{"exit_code": exitCode},
-			})
+		if data := lineWriter.ExitEvent(command.Process.Pid, exitCode, err, command.ProcessState.String()); len(data) > 0 && lineWriter.sink != nil {
 			lineWriter.sink(data)
 		}
 	}

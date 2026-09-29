@@ -9,13 +9,15 @@ let exitReason = "运行结束";
 process.on("uncaughtExceptionMonitor", (error, origin) => {
   exitReason = `${origin}: ${error.message}`;
   logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, origin, "failed", {
-    pid: process.pid, error: error.message, stack: error.stack ?? "",
+    category: "异常退出", pid: process.pid, error: error.message, stack: error.stack ?? "",
   });
 });
 process.on("unhandledRejection", (reason) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
   exitReason = `unhandledRejection: ${error.message}`;
-  logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, "unhandled_rejection", "failed", { error: error.message });
+  logger.error({ trace_id: "", action: "worker.crash", started_at: Date.now() }, "unhandled_rejection", "failed", {
+    category: "异常退出", error: error.message, stack: error.stack ?? "",
+  });
   throw error;
 });
 process.on("exit", (code) => {
@@ -24,7 +26,7 @@ process.on("exit", (code) => {
   if (code === 0) {
     logger.info(context, "exit", "finished", fields);
   } else {
-    logger.error(context, "exit", "failed", { ...fields, error_message: exitReason });
+    logger.error(context, "exit", "failed", { ...fields, category: "异常退出", error_message: exitReason });
   }
 });
 
@@ -54,7 +56,9 @@ async function main(): Promise<void> {
       process.exitCode = 0;
     } catch (error) {
       exitReason = `关闭失败：${error instanceof Error ? error.message : String(error)}`;
-      logger.error({ trace_id: "", action: "worker.exit", started_at: Date.now() }, "shutdown", "failed", { error: exitReason });
+      logger.error({ trace_id: "", action: "worker.shutdown", started_at: Date.now() }, "shutdown", "failed", {
+        error: exitReason, stack: error instanceof Error ? error.stack ?? "" : "",
+      });
       process.exitCode = 1;
     }
   };

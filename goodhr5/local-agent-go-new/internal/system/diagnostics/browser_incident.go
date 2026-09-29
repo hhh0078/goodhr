@@ -63,11 +63,13 @@ func (r *BrowserIncidentRecorder) WorkerLine(line []byte) {
 	if json.Unmarshal(line, &item) != nil {
 		return
 	}
-	if item.Action != "browser.exit" && item.Action != "worker.exit" && item.Action != "agent.previous_exit" &&
+	if item.Action != "browser.exit" && item.Action != "browser.crash" && item.Action != "browser.process_exit" &&
+		item.Action != "worker.crash" && item.Action != "worker.exit" && item.Action != "ocr.exit" && item.Action != "agent.previous_exit" &&
 		item.Action != "agent.start" && item.Action != "agent.exit" &&
 		!((item.Action == "browser.start" || item.Action == "browser.stop") && (item.Status == "success" || item.Status == "failed")) {
 		return
 	}
+	line = normalizeIncident(line)
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
 		log.Printf("创建浏览器退出日志编号失败：%v", err)
@@ -95,6 +97,11 @@ func (r *BrowserIncidentRecorder) WorkerLine(line []byte) {
 
 // RecordLifecycle 把本地程序启动、正常退出和上次异常退出保存到相同上传队列。
 func (r *BrowserIncidentRecorder) RecordLifecycle(action, message string, abnormal bool) {
+	r.RecordLifecycleDetails(action, message, abnormal, nil)
+}
+
+// RecordLifecycleDetails 给主程序生命周期附加调用栈、退出步骤和上次运行证据。
+func (r *BrowserIncidentRecorder) RecordLifecycleDetails(action, message string, abnormal bool, details map[string]any) {
 	category, status := "运行", "success"
 	if abnormal {
 		category, status = "异常退出", "failed"
@@ -103,7 +110,7 @@ func (r *BrowserIncidentRecorder) RecordLifecycle(action, message string, abnorm
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": category,
 		"action": action, "step": "process_lifecycle", "status": status,
 		"is_error": abnormal, "error_message": "", "message": message,
-		"input": map[string]any{}, "output": map[string]any{"reason": message},
+		"input": map[string]any{}, "output": map[string]any{"reason": message}, "diagnostics": details,
 	}
 	if abnormal {
 		item["error_message"] = message
@@ -134,6 +141,9 @@ func (r *BrowserIncidentRecorder) Flush(ctx context.Context) {
 		batchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		items, err := r.store.PendingBrowserEvents(batchCtx, ownerID)
 		if err == nil && len(items) > 0 {
+			for index := range items {
+				items[index].Payload = normalizeIncident(items[index].Payload)
+			}
 			err = r.cloud.UploadBrowserEvents(batchCtx, token, items)
 		}
 		if err == nil && len(items) > 0 {

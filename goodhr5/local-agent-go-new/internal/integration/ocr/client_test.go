@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,7 +56,8 @@ func TestRecognizeRestartsExitedProcess(t *testing.T) {
 			t.Setenv("GOODHR_OCR_TEST_MODE", mode)
 			t.Setenv("GOODHR_OCR_TEST_MARKER", filepath.Join(root, "starts"))
 			t.Setenv("GOODHR_OCR_ARGS", "-test.run=TestOCRHelperProcess")
-			client := New(executable)
+			events := make(chan []byte, 8)
+			client := New(executable, func(line []byte) { events <- line })
 			defer client.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
@@ -76,6 +78,18 @@ func TestRecognizeRestartsExitedProcess(t *testing.T) {
 			if err != nil || string(starts) != "xx" {
 				t.Fatalf("启动次数不符：%q %v", starts, err)
 			}
+			select {
+			case line := <-events:
+				var event map[string]any
+				if json.Unmarshal(line, &event) != nil || event["action"] != "ocr.exit" || event["exit_code"] != float64(7) || event["category"] != "异常退出" {
+					t.Fatalf("OCR 原始退出信息不完整：%s", line)
+				}
+				if !strings.Contains(string(line), "native OCR fault") {
+					t.Fatalf("OCR stderr 丢失：%s", line)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("OCR 退出没有留下详细日志")
+			}
 		})
 	}
 }
@@ -94,6 +108,7 @@ func TestOCRHelperProcess(t *testing.T) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		if mode == "always" || len(previous) == 0 {
+			_, _ = os.Stderr.WriteString("native OCR fault: missing model runtime\n")
 			os.Exit(7)
 		}
 		_, _ = os.Stdout.WriteString("{\"text\":\"本科销售\"}\n")

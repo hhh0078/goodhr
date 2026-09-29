@@ -71,6 +71,8 @@ type Client struct {
 	stdin      io.WriteCloser
 	stdout     *bufio.Reader
 	done       chan error
+	processLog *ocrProcessDiagnostics
+	logSink    func([]byte)
 }
 
 // Result 表示 OCR 文字识别结果。
@@ -79,8 +81,12 @@ type Result struct {
 }
 
 // New 创建 OCR 客户端。
-func New(executable string) *Client {
-	return &Client{executable: strings.TrimSpace(executable)}
+func New(executable string, logSinks ...func([]byte)) *Client {
+	client := &Client{executable: strings.TrimSpace(executable)}
+	if len(logSinks) > 0 {
+		client.logSink = logSinks[0]
+	}
+	return client
 }
 
 // Ready 检查 OCR 可执行文件和基础模型是否完整。
@@ -131,6 +137,9 @@ func (c *Client) Recognize(ctx context.Context, imagePath string) (Result, error
 			return Result{Text: text}, parseErr
 		}
 		log.Printf("event=ocr_process_failed pid=%d attempt=%d error=%q", pid, attempt, err)
+		if ctx.Err() == nil {
+			c.processLog.mark("", err)
+		}
 		c.stopLocked()
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err()
@@ -173,6 +182,8 @@ func (c *Client) ensureProcessLocked() error {
 		return err
 	}
 	command := exec.Command(executable, ocrArgs()...)
+	processLog := &ocrProcessDiagnostics{startedAt: time.Now()}
+	command.Stderr = processLog
 	configureCommand(command)
 	command.Dir = filepath.Dir(executable)
 	stdin, err := command.StdinPipe()
@@ -192,9 +203,14 @@ func (c *Client) ensureProcessLocked() error {
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
 	c.done = make(chan error, 1)
+	c.processLog = processLog
 	done := c.done
 	go func() {
-		done <- command.Wait()
+		err := command.Wait()
+		if c.logSink != nil {
+			c.logSink(processLog.exitEvent(command.Process.Pid, command.ProcessState.ExitCode(), err))
+		}
+		done <- err
 	}()
 	log.Printf("event=ocr_process_started pid=%d", command.Process.Pid)
 	return nil
@@ -222,6 +238,7 @@ func (c *Client) readJSONLineLocked(ctx context.Context) ([]byte, error) {
 	}()
 	select {
 	case <-ctx.Done():
+		c.processLog.mark("OCR 请求取消："+ctx.Err().Error(), nil)
 		if c.command != nil && c.command.Process != nil {
 			_ = c.command.Process.Kill()
 		}
@@ -245,6 +262,7 @@ func (c *Client) readJSONLineLocked(ctx context.Context) ([]byte, error) {
 
 // stopLocked 停止当前 OCR 进程并清空进程引用。
 func (c *Client) stopLocked() {
+	c.processLog.mark("主程序主动回收 OCR 进程", nil)
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
@@ -261,6 +279,7 @@ func (c *Client) stopLocked() {
 	c.stdin = nil
 	c.stdout = nil
 	c.done = nil
+	c.processLog = nil
 }
 
 // resolveExecutable 按配置和 PATH 查找 OCR 可执行文件。

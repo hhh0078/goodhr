@@ -1,12 +1,10 @@
 // 文件作用说明：管理 Camoufox、持久化 Profile、页面、Cookie、下载和浏览器生命周期。
 
 import fs from "node:fs/promises";
-import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import type {
   Browser,
   BrowserContext,
   Cookie,
-  LaunchOptions,
   Page,
 } from "playwright-core";
 import { firefox } from "playwright-core";
@@ -22,12 +20,12 @@ import type { ActionContext, JsonObject } from "../../contracts/common.js";
 import { WorkerError, normalizeWorkerError } from "../../errors/worker-error.js";
 import { WorkerLogger } from "../../logging/logger.js";
 import { DownloadManager } from "./download-manager.js";
-import { offlineAddonOptions } from "./bundled-addon.js";
 import { ElementRegistry } from "./element-registry.js";
 import { loadStableProfileFingerprint } from "./fingerprint.js";
 import { initializeChineseLanguagePack } from "./language-initializer.js";
 import { pageURLContainsTarget, safeURL } from "./navigation.js";
-import { useAutomaticWindowSize } from "./window-size.js";
+import { BrowserLifecycle } from "./browser-lifecycle.js";
+import { buildLaunchOptions } from "./launch-options.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -40,16 +38,13 @@ export class BrowserSession {
   private extensionPaths: string[] = [];
   private readonly registeredPages = new WeakSet<Page>();
   private readonly downloadManager: DownloadManager;
-  private intentionalClose = false;
-  private exitRecorded = false;
-  private browserStartedAt = 0;
-  private lastBrowserAction = "启动浏览器";
-  private lastPageURL = "";
+  private readonly lifecycle: BrowserLifecycle;
 
   readonly elements = new ElementRegistry();
 
   /** 创建浏览器会话管理器。 */
   constructor(private readonly logger: WorkerLogger) {
+    this.lifecycle = new BrowserLifecycle(logger);
     this.downloadManager = new DownloadManager(logger);
   }
 
@@ -100,10 +95,7 @@ export class BrowserSession {
       }
 
       await this.downloadManager.prepare(request.downloads_path);
-      this.intentionalClose = false;
-      this.exitRecorded = false;
-      this.browserStartedAt = Date.now();
-      this.lastBrowserAction = "启动浏览器";
+      this.lifecycle.begin();
       const nativeDownloadPrefs = await this.downloadManager.prepareNativeSession();
       this.extensionPaths = [...(request.extension_paths ?? [])];
       if (request.user_data_dir) {
@@ -112,7 +104,7 @@ export class BrowserSession {
         const fingerprint = await loadStableProfileFingerprint(
           this.userDataDir,
         );
-        const options = await this.buildLaunchOptions(request, actionContext, fingerprint);
+        const options = await buildLaunchOptions(request, actionContext, fingerprint);
         await initializeChineseLanguagePack(this.userDataDir, options);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         await this.downloadManager.resetSnapshot();
@@ -126,7 +118,7 @@ export class BrowserSession {
         this.browser = this.context.browser();
       } else {
         this.userDataDir = "";
-        const options = await this.buildLaunchOptions(request, actionContext);
+        const options = await buildLaunchOptions(request, actionContext);
         options.firefoxUserPrefs = { ...options.firefoxUserPrefs, ...nativeDownloadPrefs };
         this.browser = await firefox.launch(options);
         this.context = await this.browser.newContext({
@@ -147,7 +139,7 @@ export class BrowserSession {
         );
       }
       const status = await this.status(false);
-      this.lastBrowserAction = "浏览器已打开";
+      this.lifecycle.lastAction = "浏览器已打开";
       this.logger.info(actionContext, step, "success", {
         reused: false,
         current_url: status.current_url,
@@ -213,7 +205,7 @@ export class BrowserSession {
     actionContext: ActionContext,
   ): Promise<PageInfo> {
     const step = "open_page";
-    this.lastBrowserAction = request.new_tab ? "新建标签页" : "打开页面";
+    this.lifecycle.lastAction = request.new_tab ? "新建标签页" : "打开页面";
     this.logger.info(actionContext, step, "start", {
       target_url: safeURL(request.url),
       new_tab: request.new_tab ?? false,
@@ -257,7 +249,7 @@ export class BrowserSession {
       await page.bringToFront();
       this.elements.clearPage(page);
       const result = await this.pageInfo(page);
-      this.lastPageURL = safeURL(result.url);
+      this.lifecycle.lastPageURL = safeURL(result.url);
       this.logger.info(actionContext, step, "success", {
         page_id: result.page_id,
         page_url: safeURL(result.url),
@@ -411,39 +403,6 @@ export class BrowserSession {
     return this.context.pages().some((item) => !item.isClosed());
   }
 
-  /** buildLaunchOptions 把启动请求转换为 Camoufox + Playwright 启动参数。 */
-  private async buildLaunchOptions(
-    request: BrowserStartRequest,
-    actionContext: ActionContext,
-    fingerprint?: Awaited<ReturnType<typeof loadStableProfileFingerprint>>,
-  ): Promise<LaunchOptions> {
-    // 决策：用户与招聘平台均在中国大陆，语言与时区统一固定为 zh-CN / Asia/Shanghai，
-    // 无需按代理 IP 动态匹配地理位置，因此不启用 Camoufox 的 geoip（协议字段保留但已停用）。
-    const prepared = await camoufoxLaunchOptions({
-      headless: request.headless ?? false,
-      // 由浏览器生成完整拟人轨迹，最长约 0.8 秒；Worker 只发送目标坐标并等待移动结束。
-      humanize: 0.8,
-      // 运行组件会修正浏览器资源，启动时刷新代码缓存，使已有 Profile 立即使用新资源。
-      args: ["-purgecaches"],
-      locale: request.locale ?? "zh-CN",
-      proxy: request.proxy,
-      // Go 从内置包准备 UBO；显式关闭默认下载，首次启动也不等待外网。
-      ...await offlineAddonOptions(request.extension_paths, actionContext),
-      // 不传 executable_path：macOS 下 camoufox-js 会到错误目录找 properties.json；
-      // 通过 CAMOUFOX_INSTALL_DIR 环境变量（Go 注入）让 camoufox-js 按官方逻辑解析启动文件。
-      config: { timezone: request.timezone ?? "Asia/Shanghai" },
-      // 界面语言：Camoufox 只打包英文界面资源，中文界面依赖 Go 预装的 zh-CN 语言包；
-      // 这里请求简体中文，语言包缺失时 Firefox 会自动回退英文，不影响启动。
-      firefox_user_prefs: {
-        "intl.locale.requested": "zh-CN",
-        // Windows 使用系统标题栏绘制窗口按钮，避免字体伪装把按钮图标变成方块。
-        ...(process.platform === "win32" ? { "browser.tabs.inTitlebar": 0 } : {}),
-      },
-      ...(fingerprint ? { fingerprint } : {}),
-    });
-    return useAutomaticWindowSize(toPlaywrightLaunchOptions(prepared));
-  }
-
   /** requireContext 返回浏览器上下文，不存在时统一抛错。 */
   private requireContext(
     actionContext: ActionContext,
@@ -464,17 +423,12 @@ export class BrowserSession {
 
   /** registerContext 为已有页面和后续新页面统一注册生命周期，下载由浏览器全局原生观察器覆盖。 */
   private registerContext(context: BrowserContext): void {
-    context.on("close", () => {
-      this.recordBrowserExit("浏览器上下文关闭，可能是浏览器窗口被关闭或进程退出");
-    });
-    this.browser?.on("disconnected", () => {
-      this.recordBrowserExit("浏览器进程连接断开，可能是崩溃、被系统终止或窗口被关闭；Playwright 未提供进程退出码");
-    });
+    this.lifecycle.register(context, this.browser);
     for (const page of context.pages()) {
       this.registerPage(page);
     }
     context.on("page", (page) => {
-      this.lastBrowserAction = "新建标签页";
+      if (!this.lifecycle.isCurrent(context)) return;
       this.currentPage = page;
       this.registerPage(page);
     });
@@ -486,11 +440,6 @@ export class BrowserSession {
       return;
     }
     this.registeredPages.add(page);
-    page.on("crash", () => {
-      this.lastBrowserAction = "页面崩溃";
-      this.lastPageURL = safeURL(page.url());
-      this.logger.error({ trace_id: "", action: "browser.lifecycle", started_at: Date.now() }, "page_crash", "failed", { page_url: safeURL(page.url()) });
-    });
     page.on("close", () => {
       this.elements.clearPage(page);
       if (this.currentPage === page) {
@@ -499,25 +448,8 @@ export class BrowserSession {
     });
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) {
-        this.lastPageURL = safeURL(frame.url());
         this.elements.clearPage(page);
       }
-    });
-  }
-
-  /** recordBrowserExit 仅在非主动关闭时记录一次浏览器意外退出。 */
-  private recordBrowserExit(reason: string): void {
-    if (this.intentionalClose || this.exitRecorded) return;
-    this.exitRecorded = true;
-    this.logger.error({ trace_id: "", action: "browser.exit", started_at: Date.now() }, "unexpected_exit", "failed", {
-      category: "异常退出",
-      error_message: reason,
-      exit_reason: reason,
-      last_action: this.lastBrowserAction,
-      page_url: this.lastPageURL,
-      browser_uptime_ms: this.browserStartedAt ? Date.now() - this.browserStartedAt : 0,
-      input: { last_action: this.lastBrowserAction, page_url: this.lastPageURL },
-      output: { exit_reason: reason, exit_code: "无法取得" },
     });
   }
 
@@ -534,7 +466,7 @@ export class BrowserSession {
 
   /** dispose 关闭浏览器并清理本地引用。 */
   private async dispose(): Promise<void> {
-    this.intentionalClose = true;
+    this.lifecycle.dispose();
     const context = this.context;
     const browser = this.browser;
     await this.downloadManager.list().catch(() => undefined);
@@ -562,77 +494,5 @@ function samePaths(left: string[] | undefined, right: string[]): boolean {
   return (
     current.length === right.length &&
     current.every((value, index) => value === right[index])
-  );
-}
-
-/** toPlaywrightLaunchOptions 把 Camoufox 返回的启动配置收敛为 Playwright 强类型启动参数。 */
-function toPlaywrightLaunchOptions(
-  prepared: Record<string, unknown>,
-): LaunchOptions {
-  const options: LaunchOptions = {};
-  const executablePath = prepared["executablePath"];
-  if (typeof executablePath === "string" && executablePath) {
-    options.executablePath = executablePath;
-  }
-  const headless = prepared["headless"];
-  if (typeof headless === "boolean") {
-    options.headless = headless;
-  }
-  const args = prepared["args"];
-  if (Array.isArray(args)) {
-    options.args = args.filter((item): item is string =>
-      typeof item === "string",
-    );
-  }
-  const env = prepared["env"];
-  if (env && typeof env === "object" && !Array.isArray(env)) {
-    const stringEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(env)) {
-      if (["string", "number", "boolean"].includes(typeof value)) {
-        stringEnv[key] = String(value);
-      }
-    }
-    options.env = stringEnv;
-  }
-  const userPrefs = prepared["firefoxUserPrefs"];
-  if (isPrimitiveRecord(userPrefs)) {
-    options.firefoxUserPrefs = userPrefs;
-  }
-  const proxy = prepared["proxy"];
-  if (isProxySettings(proxy)) {
-    options.proxy = proxy;
-  }
-  return options;
-}
-
-/** CamoufoxProxySettings 与 Playwright 代理配置保持结构一致。 */
-interface CamoufoxProxySettings {
-  server: string;
-  bypass?: string;
-  username?: string;
-  password?: string;
-}
-
-/** isProxySettings 校验并收敛外部返回的代理配置。 */
-function isProxySettings(value: unknown): value is CamoufoxProxySettings {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as { server?: unknown };
-  return typeof candidate.server === "string" && candidate.server.length > 0;
-}
-
-/** isPrimitiveRecord 判断值是否为基础类型组成的记录，用于收敛外部依赖返回的弱类型数据。 */
-function isPrimitiveRecord(
-  value: unknown,
-): value is Record<string, string | number | boolean> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  return Object.values(value).every(
-    (item) =>
-      typeof item === "string" ||
-      typeof item === "number" ||
-      typeof item === "boolean",
   );
 }

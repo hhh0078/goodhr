@@ -12,10 +12,13 @@ import (
 
 // PreviousRun 保存上一次未正常退出的进程及可读崩溃原因。
 type PreviousRun struct {
-	PID         int    `json:"pid"`
-	StartedAt   string `json:"started_at"`
-	CrashOffset int64  `json:"crash_offset"`
-	Reason      string `json:"-"`
+	PID              int              `json:"pid"`
+	StartedAt        string           `json:"started_at"`
+	CrashOffset      int64            `json:"crash_offset"`
+	Reason           string           `json:"-"`
+	CrashStack       string           `json:"-"`
+	RecentOperations []map[string]any `json:"-"`
+	LastError        map[string]any   `json:"-"`
 }
 
 // RunMarker 是程序正常收尾时需移除的运行标记。
@@ -47,17 +50,17 @@ func ReadPreviousRun(logsDir, crashPath string) *PreviousRun {
 			if crash, readErr := os.Open(crashPath); readErr == nil {
 				if info, statErr := crash.Stat(); statErr == nil && info.Size() > previous.CrashOffset {
 					start := previous.CrashOffset
-					if info.Size()-start > 16<<10 {
-						start = info.Size() - (16 << 10)
-					}
-					buffer := make([]byte, info.Size()-start)
+					// 保留当前崩溃的开头；文件尾部可能只有其他 goroutine 的调用栈。
+					buffer := make([]byte, min(info.Size()-start, 8<<10))
 					if n, readErr := crash.ReadAt(buffer, start); readErr == nil || n > 0 {
 						previous.Reason = "Go 致命崩溃：" + crashReason(string(buffer[:n]))
+						previous.CrashStack = diagnosticText(string(Redact(buffer[:n])), 6000)
 					}
 				}
 				_ = crash.Close()
 			}
 		}
+		previous.readRecentEvidence(logsDir)
 	}
 	return previous
 }
