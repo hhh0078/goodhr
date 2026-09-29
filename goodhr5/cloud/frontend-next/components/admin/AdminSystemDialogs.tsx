@@ -1,4 +1,4 @@
-/** 本文件负责新版后台系统公告和本地程序强制更新弹框。 */
+/** 本文件负责新版后台系统公告，以及区分必要升级和可忽略小补丁的本地程序更新弹框。 */
 "use client";
 
 import CampaignRoundedIcon from "@mui/icons-material/CampaignRounded";
@@ -6,10 +6,11 @@ import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRound
 import { Alert, Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import { localRequest } from "@/lib/admin-api";
-import { isVersionLower, latestLocalAgentRelease } from "@/lib/position-start-guard";
+import { isMandatoryLocalAgentUpdate, isVersionLower, latestLocalAgentRelease } from "@/lib/position-start-guard";
 import AdminDialog from "./AdminDialog";
 
 const dismissedAnnouncementKey = "goodhr5_dismissed_announcements";
+const dismissedOptionalUpdateKey = "goodhr5_dismissed_optional_agent_update";
 const activeUpdateStages = ["queued", "download", "install"];
 
 type AdminSystemDialogsProps = {
@@ -27,13 +28,19 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
   const [currentVersion, setCurrentVersion] = useState("");
   const [updateProgress, setUpdateProgress] = useState<any>({});
   const [updateError, setUpdateError] = useState("");
+  const [updateStarting, setUpdateStarting] = useState(false);
+  const [dismissedOptionalUpdate, setDismissedOptionalUpdate] = useState("");
   const release = useMemo(() => latestLocalAgentRelease(onboardingConfig), [onboardingConfig]);
-  const updateRunning = Boolean(updateProgress.running || activeUpdateStages.includes(String(updateProgress.stage || "")));
+  const updateRunning = Boolean(updateStarting || updateProgress.running || activeUpdateStages.includes(String(updateProgress.stage || "")));
   const versionMismatch = Boolean(agentBase && currentVersion && release.version && isVersionLower(currentVersion, release.version));
-  const updateOpen = versionMismatch || updateRunning;
+  const mandatoryUpdate = versionMismatch && isMandatoryLocalAgentUpdate(currentVersion, release.version);
+  const optionalUpdateIdentity = JSON.stringify([agentBase, currentVersion, release.version]);
+  const canIgnoreUpdate = versionMismatch && !mandatoryUpdate && !updateRunning;
+  const updateOpen = updateRunning || (versionMismatch && (mandatoryUpdate || (announcementReady && dismissedOptionalUpdate !== optionalUpdateIdentity)));
 
   useEffect(() => {
     setDismissedAnnouncements(readDismissedAnnouncements());
+    setDismissedOptionalUpdate(readDismissedOptionalUpdate());
     setAnnouncementReady(true);
   }, []);
 
@@ -71,16 +78,31 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
     setSessionDismissedAnnouncements((current) => Array.from(new Set([...current, ...ids])));
   }
 
+  /** ignoreOptionalUpdate 记住本机当前版本忽略的这一小补丁，必要升级及更新进行中不能关闭。 */
+  function ignoreOptionalUpdate() {
+    if (!canIgnoreUpdate) return;
+    setDismissedOptionalUpdate(optionalUpdateIdentity);
+    setUpdateError("");
+    try {
+      localStorage.setItem(dismissedOptionalUpdateKey, optionalUpdateIdentity);
+    } catch {
+      // 浏览器禁止存储时仍允许本次会话忽略小补丁。
+    }
+  }
+
   /** startUpdate 请求本地程序下载并启动最新安装包。 */
   async function startUpdate() {
     if (!agentBase) { setUpdateError("本地程序未连接，无法开始更新"); return; }
     if (!release.url) { setUpdateError("当前系统没有配置本地程序更新包下载地址"); return; }
     setUpdateError("");
+    setUpdateStarting(true);
     try {
       const progress = await localRequest(agentBase, "/api/v1/app-update/start", { method: "POST", body: { url: release.url, target_version: release.version, release_note: release.note, sha256: release.sha256 } });
       setUpdateProgress(progress || {});
     } catch (error) {
       setUpdateError(error instanceof Error ? error.message : "启动本地程序更新失败");
+    } finally {
+      setUpdateStarting(false);
     }
   }
 
@@ -90,11 +112,11 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
       <Stack spacing={1.5}>{visibleAnnouncements.map((item: any) => <Box key={item.id} onClick={() => openExternalURL(item.url)} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: "8px", bgcolor: "action.hover", cursor: item.url ? "pointer" : "default" }}><Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><CampaignRoundedIcon color="primary" /><Typography sx={{ fontWeight: 780 }}>{item.title || "公告"}</Typography></Stack>{item.created_at ? <Typography sx={{ color: "text.secondary", fontSize: 12 }}>{item.created_at}</Typography> : null}</Stack><Typography sx={{ mt: 1.25, color: "text.secondary", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{item.content}</Typography></Box>)}</Stack>
     </AdminDialog>
 
-    <AdminDialog open={updateOpen} title="更新本地程序" description="当前版本与后台要求版本不一致，完成更新后才能继续稳定使用。" confirmText={updateRunning ? "正在更新" : "立即更新"} loading={updateRunning} hideClose showCancel={false} confirmDisabled={!agentBase} onClose={() => undefined} onConfirm={() => void startUpdate()}>
+    <AdminDialog open={updateOpen} title="更新本地程序" description={updateRunning ? "本地程序正在更新，请稍等。" : mandatoryUpdate ? "这版需要更新，完成后就能继续开始岗位任务。" : "这次是小修补，晚点更新也行。"} confirmText="立即更新" loadingText="正在更新" loading={updateRunning} hideClose={!canIgnoreUpdate} showCancel={canIgnoreUpdate} cancelText="暂时忽略" confirmDisabled={!agentBase} onClose={ignoreOptionalUpdate} onConfirm={() => void startUpdate()}>
       <Stack spacing={2.25}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <VersionBox label="当前版本" value={currentVersion || updateProgress.current_version || "--"} />
-          <VersionBox label="要求版本" value={release.version || updateProgress.target_version || "--"} emphasized />
+          <VersionBox label={mandatoryUpdate ? "要求版本" : "最新版本"} value={release.version || updateProgress.target_version || "--"} emphasized />
         </Stack>
         {release.note || updateProgress.release_note ? <Box sx={{ p: 2, borderLeft: "3px solid", borderColor: "primary.main", bgcolor: "action.selected" }}><Typography sx={{ fontWeight: 760 }}>本次更新</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{release.note || updateProgress.release_note}</Typography></Box> : null}
         {updateRunning || updateProgress.message ? <Box><Stack direction="row" sx={{ mb: 0.8, justifyContent: "space-between" }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><SystemUpdateAltRoundedIcon color="primary" fontSize="small" /><Typography sx={{ fontWeight: 720 }}>{updateStageName(updateProgress.stage)}</Typography></Stack><Typography sx={{ color: "primary.main", fontWeight: 760 }}>{progressPercent}%</Typography></Stack><LinearProgress variant="determinate" value={progressPercent} sx={{ height: 9, borderRadius: "8px" }} /><Typography sx={{ mt: 0.8, color: "text.secondary", fontSize: 13 }}>{updateProgress.message || "正在准备更新"}</Typography>{formatProgressBytes(updateProgress) ? <Typography sx={{ mt: 0.25, color: "text.secondary", fontSize: 12 }}>{formatProgressBytes(updateProgress)}</Typography> : null}</Box> : null}
@@ -138,6 +160,15 @@ function readDismissedAnnouncements() {
     return Array.isArray(value) ? value.map(String) : [];
   } catch {
     return [];
+  }
+}
+
+/** readDismissedOptionalUpdate 读取忽略的小补丁记录，存储不可用时返回空记录。 */
+function readDismissedOptionalUpdate() {
+  try {
+    return localStorage.getItem(dismissedOptionalUpdateKey) || "";
+  } catch {
+    return "";
   }
 }
 
