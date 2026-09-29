@@ -92,6 +92,7 @@ type Candidate struct {
 	Fields             map[string]string `json:"fields"`
 	IdentityTexts      []string          `json:"identity_texts"`
 	IdentityOccurrence int               `json:"identity_occurrence"`
+	SkipReason         string            `json:"skip_reason,omitempty"` // 平台确认无需处理的卡片按正常跳过，不计入操作错误。
 }
 
 // CandidateListOptions 表示读取候选人列表时使用的任务级参数。

@@ -612,6 +612,21 @@
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
   "candidate_fields": {
+    "recommendation_marker": {
+      "_comment": "只读取卡片内的热搜或首页推荐标签，避免把简历正文当成推荐卡片标记。",
+      "parents": [],
+      "target": {
+        "_comment": "推荐卡片专用标签，必须匹配完整标签文字。",
+        "selectors": [
+          { "_comment": "热搜标签。", "type": "text", "value": "热搜" },
+          { "_comment": "首页推荐标签。", "type": "text", "value": "首页推荐" }
+        ],
+        "exact_text": true
+      },
+      "state": "attached",
+      "timeout_ms": 350,
+      "description": "Boss候选人推荐标签"
+    },
     "name": {
       "_comment": "候选人姓名字段。",
       "parents": [],

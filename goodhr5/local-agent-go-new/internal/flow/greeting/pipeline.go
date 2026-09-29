@@ -3,6 +3,7 @@ package greeting
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,15 +56,18 @@ func (f *Flow) candidatePreviews(
 		go func() {
 			defer workers.Done()
 			for item := range jobs {
-				decision, err := f.AI.EvaluateCandidatePreview(
-					ctx,
-					prepared.Position.AI,
-					prepared.Position,
-					item.Candidate,
-				)
-				item.Err = err
-				if err == nil {
-					item.Decision = &decision
+				// 平台确认无需处理的推荐卡片不调用 AI，保持原顺序交给主流程正常跳过。
+				if strings.TrimSpace(item.Candidate.SkipReason) == "" {
+					decision, err := f.AI.EvaluateCandidatePreview(
+						ctx,
+						prepared.Position.AI,
+						prepared.Position,
+						item.Candidate,
+					)
+					item.Err = err
+					if err == nil {
+						item.Decision = &decision
+					}
 				}
 				select {
 				case results <- item:

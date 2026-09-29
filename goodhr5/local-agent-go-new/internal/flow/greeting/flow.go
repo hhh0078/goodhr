@@ -348,6 +348,13 @@ func candidateBatchLimitReached(maxBatches int, completedBatches int) bool {
 // processCandidate 平铺执行基础过滤、详情、OCR、AI、打招呼、关闭详情和保存结果。
 func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTask, runtime model.Runtime, candidate model.Candidate, stats *shared.Stats) error {
 	stats.Processed++
+	if reason := strings.TrimSpace(candidate.SkipReason); reason != "" {
+		stats.Skipped++
+		f.log(prepared.Request.TaskID, "platform_skip", "skipped", time.Now(), nil)
+		f.saveCandidate(ctx, prepared, candidate, "platform_skip", "skipped", reason)
+		shared.ReportCandidateActivity(f.Logger, prepared.Request.TaskID, candidateDisplayName(candidate), reason, "skipped", nil)
+		return nil
+	}
 	detailMode := strings.ToLower(strings.TrimSpace(prepared.Position.CommonConfig.DetailMode))
 	needsDetail := needsCandidateDetail(prepared)
 	deferKeywordDecision := isKeywordMode(prepared.Position) && needsDetail

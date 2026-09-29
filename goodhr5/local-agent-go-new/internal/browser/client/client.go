@@ -242,6 +242,7 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	started := time.Now()
 	responseStatus := 0
 	responseBytes := 0
+	expectedMissing := false
 	defer func() {
 		entry := map[string]any{
 			"timestamp": time.Now().UTC().Format(time.RFC3339Nano), "category": "browser_call",
@@ -249,7 +250,10 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			"message": "Browser Worker 请求完成", "duration_ms": time.Since(started).Milliseconds(),
 			"trace_id": traceIDFromContext(ctx),
 			"input":    map[string]any{"method": method, "path": path, "has_payload": payload != nil},
-			"output":   map[string]any{"http_status": responseStatus, "response_bytes": responseBytes},
+			"output":   map[string]any{"http_status": responseStatus, "response_bytes": responseBytes, "expected_missing": expectedMissing},
+		}
+		if expectedMissing {
+			entry["message"] = "可选位置没有出现，检查完成"
 		}
 		if callErr != nil {
 			entry["error_message"] = callErr.Error()
@@ -306,6 +310,16 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 	}
 	responseBytes = len(wrapped.Data)
 	if !wrapped.OK {
+		// 明确声明可选的列表检查遇到元素缺失时返回空列表；浏览器故障等其他错误必须继续保留。
+		if optional, ok := payload.(contract.ElementFindAllRequest); ok && optional.ExpectedMissing && wrapped.Error.Code == "ELEMENT_NOT_FOUND" {
+			expectedMissing = true
+			if result != nil {
+				if err := json.Unmarshal([]byte("[]"), result); err != nil {
+					return fmt.Errorf("解析可选位置检查结果失败：%w", err)
+				}
+			}
+			return nil
+		}
 		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
 		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" {
 			client.recoverWorker(path)
