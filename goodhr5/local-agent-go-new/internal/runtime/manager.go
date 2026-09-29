@@ -156,6 +156,11 @@ func (m *Manager) StopWorker() error {
 	return m.worker.Stop()
 }
 
+// PrepareWorkerStop 在任务收尾前通知 Worker 管理器，本次退出由主程序主动触发。
+func (m *Manager) PrepareWorkerStop(reason string) {
+	m.worker.PrepareStop(reason)
+}
+
 // Status 返回控制台使用的运行组件路径、安装状态、版本记录和安装进度。
 func (m *Manager) Status() Status {
 	nodePath := m.NodePath()

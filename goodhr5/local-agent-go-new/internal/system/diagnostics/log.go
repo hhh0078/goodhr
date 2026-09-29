@@ -206,10 +206,14 @@ func redactValue(value any) any {
 
 // WorkerLine 将 Worker 输出统一成脱敏 JSON 行，并把异常 stderr 归入运行中的岗位。
 func WorkerLine(writer io.Writer, next func([]byte)) func([]byte) {
+	nativeTrace := &browserProcessTrace{}
 	return func(line []byte) {
 		data := bytes.TrimSpace(line)
 		if len(data) == 0 {
 			return
+		}
+		if !json.Valid(data) {
+			if native := nativeTrace.observe(string(data)); len(native) > 0 { data = native }
 		}
 		if !json.Valid(data) {
 			message := strings.TrimSpace(string(Redact(data)))

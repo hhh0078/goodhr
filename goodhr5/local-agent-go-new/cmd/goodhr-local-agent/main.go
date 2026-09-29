@@ -112,7 +112,11 @@ func run() (runErr error) {
 		if recovered := recover(); recovered != nil {
 			panicked = true
 			runErr = fmt.Errorf("本地程序发生未捕获异常：%v", recovered)
-			logAgentLifecycle("agent_panic", "本地程序发生未捕获异常", runErr.Error(), true, map[string]any{"stack": string(debug.Stack())})
+			stack := debug.Stack()
+			if len(stack) > 8000 {
+				stack = stack[:8000]
+			}
+			logAgentLifecycle("agent_panic", "本地程序发生未捕获异常", runErr.Error(), true, map[string]any{"stack": strings.ToValidUTF8(string(stack), "")})
 		}
 		reason := exitReason
 		if runErr != nil {
@@ -121,7 +125,7 @@ func run() (runErr error) {
 			reason = "收到退出信号"
 		}
 		logAgentLifecycle("agent_exit", "本地程序已退出", reason, runErr != nil, map[string]any{"pid": os.Getpid()})
-		if !panicked {
+		if !panicked && runErr == nil {
 			if err := marker.Clear(); err != nil {
 				log.Printf("event=agent_run_marker_clear_failed error=%q", err)
 			}
@@ -154,11 +158,7 @@ func run() (runErr error) {
 		logAgentLifecycle("agent_previous_run_unclean", "检测到上次异常退出", previous.Reason, true, map[string]any{"previous_pid": previous.PID, "previous_started_at": previous.StartedAt})
 	}
 	logAgentLifecycle("agent_start", "本地程序已启动", "", false, map[string]any{"pid": os.Getpid(), "version": version.Value})
-	previousReason := ""
-	if previous != nil {
-		previousReason = previous.Reason
-	}
-	application, err := bootstrap.New(cfg, runLog, previousReason)
+	application, err := bootstrap.New(cfg, runLog, previous)
 	if err != nil {
 		return fmt.Errorf("初始化本地程序失败：%w", err)
 	}
@@ -190,6 +190,7 @@ func logAgentLifecycle(event string, message string, reason string, isError bool
 		errorMessage = reason
 	}
 	data, err := json.Marshal(map[string]any{
+		"action":    strings.ReplaceAll(event, "_", "."),
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		"category":  category, "is_error": isError, "error_message": errorMessage,
 		"message": message, "input": map[string]any{}, "output": output,

@@ -8,9 +8,10 @@ import (
 
 // lineSinkWriter 缓存不完整行，并把完整 JSON 行交给统一日志入口。
 type lineSinkWriter struct {
-	mu      sync.Mutex
-	pending []byte
-	sink    func([]byte)
+	mu          sync.Mutex
+	pending     []byte
+	sink        func([]byte)
+	diagnostics processDiagnostics
 }
 
 // Write 接收进程输出分片并逐行回调。
@@ -24,8 +25,11 @@ func (w *lineSinkWriter) Write(content []byte) (int, error) {
 			break
 		}
 		line := bytes.TrimSpace(w.pending[:index])
-		if len(line) > 0 && w.sink != nil {
-			w.sink(append([]byte(nil), line...))
+		if len(line) > 0 {
+			w.diagnostics.capture(line)
+			if w.sink != nil {
+				w.sink(append([]byte(nil), line...))
+			}
 		}
 		w.pending = append(w.pending[:0], w.pending[index+1:]...)
 	}
@@ -37,8 +41,11 @@ func (w *lineSinkWriter) Flush() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	line := bytes.TrimSpace(w.pending)
-	if len(line) > 0 && w.sink != nil {
-		w.sink(append([]byte(nil), line...))
+	if len(line) > 0 {
+		w.diagnostics.capture(line)
+		if w.sink != nil {
+			w.sink(append([]byte(nil), line...))
+		}
 	}
 	w.pending = nil
 }

@@ -51,8 +51,14 @@ type Application struct {
 }
 
 // New 按依赖顺序创建 SQLite、客户端、流程和本地 HTTP 服务。
-func New(cfg config.Config, runLog *diagnostics.Writer, previousExitReason ...string) (*Application, error) {
+func New(cfg config.Config, runLog *diagnostics.Writer, previousRuns ...*diagnostics.PreviousRun) (*Application, error) {
 	cleanupLocalFiles(cfg)
+	previousExitReason := []string{}
+	var previous *diagnostics.PreviousRun
+	if len(previousRuns) > 0 && previousRuns[0] != nil {
+		previous = previousRuns[0]
+		previousExitReason = append(previousExitReason, previous.Reason)
+	}
 	store, err := storage.Open(cfg.DatabasePath, previousExitReason...)
 	if err != nil {
 		return nil, err
@@ -76,20 +82,21 @@ func New(cfg config.Config, runLog *diagnostics.Writer, previousExitReason ...st
 		MachineID: machineID, AgentVersion: version.Value, LocalPort: cfg.Port,
 	}
 	aiClient := ai.New()
-	ocrClient := ocr.New(cfg.OCRExecutable)
 	profiles := profile.New(cfg.ProfilesDir)
 	powerGuard := &power.Guard{}
 	notifier := &notification.Notifier{}
 	logger := lifecycle.NewTaskLogger(store, shared.StandardLogger{})
 	incidents := diagnostics.NewBrowserIncidentRecorder(store, cloudClient)
-	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)
-	if len(previousExitReason) > 0 && previousExitReason[0] != "" {
-		incidents.RecordLifecycle("agent.previous_exit", "检测到上次异常退出："+previousExitReason[0], true)
-	}
-	workerProcess.SetLogSink(diagnostics.WorkerLine(runLog, func(line []byte) {
+	runtimeLog := diagnostics.WorkerLine(runLog, func(line []byte) {
 		logger.WorkerLine(line)
 		incidents.WorkerLine(line)
-	}))
+	})
+	ocrClient := ocr.New(cfg.OCRExecutable, runtimeLog)
+	incidents.RecordLifecycle("agent.start", "本地程序已启动，版本 "+version.Value, false)
+	if previous != nil {
+		incidents.RecordLifecycleDetails("agent.previous_exit", "检测到上次异常退出："+previous.Reason, true, previous.Diagnostics())
+	}
+	workerProcess.SetLogSink(runtimeLog)
 	browserClient.SetRecovery(workerProcess.Stop)
 	checker := &preflight.Checker{
 		Cloud: cloudClient, Runtime: runtimeManager, Browser: browserClient,
@@ -210,35 +217,55 @@ func (a *Application) Run(ctx context.Context) error {
 		}
 	}
 	log.Printf("event=agent_shutdown exit_reason=%q", shutdownReason)
+	a.runtime.PrepareWorkerStop(shutdownReason)
+	shutdownStartedAt := time.Now()
+	shutdownErrors := map[string]any{}
 	taskCtx, cancelTasks := context.WithTimeout(context.Background(), 45*time.Second)
 	a.runner.StopAll(taskCtx, shutdownReason)
 	if taskCtx.Err() != nil {
 		log.Printf("event=agent_shutdown_task_timeout exit_reason=%q", taskCtx.Err())
+		shutdownErrors["tasks"] = taskCtx.Err().Error()
 		if runErr == nil {
 			runErr = fmt.Errorf("等待岗位任务停止超时：%w", taskCtx.Err())
 		}
 	}
 	cancelTasks()
 	serverCtx, cancelServer := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := a.server.Shutdown(serverCtx); err != nil && runErr == nil {
-		runErr = fmt.Errorf("关闭本地接口失败：%w", err)
+	if err := a.server.Shutdown(serverCtx); err != nil {
+		shutdownErrors["local_server"] = err.Error()
+		if runErr == nil {
+			runErr = fmt.Errorf("关闭本地接口失败：%w", err)
+		}
 	}
 	cancelServer()
 	browserCtx, cancelBrowser := context.WithTimeout(context.Background(), 60*time.Second)
 	if _, err := a.browser.StopBrowser(browserCtx); err != nil {
+		shutdownErrors["browser"] = err.Error()
 		log.Printf("关闭浏览器时有点磨蹭，我继续保存下载记录：%v", err)
 	}
 	cancelBrowser()
 	syncCtx, cancelSync := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := a.downloads.Sync(syncCtx); err != nil {
+		shutdownErrors["downloads"] = err.Error()
 		log.Printf("退出前最后同步下载记录没有完成：%v", err)
 	}
 	cancelSync()
 	stopDownloads()
 	<-downloadDone
-	_ = a.runtime.StopWorker()
+	if err := a.runtime.StopWorker(); err != nil {
+		shutdownErrors["worker"] = err.Error()
+		if runErr == nil {
+			runErr = fmt.Errorf("关闭操作进程失败：%w", err)
+		}
+	}
 	a.ocr.Close()
-	a.incidents.RecordLifecycle("agent.exit", shutdownReason, runErr != nil)
+	finalReason := shutdownReason
+	if runErr != nil {
+		finalReason += "：" + runErr.Error()
+	}
+	a.incidents.RecordLifecycleDetails("agent.exit", finalReason, runErr != nil, map[string]any{
+		"agent_version": version.Value, "shutdown_duration_ms": time.Since(shutdownStartedAt).Milliseconds(), "shutdown_errors": shutdownErrors,
+	})
 	incidentCtx, cancelIncidents := context.WithTimeout(context.Background(), 5*time.Second)
 	a.incidents.Flush(incidentCtx)
 	cancelIncidents()

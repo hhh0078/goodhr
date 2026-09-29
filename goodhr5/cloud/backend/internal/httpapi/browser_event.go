@@ -238,8 +238,10 @@ func (s *BrowserEventService) AdminLogs(w http.ResponseWriter, r *http.Request) 
 // validRuntimeEvent 只接受本地程序和浏览器生命周期的运行或退出事件。
 func validRuntimeEvent(action, category string, isError bool) bool {
 	switch action {
-	case "browser.exit", "worker.exit", "agent.previous_exit":
+	case "browser.exit", "browser.crash", "worker.crash", "agent.previous_exit":
 		return category == "异常退出" && isError
+	case "worker.exit", "browser.process_exit", "ocr.exit":
+		return (category == "异常退出" && isError) || (category == "运行" && !isError) || (action == "worker.exit" && category == "错误" && isError)
 	case "browser.start", "browser.stop", "agent.start", "agent.exit":
 		return (category == "运行" && !isError) || (action == "agent.exit" && category == "异常退出" && isError) || ((action == "browser.start" || action == "browser.stop") && category == "错误" && isError)
 	default:

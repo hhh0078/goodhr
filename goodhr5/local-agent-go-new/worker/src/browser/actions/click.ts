@@ -13,6 +13,7 @@ import { FindAction } from "./find.js";
 import { MoveAction } from "./move.js";
 import { ScrollAction } from "./scroll.js";
 import { waitForStablePosition } from "./stable-position.js";
+import { NewPageWaiter } from "./new-page-waiter.js";
 
 /** ClickResult 表示封装点击的查找、移动和验证结果。 */
 export interface ClickResult extends JsonObject {
@@ -41,6 +42,7 @@ export class ClickAction {
     request: ElementClickRequest,
     actionContext: ActionContext,
   ): Promise<ClickResult> {
+    let newPageWaiter: NewPageWaiter | undefined;
     this.logger.info(actionContext, "click", "start", {
       target_description: request.selector.description,
     });
@@ -64,13 +66,11 @@ export class ClickAction {
       await waitForStablePosition(found, this.locator);
       // 点击收紧到可见区域中部，避免随机落在被悬浮入口覆盖的按钮边缘。
       await this.move.toElement(found.resolved, actionContext, { centered: true });
-      const newPagePromise = request.wait_for_new_page
-        ? found.resolved.page
-            .context()
-            .waitForEvent("page", {
-              timeout: request.new_page_timeout_ms ?? 10_000,
-            })
-        : null;
+      if (request.wait_for_new_page) {
+        newPageWaiter = new NewPageWaiter(
+          found.resolved.page.context(), actionContext, request.new_page_timeout_ms ?? 10_000,
+        );
+      }
       const button = request.button ?? "left";
       const clickCount = Math.max(1, request.click_count ?? 1);
       let totalHold = 0;
@@ -87,7 +87,7 @@ export class ClickAction {
           await delay(randomInteger(80, 160));
         }
       }
-      const newPage = newPagePromise ? await newPagePromise : null;
+      const newPage = newPageWaiter ? await newPageWaiter.wait() : null;
       if (newPage) {
         await newPage
           .waitForLoadState("domcontentloaded", {
@@ -139,6 +139,8 @@ export class ClickAction {
       });
       this.logger.failure(actionContext, normalized);
       throw normalized;
+    } finally {
+      newPageWaiter?.cancel();
     }
   }
 
