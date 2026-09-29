@@ -31,7 +31,7 @@ func (l *platformSkipLogger) CandidateActivity(_ string, _ string, action string
 // ClearCandidate 满足候选人上下文清理接口。
 func (l *platformSkipLogger) ClearCandidate(string) {}
 
-// TestPlatformSkipClearsConsecutiveErrors 验证已确认的无入口推荐卡片不会凑成第三次错误，并允许继续处理后面的普通卡片。
+// TestPlatformSkipClearsConsecutiveErrors 验证已确认的热搜牛人卡片不会凑成第三次错误，并允许继续处理后面的普通卡片。
 func TestPlatformSkipClearsConsecutiveErrors(t *testing.T) {
 	store, err := storage.Open(":memory:")
 	if err != nil {
@@ -47,7 +47,7 @@ func TestPlatformSkipClearsConsecutiveErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	candidate := model.Candidate{Name: "尚先生", SkipReason: "推荐卡片没有打招呼入口，已跳过"}
+	candidate := model.Candidate{Name: "尚先生", SkipReason: "卡片含“热搜牛人”，已直接跳过"}
 	stats := shared.Stats{}
 	// 空 Runtime 和 Browser 一旦被调用就会失败，证明正常跳过在所有页面动作之前发生。
 	err = flow.processCandidate(context.Background(), shared.PreparedTask{}, nil, candidate, &stats)
@@ -77,11 +77,11 @@ func TestPlatformSkipClearsConsecutiveErrors(t *testing.T) {
 	}
 }
 
-// TestPlatformSkipBypassesAIPreview 验证 AI 岗位中的无入口推荐卡片按原顺序返回，且不调用 AI。
+// TestPlatformSkipBypassesAIPreview 验证 AI 岗位中的热搜牛人卡片按原顺序返回，且不调用 AI。
 func TestPlatformSkipBypassesAIPreview(t *testing.T) {
 	flow := Flow{}
 	prepared := shared.PreparedTask{Position: cloud.PositionSnapshot{RequiresAI: true, CommonConfig: cloud.PositionCommonConfig{ModeDefault: "ai"}}}
-	candidate := model.Candidate{Index: 9, SkipReason: "推荐卡片没有打招呼入口，已跳过"}
+	candidate := model.Candidate{Index: 9, SkipReason: "卡片含“热搜牛人”，已直接跳过"}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	ordered := flow.candidatePreviews(ctx, prepared, []model.Candidate{candidate})

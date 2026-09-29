@@ -612,20 +612,19 @@
   },
   "_comment_candidate_fields": "相对候选人卡片读取的结构化字段。",
   "candidate_fields": {
-    "recommendation_marker": {
-      "_comment": "只读取卡片内的热搜或首页推荐标签，避免把简历正文当成推荐卡片标记。",
+    "card_text": {
+      "_comment": "读取整张卡片及外层推荐标题；向上扩展时只能包含当前一个候选人，且不能越过候选人列表，避免波及相邻普通卡片。",
       "parents": [],
       "target": {
-        "_comment": "推荐卡片专用标签，必须匹配完整标签文字。",
+        "_comment": "使用标准 Locator 读取列表内仅包含当前候选人的最外层卡片；没有外层包装时读取当前卡片本身。",
         "selectors": [
-          { "_comment": "热搜标签。", "type": "text", "value": "热搜" },
-          { "_comment": "首页推荐标签。", "type": "text", "value": "首页推荐" }
-        ],
-        "exact_text": true
+          { "_comment": "Playwright 原生 XPath 选择器引擎：包含当前卡片的外层包装不得包含其他候选人，也不得跨出列表。", "type": "css", "value": "xpath=ancestor-or-self::*[count(descendant-or-self::*[contains(concat(' ', normalize-space(@class), ' '), ' candidate-card-wrap ')]) = 1 and ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' card-list ') or contains(concat(' ', normalize-space(@class), ' '), ' recommend-card-list ')] and not(contains(concat(' ', normalize-space(@class), ' '), ' card-list ') or contains(concat(' ', normalize-space(@class), ' '), ' recommend-card-list '))][last()]" },
+          { "_comment": "当前候选人卡片全部文字。", "type": "css", "value": ":scope" }
+        ]
       },
       "state": "attached",
-      "timeout_ms": 350,
-      "description": "Boss候选人推荐标签"
+      "timeout_ms": 1500,
+      "description": "Boss候选人完整卡片文字"
     },
     "name": {
       "_comment": "候选人姓名字段。",

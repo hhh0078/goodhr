@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/platform/common"
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
@@ -19,24 +18,15 @@ func (r *Runtime) FindCandidates(ctx context.Context, browser model.Browser, cfg
 	}
 	for index := range candidates {
 		candidate := &candidates[index]
-		if strings.TrimSpace(candidate.Fields["recommendation_marker"]) == "" {
-			continue
+		// 外层标题也属于卡片文字；保留原序号，只标记跳过，不探测按钮或执行页面动作。
+		for _, text := range []string{candidate.Summary, candidate.Fields["card_text"]} {
+			if strings.Contains(strings.Join(strings.Fields(text), ""), "热搜牛人") {
+				candidate.SkipReason = "卡片含“热搜牛人”，已直接跳过"
+				break
+			}
 		}
-		// 保留列表序号和同名出现次数；只读检查确认无招呼入口，不点击推荐卡片。
-		selector, err := common.CandidateActionSelector(cfg, "candidate.greet", *candidate)
-		if err != nil {
-			return nil, err
-		}
-		selector.State = "attached"
-		selector.TimeoutMS = 350
-		buttons, err := browser.FindAll(ctx, contract.ElementFindAllRequest{
-			Selector: selector, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true,
-		})
-		if err != nil && !common.IsElementMissing(err) {
-			return nil, fmt.Errorf("检查推荐卡片打招呼入口失败：%w", err)
-		}
-		if len(buttons) == 0 {
-			candidate.SkipReason = "推荐卡片没有打招呼入口，已跳过"
+		if candidate.SkipReason == "" && strings.TrimSpace(candidate.Fields["card_text"]) == "" {
+			return nil, fmt.Errorf("候选人“%s”的完整卡片文字尚未读到，暂不操作", candidate.Name)
 		}
 	}
 	return candidates, nil
