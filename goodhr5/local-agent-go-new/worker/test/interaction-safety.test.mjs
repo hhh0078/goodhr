@@ -14,7 +14,7 @@ test("点击已完成但验证失败时返回独立错误码并禁止盲目重�
   let clicks = 0;
   const mouse = { async down() { clicks++; }, async up() {} };
   const action = new ClickAction(
-    { async one() { return found; } }, { async ensureVisible() {} },
+    { async one() { return found; }, async all() { return [{}]; } }, { async ensureVisible() {} },
     { async toElement() {} }, { async box() { return box; } }, mouse,
     { info() {}, failure() {} },
   );

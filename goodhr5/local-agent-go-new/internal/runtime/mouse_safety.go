@@ -7,8 +7,6 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 )
 
 //go:embed mouse_safety.js
@@ -25,11 +23,11 @@ const mouseSafetyMarker = "// GoodHR native mouse safety v7"
 
 // EnsureCamoufoxMouseSafety 修正已知协议资源，保留原始备份，未知版本不修改。
 func EnsureCamoufoxMouseSafety(camoufoxDir string) error {
-	archivePath := firstExistingFile(filepath.Join(camoufoxDir, "omni.ja"), filepath.Join(camoufoxDir, "Camoufox.app", "Contents", "Resources", "omni.ja"), filepath.Join(camoufoxDir, "Contents", "Resources", "omni.ja"))
-	reader, err := zip.OpenReader(archivePath)
-	if os.IsNotExist(err) {
-		return nil
+	archivePath, err := nativeInputArchivePath(camoufoxDir)
+	if err != nil {
+		return err
 	}
+	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
 	}

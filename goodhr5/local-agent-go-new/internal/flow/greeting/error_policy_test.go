@@ -10,6 +10,7 @@ import (
 	"goodhr5/local-agent-go-new/internal/browser/contract"
 	"goodhr5/local-agent-go-new/internal/flow/shared"
 	"goodhr5/local-agent-go-new/internal/integration/ocr"
+	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
 // TestCandidateTimeout 验证单个候选人处理上限保持三分钟。
@@ -23,6 +24,7 @@ func TestCandidateTimeout(t *testing.T) {
 func TestShouldStopImmediately(t *testing.T) {
 	cases := []error{
 		context.Canceled,
+		model.ErrCandidateDetailCleanupFailed,
 		&ocr.Error{Code: ocr.ErrorUnavailable, Message: "组件不可用"},
 		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "BROWSER_NOT_RUNNING"}},
 		&contract.WorkerError{Body: contract.WorkerErrorBody{Code: "PAGE_CLOSED"}},

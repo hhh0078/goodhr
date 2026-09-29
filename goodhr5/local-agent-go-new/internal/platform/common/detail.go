@@ -17,7 +17,21 @@ const (
 )
 
 // OpenCandidateDetail 点击候选人卡片内的详情入口。
-func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) (resultErr error) {
+	// 弹窗已经出现而正文检查失败时，也必须先清理弹窗；清理失败禁止继续处理列表。
+	defer func() {
+		if resultErr == nil || contract.IsSessionUnavailable(resultErr) {
+			return
+		}
+		if _, configured := cfg.Selectors["candidate.detail_dialog"]; !configured {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if cleanupErr := CloseCandidateDetail(cleanupCtx, browser, cfg); cleanupErr != nil {
+			resultErr = fmt.Errorf("%w：打开检查失败：%v；关闭结果：%w", model.ErrCandidateDetailCleanupFailed, resultErr, cleanupErr)
+		}
+	}()
 	selector, err := CandidateActionSelector(cfg, "candidate.open_target", candidate)
 	if err != nil {
 		return err
@@ -47,11 +61,31 @@ func OpenCandidateDetail(ctx context.Context, browser model.Browser, cfg model.C
 		if opened {
 			return nil
 		}
+		if dialog, configured := cfg.Selectors["candidate.detail_dialog"]; configured && attempt == 1 {
+			dialog.TimeoutMS = 250
+			items, dialogErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
+				Selector: dialog, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true, DiagnosticAttempt: attempt,
+			})
+			if dialogErr != nil && !IsElementMissing(dialogErr) {
+				return dialogErr
+			}
+			if len(items) > 0 {
+				// 弹窗已经遮住卡片时只等待正文，不再点击背后的候选人入口。
+				opened, probeErr = candidateDetailOpened(ctx, browser, cfg, 5000, 2)
+				if probeErr != nil {
+					return probeErr
+				}
+				if opened {
+					return nil
+				}
+				break
+			}
+		}
 	}
 	if clickErr != nil {
 		return clickErr
 	}
-	return fmt.Errorf("%w：候选人详情入口点击两次后仍然没有打开", model.ErrCandidateDetailUnavailable)
+	return fmt.Errorf("%w：候选人详情入口操作后正文仍未出现", model.ErrCandidateDetailUnavailable)
 }
 
 // candidateDetailOpened 只检查详情是否出现，保留预期缺失的逐层证据，避免读取正文干扰打开判断。
@@ -118,13 +152,29 @@ func BrowseCandidateDetail(ctx context.Context, browser model.Browser, cfg model
 	return err
 }
 
-// CloseCandidateDetail 关闭详情后检查正文是否消失，必要时再按一次 Escape。
+// CloseCandidateDetail 关闭详情后检查弹窗或正文是否消失，必要时再按一次 Escape。
 func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.Config) error {
-	detail, err := RequiredSelector(cfg, "candidate.detail")
+	detailKey := "candidate.detail"
+	_, hasDialog := cfg.Selectors["candidate.detail_dialog"]
+	if hasDialog {
+		detailKey = "candidate.detail_dialog"
+	}
+	detail, err := RequiredSelector(cfg, detailKey)
 	if err != nil {
 		return err
 	}
 	detail.TimeoutMS = 200
+	if hasDialog {
+		items, probeErr := browser.FindAll(ctx, contract.ElementFindAllRequest{
+			Selector: detail, MaxItems: 1, ExpectedMissing: true, ProbeOnly: true, Diagnostic: true,
+		})
+		if IsElementMissing(probeErr) || probeErr == nil && len(items) == 0 {
+			return nil
+		}
+		if probeErr != nil {
+			return probeErr
+		}
+	}
 	var clickErr error
 	if _, ok := cfg.Selectors["candidate.detail_close"]; ok {
 		closeSelector, selectorErr := RequiredSelector(cfg, "candidate.detail_close")
@@ -132,7 +182,8 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 			return selectorErr
 		}
 		_, clickErr = browser.Click(ctx, contract.ElementClickRequest{
-			Selector: closeSelector,
+			Selector:   closeSelector,
+			Diagnostic: true,
 			Verify: &contract.ClickVerification{
 				TargetHidden: &detail,
 				TimeoutMS:    2000,
@@ -144,7 +195,7 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		if contract.IsSessionUnavailable(clickErr) {
 			return clickErr
 		}
-	} else {
+	} else if !hasDialog {
 		_, err = browser.PressKey(ctx, contract.KeyboardPressRequest{Key: "Escape", DelayMS: 120})
 		return err
 	}
@@ -154,7 +205,7 @@ func CloseCandidateDetail(ctx context.Context, browser model.Browser, cfg model.
 		}
 		return err
 	}
-	hidden, err := waitSelectorHidden(ctx, browser, cfg, "candidate.detail")
+	hidden, err := waitSelectorHidden(ctx, browser, cfg, detailKey)
 	if err != nil {
 		return err
 	}

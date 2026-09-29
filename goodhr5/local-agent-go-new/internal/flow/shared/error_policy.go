@@ -61,7 +61,7 @@ func ShouldStopTaskImmediately(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, model.ErrGreetingUnconfirmed) || ai.IsPositionStoppingError(err) || ocr.IsUnavailable(err) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, model.ErrGreetingUnconfirmed) || errors.Is(err, model.ErrCandidateDetailCleanupFailed) || ai.IsPositionStoppingError(err) || ocr.IsUnavailable(err) {
 		return true
 	}
 	return contract.IsSessionUnavailable(err)

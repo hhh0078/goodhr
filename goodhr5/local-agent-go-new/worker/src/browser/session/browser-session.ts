@@ -27,6 +27,7 @@ import { pageURLContainsTarget, safeURL } from "./navigation.js";
 import { trackPageDiagnostics } from "./page-diagnostics.js";
 import { BrowserLifecycle } from "./browser-lifecycle.js";
 import { buildLaunchOptions } from "./launch-options.js";
+import { nativeInputSafetyDiagnostic } from "./native-input-safety.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -69,7 +70,7 @@ export class BrowserSession {
       persistent: Boolean(request.user_data_dir),
       headless: request.headless ?? false,
       diagnostic: true,
-      input: { headless: request.headless ?? false, persistent: Boolean(request.user_data_dir) },
+      input: { headless: request.headless ?? false, persistent: Boolean(request.user_data_dir), native_input_patch: nativeInputSafetyDiagnostic() },
     });
     try {
       if (await this.isRunning()) {
@@ -90,7 +91,7 @@ export class BrowserSession {
           this.logger.info(actionContext, step, "success", {
             reused: true,
             diagnostic: true,
-            output: { reused: true, current_url: safeURL(status.current_url) },
+            output: { reused: true, current_url: safeURL(status.current_url), native_input_patch: nativeInputSafetyDiagnostic() },
           });
           return status;
         }
@@ -149,7 +150,7 @@ export class BrowserSession {
         reused: false,
         current_url: status.current_url,
         diagnostic: true,
-        output: { reused: false, current_url: safeURL(status.current_url) },
+        output: { reused: false, current_url: safeURL(status.current_url), native_input_patch: nativeInputSafetyDiagnostic() },
       });
       return status;
     } catch (error) {

@@ -84,6 +84,10 @@ test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报�
   const action = new ClickAction(
     {
       async one(selector) {
+        assert.notEqual(selector.description, "已关闭弹层", "关闭检查不能进入需要读取坐标的完整查找");
+        return found;
+      },
+      async all(selector) {
         if (selector.description === "已关闭弹层") {
           verifyTimeout = selector.timeout_ms;
           throw new WorkerError({
@@ -94,7 +98,7 @@ test(`点击后弹框状态 ${hiddenCode} 应通过隐藏验证而不是误报�
             trace_id: context.trace_id,
           });
         }
-        return found;
+        return [];
       },
     },
     { async ensureVisible() {} },

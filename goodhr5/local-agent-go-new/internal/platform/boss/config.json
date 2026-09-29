@@ -255,18 +255,12 @@
       "description": "Boss候选人基础信息详情入口"
     },
     "candidate.detail": {
-      "_comment": "候选人详情正文。",
+      "_comment": "候选人详情正文，详情 iframe 与推荐列表 iframe 并列挂在主页面。",
       "frames": [
         {
-          "_comment": "Boss 人才推荐主框架。",
+          "_comment": "主页面上的候选人简历详情框架，不进入推荐列表框架。",
           "selectors": [
-            { "_comment": "推荐页面固定 iframe。", "type": "css", "value": "iframe[name='recommendFrame']" }
-          ]
-        },
-        {
-          "_comment": "Boss 候选人简历详情内层框架。",
-          "selectors": [
-            { "_comment": "简历详情地址固定前缀 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']" }
+            { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
           ]
         }
       ],
@@ -285,15 +279,9 @@
       "_comment": "Boss 详情内真正跟随真实滚轮变化的可见简历层，只用于分段截图，避免同页两个 #resume 产生歧义。",
       "frames": [
         {
-          "_comment": "Boss 人才推荐主框架。",
+          "_comment": "主页面上的候选人简历详情框架，与正文定位保持一致。",
           "selectors": [
-            { "_comment": "推荐页面固定 iframe。", "type": "css", "value": "iframe[name='recommendFrame']" }
-          ]
-        },
-        {
-          "_comment": "Boss 候选人简历详情内层框架。",
-          "selectors": [
-            { "_comment": "简历详情地址固定前缀 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']" }
+            { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
           ]
         }
       ],
@@ -308,6 +296,41 @@
       "state": "visible",
       "timeout_ms": 5000,
       "description": "Boss候选人详情截图区域"
+    },
+    "candidate.detail_dialog": {
+      "_comment": "主页面详情弹窗，正文尚未加载时也能检测并验证关闭结果。",
+      "parents": [],
+      "target": {
+        "_comment": "详情框架本身，不依赖 iframe 内的简历正文。",
+        "selectors": [
+          { "_comment": "已出现的详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss候选人详情弹窗"
+    },
+    "candidate.detail_close": {
+      "_comment": "复用既有 Boss 详情关闭按钮，按钮缺失时退回 Escape 并验证弹窗消失。",
+      "frames": [
+        {
+          "_comment": "关闭按钮位于主页面详情 iframe 内。",
+          "selectors": [
+            { "_comment": "当前可见的简历详情 iframe。", "type": "css", "value": "iframe[src*='/web/frame/c-resume/']:visible" }
+          ]
+        }
+      ],
+      "parents": [],
+      "target": {
+        "_comment": "既有平台配置使用的详情关闭按钮。",
+        "selectors": [
+          { "_comment": "简历详情自定义关闭按钮。", "type": "css", "value": ".resume-custom-close" },
+          { "_comment": "兼容既有详情弹窗关闭按钮。", "type": "css", "value": ".boss-popup__close" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 1500,
+      "description": "Boss候选人详情关闭按钮"
     },
     "candidate.greet": {
       "_comment": "候选人卡片内打招呼按钮。",

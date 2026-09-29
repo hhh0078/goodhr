@@ -1,16 +1,20 @@
 // 文件作用说明：提供只供封装能力调用的最小鼠标移动、按键和真实滚轮原子操作。
 
-import { traceOperation } from "../../logging/operation.js";
+import { actionContextStorage, traceOperation } from "../../logging/operation.js";
 import type { Page } from "playwright-core";
 import type { JsonObject } from "../../contracts/common.js";
 import { resolveCamoufoxBinary } from "../session/camoufox-binary.js";
 import { safeURL } from "../session/navigation.js";
 import { pageDiagnostic } from "../session/page-diagnostics.js";
+import { nativeInputSafetyDiagnostic } from "../session/native-input-safety.js";
+import { WorkerError } from "../../errors/worker-error.js";
 
 /** MousePrimitive 封装 Playwright 鼠标最小操作，不查找元素也不决定流程。 */
 export class MousePrimitive {
   private readonly pressed = new WeakMap<Page, Set<"left" | "right" | "middle">>();
   private browserVersion: string | undefined;
+  /** 创建独立输入限时，正式为十八秒，给浏览器内部十五秒保护留出诊断回传时间。 */
+  constructor(private readonly inputTimeoutMS = 18_000) {}
   /** move 发送一次目标坐标，等待 Camoufox 原生拟人轨迹执行完成。 */
   async move(
     page: Page,
@@ -54,9 +58,36 @@ export class MousePrimitive {
   /** traceMouse 保留输入前后页面事件，原生调用失败或浏览器关闭时也能取得缓存证据。 */
   private async traceMouse(page: Page, step: string, operation: () => Promise<void>, input: JsonObject): Promise<void> {
     const fields = this.diagnosticFields(page, input);
+    const context = actionContextStorage.getStore();
+    const timeoutMS = Math.max(1, Math.min(this.inputTimeoutMS, (context?.deadline_at ?? Infinity) - Date.now()));
+    (fields.input as JsonObject).input_timeout_ms = timeoutMS;
     await traceOperation(step, async () => {
-      try { await operation(); }
-      finally { fields.output = { page_state_after: pageDiagnostic(page) }; }
+      const startedAt = Date.now();
+      const wait: JsonObject = { origin: "worker", stage: "playwright_input", timeout_ms: timeoutMS, status: "pending" };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      /** timeoutError 标记无法撤销的输入超时，让队列关闭旧浏览器并禁止后续动作。 */
+      const timeoutError = (): WorkerError => {
+        wait.status = "timed_out";
+        wait.elapsed_ms = Date.now() - startedAt;
+        return new WorkerError({ code: "WORKER_UNRESPONSIVE", message: "浏览器输入等太久了，岗位先停一下；重新开始后会恢复浏览器",
+          action: context?.action ?? "interaction", step, trace_id: context?.trace_id ?? "", retryable: false,
+          details: { reason: "native_input_deadline", recovery_required: true, request_id: context?.request_id ?? "",
+            input: fields.input ?? {}, output: { input_wait: wait, page_state_after: pageDiagnostic(page) } } });
+      };
+      try {
+        // 先启动 Worker 定时器，再发协议调用；底层 Promise 的迟到结果由 race 接收，不产生无人处理的拒绝。
+        const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeoutError()), timeoutMS); });
+        await Promise.race([operation(), deadline]);
+        if (Date.now() - startedAt >= timeoutMS) throw timeoutError();
+        wait.status = "completed";
+      } catch (error) {
+        if (wait.status !== "timed_out") wait.status = "failed";
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        wait.elapsed_ms = Date.now() - startedAt;
+        fields.output = { input_wait: wait, page_state_after: pageDiagnostic(page) };
+      }
     }, fields);
   }
 
@@ -67,6 +98,7 @@ export class MousePrimitive {
       ...input, pressed_buttons: [...(this.pressed.get(page) ?? [])],
       agent_version: process.env.GOODHR_AGENT_VERSION ?? "unknown",
       camoufox_version: this.browserVersion, node_version: process.version, platform: process.platform,
+      native_input_patch: nativeInputSafetyDiagnostic(),
     };
     try {
       const viewport = page.viewportSize();

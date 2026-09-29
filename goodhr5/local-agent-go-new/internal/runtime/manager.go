@@ -20,17 +20,19 @@ import (
 
 // Manager 负责运行组件状态检查和 Worker 生命周期。
 type Manager struct {
-	nodePath      string
-	worker        *browserprocess.Manager
-	entryPath     string
-	runtimeDir    string
-	ocrPath       string
-	installMu     sync.Mutex
-	progressMu    sync.Mutex
-	progress      InstallProgress
-	systemMu      sync.Mutex
-	systemChecked bool
-	systemStatus  SystemRuntimeStatus
+	nodePath          string
+	worker            *browserprocess.Manager
+	entryPath         string
+	runtimeDir        string
+	ocrPath           string
+	installMu         sync.Mutex
+	progressMu        sync.Mutex
+	progress          InstallProgress
+	systemMu          sync.Mutex
+	systemChecked     bool
+	systemStatus      SystemRuntimeStatus
+	nativeInputMu     sync.Mutex
+	nativeInputStatus NativeInputSafetyStatus
 }
 
 // New 创建运行组件管理器。
@@ -40,19 +42,21 @@ func New(nodePath string, entryPath string, runtimeDir string, ocrPath string, w
 		ocrPath: ocrPath, worker: worker,
 		progress: InstallProgress{Stage: "idle", Message: "等待安装"},
 	}
-	manager.configureWorkerEnvironment()
 	manager.ensureCamoufoxInterface()
+	manager.configureWorkerEnvironment()
 	return manager
 }
 
 // ensureCamoufoxInterface 在已有组件中补齐中文语言包、标签交互、书签栏与原生下载通道。
 func (m *Manager) ensureCamoufoxInterface() {
 	if !fileExists(m.CamoufoxPath()) {
+		m.setNativeInputSafetyStatus(NativeInputSafetyStatus{ExpectedVersion: "v7", InstalledVersion: "missing", Error: "浏览器尚未安装"})
 		return
 	}
 	camoufoxDir := filepath.Join(m.runtimeDir, "camoufox")
-	if err := EnsureCamoufoxMouseSafety(camoufoxDir); err != nil {
-		log.Printf("[运行组件] 浏览器鼠标防卡死修正没有完成 err=%v", err)
+	patchErr := EnsureCamoufoxMouseSafety(m.CamoufoxPath())
+	if patchErr != nil {
+		log.Printf("[运行组件] 浏览器鼠标防卡死修正没有完成 err=%v", patchErr)
 	}
 	if err := EnsureCamoufoxTabInteraction(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 浏览器标签交互修正没有完成 err=%v", err)
@@ -69,6 +73,26 @@ func (m *Manager) ensureCamoufoxInterface() {
 	if err := EnsureChineseLanguagePack(camoufoxDir); err != nil {
 		log.Printf("[运行组件] 中文语言包没有装上，浏览器界面会保持英文 err=%v", err)
 	}
+	status := InspectCamoufoxMouseSafety(m.CamoufoxPath())
+	if patchErr != nil {
+		status.Ready = false
+		status.Error = patchErr.Error()
+	}
+	m.setNativeInputSafetyStatus(status)
+}
+
+// setNativeInputSafetyStatus 保存资源检查结果，允许组件安装与状态查询并发运行。
+func (m *Manager) setNativeInputSafetyStatus(status NativeInputSafetyStatus) {
+	m.nativeInputMu.Lock()
+	defer m.nativeInputMu.Unlock()
+	m.nativeInputStatus = status
+}
+
+// inputSafetyStatus 返回 Worker 启动前资源检查的副本。
+func (m *Manager) inputSafetyStatus() NativeInputSafetyStatus {
+	m.nativeInputMu.Lock()
+	defer m.nativeInputMu.Unlock()
+	return m.nativeInputStatus
 }
 
 // CheckNode 检查 Node.js 二进制是否存在。
@@ -181,6 +205,7 @@ func (m *Manager) Status() Status {
 		InstalledVersions:   m.loadVersions(),
 		InstallProgress:     m.InstallProgress(),
 		SystemRuntime:       m.SystemRuntimeStatus(false),
+		NativeInputSafety:   m.inputSafetyStatus(),
 	}
 }
 
@@ -257,6 +282,9 @@ func (m *Manager) configureWorkerEnvironment() {
 	environment := []string{
 		"CAMOUFOX_INSTALL_DIR=" + camoufoxDir,
 		"GOODHR_UBO_EXTENSION_PATH=" + bundledUBOPath(camoufoxDir, goruntime.GOOS),
+	}
+	if status, err := json.Marshal(m.inputSafetyStatus()); err == nil {
+		environment = append(environment, "GOODHR_NATIVE_INPUT_SAFETY="+string(status))
 	}
 	if fileExists(browserPath) {
 		environment = append(environment, "CAMOUFOX_BINARY_PATH="+browserPath)

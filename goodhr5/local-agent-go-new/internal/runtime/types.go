@@ -26,6 +26,7 @@ type Status struct {
 	InstalledVersions   map[string]InstalledComponent `json:"installed_versions"`
 	InstallProgress     InstallProgress               `json:"install_progress"`
 	SystemRuntime       SystemRuntimeStatus           `json:"system_runtime"`
+	NativeInputSafety   NativeInputSafetyStatus       `json:"native_input_safety"`
 }
 
 // SystemRuntimeStatus 表示操作系统原生运行库与 Worker 原生模块的检查结果。

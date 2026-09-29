@@ -209,13 +209,18 @@ export class ClickAction {
       return false;
     }
     try {
-      await this.find.one(
+      // 状态验证只检查可见性，不读取坐标；弹窗在检查途中移除时，坐标读取可能等待默认的三十秒。
+      const items = await this.find.all(
         { ...selector, state: "visible", timeout_ms: 0 },
+        1,
+        {},
         actionContext,
         false,
-        false,
+        1,
+        0,
+        { diagnostic: false, attempt: 0, probe_only: true },
       );
-      return true;
+      return items.length > 0;
     } catch (error) {
       if (
         error instanceof WorkerError &&

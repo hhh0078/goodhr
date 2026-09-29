@@ -13,6 +13,8 @@ var (
 	ErrCandidateAlreadyContacted = errors.New("候选人已经沟通过")
 	// ErrCandidateDetailUnavailable 表示当前候选人卡片可以点击，但平台没有打开详情。
 	ErrCandidateDetailUnavailable = errors.New("候选人详情暂时不可用")
+	// ErrCandidateDetailCleanupFailed 表示已出现的详情弹窗未能确认关闭，任务必须停止以免操作被遮挡的列表。
+	ErrCandidateDetailCleanupFailed = errors.New("详情弹窗还没有关好，岗位先停一下；重新开始后再试")
 	// ErrGreetingUnconfirmed 表示点击后未获得发送成功证据，必须停止以免重复发送或虚增计数。
 	ErrGreetingUnconfirmed = errors.New("尚未确认招呼发送成功，请检查平台权益或提示后再继续")
 )

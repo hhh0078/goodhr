@@ -14,6 +14,24 @@ import (
 	"goodhr5/local-agent-go-new/internal/platform/model"
 )
 
+// TestBossDetailUsesSiblingFrame 验证详情正文与截图进入主页面的详情 iframe，清理探测不依赖正文加载。
+func TestBossDetailUsesSiblingFrame(t *testing.T) {
+	cfg, err := LoadConfig("boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"candidate.detail", "candidate.detail_screenshot", "candidate.detail_close"} {
+		spec := cfg.Selectors[key]
+		if len(spec.Frames) != 1 || len(spec.Frames[0].Selectors) == 0 || !strings.Contains(spec.Frames[0].Selectors[0].Value, "c-resume/") || strings.Contains(spec.Frames[0].Selectors[0].Value, "recommendFrame") {
+			t.Fatalf("%s 仍在推荐 iframe 内找详情：%+v", key, spec)
+		}
+	}
+	dialog := cfg.Selectors["candidate.detail_dialog"]
+	if len(dialog.Frames) != 0 || len(dialog.Target.Selectors) == 0 || !strings.Contains(dialog.Target.Selectors[0].Value, "iframe") {
+		t.Fatalf("弹窗关闭判断必须从主页面检查框架本身：%+v", dialog)
+	}
+}
+
 // TestPlatformConfigTemplates 验证四个平台模板的必需字段和选择器集合。
 func TestPlatformConfigTemplates(t *testing.T) {
 	for _, platformID := range []string{"boss", "zhaopin", "liepin", "hliepin"} {
