@@ -79,7 +79,7 @@ func pluralAttempts(attempts int) string {
 func workerErrorSuggestion(code string) string {
 	switch strings.TrimSpace(code) {
 	case "BROWSER_WINDOW_NOT_READY":
-		return "请把浏览器窗口显示出来后重新开始岗位"
+		return "请解锁电脑，把浏览器放到桌面最前面后重新开始岗位"
 	case "VIEWPORT_TOO_SMALL", "MOUSE_TARGET_OUTSIDE_VIEWPORT":
 		return "请把浏览器窗口放大后再试"
 	case "ELEMENT_NOT_FOUND":

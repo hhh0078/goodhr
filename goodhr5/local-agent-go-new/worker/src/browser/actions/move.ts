@@ -2,6 +2,7 @@
 
 import type { ActionContext } from "../../contracts/common.js";
 import type { ElementView } from "../../contracts/selector.js";
+import type { Page } from "playwright-core";
 import {
   normalizeWorkerError,
   WorkerError,
@@ -26,13 +27,14 @@ export class MoveAction {
     private readonly mouse: MousePrimitive,
     private readonly logger: WorkerLogger,
     private readonly locator: Pick<LocatorPrimitive, "view"> = new LocatorPrimitive(),
+    private readonly reactivatePage: (page: Page, context: ActionContext) => Promise<void> = page => page.bringToFront(),
   ) {}
 
   /** toElement 移动到元素、窗口和可选容器交集内的安全随机点，不重新查找。 */
   async toElement(
     found: ResolvedElement,
     actionContext: ActionContext,
-    options: { allowAckRetry?: boolean; centered?: boolean; visibleArea?: VisibleArea } = {},
+    options: { allowAckRetry?: boolean; allowWindowRetry?: boolean; centered?: boolean; visibleArea?: VisibleArea } = {},
   ): Promise<MoveResult> {
     const step = "move";
     this.logger.info(actionContext, step, "start");
@@ -92,6 +94,32 @@ export class MoveAction {
       });
       return result;
     } catch (error) {
+      if (options.allowWindowRetry !== false && await this.reactivateWindowBeforeMove(found.page, actionContext, error)) {
+        try {
+          // 标签重新激活后重新读取坐标，避免把旧位置用于后续候选人。
+          found.view = await this.locator.view(found.page, found.locator);
+        } catch (refreshError) {
+          this.logger.error(actionContext, "window_recovery", "failed", {
+            attempt: 1, reason: "target_refresh_failed", error: String(refreshError),
+          });
+          // 目标坐标没有重新确认，保留最初的窗口错误以回收失活会话。
+          throw normalizeWorkerError(error, {
+            code: "MOVE_FAILED", message: "鼠标没顺利移动到目标位置",
+            action: actionContext.action, step, trace_id: actionContext.trace_id,
+          });
+        }
+        try {
+          const result = await this.toElement(found, actionContext, { ...options, allowAckRetry: false, allowWindowRetry: false });
+          this.logger.info(actionContext, "window_recovery", "success", { attempt: 1, action: "window_reactivation" });
+          return result;
+        } catch (retryError) {
+          this.logger.error(actionContext, "window_recovery", "failed", {
+            attempt: 1, reason: "move_retry_failed",
+            native_mouse: retryError instanceof WorkerError ? retryError.details.native_mouse ?? {} : nativeMouseDiagnostics(retryError) ?? {},
+          });
+          throw retryError;
+        }
+      }
       if (options.allowAckRetry !== false && nativeMouseDiagnostics(error)?.native_error_code === "GOODHR_MOUSE_ACK_TIMEOUT" &&
           !actionContext.signal?.aborted &&
           (actionContext.deadline_at ?? Infinity) - Date.now() > 7_000) {
@@ -122,13 +150,59 @@ export class MoveAction {
   ): Promise<void> {
     const x = Math.max(1, width / 2);
     const y = Math.max(1, height / 2);
-    await this.mouse.move(page, x, y);
+    try {
+      await this.mouse.move(page, x, y);
+    } catch (error) {
+      if (!await this.reactivateWindowBeforeMove(page, actionContext, error)) throw error;
+      try {
+        await this.mouse.move(page, x, y);
+        this.logger.info(actionContext, "window_recovery", "success", { attempt: 1, action: "window_reactivation" });
+      } catch (retryError) {
+        this.logger.error(actionContext, "window_recovery", "failed", {
+          attempt: 1, reason: "move_retry_failed",
+          native_mouse: retryError instanceof WorkerError ? retryError.details.native_mouse ?? {} : nativeMouseDiagnostics(retryError) ?? {},
+        });
+        throw retryError;
+      }
+    }
     this.logger.info(actionContext, "move", "success", {
       source: "viewport_center",
       movement: "native_humanize",
       x: Math.round(x),
       y: Math.round(y),
     });
+  }
+
+  /** reactivateWindowBeforeMove 只在原生鼠标尚未发出时恢复窗口，并记录一次恢复结果。 */
+  private async reactivateWindowBeforeMove(
+    page: ResolvedElement["page"],
+    actionContext: ActionContext,
+    error: unknown,
+  ): Promise<boolean> {
+    const diagnostic = nativeMouseDiagnostics(error);
+    if (diagnostic?.native_error_code !== "GOODHR_MOUSE_WINDOW_NOT_READY" ||
+        diagnostic.event_types !== "mousemove" || diagnostic.events_sent !== 0 ||
+        diagnostic.events_acknowledged !== 0 || actionContext.signal?.aborted ||
+        (actionContext.deadline_at ?? Infinity) - Date.now() < 7_000 ||
+        (typeof page.isClosed === "function" && page.isClosed())) {
+      return false;
+    }
+    this.logger.warn(actionContext, "window_recovery", "start", {
+      attempt: 1, action: "window_reactivation", native_mouse: diagnostic,
+    });
+    try {
+      await this.reactivatePage(page, actionContext);
+      this.logger.info(actionContext, "window_recovery", "retry", {
+        attempt: 1, action: "window_reactivation", input_sent_before_retry: false,
+      });
+      return true;
+    } catch (recoveryError) {
+      this.logger.error(actionContext, "window_recovery", "failed", {
+        attempt: 1, action: "window_reactivation", reason: "window_activation_failed",
+        error: String(recoveryError),
+      });
+      return false;
+    }
   }
 }
 

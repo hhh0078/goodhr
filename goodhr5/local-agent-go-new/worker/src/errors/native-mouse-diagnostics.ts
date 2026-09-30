@@ -3,7 +3,7 @@
 import type { JsonObject, JsonValue } from "../contracts/common.js";
 
 const diagnosticMarker = " GOODHR_MOUSE_DIAGNOSTICS=";
-const numberFields = ["schema_version", "target_x", "target_y", "buttons", "apz_wait_ms", "mouse_ack_wait_ms", "events_sent", "events_acknowledged", "elapsed_ms", "duplicate_points_skipped", "last_event_id", "activation_wait_ms", "input_timeout_ms", "delta_x", "delta_y", "window_ready_wait_ms", "window_restore_attempts"];
+const numberFields = ["schema_version", "target_x", "target_y", "buttons", "apz_wait_ms", "mouse_ack_wait_ms", "events_sent", "events_acknowledged", "elapsed_ms", "duplicate_points_skipped", "last_event_id", "activation_wait_ms", "input_timeout_ms", "delta_x", "delta_y", "window_ready_wait_ms", "window_restore_attempts", "window_focus_attempts"];
 const booleanFields = ["apz_flush_requested", "apz_flush_result", "apz_repaint_received", "recovery_required"];
 const stringFields = ["mouse_safety_version", "stage", "event_types", "last_event", "window_recovery_error_type"];
 

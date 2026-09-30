@@ -321,7 +321,7 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 			return nil
 		}
 		log.Printf("event=worker_action_failed path=%s trace_id=%s duration_ms=%d code=%s step=%s", path, traceIDFromContext(ctx), time.Since(started).Milliseconds(), wrapped.Error.Code, wrapped.Error.Step)
-		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" {
+		if wrapped.Error.Code == "WORKER_UNRESPONSIVE" || windowErrorWithoutInput(wrapped.Error) {
 			client.recoverWorker(path)
 		}
 		return &contract.WorkerError{Status: response.StatusCode, Body: wrapped.Error}
@@ -333,6 +333,24 @@ func call(ctx context.Context, client *Client, method string, path string, paylo
 		return fmt.Errorf("解析 Worker 结果失败：%w", err)
 	}
 	return nil
+}
+
+// windowErrorWithoutInput 确认窗口失活前没有发出原生输入，才回收浏览器供下次岗位使用。
+func windowErrorWithoutInput(body contract.WorkerErrorBody) bool {
+	if body.Code != "BROWSER_WINDOW_NOT_READY" {
+		return false
+	}
+	var details struct {
+		NativeMouse struct {
+			EventsSent         *int `json:"events_sent"`
+			EventsAcknowledged *int `json:"events_acknowledged"`
+		} `json:"native_mouse"`
+	}
+	if err := json.Unmarshal(body.Details, &details); err != nil {
+		return false
+	}
+	return details.NativeMouse.EventsSent != nil && *details.NativeMouse.EventsSent == 0 &&
+		details.NativeMouse.EventsAcknowledged != nil && *details.NativeMouse.EventsAcknowledged == 0
 }
 
 type traceKey struct{}

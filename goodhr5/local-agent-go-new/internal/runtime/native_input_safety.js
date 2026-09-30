@@ -47,6 +47,7 @@
     let focusAttempts = 0;
     diagnostic.stage = 'window_ready';
     diagnostic.window_restore_attempts = 0;
+    diagnostic.window_focus_attempts = 0;
     try {
       while (true) {
         guard();
@@ -65,6 +66,7 @@
           }
           if (focusAttempts === 0 || (focusAttempts === 1 && Date.now() - started >= 500)) {
             focusAttempts++;
+            diagnostic.window_focus_attempts = focusAttempts;
             win.focus();
           }
         } catch (error) { diagnostic.window_recovery_error_type = error?.name === 'TypeError' ? 'TypeError' : 'Error'; }
@@ -76,7 +78,7 @@
   /** _goodhrInputDiagnostic 创建鼠标和滚轮共用的阶段证据。 */
   _goodhrInputDiagnostic(eventTypes, x, y, extra = {}) {
     return {
-      schema_version: 1, mouse_safety_version: 'v9', stage: 'activation', event_types: eventTypes,
+      schema_version: 1, mouse_safety_version: 'v10', stage: 'activation', event_types: eventTypes,
       target_x: Math.round(x), target_y: Math.round(y), input_started_at: Date.now(),
       activation_wait_ms: 0, apz_wait_ms: 0, mouse_ack_wait_ms: 0,
       apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,

@@ -28,6 +28,7 @@ import { trackPageDiagnostics } from "./page-diagnostics.js";
 import { BrowserLifecycle } from "./browser-lifecycle.js";
 import { buildLaunchOptions } from "./launch-options.js";
 import { nativeInputSafetyDiagnostic } from "./native-input-safety.js";
+import { focusCurrentBrowserWindow, type WindowFocusResult } from "./window-focus.js";
 
 export { pageURLContainsTarget } from "./navigation.js";
 
@@ -45,7 +46,10 @@ export class BrowserSession {
   readonly elements = new ElementRegistry();
 
   /** 创建浏览器会话管理器。 */
-  constructor(private readonly logger: WorkerLogger) {
+  constructor(
+    private readonly logger: WorkerLogger,
+    private readonly focusBrowserWindow: () => Promise<WindowFocusResult> = focusCurrentBrowserWindow,
+  ) {
     this.lifecycle = new BrowserLifecycle(logger);
     this.downloadManager = new DownloadManager(logger);
   }
@@ -317,6 +321,39 @@ export class BrowserSession {
     this.registerPage(page);
     await page.bringToFront();
     return this.pageInfo(page);
+  }
+
+  /** reactivatePage 先激活当前 Worker 的桌面窗口，再尝试标签切换；不触碰招聘页面脚本或重放输入。 */
+  async reactivatePage(page: Page, actionContext: ActionContext): Promise<void> {
+    const context = this.requireContext(actionContext, "window_tab_cycle");
+    if (page.isClosed() || page.context() !== context) {
+      throw new Error("待恢复的浏览器标签已关闭或不属于当前会话");
+    }
+    const focus = await this.focusBrowserWindow();
+    this.logger.info(actionContext, "window_os_focus", focus.status, { ...focus });
+    if (focus.status === "focused" || focus.status === "already_active") {
+      await page.bringToFront();
+      this.currentPage = page;
+      return;
+    }
+    let temporary: Page | undefined;
+    this.logger.info(actionContext, "window_tab_cycle", "start", { temporary_tab: true });
+    try {
+      temporary = await context.newPage();
+      await temporary.bringToFront();
+      await page.bringToFront();
+      await temporary.close();
+      this.currentPage = page;
+      this.logger.info(actionContext, "window_tab_cycle", "success", { temporary_tab_closed: true });
+    } catch (error) {
+      this.logger.error(actionContext, "window_tab_cycle", "failed", {
+        temporary_tab_created: Boolean(temporary), error: String(error),
+      });
+      throw error;
+    } finally {
+      if (temporary && !temporary.isClosed()) await temporary.close().catch(() => undefined);
+      if (!page.isClosed()) this.currentPage = page;
+    }
   }
 
   /** closeCurrentPage 关闭当前标签页并切换到剩余页面。 */

@@ -39,6 +39,15 @@ test('历史、损坏和超长的原生证据保留错误类型且不会阻断�
   assert.equal(nativeMouseDiagnostics(new Error('ordinary failure')), undefined);
 });
 
+test('窗口恢复次数随原生错误上传，不包含任意浏览器内容', () => {
+  const evidence = nativeMouseDiagnostics(new Error('GOODHR_MOUSE_WINDOW_NOT_READY:mousemove GOODHR_MOUSE_DIAGNOSTICS=' +
+    JSON.stringify({ schema_version: 1, window_focus_attempts: 2, window_restore_attempts: 0,
+      events_sent: 0, events_acknowledged: 0, page_text: 'private-resume' })));
+  assert.equal(evidence.window_focus_attempts, 2);
+  assert.equal(evidence.window_restore_attempts, 0);
+  assert.doesNotMatch(JSON.stringify(evidence), /private-resume/);
+});
+
 test('浏览器关闭附带的历史鼠标报错不能当成本次滚轮根因', () => {
   const closed = new Error('mouse.wheel: Target page, context or browser has been closed\nBrowser logs:\n' + failure().message);
   assert.equal(nativeMouseDiagnostics(closed), undefined);

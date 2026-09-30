@@ -60,6 +60,7 @@ test('恢复失败明确返回窗口错误，零输入且上层不会重试其�
     assert.equal(normalized.details.native_mouse.window_before.window_minimized, true);
     assert.equal(normalized.details.native_mouse.window_after_restore.browser_active, false);
     assert.ok(normalized.details.native_mouse.window_ready_wait_ms >= 40);
+    assert.equal(normalized.details.native_mouse.window_focus_attempts, 1);
     assert.equal(normalized.details.native_mouse.events_sent, 0);
     return true;
   });

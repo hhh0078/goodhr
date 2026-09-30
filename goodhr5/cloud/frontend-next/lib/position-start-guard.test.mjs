@@ -28,7 +28,7 @@ test("基础筛选或详情筛选启用 AI 时识别为 AI 岗位", () => {
 });
 
 test("第四段及之后的小补丁可以忽略，忽略后允许开始岗位任务", () => {
-  for (const [current, target] of [["6.1.9", "6.1.9.1"], ["6.1.9.1", "6.1.9.2"], ["6.1.9.99", "6.1.9.100"], ["6.1.9.1", "6.1.9.1.1"], ["6.2", "6.2.0.1"], ["v6.2.0", "v6.2.0.2"]]) {
+  for (const [current, target] of [["6.1.9", "6.1.9.1"], ["6.1.9.1", "6.1.9.2"], ["6.1.9.99", "6.1.9.100"], ["6.1.9.1", "6.1.9.1.1"], ["6.2", "6.2.0.1"], ["v6.2.0", "v6.2.0.2"], ["6.2.4.2", "6.2.4.3"]]) {
     assert.equal(isVersionLower(current, target), true, `${current} 应能发现 ${target}`);
     assert.equal(isMandatoryLocalAgentUpdate(current, target), false, `${current} 到 ${target} 可忽略`);
     assert.equal(evaluatePositionStartGuard(null, current, target, false), null);

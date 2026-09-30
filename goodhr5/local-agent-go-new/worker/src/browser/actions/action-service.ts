@@ -51,7 +51,8 @@ export class ActionService {
     this.locator,
     this.logger,
   );
-  private readonly moveAction = new MoveAction(this.mouse, this.logger);
+  private readonly moveAction = new MoveAction(this.mouse, this.logger, undefined,
+    (page, context) => this.session.reactivatePage(page, context));
   private readonly scrollAction = new ScrollAction(
     this.session,
     this.findAction,
