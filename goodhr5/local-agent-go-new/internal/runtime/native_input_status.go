@@ -83,6 +83,7 @@ func InspectCamoufoxMouseSafety(location string) NativeInputSafetyStatus {
 		status.Ready = bytes.HasPrefix(content, []byte(mouseSafetyMarker+"\n")) &&
 			bytes.Contains(content, []byte("_goodhrEnsureWindowReady(")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_WINDOW_NOT_READY:")) &&
+			bytes.Contains(content, []byte("mouseUpAcknowledged")) &&
 			bytes.Contains(content, []byte("_goodhrRunInput(")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_INPUT_TIMEOUT:")) &&
 			bytes.Contains(content, []byte("GOODHR_MOUSE_APZ_TIMEOUT:wheel"))

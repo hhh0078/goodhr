@@ -85,6 +85,41 @@ test('输入途中窗口隐藏时拒绝后续输入，不重放先前已经发�
   assert.equal(count, 1);
 });
 
+test('鼠标松开已收到回执后允许新标签选中，详情点击不被误判成窗口故障', async () => {
+  const value = fixture();
+  const diagnostic = value.handler._goodhrInputDiagnostic('mouseup', 100, 100);
+  await value.handler._goodhrRunInput(diagnostic, async guard => {
+    guard();
+    diagnostic.events_sent = 1;
+    diagnostic.events_acknowledged = 1;
+    value.win.gBrowser.selectedTab = {};
+    value.win.gBrowser.selectedBrowser = {};
+  });
+  assert.equal(diagnostic.events_acknowledged, 1);
+  assert.notEqual(value.win.gBrowser.selectedTab, value.handler._pageTarget._tab);
+});
+
+test('鼠标松开未收到回执前切换标签仍拒绝继续输入', async () => {
+  const value = fixture();
+  const diagnostic = value.handler._goodhrInputDiagnostic('mouseup', 100, 100);
+  await assert.rejects(value.handler._goodhrRunInput(diagnostic, async guard => {
+    value.win.gBrowser.selectedTab = {};
+    guard();
+  }), /GOODHR_MOUSE_WINDOW_NOT_READY:mouseup/);
+  assert.equal(diagnostic.events_acknowledged, 0);
+});
+
+test('鼠标松开已收到回执后保留原始操作错误', async () => {
+  const value = fixture();
+  const diagnostic = value.handler._goodhrInputDiagnostic('mouseup', 100, 100);
+  await assert.rejects(value.handler._goodhrRunInput(diagnostic, async guard => {
+    guard();
+    diagnostic.events_acknowledged = 1;
+    value.win.gBrowser.selectedTab = {};
+    throw new Error('新标签等待失败');
+  }), /新标签等待失败/);
+});
+
 test('窗口在刷新等待期间隐藏时，以窗口根因停止并且不发送滚轮', async () => {
   const value = fixture();
   value.win.windowUtils.flushApzRepaints = () => {

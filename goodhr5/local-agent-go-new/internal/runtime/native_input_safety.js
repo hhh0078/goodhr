@@ -76,7 +76,7 @@
   /** _goodhrInputDiagnostic 创建鼠标和滚轮共用的阶段证据。 */
   _goodhrInputDiagnostic(eventTypes, x, y, extra = {}) {
     return {
-      schema_version: 1, mouse_safety_version: 'v8', stage: 'activation', event_types: eventTypes,
+      schema_version: 1, mouse_safety_version: 'v9', stage: 'activation', event_types: eventTypes,
       target_x: Math.round(x), target_y: Math.round(y), input_started_at: Date.now(),
       activation_wait_ms: 0, apz_wait_ms: 0, mouse_ack_wait_ms: 0,
       apz_flush_requested: false, apz_flush_result: null, apz_repaint_received: false,
@@ -98,10 +98,13 @@
         activation_wait_ms: diagnostic.stage === 'activation' ? Date.now() - diagnostic.input_started_at : diagnostic.activation_wait_ms,
         recovery_required: true, window_at_failure: this._goodhrWindowSnapshot(),
       }));
-    /** guard 在每次实际输入前拒绝已经超时的回调。 */
-    const guard = () => {
+    /** guard 在实际输入前检查窗口；已确认的鼠标松开允许点击后切换标签页。 */
+    const guard = (afterInput = false) => {
       if (expired || Date.now() - diagnostic.input_started_at >= 15000) { expired = true; throw timeoutError(); }
-      if (windowConfirmed && !this._goodhrWindowReady(this._goodhrWindowSnapshot())) throw this._goodhrWindowError(diagnostic);
+      const mouseUpAcknowledged = afterInput && diagnostic.event_types === 'mouseup' && diagnostic.events_acknowledged > 0;
+      if (windowConfirmed && !mouseUpAcknowledged && !this._goodhrWindowReady(this._goodhrWindowSnapshot())) {
+        throw this._goodhrWindowError(diagnostic);
+      }
     };
     try {
       await Promise.race([
@@ -112,8 +115,8 @@
           windowConfirmed = true;
           diagnostic.stage = 'context_menu';
           try { await operation(guard); }
-          catch (error) { guard(); throw error; }
-          guard();
+          catch (error) { guard(true); throw error; }
+          guard(true);
         }, { muteNotificationsPopup: true }),
         new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(timeoutError()); }, 15000); }),
       ]);

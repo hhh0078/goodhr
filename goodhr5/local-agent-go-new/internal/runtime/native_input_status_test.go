@@ -69,13 +69,14 @@ func TestNativeInputStatusReportsLegacyAndMissing(t *testing.T) {
 		t.Fatalf("缺失状态不明确：%+v", status)
 	}
 	archive := filepath.Join(root, "omni.ja")
-	for _, content := range []string{"// GoodHR native mouse safety v6\nold resource", mouseSafetyMarker + "\ntruncated resource"} {
+	for _, content := range []string{"// GoodHR native mouse safety v6\nold resource", "// GoodHR native mouse safety v8\nold resource", mouseSafetyMarker + "\ntruncated resource"} {
 		writeInputStatusArchive(t, archive, content)
 		status := InspectCamoufoxMouseSafety(root)
 		if status.Ready || status.Error == "" || len(status.ResourceSHA256) != 64 {
 			t.Fatalf("旧或不完整资源被当成就绪：%+v", status)
 		}
-		if strings.Contains(content, "v6") && status.InstalledVersion != "v6" {
+		if (strings.Contains(content, "safety v6") && status.InstalledVersion != "v6") ||
+			(strings.Contains(content, "safety v8") && status.InstalledVersion != "v8") {
 			t.Fatalf("旧版本没有保留：%+v", status)
 		}
 	}

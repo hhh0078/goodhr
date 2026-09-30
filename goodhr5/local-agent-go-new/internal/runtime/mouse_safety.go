@@ -19,7 +19,7 @@ var nativeInputSafety []byte
 var wheelSafetyEvents []byte
 
 const mouseHandlerResource = "chrome/juggler/content/protocol/PageHandler.js"
-const nativeInputSafetyVersion = "v8"
+const nativeInputSafetyVersion = "v9"
 const mouseSafetyMarker = "// GoodHR native mouse safety " + nativeInputSafetyVersion
 
 // EnsureCamoufoxMouseSafety 修正已知协议资源，保留原始备份，未知版本不修改。
@@ -66,8 +66,10 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	if bytes.Contains(original, []byte(mouseSafetyMarker)) {
 		return original, nil
 	}
-	if bytes.HasPrefix(original, []byte("// GoodHR native mouse safety v7\n")) {
-		return upgradeMouseSafetyV7(original)
+	for _, version := range []string{"v7", "v8"} {
+		if bytes.HasPrefix(original, []byte("// GoodHR native mouse safety "+version+"\n")) {
+			return upgradeMouseSafetyLegacy(original, version)
+		}
 	}
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v1\n"))
 	original = bytes.TrimPrefix(original, []byte("// GoodHR native mouse safety v2\n"))
@@ -123,8 +125,11 @@ func patchMouseSafety(original []byte) ([]byte, error) {
 	return result, nil
 }
 
-// upgradeMouseSafetyV7 仅替换已知 v7 的公共输入保护，保留其鼠标、滚轮和其他浏览器资源修正。
-func upgradeMouseSafetyV7(original []byte) ([]byte, error) {
+// upgradeMouseSafetyLegacy 仅替换已知 v7/v8 的公共输入保护，保留鼠标、滚轮和其他浏览器资源修正。
+func upgradeMouseSafetyLegacy(original []byte, version string) ([]byte, error) {
+	if version != "v7" && version != "v8" {
+		return nil, fmt.Errorf("浏览器输入保护版本不支持升级：%s", version)
+	}
 	helperStart := []byte("// 文件作用：给浏览器原生输入增加激活阶段保护和窗口证据，超时后禁止迟到的输入，不读取招聘页面。")
 	mouseStart := []byte("  async ['Page.dispatchMouseEvent']({type, x, y, button, clickCount, modifiers, buttons}) {")
 	from, to := bytes.Index(original, helperStart), bytes.Index(original, mouseStart)
@@ -132,9 +137,9 @@ func upgradeMouseSafetyV7(original []byte) ([]byte, error) {
 		!bytes.Contains(original[from:to], []byte("_goodhrRunInput(diagnostic, operation)")) ||
 		!bytes.Contains(original[to:], []byte("GOODHR_MOUSE_APZ_TIMEOUT:wheel")) ||
 		!bytes.Contains(original[to:], []byte("GOODHR_MOUSE_ACK_TIMEOUT:")) {
-		return nil, fmt.Errorf("浏览器 v7 输入保护结构无法识别，原资源没有修改")
+		return nil, fmt.Errorf("浏览器 %s 输入保护结构无法识别，原资源没有修改", version)
 	}
-	updated := bytes.Replace(original[:from], []byte("// GoodHR native mouse safety v7\n"), []byte(mouseSafetyMarker+"\n"), 1)
+	updated := bytes.Replace(original[:from], []byte("// GoodHR native mouse safety "+version+"\n"), []byte(mouseSafetyMarker+"\n"), 1)
 	updated = append(updated, nativeInputSafety...)
 	updated = append(updated, '\n')
 	updated = append(updated, original[to:]...)
